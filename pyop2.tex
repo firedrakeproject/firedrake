@@ -1,0 +1,30 @@
+\documentclass[a4paper]{article}
+
+\usepackage{fullpage}
+
+\author{Graham Markall}
+\title{PyOP2 Draft Proposal}
+
+
+\begin{document}
+
+\maketitle
+
+\section{API}
+
+\subsection{Building a kernel}
+
+Using the \verb|Kernel| class.
+
+\subsection{Invoking a parallel loop}
+
+\begin{verbatim}
+par_loop(kernel, iteration_space, *args)
+\end{verbatim}
+
+\begin{description}
+  \item[\texttt{kernel}] is a handle to a \verb|Kernel| object.
+  \item[\texttt{iteration\_space}] is a handle to an \verb|IterationSpace| object.
+\end{description}
+
+\end{document}
