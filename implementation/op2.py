@@ -81,9 +81,16 @@ class IterationSpace(object):
         self._set = set
         self._dims = dims
 
+    def __str__(self):
+        return "OP2 Iteration Space: %s and extra dimensions %s" % self._dims
+
+    def __repr__(self):
+        return "IterationSpace(%s,%s)" % (self._set, self._dims)
+
 class Kernel(object):
 
-    def __init__(self, code):
+    def __init__(self, name, code):
+        self._name = name
         self._code = code
 
     def compile():
@@ -92,20 +99,92 @@ class Kernel(object):
     def handle():
         pass
 
+    def __str__(self):
+        return "OP2 Kernel: %s" % self._name
+
+    def __repr__(self):
+        return 'Kernel("%s","""%s""")' % (self._name, self._code)
+
 # Data API
 
+class Set(object):
+    """Represents an OP2 Set."""
+    def __init__(self, size, name):
+        self._size = size
+        self._name = name
+
+    def __str__(self):
+        return "OP2 Set: %s with size %s" % (self._name, self._size)
+
+    def __repr__(self):
+        return "Set(%s,'%s')" % (self._size, self._name)
+
 class Dat(object):
-    pass
+    """Represents an OP2 dataset. A dataset holds a value for every member of
+    a set."""
+    def __init__(self, set, dim, type, data, name):
+        self._set = set
+        self._dim = dim
+        self._type = type
+        self._data = data
+        self._name = name
+
+    def __str__(self):
+        return "OP2 dataset: %s on set %s with dim %s and type %s" \
+               % (self._name, self._set, self._dim, self._type)
+
+    def __repr__(self):
+        return "Dat(%s,%s,'%s',None,'%s')" \
+               % (self._set, self._dim, self._type, self._name)
+
 
 class Mat(Dat):
-    pass
+    """Represents an OP2 matrix. A matrix is defined as the product of two
+    sets, and holds an value for each element in the product"""
+    def __init__(self, row_set, col_set, dim, type, name):
+        self._row_set = row_set
+        self._col_set = col_set
+        self._dim = dim
+        self._type = type
+        self._name = name
 
-class Set(object):
-    pass
+    def __str__(self):
+        return "OP2 Matrix: %s, row set %s, col set %s, dimension %s, type %s" \
+               % (self._name, self._row_set, self._col_set, self._dim, self._type)
+
+    def __repr__(self):
+        return "Mat(%s,%s,%s,'%s','%s')" \
+               % (self._row_set, self._col_set, self._dim, self._type, self._name)
 
 class Map(object):
-    pass
+    """Represents an OP2 map. A map is a relation between two sets."""
+    def __init__(self, frm, to, dim, values, name):
+        self._from = frm
+        self._to = to
+        self._dim = dim
+        self._values = values
+        self._name = name
+
+    def __str__(self):
+        return "OP2 Map: %s from %s to %s, dim %s " \
+               % (self._name, self._from, self._to, self.dim)
+
+    def __repr__(self):
+        return "Map(%s,%s,%s,None,'%s')" \
+               % (self._from, self._to, self._dim, self._name)
 
 class Const(object):
-    pass
+    """Represents a value that is constant for all elements of all sets."""
+    def __init__(self, dim, type, value, name):
+        self._dim = dim
+        self._type = type
+        self._data = value
+        self._name = name
 
+    def __str__(self):
+        return "OP2 Const value: %s of dim %s and type %s, value %s" \
+               % (self._name, self._dim, self._type, self._value)
+
+    def __repr__(self):
+        return "Const(%s,'%s',%s,'%s')" \
+               % (self._dim, self._type, self._value, self._name)
