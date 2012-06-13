@@ -17,6 +17,7 @@
 # holders.
 
 from op2 import *
+from airfoil_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 from math import atan, sqrt
 
 ### These need to be set by some sort of grid-reading later
@@ -79,14 +80,6 @@ u = sqrt(1.4/p/r)*0.4
 e = p/(r*0.4) + 0.5*u*u
 
 qinf = Const(4, "double", [r, r*u, 0.0, r*e], "qinf")
-
-# Kernels - need populating with code later
-save_soln = Kernel("save_soln", None)
-adt_calc  = Kernel("adt_calc",  None)
-res_calc  = Kernel("res_calc",  None)
-bres_calc = Kernel("bres_calc", None)
-update    = Kernel("update",    None)
-
 
 # Main time-marching loop
 
