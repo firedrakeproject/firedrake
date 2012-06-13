@@ -178,7 +178,7 @@ class Mat(Dat):
                % (self._row_set, self._col_set, self._dim, self._type, self._name)
 
 class Global(object):
-    """Represents an OP2 global argument."""
+    """Represents an OP2 global value."""
     def __init__(self, name, val=0):
         self._val = val
         self._name = name
