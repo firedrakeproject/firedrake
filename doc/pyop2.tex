@@ -66,13 +66,20 @@ The name is used only for debugging purposes. The code is an OP2 kernel, with th
 
 \subsection{Invoking a parallel loop}
 
+A parallel loop object is constructed with the following syntax:
+
 \begin{verbatim}
-par_loop(kernel, iteration_space, *args)
+ParLoop(kernel, iteration_space, *args)
 \end{verbatim}
 
+The arguments to the kernel are as follows:
+
 \begin{description}
-  \item[\texttt{kernel}] is a handle to a \verb|Kernel| object.
-  \item[\texttt{iteration\_space}] is a handle to an \verb|IterationSpace| object.
+  \item[\texttt{kernel}] is a \verb|Kernel| object.
+  \item[\texttt{iteration\_space}] is an \verb|IterationSpace| object or a \verb|Set| object.
+  \item[\texttt{args}] is any number of \verb|Arg| objects.
 \end{description}
+
+At the time of construction, the \verb|ParLoop| object proceeds with compiling the kernel if it is in the uncompiled state, and then checks if a plan has already been constructed for the given iteration space and access descriptors. If there is no suitable plan, then the planner is called. Once a plan has been obtained, the ParLoop object calls the kernel for each colour in the plan.
 
 \end{document}
