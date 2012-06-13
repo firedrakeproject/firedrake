@@ -227,5 +227,9 @@ class Const(object):
 
 # Parallel loop API
 
-def par_loop(kernel, it_space, *args):
-    pass
+class ParLoop(object):
+    """Represents an invocation of an OP2 kernel with an access descriptor"""
+    def __init__(self, kernel, it_space, *args):
+        self._kernel = kernel
+        self._it_space = it_space
+        self._args = args
