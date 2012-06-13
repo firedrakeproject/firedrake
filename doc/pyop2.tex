@@ -92,5 +92,23 @@ The \verb|Arg| class should not be used directly, but instead one of the subclas
   \item[\texttt{ArgGbl(var, access)}] is for passing a \verb|Global| argument. \verb|var| is an instance of a \verb|Global|, and \verb|access| specifies the access method in the same way as for the previous two cases.
 \end{description}
 
+\section{Implementation considerations and issues}
+
+This is a list of notes for now:
+
+\begin{itemize}
+  \item All classes must be designed so that their representation uniquely describes an object with its particular state, in order for caching of compiled code to work.
+  \item There are several possibilities for implementing compilation and dynamic linking of code:
+  \begin{itemize}
+    \item Instant, from the FEniCS Project for compilation, caching and linking of CPU code
+    \item PyCUDA/PyOpenCL from Andreas Kl\"ockner for GPU/accelerator code
+    \item CodePy, also from Andreas Kl\"ockner for C/C++ code compilation and dynamic linking into the Python interpreter.
+  \end{itemize}
+  \item The possibilities for an interface allowing different OP2 backends to be implemented include:
+  \begin{itemize}
+    \item Each backend overrides the classes in \verb|op2.py| so that they implement the functionality required to run on their target.
+    \item We define a ``backend API'' that is used to implement a backend. The implementation of classes in \verb|op2.py| don't change, but instead it contains code to drive the backend. This appears more preferable since I believe it will allow a cleaner separation between the user-facing API and the backend implementation.
+  \end{itemize}
+\end{itemize}
 
 \end{document}
