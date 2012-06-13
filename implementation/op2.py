@@ -67,8 +67,8 @@ class ArgDat(Arg):
 
 class ArgMat(Arg):
     """Represents a single Mat argument passed to a par_loop"""
-    def __init__(self, mat, row_idx, row_map, col_idx, col_map, dim, access):
-        super(ArgMat, self).__init__(dat, row_idx, row_map, dim, access)
+    def __init__(self, mat, row_idx, row_map, col_idx, col_map, access):
+        super(ArgMat, self).__init__(dat, row_idx, row_map, access)
         self._index2 = col_idx
         self._map2 = col_map
 
