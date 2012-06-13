@@ -32,11 +32,18 @@ class Access(object):
     def __repr__(self):
         return "Access('%s')" % name
 
+read  = Access("read")
+write = Access("write")
+inc   = Access("inc")
+rw    = Access("rw")
+
 class Index(object):
     """Represents the index into a Map through which a Dat is accessed in the
     argument list."""
     def __init__(self, index):
-        self._index = idx
+        self._index = index
+
+idx_all = Index("all")
 
 class Arg(object):
     """Represents a single argument passed to a par_loop"""
@@ -44,7 +51,6 @@ class Arg(object):
         self._dat = dat
         self._index = index
         self._map = map
-        self._dim = dim
         self._access = access
 
 class ArgDat(Arg):
@@ -188,3 +194,8 @@ class Const(object):
     def __repr__(self):
         return "Const(%s,'%s',%s,'%s')" \
                % (self._dim, self._type, self._value, self._name)
+
+# Parallel loop API
+
+def par_loop(kernel, it_space, *args):
+    pass

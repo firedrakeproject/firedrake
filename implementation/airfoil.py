@@ -79,3 +79,31 @@ u = sqrt(1.4/p/r)*0.4
 e = p/(r*0.4) + 0.5*u*u
 
 qinf = Const(4, "double", [r, r*u, 0.0, r*e], "qinf")
+
+# Kernels - need populating with code later
+save_soln = Kernel("save_soln", None)
+adt_calc  = Kernel("adt_calc",  None)
+res_calc  = Kernel("res_calc",  None)
+bres_calc = Kernel("bres_calc", None)
+update    = Kernel("update",    None)
+
+
+# Main time-marching loop
+
+niter = 1000
+
+for i in range(niter):
+
+    # Save old flow solution
+    par_loop(save_soln, cells,
+             ArgDat(p_q,    None, None, read),
+             ArgDat(p_qold, None, None, write))
+
+    # Predictor/corrector update loop
+    for k in range(2):
+
+        # Calculate area/timestep
+        par_loop(adt_calc, cells,
+                 ArgDat(p_x,   idx_all, pedge, read),
+                 ArgDat(p_q,   None,    None,  read),
+                 ArgDat(p_adt, None,    None,  write))
