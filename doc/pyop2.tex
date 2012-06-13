@@ -82,4 +82,15 @@ The arguments to the kernel are as follows:
 
 At the time of construction, the \verb|ParLoop| object proceeds with compiling the kernel if it is in the uncompiled state, and then checks if a plan has already been constructed for the given iteration space and access descriptors. If there is no suitable plan, then the planner is called. Once a plan has been obtained, the ParLoop object calls the kernel for each colour in the plan.
 
+The \verb|IterationSpace| object is used to declare an iteration space that consists of a set as well as extra indices over a local matrix or vector. For example, one may pass \verb|IterationSpace(elements, 3, 3)| when assembling a matrix over elements, or \verb|IterationSpace(elements, 3)| when assembling a vector.
+
+The \verb|Arg| class should not be used directly, but instead one of the subclasses of \verb|Arg| should be used:
+
+\begin{description}
+  \item[\texttt{ArgDat(dat, index, map, access)}] is used to pass a \verb|Dat| argument. The \verb|index| parameter selects which of the relations in the \verb|map| should be used to access the data indirectly. If the runtime system is to gather together all the values of the dat that are pointed to by all the different relations in the mapping, then \verb|idx_all| may be passed as the \verb|index| argument. If the dataset is to be accessed directly, then \verb|None| should be passed as int \verb|index| and \verb|map| parameters. \verb|access| is one of \verb|read|, \verb|write|, \verb|inc| or \verb|rw|, with similar meaning to in the current OP2 implementation.
+  \item[\texttt{ArgMat(mat, row\_idx, row\_map, col\_idx, col\_map, access)}] is used to pass a \verb|Mat| argument. The index and map arguments are used similarly into the \verb|ArgDat|, with the exception that the \verb|row_map| is used to index into the rows of the matrix and the \verb|col_map| is used to index into the columns of the matrix. The \verb|access| parameter works as for the \verb|ArgDat| case.
+  \item[\texttt{ArgGbl(var, access)}] is for passing a \verb|Global| argument. \verb|var| is an instance of a \verb|Global|, and \verb|access| specifies the access method in the same way as for the previous two cases.
+\end{description}
+
+
 \end{document}
