@@ -81,6 +81,18 @@ class ArgMat(Arg):
         return "ArgMat(%s,%s,%s,%s,%s,%s)" \
                 % (self._dat, self._index, self._map, self._index2, self._map2, self._access)
 
+class ArgGbl(Arg):
+    """Represents a single global argument passed to a par_loop"""
+    def __init__(self, var, access):
+        self._var = var
+        self._access = access
+
+    def str(self):
+        return "OP2 Global Argument: %s accessed with %s" % (self._var, self._access)
+
+    def __repr__(self):
+        return "ArgGbl(%s,%s)" % (self._var, self._access)
+
 class IterationSpace(object):
 
     def __init__(self, set, *dims):
@@ -125,6 +137,9 @@ class Set(object):
     def __repr__(self):
         return "Set(%s,'%s')" % (self._size, self._name)
 
+    def size(self):
+        return self._size
+
 class Dat(object):
     """Represents an OP2 dataset. A dataset holds a value for every member of
     a set."""
@@ -161,6 +176,21 @@ class Mat(Dat):
     def __repr__(self):
         return "Mat(%s,%s,%s,'%s','%s')" \
                % (self._row_set, self._col_set, self._dim, self._type, self._name)
+
+class Global(object):
+    """Represents an OP2 global argument."""
+    def __init__(self, name, val=0):
+        self._val = val
+        self._name = name
+
+    def __str__(self):
+        return "OP2 Global Argument: %s with value %s"
+
+    def __repr__(self):
+        return "Global('%s')"
+
+    def val(self):
+        return self._val
 
 class Map(object):
     """Represents an OP2 map. A map is a relation between two sets."""

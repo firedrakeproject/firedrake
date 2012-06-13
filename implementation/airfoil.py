@@ -107,3 +107,32 @@ for i in range(niter):
                  ArgDat(p_x,   idx_all, pedge, read),
                  ArgDat(p_q,   None,    None,  read),
                  ArgDat(p_adt, None,    None,  write))
+
+        # Calculate flux residual
+        par_loop(res_calc, edges,
+                 ArgDat(p_x,   idx_all, pedge,  read),
+                 ArgDat(p_q,   idx_all, pecell, read),
+                 ArgDat(p_adt, idx_all, pecell, read),
+                 ArgDat(p_res, idx_all, pecell, inc))
+
+        par_loop(bres_calc, bedges,
+                 ArgDat(p_x,     idx_all, pbedge,  read),
+                 ArgDat(p_q,     0,       pbecell, read),
+                 ArgDat(p_adt,   0,       pbecell, read),
+                 ArgDat(p_res,   0,       pbecell, inc),
+                 ArgDat(p_bound, None,    None,    read))
+
+        # Update flow field
+        rms = Global("rms", val=0)
+        par_loop(update, cells,
+                 ArgDat(p_qold, None, None, read),
+                 ArgDat(p_q,    None, None, write),
+                 ArgDat(p_res,  None, None, rw),
+                 ArgDat(p_adt,  None, None, read),
+                 ArgGbl(rms, inc))
+
+    # Print iteration history
+    rms = sqrt(rms.val()/cells.size())
+    if i%100 == 0:
+        print "Iteration", i, "RMS:", rms
+
