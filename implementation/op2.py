@@ -30,7 +30,7 @@ class Access(object):
         return "OP2 Access: %s" % self._name
 
     def __repr__(self):
-        return "Access('%s')" % name
+        return "Access('%s')" % self._name
 
 read  = Access("read")
 write = Access("write")
