@@ -126,19 +126,31 @@ class Kernel(object):
 # Data API
 
 class Set(object):
-    """Represents an OP2 Set."""
+    """Abstract base class for an OP2 Set."""
     def __init__(self, size, name):
         self._size = size
         self._name = name
 
-    def __str__(self):
-        return "OP2 Set: %s with size %s" % (self._name, self._size)
-
-    def __repr__(self):
-        return "Set(%s,'%s')" % (self._size, self._name)
-
     def size(self):
         return self._size
+
+class IterationSet(Set):
+    """Represents an OP2 Set on which a Kernel is defined."""
+
+    def __str__(self):
+        return "OP2 IterationSet: %s with size %s" % (self._name, self._size)
+
+    def __repr__(self):
+        return "IterationSet(%s,'%s')" % (self._size, self._name)
+
+class DataSet(Set):
+    """Represents an OP2 Set on which a DataCarrier is defined."""
+
+    def __str__(self):
+        return "OP2 DataSet: %s with size %s" % (self._name, self._size)
+
+    def __repr__(self):
+        return "DataSet(%s,'%s')" % (self._size, self._name)
 
 class Dat(object):
     """Represents an OP2 dataset. A dataset holds a value for every member of
