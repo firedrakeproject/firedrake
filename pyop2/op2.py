@@ -19,6 +19,8 @@
 """Example of the PyOP2 API specification. An implementation is pending subject
 to the API being finalised."""
 
+from copy import copy
+
 # Kernel API
 
 class Access(object):
@@ -97,7 +99,8 @@ class IterationSet(DataSet):
 class DataCarrier(object):
     """Abstract base class for OP2 data."""
 
-    pass
+    def __getitem__(self, index): # x[y] <-> x.__getitem__(y)
+        return self.indexed(index)
 
 class Dat(DataCarrier):
     """Represents OP2 vector data. A Dat holds a value for every member of a
@@ -109,6 +112,15 @@ class Dat(DataCarrier):
         self._datatype = datatype
         self._data = data
         self._name = name
+        self._index = None
+
+    def indexed(self, index):
+        # Check we haven't already been indexed
+        if self._index is not None:
+            raise RuntimeError("Dat can only be indexed once")
+        indexed = copy(self)
+        indexed._index = index
+        return indexed
 
     def __str__(self):
         return "OP2 Dat: %s on DataSet %s with dim %s and datatype %s" \
@@ -126,8 +138,19 @@ class Mat(DataCarrier):
         self._row_set = row_set
         self._col_set = col_set
         self._dim = dim
-        self._type = datatype
+        self._datatype = datatype
         self._name = name
+        self._index = [None, None]
+        self._nextindex = 0
+
+    def indexed(self, index):
+        # Check we haven't already been indexed
+        if self._nextindex > 1:
+            raise RuntimeError("Mat can only be indexed twice")
+        indexed = copy(self)
+        indexed._index[self._nextindex] = index
+        indexed._nextindex += 1
+        return indexed
 
     def __str__(self):
         return "OP2 Mat: %s, row set %s, col set %s, dimension %s, datatype %s" \
