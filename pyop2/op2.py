@@ -95,8 +95,8 @@ class ArgGbl(Arg):
 
 class IterationSpace(object):
 
-    def __init__(self, set, *dims):
-        self._set = set
+    def __init__(self, iterset, *dims):
+        self._iterset = iterset
         self._dims = dims
 
     def __str__(self):
