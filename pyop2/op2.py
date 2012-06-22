@@ -37,62 +37,6 @@ WRITE = Access("write")
 INC   = Access("inc")
 RW    = Access("rw")
 
-class Index(object):
-    """Represents the index into a Map through which a Dat is accessed in the
-    argument list."""
-    def __init__(self, index):
-        self._index = index
-
-idx_all = Index("all")
-
-class Arg(object):
-    """Represents a single argument passed to a par_loop"""
-    def __init__(self, dat, index, map, access):
-        self._dat = dat
-        self._index = index
-        self._map = map
-        self._access = access
-
-class ArgDat(Arg):
-    """Represents a single Dat argument passed to a par_loop"""
-    def __init__(self, dat, index, map, access):
-        super(ArgDat, self).__init__(dat, index, map, access)
-
-    def __str__(self):
-        return "OP2 Dat Argument: %s accessed through index %s of %s, operation %s" \
-               % (self._dat, self._index, self._map, self._access)
-
-    def __repr__(self):
-        return "ArgDat(%s,%s,%s,%s)" % (self._dat, self._index, self._map, self._access)
-
-class ArgMat(Arg):
-    """Represents a single Mat argument passed to a par_loop"""
-    def __init__(self, mat, row_idx, row_map, col_idx, col_map, access):
-        super(ArgMat, self).__init__(dat, row_idx, row_map, access)
-        self._index2 = col_idx
-        self._map2 = col_map
-
-    def __str__(self):
-        return "OP2 Mat Argument: %s, rows accessed through index %s of %s, " \
-               "columns accessed through index %s of %s,  operation %s" \
-               % (self._dat, self._index, self._map, self._index2, self._map2, self._access)
-
-    def __repr__(self):
-        return "ArgMat(%s,%s,%s,%s,%s,%s)" \
-                % (self._dat, self._index, self._map, self._index2, self._map2, self._access)
-
-class ArgGbl(Arg):
-    """Represents a single global argument passed to a par_loop"""
-    def __init__(self, var, access):
-        self._var = var
-        self._access = access
-
-    def str(self):
-        return "OP2 Global Argument: %s accessed with %s" % (self._var, self._access)
-
-    def __repr__(self):
-        return "ArgGbl(%s,%s)" % (self._var, self._access)
-
 class IterationSpace(object):
 
     def __init__(self, iterset, *dims):
