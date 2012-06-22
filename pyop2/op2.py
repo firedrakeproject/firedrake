@@ -150,54 +150,69 @@ class IterationSet(DataSet):
     def __repr__(self):
         return "IterationSet(%s,'%s')" % (self._size, self._name)
 
-class DataSet(Set):
-    """Represents an OP2 Set on which a DataCarrier is defined."""
+class DataCarrier(object):
+    """Abstract base class for OP2 data."""
 
-    def __str__(self):
-        return "OP2 DataSet: %s with size %s" % (self._name, self._size)
+    pass
 
-    def __repr__(self):
-        return "DataSet(%s,'%s')" % (self._size, self._name)
+class Dat(DataCarrier):
+    """Represents OP2 vector data. A Dat holds a value for every member of a
+    set."""
 
-class Dat(object):
-    """Represents an OP2 dataset. A dataset holds a value for every member of
-    a set."""
-    def __init__(self, set, dim, type, data, name):
-        self._set = set
+    def __init__(self, dataset, dim, datatype, data, name):
+        self._dataset = dataset
         self._dim = dim
-        self._type = type
+        self._datatype = datatype
         self._data = data
         self._name = name
 
     def __str__(self):
-        return "OP2 dataset: %s on set %s with dim %s and type %s" \
-               % (self._name, self._set, self._dim, self._type)
+        return "OP2 Dat: %s on DataSet %s with dim %s and datatype %s" \
+               % (self._name, self._dataset, self._dim, self._datatype)
 
     def __repr__(self):
-        return "Dat(%s,%s,'%s',None,'%s')" \
-               % (self._set, self._dim, self._type, self._name)
+        return "Dat(%s, %s,'%s',None,'%s')" \
+               % (self._dataset, self._dim, self._datatype, self._name)
 
+class Mat(DataCarrier):
+    """Represents OP2 matrix data. A Mat is defined on the cartesian product
+    of two DataSets, and holds an value for each element in the product"""
 
-class Mat(Dat):
-    """Represents an OP2 matrix. A matrix is defined as the product of two
-    sets, and holds an value for each element in the product"""
-    def __init__(self, row_set, col_set, dim, type, name):
+    def __init__(self, row_set, col_set, dim, datatype, name):
         self._row_set = row_set
         self._col_set = col_set
         self._dim = dim
-        self._type = type
+        self._type = datatype
         self._name = name
 
     def __str__(self):
-        return "OP2 Matrix: %s, row set %s, col set %s, dimension %s, type %s" \
-               % (self._name, self._row_set, self._col_set, self._dim, self._type)
+        return "OP2 Mat: %s, row set %s, col set %s, dimension %s, datatype %s" \
+               % (self._name, self._row_set, self._col_set, self._dim, self._datatype)
 
     def __repr__(self):
         return "Mat(%s,%s,%s,'%s','%s')" \
-               % (self._row_set, self._col_set, self._dim, self._type, self._name)
+               % (self._row_set, self._col_set, self._dim, self._datatype, self._name)
 
-class Global(object):
+class Const(DataCarrier):
+    """Represents a value that is constant for all elements of all sets."""
+
+    def __init__(self, dim, datatype, value, name):
+        self._dim = dim
+        self._datatype = datatype
+        self._data = value
+        self._name = name
+
+    def __str__(self):
+        return "OP2 Const value: %s of dim %s and type %s, value %s" \
+               % (self._name, self._dim, self._datatype, self._value)
+
+    def __repr__(self):
+        return "Const(%s,'%s',%s,'%s')" \
+               % (self._dim, self._datatype, self._value, self._name)
+
+class Global(DataCarrier):
     """Represents an OP2 global value."""
+
     def __init__(self, name, val=0):
         self._val = val
         self._name = name
@@ -213,6 +228,7 @@ class Global(object):
 
 class Map(object):
     """Represents an OP2 map. A map is a relation between two sets."""
+
     def __init__(self, frm, to, dim, values, name):
         self._from = frm
         self._to = to
@@ -227,22 +243,6 @@ class Map(object):
     def __repr__(self):
         return "Map(%s,%s,%s,None,'%s')" \
                % (self._from, self._to, self._dim, self._name)
-
-class Const(object):
-    """Represents a value that is constant for all elements of all sets."""
-    def __init__(self, dim, type, value, name):
-        self._dim = dim
-        self._type = type
-        self._data = value
-        self._name = name
-
-    def __str__(self):
-        return "OP2 Const value: %s of dim %s and type %s, value %s" \
-               % (self._name, self._dim, self._type, self._value)
-
-    def __repr__(self):
-        return "Const(%s,'%s',%s,'%s')" \
-               % (self._dim, self._type, self._value, self._name)
 
 # Parallel loop API
 
