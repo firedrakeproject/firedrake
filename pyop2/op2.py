@@ -125,8 +125,9 @@ class Kernel(object):
 
 # Data API
 
-class Set(object):
-    """Abstract base class for an OP2 Set."""
+class DataSet(object):
+    """Represents an OP2 Set on which a DataCarrier is defined."""
+
     def __init__(self, size, name):
         self._size = size
         self._name = name
@@ -134,7 +135,13 @@ class Set(object):
     def size(self):
         return self._size
 
-class IterationSet(Set):
+    def __str__(self):
+        return "OP2 DataSet: %s with size %s" % (self._name, self._size)
+
+    def __repr__(self):
+        return "DataSet(%s,'%s')" % (self._size, self._name)
+
+class IterationSet(DataSet):
     """Represents an OP2 Set on which a Kernel is defined."""
 
     def __str__(self):
