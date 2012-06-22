@@ -32,10 +32,10 @@ class Access(object):
     def __repr__(self):
         return "Access('%s')" % self._name
 
-read  = Access("read")
-write = Access("write")
-inc   = Access("inc")
-rw    = Access("rw")
+READ  = Access("read")
+WRITE = Access("write")
+INC   = Access("inc")
+RW    = Access("rw")
 
 class Index(object):
     """Represents the index into a Map through which a Dat is accessed in the
