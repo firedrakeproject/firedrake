@@ -227,22 +227,23 @@ class Global(DataCarrier):
         return self._val
 
 class Map(object):
-    """Represents an OP2 map. A map is a relation between two sets."""
+    """Represents an OP2 map. A map is a relation between an IterationSet and
+    a DataSet."""
 
-    def __init__(self, frm, to, dim, values, name):
-        self._from = frm
-        self._to = to
+    def __init__(self, iterset, dataset, dim, values, name):
+        self._iterset = iterset
+        self._dataset = dataset
         self._dim = dim
         self._values = values
         self._name = name
 
     def __str__(self):
         return "OP2 Map: %s from %s to %s, dim %s " \
-               % (self._name, self._from, self._to, self.dim)
+               % (self._name, self._iterset, self._dataset, self.dim)
 
     def __repr__(self):
         return "Map(%s,%s,%s,None,'%s')" \
-               % (self._from, self._to, self._dim, self._name)
+               % (self._iterset, self._dataset, self._dim, self._name)
 
 # Parallel loop API
 
