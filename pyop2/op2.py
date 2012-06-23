@@ -105,6 +105,8 @@ class Dat(DataCarrier):
         self._datatype = datatype
         self._data = data
         self._name = name
+        self._map = None
+        self._access = None
 
     def __call__(self, map, access):
         assert access in self._modes, \
@@ -118,12 +120,16 @@ class Dat(DataCarrier):
         return arg
 
     def __str__(self):
-        return "OP2 Dat: %s on (%s) with dim %s and datatype %s" \
-               % (self._name, self._dataset, self._dim, self._datatype)
+        call = " associated with (%s) in mode %s" % (self._map, self._access) \
+                if self._map and self._access else ""
+        return "OP2 Dat: %s on (%s) with dim %s and datatype %s%s" \
+               % (self._name, self._dataset, self._dim, self._datatype, call)
 
     def __repr__(self):
-        return "Dat(%r, %s, '%s', None, '%s')" \
-               % (self._dataset, self._dim, self._datatype, self._name)
+        call = "(%r, %r)" % (self._map, self._access) \
+                if self._map and self._access else ""
+        return "Dat(%r, %s, '%s', None, '%s')%s" \
+               % (self._dataset, self._dim, self._datatype, self._name, call)
 
 class Mat(DataCarrier):
     """Represents OP2 matrix data. A Mat is defined on the cartesian product
@@ -136,6 +142,8 @@ class Mat(DataCarrier):
         self._dim = dim
         self._datatype = datatype
         self._name = name
+        self._maps = None
+        self._access = None
 
     def __call__(self, maps, access):
         assert access in self._modes, \
@@ -150,12 +158,16 @@ class Mat(DataCarrier):
         return arg
 
     def __str__(self):
-        return "OP2 Mat: %s, row set (%s), col set (%s), dimension %s, datatype %s" \
-               % (self._name, self._datasets[0], self._datasets[1], self._dim, self._datatype)
+        call = " associated with (%s, %s) in mode %s" % (self._maps[0], self._maps[1], self._access) \
+                if self._maps and self._access else ""
+        return "OP2 Mat: %s, row set (%s), col set (%s), dimension %s, datatype %s%s" \
+               % (self._name, self._datasets[0], self._datasets[1], self._dim, self._datatype, call)
 
     def __repr__(self):
-        return "Mat(%r, %s, '%s', '%s')" \
-               % (self._datasets, self._dim, self._datatype, self._name)
+        call = "(%r, %r)" % (self._maps, self._access) \
+                if self._maps and self._access else ""
+        return "Mat(%r, %s, '%s', '%s')%s" \
+               % (self._datasets, self._dim, self._datatype, self._name, call)
 
 class Const(DataCarrier):
     """Represents a value that is constant for all elements of all sets."""
@@ -185,6 +197,7 @@ class Global(DataCarrier):
     def __init__(self, name, val=0):
         self._val = val
         self._name = name
+        self._access = None
 
     def __call__(self, access):
         assert access in self._modes, \
@@ -194,10 +207,13 @@ class Global(DataCarrier):
         return arg
 
     def __str__(self):
-        return "OP2 Global Argument: %s with value %s" % (self._name, self._val)
+        call = " in mode %s" % self._access if self._access else ""
+        return "OP2 Global Argument: %s with value %s%s" \
+                % (self._name, self._val, call)
 
     def __repr__(self):
-        return "Global('%s', %s)" % (self._name, self._val)
+        call = "(%r)" % self._access if self._access else ""
+        return "Global('%s', %s)%s" % (self._name, self._val, call)
 
     def val(self):
         return self._val
