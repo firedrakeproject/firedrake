@@ -71,9 +71,8 @@ class Kernel(object):
 
 # Data API
 
-class DataSet(object):
-    """Represents an OP2 Set on which a DataCarrier is defined."""
-
+class Set(object):
+    """Represents an OP2 Set."""
     def __init__(self, size, name):
         self._size = size
         self._name = name
@@ -82,19 +81,10 @@ class DataSet(object):
         return self._size
 
     def __str__(self):
-        return "OP2 DataSet: %s with size %s" % (self._name, self._size)
+        return "OP2 Set: %s with size %s" % (self._name, self._size)
 
     def __repr__(self):
-        return "DataSet(%s,'%s')" % (self._size, self._name)
-
-class IterationSet(DataSet):
-    """Represents an OP2 Set on which a Kernel is defined."""
-
-    def __str__(self):
-        return "OP2 IterationSet: %s with size %s" % (self._name, self._size)
-
-    def __repr__(self):
-        return "IterationSet(%s,'%s')" % (self._size, self._name)
+        return "Set(%s,'%s')" % (self._size, self._name)
 
 class DataCarrier(object):
     """Abstract base class for OP2 data."""
@@ -113,7 +103,7 @@ class Dat(DataCarrier):
         self._name = name
 
     def __str__(self):
-        return "OP2 Dat: %s on DataSet %s with dim %s and datatype %s" \
+        return "OP2 Dat: %s on Set %s with dim %s and datatype %s" \
                % (self._name, self._dataset, self._dim, self._datatype)
 
     def __repr__(self):
@@ -122,7 +112,7 @@ class Dat(DataCarrier):
 
 class Mat(DataCarrier):
     """Represents OP2 matrix data. A Mat is defined on the cartesian product
-    of two DataSets, and holds an value for each element in the product"""
+    of two Sets, and holds an value for each element in the product"""
 
     def __init__(self, row_set, col_set, dim, datatype, name):
         self._row_set = row_set
@@ -173,8 +163,7 @@ class Global(DataCarrier):
         return self._val
 
 class Map(object):
-    """Represents an OP2 map. A map is a relation between an IterationSet and
-    a DataSet."""
+    """Represents an OP2 map. A map is a relation between two Sets."""
 
     def __init__(self, iterset, dataset, dim, values, name):
         self._iterset = iterset
