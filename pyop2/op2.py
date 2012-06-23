@@ -248,12 +248,14 @@ class Map(object):
         return indexed
 
     def __str__(self):
-        return "OP2 Map: %s from (%s) to (%s), dim %s " \
-               % (self._name, self._iterset, self._dataset, self._dim)
+        indexed = " and component %s" % self._index if self._index else ""
+        return "OP2 Map: %s from (%s) to (%s) with dim %s%s" \
+               % (self._name, self._iterset, self._dataset, self._dim, indexed)
 
     def __repr__(self):
-        return "Map(%r, %r, %s, None, '%s')" \
-               % (self._iterset, self._dataset, self._dim, self._name)
+        indexed = "[%s]" % self._index if self._index else ""
+        return "Map(%r, %r, %s, None, '%s')%s" \
+               % (self._iterset, self._dataset, self._dim, self._name, indexed)
 
 # Parallel loop API
 
