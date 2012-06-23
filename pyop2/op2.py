@@ -25,14 +25,15 @@ from copy import copy
 
 class Access(object):
     """Represents an OP2 access type."""
-    def __init__(self, name):
-        self._name = name
+
+    def __init__(self, mode):
+        self._mode = mode
 
     def __str__(self):
-        return "OP2 Access: %s" % self._name
+        return "OP2 Access: %s" % self._mode
 
     def __repr__(self):
-        return "Access('%s')" % self._name
+        return "Access('%s')" % self._mode
 
 READ  = Access("read")
 WRITE = Access("write")
@@ -49,7 +50,7 @@ class IterationSpace(object):
         return "OP2 Iteration Space: %s and extra dimensions %s" % self._dims
 
     def __repr__(self):
-        return "IterationSpace(%s,%s)" % (self._set, self._dims)
+        return "IterationSpace(%r, %r)" % (self._set, self._dims)
 
 class Kernel(object):
 
@@ -67,7 +68,7 @@ class Kernel(object):
         return "OP2 Kernel: %s" % self._name
 
     def __repr__(self):
-        return 'Kernel("%s","""%s""")' % (self._name, self._code)
+        return 'Kernel("%s", """%s""")' % (self._name, self._code)
 
 # Data API
 
@@ -85,7 +86,7 @@ class Set(object):
         return "OP2 Set: %s with size %s" % (self._name, self._size)
 
     def __repr__(self):
-        return "Set(%s,'%s')" % (self._size, self._name)
+        return "Set(%s, '%s')" % (self._size, self._name)
 
 class DataCarrier(object):
     """Abstract base class for OP2 data."""
@@ -117,11 +118,11 @@ class Dat(DataCarrier):
         return arg
 
     def __str__(self):
-        return "OP2 Dat: %s on Set %s with dim %s and datatype %s" \
+        return "OP2 Dat: %s on (%s) with dim %s and datatype %s" \
                % (self._name, self._dataset, self._dim, self._datatype)
 
     def __repr__(self):
-        return "Dat(%s, %s,'%s',None,'%s')" \
+        return "Dat(%r, %s, '%s', None, '%s')" \
                % (self._dataset, self._dim, self._datatype, self._name)
 
 class Mat(DataCarrier):
@@ -149,12 +150,12 @@ class Mat(DataCarrier):
         return arg
 
     def __str__(self):
-        return "OP2 Mat: %s, row set %s, col set %s, dimension %s, datatype %s" \
+        return "OP2 Mat: %s, row set (%s), col set (%s), dimension %s, datatype %s" \
                % (self._name, self._datasets[0], self._datasets[1], self._dim, self._datatype)
 
     def __repr__(self):
-        return "Mat(%s,%s,%s,'%s','%s')" \
-               % (self._datasets[0], self._datasets[1], self._dim, self._datatype, self._name)
+        return "Mat(%r, %s, '%s', '%s')" \
+               % (self._datasets, self._dim, self._datatype, self._name)
 
 class Const(DataCarrier):
     """Represents a value that is constant for all elements of all sets."""
@@ -169,11 +170,11 @@ class Const(DataCarrier):
         self._access = READ
 
     def __str__(self):
-        return "OP2 Const value: %s of dim %s and type %s, value %s" \
+        return "OP2 Const: %s of dim %s and type %s, value %s" \
                % (self._name, self._dim, self._datatype, self._value)
 
     def __repr__(self):
-        return "Const(%s,'%s',%s,'%s')" \
+        return "Const(%s, '%s', %s, '%s')" \
                % (self._dim, self._datatype, self._value, self._name)
 
 class Global(DataCarrier):
@@ -193,10 +194,10 @@ class Global(DataCarrier):
         return arg
 
     def __str__(self):
-        return "OP2 Global Argument: %s with value %s"
+        return "OP2 Global Argument: %s with value %s" % (self._name, self._val)
 
     def __repr__(self):
-        return "Global('%s')"
+        return "Global('%s', %s)" % (self._name, self._val)
 
     def val(self):
         return self._val
@@ -231,11 +232,11 @@ class Map(object):
         return indexed
 
     def __str__(self):
-        return "OP2 Map: %s from %s to %s, dim %s " \
-               % (self._name, self._iterset, self._dataset, self.dim)
+        return "OP2 Map: %s from (%s) to (%s), dim %s " \
+               % (self._name, self._iterset, self._dataset, self._dim)
 
     def __repr__(self):
-        return "Map(%s,%s,%s,None,'%s')" \
+        return "Map(%r, %r, %s, None, '%s')" \
                % (self._iterset, self._dataset, self._dim, self._name)
 
 # Parallel loop API
