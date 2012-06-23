@@ -100,6 +100,12 @@ class DataCarrier(object):
     """Abstract base class for OP2 data."""
 
     def __getitem__(self, index): # x[y] <-> x.__getitem__(y)
+        # Indexing with [:] is a no-op (OP_ALL semantics)
+        if index == slice(None, None, None):
+            return self
+
+        assert isinstance(index, int), "Only integer indices are allowed"
+
         return self.indexed(index)
 
 class Dat(DataCarrier):
@@ -116,8 +122,9 @@ class Dat(DataCarrier):
 
     def indexed(self, index):
         # Check we haven't already been indexed
-        if self._index is not None:
-            raise RuntimeError("Dat can only be indexed once")
+        assert self._index is None, "Dat has already been indexed once"
+        assert 0 <= index < self._dim, \
+                "Index must be in interval [0,%d]" % (self._dim-1)
         indexed = copy(self)
         indexed._index = index
         return indexed
@@ -145,8 +152,9 @@ class Mat(DataCarrier):
 
     def indexed(self, index):
         # Check we haven't already been indexed
-        if self._nextindex > 1:
-            raise RuntimeError("Mat can only be indexed twice")
+        assert self._nextindex < 2, "Mat has already been indexed twice"
+        assert 0 <= index < self._dim[self._nextindex], \
+                "Index must be in interval [0,%d]" % (self._dim[self._nextindex]-1)
         indexed = copy(self)
         indexed._index[self._nextindex] = index
         indexed._nextindex += 1
