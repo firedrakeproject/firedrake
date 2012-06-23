@@ -21,12 +21,33 @@ to the API being finalised."""
 
 from copy import copy
 
+def as_tuple(item, type=None, length=None):
+    # Empty list if we get passed None
+    if item is None:
+        t = []
+    else:
+        # Convert iterable to list...
+        try:
+            t = tuple(item)
+        # ... or create a list of a single item
+        except TypeError:
+            t = (item,)*(length or 1)
+    if length:
+        assert len(t) == length, "Tuple needs to be of length %d" % length
+    if type:
+        assert all(isinstance(i, type) for i in t), \
+                "Items need to be of %s" % type
+    return t
+
 # Kernel API
 
 class Access(object):
     """Represents an OP2 access type."""
 
+    _modes = ["READ", "WRITE", "RW", "INC"]
+
     def __init__(self, mode):
+        assert mode in self._modes, "Mode needs to be one of %s" % self._modes
         self._mode = mode
 
     def __str__(self):
@@ -35,16 +56,17 @@ class Access(object):
     def __repr__(self):
         return "Access('%s')" % self._mode
 
-READ  = Access("read")
-WRITE = Access("write")
-RW    = Access("rw")
-INC   = Access("inc")
+READ  = Access("READ")
+WRITE = Access("WRITE")
+RW    = Access("RW")
+INC   = Access("INC")
 
 class IterationSpace(object):
 
     def __init__(self, iterset, dims):
+        assert isinstance(iterset, Set), "Iteration set needs to be of type Set"
         self._iterset = iterset
-        self._dims = dims
+        self._dims = as_tuple(dims, int)
 
     def __str__(self):
         return "OP2 Iteration Space: %s and extra dimensions %s" % self._dims
@@ -76,6 +98,8 @@ class Set(object):
     """Represents an OP2 Set."""
 
     def __init__(self, size, name):
+        assert isinstance(size, int), "Size must be of type int"
+        assert isinstance(name, str), "Name must be of type str"
         self._size = size
         self._name = name
 
@@ -100,6 +124,8 @@ class Dat(DataCarrier):
     _modes = [READ, WRITE, RW, INC]
 
     def __init__(self, dataset, dim, datatype, data, name):
+        assert isinstance(dataset, Set), "Data set must be of type Set"
+        assert isinstance(name, str), "Name must be of type str"
         self._dataset = dataset
         self._dim = dim
         self._datatype = datatype
@@ -138,7 +164,8 @@ class Mat(DataCarrier):
     _modes = [READ, WRITE, RW, INC]
 
     def __init__(self, datasets, dim, datatype, name):
-        self._datasets = datasets
+        assert isinstance(name, str), "Name must be of type str"
+        self._datasets = as_tuple(datasets, Set, 2)
         self._dim = dim
         self._datatype = datatype
         self._name = name
@@ -175,6 +202,7 @@ class Const(DataCarrier):
     _modes = [READ]
 
     def __init__(self, dim, datatype, value, name):
+        assert isinstance(name, str), "Name must be of type str"
         self._dim = dim
         self._datatype = datatype
         self._value = value
@@ -195,6 +223,7 @@ class Global(DataCarrier):
     _modes = [READ, INC]
 
     def __init__(self, name, val=0):
+        assert isinstance(name, str), "Name must be of type str"
         self._val = val
         self._name = name
         self._access = None
@@ -222,6 +251,9 @@ class Map(object):
     """Represents an OP2 map. A map is a relation between two Sets."""
 
     def __init__(self, iterset, dataset, dim, values, name):
+        assert isinstance(iterset, Set), "Iteration set must be of type Set"
+        assert isinstance(dataset, Set), "Data set must be of type Set"
+        assert isinstance(name, str), "Name must be of type str"
         self._iterset = iterset
         self._dataset = dataset
         self._dim = dim
