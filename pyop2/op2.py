@@ -99,14 +99,7 @@ class IterationSet(DataSet):
 class DataCarrier(object):
     """Abstract base class for OP2 data."""
 
-    def __getitem__(self, index): # x[y] <-> x.__getitem__(y)
-        # Indexing with [:] is a no-op (OP_ALL semantics)
-        if index == slice(None, None, None):
-            return self
-
-        assert isinstance(index, int), "Only integer indices are allowed"
-
-        return self.indexed(index)
+    pass
 
 class Dat(DataCarrier):
     """Represents OP2 vector data. A Dat holds a value for every member of a
@@ -118,16 +111,6 @@ class Dat(DataCarrier):
         self._datatype = datatype
         self._data = data
         self._name = name
-        self._index = None
-
-    def indexed(self, index):
-        # Check we haven't already been indexed
-        assert self._index is None, "Dat has already been indexed once"
-        assert 0 <= index < self._dim, \
-                "Index must be in interval [0,%d]" % (self._dim-1)
-        indexed = copy(self)
-        indexed._index = index
-        return indexed
 
     def __str__(self):
         return "OP2 Dat: %s on DataSet %s with dim %s and datatype %s" \
@@ -147,18 +130,6 @@ class Mat(DataCarrier):
         self._dim = dim
         self._datatype = datatype
         self._name = name
-        self._index = [None, None]
-        self._nextindex = 0
-
-    def indexed(self, index):
-        # Check we haven't already been indexed
-        assert self._nextindex < 2, "Mat has already been indexed twice"
-        assert 0 <= index < self._dim[self._nextindex], \
-                "Index must be in interval [0,%d]" % (self._dim[self._nextindex]-1)
-        indexed = copy(self)
-        indexed._index[self._nextindex] = index
-        indexed._nextindex += 1
-        return indexed
 
     def __str__(self):
         return "OP2 Mat: %s, row set %s, col set %s, dimension %s, datatype %s" \
@@ -211,6 +182,25 @@ class Map(object):
         self._dim = dim
         self._values = values
         self._name = name
+        self._index = None
+
+    def __getitem__(self, index): # x[y] <-> x.__getitem__(y)
+        # Indexing with [:] is a no-op (OP_ALL semantics)
+        if index == slice(None, None, None):
+            return self
+
+        assert isinstance(index, int), "Only integer indices are allowed"
+
+        return self.indexed(index)
+
+    def indexed(self, index):
+        # Check we haven't already been indexed
+        assert self._index is None, "Map has already been indexed"
+        assert 0 <= index < self._dim, \
+                "Index must be in interval [0,%d]" % (self._dim-1)
+        indexed = copy(self)
+        indexed._index = index
+        return indexed
 
     def __str__(self):
         return "OP2 Map: %s from %s to %s, dim %s " \
