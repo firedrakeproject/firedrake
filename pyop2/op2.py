@@ -42,7 +42,7 @@ INC   = Access("inc")
 
 class IterationSpace(object):
 
-    def __init__(self, iterset, *dims):
+    def __init__(self, iterset, dims):
         self._iterset = iterset
         self._dims = dims
 
@@ -50,7 +50,7 @@ class IterationSpace(object):
         return "OP2 Iteration Space: %s and extra dimensions %s" % self._dims
 
     def __repr__(self):
-        return "IterationSpace(%r, %r)" % (self._set, self._dims)
+        return "IterationSpace(%r, %r)" % (self._iterset, self._dims)
 
 class Kernel(object):
 
