@@ -229,13 +229,8 @@ class Map(object):
         self._name = name
         self._index = None
 
-    def __getitem__(self, index): # x[y] <-> x.__getitem__(y)
-        # Indexing with [:] is a no-op (OP_ALL semantics)
-        if index == slice(None, None, None):
-            return self
-
+    def __call__(self, index):
         assert isinstance(index, int), "Only integer indices are allowed"
-
         return self.indexed(index)
 
     def indexed(self, index):
@@ -253,7 +248,7 @@ class Map(object):
                % (self._name, self._iterset, self._dataset, self._dim, indexed)
 
     def __repr__(self):
-        indexed = "[%s]" % self._index if self._index else ""
+        indexed = "(%s)" % self._index if self._index else ""
         return "Map(%r, %r, %s, None, '%s')%s" \
                % (self._iterset, self._dataset, self._dim, self._name, indexed)
 
