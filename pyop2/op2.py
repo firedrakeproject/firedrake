@@ -20,6 +20,7 @@
 to the API being finalised."""
 
 from copy import copy
+import numpy as np
 
 def as_tuple(item, type=None, length=None):
     # Empty list if we get passed None
@@ -131,13 +132,19 @@ class Dat(DataCarrier):
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
 
-    def __init__(self, dataset, dim, datatype, data, name=None):
+    def __init__(self, dataset, dim, datatype=None, data=None, name=None):
         assert isinstance(dataset, Set), "Data set must be of type Set"
         assert not name or isinstance(name, str), "Name must be of type str"
+
+        # If both data and datatype are given make sure they agree
+        if datatype and data:
+            assert np.dtype(datatype) == np.asarray(data).dtype, \
+                    "data is of type %s not of requested type %s" \
+                    % (np.asarray(data).dtype, np.dtype(datatype))
+
         self._dataset = dataset
         self._dim = dim
-        self._datatype = datatype
-        self._data = data
+        self._data = np.asarray(data, dtype=np.dtype(datatype))
         self._name = name or "dat_%d" % Dat._globalcount
         self._map = None
         self._access = None
@@ -158,13 +165,13 @@ class Dat(DataCarrier):
         call = " associated with (%s) in mode %s" % (self._map, self._access) \
                 if self._map and self._access else ""
         return "OP2 Dat: %s on (%s) with dim %s and datatype %s%s" \
-               % (self._name, self._dataset, self._dim, self._datatype, call)
+               % (self._name, self._dataset, self._dim, self._data.dtype.name, call)
 
     def __repr__(self):
         call = "(%r, %r)" % (self._map, self._access) \
                 if self._map and self._access else ""
         return "Dat(%r, %s, '%s', None, '%s')%s" \
-               % (self._dataset, self._dim, self._datatype, self._name, call)
+               % (self._dataset, self._dim, self._data.dtype, self._name, call)
 
 class Mat(DataCarrier):
     """Represents OP2 matrix data. A Mat is defined on the cartesian product
@@ -173,11 +180,11 @@ class Mat(DataCarrier):
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
 
-    def __init__(self, datasets, dim, datatype, name=None):
+    def __init__(self, datasets, dim, datatype=None, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._datasets = as_tuple(datasets, Set, 2)
         self._dim = dim
-        self._datatype = datatype
+        self._datatype = np.dtype(datatype)
         self._name = name or "mat_%d" % Mat._globalcount
         self._maps = None
         self._access = None
@@ -199,7 +206,7 @@ class Mat(DataCarrier):
         call = " associated with (%s, %s) in mode %s" % (self._maps[0], self._maps[1], self._access) \
                 if self._maps and self._access else ""
         return "OP2 Mat: %s, row set (%s), col set (%s), dimension %s, datatype %s%s" \
-               % (self._name, self._datasets[0], self._datasets[1], self._dim, self._datatype, call)
+               % (self._name, self._datasets[0], self._datasets[1], self._dim, self._datatype.name, call)
 
     def __repr__(self):
         call = "(%r, %r)" % (self._maps, self._access) \
