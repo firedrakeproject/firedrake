@@ -220,22 +220,21 @@ class Const(DataCarrier):
     _globalcount = 0
     _modes = [READ]
 
-    def __init__(self, dim, datatype, value, name=None):
+    def __init__(self, dim, value, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._dim = dim
-        self._datatype = datatype
-        self._value = value
+        self._value = np.asarray(value)
         self._name = name or "const_%d" % Const._globalcount
         self._access = READ
         Const._globalcount += 1
 
     def __str__(self):
-        return "OP2 Const: %s of dim %s and type %s, value %s" \
-               % (self._name, self._dim, self._datatype, self._value)
+        return "OP2 Const: %s of dim %s and type %s with value %s" \
+               % (self._name, self._dim, self._value.dtype.name, self._value)
 
     def __repr__(self):
-        return "Const(%s, '%s', %s, '%s')" \
-               % (self._dim, self._datatype, self._value, self._name)
+        return "Const(%s, %s, '%s')" \
+               % (self._dim, self._value, self._name)
 
 class Global(DataCarrier):
     """Represents an OP2 global value."""
