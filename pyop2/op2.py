@@ -76,9 +76,13 @@ class IterationSpace(object):
 
 class Kernel(object):
 
-    def __init__(self, name, code):
-        self._name = name
+    _globalcount = 0
+
+    def __init__(self, code, name=None):
+        assert not name or isinstance(name, str), "Name must be of type str"
+        self._name = name or "kernel_%d" % Kernel._globalcount
         self._code = code
+        Kernel._globalcount += 1
 
     def compile():
         pass
@@ -90,7 +94,7 @@ class Kernel(object):
         return "OP2 Kernel: %s" % self._name
 
     def __repr__(self):
-        return 'Kernel("%s", """%s""")' % (self._name, self._code)
+        return 'Kernel("""%s""", "%s")' % (self._code, self._name)
 
 # Data API
 
