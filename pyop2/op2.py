@@ -242,9 +242,10 @@ class Global(DataCarrier):
     _globalcount = 0
     _modes = [READ, INC]
 
-    def __init__(self, val=0, name=None):
+    def __init__(self, dim, value, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
-        self._val = val
+        self._dim = dim
+        self._value = np.asarray(value)
         self._name = name or "global_%d" % Global._globalcount
         self._access = None
         Global._globalcount += 1
@@ -258,15 +259,15 @@ class Global(DataCarrier):
 
     def __str__(self):
         call = " in mode %s" % self._access if self._access else ""
-        return "OP2 Global Argument: %s with value %s%s" \
-                % (self._name, self._val, call)
+        return "OP2 Global Argument: %s with dim %s and value %s%s" \
+                % (self._name, self._dim, self._value, call)
 
     def __repr__(self):
         call = "(%r)" % self._access if self._access else ""
-        return "Global('%s', %s)%s" % (self._name, self._val, call)
+        return "Global('%s', %r, %r)%s" % (self._name, self._dim, self._value, call)
 
-    def val(self):
-        return self._val
+    def value(self):
+        return self._value
 
 class Map(object):
     """Represents an OP2 map. A map is a relation between two Sets."""
