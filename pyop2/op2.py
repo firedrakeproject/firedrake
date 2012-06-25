@@ -276,6 +276,7 @@ class Global(DataCarrier):
         call = "(%r)" % self._access if self._access else ""
         return "Global('%s', %r, %r)%s" % (self._name, self._dim, self._value, call)
 
+    @property
     def value(self):
         return self._value
 
