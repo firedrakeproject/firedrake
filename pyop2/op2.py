@@ -139,7 +139,7 @@ class Dat(DataCarrier):
 
         t = np.dtype(datatype)
         # If both data and datatype are given make sure they agree
-        if datatype and data:
+        if datatype is not None and data is not None:
             assert t == np.asarray(data).dtype, \
                     "data is of type %s not of requested type %s" \
                     % (np.asarray(data).dtype, t)
