@@ -308,6 +308,8 @@ class Map(object):
         return "Map(%r, %r, %s, None, '%s')%s" \
                % (self._iterset, self._dataset, self._dim, self._name, indexed)
 
+IdentityMap = Map(Set(0), Set(0), 1, None, 'identity')
+
 # Parallel loop API
 
 class ParLoop(object):
