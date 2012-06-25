@@ -289,11 +289,14 @@ class Map(object):
         assert isinstance(iterset, Set), "Iteration set must be of type Set"
         assert isinstance(dataset, Set), "Data set must be of type Set"
         assert isinstance(dim, int), "dim must be a scalar integer"
+        assert len(values) == iterset.size*dim, \
+                "Invalid data: expected %d values, got %d" % \
+                (iterset.size*dim, np.asarray(values).size)
         assert not name or isinstance(name, str), "Name must be of type str"
         self._iterset = iterset
         self._dataset = dataset
         self._dim = dim
-        self._values = values
+        self._values = np.asarray(values, dtype=np.int64)
         self._name = name or "map_%d" % Map._globalcount
         self._index = None
         Map._globalcount += 1
@@ -321,7 +324,7 @@ class Map(object):
         return "Map(%r, %r, %s, None, '%s')%s" \
                % (self._iterset, self._dataset, self._dim, self._name, indexed)
 
-IdentityMap = Map(Set(0), Set(0), 1, None, 'identity')
+IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 
 # Parallel loop API
 
