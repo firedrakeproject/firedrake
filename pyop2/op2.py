@@ -16,8 +16,7 @@
 # the AUTHORS file in the main source directory for a full list of copyright
 # holders.
 
-"""Example of the PyOP2 API specification. An implementation is pending subject
-to the API being finalised."""
+"""The PyOP2 API specification."""
 
 from copy import copy
 import numpy as np
@@ -43,7 +42,7 @@ def as_tuple(item, type=None, length=None):
 # Kernel API
 
 class Access(object):
-    """Represents an OP2 access type."""
+    """OP2 access type."""
 
     _modes = ["READ", "WRITE", "RW", "INC"]
 
@@ -63,6 +62,7 @@ RW    = Access("RW")
 INC   = Access("INC")
 
 class IterationSpace(object):
+    """OP2 iteration space type."""
 
     def __init__(self, iterset, dims):
         assert isinstance(iterset, Set), "Iteration set needs to be of type Set"
@@ -76,6 +76,7 @@ class IterationSpace(object):
         return "IterationSpace(%r, %r)" % (self._iterset, self._dims)
 
 class Kernel(object):
+    """OP2 kernel type."""
 
     _globalcount = 0
 
@@ -100,7 +101,7 @@ class Kernel(object):
 # Data API
 
 class Set(object):
-    """Represents an OP2 Set."""
+    """OP2 set."""
 
     _globalcount = 0
 
@@ -127,8 +128,7 @@ class DataCarrier(object):
     pass
 
 class Dat(DataCarrier):
-    """Represents OP2 vector data. A Dat holds a value for every member of a
-    set."""
+    """OP2 vector data. A Dat holds a value for every member of a set."""
 
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
@@ -180,8 +180,8 @@ class Dat(DataCarrier):
                % (self._dataset, self._dim, self._data.dtype, self._name, call)
 
 class Mat(DataCarrier):
-    """Represents OP2 matrix data. A Mat is defined on the cartesian product
-    of two Sets, and holds an value for each element in the product"""
+    """OP2 matrix data. A Mat is defined on the cartesian product of two Sets
+    and holds a value for each element in the product."""
 
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
@@ -221,7 +221,7 @@ class Mat(DataCarrier):
                % (self._datasets, self._dim, self._datatype, self._name, call)
 
 class Const(DataCarrier):
-    """Represents a value that is constant for all elements of all sets."""
+    """Data that is constant for any element of any set."""
 
     _globalcount = 0
     _modes = [READ]
@@ -247,7 +247,7 @@ class Const(DataCarrier):
                % (self._dim, self._value, self._name)
 
 class Global(DataCarrier):
-    """Represents an OP2 global value."""
+    """OP2 global value."""
 
     _globalcount = 0
     _modes = [READ, INC]
@@ -280,7 +280,7 @@ class Global(DataCarrier):
         return self._value
 
 class Map(object):
-    """Represents an OP2 map. A map is a relation between two Sets."""
+    """OP2 map, a relation between two Sets."""
 
     _globalcount = 0
 
@@ -325,6 +325,6 @@ IdentityMap = Map(Set(0), Set(0), 1, None, 'identity')
 # Parallel loop API
 
 def par_loop(self, kernel, it_space, *args):
-    """Represents an invocation of an OP2 kernel with an access descriptor"""
+    """Invocation of an OP2 kernel with an access descriptor"""
 
     pass
