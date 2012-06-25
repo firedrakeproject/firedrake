@@ -97,11 +97,14 @@ class Kernel(object):
 class Set(object):
     """Represents an OP2 Set."""
 
-    def __init__(self, size, name):
+    _globalcount = 0
+
+    def __init__(self, size, name=None):
         assert isinstance(size, int), "Size must be of type int"
-        assert isinstance(name, str), "Name must be of type str"
+        assert not name or isinstance(name, str), "Name must be of type str"
         self._size = size
-        self._name = name
+        self._name = name or "set_%d" % Set._globalcount
+        Set._globalcount += 1
 
     def size(self):
         return self._size
@@ -121,18 +124,20 @@ class Dat(DataCarrier):
     """Represents OP2 vector data. A Dat holds a value for every member of a
     set."""
 
+    _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
 
-    def __init__(self, dataset, dim, datatype, data, name):
+    def __init__(self, dataset, dim, datatype, data, name=None):
         assert isinstance(dataset, Set), "Data set must be of type Set"
-        assert isinstance(name, str), "Name must be of type str"
+        assert not name or isinstance(name, str), "Name must be of type str"
         self._dataset = dataset
         self._dim = dim
         self._datatype = datatype
         self._data = data
-        self._name = name
+        self._name = name or "dat_%d" % Dat._globalcount
         self._map = None
         self._access = None
+        Dat._globalcount += 1
 
     def __call__(self, map, access):
         assert access in self._modes, \
@@ -161,16 +166,18 @@ class Mat(DataCarrier):
     """Represents OP2 matrix data. A Mat is defined on the cartesian product
     of two Sets, and holds an value for each element in the product"""
 
+    _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
 
-    def __init__(self, datasets, dim, datatype, name):
-        assert isinstance(name, str), "Name must be of type str"
+    def __init__(self, datasets, dim, datatype, name=None):
+        assert not name or isinstance(name, str), "Name must be of type str"
         self._datasets = as_tuple(datasets, Set, 2)
         self._dim = dim
         self._datatype = datatype
-        self._name = name
+        self._name = name or "mat_%d" % Mat._globalcount
         self._maps = None
         self._access = None
+        Mat._globalcount += 1
 
     def __call__(self, maps, access):
         assert access in self._modes, \
@@ -199,15 +206,17 @@ class Mat(DataCarrier):
 class Const(DataCarrier):
     """Represents a value that is constant for all elements of all sets."""
 
+    _globalcount = 0
     _modes = [READ]
 
-    def __init__(self, dim, datatype, value, name):
-        assert isinstance(name, str), "Name must be of type str"
+    def __init__(self, dim, datatype, value, name=None):
+        assert not name or isinstance(name, str), "Name must be of type str"
         self._dim = dim
         self._datatype = datatype
         self._value = value
-        self._name = name
+        self._name = name or "const_%d" % Const._globalcount
         self._access = READ
+        Const._globalcount += 1
 
     def __str__(self):
         return "OP2 Const: %s of dim %s and type %s, value %s" \
@@ -220,13 +229,15 @@ class Const(DataCarrier):
 class Global(DataCarrier):
     """Represents an OP2 global value."""
 
+    _globalcount = 0
     _modes = [READ, INC]
 
-    def __init__(self, name, val=0):
-        assert isinstance(name, str), "Name must be of type str"
+    def __init__(self, val=0, name=None):
+        assert not name or isinstance(name, str), "Name must be of type str"
         self._val = val
-        self._name = name
+        self._name = name or "global_%d" % Global._globalcount
         self._access = None
+        Global._globalcount += 1
 
     def __call__(self, access):
         assert access in self._modes, \
@@ -250,16 +261,19 @@ class Global(DataCarrier):
 class Map(object):
     """Represents an OP2 map. A map is a relation between two Sets."""
 
-    def __init__(self, iterset, dataset, dim, values, name):
+    _globalcount = 0
+
+    def __init__(self, iterset, dataset, dim, values, name=None):
         assert isinstance(iterset, Set), "Iteration set must be of type Set"
         assert isinstance(dataset, Set), "Data set must be of type Set"
-        assert isinstance(name, str), "Name must be of type str"
+        assert not name or isinstance(name, str), "Name must be of type str"
         self._iterset = iterset
         self._dataset = dataset
         self._dim = dim
         self._values = values
-        self._name = name
+        self._name = name or "map_%d" % Map._globalcount
         self._index = None
+        Map._globalcount += 1
 
     def __call__(self, index):
         assert isinstance(index, int), "Only integer indices are allowed"
