@@ -111,6 +111,7 @@ class Set(object):
         self._name = name or "set_%d" % Set._globalcount
         Set._globalcount += 1
 
+    @property
     def size(self):
         return self._size
 
@@ -136,15 +137,20 @@ class Dat(DataCarrier):
         assert isinstance(dataset, Set), "Data set must be of type Set"
         assert not name or isinstance(name, str), "Name must be of type str"
 
+        t = np.dtype(datatype)
         # If both data and datatype are given make sure they agree
         if datatype and data:
-            assert np.dtype(datatype) == np.asarray(data).dtype, \
+            assert t == np.asarray(data).dtype, \
                     "data is of type %s not of requested type %s" \
-                    % (np.asarray(data).dtype, np.dtype(datatype))
+                    % (np.asarray(data).dtype, t)
 
         self._dataset = dataset
-        self._dim = dim
-        self._data = np.asarray(data, dtype=np.dtype(datatype))
+        self._dim = as_tuple(dim, int)
+        try:
+            self._data = np.asarray(data, dtype=t).reshape((dataset.size,)+self._dim)
+        except ValueError:
+            raise ValueError("Invalid data: expected %d values, got %d" % \
+                    (dataset.size*np.prod(dim), np.asarray(data).size))
         self._name = name or "dat_%d" % Dat._globalcount
         self._map = None
         self._access = None
@@ -183,7 +189,7 @@ class Mat(DataCarrier):
     def __init__(self, datasets, dim, datatype=None, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._datasets = as_tuple(datasets, Set, 2)
-        self._dim = dim
+        self._dim = as_tuple(dim, int)
         self._datatype = np.dtype(datatype)
         self._name = name or "mat_%d" % Mat._globalcount
         self._maps = None
@@ -222,8 +228,12 @@ class Const(DataCarrier):
 
     def __init__(self, dim, value, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
-        self._dim = dim
-        self._value = np.asarray(value)
+        self._dim = as_tuple(dim, int)
+        try:
+            self._value = np.asarray(value).reshape(dim)
+        except ValueError:
+            raise ValueError("Invalid value: expected %d values, got %d" % \
+                    (np.prod(dim), np.asarray(value).size))
         self._name = name or "const_%d" % Const._globalcount
         self._access = READ
         Const._globalcount += 1
@@ -244,8 +254,8 @@ class Global(DataCarrier):
 
     def __init__(self, dim, value, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
-        self._dim = dim
-        self._value = np.asarray(value)
+        self._dim = as_tuple(dim, int)
+        self._value = np.asarray(value).reshape(dim)
         self._name = name or "global_%d" % Global._globalcount
         self._access = None
         Global._globalcount += 1
@@ -277,6 +287,7 @@ class Map(object):
     def __init__(self, iterset, dataset, dim, values, name=None):
         assert isinstance(iterset, Set), "Iteration set must be of type Set"
         assert isinstance(dataset, Set), "Data set must be of type Set"
+        assert isinstance(dim, int), "dim must be a scalar integer"
         assert not name or isinstance(name, str), "Name must be of type str"
         self._iterset = iterset
         self._dataset = dataset
