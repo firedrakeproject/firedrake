@@ -44,7 +44,7 @@ def as_tuple(item, type=None, length=None):
 class Access(object):
     """OP2 access type."""
 
-    _modes = ["READ", "WRITE", "RW", "INC"]
+    _modes = ["READ", "WRITE", "RW", "INC", "MIN", "MAX"]
 
     def __init__(self, mode):
         assert mode in self._modes, "Mode needs to be one of %s" % self._modes
@@ -60,6 +60,8 @@ READ  = Access("READ")
 WRITE = Access("WRITE")
 RW    = Access("RW")
 INC   = Access("INC")
+MIN   = Access("MIN")
+MAX   = Access("MAX")
 
 class IterationSpace(object):
     """OP2 iteration space type."""
@@ -250,7 +252,7 @@ class Global(DataCarrier):
     """OP2 global value."""
 
     _globalcount = 0
-    _modes = [READ, INC]
+    _modes = [READ, INC, MIN, MAX]
 
     def __init__(self, dim, value, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
