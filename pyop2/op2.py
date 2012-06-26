@@ -331,7 +331,7 @@ IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 
 # Parallel loop API
 
-def par_loop(self, kernel, it_space, *args):
+def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
 
     pass
