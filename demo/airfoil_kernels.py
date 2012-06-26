@@ -1,7 +1,7 @@
 # This file contains code from the original OP2 distribution, in the code
 # variables. The original copyright notice follows:
 
-# "Copyright (c) 2011, Mike Giles and others. Please see the AUTHORS file in
+# Copyright (c) 2011, Mike Giles and others. Please see the AUTHORS file in
 # the main source directory for a full list of copyright holders.
 # All rights reserved.
 #
@@ -30,14 +30,13 @@
 # Markall and others. Please see the AUTHORS file in the main source directory
 # for a full list of copyright holders.
 
-from op2 import Kernel
+from pyop2.op2 import Kernel
 
 save_soln_code = """
 void save_soln(double *q, double *qold){
   for (int n=0; n<4; n++) qold[n] = q[n];
 }
 """
-
 
 adt_calc_code = """
 void adt_calc(double *x[2], double q[4], double * adt){
@@ -150,8 +149,8 @@ void update(double *qold, double *q, double *res, double *adt, double *rms){
 }
 """
 
-save_soln = Kernel("save_soln", save_soln_code)
-adt_calc  = Kernel("adt_calc",  adt_calc_code)
-res_calc  = Kernel("res_calc",  res_calc_code)
-bres_calc = Kernel("bres_calc", bres_calc_code)
-update    = Kernel("update",    update_code)
+save_soln = Kernel(save_soln_code, "save_soln")
+adt_calc  = Kernel(adt_calc_code,  "adt_calc")
+res_calc  = Kernel(res_calc_code,  "res_calc")
+bres_calc = Kernel(bres_calc_code, "bres_calc")
+update    = Kernel(update_code,    "update")
