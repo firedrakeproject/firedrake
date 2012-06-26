@@ -48,6 +48,10 @@ adt   = np.array([1.0]*  ncell)
 
 ### End of grid stuff
 
+# Initialise OP2
+
+op2.init()
+
 # Declare sets, maps, datasets and global constants
 
 nodes  = op2.Set(nnode, "nodes")

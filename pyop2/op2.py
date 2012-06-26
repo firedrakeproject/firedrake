@@ -19,6 +19,7 @@
 """The PyOP2 API specification."""
 
 from copy import copy
+from backend import backends
 import numpy as np
 
 def as_tuple(item, type=None, length=None):
@@ -87,6 +88,7 @@ class Kernel(object):
         self._name = name or "kernel_%d" % Kernel._globalcount
         self._code = code
         Kernel._globalcount += 1
+        backends[_backend].handle_kernel_declaration(self)
 
     def compile():
         pass
@@ -157,6 +159,7 @@ class Dat(DataCarrier):
         self._map = None
         self._access = None
         Dat._globalcount += 1
+        backends[_backend].handle_datacarrier_declaration(self)
 
     def __call__(self, map, access):
         assert access in self._modes, \
@@ -197,6 +200,7 @@ class Mat(DataCarrier):
         self._maps = None
         self._access = None
         Mat._globalcount += 1
+        backends[_backend].handle_kernel_declaration(self)
 
     def __call__(self, maps, access):
         assert access in self._modes, \
@@ -239,6 +243,7 @@ class Const(DataCarrier):
         self._name = name or "const_%d" % Const._globalcount
         self._access = READ
         Const._globalcount += 1
+        backends[_backend].handle_datacarrier_declaration(self)
 
     def __str__(self):
         return "OP2 Const: %s of dim %s and type %s with value %s" \
@@ -261,6 +266,7 @@ class Global(DataCarrier):
         self._name = name or "global_%d" % Global._globalcount
         self._access = None
         Global._globalcount += 1
+        backends[_backend].handle_datacarrier_declaration(self)
 
     def __call__(self, access):
         assert access in self._modes, \
@@ -280,6 +286,7 @@ class Global(DataCarrier):
 
     @property
     def value(self):
+        backends[_backend].handle_datacarrier_retrieve_value(self)
         return self._value
 
 class Map(object):
@@ -303,6 +310,7 @@ class Map(object):
         self._name = name or "map_%d" % Map._globalcount
         self._index = None
         Map._globalcount += 1
+        backends[_backend].handle_map_declaration(self)
 
     def __call__(self, index):
         assert isinstance(index, int), "Only integer indices are allowed"
@@ -327,11 +335,18 @@ class Map(object):
         return "Map(%r, %r, %s, None, '%s')%s" \
                % (self._iterset, self._dataset, self._dim, self._name, indexed)
 
-IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
-
 # Parallel loop API
 
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
-
+    backends[_backend].handle_par_loop_call(kernel, it_space, *args)
     pass
+
+def init(backend='void'):
+    #TODO: make backend selector code
+    global _backend
+    _backend = backend
+
+# Globals for configuration
+_backend = 'void'
+IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
