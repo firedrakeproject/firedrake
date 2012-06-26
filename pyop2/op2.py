@@ -186,7 +186,7 @@ class Mat(DataCarrier):
     and holds a value for each element in the product."""
 
     _globalcount = 0
-    _modes = [READ, WRITE, RW, INC]
+    _modes = [WRITE, INC]
 
     def __init__(self, datasets, dim, datatype=None, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
