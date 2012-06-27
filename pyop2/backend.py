@@ -1,5 +1,21 @@
 import op2
 
+class ParLoopCall(object):
+    """
+    Backend Agnostic support code
+    """
+
+    def __init__(self, kernel, it_space, *args):
+        assert ParLoopCall.check(kernel, it_space, *args)
+        self._kernel = kernel
+        self._it_space = it_space
+        self._args = args
+
+    @staticmethod
+    def check(kernel, it_space, *args):
+        #TODO
+        return True
+
 class Backend(object):
     """
     Generic backend interface
@@ -18,6 +34,9 @@ class Backend(object):
         raise NotImplementedError()
 
     def handle_par_loop_call(self, kernel, it_space, *args):
+        self._handle_par_loop_call(ParLoopCall(kernel, it_space, args))
+
+    def _handle_par_loop_call(self, parloop):
         raise NotImplementedError()
 
     def handle_datacarrier_retrieve_value(self, datacarrier):
@@ -41,7 +60,7 @@ class VoidBackend(Backend):
     def handle_map_declaration(self, map):
         assert isinstance(map, op2.Map)
 
-    def handle_par_loop_call(self, kernel, it_space, *args):
+    def _handle_par_loop_call(self, parloop):
         pass
 
     def handle_datacarrier_retrieve_value(self, datacarrier):
@@ -81,7 +100,7 @@ class OpenCLBackend(Backend):
             cl.enqueue_write_buffer(self._queue, buf, map._values).wait()
             self._buffers[map] = buf
 
-    def handle_par_loop_call(self, kernel, it_space, *args):
+    def _handle_par_loop_call(self, parloop):
         pass
 
     def handle_datacarrier_retrieve_value(self, datacarrier):
