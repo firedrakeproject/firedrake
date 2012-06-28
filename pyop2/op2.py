@@ -73,7 +73,7 @@ def Map(iterset, dataset, dim, values, name=None):
 
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
-    _backend.par_loop(kernel, it_space, *args)
+    return _backend.par_loop(kernel, it_space, *args)
 
 def init(backend='void'):
     #TODO: make backend selector code
