@@ -20,84 +20,54 @@
 
 from backends import void
 _backend = void
+IdentityMap = None
+READ = None
+WRITE = None
+RW = None
+INC = None
+MIN = None
+MAX = None
 
 # Kernel API
 
-class Access(object):
+def Access(mode):
     """OP2 access type."""
+    return _backend.Access(mode)
 
-    def __new__(klass, mode):
-        return _backend.Access(mode)
-
-class IterationSpace(object):
+def IterationSpace(iterset, dims):
     """OP2 iteration space type."""
+    return _backend.IterationSpace(iterset, dims)
 
-    def __new__(klass, iterset, dims):
-        return _backend.IterationSpace(iterset, dims)
-
-class Kernel(object):
+def Kernel(code, name=None):
     """OP2 kernel type."""
-
-    def __new__(klass, code, name=None):
-        return _backend.Kernel(code, name)
-
-    def compile(self):
-        pass
-
-    def handle(self):
-        pass
+    return _backend.Kernel(code, name)
 
 # Data API
 
-class Set(object):
+def Set(size, name=None):
     """OP2 set."""
+    return _backend.Set(size, name)
 
-    def __new__(klass, size, name=None):
-        return _backend.Set(size, name)
-
-    @property
-    def size(self):
-        pass
-
-class DataCarrier(object):
-    """Abstract base class for OP2 data."""
-
-    pass
-
-class Dat(DataCarrier):
+def Dat(dataset, dim, datatype=None, data=None, name=None):
     """OP2 vector data. A Dat holds a value for every member of a set."""
+    return _backend.Dat(dataset, dim, datatype, data, name)
 
-    def __new__(klass, dataset, dim, datatype=None, data=None, name=None):
-        return _backend.Dat(dataset, dim, datatype, data, name)
-
-class Mat(DataCarrier):
+def Mat(datasets, dim, datatype=None, name=None):
     """OP2 matrix data. A Mat is defined on the cartesian product of two Sets
     and holds a value for each element in the product."""
+    return _backend.Mat(datatype, dim, datatype, name)
 
-    def __new__(klass, datasets, dim, datatype=None, name=None):
-        return _backend.Mat(datatype, dim, datatype, name)
-
-class Const(DataCarrier):
+def Const(dim, value, name=None):
     """Data that is constant for any element of any set."""
+    return _backend.Const(dim, value, name)
 
-    def __new__(klass, dim, value, name=None):
-        return _backend.Const(dim, value, name)
-
-class Global(DataCarrier):
+def Global(dim, value, name=None):
     """OP2 global value."""
+    return _backend.Global(dim, value, name)
 
-    def __new__(klass, dim, value, name=None):
-        return _backend.Global(dim, value, name)
-
-    @property
-    def value(self):
-        pass
-
-class Map(object):
+def Map(iterset, dataset, dim, values, name=None):
     """OP2 map, a relation between two Sets."""
-
-    def __new__(klass, iterset, dataset, dim, values, name=None):
-        return _backend.Map(iterset, dataset, dim, values, name)
+    return _backend.Map(iterset, dataset, dim, values, name)
 
 # Parallel loop API
 
@@ -116,7 +86,7 @@ def init(backend='void'):
     elif backend == 'opencl':
         from backends import opencl
         _backend = opencl
-    IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
+    IdentityMap = _backend.IdentityMap
     READ = _backend.READ
     WRITE = _backend.WRITE
     RW = _backend.RW

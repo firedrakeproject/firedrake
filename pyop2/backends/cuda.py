@@ -1,4 +1,5 @@
-from common import Access, IterationSpace, Set, READ, WRITE, RW, INC, MIN, MAX
+from common import Access, IterationSpace, Set, IdentityMap
+from common import READ, WRITE, RW, INC, MIN, MAX
 import common
 
 class Kernel(common.Kernel):

@@ -60,7 +60,7 @@ class Kernel(object):
 
     _globalcount = 0
 
-    def __init__(self, code, name=None):
+    def __init__(self, code, name):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._name = name or "kernel_%d" % Kernel._globalcount
         self._code = code
@@ -83,7 +83,7 @@ class Set(object):
 
     _globalcount = 0
 
-    def __init__(self, size, name=None):
+    def __init__(self, size, name):
         assert isinstance(size, int), "Size must be of type int"
         assert not name or isinstance(name, str), "Name must be of type str"
         self._size = size
@@ -111,7 +111,7 @@ class Dat(DataCarrier):
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
 
-    def __init__(self, dataset, dim, datatype=None, data=None, name=None):
+    def __init__(self, dataset, dim, datatype, data, name):
         assert isinstance(dataset, Set), "Data set must be of type Set"
         assert not name or isinstance(name, str), "Name must be of type str"
 
@@ -164,7 +164,7 @@ class Mat(DataCarrier):
     _globalcount = 0
     _modes = [WRITE, INC]
 
-    def __init__(self, datasets, dim, datatype=None, name=None):
+    def __init__(self, datasets, dim, datatype, name):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._datasets = as_tuple(datasets, Set, 2)
         self._dim = as_tuple(dim, int)
@@ -204,7 +204,7 @@ class Const(DataCarrier):
     _globalcount = 0
     _modes = [READ]
 
-    def __init__(self, dim, value, name=None):
+    def __init__(self, dim, value, name):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._dim = as_tuple(dim, int)
         try:
@@ -230,7 +230,7 @@ class Global(DataCarrier):
     _globalcount = 0
     _modes = [READ, INC, MIN, MAX]
 
-    def __init__(self, dim, value, name=None):
+    def __init__(self, dim, value, name):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._dim = as_tuple(dim, int)
         self._value = np.asarray(value).reshape(dim)
@@ -263,7 +263,7 @@ class Map(object):
 
     _globalcount = 0
 
-    def __init__(self, iterset, dataset, dim, values, name=None):
+    def __init__(self, iterset, dataset, dim, values, name):
         assert isinstance(iterset, Set), "Iteration set must be of type Set"
         assert isinstance(dataset, Set), "Data set must be of type Set"
         assert isinstance(dim, int), "dim must be a scalar integer"
@@ -302,6 +302,8 @@ class Map(object):
         indexed = "(%s)" % self._index if self._index else ""
         return "Map(%r, %r, %s, None, '%s')%s" \
                % (self._iterset, self._dataset, self._dim, self._name, indexed)
+
+IdentityMap = Map(Set(0, None), Set(0, None), 1, [], 'identity')
 
 def par_loop(kernel, it_space, *args):
     pass
