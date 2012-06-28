@@ -1,4 +1,3 @@
-from .. import op2
 import numpy as np
 from copy import copy
 
@@ -137,7 +136,7 @@ class Dat(DataCarrier):
     def __call__(self, map, access):
         assert access in self._modes, \
                 "Acess descriptor must be one of %s" % self._modes
-        assert map == op2.IdentityMap or map._dataset == self._dataset, \
+        assert map == IdentityMap or map._dataset == self._dataset, \
                 "Invalid data set for map %s (is %s, should be %s)" \
                 % (map._name, map._dataset._name, self._dataset._name)
         arg = copy(self)
