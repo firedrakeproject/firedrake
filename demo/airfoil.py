@@ -20,6 +20,9 @@ from math import atan, sqrt
 import numpy as np
 
 from pyop2 import op2
+# Initialise OP2
+
+op2.init(backend='void')
 
 from airfoil_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 
@@ -48,9 +51,6 @@ adt   = np.array([1.0]*  ncell)
 
 ### End of grid stuff
 
-# Initialise OP2
-
-op2.init()
 
 # Declare sets, maps, datasets and global constants
 
