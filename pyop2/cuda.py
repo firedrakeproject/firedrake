@@ -1,10 +1,10 @@
-from common import Access, IterationSpace, Set, IdentityMap
-from common import READ, WRITE, RW, INC, MIN, MAX
-import common
+from op2 import Access, IterationSpace, Set, IdentityMap, \
+        READ, WRITE, RW, INC, MIN, MAX
+import op2
 
-class Kernel(common.Kernel):
+class Kernel(op2.Kernel):
     def __init__(self, code, name):
-        common.Kernel.__init__(self, code, name)
+        op2.Kernel.__init__(self, code, name)
         self._bin = None
 
     def compile(self):
@@ -14,28 +14,28 @@ class Kernel(common.Kernel):
     def handle(self):
         pass
 
-class DataCarrier(common.DataCarrier):
+class DataCarrier(op2.DataCarrier):
     def fetch_data(self):
         pass
 
-class Dat(common.Dat, DataCarrier):
+class Dat(op2.Dat, DataCarrier):
     def __init__(self, dataset, dim, datatype, data, name):
-        common.Dat.__init__(self, dataset, dim, datatype, data, name)
+        op2.Dat.__init__(self, dataset, dim, datatype, data, name)
         self._on_device = False
 
-class Mat(common.Mat, DataCarrier):
+class Mat(op2.Mat, DataCarrier):
     def __init__(self, datasets, dim, datatype, name):
-        common.Mat.__init__(self, datasets, dim, datatype, data, name)
+        op2.Mat.__init__(self, datasets, dim, datatype, data, name)
         self._on_device = False
 
-class Const(common.Const, DataCarrier):
+class Const(op2.Const, DataCarrier):
     def __init__(self, dim, value, name):
-        common.Const.__init__(self, dim, value, name)
+        op2.Const.__init__(self, dim, value, name)
         self._on_device = False
 
-class Global(common.Global, DataCarrier):
+class Global(op2.Global, DataCarrier):
     def __init__(self, dim, value, name):
-        common.Global.__init__(self, dim, value, name)
+        op2.Global.__init__(self, dim, value, name)
         self._on_device = False
 
     @property
@@ -43,9 +43,9 @@ class Global(common.Global, DataCarrier):
         self._value = self.fetch_data()
         return self._value
 
-class Map(common.Map):
+class Map(op2.Map):
     def __init__(self, iterset, dataset, dim, values, name):
-        common.Map.__init__(self, iterset, dataset, dim, values, name)
+        op2.Map.__init__(self, iterset, dataset, dim, values, name)
         self._on_device = False
 
 def par_loop(kernel, it_space, *args):

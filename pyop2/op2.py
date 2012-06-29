@@ -333,7 +333,7 @@ IdentityMap = Map(Set(0, None), Set(0, None), 1, [], 'identity')
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
 
-    return _backend.par_loop(kernel, it_space, *args)
+    pass
 
 def init(backend='void'):
     global _backend
