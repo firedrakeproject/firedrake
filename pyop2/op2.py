@@ -113,6 +113,9 @@ def init(backend='void'):
     if backend == 'cuda':
         from backends import cuda
         _backend = cuda
+    elif backend == 'opencl':
+        from backends import opencl
+        _backend = opencl
     IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
     READ = _backend.READ
     WRITE = _backend.WRITE
