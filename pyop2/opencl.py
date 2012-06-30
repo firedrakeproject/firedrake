@@ -1,5 +1,3 @@
-from op2 import Access, IterationSpace, Set, IdentityMap, \
-        READ, WRITE, RW, INC, MIN, MAX
 import op2
 
 class Kernel(op2.Kernel):

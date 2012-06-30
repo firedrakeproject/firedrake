@@ -335,6 +335,8 @@ def par_loop(kernel, it_space, *args):
 
     pass
 
-def init(backend='void'):
-    global _backend
-    _backend = backend
+def init(backend='sequential'):
+    """Intialise OP2: select the backend."""
+
+    import backends
+    backends.set_backend(backend)
