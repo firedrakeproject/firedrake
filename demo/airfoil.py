@@ -22,7 +22,7 @@ import numpy as np
 from pyop2 import op2
 # Initialise OP2
 
-op2.init(backend='void')
+op2.init(backend='sequential')
 
 from airfoil_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 
