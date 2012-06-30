@@ -37,6 +37,31 @@ class BackendSelector(type):
     _backend = void
     _defaultbackend = sequential
 
+    def __new__(cls, name, bases, dct):
+        """Inherit Docstrings when creating a class definition. A variation of
+        http://groups.google.com/group/comp.lang.python/msg/26f7b4fcb4d66c95
+        by Paul McGuire
+        Source: http://stackoverflow.com/a/8101118/396967
+        """
+
+        # Get the class docstring
+        if not('__doc__' in dct and dct['__doc__']):
+            for mro_cls in (cls for base in bases for cls in base.mro()):
+                doc=mro_cls.__doc__
+                if doc:
+                    dct['__doc__']=doc
+                    break
+        # Get the attribute docstrings
+        for attr, attribute in dct.items():
+            if not attribute.__doc__:
+                for mro_cls in (cls for base in bases for cls in base.mro()
+                                if hasattr(cls, attr)):
+                    doc=getattr(getattr(mro_cls,attr),'__doc__')
+                    if doc:
+                        attribute.__doc__=doc
+                        break
+        return type.__new__(cls, name, bases, dct)
+
     def __call__(cls, *args, **kwargs):
         """Create an instance of the request class for the current backend"""
 
