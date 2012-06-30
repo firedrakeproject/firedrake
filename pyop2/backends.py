@@ -30,22 +30,33 @@ backends = {
         'void': void
         }
 
-_backend = 'void'
+class BackendSelector(type):
+    """Metaclass creating the backend class corresponding to the requested
+    class."""
+
+    _backend = void
+    _defaultbackend = sequential
+
+    def __call__(cls, *args, **kwargs):
+        """Create an instance of the request class for the current backend"""
+
+        # Try the selected backend first
+        try:
+            t = cls._backend.__dict__[cls.__name__]
+        # Fall back to the default (i.e. sequential) backend
+        except KeyError:
+            t = cls._defaultbackend.__dict__[cls.__name__]
+        # Invoke the constructor with the arguments given
+        return t(*args, **kwargs)
 
 def get_backend():
     """Get the OP2 backend"""
 
-    return _backend
+    return BackendSelector._backend.__name__
 
 def set_backend(backend):
     """Set the OP2 backend"""
 
     assert backend in backends, "backend must be one of %r" % backends.keys()
-    global _backend
-    _backend = backend
-
-class BackendSelector:
-    """Metaclass creating the backend class corresponding to the requested
-    class."""
-
-    pass
+    global BackendSelector
+    BackendSelector._backend = backends[backend]

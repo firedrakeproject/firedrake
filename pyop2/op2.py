@@ -19,11 +19,35 @@
 """The PyOP2 API specification."""
 
 import backends
-from sequential import READ, WRITE, RW, INC, MIN, MAX, IterationSpace, \
-        Kernel, Set, Dat, Mat, Const, Global, Map, IdentityMap, par_loop
+import sequential
+from sequential import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, par_loop
 
 
 def init(backend='sequential'):
     """Intialise OP2: select the backend."""
 
     backends.set_backend(backend)
+
+class IterationSpace(sequential.IterationSpace):
+    __metaclass__ = backends.BackendSelector
+
+class Kernel(sequential.Kernel):
+    __metaclass__ = backends.BackendSelector
+
+class Set(sequential.Set):
+    __metaclass__ = backends.BackendSelector
+
+class Dat(sequential.Dat):
+    __metaclass__ = backends.BackendSelector
+
+class Mat(sequential.Mat):
+    __metaclass__ = backends.BackendSelector
+
+class Const(sequential.Const):
+    __metaclass__ = backends.BackendSelector
+
+class Global(sequential.Global):
+    __metaclass__ = backends.BackendSelector
+
+class Map(sequential.Map):
+    __metaclass__ = backends.BackendSelector
