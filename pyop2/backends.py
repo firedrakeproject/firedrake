@@ -20,16 +20,17 @@
 
 import cuda
 import opencl
+import sequential
 import void
 
 backends = {
         'cuda': cuda,
-        'sequential': None,
+        'sequential': sequential,
         'opencl': opencl,
         'void': void
         }
 
-_backend = void
+_backend = 'void'
 
 def get_backend():
     """Get the OP2 backend"""

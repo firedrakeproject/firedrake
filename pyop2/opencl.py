@@ -1,4 +1,4 @@
-import op2
+import sequential as op2
 
 class Kernel(op2.Kernel):
     def __init__(self, code, name):
