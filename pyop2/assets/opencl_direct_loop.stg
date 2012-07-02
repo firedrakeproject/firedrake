@@ -1,24 +1,29 @@
 group opencl_direct_loop;
 
 direct_loop(parloop,const)::=<<
-$header(const)$
+$header()$
+$parloop._d_reduction_args:{$reduction_kernel()$};separator="\n"$
 $parloop._kernel._code$
-$kernel_stub(parloop=parloop)$
+$kernel_stub()$
 >>
 
-kernel_stub(parloop)::=<<
+kernel_stub()::=<<
 __kernel
 void $parloop._kernel._name$_stub (
-  $parloop._args:{__global $it._dat._cl_type$* $it._dat._name$};separator=",\n"$
+  $parloop._d_nonreduction_args:{__global $it._dat._cl_type$* $it._dat._name$};separator=",\n"$$if(parloop._d_reduction_args)$,$endif$
+  $parloop._d_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$_reduction_array};separator=",\n"$
 )
 {
   unsigned int shared_memory_offset = $const.shared_memory_offset$;
-  unsigned int set_size = $parloop._it_space._size$;
+  unsigned int set_size = $parloop._it_space.size$;
 
   __local char shared[$const.dynamic_shared_memory_size$];
   __local char* shared_pointer;
 
-  $parloop._stagged_args:{__private $it._dat._cl_type$ $it._dat._name$_local[$it._dat._dim$];};separator="\n"$
+  $parloop._d_staged_args:{__private $it._dat._cl_type$ $it._dat._name$_local[$it._dat._dim$];};separator="\n"$
+  $parloop._d_reduction_args:{__private $it._dat._cl_type$ $it._dat._name$_reduc_local[$it._dat._dim$];};separator="\n"$
+
+  $parloop._d_reduction_args:{__local $it._dat._cl_type$ $it._dat._name$_reduc_tmp[$it._dat._dim$ * $const.threads_per_block$ * OP_WARPSIZE];};separator="\n"$
 
   int i_1;
   int i_2;
@@ -26,6 +31,9 @@ void $parloop._kernel._name$_stub (
   int local_offset;
   int active_threads_count;
   int thread_id;
+
+  // reduction zeroing
+  $parloop._d_reduction_args:{for (i_1 = 0; i_1 < $it._dat._dim$; ++i_1) { $it._dat._name$_reduc_local[i_1] = $it._dat._cl_type_zero$; } };separator="\n"$
 
   thread_id = get_local_id(0) % OP_WARPSIZE;
   shared_pointer = shared + shared_memory_offset * (get_local_id(0) / OP_WARPSIZE);
@@ -35,12 +43,65 @@ void $parloop._kernel._name$_stub (
     local_offset = i_1 - thread_id;
     active_threads_count = MIN(OP_WARPSIZE, set_size - local_offset);
 
-    $parloop._stagged_in_args:stagein();separator="\n"$
-    $kernel_call(parloop=parloop)$
-    $parloop._stagged_out_args:stageout();separator="\n"$
+    $parloop._d_staged_in_args:stagein();separator="\n"$
+    $kernel_call()$
+    $parloop._d_staged_out_args:stageout();separator="\n"$
+  }
+  // on device reduction
+  $parloop._d_reduction_args:{for (i_1 = 0; i_1 < $it._dat._dim$; ++i_1) {
+  $it._dat._name$_reduction_kernel(&$it._dat._name$_reduction_array[i_1 + get_group_id(0) * $it._dat._dim$], $it._dat._name$_reduc_local[i_1], $it._dat._name$_reduc_tmp);
+}};separator="\n"$
+}
+>>
+
+reduction_kernel()::=<<
+__kernel
+void $it._dat._name$_reduction_kernel (
+  __global $it._dat._cl_type$* reduction_result,
+  __private $it._dat._cl_type$ input_value,
+  __local $it._dat._cl_type$* reduction_tmp_array
+)
+{
+  __local $it._dat._cl_type$* volatile volatile_shared;
+  int i_1;
+  int thread_id;
+
+  thread_id = get_local_id(0);
+  i_1 = get_local_size(0) \>\> 1;
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+  reduction_tmp_array[thread_id] = input_value;
+
+  for (; i_1 \> OP_WARPSIZE;  i_1 \>\>= 1)
+  {
+    barrier(CLK_LOCAL_MEM_FENCE);
+    if (thread_id < i_1)
+    {
+      $reduction_op()$
+    }
+  }
+  barrier(CLK_LOCAL_MEM_FENCE);
+  volatile_shared = reduction_tmp_array;
+  if (thread_id < OP_WARPSIZE)
+  {
+    for (; i_1 \> 0; i_1 \>\>= 1)
+    {
+      if (thread_id < i_1) {
+        $reduction_op_volatile()$
+      }
+    }
+  }
+
+  if (thread_id == 0)
+  {
+    $reduction_op_result()$
   }
 }
 >>
+
+reduction_op()::=<<$if(it._d_is_INC)$reduction_tmp_array[thread_id] += reduction_tmp_array[thread_id + 1];$endif$>>
+reduction_op_volatile()::=<<$if(it._d_is_INC)$volatile_shared[thread_id] += volatile_shared[thread_id + 1];$endif$>>
+reduction_op_result()::=<<$if(it._d_is_INC)$*reduction_result += volatile_shared[0];$endif$>>
 
 stagein(arg)::=<<
 // $arg._dat._name$
@@ -62,10 +123,10 @@ for (i_2 = 0; i_2 < $arg._dat._dim$; ++i_2) {
 }
 >>
 
-kernel_call(parloop)::=<<$parloop._kernel._name$($parloop._args:{$it._dat._name$_local};separator=", "$);>>
+kernel_call()::=<<$parloop._kernel._name$($parloop._args:{$kernel_call_arg()$};separator=", "$);>>
+kernel_call_arg()::=<<$if(it._d_is_staged)$$it._dat._name$_local$elseif(it._d_is_INC)$$it._dat._name$_reduc_local$endif$>>
 
-
-header(const)::=<<
+header()::=<<
 #define OP_WARPSIZE $const.warpsize$
 #define MIN(a,b) ((a < b) ? (a) : (b))
 >>
