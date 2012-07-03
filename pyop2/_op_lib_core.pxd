@@ -3,10 +3,9 @@ Cython header file for OP2 C library
 """
 cdef extern from "op_lib_core.h":
     ctypedef struct op_set_core:
-        int index, size
-        char * name
-        int core_size, exec_size, nonexec_size
-        pass
+        int size
+        int exec_size
+
     ctypedef op_set_core * op_set
 
     ctypedef struct op_map_core:
@@ -35,3 +34,40 @@ cdef extern from "op_lib_core.h":
     op_arg op_arg_dat_core(op_dat, int, op_map, int, char *, op_access)
 
     op_arg op_arg_gbl_core(char *, int, char *, int, op_access)
+
+cdef extern from "op_rt_support.h":
+    ctypedef struct op_plan:
+        char * name
+        op_set set
+        int nargs
+        int ninds
+        int part_size
+        op_map * maps
+        op_dat * dats
+        int * idxs
+        op_access * accs
+        int * nthrcol
+        int * thrcol
+        int * offset
+        int * ind_map
+        int ** ind_maps
+        int * ind_offs
+        int * ind_sizes
+        int * nindirect
+        short * loc_map
+        short ** loc_maps
+        int nblocks
+        int * nelems
+        int ncolors_core
+        int ncolors_owned
+        int ncolors
+        int * ncolblk
+        int * blkmap
+        int * nsharedCol
+        int nshared
+        float transfer
+        float transfer2
+        int count
+
+    op_plan * op_plan_core(char *, op_set, int, int, op_arg *,
+                           int, int *)
