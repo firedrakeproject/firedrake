@@ -12,26 +12,26 @@ class Kernel(op2.Kernel):
     def handle(self):
         pass
 
-class DataCarrier(op2.DataCarrier):
+class DeviceDataMixin:
     def fetch_data(self):
         pass
 
-class Dat(op2.Dat, DataCarrier):
+class Dat(op2.Dat, DeviceDataMixin):
     def __init__(self, dataset, dim, datatype=None, data=None, name=None):
         op2.Dat.__init__(self, dataset, dim, datatype, data, name)
         self._on_device = False
 
-class Mat(op2.Mat, DataCarrier):
+class Mat(op2.Mat, DeviceDataMixin):
     def __init__(self, datasets, dim, datatype=None, name=None):
         op2.Mat.__init__(self, datasets, dim, datatype, data, name)
         self._on_device = False
 
-class Const(op2.Const, DataCarrier):
+class Const(op2.Const, DeviceDataMixin):
     def __init__(self, dim, value, name=None):
         op2.Const.__init__(self, dim, value, name)
         self._on_device = False
 
-class Global(op2.Global, DataCarrier):
+class Global(op2.Global, DeviceDataMixin):
     def __init__(self, dim, value, name=None):
         op2.Global.__init__(self, dim, value, name)
         self._on_device = False
