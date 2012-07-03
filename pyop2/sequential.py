@@ -65,6 +65,7 @@ MAX   = Access("MAX")
 
 class IterationSpace(object):
     """OP2 iteration space type."""
+
     def __init__(self, iterset, dims):
         assert isinstance(iterset, Set), "Iteration set needs to be of type Set"
         self._iterset = iterset
@@ -81,7 +82,7 @@ class Kernel(object):
 
     _globalcount = 0
 
-    def __init__(self, code, name):
+    def __init__(self, code, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._name = name or "kernel_%d" % Kernel._globalcount
         self._code = code
@@ -106,7 +107,7 @@ class Set(object):
 
     _globalcount = 0
 
-    def __init__(self, size, name):
+    def __init__(self, size, name=None):
         assert isinstance(size, int), "Size must be of type int"
         assert not name or isinstance(name, str), "Name must be of type str"
         self._size = size
@@ -135,7 +136,7 @@ class Dat(DataCarrier):
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
 
-    def __init__(self, dataset, dim, datatype, data, name):
+    def __init__(self, dataset, dim, datatype=None, data=None, name=None):
         assert isinstance(dataset, Set), "Data set must be of type Set"
         assert not name or isinstance(name, str), "Name must be of type str"
 
@@ -188,7 +189,7 @@ class Mat(DataCarrier):
     _globalcount = 0
     _modes = [WRITE, INC]
 
-    def __init__(self, datasets, dim, datatype, name):
+    def __init__(self, datasets, dim, datatype=None, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._datasets = as_tuple(datasets, Set, 2)
         self._dim = as_tuple(dim, int)
@@ -228,7 +229,7 @@ class Const(DataCarrier):
     _globalcount = 0
     _modes = [READ]
 
-    def __init__(self, dim, value, name):
+    def __init__(self, dim, value, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._dim = as_tuple(dim, int)
         try:
@@ -254,7 +255,7 @@ class Global(DataCarrier):
     _globalcount = 0
     _modes = [READ, INC, MIN, MAX]
 
-    def __init__(self, dim, value, name):
+    def __init__(self, dim, value, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._dim = as_tuple(dim, int)
         self._value = np.asarray(value).reshape(dim)
@@ -287,7 +288,7 @@ class Map(object):
 
     _globalcount = 0
 
-    def __init__(self, iterset, dataset, dim, values, name):
+    def __init__(self, iterset, dataset, dim, values, name=None):
         assert isinstance(iterset, Set), "Iteration set must be of type Set"
         assert isinstance(dataset, Set), "Data set must be of type Set"
         assert isinstance(dim, int), "dim must be a scalar integer"
