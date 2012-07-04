@@ -14,32 +14,32 @@ class Kernel(op2.Kernel):
 
 class DeviceDataMixin:
     def fetch_data(self):
-        pass
+        return self._data
 
 class Dat(op2.Dat, DeviceDataMixin):
-    def __init__(self, dataset, dim, datatype=None, data=None, name=None):
-        op2.Dat.__init__(self, dataset, dim, datatype, data, name)
+    def __init__(self, dataset, dim, data=None, dtype=None, name=None):
+        op2.Dat.__init__(self, dataset, dim, data, dtype, name)
         self._on_device = False
 
 class Mat(op2.Mat, DeviceDataMixin):
-    def __init__(self, datasets, dim, datatype=None, name=None):
-        op2.Mat.__init__(self, datasets, dim, datatype, data, name)
+    def __init__(self, datasets, dim, dtype=None, name=None):
+        op2.Mat.__init__(self, datasets, dim, dtype, data, name)
         self._on_device = False
 
 class Const(op2.Const, DeviceDataMixin):
-    def __init__(self, dim, value, name=None):
-        op2.Const.__init__(self, dim, value, name)
+    def __init__(self, dim, data=None, dtype=None, name=None):
+        op2.Const.__init__(self, dim, data, dtype, name)
         self._on_device = False
 
 class Global(op2.Global, DeviceDataMixin):
-    def __init__(self, dim, value, name=None):
-        op2.Global.__init__(self, dim, value, name)
+    def __init__(self, dim, data=None, dtype=None, name=None):
+        op2.Global.__init__(self, dim, data, dtype, name)
         self._on_device = False
 
     @property
-    def value(self):
-        self._value = self.fetch_data()
-        return self._value
+    def data(self):
+        self._data = self.fetch_data()
+        return self._data
 
 class Map(op2.Map):
     def __init__(self, iterset, dataset, dim, values, name=None):
