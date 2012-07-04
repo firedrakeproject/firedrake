@@ -290,7 +290,7 @@ class Map(object):
         self._dataset = dataset
         self._dim = dim
         try:
-            self._values = np.asarray(values, dtype=np.int64).reshape(iterset.size, dim)
+            self._values = np.asarray(values, dtype=np.int32).reshape(iterset.size, dim)
         except ValueError:
             raise ValueError("Invalid data: expected %d values, got %d" % \
                     (iterset.size*dim, np.asarray(values).size))
