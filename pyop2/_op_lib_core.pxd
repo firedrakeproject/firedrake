@@ -23,7 +23,7 @@ cdef extern from "op_lib_core.h":
         pass
 
     ctypedef enum op_access:
-        pass
+        OP_READ, OP_WRITE, OP_RW, OP_INC, OP_MIN, OP_MAX
 
     op_set op_decl_set_core(int, char *)
 

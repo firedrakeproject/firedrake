@@ -130,6 +130,12 @@ class Set(object):
 class DataCarrier(object):
     """Abstract base class for OP2 data."""
 
+    def is_indirect(self):
+        return self._map is not IdentityMap
+
+    def is_indirect_and_not_read(self):
+        return self.is_indirect() and self._access is not READ
+
     def _verify_reshape(self, data, dtype, shape):
         """Verify data is of type dtype and try to reshaped to shape."""
 

@@ -88,16 +88,22 @@ cdef class op_plan:
     cdef core.op_plan *_handle
     cdef int set_size
     cdef int nind_ele
-    def __cinit__(self, kernel, set, args):
-        cdef op_set _set = set._lib_handle
+    def __cinit__(self, kernel, iset, *args):
+        cdef op_set _set = iset._lib_handle
         cdef char * name = kernel._name
         cdef int part_size = 0
         cdef int nargs = len(args)
-        cdef op_arg _arg
+        cdef op_dat dat
         cdef core.op_arg *_args = <core.op_arg *>malloc(nargs * sizeof(core.op_arg))
         cdef int ninds
         cdef int *inds = <int *>malloc(nargs * sizeof(int))
         cdef int i
+        cdef int idx
+        cdef op_map _map
+        cdef core.op_map __map
+        cdef int dim
+        cdef char * type
+        cdef core.op_access acc
 
         cdef int ind = 0
         self.set_size = _set._handle.size
@@ -113,9 +119,26 @@ cdef class op_plan:
         unique_args = set(args)
         d = {}
         for i in range(nargs):
-            _arg = args[i]._arg_handle
-            _args[i] = _arg._handle
             arg = args[i]
+            dat = arg._lib_handle
+            dim = arg._dim[0]
+            type = arg._data.dtype.name
+            if arg.is_indirect():
+                idx = arg._map._index
+                _map = arg._map._lib_handle
+                __map = _map._handle
+            else:
+                idx = -1
+                __map = <core.op_map>NULL
+
+            if arg._access._mode == "READ":
+                acc = core.OP_READ
+            elif arg._access._mode == "INC":
+                acc = core.OP_INC
+
+            _args[i] = core.op_arg_dat_core(dat._handle, idx, __map,
+                                            dim, type, acc)
+
             if arg.is_indirect():
                 if d.has_key(arg):
                     inds[i] = d[arg]
@@ -123,6 +146,7 @@ cdef class op_plan:
                     inds[i] = ind
                     d[arg] = ind
                     ind += 1
+                    ninds += 1
             else:
                 inds[i] = -1
         self._handle = core.op_plan_core(name, _set._handle, part_size,
