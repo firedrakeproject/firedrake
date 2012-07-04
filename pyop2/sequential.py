@@ -20,6 +20,7 @@
 
 import numpy as np
 from copy import copy
+import op_lib_core as core
 
 def as_tuple(item, type=None, length=None):
     # Empty list if we get passed None
@@ -112,6 +113,7 @@ class Set(object):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._size = size
         self._name = name or "set_%d" % Set._globalcount
+        self._lib_handle = core.op_set(self)
         Set._globalcount += 1
 
     @property
@@ -154,6 +156,7 @@ class Dat(DataCarrier):
         self._name = name or "dat_%d" % Dat._globalcount
         self._map = None
         self._access = None
+        self._lib_handle = core.op_dat(self)
         Dat._globalcount += 1
 
     def __call__(self, map, access):
@@ -296,6 +299,7 @@ class Map(object):
                     (iterset.size*dim, np.asarray(values).size))
         self._name = name or "map_%d" % Map._globalcount
         self._index = None
+        self._lib_handle = core.op_map(self)
         Map._globalcount += 1
 
     def __call__(self, index):

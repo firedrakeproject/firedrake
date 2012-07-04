@@ -29,10 +29,10 @@ is the C pointer we need to pass to routines in the OP2 C library.
 """
 
 import numpy as np
-from pyop2 import op2
+cimport numpy as np
+
 from libc.stdlib cimport malloc, free
 cimport _op_lib_core as core
-cimport numpy as np
 
 np.import_array()
 
@@ -40,7 +40,6 @@ cdef data_to_numpy_array_with_template(void * ptr, arr):
     cdef np.npy_intp dim = np.size(arr)
     cdef np.dtype t = arr.dtype
     shape = np.shape(arr)
-
     return np.PyArray_SimpleNewFromData(1, &dim, t.type_num, ptr).reshape(shape)
 
 cdef data_to_numpy_array_with_spec(void * ptr, np.npy_intp size, np.dtype t):
@@ -52,7 +51,6 @@ cdef class op_set:
         cdef int size = set._size
         cdef char * name = set._name
         self._handle = core.op_decl_set_core(size, name)
-        set._lib_handle = self
 
 cdef class op_dat:
     cdef core.op_dat _handle
@@ -65,7 +63,6 @@ cdef class op_dat:
         cdef char * name = dat._name
         self._handle = core.op_decl_dat_core(set._handle, dim, type,
                                              size, <char *>data.data, name)
-        dat._lib_handle = self
 
 cdef class op_map:
     cdef core.op_map _handle
@@ -73,11 +70,14 @@ cdef class op_map:
         cdef op_set frm = map._iterset._lib_handle
         cdef op_set to = map._dataset._lib_handle
         cdef int dim = map._dim
-        cdef np.ndarray[int, ndim=1, mode="c"] values = map._values
+        cdef np.ndarray[int, ndim=1, mode="c"] values = map._values.reshape(np.size(map._values))
         cdef char * name = map._name
-        self._handle = core.op_decl_map_core(frm._handle, to._handle, dim,
-                                              &values[0], name)
-        map._lib_handle = self
+        if len(map._values) == 0:
+            self._handle = core.op_decl_map_core(frm._handle, to._handle,
+                                                 dim, NULL, name)
+        else:
+            self._handle = core.op_decl_map_core(frm._handle, to._handle, dim,
+                                                 &values[0], name)
 
 cdef class op_arg:
     cdef core.op_arg _handle
@@ -101,13 +101,12 @@ cdef class op_plan:
 
         cdef int ind = 0
         self.set_size = _set._handle.size
-        if any(arg._map is not op2.IdentityMap and arg._access is not op2.READ
-               for arg in args):
+        if any(arg.is_indirect_and_not_read() for arg in args):
             self.set_size += _set._handle.exec_size
 
         nind_ele = 0
         for arg in args:
-            if arg._map is not op2.IdentityMap:
+            if arg.is_indirect():
                 nind_ele += 1
         ninds = 0
 
@@ -128,6 +127,8 @@ cdef class op_plan:
                 inds[i] = -1
         self._handle = core.op_plan_core(name, _set._handle, part_size,
                                          nargs, _args, ninds, inds)
+
+        free(_args)
 
     def ind_map(self):
         cdef int size = self.set_size * self.nind_ele
