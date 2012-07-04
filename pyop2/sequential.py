@@ -150,7 +150,7 @@ class Dat(DataCarrier):
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
 
-    def __init__(self, dataset, dim, dtype=None, data=None, name=None):
+    def __init__(self, dataset, dim, data=None, dtype=None, name=None):
         assert isinstance(dataset, Set), "Data set must be of type Set"
         assert not name or isinstance(name, str), "Name must be of type str"
 
