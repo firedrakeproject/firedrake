@@ -1,12 +1,15 @@
 #!/usr/bin/env python
 
+import os
+
 from distutils.core import setup
 from Cython.Distutils import build_ext, Extension
 
-
-OP2_DIR = '/home/lmitche4/docs/work/apos/fluidity/op2/OP2-Common'
-OP2_INC = OP2_DIR + '/op2/c/include'
-OP2_LIB = OP2_DIR + '/op2/c/lib'
+# Set the environment variable OP2_DIR to point to the op2 subdirectory
+# of your OP2 source tree
+OP2_DIR = os.environ['OP2_DIR']
+OP2_INC = OP2_DIR + '/c/include'
+OP2_LIB = OP2_DIR + '/c/lib'
 setup(name='PyOP2',
       version='0.1',
       description='Python interface to OP2',
