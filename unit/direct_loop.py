@@ -45,3 +45,5 @@ class DirectLoopTest(unittest.TestCase):
 
 suite = unittest.TestLoader().loadTestsFromTestCase(DirectLoopTest)
 unittest.TextTestRunner(verbosity=0).run(suite)
+
+# refactor to avoid recreating input data for each test cases

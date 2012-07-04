@@ -40,6 +40,7 @@ import stringtemplate3
 import pycparser
 import numpy as np
 import collections
+import itertools
 
 def round_up(bytes):
     return (bytes + 15) & ~15
@@ -50,7 +51,9 @@ class Kernel(op2.Kernel):
 
     def __init__(self, code, name):
         op2.Kernel.__init__(self, code, name)
-        self._ast = Kernel._cparser.parse(self._code)
+        # deactivate until we have the memory attribute generator
+        # in order to allow passing "opencl" C kernels
+        # self._ast = Kernel._cparser.parse(self._code)
 
 class Arg(op2.Arg):
     def __init__(self, data=None, map=None, idx=None, access=None):
@@ -174,6 +177,18 @@ class DatMapPair(object):
         self._dat = dat
         self._map = map
 
+    @property
+    def _i_direct(self):
+        return isinstance(self._dat, Dat) and self._map != IdentityMap
+
+class DatMapPair(object):
+    """ Dummy class needed for codegen
+        could do without but would obfuscate codegen templates
+    """
+    def __init__(self, dat, map):
+        self._dat = dat
+        self._map = map
+
 #FIXME: some of this can probably be factorised up in common
 class ParLoopCall(object):
 
@@ -181,8 +196,9 @@ class ParLoopCall(object):
         self._it_space = it_space
         self._kernel = kernel
         self._args = list(args)
-        self.compute()
 
+    """ code generation specific """
+    """ a lot of this can rewriten properly """
     @property
     def _d_staged_args(self):
         assert self.is_direct(), "Should only be called on direct loops"
@@ -213,6 +229,30 @@ class ParLoopCall(object):
         assert self.is_direct(), "Should only be called on direct loops"
         return max(map(lambda a: a._dat.bytes_per_elem, self._d_staged_args))
 
+    @property
+    def _unique_dats(self):
+        return list(set(map(lambda arg: arg._dat, self._args)))
+
+    @property
+    def _i_staged_dat_map_pairs(self):
+        assert not self.is_direct(), "Should only be called on indirect loops"
+        return set(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._map != IdentityMap and a._access in [READ, WRITE, RW], self._args)))
+
+    @property
+    def _i_staged_in_dat_map_pairs(self):
+        assert not self.is_direct(), "Should only be called on indirect loops"
+        return set(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._map != IdentityMap and a._access in [READ, RW], self._args)))
+
+    @property
+    def _i_staged_out_dat_map_pairs(self):
+        assert not self.is_direct(), "Should only be called on indirect loops"
+        return set(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._map != IdentityMap and a._access in [WRITE, RW], self._args)))
+
+    @property
+    def _i_reduc_args(self):
+        assert not self.is_direct(), "Should only be called on indirect loops"
+        return list(set(filter(lambda a: a._access in [INC, MIN, MAX] and a._map != IdentityMap, self._args)))
+
     def compute(self):
         if self.is_direct():
             thread_count = _threads_per_block * _blocks_per_grid
@@ -238,13 +278,23 @@ class ParLoopCall(object):
             for i, a in enumerate(self._d_reduction_args):
                 a._dat._host_reduction(_blocks_per_grid)
         else:
+            # call the plan function
+            # loads plan into device memory
+
+            # codegen
+            iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
+            iloop['parloop'] = self
+            source = str(iloop)
+            print source
+            prg = cl.Program(_ctx, source).build(options="-Werror")
+            kernel = prg.__getattr__(self._kernel._name + '_stub')
             raise NotImplementedError()
 
     def is_direct(self):
         return all(map(lambda a: isinstance(a._dat, Global) or (isinstance(a._dat, Dat) and a._map == IdentityMap), self._args))
 
 def par_loop(kernel, it_space, *args):
-    ParLoopCall(kernel, it_space, *args)
+    ParLoopCall(kernel, it_space, *args).compute()
 
 _ctx = cl.create_some_context()
 _queue = cl.CommandQueue(_ctx)
@@ -253,3 +303,4 @@ _warpsize = 1
 
 #preload string template groups
 _stg_direct_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.StringIO(pkg_resources.resource_string(__name__, "assets/opencl_direct_loop.stg")), lexer="default")
+_stg_indirect_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.StringIO(pkg_resources.resource_string(__name__, "assets/opencl_indirect_loop.stg")), lexer="default")

@@ -1,0 +1,162 @@
+group opencl_indirect;
+
+indirect_loop(parloop,const)::=<<
+$header()$
+$parloop._kernel._code$
+$kernel_stub()$
+>>
+
+kernel_stub()::=<<
+__kernel
+void $parloop._kernel._name$_stub(
+  $parloop._unique_dats:{__global $it._cl_type$* $it._name$,};separator="\n"$
+  $parloop._i_staged_dat_map_pairs:{__global int* $shared_indirection_mapping_arg_name()$,};separator="\n"$
+//  TODO mappingArrays,
+  __global int* p_ind_sizes,
+  __global int* p_ind_offsets,
+  __global int* p_blk_map,
+  __global int* p_offset,
+  __global int* p_nelems,
+  __global int* p_nthrcol,
+  __global int* p_thrcol,
+  __private int block_offset
+//    TODO deal with the constants
+)
+{
+  __local char shared [0];
+  __local int shared_memory_offset;
+  __local int active_threads_count;
+  __local int active_threads_count_ceiling;
+  int nbytes;
+  int block_id;
+  int i_1;
+  int i_2;
+  __local int colors_count;
+  int color_1;
+  int color_2;
+
+$if(parloop._i_reduc_args)$
+  // reduction args
+  $parloop._i_reduc_args:{$it._dat._cl_type$ $reduc_arg_local_name()$[$it._dat._dim$];};separator="\n"$
+$endif$
+
+  // shared indirection mappings
+  $parloop._i_staged_dat_map_pairs:{__global int* __local $shared_indirection_mapping_name()$;};separator="\n"$
+  $parloop._i_staged_dat_map_pairs:{__local int $shared_indirection_mapping_size_name()$;};separator="\n"$
+  $parloop._i_staged_dat_map_pairs:{__local $it._dat._cl_type$* __local $shared_indirection_mapping_memory_name()$;};separator="\n"$
+  $parloop._i_staged_dat_map_pairs:{const int $shared_indirection_mapping_idx_name()$ = $i0$;};separator="\n"$
+
+  if (get_local_id(0) == 0)
+  {
+    block_id = p_blk_map[get_group_id(0) + block_offset];
+    active_threads_count = p_nelems[block_id];
+    active_threads_count_ceiling = get_local_size(0) * (1 + (active_threads_count - 1) / get_local_size(0));
+    colors_count = p_nthrcol[block_id];
+    shared_memory_offset = p_offset[block_id];
+
+    $parloop._i_staged_dat_map_pairs:{$shared_indirection_mapping_size_name()$ = p_ind_sizes[$shared_indirection_mapping_idx_name()$ + block_id * 4];};separator="\n"$
+
+    $parloop._i_staged_dat_map_pairs:{$shared_indirection_mapping_name()$ = $shared_indirection_mapping_arg_name()$ + p_ind_offsets[$shared_indirection_mapping_idx_name()$ + block_id * 4];};separator="\n"$
+
+    nbytes = 0;
+    $parloop._i_staged_dat_map_pairs:{$shared_indirection_mapping_memory_name()$ = ((__local $it._dat._cl_type$* __local) &shared[nbytes / sizeof($it._dat._cl_type$)]);
+nbytes += ROUND_UP($shared_indirection_mapping_size_name()$ * $it._dat._dim$ * sizeof($it._dat._cl_type$));};separator="\n"$
+  }
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // staging in indirect dats
+  $parloop._i_staged_in_dat_map_pairs:shared_memory_initialization();separator="\n"$
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  for (i_1 = get_local_id(0); i_1 < active_threads_count_ceiling; i_1 += get_local_size(0)) {
+$if(parloop._i_reduc_args)$
+    color_2 = -1;
+    if (i_1 < active_threads_count)
+    {
+      $parloop._i_reduc_args:{$staged_arg_local_variable_zeroing()$};separator="\n"$
+    }
+
+    $kernel_call()$
+    color_2 = p_thrcol[i_1 + shared_memory_offset];
+$else$
+    $kernel_call()$
+$endif$
+  }
+$if(parloop._i_reduc_args)$
+  // FIX to only include the loop when the reduction is needed,
+  // else the iteration over color does nothing
+  for (color_1 = 0; color_1 < colors_count; ++color_1) {
+    if (color_2 == color_1)
+    {
+      $parloop._i_reduc_args:{$reduction()$};separator="\n"$
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+  }
+  $parloop._i_reduc_args:{$reduction2()$};separator="\n"$
+$endif$
+
+  // staging out indirect dats
+  $parloop._i_staged_out_dat_map_pairs:{$stagingout()$};separator="\n"$
+}
+>>
+
+// FIX case of inc argdat DOES NOT WORK YET
+// in case of INC the right hand side should be a zeroing
+shared_memory_initialization()::=<<
+for (i_1 = get_local_id(0); i_1 < $shared_indirection_mapping_size_name()$ * $it._dat._dim$; i_1 += get_local_size(0))
+{
+  $shared_indirection_mapping_memory_name()$[i_1] = $dat_arg_name()$[i_1 % $it._dat._dim$ + $shared_indirection_mapping_name()$[i_1 / $it._dat._dim$] * $it._dat._dim$];
+}
+>>
+
+kernel_call()::=<<
+$parloop._kernel._name$(
+  $parloop._args:{$kernel_call_arg()$};separator=",\n"$
+);
+>>
+
+kernel_call_arg()::=<<$if(it._i_direct)$(__global $it._dat._cl_type$* __private) ($it._dat._name$ + i_1 + shared_memory_offset)$elseif(it._inc)$$reduc_arg_local_name()$$else$$shared_indirection_mapping_memory_name()$ + something[i_1 + shared_memory_offset] * $it._dat._dim$$endif$>>
+
+staged_arg_local_variable_zeroing()::=<<
+for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2)
+{
+  $reduc_arg_local_name()$[i_2] = $it._dat._cl_type_zero$;
+}
+>>
+
+reduction()::=<<
+for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2)
+{
+  $shared_indirection_mapping_memory_name()$[i_2 + $shared_indirection_mapping_arg_name()$[i_1 + shared_memory_offset] * 4] += $reduc_arg_local_name()$[i_2];
+}
+>>
+
+reduction2()::=<<
+for (i_1 = get_local_id(0); i_1 < $shared_indirection_mapping_size_name()$ * $it._dat._dim$; i_1 += get_local_size(0))
+{
+  $it._dat._name$[i_1 % $it._dat._dim$ + $shared_indirection_mapping_name()$[i_1 / $it._dat._dim$] * $it._dat._dim$] += $shared_indirection_mapping_memory_name()$[i_1];
+}
+>>
+
+stagingout()::=<<
+for (i_1 = get_local_id(0); i_1 < $shared_indirection_mapping_size_name()$ * $it._dat._dim$; i_1 += get_local_size(0))
+{
+  $it._dat._name$[i_1 % $it._dat._dim$ + $shared_indirection_mapping_name()$[i_1 / $it._dat._dim$] * $it._dat._dim$] = $shared_indirection_mapping_memory_name()$[i_1];
+}
+>>
+
+/* FIX: unify dat/_dat and map/_map to remove all the ifs nonsense */
+reduc_arg_local_name()::=<<$it._dat._name$_at_$it._index$_via_$it._map._name$>>
+dat_arg_name()::=<<$it._dat._name$>>
+shared_indirection_mapping_name()::=<<$it._dat._name$_via_$it._map._name$_indirection_map>>
+shared_indirection_mapping_size_name()::=<<$it._dat._name$_via_$it._map._name$_indirection_size>>
+shared_indirection_mapping_memory_name()::=<<$it._dat._name$_via_$it._map._name$_indirection>>
+shared_indirection_mapping_idx_name()::=<<$it._dat._name$_via_$it._map._name$_idx>>
+shared_indirection_mapping_arg_name()::=<<ind_$it._dat._name$_via_$it._map._name$_map>>
+
+header(const)::=<<
+#define ROUND_UP(bytes) (((bytes) + 15) & ~15)
+#define OP_WARPSIZE $const.warpsize$
+#define MIN(a,b) ((a < b) ? (a) : (b))
+>>
