@@ -19,7 +19,6 @@
 """OP2 sequential backend."""
 
 import numpy as np
-from copy import copy
 import op_lib_core as core
 
 def as_tuple(item, type=None, length=None):
@@ -103,6 +102,38 @@ class Kernel(object):
 
 # Data API
 
+class Arg(object):
+    def __init__(self, data=None, map=None, idx=None, access=None):
+        self._dat = data
+        self._map = map
+        self._idx = idx
+        self._access = access
+        self._lib_handle = None
+
+    def build_core_arg(self):
+        if self._lib_handle is None:
+            self._lib_handle = core.op_arg(self, dat=isinstance(self._dat, Dat),
+                                           gbl=isinstance(self._dat, Global))
+
+    @property
+    def data(self):
+        return self._dat
+    @property
+    def map(self):
+        return self._map
+    @property
+    def idx(self):
+        return self._idx
+    @property
+    def access(self):
+        return self._access
+
+    def is_indirect(self):
+        return self._map is not None and self._map is not IdentityMap
+
+    def is_indirect_and_not_read(self):
+        return self.is_indirect() and self._access is not READ
+
 class Set(object):
     """OP2 set."""
 
@@ -130,11 +161,10 @@ class Set(object):
 class DataCarrier(object):
     """Abstract base class for OP2 data."""
 
-    def is_indirect(self):
-        return self._map is not IdentityMap
-
-    def is_indirect_and_not_read(self):
-        return self.is_indirect() and self._access is not READ
+    @property
+    def dtype(self):
+        """Datatype of this data carrying object"""
+        return self._data.dtype
 
     def _verify_reshape(self, data, dtype, shape):
         """Verify data is of type dtype and try to reshaped to shape."""
@@ -151,6 +181,7 @@ class Dat(DataCarrier):
 
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
+    _arg_type = Arg
 
     def __init__(self, dataset, dim, data=None, dtype=None, name=None):
         assert isinstance(dataset, Set), "Data set must be of type Set"
@@ -160,33 +191,26 @@ class Dat(DataCarrier):
         self._dim = as_tuple(dim, int)
         self._data = self._verify_reshape(data, dtype, (dataset.size,)+self._dim)
         self._name = name or "dat_%d" % Dat._globalcount
-        self._map = None
-        self._access = None
         self._lib_handle = core.op_dat(self)
         Dat._globalcount += 1
 
-    def __call__(self, map, access):
+    def __call__(self, path, access):
         assert access in self._modes, \
                 "Acess descriptor must be one of %s" % self._modes
-        assert map == IdentityMap or map._dataset == self._dataset, \
-                "Invalid data set for map %s (is %s, should be %s)" \
-                % (map._name, map._dataset._name, self._dataset._name)
-        arg = copy(self)
-        arg._map = map
-        arg._access = access
-        return arg
+        if isinstance(path, Map):
+            return self._arg_type(data=self, map=path, access=access)
+        else:
+            path._data = self
+            path._access = access
+            return path
 
     def __str__(self):
-        call = " associated with (%s) in mode %s" % (self._map, self._access) \
-                if self._map and self._access else ""
-        return "OP2 Dat: %s on (%s) with dim %s and datatype %s%s" \
-               % (self._name, self._dataset, self._dim, self._data.dtype.name, call)
+        return "OP2 Dat: %s on (%s) with dim %s and datatype %s" \
+               % (self._name, self._dataset, self._dim, self._data.dtype.name)
 
     def __repr__(self):
-        call = "(%r, %r)" % (self._map, self._access) \
-                if self._map and self._access else ""
         return "Dat(%r, %s, '%s', None, '%s')%s" \
-               % (self._dataset, self._dim, self._data.dtype, self._name, call)
+               % (self._dataset, self._dim, self._data.dtype, self._name)
 
 class Mat(DataCarrier):
     """OP2 matrix data. A Mat is defined on the cartesian product of two Sets
@@ -194,6 +218,7 @@ class Mat(DataCarrier):
 
     _globalcount = 0
     _modes = [WRITE, INC]
+    _arg_type = Arg
 
     def __init__(self, datasets, dim, dtype=None, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
@@ -201,8 +226,6 @@ class Mat(DataCarrier):
         self._dim = as_tuple(dim, int)
         self._datatype = np.dtype(dtype)
         self._name = name or "mat_%d" % Mat._globalcount
-        self._maps = None
-        self._access = None
         Mat._globalcount += 1
 
     def __call__(self, maps, access):
@@ -212,22 +235,15 @@ class Mat(DataCarrier):
             assert map._dataset == dataset, \
                     "Invalid data set for map %s (is %s, should be %s)" \
                     % (map._name, map._dataset._name, dataset._name)
-        arg = copy(self)
-        arg._maps = maps
-        arg._access = access
-        return arg
+        return self._arg_type(data=self, map=maps, access=access)
 
     def __str__(self):
-        call = " associated with (%s, %s) in mode %s" % (self._maps[0], self._maps[1], self._access) \
-                if self._maps and self._access else ""
-        return "OP2 Mat: %s, row set (%s), col set (%s), dimension %s, datatype %s%s" \
-               % (self._name, self._datasets[0], self._datasets[1], self._dim, self._datatype.name, call)
+        return "OP2 Mat: %s, row set (%s), col set (%s), dimension %s, datatype %s" \
+               % (self._name, self._datasets[0], self._datasets[1], self._dim, self._datatype.name)
 
     def __repr__(self):
-        call = "(%r, %r)" % (self._maps, self._access) \
-                if self._maps and self._access else ""
-        return "Mat(%r, %s, '%s', '%s')%s" \
-               % (self._datasets, self._dim, self._datatype, self._name, call)
+        return "Mat(%r, %s, '%s', '%s')" \
+               % (self._datasets, self._dim, self._datatype, self._name)
 
 class Const(DataCarrier):
     """Data that is constant for any element of any set."""
@@ -256,30 +272,26 @@ class Global(DataCarrier):
 
     _globalcount = 0
     _modes = [READ, INC, MIN, MAX]
+    _arg_type = Arg
 
     def __init__(self, dim, data=None, dtype=None, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._dim = as_tuple(dim, int)
         self._data = self._verify_reshape(data, dtype, self._dim)
         self._name = name or "global_%d" % Global._globalcount
-        self._access = None
         Global._globalcount += 1
 
     def __call__(self, access):
         assert access in self._modes, \
                 "Acess descriptor must be one of %s" % self._modes
-        arg = copy(self)
-        arg._access = access
-        return arg
+        return self._arg_type(data=self, access=access)
 
     def __str__(self):
-        call = " in mode %s" % self._access if self._access else ""
-        return "OP2 Global Argument: %s with dim %s and value %s%s" \
-                % (self._name, self._dim, self._data, call)
+        return "OP2 Global Argument: %s with dim %s and value %s" \
+                % (self._name, self._dim, self._data)
 
     def __repr__(self):
-        call = "(%r)" % self._access if self._access else ""
-        return "Global('%s', %r, %r)%s" % (self._name, self._dim, self._data, call)
+        return "Global('%s', %r, %r)" % (self._name, self._dim, self._data)
 
     @property
     def data(self):
@@ -289,6 +301,7 @@ class Map(object):
     """OP2 map, a relation between two Sets."""
 
     _globalcount = 0
+    _arg_type = Arg
 
     def __init__(self, iterset, dataset, dim, values, name=None):
         assert isinstance(iterset, Set), "Iteration set must be of type Set"
@@ -304,32 +317,22 @@ class Map(object):
             raise ValueError("Invalid data: expected %d values, got %d" % \
                     (iterset.size*dim, np.asarray(values).size))
         self._name = name or "map_%d" % Map._globalcount
-        self._index = None
         self._lib_handle = core.op_map(self)
         Map._globalcount += 1
 
     def __call__(self, index):
         assert isinstance(index, int), "Only integer indices are allowed"
-        return self.indexed(index)
-
-    def indexed(self, index):
-        # Check we haven't already been indexed
-        assert self._index is None, "Map has already been indexed"
         assert 0 <= index < self._dim, \
                 "Index must be in interval [0,%d]" % (self._dim-1)
-        indexed = copy(self)
-        indexed._index = index
-        return indexed
+        return self._arg_type(map=self, idx=index)
 
     def __str__(self):
-        indexed = " and component %s" % self._index if self._index else ""
-        return "OP2 Map: %s from (%s) to (%s) with dim %s%s" \
-               % (self._name, self._iterset, self._dataset, self._dim, indexed)
+        return "OP2 Map: %s from (%s) to (%s) with dim %s" \
+               % (self._name, self._iterset, self._dataset, self._dim)
 
     def __repr__(self):
-        indexed = "(%s)" % self._index if self._index else ""
-        return "Map(%r, %r, %s, None, '%s')%s" \
-               % (self._iterset, self._dataset, self._dim, self._name, indexed)
+        return "Map(%r, %r, %s, None, '%s')" \
+               % (self._iterset, self._dataset, self._dim, self._name)
 
 IdentityMap = Map(Set(0, None), Set(0, None), 1, [], 'identity')
 

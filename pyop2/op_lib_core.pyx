@@ -79,10 +79,50 @@ cdef class op_map:
             self._handle = core.op_decl_map_core(frm._handle, to._handle, dim,
                                                  &values[0], name)
 
+_access_map = {'READ' : core.OP_READ,
+               'WRITE' : core.OP_WRITE,
+               'RW' : core.OP_RW,
+               'INC' : core.OP_INC,
+               'MIN' : core.OP_MIN,
+               'MAX' : core.OP_MAX}
+
 cdef class op_arg:
     cdef core.op_arg _handle
-    def __cinit__(self, datacarrier):
-        datacarrier._arg_handle = self
+    def __cinit__(self, arg, dat=False, gbl=False):
+        cdef int idx
+        cdef op_map map
+        cdef core.op_map _map
+        cdef int dim
+        cdef int size
+        cdef char * type
+        cdef core.op_access acc
+        cdef np.ndarray data
+        cdef op_dat _dat
+        if not (dat or gbl):
+            raise RuntimeError("Must tell me what type of arg this is")
+
+        acc = _access_map[arg.access._mode]
+
+        if dat:
+            _dat = arg.data._lib_handle
+            if arg.is_indirect():
+                idx = arg.idx
+                map = arg.map._lib_handle
+                _map = map._handle
+            else:
+                idx = -1
+                _map = <core.op_map>NULL
+            dim = arg.data._dim[0]
+            type = arg.data.dtype.name
+            self._handle = core.op_arg_dat_core(_dat._handle, idx, _map,
+                                                dim, type, acc)
+        elif gbl:
+            dim = arg.data._dim[0]
+            size = arg.data._size
+            type = arg.data.dtype.name
+            data = arg.data._data
+            self._handle = core.op_arg_gbl_core(<char *>data.data, dim,
+                                                type, size, acc)
 
 cdef class op_plan:
     cdef core.op_plan *_handle
@@ -93,19 +133,13 @@ cdef class op_plan:
         cdef char * name = kernel._name
         cdef int part_size = 0
         cdef int nargs = len(args)
-        cdef op_dat dat
+        cdef op_arg _arg
         cdef core.op_arg *_args = <core.op_arg *>malloc(nargs * sizeof(core.op_arg))
         cdef int ninds
         cdef int *inds = <int *>malloc(nargs * sizeof(int))
         cdef int i
-        cdef int idx
-        cdef op_map _map
-        cdef core.op_map __map
-        cdef int dim
-        cdef char * type
-        cdef core.op_access acc
-
         cdef int ind = 0
+
         self.set_size = _set._handle.size
         if any(arg.is_indirect_and_not_read() for arg in args):
             self.set_size += _set._handle.exec_size
@@ -120,25 +154,9 @@ cdef class op_plan:
         d = {}
         for i in range(nargs):
             arg = args[i]
-            dat = arg._lib_handle
-            dim = arg._dim[0]
-            type = arg._data.dtype.name
-            if arg.is_indirect():
-                idx = arg._map._index
-                _map = arg._map._lib_handle
-                __map = _map._handle
-            else:
-                idx = -1
-                __map = <core.op_map>NULL
-
-            if arg._access._mode == "READ":
-                acc = core.OP_READ
-            elif arg._access._mode == "INC":
-                acc = core.OP_INC
-
-            _args[i] = core.op_arg_dat_core(dat._handle, idx, __map,
-                                            dim, type, acc)
-
+            arg.build_core_arg()
+            _arg = arg._lib_handle
+            _args[i] = _arg._handle
             if arg.is_indirect():
                 if d.has_key(arg):
                     inds[i] = d[arg]
