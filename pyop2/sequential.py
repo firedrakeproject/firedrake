@@ -128,7 +128,21 @@ class Set(object):
 class DataCarrier(object):
     """Abstract base class for OP2 data."""
 
-    pass
+    def _verify_reshape(self, data, dtype, shape):
+        """Verify data is of type dtype and try to reshaped to shape."""
+
+        t = np.dtype(dtype)
+        # If both data and dtype are given make sure they agree
+        if dtype is not None and data is not None:
+            assert t == np.asarray(data).dtype, \
+                    "data is of type %s not of requested type %s" \
+                    % (np.asarray(data).dtype, t)
+
+        try:
+            return np.asarray(data, dtype=t).reshape(shape)
+        except ValueError:
+            raise ValueError("Invalid data: expected %d values, got %d" % \
+                    (np.prod(shape), np.asarray(data).size))
 
 class Dat(DataCarrier):
     """OP2 vector data. A Dat holds a value for every member of a set."""
@@ -136,24 +150,13 @@ class Dat(DataCarrier):
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
 
-    def __init__(self, dataset, dim, datatype=None, data=None, name=None):
+    def __init__(self, dataset, dim, dtype=None, data=None, name=None):
         assert isinstance(dataset, Set), "Data set must be of type Set"
         assert not name or isinstance(name, str), "Name must be of type str"
 
-        t = np.dtype(datatype)
-        # If both data and datatype are given make sure they agree
-        if datatype is not None and data is not None:
-            assert t == np.asarray(data).dtype, \
-                    "data is of type %s not of requested type %s" \
-                    % (np.asarray(data).dtype, t)
-
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
-        try:
-            self._data = np.asarray(data, dtype=t).reshape((dataset.size,)+self._dim)
-        except ValueError:
-            raise ValueError("Invalid data: expected %d values, got %d" % \
-                    (dataset.size*np.prod(dim), np.asarray(data).size))
+        self._data = self._verify_reshape(data, dtype, (dataset.size,)+self._dim)
         self._name = name or "dat_%d" % Dat._globalcount
         self._map = None
         self._access = None
@@ -189,11 +192,11 @@ class Mat(DataCarrier):
     _globalcount = 0
     _modes = [WRITE, INC]
 
-    def __init__(self, datasets, dim, datatype=None, name=None):
+    def __init__(self, datasets, dim, dtype=None, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._datasets = as_tuple(datasets, Set, 2)
         self._dim = as_tuple(dim, int)
-        self._datatype = np.dtype(datatype)
+        self._datatype = np.dtype(dtype)
         self._name = name or "mat_%d" % Mat._globalcount
         self._maps = None
         self._access = None
