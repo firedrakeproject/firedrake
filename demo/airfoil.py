@@ -72,13 +72,13 @@ p_qold  = op2.Dat(cells,  4, qold,  np.double, "p_qold")
 p_adt   = op2.Dat(cells,  1, adt,   np.double, "p_adt")
 p_res   = op2.Dat(cells,  4, res,   np.double, "p_res")
 
-gam  = op2.Const(1, 1.4, "gam")
-gm1  = op2.Const(1, 0.4, "gm1")
-cfl  = op2.Const(1, 0.9, "cfl")
-eps  = op2.Const(1, 0.05, "eps")
-mach = op2.Const(1, 0.4, "mach")
+gam  = op2.Const(1, 1.4,  np.double, "gam")
+gm1  = op2.Const(1, 0.4,  np.double, "gm1")
+cfl  = op2.Const(1, 0.9,  np.double, "cfl")
+eps  = op2.Const(1, 0.05, np.double, "eps")
+mach = op2.Const(1, 0.4,  np.double, "mach")
 
-alpha = op2.Const(1, 3.0*atan(1.0)/45.0, "alpha")
+alpha = op2.Const(1, 3.0*atan(1.0)/45.0, np.double, "alpha")
 
 # Constants
 p = 1.0
@@ -86,7 +86,7 @@ r = 1.0
 u = sqrt(1.4/p/r)*0.4
 e = p/(r*0.4) + 0.5*u*u
 
-qinf = op2.Const(4, [r, r*u, 0.0, r*e], "qinf")
+qinf = op2.Const(4, [r, r*u, 0.0, r*e], np.double, "qinf")
 
 # Main time-marching loop
 
@@ -123,7 +123,7 @@ for i in range(niter):
                      p_bound(op2.IdentityMap, op2.READ))
 
         # Update flow field
-        rms = op2.Global(1, 0, "rms")
+        rms = op2.Global(1, 0.0, np.double, "rms")
         op2.par_loop(update, cells,
                      p_qold(op2.IdentityMap, op2.READ),
                      p_q   (op2.IdentityMap, op2.WRITE),

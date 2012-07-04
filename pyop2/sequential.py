@@ -232,14 +232,10 @@ class Const(DataCarrier):
     _globalcount = 0
     _modes = [READ]
 
-    def __init__(self, dim, data, name=None):
+    def __init__(self, dim, data=None, dtype=None, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._dim = as_tuple(dim, int)
-        try:
-            self._data = np.asarray(data).reshape(dim)
-        except ValueError:
-            raise ValueError("Invalid data: expected %d values, got %d" % \
-                    (np.prod(dim), np.asarray(data).size))
+        self._data = self._verify_reshape(data, dtype, self._dim)
         self._name = name or "const_%d" % Const._globalcount
         self._access = READ
         Const._globalcount += 1
@@ -258,10 +254,10 @@ class Global(DataCarrier):
     _globalcount = 0
     _modes = [READ, INC, MIN, MAX]
 
-    def __init__(self, dim, data, name=None):
+    def __init__(self, dim, data=None, dtype=None, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._dim = as_tuple(dim, int)
-        self._data = np.asarray(data).reshape(dim)
+        self._data = self._verify_reshape(data, dtype, self._dim)
         self._name = name or "global_%d" % Global._globalcount
         self._access = None
         Global._globalcount += 1
