@@ -42,8 +42,8 @@ cdef data_to_numpy_array_with_template(void * ptr, arr):
     shape = np.shape(arr)
     return np.PyArray_SimpleNewFromData(1, &dim, t.type_num, ptr).reshape(shape)
 
-cdef data_to_numpy_array_with_spec(void * ptr, np.npy_intp size, np.dtype t):
-    return np.PyArray_SimpleNewFromData(1, &size, t.type_num, ptr)
+cdef data_to_numpy_array_with_spec(void * ptr, np.npy_intp size, int t):
+    return np.PyArray_SimpleNewFromData(1, &size, t, ptr)
 
 cdef class op_set:
     cdef core.op_set _handle
@@ -148,6 +148,7 @@ cdef class op_plan:
         for arg in args:
             if arg.is_indirect():
                 nind_ele += 1
+        self.nind_ele = nind_ele
         ninds = 0
 
         unique_args = set(args)
@@ -172,38 +173,106 @@ cdef class op_plan:
 
         free(_args)
 
-    def ind_map(self):
-        cdef int size = self.set_size * self.nind_ele
-        return data_to_numpy_array_with_spec(self._handle.ind_map, size, int)
+    property ninds:
+        def __get__(self):
+            return self._handle.ninds
 
-    def loc_map(self):
-        cdef int size = self.set_size * self.nind_ele
-        return data_to_numpy_array_with_spec(self._handle.loc_map, size, np.int16)
+    property nargs:
+        def __get__(self):
+            return self._handle.nargs
 
-    def ind_sizes(self):
-        cdef int size = self._handle.nblocks * self._handle.ninds
-        return data_to_numpy_array_with_spec(self._handle.ind_sizes, size, int)
+    property part_size:
+        def __get__(self):
+            return self._handle.part_size
 
-    def ind_offs(self):
-        cdef int size = self._handle.nblocks * self._handle.ninds
-        return data_to_numpy_array_with_spec(self._handle.ind_offs, size, int)
+    property nthrcol:
+        def __get__(self):
+            cdef int size = self.nblocks
+            return data_to_numpy_array_with_spec(self._handle.nthrcol, size, np.NPY_INT32)
 
-    def nthrcol(self):
-        cdef int size = self._handle.nblocks
-        return data_to_numpy_array_with_spec(self._handle.nthrcol, size, int)
+    property thrcol:
+        def __get__(self):
+            cdef int size = self.set_size
+            return data_to_numpy_array_with_spec(self._handle.thrcol, size, np.NPY_INT32)
 
-    def thrcol(self):
-        cdef int size = self._handle.set.size
-        return data_to_numpy_array_with_spec(self._handle.thrcol, size, int)
+    property offset:
+        def __get__(self):
+            cdef int size = self.nblocks
+            return data_to_numpy_array_with_spec(self._handle.offset, size, np.NPY_INT32)
 
-    def offset(self):
-        cdef int size = self._handle.nblocks
-        return data_to_numpy_array_with_spec(self._handle.offset, size, int)
+    property ind_map:
+        def __get__(self):
+            cdef int size = self.set_size * self.nind_ele
+            return data_to_numpy_array_with_spec(self._handle.ind_map, size, np.NPY_INT32)
 
-    def nelems(self):
-        cdef int size = self._handle.nblocks
-        return data_to_numpy_array_with_spec(self._handle.nelems, size, int)
+    property ind_offs:
+        def __get__(self):
+            cdef int size = self.nblocks * self.ninds
+            return data_to_numpy_array_with_spec(self._handle.ind_offs, size, np.NPY_INT32)
 
-    def blkmap(self):
-        cdef int size = self._handle.nblocks
-        return data_to_numpy_array_with_spec(self._handle.blkmap, size, int)
+    property ind_sizes:
+        def __get__(self):
+            cdef int size = self.nblocks * self.ninds
+            return data_to_numpy_array_with_spec(self._handle.ind_sizes, size, np.NPY_INT32)
+
+    property nindirect:
+        def __get__(self):
+            cdef int size = self.ninds
+            return data_to_numpy_array_with_spec(self._handle.nindirect, size, np.NPY_INT32)
+
+    property loc_map:
+        def __get__(self):
+            cdef int size = self.set_size * self.nind_ele
+            return data_to_numpy_array_with_spec(self._handle.loc_map, size, np.NPY_INT16)
+
+    property nblocks:
+        def __get__(self):
+            return self._handle.nblocks
+
+    property nelems:
+        def __get__(self):
+            cdef int size = self.nblocks
+            return data_to_numpy_array_with_spec(self._handle.nelems, size, np.NPY_INT32)
+
+    property ncolors_core:
+        def __get__(self):
+            return self._handle.ncolors_core
+
+    property ncolors_owned:
+        def __get__(self):
+            return self._handle.ncolors_owned
+
+    property ncolors:
+        def __get__(self):
+            return self._handle.ncolors
+
+    property ncolblk:
+        def __get__(self):
+            cdef int size = self.set_size
+            return data_to_numpy_array_with_spec(self._handle.ncolblk, size, np.NPY_INT32)
+
+    property blkmap:
+        def __get__(self):
+            cdef int size = self.nblocks
+            return data_to_numpy_array_with_spec(self._handle.blkmap, size, np.NPY_INT32)
+
+    property nsharedCol:
+        def __get__(self):
+            cdef int size = self.ncolors
+            return data_to_numpy_array_with_spec(self._handle.nsharedCol, size, np.NPY_INT32)
+
+    property nshared:
+        def __get__(self):
+            return self._handle.nshared
+
+    property transfer:
+        def __get__(self):
+            return self._handle.transfer
+
+    property transfer2:
+        def __get__(self):
+            return self._handle.transfer2
+
+    property count:
+        def __get__(self):
+            return self._handle.count
