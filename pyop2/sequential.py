@@ -232,25 +232,25 @@ class Const(DataCarrier):
     _globalcount = 0
     _modes = [READ]
 
-    def __init__(self, dim, value, name=None):
+    def __init__(self, dim, data, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._dim = as_tuple(dim, int)
         try:
-            self._value = np.asarray(value).reshape(dim)
+            self._data = np.asarray(data).reshape(dim)
         except ValueError:
-            raise ValueError("Invalid value: expected %d values, got %d" % \
-                    (np.prod(dim), np.asarray(value).size))
+            raise ValueError("Invalid data: expected %d values, got %d" % \
+                    (np.prod(dim), np.asarray(data).size))
         self._name = name or "const_%d" % Const._globalcount
         self._access = READ
         Const._globalcount += 1
 
     def __str__(self):
         return "OP2 Const: %s of dim %s and type %s with value %s" \
-               % (self._name, self._dim, self._value.dtype.name, self._value)
+               % (self._name, self._dim, self._data.dtype.name, self._data)
 
     def __repr__(self):
         return "Const(%s, %s, '%s')" \
-               % (self._dim, self._value, self._name)
+               % (self._dim, self._data, self._name)
 
 class Global(DataCarrier):
     """OP2 global value."""
@@ -258,10 +258,10 @@ class Global(DataCarrier):
     _globalcount = 0
     _modes = [READ, INC, MIN, MAX]
 
-    def __init__(self, dim, value, name=None):
+    def __init__(self, dim, data, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._dim = as_tuple(dim, int)
-        self._value = np.asarray(value).reshape(dim)
+        self._data = np.asarray(data).reshape(dim)
         self._name = name or "global_%d" % Global._globalcount
         self._access = None
         Global._globalcount += 1
@@ -276,15 +276,15 @@ class Global(DataCarrier):
     def __str__(self):
         call = " in mode %s" % self._access if self._access else ""
         return "OP2 Global Argument: %s with dim %s and value %s%s" \
-                % (self._name, self._dim, self._value, call)
+                % (self._name, self._dim, self._data, call)
 
     def __repr__(self):
         call = "(%r)" % self._access if self._access else ""
-        return "Global('%s', %r, %r)%s" % (self._name, self._dim, self._value, call)
+        return "Global('%s', %r, %r)%s" % (self._name, self._dim, self._data, call)
 
     @property
-    def value(self):
-        return self._value
+    def data(self):
+        return self._data
 
 class Map(object):
     """OP2 map, a relation between two Sets."""

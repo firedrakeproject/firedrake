@@ -132,6 +132,6 @@ for i in range(niter):
                      rms(op2.INC))
 
     # Print iteration history
-    rms = sqrt(rms.value/cells.size)
+    rms = sqrt(rms.data/cells.size)
     if i%100 == 0:
         print "Iteration", i, "RMS:", rms
