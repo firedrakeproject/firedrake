@@ -4,6 +4,7 @@ import os
 
 from distutils.core import setup
 from Cython.Distutils import build_ext, Extension
+import numpy as np
 
 # Set the environment variable OP2_DIR to point to the op2 subdirectory
 # of your OP2 source tree
@@ -18,7 +19,7 @@ setup(name='PyOP2',
       cmdclass = {'build_ext' : build_ext},
       ext_modules=[Extension('op_lib_core', ['pyop2/op_lib_core.pyx'],
                              pyrex_include_dirs=['pyop2'],
-                             include_dirs=[OP2_INC],
+                             include_dirs=[OP2_INC] + [np.get_include()],
                              library_dirs=[OP2_LIB],
                              runtime_library_dirs=[OP2_LIB],
                              libraries=["op2_openmp"])])
