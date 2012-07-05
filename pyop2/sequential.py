@@ -131,13 +131,7 @@ class DataCarrier(object):
     def _verify_reshape(self, data, dtype, shape):
         """Verify data is of type dtype and try to reshaped to shape."""
 
-        t = np.dtype(dtype)
-        # If both data and dtype are given make sure they agree
-        if dtype is not None and data is not None:
-            assert t == np.asarray(data).dtype, \
-                    "data is of type %s not of requested type %s" \
-                    % (np.asarray(data).dtype, t)
-
+        t = np.dtype(dtype) if dtype is not None else None
         try:
             return np.asarray(data, dtype=t).reshape(shape)
         except ValueError:
