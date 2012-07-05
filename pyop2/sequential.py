@@ -209,7 +209,7 @@ class Dat(DataCarrier):
                % (self._name, self._dataset, self._dim, self._data.dtype.name)
 
     def __repr__(self):
-        return "Dat(%r, %s, '%s', None, '%s')%s" \
+        return "Dat(%r, %s, '%s', None, '%s')" \
                % (self._dataset, self._dim, self._data.dtype, self._name)
 
 class Mat(DataCarrier):
