@@ -34,6 +34,7 @@
 import sequential as op2
 from utils import verify_reshape
 from sequential import IdentityMap, READ, WRITE, RW, INC, MIN, MAX
+import op_lib_core as core
 import pyopencl as cl
 import pkg_resources
 import stringtemplate3
@@ -247,11 +248,13 @@ class ParLoopCall(object):
             source = str(dloop)
             prg = cl.Program (_ctx, source).build(options="-Werror")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
-            for i, a in enumerate(self._d_nonreduction_args):
-                kernel.set_arg(i, a._dat._buffer)
-            for i, a in enumerate(self._d_reduction_args):
+            self._karg = 0
+            for a in self._d_nonreduction_args:
+                self._kernel_arg_append(kernel, a._dat._buffer)
+
+            for a in self._d_reduction_args:
                 a._dat._allocate_reduction_array(_blocks_per_grid)
-                kernel.set_arg(i + len(self._d_nonreduction_args), a._dat._d_reduc_buffer)
+                self._kernel_arg_append(kernel, a._dat._d_reduc_buffer)
 
             cl.enqueue_nd_range_kernel(_queue, kernel, (thread_count,), (_threads_per_block,), g_times_l=False).wait()
             for i, a in enumerate(self._d_reduction_args):
@@ -259,15 +262,79 @@ class ParLoopCall(object):
         else:
             # call the plan function
             # loads plan into device memory
+            for a in self._args:
+                a.build_core_arg()
+
+            plan = core.op_plan(self._kernel, self._it_space, *self._args)
 
             # codegen
             iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
             iloop['parloop'] = self
             source = str(iloop)
-            print source
+
             prg = cl.Program(_ctx, source).build(options="-Werror")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
+            for a in self._unique_dats:
+                self._kernel_arg_append(kernel, a._buffer)
+
+            ind_map = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.ind_map.nbytes)
+            cl.enqueue_write_buffer(_queue, ind_map, plan.ind_map).wait()
+            for i in range(plan.nind_ele):
+                self._kernel_arg_append(kernel, ind_map.get_sub_region(origin=i * self._it_space.size, size=self._it_space.size))
+
+            loc_map = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.loc_map.nbytes)
+            cl.enqueue_write_buffer(_queue, loc_map, plan.loc_map).wait()
+            for i in range(plan.nind_ele):
+                self._kernel_arg_append(kernel, loc_map.get_sub_region(origin=i * self._it_space.size, size=self._it_space.size))
+
+            ind_sizes = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.ind_sizes.nbytes)
+            cl.enqueue_write_buffer(_queue, ind_sizes, plan.ind_sizes).wait()
+            self._kernel_arg_append(kernel, ind_sizes)
+
+            ind_offs = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.ind_offs.nbytes)
+            cl.enqueue_write_buffer(_queue, ind_offs, plan.ind_offs).wait()
+            self._kernel_arg_append(kernel, ind_offs)
+
+            blkmap = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.blkmap.nbytes)
+            cl.enqueue_write_buffer(_queue, blkmap, plan.blkmap).wait()
+            self._kernel_arg_append(kernel, blkmap)
+
+            offset = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.offset.nbytes)
+            cl.enqueue_write_buffer(_queue, offset, plan.offset).wait()
+            self._kernel_arg_append(kernel, offset)
+
+            nelems = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.nelems.nbytes)
+            cl.enqueue_write_buffer(_queue, nelems, plan.nelems).wait()
+            self._kernel_arg_append(kernel, nelems)
+
+            nthrcol = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.nthrcol.nbytes)
+            cl.enqueue_write_buffer(_queue, nthrcol, plan.nthrcol).wait()
+            self._kernel_arg_append(kernel, nthrcol)
+
+            thrcol = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.thrcol.nbytes)
+            cl.enqueue_write_buffer(_queue, thrcol, plan.thrcol).wait()
+            self._kernel_arg_append(kernel, thrcol)
+
+            thrcol = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.thrcol.nbytes)
+            cl.enqueue_write_buffer(_queue, thrcol, plan.thrcol).wait()
+            self._kernel_arg_append(kernel, thrcol)
+
+            print 'kernel launch'
+            block_offset = 0
+            for i in range(plan.ncolors):
+                blocks_per_grid = plan.ncolblk[i]
+                dynamic_shared_memory_size = plan.nshared
+                threads_per_block = _threads_per_block
+
+                self._kernel.set_arg(self._karg, np.int32(block_offset))
+                # call the kernel
+                block_offset += blocks_per_grid
+
             raise NotImplementedError()
+
+    def _kernel_arg_append(self, kernel, arg):
+        kernel.set_arg(self._karg, arg)
+        self._karg += 1
 
     def is_direct(self):
         return all(map(lambda a: isinstance(a._dat, Global) or (isinstance(a._dat, Dat) and a._map == IdentityMap), self._args))
