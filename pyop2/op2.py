@@ -20,7 +20,7 @@
 
 import backends
 import sequential
-from sequential import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, par_loop
+from sequential import READ, WRITE, RW, INC, MIN, MAX, IdentityMap
 
 
 def init(backend='sequential'):
@@ -51,3 +51,7 @@ class Global(sequential.Global):
 
 class Map(sequential.Map):
     __metaclass__ = backends.BackendSelector
+
+def par_loop(kernel, it_space, *args):
+    """Invocation of an OP2 kernel"""
+    return backends.par_loop(kernel, it_space, *args)

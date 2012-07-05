@@ -85,3 +85,6 @@ def set_backend(backend):
     assert backend in backends, "backend must be one of %r" % backends.keys()
     global BackendSelector
     BackendSelector._backend = backends[backend]
+
+def par_loop(kernel, it_space, *args):
+    return BackendSelector._backend.par_loop(kernel, it_space, *args)
