@@ -18,17 +18,26 @@
 
 """OP2 backend configuration and auxiliaries."""
 
-import cuda
-import opencl
+backends = {}
+try:
+    import cuda
+    backends['cuda'] = cuda
+except ImportError, e:
+    from warnings import warn
+    warn("Unable to import cuda backend: %s" % str(e))
+
+try:
+    import opencl
+    backends['opencl'] = opencl
+except ImportError, e:
+    from warnings import warn
+    warn("Unable to import opencl backend: %s" % str(e))
+
 import sequential
 import void
 
-backends = {
-        'cuda': cuda,
-        'sequential': sequential,
-        'opencl': opencl,
-        'void': void
-        }
+backends['sequential'] = sequential
+backends['void'] = void
 
 class BackendSelector(type):
     """Metaclass creating the backend class corresponding to the requested
