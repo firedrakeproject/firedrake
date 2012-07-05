@@ -77,8 +77,13 @@ class DeviceDataMixin:
     ClTypeInfo = collections.namedtuple('ClTypeInfo', ['clstring', 'zero'])
     CL_TYPES = {np.dtype('uint32'): ClTypeInfo('unsigned int', '0u')}
 
-    def fetch_data(self):
-        cl.enqueue_read_buffer(_queue, self._buffer, self._data).wait()
+    @property
+    def _cl_type(self):
+        return DeviceDataMixin.CL_TYPES[self._data.dtype].clstring
+
+    @property
+    def _cl_type_zero(self):
+        return DeviceDataMixin.CL_TYPES[self._data.dtype].zero
 
 class Dat(op2.Dat, DeviceDataMixin):
 
@@ -98,14 +103,6 @@ class Dat(op2.Dat, DeviceDataMixin):
     def data(self):
         cl.enqueue_read_buffer(_queue, self._buffer, self._data).wait()
         return self._data
-
-    @property
-    def _cl_type(self):
-        return DataCarrier.CL_TYPES[self._data.dtype].clstring
-
-    @property
-    def _cl_type_zero(self):
-        return DataCarrier.CL_TYPES[self._data.dtype].zero
 
 class Mat(op2.Mat, DeviceDataMixin):
 
@@ -131,33 +128,23 @@ class Global(op2.Global, DeviceDataMixin):
         cl.enqueue_write_buffer(_queue, self._buffer, self._data).wait()
 
     def _allocate_reduction_array(self, nelems):
-        self._h_reduc_array = np.zeros ((round_up(nelems * self._datatype(0).nbytes),), dtype=self._datatype)
+        self._h_reduc_array = np.zeros ((round_up(nelems * self._data.itemsize),), dtype=self._data.dtype)
         self._d_reduc_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._h_reduc_array.nbytes)
         #NOTE: the zeroing of the buffer could be made with an opencl kernel call
         cl.enqueue_write_buffer(_queue, self._d_reduc_buffer, self._h_reduc_array).wait()
 
     def _host_reduction(self, nelems):
         cl.enqueue_read_buffer(_queue, self._d_reduc_buffer, self._h_reduc_array).wait()
+        for j in range(self._dim[0]):
+            self._data[j] = 0
+
         for i in range(nelems):
             for j in range(self._dim[0]):
                 self._data[j] += self._h_reduc_array[j + i * self._dim[0]]
 
-        # update on device buffer
-        cl.enqueue_write_buffer(_queue, self._d_reduc_buffer, self._h_reduc_array).wait()
-
         # get rid of the buffer and host temporary arrays
         del self._h_reduc_array
         del self._d_reduc_buffer
-
-    @property
-    def data(self):
-        self.fetch_data()
-        return self._data
-
-    @data.setter
-    def data(self, value):
-        self._data = verify_reshape(value, self.dtype, self.dim)
-        self._on_device = False
 
 class Map(op2.Map):
 
@@ -180,14 +167,6 @@ class DatMapPair(object):
     @property
     def _i_direct(self):
         return isinstance(self._dat, Dat) and self._map != IdentityMap
-
-class DatMapPair(object):
-    """ Dummy class needed for codegen
-        could do without but would obfuscate codegen templates
-    """
-    def __init__(self, dat, map):
-        self._dat = dat
-        self._map = map
 
 #FIXME: some of this can probably be factorised up in common
 class ParLoopCall(object):
