@@ -251,6 +251,7 @@ further ARGS."""
             #    thus, if there are two arguments, both indirect but
             #    both referencing the same dat/map pair (with
             #    different indices) then ninds = {0,0}
+            ninds = 0
             for i in range(nargs):
                 arg = args[i]
                 arg.build_core_arg()
