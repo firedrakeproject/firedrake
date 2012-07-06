@@ -25,7 +25,7 @@ from sequential import READ, WRITE, RW, INC, MIN, MAX, IdentityMap
 
 
 def init(backend='sequential', diags=2):
-    """Intialise OP2: select the backend."""
+    """Initialise OP2: select the backend."""
     core.op_init(args=None, diags=diags)
     backends.set_backend(backend)
 
