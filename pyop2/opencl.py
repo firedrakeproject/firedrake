@@ -70,8 +70,12 @@ class Arg(op2.Arg):
         return isinstance(self._dat, Dat) and self._access in [READ, WRITE, RW]
 
     @property
-    def _i_direct(self):
-        return isinstance(self._dat, Dat) and self._map != IdentityMap
+    def _i_is_direct(self):
+        return isinstance(self._dat, Dat) and self._map == IdentityMap
+
+    @property
+    def _i_is_reduction(self):
+        return isinstance(self._dat, Dat) and self._access in [INC, MIN, MAX]
 
 class DeviceDataMixin:
 
@@ -274,6 +278,8 @@ class ParLoopCall(object):
 
             prg = cl.Program(_ctx, source).build(options="-Werror")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
+
+            self._karg = 0
             for a in self._unique_dats:
                 self._kernel_arg_append(kernel, a._buffer)
 

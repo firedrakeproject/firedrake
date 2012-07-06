@@ -11,7 +11,7 @@ __kernel
 void $parloop._kernel._name$_stub(
   $parloop._unique_dats:{__global $it._cl_type$* $it._name$,};separator="\n"$
   $parloop._i_staged_dat_map_pairs:{__global int* $shared_indirection_mapping_arg_name()$,};separator="\n"$
-//  TODO mappingArrays,
+  $parloop._args:{$if(!it._i_is_direct)$__global short* mappingArray$i$,$endif$};separator="\n"$
   __global int* p_ind_sizes,
   __global int* p_ind_offsets,
   __global int* p_blk_map,
@@ -64,11 +64,11 @@ nbytes += ROUND_UP($shared_indirection_mapping_size_name()$ * $it._dat._dim$ * s
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
-  // staging in indirect dats
+  $if(parloop._i_staged_in_dat_map_pairs)$// staging in of indirect dats
   $parloop._i_staged_in_dat_map_pairs:shared_memory_initialization();separator="\n"$
 
   barrier(CLK_LOCAL_MEM_FENCE);
-
+$endif$
   for (i_1 = get_local_id(0); i_1 < active_threads_count_ceiling; i_1 += get_local_size(0)) {
 $if(parloop._i_reduc_args)$
     color_2 = -1;
@@ -82,6 +82,7 @@ $if(parloop._i_reduc_args)$
 $else$
     $kernel_call()$
 $endif$
+
   }
 $if(parloop._i_reduc_args)$
   // FIX to only include the loop when the reduction is needed,
@@ -116,7 +117,7 @@ $parloop._kernel._name$(
 );
 >>
 
-kernel_call_arg()::=<<$if(it._i_direct)$(__global $it._dat._cl_type$* __private) ($it._dat._name$ + i_1 + shared_memory_offset)$elseif(it._inc)$$reduc_arg_local_name()$$else$$shared_indirection_mapping_memory_name()$ + something[i_1 + shared_memory_offset] * $it._dat._dim$$endif$>>
+kernel_call_arg()::=<<$if(it._i_is_direct)$(__global $it._dat._cl_type$* __private) ($it._dat._name$ + i_1 + shared_memory_offset)$elseif(it._i_is_reduction)$$reduc_arg_local_name()$$else$$shared_indirection_mapping_memory_name()$ + mappingArray$i$[i_1 + shared_memory_offset] * $it._dat._dim$$endif$>>
 
 staged_arg_local_variable_zeroing()::=<<
 for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2)
