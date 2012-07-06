@@ -20,6 +20,9 @@ from math import atan, sqrt
 import numpy as np
 
 from pyop2 import op2
+# Initialise OP2
+
+op2.init(backend='sequential')
 
 from airfoil_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 
@@ -48,6 +51,7 @@ adt   = np.array([1.0]*  ncell)
 
 ### End of grid stuff
 
+
 # Declare sets, maps, datasets and global constants
 
 nodes  = op2.Set(nnode, "nodes")
@@ -61,20 +65,20 @@ pbedge  = op2.Map(bedges, nodes, 2, bedge,  "pbedge")
 pbecell = op2.Map(bedges, cells, 1, becell, "pbecell")
 pcell   = op2.Map(cells,  nodes, 4, cell,   "pcell")
 
-p_bound = op2.Dat(bedges, 1, np.long, bound, "p_bound")
-p_x     = op2.Dat(nodes,  2, np.double, x,     "p_x")
-p_q     = op2.Dat(cells,  4, np.double, q,     "p_q")
-p_qold  = op2.Dat(cells,  4, np.double, qold,  "p_qold")
-p_adt   = op2.Dat(cells,  1, np.double, adt,   "p_adt")
-p_res   = op2.Dat(cells,  4, np.double, res,   "p_res")
+p_bound = op2.Dat(bedges, 1, bound, np.long,   "p_bound")
+p_x     = op2.Dat(nodes,  2, x,     np.double, "p_x")
+p_q     = op2.Dat(cells,  4, q,     np.double, "p_q")
+p_qold  = op2.Dat(cells,  4, qold,  np.double, "p_qold")
+p_adt   = op2.Dat(cells,  1, adt,   np.double, "p_adt")
+p_res   = op2.Dat(cells,  4, res,   np.double, "p_res")
 
-gam  = op2.Const(1, 1.4, "gam")
-gm1  = op2.Const(1, 0.4, "gm1")
-cfl  = op2.Const(1, 0.9, "cfl")
-eps  = op2.Const(1, 0.05, "eps")
-mach = op2.Const(1, 0.4, "mach")
+gam  = op2.Const(1, 1.4,  np.double, "gam")
+gm1  = op2.Const(1, 0.4,  np.double, "gm1")
+cfl  = op2.Const(1, 0.9,  np.double, "cfl")
+eps  = op2.Const(1, 0.05, np.double, "eps")
+mach = op2.Const(1, 0.4,  np.double, "mach")
 
-alpha = op2.Const(1, 3.0*atan(1.0)/45.0, "alpha")
+alpha = op2.Const(1, 3.0*atan(1.0)/45.0, np.double, "alpha")
 
 # Constants
 p = 1.0
@@ -82,7 +86,7 @@ r = 1.0
 u = sqrt(1.4/p/r)*0.4
 e = p/(r*0.4) + 0.5*u*u
 
-qinf = op2.Const(4, [r, r*u, 0.0, r*e], "qinf")
+qinf = op2.Const(4, [r, r*u, 0.0, r*e], np.double, "qinf")
 
 # Main time-marching loop
 
@@ -119,7 +123,7 @@ for i in range(niter):
                      p_bound(op2.IdentityMap, op2.READ))
 
         # Update flow field
-        rms = op2.Global(1, 0, "rms")
+        rms = op2.Global(1, 0.0, np.double, "rms")
         op2.par_loop(update, cells,
                      p_qold(op2.IdentityMap, op2.READ),
                      p_q   (op2.IdentityMap, op2.WRITE),
@@ -128,6 +132,6 @@ for i in range(niter):
                      rms(op2.INC))
 
     # Print iteration history
-    rms = sqrt(rms.value/cells.size)
+    rms = sqrt(rms.data/cells.size)
     if i%100 == 0:
         print "Iteration", i, "RMS:", rms
