@@ -91,8 +91,9 @@ def get_backend():
 def set_backend(backend):
     """Set the OP2 backend"""
 
-    assert backend in backends, "backend must be one of %r" % backends.keys()
     global BackendSelector
+    assert BackendSelector._backend == void, "The backend can only be set once!"
+    assert backend in backends, "backend must be one of %r" % backends.keys()
     BackendSelector._backend = backends[backend]
 
 def par_loop(kernel, it_space, *args):
