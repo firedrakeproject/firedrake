@@ -57,7 +57,7 @@ cdef class op_dat:
     def __cinit__(self, dat):
         cdef op_set set = dat._dataset._lib_handle
         cdef int dim = dat._dim[0]
-        cdef int size = dat._dataset._size
+        cdef int size = dat._data.dtype.itemsize
         cdef char * type = dat._data.dtype.name
         cdef np.ndarray data = dat._data
         cdef char * name = dat._name
