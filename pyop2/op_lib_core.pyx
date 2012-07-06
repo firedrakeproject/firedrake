@@ -151,9 +151,9 @@ cdef class op_plan:
         cdef int part_size = 0
         cdef int nargs = len(args)
         cdef op_arg _arg
-        cdef core.op_arg *_args = <core.op_arg *>malloc(nargs * sizeof(core.op_arg))
+        cdef core.op_arg *_args
         cdef int ninds
-        cdef int *inds = <int *>malloc(nargs * sizeof(int))
+        cdef int *inds
         cdef int i
         cdef int ind = 0
 
@@ -170,25 +170,34 @@ cdef class op_plan:
 
         unique_args = set(args)
         d = {}
-        for i in range(nargs):
-            arg = args[i]
-            arg.build_core_arg()
-            _arg = arg._lib_handle
-            _args[i] = _arg._handle
-            if arg.is_indirect():
-                if d.has_key(arg):
-                    inds[i] = d[arg]
+        _args = <core.op_arg *>malloc(nargs * sizeof(core.op_arg))
+        if _args is NULL:
+            raise MemoryError()
+        inds = <int *>malloc(nargs * sizeof(int))
+        if inds is NULL:
+            raise MemoryError()
+        try:
+            for i in range(nargs):
+                arg = args[i]
+                arg.build_core_arg()
+                _arg = arg._lib_handle
+                _args[i] = _arg._handle
+                if arg.is_indirect():
+                    if d.has_key(arg):
+                        inds[i] = d[arg]
+                    else:
+                        inds[i] = ind
+                        d[arg] = ind
+                        ind += 1
+                        ninds += 1
                 else:
-                    inds[i] = ind
-                    d[arg] = ind
-                    ind += 1
-                    ninds += 1
-            else:
-                inds[i] = -1
-        self._handle = core.op_plan_core(name, _set._handle, part_size,
-                                         nargs, _args, ninds, inds)
-
-        free(_args)
+                    inds[i] = -1
+            self._handle = core.op_plan_core(name, _set._handle,
+                                             part_size, nargs, _args,
+                                             ninds, inds)
+        finally:
+            free(_args)
+            free(inds)
 
     property ninds:
         def __get__(self):
