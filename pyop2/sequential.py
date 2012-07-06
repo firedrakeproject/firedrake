@@ -200,7 +200,7 @@ class Dat(DataCarrier):
         if isinstance(path, Map):
             return self._arg_type(data=self, map=path, access=access)
         else:
-            path._data = self
+            path._dat = self
             path._access = access
             return path
 
