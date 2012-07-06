@@ -195,7 +195,7 @@ isinstance(arg, Dat)."""
                                                 dim, type, acc)
         elif gbl:
             dim = arg.data._dim[0]
-            size = arg.data._size
+            size = arg.data._data.size/dim
             type = arg.data.dtype.name
             data = arg.data._data
             self._handle = core.op_arg_gbl_core(<char *>data.data, dim,
