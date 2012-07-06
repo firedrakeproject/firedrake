@@ -1,51 +1,94 @@
 """
 Wrap OP2 library for PyOP2
 
-The basic idea is that we need to make the OP2 runtime aware of
-python-managed datatypes (sets, maps, dats, and so forth).
+The C level OP2 runtime needs to be aware of the data structures that
+the python layer is managing.  So that things like plan construction
+and halo swapping actually have some data to deal with.  Equally, the
+python level objects need to keep a hold of their C layer counterparts
+for interoperability.  All this interfacing is dealt with here.
 
-All the information we pass to the C library is available in python,
-we therefore do not have to expose the details of the C structs.  We
-just need a way of initialising a C data structure corresponding to
-the python one.  We do this through Cython's "cdef class" feature.
-The initialisation takes a python data structure, calls out to the OP2
-C library's declaration routine (getting back a pointer to the C
-data).  On the python side, we store a reference to the C struct we're
-holding.
+Naming conventions:
 
-For example, to declare a set and make the C side aware of it we do
-this:
+Wrappers around C functions use the same names as in the OP2-Common
+library.  Hence, the python classes corresponding to C structs are not
+opSet, opDat and so forth, but rather op_set and op_dat.
 
-   from pyop2 import op2
-   import op_lib_core
+How it works:
 
-   py_set = op2.Set(size, 'name')
+A python object that has a C counterpart has a slot named
+_lib_handle.  This is either None, meaning the C initialiser has not
+yet been called, or else a handle to the Cython class wrapping the C
+data structure.
 
-   c_set = op_lib_core.op_set(py_set)
+To get this interfacing library, do something like:
+
+    import op_lib_core as core
+
+To build the C data structure on the python side, the class should do
+the following when necessary (probably in __init__):
+
+    if self._lib_handle is None:
+        self._lib_handle = core.op_set(self)
+
+The above example is obviously for an op2.Set object.
+
+C layer function calls that require a set as an argument a wrapped
+such that you don't need to worry about passing the handle, instead,
+just pass the python object.  That is, you do:
+
+   core.op_function(set)
+
+not
+
+   core.op_function(set._lib_handle)
+
+Most C level objects are completely opaque to the python layer.  The
+exception is the op_plan structure, whose data must be marshalled to
+the relevant device on the python side.  The slots of the op_plan
+struct are exposed as properties to python.  Thus, to get the ind_map
+array from a plan you do:
+
+   plan = core.op_plan(kernel, set, *args)
+
+   ind_map = plan.ind_map
+
+Scalars are returned as scalars, arrays are wrapped in a numpy array
+of the appropriate size.
+
+WARNING, the arrays returned by these properties have their data
+buffer pointing to the C layer's data.  As such, they should be
+considered read-only.  If you modify them on the python side, the plan
+will likely be wrong.
 
 
-py_set._lib_handle now holds a pointer to the c_set, and c_set._handle
-is the C pointer we need to pass to routines in the OP2 C library.
+TODO:
+Cleanup of C level datastructures is currently not handled.
 """
 
+from libc.stdlib cimport malloc, free
 import numpy as np
 cimport numpy as np
-
-from libc.stdlib cimport malloc, free
 cimport _op_lib_core as core
 
 np.import_array()
 
 cdef data_to_numpy_array_with_template(void * ptr, arr):
+    """Return an array with the same properties as ARR with data from PTR."""
     cdef np.npy_intp dim = np.size(arr)
     cdef np.dtype t = arr.dtype
     shape = np.shape(arr)
     return np.PyArray_SimpleNewFromData(1, &dim, t.type_num, ptr).reshape(shape)
 
 cdef data_to_numpy_array_with_spec(void * ptr, np.npy_intp size, int t):
+    """Return an array of SIZE elements (each of type T) with data from PTR."""
     return np.PyArray_SimpleNewFromData(1, &size, t, ptr)
 
 def op_init(args, diags):
+    """Initialise OP2
+
+ARGS should be a list of strings to pass as "command-line" arguments
+DIAGS should be an integer specifying the diagnostic level.  The
+larger it is, the more chatty OP2 will be."""
     cdef char **argv
     cdef int diag_level = diags
     if args is None:
@@ -60,11 +103,14 @@ def op_init(args, diags):
             argv[i] = a
         core.op_init_core(len(args), argv, diag_level)
     finally:
+        # We can free argv here, because op_init_core doesn't keep a
+        # handle to the arguments.
         free(argv)
 
 cdef class op_set:
     cdef core.op_set _handle
     def __cinit__(self, set):
+        """Instantiate a C-level op_set from SET"""
         cdef int size = set._size
         cdef char * name = set._name
         self._handle = core.op_decl_set_core(size, name)
@@ -72,6 +118,7 @@ cdef class op_set:
 cdef class op_dat:
     cdef core.op_dat _handle
     def __cinit__(self, dat):
+        """Instantiate a C-level op_dat from DAT"""
         cdef op_set set = dat._dataset._lib_handle
         cdef int dim = dat._dim[0]
         cdef int size = dat._data.dtype.itemsize
@@ -84,6 +131,7 @@ cdef class op_dat:
 cdef class op_map:
     cdef core.op_map _handle
     def __cinit__(self, map):
+        """Instantiate a C-level op_map from MAP"""
         cdef op_set frm = map._iterset._lib_handle
         cdef op_set to = map._dataset._lib_handle
         cdef int dim = map._dim
@@ -96,16 +144,25 @@ cdef class op_map:
             self._handle = core.op_decl_map_core(frm._handle, to._handle, dim,
                                                  &values[0], name)
 
-_access_map = {'READ' : core.OP_READ,
+# Map Python-layer access descriptors down to C enum
+_access_map = {'READ'  : core.OP_READ,
                'WRITE' : core.OP_WRITE,
-               'RW' : core.OP_RW,
-               'INC' : core.OP_INC,
-               'MIN' : core.OP_MIN,
-               'MAX' : core.OP_MAX}
+               'RW'    : core.OP_RW,
+               'INC'   : core.OP_INC,
+               'MIN'   : core.OP_MIN,
+               'MAX'   : core.OP_MAX}
 
 cdef class op_arg:
     cdef core.op_arg _handle
     def __cinit__(self, arg, dat=False, gbl=False):
+        """Instantiate a C-level op_arg from ARG
+
+If DAT is True, this arg is actually an op_dat.
+If GBL is True, this arg is actually an op_gbl.
+
+The reason we have to pass these extra arguments in is because we
+can't import sequential into this file, and hence cannot do
+isinstance(arg, Dat)."""
         cdef int idx
         cdef op_map map
         cdef core.op_map _map
@@ -117,6 +174,9 @@ cdef class op_arg:
         cdef op_dat _dat
         if not (dat or gbl):
             raise RuntimeError("Must tell me what type of arg this is")
+
+        if dat and gbl:
+            raise RuntimeError("An argument cannot be both a Dat and Global!")
 
         acc = _access_map[arg.access._mode]
 
@@ -146,6 +206,11 @@ cdef class op_plan:
     cdef int set_size
     cdef int nind_ele
     def __cinit__(self, kernel, iset, *args):
+        """Instantiate a C-level op_plan for a parallel loop.
+
+Arguments to this constructor should be the arguments of the parallel
+loop, i.e. the KERNEL, the ISET (iteration set) and any
+further ARGS."""
         cdef op_set _set = iset._lib_handle
         cdef char * name = kernel._name
         cdef int part_size = 0
@@ -158,18 +223,19 @@ cdef class op_plan:
         cdef int ind = 0
 
         self.set_size = _set._handle.size
+        # Size of the plan is incremented by the exec_size if any
+        # argument is indirect and not read-only.  exec_size is only
+        # ever non-zero in an MPI setting.
         if any(arg.is_indirect_and_not_read() for arg in args):
             self.set_size += _set._handle.exec_size
 
-        nind_ele = 0
-        for arg in args:
-            if arg.is_indirect():
-                nind_ele += 1
-        self.nind_ele = nind_ele
-        ninds = 0
+        # Count number of indirect arguments.  This will need changing
+        # once we deal with vector maps.
+        nind_ele = sum(arg.is_indirect() for arg in args)
 
         unique_args = set(args)
         d = {}
+        # Build list of args to pass to C-level opan function.
         _args = <core.op_arg *>malloc(nargs * sizeof(core.op_arg))
         if _args is NULL:
             raise MemoryError()
@@ -177,6 +243,14 @@ cdef class op_plan:
         if inds is NULL:
             raise MemoryError()
         try:
+            # _args[i] is the ith argument
+            # ninds[i] is:
+            #   -1 if the ith argument is direct
+            #   n >= if the ith argument is indirect
+            #    where n counts the number of unique indirect dats.
+            #    thus, if there are two arguments, both indirect but
+            #    both referencing the same dat/map pair (with
+            #    different indices) then ninds = {0,0}
             for i in range(nargs):
                 arg = args[i]
                 arg.build_core_arg()
@@ -196,109 +270,186 @@ cdef class op_plan:
                                              part_size, nargs, _args,
                                              ninds, inds)
         finally:
+            # We can free these because op_plan_core doesn't keep a
+            # handle to them.
             free(_args)
             free(inds)
 
     property ninds:
+        """Return the number of unique indirect arguments"""
         def __get__(self):
             return self._handle.ninds
 
     property nargs:
+        """Return the total number of arguments"""
         def __get__(self):
             return self._handle.nargs
 
     property part_size:
+        """Return the partition size.
+Normally this will be zero, indicating that the plan should guess the
+best partition size."""
         def __get__(self):
             return self._handle.part_size
 
     property nthrcol:
+        """The number of thread colours in each block.
+
+There are nblocks blocks so nthrcol[i] gives the number of colours in
+the ith block."""
         def __get__(self):
             cdef int size = self.nblocks
             return data_to_numpy_array_with_spec(self._handle.nthrcol, size, np.NPY_INT32)
 
     property thrcol:
+        """Thread colours of each element.
+
+The ith entry in this array is the colour of ith element of the
+iteration set the plan is defined on."""
         def __get__(self):
             cdef int size = self.set_size
             return data_to_numpy_array_with_spec(self._handle.thrcol, size, np.NPY_INT32)
 
     property offset:
+        """The offset into renumbered mappings for each block.
+
+This tells us where in loc_map (q.v.) this block's renumbered mapping
+starts."""
         def __get__(self):
             cdef int size = self.nblocks
             return data_to_numpy_array_with_spec(self._handle.offset, size, np.NPY_INT32)
 
     property ind_map:
+        """Renumbered mappings for each indirect dataset.
+
+The ith indirect dataset's mapping starts at:
+
+    ind_map[(i-1) * set_size]
+
+But we need to fix this up for the block we're currently processing,
+so see also ind_offs.
+"""
         def __get__(self):
             cdef int size = self.set_size * self.nind_ele
             return data_to_numpy_array_with_spec(self._handle.ind_map, size, np.NPY_INT32)
 
     property ind_offs:
+        """Offsets for each block into ind_map (q.v.).
+
+The ith /unique/ indirect dataset's offset is at:
+
+    ind_offs[(i-1) + blockId * N]
+
+where N is the number of unique indirect datasets."""
         def __get__(self):
             cdef int size = self.nblocks * self.ninds
             return data_to_numpy_array_with_spec(self._handle.ind_offs, size, np.NPY_INT32)
 
     property ind_sizes:
+        """The size of each indirect dataset per block.
+
+The ith /unique/ indirect direct has
+
+    ind_sizes[(i-1) + blockID * N]
+
+elements to be staged in, where N is the number of unique indirect
+datasets."""
         def __get__(self):
             cdef int size = self.nblocks * self.ninds
             return data_to_numpy_array_with_spec(self._handle.ind_sizes, size, np.NPY_INT32)
 
     property nindirect:
+        """Total size of each unique indirect dataset"""
         def __get__(self):
             cdef int size = self.ninds
             return data_to_numpy_array_with_spec(self._handle.nindirect, size, np.NPY_INT32)
 
     property loc_map:
+        """Local indirect dataset indices, see also offset
+
+Once the ith unique indirect dataset has been copied into shared
+memory (via ind_map), this mapping array tells us where in shared
+memory the nth iteration element is:
+
+    arg_i_s + loc_map[(i-1) * set_size + n + offset[blockId]] * dim(arg_i)
+"""
         def __get__(self):
             cdef int size = self.set_size * self.nind_ele
             return data_to_numpy_array_with_spec(self._handle.loc_map, size, np.NPY_INT16)
 
     property nblocks:
+        """The number of blocks"""
         def __get__(self):
             return self._handle.nblocks
 
     property nelems:
+        """The number of elements in each block"""
         def __get__(self):
             cdef int size = self.nblocks
             return data_to_numpy_array_with_spec(self._handle.nelems, size, np.NPY_INT32)
 
     property ncolors_core:
+        """Number of core (non-halo colours)
+
+MPI only."""
         def __get__(self):
             return self._handle.ncolors_core
 
     property ncolors_owned:
+        """Number of colours for blocks with only owned elements
+
+MPI only."""
         def __get__(self):
             return self._handle.ncolors_owned
 
     property ncolors:
+        """Number of block colours"""
         def __get__(self):
             return self._handle.ncolors
 
     property ncolblk:
+        """Number of blocks for each colour
+
+This array is allocated to be set_size long, but this is the worst
+case scenario (every element interacts with every other).  The number
+of "real" elements is ncolors."""
         def __get__(self):
             cdef int size = self.set_size
             return data_to_numpy_array_with_spec(self._handle.ncolblk, size, np.NPY_INT32)
 
     property blkmap:
+        """Mapping from device's block ID to plan's block ID.
+
+There are nblocks entries here, you should index into this with the
+device's "block" address plus an offset which is
+
+    sum(ncolblk[i] for i in range(0, current_colour))"""
         def __get__(self):
             cdef int size = self.nblocks
             return data_to_numpy_array_with_spec(self._handle.blkmap, size, np.NPY_INT32)
 
     property nsharedCol:
+        """The amount of shared memory required for each colour"""
         def __get__(self):
             cdef int size = self.ncolors
             return data_to_numpy_array_with_spec(self._handle.nsharedCol, size, np.NPY_INT32)
 
     property nshared:
+        """The total number of bytes of shared memory the plan uses"""
         def __get__(self):
             return self._handle.nshared
 
     property transfer:
+        """Data transfer per kernel call"""
         def __get__(self):
             return self._handle.transfer
 
     property transfer2:
+        """Bytes of cache line per kernel call"""
         def __get__(self):
             return self._handle.transfer2
 
     property count:
+        """Number of times this plan has been used"""
         def __get__(self):
             return self._handle.count
