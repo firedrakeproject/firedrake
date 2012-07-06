@@ -29,17 +29,26 @@ class DirectLoopTest(unittest.TestCase):
         del self._g
 
     def test_wo(self):
-        kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"
+        kernel_wo = """
+void kernel_wo(unsigned int*);
+void kernel_wo(unsigned int* x) { *x = 42; }
+"""
         l = op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), self._elems, self._x(op2.IdentityMap, op2.WRITE))
         self.assertTrue(all(map(lambda x: x==42, self._x.data)))
 
     def test_rw(self):
-        kernel_rw = "void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }\n"
+        kernel_rw = """
+void kernel_rw(unsigned int*);
+void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }
+"""
         l = op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"), self._elems, self._x(op2.IdentityMap, op2.RW))
         self.assertTrue(sum(self._x.data) == nelems * (nelems + 1) / 2);
 
     def test_global_incl(self):
-        kernel_global_inc = "void kernel_global_inc(unsigned int* x, unsigned int* inc) { (*x) = (*x) + 1; (*inc) += (*x); }\n"
+        kernel_global_inc = """
+void kernel_global_inc(unsigned int*, unsigned int*);
+void kernel_global_inc(unsigned int* x, unsigned int* inc) { (*x) = (*x) + 1; (*inc) += (*x); }
+"""
         l = op2.par_loop(op2.Kernel(kernel_global_inc, "kernel_global_inc"), self._elems, self._x(op2.IdentityMap, op2.RW), self._g(op2.INC))
         self.assertTrue(self._g.data[0] == nelems * (nelems + 1) / 2);
 

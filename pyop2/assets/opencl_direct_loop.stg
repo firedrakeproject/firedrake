@@ -15,7 +15,7 @@ void $parloop._kernel._name$_stub (
 )
 {
   unsigned int shared_memory_offset = $const.shared_memory_offset$;
-  unsigned int set_size = $parloop._it_space.size$;
+  int set_size = $parloop._it_space.size$;
 
   __local char shared[$const.dynamic_shared_memory_size$];
   __local char* shared_pointer;
