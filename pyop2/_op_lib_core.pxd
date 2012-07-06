@@ -35,6 +35,8 @@ cdef extern from "op_lib_core.h":
 
     op_arg op_arg_gbl_core(char *, int, char *, int, op_access)
 
+    void op_init_core(int, char **, int)
+
 cdef extern from "op_rt_support.h":
     ctypedef struct op_plan:
         char * name

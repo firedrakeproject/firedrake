@@ -45,6 +45,23 @@ cdef data_to_numpy_array_with_template(void * ptr, arr):
 cdef data_to_numpy_array_with_spec(void * ptr, np.npy_intp size, int t):
     return np.PyArray_SimpleNewFromData(1, &size, t, ptr)
 
+def op_init(args, diags):
+    cdef char **argv
+    cdef int diag_level = diags
+    if args is None:
+        core.op_init_core(0, NULL, diag_level)
+        return
+    args = [bytes(x) for x in args]
+    argv = <char **>malloc(sizeof(char *) * len(args))
+    if argv is NULL:
+        raise MemoryError()
+    try:
+        for i, a in enumerate(args):
+            argv[i] = a
+        core.op_init_core(len(args), argv, diag_level)
+    finally:
+        free(argv)
+
 cdef class op_set:
     cdef core.op_set _handle
     def __cinit__(self, set):

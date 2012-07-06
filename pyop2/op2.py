@@ -19,13 +19,14 @@
 """The PyOP2 API specification."""
 
 import backends
+import op_lib_core as core
 import sequential
 from sequential import READ, WRITE, RW, INC, MIN, MAX, IdentityMap
 
 
-def init(backend='sequential'):
+def init(backend='sequential', diags=2):
     """Intialise OP2: select the backend."""
-
+    core.op_init(args=None, diags=diags)
     backends.set_backend(backend)
 
 class IterationSpace(sequential.IterationSpace):
