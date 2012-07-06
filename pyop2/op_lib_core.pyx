@@ -107,6 +107,11 @@ larger it is, the more chatty OP2 will be."""
         # handle to the arguments.
         free(argv)
 
+def op_exit():
+    """Clean up C level data"""
+    core.op_rt_exit()
+    core.op_exit_core()
+
 cdef class op_set:
     cdef core.op_set _handle
     def __cinit__(self, set):

@@ -37,6 +37,8 @@ cdef extern from "op_lib_core.h":
 
     void op_init_core(int, char **, int)
 
+    void op_exit_core()
+
 cdef extern from "op_rt_support.h":
     ctypedef struct op_plan:
         char * name
@@ -73,3 +75,5 @@ cdef extern from "op_rt_support.h":
 
     op_plan * op_plan_core(char *, op_set, int, int, op_arg *,
                            int, int *)
+
+    void op_rt_exit()
