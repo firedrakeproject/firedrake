@@ -140,14 +140,14 @@ cdef class op_map:
         cdef op_set frm = map._iterset._lib_handle
         cdef op_set to = map._dataset._lib_handle
         cdef int dim = map._dim
-        cdef np.ndarray[int, ndim=1, mode="c"] values = map._values.reshape(np.size(map._values))
+        cdef np.ndarray values = map._values
         cdef char * name = map._name
-        if len(map._values) == 0:
+        if values.size == 0:
             self._handle = core.op_decl_map_core(frm._handle, to._handle,
                                                  dim, NULL, name)
         else:
             self._handle = core.op_decl_map_core(frm._handle, to._handle, dim,
-                                                 &values[0], name)
+                                                 <int *>values.data, name)
 
 # Map Python-layer access descriptors down to C enum
 _access_map = {'READ'  : core.OP_READ,
