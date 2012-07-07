@@ -238,9 +238,7 @@ further ARGS."""
         # once we deal with vector maps.
         nind_ele = sum(arg.is_indirect() for arg in args)
 
-        unique_args = set(args)
-        d = {}
-        # Build list of args to pass to C-level opan function.
+        # Build list of args to pass to C-level op_plan function.
         _args = <core.op_arg *>malloc(nargs * sizeof(core.op_arg))
         if _args is NULL:
             raise MemoryError()
@@ -249,19 +247,24 @@ further ARGS."""
             raise MemoryError()
         try:
             # _args[i] is the ith argument
-            # ninds[i] is:
+            # inds[i] is:
             #   -1 if the ith argument is direct
-            #   n >= if the ith argument is indirect
+            #   n >= 0 if the ith argument is indirect
             #    where n counts the number of unique indirect dats.
             #    thus, if there are two arguments, both indirect but
             #    both referencing the same dat/map pair (with
             #    different indices) then ninds = {0,0}
             ninds = 0
+            # Keep track of which indirect args we've already seen to
+            # get value of inds correct.
+            d = {}
             for i in range(nargs):
+                inds[i] = -1    # Assume direct
                 arg = args[i]
                 arg.build_core_arg()
                 _arg = arg._lib_handle
                 _args[i] = _arg._handle
+                # Fix up inds[i] in indirect case
                 if arg.is_indirect():
                     if d.has_key(arg):
                         inds[i] = d[arg]
@@ -270,8 +273,6 @@ further ARGS."""
                         d[arg] = ind
                         ind += 1
                         ninds += 1
-                else:
-                    inds[i] = -1
             self._handle = core.op_plan_core(name, _set._handle,
                                              part_size, nargs, _args,
                                              ninds, inds)
@@ -293,6 +294,7 @@ further ARGS."""
 
     property part_size:
         """Return the partition size.
+
 Normally this will be zero, indicating that the plan should guess the
 best partition size."""
         def __get__(self):
