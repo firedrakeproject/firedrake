@@ -149,14 +149,6 @@ cdef class op_map:
             self._handle = core.op_decl_map_core(frm._handle, to._handle, dim,
                                                  <int *>values.data, name)
 
-# Map Python-layer access descriptors down to C enum
-_access_map = {'READ'  : core.OP_READ,
-               'WRITE' : core.OP_WRITE,
-               'RW'    : core.OP_RW,
-               'INC'   : core.OP_INC,
-               'MIN'   : core.OP_MIN,
-               'MAX'   : core.OP_MAX}
-
 cdef class op_arg:
     cdef core.op_arg _handle
     def __cinit__(self, arg, dat=False, gbl=False):
@@ -183,7 +175,13 @@ isinstance(arg, Dat)."""
         if dat and gbl:
             raise RuntimeError("An argument cannot be both a Dat and Global!")
 
-        acc = _access_map[arg.access._mode]
+        # Map Python-layer access descriptors down to C enum
+        acc = {'READ'  : core.OP_READ,
+               'WRITE' : core.OP_WRITE,
+               'RW'    : core.OP_RW,
+               'INC'   : core.OP_INC,
+               'MIN'   : core.OP_MIN,
+               'MAX'   : core.OP_MAX}[arg.access._mode]
 
         if dat:
             _dat = arg.data._lib_handle
