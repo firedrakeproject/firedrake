@@ -18,9 +18,10 @@ void $parloop._kernel._name$_stub (
   int set_size = $parloop._it_space.size$;
 
   __local char shared[$const.dynamic_shared_memory_size$];
-  __local char* shared_pointer;
 
   $parloop._d_staged_args:{__private $it._dat._cl_type$ $it._dat._name$_local[$it._dat._dim$];};separator="\n"$
+  $parloop._d_staged_args:{__local $it._dat._cl_type$* $it._dat._name$_shared = (__local $it._dat._cl_type$*) (shared + shared_memory_offset * (get_local_id(0) / OP_WARPSIZE));};separator="\n"$
+
   $parloop._d_reduction_args:{__private $it._dat._cl_type$ $it._dat._name$_reduc_local[$it._dat._dim$];};separator="\n"$
 
   $parloop._d_reduction_args:{__local $it._dat._cl_type$ $it._dat._name$_reduc_tmp[$it._dat._dim$ * $const.threads_per_block$ * OP_WARPSIZE];};separator="\n"$
@@ -36,7 +37,6 @@ void $parloop._kernel._name$_stub (
   $parloop._d_reduction_args:{for (i_1 = 0; i_1 < $it._dat._dim$; ++i_1) { $it._dat._name$_reduc_local[i_1] = $it._dat._cl_type_zero$; } };separator="\n"$
 
   thread_id = get_local_id(0) % OP_WARPSIZE;
-  shared_pointer = shared + shared_memory_offset * (get_local_id(0) / OP_WARPSIZE);
 
   for (i_1 = get_global_id(0); i_1 < set_size; i_1 += get_global_size(0))
   {
@@ -106,20 +106,20 @@ reduction_op_result()::=<<$if(it._d_is_INC)$*reduction_result += volatile_shared
 stagein(arg)::=<<
 // $arg._dat._name$
 for (i_2 = 0; i_2 < $arg._dat._dim$; ++i_2) {
-  (($arg._dat._cl_type$*) shared_pointer)[thread_id + i_2 * active_threads_count] = $arg._dat._name$[thread_id + i_2 * active_threads_count + local_offset * 1];
+  $it._dat._name$_shared[thread_id + i_2 * active_threads_count] = $arg._dat._name$[thread_id + i_2 * active_threads_count + local_offset * 1];
 }
 for (i_2 = 0; i_2 < $arg._dat._dim$; ++i_2) {
-  $arg._dat._name$_local[i_2] = (($arg._dat._cl_type$*) shared_pointer)[i_2 + thread_id * 1];
+  $arg._dat._name$_local[i_2] = $it._dat._name$_shared[i_2 + thread_id * 1];
 }
 >>
 
 stageout(arg)::=<<
 // $arg._dat._name$
 for (i_2 = 0; i_2 < $arg._dat._dim$; ++i_2) {
-  (($arg._dat._cl_type$*) shared_pointer)[i_2 + thread_id * 1] = $arg._dat._name$_local[i_2];
+  $it._dat._name$_shared[i_2 + thread_id * 1] = $arg._dat._name$_local[i_2];
 }
 for (i_2 = 0; i_2 < $arg._dat._dim$; ++i_2) {
-  $arg._dat._name$[thread_id + i_2 * active_threads_count + local_offset * 1] = (($arg._dat._cl_type$*) shared_pointer)[thread_id + i_2 * active_threads_count];
+  $arg._dat._name$[thread_id + i_2 * active_threads_count + local_offset * 1] = $it._dat._name$_shared[thread_id + i_2 * active_threads_count];
 }
 >>
 
