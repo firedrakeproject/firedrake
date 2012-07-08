@@ -62,46 +62,28 @@ void $it._dat._name$_reduction_kernel (
   __local $it._dat._cl_type$* reduction_tmp_array
 )
 {
-  __local $it._dat._cl_type$* volatile volatile_shared;
-  int i_1;
-  int thread_id;
-
-  thread_id = get_local_id(0);
-  i_1 = get_local_size(0) \>\> 1;
-
+  int lid = get_local_id(0);
+  reduction_tmp_array[lid] = input_value;
   barrier(CLK_LOCAL_MEM_FENCE);
-  reduction_tmp_array[thread_id] = input_value;
 
-  for (; i_1 \> OP_WARPSIZE;  i_1 \>\>= 1)
+  for(int offset = 1;
+      offset < get_local_size(0);
+      offset <<= 1)
   {
-    barrier(CLK_LOCAL_MEM_FENCE);
-    if (thread_id < i_1)
-    {
+    int mask = (offset << 1) - 1;
+    if ((lid & mask) == 0) {
       $reduction_op()$
     }
+    barrier(CLK_LOCAL_MEM_FENCE);
   }
-  barrier(CLK_LOCAL_MEM_FENCE);
-  volatile_shared = reduction_tmp_array;
-  if (thread_id < OP_WARPSIZE)
+  if (lid == 0)
   {
-    for (; i_1 \> 0; i_1 \>\>= 1)
-    {
-      if (thread_id < i_1) {
-        $reduction_op_volatile()$
-      }
-    }
-  }
-
-  if (thread_id == 0)
-  {
-    $reduction_op_result()$
+    *reduction_result = reduction_tmp_array[0];
   }
 }
 >>
 
-reduction_op()::=<<$if(it._d_is_INC)$reduction_tmp_array[thread_id] += reduction_tmp_array[thread_id + 1];$endif$>>
-reduction_op_volatile()::=<<$if(it._d_is_INC)$volatile_shared[thread_id] += volatile_shared[thread_id + 1];$endif$>>
-reduction_op_result()::=<<$if(it._d_is_INC)$*reduction_result += volatile_shared[0];$endif$>>
+reduction_op()::=<<$if(it._d_is_INC)$reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];$endif$>>
 
 stagein(arg)::=<<
 // $arg._dat._name$
