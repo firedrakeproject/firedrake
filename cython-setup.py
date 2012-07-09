@@ -1,14 +1,20 @@
 #!/usr/bin/env python
 
 import os
+import sys
 
 from distutils.core import setup
 from Cython.Distutils import build_ext, Extension
 import numpy as np
 
-# Set the environment variable OP2_DIR to point to the op2 subdirectory
-# of your OP2 source tree
-OP2_DIR = os.environ['OP2_DIR']
+try:
+    OP2_DIR = os.environ['OP2_DIR']
+except KeyError:
+    sys.exit("""Error: Could not find OP2 library.
+
+Set the environment variable OP2_DIR to point to the op2 subdirectory
+of your OP2 source tree""")
+
 OP2_INC = OP2_DIR + '/c/include'
 OP2_LIB = OP2_DIR + '/c/lib'
 setup(name='PyOP2',
