@@ -234,7 +234,7 @@ further ARGS."""
 
         # Count number of indirect arguments.  This will need changing
         # once we deal with vector maps.
-        nind_ele = sum(arg.is_indirect() for arg in args)
+        self.nind_ele = sum(arg.is_indirect() for arg in args)
 
         # Build list of args to pass to C-level op_plan function.
         _args = <core.op_arg *>malloc(nargs * sizeof(core.op_arg))
