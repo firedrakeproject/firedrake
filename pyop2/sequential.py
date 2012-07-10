@@ -129,7 +129,7 @@ class Arg(object):
         return self._access
 
     def is_indirect(self):
-        return self._map is not None and self._map is not IdentityMap
+        return self._map is not None and self._map is not IdentityMap and not isinstance(self._dat, Global)
 
     def is_indirect_and_not_read(self):
         return self.is_indirect() and self._access is not READ
@@ -211,6 +211,10 @@ class Dat(DataCarrier):
     def __repr__(self):
         return "Dat(%r, %s, '%s', None, '%s')" \
                % (self._dataset, self._dim, self._data.dtype, self._name)
+
+    @property
+    def data(self):
+        return self._data
 
 class Mat(DataCarrier):
     """OP2 matrix data. A Mat is defined on the cartesian product of two Sets
@@ -341,4 +345,33 @@ IdentityMap = Map(Set(0, None), Set(0, None), 1, [], 'identity')
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
 
-    pass
+    from instant import inline_with_numpy
+
+    nargs = len(args)
+    direct = all(not arg.is_indirect() for arg in args)
+    if not direct:
+        return
+    wrapper = """
+    void __wrap_%(name)s(%(arg)s) {
+    %(dec)s;
+    %(name)s(%(karg)s);
+    }"""
+    name = kernel._name
+    _arg = ','.join(["PyObject *_" + arg._dat._name for arg in args])
+    _dec = ';\n'.join(["PyArrayObject * " + arg._dat._name + " = (PyArrayObject *)_" + arg._dat._name for arg in args])
+    # FIXME determine correct type to cast to using numpy.dtype->ctype map
+    _karg = ','.join(["(unsigned int *)" + arg._dat._name+"->data" for arg in args])
+
+    code_to_compile =  wrapper % { 'name' : name,
+                      'arg' : _arg,
+                      'dec' : _dec,
+                      'karg' : _karg }
+
+    # FIXME, instant cache doesn't seem to find things on second go
+    _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel._code,
+                             additional_definitions = kernel._code)
+
+    print _fun
+    for i in xrange(it_space.size):
+        _args = [isinstance(arg.data, Global) and arg.data.data[0:1] or arg.data.data[i:i+1] for arg in args]
+        _fun(*_args)
