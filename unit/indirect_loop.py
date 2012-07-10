@@ -12,36 +12,49 @@ nelems = 92681
 class IndirectLoopTest(unittest.TestCase):
     """
 
-    Direct Loop Tests
+    Indirect Loop Tests
 
     """
 
     def setUp(self):
-        self._itset_11 = op2.Set(nelems, "iterset")
-        self._elems = op2.Set(nelems, "elems")
-        self._input_x = numpy.array(range(nelems), dtype=numpy.uint32)
-        self._x = op2.Dat(self._elems,  1, self._input_x, numpy.uint32, "x")
-        self._g = op2.Global(1, 0, numpy.uint32, "natural_sum")
-        self._input_11 = numpy.array(range(nelems), dtype=numpy.uint32)
-        random.shuffle(self._input_11)
-        self._11_elems = op2.Map(self._itset_11, self._elems, 1, self._input_11, "11_elems")
+        pass
 
     def tearDown(self):
-        del self._itset_11
-        del self._elems
-        del self._input_x
-        del self._input_11
-        del self._x
+        pass
 
-    def test_wo(self):
-        kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"
-        l = op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), self._itset_11, self._x(self._11_elems(0), op2.WRITE))
-        self.assertTrue(all(map(lambda x: x==42, self._x.value)))
+    def test_onecolor_wo(self):
+        iterset = op2.Set(nelems, "iterset")
+        indset = op2.Set(nelems, "indset")
 
-    def test_rw(self):
-        kernel_rw = "void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }\n"
-        l = op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"), self._itset_11, self._x(self._11_elems(0), op2.RW))
-        self.assertTrue(sum(self._x.value) == nelems * (nelems + 1) / 2);
+        x = op2.Dat(indset, 1, numpy.array(range(nelems), dtype=numpy.uint32), numpy.uint32, "x")
+
+        u_map = numpy.array(range(nelems), dtype=numpy.uint32)
+        random.shuffle(u_map)
+        iterset2indset = op2.Map(iterset, indset, 1, u_map, "iterset2indset")
+
+        # temporary fix until we have the user kernel instrumentation code
+        kernel_wo = "void kernel_wo(__local unsigned int* x) { *x = 42; }\n"
+        #kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"
+
+        op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), iterset, x(iterset2indset(0), op2.WRITE))
+        self.assertTrue(all(map(lambda x: x==42, x.data)))
+
+    def test_onecolor_rw(self):
+        iterset = op2.Set(nelems, "iterset")
+        indset = op2.Set(nelems, "indset")
+
+        x = op2.Dat(indset, 1, numpy.array(range(nelems), dtype=numpy.uint32), numpy.uint32, "x")
+
+        u_map = numpy.array(range(nelems), dtype=numpy.uint32)
+        random.shuffle(u_map)
+        iterset2indset = op2.Map(iterset, indset, 1, u_map, "iterset2indset")
+
+        # temporary fix until we have the user kernel instrumentation code
+        kernel_rw = "void kernel_rw(__local unsigned int* x) { (*x) = (*x) + 1; }\n"
+        #kernel_rw = "void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }\n"
+
+        op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"), iterset, x(iterset2indset(0), op2.RW))
+        self.assertTrue(sum(x.data) == nelems * (nelems + 1) / 2);
 
     def test_global_inc(self):
         kernel_global_inc = "void kernel_global_inc(unsigned int *x, unsigned int *inc) { (*x) = (*x) + 1; (*inc) += (*x); }"

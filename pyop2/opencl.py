@@ -46,6 +46,11 @@ import itertools
 def round_up(bytes):
     return (bytes + 15) & ~15
 
+#TODO: use this instead of the unordered sets to ensure order is preserved
+def _del_dup_keep_order(l):
+    uniq = set()
+    return [ x for x in l if x not in uniq and not uniq.add(x)]
+
 class Kernel(op2.Kernel):
 
     _cparser = pycparser.CParser()
@@ -215,7 +220,7 @@ class ParLoopCall(object):
 
     @property
     def _unique_dats(self):
-        return list(set(map(lambda arg: arg._dat, self._args)))
+        return _del_dup_keep_order(map(lambda arg: arg._dat, self._args))
 
     @property
     def _i_staged_dat_map_pairs(self):
@@ -269,12 +274,20 @@ class ParLoopCall(object):
             for a in self._args:
                 a.build_core_arg()
 
-            plan = core.op_plan(self._kernel, self._it_space, *self._args)
+            plan = core.op_plan(self._kernel, self._it_space, *self._args, partition_size=1024)
+
+            #TODO: proper export for inspection
+            self._plan = plan
 
             # codegen
             iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
             iloop['parloop'] = self
+            iloop['const'] = {'dynamic_shared_memory_size': plan.nshared, 'ninds':plan.ninds}
             source = str(iloop)
+
+            #f = open(self._kernel._name + '.cl.c', 'w')
+            #f.write(source)
+            #f.close
 
             prg = cl.Program(_ctx, source).build(options="-Werror")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
@@ -283,60 +296,59 @@ class ParLoopCall(object):
             for a in self._unique_dats:
                 self._kernel_arg_append(kernel, a._buffer)
 
-            ind_map = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.ind_map.nbytes)
-            cl.enqueue_write_buffer(_queue, ind_map, plan.ind_map).wait()
-            for i in range(plan.nind_ele):
-                self._kernel_arg_append(kernel, ind_map.get_sub_region(origin=i * self._it_space.size, size=self._it_space.size))
+            print "URGENT FIX NEEDED, todo keep a reference for each buffer, pyopencl does not keep them when passed as kernel -> pyGC reclaim -> seg fault"
+            for i in range(plan.ninds):
+                ib = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int32(0).itemsize * plan.nindirect[i]))
+                s = i * self._it_space.size
+                e = s + plan.nindirect[i]
+                cl.enqueue_write_buffer(_queue, ib, plan.ind_map[s:e]).wait()
+                self._kernel_arg_append(kernel, ib)
 
-            loc_map = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.loc_map.nbytes)
-            cl.enqueue_write_buffer(_queue, loc_map, plan.loc_map).wait()
-            for i in range(plan.nind_ele):
-                self._kernel_arg_append(kernel, loc_map.get_sub_region(origin=i * self._it_space.size, size=self._it_space.size))
+            print "URGENT FIX NEEDED, todo keep a reference for each buffer, pyopencl does not keep them when passed as kernel -> pyGC reclaim -> seg fault"
+            for i in range(plan.nargs):
+                lb = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int16(0).itemsize * self._it_space.size))
+                s = i * self._it_space.size
+                e = s + self._it_space.size
+                cl.enqueue_write_buffer(_queue, lb, plan.loc_map[s:e]).wait()
+                self._kernel_arg_append(kernel, lb)
 
-            ind_sizes = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.ind_sizes.nbytes)
+            ind_sizes = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=plan.ind_sizes.nbytes)
             cl.enqueue_write_buffer(_queue, ind_sizes, plan.ind_sizes).wait()
             self._kernel_arg_append(kernel, ind_sizes)
 
-            ind_offs = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.ind_offs.nbytes)
+            ind_offs = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=plan.ind_offs.nbytes)
             cl.enqueue_write_buffer(_queue, ind_offs, plan.ind_offs).wait()
             self._kernel_arg_append(kernel, ind_offs)
 
-            blkmap = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.blkmap.nbytes)
+            blkmap = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=plan.blkmap.nbytes)
             cl.enqueue_write_buffer(_queue, blkmap, plan.blkmap).wait()
             self._kernel_arg_append(kernel, blkmap)
 
-            offset = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.offset.nbytes)
+            offset = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=plan.offset.nbytes)
             cl.enqueue_write_buffer(_queue, offset, plan.offset).wait()
             self._kernel_arg_append(kernel, offset)
 
-            nelems = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.nelems.nbytes)
+            nelems = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=plan.nelems.nbytes)
             cl.enqueue_write_buffer(_queue, nelems, plan.nelems).wait()
             self._kernel_arg_append(kernel, nelems)
 
-            nthrcol = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.nthrcol.nbytes)
+            nthrcol = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=plan.nthrcol.nbytes)
             cl.enqueue_write_buffer(_queue, nthrcol, plan.nthrcol).wait()
             self._kernel_arg_append(kernel, nthrcol)
 
-            thrcol = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.thrcol.nbytes)
+            thrcol = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=plan.thrcol.nbytes)
             cl.enqueue_write_buffer(_queue, thrcol, plan.thrcol).wait()
             self._kernel_arg_append(kernel, thrcol)
 
-            thrcol = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=plan.thrcol.nbytes)
-            cl.enqueue_write_buffer(_queue, thrcol, plan.thrcol).wait()
-            self._kernel_arg_append(kernel, thrcol)
-
-            print 'kernel launch'
             block_offset = 0
             for i in range(plan.ncolors):
-                blocks_per_grid = plan.ncolblk[i]
-                dynamic_shared_memory_size = plan.nshared
+                blocks_per_grid = int(plan.ncolblk[i])
                 threads_per_block = _threads_per_block
+                thread_count = threads_per_block * blocks_per_grid
 
-                self._kernel.set_arg(self._karg, np.int32(block_offset))
-                # call the kernel
+                kernel.set_arg(self._karg, np.int32(block_offset))
+                cl.enqueue_nd_range_kernel(_queue, kernel, (thread_count,), (threads_per_block,), g_times_l=False).wait()
                 block_offset += blocks_per_grid
-
-            raise NotImplementedError()
 
     def _kernel_arg_append(self, kernel, arg):
         kernel.set_arg(self._karg, arg)

@@ -243,7 +243,7 @@ cdef class op_plan:
     cdef core.op_plan *_handle
     cdef int set_size
     cdef int nind_ele
-    def __cinit__(self, kernel, iset, *args):
+    def __cinit__(self, kernel, iset, *args, partition_size=0):
         """Instantiate a C-level op_plan for a parallel loop.
 
 Arguments to this constructor should be the arguments of the parallel
@@ -251,7 +251,7 @@ loop, i.e. the KERNEL, the ISET (iteration set) and any
 further ARGS."""
         cdef op_set _set = iset._lib_handle
         cdef char * name = kernel._name
-        cdef int part_size = 0
+        cdef int part_size = partition_size
         cdef int nargs = len(args)
         cdef op_arg _arg
         cdef core.op_arg *_args
