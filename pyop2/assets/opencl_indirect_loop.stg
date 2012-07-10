@@ -29,12 +29,14 @@ void $parloop._kernel._name$_stub(
   __local int active_threads_count_ceiling;
   int nbytes;
   int block_id;
+
   int i_1;
-  int i_2;
+
   __local int colors_count;
+$if(parloop._i_reduc_args)$
+  int i_2;
   int color_1;
   int color_2;
-$if(parloop._i_reduc_args)$
   // reduction args
   $parloop._i_reduc_args:{$it._dat._cl_type$ $reduc_arg_local_name()$[$it._dat._dim$];};separator="\n"$
 $endif$
