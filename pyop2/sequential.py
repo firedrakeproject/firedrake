@@ -359,8 +359,23 @@ def par_loop(kernel, it_space, *args):
     name = kernel._name
     _arg = ','.join(["PyObject *_" + arg._dat._name for arg in args])
     _dec = ';\n'.join(["PyArrayObject * " + arg._dat._name + " = (PyArrayObject *)_" + arg._dat._name for arg in args])
-    # FIXME determine correct type to cast to using numpy.dtype->ctype map
-    _karg = ','.join(["(unsigned int *)" + arg._dat._name+"->data" for arg in args])
+
+    # FIXME: Complex and float16 not supported
+    typemap = { "bool":    "(unsigned char *)",
+                "int":     "(int *)",
+                "int8":    "(char *)",
+                "int16":   "(short *)",
+                "int32":   "(int *)",
+                "int64":   "(long long *)",
+                "uint8":   "(unsigned char *)",
+                "uint16":  "(unsigned short *)",
+                "uint32":  "(unsigned int *)",
+                "uint64":  "(unsigned long long *)",
+                "float":   "(double *)",
+                "float32": "(float *)",
+                "float64": "(double *)" }
+
+    _karg = ','.join([typemap[arg._dat._data.dtype.name] + arg._dat._name+"->data" for arg in args])
 
     code_to_compile =  wrapper % { 'name' : name,
                       'arg' : _arg,
