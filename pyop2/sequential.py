@@ -352,7 +352,7 @@ def par_loop(kernel, it_space, *args):
     if not direct:
         return
     wrapper = """
-    void __wrap_%(name)s(%(arg)s) {
+    void wrap_%(name)s__(%(arg)s) {
     %(dec)s;
     %(name)s(%(karg)s);
     }"""
@@ -367,11 +367,9 @@ def par_loop(kernel, it_space, *args):
                       'dec' : _dec,
                       'karg' : _karg }
 
-    # FIXME, instant cache doesn't seem to find things on second go
     _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel._code,
                              additional_definitions = kernel._code)
 
-    print _fun
     for i in xrange(it_space.size):
         _args = [isinstance(arg.data, Global) and arg.data.data[0:1] or arg.data.data[i:i+1] for arg in args]
         _fun(*_args)
