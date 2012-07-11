@@ -82,6 +82,10 @@ class Arg(op2.Arg):
     def _i_is_reduction(self):
         return isinstance(self._dat, Dat) and self._access in [INC, MIN, MAX]
 
+    @property
+    def _i_is_global_reduction(self):
+        return isinstance(self._dat, Global)
+
 class DeviceDataMixin:
 
     ClTypeInfo = collections.namedtuple('ClTypeInfo', ['clstring', 'zero'])
@@ -268,28 +272,32 @@ class ParLoopCall(object):
 
     @property
     def _unique_dats(self):
-        return _del_dup_keep_order(map(lambda arg: arg._dat, self._args))
+        return _del_dup_keep_order(map(lambda arg: arg._dat, filter(lambda arg: not isinstance(arg._dat, Global), self._args)))
 
     @property
     def _i_staged_dat_map_pairs(self):
         assert not self.is_direct(), "Should only be called on indirect loops"
-        return set(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._map != IdentityMap, self._args)))
-        #return set(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._map != IdentityMap and a._access in [READ, WRITE, RW], self._args)))
+        return set(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: not (a._map == IdentityMap or isinstance(a._dat, Global)), self._args)))
 
     @property
     def _i_staged_in_dat_map_pairs(self):
         assert not self.is_direct(), "Should only be called on indirect loops"
-        return set(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._map != IdentityMap and a._access in [READ, RW], self._args)))
+        return set(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._map != IdentityMap and not isinstance(a._dat, Global) and a._access in [READ, RW], self._args)))
 
     @property
     def _i_staged_out_dat_map_pairs(self):
         assert not self.is_direct(), "Should only be called on indirect loops"
-        return set(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._map != IdentityMap and a._access in [WRITE, RW], self._args)))
+        return set(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._map != IdentityMap and not isinstance(a._dat, Global) and a._access in [WRITE, RW], self._args)))
 
     @property
     def _i_reduc_args(self):
         assert not self.is_direct(), "Should only be called on indirect loops"
-        return list(set(filter(lambda a: a._access in [INC, MIN, MAX] and a._map != IdentityMap, self._args)))
+        return list(set(filter(lambda a: a._access in [INC, MIN, MAX] and a._map != IdentityMap and not isinstance(a._dat, Global), self._args)))
+
+    @property
+    def _i_global_reduc_args(self):
+        assert not self.is_direct(), "Should only be called on indirect loops"
+        return list(set(filter(lambda a: isinstance(a._dat, Global), self._args)))
 
     def compute(self):
         if self.is_direct():
@@ -318,7 +326,7 @@ class ParLoopCall(object):
             for i, a in enumerate(self._d_reduction_args):
                 a._dat._host_reduction(_blocks_per_grid)
         else:
-            plan = OpPlan(self._kernel, self._it_space, *self._args, partition_size=1024)
+            plan = OpPlan(self._kernel, self._it_space, *self._args, partition_size=512)
 
             # codegen
             iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
@@ -344,6 +352,11 @@ class ParLoopCall(object):
             for i in range(plan.nargs):
                 self._kernel_arg_append(kernel, plan._loc_map_buffers[i])
 
+            for arg in self._i_global_reduc_args:
+                arg._dat._allocate_reduction_array(plan.nblocks)
+                self._kernel_arg_append(kernel, arg._dat._d_reduc_buffer)
+
+
             self._kernel_arg_append(kernel, plan._ind_sizes_buffer)
             self._kernel_arg_append(kernel, plan._ind_offs_buffer)
             self._kernel_arg_append(kernel, plan._blkmap_buffer)
@@ -361,6 +374,10 @@ class ParLoopCall(object):
                 kernel.set_arg(self._karg, np.int32(block_offset))
                 cl.enqueue_nd_range_kernel(_queue, kernel, (thread_count,), (threads_per_block,), g_times_l=False).wait()
                 block_offset += blocks_per_grid
+
+            for arg in self._i_global_reduc_args:
+                arg._dat._host_reduction(plan.nblocks)
+
 
     def _kernel_arg_append(self, kernel, arg):
         kernel.set_arg(self._karg, arg)

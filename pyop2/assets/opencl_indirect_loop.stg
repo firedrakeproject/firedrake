@@ -2,6 +2,7 @@ group opencl_indirect;
 
 indirect_loop(parloop,const)::=<<
 $header()$
+$parloop._i_global_reduc_args:{$reduction_kernel()$};separator="\n"$
 $parloop._kernel._code$
 $kernel_stub()$
 >>
@@ -12,6 +13,7 @@ void $parloop._kernel._name$_stub(
   $parloop._unique_dats:{__global $it._cl_type$* $it._name$,};separator="\n"$
   $parloop._i_staged_dat_map_pairs:{__global int* $shared_indirection_mapping_arg_name()$,};separator="\n"$
   $parloop._args:{$if(!it._i_is_direct)$__global short* mappingArray$i$,$endif$};separator="\n"$
+  $parloop._i_global_reduc_args:{__global $it._dat._cl_type$* $global_reduc_device_array_name()$,};separator="\n"$
   __global int* p_ind_sizes,
   __global int* p_ind_offsets,
   __global int* p_blk_map,
@@ -32,14 +34,19 @@ void $parloop._kernel._name$_stub(
 
   int i_1;
 
-  __local int colors_count;
 $if(parloop._i_reduc_args)$
+  __local int colors_count;
   __local int active_threads_count_ceiling;
   int color_1;
   int color_2;
   int i_2;
   // reduction args
   $parloop._i_reduc_args:{$it._dat._cl_type$ $reduc_arg_local_name()$[$it._dat._dim$];};separator="\n"$
+$endif$
+
+$if(parloop._i_global_reduc_args)$
+  // global reduction local declarations
+  $parloop._i_global_reduc_args:{$it._dat._cl_type$ $global_reduc_local_name()$[$it._dat._dim$];};separator="\n"$
 $endif$
 
   // shared indirection mappings
@@ -54,8 +61,8 @@ $endif$
     active_threads_count = p_nelems[block_id];
 $if(parloop._i_reduc_args)$
     active_threads_count_ceiling = get_local_size(0) * (1 + (active_threads_count - 1) / get_local_size(0));
-$endif$
     colors_count = p_nthrcol[block_id];
+$endif$
     shared_memory_offset = p_offset[block_id];
 
     $parloop._i_staged_dat_map_pairs:{$shared_indirection_mapping_size_name()$ = p_ind_sizes[$shared_indirection_mapping_idx_name()$ + block_id * $const.ninds$];};separator="\n"$
@@ -68,15 +75,21 @@ nbytes += ROUND_UP($shared_indirection_mapping_size_name()$ * $it._dat._dim$ * s
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
-$if(parloop._i_staged_in_dat_map_pairs)$// staging in of indirect dats
-  $parloop._i_staged_in_dat_map_pairs:shared_memory_initialization();separator="\n"$
-
+$if(parloop._i_staged_in_dat_map_pairs)$
+  // staging in of indirect dats
+  $parloop._i_staged_in_dat_map_pairs:stagingin();separator="\n"$
   barrier(CLK_LOCAL_MEM_FENCE);
 $endif$
-$if(parloop._i_reduc_args)$
-  $parloop._i_reduc_args:shared_memory_reduc_zeroing();separator="\n"$
 
+$if(parloop._i_reduc_args)$
+  // zeroing local memory for indirect reduction
+  $parloop._i_reduc_args:shared_memory_reduc_zeroing();separator="\n"$
   barrier(CLK_LOCAL_MEM_FENCE);
+$endif$
+
+$if(parloop._i_global_reduc_args)$
+  // zeroing private memory for global reduction
+  $parloop._i_global_reduc_args:{$global_reduction_local_zeroing()$};separator="\n"$
 $endif$
 
 $if(parloop._i_reduc_args)$
@@ -113,6 +126,10 @@ $if(parloop._i_staged_out_dat_map_pairs)$
   barrier(CLK_LOCAL_MEM_FENCE);
   $parloop._i_staged_out_dat_map_pairs:{$stagingout()$};separator="\n"$
 $endif$
+$if(parloop._i_global_reduc_args)$
+  // on device global reductions
+  $parloop._i_global_reduc_args:{$on_device_global_reduction()$};separator="\n"$
+$endif$
 }
 >>
 
@@ -123,13 +140,6 @@ for (i_1 = get_local_id(0); i_1 < $shared_indirection_mapping_size_name()$ * $it
 }
 >>
 
-shared_memory_initialization()::=<<
-for (i_1 = get_local_id(0); i_1 < $shared_indirection_mapping_size_name()$ * $it._dat._dim$; i_1 += get_local_size(0))
-{
-  $shared_indirection_mapping_memory_name()$[i_1] = $dat_arg_name()$[i_1 % $it._dat._dim$ + $shared_indirection_mapping_name()$[i_1 / $it._dat._dim$] * $it._dat._dim$];
-}
->>
-
 kernel_call()::=<<
 // FIX TEMPLATE WRONG mappingArray NUMBER
 $parloop._kernel._name$(
@@ -137,7 +147,7 @@ $parloop._kernel._name$(
 );
 >>
 
-kernel_call_arg()::=<<$if(it._i_is_direct)$(__global $it._dat._cl_type$* __private) ($it._dat._name$ + i_1 + shared_memory_offset)$elseif(it._i_is_reduction)$$reduc_arg_local_name()$$else$&$shared_indirection_mapping_memory_name()$[mappingArray$i$[i_1 + shared_memory_offset] * $it._dat._dim$]$endif$>>
+kernel_call_arg()::=<<$if(it._i_is_direct)$(__global $it._dat._cl_type$* __private) ($it._dat._name$ + i_1 + shared_memory_offset)$elseif(it._i_is_global_reduction)$$global_reduc_local_name()$$elseif(it._i_is_reduction)$$reduc_arg_local_name()$$else$&$shared_indirection_mapping_memory_name()$[mappingArray$i$[i_1 + shared_memory_offset] * $it._dat._dim$]$endif$>>
 
 staged_arg_local_variable_zeroing()::=<<
 for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2)
@@ -161,12 +171,37 @@ for (i_1 = get_local_id(0); i_1 < $shared_indirection_mapping_size_name()$ * $it
 }
 >>
 
+stagingin()::=<<
+for (i_1 = get_local_id(0); i_1 < $shared_indirection_mapping_size_name()$ * $it._dat._dim$; i_1 += get_local_size(0))
+{
+  $shared_indirection_mapping_memory_name()$[i_1] = $dat_arg_name()$[i_1 % $it._dat._dim$ + $shared_indirection_mapping_name()$[i_1 / $it._dat._dim$] * $it._dat._dim$];
+}
+>>
+
 stagingout()::=<<
 for (i_1 = get_local_id(0); i_1 < $shared_indirection_mapping_size_name()$ * $it._dat._dim$; i_1 += get_local_size(0))
 {
   $it._dat._name$[i_1 % $it._dat._dim$ + $shared_indirection_mapping_name()$[i_1 / $it._dat._dim$] * $it._dat._dim$] = $shared_indirection_mapping_memory_name()$[i_1];
 }
 >>
+
+global_reduction_local_zeroing()::=<<
+for (i_1 = 0; i_1 < $it._dat._dim$; ++i_1)
+{
+  $global_reduc_local_name()$[i_1] = $it._dat._cl_type_zero$;
+}
+>>
+
+on_device_global_reduction()::=<<
+// THIS TEMPLATE SHOULD BE FACTORISED WITH DIRECT LOOPS REDUCTIONS
+for (i_1 = 0; i_1 < $it._dat._dim$; ++i_1)
+{
+  $it._dat._name$_reduction_kernel(&$global_reduc_device_array_name()$[i_1 + get_group_id(0) * $it._dat._dim$], $global_reduc_local_name()$[i_1], (__local $it._dat._cl_type$*) shared);
+}
+>>
+
+global_reduc_local_name()::=<<$it._dat._name$_gbl_reduc_local>>
+global_reduc_device_array_name()::=<<$it._dat._name$_gbl_reduc_device_array>>
 
 reduc_arg_local_name()::=<<$it._dat._name$_via_$it._map._name$_local>>
 dat_arg_name()::=<<$it._dat._name$>>
@@ -181,3 +216,34 @@ header(const)::=<<
 #define OP_WARPSIZE $const.warpsize$
 #define MIN(a,b) ((a < b) ? (a) : (b))
 >>
+
+reduction_kernel()::=<<
+__kernel
+void $it._dat._name$_reduction_kernel (
+  __global $it._dat._cl_type$* reduction_result,
+  __private $it._dat._cl_type$ input_value,
+  __local $it._dat._cl_type$* reduction_tmp_array
+)
+{
+  int lid = get_local_id(0);
+  reduction_tmp_array[lid] = input_value;
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  for(int offset = 1;
+      offset < get_local_size(0);
+      offset <<= 1)
+  {
+    int mask = (offset << 1) - 1;
+    if ((lid & mask) == 0) {
+      $reduction_op()$
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+  }
+  if (lid == 0)
+  {
+    *reduction_result = reduction_tmp_array[0];
+  }
+}
+>>
+
+reduction_op()::=<<$if(it._d_is_INC)$reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];$endif$>>
