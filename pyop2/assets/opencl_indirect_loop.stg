@@ -26,7 +26,7 @@ void $parloop._kernel._name$_stub(
   __local char shared [$const.dynamic_shared_memory_size$] __attribute__((aligned(sizeof(unsigned int))));
   __local int shared_memory_offset;
   __local int active_threads_count;
-  __local int active_threads_count_ceiling;
+
   int nbytes;
   int block_id;
 
@@ -34,9 +34,10 @@ void $parloop._kernel._name$_stub(
 
   __local int colors_count;
 $if(parloop._i_reduc_args)$
-  int i_2;
+  __local int active_threads_count_ceiling;
   int color_1;
   int color_2;
+  int i_2;
   // reduction args
   $parloop._i_reduc_args:{$it._dat._cl_type$ $reduc_arg_local_name()$[$it._dat._dim$];};separator="\n"$
 $endif$
@@ -51,7 +52,9 @@ $endif$
   {
     block_id = p_blk_map[get_group_id(0) + block_offset];
     active_threads_count = p_nelems[block_id];
-    active_threads_count_ceiling = get_local_size(0) * (1 + (active_threads_count - 1) / get_local_size(0)); // needed for reductions ?
+$if(parloop._i_reduc_args)$
+    active_threads_count_ceiling = get_local_size(0) * (1 + (active_threads_count - 1) / get_local_size(0));
+$endif$
     colors_count = p_nthrcol[block_id];
     shared_memory_offset = p_offset[block_id];
 
@@ -70,6 +73,11 @@ $if(parloop._i_staged_in_dat_map_pairs)$// staging in of indirect dats
 
   barrier(CLK_LOCAL_MEM_FENCE);
 $endif$
+$if(parloop._i_reduc_args)$
+  $parloop._i_reduc_args:shared_memory_reduc_zeroing();separator="\n"$
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+$endif$
 
 $if(parloop._i_reduc_args)$
   for (i_1 = get_local_id(0); i_1 < active_threads_count_ceiling; i_1 += get_local_size(0)) {
@@ -77,10 +85,18 @@ $if(parloop._i_reduc_args)$
     if (i_1 < active_threads_count)
     {
       $parloop._i_reduc_args:{$staged_arg_local_variable_zeroing()$};separator="\n"$
-    }
 
-    $kernel_call()$
-    color_2 = p_thrcol[i_1 + shared_memory_offset];
+      $kernel_call()$
+      color_2 = p_thrcol[i_1 + shared_memory_offset];
+    }
+    for (color_1 = 0; color_1 < colors_count; ++color_1)
+    {
+      if (color_2 == color_1)
+      {
+        $parloop._i_reduc_args:{$reduction()$};separator="\n"$
+      }
+      barrier(CLK_LOCAL_MEM_FENCE);
+    }
   }
 $else$
   for (i_1 = get_local_id(0); i_1 < active_threads_count; i_1 += get_local_size(0))
@@ -90,14 +106,6 @@ $else$
 $endif$
 
 $if(parloop._i_reduc_args)$
-  for (color_1 = 0; color_1 < colors_count; ++color_1)
-  {
-    if (color_2 == color_1)
-    {
-      $parloop._i_reduc_args:{$reduction()$};separator="\n"$
-    }
-    barrier(CLK_LOCAL_MEM_FENCE);
-  }
   $parloop._i_reduc_args:{$reduction2()$};separator="\n"$
 $endif$
 $if(parloop._i_staged_out_dat_map_pairs)$
@@ -108,8 +116,13 @@ $endif$
 }
 >>
 
-// FIX case of inc argdat DOES NOT WORK YET
-// in case of INC the right hand side should be a zeroing
+shared_memory_reduc_zeroing()::=<<
+for (i_1 = get_local_id(0); i_1 < $shared_indirection_mapping_size_name()$ * $it._dat._dim$; i_1 += get_local_size(0))
+{
+  $shared_indirection_mapping_memory_name()$[i_1] = 0;
+}
+>>
+
 shared_memory_initialization()::=<<
 for (i_1 = get_local_id(0); i_1 < $shared_indirection_mapping_size_name()$ * $it._dat._dim$; i_1 += get_local_size(0))
 {
@@ -118,6 +131,7 @@ for (i_1 = get_local_id(0); i_1 < $shared_indirection_mapping_size_name()$ * $it
 >>
 
 kernel_call()::=<<
+// FIX TEMPLATE WRONG mappingArray NUMBER
 $parloop._kernel._name$(
   $parloop._args:{$kernel_call_arg()$};separator=",\n"$
 );
@@ -135,7 +149,8 @@ for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2)
 reduction()::=<<
 for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2)
 {
-  $shared_indirection_mapping_memory_name()$[i_2 + $shared_indirection_mapping_arg_name()$[i_1 + shared_memory_offset] * 4] += $reduc_arg_local_name()$[i_2];
+  // FIX TEMPLATE WRONG mappingArray NUMBER
+  $shared_indirection_mapping_memory_name()$[i_2 + mappingArray$i$[i_1 + shared_memory_offset] * $it._dat._dim$] += $reduc_arg_local_name()$[i_2];
 }
 >>
 
@@ -153,8 +168,7 @@ for (i_1 = get_local_id(0); i_1 < $shared_indirection_mapping_size_name()$ * $it
 }
 >>
 
-/* FIX: unify dat/_dat and map/_map to remove all the ifs nonsense */
-reduc_arg_local_name()::=<<$it._dat._name$_at_$it._index$_via_$it._map._name$>>
+reduc_arg_local_name()::=<<$it._dat._name$_via_$it._map._name$_local>>
 dat_arg_name()::=<<$it._dat._name$>>
 shared_indirection_mapping_name()::=<<$it._dat._name$_via_$it._map._name$_indirection_map>>
 shared_indirection_mapping_size_name()::=<<$it._dat._name$_via_$it._map._name$_indirection_size>>

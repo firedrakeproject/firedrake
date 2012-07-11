@@ -85,7 +85,9 @@ class Arg(op2.Arg):
 class DeviceDataMixin:
 
     ClTypeInfo = collections.namedtuple('ClTypeInfo', ['clstring', 'zero'])
-    CL_TYPES = {np.dtype('uint32'): ClTypeInfo('unsigned int', '0u')}
+    CL_TYPES = {np.dtype('int16'): ClTypeInfo('short', '0'),
+                np.dtype('uint32'): ClTypeInfo('unsigned int', '0u'),
+                np.dtype('int32'): ClTypeInfo('int', '0')}
 
     @property
     def _cl_type(self):
@@ -170,10 +172,9 @@ class OpPlan(core.op_plan):
     """ Helper wrapper
     """
 
-    #TODO: fix the partition_size optional argument
-    def __init__(self, kernel, itset, *args):
+    def __init__(self, kernel, itset, *args, **kargs):
         #FIX partition size by the our caller
-        core.op_plan.__init__(self, kernel, *args)
+        core.op_plan.__init__(self, kernel, *args, **kargs)
         self.itset = itset
         self.load()
 
@@ -272,7 +273,8 @@ class ParLoopCall(object):
     @property
     def _i_staged_dat_map_pairs(self):
         assert not self.is_direct(), "Should only be called on indirect loops"
-        return set(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._map != IdentityMap and a._access in [READ, WRITE, RW], self._args)))
+        return set(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._map != IdentityMap, self._args)))
+        #return set(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._map != IdentityMap and a._access in [READ, WRITE, RW], self._args)))
 
     @property
     def _i_staged_in_dat_map_pairs(self):
@@ -316,9 +318,7 @@ class ParLoopCall(object):
             for i, a in enumerate(self._d_reduction_args):
                 a._dat._host_reduction(_blocks_per_grid)
         else:
-            #TODO FIX partition_size argument !!!
-            #plan = OpPlan(self._kernel, self._it_space, *self._args, partition_size=1024)
-            plan = OpPlan(self._kernel, self._it_space, *self._args)
+            plan = OpPlan(self._kernel, self._it_space, *self._args, partition_size=1024)
 
             # codegen
             iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
@@ -326,9 +326,10 @@ class ParLoopCall(object):
             iloop['const'] = {'dynamic_shared_memory_size': plan.nshared, 'ninds':plan.ninds}
             source = str(iloop)
 
-            f = open(self._kernel._name + '.cl.c', 'w')
-            f.write(source)
-            f.close
+            # for debugging purpose, refactor that properly at some point
+            #f = open(self._kernel._name + '.cl.c', 'w')
+            #f.write(source)
+            #f.close
 
             prg = cl.Program(_ctx, source).build(options="-Werror")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
@@ -358,7 +359,6 @@ class ParLoopCall(object):
                 thread_count = threads_per_block * blocks_per_grid
 
                 kernel.set_arg(self._karg, np.int32(block_offset))
-                print "tc %d, tpb %d" % (thread_count,threads_per_block)
                 cl.enqueue_nd_range_kernel(_queue, kernel, (thread_count,), (threads_per_block,), g_times_l=False).wait()
                 block_offset += blocks_per_grid
 
