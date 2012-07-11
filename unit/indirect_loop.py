@@ -4,7 +4,7 @@ import random
 
 from pyop2 import op2
 # Initialise OP2
-op2.init(backend='opencl')
+op2.init(backend='opencl', diags=0)
 
 #max...
 nelems = 92681
@@ -54,7 +54,7 @@ class IndirectLoopTest(unittest.TestCase):
         #kernel_rw = "void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }\n"
 
         op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"), iterset, x(iterset2indset(0), op2.RW))
-        self.assertTrue(sum(x.data) == nelems * (nelems + 1) / 2);
+        self.assertEqual(sum(x.data), nelems * (nelems + 1) / 2);
 
     def test_indirect_inc(self):
         iterset = op2.Set(nelems, "iterset")
@@ -90,7 +90,8 @@ class IndirectLoopTest(unittest.TestCase):
         op2.par_loop(op2.Kernel(kernel_global_inc, "kernel_global_inc"), iterset,
                      x(iterset2indset(0), op2.RW),
                      g(op2.INC))
-        self.assertTrue(g.data[0] == nelems * (nelems + 1) / 2)
+        self.assertEqual(sum(x.data), nelems * (nelems + 1) / 2)
+        self.assertEqual(g.data[0], nelems * (nelems + 1) / 2)
 
 suite = unittest.TestLoader().loadTestsFromTestCase(IndirectLoopTest)
 unittest.TextTestRunner(verbosity=0).run(suite)

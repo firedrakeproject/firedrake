@@ -3,7 +3,7 @@ import numpy
 
 from pyop2 import op2
 # Initialise OP2
-op2.init(backend='opencl')
+op2.init(backend='opencl', diags=0)
 
 #max...
 nelems = 92681
@@ -42,7 +42,7 @@ void kernel_rw(unsigned int*);
 void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }
 """
         l = op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"), self._elems, self._x(op2.IdentityMap, op2.RW))
-        self.assertTrue(sum(self._x.data) == nelems * (nelems + 1) / 2);
+        self.assertEqual(sum(self._x.data), nelems * (nelems + 1) / 2);
 
     def test_global_incl(self):
         kernel_global_inc = """
@@ -50,7 +50,7 @@ void kernel_global_inc(unsigned int*, unsigned int*);
 void kernel_global_inc(unsigned int* x, unsigned int* inc) { (*x) = (*x) + 1; (*inc) += (*x); }
 """
         l = op2.par_loop(op2.Kernel(kernel_global_inc, "kernel_global_inc"), self._elems, self._x(op2.IdentityMap, op2.RW), self._g(op2.INC))
-        self.assertTrue(self._g.data[0] == nelems * (nelems + 1) / 2);
+        self.assertEqual(self._g.data[0], nelems * (nelems + 1) / 2);
 
 suite = unittest.TestLoader().loadTestsFromTestCase(DirectLoopTest)
 unittest.TextTestRunner(verbosity=0).run(suite)
