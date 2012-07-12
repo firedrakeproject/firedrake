@@ -20,6 +20,7 @@ class DirectLoopTest(unittest.TestCase):
         self._elems = op2.Set(nelems, "elems")
         self._input_x = numpy.array(range(nelems), dtype=numpy.uint32)
         self._x = op2.Dat(self._elems,  1, self._input_x, numpy.uint32, "x")
+        self._y = op2.Dat(self._elems,  2, [self._input_x, self._input_x], numpy.uint32, "x")
         self._g = op2.Global(1, 0, numpy.uint32, "natural_sum")
 
     def tearDown(self):
@@ -51,6 +52,15 @@ void kernel_global_inc(unsigned int* x, unsigned int* inc) { (*x) = (*x) + 1; (*
 """
         l = op2.par_loop(op2.Kernel(kernel_global_inc, "kernel_global_inc"), self._elems, self._x(op2.IdentityMap, op2.RW), self._g(op2.INC))
         self.assertEqual(self._g.data[0], nelems * (nelems + 1) / 2);
+
+    def test_2d_dat(self):
+        kernel_wo = """
+void kernel_wo(unsigned int*);
+void kernel_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }
+"""
+        l = op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), self._elems, self._y(op2.IdentityMap, op2.WRITE))
+        self.assertTrue(all(map(lambda x: all(x==[42,43]), self._y.data)))
+
 
 suite = unittest.TestLoader().loadTestsFromTestCase(DirectLoopTest)
 unittest.TextTestRunner(verbosity=0).run(suite)

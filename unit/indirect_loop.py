@@ -88,6 +88,21 @@ class IndirectLoopTest(unittest.TestCase):
         self.assertEqual(sum(x.data), nelems * (nelems + 1) / 2)
         self.assertEqual(g.data[0], nelems * (nelems + 1) / 2)
 
+    def test_2d_dat(self):
+        iterset = op2.Set(nelems, "iterset")
+        indset = op2.Set(nelems, "indset")
+
+        x = op2.Dat(indset, 2, numpy.array([range(nelems), range(nelems)], dtype=numpy.uint32), numpy.uint32, "x")
+
+        u_map = numpy.array(range(nelems), dtype=numpy.uint32)
+        random.shuffle(u_map, _seed)
+        iterset2indset = op2.Map(iterset, indset, 1, u_map, "iterset2indset")
+
+        kernel_wo = "void kernel_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }\n"
+
+        op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), iterset, x(iterset2indset(0), op2.WRITE))
+        self.assertTrue(all(map(lambda x: all(x==[42,43]), x.data)))
+
 suite = unittest.TestLoader().loadTestsFromTestCase(IndirectLoopTest)
 unittest.TextTestRunner(verbosity=0, failfast=False).run(suite)
 
