@@ -224,8 +224,8 @@ class OpPlan(core.op_plan):
             e = s + self.nindirect[i]
             cl.enqueue_copy(_queue, self._ind_map_buffers[i], self.ind_map[s:e], is_blocking=True).wait()
 
-        self._loc_map_buffers = [None] * self.nargs
-        for i in range(self.nargs):
+        self._loc_map_buffers = [None] * self.ninds
+        for i in range(self.ninds):
             self._loc_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int16(0).itemsize * self.itset.size))
             s = i * self.itset.size
             e = s + self.itset.size
@@ -369,9 +369,9 @@ class ParLoopCall(object):
             source = str(iloop)
 
             # for debugging purpose, refactor that properly at some point
-            f = open(self._kernel._name + '.cl.c', 'w')
-            f.write(source)
-            f.close
+            #f = open(self._kernel._name + '.cl.c', 'w')
+            #f.write(source)
+            #f.close
 
             prg = cl.Program(_ctx, source).build(options="-Werror")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
@@ -383,8 +383,7 @@ class ParLoopCall(object):
             for i in range(plan.ninds):
                 self._kernel_arg_append(kernel, plan._ind_map_buffers[i])
 
-            for i in range(plan.nargs):
-                if self._args[i]._i_is_indirect:
+            for i in range(plan.ninds):
                     self._kernel_arg_append(kernel, plan._loc_map_buffers[i])
 
             for arg in self._i_global_reduc_args:
