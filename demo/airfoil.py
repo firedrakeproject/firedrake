@@ -22,32 +22,34 @@ import numpy as np
 from pyop2 import op2
 # Initialise OP2
 
+import h5py
+
 op2.init(backend='sequential')
 
 from airfoil_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 
-### These need to be set by some sort of grid-reading later
+file = h5py.File('new_grid.h5', 'r')
 
 # Size of sets
-ncell  = 800
-nnode  = 1000
-nedge  = 500
-nbedge = 40
+ncell  = file['cells'].value[0].astype('int')
+nnode  = file['nodes'].value[0].astype('int')
+nedge  = file['edges'].value[0].astype('int')
+nbedge = file['bedges'].value[0].astype('int')
 
 # Map values
-cell   = np.array([1]*4*ncell)
-edge   = np.array([1]*2*nedge)
-ecell  = np.array([1]*2*nedge)
-bedge  = np.array([1]*2*nbedge)
-becell = np.array([1]*  nbedge)
-bound  = np.array([1]*  nbedge)
+cell   = file['pcell'].value
+edge   = file['pedge'].value
+ecell  = file['pecell'].value
+bedge  = file['pbedge'].value
+becell = file['pbecell'].value
 
 # Data values
-x     = np.array([1.0]*2*nnode)
-q     = np.array([1.0]*4*ncell)
-qold  = np.array([1.0]*4*ncell)
-res   = np.array([1.0]*4*ncell)
-adt   = np.array([1.0]*  ncell)
+bound = file['p_bound'].value
+x     = file['p_x'].value
+q     = file['p_q'].value
+qold  = file['p_qold'].value
+res   = file['p_res'].value
+adt   = file['p_adt'].value
 
 ### End of grid stuff
 
@@ -65,28 +67,22 @@ pbedge  = op2.Map(bedges, nodes, 2, bedge,  "pbedge")
 pbecell = op2.Map(bedges, cells, 1, becell, "pbecell")
 pcell   = op2.Map(cells,  nodes, 4, cell,   "pcell")
 
-p_bound = op2.Dat(bedges, 1, bound, np.long,   "p_bound")
-p_x     = op2.Dat(nodes,  2, x,     np.double, "p_x")
-p_q     = op2.Dat(cells,  4, q,     np.double, "p_q")
-p_qold  = op2.Dat(cells,  4, qold,  np.double, "p_qold")
-p_adt   = op2.Dat(cells,  1, adt,   np.double, "p_adt")
-p_res   = op2.Dat(cells,  4, res,   np.double, "p_res")
+p_bound = op2.Dat(bedges, 1, bound, name="p_bound")
+p_x     = op2.Dat(nodes,  2, x,     name="p_x")
+p_q     = op2.Dat(cells,  4, q,     name="p_q")
+p_qold  = op2.Dat(cells,  4, qold,  name="p_qold")
+p_adt   = op2.Dat(cells,  1, adt,   name="p_adt")
+p_res   = op2.Dat(cells,  4, res,   name="p_res")
 
-gam  = op2.Const(1, 1.4,  np.double, "gam")
-gm1  = op2.Const(1, 0.4,  np.double, "gm1")
-cfl  = op2.Const(1, 0.9,  np.double, "cfl")
-eps  = op2.Const(1, 0.05, np.double, "eps")
-mach = op2.Const(1, 0.4,  np.double, "mach")
+gam   = op2.Const(1, file['gam'].value,   name="gam")
+gm1   = op2.Const(1, file['gm1'].value,   name="gm1")
+cfl   = op2.Const(1, file['cfl'].value,   name="cfl")
+eps   = op2.Const(1, file['eps'].value,   name="eps")
+mach  = op2.Const(1, file['mach'].value,  name="mach")
+alpha = op2.Const(1, file['alpha'].value, name="alpha")
+qinf  = op2.Const(4, file['qinf'].value,  name="qinf")
 
-alpha = op2.Const(1, 3.0*atan(1.0)/45.0, np.double, "alpha")
-
-# Constants
-p = 1.0
-r = 1.0
-u = sqrt(1.4/p/r)*0.4
-e = p/(r*0.4) + 0.5*u*u
-
-qinf = op2.Const(4, [r, r*u, 0.0, r*e], np.double, "qinf")
+file.close()
 
 # Main time-marching loop
 
