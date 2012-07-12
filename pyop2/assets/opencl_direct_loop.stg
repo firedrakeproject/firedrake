@@ -63,7 +63,10 @@ void $it._dat._name$_reduction_kernel (
 )
 {
   int lid = get_local_id(0);
-  reduction_tmp_array[lid] = input_value;
+  if (lid < $const.partition_size$)
+  {
+    reduction_tmp_array[lid] = input_value;
+  }
   barrier(CLK_LOCAL_MEM_FENCE);
 
   for(int offset = 1;
@@ -71,7 +74,7 @@ void $it._dat._name$_reduction_kernel (
       offset <<= 1)
   {
     int mask = (offset << 1) - 1;
-    if ((lid & mask) == 0) {
+    if ( ((lid & mask) == 0) && ((lid + offset) < $const.partition_size$) ) {
       $reduction_op()$
     }
     barrier(CLK_LOCAL_MEM_FENCE);

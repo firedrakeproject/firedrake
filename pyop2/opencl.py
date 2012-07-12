@@ -360,12 +360,13 @@ class ParLoopCall(object):
             for i, a in enumerate(self._d_reduction_args):
                 a._dat._host_reduction(_blocks_per_grid)
         else:
-            plan = OpPlan(self._kernel, self._it_space, *self._args, partition_size=512)
+            psize = 1024
+            plan = OpPlan(self._kernel, self._it_space, *self._args, partition_size=psize)
 
             # codegen
             iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
             iloop['parloop'] = self
-            iloop['const'] = {'dynamic_shared_memory_size': plan.nshared, 'ninds':plan.ninds}
+            iloop['const'] = {'dynamic_shared_memory_size': plan.nshared, 'ninds':plan.ninds, 'partition_size':psize}
             source = str(iloop)
 
             # for debugging purpose, refactor that properly at some point
