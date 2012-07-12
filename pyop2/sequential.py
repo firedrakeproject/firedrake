@@ -387,19 +387,12 @@ def par_loop(kernel, it_space, *args):
     _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel._code,
                              additional_definitions = kernel._code)
 
-    direct = all(not arg.is_indirect() for arg in args)
-
-    if direct:
-        for i in xrange(it_space.size):
-            _args = [isinstance(arg.data, Global) and arg.data.data[0:1] or arg.data.data[i:i+1] for arg in args]
-            _fun(*_args)
-    else:
-        for i in xrange(it_space.size):
-            _args = []
-            for arg in args:
-                if arg.is_indirect():
-                    j = arg.map.values[i]
-                    _args.append(arg.data.data[j:j+1])
-                else:
-                    _args.append(isinstance(arg.data, Global) and arg.data.data[0:1] or arg.data.data[i:i+1])
-            _fun(*_args)
+    for i in xrange(it_space.size):
+        _args = []
+        for arg in args:
+            if arg.is_indirect():
+                j = arg.map.values[i]
+                _args.append(arg.data.data[j:j+1])
+            else:
+                _args.append(isinstance(arg.data, Global) and arg.data.data[0:1] or arg.data.data[i:i+1])
+        _fun(*_args)
