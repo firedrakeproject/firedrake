@@ -347,15 +347,21 @@ class ParLoopCall(object):
                               "threads_per_block": _threads_per_block,
                               "partition_size": _threads_per_block}
             source = str(dloop)
+
+            # for debugging purpose, refactor that properly at some point
+            #f = open(self._kernel._name + '.cl.c', 'w')
+            #f.write(source)
+            #f.close
+
             prg = cl.Program (_ctx, source).build(options="-Werror")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
-            self._karg = 0
+
             for a in self._d_nonreduction_args:
-                self._kernel_arg_append(kernel, a._dat._buffer)
+                kernel.append_arg(a._dat._buffer)
 
             for a in self._d_reduction_args:
                 a._dat._allocate_reduction_array(_blocks_per_grid)
-                self._kernel_arg_append(kernel, a._dat._d_reduc_buffer)
+                kernel.append_arg(a._dat._d_reduc_buffer)
 
             cl.enqueue_nd_range_kernel(_queue, kernel, (thread_count,), (_threads_per_block,), g_times_l=False).wait()
             for i, a in enumerate(self._d_reduction_args):
@@ -378,28 +384,27 @@ class ParLoopCall(object):
             prg = cl.Program(_ctx, source).build(options="-Werror")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
 
-            self._karg = 0
             for a in self._unique_dats:
-                self._kernel_arg_append(kernel, a._buffer)
+                kernel.append_arg(a._buffer)
 
             for i in range(plan.ninds):
-                self._kernel_arg_append(kernel, plan._ind_map_buffers[i])
+                kernel.append_arg(plan._ind_map_buffers[i])
 
             for i in range(plan.ninds):
-                    self._kernel_arg_append(kernel, plan._loc_map_buffers[i])
+                kernel.append_arg(plan._loc_map_buffers[i])
 
             for arg in self._i_global_reduc_args:
                 arg._dat._allocate_reduction_array(plan.nblocks)
-                self._kernel_arg_append(kernel, arg._dat._d_reduc_buffer)
+                kernel.append_arg(arg._dat._d_reduc_buffer)
 
 
-            self._kernel_arg_append(kernel, plan._ind_sizes_buffer)
-            self._kernel_arg_append(kernel, plan._ind_offs_buffer)
-            self._kernel_arg_append(kernel, plan._blkmap_buffer)
-            self._kernel_arg_append(kernel, plan._offset_buffer)
-            self._kernel_arg_append(kernel, plan._nelems_buffer)
-            self._kernel_arg_append(kernel, plan._nthrcol_buffer)
-            self._kernel_arg_append(kernel, plan._thrcol_buffer)
+            kernel.append_arg(plan._ind_sizes_buffer)
+            kernel.append_arg(plan._ind_offs_buffer)
+            kernel.append_arg(plan._blkmap_buffer)
+            kernel.append_arg(plan._offset_buffer)
+            kernel.append_arg(plan._nelems_buffer)
+            kernel.append_arg(plan._nthrcol_buffer)
+            kernel.append_arg(plan._thrcol_buffer)
 
             block_offset = 0
             for i in range(plan.ncolors):
@@ -407,7 +412,7 @@ class ParLoopCall(object):
                 threads_per_block = _threads_per_block
                 thread_count = threads_per_block * blocks_per_grid
 
-                kernel.set_arg(self._karg, np.int32(block_offset))
+                kernel.set_last_arg(np.int32(block_offset))
                 cl.enqueue_nd_range_kernel(_queue, kernel, (thread_count,), (threads_per_block,), g_times_l=False).wait()
                 block_offset += blocks_per_grid
 
@@ -416,13 +421,29 @@ class ParLoopCall(object):
 
             plan.reclaim()
 
-
-    def _kernel_arg_append(self, kernel, arg):
-        kernel.set_arg(self._karg, arg)
-        self._karg += 1
-
     def is_direct(self):
         return all(map(lambda a: isinstance(a._dat, Global) or ((isinstance(a._dat, Dat) and a._map == IdentityMap)), self._args))
+
+#Monkey patch pyopencl.Kernel for convenience
+_original_clKernel = cl.Kernel
+
+class CLKernel (_original_clKernel):
+    def __init__(self, *args, **kargs):
+        super(CLKernel, self).__init__(*args, **kargs)
+        self._karg = 0
+
+    def reset_args(self):
+        self._karg = 0;
+
+    def append_arg(self, arg):
+        self.set_arg(self._karg, arg)
+        self._karg += 1
+
+    def set_last_arg(self, arg):
+        self.set_arg(self._karg, arg)
+
+cl.Kernel = CLKernel
+
 
 def par_loop(kernel, it_space, *args):
     ParLoopCall(kernel, it_space, *args).compute()
