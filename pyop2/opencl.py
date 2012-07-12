@@ -344,7 +344,8 @@ class ParLoopCall(object):
             dloop['const'] = {"warpsize": _warpsize,\
                               "shared_memory_offset": shared_memory_offset,\
                               "dynamic_shared_memory_size": dynamic_shared_memory_size,\
-                              "threads_per_block": _threads_per_block}
+                              "threads_per_block": _threads_per_block,
+                              "partition_size": _threads_per_block}
             source = str(dloop)
             prg = cl.Program (_ctx, source).build(options="-Werror")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
@@ -421,7 +422,7 @@ class ParLoopCall(object):
         self._karg += 1
 
     def is_direct(self):
-        return all(map(lambda a: isinstance(a._dat, Global) or (isinstance(a._dat, Dat) and a._map == IdentityMap), self._args))
+        return all(map(lambda a: isinstance(a._dat, Global) or ((isinstance(a._dat, Dat) and a._map == IdentityMap)), self._args))
 
 def par_loop(kernel, it_space, *args):
     ParLoopCall(kernel, it_space, *args).compute()
