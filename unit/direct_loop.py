@@ -112,7 +112,32 @@ void kernel_multidim(unsigned int* x, unsigned int* y, unsigned int* inc)
         op2.par_loop(op2.Kernel(kernel_multidim, "kernel_multidim"), iterset, x(op2.IdentityMap, op2.READ), y(op2.IdentityMap, op2.WRITE), g(op2.INC))
         self.assertEqual(sum(y.data), g.data[0])
 
+    def test_multidim_global_inc(self):
+        iterset = op2.Set(nelems, "elems")
+        x = op2.Dat(iterset, 2, numpy.array(range(1, 2*nelems + 1), dtype=numpy.uint32), numpy.uint32, "x")
+        y = op2.Dat(iterset, 1, numpy.array([0] * nelems, dtype=numpy.uint32), numpy.uint32, "y")
+        z = op2.Dat(iterset, 1, numpy.array([0] * nelems, dtype=numpy.uint32), numpy.uint32, "z")
+        g = op2.Global(2, numpy.array([0, 0], dtype=numpy.uint32), numpy.uint32, "g")
+
+        kernel_multidim_global_inc = """
+void kernel_multidim_global_inc(unsigned int*, unsigned int*, unsigned int*, unsigned int*);
+void kernel_multidim_global_inc(unsigned int* x, unsigned int* y, unsigned int* z, unsigned int* inc)
+{
+  *y = x[0];
+  *z = x[1];
+  inc[0] += *y;
+  inc[1] += *z;
+}
+"""
+
+        op2.par_loop(op2.Kernel(kernel_multidim_global_inc, "kernel_multidim_global_inc"), iterset, x(op2.IdentityMap, op2.READ), y(op2.IdentityMap, op2.WRITE), z(op2.IdentityMap, op2.WRITE), g(op2.INC))
+        self.assertEqual(sum(y.data), g.data[0])
+        self.assertEqual(sum(z.data), g.data[1])
+
 suite = unittest.TestLoader().loadTestsFromTestCase(DirectLoopTest)
 unittest.TextTestRunner(verbosity=0).run(suite)
 
 # refactor to avoid recreating input data for each test cases
+# TODO:
+#  - floating point type computations
+#  - constants
