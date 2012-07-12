@@ -12,7 +12,7 @@ __kernel
 void $parloop._kernel._name$_stub(
   $parloop._unique_dats:{__global $it._cl_type$* $it._name$,};separator="\n"$
   $parloop._i_staged_dat_map_pairs:{__global int* $shared_indirection_mapping_arg_name()$,};separator="\n"$
-  $parloop._args:{$if(!it._i_is_direct)$__global short* mappingArray$i$,$endif$};separator="\n"$
+  $parloop._args:{$if(it._i_is_indirect)$__global short* mappingArray$i$,$endif$};separator="\n"$
   $parloop._i_global_reduc_args:{__global $it._dat._cl_type$* $global_reduc_device_array_name()$,};separator="\n"$
   __global int* p_ind_sizes,
   __global int* p_ind_offsets,
@@ -70,7 +70,7 @@ $endif$
     $parloop._i_staged_dat_map_pairs:{$shared_indirection_mapping_name()$ = $shared_indirection_mapping_arg_name()$ + p_ind_offsets[$shared_indirection_mapping_idx_name()$ + block_id * $const.ninds$];};separator="\n"$
 
     nbytes = 0;
-    $parloop._i_staged_dat_map_pairs:{$shared_indirection_mapping_memory_name()$ = (__local $it._dat._cl_type$* __local) (&shared[nbytes]);
+    $parloop._i_staged_dat_map_pairs:{$shared_indirection_mapping_memory_name()$ = (__local $it._dat._cl_type$*) (&shared[nbytes]);
 nbytes += ROUND_UP($shared_indirection_mapping_size_name()$ * $it._dat._dim$ * sizeof($it._dat._cl_type$));};separator="\n"$
   }
   barrier(CLK_LOCAL_MEM_FENCE);
@@ -230,7 +230,7 @@ void $it._dat._name$_reduction_kernel (
   barrier(CLK_LOCAL_MEM_FENCE);
 
   for(int offset = 1;
-      offset < get_local_size(0);
+      offset < (int) get_local_size(0);
       offset <<= 1)
   {
     int mask = (offset << 1) - 1;

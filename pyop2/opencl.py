@@ -42,6 +42,23 @@ import pycparser
 import numpy as np
 import collections
 import itertools
+import warnings
+
+_sum = 0
+
+def trace():
+    def decorator(f):
+        def wrapper(*args, **kargs):
+            print "%s (%s, %s)" % (f.__name__, args, kargs)
+            print "%d" % kargs['size']
+            global _sum
+            _sum += kargs['size']
+            print "running total %d" % (_sum)
+            return f(*args, **kargs)
+        return wrapper
+    return decorator
+
+#cl.Buffer = trace()(cl.Buffer)
 
 def round_up(bytes):
     return (bytes + 15) & ~15
@@ -76,11 +93,15 @@ class Arg(op2.Arg):
 
     @property
     def _i_is_direct(self):
-        return isinstance(self._dat, Dat) and self._map == IdentityMap
+        return isinstance(self._dat, Dat) and self._map is IdentityMap
+
+    @property
+    def _i_is_indirect(self):
+        return isinstance(self._dat, Dat) and self._map not in [None, IdentityMap]
 
     @property
     def _i_is_reduction(self):
-        return isinstance(self._dat, Dat) and self._access in [INC, MIN, MAX]
+        return isinstance(self._dat, Dat) and self._map != None and self._access in [INC, MIN, MAX]
 
     @property
     def _i_is_global_reduction(self):
@@ -108,7 +129,7 @@ class Dat(op2.Dat, DeviceDataMixin):
     def __init__(self, dataset, dim, data=None, dtype=None, name=None, soa=None):
         op2.Dat.__init__(self, dataset, dim, data, dtype, name, soa)
         self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
-        cl.enqueue_write_buffer(_queue, self._buffer, self._data).wait()
+        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
     @property
     def bytes_per_elem(self):
@@ -117,7 +138,7 @@ class Dat(op2.Dat, DeviceDataMixin):
 
     @property
     def data(self):
-        cl.enqueue_read_buffer(_queue, self._buffer, self._data).wait()
+        cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
         return self._data
 
 class Mat(op2.Mat, DeviceDataMixin):
@@ -141,16 +162,16 @@ class Global(op2.Global, DeviceDataMixin):
     def __init__(self, dim, data, dtype=None, name=None):
         op2.Global.__init__(self, dim, data, dtype, name)
         self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
-        cl.enqueue_write_buffer(_queue, self._buffer, self._data).wait()
+        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
     def _allocate_reduction_array(self, nelems):
         self._h_reduc_array = np.zeros ((round_up(nelems * self._data.itemsize),), dtype=self._data.dtype)
         self._d_reduc_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._h_reduc_array.nbytes)
         #NOTE: the zeroing of the buffer could be made with an opencl kernel call
-        cl.enqueue_write_buffer(_queue, self._d_reduc_buffer, self._h_reduc_array).wait()
+        cl.enqueue_copy(_queue, self._d_reduc_buffer, self._h_reduc_array, is_blocking=True).wait()
 
     def _host_reduction(self, nelems):
-        cl.enqueue_read_buffer(_queue, self._d_reduc_buffer, self._h_reduc_array).wait()
+        cl.enqueue_copy(_queue, self._h_reduc_array, self._d_reduc_buffer, is_blocking=True).wait()
         for j in range(self._dim[0]):
             self._data[j] = 0
 
@@ -158,6 +179,7 @@ class Global(op2.Global, DeviceDataMixin):
             for j in range(self._dim[0]):
                 self._data[j] += self._h_reduc_array[j + i * self._dim[0]]
 
+        warnings.warn('missing: updating buffer value')
         # get rid of the buffer and host temporary arrays
         del self._h_reduc_array
         del self._d_reduc_buffer
@@ -169,8 +191,8 @@ class Map(op2.Map):
     def __init__(self, iterset, dataset, dim, values, name=None):
         op2.Map.__init__(self, iterset, dataset, dim, values, name)
         if self._iterset._size != 0:
-            self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, self._values.nbytes)
-            cl.enqueue_write_buffer(_queue, self._buffer, self._values).wait()
+            self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._values.nbytes)
+            cl.enqueue_copy(_queue, self._buffer, self._values, is_blocking=True).wait()
 
 class OpPlan(core.op_plan):
     """ Helper wrapper
@@ -182,41 +204,53 @@ class OpPlan(core.op_plan):
         self.itset = itset
         self.load()
 
+    def reclaim(self):
+        del self._ind_map_buffers
+        del self._loc_map_buffers
+        del self._ind_sizes_buffer
+        del self._ind_offs_buffer
+        del self._blkmap_buffer
+        del self._offset_buffer
+        del self._nelems_buffer
+        del self._nthrcol_buffer
+        del self._thrcol_buffer
+
+
     def load(self):
         self._ind_map_buffers = [None] * self.ninds
         for i in range(self.ninds):
             self._ind_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int32(0).itemsize * self.nindirect[i]))
             s = i * self.itset.size
             e = s + self.nindirect[i]
-            cl.enqueue_write_buffer(_queue, self._ind_map_buffers[i], self.ind_map[s:e]).wait()
+            cl.enqueue_copy(_queue, self._ind_map_buffers[i], self.ind_map[s:e], is_blocking=True).wait()
 
         self._loc_map_buffers = [None] * self.nargs
         for i in range(self.nargs):
             self._loc_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int16(0).itemsize * self.itset.size))
             s = i * self.itset.size
             e = s + self.itset.size
-            cl.enqueue_write_buffer(_queue, self._loc_map_buffers[i], self.loc_map[s:e]).wait()
+            cl.enqueue_copy(_queue, self._loc_map_buffers[i], self.loc_map[s:e], is_blocking=True).wait()
 
         self._ind_sizes_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.ind_sizes.nbytes)
-        cl.enqueue_write_buffer(_queue, self._ind_sizes_buffer, self.ind_sizes).wait()
+        cl.enqueue_copy(_queue, self._ind_sizes_buffer, self.ind_sizes, is_blocking=True).wait()
 
         self._ind_offs_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.ind_offs.nbytes)
-        cl.enqueue_write_buffer(_queue, self._ind_offs_buffer, self.ind_offs).wait()
+        cl.enqueue_copy(_queue, self._ind_offs_buffer, self.ind_offs, is_blocking=True).wait()
 
         self._blkmap_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.blkmap.nbytes)
-        cl.enqueue_write_buffer(_queue, self._blkmap_buffer, self.blkmap).wait()
+        cl.enqueue_copy(_queue, self._blkmap_buffer, self.blkmap, is_blocking=True).wait()
 
         self._offset_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.offset.nbytes)
-        cl.enqueue_write_buffer(_queue, self._offset_buffer, self.offset).wait()
+        cl.enqueue_copy(_queue, self._offset_buffer, self.offset, is_blocking=True).wait()
 
         self._nelems_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.nelems.nbytes)
-        cl.enqueue_write_buffer(_queue, self._nelems_buffer, self.nelems).wait()
+        cl.enqueue_copy(_queue, self._nelems_buffer, self.nelems, is_blocking=True).wait()
 
         self._nthrcol_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.nthrcol.nbytes)
-        cl.enqueue_write_buffer(_queue, self._nthrcol_buffer, self.nthrcol).wait()
+        cl.enqueue_copy(_queue, self._nthrcol_buffer, self.nthrcol, is_blocking=True).wait()
 
         self._thrcol_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.thrcol.nbytes)
-        cl.enqueue_write_buffer(_queue, self._thrcol_buffer, self.thrcol).wait()
+        cl.enqueue_copy(_queue, self._thrcol_buffer, self.thrcol, is_blocking=True).wait()
 
 class DatMapPair(object):
     """ Dummy class needed for codegen
@@ -335,9 +369,9 @@ class ParLoopCall(object):
             source = str(iloop)
 
             # for debugging purpose, refactor that properly at some point
-            #f = open(self._kernel._name + '.cl.c', 'w')
-            #f.write(source)
-            #f.close
+            f = open(self._kernel._name + '.cl.c', 'w')
+            f.write(source)
+            f.close
 
             prg = cl.Program(_ctx, source).build(options="-Werror")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
@@ -350,7 +384,8 @@ class ParLoopCall(object):
                 self._kernel_arg_append(kernel, plan._ind_map_buffers[i])
 
             for i in range(plan.nargs):
-                self._kernel_arg_append(kernel, plan._loc_map_buffers[i])
+                if self._args[i]._i_is_indirect:
+                    self._kernel_arg_append(kernel, plan._loc_map_buffers[i])
 
             for arg in self._i_global_reduc_args:
                 arg._dat._allocate_reduction_array(plan.nblocks)
@@ -377,6 +412,8 @@ class ParLoopCall(object):
 
             for arg in self._i_global_reduc_args:
                 arg._dat._host_reduction(plan.nblocks)
+
+            plan.reclaim()
 
 
     def _kernel_arg_append(self, kernel, arg):
