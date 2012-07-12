@@ -93,6 +93,25 @@ void kernel_ro_wo_global_inc(unsigned int* x, unsigned int* y, unsigned int* inc
         self.assertEqual(sum(y.data), g.data[0])
         self.assertEqual(sum(x.data), g.data[0] - nelems)
 
+    def test_multidim(self):
+        """Test dimension > 1 arguments."""
+        iterset = op2.Set(nelems, "elems")
+        x = op2.Dat(iterset, 2, numpy.array(range(1, 2*nelems + 1), dtype=numpy.uint32), numpy.uint32, "x")
+        y = op2.Dat(iterset, 1, numpy.array([0] * nelems, dtype=numpy.uint32), numpy.uint32, "y")
+        g = op2.Global(1, 0, numpy.uint32, "g")
+
+        kernel_multidim = """
+void kernel_multidim(unsigned int*, unsigned int*, unsigned int*);
+void kernel_multidim(unsigned int* x, unsigned int* y, unsigned int* inc)
+{
+  *y = (x[0] + x[1]) / 2;
+  *inc += *y;
+}
+"""
+
+        op2.par_loop(op2.Kernel(kernel_multidim, "kernel_multidim"), iterset, x(op2.IdentityMap, op2.READ), y(op2.IdentityMap, op2.WRITE), g(op2.INC))
+        self.assertEqual(sum(y.data), g.data[0])
+
 suite = unittest.TestLoader().loadTestsFromTestCase(DirectLoopTest)
 unittest.TextTestRunner(verbosity=0).run(suite)
 
