@@ -88,7 +88,7 @@ file.close()
 
 niter = 1000
 
-for i in range(niter):
+for i in range(1, niter+1):
 
     # Save old flow solution
     op2.par_loop(save_soln, cells,
@@ -100,19 +100,27 @@ for i in range(niter):
 
         # Calculate area/timestep
         op2.par_loop(adt_calc, cells,
-                     p_x  (pcell,            op2.READ),
+                     p_x  (pcell(0),         op2.READ),
+                     p_x  (pcell(1),         op2.READ),
+                     p_x  (pcell(2),         op2.READ),
+                     p_x  (pcell(3),         op2.READ),
                      p_q  (op2.IdentityMap,  op2.READ),
                      p_adt(op2.IdentityMap,  op2.WRITE))
 
         # Calculate flux residual
         op2.par_loop(res_calc, edges,
-                     p_x  (pedge,  op2.READ),
-                     p_q  (pecell, op2.READ),
-                     p_adt(pecell, op2.READ),
-                     p_res(pecell, op2.INC))
+                     p_x  (pedge(0),  op2.READ),
+                     p_x  (pedge(1),  op2.READ),
+                     p_q  (pecell(0), op2.READ),
+                     p_q  (pecell(1), op2.READ),
+                     p_adt(pecell(0), op2.READ),
+                     p_adt(pecell(1), op2.READ),
+                     p_res(pecell(0), op2.INC),
+                     p_res(pecell(1), op2.INC))
 
         op2.par_loop(bres_calc, bedges,
-                     p_x    (pbedge,          op2.READ),
+                     p_x    (pbedge(0),       op2.READ),
+                     p_x    (pbedge(1),       op2.READ),
                      p_q    (pbecell(0),      op2.READ),
                      p_adt  (pbecell(0),      op2.READ),
                      p_res  (pbecell(0),      op2.INC),
@@ -126,8 +134,7 @@ for i in range(niter):
                      p_res (op2.IdentityMap, op2.RW),
                      p_adt (op2.IdentityMap, op2.READ),
                      rms(op2.INC))
-
     # Print iteration history
     rms = sqrt(rms.data/cells.size)
-    if i%100 == 0:
-        print "Iteration", i, "RMS:", rms
+    if i%1 == 0:
+        print " %d  %10.5e " % (i, rms)

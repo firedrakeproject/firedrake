@@ -39,7 +39,7 @@ void save_soln(double *q, double *qold){
 """
 
 adt_calc_code = """
-void adt_calc(double *x[2], double q[4], double * adt){
+void adt_calc(double *x1,double *x2,double *x3,double *x4,double *q,double *adt){
   double dx,dy, ri,u,v,c;
 
   ri =  1.0f/q[0];
@@ -47,20 +47,20 @@ void adt_calc(double *x[2], double q[4], double * adt){
   v  =   ri*q[2];
   c  = sqrt(gam*gm1*(ri*q[3]-0.5f*(u*u+v*v)));
 
-  dx = x[1][0] - x[0][0];
-  dy = x[1][1] - x[0][1];
+  dx = x2[0] - x1[0];
+  dy = x2[1] - x1[1];
   *adt  = fabs(u*dy-v*dx) + c*sqrt(dx*dx+dy*dy);
 
-  dx = x[2][0] - x[1][0];
-  dy = x[2][1] - x[1][1];
+  dx = x3[0] - x2[0];
+  dy = x3[1] - x2[1];
   *adt += fabs(u*dy-v*dx) + c*sqrt(dx*dx+dy*dy);
 
-  dx = x[3][0] - x[2][0];
-  dy = x[3][1] - x[2][1];
+  dx = x4[0] - x3[0];
+  dy = x4[1] - x3[1];
   *adt += fabs(u*dy-v*dx) + c*sqrt(dx*dx+dy*dy);
 
-  dx = x[0][0] - x[3][0];
-  dy = x[0][1] - x[3][1];
+  dx = x1[0] - x4[0];
+  dy = x1[1] - x4[1];
   *adt += fabs(u*dy-v*dx) + c*sqrt(dx*dx+dy*dy);
 
   *adt = (*adt) / cfl;
@@ -68,68 +68,70 @@ void adt_calc(double *x[2], double q[4], double * adt){
 """
 
 res_calc_code = """
-void res_calc(double *x[2], double *q[4], double *adt,double *res[4]) {
+void res_calc(double *x1,  double *x2,  double *q1,  double *q2,
+              double *adt1,double *adt2,double *res1,double *res2) {
   double dx,dy,mu, ri, p1,vol1, p2,vol2, f;
 
-  dx = x[0][0] - x[1][0];
-  dy = x[0][1] - x[1][1];
+  dx = x1[0] - x2[0];
+  dy = x1[1] - x2[1];
 
-  ri   = 1.0f/q[0][0];
-  p1   = gm1*(q[0][3]-0.5f*ri*(q[0][1]*q[0][1]+q[0][2]*q[0][2]));
-  vol1 =  ri*(q[0][1]*dy - q[0][2]*dx);
+  ri   = 1.0f/q1[0];
+  p1   = gm1*(q1[3]-0.5f*ri*(q1[1]*q1[1]+q1[2]*q1[2]));
+  vol1 =  ri*(q1[1]*dy - q1[2]*dx);
 
-  ri   = 1.0f/q[1][0];
-  p2   = gm1*(q[1][3]-0.5f*ri*(q[1][1]*q[1][1]+q[1][2]*q[1][2]));
-  vol2 =  ri*(q[1][1]*dy - q[1][2]*dx);
+  ri   = 1.0f/q2[0];
+  p2   = gm1*(q2[3]-0.5f*ri*(q2[1]*q2[1]+q2[2]*q2[2]));
+  vol2 =  ri*(q2[1]*dy - q2[2]*dx);
 
-  mu = 0.5f*(adt[0]+adt[1])*eps;
+  mu = 0.5f*((*adt1)+(*adt2))*eps;
 
-  f = 0.5f*(vol1* q[0][0]         + vol2* q[1][0]        ) + mu*(q[0][0]-q[1][0]);
-  res[0][0] += f;
-  res[1][0] -= f;
-  f = 0.5f*(vol1* q[0][1] + p1*dy + vol2* q[1][1] + p2*dy) + mu*(q[0][1]-q[1][1]);
-  res[0][1] += f;
-  res[1][1] -= f;
-  f = 0.5f*(vol1* q[0][2] - p1*dx + vol2* q[1][2] - p2*dx) + mu*(q[0][2]-q[1][2]);
-  res[0][2] += f;
-  res[1][2] -= f;
-  f = 0.5f*(vol1*(q[0][3]+p1)     + vol2*(q[1][3]+p2)    ) + mu*(q[0][3]-q[1][3]);
-  res[0][3] += f;
-  res[1][3] -= f;
+  f = 0.5f*(vol1* q1[0]         + vol2* q2[0]        ) + mu*(q1[0]-q2[0]);
+  res1[0] += f;
+  res2[0] -= f;
+  f = 0.5f*(vol1* q1[1] + p1*dy + vol2* q2[1] + p2*dy) + mu*(q1[1]-q2[1]);
+  res1[1] += f;
+  res2[1] -= f;
+  f = 0.5f*(vol1* q1[2] - p1*dx + vol2* q2[2] - p2*dx) + mu*(q1[2]-q2[2]);
+  res1[2] += f;
+  res2[2] -= f;
+  f = 0.5f*(vol1*(q1[3]+p1)     + vol2*(q2[3]+p2)    ) + mu*(q1[3]-q2[3]);
+  res1[3] += f;
+  res2[3] -= f;
 }
 """
 
 bres_calc_code = """
-void bres_calc(double *x[2], double q[4], double * adt, double res[4], int * bound) {
+void bres_calc(double *x1,  double *x2,  double *q1,
+               double *adt1,double *res1,int *bound) {
   double dx,dy,mu, ri, p1,vol1, p2,vol2, f;
 
-  dx = x[0][0] - x[1][0];
-  dy = x[0][1] - x[1][1];
+  dx = x1[0] - x2[0];
+  dy = x1[1] - x2[1];
 
-  ri = 1.0f/q[0];
-  p1 = gm1*(q[3]-0.5f*ri*(q[1]*q[1]+q[2]*q[2]));
+  ri = 1.0f/q1[0];
+  p1 = gm1*(q1[3]-0.5f*ri*(q1[1]*q1[1]+q1[2]*q1[2]));
 
   if (*bound==1) {
-    res[1] += + p1*dy;
-    res[2] += - p1*dx;
+    res1[1] += + p1*dy;
+    res1[2] += - p1*dx;
   }
   else {
-    vol1 =  ri*(q[1]*dy - q[2]*dx);
+    vol1 =  ri*(q1[1]*dy - q1[2]*dx);
 
     ri   = 1.0f/qinf[0];
     p2   = gm1*(qinf[3]-0.5f*ri*(qinf[1]*qinf[1]+qinf[2]*qinf[2]));
     vol2 =  ri*(qinf[1]*dy - qinf[2]*dx);
 
-    mu = (*adt)*eps;
+    mu = (*adt1)*eps;
 
-    f = 0.5f*(vol1* q[0]         + vol2* qinf[0]        ) + mu*(q[0]-qinf[0]);
-    res[0] += f;
-    f = 0.5f*(vol1* q[1] + p1*dy + vol2* qinf[1] + p2*dy) + mu*(q[1]-qinf[1]);
-    res[1] += f;
-    f = 0.5f*(vol1* q[2] - p1*dx + vol2* qinf[2] - p2*dx) + mu*(q[2]-qinf[2]);
-    res[2] += f;
-    f = 0.5f*(vol1*(q[3]+p1)     + vol2*(qinf[3]+p2)    ) + mu*(q[3]-qinf[3]);
-    res[3] += f;
+    f = 0.5f*(vol1* q1[0]         + vol2* qinf[0]        ) + mu*(q1[0]-qinf[0]);
+    res1[0] += f;
+    f = 0.5f*(vol1* q1[1] + p1*dy + vol2* qinf[1] + p2*dy) + mu*(q1[1]-qinf[1]);
+    res1[1] += f;
+    f = 0.5f*(vol1* q1[2] - p1*dx + vol2* qinf[2] - p2*dx) + mu*(q1[2]-qinf[2]);
+    res1[2] += f;
+    f = 0.5f*(vol1*(q1[3]+p1)     + vol2*(qinf[3]+p2)    ) + mu*(q1[3]-qinf[3]);
+    res1[3] += f;
   }
 }
 """
