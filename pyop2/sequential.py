@@ -385,9 +385,16 @@ def par_loop(kernel, it_space, *args):
     %(dec)s;
     %(name)s(%(karg)s);
     }"""
+
+    def c_arg_name(arg):
+        name = arg._dat._name
+        if arg.is_indirect() and arg.idx is not None:
+            name += str(arg.idx)
+        return name
+
     name = kernel._name
-    _arg = ','.join(["PyObject *_" + arg._dat._name for arg in args])
-    _dec = ';\n'.join(["PyArrayObject * " + arg._dat._name + " = (PyArrayObject *)_" + arg._dat._name for arg in args])
+    _arg = ','.join(["PyObject *_" + c_arg_name(arg) for arg in args])
+    _dec = ';\n'.join(["PyArrayObject * " + c_arg_name(arg) + " = (PyArrayObject *)_" + c_arg_name(arg) for arg in args])
 
     # FIXME: Complex and float16 not supported
     typemap = { "bool":    "unsigned char",
@@ -404,7 +411,7 @@ def par_loop(kernel, it_space, *args):
                 "float32": "float",
                 "float64": "double" }
 
-    _karg = ','.join(['(' + typemap[arg._dat._data.dtype.name] + ' *)' + arg._dat._name+"->data" for arg in args])
+    _karg = ','.join(['(' + typemap[arg._dat._data.dtype.name] + ' *)' + c_arg_name(arg)+"->data" for arg in args])
 
     const_declarations = '\n'.join([const.format_for_c(typemap) for const in Const._defs]) + '\n'
 

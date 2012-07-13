@@ -103,6 +103,28 @@ class IndirectLoopTest(unittest.TestCase):
         op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), iterset, x(iterset2indset(0), op2.WRITE))
         self.assertTrue(all(map(lambda x: all(x==[42,43]), x.data)))
 
+    def test_2d_map(self):
+        nedges = nelems - 1
+        nodes = op2.Set(nelems, "nodes")
+        edges = op2.Set(nedges, "edges")
+        node_vals = op2.Dat(nodes, 1, numpy.array(range(nelems), dtype=numpy.uint32), numpy.uint32, "node_vals")
+        edge_vals = op2.Dat(edges, 1, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
+
+        e_map = numpy.array([range(nedges), range(1, nelems)], dtype=numpy.uint32).transpose()
+        edge2node = op2.Map(edges, nodes, 2, e_map, "edge2node")
+
+        kernel_sum = """
+        void kernel_sum(unsigned int *nodes1, unsigned int *nodes2, unsigned int *edge)
+        { *edge = *nodes1 + *nodes2; }
+        """
+        op2.par_loop(op2.Kernel(kernel_sum, "kernel_sum"), edges,
+                     node_vals(edge2node(0), op2.READ),
+                     node_vals(edge2node(1), op2.READ),
+                     edge_vals(op2.IdentityMap, op2.WRITE))
+
+        expected = numpy.asarray(range(1, nedges * 2 + 1, 2)).reshape(nedges, 1)
+        self.assertTrue(all(expected == edge_vals.data))
+
 suite = unittest.TestLoader().loadTestsFromTestCase(IndirectLoopTest)
 unittest.TextTestRunner(verbosity=0, failfast=False).run(suite)
 
