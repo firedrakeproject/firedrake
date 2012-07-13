@@ -255,13 +255,19 @@ class Const(DataCarrier):
     _globalcount = 0
     _modes = [READ]
 
+    _defs = set()
+
     def __init__(self, dim, data=None, dtype=None, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._dim = as_tuple(dim, int)
         self._data = self._verify_reshape(data, dtype, self._dim)
         self._name = name or "const_%d" % Const._globalcount
+        if any(self._name is const._name for const in Const._defs):
+            raise RuntimeError(
+                "OP2 Constants are globally scoped, %s is already in use" % self._name)
         self._access = READ
         Const._globalcount += 1
+        Const._defs.add(self)
 
     def __str__(self):
         return "OP2 Const: %s of dim %s and type %s with value %s" \
@@ -270,6 +276,20 @@ class Const(DataCarrier):
     def __repr__(self):
         return "Const(%s, %s, '%s')" \
                % (self._dim, self._data, self._name)
+
+    def format_for_c(self, typemap):
+        dec = 'static const ' + typemap[self._data.dtype.name] + ' ' + self._name
+        if self._dim[0] > 1:
+            dec += '[' + str(self._dim[0]) + ']'
+        dec += ' = '
+        if self._dim[0] > 1:
+            dec += '{'
+        dec += ', '.join(str(datum) for datum in self._data)
+        if self._dim[0] > 1:
+            dec += '}'
+
+        dec += ';'
+        return dec
 
 class Global(DataCarrier):
     """OP2 global value."""
@@ -363,21 +383,23 @@ def par_loop(kernel, it_space, *args):
     _dec = ';\n'.join(["PyArrayObject * " + arg._dat._name + " = (PyArrayObject *)_" + arg._dat._name for arg in args])
 
     # FIXME: Complex and float16 not supported
-    typemap = { "bool":    "(unsigned char *)",
-                "int":     "(int *)",
-                "int8":    "(char *)",
-                "int16":   "(short *)",
-                "int32":   "(int *)",
-                "int64":   "(long long *)",
-                "uint8":   "(unsigned char *)",
-                "uint16":  "(unsigned short *)",
-                "uint32":  "(unsigned int *)",
-                "uint64":  "(unsigned long long *)",
-                "float":   "(double *)",
-                "float32": "(float *)",
-                "float64": "(double *)" }
+    typemap = { "bool":    "unsigned char",
+                "int":     "int",
+                "int8":    "char",
+                "int16":   "short",
+                "int32":   "int",
+                "int64":   "long long",
+                "uint8":   "unsigned char",
+                "uint16":  "unsigned short",
+                "uint32":  "unsigned int",
+                "uint64":  "unsigned long long",
+                "float":   "double",
+                "float32": "float",
+                "float64": "double" }
 
-    _karg = ','.join([typemap[arg._dat._data.dtype.name] + arg._dat._name+"->data" for arg in args])
+    _karg = ','.join(['(' + typemap[arg._dat._data.dtype.name] + ' *)' + arg._dat._name+"->data" for arg in args])
+
+    const_declarations = '\n'.join([const.format_for_c(typemap) for const in Const._defs]) + '\n'
 
     code_to_compile =  wrapper % { 'name' : name,
                       'arg' : _arg,
@@ -385,7 +407,7 @@ def par_loop(kernel, it_space, *args):
                       'karg' : _karg }
 
     _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel._code,
-                             additional_definitions = kernel._code)
+                             additional_definitions = const_declarations + kernel._code)
 
     for i in xrange(it_space.size):
         _args = []

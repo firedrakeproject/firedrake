@@ -65,7 +65,7 @@ res = op2.Kernel("""void res(double *A, double *u, double *du, const double *bet
 }""", "res")
 
 update = op2.Kernel("""void update(double *r, double *du, double *u, double *u_sum, double *u_max){
-  *u += *du + 1.0 * (*r);
+  *u += *du + alpha * (*r);
   *du = 0.0f;
   *u_sum += (*u)*(*u);
   *u_max = *u_max > *u ? *u_max : *u;
