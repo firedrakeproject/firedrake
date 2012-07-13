@@ -25,6 +25,7 @@ class VectorMapTest(unittest.TestCase):
     def tearDown(self):
         pass
 
+    @unittest.expectedFailure
     def test_sum_nodes_to_edges(self):
         """Creates a 1D grid with edge values numbered consecutively.
         Iterates over edges, summing the node values."""
@@ -40,8 +41,8 @@ class VectorMapTest(unittest.TestCase):
         edge2node = op2.Map(edges, nodes, 2, e_map, "edge2node")
 
         kernel_sum = """
-void kernel_sum(unsigned int* nodes, unsigned int *edge)
-{ *edge = nodes[0] + nodes[1]; }
+void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
+{ *edge = nodes[0][0] + nodes[0][1]; }
 """
 
         op2.par_loop(op2.Kernel(kernel_sum, "kernel_sum"), edges, \
