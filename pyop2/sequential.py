@@ -252,6 +252,9 @@ class Mat(DataCarrier):
 class Const(DataCarrier):
     """Data that is constant for any element of any set."""
 
+    class NonUniqueNameError(RuntimeError):
+        pass
+
     _globalcount = 0
     _modes = [READ]
 
@@ -263,7 +266,7 @@ class Const(DataCarrier):
         self._data = self._verify_reshape(data, dtype, self._dim)
         self._name = name or "const_%d" % Const._globalcount
         if any(self._name is const._name for const in Const._defs):
-            raise RuntimeError(
+            raise Const.NonUniqueNameError(
                 "OP2 Constants are globally scoped, %s is already in use" % self._name)
         self._access = READ
         Const._globalcount += 1
@@ -276,6 +279,10 @@ class Const(DataCarrier):
     def __repr__(self):
         return "Const(%s, %s, '%s')" \
                % (self._dim, self._data, self._name)
+
+    def remove_from_namespace(self):
+        if self in Const._defs:
+            Const._defs.remove(self)
 
     def format_for_c(self, typemap):
         dec = 'static const ' + typemap[self._data.dtype.name] + ' ' + self._name
