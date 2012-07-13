@@ -391,8 +391,13 @@ def par_loop(kernel, it_space, *args):
         _args = []
         for arg in args:
             if arg.is_indirect():
-                j = arg.map.values[i]
-                _args.append(arg.data.data[j:j+1])
+                if arg.idx is None:
+                    # We want all the indices
+                    j = arg.map.values[i]
+                    _args.append(arg.data.data[j])
+                else:
+                    j = arg.map.values[i][arg.idx]
+                    _args.append(arg.data.data[j:j+1])
             else:
                 _args.append(isinstance(arg.data, Global) and arg.data.data[0:1] or arg.data.data[i:i+1])
         _fun(*_args)
