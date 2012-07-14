@@ -299,11 +299,11 @@ further ARGS."""
                 _args[i] = _arg._handle
                 # Fix up inds[i] in indirect case
                 if arg.is_indirect():
-                    if d.has_key(arg):
-                        inds[i] = d[arg]
+                    if d.has_key((arg._dat,arg._map)):
+                        inds[i] = d[(arg._dat,arg._map)]
                     else:
                         inds[i] = ind
-                        d[arg] = ind
+                        d[(arg._dat,arg._map)] = ind
                         ind += 1
                         ninds += 1
             self._handle = core.op_plan_core(name, _set._handle,
