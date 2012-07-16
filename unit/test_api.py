@@ -205,6 +205,93 @@ class TestUserAPI:
         assert m.datasets == (set,set) and m.dim == (2,2) and \
                 m.dtype == np.float64 and m.name == 'bar'
 
+    ## Const unit tests
+
+    def test_const_illegal_dim(self):
+        "Const dim should be int or int tuple."
+        with pytest.raises(TypeError):
+            op2.Const('illegaldim', 1, 'test_const_illegal_dim')
+
+    def test_const_illegal_dim_tuple(self):
+        "Const dim should be int or int tuple."
+        with pytest.raises(TypeError):
+            op2.Const((1,'illegaldim'), 1, 'test_const_illegal_dim_tuple')
+
+    def test_const_illegal_data(self):
+        "Passing None for Const data should not be allowed."
+        with pytest.raises(sequential.DataValueError):
+            op2.Const(1, None, 'test_const_illegal_data')
+
+    def test_const_nonunique_name(self):
+        "Const names should be unique."
+        op2.Const(1, 1, 'test_const_nonunique_name')
+        with pytest.raises(op2.Const.NonUniqueNameError):
+            op2.Const(1, 1, 'test_const_nonunique_name')
+
+    def test_const_remove_from_namespace(self):
+        "remove_from_namespace should free a global name."
+        c = op2.Const(1, 1, 'test_const_remove_from_namespace')
+        c.remove_from_namespace()
+        c = op2.Const(1, 1, 'test_const_remove_from_namespace')
+        assert c.name == 'test_const_remove_from_namespace'
+
+    def test_const_illegal_name(self):
+        "Const name should be string."
+        with pytest.raises(sequential.NameTypeError):
+            op2.Const(1, 1, 2)
+
+    def test_const_dim(self):
+        "Const constructor should create a dim tuple."
+        c = op2.Const(1, 1, 'test_const_dim')
+        assert c.dim == (1,)
+
+    def test_const_dim_list(self):
+        "Const constructor should create a dim tuple from a list."
+        c = op2.Const([2,3], [1]*6, 'test_const_dim_list')
+        assert c.dim == (2,3)
+
+    def test_const_float(self):
+        "Data type for float data should be numpy.float64."
+        c = op2.Const(1, 1.0, 'test_const_float')
+        assert c.dtype == np.double
+
+    def test_const_int(self):
+        "Data type for int data should be numpy.int64."
+        c = op2.Const(1, 1, 'test_const_int')
+        assert c.dtype == np.int64
+
+    def test_const_convert_int_float(self):
+        "Explicit float type should override NumPy's default choice of int."
+        c = op2.Const(1, 1, 'test_const_convert_int_float', 'double')
+        assert c.dtype == np.float64
+
+    def test_const_convert_float_int(self):
+        "Explicit int type should override NumPy's default choice of float."
+        c = op2.Const(1, 1.5, 'test_const_convert_float_int', 'int')
+        assert c.dtype == np.int64
+
+    def test_const_illegal_dtype(self):
+        "Illegal data type should raise DataValueError."
+        with pytest.raises(sequential.DataValueError):
+            op2.Const(1, 'illegal_type', 'test_const_illegal_dtype', 'double')
+
+    @pytest.mark.parametrize("dim", [1, (2,2)])
+    def test_const_illegal_length(self, dim):
+        "Mismatching data length should raise DataValueError."
+        with pytest.raises(sequential.DataValueError):
+            op2.Const(dim, [1]*(np.prod(dim)+1), 'test_const_illegal_length_%r' % np.prod(dim))
+
+    def test_const_reshape(self):
+        "Data should be reshaped according to dim."
+        c = op2.Const((2,2), [1.0]*4, 'test_const_reshape')
+        assert c.dim == (2,2) and c.data.shape == (2,2)
+
+    def test_const_properties(self):
+        "Data constructor should correctly set attributes."
+        c = op2.Const((2,2), [1]*4, 'baz', 'double')
+        assert c.dim == (2,2) and c.dtype == np.float64 and c.name == 'baz' \
+                and c.data.sum() == 4
+
 class TestBackendAPI:
     """
     Backend API Unit Tests
