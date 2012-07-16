@@ -94,9 +94,8 @@ MAX   = Access("MAX")
 class IterationSpace(object):
     """OP2 iteration space type."""
 
+    @validate(('iterset', Set))
     def __init__(self, iterset, dims):
-        if not isinstance(iterset, Set):
-            raise ValueError("Iteration set needs to be of type Set")
         self._iterset = iterset
         self._dims = as_tuple(dims, int)
 
@@ -168,10 +167,8 @@ class Set(object):
 
     _globalcount = 0
 
-    @validate(('name', str))
+    @validate(('size', int), ('name', str))
     def __init__(self, size, name=None):
-        if not isinstance(size, int):
-            raise ValueError("Size must be of type int")
         self._size = size
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = core.op_set(self)
@@ -213,11 +210,8 @@ class Dat(DataCarrier):
     _modes = [READ, WRITE, RW, INC]
     _arg_type = Arg
 
-    @validate(('name', str))
+    @validate(('dataset', Set), ('name', str))
     def __init__(self, dataset, dim, data=None, dtype=None, name=None):
-        if not isinstance(dataset, Set):
-            raise ValueError("Data set must be of type Set")
-
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
         self._data = self._verify_reshape(data, dtype, (dataset.size,)+self._dim)
@@ -365,14 +359,8 @@ class Map(object):
     _globalcount = 0
     _arg_type = Arg
 
-    @validate(('name', str))
+    @validate(('iterset', Set), ('dataset', Set), ('dim', int), ('name', str))
     def __init__(self, iterset, dataset, dim, values, name=None):
-        if not isinstance(iterset, Set):
-            raise ValueError("Iteration set must be of type Set")
-        if not isinstance(dataset, Set):
-            raise ValueError("Data set must be of type Set")
-        if not isinstance(dim, int):
-            raise ValueError("dim must be a scalar integer")
         self._iterset = iterset
         self._dataset = dataset
         self._dim = dim
@@ -385,9 +373,8 @@ class Map(object):
         self._lib_handle = core.op_map(self)
         Map._globalcount += 1
 
+    @validate(('index', int))
     def __call__(self, index):
-        if not isinstance(index, int):
-            raise ValueError("Only integer indices are allowed")
         if not 0 <= index < self._dim:
             raise ValueError("Index must be in interval [0,%d]" % (self._dim-1))
         return self._arg_type(map=self, idx=index)
