@@ -43,6 +43,7 @@ import numpy as np
 import collections
 import itertools
 import warnings
+import sys
 
 _sum = 0
 def trace():
@@ -415,7 +416,7 @@ class ParLoopCall(object):
             source = str(dloop)
 
             # for debugging purpose, refactor that properly at some point
-            if _debug:
+            if _kernel_dump:
                 f = open(self._kernel._name + '.cl.c', 'w')
                 f.write(source)
                 f.close
@@ -434,7 +435,7 @@ class ParLoopCall(object):
             for i, a in enumerate(self._d_reduction_args):
                 a._dat._host_reduction(_blocks_per_grid)
         else:
-            psize = 512
+            psize = self.compute_partition_size()
             plan = OpPlan(self._kernel, self._it_space, *self._args, partition_size=psize)
 
             # codegen
@@ -491,6 +492,27 @@ class ParLoopCall(object):
     def is_direct(self):
         return all(map(lambda a: isinstance(a._dat, Global) or ((isinstance(a._dat, Dat) and a._map == IdentityMap)), self._args))
 
+    def compute_partition_size(self):
+        # conservative estimate...
+        codegen_bytes = 512
+        staged_args = filter(lambda a: isinstance(a._dat, Dat) and a._map != IdentityMap , self._args)
+
+        assert staged_args or self._i_global_reduc_args, "malformed par_loop ?"
+
+        if staged_args:
+            max_staged_bytes = sum(map(lambda a: a._dat.bytes_per_elem, staged_args))
+            psize_staging = (_max_local_memory - codegen_bytes) / max_staged_bytes
+        else:
+            psize_staging = sys.maxint
+
+        if self._i_global_reduc_args:
+            max_gbl_reduc_bytes = max(map(lambda a: a._dat._data.nbytes, self._i_global_reduc_args))
+            psize_gbl_reduction = (_max_local_memory - codegen_bytes) / max_gbl_reduc_bytes
+        else:
+            psize_gbl_reduction = sys.maxint
+
+        return min(psize_staging, psize_gbl_reduction)
+
 #Monkey patch pyopencl.Kernel for convenience
 _original_clKernel = cl.Kernel
 
@@ -518,6 +540,8 @@ def par_loop(kernel, it_space, *args):
 _debug = False
 _kernel_dump = False
 _ctx = cl.create_some_context()
+_max_local_memory = _ctx.devices[0].local_mem_size
+_address_bits = _ctx.devices[0].address_bits
 _queue = cl.CommandQueue(_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
 _threads_per_block = _ctx.get_info(cl.context_info.DEVICES)[0].get_info(cl.device_info.MAX_WORK_GROUP_SIZE)
 _warpsize = 1
