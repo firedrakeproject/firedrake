@@ -378,24 +378,6 @@ def par_loop(kernel, it_space, *args):
 
     from instant import inline_with_numpy
 
-    nargs = len(args)
-
-    wrapper = """
-    void wrap_%(name)s__(%(arg)s) {
-    %(dec)s;
-    %(name)s(%(karg)s);
-    }"""
-
-    def c_arg_name(arg):
-        name = arg._dat._name
-        if arg.is_indirect() and arg.idx is not None:
-            name += str(arg.idx)
-        return name
-
-    name = kernel._name
-    _arg = ','.join(["PyObject *_" + c_arg_name(arg) for arg in args])
-    _dec = ';\n'.join(["PyArrayObject * " + c_arg_name(arg) + " = (PyArrayObject *)_" + c_arg_name(arg) for arg in args])
-
     # FIXME: Complex and float16 not supported
     typemap = { "bool":    "unsigned char",
                 "int":     "int",
@@ -410,30 +392,76 @@ def par_loop(kernel, it_space, *args):
                 "float":   "double",
                 "float32": "float",
                 "float64": "double" }
+    def c_arg_name(arg):
+        name = arg._dat._name
+        if arg.is_indirect() and arg.idx is not None:
+            name += str(arg.idx)
+        return name
 
-    _karg = ','.join(['(' + typemap[arg._dat._data.dtype.name] + ' *)' + c_arg_name(arg)+"->data" for arg in args])
+    def c_map_name(arg):
+        return c_arg_name(arg) + "_map"
 
-    const_declarations = '\n'.join([const.format_for_c(typemap) for const in Const._defs]) + '\n'
+    def c_type(arg):
+        return typemap[arg._dat._data.dtype.name]
 
-    code_to_compile =  wrapper % { 'name' : name,
-                      'arg' : _arg,
-                      'dec' : _dec,
-                      'karg' : _karg }
+    def c_wrapper_arg(arg):
+        val = "PyObject *_%(name)s" % {'name' : c_arg_name(arg) }
+        if arg.is_indirect():
+            val += ", PyObject *_%(name)s" % {'name' : c_map_name(arg)}
+        return val
+
+    def c_wrapper_dec(arg):
+        val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
+              {'name' : c_arg_name(arg), 'type' : c_type(arg)}
+        if arg.is_indirect():
+            val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" % \
+                   {'name' : c_map_name(arg)}
+        return val
+
+    def c_kernel_arg(arg):
+        if arg.is_indirect():
+            return "%(name)s + %(map_name)s[i * %(map_dim)s + %(idx)s] * %(dim)s" % \
+                {'name' : c_arg_name(arg),
+                 'map_name' : c_map_name(arg),
+                 'map_dim' : arg.map._dim,
+                 'idx' : arg.idx,
+                 'dim' : arg.data._dim[0]}
+        elif isinstance(arg.data, Global):
+            return c_arg_name(arg)
+        else:
+            return "%(name)s + i * %(dim)s" % \
+                {'name' : c_arg_name(arg),
+                 'dim' : arg.data._dim[0]}
+
+    _wrapper_args = ', '.join([c_wrapper_arg(arg) for arg in args])
+
+    _wrapper_decs = ';\n'.join([c_wrapper_dec(arg) for arg in args])
+
+    _const_decs = '\n'.join([const.format_for_c(typemap) for const in sorted(Const._defs)]) + '\n'
+
+    _kernel_args = ', '.join([c_kernel_arg(arg) for arg in args])
+
+    wrapper = """
+    void wrap_%(kernel_name)s__(%(wrapper_args)s) {
+        %(wrapper_decs)s;
+        for ( int i = 0; i < %(size)s; i++ ) {
+            %(kernel_name)s(%(kernel_args)s);
+        }
+    }"""
+
+    code_to_compile =  wrapper % { 'kernel_name' : kernel._name,
+                      'wrapper_args' : _wrapper_args,
+                      'wrapper_decs' : _wrapper_decs,
+                      'size' : it_space.size,
+                      'kernel_args' : _kernel_args }
 
     _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel._code,
-                             additional_definitions = const_declarations + kernel._code)
+                             additional_definitions = _const_decs + kernel._code)
 
-    for i in xrange(it_space.size):
-        _args = []
-        for arg in args:
-            if arg.is_indirect():
-                if arg.idx is None:
-                    # We want all the indices
-                    j = arg.map.values[i]
-                    _args.append(arg.data.data[j])
-                else:
-                    j = arg.map.values[i][arg.idx]
-                    _args.append(arg.data.data[j:j+1])
-            else:
-                _args.append(isinstance(arg.data, Global) and arg.data.data[0:1] or arg.data.data[i:i+1])
-        _fun(*_args)
+    _args = []
+    for arg in args:
+        _args.append(arg.data.data)
+        if arg.is_indirect():
+            _args.append(arg.map.values)
+
+    _fun(*_args)
