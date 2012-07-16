@@ -179,14 +179,16 @@ void kernel_mul_ind(
   __local unsigned int* b,
   __private unsigned int* g)
 {
-  unsigned int t1 = *a1 + *a2;
-  unsigned int t2 = b[0] + b[1];
 
-  *x = t1;
-  *y = t2;
+  unsigned int _a = *a1 + *a2;
+  unsigned int _b = b[0] + b[1];
 
-  g[0] += t1;
-  g[1] += t2;
+  *x = _a;
+  *y = _b;
+
+  g[0] += _a;
+  g[1] += _b;
+
 }
 """
         op2.par_loop(op2.Kernel(kernel_mul_ind, "kernel_mul_ind"), iterset,\

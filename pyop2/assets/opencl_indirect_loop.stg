@@ -128,6 +128,7 @@ $if(parloop._i_staged_out_dat_map_pairs)$
   $parloop._i_staged_out_dat_map_pairs:{$stagingout()$};separator="\n"$
 $endif$
 $if(parloop._i_global_reduc_args)$
+  barrier(CLK_LOCAL_MEM_FENCE);
   // on device global reductions
   $parloop._i_global_reduc_args:{$on_device_global_reduction()$};separator="\n"$
 $endif$
