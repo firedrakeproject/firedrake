@@ -172,13 +172,15 @@ class DataCarrier(object):
     def _verify_reshape(self, data, dtype, shape):
         """Verify data is of type dtype and try to reshaped to shape."""
 
-        t = np.dtype(dtype) if dtype is not None else None
-        a = np.asarray(data, dtype=t)
-        try:
-            return a if data is None else a.reshape(shape)
-        except ValueError:
-            raise ValueError("Invalid data: expected %d values, got %d!" % \
-                    (np.prod(shape), np.asarray(data).size))
+        if data is None:
+            return np.asarray([], dtype=np.dtype(dtype))
+        else:
+            t = np.dtype(dtype) if dtype is not None else None
+            try:
+                return np.asarray(data, dtype=t).reshape(shape)
+            except ValueError:
+                raise ValueError("Invalid data: expected %d values, got %d!" % \
+                        (np.prod(shape), np.asarray(data).size))
 
 class Dat(DataCarrier):
     """OP2 vector data. A Dat holds a value for every member of a set."""
