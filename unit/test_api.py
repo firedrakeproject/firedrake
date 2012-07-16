@@ -7,6 +7,9 @@ from pyop2 import sequential
 def pytest_funcarg__set(request):
     return op2.Set(5, 'foo')
 
+def pytest_funcarg__sets(request):
+    return op2.Set(2, 'rows'), op2.Set(3, 'cols')
+
 class TestUserAPI:
     """
     User API Unit Tests
@@ -143,6 +146,64 @@ class TestUserAPI:
         assert d.dataset == set and d.dim == (2,2) and \
                 d.dtype == np.float64 and d.name == 'bar' and \
                 d.data.sum() == set.size*4
+
+    ## Mat unit tests
+
+    def test_mat_illegal_sets(self):
+        "Mat data sets should be a 2-tuple of Sets."
+        with pytest.raises(ValueError):
+            op2.Mat('illegalset', 1)
+
+    def test_mat_illegal_set_tuple(self):
+        "Mat data sets should be a 2-tuple of Sets."
+        with pytest.raises(TypeError):
+            op2.Mat(('illegalrows', 'illegalcols'), 1)
+
+    def test_mat_illegal_set_triple(self, set):
+        "Mat data sets should be a 2-tuple of Sets."
+        with pytest.raises(ValueError):
+            op2.Mat((set,set,set), 1)
+
+    def test_mat_illegal_dim(self, set):
+        "Mat dim should be int or int tuple."
+        with pytest.raises(TypeError):
+            op2.Mat((set,set), 'illegaldim')
+
+    def test_mat_illegal_dim_tuple(self, set):
+        "Mat dim should be int or int tuple."
+        with pytest.raises(TypeError):
+            op2.Mat((set,set), (1,'illegaldim'))
+
+    def test_mat_illegal_name(self, set):
+        "Mat name should be string."
+        with pytest.raises(sequential.NameTypeError):
+            op2.Mat((set,set), 1, name=2)
+
+    def test_mat_sets(self, sets):
+        "Mat constructor should create a dim tuple."
+        m = op2.Mat(sets, 1)
+        assert m.datasets == sets
+
+    def test_mat_dim(self, set):
+        "Mat constructor should create a dim tuple."
+        m = op2.Mat((set,set), 1)
+        assert m.dim == (1,)
+
+    def test_mat_dim_list(self, set):
+        "Mat constructor should create a dim tuple from a list."
+        m = op2.Mat((set,set), [2,3])
+        assert m.dim == (2,3)
+
+    def test_mat_dtype(self, set):
+        "Default data type should be numpy.float64."
+        m = op2.Mat((set,set), 1)
+        assert m.dtype == np.double
+
+    def test_dat_properties(self, set):
+        "Mat constructor should correctly set attributes."
+        m = op2.Mat((set,set), (2,2), 'double', 'bar')
+        assert m.datasets == (set,set) and m.dim == (2,2) and \
+                m.dtype == np.float64 and m.name == 'bar'
 
 class TestBackendAPI:
     """
