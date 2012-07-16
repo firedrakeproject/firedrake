@@ -26,7 +26,7 @@ import h5py
 
 op2.init(backend='sequential')
 
-from airfoil_kernels import save_soln, adt_calc, res_calc, bres_calc, update
+from airfoil_vector_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 
 file = h5py.File('new_grid.h5', 'r')
 
@@ -100,27 +100,19 @@ for i in range(1, niter+1):
 
         # Calculate area/timestep
         op2.par_loop(adt_calc, cells,
-                     p_x  (pcell(0),         op2.READ),
-                     p_x  (pcell(1),         op2.READ),
-                     p_x  (pcell(2),         op2.READ),
-                     p_x  (pcell(3),         op2.READ),
+                     p_x  (pcell,         op2.READ),
                      p_q  (op2.IdentityMap,  op2.READ),
                      p_adt(op2.IdentityMap,  op2.WRITE))
 
         # Calculate flux residual
         op2.par_loop(res_calc, edges,
-                     p_x  (pedge(0),  op2.READ),
-                     p_x  (pedge(1),  op2.READ),
-                     p_q  (pecell(0), op2.READ),
-                     p_q  (pecell(1), op2.READ),
-                     p_adt(pecell(0), op2.READ),
-                     p_adt(pecell(1), op2.READ),
-                     p_res(pecell(0), op2.INC),
-                     p_res(pecell(1), op2.INC))
+                     p_x  (pedge,  op2.READ),
+                     p_q  (pecell, op2.READ),
+                     p_adt(pecell, op2.READ),
+                     p_res(pecell, op2.INC))
 
         op2.par_loop(bres_calc, bedges,
-                     p_x    (pbedge(0),       op2.READ),
-                     p_x    (pbedge(1),       op2.READ),
+                     p_x    (pbedge,       op2.READ),
                      p_q    (pbecell(0),      op2.READ),
                      p_adt  (pbecell(0),      op2.READ),
                      p_res  (pbecell(0),      op2.INC),

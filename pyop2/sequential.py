@@ -129,7 +129,7 @@ class Arg(object):
         return self._access
 
     def is_indirect(self):
-        return self._map is not None and self._map is not IdentityMap
+        return self._map is not None and self._map is not IdentityMap and not isinstance(self._dat, Global)
 
     def is_indirect_and_not_read(self):
         return self.is_indirect() and self._access is not READ
@@ -212,6 +212,10 @@ class Dat(DataCarrier):
         return "Dat(%r, %s, '%s', None, '%s')" \
                % (self._dataset, self._dim, self._data.dtype, self._name)
 
+    @property
+    def data(self):
+        return self._data
+
 class Mat(DataCarrier):
     """OP2 matrix data. A Mat is defined on the cartesian product of two Sets
     and holds a value for each element in the product."""
@@ -248,16 +252,25 @@ class Mat(DataCarrier):
 class Const(DataCarrier):
     """Data that is constant for any element of any set."""
 
+    class NonUniqueNameError(RuntimeError):
+        pass
+
     _globalcount = 0
     _modes = [READ]
+
+    _defs = set()
 
     def __init__(self, dim, data=None, dtype=None, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
         self._dim = as_tuple(dim, int)
         self._data = self._verify_reshape(data, dtype, self._dim)
         self._name = name or "const_%d" % Const._globalcount
+        if any(self._name is const._name for const in Const._defs):
+            raise Const.NonUniqueNameError(
+                "OP2 Constants are globally scoped, %s is already in use" % self._name)
         self._access = READ
         Const._globalcount += 1
+        Const._defs.add(self)
 
     def __str__(self):
         return "OP2 Const: %s of dim %s and type %s with value %s" \
@@ -266,6 +279,24 @@ class Const(DataCarrier):
     def __repr__(self):
         return "Const(%s, %s, '%s')" \
                % (self._dim, self._data, self._name)
+
+    def remove_from_namespace(self):
+        if self in Const._defs:
+            Const._defs.remove(self)
+
+    def format_for_c(self, typemap):
+        dec = 'static const ' + typemap[self._data.dtype.name] + ' ' + self._name
+        if self._dim[0] > 1:
+            dec += '[' + str(self._dim[0]) + ']'
+        dec += ' = '
+        if self._dim[0] > 1:
+            dec += '{'
+        dec += ', '.join(str(datum) for datum in self._data)
+        if self._dim[0] > 1:
+            dec += '}'
+
+        dec += ';'
+        return dec
 
 class Global(DataCarrier):
     """OP2 global value."""
@@ -334,6 +365,10 @@ class Map(object):
         return "Map(%r, %r, %s, None, '%s')" \
                % (self._iterset, self._dataset, self._dim, self._name)
 
+    @property
+    def values(self):
+        return self._values
+
 IdentityMap = Map(Set(0, None), Set(0, None), 1, [], 'identity')
 
 # Parallel loop API
@@ -341,4 +376,119 @@ IdentityMap = Map(Set(0, None), Set(0, None), 1, [], 'identity')
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
 
-    pass
+    from instant import inline_with_numpy
+
+    # FIXME: Complex and float16 not supported
+    typemap = { "bool":    "unsigned char",
+                "int":     "int",
+                "int8":    "char",
+                "int16":   "short",
+                "int32":   "int",
+                "int64":   "long long",
+                "uint8":   "unsigned char",
+                "uint16":  "unsigned short",
+                "uint32":  "unsigned int",
+                "uint64":  "unsigned long long",
+                "float":   "double",
+                "float32": "float",
+                "float64": "double" }
+
+    def c_arg_name(arg):
+        name = arg._dat._name
+        if arg.is_indirect() and arg.idx is not None:
+            name += str(arg.idx)
+        return name
+
+    def c_vec_name(arg):
+        return c_arg_name(arg) + "_vec"
+
+    def c_map_name(arg):
+        return c_arg_name(arg) + "_map"
+
+    def c_type(arg):
+        return typemap[arg._dat._data.dtype.name]
+
+    def c_wrapper_arg(arg):
+        val = "PyObject *_%(name)s" % {'name' : c_arg_name(arg) }
+        if arg.is_indirect():
+            val += ", PyObject *_%(name)s" % {'name' : c_map_name(arg)}
+        return val
+
+    def c_wrapper_dec(arg):
+        val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
+              {'name' : c_arg_name(arg), 'type' : c_type(arg)}
+        if arg.is_indirect():
+            val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" % \
+                   {'name' : c_map_name(arg)}
+            if arg.idx is None:
+                val += ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
+                       {'type' : c_type(arg),
+                        'vec_name' : c_vec_name(arg),
+                        'dim' : arg.map._dim}
+        return val
+
+    def c_ind_data(arg, idx):
+        return "%(name)s + %(map_name)s[i * %(map_dim)s + %(idx)s] * %(dim)s" % \
+                {'name' : c_arg_name(arg),
+                 'map_name' : c_map_name(arg),
+                 'map_dim' : arg.map._dim,
+                 'idx' : idx,
+                 'dim' : arg.data._dim[0]}
+
+    def c_kernel_arg(arg):
+        if arg.is_indirect():
+            if arg.idx is None:
+                return c_vec_name(arg)
+            return c_ind_data(arg, arg.idx)
+        elif isinstance(arg.data, Global):
+            return c_arg_name(arg)
+        else:
+            return "%(name)s + i * %(dim)s" % \
+                {'name' : c_arg_name(arg),
+                 'dim' : arg.data._dim[0]}
+
+    def c_vec_init(arg):
+        val = []
+        for i in range(arg.map._dim):
+            val.append("%(vec_name)s[%(idx)s] = %(data)s" %
+                       {'vec_name' : c_vec_name(arg),
+                        'idx' : i,
+                        'data' : c_ind_data(arg, i)} )
+        return ";\n".join(val)
+
+    _wrapper_args = ', '.join([c_wrapper_arg(arg) for arg in args])
+
+    _wrapper_decs = ';\n'.join([c_wrapper_dec(arg) for arg in args])
+
+    _const_decs = '\n'.join([const.format_for_c(typemap) for const in sorted(Const._defs)]) + '\n'
+
+    _kernel_args = ', '.join([c_kernel_arg(arg) for arg in args])
+
+    _vec_inits = ';\n'.join([c_vec_init(arg) for arg in args if arg.is_indirect() and arg.idx is None])
+
+    wrapper = """
+    void wrap_%(kernel_name)s__(%(wrapper_args)s) {
+        %(wrapper_decs)s;
+        for ( int i = 0; i < %(size)s; i++ ) {
+            %(vec_inits)s;
+            %(kernel_name)s(%(kernel_args)s);
+        }
+    }"""
+
+    code_to_compile =  wrapper % { 'kernel_name' : kernel._name,
+                      'wrapper_args' : _wrapper_args,
+                      'wrapper_decs' : _wrapper_decs,
+                      'size' : it_space.size,
+                      'vec_inits' : _vec_inits,
+                      'kernel_args' : _kernel_args }
+
+    _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel._code,
+                             additional_definitions = _const_decs + kernel._code)
+
+    _args = []
+    for arg in args:
+        _args.append(arg.data.data)
+        if arg.is_indirect():
+            _args.append(arg.map.values)
+
+    _fun(*_args)
