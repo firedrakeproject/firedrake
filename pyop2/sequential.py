@@ -140,6 +140,11 @@ class Set(object):
         """Set size"""
         return self._size
 
+    @property
+    def name(self):
+        """User-defined label"""
+        return self._name
+
     def __str__(self):
         return "OP2 Set: %s with size %s" % (self._name, self._size)
 
@@ -151,8 +156,18 @@ class DataCarrier(object):
 
     @property
     def dtype(self):
-        """Datatype of this data carrying object"""
+        """Data type."""
         return self._data.dtype
+
+    @property
+    def name(self):
+        """User-defined label."""
+        return self._name
+
+    @property
+    def dim(self):
+        """Dimension/shape of a single data item."""
+        return self._dim
 
     def _verify_reshape(self, data, dtype, shape):
         """Verify data is of type dtype and try to reshaped to shape."""
@@ -191,6 +206,16 @@ class Dat(DataCarrier):
             path._access = access
             return path
 
+    @property
+    def dataset(self):
+        """Set on which this Dat is defined."""
+        return self._dataset
+
+    @property
+    def data(self):
+        """Data array."""
+        return self._data
+
     def __str__(self):
         return "OP2 Dat: %s on (%s) with dim %s and datatype %s" \
                % (self._name, self._dataset, self._dim, self._data.dtype.name)
@@ -198,10 +223,6 @@ class Dat(DataCarrier):
     def __repr__(self):
         return "Dat(%r, %s, '%s', None, '%s')" \
                % (self._dataset, self._dim, self._data.dtype, self._name)
-
-    @property
-    def data(self):
-        return self._data
 
 class Mat(DataCarrier):
     """OP2 matrix data. A Mat is defined on the cartesian product of two Sets
@@ -227,6 +248,16 @@ class Mat(DataCarrier):
                 raise ValueError("Invalid data set for map %s (is %s, should be %s)" \
                         % (map._name, map._dataset._name, dataset._name))
         return self._arg_type(data=self, map=maps, access=access)
+
+    @property
+    def datasets(self):
+        """Sets on which this Mat is defined."""
+        return self._datasets
+
+    @property
+    def dtype(self):
+        """Data type."""
+        return self._datatype
 
     def __str__(self):
         return "OP2 Mat: %s, row set (%s), col set (%s), dimension %s, datatype %s" \
@@ -258,6 +289,11 @@ class Const(DataCarrier):
         self._access = READ
         Const._globalcount += 1
         Const._defs.add(self)
+
+    @property
+    def data(self):
+        """Data array."""
+        return self._data
 
     def __str__(self):
         return "OP2 Const: %s of dim %s and type %s with value %s" \
@@ -341,6 +377,21 @@ class Map(object):
             raise ValueError("Index must be in interval [0,%d]" % (self._dim-1))
         return self._arg_type(map=self, idx=index)
 
+    @property
+    def iterset(self):
+        """Set mapped from."""
+        return self._iterset
+
+    @property
+    def dataset(self):
+        """Set mapped to."""
+        return self._dataset
+
+    @property
+    def values(self):
+        """Mapping array."""
+        return self._values
+
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with dim %s" \
                % (self._name, self._iterset, self._dataset, self._dim)
@@ -348,10 +399,6 @@ class Map(object):
     def __repr__(self):
         return "Map(%r, %r, %s, None, '%s')" \
                % (self._iterset, self._dataset, self._dim, self._name)
-
-    @property
-    def values(self):
-        return self._values
 
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 
@@ -364,6 +411,16 @@ class IterationSpace(object):
     def __init__(self, iterset, dims):
         self._iterset = iterset
         self._dims = as_tuple(dims, int)
+
+    @property
+    def iterset(self):
+        """Set this IterationSpace is defined on."""
+        return self._iterset
+
+    @property
+    def dims(self):
+        """Dimensions of the IterationSpace."""
+        return self._dims
 
     def __str__(self):
         return "OP2 Iteration Space: %s and extra dimensions %s" % self._dims
@@ -381,6 +438,11 @@ class Kernel(object):
         self._name = name or "kernel_%d" % Kernel._globalcount
         self._code = code
         Kernel._globalcount += 1
+
+    @property
+    def name(self):
+        """User-defined label."""
+        return self._name
 
     def compile(self):
         pass
