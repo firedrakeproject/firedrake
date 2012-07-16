@@ -44,7 +44,7 @@ class validate:
     def __init__(self, *checks):
         self._checks = checks
 
-    def check_args(self, args, kwargs, varnames):
+    def check_args(self, args, kwargs, varnames, file, line):
         for argname, argtype in self._checks:
             try:
                 i = varnames.index(argname)
@@ -58,11 +58,11 @@ class validate:
                 # No actual parameter argname
                 continue
             if not isinstance(arg, argtype):
-                raise ValueError("Parameter %s must be of type %r" % (argname, argtype))
+                raise ValueError("%s:%d Parameter %s must be of type %r" % (file, line, argname, argtype))
 
     def __call__(self, f):
         def wrapper(*args, **kwargs):
-            self.check_args(args, kwargs, f.func_code.co_varnames)
+            self.check_args(args, kwargs, f.func_code.co_varnames, f.func_code.co_filename, f.func_code.co_firstlineno+1)
             return f(*args, **kwargs)
         return wrapper
 
