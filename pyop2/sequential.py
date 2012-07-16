@@ -38,24 +38,33 @@ def as_tuple(item, type=None, length=None):
         raise ValueError("Items need to be of %s" % type)
     return t
 
-def check_name(f):
-    """Decorator to validate name argument"""
+class validate:
+    """Decorator to validate arguments"""
 
-    def wrapper(*args, **kwargs):
-        try:
-            i = f.func_code.co_varnames.index('name')
-        except ValueError:
-            # No formal parameter 'name'
+    def __init__(self, *checks):
+        self._checks = checks
+
+    def check_args(self, args, kwargs, varnames):
+        for argname, argtype in self._checks:
+            try:
+                i = varnames.index(argname)
+            except ValueError:
+                # No formal parameter argname
+                continue
+            try:
+                arg = kwargs.get(argname)
+                arg = arg or args[i]
+            except IndexError:
+                # No actual parameter argname
+                continue
+            if not isinstance(arg, argtype):
+                raise ValueError("Parameter %s must be of type %r" % (argname, argtype))
+
+    def __call__(self, f):
+        def wrapper(*args, **kwargs):
+            self.check_args(args, kwargs, f.func_code.co_varnames)
             return f(*args, **kwargs)
-        try:
-            name = kwargs.get('name', args[i])
-        except IndexError:
-            # No actual parameter name
-            return f(*args, **kwargs)
-        if not isinstance(name, str):
-            raise ValueError("Name must be of type str")
-        return f(*args, **kwargs)
-    return wrapper
+        return wrapper
 
 # Kernel API
 
@@ -102,7 +111,7 @@ class Kernel(object):
 
     _globalcount = 0
 
-    @check_name
+    @validate(('name', str))
     def __init__(self, code, name=None):
         self._name = name or "kernel_%d" % Kernel._globalcount
         self._code = code
@@ -159,7 +168,7 @@ class Set(object):
 
     _globalcount = 0
 
-    @check_name
+    @validate(('name', str))
     def __init__(self, size, name=None):
         if not isinstance(size, int):
             raise ValueError("Size must be of type int")
@@ -204,7 +213,7 @@ class Dat(DataCarrier):
     _modes = [READ, WRITE, RW, INC]
     _arg_type = Arg
 
-    @check_name
+    @validate(('name', str))
     def __init__(self, dataset, dim, data=None, dtype=None, name=None):
         if not isinstance(dataset, Set):
             raise ValueError("Data set must be of type Set")
@@ -246,7 +255,7 @@ class Mat(DataCarrier):
     _modes = [WRITE, INC]
     _arg_type = Arg
 
-    @check_name
+    @validate(('name', str))
     def __init__(self, datasets, dim, dtype=None, name=None):
         self._datasets = as_tuple(datasets, Set, 2)
         self._dim = as_tuple(dim, int)
@@ -282,7 +291,7 @@ class Const(DataCarrier):
 
     _defs = set()
 
-    @check_name
+    @validate(('name', str))
     def __init__(self, dim, data=None, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
         self._data = self._verify_reshape(data, dtype, self._dim)
@@ -327,7 +336,7 @@ class Global(DataCarrier):
     _modes = [READ, INC, MIN, MAX]
     _arg_type = Arg
 
-    @check_name
+    @validate(('name', str))
     def __init__(self, dim, data=None, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
         self._data = self._verify_reshape(data, dtype, self._dim)
@@ -356,7 +365,7 @@ class Map(object):
     _globalcount = 0
     _arg_type = Arg
 
-    @check_name
+    @validate(('name', str))
     def __init__(self, iterset, dataset, dim, values, name=None):
         if not isinstance(iterset, Set):
             raise ValueError("Iteration set must be of type Set")
