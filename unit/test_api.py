@@ -25,6 +25,33 @@ class TestUserAPI:
         with pytest.raises(RuntimeError):
             op2.init(self._backend)
 
+    def test_set_illegal_size(self):
+        "Set size should be int"
+        with pytest.raises(sequential.SizeTypeError):
+            op2.Set('foo')
+
+    def test_set_illegal_name(self):
+        "Set name should be int"
+        with pytest.raises(sequential.NameTypeError):
+            op2.Set(1,2)
+
+    def test_set_size(self):
+        "Set constructor should correctly set the size"
+        s = op2.Set(5)
+        assert s.size == 5
+
+    def test_set_repr(self):
+        "Set repr should have the expected format"
+        s = op2.Set(5, 'foo')
+        assert repr(s) == "Set(5, 'foo')"
+
+    def test_set_str(self):
+        "Set string representation should have the expected format"
+        s = op2.Set(5, 'foo')
+        assert str(s) == "OP2 Set: foo with size 5"
+
+    # FIXME: test Set._lib_handle
+
 class TestBackendAPI:
     """
     Backend API Unit Tests
