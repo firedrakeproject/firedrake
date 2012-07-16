@@ -37,12 +37,12 @@ class VectorMapTest(unittest.TestCase):
         node_vals = op2.Dat(nodes, 1, numpy.array(range(nnodes), dtype=numpy.uint32), numpy.uint32, "node_vals")
         edge_vals = op2.Dat(edges, 1, numpy.array([0]*nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
 
-        e_map = numpy.array([range(nedges), range(1,nnodes)], dtype=numpy.uint32).transpose()
+        e_map = numpy.array([(i, i+1) for i in range(nedges)], dtype=numpy.uint32)
         edge2node = op2.Map(edges, nodes, 2, e_map, "edge2node")
 
         kernel_sum = """
 void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
-{ *edge = nodes[0][0] + nodes[0][1]; }
+{ *edge = nodes[0][0] + nodes[1][0]; }
 """
 
         op2.par_loop(op2.Kernel(kernel_sum, "kernel_sum"), edges, \
