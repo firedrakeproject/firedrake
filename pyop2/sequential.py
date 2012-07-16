@@ -66,7 +66,7 @@ class validate:
             return f(*args, **kwargs)
         return wrapper
 
-# Kernel API
+# Data API
 
 class Access(object):
     """OP2 access type."""
@@ -90,45 +90,6 @@ RW    = Access("RW")
 INC   = Access("INC")
 MIN   = Access("MIN")
 MAX   = Access("MAX")
-
-class IterationSpace(object):
-    """OP2 iteration space type."""
-
-    @validate(('iterset', Set))
-    def __init__(self, iterset, dims):
-        self._iterset = iterset
-        self._dims = as_tuple(dims, int)
-
-    def __str__(self):
-        return "OP2 Iteration Space: %s and extra dimensions %s" % self._dims
-
-    def __repr__(self):
-        return "IterationSpace(%r, %r)" % (self._iterset, self._dims)
-
-class Kernel(object):
-    """OP2 kernel type."""
-
-    _globalcount = 0
-
-    @validate(('name', str))
-    def __init__(self, code, name=None):
-        self._name = name or "kernel_%d" % Kernel._globalcount
-        self._code = code
-        Kernel._globalcount += 1
-
-    def compile(self):
-        pass
-
-    def handle(self):
-        pass
-
-    def __str__(self):
-        return "OP2 Kernel: %s" % self._name
-
-    def __repr__(self):
-        return 'Kernel("""%s""", "%s")' % (self._code, self._name)
-
-# Data API
 
 class Arg(object):
     def __init__(self, data=None, map=None, idx=None, access=None):
@@ -392,6 +353,45 @@ class Map(object):
         return self._values
 
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
+
+# Kernel API
+
+class IterationSpace(object):
+    """OP2 iteration space type."""
+
+    @validate(('iterset', Set))
+    def __init__(self, iterset, dims):
+        self._iterset = iterset
+        self._dims = as_tuple(dims, int)
+
+    def __str__(self):
+        return "OP2 Iteration Space: %s and extra dimensions %s" % self._dims
+
+    def __repr__(self):
+        return "IterationSpace(%r, %r)" % (self._iterset, self._dims)
+
+class Kernel(object):
+    """OP2 kernel type."""
+
+    _globalcount = 0
+
+    @validate(('name', str))
+    def __init__(self, code, name=None):
+        self._name = name or "kernel_%d" % Kernel._globalcount
+        self._code = code
+        Kernel._globalcount += 1
+
+    def compile(self):
+        pass
+
+    def handle(self):
+        pass
+
+    def __str__(self):
+        return "OP2 Kernel: %s" % self._name
+
+    def __repr__(self):
+        return 'Kernel("""%s""", "%s")' % (self._code, self._name)
 
 # Parallel loop API
 
