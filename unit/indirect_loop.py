@@ -179,11 +179,14 @@ void kernel_mul_ind(
   __local unsigned int* b,
   __private unsigned int* g)
 {
-  *x = *a1 + *a2;
-  *y = b[0] + b[1];
+  unsigned int t1 = *a1 + *a2;
+  unsigned int t2 = b[0] + b[1];
 
-  g[0] += *x;
-  g[1] += *y;
+  *x = t1;
+  *y = t2;
+
+  g[0] += t1;
+  g[1] += t2;
 }
 """
         op2.par_loop(op2.Kernel(kernel_mul_ind, "kernel_mul_ind"), iterset,\
@@ -192,7 +195,6 @@ void kernel_mul_ind(
                      b(iterset2B(0), op2.READ),\
                      g(op2.INC))
 
-        self.assertEqual(sum(x.data), sum(y.data))
         self.assertEqual(sum(x.data), n * (n + 1) / 2)
         self.assertEqual(sum(y.data), n * (n + 1) / 2)
         self.assertEqual(g.data[0], n * (n + 1) / 2)
