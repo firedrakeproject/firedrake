@@ -25,7 +25,6 @@ class VectorMapTest(unittest.TestCase):
     def tearDown(self):
         pass
 
-    @unittest.expectedFailure
     def test_sum_nodes_to_edges(self):
         """Creates a 1D grid with edge values numbered consecutively.
         Iterates over edges, summing the node values."""

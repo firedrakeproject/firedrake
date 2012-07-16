@@ -392,11 +392,15 @@ def par_loop(kernel, it_space, *args):
                 "float":   "double",
                 "float32": "float",
                 "float64": "double" }
+
     def c_arg_name(arg):
         name = arg._dat._name
         if arg.is_indirect() and arg.idx is not None:
             name += str(arg.idx)
         return name
+
+    def c_vec_name(arg):
+        return c_arg_name(arg) + "_vec"
 
     def c_map_name(arg):
         return c_arg_name(arg) + "_map"
@@ -416,22 +420,41 @@ def par_loop(kernel, it_space, *args):
         if arg.is_indirect():
             val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" % \
                    {'name' : c_map_name(arg)}
+            if arg.idx is None:
+                val += ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
+                       {'type' : c_type(arg),
+                        'vec_name' : c_vec_name(arg),
+                        'dim' : arg.map._dim}
         return val
 
-    def c_kernel_arg(arg):
-        if arg.is_indirect():
-            return "%(name)s + %(map_name)s[i * %(map_dim)s + %(idx)s] * %(dim)s" % \
+    def c_ind_data(arg, idx):
+        return "%(name)s + %(map_name)s[i * %(map_dim)s + %(idx)s] * %(dim)s" % \
                 {'name' : c_arg_name(arg),
                  'map_name' : c_map_name(arg),
                  'map_dim' : arg.map._dim,
-                 'idx' : arg.idx,
+                 'idx' : idx,
                  'dim' : arg.data._dim[0]}
+
+    def c_kernel_arg(arg):
+        if arg.is_indirect():
+            if arg.idx is None:
+                return c_vec_name(arg)
+            return c_ind_data(arg, arg.idx)
         elif isinstance(arg.data, Global):
             return c_arg_name(arg)
         else:
             return "%(name)s + i * %(dim)s" % \
                 {'name' : c_arg_name(arg),
                  'dim' : arg.data._dim[0]}
+
+    def c_vec_init(arg):
+        val = []
+        for i in range(arg.map._dim):
+            val.append("%(vec_name)s[%(idx)s] = %(data)s" %
+                       {'vec_name' : c_vec_name(arg),
+                        'idx' : i,
+                        'data' : c_ind_data(arg, i)} )
+        return ";\n".join(val)
 
     _wrapper_args = ', '.join([c_wrapper_arg(arg) for arg in args])
 
@@ -441,10 +464,13 @@ def par_loop(kernel, it_space, *args):
 
     _kernel_args = ', '.join([c_kernel_arg(arg) for arg in args])
 
+    _vec_inits = ';\n'.join([c_vec_init(arg) for arg in args if arg.is_indirect() and arg.idx is None])
+
     wrapper = """
     void wrap_%(kernel_name)s__(%(wrapper_args)s) {
         %(wrapper_decs)s;
         for ( int i = 0; i < %(size)s; i++ ) {
+            %(vec_inits)s;
             %(kernel_name)s(%(kernel_args)s);
         }
     }"""
@@ -453,6 +479,7 @@ def par_loop(kernel, it_space, *args):
                       'wrapper_args' : _wrapper_args,
                       'wrapper_decs' : _wrapper_decs,
                       'size' : it_space.size,
+                      'vec_inits' : _vec_inits,
                       'kernel_args' : _kernel_args }
 
     _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel._code,
