@@ -158,10 +158,11 @@ class DataCarrier(object):
         """Verify data is of type dtype and try to reshaped to shape."""
 
         t = np.dtype(dtype) if dtype is not None else None
+        a = np.asarray(data, dtype=t)
         try:
-            return np.asarray(data, dtype=t).reshape(shape)
+            return a if data is None else a.reshape(shape)
         except ValueError:
-            raise ValueError("Invalid data: expected %d values, got %d" % \
+            raise ValueError("Invalid data: expected %d values, got %d!" % \
                     (np.prod(shape), np.asarray(data).size))
 
 class Dat(DataCarrier):
