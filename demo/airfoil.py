@@ -136,5 +136,5 @@ for i in range(1, niter+1):
                      rms(op2.INC))
     # Print iteration history
     rms = sqrt(rms.data/cells.size)
-    if i%1 == 0:
+    if i%100 == 0:
         print " %d  %10.5e " % (i, rms)
