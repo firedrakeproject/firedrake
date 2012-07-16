@@ -215,11 +215,11 @@ cdef class op_mat:
     cdef core.op_mat _handle
     def __cinit__(self, mat):
         """Instantiate a C-level op_mat from MAT"""
-        cdef op_set rset = mat._rset
-        cdef op_set cset = mat._cset
+        cdef op_set rset = mat._sparsity._rmap._iterset._lib_handle
+        cdef op_set cset = mat._sparsity._cmap._iterset._lib_handle
         cdef int dim = mat._dim
-        cdef char * type = mat._dtype
-        cdef int size = mat._dtype.itemsize
+        cdef char * type = mat._datatype.name
+        cdef int size = mat._datatype.itemsize
         cdef char * name = mat._name
         self._handle = core.op_decl_mat_core(rset._handle, cset._handle, dim,
                                              type, size, name)

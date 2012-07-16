@@ -294,13 +294,14 @@ class Sparsity(object):
 
     _globalcount = 0
 
-    def __init__(self, rmaps, cmaps, dims, name=None):
+    def __init__(self, rmap, cmap, dims, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
-        self._rmaps = as_tuple(rmaps, Map)
-        self._cmaps = as_tuple(cmaps, Map)
+        # FIXME: Should take a tupe of rmaps and cmaps
+        self._rmap = rmap
+        self._cmap = cmap
         self._dims = as_tuple(dims, int)
         self._name = name or "global_%d" % Sparsity._globalcount
-        #self._lib_handle = core.op_sparsity(self)
+        self._lib_handle = core.op_sparsity(self)
         Sparsity._globalcount += 1
 
 class Mat(DataCarrier):
@@ -315,9 +316,11 @@ class Mat(DataCarrier):
                    ('name', str, NameTypeError))
     def __init__(self, sparsity, dim, dtype=None, name=None):
         self._sparsity = sparsity
-        self._dim = as_tuple(dim, int)
+        # FIXME: Eventually we want to take a tuple of dims
+        self._dim = dim
         self._datatype = np.dtype(dtype)
         self._name = name or "mat_%d" % Mat._globalcount
+        self._lib_handle = core.op_mat(self)
         Mat._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
