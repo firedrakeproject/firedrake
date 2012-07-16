@@ -383,7 +383,7 @@ class Map(object):
     def values(self):
         return self._values
 
-IdentityMap = Map(Set(0, None), Set(0, None), 1, [], 'identity')
+IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 
 # Parallel loop API
 
