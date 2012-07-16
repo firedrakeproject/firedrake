@@ -3,7 +3,7 @@ group opencl_direct_loop;
 direct_loop(parloop,const)::=<<
 $header()$
 $parloop._d_reduction_args:{$reduction_kernel()$};separator="\n"$
-$parloop._kernel._code$
+$parloop._kernel._inst_code$
 $kernel_stub()$
 >>
 

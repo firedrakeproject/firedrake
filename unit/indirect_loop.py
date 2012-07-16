@@ -37,9 +37,7 @@ class IndirectLoopTest(unittest.TestCase):
 
         iterset2indset = op2.Map(iterset, indset, 1, _shuffle(numpy.array(range(nelems), dtype=numpy.uint32)), "iterset2indset")
 
-        # temporary fix until we have the user kernel instrumentation code
-        kernel_wo = "void kernel_wo(__local unsigned int*);\nvoid kernel_wo(__local unsigned int* x) { *x = 42; }\n"
-        #kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"
+        kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"
 
         op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), iterset, x(iterset2indset(0), op2.WRITE))
         self.assertTrue(all(map(lambda x: x==42, x.data)))
@@ -53,9 +51,7 @@ class IndirectLoopTest(unittest.TestCase):
 
         iterset2indset = op2.Map(iterset, indset, 1, _shuffle(numpy.array(range(nelems), dtype=numpy.uint32)), "iterset2indset")
 
-        # temporary fix until we have the user kernel instrumentation code
-        kernel_rw = "void kernel_rw(__local unsigned int*);\nvoid kernel_rw(__local unsigned int* x) { (*x) = (*x) + 1; }\n"
-        #kernel_rw = "void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }\n"
+        kernel_rw = "void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }\n"
 
         op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"), iterset, x(iterset2indset(0), op2.RW))
         self.assertEqual(sum(x.data), nelems * (nelems + 1) / 2);
@@ -70,9 +66,7 @@ class IndirectLoopTest(unittest.TestCase):
         u_map = numpy.zeros(nelems, dtype=numpy.uint32)
         iterset2unit = op2.Map(iterset, unitset, 1, u_map, "iterset2unitset")
 
-        # temporary fix until we have the user kernel instrumentation code
-        kernel_inc = "void kernel_inc(__private unsigned int*);\nvoid kernel_inc(__private unsigned int* x) { (*x) = (*x) + 1; }\n"
-        #kernel_inc = "void kernel_inc(unsigned int* x) { (*x) = (*x) + 1; }\n"
+        kernel_inc = "void kernel_inc(unsigned int* x) { (*x) = (*x) + 1; }\n"
 
         op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"), iterset, u(iterset2unit(0), op2.INC))
         self.assertEqual(u.data[0], nelems)
@@ -87,9 +81,7 @@ class IndirectLoopTest(unittest.TestCase):
 
         iterset2indset = op2.Map(iterset, indset, 1, _shuffle(numpy.array(range(nelems), dtype=numpy.uint32)), "iterset2indset")
 
-        # temporary fix until we have the user kernel instrumentation code
-        kernel_global_inc = "void kernel_global_inc(__local unsigned int*, __private unsigned int*);\nvoid kernel_global_inc(__local unsigned int *x, __private unsigned int *inc) { (*x) = (*x) + 1; (*inc) += (*x); }\n"
-        #kernel_global_inc = "void kernel_global_inc(unsigned int *x, unsigned int *inc) { (*x) = (*x) + 1; (*inc) += (*x); }\n"
+        kernel_global_inc = "void kernel_global_inc(unsigned int *x, unsigned int *inc) { (*x) = (*x) + 1; (*inc) += (*x); }\n"
 
         op2.par_loop(op2.Kernel(kernel_global_inc, "kernel_global_inc"), iterset,
                      x(iterset2indset(0), op2.RW),
@@ -120,16 +112,10 @@ class IndirectLoopTest(unittest.TestCase):
         kernel_colored_blocks = """
 void
 kernel_colored_blocks(
-  __global int*,
-  __local int*,
-  __local int*,
-  __private int*);
-void
-kernel_colored_blocks(
-  __global int* a,
-  __local int* p,
-  __local int* n,
-  __private int* v)
+  int* a,
+  int* p,
+  int* n,
+  int* v)
 {
   *a = *p + *n;
   *v += 1;
@@ -165,19 +151,12 @@ kernel_colored_blocks(
 
         kernel_mul_ind = """
 void kernel_mul_ind(
-  __global unsigned int*,
-  __global unsigned int*,
-  __local unsigned int*,
-  __local unsigned int*,
-  __local unsigned int*,
-  __private unsigned int*);
-void kernel_mul_ind(
-  __global unsigned int* x,
-  __global unsigned int* y,
-  __local unsigned int* a1,
-  __local unsigned int* a2,
-  __local unsigned int* b,
-  __private unsigned int* g)
+  unsigned int* x,
+  unsigned int* y,
+  unsigned int* a1,
+  unsigned int* a2,
+  unsigned int* b,
+  unsigned int* g)
 {
 
   unsigned int _a = *a1 + *a2;

@@ -28,7 +28,6 @@ class DirectLoopTest(unittest.TestCase):
         x = op2.Dat(iterset, 1, numpy.array(range(nelems), dtype=numpy.uint32), numpy.uint32, "x")
 
         kernel_wo = """
-void kernel_wo(unsigned int*);
 void kernel_wo(unsigned int* x)
 {
   *x = 42;
@@ -44,7 +43,6 @@ void kernel_wo(unsigned int* x)
         x = op2.Dat(iterset, 1, numpy.array(range(nelems), dtype=numpy.uint32), numpy.uint32, "x")
 
         kernel_rw = """
-void kernel_rw(unsigned int*);
 void kernel_rw(unsigned int* x) {
   *x = *x + 1;
 }
@@ -60,7 +58,6 @@ void kernel_rw(unsigned int* x) {
         g = op2.Global(1, 0, numpy.uint32, "g")
 
         kernel_global_inc = """
-void kernel_global_inc(unsigned int*, unsigned int*);
 void kernel_global_inc(unsigned int* x, unsigned int* inc)
 {
   *x = *x + 1;
@@ -80,7 +77,6 @@ void kernel_global_inc(unsigned int* x, unsigned int* inc)
         g = op2.Global(1, 0, numpy.uint32, "g")
 
         kernel_ro_wo_global_inc = """
-void kernel_ro_wo_global_inc(unsigned int*, unsigned int*, unsigned int*);
 void kernel_ro_wo_global_inc(unsigned int* x, unsigned int* y, unsigned int* inc)
 {
   *y = *x + 1;
@@ -101,7 +97,6 @@ void kernel_ro_wo_global_inc(unsigned int* x, unsigned int* y, unsigned int* inc
         g = op2.Global(1, 0, numpy.uint32, "g")
 
         kernel_multidim = """
-void kernel_multidim(unsigned int*, unsigned int*, unsigned int*);
 void kernel_multidim(unsigned int* x, unsigned int* y, unsigned int* inc)
 {
   *y = (x[0] + x[1]) / 2;
@@ -120,7 +115,6 @@ void kernel_multidim(unsigned int* x, unsigned int* y, unsigned int* inc)
         g = op2.Global(2, numpy.array([0, 0], dtype=numpy.uint32), numpy.uint32, "g")
 
         kernel_multidim_global_inc = """
-void kernel_multidim_global_inc(unsigned int*, unsigned int*, unsigned int*, unsigned int*);
 void kernel_multidim_global_inc(unsigned int* x, unsigned int* y, unsigned int* z, unsigned int* inc)
 {
   *y = x[0];

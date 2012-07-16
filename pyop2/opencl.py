@@ -44,6 +44,7 @@ import collections
 import itertools
 import warnings
 import sys
+from pycparser import c_parser, c_ast, c_generator
 
 _sum = 0
 def trace():
@@ -72,13 +73,48 @@ class Kernel(op2.Kernel):
     """Specialisation for the OpenCL backend.
     """
 
-    _cparser = pycparser.CParser()
-
     def __init__(self, code, name):
         op2.Kernel.__init__(self, code, name)
-        # deactivate until we have the memory attribute generator
-        # in order to allow passing "opencl" C kernels
-        # self._ast = Kernel._cparser.parse(self._code)
+
+    class Instrument(c_ast.NodeVisitor):
+        def instrument(self, ast, kernel_name, instrument, constants):
+            self._kernel_name = kernel_name
+            self._instrument = instrument
+            self._known_constants = constants
+            self._ast = ast
+            self._extern_const_decl = dict()
+            self.generic_visit(ast)
+            for e in self._extern_const_decl.values():
+                ast.ext.remove(e)
+            idx = ast.ext.index(self._func_node)
+            ast.ext.insert(0, self._func_node.decl)
+
+        def visit_Decl(self, node):
+            if node.name in self._known_constants:
+                self._extern_const_decl[node.name] = node
+            else:
+                super(Kernel.Instrument, self).generic_visit(node)
+
+        def visit_FuncDef(self, node):
+            if node.decl.name == self._kernel_name:
+                self._func_node = node
+                self.visit(node.decl)
+
+        def visit_ParamList(self, node):
+            for i, p in enumerate(node.params):
+                if self._instrument[i][0]:
+                    p.storage.append(self._instrument[i][0])
+                if self._instrument[i][1]:
+                    p.type.quals.append(self._instrument[i][1])
+            for k in sorted(self._extern_const_decl.iterkeys()):
+                node.params.append(self._extern_const_decl[k])
+                self._extern_const_decl[k].storage.append("__constant")
+                self._extern_const_decl[k].storage.remove("extern")
+
+    def instrument(self, instrument, constants):
+        ast = c_parser.CParser().parse(self._code)
+        Kernel.Instrument().instrument(ast, self._name, instrument, constants)
+        self._inst_code = c_generator.CGenerator().visit(ast)
 
 class Arg(op2.Arg):
     def __init__(self, data=None, map=None, idx=None, access=None):
@@ -402,6 +438,16 @@ class ParLoopCall(object):
 
     def compute(self):
         if self.is_direct():
+            inst = []
+            for i, arg in enumerate(self._args):
+                if arg._map == IdentityMap:
+                    inst.append(("__private", None))
+                    # todo fix: if dim > 1 should be staged
+                else:
+                    inst.append(("__private", None))
+
+            self._kernel.instrument(inst, [])
+
             thread_count = _threads_per_block * _blocks_per_grid
             dynamic_shared_memory_size = self._d_max_dynamic_shared_memory()
             shared_memory_offset = dynamic_shared_memory_size * _warpsize
@@ -438,6 +484,16 @@ class ParLoopCall(object):
             psize = self.compute_partition_size()
             plan = OpPlan(self._kernel, self._it_space, *self._args, partition_size=psize)
 
+            inst = []
+            for i, arg in enumerate(self._args):
+                if arg._map == IdentityMap:
+                    inst.append(("__global", None))
+                elif isinstance(arg._dat, Dat) and arg._access not in [INC, MIN, MAX]:
+                    inst.append(("__local", None))
+                else:
+                    inst.append(("__private", None))
+
+            self._kernel.instrument(inst, [])
             # codegen
             iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
             iloop['parloop'] = self
