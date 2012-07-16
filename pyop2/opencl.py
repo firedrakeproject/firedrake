@@ -420,7 +420,7 @@ class ParLoopCall(object):
                 f.write(source)
                 f.close
 
-            prg = cl.Program (_ctx, source).build(options="-Werror")
+            prg = cl.Program (_ctx, source).build(options="-Werror -cl-opt-disable")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
 
             for a in self._d_nonreduction_args:
@@ -449,7 +449,7 @@ class ParLoopCall(object):
                 f.write(source)
                 f.close
 
-            prg = cl.Program(_ctx, source).build(options="-Werror")
+            prg = cl.Program(_ctx, source).build(options="-Werror -cl-opt-disable")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
 
             for a in self._unique_dats:
