@@ -47,6 +47,14 @@ cdef extern from "op_lib_core.h":
         pass
     ctypedef op_map_core * op_map
 
+    ctypedef struct op_sparsity_core:
+        pass
+    ctypedef op_sparsity_core * op_sparsity
+
+    ctypedef struct op_mat_core:
+        pass
+    ctypedef op_mat_core * op_mat
+
     ctypedef struct op_dat_core:
         pass
     ctypedef op_dat_core * op_dat
@@ -63,6 +71,10 @@ cdef extern from "op_lib_core.h":
     op_set op_decl_set_core(int, char *)
 
     op_map op_decl_map_core(op_set, op_set, int, int *, char *)
+
+    op_sparsity op_decl_sparsity_core(op_map, op_map, char *)
+
+    op_mat op_decl_mat_core(op_set, op_set, int, char *, int, char *)
 
     op_dat op_decl_dat_core(op_set, int, char *, int, char *, char *)
 

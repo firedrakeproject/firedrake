@@ -201,6 +201,29 @@ cdef class op_map:
             self._handle = core.op_decl_map_core(frm._handle, to._handle, dim,
                                                  <int *>values.data, name)
 
+cdef class op_sparsity:
+    cdef core.op_sparsity _handle
+    def __cinit__(self, sparsity):
+        """Instantiate a C-level op_sparsity from SPARSITY"""
+        cdef op_map rmap = sparsity._rmap._lib_handle
+        cdef op_map cmap = sparsity._cmap._lib_handle
+        cdef char * name = sparsity._name
+        self._handle = core.op_decl_sparsity_core(rmap._handle,
+                                                  cmap._handle, name)
+
+cdef class op_mat:
+    cdef core.op_mat _handle
+    def __cinit__(self, mat):
+        """Instantiate a C-level op_mat from MAT"""
+        cdef op_set rset = mat._rset
+        cdef op_set cset = mat._cset
+        cdef int dim = mat._dim
+        cdef char * type = mat._dtype
+        cdef int size = mat._dtype.itemsize
+        cdef char * name = mat._name
+        self._handle = core.op_decl_mat_core(rset._handle, cset._handle, dim,
+                                             type, size, name)
+
 cdef class op_arg:
     cdef core.op_arg _handle
     def __cinit__(self, arg, dat=False, gbl=False):
@@ -231,8 +254,6 @@ isinstance(arg, Dat)."""
         acc = {'READ'  : core.OP_READ,
                'WRITE' : core.OP_WRITE,
                'RW'    : core.OP_RW,
-               'INC'   : core.OP_INC,
-               'MIN'   : core.OP_MIN,
                'MAX'   : core.OP_MAX}[arg.access._mode]
 
         if dat:
