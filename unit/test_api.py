@@ -1,10 +1,11 @@
 import pytest
 
 from pyop2 import op2
+from pyop2 import sequential
 
-class TestAPI:
+class TestUserAPI:
     """
-    API Unit Tests
+    User API Unit Tests
     """
 
     _backend = 'sequential'
@@ -23,3 +24,17 @@ class TestAPI:
         "init should only be callable once."
         with pytest.raises(RuntimeError):
             op2.init(self._backend)
+
+class TestBackendAPI:
+    """
+    Backend API Unit Tests
+    """
+
+    @pytest.mark.parametrize("mode", sequential.Access._modes)
+    def test_access(self, mode):
+        a = sequential.Access(mode)
+        assert repr(a) == "Access('%s')" % mode
+
+    def test_illegal_access(self):
+        with pytest.raises(sequential.ModeValueError):
+            sequential.Access('ILLEGAL_ACCESS')
