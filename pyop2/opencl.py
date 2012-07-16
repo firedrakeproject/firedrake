@@ -249,7 +249,6 @@ class OpPlan(core.op_plan):
                 if idesc == i:
                     _c += 1
             _off[i+1] = _off[i] + _c
-        _off = _off[:-1]
 
         if _debug:
             print 'plan ind_map ' + str(self.ind_map)
@@ -261,10 +260,9 @@ class OpPlan(core.op_plan):
 
         self._ind_map_buffers = [None] * self.ninds
         for i in range(self.ninds):
-            self._ind_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int32(0).itemsize * self.ind_sizes[i] * self.nblocks))
+            self._ind_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int32(0).itemsize * (_off[i+1] - _off[i]) * self.itset.size * self.nblocks))
             s = self.itset.size * _off[i]
-            # sum of ind_sizes or nelems ?
-            e = s + sum(self.ind_sizes[i::(self.ninds)])
+            e = s + (_off[i+1] - _off[i]) * self.itset.size
             cl.enqueue_copy(_queue, self._ind_map_buffers[i], self.ind_map[s:e], is_blocking=True).wait()
             if _debug:
                 print 'ind_map[' + str(i) + '] = ' + str(self.ind_map[s:e])
@@ -446,7 +444,7 @@ class ParLoopCall(object):
             source = str(iloop)
 
             # for debugging purpose, refactor that properly at some point
-            if _debug:
+            if _kernel_dump:
                 f = open(self._kernel._name + '.cl.c', 'w')
                 f.write(source)
                 f.close
@@ -518,6 +516,7 @@ def par_loop(kernel, it_space, *args):
     ParLoopCall(kernel, it_space, *args).compute()
 
 _debug = False
+_kernel_dump = False
 _ctx = cl.create_some_context()
 _queue = cl.CommandQueue(_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
 _threads_per_block = _ctx.get_info(cl.context_info.DEVICES)[0].get_info(cl.device_info.MAX_WORK_GROUP_SIZE)

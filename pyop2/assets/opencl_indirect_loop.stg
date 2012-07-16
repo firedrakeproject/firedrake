@@ -104,6 +104,7 @@ $if(parloop._i_reduc_args)$
     }
     for (color_1 = 0; color_1 < colors_count; ++color_1)
     {
+      // should there be a if + barrier pattern for each indirect reduction argument ?
       if (color_2 == color_1)
       {
         $parloop._i_reduc_args:{$reduction()$};separator="\n"$
