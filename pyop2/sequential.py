@@ -32,11 +32,10 @@ def as_tuple(item, type=None, length=None):
         # ... or create a list of a single item
         except TypeError:
             t = (item,)*(length or 1)
-    if length:
-        assert len(t) == length, "Tuple needs to be of length %d" % length
-    if type:
-        assert all(isinstance(i, type) for i in t), \
-                "Items need to be of %s" % type
+    if length and not len(t) == length:
+        raise ValueError("Tuple needs to be of length %d" % length)
+    if type and not all(isinstance(i, type) for i in t):
+        raise ValueError("Items need to be of %s" % type)
     return t
 
 # Kernel API
@@ -47,7 +46,8 @@ class Access(object):
     _modes = ["READ", "WRITE", "RW", "INC", "MIN", "MAX"]
 
     def __init__(self, mode):
-        assert mode in self._modes, "Mode needs to be one of %s" % self._modes
+        if mode not in self._modes:
+            raise ValueError("Mode needs to be one of %s" % self._modes)
         self._mode = mode
 
     def __str__(self):
@@ -67,7 +67,8 @@ class IterationSpace(object):
     """OP2 iteration space type."""
 
     def __init__(self, iterset, dims):
-        assert isinstance(iterset, Set), "Iteration set needs to be of type Set"
+        if not isinstance(iterset, Set):
+            raise ValueError("Iteration set needs to be of type Set")
         self._iterset = iterset
         self._dims = as_tuple(dims, int)
 
@@ -83,7 +84,8 @@ class Kernel(object):
     _globalcount = 0
 
     def __init__(self, code, name=None):
-        assert not name or isinstance(name, str), "Name must be of type str"
+        if name and not isinstance(name, str):
+            raise ValueError("Name must be of type str")
         self._name = name or "kernel_%d" % Kernel._globalcount
         self._code = code
         Kernel._globalcount += 1
@@ -140,8 +142,10 @@ class Set(object):
     _globalcount = 0
 
     def __init__(self, size, name=None):
-        assert isinstance(size, int), "Size must be of type int"
-        assert not name or isinstance(name, str), "Name must be of type str"
+        if not isinstance(size, int):
+            raise ValueError("Size must be of type int")
+        if name and not isinstance(name, str):
+            raise ValueError("Name must be of type str")
         self._size = size
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = core.op_set(self)
@@ -184,8 +188,10 @@ class Dat(DataCarrier):
     _arg_type = Arg
 
     def __init__(self, dataset, dim, data=None, dtype=None, name=None):
-        assert isinstance(dataset, Set), "Data set must be of type Set"
-        assert not name or isinstance(name, str), "Name must be of type str"
+        if not isinstance(dataset, Set):
+            raise ValueError("Data set must be of type Set")
+        if name and not isinstance(name, str):
+            raise ValueError("Name must be of type str")
 
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
@@ -195,8 +201,8 @@ class Dat(DataCarrier):
         Dat._globalcount += 1
 
     def __call__(self, path, access):
-        assert access in self._modes, \
-                "Acess descriptor must be one of %s" % self._modes
+        if access not in self._modes:
+            raise ValueError("Acess descriptor must be one of %s" % self._modes)
         if isinstance(path, Map):
             return self._arg_type(data=self, map=path, access=access)
         else:
@@ -225,7 +231,8 @@ class Mat(DataCarrier):
     _arg_type = Arg
 
     def __init__(self, datasets, dim, dtype=None, name=None):
-        assert not name or isinstance(name, str), "Name must be of type str"
+        if name and not isinstance(name, str):
+            raise ValueError("Name must be of type str")
         self._datasets = as_tuple(datasets, Set, 2)
         self._dim = as_tuple(dim, int)
         self._datatype = np.dtype(dtype)
@@ -233,12 +240,12 @@ class Mat(DataCarrier):
         Mat._globalcount += 1
 
     def __call__(self, maps, access):
-        assert access in self._modes, \
-                "Acess descriptor must be one of %s" % self._modes
+        if access not in self._modes:
+            raise ValueError("Acess descriptor must be one of %s" % self._modes)
         for map, dataset in zip(maps, self._datasets):
-            assert map._dataset == dataset, \
-                    "Invalid data set for map %s (is %s, should be %s)" \
-                    % (map._name, map._dataset._name, dataset._name)
+            if map._dataset != dataset:
+                raise ValueError("Invalid data set for map %s (is %s, should be %s)" \
+                        % (map._name, map._dataset._name, dataset._name))
         return self._arg_type(data=self, map=maps, access=access)
 
     def __str__(self):
@@ -261,7 +268,8 @@ class Const(DataCarrier):
     _defs = set()
 
     def __init__(self, dim, data=None, dtype=None, name=None):
-        assert not name or isinstance(name, str), "Name must be of type str"
+        if name and not isinstance(name, str):
+            raise ValueError("Name must be of type str")
         self._dim = as_tuple(dim, int)
         self._data = self._verify_reshape(data, dtype, self._dim)
         self._name = name or "const_%d" % Const._globalcount
@@ -306,15 +314,16 @@ class Global(DataCarrier):
     _arg_type = Arg
 
     def __init__(self, dim, data=None, dtype=None, name=None):
-        assert not name or isinstance(name, str), "Name must be of type str"
+        if name and not isinstance(name, str):
+            raise ValueError("Name must be of type str")
         self._dim = as_tuple(dim, int)
         self._data = self._verify_reshape(data, dtype, self._dim)
         self._name = name or "global_%d" % Global._globalcount
         Global._globalcount += 1
 
     def __call__(self, access):
-        assert access in self._modes, \
-                "Acess descriptor must be one of %s" % self._modes
+        if access not in self._modes:
+            raise ValueError("Acess descriptor must be one of %s" % self._modes)
         return self._arg_type(data=self, access=access)
 
     def __str__(self):
@@ -335,10 +344,14 @@ class Map(object):
     _arg_type = Arg
 
     def __init__(self, iterset, dataset, dim, values, name=None):
-        assert isinstance(iterset, Set), "Iteration set must be of type Set"
-        assert isinstance(dataset, Set), "Data set must be of type Set"
-        assert isinstance(dim, int), "dim must be a scalar integer"
-        assert not name or isinstance(name, str), "Name must be of type str"
+        if not isinstance(iterset, Set):
+            raise ValueError("Iteration set must be of type Set")
+        if not isinstance(dataset, Set):
+            raise ValueError("Data set must be of type Set")
+        if not isinstance(dim, int):
+            raise ValueError("dim must be a scalar integer")
+        if name and not isinstance(name, str):
+            raise ValueError("Name must be of type str")
         self._iterset = iterset
         self._dataset = dataset
         self._dim = dim
@@ -352,9 +365,10 @@ class Map(object):
         Map._globalcount += 1
 
     def __call__(self, index):
-        assert isinstance(index, int), "Only integer indices are allowed"
-        assert 0 <= index < self._dim, \
-                "Index must be in interval [0,%d]" % (self._dim-1)
+        if not isinstance(index, int):
+            raise ValueError("Only integer indices are allowed")
+        if not 0 <= index < self._dim:
+            raise ValueError("Index must be in interval [0,%d]" % (self._dim-1))
         return self._arg_type(map=self, idx=index)
 
     def __str__(self):
