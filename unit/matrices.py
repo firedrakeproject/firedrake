@@ -24,8 +24,8 @@ class MatricesTest(unittest.TestCase):
         elem_node_map = numpy.asarray([ 0, 1, 3, 2, 3, 1 ], dtype=numpy.uint32)
         coord_vals = numpy.asarray([ (0.0, 0.0), (2.0, 0.0), (1.0, 1.0), (0.0, 1.5) ], dtype=valuetype)
         f_vals = numpy.asarray([ 1.0, 2.0, 3.0, 4.0 ], dtype=valuetype)
-        b_vals = numpy.asrray([0.0]*NUM_NODES, dtype=valuetype)
-        x_vals = numpy.asrray([0.0]*NUM_NODES, dtype=valuetype)
+        b_vals = numpy.asarray([0.0]*NUM_NODES, dtype=valuetype)
+        x_vals = numpy.asarray([0.0]*NUM_NODES, dtype=valuetype)
 
         nodes = op2.Set(NUM_NODES, "nodes")
         elements = op2.Set(NUM_ELE, "elements")
@@ -40,7 +40,7 @@ class MatricesTest(unittest.TestCase):
         b = op2.Dat(nodes, 1, b_vals, valuetype, "b")
         x = op2.Dat(nodes, 1, x_vals, valuetype, "x")
 
-kernel_mass = """
+        kernel_mass = """
 void mass(ValueType* localTensor, ValueType* c0[2], int i_r_0, int i_r_1)
 {
   const ValueType CG1[3][6] = { {  0.09157621, 0.09157621, 0.81684757,
@@ -169,11 +169,33 @@ void rhs(ValueType** localTensor, ValueType* c0[2], ValueType* c1[1])
     def tearDown(self):
         pass
 
-    def test_assemble(self):
-        pass
+    def _assemble_mass(self):
+        op2.par_loop(mass, elements(2,2),
+                     mat((elem_node(i(0)), elem_node(i(1))), op2.INC),
+                     coords(elem_node, op2.READ))
 
+    @unittest.expectedFailure
+    def test_assemble(self):
+        self._assemble_mass()
+
+        expected_vals = [(0.25, 0.125, 0.0, 0.125),
+                         (0.125, 0.291667, 0.0208333, 0.145833),
+                         (0.0, 0.0208333, 0.0416667, 0.0208333),
+                         (0.125, 0.145833, 0.0208333, 0.291667) ]
+        expected_matrix = numpy.asarray(expected_vals, dtype=valuetype)
+        # Check that the matrix values equal these values, somehow.
+        assertTrue(False)
+
+    @unittest.expectedFailure
+    def test_rhs(self):
+        # Assemble the RHS here, so if solve fails we know whether the RHS
+        # assembly went wrong or something to do with the solve.
+        assertTrue(False)
+
+    @unittest.expectedFailure
     def test_solve(self):
-        pass
+        # Assemble matrix and RHS and solve.
+        assertTrue(False)
 
 suite = unittest.TestLoader().loadTestsFromTestCase(MatricesTest)
 unittest.TextTestRunner(verbosity=0).run(suite)

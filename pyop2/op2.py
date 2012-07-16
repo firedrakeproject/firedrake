@@ -74,6 +74,9 @@ class Global(sequential.Global):
 class Map(sequential.Map):
     __metaclass__ = backends.BackendSelector
 
+class Sparsity(sequential.Sparsity):
+    __metaclass__ = backends.BackendSelector
+
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel"""
     return backends.par_loop(kernel, it_space, *args)

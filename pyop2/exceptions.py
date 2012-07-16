@@ -51,6 +51,9 @@ class SetTypeError(TypeError):
 class SizeTypeError(TypeError):
     """Invalid type for size."""
 
+class SparsityTypeError(TypeError):
+    """Invalid type for sparsity."""
+
 class DataValueError(ValueError):
     """Illegal value for data."""
 

@@ -288,6 +288,21 @@ class Dat(DataCarrier):
         return "Dat(%r, %s, '%s', None, '%s')" \
                % (self._dataset, self._dim, self._data.dtype, self._name)
 
+class Sparsity(object):
+    """OP2 Sparsity, a matrix structure derived from the cross product of
+    two sets of maps"""
+
+    _globalcount = 0
+
+    def __init__(self, rmaps, cmaps, dims, name=None):
+        assert not name or isinstance(name, str), "Name must be of type str"
+        self._rmaps = as_tuple(rmaps, Map)
+        self._cmaps = as_tuple(cmaps, Map)
+        self._dims = as_tuple(dims, int)
+        self._name = name or "global_%d" % Sparsity._globalcount
+        #self._lib_handle = core.op_sparsity(self)
+        Sparsity._globalcount += 1
+
 class Mat(DataCarrier):
     """OP2 matrix data. A Mat is defined on the cartesian product of two Sets
     and holds a value for each element in the product."""
@@ -296,9 +311,10 @@ class Mat(DataCarrier):
     _modes = [WRITE, INC]
     _arg_type = Arg
 
-    @validate_type(('name', str, NameTypeError))
-    def __init__(self, datasets, dim, dtype=None, name=None):
-        self._datasets = as_tuple(datasets, Set, 2)
+    @validate_type(('sparsity', Sparsity, SparsityTypeError), \
+                   ('name', str, NameTypeError))
+    def __init__(self, sparsity, dim, dtype=None, name=None):
+        self._sparsity = sparsity
         self._dim = as_tuple(dim, int)
         self._datatype = np.dtype(dtype)
         self._name = name or "mat_%d" % Mat._globalcount
@@ -307,16 +323,16 @@ class Mat(DataCarrier):
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, maps, access):
         maps = as_tuple(maps, Map, 2)
-        for map, dataset in zip(maps, self._datasets):
+        for map, dataset in zip(maps, (self._sparsity._rmap, self._sparsity._cmap)):
             if map._dataset != dataset:
                 raise SetValueError("Invalid data set for map %s (is %s, should be %s)" \
                         % (map._name, map._dataset._name, dataset._name))
         return self._arg_type(data=self, map=maps, access=access)
 
     @property
-    def datasets(self):
-        """Sets on which the Mat is defined."""
-        return self._datasets
+    def sparsity(self):
+        """Sparsity on which the Mat is defined."""
+        return self._sparsity
 
     @property
     def dtype(self):
@@ -324,12 +340,12 @@ class Mat(DataCarrier):
         return self._datatype
 
     def __str__(self):
-        return "OP2 Mat: %s, row set (%s), col set (%s), dimension %s, datatype %s" \
-               % (self._name, self._datasets[0], self._datasets[1], self._dim, self._datatype.name)
+        return "OP2 Mat: %s, sparsity (%s), dimension %s, datatype %s" \
+               % (self._name, self._sparsity, self._dim, self._datatype.name)
 
     def __repr__(self):
         return "Mat(%r, %s, '%s', '%s')" \
-               % (self._datasets, self._dim, self._datatype, self._name)
+               % (self._sparsity, self._dim, self._datatype, self._name)
 
 class Const(DataCarrier):
     """Data that is constant for any element of any set."""
