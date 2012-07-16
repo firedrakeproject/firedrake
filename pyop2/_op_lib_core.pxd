@@ -37,7 +37,9 @@ Cython header file for OP2 C library
 cdef extern from "op_lib_core.h":
     ctypedef struct op_set_core:
         int size
+        int core_size
         int exec_size
+        int nonexec_size
 
     ctypedef op_set_core * op_set
 

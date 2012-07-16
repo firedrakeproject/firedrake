@@ -153,6 +153,26 @@ cdef class op_set:
         cdef char * name = set._name
         self._handle = core.op_decl_set_core(size, name)
 
+    property size:
+        def __get__(self):
+            """Return the number of elements in the set"""
+            return self._handle.size
+
+    property core_size:
+        def __get__(self):
+            """Return the number of core elements (MPI-only)"""
+            return self._handle.core_size
+
+    property exec_size:
+        def __get__(self):
+            """Return the number of additional imported elements to be executed"""
+            return self._handle.exec_size
+
+    property nonexec_size:
+        def __get__(self):
+            """Return the number of additional imported elements that are not executed"""
+            return self._handle.nonexec_size
+
 cdef class op_dat:
     cdef core.op_dat _handle
     def __cinit__(self, dat):
@@ -260,12 +280,12 @@ further ARGS."""
         cdef int i
         cdef int ind = 0
 
-        self.set_size = _set._handle.size
+        self.set_size = _set.size
         # Size of the plan is incremented by the exec_size if any
         # argument is indirect and not read-only.  exec_size is only
         # ever non-zero in an MPI setting.
         if any(arg.is_indirect_and_not_read() for arg in args):
-            self.set_size += _set._handle.exec_size
+            self.set_size += _set.exec_size
 
         # Count number of indirect arguments.  This will need changing
         # once we deal with vector maps.
