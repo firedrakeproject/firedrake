@@ -96,6 +96,26 @@ class validate:
             return f(*args, **kwargs)
         return wrapper
 
+def verify_reshape(data, dtype, shape):
+    """Verify data is of type dtype and try to reshaped to shape."""
+
+    if data is None:
+        try:
+            return np.asarray([], dtype=np.dtype(dtype))
+        except TypeError:
+            raise DataTypeError("Invalid data type: %s" % dtype)
+    else:
+        t = np.dtype(dtype) if dtype is not None else None
+        try:
+            a = np.asarray(data, dtype=t)
+        except ValueError:
+            raise DataValueError("Invalid data: cannot convert to %s!" % dtype)
+        try:
+            return a.reshape(shape)
+        except ValueError:
+            raise DataValueError("Invalid data: expected %d values, got %d!" % \
+                    (np.prod(shape), np.asarray(data).size))
+
 # Data API
 
 class Access(object):
@@ -206,26 +226,6 @@ class DataCarrier(object):
         """Dimension/shape of a single data item."""
         return self._dim
 
-    def _verify_reshape(self, data, dtype, shape):
-        """Verify data is of type dtype and try to reshaped to shape."""
-
-        if data is None:
-            try:
-                return np.asarray([], dtype=np.dtype(dtype))
-            except TypeError:
-                raise DataTypeError("Invalid data type: %s" % dtype)
-        else:
-            t = np.dtype(dtype) if dtype is not None else None
-            try:
-                a = np.asarray(data, dtype=t)
-            except ValueError:
-                raise DataValueError("Invalid data: cannot convert to %s!" % dtype)
-            try:
-                return a.reshape(shape)
-            except ValueError:
-                raise DataValueError("Invalid data: expected %d values, got %d!" % \
-                        (np.prod(shape), np.asarray(data).size))
-
 class Dat(DataCarrier):
     """OP2 vector data. A Dat holds a value for every member of a set."""
 
@@ -237,7 +237,7 @@ class Dat(DataCarrier):
     def __init__(self, dataset, dim, data=None, dtype=None, name=None):
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
-        self._data = self._verify_reshape(data, dtype, (dataset.size,)+self._dim)
+        self._data = verify_reshape(data, dtype, (dataset.size,)+self._dim)
         self._name = name or "dat_%d" % Dat._globalcount
         self._lib_handle = core.op_dat(self)
         Dat._globalcount += 1
@@ -327,7 +327,7 @@ class Const(DataCarrier):
     @validate(('name', str, NameTypeError))
     def __init__(self, dim, data=None, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
-        self._data = self._verify_reshape(data, dtype, self._dim)
+        self._data = verify_reshape(data, dtype, self._dim)
         self._name = name or "const_%d" % Const._globalcount
         if any(self._name is const._name for const in Const._defs):
             raise Const.NonUniqueNameError(
@@ -377,7 +377,7 @@ class Global(DataCarrier):
     @validate(('name', str, NameTypeError))
     def __init__(self, dim, data=None, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
-        self._data = self._verify_reshape(data, dtype, self._dim)
+        self._data = verify_reshape(data, dtype, self._dim)
         self._name = name or "global_%d" % Global._globalcount
         Global._globalcount += 1
 
@@ -410,11 +410,7 @@ class Map(object):
         self._iterset = iterset
         self._dataset = dataset
         self._dim = dim
-        try:
-            self._values = np.asarray(values, dtype=np.int32).reshape(iterset.size, dim)
-        except ValueError:
-            raise DataValueError("Invalid data: expected %d values, got %d" % \
-                    (iterset.size*dim, np.asarray(values).size))
+        self._values = verify_reshape(values, np.int32, (iterset.size, dim))
         self._name = name or "map_%d" % Map._globalcount
         self._lib_handle = core.op_map(self)
         Map._globalcount += 1
