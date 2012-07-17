@@ -484,3 +484,7 @@ class TestBackendAPI:
         "Illegal access modes should raise an exception."
         with pytest.raises(sequential.ModeValueError):
             sequential.Access('ILLEGAL_ACCESS')
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))
