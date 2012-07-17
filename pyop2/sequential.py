@@ -33,10 +33,37 @@ def as_tuple(item, type=None, length=None):
         except TypeError:
             t = (item,)*(length or 1)
     if length and not len(t) == length:
-        raise ValueError("Tuple needs to be of length %d" % length)
+        raise DimValueError("Tuple needs to be of length %d" % length)
     if type and not all(isinstance(i, type) for i in t):
-        raise ValueError("Items need to be of %s" % type)
+        raise DimTypeError("Items need to be of %s" % type)
     return t
+
+class DimTypeError(TypeError):
+    """Invalid type for dimension."""
+
+class IndexTypeError(TypeError):
+    """Invalid type for index."""
+
+class NameTypeError(TypeError):
+    """Invalid type for name."""
+
+class SetTypeError(TypeError):
+    """Invalid type for Set."""
+
+class SizeTypeError(TypeError):
+    """Invalid type for size."""
+
+class DataValueError(ValueError):
+    """Illegal value for data."""
+
+class IndexValueError(ValueError):
+    """Illegal value for index."""
+
+class ModeValueError(ValueError):
+    """Illegal value for mode."""
+
+class SetValueError(ValueError):
+    """Illegal value for Set."""
 
 class validate:
     """Decorator to validate arguments"""
@@ -45,7 +72,7 @@ class validate:
         self._checks = checks
 
     def check_args(self, args, kwargs, varnames, file, line):
-        for argname, argtype in self._checks:
+        for argname, argtype, exception in self._checks:
             try:
                 i = varnames.index(argname)
             except ValueError:
@@ -58,7 +85,7 @@ class validate:
                 # No actual parameter argname
                 continue
             if not isinstance(arg, argtype):
-                raise ValueError("%s:%d Parameter %s must be of type %r" % (file, line, argname, argtype))
+                raise exception("%s:%d Parameter %s must be of type %r" % (file, line, argname, argtype))
 
     def __call__(self, f):
         def wrapper(*args, **kwargs):
@@ -75,7 +102,7 @@ class Access(object):
 
     def __init__(self, mode):
         if mode not in self._modes:
-            raise ValueError("Mode needs to be one of %s" % self._modes)
+            raise ModeValueError("Mode needs to be one of %s" % self._modes)
         self._mode = mode
 
     def __str__(self):
@@ -135,7 +162,7 @@ class Set(object):
 
     _globalcount = 0
 
-    @validate(('size', int), ('name', str))
+    @validate(('size', int, SizeTypeError), ('name', str, NameTypeError))
     def __init__(self, size, name=None):
         self._size = size
         self._name = name or "set_%d" % Set._globalcount
@@ -186,7 +213,7 @@ class DataCarrier(object):
             try:
                 return np.asarray(data, dtype=t).reshape(shape)
             except ValueError:
-                raise ValueError("Invalid data: expected %d values, got %d!" % \
+                raise DataValueError("Invalid data: expected %d values, got %d!" % \
                         (np.prod(shape), np.asarray(data).size))
 
 class Dat(DataCarrier):
@@ -196,7 +223,7 @@ class Dat(DataCarrier):
     _modes = [READ, WRITE, RW, INC]
     _arg_type = Arg
 
-    @validate(('dataset', Set), ('name', str))
+    @validate(('dataset', Set, SetTypeError), ('name', str, NameTypeError))
     def __init__(self, dataset, dim, data=None, dtype=None, name=None):
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
@@ -207,7 +234,7 @@ class Dat(DataCarrier):
 
     def __call__(self, path, access):
         if access not in self._modes:
-            raise ValueError("Acess descriptor must be one of %s" % self._modes)
+            raise ModeValueError("Acess descriptor must be one of %s" % self._modes)
         if isinstance(path, Map):
             return self._arg_type(data=self, map=path, access=access)
         else:
@@ -241,7 +268,7 @@ class Mat(DataCarrier):
     _modes = [WRITE, INC]
     _arg_type = Arg
 
-    @validate(('name', str))
+    @validate(('name', str, NameTypeError))
     def __init__(self, datasets, dim, dtype=None, name=None):
         self._datasets = as_tuple(datasets, Set, 2)
         self._dim = as_tuple(dim, int)
@@ -251,10 +278,10 @@ class Mat(DataCarrier):
 
     def __call__(self, maps, access):
         if access not in self._modes:
-            raise ValueError("Acess descriptor must be one of %s" % self._modes)
+            raise ModeValueError("Acess descriptor must be one of %s" % self._modes)
         for map, dataset in zip(maps, self._datasets):
             if map._dataset != dataset:
-                raise ValueError("Invalid data set for map %s (is %s, should be %s)" \
+                raise SetValueError("Invalid data set for map %s (is %s, should be %s)" \
                         % (map._name, map._dataset._name, dataset._name))
         return self._arg_type(data=self, map=maps, access=access)
 
@@ -279,15 +306,15 @@ class Mat(DataCarrier):
 class Const(DataCarrier):
     """Data that is constant for any element of any set."""
 
-    class NonUniqueNameError(RuntimeError):
-        pass
+    class NonUniqueNameError(ValueError):
+        """Name already in use."""
 
     _globalcount = 0
     _modes = [READ]
 
     _defs = set()
 
-    @validate(('name', str))
+    @validate(('name', str, NameTypeError))
     def __init__(self, dim, data=None, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
         self._data = self._verify_reshape(data, dtype, self._dim)
@@ -337,7 +364,7 @@ class Global(DataCarrier):
     _modes = [READ, INC, MIN, MAX]
     _arg_type = Arg
 
-    @validate(('name', str))
+    @validate(('name', str, NameTypeError))
     def __init__(self, dim, data=None, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
         self._data = self._verify_reshape(data, dtype, self._dim)
@@ -346,7 +373,7 @@ class Global(DataCarrier):
 
     def __call__(self, access):
         if access not in self._modes:
-            raise ValueError("Acess descriptor must be one of %s" % self._modes)
+            raise ModeValueError("Acess descriptor must be one of %s" % self._modes)
         return self._arg_type(data=self, access=access)
 
     def __str__(self):
@@ -367,7 +394,8 @@ class Map(object):
     _globalcount = 0
     _arg_type = Arg
 
-    @validate(('iterset', Set), ('dataset', Set), ('dim', int), ('name', str))
+    @validate(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError), \
+            ('dim', int, DimTypeError), ('name', str, NameTypeError))
     def __init__(self, iterset, dataset, dim, values, name=None):
         self._iterset = iterset
         self._dataset = dataset
@@ -375,16 +403,16 @@ class Map(object):
         try:
             self._values = np.asarray(values, dtype=np.int32).reshape(iterset.size, dim)
         except ValueError:
-            raise ValueError("Invalid data: expected %d values, got %d" % \
+            raise DataValueError("Invalid data: expected %d values, got %d" % \
                     (iterset.size*dim, np.asarray(values).size))
         self._name = name or "map_%d" % Map._globalcount
         self._lib_handle = core.op_map(self)
         Map._globalcount += 1
 
-    @validate(('index', int))
+    @validate(('index', int, IndexTypeError))
     def __call__(self, index):
         if not 0 <= index < self._dim:
-            raise ValueError("Index must be in interval [0,%d]" % (self._dim-1))
+            raise IndexValueError("Index must be in interval [0,%d]" % (self._dim-1))
         return self._arg_type(map=self, idx=index)
 
     @property
@@ -433,7 +461,7 @@ IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 class IterationSpace(object):
     """OP2 iteration space type."""
 
-    @validate(('iterset', Set))
+    @validate(('iterset', Set, SetTypeError))
     def __init__(self, iterset, dims):
         self._iterset = iterset
         self._dims = as_tuple(dims, int)
@@ -459,7 +487,7 @@ class Kernel(object):
 
     _globalcount = 0
 
-    @validate(('name', str))
+    @validate(('name', str, NameTypeError))
     def __init__(self, code, name=None):
         self._name = name or "kernel_%d" % Kernel._globalcount
         self._code = code
