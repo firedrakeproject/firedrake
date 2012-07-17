@@ -46,21 +46,6 @@ import warnings
 import sys
 from pycparser import c_parser, c_ast, c_generator
 
-_sum = 0
-def trace():
-    def decorator(f):
-        def wrapper(*args, **kargs):
-            print "%s (%s, %s)" % (f.__name__, args, kargs)
-            print "%d" % kargs['size']
-            global _sum
-            _sum += kargs['size']
-            print "running total %d" % (_sum)
-            return f(*args, **kargs)
-        return wrapper
-    return decorator
-
-#cl.Buffer = trace()(cl.Buffer)
-
 def round_up(bytes):
     return (bytes + 15) & ~15
 
