@@ -454,6 +454,18 @@ class TestUserAPI:
         i = op2.IterationSpace(set, (2,3))
         assert i.iterset == set and i.extents == (2,3)
 
+    ## Kernel unit tests
+
+    def test_kernel_illegal_name(self):
+        "Kernel name should be string."
+        with pytest.raises(sequential.NameTypeError):
+            op2.Kernel("", name=2)
+
+    def test_kernel_properties(self):
+        "Kernel constructor should correctly set attributes."
+        k = op2.Kernel("", 'foo')
+        assert k.name == 'foo'
+
 class TestBackendAPI:
     """
     Backend API Unit Tests
