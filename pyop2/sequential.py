@@ -106,15 +106,22 @@ class Arg(object):
 
     @property
     def data(self):
+        """Data carrier: Dat, Mat, Const or Global."""
         return self._dat
+
     @property
     def map(self):
+        """Mapping."""
         return self._map
+
     @property
     def idx(self):
+        """Index into the mapping."""
         return self._idx
+
     @property
     def access(self):
+        """Access descriptor."""
         return self._access
 
     def is_indirect(self):
@@ -210,7 +217,7 @@ class Dat(DataCarrier):
 
     @property
     def dataset(self):
-        """Set on which this Dat is defined."""
+        """Set on which the Dat is defined."""
         return self._dataset
 
     @property
@@ -253,7 +260,7 @@ class Mat(DataCarrier):
 
     @property
     def datasets(self):
-        """Sets on which this Mat is defined."""
+        """Sets on which the Mat is defined."""
         return self._datasets
 
     @property
@@ -351,6 +358,7 @@ class Global(DataCarrier):
 
     @property
     def data(self):
+        """Data array."""
         return self._data
 
 class Map(object):
@@ -390,9 +398,25 @@ class Map(object):
         return self._dataset
 
     @property
+    def dim(self):
+        """Dimension of the mapping: number of dataset elements mapped to per
+        iterset element."""
+        return self._dim
+
+    @property
+    def dtype(self):
+        """Data type."""
+        return self._values.dtype
+
+    @property
     def values(self):
         """Mapping array."""
         return self._values
+
+    @property
+    def name(self):
+        """User-defined label"""
+        return self._name
 
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with dim %s" \
@@ -421,7 +445,7 @@ class IterationSpace(object):
 
     @property
     def dims(self):
-        """Dimensions of the IterationSpace."""
+        """Dimensions tuple of the IterationSpace."""
         return self._dims
 
     def __str__(self):
