@@ -468,9 +468,9 @@ class IterationSpace(object):
     """OP2 iteration space type."""
 
     @validate(('iterset', Set, SetTypeError))
-    def __init__(self, iterset, dims):
+    def __init__(self, iterset, extents):
         self._iterset = iterset
-        self._dims = as_tuple(dims, int)
+        self._extents = as_tuple(extents, int)
 
     @property
     def iterset(self):
@@ -478,15 +478,15 @@ class IterationSpace(object):
         return self._iterset
 
     @property
-    def dims(self):
-        """Dimensions tuple of the IterationSpace."""
-        return self._dims
+    def extents(self):
+        """Extents tuple of the IterationSpace."""
+        return self._extents
 
     def __str__(self):
-        return "OP2 Iteration Space: %s and extra dimensions %s" % self._dims
+        return "OP2 Iteration Space: %s with extents %s" % self._extents
 
     def __repr__(self):
-        return "IterationSpace(%r, %r)" % (self._iterset, self._dims)
+        return "IterationSpace(%r, %r)" % (self._iterset, self._extents)
 
 class Kernel(object):
     """OP2 kernel type."""
