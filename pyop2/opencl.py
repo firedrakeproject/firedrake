@@ -301,22 +301,12 @@ class OpPlan(core.op_plan):
                     _c += 1
             _off[i+1] = _off[i] + _c
 
-        if _debug:
-            print 'plan ind_map ' + str(self.ind_map)
-            print 'plan loc_map ' + str(self.loc_map)
-            print '_ind_desc ' + str(_ind_desc)
-            print 'nuinds %d' % self.nuinds
-            print 'ninds %d' % self.ninds
-            print '_off ' + str(_off)
-
         self._ind_map_buffers = [None] * self.ninds
         for i in range(self.ninds):
             self._ind_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int32(0).itemsize * (_off[i+1] - _off[i]) * self.itset.size * self.nblocks))
             s = self.itset.size * _off[i]
             e = s + (_off[i+1] - _off[i]) * self.itset.size
             cl.enqueue_copy(_queue, self._ind_map_buffers[i], self.ind_map[s:e], is_blocking=True).wait()
-            if _debug:
-                print 'ind_map[' + str(i) + '] = ' + str(self.ind_map[s:e])
 
         self._loc_map_buffers = [None] * self.nuinds
         for i in range(self.nuinds):
@@ -324,43 +314,46 @@ class OpPlan(core.op_plan):
             s = i * self.itset.size
             e = s + self.itset.size
             cl.enqueue_copy(_queue, self._loc_map_buffers[i], self.loc_map[s:e], is_blocking=True).wait()
-            if _debug:
-                print 'loc_map[' + str(i) + '] = ' + str(self.loc_map[s:e])
 
-        if _debug:
-            print 'ind_sizes :' + str(self.ind_sizes)
         self._ind_sizes_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.ind_sizes.nbytes)
         cl.enqueue_copy(_queue, self._ind_sizes_buffer, self.ind_sizes, is_blocking=True).wait()
 
-        if _debug:
-            print 'ind_offs :' + str(self.ind_offs)
         self._ind_offs_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.ind_offs.nbytes)
         cl.enqueue_copy(_queue, self._ind_offs_buffer, self.ind_offs, is_blocking=True).wait()
 
-        if _debug:
-            print 'blk_map :' + str(self.blkmap)
         self._blkmap_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.blkmap.nbytes)
         cl.enqueue_copy(_queue, self._blkmap_buffer, self.blkmap, is_blocking=True).wait()
 
-        if _debug:
-            print 'offset :' + str(self.offset)
         self._offset_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.offset.nbytes)
         cl.enqueue_copy(_queue, self._offset_buffer, self.offset, is_blocking=True).wait()
 
-        if _debug:
-            print 'nelems :' + str(self.nelems)
         self._nelems_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.nelems.nbytes)
         cl.enqueue_copy(_queue, self._nelems_buffer, self.nelems, is_blocking=True).wait()
 
-        if _debug:
-            print 'nthrcol :' + str(self.nthrcol)
         self._nthrcol_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.nthrcol.nbytes)
         cl.enqueue_copy(_queue, self._nthrcol_buffer, self.nthrcol, is_blocking=True).wait()
 
-        if _debug:
-            print 'thrcol :' + str(self.thrcol)
         self._thrcol_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.thrcol.nbytes)
         cl.enqueue_copy(_queue, self._thrcol_buffer, self.thrcol, is_blocking=True).wait()
+
+        if _debug:
+            print 'plan ind_map ' + str(self.ind_map)
+            print 'plan loc_map ' + str(self.loc_map)
+            print '_ind_desc ' + str(_ind_desc)
+            print 'nuinds %d' % self.nuinds
+            print 'ninds %d' % self.ninds
+            print '_off ' + str(_off)
+            for i in range(self.ninds):
+                print 'ind_map[' + str(i) + '] = ' + str(self.ind_map[s:e])
+            for i in range(self.nuinds):
+                print 'loc_map[' + str(i) + '] = ' + str(self.loc_map[s:e])
+            print 'ind_sizes :' + str(self.ind_sizes)
+            print 'ind_offs :' + str(self.ind_offs)
+            print 'blk_map :' + str(self.blkmap)
+            print 'offset :' + str(self.offset)
+            print 'nelems :' + str(self.nelems)
+            print 'nthrcol :' + str(self.nthrcol)
+            print 'thrcol :' + str(self.thrcol)
 
 class DatMapPair(object):
     """ Dummy class needed for codegen
@@ -599,7 +592,7 @@ def par_loop(kernel, it_space, *args):
 
 _op2_constants = dict()
 _debug = False
-_kernel_dump = True
+_kernel_dump = False
 _ctx = cl.create_some_context()
 _max_local_memory = _ctx.devices[0].local_mem_size
 _address_bits = _ctx.devices[0].address_bits
