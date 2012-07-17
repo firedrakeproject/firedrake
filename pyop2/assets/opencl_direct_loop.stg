@@ -1,11 +1,19 @@
 group opencl_direct_loop;
 
-direct_loop(parloop,const)::=<<
+direct_loop(parloop,const,op2const)::=<<
 $header()$
 $parloop._d_reduction_args:{$reduction_kernel()$};separator="\n"$
+
+$if(op2const.keys)$
+/* op2 const declarations */
+$op2const.values:{c | $opencl_const_declaration(cst=c)$};separator="\n"$
+$endif$
+
 $parloop._kernel._inst_code$
 $kernel_stub()$
 >>
+
+opencl_const_declaration(cst)::=<<__constant $cst._cl_type$ $cst._name$ $if(cst._is_scalar)$ = $cst._cl_value$$else$[] = {$cst._cl_value$}$endif$;>>
 
 kernel_stub()::=<<
 __kernel
@@ -86,7 +94,15 @@ void $it._dat._name$_reduction_kernel (
 }
 >>
 
-reduction_op()::=<<$if(it._d_is_INC)$reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];$endif$>>
+reduction_op()::=<<$if(it._d_is_INC)$
+reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];
+$elseif(it._d_is_MIN)$
+reduction_tmp_array[lid] += MIN(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+$elseif(it._d_is_MAX)$
+reduction_tmp_array[lid] += MAX(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+$else$
+SOMETHING WENT SOUTH;
+$endif$>>
 
 stagein(arg)::=<<
 // $arg._dat._name$
@@ -109,9 +125,11 @@ for (i_2 = 0; i_2 < $arg._dat._dim$; ++i_2) {
 >>
 
 kernel_call()::=<<$parloop._kernel._name$($parloop._args:{$kernel_call_arg()$};separator=", "$);>>
-kernel_call_arg()::=<<$if(it._d_is_staged)$$it._dat._name$_local$elseif(it._d_is_INC)$$it._dat._name$_reduc_local$endif$>>
+kernel_call_arg()::=<<$if(it._d_is_staged)$$it._dat._name$_local$elseif(it._is_global_reduction)$$it._dat._name$_reduc_local$endif$>>
 
 header()::=<<
+#pragma OPENCL EXTENSION cl_khr_fp64 : require
 #define OP_WARPSIZE $const.warpsize$
 #define MIN(a,b) ((a < b) ? (a) : (b))
+#define MAX(a,b) ((a < b) ? (b) : (a))
 >>
