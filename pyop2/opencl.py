@@ -80,20 +80,10 @@ class Kernel(op2.Kernel):
         def instrument(self, ast, kernel_name, instrument, constants):
             self._kernel_name = kernel_name
             self._instrument = instrument
-            self._known_constants = constants
             self._ast = ast
-            self._extern_const_decl = dict()
             self.generic_visit(ast)
-            for e in self._extern_const_decl.values():
-                ast.ext.remove(e)
             idx = ast.ext.index(self._func_node)
             ast.ext.insert(0, self._func_node.decl)
-
-        def visit_Decl(self, node):
-            if node.name in self._known_constants:
-                self._extern_const_decl[node.name] = node
-            else:
-                super(Kernel.Instrument, self).generic_visit(node)
 
         def visit_FuncDef(self, node):
             if node.decl.name == self._kernel_name:
@@ -106,10 +96,6 @@ class Kernel(op2.Kernel):
                     p.storage.append(self._instrument[i][0])
                 if self._instrument[i][1]:
                     p.type.quals.append(self._instrument[i][1])
-            for k in sorted(self._extern_const_decl.iterkeys()):
-                node.params.append(self._extern_const_decl[k])
-                self._extern_const_decl[k].storage.append("__constant")
-                self._extern_const_decl[k].storage.remove("extern")
 
     def instrument(self, instrument, constants):
         ast = c_parser.CParser().parse(self._code)
@@ -121,8 +107,20 @@ class Arg(op2.Arg):
         op2.Arg.__init__(self, data, map, idx, access)
 
     @property
+    def _is_global_reduction(self):
+        return isinstance(self._dat, Global) and self._access in [INC, MIN, MAX]
+
+    @property
     def _d_is_INC(self):
         return self._access == INC
+
+    @property
+    def _d_is_MIN(self):
+        return self._access == MIN
+
+    @property
+    def _d_is_MAX(self):
+        return self._access == MAX
 
     @property
     def _d_is_staged(self):
@@ -152,7 +150,9 @@ class DeviceDataMixin:
     ClTypeInfo = collections.namedtuple('ClTypeInfo', ['clstring', 'zero'])
     CL_TYPES = {np.dtype('int16'): ClTypeInfo('short', '0'),
                 np.dtype('uint32'): ClTypeInfo('unsigned int', '0u'),
-                np.dtype('int32'): ClTypeInfo('int', '0')}
+                np.dtype('int32'): ClTypeInfo('int', '0'),
+                np.dtype('float32'): ClTypeInfo('float', '0.0'),
+                np.dtype('float64'): ClTypeInfo('double', '0.0')}
 
     @property
     def _cl_type(self):
@@ -194,7 +194,15 @@ class Const(op2.Const, DeviceDataMixin):
 
     def __init__(self, dim, data, name, dtype=None):
         op2.Const.__init__(self, dim, data, name, dtype)
-        raise NotImplementedError('Const data is unsupported yet')
+        _op2_constants[self._name] = self
+
+    @property
+    def _is_scalar(self):
+        return self._dim != 1
+
+    @property
+    def _cl_value(self):
+        return list(self._data)
 
 class Global(op2.Global, DeviceDataMixin):
 
@@ -459,6 +467,7 @@ class ParLoopCall(object):
                               "dynamic_shared_memory_size": dynamic_shared_memory_size,\
                               "threads_per_block": _threads_per_block,
                               "partition_size": _threads_per_block}
+            dloop['op2const'] = _op2_constants
             source = str(dloop)
 
             # for debugging purpose, refactor that properly at some point
@@ -498,6 +507,7 @@ class ParLoopCall(object):
             iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
             iloop['parloop'] = self
             iloop['const'] = {'dynamic_shared_memory_size': plan.nshared, 'ninds':plan.ninds, 'partition_size':psize}
+            iloop['op2const'] = _op2_constants
             source = str(iloop)
 
             # for debugging purpose, refactor that properly at some point
@@ -589,16 +599,17 @@ class CLKernel (_original_clKernel):
 
 cl.Kernel = CLKernel
 
-
 def par_loop(kernel, it_space, *args):
     ParLoopCall(kernel, it_space, *args).compute()
 
+_op2_constants = dict()
 _debug = False
 _kernel_dump = False
 _ctx = cl.create_some_context()
 _max_local_memory = _ctx.devices[0].local_mem_size
 _address_bits = _ctx.devices[0].address_bits
 _queue = cl.CommandQueue(_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
+_has_dpfloat = 'cl_khr_fp64' in _ctx.devices[0].extensions
 _threads_per_block = _ctx.get_info(cl.context_info.DEVICES)[0].get_info(cl.device_info.MAX_WORK_GROUP_SIZE)
 _warpsize = 1
 
