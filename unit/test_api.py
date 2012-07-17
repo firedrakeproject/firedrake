@@ -292,6 +292,80 @@ class TestUserAPI:
         assert c.dim == (2,2) and c.dtype == np.float64 and c.name == 'baz' \
                 and c.data.sum() == 4
 
+    ## Global unit tests
+
+    def test_global_illegal_dim(self):
+        "Global dim should be int or int tuple."
+        with pytest.raises(TypeError):
+            op2.Global('illegaldim')
+
+    def test_global_illegal_dim_tuple(self):
+        "Global dim should be int or int tuple."
+        with pytest.raises(TypeError):
+            op2.Global((1,'illegaldim'))
+
+    def test_global_illegal_name(self):
+        "Global name should be string."
+        with pytest.raises(sequential.NameTypeError):
+            op2.Global(1, 1, name=2)
+
+    def test_global_illegal_data(self):
+        "Passing None for Global data should not be allowed."
+        with pytest.raises(sequential.DataValueError):
+            op2.Global(1, None)
+
+    def test_global_dim(self):
+        "Global constructor should create a dim tuple."
+        g = op2.Global(1, 1)
+        assert g.dim == (1,)
+
+    def test_global_dim_list(self):
+        "Global constructor should create a dim tuple from a list."
+        g = op2.Global([2,3], [1]*6)
+        assert g.dim == (2,3)
+
+    def test_global_float(self):
+        "Data type for float data should be numpy.float64."
+        g = op2.Global(1, 1.0)
+        assert g.dtype == np.double
+
+    def test_global_int(self):
+        "Data type for int data should be numpy.int64."
+        g = op2.Global(1, 1)
+        assert g.dtype == np.int64
+
+    def test_global_convert_int_float(self):
+        "Explicit float type should override NumPy's default choice of int."
+        g = op2.Global(1, 1, 'double')
+        assert g.dtype == np.float64
+
+    def test_global_convert_float_int(self):
+        "Explicit int type should override NumPy's default choice of float."
+        g = op2.Global(1, 1.5, 'int')
+        assert g.dtype == np.int64
+
+    def test_global_illegal_dtype(self):
+        "Illegal data type should raise DataValueError."
+        with pytest.raises(sequential.DataValueError):
+            op2.Global(1, 'illegal_type', 'double')
+
+    @pytest.mark.parametrize("dim", [1, (2,2)])
+    def test_global_illegal_length(self, dim):
+        "Mismatching data length should raise DataValueError."
+        with pytest.raises(sequential.DataValueError):
+            op2.Global(dim, [1]*(np.prod(dim)+1))
+
+    def test_global_reshape(self):
+        "Data should be reshaped according to dim."
+        g = op2.Global((2,2), [1.0]*4)
+        assert g.dim == (2,2) and g.data.shape == (2,2)
+
+    def test_global_properties(self):
+        "Data globalructor should correctly set attributes."
+        g = op2.Global((2,2), [1]*4, 'double', 'bar')
+        assert g.dim == (2,2) and g.dtype == np.float64 and g.name == 'bar' \
+                and g.data.sum() == 4
+
 class TestBackendAPI:
     """
     Backend API Unit Tests
