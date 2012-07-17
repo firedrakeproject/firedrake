@@ -254,6 +254,8 @@ isinstance(arg, Dat)."""
         acc = {'READ'  : core.OP_READ,
                'WRITE' : core.OP_WRITE,
                'RW'    : core.OP_RW,
+               'INC'   : core.OP_INC,
+               'MIN'   : core.OP_MIN,
                'MAX'   : core.OP_MAX}[arg.access._mode]
 
         if dat:
