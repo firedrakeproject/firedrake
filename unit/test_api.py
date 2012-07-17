@@ -422,6 +422,38 @@ class TestUserAPI:
         assert m.iterset == iterset and m.dataset == dataset and m.dim == 2 \
                 and m.values.sum() == 2*iterset.size and m.name == 'bar'
 
+    ## IterationSpace unit tests
+
+    def test_iteration_space_illegal_iterset(self, set):
+        "IterationSpace iterset should be Set."
+        with pytest.raises(sequential.SetTypeError):
+            op2.IterationSpace('illegalset', 1)
+
+    def test_iteration_space_illegal_extents(self, set):
+        "IterationSpace extents should be int or int tuple."
+        with pytest.raises(TypeError):
+            op2.IterationSpace(set, 'illegalextents')
+
+    def test_iteration_space_illegal_extents_tuple(self, set):
+        "IterationSpace extents should be int or int tuple."
+        with pytest.raises(TypeError):
+            op2.IterationSpace(set, (1,'illegalextents'))
+
+    def test_iteration_space_extents(self, set):
+        "IterationSpace constructor should create a extents tuple."
+        m = op2.IterationSpace(set, 1)
+        assert m.extents == (1,)
+
+    def test_iteration_space_extents_list(self, set):
+        "IterationSpace constructor should create a extents tuple from a list."
+        m = op2.IterationSpace(set, [2,3])
+        assert m.extents == (2,3)
+
+    def test_iteration_space_properties(self, set):
+        "IterationSpace constructor should correctly set attributes."
+        i = op2.IterationSpace(set, (2,3))
+        assert i.iterset == set and i.extents == (2,3)
+
 class TestBackendAPI:
     """
     Backend API Unit Tests
