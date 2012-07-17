@@ -97,6 +97,10 @@ class Arg(op2.Arg):
         return isinstance(self._dat, Global) and self._access in [INC, MIN, MAX]
 
     @property
+    def _is_global(self):
+        return isinstance(self._dat, Global)
+
+    @property
     def _is_INC(self):
         return self._access == INC
 
@@ -365,7 +369,13 @@ class ParLoopCall(object):
     """ generic. """
     @property
     def _global_reduction_args(self):
+        #TODO FIX: return Dat to avoid duplicates
         return _del_dup_keep_order(filter(lambda a: isinstance(a._dat, Global) and a._access in [INC, MIN, MAX], self._args))
+
+    @property
+    def _global_non_reduction_args(self):
+        #TODO FIX: return Dat to avoid duplicates
+        return _del_dup_keep_order(filter(lambda a: a._is_global and not a._is_global_reduction, self._args))
 
     @property
     def _unique_dats(self):
@@ -373,6 +383,7 @@ class ParLoopCall(object):
 
     @property
     def _indirect_reduc_args(self):
+        #TODO FIX: return Dat to avoid duplicates
         return _del_dup_keep_order(filter(lambda a: a._is_indirect and a._access in [INC, MIN, MAX], self._args))
 
     @property
@@ -424,8 +435,10 @@ class ParLoopCall(object):
                     inst.append(("__global", None))
                 elif arg._is_direct:
                     inst.append(("__private", None))
-                else:
+                elif arg._is_global_reduction:
                     inst.append(("__private", None))
+                elif arg._is_global:
+                    inst.append(("__global", None))
 
             self._kernel.instrument(inst, [])
 
@@ -459,6 +472,9 @@ class ParLoopCall(object):
                 a._dat._allocate_reduction_array(_blocks_per_grid)
                 kernel.append_arg(a._dat._d_reduc_buffer)
 
+            for a in self._global_non_reduction_args:
+                kernel.append_arg(a._dat._buffer)
+
             cl.enqueue_nd_range_kernel(_queue, kernel, (thread_count,), (_threads_per_block,), g_times_l=False).wait()
             for i, a in enumerate(self._global_reduction_args):
                 a._dat._host_reduction(_blocks_per_grid)
@@ -472,6 +488,8 @@ class ParLoopCall(object):
                     inst.append(("__global", None))
                 elif isinstance(arg._dat, Dat) and arg._access not in [INC, MIN, MAX]:
                     inst.append(("__local", None))
+                elif arg._is_global and not arg._is_global_reduction:
+                    inst.append(("__global", None))
                 else:
                     inst.append(("__private", None))
 
@@ -494,6 +512,9 @@ class ParLoopCall(object):
 
             for a in self._unique_dats:
                 kernel.append_arg(a._buffer)
+
+            for a in self._global_non_reduction_args:
+                kernel.append_arg(a._dat._buffer)
 
             for i in range(plan.ninds):
                 kernel.append_arg(plan._ind_map_buffers[i])

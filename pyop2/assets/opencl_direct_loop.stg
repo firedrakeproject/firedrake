@@ -19,7 +19,8 @@ kernel_stub()::=<<
 __kernel
 void $parloop._kernel._name$_stub (
   $parloop._unique_dats:{__global $it._cl_type$* $it._name$};separator=",\n"$$if(parloop._global_reduction_args)$,$endif$
-  $parloop._global_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$_reduction_array};separator=",\n"$
+  $parloop._global_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$_reduction_array};separator=",\n"$$if(parloop._global_non_reduction_args)$,$endif$
+  $parloop._global_non_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$};separator=",\n"$
 )
 {
   unsigned int shared_memory_offset = $const.shared_memory_offset$;
@@ -125,7 +126,7 @@ for (i_2 = 0; i_2 < $arg._dat._dim$; ++i_2) {
 >>
 
 kernel_call()::=<<$parloop._kernel._name$($parloop._args:{$kernel_call_arg()$};separator=", "$);>>
-kernel_call_arg()::=<<$if(it._d_is_staged)$$it._dat._name$_local$elseif(it._is_global_reduction)$$it._dat._name$_reduc_local$else$&$it._dat._name$[i_1]$endif$>>
+kernel_call_arg()::=<<$if(it._d_is_staged)$$it._dat._name$_local$elseif(it._is_global_reduction)$$it._dat._name$_reduc_local$elseif(it._is_global)$$it._dat._name$$else$&$it._dat._name$[i_1]$endif$>>
 
 header()::=<<
 #pragma OPENCL EXTENSION cl_khr_fp64 : require

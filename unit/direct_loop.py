@@ -1,5 +1,6 @@
 import unittest
 import numpy
+import itertools
 
 from pyop2 import op2
 # Initialise OP2
@@ -50,6 +51,23 @@ void kernel_rw(unsigned int* x) {
 
         op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"), iterset, x(op2.IdentityMap, op2.RW))
         self.assertEqual(sum(x.data), nelems * (nelems + 1) / 2);
+
+    def test_global_read(self):
+        """Test global read argument."""
+        iterset = op2.Set(nelems, "iterset")
+        x = op2.Dat(iterset, 1, numpy.array([x * 2 for x in range(1, nelems + 1)], dtype=numpy.uint32), numpy.uint32, "x")
+        g = op2.Global(1, 2, numpy.uint32, "g")
+
+        kernel_global_read = """
+void kernel_global_read(unsigned int*x, unsigned int* g)
+{
+  *x = *x / *g;
+}
+"""
+
+        op2.par_loop(op2.Kernel(kernel_global_read, "kernel_global_read"), iterset, x(op2.IdentityMap, op2.RW), g(op2.READ))
+
+        self.assertEqual(sum(x.data), nelems * (nelems + 1) / 2)
 
     def test_global_inc(self):
         """Test global increment argument."""

@@ -28,6 +28,27 @@ class IndirectLoopTest(unittest.TestCase):
     def tearDown(self):
         pass
 
+    def test_global_read(self):
+        """Test global read argument."""
+        iterset = op2.Set(nelems, "iterset")
+        indset = op2.Set(nelems, "indset")
+
+        x = op2.Dat(indset, 1, numpy.array([x * 2 for x in range(1, nelems + 1)], dtype=numpy.uint32), numpy.uint32, "x")
+        g = op2.Global(1, 2, numpy.uint32, "g")
+
+        iterset2indset = op2.Map(iterset, indset, 1, numpy.array(_shuffle(range(nelems)), dtype=numpy.uint32), "iterset2indset")
+
+        kernel_global_read = """
+void kernel_global_read(unsigned int*x, unsigned int* g)
+{
+  *x = *x / *g;
+}
+"""
+
+        op2.par_loop(op2.Kernel(kernel_global_read, "kernel_global_read"), iterset, x(iterset2indset(0), op2.RW), g(op2.READ))
+
+        self.assertEqual(sum(x.data), nelems * (nelems + 1) / 2)
+
     def test_onecolor_wo(self):
         """Test write only indirect dat without concurrent access."""
         iterset = op2.Set(nelems, "iterset")
@@ -182,9 +203,7 @@ void kernel_mul_ind(
         self.assertEqual(g.data[1], n * (n + 1) / 2)
 
 def _shuffle(arr):
-    #FIX: this is probably not a good enough shuffling
-    for i in range(int(math.log(nelems,2))):
-        numpy.random.shuffle(arr)
+    numpy.random.shuffle(arr)
     return arr
 
 suite = unittest.TestLoader().loadTestsFromTestCase(IndirectLoopTest)

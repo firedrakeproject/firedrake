@@ -19,6 +19,7 @@ kernel_stub()::=<<
 __kernel
 void $parloop._kernel._name$_stub(
   $parloop._unique_dats:{__global $it._cl_type$* $it._name$,};separator="\n"$
+  $parloop._global_non_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$,};separator="\n"$
   $parloop._dat_map_pairs:{__global int* $shared_indirection_mapping_arg_name()$,};separator="\n"$
   $parloop._args:{$if(it._is_indirect)$__global short* $mappingarrayname()$,$endif$};separator="\n"$
   $parloop._global_reduc_args:{__global $it._dat._cl_type$* $global_reduc_device_array_name()$,};separator="\n"$
@@ -155,7 +156,7 @@ $parloop._kernel._name$(
 );
 >>
 
-kernel_call_arg()::=<<$if(it._is_direct)$(__global $it._dat._cl_type$* __private) ($it._dat._name$ + (i_1 + shared_memory_offset) * $it._dat._dim$)$elseif(it._is_global_reduction)$$global_reduc_local_name()$$elseif(it._is_indirect_reduction)$$reduc_arg_local_name()$$else$&$shared_indirection_mapping_memory_name()$[$mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$]$endif$>>
+kernel_call_arg()::=<<$if(it._is_direct)$(__global $it._dat._cl_type$* __private) ($it._dat._name$ + (i_1 + shared_memory_offset) * $it._dat._dim$)$elseif(it._is_global_reduction)$$global_reduc_local_name()$$elseif(it._is_indirect_reduction)$$reduc_arg_local_name()$$elseif(it._is_global)$$it._dat._name$$else$&$shared_indirection_mapping_memory_name()$[$mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$]$endif$>>
 
 staged_arg_local_variable_zeroing()::=<<
 for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2)
