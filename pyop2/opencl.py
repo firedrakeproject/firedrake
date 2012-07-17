@@ -106,42 +106,44 @@ class Arg(op2.Arg):
     def __init__(self, data=None, map=None, idx=None, access=None):
         op2.Arg.__init__(self, data, map, idx, access)
 
+    """ generic. """
     @property
     def _is_global_reduction(self):
         return isinstance(self._dat, Global) and self._access in [INC, MIN, MAX]
 
     @property
-    def _d_is_INC(self):
+    def _is_INC(self):
         return self._access == INC
 
     @property
-    def _d_is_MIN(self):
+    def _is_MIN(self):
         return self._access == MIN
 
     @property
-    def _d_is_MAX(self):
+    def _is_MAX(self):
         return self._access == MAX
 
     @property
-    def _d_is_staged(self):
-        # FIX; stagged only if dim > 1
-        return isinstance(self._dat, Dat) and self._access in [READ, WRITE, RW]
-
-    @property
-    def _i_is_direct(self):
+    def _is_direct(self):
         return isinstance(self._dat, Dat) and self._map is IdentityMap
 
     @property
-    def _i_is_indirect(self):
+    def _is_indirect(self):
         return isinstance(self._dat, Dat) and self._map not in [None, IdentityMap]
 
     @property
-    def _i_is_reduction(self):
-        return isinstance(self._dat, Dat) and self._map != None and self._access in [INC, MIN, MAX]
+    def _is_indirect_reduction(self):
+        return self._is_indirect and self._access in [INC, MIN, MAX]
 
     @property
-    def _i_is_global_reduction(self):
+    def _is_global(self):
         return isinstance(self._dat, Global)
+
+    """ codegen specific. """
+    @property
+    def _d_is_staged(self):
+        return self._is_direct and not self._dat._is_scalar
+
 
 class DeviceDataMixin:
     """Codegen mixin for datatype and literal translation.
@@ -153,6 +155,10 @@ class DeviceDataMixin:
                 np.dtype('int32'): ClTypeInfo('int', '0'),
                 np.dtype('float32'): ClTypeInfo('float', '0.0'),
                 np.dtype('float64'): ClTypeInfo('double', '0.0')}
+
+    @property
+    def _is_scalar(self):
+        return self._dim == (1,)
 
     @property
     def _cl_type(self):
@@ -370,10 +376,6 @@ class DatMapPair(object):
     def __eq__(self, other):
         return self.__dict__ == other.__dict__
 
-    @property
-    def _i_direct(self):
-        return isinstance(self._dat, Dat) and self._map != IdentityMap
-
 #FIXME: some of this can probably be factorised up in common
 class ParLoopCall(object):
 
@@ -382,75 +384,68 @@ class ParLoopCall(object):
         self._kernel = kernel
         self._args = list(args)
 
+    """ generic. """
+    @property
+    def _global_reduction_args(self):
+        return _del_dup_keep_order(filter(lambda a: isinstance(a._dat, Global) and a._access in [INC, MIN, MAX], self._args))
+
+    @property
+    def _unique_dats(self):
+        return _del_dup_keep_order(map(lambda arg: arg._dat, filter(lambda arg: isinstance(arg._dat, Dat), self._args)))
+
+    @property
+    def _indirect_reduc_args(self):
+        return _del_dup_keep_order(filter(lambda a: a._is_indirect and a._access in [INC, MIN, MAX], self._args))
+
+    @property
+    def _global_reduc_args(self):
+        return _del_dup_keep_order(filter(lambda a: a._is_global_reduction, self._args))
+
     """ code generation specific """
     """ a lot of this can rewriten properly """
     @property
-    def _d_staged_args(self):
-        assert self.is_direct(), "Should only be called on direct loops"
-        return list(set(self._d_staged_in_args + self._d_staged_out_args))
+    def _direct_non_scalar_args(self):
+        # direct loop staged args
+        return _del_dup_keep_order(filter(lambda a: a._is_direct and not (a._dat._is_scalar) and a._access in [READ, WRITE, RW], self._args))
 
     @property
-    def _d_nonreduction_args(self):
-        assert self.is_direct(), "Should only be called on direct loops"
-        return list(set(filter(lambda a: not isinstance(a._dat, Global), self._args)))
+    def _direct_non_scalar_read_args(self):
+        # direct loop staged in args
+        return _del_dup_keep_order(filter(lambda a: a._is_direct and not (a._dat._is_scalar) and a._access in [READ, RW], self._args))
 
     @property
-    def _d_staged_in_args(self):
-        assert self.is_direct(), "Should only be called on direct loops"
-        return list(set(filter(lambda a: isinstance(a._dat, Dat) and a._access in [READ, RW], self._args)))
-
-    @property
-    def _d_staged_out_args(self):
-        assert self.is_direct(), "Should only be called on direct loops"
-        return list(set(filter(lambda a: isinstance(a._dat, Dat) and a._access in [WRITE, RW], self._args)))
-
-    @property
-    def _d_reduction_args(self):
-        assert self.is_direct(), "Should only be called on direct loops"
-        return list(set(filter(lambda a: isinstance(a._dat, Global) and a._access in [INC, MIN, MAX], self._args)))
+    def _direct_non_scalar_written_args(self):
+        # direct loop staged out args
+        return _del_dup_keep_order(filter(lambda a: a._is_direct and not (a._dat._is_scalar) and a._access in [WRITE, RW], self._args))
 
     """ maximum shared memory required for staging an op_arg """
     def _d_max_dynamic_shared_memory(self):
         assert self.is_direct(), "Should only be called on direct loops"
-        return max(map(lambda a: a._dat.bytes_per_elem, self._d_staged_args))
+        if self._direct_non_scalar_args:
+            return max(map(lambda a: a._dat.bytes_per_elem, self._direct_non_scalar_args))
+        else:
+            return 0
 
     @property
-    def _unique_dats(self):
-        return _del_dup_keep_order(map(lambda arg: arg._dat, filter(lambda arg: not isinstance(arg._dat, Global), self._args)))
+    def _dat_map_pairs(self):
+        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_indirect, self._args)))
 
     @property
-    def _i_staged_dat_map_pairs(self):
-        #NOTE: rename 'unique_dat_map_pairs' since everything is stagged ???
-        assert not self.is_direct(), "Should only be called on indirect loops"
-        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: not (a._map == IdentityMap or isinstance(a._dat, Global)), self._args)))
+    def _read_dat_map_pairs(self):
+        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_indirect and a._access in [READ, RW], self._args)))
 
     @property
-    def _i_staged_in_dat_map_pairs(self):
-        assert not self.is_direct(), "Should only be called on indirect loops"
-        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._map != IdentityMap and not isinstance(a._dat, Global) and a._access in [READ, RW], self._args)))
-
-    @property
-    def _i_staged_out_dat_map_pairs(self):
-        assert not self.is_direct(), "Should only be called on indirect loops"
-        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._map != IdentityMap and not isinstance(a._dat, Global) and a._access in [WRITE, RW], self._args)))
-
-    @property
-    def _i_reduc_args(self):
-        assert not self.is_direct(), "Should only be called on indirect loops"
-        return _del_dup_keep_order(filter(lambda a: a._access in [INC, MIN, MAX] and a._map != IdentityMap and not isinstance(a._dat, Global), self._args))
-
-    @property
-    def _i_global_reduc_args(self):
-        assert not self.is_direct(), "Should only be called on indirect loops"
-        return _del_dup_keep_order(filter(lambda a: isinstance(a._dat, Global), self._args))
+    def _written_dat_map_pairs(self):
+        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_indirect and a._access in [WRITE, RW], self._args)))
 
     def compute(self):
         if self.is_direct():
             inst = []
             for i, arg in enumerate(self._args):
-                if arg._map == IdentityMap:
+                if arg._is_direct and arg._dat._is_scalar:
+                    inst.append(("__global", None))
+                elif arg._is_direct:
                     inst.append(("__private", None))
-                    # todo fix: if dim > 1 should be staged
                 else:
                     inst.append(("__private", None))
 
@@ -479,15 +474,15 @@ class ParLoopCall(object):
             prg = cl.Program (_ctx, source).build(options="-Werror -cl-opt-disable")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
 
-            for a in self._d_nonreduction_args:
-                kernel.append_arg(a._dat._buffer)
+            for a in self._unique_dats:
+                kernel.append_arg(a._buffer)
 
-            for a in self._d_reduction_args:
+            for a in self._global_reduction_args:
                 a._dat._allocate_reduction_array(_blocks_per_grid)
                 kernel.append_arg(a._dat._d_reduc_buffer)
 
             cl.enqueue_nd_range_kernel(_queue, kernel, (thread_count,), (_threads_per_block,), g_times_l=False).wait()
-            for i, a in enumerate(self._d_reduction_args):
+            for i, a in enumerate(self._global_reduction_args):
                 a._dat._host_reduction(_blocks_per_grid)
         else:
             psize = self.compute_partition_size()
@@ -528,7 +523,7 @@ class ParLoopCall(object):
             for i in range(plan.nuinds):
                 kernel.append_arg(plan._loc_map_buffers[i])
 
-            for arg in self._i_global_reduc_args:
+            for arg in self._global_reduc_args:
                 arg._dat._allocate_reduction_array(plan.nblocks)
                 kernel.append_arg(arg._dat._d_reduc_buffer)
 
@@ -550,20 +545,20 @@ class ParLoopCall(object):
                 cl.enqueue_nd_range_kernel(_queue, kernel, (thread_count,), (threads_per_block,), g_times_l=False).wait()
                 block_offset += blocks_per_grid
 
-            for arg in self._i_global_reduc_args:
+            for arg in self._global_reduc_args:
                 arg._dat._host_reduction(plan.nblocks)
 
             plan.reclaim()
 
     def is_direct(self):
-        return all(map(lambda a: isinstance(a._dat, Global) or ((isinstance(a._dat, Dat) and a._map == IdentityMap)), self._args))
+        return all(map(lambda a: a._is_direct or isinstance(a._dat, Global), self._args))
 
     def compute_partition_size(self):
         # conservative estimate...
         codegen_bytes = 512
         staged_args = filter(lambda a: isinstance(a._dat, Dat) and a._map != IdentityMap , self._args)
 
-        assert staged_args or self._i_global_reduc_args, "malformed par_loop ?"
+        assert staged_args or self._global_reduc_args, "malformed par_loop ?"
 
         if staged_args:
             max_staged_bytes = sum(map(lambda a: a._dat.bytes_per_elem, staged_args))
@@ -571,8 +566,8 @@ class ParLoopCall(object):
         else:
             psize_staging = sys.maxint
 
-        if self._i_global_reduc_args:
-            max_gbl_reduc_bytes = max(map(lambda a: a._dat._data.nbytes, self._i_global_reduc_args))
+        if self._global_reduc_args:
+            max_gbl_reduc_bytes = max(map(lambda a: a._dat._data.nbytes, self._global_reduc_args))
             psize_gbl_reduction = (_max_local_memory - codegen_bytes) / max_gbl_reduc_bytes
         else:
             psize_gbl_reduction = sys.maxint
@@ -604,7 +599,7 @@ def par_loop(kernel, it_space, *args):
 
 _op2_constants = dict()
 _debug = False
-_kernel_dump = False
+_kernel_dump = True
 _ctx = cl.create_some_context()
 _max_local_memory = _ctx.devices[0].local_mem_size
 _address_bits = _ctx.devices[0].address_bits

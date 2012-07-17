@@ -1,19 +1,27 @@
 group opencl_indirect;
 
-indirect_loop(parloop,const)::=<<
+indirect_loop(parloop,const,op2const)::=<<
 $header()$
-$parloop._i_global_reduc_args:{$reduction_kernel()$};separator="\n"$
+$parloop._global_reduc_args:{$reduction_kernel()$};separator="\n"$
+
+$if(op2const.keys)$
+/* op2 const declarations */
+$op2const.values:{c | $opencl_const_declaration(cst=c)$};separator="\n"$
+$endif$
+
 $parloop._kernel._inst_code$
 $kernel_stub()$
 >>
+
+opencl_const_declaration(cst)::=<<__constant $cst._cl_type$ $cst._name$ $if(cst._is_scalar)$ = $cst._cl_value$$else$[] = {$cst._cl_value$}$endif$;>>
 
 kernel_stub()::=<<
 __kernel
 void $parloop._kernel._name$_stub(
   $parloop._unique_dats:{__global $it._cl_type$* $it._name$,};separator="\n"$
-  $parloop._i_staged_dat_map_pairs:{__global int* $shared_indirection_mapping_arg_name()$,};separator="\n"$
-  $parloop._args:{$if(it._i_is_indirect)$__global short* $mappingarrayname()$,$endif$};separator="\n"$
-  $parloop._i_global_reduc_args:{__global $it._dat._cl_type$* $global_reduc_device_array_name()$,};separator="\n"$
+  $parloop._dat_map_pairs:{__global int* $shared_indirection_mapping_arg_name()$,};separator="\n"$
+  $parloop._args:{$if(it._is_indirect)$__global short* $mappingarrayname()$,$endif$};separator="\n"$
+  $parloop._global_reduc_args:{__global $it._dat._cl_type$* $global_reduc_device_array_name()$,};separator="\n"$
   __global int* p_ind_sizes,
   __global int* p_ind_offsets,
   __global int* p_blk_map,
@@ -34,70 +42,69 @@ void $parloop._kernel._name$_stub(
 
   int i_1;
 
-$if(parloop._i_reduc_args)$
+$if(parloop._indirect_reduc_args)$
   __local int colors_count;
   __local int active_threads_count_ceiling;
   int color_1;
   int color_2;
   int i_2;
   // reduction args
-  $parloop._i_reduc_args:{$it._dat._cl_type$ $reduc_arg_local_name()$[$it._dat._dim$];};separator="\n"$
+  $parloop._indirect_reduc_args:{$it._dat._cl_type$ $reduc_arg_local_name()$[$it._dat._dim$];};separator="\n"$
 $endif$
 
-$if(parloop._i_global_reduc_args)$
+$if(parloop._global_reduc_args)$
   // global reduction local declarations
-  $parloop._i_global_reduc_args:{$it._dat._cl_type$ $global_reduc_local_name()$[$it._dat._dim$];};separator="\n"$
+  $parloop._global_reduc_args:{$it._dat._cl_type$ $global_reduc_local_name()$[$it._dat._dim$];};separator="\n"$
 $endif$
 
   // shared indirection mappings
-  $parloop._i_staged_dat_map_pairs:{__global int* __local $shared_indirection_mapping_name()$;};separator="\n"$
-  $parloop._i_staged_dat_map_pairs:{__local int $shared_indirection_mapping_size_name()$;};separator="\n"$
-  $parloop._i_staged_dat_map_pairs:{__local $it._dat._cl_type$* __local $shared_indirection_mapping_memory_name()$;};separator="\n"$
-  $parloop._i_staged_dat_map_pairs:{const int $shared_indirection_mapping_idx_name()$ = $i0$;};separator="\n"$
+  $parloop._dat_map_pairs:{__global int* __local $shared_indirection_mapping_name()$;};separator="\n"$
+  $parloop._dat_map_pairs:{__local int $shared_indirection_mapping_size_name()$;};separator="\n"$
+  $parloop._dat_map_pairs:{__local $it._dat._cl_type$* __local $shared_indirection_mapping_memory_name()$;};separator="\n"$
+  $parloop._dat_map_pairs:{const int $shared_indirection_mapping_idx_name()$ = $i0$;};separator="\n"$
 
   if (get_local_id(0) == 0)
   {
     block_id = p_blk_map[get_group_id(0) + block_offset];
     active_threads_count = p_nelems[block_id];
-$if(parloop._i_reduc_args)$
+$if(parloop._indirect_reduc_args)$
     active_threads_count_ceiling = get_local_size(0) * (1 + (active_threads_count - 1) / get_local_size(0));
-    colors_count = p_nthrcol[block_id];
-$endif$
+    colors_count = p_nthrcol[block_id];$endif$
     shared_memory_offset = p_offset[block_id];
 
-    $parloop._i_staged_dat_map_pairs:{$shared_indirection_mapping_size_name()$ = p_ind_sizes[$shared_indirection_mapping_idx_name()$ + block_id * $const.ninds$];};separator="\n"$
+    $parloop._dat_map_pairs:{$shared_indirection_mapping_size_name()$ = p_ind_sizes[$shared_indirection_mapping_idx_name()$ + block_id * $const.ninds$];};separator="\n"$
 
-    $parloop._i_staged_dat_map_pairs:{$shared_indirection_mapping_name()$ = $shared_indirection_mapping_arg_name()$ + p_ind_offsets[$shared_indirection_mapping_idx_name()$ + block_id * $const.ninds$];};separator="\n"$
+    $parloop._dat_map_pairs:{$shared_indirection_mapping_name()$ = $shared_indirection_mapping_arg_name()$ + p_ind_offsets[$shared_indirection_mapping_idx_name()$ + block_id * $const.ninds$];};separator="\n"$
 
     nbytes = 0;
-    $parloop._i_staged_dat_map_pairs:{$shared_indirection_mapping_memory_name()$ = (__local $it._dat._cl_type$*) (&shared[nbytes]);
+    $parloop._dat_map_pairs:{$shared_indirection_mapping_memory_name()$ = (__local $it._dat._cl_type$*) (&shared[nbytes]);
 nbytes += ROUND_UP($shared_indirection_mapping_size_name()$ * $it._dat._dim$ * sizeof($it._dat._cl_type$));};separator="\n"$
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
-$if(parloop._i_staged_in_dat_map_pairs)$
+$if(parloop._read_dat_map_pairs)$
   // staging in of indirect dats
-  $parloop._i_staged_in_dat_map_pairs:stagingin();separator="\n"$
+  $parloop._read_dat_map_pairs:stagingin();separator="\n"$
   barrier(CLK_LOCAL_MEM_FENCE);
 $endif$
 
-$if(parloop._i_reduc_args)$
+$if(parloop._indirect_reduc_args)$
   // zeroing local memory for indirect reduction
-  $parloop._i_reduc_args:shared_memory_reduc_zeroing();separator="\n"$
+  $parloop._indirect_reduc_args:shared_memory_reduc_zeroing();separator="\n"$
   barrier(CLK_LOCAL_MEM_FENCE);
 $endif$
 
-$if(parloop._i_global_reduc_args)$
+$if(parloop._global_reduc_args)$
   // zeroing private memory for global reduction
-  $parloop._i_global_reduc_args:{$global_reduction_local_zeroing()$};separator="\n"$
+  $parloop._global_reduc_args:{$global_reduction_local_zeroing()$};separator="\n"$
 $endif$
 
-$if(parloop._i_reduc_args)$
+$if(parloop._indirect_reduc_args)$
   for (i_1 = get_local_id(0); i_1 < active_threads_count_ceiling; i_1 += get_local_size(0)) {
     color_2 = -1;
     if (i_1 < active_threads_count)
     {
-      $parloop._i_reduc_args:{$staged_arg_local_variable_zeroing()$};separator="\n"$
+      $parloop._indirect_reduc_args:{$staged_arg_local_variable_zeroing()$};separator="\n"$
 
       $kernel_call()$
       color_2 = p_thrcol[i_1 + shared_memory_offset];
@@ -107,7 +114,7 @@ $if(parloop._i_reduc_args)$
       // should there be a if + barrier pattern for each indirect reduction argument ?
       if (color_2 == color_1)
       {
-        $parloop._i_reduc_args:{$reduction()$};separator="\n"$
+        $parloop._indirect_reduc_args:{$reduction()$};separator="\n"$
       }
       barrier(CLK_LOCAL_MEM_FENCE);
     }
@@ -119,18 +126,18 @@ $else$
   }
 $endif$
 
-$if(parloop._i_reduc_args)$
-  $parloop._i_reduc_args:{$reduction2()$};separator="\n"$
+$if(parloop._indirect_reduc_args)$
+  $parloop._indirect_reduc_args:{$reduction2()$};separator="\n"$
 $endif$
-$if(parloop._i_staged_out_dat_map_pairs)$
+$if(parloop._written_dat_map_pairs)$
   // staging out indirect dats
   barrier(CLK_LOCAL_MEM_FENCE);
-  $parloop._i_staged_out_dat_map_pairs:{$stagingout()$};separator="\n"$
+  $parloop._written_dat_map_pairs:{$stagingout()$};separator="\n"$
 $endif$
-$if(parloop._i_global_reduc_args)$
+$if(parloop._global_reduc_args)$
   barrier(CLK_LOCAL_MEM_FENCE);
   // on device global reductions
-  $parloop._i_global_reduc_args:{$on_device_global_reduction()$};separator="\n"$
+  $parloop._global_reduc_args:{$on_device_global_reduction()$};separator="\n"$
 $endif$
 }
 >>
@@ -148,7 +155,7 @@ $parloop._kernel._name$(
 );
 >>
 
-kernel_call_arg()::=<<$if(it._i_is_direct)$(__global $it._dat._cl_type$* __private) ($it._dat._name$ + (i_1 + shared_memory_offset) * $it._dat._dim$)$elseif(it._i_is_global_reduction)$$global_reduc_local_name()$$elseif(it._i_is_reduction)$$reduc_arg_local_name()$$else$&$shared_indirection_mapping_memory_name()$[$mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$]$endif$>>
+kernel_call_arg()::=<<$if(it._is_direct)$(__global $it._dat._cl_type$* __private) ($it._dat._name$ + (i_1 + shared_memory_offset) * $it._dat._dim$)$elseif(it._is_global_reduction)$$global_reduc_local_name()$$elseif(it._is_indirect_reduction)$$reduc_arg_local_name()$$else$&$shared_indirection_mapping_memory_name()$[$mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$]$endif$>>
 
 staged_arg_local_variable_zeroing()::=<<
 for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2)
@@ -160,7 +167,15 @@ for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2)
 reduction()::=<<
 for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2)
 {
+  $if(it._is_INC)$
   $shared_indirection_mapping_memory_name()$[i_2 + $mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$] += $reduc_arg_local_name()$[i_2];
+  $elseif(it._is_MIN)$
+  $shared_indirection_mapping_memory_name()$[i_2 + $mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$] = MIN($shared_indirection_mapping_memory_name()$[i_2 + $mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$], $reduc_arg_local_name()$[i_2]);
+  $elseif(it._is_MAX)$
+  $shared_indirection_mapping_memory_name()$[i_2 + $mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$] =MAX($shared_indirection_mapping_memory_name()$[i_2 + $mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$], $reduc_arg_local_name()$[i_2]);
+  $else$
+  SOMETHING WENT SOUTH
+  $endif$
 }
 >>
 
@@ -214,9 +229,11 @@ shared_indirection_mapping_idx_name()::=<<$it._dat._name$_via_$it._map._name$_id
 shared_indirection_mapping_arg_name()::=<<ind_$it._dat._name$_via_$it._map._name$_map>>
 
 header(const)::=<<
+#pragma OPENCL EXTENSION cl_khr_fp64 : require
 #define ROUND_UP(bytes) (((bytes) + 15) & ~15)
 #define OP_WARPSIZE $const.warpsize$
 #define MIN(a,b) ((a < b) ? (a) : (b))
+#define MAX(a,b) ((a < b) ? (b) : (a))
 >>
 
 reduction_kernel()::=<<
@@ -251,4 +268,12 @@ void $it._dat._name$_reduction_kernel (
 }
 >>
 
-reduction_op()::=<<$if(it._d_is_INC)$reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];$endif$>>
+reduction_op()::=<<$if(it._is_INC)$
+reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];
+$elseif(it._is_MIN)$
+reduction_tmp_array[lid] += MIN(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+$elseif(it._is_MAX)$
+reduction_tmp_array[lid] += MAX(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+$else$
+SOMETHING WENT SOUTH;
+$endif$>>

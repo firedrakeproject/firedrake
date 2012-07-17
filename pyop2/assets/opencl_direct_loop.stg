@@ -2,7 +2,7 @@ group opencl_direct_loop;
 
 direct_loop(parloop,const,op2const)::=<<
 $header()$
-$parloop._d_reduction_args:{$reduction_kernel()$};separator="\n"$
+$parloop._global_reduction_args:{$reduction_kernel()$};separator="\n"$
 
 $if(op2const.keys)$
 /* op2 const declarations */
@@ -18,8 +18,8 @@ opencl_const_declaration(cst)::=<<__constant $cst._cl_type$ $cst._name$ $if(cst.
 kernel_stub()::=<<
 __kernel
 void $parloop._kernel._name$_stub (
-  $parloop._d_nonreduction_args:{__global $it._dat._cl_type$* $it._dat._name$};separator=",\n"$$if(parloop._d_reduction_args)$,$endif$
-  $parloop._d_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$_reduction_array};separator=",\n"$
+  $parloop._unique_dats:{__global $it._cl_type$* $it._name$};separator=",\n"$$if(parloop._global_reduction_args)$,$endif$
+  $parloop._global_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$_reduction_array};separator=",\n"$
 )
 {
   unsigned int shared_memory_offset = $const.shared_memory_offset$;
@@ -27,12 +27,12 @@ void $parloop._kernel._name$_stub (
 
   __local char shared[$const.dynamic_shared_memory_size$];
 
-  $parloop._d_staged_args:{__private $it._dat._cl_type$ $it._dat._name$_local[$it._dat._dim$];};separator="\n"$
-  $parloop._d_staged_args:{__local $it._dat._cl_type$* $it._dat._name$_shared = (__local $it._dat._cl_type$*) (shared + shared_memory_offset * (get_local_id(0) / OP_WARPSIZE));};separator="\n"$
+  $parloop._direct_non_scalar_args:{__private $it._dat._cl_type$ $it._dat._name$_local[$it._dat._dim$];};separator="\n"$
+  $parloop._direct_non_scalar_args:{__local $it._dat._cl_type$* $it._dat._name$_shared = (__local $it._dat._cl_type$*) (shared + shared_memory_offset * (get_local_id(0) / OP_WARPSIZE));};separator="\n"$
 
-  $parloop._d_reduction_args:{__private $it._dat._cl_type$ $it._dat._name$_reduc_local[$it._dat._dim$];};separator="\n"$
+  $parloop._global_reduction_args:{__private $it._dat._cl_type$ $it._dat._name$_reduc_local[$it._dat._dim$];};separator="\n"$
 
-  $parloop._d_reduction_args:{__local $it._dat._cl_type$ $it._dat._name$_reduc_tmp[$it._dat._dim$ * $const.threads_per_block$ * OP_WARPSIZE];};separator="\n"$
+  $parloop._global_reduction_args:{__local $it._dat._cl_type$ $it._dat._name$_reduc_tmp[$it._dat._dim$ * $const.threads_per_block$ * OP_WARPSIZE];};separator="\n"$
 
   int i_1;
   int i_2;
@@ -42,7 +42,7 @@ void $parloop._kernel._name$_stub (
   int thread_id;
 
   // reduction zeroing
-  $parloop._d_reduction_args:{for (i_1 = 0; i_1 < $it._dat._dim$; ++i_1) { $it._dat._name$_reduc_local[i_1] = $it._dat._cl_type_zero$; } };separator="\n"$
+  $parloop._global_reduction_args:{for (i_1 = 0; i_1 < $it._dat._dim$; ++i_1) { $it._dat._name$_reduc_local[i_1] = $it._dat._cl_type_zero$; } };separator="\n"$
 
   thread_id = get_local_id(0) % OP_WARPSIZE;
 
@@ -51,12 +51,12 @@ void $parloop._kernel._name$_stub (
     local_offset = i_1 - thread_id;
     active_threads_count = MIN(OP_WARPSIZE, set_size - local_offset);
 
-    $parloop._d_staged_in_args:stagein();separator="\n"$
+    $parloop._direct_non_scalar_read_args:stagein();separator="\n"$
     $kernel_call()$
-    $parloop._d_staged_out_args:stageout();separator="\n"$
+    $parloop._direct_non_scalar_written_args:stageout();separator="\n"$
   }
   // on device reduction
-  $parloop._d_reduction_args:{for (i_1 = 0; i_1 < $it._dat._dim$; ++i_1) {
+  $parloop._global_reduction_args:{for (i_1 = 0; i_1 < $it._dat._dim$; ++i_1) {
   $it._dat._name$_reduction_kernel(&$it._dat._name$_reduction_array[i_1 + get_group_id(0) * $it._dat._dim$], $it._dat._name$_reduc_local[i_1], $it._dat._name$_reduc_tmp);
 }};separator="\n"$
 }
@@ -94,11 +94,11 @@ void $it._dat._name$_reduction_kernel (
 }
 >>
 
-reduction_op()::=<<$if(it._d_is_INC)$
+reduction_op()::=<<$if(it._is_INC)$
 reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];
-$elseif(it._d_is_MIN)$
+$elseif(it._is_MIN)$
 reduction_tmp_array[lid] += MIN(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
-$elseif(it._d_is_MAX)$
+$elseif(it._is_MAX)$
 reduction_tmp_array[lid] += MAX(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
 $else$
 SOMETHING WENT SOUTH;
@@ -125,7 +125,7 @@ for (i_2 = 0; i_2 < $arg._dat._dim$; ++i_2) {
 >>
 
 kernel_call()::=<<$parloop._kernel._name$($parloop._args:{$kernel_call_arg()$};separator=", "$);>>
-kernel_call_arg()::=<<$if(it._d_is_staged)$$it._dat._name$_local$elseif(it._is_global_reduction)$$it._dat._name$_reduc_local$endif$>>
+kernel_call_arg()::=<<$if(it._d_is_staged)$$it._dat._name$_local$elseif(it._is_global_reduction)$$it._dat._name$_reduc_local$else$&$it._dat._name$[i_1]$endif$>>
 
 header()::=<<
 #pragma OPENCL EXTENSION cl_khr_fp64 : require
