@@ -36,7 +36,7 @@
 import backends
 import op_lib_core as core
 import sequential
-from sequential import READ, WRITE, RW, INC, MIN, MAX, IdentityMap
+from sequential import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
 
 
 def init(backend='sequential', diags=2):

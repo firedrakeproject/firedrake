@@ -172,6 +172,11 @@ class Set(object):
             raise SizeTypeError("Shape of %s is incorrect" % name)
         return cls(size[0], name)
 
+    def __call__(self, *dims):
+        if len(dims) is 0:
+            return self
+        return IterationSpace(self, dims)
+
     @property
     def c_handle(self):
         if self._lib_handle is None:
@@ -451,6 +456,29 @@ class Global(DataCarrier):
     def data(self, value):
         self._data = verify_reshape(value, self.dtype, self.dim)
 
+#FIXME: Part of kernel API, but must be declared before Map for the validation.
+
+class IterationIndex(object):
+    """OP2 iteration space index"""
+
+    def __init__(self, index):
+        assert isinstance(index, int), "i must be an int"
+        self._index = index
+
+    def __str__(self):
+        return "OP2 IterationIndex: %d" % self._index
+
+    def __repr__(self):
+        return "IterationIndex(%d)" % self._index
+
+    @property
+    def index(self):
+        return self._index
+
+def i(index):
+    """Shorthand for constructing IterationIndex objects"""
+    return IterationIndex(index)
+
 class Map(object):
     """OP2 map, a relation between two Sets."""
 
@@ -468,10 +496,12 @@ class Map(object):
         self._lib_handle = None
         Map._globalcount += 1
 
-    @validate_type(('index', int, IndexTypeError))
+    @validate_type(('index', (int, IterationIndex), IndexTypeError))
     def __call__(self, index):
-        if not 0 <= index < self._dim:
+        if isinstance(index, int) and not (0 <= index < self._dim):
             raise IndexValueError("Index must be in interval [0,%d]" % (self._dim-1))
+        if isinstance(index, IterationIndex) and index.index not in [0, 1]:
+            raise IndexValueError("IterationIndex must be in interval [0,1]")
         return self._arg_type(map=self, idx=index)
 
     @property
