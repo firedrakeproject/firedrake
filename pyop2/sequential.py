@@ -96,14 +96,16 @@ class validate:
             return f(*args, **kwargs)
         return wrapper
 
-def verify_reshape(data, dtype, shape):
+def verify_reshape(data, dtype, shape, allow_none=False):
     """Verify data is of type dtype and try to reshaped to shape."""
 
-    if data is None:
+    if data is None and allow_none:
         try:
             return np.asarray([], dtype=np.dtype(dtype))
         except TypeError:
             raise DataTypeError("Invalid data type: %s" % dtype)
+    elif data is None:
+        raise DataValueError("Invalid data: None is not allowed!")
     else:
         t = np.dtype(dtype) if dtype is not None else None
         try:
@@ -237,7 +239,7 @@ class Dat(DataCarrier):
     def __init__(self, dataset, dim, data=None, dtype=None, name=None):
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
-        self._data = verify_reshape(data, dtype, (dataset.size,)+self._dim)
+        self._data = verify_reshape(data, dtype, (dataset.size,)+self._dim, allow_none=True)
         self._name = name or "dat_%d" % Dat._globalcount
         self._lib_handle = core.op_dat(self)
         Dat._globalcount += 1
@@ -325,7 +327,7 @@ class Const(DataCarrier):
     _defs = set()
 
     @validate(('name', str, NameTypeError))
-    def __init__(self, dim, data=None, dtype=None, name=None):
+    def __init__(self, dim, data, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
         self._data = verify_reshape(data, dtype, self._dim)
         self._name = name or "const_%d" % Const._globalcount
@@ -375,7 +377,7 @@ class Global(DataCarrier):
     _arg_type = Arg
 
     @validate(('name', str, NameTypeError))
-    def __init__(self, dim, data=None, dtype=None, name=None):
+    def __init__(self, dim, data, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
         self._data = verify_reshape(data, dtype, self._dim)
         self._name = name or "global_%d" % Global._globalcount
