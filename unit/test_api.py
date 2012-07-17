@@ -7,8 +7,11 @@ from pyop2 import sequential
 def pytest_funcarg__set(request):
     return op2.Set(5, 'foo')
 
-def pytest_funcarg__sets(request):
-    return op2.Set(2, 'rows'), op2.Set(3, 'cols')
+def pytest_funcarg__iterset(request):
+    return op2.Set(2, 'iterset')
+
+def pytest_funcarg__dataset(request):
+    return op2.Set(3, 'dataset')
 
 class TestUserAPI:
     """
@@ -179,10 +182,10 @@ class TestUserAPI:
         with pytest.raises(sequential.NameTypeError):
             op2.Mat((set,set), 1, name=2)
 
-    def test_mat_sets(self, sets):
-        "Mat constructor should create a dim tuple."
-        m = op2.Mat(sets, 1)
-        assert m.datasets == sets
+    def test_mat_sets(self, iterset, dataset):
+        "Mat constructor should preserve order of row and column sets."
+        m = op2.Mat((iterset, dataset), 1)
+        assert m.datasets == (iterset, dataset)
 
     def test_mat_dim(self, set):
         "Mat constructor should create a dim tuple."
@@ -365,6 +368,59 @@ class TestUserAPI:
         g = op2.Global((2,2), [1]*4, 'double', 'bar')
         assert g.dim == (2,2) and g.dtype == np.float64 and g.name == 'bar' \
                 and g.data.sum() == 4
+
+    ## Map unit tests
+
+    def test_map_illegal_iterset(self, set):
+        "Map iterset should be Set."
+        with pytest.raises(sequential.SetTypeError):
+            op2.Map('illegalset', set, 1, [])
+
+    def test_map_illegal_dataset(self, set):
+        "Map dataset should be Set."
+        with pytest.raises(sequential.SetTypeError):
+            op2.Map(set, 'illegalset', 1, [])
+
+    def test_map_illegal_dim(self, set):
+        "Map dim should be int."
+        with pytest.raises(sequential.DimTypeError):
+            op2.Map(set, set, 'illegaldim', [])
+
+    def test_map_illegal_dim_tuple(self, set):
+        "Map dim should not be a tuple."
+        with pytest.raises(sequential.DimTypeError):
+            op2.Map(set, set, (2,2), [])
+
+    def test_map_illegal_name(self, set):
+        "Map name should be string."
+        with pytest.raises(sequential.NameTypeError):
+            op2.Map(set, set, 1, [], name=2)
+
+    def test_map_illegal_dtype(self, set):
+        "Illegal data type should raise DataValueError."
+        with pytest.raises(sequential.DataValueError):
+            op2.Map(set, set, 1, 'abcdefg')
+
+    def test_map_illegal_length(self, iterset, dataset):
+        "Mismatching data length should raise DataValueError."
+        with pytest.raises(sequential.DataValueError):
+            op2.Map(iterset, dataset, 1, [1]*(iterset.size+1))
+
+    def test_map_convert_float_int(self, iterset, dataset):
+        "Float data should be implicitely converted to int."
+        m = op2.Map(iterset, dataset, 1, [1.5]*iterset.size)
+        assert m.dtype == np.int32 and m.values.sum() == iterset.size
+
+    def test_map_reshape(self, iterset, dataset):
+        "Data should be reshaped according to dim."
+        m = op2.Map(iterset, dataset, 2, [1]*2*iterset.size)
+        assert m.dim == 2 and m.values.shape == (iterset.size,2)
+
+    def test_map_properties(self, iterset, dataset):
+        "Data constructor should correctly set attributes."
+        m = op2.Map(iterset, dataset, 2, [1]*2*iterset.size, 'bar')
+        assert m.iterset == iterset and m.dataset == dataset and m.dim == 2 \
+                and m.values.sum() == 2*iterset.size and m.name == 'bar'
 
 class TestBackendAPI:
     """
