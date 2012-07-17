@@ -151,6 +151,10 @@ class Arg(object):
     def _is_global(self):
         return isinstance(self._dat, Global)
 
+    @property
+    def _is_mat(self):
+        return isinstance(self._dat, Mat)
+
 class Set(object):
     """OP2 set."""
 
@@ -310,8 +314,8 @@ class Sparsity(object):
         Sparsity._globalcount += 1
 
 class Mat(DataCarrier):
-    """OP2 matrix data. A Mat is defined on the cartesian product of two Sets
-    and holds a value for each element in the product."""
+    """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
+    for each element in the sparsity."""
 
     _globalcount = 0
     _modes = [WRITE, INC]
@@ -354,6 +358,11 @@ class Mat(DataCarrier):
     def __repr__(self):
         return "Mat(%r, %s, '%s', '%s')" \
                % (self._sparsity, self._dim, self._datatype, self._name)
+
+    @property
+    def dtype(self):
+        """Datatype of this matrix"""
+        return self._datatype
 
 class Const(DataCarrier):
     """Data that is constant for any element of any set."""
@@ -649,7 +658,7 @@ def par_loop(kernel, it_space, *args):
         return c_arg_name(arg) + "_map"
 
     def c_type(arg):
-        return typemap[arg._dat._data.dtype.name]
+        return typemap[arg._dat.dtype.name]
 
     def c_wrapper_arg(arg):
         val = "PyObject *_%(name)s" % {'name' : c_arg_name(arg) }
@@ -663,7 +672,7 @@ def par_loop(kernel, it_space, *args):
         if arg._is_indirect:
             val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" % \
                    {'name' : c_map_name(arg)}
-            if arg._is_vec_map:
+            if not arg._is_mat and arg._is_vec_map:
                 val += ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
                        {'type' : c_type(arg),
                         'vec_name' : c_vec_name(arg),
@@ -707,7 +716,8 @@ def par_loop(kernel, it_space, *args):
 
     _kernel_args = ', '.join([c_kernel_arg(arg) for arg in args])
 
-    _vec_inits = ';\n'.join([c_vec_init(arg) for arg in args if arg._is_vec_map])
+    _vec_inits = ';\n'.join([c_vec_init(arg) for arg in args \
+                             if not arg._is_mat and arg._is_vec_map])
 
     wrapper = """
     void wrap_%(kernel_name)s__(%(wrapper_args)s) {
