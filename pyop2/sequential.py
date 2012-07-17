@@ -694,7 +694,9 @@ def par_loop(kernel, it_space, *args):
                  'dim' : arg.data._dim[0]}
 
     def c_kernel_arg(arg):
-        if arg._is_indirect:
+        if arg._is_mat:
+            return c_arg_name(arg)
+        elif arg._is_indirect:
             if arg._is_vec_map:
                 return c_vec_name(arg)
             return c_ind_data(arg, arg.idx)
@@ -720,14 +722,19 @@ def par_loop(kernel, it_space, *args):
 
     _const_decs = '\n'.join([const.format_for_c(typemap) for const in sorted(Const._defs)]) + '\n'
 
-    _kernel_args = ', '.join([c_kernel_arg(arg) for arg in args])
+    _kernel_user_args = [c_kernel_arg(arg) for arg in args]
+    _kernel_it_args   = ["i_%d" % d for d in range(len(it_space.dims))]
+    _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
 
     _vec_inits = ';\n'.join([c_vec_init(arg) for arg in args \
                              if not arg._is_mat and arg._is_vec_map])
 
+    # FIXME: i_0 and i_1 should be loops created depending on the existence of
+    # iteration space arguments
     wrapper = """
     void wrap_%(kernel_name)s__(%(wrapper_args)s) {
         %(wrapper_decs)s;
+        int i_0 = 0, i_1 = 0;
         for ( int i = 0; i < %(size)s; i++ ) {
             %(vec_inits)s;
             %(kernel_name)s(%(kernel_args)s);

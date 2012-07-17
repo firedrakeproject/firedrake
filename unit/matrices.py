@@ -6,7 +6,7 @@ from pyop2 import op2
 op2.init(backend='sequential')
 
 # Data type
-valuetype = numpy.float32
+valuetype = numpy.float64
 
 # Constants
 NUM_ELE   = 2
@@ -44,15 +44,15 @@ class MatricesTest(unittest.TestCase):
         self._x = op2.Dat(self._nodes, 1, x_vals, valuetype, "x")
 
         kernel_mass = """
-void mass(ValueType* localTensor, ValueType* c0[2], int i_r_0, int i_r_1)
+void mass(double* localTensor, double* c0[2], int i_r_0, int i_r_1)
 {
-  const ValueType CG1[3][6] = { {  0.09157621, 0.09157621, 0.81684757,
+  const double CG1[3][6] = { {  0.09157621, 0.09157621, 0.81684757,
                                    0.44594849, 0.44594849, 0.10810302 },
                                 {  0.09157621, 0.81684757, 0.09157621,
                                    0.44594849, 0.10810302, 0.44594849 },
                                 {  0.81684757, 0.09157621, 0.09157621,
                                    0.10810302, 0.44594849, 0.44594849 } };
-  const ValueType d_CG1[3][6][2] = { { {  1., 0. },
+  const double d_CG1[3][6][2] = { { {  1., 0. },
                                        {  1., 0. },
                                        {  1., 0. },
                                        {  1., 0. },
@@ -72,9 +72,9 @@ void mass(ValueType* localTensor, ValueType* c0[2], int i_r_0, int i_r_1)
                                        { -1.,-1. },
                                        { -1.,-1. },
                                        { -1.,-1. } } };
-  const ValueType w[6] = {  0.05497587, 0.05497587, 0.05497587, 0.11169079,
+  const double w[6] = {  0.05497587, 0.05497587, 0.05497587, 0.11169079,
                             0.11169079, 0.11169079 };
-  ValueType c_q0[6][2][2];
+  double c_q0[6][2][2];
   for(int i_g = 0; i_g < 6; i_g++)
   {
     for(int i_d_0 = 0; i_d_0 < 2; i_d_0++)
@@ -91,7 +91,7 @@ void mass(ValueType* localTensor, ValueType* c0[2], int i_r_0, int i_r_1)
   };
   for(int i_g = 0; i_g < 6; i_g++)
   {
-    ValueType ST0 = 0.0;
+    double ST0 = 0.0;
     ST0 += CG1[i_r_0][i_g] * CG1[i_r_1][i_g] * (c_q0[i_g][0][0] * c_q0[i_g][1][1] + -1 * c_q0[i_g][0][1] * c_q0[i_g][1][0]);
     localTensor[0] += ST0 * w[i_g];
   };
@@ -99,15 +99,15 @@ void mass(ValueType* localTensor, ValueType* c0[2], int i_r_0, int i_r_1)
 """
 
         kernel_rhs = """
-void rhs(ValueType** localTensor, ValueType* c0[2], ValueType* c1[1])
+void rhs(double** localTensor, double* c0[2], double* c1[1])
 {
-  const ValueType CG1[3][6] = { {  0.09157621, 0.09157621, 0.81684757,
+  const double CG1[3][6] = { {  0.09157621, 0.09157621, 0.81684757,
                                    0.44594849, 0.44594849, 0.10810302 },
                                 {  0.09157621, 0.81684757, 0.09157621,
                                    0.44594849, 0.10810302, 0.44594849 },
                                 {  0.81684757, 0.09157621, 0.09157621,
                                    0.10810302, 0.44594849, 0.44594849 } };
-  const ValueType d_CG1[3][6][2] = { { {  1., 0. },
+  const double d_CG1[3][6][2] = { { {  1., 0. },
                                        {  1., 0. },
                                        {  1., 0. },
                                        {  1., 0. },
@@ -127,10 +127,10 @@ void rhs(ValueType** localTensor, ValueType* c0[2], ValueType* c1[1])
                                        { -1.,-1. },
                                        { -1.,-1. },
                                        { -1.,-1. } } };
-  const ValueType w[6] = {  0.05497587, 0.05497587, 0.05497587, 0.11169079,
+  const double w[6] = {  0.05497587, 0.05497587, 0.05497587, 0.11169079,
                             0.11169079, 0.11169079 };
-  ValueType c_q1[6];
-  ValueType c_q0[6][2][2];
+  double c_q1[6];
+  double c_q0[6][2][2];
   for(int i_g = 0; i_g < 6; i_g++)
   {
     c_q1[i_g] = 0.0;
@@ -154,7 +154,7 @@ void rhs(ValueType** localTensor, ValueType* c0[2], ValueType* c1[1])
   {
     for(int i_g = 0; i_g < 6; i_g++)
     {
-      ValueType ST1 = 0.0;
+      double ST1 = 0.0;
       ST1 += CG1[i_r_0][i_g] * c_q1[i_g] * (c_q0[i_g][0][0] * c_q0[i_g][1][1] + -1 * c_q0[i_g][0][1] * c_q0[i_g][1][0]);
 #ifdef __CUDACC__
       op_atomic_add(localTensor[i_r_0], ST1 * w[i_g]);
@@ -186,7 +186,7 @@ void rhs(ValueType** localTensor, ValueType* c0[2], ValueType* c1[1])
                      self._mat((self._elem_node(op2.i(0)), self._elem_node(op2.i(1))), op2.INC),
                      self._coords(self._elem_node, op2.READ))
 
-    @unittest.expectedFailure
+    #@unittest.expectedFailure
     def test_assemble(self):
         self._assemble_mass()
 
