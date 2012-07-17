@@ -22,23 +22,26 @@ class MatricesTest(unittest.TestCase):
 
     def setUp(self):
         elem_node_map = numpy.asarray([ 0, 1, 3, 2, 3, 1 ], dtype=numpy.uint32)
-        coord_vals = numpy.asarray([ (0.0, 0.0), (2.0, 0.0), (1.0, 1.0), (0.0, 1.5) ], dtype=valuetype)
+        coord_vals = numpy.asarray([ (0.0, 0.0), (2.0, 0.0),
+                                     (1.0, 1.0), (0.0, 1.5) ],
+                                   dtype=valuetype)
         f_vals = numpy.asarray([ 1.0, 2.0, 3.0, 4.0 ], dtype=valuetype)
         b_vals = numpy.asarray([0.0]*NUM_NODES, dtype=valuetype)
         x_vals = numpy.asarray([0.0]*NUM_NODES, dtype=valuetype)
 
-        nodes = op2.Set(NUM_NODES, "nodes")
-        elements = op2.Set(NUM_ELE, "elements")
-        elem_node = op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
+        self._nodes = op2.Set(NUM_NODES, "nodes")
+        self._elements = op2.Set(NUM_ELE, "elements")
+        self._elem_node = op2.Map(self._elements, self._nodes, 3, elem_node_map,
+                                  "elem_node")
 
         # Sparsity(rmaps, cmaps, dims, name)
-        sparsity = op2.Sparsity(elem_node, elem_node, 1, "sparsity")
+        sparsity = op2.Sparsity(self._elem_node, self._elem_node, 1, "sparsity")
         # Mat(sparsity, dims, type, name)
-        mat = op2.Mat(sparsity, 1, valuetype, "mat")
-        coords = op2.Dat(nodes, 2, coord_vals, valuetype, "coords")
-        f = op2.Dat(nodes, 1, f_vals, valuetype, "f")
-        b = op2.Dat(nodes, 1, b_vals, valuetype, "b")
-        x = op2.Dat(nodes, 1, x_vals, valuetype, "x")
+        self._mat = op2.Mat(sparsity, 1, valuetype, "mat")
+        self._coords = op2.Dat(self._nodes, 2, coord_vals, valuetype, "coords")
+        self._f = op2.Dat(self._nodes, 1, f_vals, valuetype, "f")
+        self._b = op2.Dat(self._nodes, 1, b_vals, valuetype, "b")
+        self._x = op2.Dat(self._nodes, 1, x_vals, valuetype, "x")
 
         kernel_mass = """
 void mass(ValueType* localTensor, ValueType* c0[2], int i_r_0, int i_r_1)
@@ -163,16 +166,25 @@ void rhs(ValueType** localTensor, ValueType* c0[2], ValueType* c1[1])
 }
 """
 
-        mass = op2.Kernel(kernel_mass, "mass")
-        rhs = op2.Kernel(kernel_rhs, "rhs")
+        self._mass = op2.Kernel(kernel_mass, "mass")
+        self._rhs = op2.Kernel(kernel_rhs, "rhs")
 
     def tearDown(self):
-        pass
+        del self._nodes
+        del self._elements
+        del self._elem_node
+        del self._mat
+        del self._coords
+        del self._f
+        del self._b
+        del self._x
+        del self._mass
+        del self._rhs
 
     def _assemble_mass(self):
-        op2.par_loop(mass, elements(2,2),
-                     mat((elem_node(i(0)), elem_node(i(1))), op2.INC),
-                     coords(elem_node, op2.READ))
+        op2.par_loop(self._mass, self._elements(2,2),
+                     self._mat((self._elem_node(op2.i(0)), self._elem_node(op2.i(1))), op2.INC),
+                     self._coords(self._elem_node, op2.READ))
 
     @unittest.expectedFailure
     def test_assemble(self):
