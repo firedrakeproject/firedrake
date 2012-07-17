@@ -33,10 +33,13 @@ def as_tuple(item, type=None, length=None):
         except TypeError:
             t = (item,)*(length or 1)
     if length and not len(t) == length:
-        raise DimValueError("Tuple needs to be of length %d" % length)
+        raise ValueError("Tuple needs to be of length %d" % length)
     if type and not all(isinstance(i, type) for i in t):
-        raise DimTypeError("Items need to be of %s" % type)
+        raise TypeError("Items need to be of %s" % type)
     return t
+
+class DataTypeError(TypeError):
+    """Invalid type for data."""
 
 class DimTypeError(TypeError):
     """Invalid type for dimension."""
@@ -207,11 +210,18 @@ class DataCarrier(object):
         """Verify data is of type dtype and try to reshaped to shape."""
 
         if data is None:
-            return np.asarray([], dtype=np.dtype(dtype))
+            try:
+                return np.asarray([], dtype=np.dtype(dtype))
+            except TypeError:
+                raise DataTypeError("Invalid data type: %s" % dtype)
         else:
             t = np.dtype(dtype) if dtype is not None else None
             try:
-                return np.asarray(data, dtype=t).reshape(shape)
+                a = np.asarray(data, dtype=t)
+            except ValueError:
+                raise DataValueError("Invalid data: cannot convert to %s!" % dtype)
+            try:
+                return a.reshape(shape)
             except ValueError:
                 raise DataValueError("Invalid data: expected %d values, got %d!" % \
                         (np.prod(shape), np.asarray(data).size))
