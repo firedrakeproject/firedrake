@@ -63,6 +63,8 @@ INC   = Access("INC")
 MIN   = Access("MIN")
 MAX   = Access("MAX")
 
+# Data API
+
 class Arg(object):
     def __init__(self, data=None, map=None, idx=None, access=None):
         self._dat = data
@@ -588,6 +590,10 @@ class IterationSpace(object):
     def extents(self):
         """Extents of the IterationSpace."""
         return self._extents
+
+    @property
+    def size(self):
+        return self._iterset.size
 
     def __str__(self):
         return "OP2 Iteration Space: %s with extents %s" % self._extents
