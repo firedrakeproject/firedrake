@@ -192,10 +192,6 @@ class Const(op2.Const, DeviceDataMixin):
         _op2_constants[self._name] = self
 
     @property
-    def _is_scalar(self):
-        return self._dim != 1
-
-    @property
     def _cl_value(self):
         return list(self._data)
 
@@ -292,7 +288,7 @@ class OpPlan(core.op_plan):
 
         self._ind_map_buffers = [None] * self.ninds
         for i in range(self.ninds):
-            self._ind_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int32(0).itemsize * (_off[i+1] - _off[i]) * self.itset.size * self.nblocks))
+            self._ind_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int32(0).itemsize * (_off[i+1] - _off[i]) * self.itset.size))
             s = self.itset.size * _off[i]
             e = s + (_off[i+1] - _off[i]) * self.itset.size
             cl.enqueue_copy(_queue, self._ind_map_buffers[i], self.ind_map[s:e], is_blocking=True).wait()
@@ -334,8 +330,10 @@ class OpPlan(core.op_plan):
             print '_off ' + str(_off)
             for i in range(self.ninds):
                 print 'ind_map[' + str(i) + '] = ' + str(self.ind_map[s:e])
+                pass
             for i in range(self.nuinds):
                 print 'loc_map[' + str(i) + '] = ' + str(self.loc_map[s:e])
+                pass
             print 'ind_sizes :' + str(self.ind_sizes)
             print 'ind_offs :' + str(self.ind_offs)
             print 'blk_map :' + str(self.blkmap)
@@ -598,7 +596,7 @@ def par_loop(kernel, it_space, *args):
 
 _op2_constants = dict()
 _debug = False
-_kernel_dump = False
+_kernel_dump = True
 _ctx = cl.create_some_context()
 _max_local_memory = _ctx.devices[0].local_mem_size
 _address_bits = _ctx.devices[0].address_bits

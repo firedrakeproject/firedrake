@@ -13,7 +13,9 @@ $parloop._kernel._inst_code$
 $kernel_stub()$
 >>
 
-opencl_const_declaration(cst)::=<<__constant $cst._cl_type$ $cst._name$ $if(cst._is_scalar)$ = $cst._cl_value$$else$[] = {$cst._cl_value$}$endif$;>>
+opencl_const_declaration(cst)::=<<
+__constant $cst._cl_type$ $cst._name$ $if(cst._is_scalar)$ = $cst._cl_value$$else$[] = {$cst._cl_value;separator=", "$}$endif$;
+>>
 
 kernel_stub()::=<<
 __kernel
@@ -221,7 +223,7 @@ mappingarrayname()::=<<mapping_array_$it._dat._name$_at_$it._idx$_via$it._map._n
 global_reduc_local_name()::=<<$it._dat._name$_gbl_reduc_local>>
 global_reduc_device_array_name()::=<<$it._dat._name$_gbl_reduc_device_array>>
 
-reduc_arg_local_name()::=<<$it._dat._name$_via_$it._map._name$_local>>
+reduc_arg_local_name()::=<<$it._dat._name$_via_$it._map._name$_at_$it._idx$_local>>
 dat_arg_name()::=<<$it._dat._name$>>
 shared_indirection_mapping_name()::=<<$it._dat._name$_via_$it._map._name$_indirection_map>>
 shared_indirection_mapping_size_name()::=<<$it._dat._name$_via_$it._map._name$_indirection_size>>

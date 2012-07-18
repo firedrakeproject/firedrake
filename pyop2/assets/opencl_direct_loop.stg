@@ -13,7 +13,9 @@ $parloop._kernel._inst_code$
 $kernel_stub()$
 >>
 
-opencl_const_declaration(cst)::=<<__constant $cst._cl_type$ $cst._name$ $if(cst._is_scalar)$ = $cst._cl_value$$else$[] = {$cst._cl_value$}$endif$;>>
+opencl_const_declaration(cst)::=<<
+__constant $cst._cl_type$ $cst._name$ $if(cst._is_scalar)$ = $cst._cl_value$$else$[] = {$cst._cl_value;separator=", "$}$endif$;
+>>
 
 kernel_stub()::=<<
 __kernel
@@ -56,10 +58,12 @@ void $parloop._kernel._name$_stub (
     $kernel_call()$
     $parloop._direct_non_scalar_written_args:stageout();separator="\n"$
   }
+  $if(parloop._global_reduction_args)$
   // on device reduction
   $parloop._global_reduction_args:{for (i_1 = 0; i_1 < $it._dat._dim$; ++i_1) {
   $it._dat._name$_reduction_kernel(&$it._dat._name$_reduction_array[i_1 + get_group_id(0) * $it._dat._dim$], $it._dat._name$_reduc_local[i_1], $it._dat._name$_reduc_tmp);
 }};separator="\n"$
+  $endif$
 }
 >>
 
