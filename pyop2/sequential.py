@@ -19,35 +19,20 @@
 """OP2 sequential backend."""
 
 import numpy as np
+
+from exceptions import *
+from utils import *
 import op_lib_core as core
 
-def as_tuple(item, type=None, length=None):
-    # Empty list if we get passed None
-    if item is None:
-        t = []
-    else:
-        # Convert iterable to list...
-        try:
-            t = tuple(item)
-        # ... or create a list of a single item
-        except TypeError:
-            t = (item,)*(length or 1)
-    if length:
-        assert len(t) == length, "Tuple needs to be of length %d" % length
-    if type:
-        assert all(isinstance(i, type) for i in t), \
-                "Items need to be of %s" % type
-    return t
-
-# Kernel API
+# Data API
 
 class Access(object):
     """OP2 access type."""
 
     _modes = ["READ", "WRITE", "RW", "INC", "MIN", "MAX"]
 
+    @validate_in(('mode', _modes, ModeValueError))
     def __init__(self, mode):
-        assert mode in self._modes, "Mode needs to be one of %s" % self._modes
         self._mode = mode
 
     def __str__(self):
@@ -62,45 +47,6 @@ RW    = Access("RW")
 INC   = Access("INC")
 MIN   = Access("MIN")
 MAX   = Access("MAX")
-
-class IterationSpace(object):
-    """OP2 iteration space type."""
-
-    def __init__(self, iterset, dims):
-        assert isinstance(iterset, Set), "Iteration set needs to be of type Set"
-        self._iterset = iterset
-        self._dims = as_tuple(dims, int)
-
-    def __str__(self):
-        return "OP2 Iteration Space: %s and extra dimensions %s" % self._dims
-
-    def __repr__(self):
-        return "IterationSpace(%r, %r)" % (self._iterset, self._dims)
-
-class Kernel(object):
-    """OP2 kernel type."""
-
-    _globalcount = 0
-
-    def __init__(self, code, name=None):
-        assert not name or isinstance(name, str), "Name must be of type str"
-        self._name = name or "kernel_%d" % Kernel._globalcount
-        self._code = code
-        Kernel._globalcount += 1
-
-    def compile(self):
-        pass
-
-    def handle(self):
-        pass
-
-    def __str__(self):
-        return "OP2 Kernel: %s" % self._name
-
-    def __repr__(self):
-        return 'Kernel("""%s""", "%s")' % (self._code, self._name)
-
-# Data API
 
 class Arg(object):
     def __init__(self, data=None, map=None, idx=None, access=None):
@@ -117,15 +63,22 @@ class Arg(object):
 
     @property
     def data(self):
+        """Data carrier: Dat, Mat, Const or Global."""
         return self._dat
+
     @property
     def map(self):
+        """Mapping."""
         return self._map
+
     @property
     def idx(self):
+        """Index into the mapping."""
         return self._idx
+
     @property
     def access(self):
+        """Access descriptor."""
         return self._access
 
     def is_indirect(self):
@@ -139,9 +92,8 @@ class Set(object):
 
     _globalcount = 0
 
+    @validate_type(('size', int, SizeTypeError), ('name', str, NameTypeError))
     def __init__(self, size, name=None):
-        assert isinstance(size, int), "Size must be of type int"
-        assert not name or isinstance(name, str), "Name must be of type str"
         self._size = size
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = core.op_set(self)
@@ -151,6 +103,11 @@ class Set(object):
     def size(self):
         """Set size"""
         return self._size
+
+    @property
+    def name(self):
+        """User-defined label"""
+        return self._name
 
     def __str__(self):
         return "OP2 Set: %s with size %s" % (self._name, self._size)
@@ -163,18 +120,18 @@ class DataCarrier(object):
 
     @property
     def dtype(self):
-        """Datatype of this data carrying object"""
+        """Data type."""
         return self._data.dtype
 
-    def _verify_reshape(self, data, dtype, shape):
-        """Verify data is of type dtype and try to reshaped to shape."""
+    @property
+    def name(self):
+        """User-defined label."""
+        return self._name
 
-        t = np.dtype(dtype) if dtype is not None else None
-        try:
-            return np.asarray(data, dtype=t).reshape(shape)
-        except ValueError:
-            raise ValueError("Invalid data: expected %d values, got %d" % \
-                    (np.prod(shape), np.asarray(data).size))
+    @property
+    def dim(self):
+        """Dimension/shape of a single data item."""
+        return self._dim
 
 class Dat(DataCarrier):
     """OP2 vector data. A Dat holds a value for every member of a set."""
@@ -183,26 +140,35 @@ class Dat(DataCarrier):
     _modes = [READ, WRITE, RW, INC]
     _arg_type = Arg
 
+    @validate_type(('dataset', Set, SetTypeError), ('name', str, NameTypeError))
     def __init__(self, dataset, dim, data=None, dtype=None, name=None):
-        assert isinstance(dataset, Set), "Data set must be of type Set"
-        assert not name or isinstance(name, str), "Name must be of type str"
-
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
-        self._data = self._verify_reshape(data, dtype, (dataset.size,)+self._dim)
+        self._data = verify_reshape(data, dtype, (dataset.size,)+self._dim, allow_none=True)
         self._name = name or "dat_%d" % Dat._globalcount
         self._lib_handle = core.op_dat(self)
         Dat._globalcount += 1
 
+    @validate_in(('access', _modes, ModeValueError))
     def __call__(self, path, access):
-        assert access in self._modes, \
-                "Acess descriptor must be one of %s" % self._modes
         if isinstance(path, Map):
             return self._arg_type(data=self, map=path, access=access)
         else:
             path._dat = self
             path._access = access
             return path
+
+    @property
+    def dataset(self):
+        """Set on which the Dat is defined."""
+        return self._dataset
+
+    @property
+    def data(self):
+        """Data array."""
+        if len(self._data) is 0:
+            raise RuntimeError("Illegal access: No data associated with this Dat!")
+        return self._data
 
     def __str__(self):
         return "OP2 Dat: %s on (%s) with dim %s and datatype %s" \
@@ -212,10 +178,6 @@ class Dat(DataCarrier):
         return "Dat(%r, %s, '%s', None, '%s')" \
                % (self._dataset, self._dim, self._data.dtype, self._name)
 
-    @property
-    def data(self):
-        return self._data
-
 class Mat(DataCarrier):
     """OP2 matrix data. A Mat is defined on the cartesian product of two Sets
     and holds a value for each element in the product."""
@@ -224,22 +186,32 @@ class Mat(DataCarrier):
     _modes = [WRITE, INC]
     _arg_type = Arg
 
+    @validate_type(('name', str, NameTypeError))
     def __init__(self, datasets, dim, dtype=None, name=None):
-        assert not name or isinstance(name, str), "Name must be of type str"
         self._datasets = as_tuple(datasets, Set, 2)
         self._dim = as_tuple(dim, int)
         self._datatype = np.dtype(dtype)
         self._name = name or "mat_%d" % Mat._globalcount
         Mat._globalcount += 1
 
+    @validate_in(('access', _modes, ModeValueError))
     def __call__(self, maps, access):
-        assert access in self._modes, \
-                "Acess descriptor must be one of %s" % self._modes
+        maps = as_tuple(maps, Map, 2)
         for map, dataset in zip(maps, self._datasets):
-            assert map._dataset == dataset, \
-                    "Invalid data set for map %s (is %s, should be %s)" \
-                    % (map._name, map._dataset._name, dataset._name)
+            if map._dataset != dataset:
+                raise SetValueError("Invalid data set for map %s (is %s, should be %s)" \
+                        % (map._name, map._dataset._name, dataset._name))
         return self._arg_type(data=self, map=maps, access=access)
+
+    @property
+    def datasets(self):
+        """Sets on which the Mat is defined."""
+        return self._datasets
+
+    @property
+    def dtype(self):
+        """Data type."""
+        return self._datatype
 
     def __str__(self):
         return "OP2 Mat: %s, row set (%s), col set (%s), dimension %s, datatype %s" \
@@ -252,18 +224,18 @@ class Mat(DataCarrier):
 class Const(DataCarrier):
     """Data that is constant for any element of any set."""
 
-    class NonUniqueNameError(RuntimeError):
-        pass
+    class NonUniqueNameError(ValueError):
+        """Name already in use."""
 
     _globalcount = 0
     _modes = [READ]
 
     _defs = set()
 
-    def __init__(self, dim, data=None, dtype=None, name=None):
-        assert not name or isinstance(name, str), "Name must be of type str"
+    @validate_type(('name', str, NameTypeError))
+    def __init__(self, dim, data, name, dtype=None):
         self._dim = as_tuple(dim, int)
-        self._data = self._verify_reshape(data, dtype, self._dim)
+        self._data = verify_reshape(data, dtype, self._dim)
         self._name = name or "const_%d" % Const._globalcount
         if any(self._name is const._name for const in Const._defs):
             raise Const.NonUniqueNameError(
@@ -271,6 +243,11 @@ class Const(DataCarrier):
         self._access = READ
         Const._globalcount += 1
         Const._defs.add(self)
+
+    @property
+    def data(self):
+        """Data array."""
+        return self._data
 
     def __str__(self):
         return "OP2 Const: %s of dim %s and type %s with value %s" \
@@ -305,16 +282,15 @@ class Global(DataCarrier):
     _modes = [READ, INC, MIN, MAX]
     _arg_type = Arg
 
-    def __init__(self, dim, data=None, dtype=None, name=None):
-        assert not name or isinstance(name, str), "Name must be of type str"
+    @validate_type(('name', str, NameTypeError))
+    def __init__(self, dim, data, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
-        self._data = self._verify_reshape(data, dtype, self._dim)
+        self._data = verify_reshape(data, dtype, self._dim)
         self._name = name or "global_%d" % Global._globalcount
         Global._globalcount += 1
 
+    @validate_in(('access', _modes, ModeValueError))
     def __call__(self, access):
-        assert access in self._modes, \
-                "Acess descriptor must be one of %s" % self._modes
         return self._arg_type(data=self, access=access)
 
     def __str__(self):
@@ -326,6 +302,7 @@ class Global(DataCarrier):
 
     @property
     def data(self):
+        """Data array."""
         return self._data
 
 class Map(object):
@@ -334,28 +311,53 @@ class Map(object):
     _globalcount = 0
     _arg_type = Arg
 
+    @validate_type(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError), \
+            ('dim', int, DimTypeError), ('name', str, NameTypeError))
     def __init__(self, iterset, dataset, dim, values, name=None):
-        assert isinstance(iterset, Set), "Iteration set must be of type Set"
-        assert isinstance(dataset, Set), "Data set must be of type Set"
-        assert isinstance(dim, int), "dim must be a scalar integer"
-        assert not name or isinstance(name, str), "Name must be of type str"
         self._iterset = iterset
         self._dataset = dataset
         self._dim = dim
-        try:
-            self._values = np.asarray(values, dtype=np.int32).reshape(iterset.size, dim)
-        except ValueError:
-            raise ValueError("Invalid data: expected %d values, got %d" % \
-                    (iterset.size*dim, np.asarray(values).size))
+        self._values = verify_reshape(values, np.int32, (iterset.size, dim))
         self._name = name or "map_%d" % Map._globalcount
         self._lib_handle = core.op_map(self)
         Map._globalcount += 1
 
+    @validate_type(('index', int, IndexTypeError))
     def __call__(self, index):
-        assert isinstance(index, int), "Only integer indices are allowed"
-        assert 0 <= index < self._dim, \
-                "Index must be in interval [0,%d]" % (self._dim-1)
+        if not 0 <= index < self._dim:
+            raise IndexValueError("Index must be in interval [0,%d]" % (self._dim-1))
         return self._arg_type(map=self, idx=index)
+
+    @property
+    def iterset(self):
+        """Set mapped from."""
+        return self._iterset
+
+    @property
+    def dataset(self):
+        """Set mapped to."""
+        return self._dataset
+
+    @property
+    def dim(self):
+        """Dimension of the mapping: number of dataset elements mapped to per
+        iterset element."""
+        return self._dim
+
+    @property
+    def dtype(self):
+        """Data type."""
+        return self._values.dtype
+
+    @property
+    def values(self):
+        """Mapping array."""
+        return self._values
+
+    @property
+    def name(self):
+        """User-defined label"""
+        return self._name
 
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with dim %s" \
@@ -365,11 +367,61 @@ class Map(object):
         return "Map(%r, %r, %s, None, '%s')" \
                % (self._iterset, self._dataset, self._dim, self._name)
 
-    @property
-    def values(self):
-        return self._values
+IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 
-IdentityMap = Map(Set(0, None), Set(0, None), 1, [], 'identity')
+# Kernel API
+
+class IterationSpace(object):
+    """OP2 iteration space type."""
+
+    @validate_type(('iterset', Set, SetTypeError))
+    def __init__(self, iterset, extents):
+        self._iterset = iterset
+        self._extents = as_tuple(extents, int)
+
+    @property
+    def iterset(self):
+        """Set this IterationSpace is defined on."""
+        return self._iterset
+
+    @property
+    def extents(self):
+        """Extents of the IterationSpace."""
+        return self._extents
+
+    def __str__(self):
+        return "OP2 Iteration Space: %s with extents %s" % self._extents
+
+    def __repr__(self):
+        return "IterationSpace(%r, %r)" % (self._iterset, self._extents)
+
+class Kernel(object):
+    """OP2 kernel type."""
+
+    _globalcount = 0
+
+    @validate_type(('name', str, NameTypeError))
+    def __init__(self, code, name):
+        self._name = name or "kernel_%d" % Kernel._globalcount
+        self._code = code
+        Kernel._globalcount += 1
+
+    @property
+    def name(self):
+        """Kernel name, must match the kernel function name in the code."""
+        return self._name
+
+    def compile(self):
+        pass
+
+    def handle(self):
+        pass
+
+    def __str__(self):
+        return "OP2 Kernel: %s" % self._name
+
+    def __repr__(self):
+        return 'Kernel("""%s""", "%s")' % (self._code, self._name)
 
 # Parallel loop API
 
