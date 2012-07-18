@@ -103,6 +103,20 @@ class validate_in(validate_base):
             raise exception("%s:%d %s must be one of %s" \
                     % (self.file, self.line, arg, values))
 
+class validate_range(validate_base):
+    """Decorator to validate argument value is in a given numeric range
+
+    The decorator expects one or more arguments, which are 3-tuples of
+    (name, range, exception), where name is the argument name in the
+    function being decorated, range is a 2-tuple defining the valid argument
+    range and exception is the exception type to be raised if validation
+    fails."""
+
+    def check_arg(self, arg, range, exception):
+        if not range[0] <= arg <= range[1]:
+            raise exception("%s:%d %s must be within range %s" \
+                    % (self.file, self.line, arg, range))
+
 def verify_reshape(data, dtype, shape, allow_none=False):
     """Verify data is of type dtype and try to reshaped to shape."""
 
