@@ -232,7 +232,7 @@ shared_indirection_mapping_idx_name()::=<<$it._dat._name$_via_$it._map._name$_id
 shared_indirection_mapping_arg_name()::=<<ind_$it._dat._name$_via_$it._map._name$_map>>
 
 header(const)::=<<
-#pragma OPENCL EXTENSION cl_khr_fp64 : require
+#pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #define ROUND_UP(bytes) (((bytes) + 15) & ~15)
 #define OP_WARPSIZE $const.warpsize$
 #define MIN(a,b) ((a < b) ? (a) : (b))
