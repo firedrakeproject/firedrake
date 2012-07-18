@@ -90,6 +90,19 @@ class validate_type(validate_base):
             raise exception("%s:%d Parameter %s must be of type %r" \
                     % (self.file, self.line, arg, argtype))
 
+class validate_in(validate_base):
+    """Decorator to validate argument is in a set of valid argument values
+
+    The decorator expects one or more arguments, which are 3-tuples of
+    (name, list, exception), where name is the argument name in the
+    function being decorated, list is the list of valid argument values
+    and exception is the exception type to be raised if validation fails."""
+
+    def check_arg(self, arg, values, exception):
+        if not arg in values:
+            raise exception("%s:%d %s must be one of %s" \
+                    % (self.file, self.line, arg, values))
+
 def verify_reshape(data, dtype, shape, allow_none=False):
     """Verify data is of type dtype and try to reshaped to shape."""
 

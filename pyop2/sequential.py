@@ -31,9 +31,8 @@ class Access(object):
 
     _modes = ["READ", "WRITE", "RW", "INC", "MIN", "MAX"]
 
+    @validate_in(('mode', _modes, ModeValueError))
     def __init__(self, mode):
-        if mode not in self._modes:
-            raise ModeValueError("Mode needs to be one of %s" % self._modes)
         self._mode = mode
 
     def __str__(self):
@@ -150,9 +149,8 @@ class Dat(DataCarrier):
         self._lib_handle = core.op_dat(self)
         Dat._globalcount += 1
 
+    @validate_in(('access', _modes, ModeValueError))
     def __call__(self, path, access):
-        if access not in self._modes:
-            raise ModeValueError("Access descriptor must be one of %s" % self._modes)
         if isinstance(path, Map):
             return self._arg_type(data=self, map=path, access=access)
         else:
@@ -194,9 +192,8 @@ class Mat(DataCarrier):
         self._name = name or "mat_%d" % Mat._globalcount
         Mat._globalcount += 1
 
+    @validate_in(('access', _modes, ModeValueError))
     def __call__(self, maps, access):
-        if access not in self._modes:
-            raise ModeValueError("Access descriptor must be one of %s" % self._modes)
         for map, dataset in zip(maps, self._datasets):
             if map._dataset != dataset:
                 raise SetValueError("Invalid data set for map %s (is %s, should be %s)" \
@@ -289,9 +286,8 @@ class Global(DataCarrier):
         self._name = name or "global_%d" % Global._globalcount
         Global._globalcount += 1
 
+    @validate_in(('access', _modes, ModeValueError))
     def __call__(self, access):
-        if access not in self._modes:
-            raise ModeValueError("Access descriptor must be one of %s" % self._modes)
         return self._arg_type(data=self, access=access)
 
     def __str__(self):
