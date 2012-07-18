@@ -367,7 +367,6 @@ class ParLoopCall(object):
     """ generic. """
     @property
     def _global_reduction_args(self):
-        #TODO FIX: return Dat to avoid duplicates
         return _del_dup_keep_order(filter(lambda a: isinstance(a._dat, Global) and a._access in [INC, MIN, MAX], self._args))
 
     @property
@@ -386,6 +385,7 @@ class ParLoopCall(object):
 
     @property
     def _global_reduc_args(self):
+        warnings.warn('deprecated: duplicate of ParLoopCall._global_reduction_args')
         return _del_dup_keep_order(filter(lambda a: a._is_global_reduction, self._args))
 
     """ code generation specific """
@@ -405,13 +405,20 @@ class ParLoopCall(object):
         # direct loop staged out args
         return _del_dup_keep_order(filter(lambda a: a._is_direct and not (a._dat._is_scalar) and a._access in [WRITE, RW], self._args))
 
-    """ maximum shared memory required for staging an op_arg """
     def _d_max_dynamic_shared_memory(self):
+        """Computes the maximum shared memory requirement per iteration set elements."""
         assert self.is_direct(), "Should only be called on direct loops"
         if self._direct_non_scalar_args:
-            return max(map(lambda a: a._dat.bytes_per_elem, self._direct_non_scalar_args))
+            staging = max(map(lambda a: a._dat.bytes_per_elem, self._direct_non_scalar_args))
         else:
-            return 0
+            staging = 0
+
+        if self._global_reduction_args:
+            reduction = max(map(lambda a: a._dat._data.itemsize, self._global_reduction_args))
+        else:
+            reduction = 0
+
+        return max(staging, reduction)
 
     @property
     def _dat_map_pairs(self):
@@ -448,6 +455,7 @@ class ParLoopCall(object):
             dynamic_shared_memory_size = self._d_max_dynamic_shared_memory()
             shared_memory_offset = dynamic_shared_memory_size * _warpsize
             dynamic_shared_memory_size = dynamic_shared_memory_size * _threads_per_block
+            assert dynamic_shared_memory_size < _max_local_memory, "TODO: fix direct loops, too many threads -> not enough local memory"
             dloop = _stg_direct_loop.getInstanceOf("direct_loop")
             dloop['parloop'] = self
             dloop['const'] = {"warpsize": _warpsize,\
