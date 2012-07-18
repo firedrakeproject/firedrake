@@ -133,7 +133,12 @@ kernel_call()::=<<$parloop._kernel._name$($parloop._args:{$kernel_call_arg()$};s
 kernel_call_arg()::=<<$if(it._d_is_staged)$$it._dat._name$_local$elseif(it._is_global_reduction)$$it._dat._name$_reduc_local$elseif(it._is_global)$$it._dat._name$$else$&$it._dat._name$[i_1]$endif$>>
 
 header()::=<<
+#if defined(cl_khr_fp64)
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
+#elif defined(cl_amd_fp64)
+#pragma OPENCL EXTENSION cl_amd_fp64 : enable
+#endif
+
 #define OP_WARPSIZE $const.warpsize$
 #define MIN(a,b) ((a < b) ? (a) : (b))
 #define MAX(a,b) ((a < b) ? (b) : (a))

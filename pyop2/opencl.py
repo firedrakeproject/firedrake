@@ -600,15 +600,14 @@ def par_loop(kernel, it_space, *args):
 
 _op2_constants = dict()
 _debug = False
-_kernel_dump = True
+_kernel_dump = False
 _ctx = cl.create_some_context()
-_max_local_memory = _ctx.devices[0].local_mem_size
-_address_bits = _ctx.devices[0].address_bits
 _queue = cl.CommandQueue(_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
-_has_dpfloat = 'cl_khr_fp64' in _ctx.devices[0].extensions
-_threads_per_block = _ctx.get_info(cl.context_info.DEVICES)[0].get_info(cl.device_info.MAX_WORK_GROUP_SIZE)
+_max_local_memory = _queue.device.local_mem_size
+_address_bits = _queue.device.address_bits
+_threads_per_block = _queue.device.max_work_group_size
+_has_dpfloat = 'cl_khr_fp64' in _queue.device.extensions or 'cl_amd_fp64' in _queue.device.extensions
 _warpsize = 1
-
 #preload string template groups
 _stg_direct_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.StringIO(pkg_resources.resource_string(__name__, "assets/opencl_direct_loop.stg")), lexer="default")
 _stg_indirect_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.StringIO(pkg_resources.resource_string(__name__, "assets/opencl_indirect_loop.stg")), lexer="default")
