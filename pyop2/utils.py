@@ -51,24 +51,19 @@ class validate_base:
 
     def __call__(self, f):
         def wrapper(*args, **kwargs):
-            self.check_args(args, kwargs, f.func_code.co_varnames, f.func_code.co_filename, f.func_code.co_firstlineno+1)
+            self.varnames = f.func_code.co_varnames
+            self.file = f.func_code.co_filename
+            self.line = f.func_code.co_firstlineno+1
+            self.check_args(args, kwargs)
             return f(*args, **kwargs)
         return wrapper
 
-class validate_type(validate_base):
-    """Decorator to validate argument types
-
-    The decorator expects one or more arguments, which are 3-tuples of
-    (name, type, exception), where name is the argument name in the
-    function being decorated, type is the argument type to be validated
-    and exception is the exception type to be raised if validation fails."""
-
-    def check_args(self, args, kwargs, varnames, file, line):
-        for argname, argtype, exception in self._checks:
+    def check_args(self, args, kwargs):
+        for argname, argcond, exception in self._checks:
             # If the argument argname is not present in the decorated function
             # silently ignore it
             try:
-                i = varnames.index(argname)
+                i = self.varnames.index(argname)
             except ValueError:
                 # No formal parameter argname
                 continue
@@ -80,8 +75,20 @@ class validate_type(validate_base):
             except IndexError:
                 # No actual parameter argname
                 continue
-            if not isinstance(arg, argtype):
-                raise exception("%s:%d Parameter %s must be of type %r" % (file, line, argname, argtype))
+            self.check_arg(arg, argcond, exception)
+
+class validate_type(validate_base):
+    """Decorator to validate argument types
+
+    The decorator expects one or more arguments, which are 3-tuples of
+    (name, type, exception), where name is the argument name in the
+    function being decorated, type is the argument type to be validated
+    and exception is the exception type to be raised if validation fails."""
+
+    def check_arg(self, arg, argtype, exception):
+        if not isinstance(arg, argtype):
+            raise exception("%s:%d Parameter %s must be of type %r" \
+                    % (self.file, self.line, arg, argtype))
 
 def verify_reshape(data, dtype, shape, allow_none=False):
     """Verify data is of type dtype and try to reshaped to shape."""
