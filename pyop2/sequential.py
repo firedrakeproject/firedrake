@@ -340,7 +340,7 @@ class Const(DataCarrier):
     _defs = set()
 
     @validate(('name', str, NameTypeError))
-    def __init__(self, dim, data, dtype=None, name=None):
+    def __init__(self, dim, data, name, dtype=None):
         self._dim = as_tuple(dim, int)
         self._data = verify_reshape(data, dtype, self._dim)
         self._name = name or "const_%d" % Const._globalcount
@@ -509,7 +509,7 @@ class Kernel(object):
     _globalcount = 0
 
     @validate(('name', str, NameTypeError))
-    def __init__(self, code, name=None):
+    def __init__(self, code, name):
         self._name = name or "kernel_%d" % Kernel._globalcount
         self._code = code
         Kernel._globalcount += 1
