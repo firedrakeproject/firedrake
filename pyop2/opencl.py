@@ -62,6 +62,12 @@ class Kernel(op2.Kernel):
         op2.Kernel.__init__(self, code, name)
 
     class Instrument(c_ast.NodeVisitor):
+        """C AST visitor for instrumenting user kernels.
+             - adds __constant declarations at top level
+             - adds memory space attribute to user kernel declaration
+             - adds a separate function declaration for user kernel
+        """
+        # __constant declaration should be moved to codegen
         def instrument(self, ast, kernel_name, instrument, constants):
             self._kernel_name = kernel_name
             self._instrument = instrument
@@ -236,15 +242,51 @@ class Map(op2.Map):
             self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._values.nbytes)
             cl.enqueue_copy(_queue, self._buffer, self._values, is_blocking=True).wait()
 
-class OpPlan(core.op_plan):
-    """ Helper wrapper.
+class OpPlanCache():
+    """Cache for OpPlan.
+    """
+    def __init__(self):
+        self._cache = dict()
+
+    def get_plan(self, parloop, **kargs):
+        #note: ?? is plan cached on the kargs too ?? probably not
+        cp = core.op_plan(parloop._kernel, parloop._it_space, *parloop._args, **kargs)
+        try:
+            plan = self._cache[cp.hsh]
+        except KeyError:
+            plan = OpPlan(parloop, cp)
+            self._cache[cp.hsh] = plan
+
+        return plan
+
+class GenCodeCache():
+    """Cache for generated code.
+         Keys: OP2 kernels
+         Entries: generated code strings, OpenCL built programs tuples
     """
 
-    def __init__(self, kernel, itset, *args, **kargs):
-        #FIX partition size by the our caller
-        core.op_plan.__init__(self, kernel, itset, *args, **kargs)
-        self.itset = itset
-        self._args = args
+    def __init__(self):
+        self._cache = dict()
+
+    #FIX: key should be (kernel, iterset, args)
+    def get_code(self, kernel):
+        try:
+            return self._cache[kernel]
+        except KeyError:
+            return (None, None)
+
+    def cache_code(self, kernel, code):
+        self._cache[kernel] = code
+
+class OpPlan():
+    """ Helper proxy for core.op_plan.
+    """
+
+    def __init__(self, parloop, core_plan):
+        self._parloop = parloop
+        self._core_plan = core_plan
+        self._loaded = False
+
         self.load()
 
     def reclaim(self):
@@ -258,15 +300,14 @@ class OpPlan(core.op_plan):
         del self._nthrcol_buffer
         del self._thrcol_buffer
 
-
     def load(self):
         # TODO: need to get set_size from op_lib_core for exec_size, in case we extend for MPI
         # create the indirection description array
-        self.nuinds = sum(map(lambda a: a.is_indirect(), self._args))
-        _ind_desc = [-1] * len(self._args)
+        self.nuinds = sum(map(lambda a: a.is_indirect(), self._parloop._args))
+        _ind_desc = [-1] * len(self._parloop._args)
         _d = {}
         _c = 0
-        for i, arg in enumerate(self._args):
+        for i, arg in enumerate(self._parloop._args):
             if arg.is_indirect():
                 if _d.has_key((arg._dat, arg._map)):
                     _ind_desc[i] = _d[(arg._dat, arg._map)]
@@ -278,52 +319,52 @@ class OpPlan(core.op_plan):
         del _d
 
         # compute offset in ind_map
-        _off = [0] * (self.ninds + 1)
-        for i in range(self.ninds):
+        _off = [0] * (self._core_plan.ninds + 1)
+        for i in range(self._core_plan.ninds):
             _c = 0
             for idesc in _ind_desc:
                 if idesc == i:
                     _c += 1
             _off[i+1] = _off[i] + _c
 
-        self._ind_map_buffers = [None] * self.ninds
-        for i in range(self.ninds):
-            self._ind_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int32(0).itemsize * (_off[i+1] - _off[i]) * self.itset.size))
-            s = self.itset.size * _off[i]
-            e = s + (_off[i+1] - _off[i]) * self.itset.size
-            cl.enqueue_copy(_queue, self._ind_map_buffers[i], self.ind_map[s:e], is_blocking=True).wait()
+        self._ind_map_buffers = [None] * self._core_plan.ninds
+        for i in range(self._core_plan.ninds):
+            self._ind_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int32(0).itemsize * (_off[i+1] - _off[i]) * self._parloop._it_space.size))
+            s = self._parloop._it_space.size * _off[i]
+            e = s + (_off[i+1] - _off[i]) * self._parloop._it_space.size
+            cl.enqueue_copy(_queue, self._ind_map_buffers[i], self._core_plan.ind_map[s:e], is_blocking=True).wait()
 
         self._loc_map_buffers = [None] * self.nuinds
         for i in range(self.nuinds):
-            self._loc_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int16(0).itemsize * self.itset.size))
-            s = i * self.itset.size
-            e = s + self.itset.size
-            cl.enqueue_copy(_queue, self._loc_map_buffers[i], self.loc_map[s:e], is_blocking=True).wait()
+            self._loc_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int16(0).itemsize * self._parloop._it_space.size))
+            s = i * self._parloop._it_space.size
+            e = s + self._parloop._it_space.size
+            cl.enqueue_copy(_queue, self._loc_map_buffers[i], self._core_plan.loc_map[s:e], is_blocking=True).wait()
 
-        self._ind_sizes_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.ind_sizes.nbytes)
-        cl.enqueue_copy(_queue, self._ind_sizes_buffer, self.ind_sizes, is_blocking=True).wait()
+        self._ind_sizes_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.ind_sizes.nbytes)
+        cl.enqueue_copy(_queue, self._ind_sizes_buffer, self._core_plan.ind_sizes, is_blocking=True).wait()
 
-        self._ind_offs_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.ind_offs.nbytes)
-        cl.enqueue_copy(_queue, self._ind_offs_buffer, self.ind_offs, is_blocking=True).wait()
+        self._ind_offs_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.ind_offs.nbytes)
+        cl.enqueue_copy(_queue, self._ind_offs_buffer, self._core_plan.ind_offs, is_blocking=True).wait()
 
-        self._blkmap_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.blkmap.nbytes)
-        cl.enqueue_copy(_queue, self._blkmap_buffer, self.blkmap, is_blocking=True).wait()
+        self._blkmap_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.blkmap.nbytes)
+        cl.enqueue_copy(_queue, self._blkmap_buffer, self._core_plan.blkmap, is_blocking=True).wait()
 
-        self._offset_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.offset.nbytes)
-        cl.enqueue_copy(_queue, self._offset_buffer, self.offset, is_blocking=True).wait()
+        self._offset_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.offset.nbytes)
+        cl.enqueue_copy(_queue, self._offset_buffer, self._core_plan.offset, is_blocking=True).wait()
 
-        self._nelems_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.nelems.nbytes)
-        cl.enqueue_copy(_queue, self._nelems_buffer, self.nelems, is_blocking=True).wait()
+        self._nelems_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.nelems.nbytes)
+        cl.enqueue_copy(_queue, self._nelems_buffer, self._core_plan.nelems, is_blocking=True).wait()
 
-        self._nthrcol_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.nthrcol.nbytes)
-        cl.enqueue_copy(_queue, self._nthrcol_buffer, self.nthrcol, is_blocking=True).wait()
+        self._nthrcol_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.nthrcol.nbytes)
+        cl.enqueue_copy(_queue, self._nthrcol_buffer, self._core_plan.nthrcol, is_blocking=True).wait()
 
-        self._thrcol_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self.thrcol.nbytes)
-        cl.enqueue_copy(_queue, self._thrcol_buffer, self.thrcol, is_blocking=True).wait()
+        self._thrcol_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.thrcol.nbytes)
+        cl.enqueue_copy(_queue, self._thrcol_buffer, self._core_plan.thrcol, is_blocking=True).wait()
 
         if _debug:
-            print 'plan ind_map ' + str(self.ind_map)
-            print 'plan loc_map ' + str(self.loc_map)
+            print 'plan ind_map ' + str(self._core_plan.ind_map)
+            print 'plan loc_map ' + str(self._core_plan.loc_map)
             print '_ind_desc ' + str(_ind_desc)
             print 'nuinds %d' % self.nuinds
             print 'ninds %d' % self.ninds
@@ -341,6 +382,26 @@ class OpPlan(core.op_plan):
             print 'nelems :' + str(self.nelems)
             print 'nthrcol :' + str(self.nthrcol)
             print 'thrcol :' + str(self.thrcol)
+
+    @property
+    def nshared(self):
+        return self._core_plan.nshared
+
+    @property
+    def ninds(self):
+        return self._core_plan.ninds
+
+    @property
+    def ncolors(self):
+        return self._core_plan.ncolors
+
+    @property
+    def ncolblk(self):
+        return self._core_plan.ncolblk
+
+    @property
+    def nblocks(self):
+        return self._core_plan.nblocks
 
 class DatMapPair(object):
     """ Dummy class needed for codegen
@@ -360,8 +421,8 @@ class DatMapPair(object):
 class ParLoopCall(object):
 
     def __init__(self, kernel, it_space, *args):
-        self._it_space = it_space
         self._kernel = kernel
+        self._it_space = it_space
         self._args = list(args)
 
     """ generic. """
@@ -437,42 +498,49 @@ class ParLoopCall(object):
         return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_indirect_reduction, self._args)))
 
     def compute(self):
+        source, prg = _gen_code_cache.get_code(self._kernel)
+
         if self.is_direct():
-            inst = []
-            for i, arg in enumerate(self._args):
-                if arg._is_direct and arg._dat._is_scalar:
-                    inst.append(("__global", None))
-                elif arg._is_direct:
-                    inst.append(("__private", None))
-                elif arg._is_global_reduction:
-                    inst.append(("__private", None))
-                elif arg._is_global:
-                    inst.append(("__global", None))
-
-            self._kernel.instrument(inst, [])
-
             thread_count = _threads_per_block * _blocks_per_grid
             dynamic_shared_memory_size = self._d_max_dynamic_shared_memory()
             shared_memory_offset = dynamic_shared_memory_size * _warpsize
             dynamic_shared_memory_size = dynamic_shared_memory_size * _threads_per_block
             assert dynamic_shared_memory_size < _max_local_memory, "TODO: fix direct loops, too many threads -> not enough local memory"
-            dloop = _stg_direct_loop.getInstanceOf("direct_loop")
-            dloop['parloop'] = self
-            dloop['const'] = {"warpsize": _warpsize,\
-                              "shared_memory_offset": shared_memory_offset,\
-                              "dynamic_shared_memory_size": dynamic_shared_memory_size,\
-                              "threads_per_block": _threads_per_block,
-                              "partition_size": _threads_per_block}
-            dloop['op2const'] = _op2_constants
-            source = str(dloop)
 
-            # for debugging purpose, refactor that properly at some point
-            if _kernel_dump:
-                f = open(self._kernel._name + '.cl.c', 'w')
-                f.write(source)
-                f.close
+            if not source:
+                inst = []
+                for i, arg in enumerate(self._args):
+                    if arg._is_direct and arg._dat._is_scalar:
+                        inst.append(("__global", None))
+                    elif arg._is_direct:
+                        inst.append(("__private", None))
+                    elif arg._is_global_reduction:
+                        inst.append(("__private", None))
+                    elif arg._is_global:
+                        inst.append(("__global", None))
 
-            prg = cl.Program (_ctx, source).build(options="-Werror -cl-opt-disable")
+                self._kernel.instrument(inst, [])
+
+                dloop = _stg_direct_loop.getInstanceOf("direct_loop")
+                dloop['parloop'] = self
+                dloop['const'] = {"warpsize": _warpsize,\
+                                  "shared_memory_offset": shared_memory_offset,\
+                                  "dynamic_shared_memory_size": dynamic_shared_memory_size,\
+                                  "threads_per_block": _threads_per_block,
+                                  "partition_size": _threads_per_block}
+                dloop['op2const'] = _op2_constants
+                source = str(dloop)
+
+                # for debugging purpose, refactor that properly at some point
+                if _kernel_dump:
+                    f = open(self._kernel._name + '.cl.c', 'w')
+                    f.write(source)
+                    f.close
+
+                prg = cl.Program (_ctx, source).build(options="-Werror -cl-opt-disable")
+                # cache in the generated code
+                _gen_code_cache.cache_code(self._kernel, (source, prg))
+
             kernel = prg.__getattr__(self._kernel._name + '_stub')
 
             for a in self._unique_dats:
@@ -490,34 +558,41 @@ class ParLoopCall(object):
                 a._dat._host_reduction(_blocks_per_grid)
         else:
             psize = self.compute_partition_size()
-            plan = OpPlan(self._kernel, self._it_space, *self._args, partition_size=psize)
+            plan = _plan_cache.get_plan(self, partition_size=psize)
 
-            inst = []
-            for i, arg in enumerate(self._args):
-                if arg._map == IdentityMap:
-                    inst.append(("__global", None))
-                elif isinstance(arg._dat, Dat) and arg._access not in [INC, MIN, MAX]:
-                    inst.append(("__local", None))
-                elif arg._is_global and not arg._is_global_reduction:
-                    inst.append(("__global", None))
-                else:
-                    inst.append(("__private", None))
+            if not source:
+                inst = []
+                for i, arg in enumerate(self._args):
+                    if arg._map == IdentityMap:
+                        inst.append(("__global", None))
+                    elif isinstance(arg._dat, Dat) and arg._access not in [INC, MIN, MAX]:
+                        inst.append(("__local", None))
+                    elif arg._is_global and not arg._is_global_reduction:
+                        inst.append(("__global", None))
+                    else:
+                        inst.append(("__private", None))
 
-            self._kernel.instrument(inst, [])
-            # codegen
-            iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
-            iloop['parloop'] = self
-            iloop['const'] = {'dynamic_shared_memory_size': plan.nshared, 'ninds':plan.ninds, 'partition_size':psize}
-            iloop['op2const'] = _op2_constants
-            source = str(iloop)
+                self._kernel.instrument(inst, [])
 
-            # for debugging purpose, refactor that properly at some point
-            if _kernel_dump:
-                f = open(self._kernel._name + '.cl.c', 'w')
-                f.write(source)
-                f.close
+                # codegen
+                iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
+                iloop['parloop'] = self
+                iloop['const'] = {'dynamic_shared_memory_size': plan.nshared, 'ninds':plan.ninds, 'partition_size':psize}
+                iloop['op2const'] = _op2_constants
+                source = str(iloop)
 
-            prg = cl.Program(_ctx, source).build(options="-Werror -cl-opt-disable")
+                # for debugging purpose, refactor that properly at some point
+                if _kernel_dump:
+                    f = open(self._kernel._name + '.cl.c', 'w')
+                    f.write(source)
+                    f.close
+
+                prg = cl.Program(_ctx, source).build(options="-Werror -cl-opt-disable")
+
+                # cache in the generated code
+                _gen_code_cache.cache_code(self._kernel, (source, prg))
+
+
             kernel = prg.__getattr__(self._kernel._name + '_stub')
 
             for a in self._unique_dats:
@@ -556,8 +631,6 @@ class ParLoopCall(object):
 
             for arg in self._global_reduc_args:
                 arg._dat._host_reduction(plan.nblocks)
-
-            plan.reclaim()
 
     def is_direct(self):
         return all(map(lambda a: a._is_direct or isinstance(a._dat, Global), self._args))
@@ -622,3 +695,6 @@ _warpsize = 1
 #preload string template groups
 _stg_direct_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.StringIO(pkg_resources.resource_string(__name__, "assets/opencl_direct_loop.stg")), lexer="default")
 _stg_indirect_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.StringIO(pkg_resources.resource_string(__name__, "assets/opencl_indirect_loop.stg")), lexer="default")
+
+_plan_cache = OpPlanCache()
+_gen_code_cache = GenCodeCache()

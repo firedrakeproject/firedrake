@@ -514,3 +514,7 @@ device's "block" address plus an offset which is
         """Number of times this plan has been used"""
         def __get__(self):
             return self._handle.count
+
+    property hsh:
+        def __get__(self):
+            return hash(<int>self._handle)
