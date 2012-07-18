@@ -35,7 +35,7 @@ def as_tuple(item, type=None, length=None):
     if length and not len(t) == length:
         raise ValueError("Tuple needs to be of length %d" % length)
     if type and not all(isinstance(i, type) for i in t):
-        raise TypeError("Items need to be of %s" % type)
+        raise TypeError("Items need to be of type %s" % type)
     return t
 
 class DataTypeError(TypeError):
@@ -69,18 +69,31 @@ class SetValueError(ValueError):
     """Illegal value for Set."""
 
 class validate:
-    """Decorator to validate arguments"""
+    """Decorator to validate arguments
+
+    The decorator expects one or more arguments, which are 3-tuples of
+    (name, type, exception), where name is the argument name in the
+    function being decorated, type is the argument type to be validated
+    and exception is the exception type to be raised if validation fails.
+
+    Formal parameters that don't exist in the definition of the function
+    being decorated as well as actual arguments not being present when
+    the validation is called are silently ignored."""
 
     def __init__(self, *checks):
         self._checks = checks
 
     def check_args(self, args, kwargs, varnames, file, line):
         for argname, argtype, exception in self._checks:
+            # If the argument argname is not present in the decorated function
+            # silently ignore it
             try:
                 i = varnames.index(argname)
             except ValueError:
                 # No formal parameter argname
                 continue
+            # Try the argument by keyword first, and by position second.
+            # If the argument isn't given, silently ignore it.
             try:
                 arg = kwargs.get(argname)
                 arg = arg or args[i]
@@ -246,7 +259,7 @@ class Dat(DataCarrier):
 
     def __call__(self, path, access):
         if access not in self._modes:
-            raise ModeValueError("Acess descriptor must be one of %s" % self._modes)
+            raise ModeValueError("Access descriptor must be one of %s" % self._modes)
         if isinstance(path, Map):
             return self._arg_type(data=self, map=path, access=access)
         else:
@@ -290,7 +303,7 @@ class Mat(DataCarrier):
 
     def __call__(self, maps, access):
         if access not in self._modes:
-            raise ModeValueError("Acess descriptor must be one of %s" % self._modes)
+            raise ModeValueError("Access descriptor must be one of %s" % self._modes)
         for map, dataset in zip(maps, self._datasets):
             if map._dataset != dataset:
                 raise SetValueError("Invalid data set for map %s (is %s, should be %s)" \
@@ -385,7 +398,7 @@ class Global(DataCarrier):
 
     def __call__(self, access):
         if access not in self._modes:
-            raise ModeValueError("Acess descriptor must be one of %s" % self._modes)
+            raise ModeValueError("Access descriptor must be one of %s" % self._modes)
         return self._arg_type(data=self, access=access)
 
     def __str__(self):
@@ -481,7 +494,7 @@ class IterationSpace(object):
 
     @property
     def extents(self):
-        """Extents tuple of the IterationSpace."""
+        """Extents of the IterationSpace."""
         return self._extents
 
     def __str__(self):
@@ -503,7 +516,7 @@ class Kernel(object):
 
     @property
     def name(self):
-        """User-defined label."""
+        """Kernel name, must match the kernel function name in the code."""
         return self._name
 
     def compile(self):
