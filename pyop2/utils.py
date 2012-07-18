@@ -51,6 +51,8 @@ class validate_base:
 
     def __call__(self, f):
         def wrapper(*args, **kwargs):
+            self.nargs = f.func_code.co_argcount
+            self.defaults = f.func_defaults or ()
             self.varnames = f.func_code.co_varnames
             self.file = f.func_code.co_filename
             self.line = f.func_code.co_firstlineno+1
@@ -75,6 +77,11 @@ class validate_base:
             except IndexError:
                 # No actual parameter argname
                 continue
+            # If the argument has a default value, also accept that (since the
+            # constructor will be able to deal with that)
+            default_index = i - self.nargs + len(self.defaults)
+            if default_index >= 0 and arg == self.defaults[default_index]:
+                return
             self.check_arg(arg, argcond, exception)
 
 class validate_type(validate_base):
