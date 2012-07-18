@@ -36,7 +36,7 @@ void $parloop._kernel._name$_stub(
 //    TODO deal with the constants
 )
 {
-  __local char shared [$const.dynamic_shared_memory_size$] __attribute__((aligned(sizeof(unsigned int))));
+  __local char shared [$const.dynamic_shared_memory_size$] __attribute__((aligned(sizeof(double))));
   __local int shared_memory_offset;
   __local int active_threads_count;
 
@@ -91,9 +91,9 @@ $if(parloop._read_dat_map_pairs)$
   barrier(CLK_LOCAL_MEM_FENCE);
 $endif$
 
-$if(parloop._indirect_reduc_args)$
+$if(parloop._indirect_reduc_dat_map_pairs)$
   // zeroing local memory for indirect reduction
-  $parloop._indirect_reduc_args:shared_memory_reduc_zeroing();separator="\n"$
+  $parloop._indirect_reduc_dat_map_pairs:shared_memory_reduc_zeroing();separator="\n"$
   barrier(CLK_LOCAL_MEM_FENCE);
 $endif$
 
@@ -129,8 +129,8 @@ $else$
   }
 $endif$
 
-$if(parloop._indirect_reduc_args)$
-  $parloop._indirect_reduc_args:{$reduction2()$};separator="\n"$
+$if(parloop._indirect_reduc_dat_map_pairs)$
+  $parloop._indirect_reduc_dat_map_pairs:{$reduction2()$};separator="\n"$
 $endif$
 $if(parloop._written_dat_map_pairs)$
   // staging out indirect dats

@@ -142,7 +142,7 @@ class DeviceDataMixin:
     CL_TYPES = {np.dtype('int16'): ClTypeInfo('short', '0'),
                 np.dtype('uint32'): ClTypeInfo('unsigned int', '0u'),
                 np.dtype('int32'): ClTypeInfo('int', '0'),
-                np.dtype('float32'): ClTypeInfo('float', '0.0'),
+                np.dtype('float32'): ClTypeInfo('float', '0.0f'),
                 np.dtype('float64'): ClTypeInfo('double', '0.0')}
 
     @property
@@ -424,6 +424,10 @@ class ParLoopCall(object):
     @property
     def _written_dat_map_pairs(self):
         return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_indirect and a._access in [WRITE, RW], self._args)))
+
+    @property
+    def _indirect_reduc_dat_map_pairs(self):
+        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_indirect_reduction, self._args)))
 
     def compute(self):
         if self.is_direct():
