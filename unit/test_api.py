@@ -13,6 +13,9 @@ def pytest_funcarg__iterset(request):
 def pytest_funcarg__dataset(request):
     return op2.Set(3, 'dataset')
 
+def teardown_module(module):
+    op2.exit()
+
 class TestUserAPI:
     """
     User API Unit Tests
