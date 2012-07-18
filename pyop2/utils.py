@@ -39,13 +39,8 @@ def as_tuple(item, type=None, length=None):
         raise TypeError("Items need to be of type %s" % type)
     return t
 
-class validate:
+class validate_base:
     """Decorator to validate arguments
-
-    The decorator expects one or more arguments, which are 3-tuples of
-    (name, type, exception), where name is the argument name in the
-    function being decorated, type is the argument type to be validated
-    and exception is the exception type to be raised if validation fails.
 
     Formal parameters that don't exist in the definition of the function
     being decorated as well as actual arguments not being present when
@@ -53,6 +48,20 @@ class validate:
 
     def __init__(self, *checks):
         self._checks = checks
+
+    def __call__(self, f):
+        def wrapper(*args, **kwargs):
+            self.check_args(args, kwargs, f.func_code.co_varnames, f.func_code.co_filename, f.func_code.co_firstlineno+1)
+            return f(*args, **kwargs)
+        return wrapper
+
+class validate_type(validate_base):
+    """Decorator to validate argument types
+
+    The decorator expects one or more arguments, which are 3-tuples of
+    (name, type, exception), where name is the argument name in the
+    function being decorated, type is the argument type to be validated
+    and exception is the exception type to be raised if validation fails."""
 
     def check_args(self, args, kwargs, varnames, file, line):
         for argname, argtype, exception in self._checks:
@@ -73,12 +82,6 @@ class validate:
                 continue
             if not isinstance(arg, argtype):
                 raise exception("%s:%d Parameter %s must be of type %r" % (file, line, argname, argtype))
-
-    def __call__(self, f):
-        def wrapper(*args, **kwargs):
-            self.check_args(args, kwargs, f.func_code.co_varnames, f.func_code.co_filename, f.func_code.co_firstlineno+1)
-            return f(*args, **kwargs)
-        return wrapper
 
 def verify_reshape(data, dtype, shape, allow_none=False):
     """Verify data is of type dtype and try to reshaped to shape."""

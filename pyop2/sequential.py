@@ -93,7 +93,7 @@ class Set(object):
 
     _globalcount = 0
 
-    @validate(('size', int, SizeTypeError), ('name', str, NameTypeError))
+    @validate_type(('size', int, SizeTypeError), ('name', str, NameTypeError))
     def __init__(self, size, name=None):
         self._size = size
         self._name = name or "set_%d" % Set._globalcount
@@ -141,7 +141,7 @@ class Dat(DataCarrier):
     _modes = [READ, WRITE, RW, INC]
     _arg_type = Arg
 
-    @validate(('dataset', Set, SetTypeError), ('name', str, NameTypeError))
+    @validate_type(('dataset', Set, SetTypeError), ('name', str, NameTypeError))
     def __init__(self, dataset, dim, data=None, dtype=None, name=None):
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
@@ -186,7 +186,7 @@ class Mat(DataCarrier):
     _modes = [WRITE, INC]
     _arg_type = Arg
 
-    @validate(('name', str, NameTypeError))
+    @validate_type(('name', str, NameTypeError))
     def __init__(self, datasets, dim, dtype=None, name=None):
         self._datasets = as_tuple(datasets, Set, 2)
         self._dim = as_tuple(dim, int)
@@ -232,7 +232,7 @@ class Const(DataCarrier):
 
     _defs = set()
 
-    @validate(('name', str, NameTypeError))
+    @validate_type(('name', str, NameTypeError))
     def __init__(self, dim, data, name, dtype=None):
         self._dim = as_tuple(dim, int)
         self._data = verify_reshape(data, dtype, self._dim)
@@ -282,7 +282,7 @@ class Global(DataCarrier):
     _modes = [READ, INC, MIN, MAX]
     _arg_type = Arg
 
-    @validate(('name', str, NameTypeError))
+    @validate_type(('name', str, NameTypeError))
     def __init__(self, dim, data, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
         self._data = verify_reshape(data, dtype, self._dim)
@@ -312,7 +312,7 @@ class Map(object):
     _globalcount = 0
     _arg_type = Arg
 
-    @validate(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError), \
+    @validate_type(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError), \
             ('dim', int, DimTypeError), ('name', str, NameTypeError))
     def __init__(self, iterset, dataset, dim, values, name=None):
         self._iterset = iterset
@@ -323,7 +323,7 @@ class Map(object):
         self._lib_handle = core.op_map(self)
         Map._globalcount += 1
 
-    @validate(('index', int, IndexTypeError))
+    @validate_type(('index', int, IndexTypeError))
     def __call__(self, index):
         if not 0 <= index < self._dim:
             raise IndexValueError("Index must be in interval [0,%d]" % (self._dim-1))
@@ -375,7 +375,7 @@ IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 class IterationSpace(object):
     """OP2 iteration space type."""
 
-    @validate(('iterset', Set, SetTypeError))
+    @validate_type(('iterset', Set, SetTypeError))
     def __init__(self, iterset, extents):
         self._iterset = iterset
         self._extents = as_tuple(extents, int)
@@ -401,7 +401,7 @@ class Kernel(object):
 
     _globalcount = 0
 
-    @validate(('name', str, NameTypeError))
+    @validate_type(('name', str, NameTypeError))
     def __init__(self, code, name):
         self._name = name or "kernel_%d" % Kernel._globalcount
         self._code = code
