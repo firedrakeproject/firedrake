@@ -98,5 +98,9 @@ def set_backend(backend):
         raise ValueError("backend must be one of %r" % backends.keys())
     BackendSelector._backend = backends[backend]
 
+def unset_backend():
+    """Unset the OP2 backend"""
+    BackendSelector._backend = void
+
 def par_loop(kernel, it_space, *args):
     return BackendSelector._backend.par_loop(kernel, it_space, *args)
