@@ -194,6 +194,7 @@ class Mat(DataCarrier):
 
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, maps, access):
+        maps = as_tuple(maps, Map, 2)
         for map, dataset in zip(maps, self._datasets):
             if map._dataset != dataset:
                 raise SetValueError("Invalid data set for map %s (is %s, should be %s)" \
