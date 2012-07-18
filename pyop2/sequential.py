@@ -166,6 +166,8 @@ class Dat(DataCarrier):
     @property
     def data(self):
         """Data array."""
+        if len(self._data) is 0:
+            raise RuntimeError("Illegal access: No data associated with this Dat!")
         return self._data
 
     def __str__(self):
