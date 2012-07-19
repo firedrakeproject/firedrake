@@ -28,7 +28,7 @@ void $parloop._kernel._name$_stub (
   unsigned int shared_memory_offset = $const.shared_memory_offset$;
   int set_size = $parloop._it_space.size$;
 
-  __local char shared[$const.dynamic_shared_memory_size$];
+  __local char shared[$const.dynamic_shared_memory_size$] __attribute__((aligned(sizeof(long))));
 
   $parloop._direct_non_scalar_args:{__private $it._dat._cl_type$ $it._dat._name$_local[$it._dat._dim$];};separator="\n"$
   $parloop._direct_non_scalar_args:{__local $it._dat._cl_type$* $it._dat._name$_shared = (__local $it._dat._cl_type$*) (shared + shared_memory_offset * (get_local_id(0) / OP_WARPSIZE));};separator="\n"$

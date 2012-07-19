@@ -36,7 +36,7 @@ void $parloop._kernel._name$_stub(
 //    TODO deal with the constants
 )
 {
-  __local char shared [$const.dynamic_shared_memory_size$] __attribute__((aligned(sizeof(double))));
+  __local char shared [$const.dynamic_shared_memory_size$] __attribute__((aligned(sizeof(long))));
   __local int shared_memory_offset;
   __local int active_threads_count;
 
