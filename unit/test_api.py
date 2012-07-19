@@ -76,6 +76,14 @@ def pytest_funcarg__h5file(request):
                                 setup=lambda: make_hdf5_file(),
                                 teardown=lambda f: f.close())
 
+def pytest_funcarg__sparsity(request):
+    s = op2.Set(2)
+    m = op2.Map(s, s, 1, [1, 2])
+    return op2.Sparsity(m, m, 1)
+
+def teardown_module(module):
+    op2.exit()
+
 class TestInitAPI:
     """
     Init API unit tests
@@ -269,59 +277,40 @@ class TestMatAPI:
     skip_backends = ['opencl']
 
     def test_mat_illegal_sets(self, backend):
-        "Mat data sets should be a 2-tuple of Sets."
-        with pytest.raises(ValueError):
-            op2.Mat('illegalset', 1)
-
-    def test_mat_illegal_set_tuple(self, backend):
-        "Mat data sets should be a 2-tuple of Sets."
+        "Mat sparsity should be a Sparsity."
         with pytest.raises(TypeError):
-            op2.Mat(('illegalrows', 'illegalcols'), 1)
+            op2.Mat('illegalsparsity', 1)
 
-    def test_mat_illegal_set_triple(self, set, backend):
-        "Mat data sets should be a 2-tuple of Sets."
-        with pytest.raises(ValueError):
-            op2.Mat((set,set,set), 1)
-
-    def test_mat_illegal_dim(self, set, backend):
-        "Mat dim should be int or int tuple."
+    def test_mat_illegal_dim(self, sparsity, backend):
+        "Mat dim should be int."
         with pytest.raises(TypeError):
-            op2.Mat((set,set), 'illegaldim')
+            op2.Mat(sparsity, 'illegaldim')
 
-    def test_mat_illegal_dim_tuple(self, set, backend):
-        "Mat dim should be int or int tuple."
-        with pytest.raises(TypeError):
-            op2.Mat((set,set), (1,'illegaldim'))
-
-    def test_mat_illegal_name(self, set, backend):
+    def test_mat_illegal_name(self, sparsity, backend):
         "Mat name should be string."
-        with pytest.raises(exceptions.NameTypeError):
-            op2.Mat((set,set), 1, name=2)
+        with pytest.raises(sequential.NameTypeError):
+            op2.Mat(sparsity, 1, name=2)
 
-    def test_mat_sets(self, iterset, dataset, backend):
-        "Mat constructor should preserve order of row and column sets."
-        m = op2.Mat((iterset, dataset), 1)
-        assert m.datasets == (iterset, dataset)
+# FIXME: Uncomment when dim tuples are supported
+#    def test_mat_dim(self, set, backend):
+#        "Mat constructor should create a dim tuple."
+#        m = op2.Mat((set,set), 1)
+#        assert m.dim == (1,)
+#
+#    def test_mat_dim_list(self, set, backend):
+#        "Mat constructor should create a dim tuple from a list."
+#        m = op2.Mat((set,set), [2,3])
+#        assert m.dim == (2,3)
 
-    def test_mat_dim(self, set, backend):
-        "Mat constructor should create a dim tuple."
-        m = op2.Mat((set,set), 1)
-        assert m.dim == (1,)
-
-    def test_mat_dim_list(self, set, backend):
-        "Mat constructor should create a dim tuple from a list."
-        m = op2.Mat((set,set), [2,3])
-        assert m.dim == (2,3)
-
-    def test_mat_dtype(self, set, backend):
+    def test_mat_dtype(self, sparsity, backend):
         "Default data type should be numpy.float64."
-        m = op2.Mat((set,set), 1)
+        m = op2.Mat(sparsity, 1)
         assert m.dtype == np.double
 
-    def test_dat_properties(self, set, backend):
+    def test_mat_properties(self, sparsity, backend):
         "Mat constructor should correctly set attributes."
-        m = op2.Mat((set,set), (2,2), 'double', 'bar')
-        assert m.datasets == (set,set) and m.dim == (2,2) and \
+        m = op2.Mat(sparsity, 2, 'double', 'bar')
+        assert m.sparsity == sparsity and m.dim == 2 and \
                 m.dtype == np.float64 and m.name == 'bar'
 
 class TestConstAPI:
