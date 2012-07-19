@@ -122,7 +122,7 @@ larger it is, the more chatty OP2 will be."""
     cdef char **argv
     cdef int diag_level = diags
     if args is None:
-        core.op_init_core(0, NULL, diag_level)
+        core.op_init(0, NULL, diag_level)
         return
     args = [bytes(x) for x in args]
     argv = <char **>malloc(sizeof(char *) * len(args))
@@ -131,7 +131,7 @@ larger it is, the more chatty OP2 will be."""
     try:
         for i, a in enumerate(args):
             argv[i] = a
-        core.op_init_core(len(args), argv, diag_level)
+        core.op_init(len(args), argv, diag_level)
     finally:
         # We can free argv here, because op_init_core doesn't keep a
         # handle to the arguments.
@@ -140,7 +140,7 @@ larger it is, the more chatty OP2 will be."""
 def op_exit():
     """Clean up C level data"""
     core.op_rt_exit()
-    core.op_exit_core()
+    core.op_exit()
 
 cdef class op_set:
     cdef core.op_set _handle

@@ -82,9 +82,9 @@ cdef extern from "op_lib_core.h":
 
     op_arg op_arg_gbl_core(char *, int, char *, int, op_access)
 
-    void op_init_core(int, char **, int)
+    void op_init(int, char **, int)
 
-    void op_exit_core()
+    void op_exit()
 
 cdef extern from "op_rt_support.h":
     ctypedef struct op_plan:
