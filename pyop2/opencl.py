@@ -564,7 +564,7 @@ class ParLoopCall(object):
             for i, a in enumerate(self._global_reduction_args):
                 a._dat._host_reduction(nwg)
         else:
-            psize = self.compute_partition_size()
+            psize = self._i_compute_partition_size()
             plan = _plan_cache.get_plan(self, partition_size=psize)
 
             if not source:
@@ -642,26 +642,14 @@ class ParLoopCall(object):
     def is_direct(self):
         return all(map(lambda a: a._is_direct or isinstance(a._dat, Global), self._args))
 
-    def compute_partition_size(self):
-        # conservative estimate...
-        codegen_bytes = 512
-        staged_args = filter(lambda a: isinstance(a._dat, Dat) and a._map != IdentityMap , self._args)
-
-        assert staged_args or self._global_reduc_args, "malformed par_loop ?"
-
-        if staged_args:
-            max_staged_bytes = sum(map(lambda a: a._dat.bytes_per_elem, staged_args))
-            psize_staging = (_max_local_memory - codegen_bytes) / max_staged_bytes
-        else:
-            psize_staging = sys.maxint
-
-        if self._global_reduc_args:
-            max_gbl_reduc_bytes = max(map(lambda a: a._dat._data.nbytes, self._global_reduc_args))
-            psize_gbl_reduction = (_max_local_memory - codegen_bytes) / max_gbl_reduc_bytes
-        else:
-            psize_gbl_reduction = sys.maxint
-
-        return min(psize_staging, psize_gbl_reduction)
+    def _i_compute_partition_size(self):
+        staged_args = filter(lambda a: a._map != IdentityMap, self._args)
+        assert staged_args
+        # will have to fix for vec dat
+        #TODO FIX: something weird here
+        max_bytes = sum(map(lambda a: a._dat.data.itemsize, staged_args)) + 24 * len(staged_args)
+        #? why 64 ?#
+        return (_max_local_memory / (64 * max_bytes)) * 64
 
 #Monkey patch pyopencl.Kernel for convenience
 _original_clKernel = cl.Kernel
