@@ -1,29 +1,20 @@
-import unittest
+import pytest
 import numpy
 
 from pyop2 import op2
 
-op2.init(backend='sequential')
-
 size = 100
 
-class ConstantTest(unittest.TestCase):
+def setup_module(module):
+    op2.init(backend='sequential')
+
+def teardown_module(module):
+    op2.exit()
+
+class TestConstant:
     """
     Tests of OP2 Constants
     """
-
-    def test_unique_names(self):
-        with self.assertRaises(op2.Const.NonUniqueNameError):
-            const1 = op2.Const(1, 1, name="constant")
-            const2 = op2.Const(1, 2, name="constant")
-            const1.remove_from_namespace()
-            const2.remove_from_namespace()
-
-    def test_namespace_removal(self):
-        const1 = op2.Const(1, 1, name="constant")
-        const1.remove_from_namespace()
-        const2 = op2.Const(1, 2, name="constant")
-        const2.remove_from_namespace()
 
     def test_1d_read(self):
         kernel = """
@@ -35,8 +26,8 @@ class ConstantTest(unittest.TestCase):
         op2.par_loop(op2.Kernel(kernel, "kernel"),
                      itset, dat(op2.IdentityMap, op2.WRITE))
 
-        self.assertTrue(all(dat.data == constant._data))
         constant.remove_from_namespace()
+        assert all(dat.data == constant._data)
 
     def test_2d_read(self):
         kernel = """
@@ -47,8 +38,9 @@ class ConstantTest(unittest.TestCase):
         dat = op2.Dat(itset, 1, numpy.zeros(size, dtype=numpy.uint32))
         op2.par_loop(op2.Kernel(kernel, "kernel"),
                      itset, dat(op2.IdentityMap, op2.WRITE))
-        self.assertTrue(all(dat.data == constant._data.sum()))
         constant.remove_from_namespace()
+        assert all(dat.data == constant._data.sum())
 
-suite = unittest.TestLoader().loadTestsFromTestCase(ConstantTest)
-unittest.TextTestRunner(verbosity=0).run(suite)
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

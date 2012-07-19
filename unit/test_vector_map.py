@@ -1,10 +1,15 @@
-import unittest
+import pytest
 import numpy
 import random
 
 from pyop2 import op2
-# Initialise OP2
-op2.init(backend='sequential', diags=0)
+
+def setup_module(module):
+    # Initialise OP2
+    op2.init(backend='sequential', diags=0)
+
+def teardown_module(module):
+    op2.exit()
 
 def _seed():
     return 0.02041724
@@ -12,18 +17,10 @@ def _seed():
 #max...
 nnodes = 92681
 
-class VectorMapTest(unittest.TestCase):
+class TestVectorMap:
     """
-
-    Indirect Loop Tests
-
+    Vector Map Tests
     """
-
-    def setUp(self):
-        pass
-
-    def tearDown(self):
-        pass
 
     def test_sum_nodes_to_edges(self):
         """Creates a 1D grid with edge values numbered consecutively.
@@ -49,8 +46,8 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
                        edge_vals(op2.IdentityMap, op2.WRITE))
 
         expected = numpy.asarray(range(1, nedges*2+1, 2)).reshape(nedges, 1)
-        self.assertTrue(all(expected == edge_vals.data))
+        assert(all(expected == edge_vals.data))
 
-suite = unittest.TestLoader().loadTestsFromTestCase(VectorMapTest)
-unittest.TextTestRunner(verbosity=0, failfast=False).run(suite)
-# refactor to avoid recreating input data for each test cases
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))
