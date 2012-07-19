@@ -470,11 +470,13 @@ class ParLoopCall(object):
         """Computes the maximum shared memory requirement per iteration set elements."""
         assert self.is_direct(), "Should only be called on direct loops"
         if self._direct_non_scalar_args:
+            # max for all non global dat: sizeof(dtype) * dim
             staging = max(map(lambda a: a._dat.bytes_per_elem, self._direct_non_scalar_args))
         else:
             staging = 0
 
         if self._global_reduction_args:
+            # max for all global reduction dat: sizeof(dtype) (!! don t need to multiply by dim
             reduction = max(map(lambda a: a._dat._data.itemsize, self._global_reduction_args))
         else:
             reduction = 0
@@ -501,11 +503,16 @@ class ParLoopCall(object):
         source, prg = _gen_code_cache.get_code(self._kernel)
 
         if self.is_direct():
-            thread_count = _threads_per_block * _blocks_per_grid
-            dynamic_shared_memory_size = self._d_max_dynamic_shared_memory()
-            shared_memory_offset = dynamic_shared_memory_size * _warpsize
-            dynamic_shared_memory_size = dynamic_shared_memory_size * _threads_per_block
-            assert dynamic_shared_memory_size < _max_local_memory, "TODO: fix direct loops, too many threads -> not enough local memory"
+            per_elem_max_local_mem_req = self._d_max_dynamic_shared_memory()
+            shared_memory_offset = per_elem_max_local_mem_req * _warpsize
+            if per_elem_max_local_mem_req == 0:
+                wgs = _queue.device.max_work_group_size
+            else:
+                wgs = min(_queue.device.max_work_group_size, _queue.device.local_mem_size / per_elem_max_local_mem_req)
+            nwg = max(_pref_work_group_count, self._it_space.size / wgs)
+            ttc = wgs * nwg
+
+            local_memory_req = per_elem_max_local_mem_req * wgs
 
             if not source:
                 inst = []
@@ -525,9 +532,8 @@ class ParLoopCall(object):
                 dloop['parloop'] = self
                 dloop['const'] = {"warpsize": _warpsize,\
                                   "shared_memory_offset": shared_memory_offset,\
-                                  "dynamic_shared_memory_size": dynamic_shared_memory_size,\
-                                  "threads_per_block": _threads_per_block,
-                                  "partition_size": _threads_per_block}
+                                  "dynamic_shared_memory_size": local_memory_req,\
+                                  "threads_per_block": wgs}
                 dloop['op2const'] = _op2_constants
                 source = str(dloop)
 
@@ -547,15 +553,15 @@ class ParLoopCall(object):
                 kernel.append_arg(a._buffer)
 
             for a in self._global_reduction_args:
-                a._dat._allocate_reduction_array(_blocks_per_grid)
+                a._dat._allocate_reduction_array(nwg)
                 kernel.append_arg(a._dat._d_reduc_buffer)
 
             for a in self._global_non_reduction_args:
                 kernel.append_arg(a._dat._buffer)
 
-            cl.enqueue_nd_range_kernel(_queue, kernel, (thread_count,), (_threads_per_block,), g_times_l=False).wait()
+            cl.enqueue_nd_range_kernel(_queue, kernel, (int(ttc),), (wgs,), g_times_l=False).wait()
             for i, a in enumerate(self._global_reduction_args):
-                a._dat._host_reduction(_blocks_per_grid)
+                a._dat._host_reduction(nwg)
         else:
             psize = self.compute_partition_size()
             plan = _plan_cache.get_plan(self, partition_size=psize)
@@ -622,7 +628,7 @@ class ParLoopCall(object):
             block_offset = 0
             for i in range(plan.ncolors):
                 blocks_per_grid = int(plan.ncolblk[i])
-                threads_per_block = _threads_per_block
+                threads_per_block = _max_work_group_size
                 thread_count = threads_per_block * blocks_per_grid
 
                 kernel.set_last_arg(np.int32(block_offset))
@@ -684,9 +690,11 @@ _debug = False
 _kernel_dump = False
 _ctx = cl.create_some_context()
 _queue = cl.CommandQueue(_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
+# ok for cpu, but is it for GPU ?
+_pref_work_group_count = _queue.device.max_compute_units
 _max_local_memory = _queue.device.local_mem_size
 _address_bits = _queue.device.address_bits
-_threads_per_block = _queue.device.max_work_group_size
+_max_work_group_size = _queue.device.max_work_group_size
 _has_dpfloat = 'cl_khr_fp64' in _queue.device.extensions or 'cl_amd_fp64' in _queue.device.extensions
 if not _has_dpfloat:
     warnings.warn('device does not support double precision floating point computation, expect undefined behavior for double')

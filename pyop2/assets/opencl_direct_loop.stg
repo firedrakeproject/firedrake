@@ -60,7 +60,6 @@ void $parloop._kernel._name$_stub (
   }
   $if(parloop._global_reduction_args)$
   // on device reduction
-  barrier(CLK_LOCAL_MEM_FENCE);
   $parloop._global_reduction_args:{for (i_1 = 0; i_1 < $it._dat._dim$; ++i_1) {
   $it._dat._name$_reduction_kernel(&$it._dat._name$_reduction_array[i_1 + get_group_id(0) * $it._dat._dim$], $it._dat._name$_reduc_local[i_1], $it._dat._name$_reduc_tmp);
 }};separator="\n"$
@@ -77,10 +76,7 @@ void $it._dat._name$_reduction_kernel (
 )
 {
   int lid = get_local_id(0);
-  if (lid < $const.partition_size$)
-  {
-    reduction_tmp_array[lid] = input_value;
-  }
+  reduction_tmp_array[lid] = input_value;
   barrier(CLK_LOCAL_MEM_FENCE);
 
   for(int offset = 1;
@@ -88,7 +84,7 @@ void $it._dat._name$_reduction_kernel (
       offset <<= 1)
   {
     int mask = (offset << 1) - 1;
-    if ( ((lid & mask) == 0) && ((lid + offset) < $const.partition_size$) ) {
+    if ( ((lid & mask) == 0) && ((lid + offset) < get_local_size(0)) ) {
       $reduction_op()$
     }
     barrier(CLK_LOCAL_MEM_FENCE);
