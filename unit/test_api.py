@@ -239,6 +239,7 @@ class TestUserAPI:
         c = op2.Const(1, 1, 'test_const_remove_from_namespace')
         c.remove_from_namespace()
         c = op2.Const(1, 1, 'test_const_remove_from_namespace')
+        c.remove_from_namespace()
         assert c.name == 'test_const_remove_from_namespace'
 
     def test_const_illegal_name(self):
@@ -249,31 +250,37 @@ class TestUserAPI:
     def test_const_dim(self):
         "Const constructor should create a dim tuple."
         c = op2.Const(1, 1, 'test_const_dim')
+        c.remove_from_namespace()
         assert c.dim == (1,)
 
     def test_const_dim_list(self):
         "Const constructor should create a dim tuple from a list."
         c = op2.Const([2,3], [1]*6, 'test_const_dim_list')
+        c.remove_from_namespace()
         assert c.dim == (2,3)
 
     def test_const_float(self):
         "Data type for float data should be numpy.float64."
         c = op2.Const(1, 1.0, 'test_const_float')
+        c.remove_from_namespace()
         assert c.dtype == np.double
 
     def test_const_int(self):
         "Data type for int data should be numpy.int64."
         c = op2.Const(1, 1, 'test_const_int')
+        c.remove_from_namespace()
         assert c.dtype == np.int64
 
     def test_const_convert_int_float(self):
         "Explicit float type should override NumPy's default choice of int."
         c = op2.Const(1, 1, 'test_const_convert_int_float', 'double')
+        c.remove_from_namespace()
         assert c.dtype == np.float64
 
     def test_const_convert_float_int(self):
         "Explicit int type should override NumPy's default choice of float."
         c = op2.Const(1, 1.5, 'test_const_convert_float_int', 'int')
+        c.remove_from_namespace()
         assert c.dtype == np.int64
 
     def test_const_illegal_dtype(self):
@@ -290,11 +297,13 @@ class TestUserAPI:
     def test_const_reshape(self):
         "Data should be reshaped according to dim."
         c = op2.Const((2,2), [1.0]*4, 'test_const_reshape')
+        c.remove_from_namespace()
         assert c.dim == (2,2) and c.data.shape == (2,2)
 
     def test_const_properties(self):
         "Data constructor should correctly set attributes."
         c = op2.Const((2,2), [1]*4, 'baz', 'double')
+        c.remove_from_namespace()
         assert c.dim == (2,2) and c.dtype == np.float64 and c.name == 'baz' \
                 and c.data.sum() == 4
 
