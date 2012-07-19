@@ -533,7 +533,8 @@ class ParLoopCall(object):
                 dloop['const'] = {"warpsize": _warpsize,\
                                   "shared_memory_offset": shared_memory_offset,\
                                   "dynamic_shared_memory_size": local_memory_req,\
-                                  "threads_per_block": wgs}
+                                  "threads_per_block": wgs,
+                                  "block_count": nwg}
                 dloop['op2const'] = _op2_constants
                 source = str(dloop)
 

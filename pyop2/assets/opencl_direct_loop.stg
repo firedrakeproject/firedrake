@@ -130,6 +130,13 @@ kernel_call()::=<<$parloop._kernel._name$($parloop._args:{$kernel_call_arg()$};s
 kernel_call_arg()::=<<$if(it._d_is_staged)$$it._dat._name$_local$elseif(it._is_global_reduction)$$it._dat._name$_reduc_local$elseif(it._is_global)$$it._dat._name$$else$&$it._dat._name$[i_1]$endif$>>
 
 header()::=<<
+/* Launch configuration:
+ *   work group count     : $const.block_count$
+ *   work group size      : $const.threads_per_block$
+ *   local memory size    : $const.dynamic_shared_memory_size$
+ *   shared memory offset : $const.shared_memory_offset$
+ *   warpsize             : $const.warpsize$
+ */
 #if defined(cl_khr_fp64)
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #elif defined(cl_amd_fp64)
