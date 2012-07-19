@@ -696,10 +696,18 @@ _max_local_memory = _queue.device.local_mem_size
 _address_bits = _queue.device.address_bits
 _max_work_group_size = _queue.device.max_work_group_size
 _has_dpfloat = 'cl_khr_fp64' in _queue.device.extensions or 'cl_amd_fp64' in _queue.device.extensions
+
+# CPU
+if _queue.device.type == 2:
+    _warpsize = 1
+# GPU
+elif _queue.device.type == 4:
+    # assumes nvidia, will probably fail with AMD gpus
+    _warpsize = 32
+
 if not _has_dpfloat:
     warnings.warn('device does not support double precision floating point computation, expect undefined behavior for double')
 
-_warpsize = 1
 #preload string template groups
 _stg_direct_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.StringIO(pkg_resources.resource_string(__name__, "assets/opencl_direct_loop.stg")), lexer="default")
 _stg_indirect_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.StringIO(pkg_resources.resource_string(__name__, "assets/opencl_indirect_loop.stg")), lexer="default")
