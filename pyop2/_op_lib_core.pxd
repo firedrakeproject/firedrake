@@ -74,7 +74,7 @@ cdef extern from "op_lib_core.h":
 
     op_sparsity op_decl_sparsity_core(op_map, op_map, char *)
 
-    op_mat op_decl_mat_core(op_set, op_set, int, char *, int, char *)
+    op_mat op_decl_mat(op_sparsity, int, char *, int, char *)
 
     op_dat op_decl_dat_core(op_set, int, char *, int, char *, char *)
 
