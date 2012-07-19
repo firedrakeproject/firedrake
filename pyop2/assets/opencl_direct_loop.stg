@@ -35,7 +35,7 @@ void $parloop._kernel._name$_stub (
 
   $parloop._global_reduction_args:{__private $it._dat._cl_type$ $it._dat._name$_reduc_local[$it._dat._dim$];};separator="\n"$
 
-  $parloop._global_reduction_args:{__local $it._dat._cl_type$ $it._dat._name$_reduc_tmp[$it._dat._dim$ * $const.threads_per_block$ * OP_WARPSIZE];};separator="\n"$
+  $parloop._global_reduction_args:{__local $it._dat._cl_type$* $it._dat._name$_reduc_tmp = (__local $it._dat._cl_type$*) shared;};separator="\n"$
 
   int i_1;
   int i_2;
@@ -60,6 +60,7 @@ void $parloop._kernel._name$_stub (
   }
   $if(parloop._global_reduction_args)$
   // on device reduction
+  barrier(CLK_LOCAL_MEM_FENCE);
   $parloop._global_reduction_args:{for (i_1 = 0; i_1 < $it._dat._dim$; ++i_1) {
   $it._dat._name$_reduction_kernel(&$it._dat._name$_reduction_array[i_1 + get_group_id(0) * $it._dat._dim$], $it._dat._name$_reduc_local[i_1], $it._dat._name$_reduc_tmp);
 }};separator="\n"$
