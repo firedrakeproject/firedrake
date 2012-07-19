@@ -179,8 +179,6 @@ class Set(object):
         return cls(size[0], name)
 
     def __call__(self, *dims):
-        if len(dims) is 0:
-            return self
         return IterationSpace(self, dims)
 
     @property
@@ -335,13 +333,15 @@ class Mat(DataCarrier):
         Mat._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, maps, access):
-        maps = as_tuple(maps, Map, 2)
-        for map, dataset in zip(maps, (self._sparsity._rmap, self._sparsity._cmap)):
-            if map._dataset != dataset:
+    def __call__(self, args, access):
+        args = as_tuple(args, Arg, 2)
+        arg_maps = [arg.map for arg in args]
+        sparsity_maps = [self._sparsity._rmap, self._sparsity._cmap]
+        for a_map, s_map in zip(arg_maps, sparsity_maps):
+            if a_map._dataset != s_map._dataset:
                 raise SetValueError("Invalid data set for map %s (is %s, should be %s)" \
-                        % (map._name, map._dataset._name, dataset._name))
-        return self._arg_type(data=self, map=maps, access=access)
+                        % (map._name, a_map._dataset._name, s_map.dataset._name))
+        return self._arg_type(data=self, map=args, access=access)
 
     @property
     def sparsity(self):
@@ -577,7 +577,7 @@ class IterationSpace(object):
     """OP2 iteration space type."""
 
     @validate_type(('iterset', Set, SetTypeError))
-    def __init__(self, iterset, extents):
+    def __init__(self, iterset, extents=()):
         self._iterset = iterset
         self._extents = as_tuple(extents, int)
 
@@ -716,6 +716,9 @@ def par_loop(kernel, it_space, *args):
                         'data' : c_ind_data(arg, i)} )
         return ";\n".join(val)
 
+    if isinstance(it_space, Set):
+        it_space = IterationSpace(it_space)
+
     _wrapper_args = ', '.join([c_wrapper_arg(arg) for arg in args])
 
     _wrapper_decs = ';\n'.join([c_wrapper_dec(arg) for arg in args])
@@ -723,7 +726,7 @@ def par_loop(kernel, it_space, *args):
     _const_decs = '\n'.join([const.format_for_c(typemap) for const in sorted(Const._defs)]) + '\n'
 
     _kernel_user_args = [c_kernel_arg(arg) for arg in args]
-    _kernel_it_args   = ["i_%d" % d for d in range(len(it_space.dims))]
+    _kernel_it_args   = ["i_%d" % d for d in range(len(it_space.extents))]
     _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
 
     _vec_inits = ';\n'.join([c_vec_init(arg) for arg in args \
