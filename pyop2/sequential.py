@@ -723,11 +723,18 @@ def par_loop(kernel, it_space, *args):
     def itspace_loop(i, d):
         return "for (int i_%d=0; i_%d<%d; ++i+%d){" % (i, i, d, i)
 
+    def tmp_decl(arg):
+        if arg._is_mat:
+            return "char* p_%s = (char *) malloc(%d*sizeof(%s))" % (c_arg_name(arg),
+                      arg.map[0].dim*arg.map[1].dim, typemap[arg.data.dtype.name])
+        return ""
+
     if isinstance(it_space, Set):
         it_space = IterationSpace(it_space)
 
     _wrapper_args = ', '.join([c_wrapper_arg(arg) for arg in args])
 
+    _tmp_decs = ';\n'.join([tmp_decl(arg) for arg in args if arg._is_mat])
     _wrapper_decs = ';\n'.join([c_wrapper_dec(arg) for arg in args])
 
     _const_decs = '\n'.join([const.format_for_c(typemap) for const in sorted(Const._defs)]) + '\n'
@@ -742,11 +749,11 @@ def par_loop(kernel, it_space, *args):
     _itspace_loops = '\n'.join([itspace_loop(i,e) for i, e in zip(range(len(it_space.extents)), it_space.extents)])
     _itspace_loop_close = '}'*len(it_space.extents)
 
-    # FIXME: i_0 and i_1 should be loops created depending on the existence of
-    # iteration space arguments
+
     wrapper = """
     void wrap_%(kernel_name)s__(%(wrapper_args)s) {
         %(wrapper_decs)s;
+        %(tmp_decs)s;
         for ( int i = 0; i < %(size)s; i++ ) {
             %(vec_inits)s;
             %(itspace_loops)s
@@ -769,6 +776,7 @@ def par_loop(kernel, it_space, *args):
     code_to_compile =  wrapper % { 'kernel_name' : kernel._name,
                       'wrapper_args' : _wrapper_args,
                       'wrapper_decs' : _wrapper_decs,
+                      'tmp_decs' : _tmp_decs,
                       'size' : it_space.size,
                       'itspace_loops' : _itspace_loops,
                       'itspace_loop_close' : _itspace_loop_close,
