@@ -21,8 +21,6 @@ class TestUserAPI:
     User API Unit Tests
     """
 
-    _backend = 'sequential'
-
     ## Init unit tests
 
     def test_noninit(self):
@@ -30,15 +28,15 @@ class TestUserAPI:
         with pytest.raises(RuntimeError):
             op2.Set(1)
 
-    def test_init(self):
+    def test_init(self, backend):
         "init should correctly set the backend."
-        op2.init(self._backend)
-        assert op2.backends.get_backend() == 'pyop2.'+self._backend
+        op2.init(backend)
+        assert op2.backends.get_backend() == 'pyop2.'+backend
 
-    def test_double_init(self):
+    def test_double_init(self, backend):
         "init should only be callable once."
         with pytest.raises(RuntimeError):
-            op2.init(self._backend)
+            op2.init(backend)
 
     ## Set unit tests
 
