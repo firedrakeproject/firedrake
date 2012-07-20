@@ -699,7 +699,7 @@ def par_loop(kernel, it_space, *args):
 
     def c_kernel_arg(arg):
         if arg._is_mat:
-            return c_arg_name(arg)
+            return "p_"+c_arg_name(arg)
         elif arg._is_indirect:
             if arg._is_vec_map:
                 return c_vec_name(arg)
@@ -720,13 +720,18 @@ def par_loop(kernel, it_space, *args):
                         'data' : c_ind_data(arg, i)} )
         return ";\n".join(val)
 
+#    def c_addto(arg):
+#        mat_arg = arg.data._lib_handle
+#        return "op_mat_addto_scalar(%s, %s, %s, %s)" % ()
+
     def itspace_loop(i, d):
-        return "for (int i_%d=0; i_%d<%d; ++i+%d){" % (i, i, d, i)
+        return "for (int i_%d=0; i_%d<%d; ++i_%d){" % (i, i, d, i)
 
     def tmp_decl(arg):
         if arg._is_mat:
-            return "char* p_%s = (char *) malloc(%d*sizeof(%s))" % (c_arg_name(arg),
-                      arg.map[0].dim*arg.map[1].dim, typemap[arg.data.dtype.name])
+            t = typemap[arg.data.dtype.name]
+            return "%s* p_%s = (%s *) malloc(sizeof(%s))" % (t, c_arg_name(arg), t,
+                      typemap[arg.data.dtype.name])
         return ""
 
     if isinstance(it_space, Set):
@@ -749,6 +754,8 @@ def par_loop(kernel, it_space, *args):
     _itspace_loops = '\n'.join([itspace_loop(i,e) for i, e in zip(range(len(it_space.extents)), it_space.extents)])
     _itspace_loop_close = '}'*len(it_space.extents)
 
+    _addtos = ''
+    #_addtos = ';\n'.join([c_addto(arg) for arg in args if arg._is_mat])
 
     wrapper = """
     void wrap_%(kernel_name)s__(%(wrapper_args)s) {
@@ -758,6 +765,7 @@ def par_loop(kernel, it_space, *args):
             %(vec_inits)s;
             %(itspace_loops)s
             %(kernel_name)s(%(kernel_args)s);
+            //%(addtos)s;
             %(itspace_loop_close)s
         }
     }"""
@@ -781,7 +789,8 @@ def par_loop(kernel, it_space, *args):
                       'itspace_loops' : _itspace_loops,
                       'itspace_loop_close' : _itspace_loop_close,
                       'vec_inits' : _vec_inits,
-                      'kernel_args' : _kernel_args }
+                      'kernel_args' : _kernel_args,
+                      'addtos' : _addtos }
 
     _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel._code,
                              additional_definitions = _const_decs + kernel._code)
