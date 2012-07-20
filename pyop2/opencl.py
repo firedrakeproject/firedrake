@@ -604,7 +604,7 @@ class ParLoopCall(object):
                 iloop['const'] = {'dynamic_shared_memory_size': plan.nshared,\
                                   'ninds':plan.ninds,\
                                   'block_count': 'dynamic',\
-                                  'threads_per_block': _max_work_group_size,\
+                                  'threads_per_block': min(_max_work_group_size, psize),\
                                   'partition_size':psize,\
                                   'warpsize': _warpsize}
                 iloop['op2const'] = _op2_constants
@@ -651,7 +651,7 @@ class ParLoopCall(object):
             block_offset = 0
             for i in range(plan.ncolors):
                 blocks_per_grid = int(plan.ncolblk[i])
-                threads_per_block = _max_work_group_size
+                threads_per_block = min(_max_work_group_size, psize)
                 thread_count = threads_per_block * blocks_per_grid
 
                 kernel.set_last_arg(np.int32(block_offset))
