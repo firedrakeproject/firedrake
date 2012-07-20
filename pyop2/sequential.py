@@ -334,15 +334,15 @@ class Mat(DataCarrier):
         Mat._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, args, access):
-        args = as_tuple(args, Arg, 2)
-        arg_maps = [arg.map for arg in args]
+    def __call__(self, path, access):
+        path = as_tuple(path, Arg, 2)
+        path_maps = [arg.map for arg in path]
         sparsity_maps = [self._sparsity._rmap, self._sparsity._cmap]
-        for a_map, s_map in zip(arg_maps, sparsity_maps):
-            if a_map._dataset != s_map._dataset:
+        for p_map, s_map in zip(path_maps, sparsity_maps):
+            if p_map._dataset != s_map._dataset:
                 raise SetValueError("Invalid data set for map %s (is %s, should be %s)" \
                         % (map._name, a_map._dataset._name, s_map.dataset._name))
-        return self._arg_type(data=self, map=args, access=access)
+        return self._arg_type(data=self, map=path_maps, access=access)
 
     @property
     def sparsity(self):
@@ -671,6 +671,9 @@ def par_loop(kernel, it_space, *args):
         val = "PyObject *_%(name)s" % {'name' : c_arg_name(arg) }
         if arg._is_indirect:
             val += ", PyObject *_%(name)s" % {'name' : c_map_name(arg)}
+            maps = as_tuple(arg.map, Map)
+            if len(maps) is 2:
+                val += ", PyObject *_%(name)s" % {'name' : c_map_name(arg)+'2'}
         return val
 
     def c_wrapper_dec(arg):
@@ -717,6 +720,9 @@ def par_loop(kernel, it_space, *args):
                         'data' : c_ind_data(arg, i)} )
         return ";\n".join(val)
 
+    def itspace_loop(i, d):
+        return "for (int i_%d=0; i_%d<%d; ++i+%d){" % (i, i, d, i)
+
     if isinstance(it_space, Set):
         it_space = IterationSpace(it_space)
 
@@ -733,15 +739,19 @@ def par_loop(kernel, it_space, *args):
     _vec_inits = ';\n'.join([c_vec_init(arg) for arg in args \
                              if not arg._is_mat and arg._is_vec_map])
 
+    _itspace_loops = '\n'.join([itspace_loop(i,e) for i, e in zip(range(len(it_space.extents)), it_space.extents)])
+    _itspace_loop_close = '}'*len(it_space.extents)
+
     # FIXME: i_0 and i_1 should be loops created depending on the existence of
     # iteration space arguments
     wrapper = """
     void wrap_%(kernel_name)s__(%(wrapper_args)s) {
         %(wrapper_decs)s;
-        int i_0 = 0, i_1 = 0;
         for ( int i = 0; i < %(size)s; i++ ) {
             %(vec_inits)s;
+            %(itspace_loops)s
             %(kernel_name)s(%(kernel_args)s);
+            %(itspace_loop_close)s
         }
     }"""
 
@@ -760,16 +770,24 @@ def par_loop(kernel, it_space, *args):
                       'wrapper_args' : _wrapper_args,
                       'wrapper_decs' : _wrapper_decs,
                       'size' : it_space.size,
+                      'itspace_loops' : _itspace_loops,
+                      'itspace_loop_close' : _itspace_loop_close,
                       'vec_inits' : _vec_inits,
                       'kernel_args' : _kernel_args }
 
-    _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
-                             additional_definitions = _const_decs + kernel_code)
+    _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel._code,
+                             additional_definitions = _const_decs + kernel._code)
 
     _args = []
     for arg in args:
-        _args.append(arg.data.data)
+        if arg._is_mat:
+            _args.append(arg.data)
+        else:
+            _args.append(arg.data.data)
+
         if arg._is_indirect:
-            _args.append(arg.map.values)
+            maps = as_tuple(arg.map, Map)
+            for map in maps:
+                _args.append(map.values)
 
     _fun(*_args)
