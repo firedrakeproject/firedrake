@@ -232,6 +232,11 @@ class Global(op2.Global, DeviceDataMixin):
         del self._h_reduc_array
         del self._d_reduc_buffer
 
+    @property
+    def bytes_per_elem(self):
+        #dirty should be factored in DeviceDataMixin
+        return self._data.nbytes
+
 class Map(op2.Map):
 
     _arg_type = Arg
@@ -647,9 +652,11 @@ class ParLoopCall(object):
         assert staged_args
         # will have to fix for vec dat
         #TODO FIX: something weird here
-        max_bytes = sum(map(lambda a: a._dat.data.itemsize, staged_args)) + 24 * len(staged_args)
+        # 3 * 4: DAT_via_MAP_indirection_map, DAT_via_MAP_indirection_size, DAT_via_MAP_indirection variable
+        max_bytes = sum(map(lambda a: a._dat.bytes_per_elem, staged_args)) + 3 * 4 * len(self._dat_map_pairs)
         #? why 64 ?#
-        return (_max_local_memory / (64 * max_bytes)) * 64
+        # 12: shared_memory_offset, active_thread_count, active_thread_count_ceiling variables (could be 8 or 12 depending)
+        return (_max_local_memory - 12) / (64 * max_bytes) * 64
 
 #Monkey patch pyopencl.Kernel for convenience
 _original_clKernel = cl.Kernel
