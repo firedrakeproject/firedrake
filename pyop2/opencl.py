@@ -513,8 +513,19 @@ class ParLoopCall(object):
             if per_elem_max_local_mem_req == 0:
                 wgs = _queue.device.max_work_group_size
             else:
-                wgs = min(_queue.device.max_work_group_size, _queue.device.local_mem_size / per_elem_max_local_mem_req)
-            nwg = max(_pref_work_group_count, self._it_space.size / wgs)
+                #
+                available_local_memory = _queue.device.local_mem_size
+                # 16bytes local mem used for global / local indices and sizes
+                available_local_memory -= 16
+                # (4/8)ptr bytes for each dat buffer passed to the kernel
+                available_local_memory -= (len(self._unique_dats) + len(self._global_non_reduction_args))\
+                                          * (_queue.device.address_bits / 8)
+                # (4/8)ptr bytes for each temporary global reduction buffer passed to the kernel
+                available_local_memory -= len(self._global_reduction_args) * (_queue.device.address_bits / 8)
+                # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
+                ps = available_local_memory / per_elem_max_local_mem_req
+                wgs = min(_queue.device.max_work_group_size, ps)
+            nwg = min(_pref_work_group_count, self._it_space.size / wgs)
             ttc = wgs * nwg
 
             local_memory_req = per_elem_max_local_mem_req * wgs
