@@ -523,6 +523,7 @@ class ParLoopCall(object):
                 # (4/8)ptr bytes for each temporary global reduction buffer passed to the kernel
                 available_local_memory -= len(self._global_reduction_args) * (_queue.device.address_bits / 8)
                 # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
+                available_local_memory -= 7
                 ps = available_local_memory / per_elem_max_local_mem_req
                 wgs = min(_queue.device.max_work_group_size, ps)
             nwg = min(_pref_work_group_count, self._it_space.size / wgs)
@@ -576,7 +577,7 @@ class ParLoopCall(object):
             for a in self._global_non_reduction_args:
                 kernel.append_arg(a._dat._buffer)
 
-            cl.enqueue_nd_range_kernel(_queue, kernel, (int(ttc),), (wgs,), g_times_l=False).wait()
+            cl.enqueue_nd_range_kernel(_queue, kernel, (int(ttc),), (int(wgs),), g_times_l=False).wait()
             for i, a in enumerate(self._global_reduction_args):
                 a._dat._host_reduction(nwg)
         else:
@@ -600,7 +601,12 @@ class ParLoopCall(object):
                 # codegen
                 iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
                 iloop['parloop'] = self
-                iloop['const'] = {'dynamic_shared_memory_size': plan.nshared, 'ninds':plan.ninds, 'partition_size':psize}
+                iloop['const'] = {'dynamic_shared_memory_size': plan.nshared,\
+                                  'ninds':plan.ninds,\
+                                  'block_count': 'dynamic',\
+                                  'threads_per_block': _max_work_group_size,\
+                                  'partition_size':psize,\
+                                  'warpsize': _warpsize}
                 iloop['op2const'] = _op2_constants
                 source = str(iloop)
 
@@ -649,7 +655,7 @@ class ParLoopCall(object):
                 thread_count = threads_per_block * blocks_per_grid
 
                 kernel.set_last_arg(np.int32(block_offset))
-                cl.enqueue_nd_range_kernel(_queue, kernel, (thread_count,), (threads_per_block,), g_times_l=False).wait()
+                cl.enqueue_nd_range_kernel(_queue, kernel, (int(thread_count),), (int(threads_per_block),), g_times_l=False).wait()
                 block_offset += blocks_per_grid
 
             for arg in self._global_reduc_args:
@@ -663,11 +669,35 @@ class ParLoopCall(object):
         assert staged_args
         # will have to fix for vec dat
         #TODO FIX: something weird here
-        # 3 * 4: DAT_via_MAP_indirection_map, DAT_via_MAP_indirection_size, DAT_via_MAP_indirection variable
-        max_bytes = sum(map(lambda a: a._dat.bytes_per_elem, staged_args)) + 3 * 4 * len(self._dat_map_pairs)
-        #? why 64 ?#
+        #available_local_memory
+        available_local_memory = _max_local_memory
+        # 16bytes local mem used for global / local indices and sizes
+        available_local_memory -= 16
+        # (4/8)ptr size per dat passed as argument (dat)
+        available_local_memory -= (_queue.device.address_bits / 8) * (len(self._unique_dats) + len(self._global_non_reduction_args))
+        # (4/8)ptr size per dat/map pair passed as argument (ind_map)
+        available_local_memory -= (_queue.device.address_bits / 8) * len(self._dat_map_pairs)
+        # (4/8)ptr size per global reduction temp array
+        available_local_memory -= (_queue.device.address_bits / 8) * len(self._global_reduc_args)
+        # (4/8)ptr size per indirect arg (loc_map)
+        available_local_memory -= (_queue.device.address_bits / 8) * len(filter(lambda a: not a._is_indirect, self._args))
+        # (4/8)ptr size * 7: for plan objects
+        available_local_memory -= (_queue.device.address_bits / 8) * 7
+        # 1 uint value for block offset
+        available_local_memory -= 4
+        # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
+        available_local_memory -= 7
         # 12: shared_memory_offset, active_thread_count, active_thread_count_ceiling variables (could be 8 or 12 depending)
-        return (_max_local_memory - 12) / (64 * max_bytes) * 64
+        #     and 3 for potential padding after shared mem buffer
+        available_local_memory -= 12 + 3
+        # 2 * (4/8)ptr size + 1uint32: DAT_via_MAP_indirection(./_size/_map) per dat map pairs
+        available_local_memory -= 4 + (_queue.device.address_bits / 8) * 2 * len(self._dat_map_pairs)
+        # inside shared memory padding
+        available_local_memory -= 2 * (len(self._dat_map_pairs) - 1)
+
+        max_bytes = sum(map(lambda a: a._dat.bytes_per_elem, staged_args))
+
+        return available_local_memory / (64 * max_bytes) * 64
 
 #Monkey patch pyopencl.Kernel for convenience
 _original_clKernel = cl.Kernel
