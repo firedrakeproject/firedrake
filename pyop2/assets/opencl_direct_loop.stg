@@ -19,6 +19,7 @@ __constant $cst._cl_type$ $cst._name$ $if(cst._is_scalar)$ = $cst._cl_value$$els
 
 kernel_stub()::=<<
 __kernel
+ __attribute__((reqd_work_group_size($const.threads_per_block$, 1, 1)))
 void $parloop._kernel._name$_stub (
   $parloop._unique_dats:{__global $it._cl_type$* $it._name$};separator=",\n"$$if(parloop._global_reduction_args)$,$endif$
   $parloop._global_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$_reduction_array};separator=",\n"$$if(parloop._global_non_reduction_args)$,$endif$
