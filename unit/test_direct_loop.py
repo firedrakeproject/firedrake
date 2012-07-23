@@ -36,7 +36,7 @@ import numpy
 
 from pyop2 import op2
 
-backends = ['sequential']
+backends = ['sequential', 'opencl']
 
 #max...
 nelems = 92681
@@ -59,14 +59,16 @@ class TestDirectLoop:
         return op2.Dat(elems(),  2, [xarray(), xarray()], numpy.uint32, "x")
 
     def pytest_funcarg__g(cls, request):
-        return op2.Global(1, 0, numpy.uint32, "natural_sum")
+        return op2.Global(1, 0, numpy.uint32, "g")
+
+    def pytest_funcarg__h(cls, request):
+        return op2.Global(1, 1, numpy.uint32, "h")
 
     def pytest_funcarg__soa(cls, request):
         return op2.Dat(elems(), 2, [xarray(), xarray()], numpy.uint32, "x", soa=True)
 
     def test_wo(self, x, backend):
         kernel_wo = """
-void kernel_wo(unsigned int*);
 void kernel_wo(unsigned int* x) { *x = 42; }
 """
         l = op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), elems(), x(op2.IdentityMap, op2.WRITE))
@@ -74,26 +76,30 @@ void kernel_wo(unsigned int* x) { *x = 42; }
 
     def test_rw(self, x, backend):
         kernel_rw = """
-void kernel_rw(unsigned int*);
 void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }
 """
         l = op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"), elems(), x(op2.IdentityMap, op2.RW))
         assert sum(x.data) == nelems * (nelems + 1) / 2
 
-    def test_global_incl(self, x, g, backend):
+    def test_global_inc(self, x, g, backend):
         kernel_global_inc = """
-void kernel_global_inc(unsigned int*, unsigned int*);
 void kernel_global_inc(unsigned int* x, unsigned int* inc) { (*x) = (*x) + 1; (*inc) += (*x); }
 """
         l = op2.par_loop(op2.Kernel(kernel_global_inc, "kernel_global_inc"), elems(), x(op2.IdentityMap, op2.RW), g(op2.INC))
         assert g.data[0] == nelems * (nelems + 1) / 2
 
-    def test_2d_dat(self, y, backend):
-        kernel_wo = """
-void kernel_wo(unsigned int*);
-void kernel_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }
+    def test_global_read(self, x, h, backend):
+        kernel_global_read = """
+void kernel_global_read(unsigned int* x, unsigned int* h) { (*x) += (*h); }
 """
-        l = op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), elems(), y(op2.IdentityMap, op2.WRITE))
+        op2.par_loop(op2.Kernel(kernel_global_read, "kernel_global_read"), elems(), x(op2.IdentityMap, op2.RW), h(op2.READ))
+        assert sum(x.data) == nelems * (nelems + 1) / 2
+
+    def test_2d_dat(self, y, backend):
+        kernel_2d_wo = """
+void kernel_2d_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }
+"""
+        l = op2.par_loop(op2.Kernel(kernel_2d_wo, "kernel_2d_wo"), elems(), y(op2.IdentityMap, op2.WRITE))
         assert all(map(lambda x: all(x==[42,43]), y.data))
 
     def test_2d_dat_soa(self, soa, backend):
