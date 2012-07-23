@@ -1,9 +1,36 @@
 """
+Auto-parametrization of test cases
+==================================
+
 Passing the parameter 'backend' to any test case will auto-parametrise
 that test case for all selected backends. By default all backends from
-the backends dict in the backends module are selected. The default can
-be overridden by passing the --backend parameter (can be passed
-multiple times). Tests are grouped per backend on a per-module basis.
+the backends dict in the backends module are selected. Backends for
+which the dependencies are not installed are thereby automatically
+skipped. Tests execution is grouped per backend on a per-module basis
+i.e. op2.init() and op2.exit() for a backend are only called once per
+module.
+
+Selecting for which backend to run
+==================================
+
+The default backends can be overridden by passing the
+`--backend=<string>` parameter on test invocation. Passing it multiple
+times runs the tests for all the given backends.
+
+Backend-specific test cases
+===========================
+
+Not passing the parameter 'backend' to a test case will cause it to
+only run once for the backend that is currently initialized. It's best
+to group backend-specific test cases in a separate module and not use
+the 'backend' parameter for any of them, but instead use module level
+setup and teardown methods:
+
+    def setup_module(module):
+        op2.init(backend='sequential', diags=0)
+
+    def teardown_module(module):
+        op2.exit()
 """
 
 from pyop2 import op2
