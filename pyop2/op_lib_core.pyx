@@ -211,8 +211,11 @@ cdef class op_sparsity:
         self._handle = core.op_decl_sparsity_core(rmap._handle,
                                                   cmap._handle, name)
 
+cdef public struct op_mat_holder:
+    core.op_mat _handle
+
 cdef class op_mat:
-    cdef core.op_mat _handle
+    cdef op_mat_holder _handle
     def __cinit__(self, mat):
         """Instantiate a C-level op_mat from MAT"""
         cdef op_sparsity sparsity = mat._sparsity._lib_handle
@@ -220,7 +223,7 @@ cdef class op_mat:
         cdef char * type = mat._datatype.name
         cdef int size = mat._datatype.itemsize
         cdef char * name = mat._name
-        self._handle = core.op_decl_mat(sparsity._handle, dim, type, size, name)
+        self._handle._handle = core.op_decl_mat(sparsity._handle, dim, type, size, name)
 
 cdef class op_arg:
     cdef core.op_arg _handle
