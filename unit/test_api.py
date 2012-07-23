@@ -13,9 +13,6 @@ def pytest_funcarg__iterset(request):
 def pytest_funcarg__dataset(request):
     return op2.Set(3, 'dataset')
 
-def teardown_module(module):
-    op2.exit()
-
 class TestUserAPI:
     """
     User API Unit Tests
@@ -30,7 +27,6 @@ class TestUserAPI:
 
     def test_init(self, backend):
         "init should correctly set the backend."
-        op2.init(backend)
         assert op2.backends.get_backend() == 'pyop2.'+backend
 
     def test_double_init(self, backend):
