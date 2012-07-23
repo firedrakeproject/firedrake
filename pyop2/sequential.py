@@ -322,6 +322,7 @@ class Mat(DataCarrier):
     _arg_type = Arg
 
     @validate_type(('sparsity', Sparsity, SparsityTypeError), \
+                   ('dim', int, TypeError), \
                    ('name', str, NameTypeError))
     def __init__(self, sparsity, dim, dtype=None, name=None):
         self._sparsity = sparsity
