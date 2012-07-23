@@ -78,7 +78,7 @@ def pytest_funcarg__h5file(request):
 
 def pytest_funcarg__sparsity(request):
     s = op2.Set(2)
-    m = op2.Map(s, s, 1, [1, 2])
+    m = op2.Map(s, s, 1, [0, 1])
     return op2.Sparsity(m, m, 1)
 
 def teardown_module(module):
