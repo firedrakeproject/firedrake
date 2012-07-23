@@ -37,7 +37,6 @@ import sequential
 import void
 
 backends['sequential'] = sequential
-backends['void'] = void
 
 class BackendSelector(type):
     """Metaclass creating the backend class corresponding to the requested
