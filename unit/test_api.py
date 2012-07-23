@@ -291,16 +291,17 @@ class TestMatAPI:
         with pytest.raises(sequential.NameTypeError):
             op2.Mat(sparsity, 1, name=2)
 
-# FIXME: Uncomment when dim tuples are supported
-#    def test_mat_dim(self, set, backend):
-#        "Mat constructor should create a dim tuple."
-#        m = op2.Mat((set,set), 1)
-#        assert m.dim == (1,)
-#
-#    def test_mat_dim_list(self, set, backend):
-#        "Mat constructor should create a dim tuple from a list."
-#        m = op2.Mat((set,set), [2,3])
-#        assert m.dim == (2,3)
+    @pytest.mark.xfail
+    def test_mat_dim(self, set, backend):
+        "Mat constructor should create a dim tuple."
+        m = op2.Mat((set,set), 1)
+        assert m.dim == (1,)
+
+    @pytest.mark.xfail
+    def test_mat_dim_list(self, set, backend):
+        "Mat constructor should create a dim tuple from a list."
+        m = op2.Mat((set,set), [2,3])
+        assert m.dim == (2,3)
 
     def test_mat_dtype(self, sparsity, backend):
         "Default data type should be numpy.float64."
