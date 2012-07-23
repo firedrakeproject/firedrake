@@ -99,6 +99,10 @@ class Arg(op2.Arg):
 
     """ generic. """
     @property
+    def _is_vec_map(self):
+        return self._is_indirect and self._idx == None
+
+    @property
     def _is_global_reduction(self):
         return isinstance(self._dat, Global) and self._access in [INC, MIN, MAX]
 
@@ -138,6 +142,11 @@ class Arg(op2.Arg):
     @property
     def _d_is_staged(self):
         return self._is_direct and not self._dat._is_scalar
+
+    @property
+    def _i_gen_vec(self):
+        assert self._is_vec_map
+        return map(lambda i: Arg(self._dat, self._map, i, self._access), range(self._map._dim))
 
 
 class DeviceDataMixin:
@@ -428,7 +437,15 @@ class ParLoopCall(object):
     def __init__(self, kernel, it_space, *args):
         self._kernel = kernel
         self._it_space = it_space
-        self._args = list(args)
+        self._actual_args = list(args)
+
+        self._args = list()
+        for a in self._actual_args:
+            if a._is_vec_map:
+                for i in range(a._map._dim):
+                    self._args.append(Arg(a._dat, a._map, i, a._access))
+            else:
+                self._args.append(a)
 
     """ generic. """
     @property
@@ -493,6 +510,11 @@ class ParLoopCall(object):
         return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_indirect, self._args)))
 
     @property
+    def _vec_dat_map_pairs(self):
+        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_vec_map, self._actual_args)))
+
+
+    @property
     def _read_dat_map_pairs(self):
         return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_indirect and a._access in [READ, RW], self._args)))
 
@@ -525,7 +547,7 @@ class ParLoopCall(object):
                 # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
                 available_local_memory -= 7
                 ps = available_local_memory / per_elem_max_local_mem_req
-                wgs = min(_queue.device.max_work_group_size, ps)
+                wgs = min(_queue.device.max_work_group_size, (ps / 32) * 32)
             nwg = min(_pref_work_group_count, self._it_space.size / wgs)
             ttc = wgs * nwg
 
@@ -561,7 +583,7 @@ class ParLoopCall(object):
                     f.write(source)
                     f.close
 
-                prg = cl.Program (_ctx, source).build(options="-Werror -cl-opt-disable")
+                prg = cl.Program (_ctx, source).build(options="-Werror")
                 # cache in the generated code
                 _gen_code_cache.cache_code(self._kernel, (source, prg))
 
@@ -586,9 +608,11 @@ class ParLoopCall(object):
 
             if not source:
                 inst = []
-                for i, arg in enumerate(self._args):
+                for i, arg in enumerate(self._actual_args):
                     if arg._map == IdentityMap:
                         inst.append(("__global", None))
+                    elif arg._is_vec_map:
+                        inst.append(("__local", None))
                     elif isinstance(arg._dat, Dat) and arg._access not in [INC, MIN, MAX]:
                         inst.append(("__local", None))
                     elif arg._is_global and not arg._is_global_reduction:
@@ -616,7 +640,7 @@ class ParLoopCall(object):
                     f.write(source)
                     f.close
 
-                prg = cl.Program(_ctx, source).build(options="-Werror -cl-opt-disable")
+                prg = cl.Program(_ctx, source).build(options="-Werror")
 
                 # cache in the generated code
                 _gen_code_cache.cache_code(self._kernel, (source, prg))
@@ -696,7 +720,7 @@ class ParLoopCall(object):
         available_local_memory -= 2 * (len(self._dat_map_pairs) - 1)
 
         max_bytes = sum(map(lambda a: a._dat.bytes_per_elem, staged_args))
-
+        # why the hell round up to 64 ?
         return available_local_memory / (64 * max_bytes) * 64
 
 #Monkey patch pyopencl.Kernel for convenience
@@ -724,7 +748,7 @@ def par_loop(kernel, it_space, *args):
 
 _op2_constants = dict()
 _debug = False
-_kernel_dump = False
+_kernel_dump = True
 _ctx = cl.create_some_context()
 _queue = cl.CommandQueue(_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
 # ok for cpu, but is it for GPU ?

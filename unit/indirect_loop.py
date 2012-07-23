@@ -202,6 +202,40 @@ void kernel_mul_ind(
         self.assertEqual(g.data[0], n * (n + 1) / 2)
         self.assertEqual(g.data[1], n * (n + 1) / 2)
 
+    def test_vector_map(self):
+        """Test read access on non scalar dat vector map."""
+        n = nelems if (nelems % 4) == 0 else (nelems - (nelems % 4))
+
+        iterset = op2.Set(n / 4, "iterset")
+        indset = op2.Set(n / 2, "indeset")
+
+        a = op2.Dat(iterset, 1, numpy.zeros(iterset.size, dtype=numpy.uint32), numpy.uint32, "a")
+        x = op2.Dat(indset, 2, numpy.array(range(1, 2 * indset.size + 1), dtype=numpy.uint32), numpy.uint32, "x")
+
+        g = op2.Global(1, 0, numpy.uint32, "g")
+
+        iterset2indset = op2.Map(iterset, indset, 2, _shuffle(numpy.array(range(indset.size), dtype=numpy.uint32)), "iterset2indset")
+
+        kernel_vector_map = """
+void kernel_vector_map(
+  unsigned int* a,
+  unsigned int* x[2],
+  unsigned int* g)
+{
+  unsigned int t = x[0][0] + x[0][1] + x[1][0] + x[1][1];
+  *a = t;
+  *g += t;
+}
+"""
+
+        op2.par_loop(op2.Kernel(kernel_vector_map , "kernel_vector_map"), iterset,\
+                     a(op2.IdentityMap, op2.WRITE),\
+                     x(iterset2indset, op2.READ),\
+                     g(op2.INC))
+
+        self.assertEqual(sum(a.data), n * (n + 1) / 2)
+        self.assertEqual(g.data[0], n * (n + 1) / 2)
+
 def _shuffle(arr):
     numpy.random.shuffle(arr)
     return arr
