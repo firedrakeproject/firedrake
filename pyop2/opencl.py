@@ -470,11 +470,6 @@ class ParLoopCall(object):
         #TODO FIX: return Dat to avoid duplicates
         return _del_dup_keep_order(filter(lambda a: a._is_indirect and a._access in [INC, MIN, MAX], self._args))
 
-    @property
-    def _global_reduc_args(self):
-        warnings.warn('deprecated: duplicate of ParLoopCall._global_reduction_args')
-        return _del_dup_keep_order(filter(lambda a: a._is_global_reduction, self._args))
-
     """ code generation specific """
     """ a lot of this can rewriten properly """
     @property
@@ -669,7 +664,7 @@ class ParLoopCall(object):
             for i in range(plan.nuinds):
                 kernel.append_arg(plan._loc_map_buffers[i])
 
-            for arg in self._global_reduc_args:
+            for arg in self._global_reduction_args:
                 arg._dat._allocate_reduction_array(plan.nblocks)
                 kernel.append_arg(arg._dat._d_reduc_buffer)
 
@@ -691,7 +686,7 @@ class ParLoopCall(object):
                 cl.enqueue_nd_range_kernel(_queue, kernel, (int(thread_count),), (int(threads_per_block),), g_times_l=False).wait()
                 block_offset += blocks_per_grid
 
-            for arg in self._global_reduc_args:
+            for arg in self._global_reduction_args:
                 arg._dat._host_reduction(plan.nblocks)
 
     def is_direct(self):
@@ -712,7 +707,7 @@ class ParLoopCall(object):
         # (4/8)ptr size per dat/map pair passed as argument (ind_map)
         available_local_memory -= (_queue.device.address_bits / 8) * len(self._dat_map_pairs)
         # (4/8)ptr size per global reduction temp array
-        available_local_memory -= (_queue.device.address_bits / 8) * len(self._global_reduc_args)
+        available_local_memory -= (_queue.device.address_bits / 8) * len(self._global_reduction_args)
         # (4/8)ptr size per indirect arg (loc_map)
         available_local_memory -= (_queue.device.address_bits / 8) * len(filter(lambda a: not a._is_indirect, self._args))
         # (4/8)ptr size * 7: for plan objects

@@ -2,7 +2,7 @@ group opencl_indirect;
 
 indirect_loop(parloop,const,op2const)::=<<
 $header()$
-$parloop._global_reduc_args:{$reduction_kernel()$};separator="\n"$
+$parloop._global_reduction_args:{$reduction_kernel()$};separator="\n"$
 
 $if(op2const.keys)$
 /* op2 const declarations */
@@ -25,7 +25,7 @@ void $parloop._kernel._name$_stub(
   $parloop._global_non_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$,};separator="\n"$
   $parloop._dat_map_pairs:{__global int* $shared_indirection_mapping_arg_name()$,};separator="\n"$
   $parloop._args:{$if(it._is_indirect)$__global short* $mappingarrayname()$,$endif$};separator="\n"$
-  $parloop._global_reduc_args:{__global $it._dat._cl_type$* $global_reduc_device_array_name()$,};separator="\n"$
+  $parloop._global_reduction_args:{__global $it._dat._cl_type$* $global_reduc_device_array_name()$,};separator="\n"$
   __global int* p_ind_sizes,
   __global int* p_ind_offsets,
   __global int* p_blk_map,
@@ -56,9 +56,9 @@ $if(parloop._indirect_reduc_args)$
   $parloop._indirect_reduc_args:{$it._dat._cl_type$ $reduc_arg_local_name()$[$it._dat._dim$];};separator="\n"$
 $endif$
 
-$if(parloop._global_reduc_args)$
+$if(parloop._global_reduction_args)$
   // global reduction local declarations
-  $parloop._global_reduc_args:{$it._dat._cl_type$ $global_reduc_local_name()$[$it._dat._dim$];};separator="\n"$
+  $parloop._global_reduction_args:{$it._dat._cl_type$ $global_reduc_local_name()$[$it._dat._dim$];};separator="\n"$
 $endif$
 
   // shared indirection mappings
@@ -101,9 +101,9 @@ $if(parloop._indirect_reduc_dat_map_pairs)$
   barrier(CLK_LOCAL_MEM_FENCE);
 $endif$
 
-$if(parloop._global_reduc_args)$
+$if(parloop._global_reduction_args)$
   // zeroing private memory for global reduction
-  $parloop._global_reduc_args:{$global_reduction_local_zeroing()$};separator="\n"$
+  $parloop._global_reduction_args:{$global_reduction_local_zeroing()$};separator="\n"$
 $endif$
 
 $if(parloop._indirect_reduc_args)$
@@ -141,10 +141,10 @@ $if(parloop._written_dat_map_pairs)$
   barrier(CLK_LOCAL_MEM_FENCE);
   $parloop._written_dat_map_pairs:{$stagingout()$};separator="\n"$
 $endif$
-$if(parloop._global_reduc_args)$
+$if(parloop._global_reduction_args)$
   barrier(CLK_LOCAL_MEM_FENCE);
   // on device global reductions
-  $parloop._global_reduc_args:{$on_device_global_reduction()$};separator="\n"$
+  $parloop._global_reduction_args:{$on_device_global_reduction()$};separator="\n"$
 $endif$
 }
 >>
