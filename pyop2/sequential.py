@@ -102,6 +102,15 @@ class Set(object):
         self._lib_handle = core.op_set(self)
         Set._globalcount += 1
 
+    @classmethod
+    def fromhdf5(cls, f, name):
+        slot = f[name]
+        size = slot.value.astype(np.int)
+        shape = slot.shape
+        if shape != (1,):
+            raise SizeTypeError("Shape of %s is incorrect" % name)
+        return cls(size[0], name)
+
     @property
     def size(self):
         """Set size"""
@@ -165,6 +174,21 @@ class Dat(DataCarrier):
             path._dat = self
             path._access = access
             return path
+
+    @classmethod
+    def fromhdf5(cls, dataset, f, name):
+        slot = f[name]
+        data = slot.value
+        dim = slot.shape[1:]
+        soa = slot.attrs['type'].find(':soa') > 0
+        if len(dim) < 1:
+            raise DimTypeError("Invalid dimension value %s" % dim)
+        # We don't pass soa to the constructor, because that
+        # transposes the data, but we've got them from the hdf5 file
+        # which has them in the right shape already.
+        ret = cls(dataset, dim[0], data, name=name)
+        ret._soa = soa
+        return ret
 
     @property
     def dataset(self):
@@ -257,6 +281,15 @@ class Const(DataCarrier):
         Const._globalcount += 1
         Const._defs.add(self)
 
+    @classmethod
+    def fromhdf5(cls, f, name):
+        slot = f[name]
+        dim = slot.shape
+        data = slot.value
+        if len(dim) < 1:
+            raise DimTypeError("Invalid dimension value %s" % dim)
+        return cls(dim, data, name)
+
     @property
     def data(self):
         """Data array."""
@@ -340,6 +373,15 @@ class Map(object):
         if not 0 <= index < self._dim:
             raise IndexValueError("Index must be in interval [0,%d]" % (self._dim-1))
         return self._arg_type(map=self, idx=index)
+
+    @classmethod
+    def fromhdf5(cls, iterset, dataset, f, name):
+        slot = f[name]
+        values = slot.value
+        dim = slot.shape[1:]
+        if len(dim) != 1:
+            raise DimTypeError("Unrecognised dimension value %s" % dim)
+        return cls(iterset, dataset, dim[0], values, name)
 
     @property
     def iterset(self):
