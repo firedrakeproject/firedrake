@@ -749,7 +749,7 @@ def par_loop(kernel, it_space, *args):
 
 _op2_constants = dict()
 _debug = False
-_kernel_dump = True
+_kernel_dump = False
 _ctx = cl.create_some_context()
 _queue = cl.CommandQueue(_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
 # ok for cpu, but is it for GPU ?
