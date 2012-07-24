@@ -108,23 +108,23 @@ $else$
 SOMETHING WENT SOUTH;
 $endif$>>
 
-stagein(arg)::=<<
-// $arg._dat._name$
-for (i_2 = 0; i_2 < $arg._dat._dim$; ++i_2) {
-  $it._dat._name$_shared[thread_id + i_2 * active_threads_count] = $arg._dat._name$[thread_id + i_2 * active_threads_count + local_offset * $arg._dat._dim$];
+stagein()::=<<
+// $it._dat._name$
+for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2) {
+  $it._dat._name$_shared[thread_id + i_2 * active_threads_count] = $it._dat._name$[thread_id + i_2 * active_threads_count + local_offset * $it._dat._dim$];
 }
-for (i_2 = 0; i_2 < $arg._dat._dim$; ++i_2) {
-  $arg._dat._name$_local[i_2] = $it._dat._name$_shared[i_2 + thread_id * $arg._dat._dim$];
+for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2) {
+  $it._dat._name$_local[i_2] = $it._dat._name$_shared[i_2 + thread_id * $it._dat._dim$];
 }
 >>
 
-stageout(arg)::=<<
-// $arg._dat._name$
-for (i_2 = 0; i_2 < $arg._dat._dim$; ++i_2) {
-  $it._dat._name$_shared[i_2 + thread_id * $arg._dat._dim$] = $arg._dat._name$_local[i_2];
+stageout()::=<<
+// $it._dat._name$
+for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2) {
+  $it._dat._name$_shared[i_2 + thread_id * $it._dat._dim$] = $it._dat._name$_local[i_2];
 }
-for (i_2 = 0; i_2 < $arg._dat._dim$; ++i_2) {
-  $arg._dat._name$[thread_id + i_2 * active_threads_count + local_offset * $arg._dat._dim$] = $it._dat._name$_shared[thread_id + i_2 * active_threads_count];
+for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2) {
+  $it._dat._name$[thread_id + i_2 * active_threads_count + local_offset * $it._dat._dim$] = $it._dat._name$_shared[thread_id + i_2 * active_threads_count];
 }
 >>
 
