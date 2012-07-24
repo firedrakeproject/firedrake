@@ -17,8 +17,8 @@ class DeviceDataMixin:
         return self._data
 
 class Dat(op2.Dat, DeviceDataMixin):
-    def __init__(self, dataset, dim, data=None, dtype=None, name=None):
-        op2.Dat.__init__(self, dataset, dim, data, dtype, name)
+    def __init__(self, dataset, dim, data=None, dtype=None, name=None, soa=None):
+        op2.Dat.__init__(self, dataset, dim, data, dtype, name, soa)
         self._on_device = False
 
 class Mat(op2.Mat, DeviceDataMixin):
