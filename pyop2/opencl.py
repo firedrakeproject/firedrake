@@ -535,8 +535,8 @@ class ParLoopCall(object):
             if per_elem_max_local_mem_req == 0:
                 wgs = _queue.device.max_work_group_size
             else:
-                #
-                available_local_memory = _queue.device.local_mem_size
+                warnings.warn('temporary fix to available local memory computation (-512)')
+                available_local_memory = _queue.device.local_mem_size - 512
                 # 16bytes local mem used for global / local indices and sizes
                 available_local_memory -= 16
                 # (4/8)ptr bytes for each dat buffer passed to the kernel
@@ -694,7 +694,8 @@ class ParLoopCall(object):
         # will have to fix for vec dat
         #TODO FIX: something weird here
         #available_local_memory
-        available_local_memory = _max_local_memory
+        warnings.warn('temporary fix to available local memory computation (-512)')
+        available_local_memory = _max_local_memory - 512
         # 16bytes local mem used for global / local indices and sizes
         available_local_memory -= 16
         # (4/8)ptr size per dat passed as argument (dat)
