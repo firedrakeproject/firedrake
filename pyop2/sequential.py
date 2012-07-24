@@ -38,6 +38,7 @@ import numpy as np
 from exceptions import *
 from utils import *
 import op_lib_core as core
+from pyop2.utils import OP2_INC, OP2_LIB
 
 # Data API
 
@@ -720,9 +721,12 @@ def par_loop(kernel, it_space, *args):
                         'data' : c_ind_data(arg, i)} )
         return ";\n".join(val)
 
-#    def c_addto(arg):
-#        mat_arg = arg.data._lib_handle
-#        return "op_mat_addto_scalar(%s, %s, %s, %s)" % ()
+    def c_addto(arg):
+        name = c_arg_name(arg)
+        mat_arg = "get_mat_from_pyobj((void*)_%s)" % name
+        # FIXME: need to compute correct row and col
+        p_data = 'p_%s' % name
+        return "addto_scalar(%s, %s, %s, %s)" % (mat_arg, p_data,'i_0','i_1')
 
     def itspace_loop(i, d):
         return "for (int i_%d=0; i_%d<%d; ++i_%d){" % (i, i, d, i)
@@ -754,8 +758,7 @@ def par_loop(kernel, it_space, *args):
     _itspace_loops = '\n'.join([itspace_loop(i,e) for i, e in zip(range(len(it_space.extents)), it_space.extents)])
     _itspace_loop_close = '}'*len(it_space.extents)
 
-    _addtos = ''
-    #_addtos = ';\n'.join([c_addto(arg) for arg in args if arg._is_mat])
+    _addtos = ';\n'.join([c_addto(arg) for arg in args if arg._is_mat])
 
     wrapper = """
     void wrap_%(kernel_name)s__(%(wrapper_args)s) {
@@ -765,7 +768,7 @@ def par_loop(kernel, it_space, *args):
             %(vec_inits)s;
             %(itspace_loops)s
             %(kernel_name)s(%(kernel_args)s);
-            //%(addtos)s;
+            %(addtos)s;
             %(itspace_loop_close)s
         }
     }"""
@@ -793,12 +796,16 @@ def par_loop(kernel, it_space, *args):
                       'addtos' : _addtos }
 
     _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel._code,
-                             additional_definitions = _const_decs + kernel._code)
+                             additional_definitions = _const_decs + kernel._code,
+                             include_dirs=[OP2_INC],
+                             source_directory='pyop2',
+                             wrap_headers=["mat_utils.h"],
+                             sources=["mat_utils.cxx"])
 
     _args = []
     for arg in args:
         if arg._is_mat:
-            _args.append(arg.data)
+            _args.append(arg.data._lib_handle)
         else:
             _args.append(arg.data.data)
 

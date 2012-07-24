@@ -35,6 +35,8 @@
 
 from __future__ import division
 
+import os
+import sys
 import numpy as np
 
 from exceptions import DataTypeError, DataValueError
@@ -171,3 +173,14 @@ def uniquify(iterable):
     """Remove duplicates in ITERABLE but preserve order."""
     uniq = set()
     return [x for x in iterable if x not in uniq and (uniq.add(x) or True)]
+
+try:
+    OP2_DIR = os.environ['OP2_DIR']
+except KeyError:
+    sys.exit("""Error: Could not find OP2 library.
+
+Set the environment variable OP2_DIR to point to the op2 subdirectory
+of your OP2 source tree""")
+
+OP2_INC = OP2_DIR + '/c/include'
+OP2_LIB = OP2_DIR + '/c/lib'

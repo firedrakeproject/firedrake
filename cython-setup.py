@@ -33,23 +33,11 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-import sys
-
 from distutils.core import setup
 from Cython.Distutils import build_ext, Extension
+from pyop2.utils import OP2_INC, OP2_LIB
 import numpy as np
 
-try:
-    OP2_DIR = os.environ['OP2_DIR']
-except KeyError:
-    sys.exit("""Error: Could not find OP2 library.
-
-Set the environment variable OP2_DIR to point to the op2 subdirectory
-of your OP2 source tree""")
-
-OP2_INC = OP2_DIR + '/c/include'
-OP2_LIB = OP2_DIR + '/c/lib'
 setup(name='PyOP2',
       version='0.1',
       description='Python interface to OP2',
