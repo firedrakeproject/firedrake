@@ -111,6 +111,10 @@ class Arg(op2.Arg):
         return isinstance(self._dat, Global)
 
     @property
+    def _is_reduction(self):
+        return self._access in [INC, MIN, MAX]
+
+    @property
     def _is_INC(self):
         return self._access == INC
 
@@ -510,9 +514,12 @@ class ParLoopCall(object):
         return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_indirect, self._args)))
 
     @property
-    def _vec_dat_map_pairs(self):
-        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_vec_map, self._actual_args)))
+    def _nonreduc_vec_dat_map_pairs(self):
+        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_vec_map and a._access not in [INC, MIN, MAX], self._actual_args)))
 
+    @property
+    def _reduc_vec_dat_map_pairs(self):
+        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_vec_map and a._access in [INC, MIN, MAX], self._actual_args)))
 
     @property
     def _read_dat_map_pairs(self):
@@ -611,7 +618,9 @@ class ParLoopCall(object):
                 for i, arg in enumerate(self._actual_args):
                     if arg._map == IdentityMap:
                         inst.append(("__global", None))
-                    elif arg._is_vec_map:
+                    elif arg._is_vec_map and arg._is_reduction:
+                        inst.append(("__private", None))
+                    elif arg._is_vec_map and not arg._is_reduction:
                         inst.append(("__local", None))
                     elif isinstance(arg._dat, Dat) and arg._access not in [INC, MIN, MAX]:
                         inst.append(("__local", None))

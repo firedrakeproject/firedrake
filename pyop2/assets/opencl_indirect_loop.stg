@@ -67,8 +67,8 @@ $endif$
   $parloop._dat_map_pairs:{__local $it._dat._cl_type$* __local $shared_indirection_mapping_memory_name()$;};separator="\n"$
   $parloop._dat_map_pairs:{const int $shared_indirection_mapping_idx_name()$ = $i0$;};separator="\n"$
 
-  // local vector (vec maps)
-  $parloop._vec_dat_map_pairs:{__local $it._dat._cl_type$* $dat_vec_name()$[$it._map._dim$];};separator="\n"$
+  $parloop._nonreduc_vec_dat_map_pairs:{__local $it._dat._cl_type$* $dat_vec_name()$[$it._map._dim$];};separator="\n"$
+  $parloop._reduc_vec_dat_map_pairs:{$it._dat._cl_type$* $dat_vec_name()$[$it._map._dim$];};separator="\n"$
 
   if (get_local_id(0) == 0)
   {
@@ -167,7 +167,7 @@ kernel_call_arg()::=<<$if(it._is_direct)$(__global $it._dat._cl_type$* __private
 
 populate_vec_map()::=<<
 // populate vec map
-$if()$
+$if(it._is_reduction)$
 $it._i_gen_vec:{$dat_vec_name()$[$it._idx$] = $reduc_arg_local_name()$;};separator="\n"$
 $else$
 $it._i_gen_vec:{$dat_vec_name()$[$it._idx$] = &$shared_indirection_mapping_memory_name()$[$mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$];};separator="\n"$
