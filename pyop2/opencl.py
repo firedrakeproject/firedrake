@@ -9,8 +9,8 @@ class DeviceDataMixin:
         return self._data
 
 class Dat(op2.Dat, DeviceDataMixin):
-    def __init__(self, dataset, dim, data=None, dtype=None, name=None):
-        op2.Dat.__init__(self, dataset, dim, data, dtype, name)
+    def __init__(self, dataset, dim, data=None, dtype=None, name=None, soa=None):
+        op2.Dat.__init__(self, dataset, dim, data, dtype, name, soa)
 
 class Mat(op2.Mat, DeviceDataMixin):
     def __init__(self, datasets, dim, dtype=None, name=None):

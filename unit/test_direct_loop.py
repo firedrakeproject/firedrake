@@ -33,6 +33,9 @@ class TestDirectLoop:
     def pytest_funcarg__g(cls, request):
         return op2.Global(1, 0, numpy.uint32, "natural_sum")
 
+    def pytest_funcarg__soa(cls, request):
+        return op2.Dat(elems(), 2, [xarray(), xarray()], numpy.uint32, "x", soa=True)
+
     def test_wo(self, x):
         kernel_wo = """
 void kernel_wo(unsigned int*);
@@ -64,6 +67,13 @@ void kernel_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }
 """
         l = op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), elems(), y(op2.IdentityMap, op2.WRITE))
         assert all(map(lambda x: all(x==[42,43]), y.data))
+
+    def test_2d_dat_soa(self, soa):
+        kernel_soa = """
+void kernel_soa(unsigned int * x) { OP2_STRIDE(x, 0) = 42; OP2_STRIDE(x, 1) = 43; }
+"""
+        l = op2.par_loop(op2.Kernel(kernel_soa, "kernel_soa"), elems(), soa(op2.IdentityMap, op2.WRITE))
+        assert all(soa.data[0] == 42) and all(soa.data[1] == 43)
 
 if __name__ == '__main__':
     import os

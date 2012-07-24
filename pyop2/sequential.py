@@ -81,6 +81,9 @@ class Arg(object):
         """Access descriptor."""
         return self._access
 
+    def is_soa(self):
+        return isinstance(self._dat, Dat) and self._dat.soa
+
     def is_indirect(self):
         return self._map is not None and self._map is not IdentityMap and not isinstance(self._dat, Global)
 
@@ -141,10 +144,15 @@ class Dat(DataCarrier):
     _arg_type = Arg
 
     @validate_type(('dataset', Set, SetTypeError), ('name', str, NameTypeError))
-    def __init__(self, dataset, dim, data=None, dtype=None, name=None):
+    def __init__(self, dataset, dim, data=None, dtype=None, name=None, soa=None):
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
         self._data = verify_reshape(data, dtype, (dataset.size,)+self._dim, allow_none=True)
+        # Are these data in SoA format, rather than standard AoS?
+        self._soa = bool(soa)
+        # Make data "look" right
+        if self._soa:
+            self._data = self._data.T
         self._name = name or "dat_%d" % Dat._globalcount
         self._lib_handle = core.op_dat(self)
         Dat._globalcount += 1
@@ -162,6 +170,11 @@ class Dat(DataCarrier):
     def dataset(self):
         """Set on which the Dat is defined."""
         return self._dataset
+
+    @property
+    def soa(self):
+        """Are the data in SoA format?"""
+        return self._soa
 
     @property
     def data(self):
@@ -527,6 +540,17 @@ def par_loop(kernel, it_space, *args):
         }
     }"""
 
+    if any(arg.is_soa() for arg in args):
+        kernel_code = """
+        #define OP2_STRIDE(a, idx) a[idx]
+        %(code)s
+        #undef OP2_STRIDE
+        """ % {'code' : kernel._code}
+    else:
+        kernel_code = """
+        %(code)s
+        """ % {'code' : kernel._code }
+
     code_to_compile =  wrapper % { 'kernel_name' : kernel._name,
                       'wrapper_args' : _wrapper_args,
                       'wrapper_decs' : _wrapper_decs,
@@ -534,8 +558,8 @@ def par_loop(kernel, it_space, *args):
                       'vec_inits' : _vec_inits,
                       'kernel_args' : _kernel_args }
 
-    _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel._code,
-                             additional_definitions = _const_decs + kernel._code)
+    _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
+                             additional_definitions = _const_decs + kernel_code)
 
     _args = []
     for arg in args:
