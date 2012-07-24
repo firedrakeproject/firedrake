@@ -158,9 +158,14 @@ class DeviceDataMixin:
     """
 
     ClTypeInfo = collections.namedtuple('ClTypeInfo', ['clstring', 'zero'])
-    CL_TYPES = {np.dtype('int16'): ClTypeInfo('short', '0'),
-                np.dtype('uint32'): ClTypeInfo('unsigned int', '0u'),
+    CL_TYPES = {np.dtype('uint8'): ClTypeInfo('uchar', '0'),
+                np.dtype('int8'): ClTypeInfo('char', '0'),
+                np.dtype('uint16'): ClTypeInfo('ushort', '0'),
+                np.dtype('int16'): ClTypeInfo('short', '0'),
+                np.dtype('uint32'): ClTypeInfo('uint', '0u'),
                 np.dtype('int32'): ClTypeInfo('int', '0'),
+                np.dtype('uint64'): ClTypeInfo('ulong', '0ul'),
+                np.dtype('int64'): ClTypeInfo('long', '0l'),
                 np.dtype('float32'): ClTypeInfo('float', '0.0f'),
                 np.dtype('float64'): ClTypeInfo('double', '0.0')}
 
@@ -188,7 +193,7 @@ class Dat(op2.Dat, DeviceDataMixin):
     @property
     def bytes_per_elem(self):
         # FIX: should be moved in DataMixin
-        #FIX: probably not the best way to do... (pad, alg ?)
+        # FIX: probably not the best way to do... (pad, alg ?)
         return self._data.nbytes / self._dataset.size
 
     @property
@@ -221,14 +226,11 @@ class Global(op2.Global, DeviceDataMixin):
     def __init__(self, dim, data, dtype=None, name=None):
         op2.Global.__init__(self, dim, data, dtype, name)
         self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
-        #FIX should be delayed, most of the time (ie, Reduction) Globals do not need
-        # to be loaded in device memory
         cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
     def _allocate_reduction_array(self, nelems):
         self._h_reduc_array = np.zeros ((round_up(nelems * self._data.itemsize),), dtype=self._data.dtype)
         self._d_reduc_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._h_reduc_array.nbytes)
-        #NOTE: the zeroing of the buffer could be made with an opencl kernel call
         cl.enqueue_copy(_queue, self._d_reduc_buffer, self._h_reduc_array, is_blocking=True).wait()
 
     def _host_reduction(self, nelems):
@@ -267,7 +269,6 @@ class OpPlanCache():
         self._cache = dict()
 
     def get_plan(self, parloop, **kargs):
-        #note: ?? is plan cached on the kargs too ?? probably not
         cp = core.op_plan(parloop._kernel, parloop._it_space, *parloop._args, **kargs)
         try:
             plan = self._cache[cp.hsh]
@@ -286,7 +287,6 @@ class GenCodeCache():
     def __init__(self):
         self._cache = dict()
 
-    #FIX: key should be (kernel, iterset, args)
     def get_code(self, kernel):
         try:
             return self._cache[kernel]
@@ -319,8 +319,6 @@ class OpPlan():
         del self._thrcol_buffer
 
     def load(self):
-        # TODO: need to get set_size from op_lib_core for exec_size, in case we extend for MPI
-        # create the indirection description array
         self.nuinds = sum(map(lambda a: a.is_indirect(), self._parloop._args))
         _ind_desc = [-1] * len(self._parloop._args)
         _d = {}
@@ -336,7 +334,6 @@ class OpPlan():
         del _c
         del _d
 
-        # compute offset in ind_map
         _off = [0] * (self._core_plan.ninds + 1)
         for i in range(self._core_plan.ninds):
             _c = 0
@@ -435,7 +432,6 @@ class DatMapPair(object):
     def __eq__(self, other):
         return self.__dict__ == other.__dict__
 
-#FIXME: some of this can probably be factorised up in common
 class ParLoopCall(object):
 
     def __init__(self, kernel, it_space, *args):
@@ -458,7 +454,6 @@ class ParLoopCall(object):
 
     @property
     def _global_non_reduction_args(self):
-        #TODO FIX: return Dat to avoid duplicates
         return _del_dup_keep_order(filter(lambda a: a._is_global and not a._is_global_reduction, self._args))
 
     @property
@@ -467,37 +462,31 @@ class ParLoopCall(object):
 
     @property
     def _indirect_reduc_args(self):
-        #TODO FIX: return Dat to avoid duplicates
         return _del_dup_keep_order(filter(lambda a: a._is_indirect and a._access in [INC, MIN, MAX], self._args))
 
     """ code generation specific """
     """ a lot of this can rewriten properly """
     @property
     def _direct_non_scalar_args(self):
-        # direct loop staged args
         return _del_dup_keep_order(filter(lambda a: a._is_direct and not (a._dat._is_scalar) and a._access in [READ, WRITE, RW], self._args))
 
     @property
     def _direct_non_scalar_read_args(self):
-        # direct loop staged in args
         return _del_dup_keep_order(filter(lambda a: a._is_direct and not (a._dat._is_scalar) and a._access in [READ, RW], self._args))
 
     @property
     def _direct_non_scalar_written_args(self):
-        # direct loop staged out args
         return _del_dup_keep_order(filter(lambda a: a._is_direct and not (a._dat._is_scalar) and a._access in [WRITE, RW], self._args))
 
     def _d_max_dynamic_shared_memory(self):
         """Computes the maximum shared memory requirement per iteration set elements."""
         assert self.is_direct(), "Should only be called on direct loops"
         if self._direct_non_scalar_args:
-            # max for all non global dat: sizeof(dtype) * dim
             staging = max(map(lambda a: a._dat.bytes_per_elem, self._direct_non_scalar_args))
         else:
             staging = 0
 
         if self._global_reduction_args:
-            # max for all global reduction dat: sizeof(dtype) (!! don t need to multiply by dim
             reduction = max(map(lambda a: a._dat._data.itemsize, self._global_reduction_args))
         else:
             reduction = 0
@@ -586,7 +575,6 @@ class ParLoopCall(object):
                     f.close
 
                 prg = cl.Program (_ctx, source).build(options="-Werror")
-                # cache in the generated code
                 _gen_code_cache.cache_code(self._kernel, (source, prg))
 
             kernel = prg.__getattr__(self._kernel._name + '_stub')
@@ -646,7 +634,6 @@ class ParLoopCall(object):
 
                 prg = cl.Program(_ctx, source).build(options="-Werror")
 
-                # cache in the generated code
                 _gen_code_cache.cache_code(self._kernel, (source, prg))
 
 
@@ -756,7 +743,6 @@ _debug = False
 _kernel_dump = False
 _ctx = cl.create_some_context()
 _queue = cl.CommandQueue(_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
-# ok for cpu, but is it for GPU ?
 _pref_work_group_count = _queue.device.max_compute_units
 _max_local_memory = _queue.device.local_mem_size
 _address_bits = _queue.device.address_bits
@@ -774,7 +760,6 @@ elif _queue.device.type == 4:
 if not _has_dpfloat:
     warnings.warn('device does not support double precision floating point computation, expect undefined behavior for double')
 
-#preload string template groups
 _stg_direct_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.StringIO(pkg_resources.resource_string(__name__, "assets/opencl_direct_loop.stg")), lexer="default")
 _stg_indirect_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.StringIO(pkg_resources.resource_string(__name__, "assets/opencl_indirect_loop.stg")), lexer="default")
 
