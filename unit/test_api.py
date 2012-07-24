@@ -161,6 +161,12 @@ class TestUserAPI:
                 d.dtype == np.float64 and d.name == 'bar' and \
                 d.data.sum() == set.size*4
 
+    def test_dat_soa(self, set, backend):
+        "SoA flag should transpose data view"
+        d = op2.Dat(set, 2, range(2 * set.size), dtype=np.int32, soa=True)
+        expect = np.arange(2 * set.size, dtype=np.int32).reshape(2, 5)
+        assert (d.data.shape == expect.shape)
+
     ## Mat unit tests
 
     def test_mat_illegal_sets(self, backend):
