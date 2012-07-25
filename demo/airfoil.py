@@ -28,37 +28,35 @@ op2.init(backend='sequential')
 
 from airfoil_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 
-file = h5py.File('new_grid.h5', 'r')
+with h5py.File('new_grid.h5', 'r') as file:
 
-# Declare sets, maps, datasets and global constants
+    # Declare sets, maps, datasets and global constants
 
-nodes  = op2.Set.fromhdf5(file, "nodes")
-edges  = op2.Set.fromhdf5(file, "edges")
-bedges = op2.Set.fromhdf5(file, "bedges")
-cells  = op2.Set.fromhdf5(file, "cells")
+    nodes  = op2.Set.fromhdf5(file, "nodes")
+    edges  = op2.Set.fromhdf5(file, "edges")
+    bedges = op2.Set.fromhdf5(file, "bedges")
+    cells  = op2.Set.fromhdf5(file, "cells")
 
-pedge   = op2.Map.fromhdf5(edges,  nodes, file, "pedge")
-pecell  = op2.Map.fromhdf5(edges,  cells, file, "pecell")
-pbedge  = op2.Map.fromhdf5(bedges, nodes, file, "pbedge")
-pbecell = op2.Map.fromhdf5(bedges, cells, file, "pbecell")
-pcell   = op2.Map.fromhdf5(cells,  nodes, file, "pcell")
+    pedge   = op2.Map.fromhdf5(edges,  nodes, file, "pedge")
+    pecell  = op2.Map.fromhdf5(edges,  cells, file, "pecell")
+    pbedge  = op2.Map.fromhdf5(bedges, nodes, file, "pbedge")
+    pbecell = op2.Map.fromhdf5(bedges, cells, file, "pbecell")
+    pcell   = op2.Map.fromhdf5(cells,  nodes, file, "pcell")
 
-p_bound = op2.Dat.fromhdf5(bedges, file, "p_bound")
-p_x     = op2.Dat.fromhdf5(nodes,  file, "p_x")
-p_q     = op2.Dat.fromhdf5(cells,  file, "p_q")
-p_qold  = op2.Dat.fromhdf5(cells,  file, "p_qold")
-p_adt   = op2.Dat.fromhdf5(cells,  file, "p_adt")
-p_res   = op2.Dat.fromhdf5(cells,  file, "p_res")
+    p_bound = op2.Dat.fromhdf5(bedges, file, "p_bound")
+    p_x     = op2.Dat.fromhdf5(nodes,  file, "p_x")
+    p_q     = op2.Dat.fromhdf5(cells,  file, "p_q")
+    p_qold  = op2.Dat.fromhdf5(cells,  file, "p_qold")
+    p_adt   = op2.Dat.fromhdf5(cells,  file, "p_adt")
+    p_res   = op2.Dat.fromhdf5(cells,  file, "p_res")
 
-gam   = op2.Const.fromhdf5(file, "gam")
-gm1   = op2.Const.fromhdf5(file, "gm1")
-cfl   = op2.Const.fromhdf5(file, "cfl")
-eps   = op2.Const.fromhdf5(file, "eps")
-mach  = op2.Const.fromhdf5(file, "mach")
-alpha = op2.Const.fromhdf5(file, "alpha")
-qinf  = op2.Const.fromhdf5(file, "qinf")
-
-file.close()
+    gam   = op2.Const.fromhdf5(file, "gam")
+    gm1   = op2.Const.fromhdf5(file, "gm1")
+    cfl   = op2.Const.fromhdf5(file, "cfl")
+    eps   = op2.Const.fromhdf5(file, "eps")
+    mach  = op2.Const.fromhdf5(file, "mach")
+    alpha = op2.Const.fromhdf5(file, "alpha")
+    qinf  = op2.Const.fromhdf5(file, "qinf")
 
 # Main time-marching loop
 
