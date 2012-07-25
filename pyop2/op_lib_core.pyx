@@ -177,6 +177,7 @@ cdef class op_dat:
         cdef op_set set = dat._dataset.c_handle
         cdef int dim = dat._dim[0]
         cdef int size = dat._data.dtype.itemsize
+        cdef char * type = dat.ctype
         cdef np.ndarray data = dat._data
         cdef char * name = dat._name
         cdef char * type
@@ -217,7 +218,7 @@ cdef class op_mat:
         """Instantiate a C-level op_mat from MAT"""
         cdef op_sparsity sparsity = mat._sparsity._lib_handle
         cdef int dim = mat._dim
-        cdef char * type = mat._datatype.name
+        cdef char * type = mat.ctype
         cdef int size = mat._datatype.itemsize
         cdef char * name = mat._name
         self._handle = core.op_decl_mat(sparsity._handle, dim, type, size, name)
@@ -266,13 +267,13 @@ isinstance(arg, Dat)."""
                 idx = -1
                 _map = <core.op_map>NULL
             dim = arg.data._dim[0]
-            type = arg.data.dtype.name
+            type = arg.ctype
             self._handle = core.op_arg_dat_core(_dat._handle, idx, _map,
                                                 dim, type, acc)
         elif gbl:
             dim = arg.data._dim[0]
             size = arg.data._data.size/dim
-            type = arg.data.dtype.name
+            type = arg.ctype
             data = arg.data._data
             self._handle = core.op_arg_gbl_core(<char *>data.data, dim,
                                                 type, size, acc)
