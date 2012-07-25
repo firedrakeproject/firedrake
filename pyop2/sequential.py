@@ -756,6 +756,11 @@ def par_loop(kernel, it_space, *args):
                       typemap[arg.data.dtype.name])
         return ""
 
+    def c_zero_tmp(arg):
+        if arg._is_mat:
+            t = typemap[arg.data.dtype.name]
+            return "*p_%s = (%s)0" % (c_arg_name(arg), t)
+
     if isinstance(it_space, Set):
         it_space = IterationSpace(it_space)
 
@@ -780,6 +785,7 @@ def par_loop(kernel, it_space, *args):
 
     _assembles = ';\n'.join([c_assemble(arg) for arg in args if arg._is_mat])
 
+    _zero_tmps = ';\n'.join([c_zero_tmp(arg) for arg in args if arg._is_mat])
     wrapper = """
     void wrap_%(kernel_name)s__(%(wrapper_args)s) {
         %(wrapper_decs)s;
@@ -787,6 +793,7 @@ def par_loop(kernel, it_space, *args):
         for ( int i = 0; i < %(size)s; i++ ) {
             %(vec_inits)s;
             %(itspace_loops)s
+            %(zero_tmps)s;
             %(kernel_name)s(%(kernel_args)s);
             %(addtos)s;
             %(itspace_loop_close)s
@@ -813,6 +820,7 @@ def par_loop(kernel, it_space, *args):
                       'itspace_loops' : _itspace_loops,
                       'itspace_loop_close' : _itspace_loop_close,
                       'vec_inits' : _vec_inits,
+                      'zero_tmps' : _zero_tmps,
                       'kernel_args' : _kernel_args,
                       'addtos' : _addtos,
                       'assembles' : _assembles}
