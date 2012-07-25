@@ -678,12 +678,19 @@ def par_loop(kernel, it_space, *args):
         return val
 
     def c_wrapper_dec(arg):
-        val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
+        if arg._is_mat:
+            val = "op_mat %(name)s = get_mat_from_pyobj((void*)_%(name)s)" % \
+                 { "name": c_arg_name(arg) }
+        else:
+            val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
               {'name' : c_arg_name(arg), 'type' : c_type(arg)}
         if arg._is_indirect:
             val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" % \
                    {'name' : c_map_name(arg)}
-            if not arg._is_mat and arg._is_vec_map:
+            if arg._is_mat:
+                val += ";\nint *%(name)s2 = (int *)(((PyArrayObject *)_%(name)s2)->data)" % \
+                       {'name' : c_map_name(arg)}
+            elif arg._is_vec_map:
                 val += ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
                        {'type' : c_type(arg),
                         'vec_name' : c_vec_name(arg),
@@ -723,10 +730,16 @@ def par_loop(kernel, it_space, *args):
 
     def c_addto(arg):
         name = c_arg_name(arg)
-        mat_arg = "get_mat_from_pyobj((void*)_%s)" % name
         # FIXME: need to compute correct row and col
         p_data = 'p_%s' % name
-        return "addto_scalar(%s, %s, %s, %s)" % (mat_arg, p_data,'i_0','i_1')
+        idx1 = "%s[i*rows+i_0]" % c_map_name(arg)
+        idx2 = "%s2[i*cols+i_1]" % c_map_name(arg)
+        maps = as_tuple(arg.map, Map)
+        val = ""
+        val += "const int rows = %d;\n" % maps[0]._dim
+        val += "const int cols = %d;\n" % maps[1]._dim
+        val += "addto_scalar(%s, %s, %s, %s)" % (name, p_data,idx1,idx2)
+        return val
 
     def c_assemble(arg):
         name = c_arg_name(arg)
