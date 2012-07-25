@@ -183,8 +183,8 @@ void rhs(double** localTensor, double* c0[2], double* c1[1])
     def _assemble_rhs(self):
         op2.par_loop(self._rhs, self._elements,
                      self._b(self._elem_node, op2.INC),
-                     self._f(self._elem_node, op2.READ),
-                     self._coords(self._elem_node, op2.READ))
+                     self._coords(self._elem_node, op2.READ),
+                     self._f(self._elem_node, op2.READ))
 
     @unittest.expectedFailure
     def test_assemble(self):
