@@ -740,8 +740,7 @@ def par_loop(kernel, it_space, *args):
 
     def c_assemble(arg):
         name = c_arg_name(arg)
-        mat_arg = "get_mat_from_pyobj((void *)_%s)" % name
-        return "assemble_mat(%s)" % mat_arg
+        return "assemble_mat(%s)" % name
 
     def itspace_loop(i, d):
         return "for (int i_%d=0; i_%d<%d; ++i_%d){" % (i, i, d, i)
