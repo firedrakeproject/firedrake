@@ -728,6 +728,11 @@ def par_loop(kernel, it_space, *args):
         p_data = 'p_%s' % name
         return "addto_scalar(%s, %s, %s, %s)" % (mat_arg, p_data,'i_0','i_1')
 
+    def c_assemble(arg):
+        name = c_arg_name(arg)
+        mat_arg = "get_mat_from_pyobj((void *)_%s)" % name
+        return "assemble_mat(%s)" % mat_arg
+
     def itspace_loop(i, d):
         return "for (int i_%d=0; i_%d<%d; ++i_%d){" % (i, i, d, i)
 
@@ -760,6 +765,8 @@ def par_loop(kernel, it_space, *args):
 
     _addtos = ';\n'.join([c_addto(arg) for arg in args if arg._is_mat])
 
+    _assembles = ';\n'.join([c_assemble(arg) for arg in args if arg._is_mat])
+
     wrapper = """
     void wrap_%(kernel_name)s__(%(wrapper_args)s) {
         %(wrapper_decs)s;
@@ -771,6 +778,7 @@ def par_loop(kernel, it_space, *args):
             %(addtos)s;
             %(itspace_loop_close)s
         }
+        %(assembles)s;
     }"""
 
     if any(arg._is_soa for arg in args):
@@ -793,13 +801,16 @@ def par_loop(kernel, it_space, *args):
                       'itspace_loop_close' : _itspace_loop_close,
                       'vec_inits' : _vec_inits,
                       'kernel_args' : _kernel_args,
-                      'addtos' : _addtos }
+                      'addtos' : _addtos,
+                      'assembles' : _assembles}
 
     _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel._code,
                              additional_definitions = _const_decs + kernel._code,
                              include_dirs=[OP2_INC],
                              source_directory='pyop2',
                              wrap_headers=["mat_utils.h"],
+                             library_dirs=[OP2_LIB],
+                             libraries=['op2_seq'],
                              sources=["mat_utils.cxx"])
 
     _args = []
