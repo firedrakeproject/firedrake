@@ -828,7 +828,7 @@ def par_loop(kernel, it_space, *args):
                              wrap_headers=["mat_utils.h"],
                              library_dirs=[OP2_LIB],
                              libraries=['op2_seq'],
-                             sources=["mat_utils.cxx"])
+                             sources=["mat_utils.cxx"],cppargs=['-O0','-g'],modulename=kernel._name)
 
     _args = []
     for arg in args:
@@ -843,3 +843,6 @@ def par_loop(kernel, it_space, *args):
                 _args.append(map.values)
 
     _fun(*_args)
+
+def solve(M, x, b):
+    core.solve(M, x, b)

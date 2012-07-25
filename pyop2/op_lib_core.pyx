@@ -277,6 +277,14 @@ isinstance(arg, Dat)."""
             self._handle = core.op_arg_gbl_core(<char *>data.data, dim,
                                                 type, size, acc)
 
+def solve(A, b, x):
+    cdef op_mat cA
+    cdef op_dat cb, cx
+    cA = A._lib_handle
+    cb = b._lib_handle
+    cx = x._lib_handle
+    core.op_solve(cA._handle, cb._handle, cx._handle)
+
 cdef class op_plan:
     cdef core.op_plan *_handle
     cdef int set_size

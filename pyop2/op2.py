@@ -80,3 +80,7 @@ class Sparsity(sequential.Sparsity):
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel"""
     return backends.par_loop(kernel, it_space, *args)
+
+def solve(M, x, b):
+    """Invocation of an OP2 solve"""
+    return backends.solve(M, x, b)

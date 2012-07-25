@@ -34,9 +34,7 @@ class MatricesTest(unittest.TestCase):
         self._elem_node = op2.Map(self._elements, self._nodes, 3, elem_node_map,
                                   "elem_node")
 
-        # Sparsity(rmaps, cmaps, dims, name)
         sparsity = op2.Sparsity(self._elem_node, self._elem_node, 1, "sparsity")
-        # Mat(sparsity, dims, type, name)
         self._mat = op2.Mat(sparsity, 1, valuetype, "mat")
         self._coords = op2.Dat(self._nodes, 2, coord_vals, valuetype, "coords")
         self._f = op2.Dat(self._nodes, 1, f_vals, valuetype, "f")
@@ -156,11 +154,7 @@ void rhs(double** localTensor, double* c0[2], double* c1[1])
     {
       double ST1 = 0.0;
       ST1 += CG1[i_r_0][i_g] * c_q1[i_g] * (c_q0[i_g][0][0] * c_q0[i_g][1][1] + -1 * c_q0[i_g][0][1] * c_q0[i_g][1][0]);
-#ifdef __CUDACC__
-      op_atomic_add(localTensor[i_r_0], ST1 * w[i_g]);
-#else
       localTensor[i_r_0][0] += ST1 * w[i_g];
-#endif
     };
   };
 }
@@ -186,9 +180,15 @@ void rhs(double** localTensor, double* c0[2], double* c1[1])
                      self._mat((self._elem_node(op2.i(0)), self._elem_node(op2.i(1))), op2.INC),
                      self._coords(self._elem_node, op2.READ))
 
-    #@unittest.expectedFailure
+    def _assemble_rhs(self):
+        op2.par_loop(self._rhs, self._elements,
+                     self._b(self._elem_node, op2.INC),
+                     self._f(self._elem_node, op2.READ),
+                     self._coords(self._elem_node, op2.READ))
+
+    @unittest.expectedFailure
     def test_assemble(self):
-        self._assemble_mass()
+        #self._assemble_mass()
 
         expected_vals = [(0.25, 0.125, 0.0, 0.125),
                          (0.125, 0.291667, 0.0208333, 0.145833),
@@ -202,11 +202,20 @@ void rhs(double** localTensor, double* c0[2], double* c1[1])
     def test_rhs(self):
         # Assemble the RHS here, so if solve fails we know whether the RHS
         # assembly went wrong or something to do with the solve.
+        #self._assemble_rhs()
+        #print self._b.data
         assertTrue(False)
 
     @unittest.expectedFailure
     def test_solve(self):
         # Assemble matrix and RHS and solve.
+        self._assemble_mass()
+        self._assemble_rhs()
+        print "RHS:"
+        print self._b.data
+        op2.solve(self._mat, self._b, self._x)
+        print "solution: "
+        print self._x.data
         assertTrue(False)
 
 suite = unittest.TestLoader().loadTestsFromTestCase(MatricesTest)
