@@ -295,6 +295,10 @@ class Const(DataCarrier):
         """Data array."""
         return self._data
 
+    @data.setter
+    def data(self, value):
+        self._data = verify_reshape(value, self.dtype, self.dim)
+
     def __str__(self):
         return "OP2 Const: %s of dim %s and type %s with value %s" \
                % (self._name, self._dim, self._data.dtype.name, self._data)
@@ -350,6 +354,10 @@ class Global(DataCarrier):
     def data(self):
         """Data array."""
         return self._data
+
+    @data.setter
+    def data(self, value):
+        self._data = verify_reshape(value, self.dtype, self.dim)
 
 class Map(object):
     """OP2 map, a relation between two Sets."""

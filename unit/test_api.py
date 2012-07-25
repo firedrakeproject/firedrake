@@ -363,6 +363,20 @@ class TestUserAPI:
         assert c.data.sum() == 3
         assert c.dim == (3,)
 
+    def test_const_setter(self, backend):
+        "Setter attribute on data should correct set data value."
+        c = op2.Const(1, 1, 'c')
+        c.remove_from_namespace()
+        c.data = 2
+        assert c.data.sum() == 2
+
+    def test_const_setter_malformed_data(self, backend):
+        "Setter attribute should reject malformed data."
+        c = op2.Const(1, 1, 'c')
+        c.remove_from_namespace()
+        with pytest.raises(sequential.DataValueError):
+            c.data = [1, 2]
+
     ## Global unit tests
 
     def test_global_illegal_dim(self, backend):
@@ -436,6 +450,18 @@ class TestUserAPI:
         g = op2.Global((2,2), [1]*4, 'double', 'bar')
         assert g.dim == (2,2) and g.dtype == np.float64 and g.name == 'bar' \
                 and g.data.sum() == 4
+
+    def test_global_setter(self, backend):
+        "Setter attribute on data should correct set data value."
+        c = op2.Global(1, 1)
+        c.data = 2
+        assert c.data.sum() == 2
+
+    def test_global_setter_malformed_data(self, backend):
+        "Setter attribute should reject malformed data."
+        c = op2.Global(1, 1)
+        with pytest.raises(sequential.DataValueError):
+            c.data = [1, 2]
 
     ## Map unit tests
 
