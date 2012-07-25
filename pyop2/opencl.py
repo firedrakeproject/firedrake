@@ -44,6 +44,7 @@ import collections
 import itertools
 import warnings
 import sys
+import math
 from pycparser import c_parser, c_ast, c_generator
 
 def round_up(bytes):
@@ -535,7 +536,7 @@ class ParLoopCall(object):
                 available_local_memory -= 7
                 ps = available_local_memory / per_elem_max_local_mem_req
                 wgs = min(_queue.device.max_work_group_size, (ps / 32) * 32)
-            nwg = min(_pref_work_group_count, self._it_space.size / wgs)
+            nwg = min(_pref_work_group_count, int(math.ceil(self._it_space.size / float(wgs))))
             ttc = wgs * nwg
 
             local_memory_req = per_elem_max_local_mem_req * wgs
