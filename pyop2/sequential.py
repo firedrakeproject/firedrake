@@ -338,12 +338,13 @@ class Mat(DataCarrier):
     def __call__(self, path, access):
         path = as_tuple(path, Arg, 2)
         path_maps = [arg.map for arg in path]
+        path_idxs = [arg.idx for arg in path]
         sparsity_maps = [self._sparsity._rmap, self._sparsity._cmap]
         for p_map, s_map in zip(path_maps, sparsity_maps):
             if p_map._dataset != s_map._dataset:
                 raise SetValueError("Invalid data set for map %s (is %s, should be %s)" \
                         % (map._name, a_map._dataset._name, s_map.dataset._name))
-        return self._arg_type(data=self, map=path_maps, access=access)
+        return self._arg_type(data=self, map=path_maps, access=access, idx=path_idxs)
 
     @property
     def sparsity(self):
@@ -655,7 +656,7 @@ def par_loop(kernel, it_space, *args):
 
     def c_arg_name(arg):
         name = arg._dat._name
-        if arg._is_indirect and not arg._is_vec_map:
+        if arg._is_indirect and not (arg._is_mat or arg._is_vec_map):
             name += str(arg.idx)
         return name
 
@@ -729,8 +730,9 @@ def par_loop(kernel, it_space, *args):
         return ";\n".join(val)
 
     def c_addto(arg):
+        from IPython import embed
+        embed()
         name = c_arg_name(arg)
-        # FIXME: need to compute correct row and col
         p_data = 'p_%s' % name
         idx1 = "%s[i*rows+i_0]" % c_map_name(arg)
         idx2 = "%s2[i*cols+i_1]" % c_map_name(arg)
