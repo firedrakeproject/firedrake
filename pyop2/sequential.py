@@ -730,12 +730,10 @@ def par_loop(kernel, it_space, *args):
         return ";\n".join(val)
 
     def c_addto(arg):
-        from IPython import embed
-        embed()
         name = c_arg_name(arg)
         p_data = 'p_%s' % name
-        idx1 = "%s[i*rows+i_0]" % c_map_name(arg)
-        idx2 = "%s2[i*cols+i_1]" % c_map_name(arg)
+        idx1 = "%s[i*rows+i_%d]" % (c_map_name(arg), arg.idx[0].index)
+        idx2 = "%s2[i*cols+i_%d]" % (c_map_name(arg), arg.idx[1].index)
         maps = as_tuple(arg.map, Map)
         val = ""
         val += "const int rows = %d;\n" % maps[0]._dim
