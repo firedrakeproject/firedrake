@@ -182,7 +182,7 @@ void rhs(double** localTensor, double* c0[2], double* c1[1])
         del self._rhs
 
     def _assemble_mass(self):
-        op2.par_loop(self._mass, self._elements(2,2),
+        op2.par_loop(self._mass, self._elements(3,3),
                      self._mat((self._elem_node(op2.i(0)), self._elem_node(op2.i(1))), op2.INC),
                      self._coords(self._elem_node, op2.READ))
 
