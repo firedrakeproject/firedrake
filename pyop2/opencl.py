@@ -103,16 +103,12 @@ class Arg(op2.Arg):
         return self._is_indirect and self._idx == None
 
     @property
-    def _is_global_reduction(self):
-        return isinstance(self._dat, Global) and self._access in [INC, MIN, MAX]
-
-    @property
     def _is_global(self):
         return isinstance(self._dat, Global)
 
     @property
-    def _is_reduction(self):
-        return self._access in [INC, MIN, MAX]
+    def _is_global_reduction(self):
+        return self._is_global and self._access in [INC, MIN, MAX]
 
     @property
     def _is_INC(self):
@@ -136,7 +132,7 @@ class Arg(op2.Arg):
 
     @property
     def _is_indirect_reduction(self):
-        return self._is_indirect and self._access in [INC, MIN, MAX]
+        return self._is_indirect and self._access is INC
 
     @property
     def _is_global(self):
@@ -601,9 +597,9 @@ class ParLoopCall(object):
                 for i, arg in enumerate(self._actual_args):
                     if arg._map == IdentityMap:
                         inst.append(("__global", None))
-                    elif arg._is_vec_map and arg._is_reduction:
+                    elif arg._is_vec_map and arg._is_indirect_reduction:
                         inst.append(("__private", None))
-                    elif arg._is_vec_map and not arg._is_reduction:
+                    elif arg._is_vec_map and not arg._is_indirect_reduction:
                         inst.append(("__local", None))
                     elif isinstance(arg._dat, Dat) and arg._access not in [INC, MIN, MAX]:
                         inst.append(("__local", None))

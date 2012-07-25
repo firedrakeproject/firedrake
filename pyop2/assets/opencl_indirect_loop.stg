@@ -167,7 +167,7 @@ kernel_call_arg()::=<<$if(it._is_direct)$(__global $it._dat._cl_type$* __private
 
 populate_vec_map()::=<<
 // populate vec map
-$if(it._is_reduction)$
+$if(it._is_indirect_reduction)$
 $it._i_gen_vec:{$dat_vec_name()$[$it._idx$] = $reduc_arg_local_name()$;};separator="\n"$
 $else$
 $it._i_gen_vec:{$dat_vec_name()$[$it._idx$] = &$shared_indirection_mapping_memory_name()$[$mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$];};separator="\n"$
