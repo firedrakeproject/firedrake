@@ -732,13 +732,10 @@ def par_loop(kernel, it_space, *args):
     def c_addto(arg):
         name = c_arg_name(arg)
         p_data = 'p_%s' % name
-        idx1 = "%s[i*rows+i_%d]" % (c_map_name(arg), arg.idx[0].index)
-        idx2 = "%s2[i*cols+i_%d]" % (c_map_name(arg), arg.idx[1].index)
         maps = as_tuple(arg.map, Map)
-        val = ""
-        val += "const int rows = %d;\n" % maps[0]._dim
-        val += "const int cols = %d;\n" % maps[1]._dim
-        val += "addto_scalar(%s, %s, %s, %s)" % (name, p_data,idx1,idx2)
+        idx1 = "%s[i*%s+i_%d]" % (c_map_name(arg), maps[0].dim, arg.idx[0].index)
+        idx2 = "%s2[i*%s+i_%d]" % (c_map_name(arg), maps[1].dim, arg.idx[1].index)
+        val = "addto_scalar(%s, %s, %s, %s)" % (name, p_data,idx1,idx2)
         return val
 
     def c_assemble(arg):
