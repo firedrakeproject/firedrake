@@ -87,6 +87,11 @@ class Arg(object):
         return self._dat
 
     @property
+    def ctype(self):
+        """String representing the C type of this Arg."""
+        return self.data.ctype
+
+    @property
     def map(self):
         """Mapping."""
         return self._map
@@ -211,6 +216,24 @@ class DataCarrier(object):
     def dtype(self):
         """Data type."""
         return self._data.dtype
+
+    @property
+    def ctype(self):
+        # FIXME: Complex and float16 not supported
+        typemap = { "bool":    "unsigned char",
+                    "int":     "int",
+                    "int8":    "char",
+                    "int16":   "short",
+                    "int32":   "int",
+                    "int64":   "long long",
+                    "uint8":   "unsigned char",
+                    "uint16":  "unsigned short",
+                    "uint32":  "unsigned int",
+                    "uint64":  "unsigned long long",
+                    "float":   "double",
+                    "float32": "float",
+                    "float64": "double" }
+        return typemap[self.dtype.name]
 
     @property
     def name(self):
@@ -422,8 +445,8 @@ class Const(DataCarrier):
         if self in Const._defs:
             Const._defs.remove(self)
 
-    def format_for_c(self, typemap):
-        dec = 'static const ' + typemap[self._data.dtype.name] + ' ' + self._name
+    def format_for_c(self):
+        dec = 'static const ' + self.ctype + ' ' + self._name
         if self._dim[0] > 1:
             dec += '[' + str(self._dim[0]) + ']'
         dec += ' = '
@@ -639,21 +662,6 @@ def par_loop(kernel, it_space, *args):
 
     from instant import inline_with_numpy
 
-    # FIXME: Complex and float16 not supported
-    typemap = { "bool":    "unsigned char",
-                "int":     "int",
-                "int8":    "char",
-                "int16":   "short",
-                "int32":   "int",
-                "int64":   "long long",
-                "uint8":   "unsigned char",
-                "uint16":  "unsigned short",
-                "uint32":  "unsigned int",
-                "uint64":  "unsigned long long",
-                "float":   "double",
-                "float32": "float",
-                "float64": "double" }
-
     def c_arg_name(arg):
         name = arg._dat._name
         if arg._is_indirect and not (arg._is_mat or arg._is_vec_map):
@@ -665,9 +673,6 @@ def par_loop(kernel, it_space, *args):
 
     def c_map_name(arg):
         return c_arg_name(arg) + "_map"
-
-    def c_type(arg):
-        return typemap[arg._dat.dtype.name]
 
     def c_wrapper_arg(arg):
         val = "PyObject *_%(name)s" % {'name' : c_arg_name(arg) }
@@ -684,7 +689,7 @@ def par_loop(kernel, it_space, *args):
                  { "name": c_arg_name(arg) }
         else:
             val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
-              {'name' : c_arg_name(arg), 'type' : c_type(arg)}
+              {'name' : c_arg_name(arg), 'type' : arg.ctype}
         if arg._is_indirect:
             val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" % \
                    {'name' : c_map_name(arg)}
@@ -693,7 +698,7 @@ def par_loop(kernel, it_space, *args):
                        {'name' : c_map_name(arg)}
             elif arg._is_vec_map:
                 val += ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
-                       {'type' : c_type(arg),
+                       {'type' : arg.ctype,
                         'vec_name' : c_vec_name(arg),
                         'dim' : arg.map._dim}
         return val
@@ -747,15 +752,13 @@ def par_loop(kernel, it_space, *args):
 
     def tmp_decl(arg):
         if arg._is_mat:
-            t = typemap[arg.data.dtype.name]
-            return "%s* p_%s = (%s *) malloc(sizeof(%s))" % (t, c_arg_name(arg), t,
-                      typemap[arg.data.dtype.name])
+            t = arg.data.ctype
+            return "%s* p_%s = (%s *) malloc(sizeof(%s))" % (t, c_arg_name(arg), t, t)
         return ""
 
     def c_zero_tmp(arg):
         if arg._is_mat:
-            t = typemap[arg.data.dtype.name]
-            return "*p_%s = (%s)0" % (c_arg_name(arg), t)
+            return "*p_%s = (%s)0" % (c_arg_name(arg), arg.data.ctype)
 
     if isinstance(it_space, Set):
         it_space = IterationSpace(it_space)
@@ -765,7 +768,7 @@ def par_loop(kernel, it_space, *args):
     _tmp_decs = ';\n'.join([tmp_decl(arg) for arg in args if arg._is_mat])
     _wrapper_decs = ';\n'.join([c_wrapper_dec(arg) for arg in args])
 
-    _const_decs = '\n'.join([const.format_for_c(typemap) for const in sorted(Const._defs)]) + '\n'
+    _const_decs = '\n'.join([const.format_for_c() for const in sorted(Const._defs)]) + '\n'
 
     _kernel_user_args = [c_kernel_arg(arg) for arg in args]
     _kernel_it_args   = ["i_%d" % d for d in range(len(it_space.extents))]
@@ -828,7 +831,7 @@ def par_loop(kernel, it_space, *args):
                              wrap_headers=["mat_utils.h"],
                              library_dirs=[OP2_LIB],
                              libraries=['op2_seq'],
-                             sources=["mat_utils.cxx"],cppargs=['-O0','-g'],modulename=kernel._name)
+                             sources=["mat_utils.cxx"])
 
     _args = []
     for arg in args:
