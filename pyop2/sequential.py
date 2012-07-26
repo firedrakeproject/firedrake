@@ -676,7 +676,7 @@ def par_loop(kernel, it_space, *args):
     from instant import inline_with_numpy
 
     def c_arg_name(arg):
-        name = arg._dat._name
+        name = arg.data.name
         if arg._is_indirect and not (arg._is_mat or arg._is_vec_map):
             name += str(arg.idx)
         return name
@@ -713,14 +713,14 @@ def par_loop(kernel, it_space, *args):
                 val += ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
                        {'type' : arg.ctype,
                         'vec_name' : c_vec_name(arg),
-                        'dim' : arg.map._dim}
+                        'dim' : arg.map.dim}
         return val
 
     def c_ind_data(arg, idx):
         return "%(name)s + %(map_name)s[i * %(map_dim)s + %(idx)s] * %(dim)s" % \
                 {'name' : c_arg_name(arg),
                  'map_name' : c_map_name(arg),
-                 'map_dim' : arg.map._dim,
+                 'map_dim' : arg.map.dim,
                  'idx' : idx,
                  'dim' : arg.data.cdim}
 
@@ -825,13 +825,13 @@ def par_loop(kernel, it_space, *args):
         #define OP2_STRIDE(a, idx) a[idx]
         %(code)s
         #undef OP2_STRIDE
-        """ % {'code' : kernel._code}
+        """ % {'code' : kernel.code}
     else:
         kernel_code = """
         %(code)s
-        """ % {'code' : kernel._code }
+        """ % {'code' : kernel.code }
 
-    code_to_compile =  wrapper % { 'kernel_name' : kernel._name,
+    code_to_compile =  wrapper % { 'kernel_name' : kernel.name,
                       'wrapper_args' : _wrapper_args,
                       'wrapper_decs' : _wrapper_decs,
                       'tmp_decs' : _tmp_decs,

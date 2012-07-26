@@ -146,8 +146,8 @@ cdef class op_set:
     cdef core.op_set _handle
     def __cinit__(self, set):
         """Instantiate a C-level op_set from SET"""
-        cdef int size = set._size
-        cdef char * name = set._name
+        cdef int size = set.size
+        cdef char * name = set.name
         self._handle = core.op_decl_set_core(size, name)
 
     property size:
@@ -174,26 +174,32 @@ cdef class op_dat:
     cdef core.op_dat _handle
     def __cinit__(self, dat):
         """Instantiate a C-level op_dat from DAT"""
-        cdef op_set set = dat._dataset.c_handle
+        cdef op_set set = dat.dataset.c_handle
         cdef int dim = dat.cdim
-        cdef int size = dat._data.dtype.itemsize
+        cdef int size = dat.dtype.itemsize
         cdef char * type
-        cdef np.ndarray data = dat._data
-        cdef char * name = dat._name
+        cdef np.ndarray data
+        cdef char * dataptr
+        cdef char * name = dat.name
         tmp = dat.ctype + ":soa" if dat.soa else ""
         type = tmp
+        if len(dat._data) > 0:
+            data = dat.data
+            dataptr = <char *>data.data
+        else:
+            dataptr = <char *>NULL
         self._handle = core.op_decl_dat_core(set._handle, dim, type,
-                                             size, <char *>data.data, name)
+                                             size, dataptr, name)
 
 cdef class op_map:
     cdef core.op_map _handle
     def __cinit__(self, map):
         """Instantiate a C-level op_map from MAP"""
-        cdef op_set frm = map._iterset.c_handle
-        cdef op_set to = map._dataset.c_handle
-        cdef int dim = map._dim
-        cdef np.ndarray values = map._values
-        cdef char * name = map._name
+        cdef op_set frm = map.iterset.c_handle
+        cdef op_set to = map.dataset.c_handle
+        cdef int dim = map.dim
+        cdef np.ndarray values = map.values
+        cdef char * name = map.name
         if values.size == 0:
             self._handle = core.op_decl_map_core(frm._handle, to._handle,
                                                  dim, NULL, name)
@@ -205,9 +211,9 @@ cdef class op_sparsity:
     cdef core.op_sparsity _handle
     def __cinit__(self, sparsity):
         """Instantiate a C-level op_sparsity from SPARSITY"""
-        cdef op_map rmap = sparsity._rmap._lib_handle
-        cdef op_map cmap = sparsity._cmap._lib_handle
-        cdef char * name = sparsity._name
+        cdef op_map rmap = sparsity.rmap._lib_handle
+        cdef op_map cmap = sparsity.cmap._lib_handle
+        cdef char * name = sparsity.name
         self._handle = core.op_decl_sparsity_core(rmap._handle,
                                                   cmap._handle, name)
 
@@ -215,11 +221,11 @@ cdef class op_mat:
     cdef core.op_mat _handle
     def __cinit__(self, mat):
         """Instantiate a C-level op_mat from MAT"""
-        cdef op_sparsity sparsity = mat._sparsity._lib_handle
-        cdef int dim = mat._dim
+        cdef op_sparsity sparsity = mat.sparsity._lib_handle
+        cdef int dim = mat.dim
         cdef char * type = mat.ctype
-        cdef int size = mat._datatype.itemsize
-        cdef char * name = mat._name
+        cdef int size = mat.dtype.itemsize
+        cdef char * name = mat.name
         self._handle = core.op_decl_mat(sparsity._handle, dim, type, size, name)
 
     property cptr:
@@ -277,9 +283,9 @@ isinstance(arg, Dat)."""
                                                 dim, type, acc)
         elif gbl:
             dim = arg.data.cdim
-            size = arg.data._data.size/dim
+            size = arg.data.data.size/dim
             type = arg.ctype
-            data = arg.data._data
+            data = arg.data.data
             self._handle = core.op_arg_gbl_core(<char *>data.data, dim,
                                                 type, size, acc)
 
@@ -302,7 +308,7 @@ Arguments to this constructor should be the arguments of the parallel
 loop, i.e. the KERNEL, the ISET (iteration set) and any
 further ARGS."""
         cdef op_set _set = iset.c_handle
-        cdef char * name = kernel._name
+        cdef char * name = kernel.name
         cdef int part_size = partition_size
         cdef int nargs = len(args)
         cdef op_arg _arg
