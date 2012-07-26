@@ -831,8 +831,8 @@ def par_loop(kernel, it_space, *args):
                       'addtos' : _addtos,
                       'assembles' : _assembles}
 
-    _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel._code,
-                             additional_definitions = _const_decs + kernel._code,
+    _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
+                             additional_definitions = _const_decs + kernel_code,
                              include_dirs=[OP2_INC],
                              source_directory='pyop2',
                              wrap_headers=["mat_utils.h"],
