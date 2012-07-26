@@ -711,9 +711,10 @@ def par_loop(kernel, it_space, *args):
                  'idx' : idx,
                  'dim' : arg.data._dim[0]}
 
-    def c_kernel_arg(arg):
+    def c_kernel_arg(arg, extents):
         if arg._is_mat:
-            return "p_"+c_arg_name(arg)
+            idx = ''.join(["[i_%d]" % i for i in range(len(extents))])
+            return "&p_"+c_arg_name(arg)+idx
         elif arg._is_indirect:
             if arg._is_vec_map:
                 return c_vec_name(arg)
@@ -738,9 +739,13 @@ def par_loop(kernel, it_space, *args):
         name = c_arg_name(arg)
         p_data = 'p_%s' % name
         maps = as_tuple(arg.map, Map)
-        idx1 = "%s[i*%s+i_%d]" % (c_map_name(arg), maps[0].dim, arg.idx[0].index)
-        idx2 = "%s2[i*%s+i_%d]" % (c_map_name(arg), maps[1].dim, arg.idx[1].index)
-        val = "addto_scalar(%s, %s, %s, %s)" % (name, p_data,idx1,idx2)
+        nrows = maps[0].dim
+        ncols = maps[1].dim
+        irows = "%s + i*%s" % (c_map_name(arg), maps[0].dim)
+        icols = "%s2 + i*%s" % (c_map_name(arg), maps[1].dim)
+        val = "addto_vector(%s, %s, %s, %s, %s, %s)" % (name, p_data,
+                                                        nrows, irows,
+                                                        ncols, icols)
         return val
 
     def c_assemble(arg):
@@ -750,27 +755,29 @@ def par_loop(kernel, it_space, *args):
     def itspace_loop(i, d):
         return "for (int i_%d=0; i_%d<%d; ++i_%d){" % (i, i, d, i)
 
-    def tmp_decl(arg):
+    def tmp_decl(arg, extents):
         if arg._is_mat:
             t = arg.data.ctype
-            return "%s p_%s[1]" % (t, c_arg_name(arg))
+            dims = ''.join(["[%d]" % e for e in extents])
+            return "%s p_%s%s" % (t, c_arg_name(arg), dims)
         return ""
 
-    def c_zero_tmp(arg):
+    def c_zero_tmp(arg, extents):
         if arg._is_mat:
-            return "*p_%s = (%s)0" % (c_arg_name(arg), arg.data.ctype)
+            idx = ''.join(["[i_%d]" % i for i in range(len(extents))])
+            return "p_%s%s = (%s)0" % (c_arg_name(arg), idx, arg.data.ctype)
 
     if isinstance(it_space, Set):
         it_space = IterationSpace(it_space)
 
     _wrapper_args = ', '.join([c_wrapper_arg(arg) for arg in args])
 
-    _tmp_decs = ';\n'.join([tmp_decl(arg) for arg in args if arg._is_mat])
+    _tmp_decs = ';\n'.join([tmp_decl(arg, it_space.extents) for arg in args if arg._is_mat])
     _wrapper_decs = ';\n'.join([c_wrapper_dec(arg) for arg in args])
 
     _const_decs = '\n'.join([const.format_for_c() for const in sorted(Const._defs)]) + '\n'
 
-    _kernel_user_args = [c_kernel_arg(arg) for arg in args]
+    _kernel_user_args = [c_kernel_arg(arg, it_space.extents) for arg in args]
     _kernel_it_args   = ["i_%d" % d for d in range(len(it_space.extents))]
     _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
 
@@ -784,7 +791,7 @@ def par_loop(kernel, it_space, *args):
 
     _assembles = ';\n'.join([c_assemble(arg) for arg in args if arg._is_mat])
 
-    _zero_tmps = ';\n'.join([c_zero_tmp(arg) for arg in args if arg._is_mat])
+    _zero_tmps = ';\n'.join([c_zero_tmp(arg, it_space.extents) for arg in args if arg._is_mat])
     wrapper = """
     void wrap_%(kernel_name)s__(%(wrapper_args)s) {
         %(wrapper_decs)s;
@@ -794,8 +801,8 @@ def par_loop(kernel, it_space, *args):
             %(itspace_loops)s
             %(zero_tmps)s;
             %(kernel_name)s(%(kernel_args)s);
-            %(addtos)s;
             %(itspace_loop_close)s
+            %(addtos)s;
         }
         %(assembles)s;
     }"""
