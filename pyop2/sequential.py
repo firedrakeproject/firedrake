@@ -753,7 +753,7 @@ def par_loop(kernel, it_space, *args):
     def tmp_decl(arg):
         if arg._is_mat:
             t = arg.data.ctype
-            return "%s* p_%s = (%s *) malloc(sizeof(%s))" % (t, c_arg_name(arg), t, t)
+            return "%s p_%s[1]" % (t, c_arg_name(arg))
         return ""
 
     def c_zero_tmp(arg):
