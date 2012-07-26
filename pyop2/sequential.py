@@ -398,8 +398,6 @@ class Const(DataCarrier):
     class NonUniqueNameError(ValueError):
         """Name already in use."""
 
-    _modes = [READ]
-
     _defs = set()
 
     @validate_type(('name', str, NameTypeError))
@@ -410,7 +408,6 @@ class Const(DataCarrier):
         if any(self._name is const._name for const in Const._defs):
             raise Const.NonUniqueNameError(
                 "OP2 Constants are globally scoped, %s is already in use" % self._name)
-        self._access = READ
         Const._defs.add(self)
 
     @classmethod
