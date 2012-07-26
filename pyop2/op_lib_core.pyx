@@ -177,10 +177,10 @@ cdef class op_dat:
         cdef op_set set = dat._dataset.c_handle
         cdef int dim = dat._dim[0]
         cdef int size = dat._data.dtype.itemsize
-        cdef char * type = dat.ctype
+        cdef char * type
         cdef np.ndarray data = dat._data
         cdef char * name = dat._name
-        tmp = dat._data.dtype.name + ":soa" if dat.soa else ""
+        tmp = dat.ctype + ":soa" if dat.soa else ""
         type = tmp
         self._handle = core.op_decl_dat_core(set._handle, dim, type,
                                              size, <char *>data.data, name)
