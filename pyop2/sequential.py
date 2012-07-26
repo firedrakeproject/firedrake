@@ -452,13 +452,13 @@ class Const(DataCarrier):
 
     def format_for_c(self):
         dec = 'static const ' + self.ctype + ' ' + self._name
-        if self._dim[0] > 1:
-            dec += '[' + str(self._dim[0]) + ']'
+        if self.cdim > 1:
+            dec += '[' + str(self.cdim) + ']'
         dec += ' = '
-        if self._dim[0] > 1:
+        if self.cdim > 1:
             dec += '{'
         dec += ', '.join(str(datum) for datum in self._data)
-        if self._dim[0] > 1:
+        if self.cdim > 1:
             dec += '}'
 
         dec += ';'
@@ -714,7 +714,7 @@ def par_loop(kernel, it_space, *args):
                  'map_name' : c_map_name(arg),
                  'map_dim' : arg.map._dim,
                  'idx' : idx,
-                 'dim' : arg.data._dim[0]}
+                 'dim' : arg.data.cdim}
 
     def c_kernel_arg(arg, extents):
         if arg._is_mat:
@@ -729,7 +729,7 @@ def par_loop(kernel, it_space, *args):
         else:
             return "%(name)s + i * %(dim)s" % \
                 {'name' : c_arg_name(arg),
-                 'dim' : arg.data._dim[0]}
+                 'dim' : arg.data.cdim}
 
     def c_vec_init(arg):
         val = []

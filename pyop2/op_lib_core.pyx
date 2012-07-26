@@ -175,7 +175,7 @@ cdef class op_dat:
     def __cinit__(self, dat):
         """Instantiate a C-level op_dat from DAT"""
         cdef op_set set = dat._dataset.c_handle
-        cdef int dim = dat._dim[0]
+        cdef int dim = dat.cdim
         cdef int size = dat._data.dtype.itemsize
         cdef char * type
         cdef np.ndarray data = dat._data
@@ -271,12 +271,12 @@ isinstance(arg, Dat)."""
             else:
                 idx = -1
                 _map = <core.op_map>NULL
-            dim = arg.data._dim[0]
+            dim = arg.data.cdim
             type = arg.ctype
             self._handle = core.op_arg_dat_core(_dat._handle, idx, _map,
                                                 dim, type, acc)
         elif gbl:
-            dim = arg.data._dim[0]
+            dim = arg.data.cdim
             size = arg.data._data.size/dim
             type = arg.ctype
             data = arg.data._data
