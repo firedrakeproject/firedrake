@@ -223,6 +223,12 @@ cdef class op_mat:
         cdef char * name = mat._name
         self._handle = core.op_decl_mat(sparsity._handle, dim, type, size, name)
 
+    property cptr:
+        def __get__(self):
+            cdef uintptr_t val
+            val = <uintptr_t>self._handle
+            return val
+
 cdef class op_arg:
     cdef core.op_arg _handle
     def __cinit__(self, arg, dat=False, gbl=False):

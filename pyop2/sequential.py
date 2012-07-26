@@ -685,7 +685,7 @@ def par_loop(kernel, it_space, *args):
 
     def c_wrapper_dec(arg):
         if arg._is_mat:
-            val = "op_mat %(name)s = get_mat_from_pyobj((void*)_%(name)s)" % \
+            val = "op_mat %(name)s = (op_mat)((uintptr_t)PyLong_AsUnsignedLong(_%(name)s))" % \
                  { "name": c_arg_name(arg) }
         else:
             val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
@@ -836,7 +836,7 @@ def par_loop(kernel, it_space, *args):
     _args = []
     for arg in args:
         if arg._is_mat:
-            _args.append(arg.data._lib_handle)
+            _args.append(arg.data._lib_handle.cptr)
         else:
             _args.append(arg.data.data)
 
