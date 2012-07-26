@@ -3,13 +3,6 @@ import numpy
 
 from pyop2 import op2
 
-def setup_module(module):
-    # Initialise OP2
-    op2.init(backend='sequential')
-
-def teardown_module(module):
-    op2.exit()
-
 # Data type
 valuetype = numpy.float64
 

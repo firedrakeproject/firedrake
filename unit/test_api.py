@@ -81,9 +81,6 @@ def pytest_funcarg__sparsity(request):
     m = op2.Map(s, s, 1, [0, 1])
     return op2.Sparsity(m, m, 1)
 
-def teardown_module(module):
-    op2.exit()
-
 class TestInitAPI:
     """
     Init API unit tests
@@ -94,6 +91,7 @@ class TestInitAPI:
         with pytest.raises(RuntimeError):
             op2.Set(1)
 
+    @pytest.mark.skipif(backend='sequential')
     def test_invalid_init(self):
         "init should only be callable once."
         with pytest.raises(ValueError):
@@ -103,11 +101,13 @@ class TestInitAPI:
         "init should correctly set the backend."
         assert op2.backends.get_backend() == 'pyop2.'+backend
 
+    @pytest.mark.skipif(backend='sequential')
     def test_double_init(self, backend):
         "init should only be callable once."
         with pytest.raises(RuntimeError):
             op2.init(backend)
 
+    @pytest.mark.skipif(backend='sequential')
     def test_init_exit(self, backend):
         op2.exit()
         op2.init(backend)
