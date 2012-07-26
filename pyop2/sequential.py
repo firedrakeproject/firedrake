@@ -392,11 +392,6 @@ class Mat(DataCarrier):
         return "Mat(%r, %s, '%s', '%s')" \
                % (self._sparsity, self._dim, self._datatype, self._name)
 
-    @property
-    def dtype(self):
-        """Datatype of this matrix"""
-        return self._datatype
-
 class Const(DataCarrier):
     """Data that is constant for any element of any set."""
 
