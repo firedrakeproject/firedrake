@@ -451,18 +451,15 @@ class Const(DataCarrier):
             Const._defs.remove(self)
 
     def format_for_c(self):
-        dec = 'static const ' + self.ctype + ' ' + self._name
-        if self.cdim > 1:
-            dec += '[' + str(self.cdim) + ']'
-        dec += ' = '
-        if self.cdim > 1:
-            dec += '{'
-        dec += ', '.join(str(datum) for datum in self._data)
-        if self.cdim > 1:
-            dec += '}'
+        d = {'type' : self.ctype,
+             'name' : self.name,
+             'dim' : self.cdim,
+             'vals' : ', '.join(str(datum) for datum in self.data)}
 
-        dec += ';'
-        return dec
+        if self.cdim == 1:
+            return "static const %(type)s %(name)s = %(vals)s;" % d
+
+        return "static const %(type)s %(name)s[%(dim)s] = { %(vals)s };" % d
 
 class Global(DataCarrier):
     """OP2 global value."""
