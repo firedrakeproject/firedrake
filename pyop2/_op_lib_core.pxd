@@ -82,8 +82,10 @@ cdef extern from "op_lib_core.h":
 
     op_arg op_arg_gbl_core(char *, int, char *, int, op_access)
 
+cdef extern from "op_lib_mat.h":
     void op_solve(op_mat mat, op_dat b, op_dat x)
 
+cdef extern from "op_lib_c.h":
     void op_init(int, char **, int)
 
     void op_exit()
