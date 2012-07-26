@@ -398,7 +398,6 @@ class Const(DataCarrier):
     class NonUniqueNameError(ValueError):
         """Name already in use."""
 
-    _globalcount = 0
     _modes = [READ]
 
     _defs = set()
@@ -407,12 +406,11 @@ class Const(DataCarrier):
     def __init__(self, dim, data, name, dtype=None):
         self._dim = as_tuple(dim, int)
         self._data = verify_reshape(data, dtype, self._dim)
-        self._name = name or "const_%d" % Const._globalcount
+        self._name = name
         if any(self._name is const._name for const in Const._defs):
             raise Const.NonUniqueNameError(
                 "OP2 Constants are globally scoped, %s is already in use" % self._name)
         self._access = READ
-        Const._globalcount += 1
         Const._defs.add(self)
 
     @classmethod
