@@ -185,7 +185,7 @@ cdef class op_dat:
         type = tmp
         if len(dat._data) > 0:
             data = dat.data
-            dataptr = <char *>data.data
+            dataptr = <char *>np.PyArray_DATA(data)
         else:
             dataptr = <char *>NULL
         self._handle = core.op_decl_dat_core(set._handle, dim, type,
@@ -205,7 +205,7 @@ cdef class op_map:
                                                  dim, NULL, name)
         else:
             self._handle = core.op_decl_map_core(frm._handle, to._handle, dim,
-                                                 <int *>values.data, name)
+                                                 <int *>np.PyArray_DATA(values), name)
 
 cdef class op_sparsity:
     cdef core.op_sparsity _handle
@@ -286,7 +286,7 @@ isinstance(arg, Dat)."""
             size = arg.data.data.size/dim
             type = arg.ctype
             data = arg.data.data
-            self._handle = core.op_arg_gbl_core(<char *>data.data, dim,
+            self._handle = core.op_arg_gbl_core(<char *>np.PyArray_DATA(data), dim,
                                                 type, size, acc)
 
 def solve(A, b, x):
