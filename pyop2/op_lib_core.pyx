@@ -180,7 +180,6 @@ cdef class op_dat:
         cdef char * type = dat.ctype
         cdef np.ndarray data = dat._data
         cdef char * name = dat._name
-        cdef char * type
         tmp = dat._data.dtype.name + ":soa" if dat.soa else ""
         type = tmp
         self._handle = core.op_decl_dat_core(set._handle, dim, type,
