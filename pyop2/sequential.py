@@ -291,7 +291,7 @@ class Dat(DataCarrier):
         # We don't pass soa to the constructor, because that
         # transposes the data, but we've got them from the hdf5 file
         # which has them in the right shape already.
-        ret = cls(dataset, dim[0], data, name=name)
+        ret = cls(dataset, dim, data, name=name)
         ret._soa = soa
         return ret
 
