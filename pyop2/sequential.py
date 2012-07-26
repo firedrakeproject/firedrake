@@ -245,6 +245,11 @@ class DataCarrier(object):
         """Dimension/shape of a single data item."""
         return self._dim
 
+    @property
+    def cdim(self):
+        """Dimension of a single data item on C side (product of dims)"""
+        return np.prod(self.dim)
+
 class Dat(DataCarrier):
     """OP2 vector data. A Dat holds a value for every member of a set."""
 
