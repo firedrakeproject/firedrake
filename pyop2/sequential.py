@@ -342,6 +342,22 @@ class Sparsity(object):
         self._lib_handle = core.op_sparsity(self)
         Sparsity._globalcount += 1
 
+    @property
+    def rmap(self):
+        return self._rmap
+
+    @property
+    def cmap(self):
+        return self._cmap
+
+    @property
+    def dims(self):
+        return self._dims
+
+    @property
+    def name(self):
+        return self._name
+
 class Mat(DataCarrier):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
     for each element in the sparsity."""
