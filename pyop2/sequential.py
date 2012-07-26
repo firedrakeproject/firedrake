@@ -651,6 +651,11 @@ class Kernel(object):
         """Kernel name, must match the kernel function name in the code."""
         return self._name
 
+    @property
+    def code(self):
+        """Code of this kernel routine"""
+        return self._code
+
     def compile(self):
         pass
 
