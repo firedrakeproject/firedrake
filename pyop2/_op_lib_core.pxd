@@ -85,6 +85,8 @@ cdef extern from "op_lib_core.h":
 cdef extern from "op_lib_mat.h":
     void op_solve(op_mat mat, op_dat b, op_dat x)
 
+    void op_mat_get_values ( op_mat mat, double **v, int *m, int *n)
+
 cdef extern from "op_lib_c.h":
     void op_init(int, char **, int)
 

@@ -215,19 +215,18 @@ void rhs(double** localTensor, double* c0[2], double* c1[1])
 }"""
         return op2.Kernel(kernel_code, "rhs")
 
-    @pytest.mark.xfail
     def test_assemble(self, mass, mat, coords, elements, elem_node):
         op2.par_loop(mass, elements(3,3),
                      mat((elem_node(op2.i(0)), elem_node(op2.i(1))), op2.INC),
                      coords(elem_node, op2.READ))
 
+        eps=1.e-6
         expected_vals = [(0.25, 0.125, 0.0, 0.125),
                          (0.125, 0.291667, 0.0208333, 0.145833),
                          (0.0, 0.0208333, 0.0416667, 0.0208333),
                          (0.125, 0.145833, 0.0208333, 0.291667) ]
         expected_matrix = numpy.asarray(expected_vals, dtype=valuetype)
-        # Check that the matrix values equal these values, somehow.
-        assert False
+        assert (abs(mat.values-expected_matrix)<eps).all()
 
     def test_rhs(self, rhs, elements, b, coords, f, elem_node):
         op2.par_loop(rhs, elements,

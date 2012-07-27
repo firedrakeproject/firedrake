@@ -596,6 +596,11 @@ class Mat(DataCarrier):
         return self._sparsity
 
     @property
+    def values(self):
+        """Return a numpy array of matrix values."""
+        return self._lib_handle.values
+
+    @property
     def dtype(self):
         """Data type."""
         return self._datatype
