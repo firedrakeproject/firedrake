@@ -31,6 +31,10 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""
+User API Unit Tests
+"""
+
 import pytest
 import numpy as np
 import h5py
@@ -71,12 +75,10 @@ def pytest_funcarg__h5file(request):
                                 setup=lambda: make_hdf5_file(),
                                 teardown=lambda f: f.close())
 
-class TestUserAPI:
+class TestInitAPI:
     """
-    User API Unit Tests
+    Init API unit tests
     """
-
-    ## Init unit tests
 
     def test_noninit(self):
         "RuntimeError should be raised when using op2 before calling init."
@@ -101,7 +103,26 @@ class TestUserAPI:
         op2.exit()
         op2.init(backend)
 
-    ## Set unit tests
+class TestAccessAPI:
+    """
+    Access API unit tests
+    """
+
+    @pytest.mark.parametrize("mode", sequential.Access._modes)
+    def test_access(self, mode):
+        "Access repr should have the expected format."
+        a = sequential.Access(mode)
+        assert repr(a) == "Access('%s')" % mode
+
+    def test_illegal_access(self):
+        "Illegal access modes should raise an exception."
+        with pytest.raises(sequential.ModeValueError):
+            sequential.Access('ILLEGAL_ACCESS')
+
+class TestSetAPI:
+    """
+    Set API unit tests
+    """
 
     def test_set_illegal_size(self, backend):
         "Set size should be int."
@@ -131,7 +152,10 @@ class TestUserAPI:
         assert s.size == 5
     # FIXME: test Set._lib_handle
 
-    ## Dat unit tests
+class TestDatAPI:
+    """
+    Dat API unit tests
+    """
 
     def test_dat_illegal_set(self, backend):
         "Dat set should be Set."
@@ -236,7 +260,10 @@ class TestUserAPI:
         assert d.soa
         assert d.data.shape == (2,5) and d.data.sum() == 9 * 10 / 2
 
-    ## Mat unit tests
+class TestMatAPI:
+    """
+    Mat API unit tests
+    """
 
     def test_mat_illegal_sets(self, backend):
         "Mat data sets should be a 2-tuple of Sets."
@@ -294,7 +321,10 @@ class TestUserAPI:
         assert m.datasets == (set,set) and m.dim == (2,2) and \
                 m.dtype == np.float64 and m.name == 'bar'
 
-    ## Const unit tests
+class TestConstAPI:
+    """
+    Const API unit tests
+    """
 
     def test_const_illegal_dim(self, backend):
         "Const dim should be int or int tuple."
@@ -410,7 +440,10 @@ class TestUserAPI:
         with pytest.raises(sequential.DataValueError):
             c.data = [1, 2]
 
-    ## Global unit tests
+class TestGlobalAPI:
+    """
+    Global API unit tests
+    """
 
     def test_global_illegal_dim(self, backend):
         "Global dim should be int or int tuple."
@@ -496,7 +529,10 @@ class TestUserAPI:
         with pytest.raises(sequential.DataValueError):
             c.data = [1, 2]
 
-    ## Map unit tests
+class TestMapAPI:
+    """
+    Map API unit tests
+    """
 
     def test_map_illegal_iterset(self, set, backend):
         "Map iterset should be Set."
@@ -558,7 +594,10 @@ class TestUserAPI:
         assert m.values.sum() == sum((1, 2, 2, 3))
         assert m.name == 'map'
 
-    ## IterationSpace unit tests
+class TestIterationSpaceAPI:
+    """
+    IterationSpace API unit tests
+    """
 
     def test_iteration_space_illegal_iterset(self, set, backend):
         "IterationSpace iterset should be Set."
@@ -590,7 +629,10 @@ class TestUserAPI:
         i = op2.IterationSpace(set, (2,3))
         assert i.iterset == set and i.extents == (2,3)
 
-    ## Kernel unit tests
+class TestKernelAPI:
+    """
+    Kernel API unit tests
+    """
 
     def test_kernel_illegal_name(self, backend):
         "Kernel name should be string."
@@ -601,22 +643,6 @@ class TestUserAPI:
         "Kernel constructor should correctly set attributes."
         k = op2.Kernel("", 'foo')
         assert k.name == 'foo'
-
-class TestBackendAPI:
-    """
-    Backend API Unit Tests
-    """
-
-    @pytest.mark.parametrize("mode", sequential.Access._modes)
-    def test_access(self, mode):
-        "Access repr should have the expected format."
-        a = sequential.Access(mode)
-        assert repr(a) == "Access('%s')" % mode
-
-    def test_illegal_access(self):
-        "Illegal access modes should raise an exception."
-        with pytest.raises(sequential.ModeValueError):
-            sequential.Access('ILLEGAL_ACCESS')
 
 if __name__ == '__main__':
     import os
