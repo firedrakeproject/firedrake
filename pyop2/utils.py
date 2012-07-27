@@ -96,7 +96,7 @@ class validate_base:
             # constructor will be able to deal with that)
             default_index = i - self.nargs + len(self.defaults)
             if default_index >= 0 and arg == self.defaults[default_index]:
-                return
+                continue
             self.check_arg(arg, argcond, exception)
 
 class validate_type(validate_base):
