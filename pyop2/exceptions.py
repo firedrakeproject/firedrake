@@ -54,6 +54,9 @@ class SizeTypeError(TypeError):
 class SparsityTypeError(TypeError):
     """Invalid type for sparsity."""
 
+class MapTypeError(TypeError):
+    """Invalid type for map."""
+
 class DataValueError(ValueError):
     """Illegal value for data."""
 

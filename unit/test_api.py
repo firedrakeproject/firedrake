@@ -52,6 +52,11 @@ def pytest_funcarg__iterset(request):
 def pytest_funcarg__dataset(request):
     return op2.Set(3, 'dataset')
 
+def pytest_funcarg__smap(request):
+    iterset = op2.Set(2, 'iterset')
+    dataset = op2.Set(2, 'dataset')
+    return op2.Map(iterset, dataset, 1, [0, 1])
+
 def pytest_funcarg__const(request):
     return request.cached_setup(scope='function',
             setup=lambda: op2.Const(1, 1, 'test_const_nonunique_name'),
@@ -267,10 +272,38 @@ class TestDatAPI:
         assert d.soa
         assert d.data.shape == (2,5) and d.data.sum() == 9 * 10 / 2
 
+class TestSparsityAPI:
+    """
+    Sparsity API unit tests
+    """
+    ## Sparsity unit tests
+
+    def test_sparsity_illegal_rmap(self, smap):
+        "Sparsity rmap should be a Map"
+        with pytest.raises(TypeError):
+            op2.Sparsity('illegalrmap', smap, 1)
+
+    def test_sparsity_illegal_cmap(self, smap):
+        "Sparsity cmap should be a Map"
+        with pytest.raises(TypeError):
+            op2.Sparsity(smap, 'illegalcmap', 1)
+
+    def test_sparsity_illegal_dim(self, smap):
+        "Sparsity dim should be an int"
+        with pytest.raises(TypeError):
+            op2.Sparsity(smap, smap, 'illegaldim')
+
+    def test_sparsity_properties(self, smap):
+        "Sparsity constructor should correctly set attributes"
+        s = op2.Sparsity(smap, smap, 2, "foo")
+        assert s.rmap == smap and s.cmap == smap and \
+               s.dims == (2,) and s.name == "foo"
+
 class TestMatAPI:
     """
     Mat API unit tests
     """
+    ## Mat unit tests
 
     skip_backends = ['opencl']
 
