@@ -50,6 +50,12 @@ The default backends can be overridden by passing the
 `--backend=<string>` parameter on test invocation. Passing it multiple
 times runs the tests for all the given backends.
 
+Skipping selective backends
+===========================
+
+To skip a particular backend in a test case, pass the 'skip_<backend>'
+parameter, where '<backend>' is any valid backend string.
+
 Backend-specific test cases
 ===========================
 
@@ -93,14 +99,29 @@ def pytest_collection_modifyitems(items):
         return 0
     items.sort(cmp=cmp)
 
+def pytest_funcarg__skip_cuda(request):
+    return None
+
+def pytest_funcarg__skip_opencl(request):
+    return None
+
+def pytest_funcarg__skip_sequential(request):
+    return None
+
 # Parametrize tests to run on all backends
 def pytest_generate_tests(metafunc):
+
+    skip_backends = []
+    for b in backends.keys():
+        if 'skip_'+b in metafunc.funcargnames:
+            skip_backends.append(b)
+
     if 'backend' in metafunc.funcargnames:
         if metafunc.config.option.backend:
             backend = map(lambda x: x.lower(), metafunc.config.option.backend)
         else:
             backend = backends.keys()
-        metafunc.parametrize("backend", backend, indirect=True)
+        metafunc.parametrize("backend", (b for b in backend if not b in skip_backends), indirect=True)
 
 def op2_init(backend):
     if op2.backends.get_backend() != 'pyop2.void':
