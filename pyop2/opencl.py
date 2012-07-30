@@ -49,8 +49,7 @@ from pycparser import c_parser, c_ast, c_generator
 from utils import align, uniquify
 
 class Kernel(op2.Kernel):
-    """Specialisation for the OpenCL backend.
-    """
+    """OP2 OpenCL kernel type."""
 
     def __init__(self, code, name):
         op2.Kernel.__init__(self, code, name)
@@ -86,10 +85,13 @@ class Kernel(op2.Kernel):
         self._inst_code = c_generator.CGenerator().visit(ast)
 
 class Arg(op2.Arg):
+    """OP2 OpenCL argument type."""
+
     def __init__(self, data=None, map=None, idx=None, access=None):
         op2.Arg.__init__(self, data, map, idx, access)
 
-    """ codegen specific. """
+    # Codegen specific
+
     @property
     def _d_is_staged(self):
         return self._is_direct and not self._dat._is_scalar
@@ -101,8 +103,7 @@ class Arg(op2.Arg):
 
 
 class DeviceDataMixin:
-    """Codegen mixin for datatype and literal translation.
-    """
+    """Codegen mixin for datatype and literal translation."""
 
     ClTypeInfo = collections.namedtuple('ClTypeInfo', ['clstring', 'zero'])
     CL_TYPES = {np.dtype('uint8'): ClTypeInfo('uchar', '0'),
@@ -133,6 +134,7 @@ class DeviceDataMixin:
         return DeviceDataMixin.CL_TYPES[self._data.dtype].zero
 
 class Dat(op2.Dat, DeviceDataMixin):
+    """OP2 OpenCL vector data type."""
 
     _arg_type = Arg
 
@@ -153,6 +155,7 @@ class Dat(op2.Dat, DeviceDataMixin):
         return self._data
 
 class Mat(op2.Mat, DeviceDataMixin):
+    """OP2 OpenCL matrix data type."""
 
     _arg_type = Arg
 
@@ -161,6 +164,7 @@ class Mat(op2.Mat, DeviceDataMixin):
         raise NotImplementedError('Matrix data is unsupported yet')
 
 class Const(op2.Const, DeviceDataMixin):
+    """OP2 OpenCL data that is constant for any element of any set."""
 
     def __init__(self, dim, data, name, dtype=None):
         op2.Const.__init__(self, dim, data, name, dtype)
@@ -170,6 +174,7 @@ class Const(op2.Const, DeviceDataMixin):
         return list(self._data)
 
 class Global(op2.Global, DeviceDataMixin):
+    """OP2 OpenCL global value."""
 
     _arg_type = Arg
 
@@ -198,6 +203,7 @@ class Global(op2.Global, DeviceDataMixin):
         del self._d_reduc_buffer
 
 class Map(op2.Map):
+    """OP2 OpenCL map, a relation between two Sets."""
 
     _arg_type = Arg
 
@@ -208,8 +214,8 @@ class Map(op2.Map):
             cl.enqueue_copy(_queue, self._buffer, self._values, is_blocking=True).wait()
 
 class OpPlanCache():
-    """Cache for OpPlan.
-    """
+    """Cache for OpPlan."""
+
     def __init__(self):
         self._cache = dict()
 
@@ -242,8 +248,7 @@ class GenCodeCache():
         self._cache[kernel] = code
 
 class OpPlan():
-    """ Helper proxy for core.op_plan.
-    """
+    """ Helper proxy for core.op_plan."""
 
     def __init__(self, parloop, core_plan):
         self._parloop = parloop
@@ -365,7 +370,7 @@ class OpPlan():
 
 class DatMapPair(object):
     """ Dummy class needed for codegen
-        could do without but would obfuscate codegen templates
+        (could do without but would obfuscate codegen templates)
     """
     def __init__(self, dat, map):
         self._dat = dat
@@ -378,6 +383,7 @@ class DatMapPair(object):
         return self.__dict__ == other.__dict__
 
 class ParLoopCall(object):
+    """Invocation of an OP2 OpenCL kernel with an access descriptor"""
 
     def __init__(self, kernel, it_space, *args):
         self._kernel = kernel
@@ -392,7 +398,8 @@ class ParLoopCall(object):
             else:
                 self._args.append(a)
 
-    """ generic. """
+    # generic
+
     @property
     def _global_reduction_args(self):
         return uniquify(a for a in self._args if a._is_global_reduction)
@@ -409,7 +416,8 @@ class ParLoopCall(object):
     def _indirect_reduc_args(self):
         return uniquify(a for a in self._args if a._is_indirect_reduction)
 
-    """ code generation specific """
+    # code generation specific
+
     @property
     def _direct_args(self):
         return uniquify(a for a in self._args if a._is_direct)
