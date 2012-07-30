@@ -129,6 +129,10 @@ def op2_init(backend):
     op2.init(backend)
 
 def pytest_funcarg__backend(request):
+    # If a testcase has the backend parameter but the parametrization leaves
+    # i with no backends the request won't have a param, so return None
+    if not hasattr(request, 'param'):
+        return None
     # Call init/exit only once per session
     request.cached_setup(scope='session', setup=lambda: op2_init(request.param),
                          teardown=lambda backend: op2.exit(),
