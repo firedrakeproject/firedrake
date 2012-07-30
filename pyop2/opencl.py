@@ -124,7 +124,7 @@ class DeviceDataMixin:
 
     @property
     def _is_scalar(self):
-        return self._dim == (1,)
+        return np.prod(self.dim) == 1
 
     @property
     def _cl_type(self):
