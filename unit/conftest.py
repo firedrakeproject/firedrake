@@ -49,26 +49,36 @@ The default backends can be overridden by passing the
 `--backend=<string>` parameter on test invocation. Passing it multiple
 times runs the tests for all the given backends.
 
-Skipping selective backends
-===========================
+Skipping backends on a per-test basis
+=====================================
 
 To skip a particular backend in a test case, pass the 'skip_<backend>'
-parameter, where '<backend>' is any valid backend string.
+parameter to the test function, where '<backend>' is any valid backend
+string.
 
-Backend-specific test cases
-===========================
+Selecting backends on a module or class basis
+=============================================
 
 Not passing the parameter 'backend' to a test case will cause it to
-only run once for the backend that is currently initialized. It's best
-to group backend-specific test cases in a separate module and not use
-the 'backend' parameter for any of them, but instead use module level
-setup and teardown methods:
+only run once for the backend that is currently initialized, which is
+not always safe.
 
-    def setup_module(module):
-        op2.init(backend='sequential', diags=0)
+You can supply a list of backends for which to run all tests in a given
+module or class with the ``backends`` attribute in the module or class
+scope:
 
-    def teardown_module(module):
-        op2.exit()
+    # module test_foo.py
+
+    # All tests in this module will only run for the CUDA and OpenCL
+    # backens
+    backends = ['cuda', 'opencl']
+
+    class TestFoo:
+        # All tests in this class will only run for the CUDA backend
+        backends = ['sequential', 'cuda']
+
+This set of backends to run for will be further restricted by the
+backends selected via command line parameters if applicable.
 """
 
 from pyop2 import op2
@@ -110,16 +120,26 @@ def pytest_funcarg__skip_sequential(request):
 # Parametrize tests to run on all backends
 def pytest_generate_tests(metafunc):
 
-    skip_backends = []
-    for b in backends.keys():
-        if 'skip_'+b in metafunc.funcargnames:
-            skip_backends.append(b)
-
     if 'backend' in metafunc.funcargnames:
+
+        # Allow skipping individual backends by passing skip_<backend> as a parameter
+        skip_backends = []
+        for b in backends.keys():
+            if 'skip_'+b in metafunc.funcargnames:
+                skip_backends.append(b)
+
+        # Use only backends specified on the command line if any
         if metafunc.config.option.backend:
-            backend = map(lambda x: x.lower(), metafunc.config.option.backend)
+            backend = set(map(lambda x: x.lower(), metafunc.config.option.backend))
+        # Otherwise use all available backends
         else:
-            backend = backends.keys()
+            backend = set(backends.keys())
+        # Restrict to set of backends specified on the module level
+        if hasattr(metafunc.module, 'backends'):
+            backend = backend.intersection(set(metafunc.module.backends))
+        # Restrict to set of backends specified on the class level
+        if hasattr(metafunc.cls, 'backends'):
+            backend = backend.intersection(set(metafunc.cls.backends))
         metafunc.parametrize("backend", (b for b in backend if not b in skip_backends), indirect=True)
 
 def op2_init(backend):
