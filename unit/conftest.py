@@ -39,9 +39,8 @@ Passing the parameter 'backend' to any test case will auto-parametrise
 that test case for all selected backends. By default all backends from
 the backends dict in the backends module are selected. Backends for
 which the dependencies are not installed are thereby automatically
-skipped. Tests execution is grouped per backend on a per-module basis
-i.e. op2.init() and op2.exit() for a backend are only called once per
-module.
+skipped. Tests execution is grouped per backend and op2.init() and
+op2.exit() for a backend are only called once per test session.
 
 Selecting for which backend to run
 ==================================
@@ -124,12 +123,14 @@ def pytest_generate_tests(metafunc):
         metafunc.parametrize("backend", (b for b in backend if not b in skip_backends), indirect=True)
 
 def op2_init(backend):
-    if op2.backends.get_backend() != 'pyop2.void':
-        op2.exit()
+    # We need to clean up the previous backend first, because the teardown
+    # hook is only run at the end of the session
+    op2.exit()
     op2.init(backend)
 
 def pytest_funcarg__backend(request):
-    request.cached_setup(setup=lambda: op2_init(request.param),
+    # Call init/exit only once per session
+    request.cached_setup(scope='session', setup=lambda: op2_init(request.param),
                          teardown=lambda backend: op2.exit(),
                          extrakey=request.param)
     return request.param
