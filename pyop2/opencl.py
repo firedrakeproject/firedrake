@@ -112,6 +112,10 @@ class Arg(op2.Arg):
         return self._is_global and self._access in [INC, MIN, MAX]
 
     @property
+    def _is_dat(self):
+        return isistance(self._dat, Dat)
+
+    @property
     def _is_INC(self):
         return self._access == INC
 
