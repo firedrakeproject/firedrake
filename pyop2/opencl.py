@@ -747,10 +747,10 @@ _max_work_group_size = _queue.device.max_work_group_size
 _has_dpfloat = 'cl_khr_fp64' in _queue.device.extensions or 'cl_amd_fp64' in _queue.device.extensions
 
 # CPU
-if _queue.device.type == 2:
+if _queue.device.type == cl.device_type.CPU:
     _warpsize = 1
 # GPU
-elif _queue.device.type == 4:
+elif _queue.device.type == cl.device_type.GPU:
     # assumes nvidia, will probably fail with AMD gpus
     _warpsize = 32
 
