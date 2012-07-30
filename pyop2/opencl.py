@@ -46,14 +46,7 @@ import warnings
 import sys
 import math
 from pycparser import c_parser, c_ast, c_generator
-
-def round_up(bytes):
-    return (bytes + 15) & ~15
-
-def _del_dup_keep_order(l):
-    """Remove duplicates while preserving order."""
-    uniq = set()
-    return [ x for x in l if x not in uniq and not uniq.add(x)]
+from utils import align, uniquify
 
 class Kernel(op2.Kernel):
     """Specialisation for the OpenCL backend.
@@ -113,7 +106,7 @@ class Arg(op2.Arg):
 
     @property
     def _is_dat(self):
-        return isistance(self._dat, Dat)
+        return isinstance(self._dat, Dat)
 
     @property
     def _is_INC(self):
@@ -236,7 +229,7 @@ class Global(op2.Global, DeviceDataMixin):
         cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
     def _allocate_reduction_array(self, nelems):
-        self._h_reduc_array = np.zeros ((round_up(nelems * self._data.itemsize),), dtype=self._data.dtype)
+        self._h_reduc_array = np.zeros ((align(nelems * self._data.itemsize, 16),), dtype=self._data.dtype)
         self._d_reduc_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._h_reduc_array.nbytes)
         cl.enqueue_copy(_queue, self._d_reduc_buffer, self._h_reduc_array, is_blocking=True).wait()
 
@@ -457,72 +450,83 @@ class ParLoopCall(object):
     """ generic. """
     @property
     def _global_reduction_args(self):
-        return _del_dup_keep_order(filter(lambda a: isinstance(a._dat, Global) and a._access in [INC, MIN, MAX], self._args))
+        return uniquify(a for a in self._args if a._is_global_reduction)
 
     @property
     def _global_non_reduction_args(self):
-        return _del_dup_keep_order(filter(lambda a: a._is_global and not a._is_global_reduction, self._args))
+        return uniquify(a for a in self._args if a._is_global and not a._is_global_reduction)
 
     @property
     def _unique_dats(self):
-        return _del_dup_keep_order(map(lambda arg: arg._dat, filter(lambda arg: isinstance(arg._dat, Dat), self._args)))
+        return uniquify(a._dat for a in self._args if a._is_dat)
 
     @property
     def _indirect_reduc_args(self):
-        return _del_dup_keep_order(filter(lambda a: a._is_indirect and a._access in [INC, MIN, MAX], self._args))
+        return uniquify(a for a in self._args if a._is_indirect_reduction)
 
     """ code generation specific """
-    """ a lot of this can rewriten properly """
+    @property
+    def _direct_args(self):
+        return uniquify(a for a in self._args if a._is_direct)
+
     @property
     def _direct_non_scalar_args(self):
-        return _del_dup_keep_order(filter(lambda a: a._is_direct and not (a._dat._is_scalar) and a._access in [READ, WRITE, RW], self._args))
+        return [a for a in self._direct_args if not a._dat._is_scalar]
 
     @property
     def _direct_non_scalar_read_args(self):
-        return _del_dup_keep_order(filter(lambda a: a._is_direct and not (a._dat._is_scalar) and a._access in [READ, RW], self._args))
+        return [a for a in self._direct_non_scalar_args if a._access in [READ, RW]]
 
     @property
     def _direct_non_scalar_written_args(self):
-        return _del_dup_keep_order(filter(lambda a: a._is_direct and not (a._dat._is_scalar) and a._access in [WRITE, RW], self._args))
+        return [a for a in self._direct_non_scalar_args if a._access in [WRITE, RW]]
 
     def _d_max_dynamic_shared_memory(self):
         """Computes the maximum shared memory requirement per iteration set elements."""
         assert self.is_direct(), "Should only be called on direct loops"
         if self._direct_non_scalar_args:
-            staging = max(map(lambda a: a._dat.bytes_per_elem, self._direct_non_scalar_args))
+            staging = max(a._dat.bytes_per_elem for a in self._direct_non_scalar_args)
         else:
             staging = 0
 
         if self._global_reduction_args:
-            reduction = max(map(lambda a: a._dat._data.itemsize, self._global_reduction_args))
+            reduction = max(a._dat._data.itemsize for a in self._global_reduction_args)
         else:
             reduction = 0
 
         return max(staging, reduction)
 
     @property
+    def _indirect_args(self):
+        return [a for a in self._args if a._is_indirect]
+
+    @property
+    def _vec_map_args(self):
+        return [a for a in self._args if a._is_vec_map]
+
+    @property
     def _dat_map_pairs(self):
-        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_indirect, self._args)))
+        return uniquify(DatMapPair(a._dat, a._map) for a in self._indirect_args)
 
     @property
     def _nonreduc_vec_dat_map_pairs(self):
-        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_vec_map and a._access not in [INC, MIN, MAX], self._actual_args)))
+        return uniquify(DatMapPair(a._dat, a._map) for a in self._vec_map_args if a._access is not INC)
 
     @property
     def _reduc_vec_dat_map_pairs(self):
-        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_vec_map and a._access in [INC, MIN, MAX], self._actual_args)))
+        return uniquify(DatMapPair(a._dat, a._map) for a in self._vec_map_args if a._access is INC)
 
     @property
     def _read_dat_map_pairs(self):
-        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_indirect and a._access in [READ, RW], self._args)))
+        return uniquify(DatMapPair(a._dat, a._map) for a in self._indirect_args if a._access in [READ, RW])
 
     @property
     def _written_dat_map_pairs(self):
-        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_indirect and a._access in [WRITE, RW], self._args)))
+        return uniquify(DatMapPair(a._dat, a._map) for a in self._indirect_args if a._access in [WRITE, RW])
 
     @property
     def _indirect_reduc_dat_map_pairs(self):
-        return _del_dup_keep_order(map(lambda arg: DatMapPair(arg._dat, arg._map), filter(lambda a: a._is_indirect_reduction, self._args)))
+        return uniquify(DatMapPair(a._dat, a._map) for a in self._args if a._is_indirect_reduction)
 
     def compute(self):
         source, prg = _gen_code_cache.get_code(self._kernel)

@@ -33,6 +33,8 @@
 
 """Common utility classes/functions."""
 
+from __future__ import division
+
 import numpy as np
 
 from exceptions import DataTypeError, DataValueError
@@ -160,3 +162,12 @@ def verify_reshape(data, dtype, shape, allow_none=False):
         except ValueError:
             raise DataValueError("Invalid data: expected %d values, got %d!" % \
                     (np.prod(shape), np.asarray(data).size))
+
+def align(bytes, alignment=16):
+    """Align BYTES to a multiple of ALIGNMENT"""
+    return ((bytes + alignment) // alignment) * alignment
+
+def uniquify(iterable):
+    """Remove duplicates in ITERABLE but preserve order."""
+    uniq = set()
+    return [x for x in iterable if x not in uniq and (uniq.add(x) or True)]
