@@ -590,6 +590,9 @@ class Mat(DataCarrier):
                         % (map._name, a_map._dataset._name, s_map.dataset._name))
         return self._arg_type(data=self, map=path_maps, access=access, idx=path_idxs)
 
+    def zero(self):
+        self._lib_handle.zero()
+
     @property
     def sparsity(self):
         """Sparsity on which the Mat is defined."""

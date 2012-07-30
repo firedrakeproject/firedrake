@@ -228,6 +228,9 @@ cdef class op_mat:
         cdef char * name = mat.name
         self._handle = core.op_decl_mat(sparsity._handle, dim, type, size, name)
 
+    def zero(self):
+        core.op_mat_zero(self._handle)
+
     property cptr:
         def __get__(self):
             cdef uintptr_t val
