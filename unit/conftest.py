@@ -123,5 +123,5 @@ def pytest_funcarg__backend(request):
     # Call init/exit only once per session
     request.cached_setup(scope='session', setup=lambda: op2_init(request.param),
                          teardown=lambda backend: op2.exit(),
-                         extrakey=request.param, scope='session')
+                         extrakey=request.param)
     return request.param
