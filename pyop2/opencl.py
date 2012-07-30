@@ -184,8 +184,12 @@ class Dat(op2.Dat, DeviceDataMixin):
 
     def __init__(self, dataset, dim, data=None, dtype=None, name=None, soa=None):
         op2.Dat.__init__(self, dataset, dim, data, dtype, name, soa)
-        self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
-        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
+        if data is not None:
+            self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
+            cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
+        else:
+            self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE,
+                                     size=int(dataset.size * self.dtype.itemsize * np.prod(self.dim)))
 
     @property
     def bytes_per_elem(self):
@@ -195,6 +199,8 @@ class Dat(op2.Dat, DeviceDataMixin):
 
     @property
     def data(self):
+        if len(self._data) is 0:
+            raise RuntimeError("Temporary dat has no data on the host")
         cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
         return self._data
 
