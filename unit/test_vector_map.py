@@ -37,12 +37,7 @@ import random
 
 from pyop2 import op2
 
-def setup_module(module):
-    # Initialise OP2
-    op2.init(backend='sequential', diags=0)
-
-def teardown_module(module):
-    op2.exit()
+backends = ['sequential']
 
 def _seed():
     return 0.02041724
@@ -55,7 +50,7 @@ class TestVectorMap:
     Vector Map Tests
     """
 
-    def test_sum_nodes_to_edges(self):
+    def test_sum_nodes_to_edges(self, backend):
         """Creates a 1D grid with edge values numbered consecutively.
         Iterates over edges, summing the node values."""
 
