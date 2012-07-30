@@ -119,6 +119,10 @@ class DeviceDataMixin:
                 np.dtype('float64'): ClTypeInfo('double', '0.0')}
 
     @property
+    def bytes_per_elem(self):
+        return self.dtype.itemsize * np.prod(self.dim)
+
+    @property
     def _is_scalar(self):
         return self._dim == (1,)
 
@@ -142,12 +146,6 @@ class Dat(op2.Dat, DeviceDataMixin):
         else:
             self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE,
                                      size=int(dataset.size * self.dtype.itemsize * np.prod(self.dim)))
-
-    @property
-    def bytes_per_elem(self):
-        # FIX: should be moved in DataMixin
-        # FIX: probably not the best way to do... (pad, alg ?)
-        return self._data.nbytes / self._dataset.size
 
     @property
     def data(self):
@@ -201,11 +199,6 @@ class Global(op2.Global, DeviceDataMixin):
         # get rid of the buffer and host temporary arrays
         del self._h_reduc_array
         del self._d_reduc_buffer
-
-    @property
-    def bytes_per_elem(self):
-        #dirty should be factored in DeviceDataMixin
-        return self._data.nbytes
 
 class Map(op2.Map):
 
