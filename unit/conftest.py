@@ -56,6 +56,23 @@ To skip a particular backend in a test case, pass the 'skip_<backend>'
 parameter to the test function, where '<backend>' is any valid backend
 string.
 
+Skipping backends on a module or class basis
+============================================
+
+You can supply a list of backends to skip for all tests in a given
+module or class with the ``skip_backends`` attribute in the module or
+class scope:
+
+    # module test_foo.py
+
+    # All tests in this module will not run for the CUDA backend
+    skip_backends = ['cuda']
+
+    class TestFoo:
+        # All tests in this class will not run for the CUDA and OpenCL
+        # backends
+        skip_backends = ['opencl']
+
 Selecting backends on a module or class basis
 =============================================
 
@@ -123,10 +140,16 @@ def pytest_generate_tests(metafunc):
     if 'backend' in metafunc.funcargnames:
 
         # Allow skipping individual backends by passing skip_<backend> as a parameter
-        skip_backends = []
+        skip_backends = set()
         for b in backends.keys():
             if 'skip_'+b in metafunc.funcargnames:
-                skip_backends.append(b)
+                skip_backends.add(b)
+        # Skip backends specified on the module level
+        if hasattr(metafunc.module, 'skip_backends'):
+            skip_backends = skip_backends.union(set(metafunc.module.skip_backends))
+        # Skip backends specified on the class level
+        if hasattr(metafunc.cls, 'skip_backends'):
+            skip_backends = skip_backends.union(set(metafunc.cls.skip_backends))
 
         # Use only backends specified on the command line if any
         if metafunc.config.option.backend:
