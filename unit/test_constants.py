@@ -38,18 +38,14 @@ from pyop2 import op2
 
 size = 100
 
-def setup_module(module):
-    op2.init(backend='sequential')
-
-def teardown_module(module):
-    op2.exit()
+backends = ['sequential']
 
 class TestConstant:
     """
     Tests of OP2 Constants
     """
 
-    def test_1d_read(self):
+    def test_1d_read(self, backend):
         kernel = """
         void kernel(unsigned int *x) { *x = constant; }
         """
@@ -62,7 +58,7 @@ class TestConstant:
         constant.remove_from_namespace()
         assert all(dat.data == constant._data)
 
-    def test_2d_read(self):
+    def test_2d_read(self, backend):
         kernel = """
         void kernel(unsigned int *x) { *x = constant[0] + constant[1]; }
         """
