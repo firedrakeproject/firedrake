@@ -240,7 +240,7 @@ isinstance(arg, Dat)."""
 
         if dat:
             _dat = arg.data._lib_handle
-            if arg.is_indirect():
+            if arg._is_indirect:
                 idx = arg.idx
                 map = arg.map._lib_handle
                 _map = map._handle
@@ -284,12 +284,12 @@ further ARGS."""
         # Size of the plan is incremented by the exec_size if any
         # argument is indirect and not read-only.  exec_size is only
         # ever non-zero in an MPI setting.
-        if any(arg.is_indirect_and_not_read() for arg in args):
+        if any(arg._is_indirect_and_not_read for arg in args):
             self.set_size += _set.exec_size
 
         # Count number of indirect arguments.  This will need changing
         # once we deal with vector maps.
-        self.nind_ele = sum(arg.is_indirect() for arg in args)
+        self.nind_ele = sum(arg._is_indirect for arg in args)
 
         # Build list of args to pass to C-level op_plan function.
         _args = <core.op_arg *>malloc(nargs * sizeof(core.op_arg))
@@ -318,7 +318,7 @@ further ARGS."""
                 _arg = arg._lib_handle
                 _args[i] = _arg._handle
                 # Fix up inds[i] in indirect case
-                if arg.is_indirect():
+                if arg._is_indirect:
                     if d.has_key((arg._dat,arg._map)):
                         inds[i] = d[(arg._dat,arg._map)]
                     else:

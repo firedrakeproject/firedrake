@@ -96,14 +96,58 @@ class Arg(object):
         """Access descriptor."""
         return self._access
 
-    def is_soa(self):
+    @property
+    def _is_soa(self):
         return isinstance(self._dat, Dat) and self._dat.soa
 
-    def is_indirect(self):
-        return self._map is not None and self._map is not IdentityMap and not isinstance(self._dat, Global)
+    @property
+    def _is_vec_map(self):
+        return self._is_indirect and self._idx is None
 
-    def is_indirect_and_not_read(self):
-        return self.is_indirect() and self._access is not READ
+    @property
+    def _is_global(self):
+        return isinstance(self._dat, Global)
+
+    @property
+    def _is_global_reduction(self):
+        return self._is_global and self._access in [INC, MIN, MAX]
+
+    @property
+    def _is_dat(self):
+        return isinstance(self._dat, Dat)
+
+    @property
+    def _is_INC(self):
+        return self._access == INC
+
+    @property
+    def _is_MIN(self):
+        return self._access == MIN
+
+    @property
+    def _is_MAX(self):
+        return self._access == MAX
+
+    @property
+    def _is_direct(self):
+        return isinstance(self._dat, Dat) and self._map is IdentityMap
+
+    @property
+    def _is_indirect(self):
+        return isinstance(self._dat, Dat) and self._map not in [None, IdentityMap]
+
+    @property
+    def _is_indirect_and_not_read(self):
+        return self._is_indirect and self._access is not READ
+
+
+    @property
+    def _is_indirect_reduction(self):
+        return self._is_indirect and self._access is INC
+
+    @property
+    def _is_global(self):
+        return isinstance(self._dat, Global)
 
 class Set(object):
     """OP2 set."""
@@ -525,7 +569,7 @@ def par_loop(kernel, it_space, *args):
 
     def c_arg_name(arg):
         name = arg._dat._name
-        if arg.is_indirect() and arg.idx is not None:
+        if arg._is_indirect and not arg._is_vec_map:
             name += str(arg.idx)
         return name
 
@@ -540,17 +584,17 @@ def par_loop(kernel, it_space, *args):
 
     def c_wrapper_arg(arg):
         val = "PyObject *_%(name)s" % {'name' : c_arg_name(arg) }
-        if arg.is_indirect():
+        if arg._is_indirect:
             val += ", PyObject *_%(name)s" % {'name' : c_map_name(arg)}
         return val
 
     def c_wrapper_dec(arg):
         val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
               {'name' : c_arg_name(arg), 'type' : c_type(arg)}
-        if arg.is_indirect():
+        if arg._is_indirect:
             val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" % \
                    {'name' : c_map_name(arg)}
-            if arg.idx is None:
+            if arg._is_vec_map:
                 val += ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
                        {'type' : c_type(arg),
                         'vec_name' : c_vec_name(arg),
@@ -566,8 +610,8 @@ def par_loop(kernel, it_space, *args):
                  'dim' : arg.data._dim[0]}
 
     def c_kernel_arg(arg):
-        if arg.is_indirect():
-            if arg.idx is None:
+        if arg._is_indirect:
+            if arg._is_vec_map:
                 return c_vec_name(arg)
             return c_ind_data(arg, arg.idx)
         elif isinstance(arg.data, Global):
@@ -594,7 +638,7 @@ def par_loop(kernel, it_space, *args):
 
     _kernel_args = ', '.join([c_kernel_arg(arg) for arg in args])
 
-    _vec_inits = ';\n'.join([c_vec_init(arg) for arg in args if arg.is_indirect() and arg.idx is None])
+    _vec_inits = ';\n'.join([c_vec_init(arg) for arg in args if arg._is_vec_map])
 
     wrapper = """
     void wrap_%(kernel_name)s__(%(wrapper_args)s) {
@@ -605,7 +649,7 @@ def par_loop(kernel, it_space, *args):
         }
     }"""
 
-    if any(arg.is_soa() for arg in args):
+    if any(arg._is_soa for arg in args):
         kernel_code = """
         #define OP2_STRIDE(a, idx) a[idx]
         %(code)s
@@ -629,7 +673,7 @@ def par_loop(kernel, it_space, *args):
     _args = []
     for arg in args:
         _args.append(arg.data.data)
-        if arg.is_indirect():
+        if arg._is_indirect:
             _args.append(arg.map.values)
 
     _fun(*_args)

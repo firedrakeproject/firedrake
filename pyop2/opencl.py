@@ -91,51 +91,6 @@ class Arg(op2.Arg):
     def __init__(self, data=None, map=None, idx=None, access=None):
         op2.Arg.__init__(self, data, map, idx, access)
 
-    """ generic. """
-    @property
-    def _is_vec_map(self):
-        return self._is_indirect and self._idx == None
-
-    @property
-    def _is_global(self):
-        return isinstance(self._dat, Global)
-
-    @property
-    def _is_global_reduction(self):
-        return self._is_global and self._access in [INC, MIN, MAX]
-
-    @property
-    def _is_dat(self):
-        return isinstance(self._dat, Dat)
-
-    @property
-    def _is_INC(self):
-        return self._access == INC
-
-    @property
-    def _is_MIN(self):
-        return self._access == MIN
-
-    @property
-    def _is_MAX(self):
-        return self._access == MAX
-
-    @property
-    def _is_direct(self):
-        return isinstance(self._dat, Dat) and self._map is IdentityMap
-
-    @property
-    def _is_indirect(self):
-        return isinstance(self._dat, Dat) and self._map not in [None, IdentityMap]
-
-    @property
-    def _is_indirect_reduction(self):
-        return self._is_indirect and self._access is INC
-
-    @property
-    def _is_global(self):
-        return isinstance(self._dat, Global)
-
     """ codegen specific. """
     @property
     def _d_is_staged(self):
