@@ -40,6 +40,7 @@ import numpy as np
 import h5py
 
 from pyop2 import op2
+from pyop2 import exceptions
 from pyop2 import sequential
 
 def pytest_funcarg__set(request):
@@ -116,7 +117,7 @@ class TestAccessAPI:
 
     def test_illegal_access(self):
         "Illegal access modes should raise an exception."
-        with pytest.raises(sequential.ModeValueError):
+        with pytest.raises(exceptions.ModeValueError):
             sequential.Access('ILLEGAL_ACCESS')
 
 class TestSetAPI:
@@ -126,12 +127,12 @@ class TestSetAPI:
 
     def test_set_illegal_size(self, backend):
         "Set size should be int."
-        with pytest.raises(sequential.SizeTypeError):
+        with pytest.raises(exceptions.SizeTypeError):
             op2.Set('illegalsize')
 
     def test_set_illegal_name(self, backend):
         "Set name should be string."
-        with pytest.raises(sequential.NameTypeError):
+        with pytest.raises(exceptions.NameTypeError):
             op2.Set(1,2)
 
     def test_set_properties(self, set, backend):
@@ -159,7 +160,7 @@ class TestDatAPI:
 
     def test_dat_illegal_set(self, backend):
         "Dat set should be Set."
-        with pytest.raises(sequential.SetTypeError):
+        with pytest.raises(exceptions.SetTypeError):
             op2.Dat('illegalset', 1)
 
     def test_dat_illegal_dim(self, set, backend):
@@ -174,7 +175,7 @@ class TestDatAPI:
 
     def test_dat_illegal_name(self, set, backend):
         "Dat name should be string."
-        with pytest.raises(sequential.NameTypeError):
+        with pytest.raises(exceptions.NameTypeError):
             op2.Dat(set, 1, name=2)
 
     def test_dat_illegal_data_access(self, set, backend):
@@ -221,13 +222,13 @@ class TestDatAPI:
 
     def test_dat_illegal_dtype(self, set, backend):
         "Illegal data type should raise DataTypeError."
-        with pytest.raises(sequential.DataTypeError):
+        with pytest.raises(exceptions.DataTypeError):
             op2.Dat(set, 1, dtype='illegal_type')
 
     @pytest.mark.parametrize("dim", [1, (2,2)])
     def test_dat_illegal_length(self, set, dim, backend):
         "Mismatching data length should raise DataValueError."
-        with pytest.raises(sequential.DataValueError):
+        with pytest.raises(exceptions.DataValueError):
             op2.Dat(set, dim, [1]*(set.size*np.prod(dim)+1))
 
     def test_dat_reshape(self, set, backend):
@@ -292,7 +293,7 @@ class TestMatAPI:
 
     def test_mat_illegal_name(self, set, backend):
         "Mat name should be string."
-        with pytest.raises(sequential.NameTypeError):
+        with pytest.raises(exceptions.NameTypeError):
             op2.Mat((set,set), 1, name=2)
 
     def test_mat_sets(self, iterset, dataset, backend):
@@ -338,7 +339,7 @@ class TestConstAPI:
 
     def test_const_illegal_data(self, backend):
         "Passing None for Const data should not be allowed."
-        with pytest.raises(sequential.DataValueError):
+        with pytest.raises(exceptions.DataValueError):
             op2.Const(1, None, 'test_const_illegal_data')
 
     def test_const_nonunique_name(self, const, backend):
@@ -356,7 +357,7 @@ class TestConstAPI:
 
     def test_const_illegal_name(self, backend):
         "Const name should be string."
-        with pytest.raises(sequential.NameTypeError):
+        with pytest.raises(exceptions.NameTypeError):
             op2.Const(1, 1, 2)
 
     def test_const_dim(self, backend):
@@ -397,13 +398,13 @@ class TestConstAPI:
 
     def test_const_illegal_dtype(self, backend):
         "Illegal data type should raise DataValueError."
-        with pytest.raises(sequential.DataValueError):
+        with pytest.raises(exceptions.DataValueError):
             op2.Const(1, 'illegal_type', 'test_const_illegal_dtype', 'double')
 
     @pytest.mark.parametrize("dim", [1, (2,2)])
     def test_const_illegal_length(self, dim, backend):
         "Mismatching data length should raise DataValueError."
-        with pytest.raises(sequential.DataValueError):
+        with pytest.raises(exceptions.DataValueError):
             op2.Const(dim, [1]*(np.prod(dim)+1), 'test_const_illegal_length_%r' % np.prod(dim))
 
     def test_const_reshape(self, backend):
@@ -437,7 +438,7 @@ class TestConstAPI:
         "Setter attribute should reject malformed data."
         c = op2.Const(1, 1, 'c')
         c.remove_from_namespace()
-        with pytest.raises(sequential.DataValueError):
+        with pytest.raises(exceptions.DataValueError):
             c.data = [1, 2]
 
 class TestGlobalAPI:
@@ -457,12 +458,12 @@ class TestGlobalAPI:
 
     def test_global_illegal_name(self, backend):
         "Global name should be string."
-        with pytest.raises(sequential.NameTypeError):
+        with pytest.raises(exceptions.NameTypeError):
             op2.Global(1, 1, name=2)
 
     def test_global_illegal_data(self, backend):
         "Passing None for Global data should not be allowed."
-        with pytest.raises(sequential.DataValueError):
+        with pytest.raises(exceptions.DataValueError):
             op2.Global(1, None)
 
     def test_global_dim(self, backend):
@@ -497,13 +498,13 @@ class TestGlobalAPI:
 
     def test_global_illegal_dtype(self, backend):
         "Illegal data type should raise DataValueError."
-        with pytest.raises(sequential.DataValueError):
+        with pytest.raises(exceptions.DataValueError):
             op2.Global(1, 'illegal_type', 'double')
 
     @pytest.mark.parametrize("dim", [1, (2,2)])
     def test_global_illegal_length(self, dim, backend):
         "Mismatching data length should raise DataValueError."
-        with pytest.raises(sequential.DataValueError):
+        with pytest.raises(exceptions.DataValueError):
             op2.Global(dim, [1]*(np.prod(dim)+1))
 
     def test_global_reshape(self, backend):
@@ -526,7 +527,7 @@ class TestGlobalAPI:
     def test_global_setter_malformed_data(self, backend):
         "Setter attribute should reject malformed data."
         c = op2.Global(1, 1)
-        with pytest.raises(sequential.DataValueError):
+        with pytest.raises(exceptions.DataValueError):
             c.data = [1, 2]
 
 class TestMapAPI:
@@ -536,37 +537,37 @@ class TestMapAPI:
 
     def test_map_illegal_iterset(self, set, backend):
         "Map iterset should be Set."
-        with pytest.raises(sequential.SetTypeError):
+        with pytest.raises(exceptions.SetTypeError):
             op2.Map('illegalset', set, 1, [])
 
     def test_map_illegal_dataset(self, set, backend):
         "Map dataset should be Set."
-        with pytest.raises(sequential.SetTypeError):
+        with pytest.raises(exceptions.SetTypeError):
             op2.Map(set, 'illegalset', 1, [])
 
     def test_map_illegal_dim(self, set, backend):
         "Map dim should be int."
-        with pytest.raises(sequential.DimTypeError):
+        with pytest.raises(exceptions.DimTypeError):
             op2.Map(set, set, 'illegaldim', [])
 
     def test_map_illegal_dim_tuple(self, set, backend):
         "Map dim should not be a tuple."
-        with pytest.raises(sequential.DimTypeError):
+        with pytest.raises(exceptions.DimTypeError):
             op2.Map(set, set, (2,2), [])
 
     def test_map_illegal_name(self, set, backend):
         "Map name should be string."
-        with pytest.raises(sequential.NameTypeError):
+        with pytest.raises(exceptions.NameTypeError):
             op2.Map(set, set, 1, [], name=2)
 
     def test_map_illegal_dtype(self, set, backend):
         "Illegal data type should raise DataValueError."
-        with pytest.raises(sequential.DataValueError):
+        with pytest.raises(exceptions.DataValueError):
             op2.Map(set, set, 1, 'abcdefg')
 
     def test_map_illegal_length(self, iterset, dataset, backend):
         "Mismatching data length should raise DataValueError."
-        with pytest.raises(sequential.DataValueError):
+        with pytest.raises(exceptions.DataValueError):
             op2.Map(iterset, dataset, 1, [1]*(iterset.size+1))
 
     def test_map_convert_float_int(self, iterset, dataset, backend):
@@ -601,7 +602,7 @@ class TestIterationSpaceAPI:
 
     def test_iteration_space_illegal_iterset(self, set, backend):
         "IterationSpace iterset should be Set."
-        with pytest.raises(sequential.SetTypeError):
+        with pytest.raises(exceptions.SetTypeError):
             op2.IterationSpace('illegalset', 1)
 
     def test_iteration_space_illegal_extents(self, set, backend):
@@ -636,7 +637,7 @@ class TestKernelAPI:
 
     def test_kernel_illegal_name(self, backend):
         "Kernel name should be string."
-        with pytest.raises(sequential.NameTypeError):
+        with pytest.raises(exceptions.NameTypeError):
             op2.Kernel("", name=2)
 
     def test_kernel_properties(self, backend):
