@@ -99,6 +99,7 @@ Cleanup of C level datastructures is currently not handled.
 """
 
 from libc.stdlib cimport malloc, free
+from libc.stdint cimport uintptr_t
 import numpy as np
 cimport numpy as np
 cimport _op_lib_core as core
@@ -517,4 +518,4 @@ device's "block" address plus an offset which is
 
     property hsh:
         def __get__(self):
-            return hash(<int>self._handle)
+            return hash(<uintptr_t>self._handle)
