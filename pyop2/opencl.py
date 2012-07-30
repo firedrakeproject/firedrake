@@ -269,12 +269,12 @@ class OpPlan():
         del self._thrcol_buffer
 
     def load(self):
-        self.nuinds = sum(map(lambda a: a.is_indirect(), self._parloop._args))
+        self.nuinds = sum(map(lambda a: a._is_indirect, self._parloop._args))
         _ind_desc = [-1] * len(self._parloop._args)
         _d = {}
         _c = 0
         for i, arg in enumerate(self._parloop._args):
-            if arg.is_indirect():
+            if arg._is_indirect:
                 if _d.has_key((arg._dat, arg._map)):
                     _ind_desc[i] = _d[(arg._dat, arg._map)]
                 else:
@@ -529,7 +529,7 @@ class ParLoopCall(object):
                                   "dynamic_shared_memory_size": local_memory_req,\
                                   "threads_per_block": wgs,
                                   "block_count": nwg}
-                dloop['op2const'] = Const._defs
+                dloop['op2const'] = list(Const._defs)
                 source = str(dloop)
 
                 # for debugging purpose, refactor that properly at some point
@@ -587,7 +587,7 @@ class ParLoopCall(object):
                                   'threads_per_block': min(_max_work_group_size, psize),\
                                   'partition_size':psize,\
                                   'warpsize': _warpsize}
-                iloop['op2const'] = Const._defs
+                iloop['op2const'] = list(Const._defs)
                 source = str(iloop)
 
                 # for debugging purpose, refactor that properly at some point

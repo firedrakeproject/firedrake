@@ -4,9 +4,9 @@ indirect_loop(parloop,const,op2const)::=<<
 $header()$
 $parloop._global_reduction_args:{$reduction_kernel()$};separator="\n"$
 
-$if(op2const.keys)$
+$if(op2const)$
 /* op2 const declarations */
-$op2const.values:{c | $opencl_const_declaration(cst=c)$};separator="\n"$
+$op2const:{c | $opencl_const_declaration(cst=c)$};separator="\n"$
 $endif$
 
 $parloop._kernel._inst_code$
