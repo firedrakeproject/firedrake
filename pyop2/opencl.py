@@ -57,12 +57,10 @@ class Kernel(op2.Kernel):
 
     class Instrument(c_ast.NodeVisitor):
         """C AST visitor for instrumenting user kernels.
-             - adds __constant declarations at top level
              - adds memory space attribute to user kernel declaration
              - adds a separate function declaration for user kernel
         """
-        # __constant declaration should be moved to codegen
-        def instrument(self, ast, kernel_name, instrument, constants):
+        def instrument(self, ast, kernel_name, instrument):
             self._kernel_name = kernel_name
             self._instrument = instrument
             self._ast = ast
@@ -82,9 +80,9 @@ class Kernel(op2.Kernel):
                 if self._instrument[i][1]:
                     p.type.quals.append(self._instrument[i][1])
 
-    def instrument(self, instrument, constants):
+    def instrument(self, instrument):
         ast = c_parser.CParser().parse(self._code)
-        Kernel.Instrument().instrument(ast, self._name, instrument, constants)
+        Kernel.Instrument().instrument(ast, self._name, instrument)
         self._inst_code = c_generator.CGenerator().visit(ast)
 
 class Arg(op2.Arg):
@@ -514,7 +512,7 @@ class ParLoopCall(object):
                     elif arg._is_global:
                         inst.append(("__global", None))
 
-                self._kernel.instrument(inst, [])
+                self._kernel.instrument(inst)
 
                 dloop = _stg_direct_loop.getInstanceOf("direct_loop")
                 dloop['parloop'] = self
@@ -570,7 +568,7 @@ class ParLoopCall(object):
                     else:
                         inst.append(("__private", None))
 
-                self._kernel.instrument(inst, [])
+                self._kernel.instrument(inst)
 
                 # codegen
                 iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
