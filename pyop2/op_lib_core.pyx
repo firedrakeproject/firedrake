@@ -236,19 +236,14 @@ cdef class op_mat:
 
     property values:
         def __get__(self):
-            # ndarrays created with PyArray_SimpleNewFromData don't own their data,
-            # so we create a temp, copy from the temp to a new ndarray that does own
-            # its data, and then free everything else.
-            cdef np.npy_intp m, n
+            cdef int m, n
             cdef double *v
-            cdef np.ndarray[double, ndim=2] tmp, vals
+            cdef np.ndarray[double, ndim=2, mode="c"] vals
             core.op_mat_get_values(self._handle, &v, &m, &n)
             cdef np.npy_intp *d2 = [m,n]
+
             vals = np.PyArray_SimpleNew(2, d2, np.NPY_DOUBLE)
-            tmp = np.PyArray_SimpleNewFromData(2, d2, np.NPY_DOUBLE, v)
-            np.PyArray_CopyInto(vals, tmp)
-            del tmp
-            free(v)
+            vals.data = <char *>v
             return vals
 
 cdef class op_arg:
