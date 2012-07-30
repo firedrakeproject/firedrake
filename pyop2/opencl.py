@@ -502,7 +502,7 @@ class ParLoopCall(object):
                 # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
                 available_local_memory -= 7
                 ps = available_local_memory / per_elem_max_local_mem_req
-                wgs = min(_queue.device.max_work_group_size, (ps / 32) * 32)
+                wgs = min(_queue.device.max_work_group_size, (ps / _warpsize) * _warpsize)
             nwg = min(_pref_work_group_count, int(math.ceil(self._it_space.size / float(wgs))))
             ttc = wgs * nwg
 
@@ -676,8 +676,7 @@ class ParLoopCall(object):
         available_local_memory -= 2 * (len(self._dat_map_pairs) - 1)
 
         max_bytes = sum(map(lambda a: a._dat.bytes_per_elem, staged_args))
-        # why the hell round up to 64 ?
-        return available_local_memory / (64 * max_bytes) * 64
+        return available_local_memory / (2 * _warpsize * max_bytes) * (2 * _warpsize)
 
 #Monkey patch pyopencl.Kernel for convenience
 _original_clKernel = cl.Kernel
