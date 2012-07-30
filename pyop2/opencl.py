@@ -166,7 +166,6 @@ class Const(op2.Const, DeviceDataMixin):
 
     def __init__(self, dim, data, name, dtype=None):
         op2.Const.__init__(self, dim, data, name, dtype)
-        _op2_constants[self._name] = self
 
     @property
     def _cl_value(self):
@@ -524,7 +523,7 @@ class ParLoopCall(object):
                                   "dynamic_shared_memory_size": local_memory_req,\
                                   "threads_per_block": wgs,
                                   "block_count": nwg}
-                dloop['op2const'] = _op2_constants
+                dloop['op2const'] = Const._defs
                 source = str(dloop)
 
                 # for debugging purpose, refactor that properly at some point
@@ -582,7 +581,7 @@ class ParLoopCall(object):
                                   'threads_per_block': min(_max_work_group_size, psize),\
                                   'partition_size':psize,\
                                   'warpsize': _warpsize}
-                iloop['op2const'] = _op2_constants
+                iloop['op2const'] = Const._defs
                 source = str(iloop)
 
                 # for debugging purpose, refactor that properly at some point
@@ -697,7 +696,6 @@ cl.Kernel = CLKernel
 def par_loop(kernel, it_space, *args):
     ParLoopCall(kernel, it_space, *args).compute()
 
-_op2_constants = dict()
 _debug = False
 _kernel_dump = False
 _ctx = cl.create_some_context()
