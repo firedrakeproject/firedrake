@@ -46,8 +46,9 @@ def init(backend='sequential', diags=2):
 
 def exit():
     """Exit OP2 and clean up"""
-    core.op_exit()
-    backends.unset_backend()
+    if backends.get_backend() != 'pyop2.void':
+        core.op_exit()
+        backends.unset_backend()
 
 class IterationSpace(sequential.IterationSpace):
     __metaclass__ = backends.BackendSelector
