@@ -357,6 +357,11 @@ void zero_dat(double *dat)
                          (0.125, 0.145833, 0.0208333, 0.291667) ]
         return numpy.asarray(expected_vals, dtype=valuetype)
 
+    def pytest_funcarg__expected_rhs(cls, request):
+        return numpy.asarray([[0.9999999523522115], [1.3541666031724144],
+                              [0.2499999883507239], [1.6458332580869566]],
+                              dtype=valuetype)
+
     def test_assemble(self, backend, mass, mat, coords, elements, elem_node,
                       expected_matrix):
         op2.par_loop(mass, elements(3,3),
@@ -365,17 +370,15 @@ void zero_dat(double *dat)
         eps=1.e-6
         assert (abs(mat.values-expected_matrix)<eps).all()
 
-    def test_rhs(self, backend, rhs, elements, b, coords, f, elem_node):
+    def test_rhs(self, backend, rhs, elements, b, coords, f, elem_node,
+                     expected_rhs):
         op2.par_loop(rhs, elements,
                      b(elem_node, op2.INC),
                      coords(elem_node, op2.READ),
                      f(elem_node, op2.READ))
 
-        expected = numpy.asarray([[0.9999999523522115], [1.3541666031724144],
-                                  [0.2499999883507239], [1.6458332580869566]],
-                                  dtype=valuetype)
         eps = 1.e-12
-        assert all(abs(b.data-expected)<eps)
+        assert all(abs(b.data-expected_rhs)<eps)
 
     def test_solve(self, backend, mat, b, x, f):
         op2.solve(mat, b, x)
@@ -404,17 +407,15 @@ void zero_dat(double *dat)
         eps=1.e-6
         assert (abs(mat.values-expected_matrix)<eps).all()
 
-    def test_rhs_ffc(self, rhs_ffc, elements, b, coords, f, elem_node):
+    def test_rhs_ffc(self, rhs_ffc, elements, b, coords, f, elem_node,
+                         expected_rhs):
         op2.par_loop(rhs_ffc, elements,
                      b(elem_node, op2.INC),
                      coords(elem_node, op2.READ),
                      f(elem_node, op2.READ))
 
-        expected = numpy.asarray([[0.9999999523522115], [1.3541666031724144],
-                                  [0.2499999883507239], [1.6458332580869566]],
-                                  dtype=valuetype)
         eps = 1.e-6
-        assert all(abs(b.data-expected)<eps)
+        assert all(abs(b.data-expected_rhs)<eps)
 
 if __name__ == '__main__':
     import os
