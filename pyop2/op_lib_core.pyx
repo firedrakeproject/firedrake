@@ -99,6 +99,7 @@ Cleanup of C level datastructures is currently not handled.
 """
 
 from libc.stdlib cimport malloc, free
+from libc.stdint cimport uintptr_t
 import numpy as np
 cimport numpy as np
 cimport _op_lib_core as core
@@ -152,6 +153,26 @@ cdef class op_set:
         cdef int size = set._size
         cdef char * name = set._name
         self._handle = core.op_decl_set_core(size, name)
+
+    property size:
+        def __get__(self):
+            """Return the number of elements in the set"""
+            return self._handle.size
+
+    property core_size:
+        def __get__(self):
+            """Return the number of core elements (MPI-only)"""
+            return self._handle.core_size
+
+    property exec_size:
+        def __get__(self):
+            """Return the number of additional imported elements to be executed"""
+            return self._handle.exec_size
+
+    property nonexec_size:
+        def __get__(self):
+            """Return the number of additional imported elements that are not executed"""
+            return self._handle.nonexec_size
 
 cdef class op_dat:
     cdef core.op_dat _handle
@@ -220,7 +241,7 @@ isinstance(arg, Dat)."""
 
         if dat:
             _dat = arg.data._lib_handle
-            if arg.is_indirect():
+            if arg._is_indirect:
                 idx = arg.idx
                 map = arg.map._lib_handle
                 _map = map._handle
@@ -243,7 +264,7 @@ cdef class op_plan:
     cdef core.op_plan *_handle
     cdef int set_size
     cdef int nind_ele
-    def __cinit__(self, kernel, iset, *args):
+    def __cinit__(self, kernel, iset, *args, partition_size=0):
         """Instantiate a C-level op_plan for a parallel loop.
 
 Arguments to this constructor should be the arguments of the parallel
@@ -251,7 +272,7 @@ loop, i.e. the KERNEL, the ISET (iteration set) and any
 further ARGS."""
         cdef op_set _set = iset._lib_handle
         cdef char * name = kernel._name
-        cdef int part_size = 0
+        cdef int part_size = partition_size
         cdef int nargs = len(args)
         cdef op_arg _arg
         cdef core.op_arg *_args
@@ -260,16 +281,16 @@ further ARGS."""
         cdef int i
         cdef int ind = 0
 
-        self.set_size = _set._handle.size
+        self.set_size = _set.size
         # Size of the plan is incremented by the exec_size if any
         # argument is indirect and not read-only.  exec_size is only
         # ever non-zero in an MPI setting.
-        if any(arg.is_indirect_and_not_read() for arg in args):
-            self.set_size += _set._handle.exec_size
+        if any(arg._is_indirect_and_not_read for arg in args):
+            self.set_size += _set.exec_size
 
         # Count number of indirect arguments.  This will need changing
         # once we deal with vector maps.
-        self.nind_ele = sum(arg.is_indirect() for arg in args)
+        self.nind_ele = sum(arg._is_indirect for arg in args)
 
         # Build list of args to pass to C-level op_plan function.
         _args = <core.op_arg *>malloc(nargs * sizeof(core.op_arg))
@@ -298,12 +319,12 @@ further ARGS."""
                 _arg = arg._lib_handle
                 _args[i] = _arg._handle
                 # Fix up inds[i] in indirect case
-                if arg.is_indirect():
-                    if d.has_key(arg):
-                        inds[i] = d[arg]
+                if arg._is_indirect:
+                    if d.has_key((arg._dat,arg._map)):
+                        inds[i] = d[(arg._dat,arg._map)]
                     else:
                         inds[i] = ind
-                        d[arg] = ind
+                        d[(arg._dat,arg._map)] = ind
                         ind += 1
                         ninds += 1
             self._handle = core.op_plan_core(name, _set._handle,
@@ -494,3 +515,7 @@ device's "block" address plus an offset which is
         """Number of times this plan has been used"""
         def __get__(self):
             return self._handle.count
+
+    property hsh:
+        def __get__(self):
+            return hash(<uintptr_t>self._handle)

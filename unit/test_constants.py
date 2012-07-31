@@ -38,7 +38,7 @@ from pyop2 import op2
 
 size = 100
 
-backends = ['sequential']
+backends = ['sequential', 'opencl']
 
 class TestConstant:
     """

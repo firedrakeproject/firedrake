@@ -39,7 +39,7 @@ from pyop2 import op2
 
 import h5py
 
-op2.init(backend='sequential')
+op2.init(backend='opencl')
 
 from airfoil_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 

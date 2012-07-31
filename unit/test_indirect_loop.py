@@ -37,7 +37,7 @@ import random
 
 from pyop2 import op2
 
-backends = ['sequential']
+backends = ['sequential', 'opencl']
 
 def _seed():
     return 0.02041724
@@ -88,6 +88,16 @@ class TestIndirectLoop:
 
         op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"), iterset, u(iterset2unit(0), op2.INC))
         assert u.data[0] == nelems
+
+    def test_global_read(self, iterset, x, iterset2indset, backend):
+        g = op2.Global(1, 2, numpy.uint32, "g")
+
+        kernel_global_read = "void kernel_global_read(unsigned int* x, unsigned int* g) { (*x) /= (*g); }\n"
+
+        op2.par_loop(op2.Kernel(kernel_global_read, "kernel_global_read"), iterset,
+                     x(iterset2indset(0), op2.RW),
+                     g(op2.READ))
+        assert sum(x.data) == sum(map(lambda v: v / 2, range(nelems)))
 
     def test_global_inc(self, iterset, x, iterset2indset, backend):
         g = op2.Global(1, 0, numpy.uint32, "g")
