@@ -51,7 +51,9 @@ class TestMatrices:
     """
 
     def pytest_funcarg__nodes(cls, request):
-        return op2.Set(NUM_NODES, "nodes")
+        # FIXME: Cached setup can be removed when __eq__ methods implemented.
+        return request.cached_setup(
+                setup=lambda: op2.Set(NUM_NODES, "nodes"), scope='session')
 
     def pytest_funcarg__elements(cls, request):
         return op2.Set(NUM_ELE, "elements")
@@ -217,75 +219,7 @@ void rhs(double** localTensor, double* c0[2], double* c1[1])
 
     def pytest_funcarg__mass_ffc(cls, request):
         kernel_code = """
-mass_ffc(double *localTensor, double *x[2], int i, int j)
-{
-    // Compute Jacobian of affine map from reference cell
-    const double J_00 = x[1][0] - x[0][0];
-    const double J_01 = x[2][0] - x[0][0];
-    const double J_10 = x[1][1] - x[0][1];
-    const double J_11 = x[2][1] - x[0][1];
-
-    // Compute determinant of Jacobian
-    double detJ = J_00*J_11 - J_01*J_10;
-
-    // Compute inverse of Jacobian
-    const double K_00 =  J_11 / detJ;
-    const double K_01 = -J_01 / detJ;
-    const double K_10 = -J_10 / detJ;
-    const double K_11 =  J_00 / detJ;
-
-    // Set scale factor
-    const double det = fabs(detJ);
-
-    // Cell Volume.
-
-    // Compute circumradius, assuming triangle is embedded in 2D.
-
-
-    // Facet Area.
-
-    // Array of quadrature weights.
-    static const double W1 = 0.5;
-    // Quadrature points on the UFC reference element: (0.333333333333333, 0.333333333333333)
-
-    // Value of basis functions at quadrature points.
-    static const double FE0_D01[1][3] = \
-    {{-1.0, 0.0, 1.0}};
-
-    static const double FE0_D10[1][3] = \
-    {{-1.0, 1.0, 0.0}};
-
-    // Reset values in the element tensor.
-    for (unsigned int r = 0; r < 9; r++)
-    {
-      A[r] = 0.0;
-    }// end loop over 'r'
-
-    // Compute element tensor using UFL quadrature representation
-    // Optimisations: ('eliminate zeros', False), ('ignore ones', False), ('ignore zero tables', False), ('optimisation', False), ('remove zero terms', False)
-
-    // Loop quadrature points for integral.
-    // Number of operations to compute element tensor for following IP loop = 162
-    // Only 1 integration point, omitting IP loop.
-
-    // Number of operations for primary indices: 162
-    for (unsigned int j = 0; j < 3; j++)
-    {
-      for (unsigned int k = 0; k < 3; k++)
-      {
-        // Number of operations to compute entry: 18
-        A[j*3 + k] += (((K_00*FE0_D10[0][j] + K_10*FE0_D01[0][j]))*((K_00*FE0_D10[0][k] + K_10*FE0_D01[0][k])) + ((K_01*FE0_D10[0][j] + K_11*FE0_D01[0][j]))*((K_01*FE0_D10[0][k] + K_11*FE0_D01[0][k])))*W1*det;
-      }// end loop over 'k'
-    }// end loop over 'j'
-}
-"""
-
-        return op2.Kernel(kernel_code, "mass_ffc")
-
-    def pytest_funcarg__rhs_ffc(cls, request):
-
-        kernel_code="""
-identity_cell_integral_1_0_tabulate_tensor(    double **localTensor, double *x[2], double *w0)
+void mass_ffc(double *A, double *x[2], int j, int k)
 {
     // Compute Jacobian of affine map from reference cell
     const double J_00 = x[1][0] - x[0][0];
@@ -319,36 +253,28 @@ identity_cell_integral_1_0_tabulate_tensor(    double **localTensor, double *x[2
     {0.166666666666667, 0.666666666666667, 0.166666666666667}};
 
     // Reset values in the element tensor.
-    for (unsigned int r = 0; r < 3; r++)
-    {
-      A[r] = 0.0;
-    }// end loop over 'r'
 
     // Compute element tensor using UFL quadrature representation
     // Optimisations: ('eliminate zeros', False), ('ignore ones', False), ('ignore zero tables', False), ('optimisation', False), ('remove zero terms', False)
 
     // Loop quadrature points for integral.
-    // Number of operations to compute element tensor for following IP loop = 54
+    // Number of operations to compute element tensor for following IP loop = 108
     for (unsigned int ip = 0; ip < 3; ip++)
     {
 
-      // Coefficient declarations.
-      double F0 = 0.0;
-
-      // Total number of operations to compute function values = 6
-      for (unsigned int r = 0; r < 3; r++)
-      {
-        F0 += FE0[ip][r]*w0[r];
-      }// end loop over 'r'
-
-      // Number of operations for primary indices: 12
-      for (unsigned int j = 0; j < 3; j++)
-      {
-        // Number of operations to compute entry: 4
-        A[j] += FE0[ip][j]*F0*W3[ip]*det;
-      }// end loop over 'j'
+      // Number of operations for primary indices: 36
+      // Number of operations to compute entry: 4
+      *A += FE0[ip][j]*FE0[ip][k]*W3[ip]*det;
     }// end loop over 'ip'
 }
+"""
+
+        return op2.Kernel(kernel_code, "mass_ffc")
+
+    def pytest_funcarg__rhs_ffc(cls, request):
+
+        kernel_code="""
+
 """
 
         return op2.Kernel(kernel_code, "rhs_ffc")
@@ -364,17 +290,19 @@ void zero_dat(double *dat)
 
         return op2.Kernel(kernel_code, "zero_dat")
 
-    def test_assemble(self, mass, mat, coords, elements, elem_node):
-        op2.par_loop(mass, elements(3,3),
-                     mat((elem_node(op2.i(0)), elem_node(op2.i(1))), op2.INC),
-                     coords(elem_node, op2.READ))
-
-        eps=1.e-6
+    def pytest_funcarg__expected_matrix(cls, request):
         expected_vals = [(0.25, 0.125, 0.0, 0.125),
                          (0.125, 0.291667, 0.0208333, 0.145833),
                          (0.0, 0.0208333, 0.0416667, 0.0208333),
                          (0.125, 0.145833, 0.0208333, 0.291667) ]
-        expected_matrix = numpy.asarray(expected_vals, dtype=valuetype)
+        return numpy.asarray(expected_vals, dtype=valuetype)
+
+    def test_assemble(self, mass, mat, coords, elements, elem_node,
+                      expected_matrix):
+        op2.par_loop(mass, elements(3,3),
+                     mat((elem_node(op2.i(0)), elem_node(op2.i(1))), op2.INC),
+                     coords(elem_node, op2.READ))
+        eps=1.e-6
         assert (abs(mat.values-expected_matrix)<eps).all()
 
     def test_rhs(self, rhs, elements, b, coords, f, elem_node):
@@ -407,8 +335,15 @@ void zero_dat(double *dat)
                      b(op2.IdentityMap, op2.WRITE))
         assert all(map(lambda x: x==0.0, b.data))
 
-    def test_assemble_ffc(self, mass_ffc, mat, coords, elements, elem_node):
+    def test_assemble_ffc(self, mass_ffc, mat, coords, elements, elem_node,
+                          expected_matrix):
         """Test that the FFC mass assembly assembles the correct values."""
+        op2.par_loop(mass_ffc, elements(3,3),
+                     mat((elem_node(op2.i(0)), elem_node(op2.i(1))), op2.INC),
+                     coords(elem_node, op2.READ))
+        eps=1.e-6
+        assert (abs(mat.values-expected_matrix)<eps).all()
+
 
 if __name__ == '__main__':
     import os
