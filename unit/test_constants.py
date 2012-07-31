@@ -47,9 +47,9 @@ class TestConstant:
 
     def test_1d_read(self, backend):
         kernel = """
-        void kernel(unsigned int *x) { *x = constant; }
+        void kernel(unsigned int *x) { *x = myconstant; }
         """
-        constant = op2.Const(1, 100, dtype=numpy.uint32, name="constant")
+        constant = op2.Const(1, 100, dtype=numpy.uint32, name="myconstant")
         itset = op2.Set(size)
         dat = op2.Dat(itset, 1, numpy.zeros(size, dtype=numpy.uint32))
         op2.par_loop(op2.Kernel(kernel, "kernel"),
@@ -60,9 +60,9 @@ class TestConstant:
 
     def test_2d_read(self, backend):
         kernel = """
-        void kernel(unsigned int *x) { *x = constant[0] + constant[1]; }
+        void kernel(unsigned int *x) { *x = myconstant[0] + myconstant[1]; }
         """
-        constant = op2.Const(2, (100, 200), dtype=numpy.uint32, name="constant")
+        constant = op2.Const(2, (100, 200), dtype=numpy.uint32, name="myconstant")
         itset = op2.Set(size)
         dat = op2.Dat(itset, 1, numpy.zeros(size, dtype=numpy.uint32))
         op2.par_loop(op2.Kernel(kernel, "kernel"),

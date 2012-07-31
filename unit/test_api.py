@@ -68,7 +68,7 @@ def pytest_funcarg__h5file(request):
                          dtype=np.float64)
         f['soadat'].attrs['type'] = 'double:soa'
         f.create_dataset('set', data=np.array((5,)))
-        f.create_dataset('constant', data=np.arange(3))
+        f.create_dataset('myconstant', data=np.arange(3))
         f.create_dataset('map', data=np.array((1,2,2,3)).reshape(2,2))
         return f
 
@@ -422,7 +422,7 @@ class TestConstAPI:
 
     def test_const_hdf5(self, h5file, backend):
         "Constant should be correctly populated from hdf5 file."
-        c = op2.Const.fromhdf5(h5file, 'constant')
+        c = op2.Const.fromhdf5(h5file, 'myconstant')
         c.remove_from_namespace()
         assert c.data.sum() == 3
         assert c.dim == (3,)
