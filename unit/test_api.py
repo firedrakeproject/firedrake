@@ -57,6 +57,13 @@ def pytest_funcarg__smap(request):
     dataset = op2.Set(2, 'dataset')
     return op2.Map(iterset, dataset, 1, [0, 1])
 
+def pytest_funcarg__smap2(request):
+    iterset = op2.Set(2, 'iterset')
+    dataset = op2.Set(2, 'dataset')
+    smap = op2.Map(iterset, dataset, 1, [1, 0])
+    smap2 = op2.Map(iterset, dataset, 1, [0, 1])
+    return (smap, smap2)
+
 def pytest_funcarg__const(request):
     return request.cached_setup(scope='function',
             setup=lambda: op2.Const(1, 1, 'test_const_nonunique_name'),
@@ -276,7 +283,8 @@ class TestSparsityAPI:
     """
     Sparsity API unit tests
     """
-    ## Sparsity unit tests
+
+    backends = ['sequential']
 
     def test_sparsity_illegal_rmap(self, smap):
         "Sparsity rmap should be a Map"
@@ -296,14 +304,25 @@ class TestSparsityAPI:
     def test_sparsity_properties(self, smap):
         "Sparsity constructor should correctly set attributes"
         s = op2.Sparsity(smap, smap, 2, "foo")
-        assert s.rmap == smap and s.cmap == smap and \
-               s.dims == (2,) and s.name == "foo"
+        assert s.rmaps[0] == smap
+        assert s.cmaps[0] == smap
+        assert s.dims == (2,2)
+        assert s.name == "foo"
+
+    def test_sparsity_multiple_maps(self, smap2):
+        "Sparsity constructor should accept tuple of maps"
+        s = op2.Sparsity(smap2, smap2,
+                         1, "foo")
+        assert s.rmaps == smap2
+        assert s.cmaps == smap2
+        assert s.dims == (1,1)
 
 class TestMatAPI:
     """
     Mat API unit tests
     """
-    ## Mat unit tests
+
+    backends = ['sequential']
 
     skip_backends = ['opencl']
 
@@ -322,17 +341,15 @@ class TestMatAPI:
         with pytest.raises(sequential.NameTypeError):
             op2.Mat(sparsity, 1, name=2)
 
-    @pytest.mark.xfail
-    def test_mat_dim(self, set, backend):
+    def test_mat_dim(self, sparsity, backend):
         "Mat constructor should create a dim tuple."
-        m = op2.Mat((set,set), 1)
-        assert m.dim == (1,)
+        m = op2.Mat(sparsity, 1)
+        assert m.dims == (1,1)
 
-    @pytest.mark.xfail
-    def test_mat_dim_list(self, set, backend):
+    def test_mat_dim_list(self, sparsity, backend):
         "Mat constructor should create a dim tuple from a list."
-        m = op2.Mat((set,set), [2,3])
-        assert m.dim == (2,3)
+        m = op2.Mat(sparsity, [2,3])
+        assert m.dims == (2,3)
 
     def test_mat_dtype(self, sparsity, backend):
         "Default data type should be numpy.float64."
@@ -342,7 +359,7 @@ class TestMatAPI:
     def test_mat_properties(self, sparsity, backend):
         "Mat constructor should correctly set attributes."
         m = op2.Mat(sparsity, 2, 'double', 'bar')
-        assert m.sparsity == sparsity and m.dim == 2 and \
+        assert m.sparsity == sparsity and m.dims == (2,2) and \
                 m.dtype == np.float64 and m.name == 'bar'
 
 class TestConstAPI:
