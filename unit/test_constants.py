@@ -47,12 +47,12 @@ class TestConstant:
 
     def test_1d_read(self, backend):
         kernel = """
-        void kernel(unsigned int *x) { *x = myconstant; }
+        void kernel_1d_read(unsigned int *x) { *x = myconstant; }
         """
         constant = op2.Const(1, 100, dtype=numpy.uint32, name="myconstant")
         itset = op2.Set(size)
         dat = op2.Dat(itset, 1, numpy.zeros(size, dtype=numpy.uint32))
-        op2.par_loop(op2.Kernel(kernel, "kernel"),
+        op2.par_loop(op2.Kernel(kernel, "kernel_1d_read"),
                      itset, dat(op2.IdentityMap, op2.WRITE))
 
         constant.remove_from_namespace()
@@ -60,12 +60,12 @@ class TestConstant:
 
     def test_2d_read(self, backend):
         kernel = """
-        void kernel(unsigned int *x) { *x = myconstant[0] + myconstant[1]; }
+        void kernel_2d_read(unsigned int *x) { *x = myconstant[0] + myconstant[1]; }
         """
         constant = op2.Const(2, (100, 200), dtype=numpy.uint32, name="myconstant")
         itset = op2.Set(size)
         dat = op2.Dat(itset, 1, numpy.zeros(size, dtype=numpy.uint32))
-        op2.par_loop(op2.Kernel(kernel, "kernel"),
+        op2.par_loop(op2.Kernel(kernel, "kernel_2d_read"),
                      itset, dat(op2.IdentityMap, op2.WRITE))
         constant.remove_from_namespace()
         assert all(dat.data == constant._data.sum())
