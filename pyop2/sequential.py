@@ -524,31 +524,36 @@ class Map(object):
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 
 class Sparsity(object):
-    """OP2 Sparsity, a matrix structure derived from the cross product of
-    two sets of maps"""
+    """OP2 Sparsity, a matrix structure derived from the union of the outer product of pairs of maps"""
 
     _globalcount = 0
 
-    @validate_type(('rmap', Map, MapTypeError), \
-                   ('cmap', Map, MapTypeError), \
-                   ('dims', int, TypeError))
-    def __init__(self, rmap, cmap, dims, name=None):
+    @validate_type(('rmap', (Map, tuple), MapTypeError), \
+                   ('cmap', (Map, tuple), MapTypeError), \
+                   ('dims', (int, tuple), TypeError))
+    def __init__(self, rmaps, cmaps, dims, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
-        # FIXME: Should take a tupe of rmaps and cmaps
-        self._rmap = rmap
-        self._cmap = cmap
-        self._dims = as_tuple(dims, int)
+
+        self._rmaps = as_tuple(rmaps, Map)
+        self._cmaps = as_tuple(cmaps, Map)
+        assert len(self._rmaps) == len(self._cmaps), \
+            "Must pass equal number of row and column maps"
+        self._dims = as_tuple(dims, int, 2)
         self._name = name or "global_%d" % Sparsity._globalcount
         self._lib_handle = core.op_sparsity(self)
         Sparsity._globalcount += 1
 
     @property
-    def rmap(self):
-        return self._rmap
+    def nmaps(self):
+        return len(self._rmaps)
 
     @property
-    def cmap(self):
-        return self._cmap
+    def rmaps(self):
+        return self._rmaps
+
+    @property
+    def cmaps(self):
+        return self._cmaps
 
     @property
     def dims(self):
@@ -567,12 +572,11 @@ class Mat(DataCarrier):
     _arg_type = Arg
 
     @validate_type(('sparsity', Sparsity, SparsityTypeError), \
-                   ('dim', int, TypeError), \
+                   ('dims', (int, tuple, list), TypeError), \
                    ('name', str, NameTypeError))
-    def __init__(self, sparsity, dim, dtype=None, name=None):
+    def __init__(self, sparsity, dims, dtype=None, name=None):
         self._sparsity = sparsity
-        # FIXME: Eventually we want to take a tuple of dims
-        self._dim = dim
+        self._dims = as_tuple(dims, int, 2)
         self._datatype = np.dtype(dtype)
         self._name = name or "mat_%d" % Mat._globalcount
         self._lib_handle = core.op_mat(self)
@@ -583,15 +587,15 @@ class Mat(DataCarrier):
         path = as_tuple(path, Arg, 2)
         path_maps = [arg.map for arg in path]
         path_idxs = [arg.idx for arg in path]
-        sparsity_maps = [self._sparsity._rmap, self._sparsity._cmap]
-        for p_map, s_map in zip(path_maps, sparsity_maps):
-            if p_map._dataset != s_map._dataset:
-                raise SetValueError("Invalid data set for map %s (is %s, should be %s)" \
-                        % (s_map._name, p_map._dataset._name, s_map.dataset._name))
+        # FIXME: do argument checking
         return self._arg_type(data=self, map=path_maps, access=access, idx=path_idxs)
 
     def zero(self):
         self._lib_handle.zero()
+
+    @property
+    def dims(self):
+        return self._dims
 
     @property
     def sparsity(self):

@@ -211,22 +211,43 @@ cdef class op_sparsity:
     cdef core.op_sparsity _handle
     def __cinit__(self, sparsity):
         """Instantiate a C-level op_sparsity from SPARSITY"""
-        cdef op_map rmap = sparsity.rmap._lib_handle
-        cdef op_map cmap = sparsity.cmap._lib_handle
+        cdef core.op_map *rmaps
+        cdef core.op_map *cmaps
+        cdef op_map rmap, cmap
+        cdef int nmaps = sparsity.nmaps
+        cdef int dim[2]
         cdef char * name = sparsity.name
-        self._handle = core.op_decl_sparsity_core(rmap._handle,
-                                                  cmap._handle, name)
+
+        rmaps = <core.op_map *>malloc(nmaps * sizeof(core.op_map))
+        if rmaps is NULL:
+            raise MemoryError("Unable to allocate space for rmaps")
+        cmaps = <core.op_map *>malloc(nmaps * sizeof(core.op_map))
+        if cmaps is NULL:
+            raise MemoryError("Unable to allocate space for cmaps")
+
+        for i in range(nmaps):
+            rmap = sparsity.rmaps[i]._lib_handle
+            cmap = sparsity.cmaps[i]._lib_handle
+            rmaps[i] = rmap._handle
+            cmaps[i] = cmap._handle
+
+        dim[0] = sparsity.dims[0]
+        dim[1] = sparsity.dims[1]
+        self._handle = core.op_decl_sparsity_core(rmaps, cmaps, nmaps,
+                                                  dim, 2, name)
 
 cdef class op_mat:
     cdef core.op_mat _handle
     def __cinit__(self, mat):
         """Instantiate a C-level op_mat from MAT"""
         cdef op_sparsity sparsity = mat.sparsity._lib_handle
-        cdef int dim = mat.dim
+        cdef int dim[2]
         cdef char * type = mat.ctype
         cdef int size = mat.dtype.itemsize
         cdef char * name = mat.name
-        self._handle = core.op_decl_mat(sparsity._handle, dim, type, size, name)
+        dim[0] = mat.dims[0]
+        dim[1] = mat.dims[1]
+        self._handle = core.op_decl_mat(sparsity._handle, dim, 2, type, size, name)
 
     def zero(self):
         core.op_mat_zero(self._handle)
