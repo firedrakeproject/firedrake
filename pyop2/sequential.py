@@ -587,7 +587,7 @@ class Mat(DataCarrier):
         for p_map, s_map in zip(path_maps, sparsity_maps):
             if p_map._dataset != s_map._dataset:
                 raise SetValueError("Invalid data set for map %s (is %s, should be %s)" \
-                        % (map._name, a_map._dataset._name, s_map.dataset._name))
+                        % (s_map._name, p_map._dataset._name, s_map.dataset._name))
         return self._arg_type(data=self, map=path_maps, access=access, idx=path_idxs)
 
     def zero(self):
