@@ -61,4 +61,4 @@ setup(name='PyOP2',
                              include_dirs=[OP2_INC] + [np.get_include()],
                              library_dirs=[OP2_LIB],
                              runtime_library_dirs=[OP2_LIB],
-                             libraries=["op2_openmp"])])
+                             libraries=["op2_seq"])])
