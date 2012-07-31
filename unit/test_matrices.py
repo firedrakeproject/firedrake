@@ -36,6 +36,8 @@ import numpy
 
 from pyop2 import op2
 
+backends = ['sequential']
+
 # Data type
 valuetype = numpy.float64
 
@@ -297,7 +299,7 @@ void zero_dat(double *dat)
                          (0.125, 0.145833, 0.0208333, 0.291667) ]
         return numpy.asarray(expected_vals, dtype=valuetype)
 
-    def test_assemble(self, mass, mat, coords, elements, elem_node,
+    def test_assemble(self, backend, mass, mat, coords, elements, elem_node,
                       expected_matrix):
         op2.par_loop(mass, elements(3,3),
                      mat((elem_node(op2.i(0)), elem_node(op2.i(1))), op2.INC),
@@ -305,7 +307,7 @@ void zero_dat(double *dat)
         eps=1.e-6
         assert (abs(mat.values-expected_matrix)<eps).all()
 
-    def test_rhs(self, rhs, elements, b, coords, f, elem_node):
+    def test_rhs(self, backend, rhs, elements, b, coords, f, elem_node):
         op2.par_loop(rhs, elements,
                      b(elem_node, op2.INC),
                      coords(elem_node, op2.READ),
@@ -317,26 +319,26 @@ void zero_dat(double *dat)
         eps = 1.e-12
         assert all(abs(b.data-expected)<eps)
 
-    def test_solve(self, mat, b, x, f):
+    def test_solve(self, backend, mat, b, x, f):
         op2.solve(mat, b, x)
         eps = 1.e-12
         assert all(abs(x.data-f.data)<eps)
 
-    def test_zero_matrix(self, mat):
+    def test_zero_matrix(self, backend, mat):
         """Test that the matrix is zeroed correctly."""
         mat.zero()
         expected_matrix = numpy.asarray([[0.0]*4]*4, dtype=valuetype)
         eps=1.e-14
         assert (abs(mat.values-expected_matrix)<eps).all()
 
-    def test_zero_rhs(self, b, zero_dat, nodes):
+    def test_zero_rhs(self, backend, b, zero_dat, nodes):
         """Test that the RHS is zeroed correctly."""
         op2.par_loop(zero_dat, nodes,
                      b(op2.IdentityMap, op2.WRITE))
         assert all(map(lambda x: x==0.0, b.data))
 
-    def test_assemble_ffc(self, mass_ffc, mat, coords, elements, elem_node,
-                          expected_matrix):
+    def test_assemble_ffc(self, backend, mass_ffc, mat, coords, elements,
+                          elem_node, expected_matrix):
         """Test that the FFC mass assembly assembles the correct values."""
         op2.par_loop(mass_ffc, elements(3,3),
                      mat((elem_node(op2.i(0)), elem_node(op2.i(1))), op2.INC),
