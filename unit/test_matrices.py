@@ -276,7 +276,65 @@ void mass_ffc(double *A, double *x[2], int j, int k)
     def pytest_funcarg__rhs_ffc(cls, request):
 
         kernel_code="""
+void rhs_ffc(double **A, double *x[2], double **w0)
+{
+    // Compute Jacobian of affine map from reference cell
+    const double J_00 = x[1][0] - x[0][0];
+    const double J_01 = x[2][0] - x[0][0];
+    const double J_10 = x[1][1] - x[0][1];
+    const double J_11 = x[2][1] - x[0][1];
 
+    // Compute determinant of Jacobian
+    double detJ = J_00*J_11 - J_01*J_10;
+
+    // Compute inverse of Jacobian
+
+    // Set scale factor
+    const double det = fabs(detJ);
+
+    // Cell Volume.
+
+    // Compute circumradius, assuming triangle is embedded in 2D.
+
+
+    // Facet Area.
+
+    // Array of quadrature weights.
+    static const double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
+    // Quadrature points on the UFC reference element: (0.166666666666667, 0.166666666666667), (0.166666666666667, 0.666666666666667), (0.666666666666667, 0.166666666666667)
+
+    // Value of basis functions at quadrature points.
+    static const double FE0[3][3] = \
+    {{0.666666666666667, 0.166666666666667, 0.166666666666667},
+    {0.166666666666667, 0.166666666666667, 0.666666666666667},
+    {0.166666666666667, 0.666666666666667, 0.166666666666667}};
+
+
+    // Compute element tensor using UFL quadrature representation
+    // Optimisations: ('eliminate zeros', False), ('ignore ones', False), ('ignore zero tables', False), ('optimisation', False), ('remove zero terms', False)
+
+    // Loop quadrature points for integral.
+    // Number of operations to compute element tensor for following IP loop = 54
+    for (unsigned int ip = 0; ip < 3; ip++)
+    {
+
+      // Coefficient declarations.
+      double F0 = 0.0;
+
+      // Total number of operations to compute function values = 6
+      for (unsigned int r = 0; r < 3; r++)
+      {
+        F0 += FE0[ip][r]*w0[r][0];
+      }// end loop over 'r'
+
+      // Number of operations for primary indices: 12
+      for (unsigned int j = 0; j < 3; j++)
+      {
+        // Number of operations to compute entry: 4
+        A[j][0] += FE0[ip][j]*F0*W3[ip]*det;
+      }// end loop over 'j'
+    }// end loop over 'ip'
+}
 """
 
         return op2.Kernel(kernel_code, "rhs_ffc")
@@ -346,6 +404,17 @@ void zero_dat(double *dat)
         eps=1.e-6
         assert (abs(mat.values-expected_matrix)<eps).all()
 
+    def test_rhs_ffc(self, rhs_ffc, elements, b, coords, f, elem_node):
+        op2.par_loop(rhs_ffc, elements,
+                     b(elem_node, op2.INC),
+                     coords(elem_node, op2.READ),
+                     f(elem_node, op2.READ))
+
+        expected = numpy.asarray([[0.9999999523522115], [1.3541666031724144],
+                                  [0.2499999883507239], [1.6458332580869566]],
+                                  dtype=valuetype)
+        eps = 1.e-6
+        assert all(abs(b.data-expected)<eps)
 
 if __name__ == '__main__':
     import os
