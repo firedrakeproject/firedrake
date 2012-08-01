@@ -417,6 +417,12 @@ void zero_dat(double *dat)
         eps = 1.e-6
         assert all(abs(b.data-expected_rhs)<eps)
 
+    def test_zero_rows(self, mat, expected_matrix):
+        expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
+        mat.zero_rows([0], 12.0)
+        eps=1.e-6
+        assert (abs(mat.values-expected_matrix)<eps).all()
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

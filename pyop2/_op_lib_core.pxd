@@ -90,6 +90,8 @@ cdef extern from "op_lib_mat.h":
 
     void op_mat_get_values ( op_mat mat, double **v, int *m, int *n)
 
+    void op_mat_zero_rows ( op_mat mat, int n, int *rows, double val)
+
 cdef extern from "op_lib_c.h":
     void op_init(int, char **, int)
 

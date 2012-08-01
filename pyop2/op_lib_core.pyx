@@ -252,6 +252,14 @@ cdef class op_mat:
     def zero(self):
         core.op_mat_zero(self._handle)
 
+    def zero_rows(self, rows, v):
+        n = len(rows)
+        cdef int *r = <int *>malloc(sizeof(int)*n)
+        for i in xrange(n):
+            r[i] = <int> (rows[i])
+        core.op_mat_zero_rows(self._handle, <int> n, r, <double> v)
+        free(r)
+
     property cptr:
         def __get__(self):
             cdef uintptr_t val

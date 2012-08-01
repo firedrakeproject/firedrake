@@ -593,6 +593,12 @@ class Mat(DataCarrier):
     def zero(self):
         self._lib_handle.zero()
 
+    def zero_rows(self, rows, diag_val):
+        """Zeroes the specified rows of the matrix, with the exception of the
+        diagonal entry, which is set to diag_val. May be used for applying
+        strong boundary conditions."""
+        self._lib_handle.zero_rows(rows, diag_val)
+
     @property
     def dims(self):
         return self._dims
