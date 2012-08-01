@@ -455,7 +455,7 @@ class ParLoopCall(object):
 
     @property
     def _vec_map_args(self):
-        return [a for a in self._args if a._is_vec_map]
+        return [a for a in self._actual_args if a._is_vec_map]
 
     @property
     def _dat_map_pairs(self):
