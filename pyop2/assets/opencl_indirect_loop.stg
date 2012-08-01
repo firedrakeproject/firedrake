@@ -4,17 +4,8 @@ indirect_loop(parloop,const,op2const)::=<<
 $header()$
 $parloop._global_reduction_args:{$reduction_kernel()$};separator="\n"$
 
-$if(op2const)$
-/* op2 const declarations */
-$op2const:{c | $opencl_const_declaration(cst=c)$};separator="\n"$
-$endif$
-
 $parloop._kernel._inst_code$
 $kernel_stub()$
->>
-
-opencl_const_declaration(cst)::=<<
-__constant $cst._cl_type$ $cst._name$ $if(cst._is_scalar)$ = $cst._cl_value$$else$[] = {$cst._cl_value;separator=", "$}$endif$;
 >>
 
 kernel_stub()::=<<
@@ -26,6 +17,7 @@ void $parloop._kernel._name$_stub(
   $parloop._dat_map_pairs:{__global int* $shared_indirection_mapping_arg_name()$,};separator="\n"$
   $parloop._args:{$if(it._is_indirect)$__global short* $mappingarrayname()$,$endif$};separator="\n"$
   $parloop._global_reduction_args:{__global $it._dat._cl_type$* $global_reduc_device_array_name()$,};separator="\n"$
+  $op2const:{__constant $it._cl_type$* $it._name$,};separator="\n"$
   __global int* p_ind_sizes,
   __global int* p_ind_offsets,
   __global int* p_blk_map,
@@ -34,7 +26,6 @@ void $parloop._kernel._name$_stub(
   __global int* p_nthrcol,
   __global int* p_thrcol,
   __private int block_offset
-//    TODO deal with the constants
 )
 {
   __local char shared [$const.dynamic_shared_memory_size$] __attribute__((aligned(sizeof(long))));
@@ -160,8 +151,11 @@ kernel_call()::=<<
 $parloop._actual_args:{$if(it._is_vec_map)$$populate_vec_map()$$endif$};separator="\n"$
 $parloop._kernel._name$(
   $parloop._actual_args:{$kernel_call_arg()$};separator=",\n"$
+  $kernel_call_const_args()$
 );
 >>
+
+kernel_call_const_args()::=<<$if(op2const)$$op2const:{c |, $if(c._is_scalar)$*$c._name$$else$$c._name$$endif$}$$endif$>>
 
 kernel_call_arg()::=<<$if(it._is_direct)$(__global $it._dat._cl_type$* __private) ($it._dat._name$ + (i_1 + shared_memory_offset) * $it._dat._dim$)$elseif(it._is_vec_map)$$dat_vec_name()$$elseif(it._is_global_reduction)$$global_reduc_local_name()$$elseif(it._is_indirect_reduction)$$reduc_arg_local_name()$$elseif(it._is_global)$$it._dat._name$$else$&$shared_indirection_mapping_memory_name()$[$mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$]$endif$>>
 

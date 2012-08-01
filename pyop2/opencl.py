@@ -59,10 +59,11 @@ class Kernel(op2.Kernel):
              - adds memory space attribute to user kernel declaration
              - adds a separate function declaration for user kernel
         """
-        def instrument(self, ast, kernel_name, instrument):
+        def instrument(self, ast, kernel_name, instrument, constants):
             self._kernel_name = kernel_name
             self._instrument = instrument
             self._ast = ast
+            self._constants = constants
             self.generic_visit(ast)
             idx = ast.ext.index(self._func_node)
             ast.ext.insert(0, self._func_node.decl)
@@ -79,9 +80,17 @@ class Kernel(op2.Kernel):
                 if self._instrument[i][1]:
                     p.type.quals.append(self._instrument[i][1])
 
-    def instrument(self, instrument):
+            for cst in self._constants:
+                if cst._is_scalar:
+                    t = c_ast.TypeDecl(cst._name, [], c_ast.IdentifierType([cst._cl_type]))
+                else:
+                    t = c_ast.PtrDecl([], c_ast.TypeDecl(cst._name, ["__constant"], c_ast.IdentifierType([cst._cl_type])))
+                decl = c_ast.Decl(cst._name, [], [], [], t, None, 0)
+                node.params.append(decl)
+
+    def instrument(self, instrument, constants):
         ast = c_parser.CParser().parse(self._code)
-        Kernel.Instrument().instrument(ast, self._name, instrument)
+        Kernel.Instrument().instrument(ast, self._name, instrument, constants)
         self._inst_code = c_generator.CGenerator().visit(ast)
 
 class Arg(op2.Arg):
@@ -170,6 +179,17 @@ class Const(op2.Const, DeviceDataMixin):
 
     def __init__(self, dim, data, name, dtype=None):
         op2.Const.__init__(self, dim, data, name, dtype)
+        self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._data.nbytes)
+        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
+
+    @property
+    def data(self):
+        return self._data
+
+    @data.setter
+    def data(self, value):
+        self._data = verify_reshape(value, self.dtype, self.dim)
+        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
     @property
     def _cl_value(self):
@@ -565,7 +585,7 @@ class ParLoopCall(object):
                     elif arg._is_global:
                         inst.append(("__global", None))
 
-                self._kernel.instrument(inst)
+                self._kernel.instrument(inst, list(Const._defs))
 
                 dloop = _stg_direct_loop.getInstanceOf("direct_loop")
                 dloop['parloop'] = self
@@ -598,6 +618,9 @@ class ParLoopCall(object):
             for a in self._global_non_reduction_args:
                 kernel.append_arg(a._dat._buffer)
 
+            for cst in Const._defs:
+                kernel.append_arg(cst._buffer)
+
             kernel.append_arg(np.int32(self._it_space.size))
 
             cl.enqueue_nd_range_kernel(_queue, kernel, (int(ttc),), (int(wgs),), g_times_l=False).wait()
@@ -623,7 +646,7 @@ class ParLoopCall(object):
                     else:
                         inst.append(("__private", None))
 
-                self._kernel.instrument(inst)
+                self._kernel.instrument(inst, list(Const._defs))
 
                 # codegen
                 iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
@@ -665,6 +688,9 @@ class ParLoopCall(object):
             for arg in self._global_reduction_args:
                 arg._dat._allocate_reduction_array(plan.nblocks)
                 kernel.append_arg(arg._dat._d_reduc_buffer)
+
+            for cst in Const._defs:
+                kernel.append_arg(cst._buffer)
 
             kernel.append_arg(plan._ind_sizes_buffer)
             kernel.append_arg(plan._ind_offs_buffer)
