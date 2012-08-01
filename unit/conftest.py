@@ -98,6 +98,8 @@ This set of backends to run for will be further restricted by the
 backends selected via command line parameters if applicable.
 """
 
+import pytest
+
 from pyop2 import op2
 from pyop2.backends import backends
 
@@ -163,6 +165,9 @@ def pytest_generate_tests(metafunc):
         # Restrict to set of backends specified on the class level
         if hasattr(metafunc.cls, 'backends'):
             backend = backend.intersection(set(metafunc.cls.backends))
+        # If there are no selected backends left, skip the test
+        if not backend.difference(skip_backends):
+            pytest.skip()
         metafunc.parametrize("backend", (b for b in backend if not b in skip_backends), indirect=True)
 
 def op2_init(backend):
