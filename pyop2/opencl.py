@@ -598,6 +598,8 @@ class ParLoopCall(object):
             for a in self._global_non_reduction_args:
                 kernel.append_arg(a._dat._buffer)
 
+            kernel.append_arg(np.int32(self._it_space.size))
+
             cl.enqueue_nd_range_kernel(_queue, kernel, (int(ttc),), (int(wgs),), g_times_l=False).wait()
             for i, a in enumerate(self._global_reduction_args):
                 a._dat._post_kernel_reduction_task(nwg)

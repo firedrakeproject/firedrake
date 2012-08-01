@@ -21,13 +21,13 @@ kernel_stub()::=<<
 __kernel
  __attribute__((reqd_work_group_size($const.threads_per_block$, 1, 1)))
 void $parloop._kernel._name$_stub (
-  $parloop._unique_dats:{__global $it._cl_type$* $it._name$};separator=",\n"$$if(parloop._global_reduction_args)$,$endif$
-  $parloop._global_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$_reduction_array};separator=",\n"$$if(parloop._global_non_reduction_args)$,$endif$
-  $parloop._global_non_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$};separator=",\n"$
+  $parloop._unique_dats:{__global $it._cl_type$* $it._name$,};separator="\n"$
+  $parloop._global_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$_reduction_array,};separator="\n"$
+  $parloop._global_non_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$,};separator="\n"$
+  int set_size
 )
 {
   unsigned int shared_memory_offset = $const.shared_memory_offset$;
-  int set_size = $parloop._it_space.size$;
 
   __local char shared[$const.dynamic_shared_memory_size$] __attribute__((aligned(sizeof(long))));
 
