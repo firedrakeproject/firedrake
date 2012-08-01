@@ -266,6 +266,8 @@ class TestMatAPI:
     Mat API unit tests
     """
 
+    skip_backends = ['opencl']
+
     def test_mat_illegal_sets(self, backend):
         "Mat data sets should be a 2-tuple of Sets."
         with pytest.raises(ValueError):

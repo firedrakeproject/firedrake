@@ -102,7 +102,7 @@ void kernel_2d_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }
         l = op2.par_loop(op2.Kernel(kernel_2d_wo, "kernel_2d_wo"), elems(), y(op2.IdentityMap, op2.WRITE))
         assert all(map(lambda x: all(x==[42,43]), y.data))
 
-    def test_2d_dat_soa(self, backend, soa):
+    def test_2d_dat_soa(self, backend, soa, skip_opencl):
         kernel_soa = """
 void kernel_soa(unsigned int * x) { OP2_STRIDE(x, 0) = 42; OP2_STRIDE(x, 1) = 43; }
 """
