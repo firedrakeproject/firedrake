@@ -64,19 +64,19 @@ class TestIndirectLoop:
         random.shuffle(u_map, _seed)
         return op2.Map(request.getfuncargvalue('iterset'), request.getfuncargvalue('indset'), 1, u_map, "iterset2indset")
 
-    def test_onecolor_wo(self, iterset, x, iterset2indset, backend):
+    def test_onecolor_wo(self, backend, iterset, x, iterset2indset):
         kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"
 
         op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), iterset, x(iterset2indset(0), op2.WRITE))
         assert all(map(lambda x: x==42, x.data))
 
-    def test_onecolor_rw(self, iterset, x, iterset2indset, backend):
+    def test_onecolor_rw(self, backend, iterset, x, iterset2indset):
         kernel_rw = "void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }\n"
 
         op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"), iterset, x(iterset2indset(0), op2.RW))
         assert sum(x.data) == nelems * (nelems + 1) / 2
 
-    def test_indirect_inc(self, iterset, backend):
+    def test_indirect_inc(self, backend, iterset):
         unitset = op2.Set(1, "unitset")
 
         u = op2.Dat(unitset, 1, numpy.array([0], dtype=numpy.uint32), numpy.uint32, "u")
@@ -89,7 +89,7 @@ class TestIndirectLoop:
         op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"), iterset, u(iterset2unit(0), op2.INC))
         assert u.data[0] == nelems
 
-    def test_global_read(self, iterset, x, iterset2indset, backend):
+    def test_global_read(self, backend, iterset, x, iterset2indset):
         g = op2.Global(1, 2, numpy.uint32, "g")
 
         kernel_global_read = "void kernel_global_read(unsigned int* x, unsigned int* g) { (*x) /= (*g); }\n"
@@ -99,7 +99,7 @@ class TestIndirectLoop:
                      g(op2.READ))
         assert sum(x.data) == sum(map(lambda v: v / 2, range(nelems)))
 
-    def test_global_inc(self, iterset, x, iterset2indset, backend):
+    def test_global_inc(self, backend, iterset, x, iterset2indset):
         g = op2.Global(1, 0, numpy.uint32, "g")
 
         kernel_global_inc = "void kernel_global_inc(unsigned int *x, unsigned int *inc) { (*x) = (*x) + 1; (*inc) += (*x); }\n"
@@ -110,7 +110,7 @@ class TestIndirectLoop:
         assert sum(x.data) == nelems * (nelems + 1) / 2
         assert g.data[0] == nelems * (nelems + 1) / 2
 
-    def test_2d_dat(self, iterset, indset, iterset2indset, backend):
+    def test_2d_dat(self, backend, iterset, indset, iterset2indset):
         x = op2.Dat(indset, 2, numpy.array([range(nelems), range(nelems)], dtype=numpy.uint32), numpy.uint32, "x")
 
         kernel_wo = "void kernel_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }\n"
