@@ -190,18 +190,61 @@ class Global(op2.Global, DeviceDataMixin):
         self._d_reduc_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._h_reduc_array.nbytes)
         cl.enqueue_copy(_queue, self._d_reduc_buffer, self._h_reduc_array, is_blocking=True).wait()
 
-    def _host_reduction(self, nelems):
-        cl.enqueue_copy(_queue, self._h_reduc_array, self._d_reduc_buffer, is_blocking=True).wait()
-        for j in range(self._dim[0]):
-            self._data[j] = 0
+    @property
+    def data(self):
+        cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
+        return self._data
 
-        for i in range(nelems):
-            for j in range(self._dim[0]):
-                self._data[j] += self._h_reduc_array[j + i * self._dim[0]]
+    @data.setter
+    def data(self, value):
+        self._data = verify_reshape(value, self.dtype, self.dim)
+        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
-        warnings.warn('missing: updating buffer value')
-        # get rid of the buffer and host temporary arrays
-        del self._h_reduc_array
+    def _post_kernel_reduction_task(self, nelems):
+        src = """
+#if defined(cl_khr_fp64)
+#pragma OPENCL EXTENSION cl_khr_fp64 : enable
+#elif defined(cl_amd_fp64)
+#pragma OPENCL EXTENSION cl_amd_fp64 : enable
+#endif
+
+__kernel
+void %(name)s_reduction (
+  __global %(type)s* dat,
+  __global %(type)s* tmp,
+  __private int count
+)
+{
+  __private %(type)s accumulator[%(dim)d];
+  for (int j = 0; j < %(dim)d; ++j)
+  {
+    accumulator[j] = %(zero)s;
+  }
+  for (int i = 0; i < count; ++i)
+  {
+    for (int j = 0; j < %(dim)d; ++j)
+    {
+      accumulator[j] += *(tmp + i * %(dim)d + j);
+    }
+  }
+  for (int j = 0; j < %(dim)d; ++j)
+  {
+    *(dat + j) = accumulator[j];
+  }
+
+}
+""" % {'name': self._name,
+       'dim': np.prod(self._dim),
+       'type': self._cl_type,
+       'zero': self._cl_type_zero}
+
+        prg = cl.Program(_ctx, src).build(options="-Werror")
+        kernel = prg.__getattr__(self._name + '_reduction')
+        kernel.append_arg(self._buffer)
+        kernel.append_arg(self._d_reduc_buffer)
+        kernel.append_arg(np.int32(nelems))
+        cl.enqueue_task(_queue, kernel).wait()
+
         del self._d_reduc_buffer
 
 class Map(op2.Map):
@@ -557,7 +600,7 @@ class ParLoopCall(object):
 
             cl.enqueue_nd_range_kernel(_queue, kernel, (int(ttc),), (int(wgs),), g_times_l=False).wait()
             for i, a in enumerate(self._global_reduction_args):
-                a._dat._host_reduction(nwg)
+                a._dat._post_kernel_reduction_task(nwg)
         else:
             psize = self._i_compute_partition_size()
             plan = _plan_cache.get_plan(self, partition_size=psize)
@@ -640,7 +683,7 @@ class ParLoopCall(object):
                 block_offset += blocks_per_grid
 
             for arg in self._global_reduction_args:
-                arg._dat._host_reduction(plan.nblocks)
+                arg._dat._post_kernel_reduction_task(plan.nblocks)
 
     def is_direct(self):
         return all(map(lambda a: a._is_direct or isinstance(a._dat, Global), self._args))
