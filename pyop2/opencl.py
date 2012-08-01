@@ -152,6 +152,8 @@ class Dat(op2.Dat, DeviceDataMixin):
         if len(self._data) is 0:
             raise RuntimeError("Temporary dat has no data on the host")
         cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
+        if self._soa:
+            np.transpose(self._data)
         return self._data
 
 class Mat(op2.Mat, DeviceDataMixin):
