@@ -65,9 +65,9 @@ the following when necessary (probably in __init__):
 
 The above example is obviously for an op2.Set object.
 
-C layer function calls that require a set as an argument a wrapped
-such that you don't need to worry about passing the handle, instead,
-just pass the python object.  That is, you do:
+C layer function calls that require an OP2 object as an argument are
+wrapped such that you don't need to worry about passing the handle,
+instead, just pass the python object.  That is, you do:
 
    core.op_function(set)
 
