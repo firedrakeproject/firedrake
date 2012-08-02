@@ -722,7 +722,7 @@ def par_loop(kernel, it_space, *args):
 
     def c_wrapper_arg(arg):
         val = "PyObject *_%(name)s" % {'name' : c_arg_name(arg) }
-        if arg._is_indirect:
+        if arg._is_indirect or arg._is_mat:
             val += ", PyObject *_%(name)s" % {'name' : c_map_name(arg)}
             maps = as_tuple(arg.map, Map)
             if len(maps) is 2:
@@ -736,17 +736,17 @@ def par_loop(kernel, it_space, *args):
         else:
             val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
               {'name' : c_arg_name(arg), 'type' : arg.ctype}
-        if arg._is_indirect:
+        if arg._is_indirect or arg._is_mat:
             val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" % \
                    {'name' : c_map_name(arg)}
-            if arg._is_mat:
-                val += ";\nint *%(name)s2 = (int *)(((PyArrayObject *)_%(name)s2)->data)" % \
+        if arg._is_mat:
+            val += ";\nint *%(name)s2 = (int *)(((PyArrayObject *)_%(name)s2)->data)" % \
                        {'name' : c_map_name(arg)}
-            elif arg._is_vec_map:
-                val += ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
-                       {'type' : arg.ctype,
-                        'vec_name' : c_vec_name(arg),
-                        'dim' : arg.map.dim}
+        if arg._is_vec_map:
+            val += ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
+                   {'type' : arg.ctype,
+                    'vec_name' : c_vec_name(arg),
+                    'dim' : arg.map.dim}
         return val
 
     def c_ind_data(arg, idx):
@@ -902,7 +902,7 @@ def par_loop(kernel, it_space, *args):
         else:
             _args.append(arg.data.data)
 
-        if arg._is_indirect:
+        if arg._is_indirect or arg._is_mat:
             maps = as_tuple(arg.map, Map)
             for map in maps:
                 _args.append(map.values)
