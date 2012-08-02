@@ -407,8 +407,8 @@ void zero_dat(double *dat)
         eps=1.e-6
         assert (abs(mat.values-expected_matrix)<eps).all()
 
-    def test_rhs_ffc(self, rhs_ffc, elements, b, coords, f, elem_node,
-                         expected_rhs):
+    def test_rhs_ffc(self, backend, rhs_ffc, elements, b, coords, f,
+                     elem_node, expected_rhs):
         op2.par_loop(rhs_ffc, elements,
                      b(elem_node, op2.INC),
                      coords(elem_node, op2.READ),
@@ -417,7 +417,7 @@ void zero_dat(double *dat)
         eps = 1.e-6
         assert all(abs(b.data-expected_rhs)<eps)
 
-    def test_zero_rows(self, mat, expected_matrix):
+    def test_zero_rows(self, backend, mat, expected_matrix):
         expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
         mat.zero_rows([0], 12.0)
         eps=1.e-6
