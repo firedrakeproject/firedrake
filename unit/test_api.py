@@ -117,11 +117,6 @@ class TestInitAPI:
         with pytest.raises(RuntimeError):
             op2.init(backend)
 
-    @pytest.mark.skipif(backend='sequential')
-    def test_init_exit(self, backend):
-        op2.exit()
-        op2.init(backend)
-
 class TestAccessAPI:
     """
     Access API unit tests
@@ -323,8 +318,6 @@ class TestMatAPI:
     """
 
     backends = ['sequential']
-
-    skip_backends = ['opencl']
 
     def test_mat_illegal_sets(self, backend):
         "Mat sparsity should be a Sparsity."
