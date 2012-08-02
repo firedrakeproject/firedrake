@@ -71,10 +71,12 @@ class Arg(object):
         self._access = access
         self._lib_handle = None
 
-    def build_core_arg(self):
+    @property
+    def c_handle(self):
         if self._lib_handle is None:
             self._lib_handle = core.op_arg(self, dat=isinstance(self._dat, Dat),
-                                           gbl=isinstance(self._dat, Global))
+                                         gbl=isinstance(self._dat, Global))
+        return self._lib_handle
 
     @property
     def data(self):
@@ -158,7 +160,7 @@ class Set(object):
     def __init__(self, size, name=None):
         self._size = size
         self._name = name or "set_%d" % Set._globalcount
-        self._lib_handle = core.op_set(self)
+        self._lib_handle = None
         Set._globalcount += 1
 
     @classmethod
@@ -169,6 +171,12 @@ class Set(object):
         if shape != (1,):
             raise SizeTypeError("Shape of %s is incorrect" % name)
         return cls(size[0], name)
+
+    @property
+    def c_handle(self):
+        if self._lib_handle is None:
+            self._lib_handle = core.op_set(self)
+        return self._lib_handle
 
     @property
     def size(self):
@@ -222,7 +230,7 @@ class Dat(DataCarrier):
         if self._soa:
             self._data = self._data.T
         self._name = name or "dat_%d" % Dat._globalcount
-        self._lib_handle = core.op_dat(self)
+        self._lib_handle = None
         Dat._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
@@ -248,6 +256,12 @@ class Dat(DataCarrier):
         ret = cls(dataset, dim[0], data, name=name)
         ret._soa = soa
         return ret
+
+    @property
+    def c_handle(self):
+        if self._lib_handle is None:
+            self._lib_handle = core.op_dat(self)
+        return self._lib_handle
 
     @property
     def dataset(self):
@@ -432,7 +446,7 @@ class Map(object):
         self._dim = dim
         self._values = verify_reshape(values, np.int32, (iterset.size, dim))
         self._name = name or "map_%d" % Map._globalcount
-        self._lib_handle = core.op_map(self)
+        self._lib_handle = None
         Map._globalcount += 1
 
     @validate_type(('index', int, IndexTypeError))
@@ -440,6 +454,12 @@ class Map(object):
         if not 0 <= index < self._dim:
             raise IndexValueError("Index must be in interval [0,%d]" % (self._dim-1))
         return self._arg_type(map=self, idx=index)
+
+    @property
+    def c_handle(self):
+        if self._lib_handle is None:
+            self._lib_handle = core.op_map(self)
+        return self._lib_handle
 
     @classmethod
     def fromhdf5(cls, iterset, dataset, f, name):

@@ -51,29 +51,26 @@ How it works:
 A python object that has a C counterpart has a slot named
 _lib_handle.  This is either None, meaning the C initialiser has not
 yet been called, or else a handle to the Cython class wrapping the C
-data structure.
+data structure.  This handle is exposed to the Cython layer through
+the c_handle property which takes care of instantiating the C layer
+object if it does not already exist.
 
 To get this interfacing library, do something like:
 
     import op_lib_core as core
 
-To build the C data structure on the python side, the class should do
-the following when necessary (probably in __init__):
+The C data structure is built on demand when asking for the handle
+through the c_handle property.
 
-    if self._lib_handle is None:
-        self._lib_handle = core.op_set(self)
-
-The above example is obviously for an op2.Set object.
-
-C layer function calls that require a set as an argument a wrapped
-such that you don't need to worry about passing the handle, instead,
-just pass the python object.  That is, you do:
+C layer function calls that require an OP2 object as an argument are
+wrapped such that you don't need to worry about passing the handle,
+instead, just pass the python object.  That is, you do:
 
    core.op_function(set)
 
 not
 
-   core.op_function(set._lib_handle)
+   core.op_function(set.c_handle)
 
 Most C level objects are completely opaque to the python layer.  The
 exception is the op_plan structure, whose data must be marshalled to
@@ -92,7 +89,6 @@ WARNING, the arrays returned by these properties have their data
 buffer pointing to the C layer's data.  As such, they should be
 considered read-only.  If you modify them on the python side, the plan
 will likely be wrong.
-
 
 TODO:
 Cleanup of C level datastructures is currently not handled.
@@ -178,7 +174,7 @@ cdef class op_dat:
     cdef core.op_dat _handle
     def __cinit__(self, dat):
         """Instantiate a C-level op_dat from DAT"""
-        cdef op_set set = dat._dataset._lib_handle
+        cdef op_set set = dat._dataset.c_handle
         cdef int dim = dat._dim[0]
         cdef int size = dat._data.dtype.itemsize
         cdef np.ndarray data = dat._data
@@ -193,8 +189,8 @@ cdef class op_map:
     cdef core.op_map _handle
     def __cinit__(self, map):
         """Instantiate a C-level op_map from MAP"""
-        cdef op_set frm = map._iterset._lib_handle
-        cdef op_set to = map._dataset._lib_handle
+        cdef op_set frm = map._iterset.c_handle
+        cdef op_set to = map._dataset.c_handle
         cdef int dim = map._dim
         cdef np.ndarray values = map._values
         cdef char * name = map._name
@@ -240,10 +236,10 @@ isinstance(arg, Dat)."""
                'MAX'   : core.OP_MAX}[arg.access._mode]
 
         if dat:
-            _dat = arg.data._lib_handle
+            _dat = arg.data.c_handle
             if arg._is_indirect:
                 idx = arg.idx
-                map = arg.map._lib_handle
+                map = arg.map.c_handle
                 _map = map._handle
             else:
                 idx = -1
@@ -270,7 +266,7 @@ cdef class op_plan:
 Arguments to this constructor should be the arguments of the parallel
 loop, i.e. the KERNEL, the ISET (iteration set) and any
 further ARGS."""
-        cdef op_set _set = iset._lib_handle
+        cdef op_set _set = iset.c_handle
         cdef char * name = kernel._name
         cdef int part_size = partition_size
         cdef int nargs = len(args)
@@ -315,8 +311,7 @@ further ARGS."""
             for i in range(nargs):
                 inds[i] = -1    # Assume direct
                 arg = args[i]
-                arg.build_core_arg()
-                _arg = arg._lib_handle
+                _arg = arg.c_handle
                 _args[i] = _arg._handle
                 # Fix up inds[i] in indirect case
                 if arg._is_indirect:
