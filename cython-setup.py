@@ -37,7 +37,10 @@ from distutils.core import setup
 from Cython.Distutils import build_ext, Extension
 from pyop2.utils import OP2_INC, OP2_LIB
 import numpy as np
+import os
 
+os.environ['CC'] = 'mpicc'
+os.environ['CXX'] = 'mpicxx'
 setup(name='PyOP2',
       version='0.1',
       description='Python interface to OP2',
