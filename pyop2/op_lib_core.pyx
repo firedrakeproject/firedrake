@@ -113,6 +113,19 @@ cdef data_to_numpy_array_with_spec(void * ptr, np.npy_intp size, int t):
     """Return an array of SIZE elements (each of type T) with data from PTR."""
     return np.PyArray_SimpleNewFromData(1, &size, t, ptr)
 
+cdef dlopen_openmpi():
+    cdef void * handle = NULL
+    cdef int mode = core.RTLD_NOW | core.RTLD_GLOBAL | core.RTLD_NOLOAD
+    cdef char * libname
+    core.emit_ifdef()
+    for name in ['libmpi.so', 'libmpi.so.0', 'libmpi.so.1',
+                    'libmpi.dylib', 'libmpi.0.dylib', 'libmpi.1.dylib']:
+        libname = name
+        handle = core.dlopen(libname, mode)
+        if handle is not NULL:
+            break
+    core.emit_endif()
+
 def op_init(args, diags):
     """Initialise OP2
 
@@ -121,6 +134,7 @@ DIAGS should be an integer specifying the diagnostic level.  The
 larger it is, the more chatty OP2 will be."""
     cdef char **argv
     cdef int diag_level = diags
+    dlopen_openmpi()
     if args is None:
         core.op_init(0, NULL, diag_level)
         return

@@ -135,3 +135,15 @@ cdef extern from "op_rt_support.h":
                            int, int *)
 
     void op_rt_exit()
+
+
+cdef extern from "dlfcn.h":
+    void * dlopen(char *, int)
+    int RTLD_NOW
+    int RTLD_GLOBAL
+    int RTLD_NOLOAD
+
+
+cdef extern from "mpi.h":
+    cdef void emit_ifdef '#if defined(OPEN_MPI) //' ()
+    cdef void emit_endif '#endif //' ()
