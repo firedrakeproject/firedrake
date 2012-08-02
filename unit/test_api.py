@@ -123,7 +123,7 @@ class TestAccessAPI:
     """
 
     @pytest.mark.parametrize("mode", sequential.Access._modes)
-    def test_access(self, mode, backend):
+    def test_access(self, backend, mode):
         "Access repr should have the expected format."
         a = sequential.Access(mode)
         assert repr(a) == "Access('%s')" % mode
@@ -148,19 +148,19 @@ class TestSetAPI:
         with pytest.raises(exceptions.NameTypeError):
             op2.Set(1,2)
 
-    def test_set_properties(self, set, backend):
+    def test_set_properties(self, backend, set):
         "Set constructor should correctly initialise attributes."
         assert set.size == 5 and set.name == 'foo'
 
-    def test_set_repr(self, set, backend):
+    def test_set_repr(self, backend, set):
         "Set repr should have the expected format."
         assert repr(set) == "Set(5, 'foo')"
 
-    def test_set_str(self, set, backend):
+    def test_set_str(self, backend, set):
         "Set string representation should have the expected format."
         assert str(set) == "OP2 Set: foo with size 5"
 
-    def test_set_hdf5(self, h5file, backend):
+    def test_set_hdf5(self, backend, h5file):
         "Set should get correct size from HDF5 file."
         s = op2.Set.fromhdf5(h5file, name='set')
         assert s.size == 5
@@ -176,99 +176,99 @@ class TestDatAPI:
         with pytest.raises(exceptions.SetTypeError):
             op2.Dat('illegalset', 1)
 
-    def test_dat_illegal_dim(self, set, backend):
+    def test_dat_illegal_dim(self, backend, set):
         "Dat dim should be int or int tuple."
         with pytest.raises(TypeError):
             op2.Dat(set, 'illegaldim')
 
-    def test_dat_illegal_dim_tuple(self, set, backend):
+    def test_dat_illegal_dim_tuple(self, backend, set):
         "Dat dim should be int or int tuple."
         with pytest.raises(TypeError):
             op2.Dat(set, (1,'illegaldim'))
 
-    def test_dat_illegal_name(self, set, backend):
+    def test_dat_illegal_name(self, backend, set):
         "Dat name should be string."
         with pytest.raises(exceptions.NameTypeError):
             op2.Dat(set, 1, name=2)
 
-    def test_dat_illegal_data_access(self, set, backend):
+    def test_dat_illegal_data_access(self, backend, set):
         """Dat initialised without data should raise an exception when
         accessing the data."""
         d = op2.Dat(set, 1)
         with pytest.raises(RuntimeError):
             d.data
 
-    def test_dat_dim(self, set, backend):
+    def test_dat_dim(self, backend, set):
         "Dat constructor should create a dim tuple."
         d = op2.Dat(set, 1)
         assert d.dim == (1,)
 
-    def test_dat_dim_list(self, set, backend):
+    def test_dat_dim_list(self, backend, set):
         "Dat constructor should create a dim tuple from a list."
         d = op2.Dat(set, [2,3])
         assert d.dim == (2,3)
 
-    def test_dat_dtype(self, set, backend):
+    def test_dat_dtype(self, backend, set):
         "Default data type should be numpy.float64."
         d = op2.Dat(set, 1)
         assert d.dtype == np.double
 
-    def test_dat_float(self, set, backend):
+    def test_dat_float(self, backend, set):
         "Data type for float data should be numpy.float64."
         d = op2.Dat(set, 1, [1.0]*set.size)
         assert d.dtype == np.double
 
-    def test_dat_int(self, set, backend):
+    def test_dat_int(self, backend, set):
         "Data type for int data should be numpy.int64."
         d = op2.Dat(set, 1, [1]*set.size)
         assert d.dtype == np.int64
 
-    def test_dat_convert_int_float(self, set, backend):
+    def test_dat_convert_int_float(self, backend, set):
         "Explicit float type should override NumPy's default choice of int."
         d = op2.Dat(set, 1, [1]*set.size, np.double)
         assert d.dtype == np.float64
 
-    def test_dat_convert_float_int(self, set, backend):
+    def test_dat_convert_float_int(self, backend, set):
         "Explicit int type should override NumPy's default choice of float."
         d = op2.Dat(set, 1, [1.5]*set.size, np.int32)
         assert d.dtype == np.int32
 
-    def test_dat_illegal_dtype(self, set, backend):
+    def test_dat_illegal_dtype(self, backend, set):
         "Illegal data type should raise DataTypeError."
         with pytest.raises(exceptions.DataTypeError):
             op2.Dat(set, 1, dtype='illegal_type')
 
     @pytest.mark.parametrize("dim", [1, (2,2)])
-    def test_dat_illegal_length(self, set, dim, backend):
+    def test_dat_illegal_length(self, backend, set, dim):
         "Mismatching data length should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
             op2.Dat(set, dim, [1]*(set.size*np.prod(dim)+1))
 
-    def test_dat_reshape(self, set, backend):
+    def test_dat_reshape(self, backend, set):
         "Data should be reshaped according to dim."
         d = op2.Dat(set, (2,2), [1.0]*set.size*4)
         assert d.dim == (2,2) and d.data.shape == (set.size,2,2)
 
-    def test_dat_properties(self, set, backend):
+    def test_dat_properties(self, backend, set):
         "Dat constructor should correctly set attributes."
         d = op2.Dat(set, (2,2), [1]*set.size*4, 'double', 'bar')
         assert d.dataset == set and d.dim == (2,2) and \
                 d.dtype == np.float64 and d.name == 'bar' and \
                 d.data.sum() == set.size*4
 
-    def test_dat_soa(self, set, backend):
+    def test_dat_soa(self, backend, set):
         "SoA flag should transpose data view"
         d = op2.Dat(set, 2, range(2 * set.size), dtype=np.int32, soa=True)
         expect = np.arange(2 * set.size, dtype=np.int32).reshape(2, 5)
         assert (d.data.shape == expect.shape)
 
-    def test_dat_hdf5(self, h5file, set, backend):
+    def test_dat_hdf5(self, backend, h5file, set):
         "Creating a dat from h5file should work"
         d = op2.Dat.fromhdf5(set, h5file, 'dat')
         assert d.dtype == np.float64
         assert d.data.shape == (5,2) and d.data.sum() == 9 * 10 / 2
 
-    def test_data_hdf5_soa(self, h5file, iterset, backend):
+    def test_data_hdf5_soa(self, backend, h5file, iterset):
         "Creating an SoA dat from h5file should work"
         d = op2.Dat.fromhdf5(iterset, h5file, 'soadat')
         assert d.soa
@@ -324,32 +324,32 @@ class TestMatAPI:
         with pytest.raises(TypeError):
             op2.Mat('illegalsparsity', 1)
 
-    def test_mat_illegal_dim(self, sparsity, backend):
+    def test_mat_illegal_dim(self, backend, sparsity):
         "Mat dim should be int."
         with pytest.raises(TypeError):
             op2.Mat(sparsity, 'illegaldim')
 
-    def test_mat_illegal_name(self, sparsity, backend):
+    def test_mat_illegal_name(self, backend, sparsity):
         "Mat name should be string."
         with pytest.raises(sequential.NameTypeError):
             op2.Mat(sparsity, 1, name=2)
 
-    def test_mat_dim(self, sparsity, backend):
+    def test_mat_dim(self, backend, sparsity):
         "Mat constructor should create a dim tuple."
         m = op2.Mat(sparsity, 1)
         assert m.dims == (1,1)
 
-    def test_mat_dim_list(self, sparsity, backend):
+    def test_mat_dim_list(self, backend, sparsity):
         "Mat constructor should create a dim tuple from a list."
         m = op2.Mat(sparsity, [2,3])
         assert m.dims == (2,3)
 
-    def test_mat_dtype(self, sparsity, backend):
+    def test_mat_dtype(self, backend, sparsity):
         "Default data type should be numpy.float64."
         m = op2.Mat(sparsity, 1)
         assert m.dtype == np.double
 
-    def test_mat_properties(self, sparsity, backend):
+    def test_mat_properties(self, backend, sparsity):
         "Mat constructor should correctly set attributes."
         m = op2.Mat(sparsity, 2, 'double', 'bar')
         assert m.sparsity == sparsity and m.dims == (2,2) and \
@@ -375,7 +375,7 @@ class TestConstAPI:
         with pytest.raises(exceptions.DataValueError):
             op2.Const(1, None, 'test_const_illegal_data')
 
-    def test_const_nonunique_name(self, const, backend):
+    def test_const_nonunique_name(self, backend, const):
         "Const names should be unique."
         with pytest.raises(op2.Const.NonUniqueNameError):
             op2.Const(1, 1, 'test_const_nonunique_name')
@@ -435,7 +435,7 @@ class TestConstAPI:
             op2.Const(1, 'illegal_type', 'test_const_illegal_dtype', 'double')
 
     @pytest.mark.parametrize("dim", [1, (2,2)])
-    def test_const_illegal_length(self, dim, backend):
+    def test_const_illegal_length(self, backend, dim):
         "Mismatching data length should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
             op2.Const(dim, [1]*(np.prod(dim)+1), 'test_const_illegal_length_%r' % np.prod(dim))
@@ -453,7 +453,7 @@ class TestConstAPI:
         assert c.dim == (2,2) and c.dtype == np.float64 and c.name == 'baz' \
                 and c.data.sum() == 4
 
-    def test_const_hdf5(self, h5file, backend):
+    def test_const_hdf5(self, backend, h5file):
         "Constant should be correctly populated from hdf5 file."
         c = op2.Const.fromhdf5(h5file, 'myconstant')
         c.remove_from_namespace()
@@ -535,7 +535,7 @@ class TestGlobalAPI:
             op2.Global(1, 'illegal_type', 'double')
 
     @pytest.mark.parametrize("dim", [1, (2,2)])
-    def test_global_illegal_length(self, dim, backend):
+    def test_global_illegal_length(self, backend, dim):
         "Mismatching data length should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
             op2.Global(dim, [1]*(np.prod(dim)+1))
@@ -568,58 +568,58 @@ class TestMapAPI:
     Map API unit tests
     """
 
-    def test_map_illegal_iterset(self, set, backend):
+    def test_map_illegal_iterset(self, backend, set):
         "Map iterset should be Set."
         with pytest.raises(exceptions.SetTypeError):
             op2.Map('illegalset', set, 1, [])
 
-    def test_map_illegal_dataset(self, set, backend):
+    def test_map_illegal_dataset(self, backend, set):
         "Map dataset should be Set."
         with pytest.raises(exceptions.SetTypeError):
             op2.Map(set, 'illegalset', 1, [])
 
-    def test_map_illegal_dim(self, set, backend):
+    def test_map_illegal_dim(self, backend, set):
         "Map dim should be int."
         with pytest.raises(exceptions.DimTypeError):
             op2.Map(set, set, 'illegaldim', [])
 
-    def test_map_illegal_dim_tuple(self, set, backend):
+    def test_map_illegal_dim_tuple(self, backend, set):
         "Map dim should not be a tuple."
         with pytest.raises(exceptions.DimTypeError):
             op2.Map(set, set, (2,2), [])
 
-    def test_map_illegal_name(self, set, backend):
+    def test_map_illegal_name(self, backend, set):
         "Map name should be string."
         with pytest.raises(exceptions.NameTypeError):
             op2.Map(set, set, 1, [], name=2)
 
-    def test_map_illegal_dtype(self, set, backend):
+    def test_map_illegal_dtype(self, backend, set):
         "Illegal data type should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
             op2.Map(set, set, 1, 'abcdefg')
 
-    def test_map_illegal_length(self, iterset, dataset, backend):
+    def test_map_illegal_length(self, backend, iterset, dataset):
         "Mismatching data length should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
             op2.Map(iterset, dataset, 1, [1]*(iterset.size+1))
 
-    def test_map_convert_float_int(self, iterset, dataset, backend):
+    def test_map_convert_float_int(self, backend, iterset, dataset):
         "Float data should be implicitely converted to int."
         m = op2.Map(iterset, dataset, 1, [1.5]*iterset.size)
         assert m.dtype == np.int32 and m.values.sum() == iterset.size
 
-    def test_map_reshape(self, iterset, dataset, backend):
+    def test_map_reshape(self, backend, iterset, dataset):
         "Data should be reshaped according to dim."
         m = op2.Map(iterset, dataset, 2, [1]*2*iterset.size)
         assert m.dim == 2 and m.values.shape == (iterset.size,2)
 
-    def test_map_properties(self, iterset, dataset, backend):
+    def test_map_properties(self, backend, iterset, dataset):
         "Data constructor should correctly set attributes."
         m = op2.Map(iterset, dataset, 2, [1]*2*iterset.size, 'bar')
         assert m.iterset == iterset and m.dataset == dataset and m.dim == 2 \
                 and m.values.sum() == 2*iterset.size and m.name == 'bar'
 
-    def test_map_hdf5(self, iterset, dataset, h5file, backend):
+    def test_map_hdf5(self, backend, iterset, dataset, h5file):
         "Should be able to create Map from hdf5 file."
         m = op2.Map.fromhdf5(iterset, dataset, h5file, name="map")
         assert m.iterset == iterset
@@ -633,32 +633,32 @@ class TestIterationSpaceAPI:
     IterationSpace API unit tests
     """
 
-    def test_iteration_space_illegal_iterset(self, set, backend):
+    def test_iteration_space_illegal_iterset(self, backend, set):
         "IterationSpace iterset should be Set."
         with pytest.raises(exceptions.SetTypeError):
             op2.IterationSpace('illegalset', 1)
 
-    def test_iteration_space_illegal_extents(self, set, backend):
+    def test_iteration_space_illegal_extents(self, backend, set):
         "IterationSpace extents should be int or int tuple."
         with pytest.raises(TypeError):
             op2.IterationSpace(set, 'illegalextents')
 
-    def test_iteration_space_illegal_extents_tuple(self, set, backend):
+    def test_iteration_space_illegal_extents_tuple(self, backend, set):
         "IterationSpace extents should be int or int tuple."
         with pytest.raises(TypeError):
             op2.IterationSpace(set, (1,'illegalextents'))
 
-    def test_iteration_space_extents(self, set, backend):
+    def test_iteration_space_extents(self, backend, set):
         "IterationSpace constructor should create a extents tuple."
         m = op2.IterationSpace(set, 1)
         assert m.extents == (1,)
 
-    def test_iteration_space_extents_list(self, set, backend):
+    def test_iteration_space_extents_list(self, backend, set):
         "IterationSpace constructor should create a extents tuple from a list."
         m = op2.IterationSpace(set, [2,3])
         assert m.extents == (2,3)
 
-    def test_iteration_space_properties(self, set, backend):
+    def test_iteration_space_properties(self, backend, set):
         "IterationSpace constructor should correctly set attributes."
         i = op2.IterationSpace(set, (2,3))
         assert i.iterset == set and i.extents == (2,3)
