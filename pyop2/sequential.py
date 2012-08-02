@@ -769,18 +769,27 @@ def par_loop(kernel, it_space, *args):
                         'data' : c_ind_data(arg, i)} )
         return ";\n".join(val)
 
-    def c_addto(arg):
+    def c_addto(arg, extents):
         name = c_arg_name(arg)
         p_data = 'p_%s' % name
         maps = as_tuple(arg.map, Map)
         nrows = maps[0].dim
         ncols = maps[1].dim
-        irows = "%s + i*%s" % (c_map_name(arg), maps[0].dim)
-        icols = "%s2 + i*%s" % (c_map_name(arg), maps[1].dim)
-        val = "addto_vector(%s, %s, %s, %s, %s, %s)" % (name, p_data,
-                                                        nrows, irows,
-                                                        ncols, icols)
-        return val
+        dims = arg.data.sparsity.dims
+        rmult = dims[0]
+        cmult = dims[1]
+        idx = ''.join("[i_%d]" % i for i in range(len(extents)))
+        val = "&%s%s" % (p_data, idx)
+        row = "%(m)s * %(map)s[i * %(dim)s + i_0/%(m)s] + i_0%%%(m)s" % \
+              {'m' : rmult,
+               'map' : c_map_name(arg),
+               'dim' : nrows}
+        col = "%(m)s * %(map)s2[i * %(dim)s + i_1/%(m)s] + i_1%%%(m)s" % \
+              {'m' : cmult,
+               'map' : c_map_name(arg),
+               'dim' : ncols}
+
+        return 'addto_scalar(%s, %s, %s, %s)' % (name, val, row, col)
 
     def c_assemble(arg):
         name = c_arg_name(arg)
@@ -821,7 +830,7 @@ def par_loop(kernel, it_space, *args):
     _itspace_loops = '\n'.join([itspace_loop(i,e) for i, e in zip(range(len(it_space.extents)), it_space.extents)])
     _itspace_loop_close = '}'*len(it_space.extents)
 
-    _addtos = ';\n'.join([c_addto(arg) for arg in args if arg._is_mat])
+    _addtos = ';\n'.join([c_addto(arg, it_space.extents) for arg in args if arg._is_mat])
 
     _assembles = ';\n'.join([c_assemble(arg) for arg in args if arg._is_mat])
 
@@ -835,8 +844,8 @@ def par_loop(kernel, it_space, *args):
             %(itspace_loops)s
             %(zero_tmps)s;
             %(kernel_name)s(%(kernel_args)s);
-            %(itspace_loop_close)s
             %(addtos)s;
+            %(itspace_loop_close)s
         }
         %(assembles)s;
     }"""
