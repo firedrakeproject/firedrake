@@ -47,6 +47,14 @@ cdef extern from "op_lib_core.h":
         pass
     ctypedef op_map_core * op_map
 
+    ctypedef struct op_sparsity_core:
+        pass
+    ctypedef op_sparsity_core * op_sparsity
+
+    ctypedef struct op_mat_core:
+        pass
+    ctypedef op_mat_core * op_mat
+
     ctypedef struct op_dat_core:
         pass
     ctypedef op_dat_core * op_dat
@@ -64,15 +72,30 @@ cdef extern from "op_lib_core.h":
 
     op_map op_decl_map_core(op_set, op_set, int, int *, char *)
 
+    op_sparsity op_decl_sparsity_core(op_map *, op_map *, int, int *, int,
+                                      char *)
+
     op_dat op_decl_dat_core(op_set, int, char *, int, char *, char *)
 
     op_arg op_arg_dat_core(op_dat, int, op_map, int, char *, op_access)
 
     op_arg op_arg_gbl_core(char *, int, char *, int, op_access)
 
-    void op_init_core(int, char **, int)
+cdef extern from "op_lib_mat.h":
+    void op_solve(op_mat mat, op_dat b, op_dat x)
 
-    void op_exit_core()
+    void op_mat_zero ( op_mat mat )
+
+    op_mat op_decl_mat(op_sparsity, int *, int, char *, int, char *)
+
+    void op_mat_get_values ( op_mat mat, double **v, int *m, int *n)
+
+    void op_mat_zero_rows ( op_mat mat, int n, int *rows, double val)
+
+cdef extern from "op_lib_c.h":
+    void op_init(int, char **, int)
+
+    void op_exit()
 
 cdef extern from "op_rt_support.h":
     ctypedef struct op_plan:
@@ -112,3 +135,15 @@ cdef extern from "op_rt_support.h":
                            int, int *)
 
     void op_rt_exit()
+
+
+cdef extern from "dlfcn.h":
+    void * dlopen(char *, int)
+    int RTLD_NOW
+    int RTLD_GLOBAL
+    int RTLD_NOLOAD
+
+
+cdef extern from "mpi.h":
+    cdef void emit_ifdef '#if defined(OPEN_MPI) //' ()
+    cdef void emit_endif '#endif //' ()

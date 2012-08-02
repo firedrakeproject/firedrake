@@ -118,3 +118,6 @@ def unset_backend():
 
 def par_loop(kernel, it_space, *args):
     return BackendSelector._backend.par_loop(kernel, it_space, *args)
+
+def solve(M, x, b):
+    return BackendSelector._backend.solve(M, x, b)

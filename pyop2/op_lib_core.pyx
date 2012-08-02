@@ -113,6 +113,19 @@ cdef data_to_numpy_array_with_spec(void * ptr, np.npy_intp size, int t):
     """Return an array of SIZE elements (each of type T) with data from PTR."""
     return np.PyArray_SimpleNewFromData(1, &size, t, ptr)
 
+cdef dlopen_openmpi():
+    cdef void * handle = NULL
+    cdef int mode = core.RTLD_NOW | core.RTLD_GLOBAL | core.RTLD_NOLOAD
+    cdef char * libname
+    core.emit_ifdef()
+    for name in ['libmpi.so', 'libmpi.so.0', 'libmpi.so.1',
+                    'libmpi.dylib', 'libmpi.0.dylib', 'libmpi.1.dylib']:
+        libname = name
+        handle = core.dlopen(libname, mode)
+        if handle is not NULL:
+            break
+    core.emit_endif()
+
 def op_init(args, diags):
     """Initialise OP2
 
@@ -121,8 +134,9 @@ DIAGS should be an integer specifying the diagnostic level.  The
 larger it is, the more chatty OP2 will be."""
     cdef char **argv
     cdef int diag_level = diags
+    dlopen_openmpi()
     if args is None:
-        core.op_init_core(0, NULL, diag_level)
+        core.op_init(0, NULL, diag_level)
         return
     args = [bytes(x) for x in args]
     argv = <char **>malloc(sizeof(char *) * len(args))
@@ -131,7 +145,7 @@ larger it is, the more chatty OP2 will be."""
     try:
         for i, a in enumerate(args):
             argv[i] = a
-        core.op_init_core(len(args), argv, diag_level)
+        core.op_init(len(args), argv, diag_level)
     finally:
         # We can free argv here, because op_init_core doesn't keep a
         # handle to the arguments.
@@ -140,14 +154,14 @@ larger it is, the more chatty OP2 will be."""
 def op_exit():
     """Clean up C level data"""
     core.op_rt_exit()
-    core.op_exit_core()
+    core.op_exit()
 
 cdef class op_set:
     cdef core.op_set _handle
     def __cinit__(self, set):
         """Instantiate a C-level op_set from SET"""
-        cdef int size = set._size
-        cdef char * name = set._name
+        cdef int size = set.size
+        cdef char * name = set.name
         self._handle = core.op_decl_set_core(size, name)
 
     property size:
@@ -174,32 +188,109 @@ cdef class op_dat:
     cdef core.op_dat _handle
     def __cinit__(self, dat):
         """Instantiate a C-level op_dat from DAT"""
-        cdef op_set set = dat._dataset.c_handle
-        cdef int dim = dat._dim[0]
-        cdef int size = dat._data.dtype.itemsize
-        cdef np.ndarray data = dat._data
-        cdef char * name = dat._name
+        cdef op_set set = dat.dataset.c_handle
+        cdef int dim = dat.cdim
+        cdef int size = dat.dtype.itemsize
         cdef char * type
-        tmp = dat._data.dtype.name + ":soa" if dat.soa else ""
+        cdef np.ndarray data
+        cdef char * dataptr
+        cdef char * name = dat.name
+        tmp = dat.ctype + ":soa" if dat.soa else ""
         type = tmp
+        if len(dat._data) > 0:
+            data = dat.data
+            dataptr = <char *>np.PyArray_DATA(data)
+        else:
+            dataptr = <char *>NULL
         self._handle = core.op_decl_dat_core(set._handle, dim, type,
-                                             size, <char *>data.data, name)
+                                             size, dataptr, name)
 
 cdef class op_map:
     cdef core.op_map _handle
     def __cinit__(self, map):
         """Instantiate a C-level op_map from MAP"""
-        cdef op_set frm = map._iterset.c_handle
-        cdef op_set to = map._dataset.c_handle
-        cdef int dim = map._dim
-        cdef np.ndarray values = map._values
-        cdef char * name = map._name
+        cdef op_set frm = map.iterset.c_handle
+        cdef op_set to = map.dataset.c_handle
+        cdef int dim = map.dim
+        cdef np.ndarray values = map.values
+        cdef char * name = map.name
         if values.size == 0:
             self._handle = core.op_decl_map_core(frm._handle, to._handle,
                                                  dim, NULL, name)
         else:
             self._handle = core.op_decl_map_core(frm._handle, to._handle, dim,
-                                                 <int *>values.data, name)
+                                                 <int *>np.PyArray_DATA(values), name)
+
+cdef class op_sparsity:
+    cdef core.op_sparsity _handle
+    def __cinit__(self, sparsity):
+        """Instantiate a C-level op_sparsity from SPARSITY"""
+        cdef core.op_map *rmaps
+        cdef core.op_map *cmaps
+        cdef op_map rmap, cmap
+        cdef int nmaps = sparsity.nmaps
+        cdef int dim[2]
+        cdef char * name = sparsity.name
+
+        rmaps = <core.op_map *>malloc(nmaps * sizeof(core.op_map))
+        if rmaps is NULL:
+            raise MemoryError("Unable to allocate space for rmaps")
+        cmaps = <core.op_map *>malloc(nmaps * sizeof(core.op_map))
+        if cmaps is NULL:
+            raise MemoryError("Unable to allocate space for cmaps")
+
+        for i in range(nmaps):
+            rmap = sparsity.rmaps[i].c_handle
+            cmap = sparsity.cmaps[i].c_handle
+            rmaps[i] = rmap._handle
+            cmaps[i] = cmap._handle
+
+        dim[0] = sparsity.dims[0]
+        dim[1] = sparsity.dims[1]
+        self._handle = core.op_decl_sparsity_core(rmaps, cmaps, nmaps,
+                                                  dim, 2, name)
+
+cdef class op_mat:
+    cdef core.op_mat _handle
+    def __cinit__(self, mat):
+        """Instantiate a C-level op_mat from MAT"""
+        cdef op_sparsity sparsity = mat.sparsity.c_handle
+        cdef int dim[2]
+        cdef char * type = mat.ctype
+        cdef int size = mat.dtype.itemsize
+        cdef char * name = mat.name
+        dim[0] = mat.dims[0]
+        dim[1] = mat.dims[1]
+        self._handle = core.op_decl_mat(sparsity._handle, dim, 2, type, size, name)
+
+    def zero(self):
+        core.op_mat_zero(self._handle)
+
+    def zero_rows(self, rows, v):
+        n = len(rows)
+        cdef int *r = <int *>malloc(sizeof(int)*n)
+        for i in xrange(n):
+            r[i] = <int> (rows[i])
+        core.op_mat_zero_rows(self._handle, <int> n, r, <double> v)
+        free(r)
+
+    property cptr:
+        def __get__(self):
+            cdef uintptr_t val
+            val = <uintptr_t>self._handle
+            return val
+
+    property values:
+        def __get__(self):
+            cdef int m, n
+            cdef double *v
+            cdef np.ndarray[double, ndim=2, mode="c"] vals
+            core.op_mat_get_values(self._handle, &v, &m, &n)
+            cdef np.npy_intp *d2 = [m,n]
+
+            vals = np.PyArray_SimpleNew(2, d2, np.NPY_DOUBLE)
+            vals.data = <char *>v
+            return vals
 
 cdef class op_arg:
     cdef core.op_arg _handle
@@ -244,17 +335,25 @@ isinstance(arg, Dat)."""
             else:
                 idx = -1
                 _map = <core.op_map>NULL
-            dim = arg.data._dim[0]
-            type = arg.data.dtype.name
+            dim = arg.data.cdim
+            type = arg.ctype
             self._handle = core.op_arg_dat_core(_dat._handle, idx, _map,
                                                 dim, type, acc)
         elif gbl:
-            dim = arg.data._dim[0]
-            size = arg.data._data.size/dim
-            type = arg.data.dtype.name
-            data = arg.data._data
-            self._handle = core.op_arg_gbl_core(<char *>data.data, dim,
+            dim = arg.data.cdim
+            size = arg.data.data.size/dim
+            type = arg.ctype
+            data = arg.data.data
+            self._handle = core.op_arg_gbl_core(<char *>np.PyArray_DATA(data), dim,
                                                 type, size, acc)
+
+def solve(A, b, x):
+    cdef op_mat cA
+    cdef op_dat cb, cx
+    cA = A.c_handle
+    cb = b.c_handle
+    cx = x.c_handle
+    core.op_solve(cA._handle, cb._handle, cx._handle)
 
 cdef class op_plan:
     cdef core.op_plan *_handle
@@ -267,7 +366,7 @@ Arguments to this constructor should be the arguments of the parallel
 loop, i.e. the KERNEL, the ISET (iteration set) and any
 further ARGS."""
         cdef op_set _set = iset.c_handle
-        cdef char * name = kernel._name
+        cdef char * name = kernel.name
         cdef int part_size = partition_size
         cdef int nargs = len(args)
         cdef op_arg _arg

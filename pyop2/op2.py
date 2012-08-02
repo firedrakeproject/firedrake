@@ -36,7 +36,7 @@
 import backends
 import op_lib_core as core
 import sequential
-from sequential import READ, WRITE, RW, INC, MIN, MAX, IdentityMap
+from sequential import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
 
 
 def init(backend='sequential', diags=2):
@@ -74,6 +74,13 @@ class Global(sequential.Global):
 class Map(sequential.Map):
     __metaclass__ = backends.BackendSelector
 
+class Sparsity(sequential.Sparsity):
+    __metaclass__ = backends.BackendSelector
+
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel"""
     return backends.par_loop(kernel, it_space, *args)
+
+def solve(M, x, b):
+    """Invocation of an OP2 solve"""
+    return backends.solve(M, x, b)

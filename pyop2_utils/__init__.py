@@ -31,40 +31,9 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""OP2 exception types"""
+"""Code-generation strings for FFC to generate PyOP2 code."""
 
-class DataTypeError(TypeError):
-    """Invalid type for data."""
+from integrals import *
 
-class DimTypeError(TypeError):
-    """Invalid type for dimension."""
-
-class IndexTypeError(TypeError):
-    """Invalid type for index."""
-
-class NameTypeError(TypeError):
-    """Invalid type for name."""
-
-class SetTypeError(TypeError):
-    """Invalid type for Set."""
-
-class SizeTypeError(TypeError):
-    """Invalid type for size."""
-
-class SparsityTypeError(TypeError):
-    """Invalid type for sparsity."""
-
-class MapTypeError(TypeError):
-    """Invalid type for map."""
-
-class DataValueError(ValueError):
-    """Illegal value for data."""
-
-class IndexValueError(ValueError):
-    """Illegal value for index."""
-
-class ModeValueError(ValueError):
-    """Illegal value for mode."""
-
-class SetValueError(ValueError):
-    """Illegal value for Set."""
+templates = {"cell_integral_combined": cell_integral_combined,
+             "exterior_facet_integral_combined": exterior_facet_integral_combined }

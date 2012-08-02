@@ -38,6 +38,7 @@ import numpy as np
 from exceptions import *
 from utils import *
 import op_lib_core as core
+from pyop2.utils import OP2_INC, OP2_LIB
 
 # Data API
 
@@ -63,6 +64,8 @@ INC   = Access("INC")
 MIN   = Access("MIN")
 MAX   = Access("MAX")
 
+# Data API
+
 class Arg(object):
     def __init__(self, data=None, map=None, idx=None, access=None):
         self._dat = data
@@ -82,6 +85,11 @@ class Arg(object):
     def data(self):
         """Data carrier: Dat, Mat, Const or Global."""
         return self._dat
+
+    @property
+    def ctype(self):
+        """String representing the C type of this Arg."""
+        return self.data.ctype
 
     @property
     def map(self):
@@ -151,6 +159,10 @@ class Arg(object):
     def _is_global(self):
         return isinstance(self._dat, Global)
 
+    @property
+    def _is_mat(self):
+        return isinstance(self._dat, Mat)
+
 class Set(object):
     """OP2 set."""
 
@@ -171,6 +183,9 @@ class Set(object):
         if shape != (1,):
             raise SizeTypeError("Shape of %s is incorrect" % name)
         return cls(size[0], name)
+
+    def __call__(self, *dims):
+        return IterationSpace(self, dims)
 
     @property
     def c_handle(self):
@@ -203,6 +218,24 @@ class DataCarrier(object):
         return self._data.dtype
 
     @property
+    def ctype(self):
+        # FIXME: Complex and float16 not supported
+        typemap = { "bool":    "unsigned char",
+                    "int":     "int",
+                    "int8":    "char",
+                    "int16":   "short",
+                    "int32":   "int",
+                    "int64":   "long long",
+                    "uint8":   "unsigned char",
+                    "uint16":  "unsigned short",
+                    "uint32":  "unsigned int",
+                    "uint64":  "unsigned long long",
+                    "float":   "double",
+                    "float32": "float",
+                    "float64": "double" }
+        return typemap[self.dtype.name]
+
+    @property
     def name(self):
         """User-defined label."""
         return self._name
@@ -211,6 +244,11 @@ class DataCarrier(object):
     def dim(self):
         """Dimension/shape of a single data item."""
         return self._dim
+
+    @property
+    def cdim(self):
+        """Dimension of a single data item on C side (product of dims)"""
+        return np.prod(self.dim)
 
 class Dat(DataCarrier):
     """OP2 vector data. A Dat holds a value for every member of a set."""
@@ -253,7 +291,7 @@ class Dat(DataCarrier):
         # We don't pass soa to the constructor, because that
         # transposes the data, but we've got them from the hdf5 file
         # which has them in the right shape already.
-        ret = cls(dataset, dim[0], data, name=name)
+        ret = cls(dataset, dim, data, name=name)
         ret._soa = soa
         return ret
 
@@ -288,57 +326,11 @@ class Dat(DataCarrier):
         return "Dat(%r, %s, '%s', None, '%s')" \
                % (self._dataset, self._dim, self._data.dtype, self._name)
 
-class Mat(DataCarrier):
-    """OP2 matrix data. A Mat is defined on the cartesian product of two Sets
-    and holds a value for each element in the product."""
-
-    _globalcount = 0
-    _modes = [WRITE, INC]
-    _arg_type = Arg
-
-    @validate_type(('name', str, NameTypeError))
-    def __init__(self, datasets, dim, dtype=None, name=None):
-        self._datasets = as_tuple(datasets, Set, 2)
-        self._dim = as_tuple(dim, int)
-        self._datatype = np.dtype(dtype)
-        self._name = name or "mat_%d" % Mat._globalcount
-        Mat._globalcount += 1
-
-    @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, maps, access):
-        maps = as_tuple(maps, Map, 2)
-        for map, dataset in zip(maps, self._datasets):
-            if map._dataset != dataset:
-                raise SetValueError("Invalid data set for map %s (is %s, should be %s)" \
-                        % (map._name, map._dataset._name, dataset._name))
-        return self._arg_type(data=self, map=maps, access=access)
-
-    @property
-    def datasets(self):
-        """Sets on which the Mat is defined."""
-        return self._datasets
-
-    @property
-    def dtype(self):
-        """Data type."""
-        return self._datatype
-
-    def __str__(self):
-        return "OP2 Mat: %s, row set (%s), col set (%s), dimension %s, datatype %s" \
-               % (self._name, self._datasets[0], self._datasets[1], self._dim, self._datatype.name)
-
-    def __repr__(self):
-        return "Mat(%r, %s, '%s', '%s')" \
-               % (self._datasets, self._dim, self._datatype, self._name)
-
 class Const(DataCarrier):
     """Data that is constant for any element of any set."""
 
     class NonUniqueNameError(ValueError):
         """Name already in use."""
-
-    _globalcount = 0
-    _modes = [READ]
 
     _defs = set()
 
@@ -346,12 +338,10 @@ class Const(DataCarrier):
     def __init__(self, dim, data, name, dtype=None):
         self._dim = as_tuple(dim, int)
         self._data = verify_reshape(data, dtype, self._dim)
-        self._name = name or "const_%d" % Const._globalcount
+        self._name = name
         if any(self._name is const._name for const in Const._defs):
             raise Const.NonUniqueNameError(
                 "OP2 Constants are globally scoped, %s is already in use" % self._name)
-        self._access = READ
-        Const._globalcount += 1
         Const._defs.add(self)
 
     @classmethod
@@ -384,19 +374,16 @@ class Const(DataCarrier):
         if self in Const._defs:
             Const._defs.remove(self)
 
-    def format_for_c(self, typemap):
-        dec = 'static const ' + typemap[self._data.dtype.name] + ' ' + self._name
-        if self._dim[0] > 1:
-            dec += '[' + str(self._dim[0]) + ']'
-        dec += ' = '
-        if self._dim[0] > 1:
-            dec += '{'
-        dec += ', '.join(str(datum) for datum in self._data)
-        if self._dim[0] > 1:
-            dec += '}'
+    def format_for_c(self):
+        d = {'type' : self.ctype,
+             'name' : self.name,
+             'dim' : self.cdim,
+             'vals' : ', '.join(str(datum) for datum in self.data)}
 
-        dec += ';'
-        return dec
+        if self.cdim == 1:
+            return "static const %(type)s %(name)s = %(vals)s;" % d
+
+        return "static const %(type)s %(name)s[%(dim)s] = { %(vals)s };" % d
 
 class Global(DataCarrier):
     """OP2 global value."""
@@ -432,6 +419,29 @@ class Global(DataCarrier):
     def data(self, value):
         self._data = verify_reshape(value, self.dtype, self.dim)
 
+#FIXME: Part of kernel API, but must be declared before Map for the validation.
+
+class IterationIndex(object):
+    """OP2 iteration space index"""
+
+    def __init__(self, index):
+        assert isinstance(index, int), "i must be an int"
+        self._index = index
+
+    def __str__(self):
+        return "OP2 IterationIndex: %d" % self._index
+
+    def __repr__(self):
+        return "IterationIndex(%d)" % self._index
+
+    @property
+    def index(self):
+        return self._index
+
+def i(index):
+    """Shorthand for constructing IterationIndex objects"""
+    return IterationIndex(index)
+
 class Map(object):
     """OP2 map, a relation between two Sets."""
 
@@ -449,10 +459,12 @@ class Map(object):
         self._lib_handle = None
         Map._globalcount += 1
 
-    @validate_type(('index', int, IndexTypeError))
+    @validate_type(('index', (int, IterationIndex), IndexTypeError))
     def __call__(self, index):
-        if not 0 <= index < self._dim:
+        if isinstance(index, int) and not (0 <= index < self._dim):
             raise IndexValueError("Index must be in interval [0,%d]" % (self._dim-1))
+        if isinstance(index, IterationIndex) and index.index not in [0, 1]:
+            raise IndexValueError("IterationIndex must be in interval [0,1]")
         return self._arg_type(map=self, idx=index)
 
     @property
@@ -511,13 +523,128 @@ class Map(object):
 
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 
+class Sparsity(object):
+    """OP2 Sparsity, a matrix structure derived from the union of the outer product of pairs of maps"""
+
+    _globalcount = 0
+
+    @validate_type(('rmap', (Map, tuple), MapTypeError), \
+                   ('cmap', (Map, tuple), MapTypeError), \
+                   ('dims', (int, tuple), TypeError))
+    def __init__(self, rmaps, cmaps, dims, name=None):
+        assert not name or isinstance(name, str), "Name must be of type str"
+
+        self._rmaps = as_tuple(rmaps, Map)
+        self._cmaps = as_tuple(cmaps, Map)
+        assert len(self._rmaps) == len(self._cmaps), \
+            "Must pass equal number of row and column maps"
+        self._dims = as_tuple(dims, int, 2)
+        self._name = name or "global_%d" % Sparsity._globalcount
+        self._lib_handle = None
+        Sparsity._globalcount += 1
+
+    @property
+    def c_handle(self):
+        if self._lib_handle is None:
+            self._lib_handle = core.op_sparsity(self)
+        return self._lib_handle
+
+    @property
+    def nmaps(self):
+        return len(self._rmaps)
+
+    @property
+    def rmaps(self):
+        return self._rmaps
+
+    @property
+    def cmaps(self):
+        return self._cmaps
+
+    @property
+    def dims(self):
+        return self._dims
+
+    @property
+    def name(self):
+        return self._name
+
+class Mat(DataCarrier):
+    """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
+    for each element in the sparsity."""
+
+    _globalcount = 0
+    _modes = [WRITE, INC]
+    _arg_type = Arg
+
+    @validate_type(('sparsity', Sparsity, SparsityTypeError), \
+                   ('dims', (int, tuple, list), TypeError), \
+                   ('name', str, NameTypeError))
+    def __init__(self, sparsity, dims, dtype=None, name=None):
+        self._sparsity = sparsity
+        self._dims = as_tuple(dims, int, 2)
+        self._datatype = np.dtype(dtype)
+        self._name = name or "mat_%d" % Mat._globalcount
+        self._lib_handle = None
+        Mat._globalcount += 1
+
+    @validate_in(('access', _modes, ModeValueError))
+    def __call__(self, path, access):
+        path = as_tuple(path, Arg, 2)
+        path_maps = [arg.map for arg in path]
+        path_idxs = [arg.idx for arg in path]
+        # FIXME: do argument checking
+        return self._arg_type(data=self, map=path_maps, access=access, idx=path_idxs)
+
+    def zero(self):
+        self.c_handle.zero()
+
+    def zero_rows(self, rows, diag_val):
+        """Zeroes the specified rows of the matrix, with the exception of the
+        diagonal entry, which is set to diag_val. May be used for applying
+        strong boundary conditions."""
+        self.c_handle.zero_rows(rows, diag_val)
+
+    @property
+    def c_handle(self):
+        if self._lib_handle is None:
+            self._lib_handle = core.op_mat(self)
+        return self._lib_handle
+
+    @property
+    def dims(self):
+        return self._dims
+
+    @property
+    def sparsity(self):
+        """Sparsity on which the Mat is defined."""
+        return self._sparsity
+
+    @property
+    def values(self):
+        """Return a numpy array of matrix values."""
+        return self.c_handle.values
+
+    @property
+    def dtype(self):
+        """Data type."""
+        return self._datatype
+
+    def __str__(self):
+        return "OP2 Mat: %s, sparsity (%s), dimension %s, datatype %s" \
+               % (self._name, self._sparsity, self._dim, self._datatype.name)
+
+    def __repr__(self):
+        return "Mat(%r, %s, '%s', '%s')" \
+               % (self._sparsity, self._dim, self._datatype, self._name)
+
 # Kernel API
 
 class IterationSpace(object):
     """OP2 iteration space type."""
 
     @validate_type(('iterset', Set, SetTypeError))
-    def __init__(self, iterset, extents):
+    def __init__(self, iterset, extents=()):
         self._iterset = iterset
         self._extents = as_tuple(extents, int)
 
@@ -530,6 +657,10 @@ class IterationSpace(object):
     def extents(self):
         """Extents of the IterationSpace."""
         return self._extents
+
+    @property
+    def size(self):
+        return self._iterset.size
 
     def __str__(self):
         return "OP2 Iteration Space: %s with extents %s" % self._extents
@@ -553,6 +684,11 @@ class Kernel(object):
         """Kernel name, must match the kernel function name in the code."""
         return self._name
 
+    @property
+    def code(self):
+        """Code of this kernel routine"""
+        return self._code
+
     def compile(self):
         pass
 
@@ -572,24 +708,9 @@ def par_loop(kernel, it_space, *args):
 
     from instant import inline_with_numpy
 
-    # FIXME: Complex and float16 not supported
-    typemap = { "bool":    "unsigned char",
-                "int":     "int",
-                "int8":    "char",
-                "int16":   "short",
-                "int32":   "int",
-                "int64":   "long long",
-                "uint8":   "unsigned char",
-                "uint16":  "unsigned short",
-                "uint32":  "unsigned int",
-                "uint64":  "unsigned long long",
-                "float":   "double",
-                "float32": "float",
-                "float64": "double" }
-
     def c_arg_name(arg):
-        name = arg._dat._name
-        if arg._is_indirect and not arg._is_vec_map:
+        name = arg.data.name
+        if arg._is_indirect and not (arg._is_mat or arg._is_vec_map):
             name += str(arg.idx)
         return name
 
@@ -599,38 +720,48 @@ def par_loop(kernel, it_space, *args):
     def c_map_name(arg):
         return c_arg_name(arg) + "_map"
 
-    def c_type(arg):
-        return typemap[arg._dat._data.dtype.name]
-
     def c_wrapper_arg(arg):
         val = "PyObject *_%(name)s" % {'name' : c_arg_name(arg) }
-        if arg._is_indirect:
+        if arg._is_indirect or arg._is_mat:
             val += ", PyObject *_%(name)s" % {'name' : c_map_name(arg)}
+            maps = as_tuple(arg.map, Map)
+            if len(maps) is 2:
+                val += ", PyObject *_%(name)s" % {'name' : c_map_name(arg)+'2'}
         return val
 
     def c_wrapper_dec(arg):
-        val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
-              {'name' : c_arg_name(arg), 'type' : c_type(arg)}
-        if arg._is_indirect:
+        if arg._is_mat:
+            val = "op_mat %(name)s = (op_mat)((uintptr_t)PyLong_AsUnsignedLong(_%(name)s))" % \
+                 { "name": c_arg_name(arg) }
+        else:
+            val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
+              {'name' : c_arg_name(arg), 'type' : arg.ctype}
+        if arg._is_indirect or arg._is_mat:
             val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" % \
                    {'name' : c_map_name(arg)}
-            if arg._is_vec_map:
-                val += ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
-                       {'type' : c_type(arg),
-                        'vec_name' : c_vec_name(arg),
-                        'dim' : arg.map._dim}
+        if arg._is_mat:
+            val += ";\nint *%(name)s2 = (int *)(((PyArrayObject *)_%(name)s2)->data)" % \
+                       {'name' : c_map_name(arg)}
+        if arg._is_vec_map:
+            val += ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
+                   {'type' : arg.ctype,
+                    'vec_name' : c_vec_name(arg),
+                    'dim' : arg.map.dim}
         return val
 
     def c_ind_data(arg, idx):
         return "%(name)s + %(map_name)s[i * %(map_dim)s + %(idx)s] * %(dim)s" % \
                 {'name' : c_arg_name(arg),
                  'map_name' : c_map_name(arg),
-                 'map_dim' : arg.map._dim,
+                 'map_dim' : arg.map.dim,
                  'idx' : idx,
-                 'dim' : arg.data._dim[0]}
+                 'dim' : arg.data.cdim}
 
-    def c_kernel_arg(arg):
-        if arg._is_indirect:
+    def c_kernel_arg(arg, extents):
+        if arg._is_mat:
+            idx = ''.join(["[i_%d]" % i for i in range(len(extents))])
+            return "&p_"+c_arg_name(arg)+idx
+        elif arg._is_indirect:
             if arg._is_vec_map:
                 return c_vec_name(arg)
             return c_ind_data(arg, arg.idx)
@@ -639,7 +770,7 @@ def par_loop(kernel, it_space, *args):
         else:
             return "%(name)s + i * %(dim)s" % \
                 {'name' : c_arg_name(arg),
-                 'dim' : arg.data._dim[0]}
+                 'dim' : arg.data.cdim}
 
     def c_vec_init(arg):
         val = []
@@ -650,23 +781,85 @@ def par_loop(kernel, it_space, *args):
                         'data' : c_ind_data(arg, i)} )
         return ";\n".join(val)
 
+    def c_addto(arg, extents):
+        name = c_arg_name(arg)
+        p_data = 'p_%s' % name
+        maps = as_tuple(arg.map, Map)
+        nrows = maps[0].dim
+        ncols = maps[1].dim
+        dims = arg.data.sparsity.dims
+        rmult = dims[0]
+        cmult = dims[1]
+        idx = ''.join("[i_%d]" % i for i in range(len(extents)))
+        val = "&%s%s" % (p_data, idx)
+        row = "%(m)s * %(map)s[i * %(dim)s + i_0/%(m)s] + i_0%%%(m)s" % \
+              {'m' : rmult,
+               'map' : c_map_name(arg),
+               'dim' : nrows}
+        col = "%(m)s * %(map)s2[i * %(dim)s + i_1/%(m)s] + i_1%%%(m)s" % \
+              {'m' : cmult,
+               'map' : c_map_name(arg),
+               'dim' : ncols}
+
+        return 'addto_scalar(%s, %s, %s, %s)' % (name, val, row, col)
+
+    def c_assemble(arg):
+        name = c_arg_name(arg)
+        return "assemble_mat(%s)" % name
+
+    def itspace_loop(i, d):
+        return "for (int i_%d=0; i_%d<%d; ++i_%d){" % (i, i, d, i)
+
+    def tmp_decl(arg, extents):
+        if arg._is_mat:
+            t = arg.data.ctype
+            dims = ''.join(["[%d]" % e for e in extents])
+            return "%s p_%s%s" % (t, c_arg_name(arg), dims)
+        return ""
+
+    def c_zero_tmp(arg, extents):
+        if arg._is_mat:
+            idx = ''.join(["[i_%d]" % i for i in range(len(extents))])
+            return "p_%s%s = (%s)0" % (c_arg_name(arg), idx, arg.data.ctype)
+
+    if isinstance(it_space, Set):
+        it_space = IterationSpace(it_space)
+
     _wrapper_args = ', '.join([c_wrapper_arg(arg) for arg in args])
 
+    _tmp_decs = ';\n'.join([tmp_decl(arg, it_space.extents) for arg in args if arg._is_mat])
     _wrapper_decs = ';\n'.join([c_wrapper_dec(arg) for arg in args])
 
-    _const_decs = '\n'.join([const.format_for_c(typemap) for const in sorted(Const._defs)]) + '\n'
+    _const_decs = '\n'.join([const.format_for_c() for const in sorted(Const._defs)]) + '\n'
 
-    _kernel_args = ', '.join([c_kernel_arg(arg) for arg in args])
+    _kernel_user_args = [c_kernel_arg(arg, it_space.extents) for arg in args]
+    _kernel_it_args   = ["i_%d" % d for d in range(len(it_space.extents))]
+    _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
 
-    _vec_inits = ';\n'.join([c_vec_init(arg) for arg in args if arg._is_vec_map])
+    _vec_inits = ';\n'.join([c_vec_init(arg) for arg in args \
+                             if not arg._is_mat and arg._is_vec_map])
 
+    _itspace_loops = '\n'.join([itspace_loop(i,e) for i, e in zip(range(len(it_space.extents)), it_space.extents)])
+    _itspace_loop_close = '}'*len(it_space.extents)
+
+    _addtos = ';\n'.join([c_addto(arg, it_space.extents) for arg in args if arg._is_mat])
+
+    _assembles = ';\n'.join([c_assemble(arg) for arg in args if arg._is_mat])
+
+    _zero_tmps = ';\n'.join([c_zero_tmp(arg, it_space.extents) for arg in args if arg._is_mat])
     wrapper = """
     void wrap_%(kernel_name)s__(%(wrapper_args)s) {
         %(wrapper_decs)s;
+        %(tmp_decs)s;
         for ( int i = 0; i < %(size)s; i++ ) {
             %(vec_inits)s;
+            %(itspace_loops)s
+            %(zero_tmps)s;
             %(kernel_name)s(%(kernel_args)s);
+            %(addtos)s;
+            %(itspace_loop_close)s
         }
+        %(assembles)s;
     }"""
 
     if any(arg._is_soa for arg in args):
@@ -674,26 +867,47 @@ def par_loop(kernel, it_space, *args):
         #define OP2_STRIDE(a, idx) a[idx]
         %(code)s
         #undef OP2_STRIDE
-        """ % {'code' : kernel._code}
+        """ % {'code' : kernel.code}
     else:
         kernel_code = """
         %(code)s
-        """ % {'code' : kernel._code }
+        """ % {'code' : kernel.code }
 
-    code_to_compile =  wrapper % { 'kernel_name' : kernel._name,
+    code_to_compile =  wrapper % { 'kernel_name' : kernel.name,
                       'wrapper_args' : _wrapper_args,
                       'wrapper_decs' : _wrapper_decs,
+                      'tmp_decs' : _tmp_decs,
                       'size' : it_space.size,
+                      'itspace_loops' : _itspace_loops,
+                      'itspace_loop_close' : _itspace_loop_close,
                       'vec_inits' : _vec_inits,
-                      'kernel_args' : _kernel_args }
+                      'zero_tmps' : _zero_tmps,
+                      'kernel_args' : _kernel_args,
+                      'addtos' : _addtos,
+                      'assembles' : _assembles}
 
     _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
-                             additional_definitions = _const_decs + kernel_code)
+                             additional_definitions = _const_decs + kernel_code,
+                             include_dirs=[OP2_INC],
+                             source_directory='pyop2',
+                             wrap_headers=["mat_utils.h"],
+                             library_dirs=[OP2_LIB],
+                             libraries=['op2_seq'],
+                             sources=["mat_utils.cxx"])
 
     _args = []
     for arg in args:
-        _args.append(arg.data.data)
-        if arg._is_indirect:
-            _args.append(arg.map.values)
+        if arg._is_mat:
+            _args.append(arg.data.c_handle.cptr)
+        else:
+            _args.append(arg.data.data)
+
+        if arg._is_indirect or arg._is_mat:
+            maps = as_tuple(arg.map, Map)
+            for map in maps:
+                _args.append(map.values)
 
     _fun(*_args)
+
+def solve(M, x, b):
+    core.solve(M, x, b)

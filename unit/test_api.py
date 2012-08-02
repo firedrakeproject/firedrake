@@ -52,6 +52,18 @@ def pytest_funcarg__iterset(request):
 def pytest_funcarg__dataset(request):
     return op2.Set(3, 'dataset')
 
+def pytest_funcarg__smap(request):
+    iterset = op2.Set(2, 'iterset')
+    dataset = op2.Set(2, 'dataset')
+    return op2.Map(iterset, dataset, 1, [0, 1])
+
+def pytest_funcarg__smap2(request):
+    iterset = op2.Set(2, 'iterset')
+    dataset = op2.Set(2, 'dataset')
+    smap = op2.Map(iterset, dataset, 1, [1, 0])
+    smap2 = op2.Map(iterset, dataset, 1, [0, 1])
+    return (smap, smap2)
+
 def pytest_funcarg__const(request):
     return request.cached_setup(scope='function',
             setup=lambda: op2.Const(1, 1, 'test_const_nonunique_name'),
@@ -76,6 +88,11 @@ def pytest_funcarg__h5file(request):
                                 setup=lambda: make_hdf5_file(),
                                 teardown=lambda f: f.close())
 
+def pytest_funcarg__sparsity(request):
+    s = op2.Set(2)
+    m = op2.Map(s, s, 1, [0, 1])
+    return op2.Sparsity(m, m, 1)
+
 class TestInitAPI:
     """
     Init API unit tests
@@ -87,7 +104,7 @@ class TestInitAPI:
             op2.Set(1)
 
     def test_invalid_init(self):
-        "init should only be callable once."
+        "init should not accept an invalid backend."
         with pytest.raises(ValueError):
             op2.init('invalid_backend')
 
@@ -100,6 +117,7 @@ class TestInitAPI:
         with pytest.raises(RuntimeError):
             op2.init(backend)
 
+    @pytest.mark.skipif(backend='sequential')
     def test_init_exit(self, backend):
         op2.exit()
         op2.init(backend)
@@ -261,67 +279,87 @@ class TestDatAPI:
         assert d.soa
         assert d.data.shape == (2,5) and d.data.sum() == 9 * 10 / 2
 
+class TestSparsityAPI:
+    """
+    Sparsity API unit tests
+    """
+
+    backends = ['sequential']
+
+    def test_sparsity_illegal_rmap(self, backend, smap):
+        "Sparsity rmap should be a Map"
+        with pytest.raises(TypeError):
+            op2.Sparsity('illegalrmap', smap, 1)
+
+    def test_sparsity_illegal_cmap(self, backend, smap):
+        "Sparsity cmap should be a Map"
+        with pytest.raises(TypeError):
+            op2.Sparsity(smap, 'illegalcmap', 1)
+
+    def test_sparsity_illegal_dim(self, backend, smap):
+        "Sparsity dim should be an int"
+        with pytest.raises(TypeError):
+            op2.Sparsity(smap, smap, 'illegaldim')
+
+    def test_sparsity_properties(self, backend, smap):
+        "Sparsity constructor should correctly set attributes"
+        s = op2.Sparsity(smap, smap, 2, "foo")
+        assert s.rmaps[0] == smap
+        assert s.cmaps[0] == smap
+        assert s.dims == (2,2)
+        assert s.name == "foo"
+
+    def test_sparsity_multiple_maps(self, backend, smap2):
+        "Sparsity constructor should accept tuple of maps"
+        s = op2.Sparsity(smap2, smap2,
+                         1, "foo")
+        assert s.rmaps == smap2
+        assert s.cmaps == smap2
+        assert s.dims == (1,1)
+
 class TestMatAPI:
     """
     Mat API unit tests
     """
 
+    backends = ['sequential']
+
     skip_backends = ['opencl']
 
     def test_mat_illegal_sets(self, backend):
-        "Mat data sets should be a 2-tuple of Sets."
-        with pytest.raises(ValueError):
-            op2.Mat('illegalset', 1)
-
-    def test_mat_illegal_set_tuple(self, backend):
-        "Mat data sets should be a 2-tuple of Sets."
+        "Mat sparsity should be a Sparsity."
         with pytest.raises(TypeError):
-            op2.Mat(('illegalrows', 'illegalcols'), 1)
+            op2.Mat('illegalsparsity', 1)
 
-    def test_mat_illegal_set_triple(self, set, backend):
-        "Mat data sets should be a 2-tuple of Sets."
-        with pytest.raises(ValueError):
-            op2.Mat((set,set,set), 1)
-
-    def test_mat_illegal_dim(self, set, backend):
-        "Mat dim should be int or int tuple."
+    def test_mat_illegal_dim(self, sparsity, backend):
+        "Mat dim should be int."
         with pytest.raises(TypeError):
-            op2.Mat((set,set), 'illegaldim')
+            op2.Mat(sparsity, 'illegaldim')
 
-    def test_mat_illegal_dim_tuple(self, set, backend):
-        "Mat dim should be int or int tuple."
-        with pytest.raises(TypeError):
-            op2.Mat((set,set), (1,'illegaldim'))
-
-    def test_mat_illegal_name(self, set, backend):
+    def test_mat_illegal_name(self, sparsity, backend):
         "Mat name should be string."
-        with pytest.raises(exceptions.NameTypeError):
-            op2.Mat((set,set), 1, name=2)
+        with pytest.raises(sequential.NameTypeError):
+            op2.Mat(sparsity, 1, name=2)
 
-    def test_mat_sets(self, iterset, dataset, backend):
-        "Mat constructor should preserve order of row and column sets."
-        m = op2.Mat((iterset, dataset), 1)
-        assert m.datasets == (iterset, dataset)
-
-    def test_mat_dim(self, set, backend):
+    def test_mat_dim(self, sparsity, backend):
         "Mat constructor should create a dim tuple."
-        m = op2.Mat((set,set), 1)
-        assert m.dim == (1,)
+        m = op2.Mat(sparsity, 1)
+        assert m.dims == (1,1)
 
-    def test_mat_dim_list(self, set, backend):
+    def test_mat_dim_list(self, sparsity, backend):
         "Mat constructor should create a dim tuple from a list."
-        m = op2.Mat((set,set), [2,3])
-        assert m.dim == (2,3)
+        m = op2.Mat(sparsity, [2,3])
+        assert m.dims == (2,3)
 
-    def test_mat_dtype(self, set, backend):
+    def test_mat_dtype(self, sparsity, backend):
         "Default data type should be numpy.float64."
-        m = op2.Mat((set,set), 1)
+        m = op2.Mat(sparsity, 1)
         assert m.dtype == np.double
 
-    def test_dat_properties(self, set, backend):
+    def test_mat_properties(self, sparsity, backend):
         "Mat constructor should correctly set attributes."
-        m = op2.Mat((set,set), (2,2), 'double', 'bar')
-        assert m.datasets == (set,set) and m.dim == (2,2) and \
+        m = op2.Mat(sparsity, 2, 'double', 'bar')
+        assert m.sparsity == sparsity and m.dims == (2,2) and \
                 m.dtype == np.float64 and m.name == 'bar'
 
 class TestConstAPI:

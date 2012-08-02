@@ -31,40 +31,23 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""OP2 exception types"""
+cell_integral_combined = """\
+/// This integral defines the interface for the tabulation of the cell
+/// tensor corresponding to the local contribution to a form from
+/// the integral over a cell.
 
-class DataTypeError(TypeError):
-    """Invalid type for data."""
+void %(classname)s(%(arglist)s)
+{
+%(tabulate_tensor)s
+}"""
 
-class DimTypeError(TypeError):
-    """Invalid type for dimension."""
+exterior_facet_integral_combined = """\
+/// This integral defines the interface for the tabulation of the cell
+/// tensor corresponding to the local contribution to a form from
+/// the integral over an exterior facet.
 
-class IndexTypeError(TypeError):
-    """Invalid type for index."""
-
-class NameTypeError(TypeError):
-    """Invalid type for name."""
-
-class SetTypeError(TypeError):
-    """Invalid type for Set."""
-
-class SizeTypeError(TypeError):
-    """Invalid type for size."""
-
-class SparsityTypeError(TypeError):
-    """Invalid type for sparsity."""
-
-class MapTypeError(TypeError):
-    """Invalid type for map."""
-
-class DataValueError(ValueError):
-    """Illegal value for data."""
-
-class IndexValueError(ValueError):
-    """Illegal value for index."""
-
-class ModeValueError(ValueError):
-    """Illegal value for mode."""
-
-class SetValueError(ValueError):
-    """Illegal value for Set."""
+void %(classname)s(%(arglist)s, unsigned int *facet_p)
+{
+  unsigned int facet = *facet_p;
+%(tabulate_tensor)s
+}"""
