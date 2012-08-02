@@ -540,8 +540,14 @@ class Sparsity(object):
             "Must pass equal number of row and column maps"
         self._dims = as_tuple(dims, int, 2)
         self._name = name or "global_%d" % Sparsity._globalcount
-        self._lib_handle = core.op_sparsity(self)
+        self._lib_handle = None
         Sparsity._globalcount += 1
+
+    @property
+    def c_handle(self):
+        if self._lib_handle is None:
+            self._lib_handle = core.op_sparsity(self)
+        return self._lib_handle
 
     @property
     def nmaps(self):
@@ -579,7 +585,7 @@ class Mat(DataCarrier):
         self._dims = as_tuple(dims, int, 2)
         self._datatype = np.dtype(dtype)
         self._name = name or "mat_%d" % Mat._globalcount
-        self._lib_handle = core.op_mat(self)
+        self._lib_handle = None
         Mat._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
@@ -591,13 +597,19 @@ class Mat(DataCarrier):
         return self._arg_type(data=self, map=path_maps, access=access, idx=path_idxs)
 
     def zero(self):
-        self._lib_handle.zero()
+        self.c_handle.zero()
 
     def zero_rows(self, rows, diag_val):
         """Zeroes the specified rows of the matrix, with the exception of the
         diagonal entry, which is set to diag_val. May be used for applying
         strong boundary conditions."""
-        self._lib_handle.zero_rows(rows, diag_val)
+        self.c_handle.zero_rows(rows, diag_val)
+
+    @property
+    def c_handle(self):
+        if self._lib_handle is None:
+            self._lib_handle = core.op_mat(self)
+        return self._lib_handle
 
     @property
     def dims(self):
@@ -611,7 +623,7 @@ class Mat(DataCarrier):
     @property
     def values(self):
         """Return a numpy array of matrix values."""
-        return self._lib_handle.values
+        return self.c_handle.values
 
     @property
     def dtype(self):
@@ -886,7 +898,7 @@ def par_loop(kernel, it_space, *args):
     _args = []
     for arg in args:
         if arg._is_mat:
-            _args.append(arg.data._lib_handle.cptr)
+            _args.append(arg.data.c_handle.cptr)
         else:
             _args.append(arg.data.data)
 

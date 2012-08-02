@@ -226,8 +226,8 @@ cdef class op_sparsity:
             raise MemoryError("Unable to allocate space for cmaps")
 
         for i in range(nmaps):
-            rmap = sparsity.rmaps[i]._lib_handle
-            cmap = sparsity.cmaps[i]._lib_handle
+            rmap = sparsity.rmaps[i].c_handle
+            cmap = sparsity.cmaps[i].c_handle
             rmaps[i] = rmap._handle
             cmaps[i] = cmap._handle
 
@@ -240,7 +240,7 @@ cdef class op_mat:
     cdef core.op_mat _handle
     def __cinit__(self, mat):
         """Instantiate a C-level op_mat from MAT"""
-        cdef op_sparsity sparsity = mat.sparsity._lib_handle
+        cdef op_sparsity sparsity = mat.sparsity.c_handle
         cdef int dim[2]
         cdef char * type = mat.ctype
         cdef int size = mat.dtype.itemsize
@@ -336,9 +336,9 @@ isinstance(arg, Dat)."""
 def solve(A, b, x):
     cdef op_mat cA
     cdef op_dat cb, cx
-    cA = A._lib_handle
-    cb = b._lib_handle
-    cx = x._lib_handle
+    cA = A.c_handle
+    cb = b.c_handle
+    cx = x.c_handle
     core.op_solve(cA._handle, cb._handle, cx._handle)
 
 cdef class op_plan:
