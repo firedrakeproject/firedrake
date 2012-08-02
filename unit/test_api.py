@@ -110,12 +110,12 @@ class TestAccessAPI:
     """
 
     @pytest.mark.parametrize("mode", sequential.Access._modes)
-    def test_access(self, mode):
+    def test_access(self, mode, backend):
         "Access repr should have the expected format."
         a = sequential.Access(mode)
         assert repr(a) == "Access('%s')" % mode
 
-    def test_illegal_access(self):
+    def test_illegal_access(self, backend):
         "Illegal access modes should raise an exception."
         with pytest.raises(exceptions.ModeValueError):
             sequential.Access('ILLEGAL_ACCESS')
@@ -265,6 +265,8 @@ class TestMatAPI:
     """
     Mat API unit tests
     """
+
+    skip_backends = ['opencl']
 
     def test_mat_illegal_sets(self, backend):
         "Mat data sets should be a 2-tuple of Sets."

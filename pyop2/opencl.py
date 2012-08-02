@@ -59,10 +59,11 @@ class Kernel(op2.Kernel):
              - adds memory space attribute to user kernel declaration
              - adds a separate function declaration for user kernel
         """
-        def instrument(self, ast, kernel_name, instrument):
+        def instrument(self, ast, kernel_name, instrument, constants):
             self._kernel_name = kernel_name
             self._instrument = instrument
             self._ast = ast
+            self._constants = constants
             self.generic_visit(ast)
             idx = ast.ext.index(self._func_node)
             ast.ext.insert(0, self._func_node.decl)
@@ -79,9 +80,17 @@ class Kernel(op2.Kernel):
                 if self._instrument[i][1]:
                     p.type.quals.append(self._instrument[i][1])
 
-    def instrument(self, instrument):
+            for cst in self._constants:
+                if cst._is_scalar:
+                    t = c_ast.TypeDecl(cst._name, [], c_ast.IdentifierType([cst._cl_type]))
+                else:
+                    t = c_ast.PtrDecl([], c_ast.TypeDecl(cst._name, ["__constant"], c_ast.IdentifierType([cst._cl_type])))
+                decl = c_ast.Decl(cst._name, [], [], [], t, None, 0)
+                node.params.append(decl)
+
+    def instrument(self, instrument, constants):
         ast = c_parser.CParser().parse(self._code)
-        Kernel.Instrument().instrument(ast, self._name, instrument)
+        Kernel.Instrument().instrument(ast, self._name, instrument, constants)
         self._inst_code = c_generator.CGenerator().visit(ast)
 
 class Arg(op2.Arg):
@@ -152,6 +161,8 @@ class Dat(op2.Dat, DeviceDataMixin):
         if len(self._data) is 0:
             raise RuntimeError("Temporary dat has no data on the host")
         cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
+        if self._soa:
+            np.transpose(self._data)
         return self._data
 
 class Mat(op2.Mat, DeviceDataMixin):
@@ -168,6 +179,17 @@ class Const(op2.Const, DeviceDataMixin):
 
     def __init__(self, dim, data, name, dtype=None):
         op2.Const.__init__(self, dim, data, name, dtype)
+        self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._data.nbytes)
+        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
+
+    @property
+    def data(self):
+        return self._data
+
+    @data.setter
+    def data(self, value):
+        self._data = verify_reshape(value, self.dtype, self.dim)
+        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
     @property
     def _cl_value(self):
@@ -188,18 +210,61 @@ class Global(op2.Global, DeviceDataMixin):
         self._d_reduc_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._h_reduc_array.nbytes)
         cl.enqueue_copy(_queue, self._d_reduc_buffer, self._h_reduc_array, is_blocking=True).wait()
 
-    def _host_reduction(self, nelems):
-        cl.enqueue_copy(_queue, self._h_reduc_array, self._d_reduc_buffer, is_blocking=True).wait()
-        for j in range(self._dim[0]):
-            self._data[j] = 0
+    @property
+    def data(self):
+        cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
+        return self._data
 
-        for i in range(nelems):
-            for j in range(self._dim[0]):
-                self._data[j] += self._h_reduc_array[j + i * self._dim[0]]
+    @data.setter
+    def data(self, value):
+        self._data = verify_reshape(value, self.dtype, self.dim)
+        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
-        warnings.warn('missing: updating buffer value')
-        # get rid of the buffer and host temporary arrays
-        del self._h_reduc_array
+    def _post_kernel_reduction_task(self, nelems):
+        src = """
+#if defined(cl_khr_fp64)
+#pragma OPENCL EXTENSION cl_khr_fp64 : enable
+#elif defined(cl_amd_fp64)
+#pragma OPENCL EXTENSION cl_amd_fp64 : enable
+#endif
+
+__kernel
+void %(name)s_reduction (
+  __global %(type)s* dat,
+  __global %(type)s* tmp,
+  __private int count
+)
+{
+  __private %(type)s accumulator[%(dim)d];
+  for (int j = 0; j < %(dim)d; ++j)
+  {
+    accumulator[j] = %(zero)s;
+  }
+  for (int i = 0; i < count; ++i)
+  {
+    for (int j = 0; j < %(dim)d; ++j)
+    {
+      accumulator[j] += *(tmp + i * %(dim)d + j);
+    }
+  }
+  for (int j = 0; j < %(dim)d; ++j)
+  {
+    *(dat + j) = accumulator[j];
+  }
+
+}
+""" % {'name': self._name,
+       'dim': np.prod(self._dim),
+       'type': self._cl_type,
+       'zero': self._cl_type_zero}
+
+        prg = cl.Program(_ctx, src).build(options="-Werror")
+        kernel = prg.__getattr__(self._name + '_reduction')
+        kernel.append_arg(self._buffer)
+        kernel.append_arg(self._d_reduc_buffer)
+        kernel.append_arg(np.int32(nelems))
+        cl.enqueue_task(_queue, kernel).wait()
+
         del self._d_reduc_buffer
 
 class Map(op2.Map):
@@ -455,7 +520,7 @@ class ParLoopCall(object):
 
     @property
     def _vec_map_args(self):
-        return [a for a in self._args if a._is_vec_map]
+        return [a for a in self._actual_args if a._is_vec_map]
 
     @property
     def _dat_map_pairs(self):
@@ -520,7 +585,7 @@ class ParLoopCall(object):
                     elif arg._is_global:
                         inst.append(("__global", None))
 
-                self._kernel.instrument(inst)
+                self._kernel.instrument(inst, list(Const._defs))
 
                 dloop = _stg_direct_loop.getInstanceOf("direct_loop")
                 dloop['parloop'] = self
@@ -553,9 +618,14 @@ class ParLoopCall(object):
             for a in self._global_non_reduction_args:
                 kernel.append_arg(a._dat._buffer)
 
+            for cst in Const._defs:
+                kernel.append_arg(cst._buffer)
+
+            kernel.append_arg(np.int32(self._it_space.size))
+
             cl.enqueue_nd_range_kernel(_queue, kernel, (int(ttc),), (int(wgs),), g_times_l=False).wait()
             for i, a in enumerate(self._global_reduction_args):
-                a._dat._host_reduction(nwg)
+                a._dat._post_kernel_reduction_task(nwg)
         else:
             psize = self._i_compute_partition_size()
             plan = _plan_cache.get_plan(self, partition_size=psize)
@@ -576,7 +646,7 @@ class ParLoopCall(object):
                     else:
                         inst.append(("__private", None))
 
-                self._kernel.instrument(inst)
+                self._kernel.instrument(inst, list(Const._defs))
 
                 # codegen
                 iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
@@ -619,6 +689,9 @@ class ParLoopCall(object):
                 arg._dat._allocate_reduction_array(plan.nblocks)
                 kernel.append_arg(arg._dat._d_reduc_buffer)
 
+            for cst in Const._defs:
+                kernel.append_arg(cst._buffer)
+
             kernel.append_arg(plan._ind_sizes_buffer)
             kernel.append_arg(plan._ind_offs_buffer)
             kernel.append_arg(plan._blkmap_buffer)
@@ -638,7 +711,7 @@ class ParLoopCall(object):
                 block_offset += blocks_per_grid
 
             for arg in self._global_reduction_args:
-                arg._dat._host_reduction(plan.nblocks)
+                arg._dat._post_kernel_reduction_task(plan.nblocks)
 
     def is_direct(self):
         return all(map(lambda a: a._is_direct or isinstance(a._dat, Global), self._args))

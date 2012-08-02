@@ -31,72 +31,9 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""
-Auto-parametrization of test cases
-==================================
+"""Global test configuration."""
 
-Passing the parameter 'backend' to any test case will auto-parametrise
-that test case for all selected backends. By default all backends from
-the backends dict in the backends module are selected. Backends for
-which the dependencies are not installed are thereby automatically
-skipped. Tests execution is grouped per backend and op2.init() and
-op2.exit() for a backend are only called once per test session.
-
-Selecting for which backend to run
-==================================
-
-The default backends can be overridden by passing the
-`--backend=<string>` parameter on test invocation. Passing it multiple
-times runs the tests for all the given backends.
-
-Skipping backends on a per-test basis
-=====================================
-
-To skip a particular backend in a test case, pass the 'skip_<backend>'
-parameter to the test function, where '<backend>' is any valid backend
-string.
-
-Skipping backends on a module or class basis
-============================================
-
-You can supply a list of backends to skip for all tests in a given
-module or class with the ``skip_backends`` attribute in the module or
-class scope:
-
-    # module test_foo.py
-
-    # All tests in this module will not run for the CUDA backend
-    skip_backends = ['cuda']
-
-    class TestFoo:
-        # All tests in this class will not run for the CUDA and OpenCL
-        # backends
-        skip_backends = ['opencl']
-
-Selecting backends on a module or class basis
-=============================================
-
-Not passing the parameter 'backend' to a test case will cause it to
-only run once for the backend that is currently initialized, which is
-not always safe.
-
-You can supply a list of backends for which to run all tests in a given
-module or class with the ``backends`` attribute in the module or class
-scope:
-
-    # module test_foo.py
-
-    # All tests in this module will only run for the CUDA and OpenCL
-    # backens
-    backends = ['cuda', 'opencl']
-
-    class TestFoo:
-        # All tests in this class will only run for the CUDA backend
-        backends = ['sequential', 'cuda']
-
-This set of backends to run for will be further restricted by the
-backends selected via command line parameters if applicable.
-"""
+import pytest
 
 from pyop2 import op2
 from pyop2.backends import backends
@@ -105,23 +42,27 @@ def pytest_addoption(parser):
     parser.addoption("--backend", action="append",
         help="Selection the backend: one of %s" % backends.keys())
 
-# Group test collection by backend instead of iterating through backends per
-# test
 def pytest_collection_modifyitems(items):
+    """Group test collection by backend instead of iterating through backends
+    per test."""
     def cmp(item1, item2):
-        try:
-            param1 = item1.callspec.getparam("backend")
-            param2 = item2.callspec.getparam("backend")
-            if param1 < param2:
-                return -1
-            elif param1 > param2:
-                return 1
-        except AttributeError:
-            # Function has no callspec, ignore
-            pass
-        except ValueError:
-            # Function has no callspec, ignore
-            pass
+        def get_backend_param(item):
+            try:
+                return item.callspec.getparam("backend")
+            # AttributeError if no callspec, ValueError if no backend parameter
+            except:
+                # If a test does not take the backend parameter, make sure it
+                # is run before tests that take a backend
+                return '_nobackend'
+
+        param1 = get_backend_param(item1)
+        param2 = get_backend_param(item2)
+
+        # Group tests by backend
+        if param1 < param2:
+            return -1
+        elif param1 > param2:
+            return 1
         return 0
     items.sort(cmp=cmp)
 
@@ -134,8 +75,8 @@ def pytest_funcarg__skip_opencl(request):
 def pytest_funcarg__skip_sequential(request):
     return None
 
-# Parametrize tests to run on all backends
 def pytest_generate_tests(metafunc):
+    """Parametrize tests to run on all backends."""
 
     if 'backend' in metafunc.funcargnames:
 
@@ -163,6 +104,9 @@ def pytest_generate_tests(metafunc):
         # Restrict to set of backends specified on the class level
         if hasattr(metafunc.cls, 'backends'):
             backend = backend.intersection(set(metafunc.cls.backends))
+        # If there are no selected backends left, skip the test
+        if not backend.difference(skip_backends):
+            pytest.skip()
         metafunc.parametrize("backend", (b for b in backend if not b in skip_backends), indirect=True)
 
 def op2_init(backend):

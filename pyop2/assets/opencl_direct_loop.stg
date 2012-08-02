@@ -4,30 +4,22 @@ direct_loop(parloop,const,op2const)::=<<
 $header()$
 $parloop._global_reduction_args:{$reduction_kernel()$};separator="\n"$
 
-$if(op2const)$
-/* op2 const declarations */
-$op2const:{c | $opencl_const_declaration(cst=c)$};separator="\n"$
-$endif$
-
 $parloop._kernel._inst_code$
 $kernel_stub()$
->>
-
-opencl_const_declaration(cst)::=<<
-__constant $cst._cl_type$ $cst._name$ $if(cst._is_scalar)$ = $cst._cl_value$$else$[] = {$cst._cl_value;separator=", "$}$endif$;
 >>
 
 kernel_stub()::=<<
 __kernel
  __attribute__((reqd_work_group_size($const.threads_per_block$, 1, 1)))
 void $parloop._kernel._name$_stub (
-  $parloop._unique_dats:{__global $it._cl_type$* $it._name$};separator=",\n"$$if(parloop._global_reduction_args)$,$endif$
-  $parloop._global_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$_reduction_array};separator=",\n"$$if(parloop._global_non_reduction_args)$,$endif$
-  $parloop._global_non_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$};separator=",\n"$
+  $parloop._unique_dats:{__global $it._cl_type$* $it._name$,};separator="\n"$
+  $parloop._global_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$_reduction_array,};separator="\n"$
+  $parloop._global_non_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$,};separator="\n"$
+  $op2const:{__constant $it._cl_type$* $it._name$,};separator="\n"$
+  int set_size
 )
 {
   unsigned int shared_memory_offset = $const.shared_memory_offset$;
-  int set_size = $parloop._it_space.size$;
 
   __local char shared[$const.dynamic_shared_memory_size$] __attribute__((aligned(sizeof(long))));
 
@@ -128,8 +120,10 @@ for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2) {
 }
 >>
 
-kernel_call()::=<<$parloop._kernel._name$($parloop._args:{$kernel_call_arg()$};separator=", "$);>>
+kernel_call()::=<<$parloop._kernel._name$($parloop._args:{$kernel_call_arg()$};separator=", "$$kernel_call_const_args()$);>>
 kernel_call_arg()::=<<$if(it._d_is_staged)$$it._dat._name$_local$elseif(it._is_global_reduction)$$it._dat._name$_reduc_local$elseif(it._is_global)$$it._dat._name$$else$&$it._dat._name$[i_1]$endif$>>
+
+kernel_call_const_args()::=<<$if(op2const)$$op2const:{c |, $if(c._is_scalar)$*$c._name$$else$$c._name$$endif$}$$endif$>>
 
 header()::=<<
 /* Launch configuration:
@@ -148,4 +142,5 @@ header()::=<<
 #define OP_WARPSIZE $const.warpsize$
 #define MIN(a,b) ((a < b) ? (a) : (b))
 #define MAX(a,b) ((a < b) ? (b) : (a))
+#define OP2_STRIDE(arr, idx) (arr[idx])
 >>
