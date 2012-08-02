@@ -286,22 +286,22 @@ class TestSparsityAPI:
 
     backends = ['sequential']
 
-    def test_sparsity_illegal_rmap(self, smap):
+    def test_sparsity_illegal_rmap(self, backend, smap):
         "Sparsity rmap should be a Map"
         with pytest.raises(TypeError):
             op2.Sparsity('illegalrmap', smap, 1)
 
-    def test_sparsity_illegal_cmap(self, smap):
+    def test_sparsity_illegal_cmap(self, backend, smap):
         "Sparsity cmap should be a Map"
         with pytest.raises(TypeError):
             op2.Sparsity(smap, 'illegalcmap', 1)
 
-    def test_sparsity_illegal_dim(self, smap):
+    def test_sparsity_illegal_dim(self, backend, smap):
         "Sparsity dim should be an int"
         with pytest.raises(TypeError):
             op2.Sparsity(smap, smap, 'illegaldim')
 
-    def test_sparsity_properties(self, smap):
+    def test_sparsity_properties(self, backend, smap):
         "Sparsity constructor should correctly set attributes"
         s = op2.Sparsity(smap, smap, 2, "foo")
         assert s.rmaps[0] == smap
@@ -309,7 +309,7 @@ class TestSparsityAPI:
         assert s.dims == (2,2)
         assert s.name == "foo"
 
-    def test_sparsity_multiple_maps(self, smap2):
+    def test_sparsity_multiple_maps(self, backend, smap2):
         "Sparsity constructor should accept tuple of maps"
         s = op2.Sparsity(smap2, smap2,
                          1, "foo")
