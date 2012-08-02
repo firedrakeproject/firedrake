@@ -107,23 +107,27 @@ def pytest_addoption(parser):
     parser.addoption("--backend", action="append",
         help="Selection the backend: one of %s" % backends.keys())
 
-# Group test collection by backend instead of iterating through backends per
-# test
 def pytest_collection_modifyitems(items):
+    """Group test collection by backend instead of iterating through backends
+    per test."""
     def cmp(item1, item2):
-        try:
-            param1 = item1.callspec.getparam("backend")
-            param2 = item2.callspec.getparam("backend")
-            if param1 < param2:
-                return -1
-            elif param1 > param2:
-                return 1
-        except AttributeError:
-            # Function has no callspec, ignore
-            pass
-        except ValueError:
-            # Function has no callspec, ignore
-            pass
+        def get_backend_param(item):
+            try:
+                return item.callspec.getparam("backend")
+            # AttributeError if no callspec, ValueError if no backend parameter
+            except:
+                # If a test does not take the backend parameter, make sure it
+                # is run before tests that take a backend
+                return '_nobackend'
+
+        param1 = get_backend_param(item1)
+        param2 = get_backend_param(item2)
+
+        # Group tests by backend
+        if param1 < param2:
+            return -1
+        elif param1 > param2:
+            return 1
         return 0
     items.sort(cmp=cmp)
 
@@ -136,8 +140,8 @@ def pytest_funcarg__skip_opencl(request):
 def pytest_funcarg__skip_sequential(request):
     return None
 
-# Parametrize tests to run on all backends
 def pytest_generate_tests(metafunc):
+    """Parametrize tests to run on all backends."""
 
     if 'backend' in metafunc.funcargnames:
 
