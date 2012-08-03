@@ -65,7 +65,7 @@ L = inner(v,f)*dx
 
 params = ffc.default_parameters()
 params['representation'] = 'quadrature'
-params['write_file'] = True
+params['write_file'] = False
 mass_code = ffc.compile_form(a, prefix="mass", parameters=params)
 #rhs_code  = ffc.compile_form(L, prefix="rhs",  parameters=params)
 rhs_code = """

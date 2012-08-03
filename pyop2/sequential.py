@@ -659,6 +659,10 @@ class IterationSpace(object):
         return self._extents
 
     @property
+    def name(self):
+        return self._iterset.name
+
+    @property
     def size(self):
         return self._iterset.size
 
@@ -847,11 +851,16 @@ def par_loop(kernel, it_space, *args):
     _assembles = ';\n'.join([c_assemble(arg) for arg in args if arg._is_mat])
 
     _zero_tmps = ';\n'.join([c_zero_tmp(arg, it_space.extents) for arg in args if arg._is_mat])
+
+    _set_size_wrapper = 'PyObject *_%(set)s_size' % {'set' : it_space.name}
+    _set_size_dec = 'int %(set)s_size = (int)PyInt_AsLong(_%(set)s_size);' % {'set' : it_space.name}
+    _set_size = '%(set)s_size' % {'set' : it_space.name}
     wrapper = """
-    void wrap_%(kernel_name)s__(%(wrapper_args)s) {
+    void wrap_%(kernel_name)s__(%(set_size_wrapper)s, %(wrapper_args)s) {
+        %(set_size_dec)s;
         %(wrapper_decs)s;
         %(tmp_decs)s;
-        for ( int i = 0; i < %(size)s; i++ ) {
+        for ( int i = 0; i < %(set_size)s; i++ ) {
             %(vec_inits)s;
             %(itspace_loops)s
             %(zero_tmps)s;
@@ -877,7 +886,9 @@ def par_loop(kernel, it_space, *args):
                       'wrapper_args' : _wrapper_args,
                       'wrapper_decs' : _wrapper_decs,
                       'tmp_decs' : _tmp_decs,
-                      'size' : it_space.size,
+                      'set_size' : _set_size,
+                      'set_size_dec' : _set_size_dec,
+                      'set_size_wrapper' : _set_size_wrapper,
                       'itspace_loops' : _itspace_loops,
                       'itspace_loop_close' : _itspace_loop_close,
                       'vec_inits' : _vec_inits,
@@ -895,7 +906,7 @@ def par_loop(kernel, it_space, *args):
                              libraries=['op2_seq'],
                              sources=["mat_utils.cxx"])
 
-    _args = []
+    _args = [it_space.size]
     for arg in args:
         if arg._is_mat:
             _args.append(arg.data.c_handle.cptr)
