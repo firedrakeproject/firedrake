@@ -57,6 +57,12 @@ class SparsityTypeError(TypeError):
 class MapTypeError(TypeError):
     """Invalid type for map."""
 
+class MatTypeError(TypeError):
+    """Invalid type for mat."""
+
+class DatTypeError(TypeError):
+    """Invalid type for dat."""
+
 class DataValueError(ValueError):
     """Illegal value for data."""
 

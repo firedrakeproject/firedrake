@@ -944,5 +944,8 @@ def par_loop(kernel, it_space, *args):
 
     _fun(*_args)
 
+@validate_type(('mat', Mat, MatTypeError),
+               ('x', Dat, DatTypeError),
+               ('b', Dat, DatTypeError))
 def solve(M, x, b):
     core.solve(M, x, b)
