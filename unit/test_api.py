@@ -219,9 +219,9 @@ class TestDatAPI:
         assert d.dtype == np.double
 
     def test_dat_int(self, backend, set):
-        "Data type for int data should be numpy.int64."
+        "Data type for int data should be numpy.int."
         d = op2.Dat(set, 1, [1]*set.size)
-        assert d.dtype == np.int64
+        assert d.dtype == np.int
 
     def test_dat_convert_int_float(self, backend, set):
         "Explicit float type should override NumPy's default choice of int."
@@ -412,10 +412,10 @@ class TestConstAPI:
         assert c.dtype == np.double
 
     def test_const_int(self, backend):
-        "Data type for int data should be numpy.int64."
+        "Data type for int data should be numpy.int."
         c = op2.Const(1, 1, 'test_const_int')
         c.remove_from_namespace()
-        assert c.dtype == np.int64
+        assert c.dtype == np.int
 
     def test_const_convert_int_float(self, backend):
         "Explicit float type should override NumPy's default choice of int."
@@ -427,7 +427,7 @@ class TestConstAPI:
         "Explicit int type should override NumPy's default choice of float."
         c = op2.Const(1, 1.5, 'test_const_convert_float_int', 'int')
         c.remove_from_namespace()
-        assert c.dtype == np.int64
+        assert c.dtype == np.int
 
     def test_const_illegal_dtype(self, backend):
         "Illegal data type should raise DataValueError."
@@ -515,9 +515,9 @@ class TestGlobalAPI:
         assert g.dtype == np.double
 
     def test_global_int(self, backend):
-        "Data type for int data should be numpy.int64."
+        "Data type for int data should be numpy.int."
         g = op2.Global(1, 1)
-        assert g.dtype == np.int64
+        assert g.dtype == np.int
 
     def test_global_convert_int_float(self, backend):
         "Explicit float type should override NumPy's default choice of int."
@@ -527,7 +527,7 @@ class TestGlobalAPI:
     def test_global_convert_float_int(self, backend):
         "Explicit int type should override NumPy's default choice of float."
         g = op2.Global(1, 1.5, 'int')
-        assert g.dtype == np.int64
+        assert g.dtype == np.int
 
     def test_global_illegal_dtype(self, backend):
         "Illegal data type should raise DataValueError."
