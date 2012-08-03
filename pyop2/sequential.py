@@ -377,13 +377,12 @@ class Const(DataCarrier):
     def format_for_c(self):
         d = {'type' : self.ctype,
              'name' : self.name,
-             'dim' : self.cdim,
-             'vals' : ', '.join(str(datum) for datum in self.data)}
+             'dim' : self.cdim}
 
         if self.cdim == 1:
-            return "static const %(type)s %(name)s = %(vals)s;" % d
+            return "static %(type)s %(name)s;" % d
 
-        return "static const %(type)s %(name)s[%(dim)s] = { %(vals)s };" % d
+        return "static %(type)s %(name)s[%(dim)s];" % d
 
 class Global(DataCarrier):
     """OP2 global value."""
@@ -826,6 +825,17 @@ def par_loop(kernel, it_space, *args):
             idx = ''.join(["[i_%d]" % i for i in range(len(extents))])
             return "p_%s%s = (%s)0" % (c_arg_name(arg), idx, arg.data.ctype)
 
+    def c_const_arg(c):
+        return 'PyObject *_%s' % c.name
+
+    def c_const_init(c):
+        d = {'name' : c.name,
+             'type' : c.ctype}
+        if c.cdim == 1:
+            return '%(name)s = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[0]' % d
+        tmp = '%(name)s[%%(i)s] = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[%%(i)s]' % d
+        return ';\n'.join([tmp % {'i' : i} for i in range(c.cdim)])
+
     if isinstance(it_space, Set):
         it_space = IterationSpace(it_space)
 
@@ -855,11 +865,20 @@ def par_loop(kernel, it_space, *args):
     _set_size_wrapper = 'PyObject *_%(set)s_size' % {'set' : it_space.name}
     _set_size_dec = 'int %(set)s_size = (int)PyInt_AsLong(_%(set)s_size);' % {'set' : it_space.name}
     _set_size = '%(set)s_size' % {'set' : it_space.name}
+
+    if len(Const._defs) > 0:
+        _const_args = ', '
+        _const_args += ', '.join([c_const_arg(c) for c in sorted(Const._defs)])
+    else:
+        _const_args = ''
+
+    _const_inits = ';\n'.join([c_const_init(c) for c in sorted(Const._defs)])
     wrapper = """
-    void wrap_%(kernel_name)s__(%(set_size_wrapper)s, %(wrapper_args)s) {
+    void wrap_%(kernel_name)s__(%(set_size_wrapper)s, %(wrapper_args)s %(const_args)s) {
         %(set_size_dec)s;
         %(wrapper_decs)s;
         %(tmp_decs)s;
+        %(const_inits)s;
         for ( int i = 0; i < %(set_size)s; i++ ) {
             %(vec_inits)s;
             %(itspace_loops)s
@@ -885,6 +904,8 @@ def par_loop(kernel, it_space, *args):
     code_to_compile =  wrapper % { 'kernel_name' : kernel.name,
                       'wrapper_args' : _wrapper_args,
                       'wrapper_decs' : _wrapper_decs,
+                      'const_args' : _const_args,
+                      'const_inits' : _const_inits,
                       'tmp_decs' : _tmp_decs,
                       'set_size' : _set_size,
                       'set_size_dec' : _set_size_dec,
@@ -917,6 +938,9 @@ def par_loop(kernel, it_space, *args):
             maps = as_tuple(arg.map, Map)
             for map in maps:
                 _args.append(map.values)
+
+    for c in sorted(Const._defs):
+        _args.append(c.data)
 
     _fun(*_args)
 
