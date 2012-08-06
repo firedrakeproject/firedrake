@@ -46,6 +46,7 @@ FEniCS Viper is also required and is used to visualise the solution.
 from pyop2 import op2
 from triangle_reader import read_triangle
 from ufl import *
+from ffc_parameters import ffc_parameters
 import ffc, viper
 import sys
 
@@ -83,14 +84,10 @@ diff_rhs=action(M+0.5*d,t)
 
 # Generate code for mass and rhs assembly.
 
-params = ffc.default_parameters()
-params['representation'] = 'quadrature'
-params['write_file'] = False
-
-mass_code        = ffc.compile_form(M,           prefix="mass",        parameters=params)
-adv_rhs_code     = ffc.compile_form(adv_rhs,     prefix="adv_rhs",     parameters=params)
-diff_matrix_code = ffc.compile_form(diff_matrix, prefix="diff_matrix", parameters=params)
-diff_rhs_code    = ffc.compile_form(diff_rhs,    prefix="diff_rhs",    parameters=params)
+mass_code        = ffc.compile_form(M,           prefix="mass",        parameters=ffc_parameters)
+adv_rhs_code     = ffc.compile_form(adv_rhs,     prefix="adv_rhs",     parameters=ffc_parameters)
+diff_matrix_code = ffc.compile_form(diff_matrix, prefix="diff_matrix", parameters=ffc_parameters)
+diff_rhs_code    = ffc.compile_form(diff_rhs,    prefix="diff_rhs",    parameters=ffc_parameters)
 
 mass        = op2.Kernel(mass_code,        "mass_cell_integral_0_0")
 adv_rhs     = op2.Kernel(adv_rhs_code,     "adv_rhs_cell_integral_0_0" )
