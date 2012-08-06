@@ -792,6 +792,8 @@ elif _queue.device.type == cl.device_type.GPU:
     # assumes nvidia, will probably fail with AMD gpus
     _warpsize = 32
 
+_AMD_fixes = _queue.device.platform.name is 'Advanced Micro Devices, Inc.'
+
 if not _has_dpfloat:
     warnings.warn('device does not support double precision floating point computation, expect undefined behavior for double')
 
