@@ -250,8 +250,24 @@ cdef class op_sparsity:
         self._handle = core.op_decl_sparsity_core(rmaps, cmaps, nmaps,
                                                   dim, 2, name)
 
+    property total_nz:
+        def __get__(self):
+            return self._handle.total_nz
+
+    property rowptr:
+        def __get__(self):
+            size = self._handle.nrows + 1
+            return data_to_numpy_array_with_spec(self._handle.rowptr, size, np.NPY_INTP)
+
+    property colidx:
+        def __get__(self):
+            size = self._handle.total_nz
+            return data_to_numpy_array_with_spec(self._handle.colidx, size, np.NPY_INTP)
+
 cdef class op_mat:
     cdef core.op_mat _handle
+    cdef int _nnzeros
+
     def __cinit__(self, mat):
         """Instantiate a C-level op_mat from MAT"""
         cdef op_sparsity sparsity = mat.sparsity.c_handle
@@ -259,6 +275,7 @@ cdef class op_mat:
         cdef char * type = mat.ctype
         cdef int size = mat.dtype.itemsize
         cdef char * name = mat.name
+        self._nnzeros = mat._sparsity.c_handle.total_nz
         dim[0] = mat.dims[0]
         dim[1] = mat.dims[1]
         self._handle = core.op_decl_mat(sparsity._handle, dim, 2, type, size, name)
@@ -273,6 +290,20 @@ cdef class op_mat:
             r[i] = <int> (rows[i])
         core.op_mat_zero_rows(self._handle, <int> n, r, <double> v)
         free(r)
+
+    def assemble(self):
+        core.op_mat_assemble(self._handle)
+
+    property array:
+        def __get__(self):
+            cdef np.ndarray[double, ndim=1, mode="c"] arr
+            cdef np.npy_intp* dims = [self._nnzeros]
+            core.op_mat_get_array(self._handle)
+            arr = np.PyArray_SimpleNewFromData(1, dims, np.NPY_DOUBLE, <double*> self._handle.mat_array)
+            return arr
+
+    def restore_array(self):
+        core.op_mat_put_array(self._handle)
 
     property cptr:
         def __get__(self):

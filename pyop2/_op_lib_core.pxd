@@ -48,11 +48,30 @@ cdef extern from "op_lib_core.h":
     ctypedef op_map_core * op_map
 
     ctypedef struct op_sparsity_core:
-        pass
+        op_map * rowmaps
+        op_map * colmaps
+        int nmaps
+        int dim[2]
+        size_t nrows
+        size_t ncols
+        int * nnz
+        int total_nz
+        int * rowptr
+        int * colidx
+        size_t max_nonzeros
+        char * name
     ctypedef op_sparsity_core * op_sparsity
 
     ctypedef struct op_mat_core:
-        pass
+        int index
+        int dim[2]
+        int size
+        void * mat
+        void * mat_array
+        char * type
+        op_sparsity sparsity
+        char * data
+        char * lma_data
     ctypedef op_mat_core * op_mat
 
     ctypedef struct op_dat_core:
@@ -91,6 +110,12 @@ cdef extern from "op_lib_mat.h":
     void op_mat_get_values ( op_mat mat, double **v, int *m, int *n)
 
     void op_mat_zero_rows ( op_mat mat, int n, int *rows, double val)
+
+    void op_mat_assemble ( op_mat mat )
+
+    void op_mat_get_array ( op_mat mat )
+
+    void op_mat_put_array ( op_mat mat )
 
 cdef extern from "op_lib_c.h":
     void op_init(int, char **, int)
