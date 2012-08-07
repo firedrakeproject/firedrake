@@ -34,6 +34,5 @@
 from ffc import default_parameters
 
 ffc_parameters = default_parameters()
-ffc_parameters['representation'] = 'quadrature'
 ffc_parameters['write_file'] = False
 ffc_parameters['format'] = 'pyop2'
