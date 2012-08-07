@@ -1,6 +1,12 @@
+build
 pyop2.pdf
 pyop2.aux
 pyop2.log
 *.pyc
 /pyop2/op_lib_core.c
 /pyop2/op_lib_core.so
+*.edge
+*.ele
+*.msh
+*.node
+*.geo
