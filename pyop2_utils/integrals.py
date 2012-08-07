@@ -51,3 +51,13 @@ void %(classname)s(%(arglist)s, unsigned int *facet_p)
   unsigned int facet = *facet_p;
 %(tabulate_tensor)s
 }"""
+
+interior_facet_integral_combined = """\
+/// This class defines the interface for the tabulation of the
+/// interior facet tensor corresponding to the local contribution to
+/// a form from the integral over an interior facet.
+
+void %(classname)s(%(arglist)s)
+{
+%(tabulate_tensor)s
+}"""
