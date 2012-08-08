@@ -19,34 +19,33 @@ void $parloop._kernel._name$_stub (
   int set_size
 )
 {
-  unsigned int shared_memory_offset = $const.shared_memory_offset$;
-
   __local char shared[$const.dynamic_shared_memory_size$] __attribute__((aligned(sizeof(long))));
+  int i_1;
 
+$if(parloop._direct_non_scalar_args)$
+  unsigned int shared_memory_offset = $const.shared_memory_offset$;
+  int i_2;
+  int local_offset;
+  int active_threads_count;
+  int thread_id;
+  thread_id = get_local_id(0) % OP_WARPSIZE;
   $parloop._direct_non_scalar_args:{__private $it._dat._cl_type$ $it._dat._name$_local[$it._dat._dim$];};separator="\n"$
   $parloop._direct_non_scalar_args:{__local $it._dat._cl_type$* $it._dat._name$_shared = (__local $it._dat._cl_type$*) (shared + shared_memory_offset * (get_local_id(0) / OP_WARPSIZE));};separator="\n"$
+$endif$
 
   $parloop._global_reduction_args:{__private $it._dat._cl_type$ $it._dat._name$_reduc_local[$it._dat._dim$];};separator="\n"$
 
   $parloop._global_reduction_args:{__local $it._dat._cl_type$* $it._dat._name$_reduc_tmp = (__local $it._dat._cl_type$*) shared;};separator="\n"$
 
-  int i_1;
-  int i_2;
-
-  int local_offset;
-  int active_threads_count;
-  int thread_id;
-
   // reduction zeroing
   $parloop._global_reduction_args:{for (i_1 = 0; i_1 < $it._dat._dim$; ++i_1) { $it._dat._name$_reduc_local[i_1] = $it._dat._cl_type_zero$; } };separator="\n"$
 
-  thread_id = get_local_id(0) % OP_WARPSIZE;
-
   for (i_1 = get_global_id(0); i_1 < set_size; i_1 += get_global_size(0))
   {
+$if(parloop._direct_non_scalar_args)$
     local_offset = i_1 - thread_id;
     active_threads_count = MIN(OP_WARPSIZE, set_size - local_offset);
-
+$endif$
     $parloop._direct_non_scalar_read_args:stagein();separator="\n"$
     $kernel_call()$
     $parloop._direct_non_scalar_written_args:stageout();separator="\n"$
