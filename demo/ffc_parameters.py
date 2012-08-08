@@ -31,25 +31,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Code-generation strings for FFC to generate PyOP2 code."""
+from ffc import default_parameters
 
-__date__    = "2012-08-06"
-__version__ = "0.0.1"
-
-PYOP2_VERSION_MAJOR = 0
-PYOP2_VERSION_MINOR = 0
-PYOP2_VERSION_MAINTENANCE = 1
-
-PYOP2_VERSION = __version__
-
-from integrals import *
-from finite_element import *
-from dofmap import *
-from form import *
-
-templates = {"cell_integral_combined": cell_integral_combined,
-             "exterior_facet_integral_combined": exterior_facet_integral_combined,
-             "interior_facet_integral_combined": interior_facet_integral_combined,
-             "finite_element_combined": finite_element_combined,
-             "dofmap_combined": dofmap_combined,
-             "form_combined": form_combined }
+ffc_parameters = default_parameters()
+ffc_parameters['write_file'] = False
+ffc_parameters['format'] = 'pyop2'
