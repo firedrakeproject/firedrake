@@ -278,9 +278,10 @@ class Global(op2.Global, DeviceDataMixin):
     def _post_kernel_reduction_task(self, nelems, reduction_operator):
         assert reduction_operator in [INC, MIN, MAX]
 
-        def headers():
-            if self.dtype == np.dtype('float64'):
-                return """
+        def generate_code():
+            def headers():
+                if self.dtype == np.dtype('float64'):
+                    return """
 #if defined(cl_khr_fp64)
 #if defined(cl_amd_fp64)
 #pragma OPENCL EXTENSION cl_amd_fp64 : enable
@@ -292,19 +293,19 @@ class Global(op2.Global, DeviceDataMixin):
 #endif
 
 """
-            else:
-                return ""
+                else:
+                    return ""
 
-        def op():
-            if reduction_operator is INC:
-                return "INC"
-            elif reduction_operator is MIN:
-                return "MIN"
-            elif reduction_operator is MAX:
-                return "MAX"
-            assert False
+            def op():
+                if reduction_operator is INC:
+                    return "INC"
+                elif reduction_operator is MIN:
+                    return "MIN"
+                elif reduction_operator is MAX:
+                        return "MAX"
+                assert False
 
-        src = """
+            return """
 %(headers)s
 #define INC(a,b) ((a)+(b))
 #define MIN(a,b) ((a < b) ? (a) : (b))
@@ -333,12 +334,13 @@ void %(name)s_reduction (
     dat[j] = accumulator[j];
   }
 }
-""" % {'headers': headers(),
-       'name': self._name,
-       'dim': np.prod(self._dim),
-       'type': self._cl_type,
-       'op': op()}
+""" % {'headers': headers(), 'name': self._name, 'dim': np.prod(self._dim), 'type': self._cl_type, 'op': op()}
 
+
+        if not _reduction_task_cache.has_key((self.dtype, self.cdim, reduction_operator)):
+            _reduction_task_cache[(self.dtype, self.cdim, reduction_operator)] = generate_code()
+
+        src = _reduction_task_cache[(self.dtype, self.cdim, reduction_operator)]
         prg = cl.Program(_ctx, src).build(options="-Werror")
         kernel = prg.__getattr__(self._name + '_reduction')
         kernel.append_arg(self._buffer)
@@ -374,24 +376,6 @@ class OpPlanCache():
             self._cache[cp.hsh] = plan
 
         return plan
-
-class GenCodeCache():
-    """Cache for generated code.
-         Keys: OP2 kernels
-         Entries: generated code strings, OpenCL built programs tuples
-    """
-
-    def __init__(self):
-        self._cache = dict()
-
-    def get_code(self, kernel):
-        try:
-            return self._cache[kernel]
-        except KeyError:
-            return (None, None)
-
-    def cache_code(self, kernel, code):
-        self._cache[kernel] = code
 
 class OpPlan():
     """ Helper proxy for core.op_plan."""
@@ -647,7 +631,8 @@ class ParLoopCall(object):
         return uniquify(DatMapPair(a._dat, a._map) for a in self._args if a._is_indirect_reduction)
 
     def compute(self):
-        source, prg = _gen_code_cache.get_code(self._kernel)
+        # get generated code from cache if present
+        source = _kernel_stub_cache[self._kernel] if _kernel_stub_cache.has_key(self._kernel) else None
 
         if self.is_direct():
             per_elem_max_local_mem_req = self._d_max_dynamic_shared_memory()
@@ -704,8 +689,8 @@ class ParLoopCall(object):
                     f.write(source)
                     f.close
 
+                _kernel_stub_cache[self._kernel] = source
                 prg = cl.Program (_ctx, source).build(options="-Werror")
-                _gen_code_cache.cache_code(self._kernel, (source, prg))
 
             kernel = prg.__getattr__(self._kernel._name + '_stub')
 
@@ -776,10 +761,8 @@ class ParLoopCall(object):
                     f.write(source)
                     f.close
 
+                _kernel_stub_cache[self._kernel] = source
                 prg = cl.Program(_ctx, source).build(options="-Werror")
-
-                _gen_code_cache.cache_code(self._kernel, (source, prg))
-
 
             kernel = prg.__getattr__(self._kernel._name + '_stub')
 
@@ -923,4 +906,5 @@ _stg_direct_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.Stri
 _stg_indirect_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.StringIO(pkg_resources.resource_string(__name__, "assets/opencl_indirect_loop.stg")), lexer="default")
 
 _plan_cache = OpPlanCache()
-_gen_code_cache = GenCodeCache()
+_kernel_stub_cache = dict()
+_reduction_task_cache = dict()
