@@ -690,8 +690,8 @@ class ParLoopCall(object):
                     f.close
 
                 _kernel_stub_cache[self._kernel] = source
-                prg = cl.Program (_ctx, source).build(options="-Werror")
 
+            prg = cl.Program (_ctx, source).build(options="-Werror")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
 
             for a in self._unique_dats:
@@ -762,8 +762,8 @@ class ParLoopCall(object):
                     f.close
 
                 _kernel_stub_cache[self._kernel] = source
-                prg = cl.Program(_ctx, source).build(options="-Werror")
 
+            prg = cl.Program(_ctx, source).build(options="-Werror")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
 
             for a in self._unique_dats:
