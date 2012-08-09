@@ -188,9 +188,9 @@ $parloop._it_space._extent_ranges:{ \} }$
 
 kernel_call_const_args()::=<<$if(op2const)$$op2const:{c |, $if(c._is_scalar)$*$c._name$$else$$c._name$$endif$}$$endif$>>
 
-kernel_call_arg()::=<<$if(it._is_direct)$$typecast(storage="__global",type="$it._dat._cl_type$*",qualifier="__private")$ ($it._dat._name$ + (i_1 + shared_memory_offset) * $it._dat._dim$)$elseif(it._is_mat)$&$it._dat._name$_entry$elseif(it._is_vec_map)$$dat_vec_name()$$elseif(it._is_global_reduction)$$global_reduc_local_name()$$elseif(it._is_indirect_reduction)$$reduc_arg_local_name()$$elseif(it._is_global)$$it._dat._name$$else$&$shared_indirection_mapping_memory_name()$[$mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$]$endif$>>
+kernel_call_arg()::=<<$if(it._is_direct)$$typecast(storage="__global",type={$it._dat._cl_type$*},qualifier="__private")$ ($it._dat._name$ + (i_1 + shared_memory_offset) * $it._dat._dim$)$elseif(it._is_mat)$&$it._dat._name$_entry$elseif(it._is_vec_map)$$dat_vec_name()$$elseif(it._is_global_reduction)$$global_reduc_local_name()$$elseif(it._is_indirect_reduction)$$reduc_arg_local_name()$$elseif(it._is_global)$$it._dat._name$$else$&$shared_indirection_mapping_memory_name()$[$mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$]$endif$>>
 
-typecast(storage,type,qualifier)::=<<$if(const.amd)$($type$)$else$($storage $type$ $qualifier$)$endif$>>
+typecast(storage,type,qualifier)::=<<$if(const.amd)$($type$)$else$($storage$ $type$ $qualifier$)$endif$>>
 
 populate_vec_map()::=<<
 // populate vec map
