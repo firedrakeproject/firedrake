@@ -275,8 +275,12 @@ class Global(op2.Global, DeviceDataMixin):
         self._data = verify_reshape(value, self.dtype, self.dim)
         cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
-    def _post_kernel_reduction_task(self, nelems):
-        src = """
+    def _post_kernel_reduction_task(self, nelems, reduction_operator):
+        assert reduction_operator in [INC, MIN, MAX]
+
+        def headers():
+            if self.dtype == np.dtype('float64'):
+                return """
 #if defined(cl_khr_fp64)
 #if defined(cl_amd_fp64)
 #pragma OPENCL EXTENSION cl_amd_fp64 : enable
@@ -287,6 +291,24 @@ class Global(op2.Global, DeviceDataMixin):
 #pragma OPENCL EXTENSION cl_amd_fp64 : enable
 #endif
 
+"""
+            else:
+                return ""
+
+        def op():
+            if reduction_operator is INC:
+                return "INC"
+            elif reduction_operator is MIN:
+                return "MIN"
+            elif reduction_operator is MAX:
+                return "MAX"
+            assert False
+
+        src = """
+%(headers)s
+#define INC(a,b) ((a)+(b))
+#define MIN(a,b) ((a < b) ? (a) : (b))
+#define MAX(a,b) ((a < b) ? (b) : (a))
 __kernel
 void %(name)s_reduction (
   __global %(type)s* dat,
@@ -297,24 +319,25 @@ void %(name)s_reduction (
   __private %(type)s accumulator[%(dim)d];
   for (int j = 0; j < %(dim)d; ++j)
   {
-    accumulator[j] = %(zero)s;
+    accumulator[j] = dat[j];
   }
   for (int i = 0; i < count; ++i)
   {
     for (int j = 0; j < %(dim)d; ++j)
     {
-      accumulator[j] += *(tmp + i * %(dim)d + j);
+      accumulator[j] = %(op)s(accumulator[j], *(tmp + i * %(dim)d + j));
     }
   }
   for (int j = 0; j < %(dim)d; ++j)
   {
-    *(dat + j) = accumulator[j];
+    dat[j] = accumulator[j];
   }
 }
-""" % {'name': self._name,
+""" % {'headers': headers(),
+       'name': self._name,
        'dim': np.prod(self._dim),
        'type': self._cl_type,
-       'zero': self._cl_type_zero}
+       'op': op()}
 
         prg = cl.Program(_ctx, src).build(options="-Werror")
         kernel = prg.__getattr__(self._name + '_reduction')
@@ -703,7 +726,7 @@ class ParLoopCall(object):
 
             cl.enqueue_nd_range_kernel(_queue, kernel, (int(ttc),), (int(wgs),), g_times_l=False).wait()
             for i, a in enumerate(self._global_reduction_args):
-                a._dat._post_kernel_reduction_task(nwg)
+                a._dat._post_kernel_reduction_task(nwg, a._access)
         else:
             psize = self._i_compute_partition_size()
             plan = _plan_cache.get_plan(self, partition_size=psize)
@@ -807,7 +830,7 @@ class ParLoopCall(object):
                 block_offset += blocks_per_grid
 
             for arg in self._global_reduction_args:
-                arg._dat._post_kernel_reduction_task(plan.nblocks)
+                arg._dat._post_kernel_reduction_task(plan.nblocks, arg._access)
 
             for mat in [arg._dat for arg in self._matrix_args]:
                 mat.assemble()
