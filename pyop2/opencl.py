@@ -171,7 +171,7 @@ def solve(M, x, b):
     core.solve(M, x, b)
     #force upload data back to device so that Dat.data returns correct value
     #fix this !!!
-    x._upload_from_c_layer()
+    # M and x are readonly
     b._upload_from_c_layer()
 
 class Mat(op2.Mat, DeviceDataMixin):
