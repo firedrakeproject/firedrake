@@ -155,5 +155,5 @@ op2.solve(mat, b, x)
 
 # Print solution
 
-print "Expected solution: %s" % f_vals
-print "Computed solution: %s" % x_vals
+print "Expected solution: %s" % f.data
+print "Computed solution: %s" % x.data
