@@ -168,10 +168,10 @@ class Dat(op2.Dat, DeviceDataMixin):
         cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
 def solve(M, x, b):
+    x.data
+    b.data
     core.solve(M, x, b)
-    #force upload data back to device so that Dat.data returns correct value
-    #fix this !!!
-    # M and x are readonly
+    x._upload_from_c_layer()
     b._upload_from_c_layer()
 
 class Mat(op2.Mat, DeviceDataMixin):
