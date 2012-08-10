@@ -44,10 +44,10 @@ FEniCS Viper is also required and is used to visualise the solution.
 """
 
 from pyop2 import op2
+from pyop2.ffc_interface import compile_form
 from triangle_reader import read_triangle
 from ufl import *
-from ffc_parameters import ffc_parameters
-import ffc, viper
+import viper
 import sys
 
 import numpy as np
@@ -57,7 +57,7 @@ if len(sys.argv) is not 2:
     sys.exit(1)
 mesh_name = sys.argv[1]
 
-op2.init(backend='sequential')
+op2.init(backend='opencl')
 
 # Set up finite element problem
 
@@ -84,10 +84,10 @@ diff_rhs=action(M+0.5*d,t)
 
 # Generate code for mass and rhs assembly.
 
-mass_code        = ffc.compile_form(M,           prefix="mass",        parameters=ffc_parameters)
-adv_rhs_code     = ffc.compile_form(adv_rhs,     prefix="adv_rhs",     parameters=ffc_parameters)
-diff_matrix_code = ffc.compile_form(diff_matrix, prefix="diff_matrix", parameters=ffc_parameters)
-diff_rhs_code    = ffc.compile_form(diff_rhs,    prefix="diff_rhs",    parameters=ffc_parameters)
+mass_code        = compile_form(M,           "mass")
+adv_rhs_code     = compile_form(adv_rhs,     "adv_rhs")
+diff_matrix_code = compile_form(diff_matrix, "diff_matrix")
+diff_rhs_code    = compile_form(diff_rhs,    "diff_rhs")
 
 mass        = op2.Kernel(mass_code,        "mass_cell_integral_0_0")
 adv_rhs     = op2.Kernel(adv_rhs_code,     "adv_rhs_cell_integral_0_0" )
@@ -118,9 +118,9 @@ velocity = op2.Dat(nodes, 2, velocity_vals, valuetype, "velocity")
 i_cond_code="""
 void i_cond(double *c, double *t)
 {
-  double i_t = 0.1; // Initial time
-  double A   = 0.1; // Normalisation
-  double D   = 0.1; // Diffusivity
+  double i_t = 0.1;
+  double A   = 0.1;
+  double D   = 0.1;
   double pi  = 3.141459265358979;
   double x   = c[0]-0.5;
   double y   = c[1]-0.5;
@@ -151,6 +151,7 @@ zero_dat = op2.Kernel(zero_dat_code, "zero_dat")
 T = 0.1
 
 vis_coords = np.asarray([ [x, y, 0.0] for x, y in coords.data ],dtype=np.float64)
+tracer.data
 v = viper.Viper(x=tracer_vals, coordinates=vis_coords, cells=elem_node.values)
 v.interactive()
 
@@ -198,6 +199,7 @@ while T < 0.2:
 
         op2.solve(mat, b, tracer)
 
+    tracer.data
     v.update(tracer_vals)
 
     T = T + dt

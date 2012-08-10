@@ -42,10 +42,9 @@ This may also depend on development trunk versions of other FEniCS programs.
 """
 
 from pyop2 import op2
+from pyop2.ffc_interface import compile_form
 from triangle_reader import read_triangle
 from ufl import *
-from ffc_parameters import ffc_parameters
-import ffc
 import sys
 
 import numpy as np
@@ -55,7 +54,7 @@ if len(sys.argv) is not 2:
     sys.exit(1)
 mesh_name = sys.argv[1]
 
-op2.init(backend='sequential')
+op2.init(backend='opencl')
 
 # Set up finite element identity problem
 
@@ -70,8 +69,8 @@ L = v*f*dx
 
 # Generate code for mass and rhs assembly.
 
-mass_code = ffc.compile_form(a, prefix="mass", parameters=ffc_parameters)
-rhs_code  = ffc.compile_form(L, prefix="rhs",  parameters=ffc_parameters)
+mass_code = compile_form(a, "mass")
+rhs_code  = compile_form(L, "rhs")
 
 mass = op2.Kernel(mass_code, "mass_cell_integral_0_0")
 rhs  = op2.Kernel(rhs_code,  "rhs_cell_integral_0_0" )

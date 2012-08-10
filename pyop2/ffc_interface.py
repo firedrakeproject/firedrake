@@ -45,7 +45,7 @@ def compile_form(form, name):
     ffc_parameters['format'] = 'pyop2'
 
     code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
-    return comment_remover(continuation_remover(code))
+    return comment_remover(code).replace("\\\n", "\n")
 
 def comment_remover(text):
     """Remove all C- and C++-style comments from a string."""
@@ -58,16 +58,6 @@ def comment_remover(text):
             return s
     pattern = re.compile(
         r'//.*?$|/\*.*?\*/|\'(?:\\.|[^\\\'])*\'|"(?:\\.|[^\\"])*"',
-        re.DOTALL | re.MULTILINE
-    )
-    return re.sub(pattern, replacer, text)
-
-def continuation_remover(text):
-    """Remove the trailing backslashes from a string."""
-    def replacer(match):
-        return match.group(0)[0:-1]
-    pattern = re.compile(
-        r'.*\\$',
         re.DOTALL | re.MULTILINE
     )
     return re.sub(pattern, replacer, text)
