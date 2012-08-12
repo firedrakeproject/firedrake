@@ -46,6 +46,7 @@ import warnings
 import sys
 import math
 from pycparser import c_parser, c_ast, c_generator
+import re
 
 class Kernel(op2.Kernel):
     """OP2 OpenCL kernel type."""
@@ -89,7 +90,20 @@ class Kernel(op2.Kernel):
                 node.params.append(decl)
 
     def instrument(self, instrument, constants):
-        ast = c_parser.CParser().parse(self._code)
+        def comment_remover(text):
+            """Remove all C- and C++-style comments from a string."""
+            # Reference: http://stackoverflow.com/questions/241327/python-snippet-to-remove-c-and-c-comments
+            def replacer(match):
+                s = match.group(0)
+                if s.startswith('/'):
+                    return ""
+                else:
+                    return s
+            pattern = re.compile(r'//.*?$|/\*.*?\*/|\'(?:\\.|[^\\\'])*\'|"(?:\\.|[^\\"])*"',
+                                 re.DOTALL | re.MULTILINE)
+            return re.sub(pattern, replacer, text)
+
+        ast = c_parser.CParser().parse(comment_remover(self._code))
         Kernel.Instrument().instrument(ast, self._name, instrument, constants)
         self._inst_code = c_generator.CGenerator().visit(ast)
 

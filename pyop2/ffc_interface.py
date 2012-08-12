@@ -45,19 +45,4 @@ def compile_form(form, name):
     ffc_parameters['format'] = 'pyop2'
 
     code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
-    return comment_remover(code).replace("\\\n", "\n")
-
-def comment_remover(text):
-    """Remove all C- and C++-style comments from a string."""
-    # Reference: http://stackoverflow.com/questions/241327/python-snippet-to-remove-c-and-c-comments
-    def replacer(match):
-        s = match.group(0)
-        if s.startswith('/'):
-            return ""
-        else:
-            return s
-    pattern = re.compile(
-        r'//.*?$|/\*.*?\*/|\'(?:\\.|[^\\\'])*\'|"(?:\\.|[^\\"])*"',
-        re.DOTALL | re.MULTILINE
-    )
-    return re.sub(pattern, replacer, text)
+    return code.replace("\\\n", "\n")
