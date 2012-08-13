@@ -45,4 +45,4 @@ def compile_form(form, name):
     ffc_parameters['format'] = 'pyop2'
 
     code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
-    return code.replace("\\\n", "\n")
+    return code

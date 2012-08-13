@@ -103,7 +103,7 @@ class Kernel(op2.Kernel):
                                  re.DOTALL | re.MULTILINE)
             return re.sub(pattern, replacer, text)
 
-        ast = c_parser.CParser().parse(comment_remover(self._code))
+        ast = c_parser.CParser().parse(comment_remover(self._code).replace("\\\n", "\n"))
         Kernel.Instrument().instrument(ast, self._name, instrument, constants)
         self._inst_code = c_generator.CGenerator().visit(ast)
 
