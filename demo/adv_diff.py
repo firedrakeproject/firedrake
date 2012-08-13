@@ -118,9 +118,9 @@ velocity = op2.Dat(nodes, 2, velocity_vals, valuetype, "velocity")
 i_cond_code="""
 void i_cond(double *c, double *t)
 {
-  double i_t = 0.1;
-  double A   = 0.1;
-  double D   = 0.1;
+  double i_t = 0.1; // Initial time
+  double A   = 0.1; // Normalisation
+  double D   = 0.1; // Diffusivity
   double pi  = 3.141459265358979;
   double x   = c[0]-0.5;
   double y   = c[1]-0.5;
