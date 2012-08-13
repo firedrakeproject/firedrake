@@ -279,7 +279,7 @@ class TestSparsityAPI:
     Sparsity API unit tests
     """
 
-    backends = ['sequential']
+    backends = ['sequential', 'opencl']
 
     def test_sparsity_illegal_rmap(self, backend, smap):
         "Sparsity rmap should be a Map"
@@ -317,7 +317,7 @@ class TestMatAPI:
     Mat API unit tests
     """
 
-    backends = ['sequential']
+    backends = ['sequential', 'opencl']
 
     def test_mat_illegal_sets(self, backend):
         "Mat sparsity should be a Sparsity."

@@ -209,6 +209,42 @@ class Set(object):
     def __repr__(self):
         return "Set(%s, '%s')" % (self._size, self._name)
 
+class IterationSpace(object):
+    """OP2 iteration space type."""
+
+    @validate_type(('iterset', Set, SetTypeError))
+    def __init__(self, iterset, extents=()):
+        self._iterset = iterset
+        self._extents = as_tuple(extents, int)
+
+    @property
+    def iterset(self):
+        """Set this IterationSpace is defined on."""
+        return self._iterset
+
+    @property
+    def extents(self):
+        """Extents of the IterationSpace."""
+        return self._extents
+
+    @property
+    def name(self):
+        return self._iterset.name
+
+    @property
+    def size(self):
+        return self._iterset.size
+
+    @property
+    def _extent_ranges(self):
+        return [e for e in self.extents]
+
+    def __str__(self):
+        return "OP2 Iteration Space: %s with extents %s" % self._extents
+
+    def __repr__(self):
+        return "IterationSpace(%r, %r)" % (self._iterset, self._extents)
+
 class DataCarrier(object):
     """Abstract base class for OP2 data."""
 
@@ -604,6 +640,9 @@ class Mat(DataCarrier):
         strong boundary conditions."""
         self.c_handle.zero_rows(rows, diag_val)
 
+    def assemble(self):
+        self.c_handle.assemble()
+
     @property
     def c_handle(self):
         if self._lib_handle is None:
@@ -638,38 +677,6 @@ class Mat(DataCarrier):
                % (self._sparsity, self._dim, self._datatype, self._name)
 
 # Kernel API
-
-class IterationSpace(object):
-    """OP2 iteration space type."""
-
-    @validate_type(('iterset', Set, SetTypeError))
-    def __init__(self, iterset, extents=()):
-        self._iterset = iterset
-        self._extents = as_tuple(extents, int)
-
-    @property
-    def iterset(self):
-        """Set this IterationSpace is defined on."""
-        return self._iterset
-
-    @property
-    def extents(self):
-        """Extents of the IterationSpace."""
-        return self._extents
-
-    @property
-    def name(self):
-        return self._iterset.name
-
-    @property
-    def size(self):
-        return self._iterset.size
-
-    def __str__(self):
-        return "OP2 Iteration Space: %s with extents %s" % self._extents
-
-    def __repr__(self):
-        return "IterationSpace(%r, %r)" % (self._iterset, self._extents)
 
 class Kernel(object):
     """OP2 kernel type."""
