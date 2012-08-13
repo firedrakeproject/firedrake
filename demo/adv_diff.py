@@ -148,11 +148,15 @@ zero_dat = op2.Kernel(zero_dat_code, "zero_dat")
 
 # Assemble and solve
 
+def viper_shape(array):
+    """Flatten a numpy array into one dimension to make it suitable for
+    passing to Viper."""
+    return array.reshape((array.shape[0]))
+
 T = 0.1
 
 vis_coords = np.asarray([ [x, y, 0.0] for x, y in coords.data ],dtype=np.float64)
-tracer.data
-v = viper.Viper(x=tracer_vals, coordinates=vis_coords, cells=elem_node.values)
+v = viper.Viper(x=viper_shape(tracer.data), coordinates=vis_coords, cells=elem_node.values)
 v.interactive()
 
 have_advection = True
@@ -199,8 +203,7 @@ while T < 0.2:
 
         op2.solve(mat, b, tracer)
 
-    tracer.data
-    v.update(tracer_vals)
+    v.update(viper_shape(tracer.data))
 
     T = T + dt
 
