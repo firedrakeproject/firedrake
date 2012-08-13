@@ -32,14 +32,15 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from pyop2 import op2
-
 import numpy as np
-
 import h5py
-
+import argparse
 from math import sqrt
 
-op2.init(backend='sequential')
+parser = utils.argparse_op2_parser()
+opt = vars(parser.parse_args())
+op2.init(**opt)
+
 from aero_kernels import dirichlet, dotPV, dotR, init_cg, res_calc, spMV, \
     update, updateP, updateUR
 

@@ -45,10 +45,12 @@ This may also depend on development trunk versions of other FEniCS programs.
 from pyop2 import op2
 from ufl import *
 import ffc
-
+import argparse
 import numpy as np
 
-op2.init(backend='sequential')
+parser = utils.argparse_op2_parser()
+opt = vars(parser.parse_args())
+op2.init(**opt)
 
 # Set up finite element identity problem
 

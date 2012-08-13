@@ -39,6 +39,7 @@ import os
 import sys
 import numpy as np
 from decorator import decorator
+import argparse
 
 from exceptions import DataTypeError, DataValueError
 
@@ -174,6 +175,36 @@ def uniquify(iterable):
     """Remove duplicates in ITERABLE but preserve order."""
     uniq = set()
     return [x for x in iterable if x not in uniq and (uniq.add(x) or True)]
+
+def argparse_add_op2_args(parser, group=True):
+    """Append op2 arguments to argparse.ArgumentParser parser."""
+    g = parser.add_argument_group('pyop2', 'backend configuration options') if group else parser
+
+    g.add_argument('-b', '--backend',
+                   action='store',
+                   default=argparse.SUPPRESS,
+                   choices=['sequential', 'openmp', 'opencl', 'cuda'],
+                   help='select backend' if group else 'select pyop2 backend')
+    g.add_argument('-d', '--debug',
+                   action='store',
+                   default=argparse.SUPPRESS,
+                   type=int,
+                   choices=range(8),
+                   help='set debug level' if group else 'set pyop2 debug level')
+    g.add_argument('-c', '--config',
+                   action='store',
+                   default=argparse.SUPPRESS,
+                   type=argparse.FileType('r'),
+                   help='specify alternate configuration' if group else 'specify alternate pyop2 configuration')
+    return parser
+
+def argparse_op2_parser():
+    """Create default argparse.ArgumentParser parser for pyop2 programs."""
+    parser = argparse.ArgumentParser(description="Before I speak, I have something important to say.",
+                                     epilog="I am leaving because the weather is too good. I hate London when it is not raining.",
+                                     add_help=True,
+                                     prefix_chars="-")
+    return argparse_add_op2_args(parser, group=False)
 
 try:
     OP2_DIR = os.environ['OP2_DIR']

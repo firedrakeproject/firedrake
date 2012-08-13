@@ -35,6 +35,7 @@ import runtime_base as op2
 from utils import verify_reshape, align, uniquify
 from runtime_base import IdentityMap, READ, WRITE, RW, INC, MIN, MAX, \
     Sparsity, Set
+import configuration as cfg
 import op_lib_core as core
 import pyopencl as cl
 import pkg_resources
@@ -45,9 +46,11 @@ import collections
 import itertools
 import warnings
 import sys
+import os.path
 import math
 from pycparser import c_parser, c_ast, c_generator
 import re
+import time
 
 class Kernel(op2.Kernel):
     """OP2 OpenCL kernel type."""
@@ -643,6 +646,15 @@ class ParLoopCall(object):
     def _indirect_reduc_dat_map_pairs(self):
         return uniquify(DatMapPair(a._dat, a._map) for a in self._args if a._is_indirect_reduction)
 
+    def dump_gen_code(self, src):
+        if cfg['dump-gencode']:
+            path = cfg['dump-gencode-path'] % {"kernel": self._kernel._name,
+                                               "time": time.strftime('%Y-%m-%d@%H:%M:%S')}
+
+            if not os.path.exists(path):
+                with open(path, "w") as f:
+                    f.write(src)
+
     def compute(self):
         # get generated code from cache if present
         source = _kernel_stub_cache[self._kernel] if _kernel_stub_cache.has_key(self._kernel) else None
@@ -696,11 +708,7 @@ class ParLoopCall(object):
                 dloop['op2const'] = list(Const._defs)
                 source = str(dloop)
 
-                # for debugging purpose, refactor that properly at some point
-                if _kernel_dump:
-                    f = open(self._kernel._name + '.cl.c', 'w')
-                    f.write(source)
-                    f.close
+                self.dump_gen_code(source)
 
                 _kernel_stub_cache[self._kernel] = source
 
@@ -768,11 +776,7 @@ class ParLoopCall(object):
                 iloop['op2const'] = list(Const._defs)
                 source = str(iloop)
 
-                # for debugging purpose, refactor that properly at some point
-                if _kernel_dump:
-                    f = open(self._kernel._name + '.cl.c', 'w')
-                    f.write(source)
-                    f.close
+                self.dump_gen_code(source)
 
                 _kernel_stub_cache[self._kernel] = source
 
@@ -893,7 +897,6 @@ def par_loop(kernel, it_space, *args):
     ParLoopCall(kernel, it_space, *args).compute()
 
 _debug = False
-_kernel_dump = False
 _ctx = cl.create_some_context()
 _queue = cl.CommandQueue(_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
 _pref_work_group_count = _queue.device.max_compute_units

@@ -33,13 +33,13 @@
 
 from math import atan, sqrt
 import numpy as np
-
+import argparse
 from pyop2 import op2
-# Initialise OP2
-
 import h5py
 
-op2.init(backend='sequential')
+parser = utils.argparse_op2_parser()
+opt = vars(parser.parse_args())
+op2.init(**opt)
 
 from airfoil_vector_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 

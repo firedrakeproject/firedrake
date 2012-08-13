@@ -107,7 +107,7 @@ class TestInitAPI:
     def test_invalid_init(self):
         "init should not accept an invalid backend."
         with pytest.raises(ValueError):
-            op2.init('invalid_backend')
+            op2.init(backend='invalid_backend')
 
     def test_init(self, backend):
         "init should correctly set the backend."
@@ -116,7 +116,7 @@ class TestInitAPI:
     def test_double_init(self, backend):
         "init should only be callable once."
         with pytest.raises(RuntimeError):
-            op2.init(backend)
+            op2.init(backend=backend)
 
 class TestAccessAPI:
     """

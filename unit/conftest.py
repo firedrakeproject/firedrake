@@ -113,7 +113,7 @@ def op2_init(backend):
     # We need to clean up the previous backend first, because the teardown
     # hook is only run at the end of the session
     op2.exit()
-    op2.init(backend)
+    op2.init(backend=backend)
 
 def pytest_funcarg__backend(request):
     # If a testcase has the backend parameter but the parametrization leaves

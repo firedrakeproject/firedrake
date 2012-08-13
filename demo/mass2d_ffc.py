@@ -46,8 +46,11 @@ from pyop2.ffc_interface import compile_form
 from ufl import *
 import ffc
 import numpy as np
+import argparse
 
-op2.init(backend='opencl')
+parser = utils.argparse_op2_parser()
+opt = vars(parser.parse_args())
+op2.init(**opt)
 
 # Set up finite element identity problem
 

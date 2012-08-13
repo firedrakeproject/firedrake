@@ -46,6 +46,7 @@ from pyop2.ffc_interface import compile_form
 from triangle_reader import read_triangle
 from ufl import *
 import sys
+import argparse
 
 import numpy as np
 
@@ -54,7 +55,9 @@ if len(sys.argv) is not 2:
     sys.exit(1)
 mesh_name = sys.argv[1]
 
-op2.init(backend='opencl')
+parser = utils.argparse_op2_parser()
+opt = vars(parser.parse_args())
+op2.init(**opt)
 
 # Set up finite element identity problem
 
