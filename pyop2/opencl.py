@@ -32,9 +32,8 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import runtime_base as op2
-from utils import verify_reshape, align, uniquify
-from runtime_base import IdentityMap, READ, WRITE, RW, INC, MIN, MAX, \
-    Sparsity, Set
+from utils import verify_reshape, uniquify
+from runtime_base import IdentityMap, READ, WRITE, RW, INC, MIN, MAX, Sparsity
 import configuration as cfg
 import op_lib_core as core
 import pyopencl as cl
@@ -43,10 +42,7 @@ import stringtemplate3
 import pycparser
 import numpy as np
 import collections
-import itertools
 import warnings
-import sys
-import os.path
 import math
 from pycparser import c_parser, c_ast, c_generator
 import re
