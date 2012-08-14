@@ -149,11 +149,11 @@ class DeviceDataMixin:
 
     @property
     def _cl_type(self):
-        return DeviceDataMixin.CL_TYPES[self._data.dtype].clstring
+        return DeviceDataMixin.CL_TYPES[self.dtype].clstring
 
     @property
     def _cl_type_zero(self):
-        return DeviceDataMixin.CL_TYPES[self._data.dtype].zero
+        return DeviceDataMixin.CL_TYPES[self.dtype].zero
 
 class Dat(op2.Dat, DeviceDataMixin):
     """OP2 OpenCL vector data type."""
@@ -272,7 +272,7 @@ class Global(op2.Global, DeviceDataMixin):
         cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
     def _allocate_reduction_array(self, nelems):
-        self._h_reduc_array = np.zeros (nelems * self.cdim, dtype=self._data.dtype)
+        self._h_reduc_array = np.zeros (nelems * self.cdim, dtype=self.dtype)
         self._d_reduc_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._h_reduc_array.nbytes)
         cl.enqueue_copy(_queue, self._d_reduc_buffer, self._h_reduc_array, is_blocking=True).wait()
 
