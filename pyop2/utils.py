@@ -38,6 +38,7 @@ from __future__ import division
 import os
 import sys
 import numpy as np
+from decorator import decorator
 
 from exceptions import DataTypeError, DataValueError
 
@@ -69,7 +70,7 @@ class validate_base:
         self._checks = checks
 
     def __call__(self, f):
-        def wrapper(*args, **kwargs):
+        def wrapper(f, *args, **kwargs):
             self.nargs = f.func_code.co_argcount
             self.defaults = f.func_defaults or ()
             self.varnames = f.func_code.co_varnames
@@ -77,7 +78,7 @@ class validate_base:
             self.line = f.func_code.co_firstlineno+1
             self.check_args(args, kwargs)
             return f(*args, **kwargs)
-        return wrapper
+        return decorator(wrapper, f)
 
     def check_args(self, args, kwargs):
         for argname, argcond, exception in self._checks:
