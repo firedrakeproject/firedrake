@@ -92,9 +92,9 @@ void $it._dat._name$_reduction_kernel (
 reduction_op()::=<<$if(it._is_INC)$
 reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];
 $elseif(it._is_MIN)$
-reduction_tmp_array[lid] += min(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+reduction_tmp_array[lid] = min(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
 $elseif(it._is_MAX)$
-reduction_tmp_array[lid] += max(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
 $else$
 SOMETHING WENT SOUTH;
 $endif$>>
