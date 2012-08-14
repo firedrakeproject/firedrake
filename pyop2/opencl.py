@@ -31,6 +31,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""OP2 OpenCL backend."""
+
 import runtime_base as op2
 from utils import verify_reshape, uniquify
 from runtime_base import IdentityMap, READ, WRITE, RW, INC, MIN, MAX, Sparsity
