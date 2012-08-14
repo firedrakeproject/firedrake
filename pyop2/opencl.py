@@ -109,7 +109,7 @@ class Kernel(op2.Kernel):
 
         ast = c_parser.CParser().parse(comment_remover(self._code).replace("\\\n", "\n"))
         Kernel.Instrument().instrument(ast, self._name, instrument, constants)
-        self._inst_code = c_generator.CGenerator().visit(ast)
+        return c_generator.CGenerator().visit(ast)
 
 class Arg(op2.Arg):
     """OP2 OpenCL argument type."""
@@ -586,21 +586,6 @@ class ParLoopCall(object):
     def _direct_non_scalar_written_args(self):
         return [a for a in self._direct_non_scalar_args if a._access in [WRITE, RW]]
 
-    def _d_max_dynamic_shared_memory(self):
-        """Computes the maximum shared memory requirement per iteration set elements."""
-        assert self.is_direct(), "Should only be called on direct loops"
-        if self._direct_non_scalar_args:
-            staging = max(a._dat.bytes_per_elem for a in self._direct_non_scalar_args)
-        else:
-            staging = 0
-
-        if self._global_reduction_args:
-            reduction = max(a._dat._data.itemsize for a in self._global_reduction_args)
-        else:
-            reduction = 0
-
-        return max(staging, reduction)
-
     @property
     def _matrix_args(self):
         return [a for a in self._actual_args if a._is_mat]
@@ -655,26 +640,66 @@ class ParLoopCall(object):
                 with open(path, "w") as f:
                     f.write(src)
 
-    def compute(self):
-        # get generated code from cache if present
-        source = _kernel_stub_cache[self._kernel] if _kernel_stub_cache.has_key(self._kernel) else None
+    def _d_max_local_memory_required_per_elem(self):
+        """Computes the maximum shared memory requirement per iteration set elements."""
+        def max_0(iterable):
+            return max(iterable) if iterable else 0
+        staging = max_0([a._dat.bytes_per_elem for a in self._direct_non_scalar_args])
+        reduction = max_0([a._dat._data.itemsize for a in self._global_reduction_args])
+        return max(staging, reduction)
 
+    def _i_partition_size(self):
+        staged_args = filter(lambda a: a._map != IdentityMap, self._args)
+        assert staged_args
+        # will have to fix for vec dat
+        #TODO FIX: something weird here
+        #available_local_memory
+        warnings.warn('temporary fix to available local memory computation (-512)')
+        available_local_memory = _max_local_memory - 512
+        # 16bytes local mem used for global / local indices and sizes
+        available_local_memory -= 16
+        # (4/8)ptr size per dat passed as argument (dat)
+        available_local_memory -= (_queue.device.address_bits / 8) * (len(self._unique_dats) + len(self._global_non_reduction_args))
+        # (4/8)ptr size per dat/map pair passed as argument (ind_map)
+        available_local_memory -= (_queue.device.address_bits / 8) * len(self._dat_map_pairs)
+        # (4/8)ptr size per global reduction temp array
+        available_local_memory -= (_queue.device.address_bits / 8) * len(self._global_reduction_args)
+        # (4/8)ptr size per indirect arg (loc_map)
+        available_local_memory -= (_queue.device.address_bits / 8) * len(filter(lambda a: not a._is_indirect, self._args))
+        # (4/8)ptr size * 7: for plan objects
+        available_local_memory -= (_queue.device.address_bits / 8) * 7
+        # 1 uint value for block offset
+        available_local_memory -= 4
+        # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
+        available_local_memory -= 7
+        # 12: shared_memory_offset, active_thread_count, active_thread_count_ceiling variables (could be 8 or 12 depending)
+        #     and 3 for potential padding after shared mem buffer
+        available_local_memory -= 12 + 3
+        # 2 * (4/8)ptr size + 1uint32: DAT_via_MAP_indirection(./_size/_map) per dat map pairs
+        available_local_memory -= 4 + (_queue.device.address_bits / 8) * 2 * len(self._dat_map_pairs)
+        # inside shared memory padding
+        available_local_memory -= 2 * (len(self._dat_map_pairs) - 1)
+
+        max_bytes = sum(map(lambda a: a._dat.bytes_per_elem, staged_args))
+        return available_local_memory / (2 * _warpsize * max_bytes) * (2 * _warpsize)
+
+    def launch_configuration(self):
         if self.is_direct():
-            per_elem_max_local_mem_req = self._d_max_dynamic_shared_memory()
+            per_elem_max_local_mem_req = self._d_max_local_memory_required_per_elem()
             shared_memory_offset = per_elem_max_local_mem_req * _warpsize
             if per_elem_max_local_mem_req == 0:
                 wgs = _queue.device.max_work_group_size
             else:
+                # 16bytes local mem used for global / local indices and sizes
+                # (4/8)ptr bytes for each dat buffer passed to the kernel
+                # (4/8)ptr bytes for each temporary global reduction buffer passed to the kernel
+                # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
                 warnings.warn('temporary fix to available local memory computation (-512)')
                 available_local_memory = _queue.device.local_mem_size - 512
-                # 16bytes local mem used for global / local indices and sizes
                 available_local_memory -= 16
-                # (4/8)ptr bytes for each dat buffer passed to the kernel
                 available_local_memory -= (len(self._unique_dats) + len(self._global_non_reduction_args))\
                                           * (_queue.device.address_bits / 8)
-                # (4/8)ptr bytes for each temporary global reduction buffer passed to the kernel
                 available_local_memory -= len(self._global_reduction_args) * (_queue.device.address_bits / 8)
-                # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
                 available_local_memory -= 7
                 ps = available_local_memory / per_elem_max_local_mem_req
                 wgs = min(_queue.device.max_work_group_size, (ps / _warpsize) * _warpsize)
@@ -682,44 +707,82 @@ class ParLoopCall(object):
             ttc = wgs * nwg
 
             local_memory_req = per_elem_max_local_mem_req * wgs
+            return {'thread_count': ttc,
+                    'work_group_size': wgs,
+                    'work_group_count': nwg,
+                    'local_memory_size': local_memory_req,
+                    'local_memory_offset': shared_memory_offset}
+        else:
+            return {'partition_size': self._i_partition_size()}
 
-            if not source:
-                inst = []
-                for i, arg in enumerate(self._args):
-                    if arg._is_direct and arg._dat._is_scalar:
-                        inst.append(("__global", None))
-                    elif arg._is_direct:
-                        inst.append(("__private", None))
-                    elif arg._is_global_reduction:
-                        inst.append(("__private", None))
-                    elif arg._is_global:
-                        inst.append(("__global", None))
+    def codegen(self, conf):
+        def instrument_user_kernel():
+            inst = []
 
-                self._kernel.instrument(inst, list(Const._defs))
+            for arg in self._actual_args:
+                i = None
+                if self.is_direct():
+                    if (arg._is_direct and arg._dat._is_scalar) or\
+                       (arg._is_global and not arg._is_global_reduction):
+                        i = ("__global", None)
+                    else:
+                        i = ("__private", None)
+                else: # indirect loop
+                    if arg._is_direct or (arg._is_global and not arg._is_global_reduction):
+                        i = ("__global", None)
+                    elif (arg._is_indirect or arg._is_vec_map) and not arg._is_indirect_reduction:
+                        i = ("__local", None)
+                    else:
+                        i = ("__private", None)
 
-                dloop = _stg_direct_loop.getInstanceOf("direct_loop")
-                dloop['parloop'] = self
-                dloop['const'] = {"warpsize": _warpsize,\
-                                  "shared_memory_offset": shared_memory_offset,\
-                                  "dynamic_shared_memory_size": local_memory_req,\
-                                  "threads_per_block": wgs,
-                                  "block_count": nwg,\
-                                  "amd": _AMD_fixes}
-                dloop['op2const'] = list(Const._defs)
-                source = str(dloop)
+                inst.append(i)
 
-                self.dump_gen_code(source)
+            if self._it_space:
+                for i in range(len(self._it_space.extents)):
+                    inst.append(("__private", None))
 
-                _kernel_stub_cache[self._kernel] = source
+            return self._kernel.instrument(inst, list(Const._defs))
 
-            prg = cl.Program (_ctx, source).build(options="-Werror")
-            kernel = prg.__getattr__(self._kernel._name + '_stub')
+        # check cache
+        if _kernel_stub_cache.has_key(self._kernel):
+            return _kernel_stub_cache[self._kernel]
 
+        #do codegen
+        user_kernel = instrument_user_kernel()
+        template = _stg_direct_loop.getInstanceOf("direct_loop") if self.is_direct() else _stg_indirect_loop.getInstanceOf("indirect_loop")
+        template['parloop'] = self
+        template['user_kernel'] = user_kernel
+        template['launch'] = conf
+        template['codegen'] = {'amd': _AMD_fixes}
+        template['op2const'] = list(Const._defs)
+        src = str(template)
+        _kernel_stub_cache[self._kernel] = src
+        return src
+
+    def compute(self):
+        def compile_kernel(src, name):
+            prg = cl.Program(_ctx, source).build(options="-Werror")
+            return prg.__getattr__(name + '_stub')
+
+        conf = self.launch_configuration()
+
+        if not self.is_direct():
+            plan = _plan_cache.get_plan(self, partition_size=conf['partition_size'])
+            conf['local_memory_size'] = plan.nshared
+            conf['ninds'] = plan.ninds
+            conf['work_group_size'] = min(_max_work_group_size, conf['partition_size'])
+
+        conf['warpsize'] = _warpsize
+
+        source = self.codegen(conf)
+        kernel = compile_kernel(source, self._kernel._name)
+
+        if self.is_direct():
             for a in self._unique_dats:
                 kernel.append_arg(a._buffer)
 
             for a in self._global_reduction_args:
-                a._dat._allocate_reduction_array(nwg)
+                a._dat._allocate_reduction_array(conf['work_group_count'])
                 kernel.append_arg(a._dat._d_reduc_buffer)
 
             for a in self._global_non_reduction_args:
@@ -730,59 +793,10 @@ class ParLoopCall(object):
 
             kernel.append_arg(np.int32(self._it_set.size))
 
-            cl.enqueue_nd_range_kernel(_queue, kernel, (int(ttc),), (int(wgs),), g_times_l=False).wait()
+            cl.enqueue_nd_range_kernel(_queue, kernel, (conf['thread_count'],), (conf['work_group_size'],), g_times_l=False).wait()
             for i, a in enumerate(self._global_reduction_args):
-                a._dat._post_kernel_reduction_task(nwg, a._access)
+                a._dat._post_kernel_reduction_task(conf['work_group_count'], a._access)
         else:
-            psize = self._i_compute_partition_size()
-            plan = _plan_cache.get_plan(self, partition_size=psize)
-
-            if not source:
-                inst = []
-                for i, arg in enumerate(self._actual_args):
-                    if arg._map == IdentityMap:
-                        inst.append(("__global", None))
-                    elif arg._is_mat:
-                        inst.append(("__private", None))
-                    elif arg._is_vec_map and arg._is_indirect_reduction:
-                        inst.append(("__private", None))
-                    elif arg._is_vec_map and not arg._is_indirect_reduction:
-                        inst.append(("__local", None))
-                    elif isinstance(arg._dat, Dat) and arg._access not in [INC, MIN, MAX]:
-                        inst.append(("__local", None))
-                    elif arg._is_global and not arg._is_global_reduction:
-                        inst.append(("__global", None))
-                    else:
-                        inst.append(("__private", None))
-
-                # user kernel has iteration spaceindex arguments,
-                # must be __private
-                if self._it_space:
-                    for i in range(len(self._it_space.extents)):
-                        inst.append(("__private", None))
-
-                self._kernel.instrument(inst, list(Const._defs))
-
-                # codegen
-                iloop = _stg_indirect_loop.getInstanceOf("indirect_loop")
-                iloop['parloop'] = self
-                iloop['const'] = {'dynamic_shared_memory_size': plan.nshared,\
-                                  'ninds':plan.ninds,\
-                                  'block_count': 'dynamic',\
-                                  'threads_per_block': min(_max_work_group_size, psize),\
-                                  'partition_size':psize,\
-                                  'warpsize': _warpsize,\
-                                  'amd': _AMD_fixes}
-                iloop['op2const'] = list(Const._defs)
-                source = str(iloop)
-
-                self.dump_gen_code(source)
-
-                _kernel_stub_cache[self._kernel] = source
-
-            prg = cl.Program(_ctx, source).build(options="-Werror")
-            kernel = prg.__getattr__(self._kernel._name + '_stub')
-
             for a in self._unique_dats:
                 kernel.append_arg(a._buffer)
 
@@ -822,7 +836,7 @@ class ParLoopCall(object):
             block_offset = 0
             for i in range(plan.ncolors):
                 blocks_per_grid = int(plan.ncolblk[i])
-                threads_per_block = min(_max_work_group_size, psize)
+                threads_per_block = min(_max_work_group_size, conf['partition_size'])
                 thread_count = threads_per_block * blocks_per_grid
 
                 kernel.set_last_arg(np.int32(block_offset))
@@ -837,41 +851,6 @@ class ParLoopCall(object):
 
     def is_direct(self):
         return all(map(lambda a: a._is_direct or isinstance(a._dat, Global), self._args))
-
-    def _i_compute_partition_size(self):
-        staged_args = filter(lambda a: a._map != IdentityMap, self._args)
-        assert staged_args
-        # will have to fix for vec dat
-        #TODO FIX: something weird here
-        #available_local_memory
-        warnings.warn('temporary fix to available local memory computation (-512)')
-        available_local_memory = _max_local_memory - 512
-        # 16bytes local mem used for global / local indices and sizes
-        available_local_memory -= 16
-        # (4/8)ptr size per dat passed as argument (dat)
-        available_local_memory -= (_queue.device.address_bits / 8) * (len(self._unique_dats) + len(self._global_non_reduction_args))
-        # (4/8)ptr size per dat/map pair passed as argument (ind_map)
-        available_local_memory -= (_queue.device.address_bits / 8) * len(self._dat_map_pairs)
-        # (4/8)ptr size per global reduction temp array
-        available_local_memory -= (_queue.device.address_bits / 8) * len(self._global_reduction_args)
-        # (4/8)ptr size per indirect arg (loc_map)
-        available_local_memory -= (_queue.device.address_bits / 8) * len(filter(lambda a: not a._is_indirect, self._args))
-        # (4/8)ptr size * 7: for plan objects
-        available_local_memory -= (_queue.device.address_bits / 8) * 7
-        # 1 uint value for block offset
-        available_local_memory -= 4
-        # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
-        available_local_memory -= 7
-        # 12: shared_memory_offset, active_thread_count, active_thread_count_ceiling variables (could be 8 or 12 depending)
-        #     and 3 for potential padding after shared mem buffer
-        available_local_memory -= 12 + 3
-        # 2 * (4/8)ptr size + 1uint32: DAT_via_MAP_indirection(./_size/_map) per dat map pairs
-        available_local_memory -= 4 + (_queue.device.address_bits / 8) * 2 * len(self._dat_map_pairs)
-        # inside shared memory padding
-        available_local_memory -= 2 * (len(self._dat_map_pairs) - 1)
-
-        max_bytes = sum(map(lambda a: a._dat.bytes_per_elem, staged_args))
-        return available_local_memory / (2 * _warpsize * max_bytes) * (2 * _warpsize)
 
 #Monkey patch pyopencl.Kernel for convenience
 _original_clKernel = cl.Kernel

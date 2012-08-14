@@ -1,16 +1,16 @@
 group opencl_direct_loop;
 
-direct_loop(parloop,const,op2const)::=<<
+direct_loop(parloop,user_kernel,launch,codegen,op2const)::=<<
 $header()$
 $parloop._global_reduction_args:{$reduction_kernel()$};separator="\n"$
 
-$parloop._kernel._inst_code$
+$user_kernel$
 $kernel_stub()$
 >>
 
 kernel_stub()::=<<
 __kernel
- __attribute__((reqd_work_group_size($const.threads_per_block$, 1, 1)))
+ __attribute__((reqd_work_group_size($launch.work_group_size$, 1, 1)))
 void $parloop._kernel._name$_stub (
   $parloop._unique_dats:{__global $it._cl_type$* $it._name$,};separator="\n"$
   $parloop._global_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$_reduction_array,};separator="\n"$
@@ -19,11 +19,11 @@ void $parloop._kernel._name$_stub (
   int set_size
 )
 {
-  __local char shared[$const.dynamic_shared_memory_size$] __attribute__((aligned(sizeof(long))));
+  __local char shared[$launch.local_memory_size$] __attribute__((aligned(sizeof(long))));
   int i_1;
 
 $if(parloop._direct_non_scalar_args)$
-  unsigned int shared_memory_offset = $const.shared_memory_offset$;
+  unsigned int shared_memory_offset = $launch.local_memory_offset$;
   int i_2;
   int local_offset;
   int active_threads_count;
@@ -126,11 +126,10 @@ kernel_call_const_args()::=<<$if(op2const)$$op2const:{c |, $if(c._is_scalar)$*$c
 
 header()::=<<
 /* Launch configuration:
- *   work group count     : $const.block_count$
- *   work group size      : $const.threads_per_block$
- *   local memory size    : $const.dynamic_shared_memory_size$
- *   shared memory offset : $const.shared_memory_offset$
- *   warpsize             : $const.warpsize$
+ *   work group size      : $launch.work_group_size$
+ *   local memory size    : $launch.local_memory_size$
+ *   shared memory offset : $launch.local_memory_offset$
+ *   warpsize             : $launch.warpsize$
  */
 #if defined(cl_khr_fp64)
 #if defined(cl_amd_fp64)
@@ -142,6 +141,6 @@ header()::=<<
 #pragma OPENCL EXTENSION cl_amd_fp64 : enable
 #endif
 
-#define OP_WARPSIZE $const.warpsize$
+#define OP_WARPSIZE $launch.warpsize$
 #define OP2_STRIDE(arr, idx) (arr[idx])
 >>

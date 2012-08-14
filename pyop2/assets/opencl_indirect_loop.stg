@@ -1,16 +1,16 @@
 group opencl_indirect;
 
-indirect_loop(parloop,const,op2const)::=<<
+indirect_loop(parloop,user_kernel,launch,codegen,op2const)::=<<
 $header()$
 $parloop._global_reduction_args:{$reduction_kernel()$};separator="\n"$
-$parloop._kernel._inst_code$
+$user_kernel$
 $matrix_support()$
 $kernel_stub()$
 >>
 
 kernel_stub()::=<<
 __kernel
-__attribute__((reqd_work_group_size($const.threads_per_block$, 1, 1)))
+__attribute__((reqd_work_group_size($launch.work_group_size$, 1, 1)))
 void $parloop._kernel._name$_stub(
   $parloop._unique_dats:{__global $it._cl_type$* $it._name$,};separator="\n"$
   $parloop._global_non_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$,};separator="\n"$
@@ -30,7 +30,7 @@ void $parloop._kernel._name$_stub(
   __private int block_offset
 )
 {
-  __local char shared [$const.dynamic_shared_memory_size$] __attribute__((aligned(sizeof(long))));
+  __local char shared [$launch.local_memory_size$] __attribute__((aligned(sizeof(long))));
   __local int shared_memory_offset;
   __local int active_threads_count;
 
@@ -77,9 +77,9 @@ $if(parloop._indirect_reduc_args)$
     colors_count = p_nthrcol[block_id];$endif$
     shared_memory_offset = p_offset[block_id];
 
-    $parloop._dat_map_pairs:{$shared_indirection_mapping_size_name()$ = p_ind_sizes[$shared_indirection_mapping_idx_name()$ + block_id * $const.ninds$];};separator="\n"$
+    $parloop._dat_map_pairs:{$shared_indirection_mapping_size_name()$ = p_ind_sizes[$shared_indirection_mapping_idx_name()$ + block_id * $launch.ninds$];};separator="\n"$
 
-    $parloop._dat_map_pairs:{$shared_indirection_mapping_name()$ = $shared_indirection_mapping_arg_name()$ + p_ind_offsets[$shared_indirection_mapping_idx_name()$ + block_id * $const.ninds$];};separator="\n"$
+    $parloop._dat_map_pairs:{$shared_indirection_mapping_name()$ = $shared_indirection_mapping_arg_name()$ + p_ind_offsets[$shared_indirection_mapping_idx_name()$ + block_id * $launch.ninds$];};separator="\n"$
 
     nbytes = 0;
     $parloop._dat_map_pairs:{$shared_indirection_mapping_memory_name()$ = (__local $it._dat._cl_type$*) (&shared[nbytes]);
@@ -195,7 +195,7 @@ kernel_call_const_args()::=<<$if(op2const)$$op2const:{c |, $if(c._is_scalar)$*$c
 
 kernel_call_arg()::=<<$if(it._is_direct)$$typecast(storage="__global",type={$it._dat._cl_type$*},qualifier="__private")$ ($it._dat._name$ + (i_1 + shared_memory_offset) * $it._dat._dim$)$elseif(it._is_mat)$$it._dat._name$_entry$elseif(it._is_vec_map)$$dat_vec_name()$$elseif(it._is_global_reduction)$$global_reduc_local_name()$$elseif(it._is_indirect_reduction)$$reduc_arg_local_name()$$elseif(it._is_global)$$it._dat._name$$else$&$shared_indirection_mapping_memory_name()$[$mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$]$endif$>>
 
-typecast(storage,type,qualifier)::=<<($storage$ $type$$if(!const.amd)$ $qualifier$$endif$)>>
+typecast(storage,type,qualifier)::=<<($storage$ $type$$if(!codegen.amd)$ $qualifier$$endif$)>>
 
 populate_vec_map()::=<<
 // populate vec map
@@ -279,12 +279,11 @@ shared_indirection_mapping_arg_name()::=<<ind_$it._dat._name$_via_$it._map._name
 
 header()::=<<
 /* Launch configuration:
- *   work group count     : $const.block_count$
- *   work group size      : $const.threads_per_block$
- *   partition size       : $const.partition_size$
- *   local memory size    : $const.dynamic_shared_memory_size$
- *   shared memory offset : $const.shared_memory_offset$
- *   warpsize             : $const.warpsize$
+ *   work group size      : $launch.work_group_size$
+ *   partition size       : $launch.partition_size$
+ *   local memory size    : $launch.local_memory_size$
+ *   shared memory offset : $launch.local_memory_offset$
+ *   warpsize             : $launch.warpsize$
  */
 #if defined(cl_khr_int64_base_atomics)
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
@@ -300,7 +299,7 @@ header()::=<<
 #endif
 
 #define ROUND_UP(bytes) (((bytes) + 15) & ~15)
-#define OP_WARPSIZE $const.warpsize$
+#define OP_WARPSIZE $launch.warpsize$
 #define OP2_STRIDE(arr, idx) (arr[idx])
 >>
 
