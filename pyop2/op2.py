@@ -40,9 +40,9 @@ import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
 
 
-def init(**kargs):
+def init(**kwargs):
     """Initialise OP2: select the backend."""
-    cfg.configure(**kargs)
+    cfg.configure(**kwargs)
     backends.set_backend(cfg.backend)
     core.op_init(args=None, diags=0)
 
