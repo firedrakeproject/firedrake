@@ -41,12 +41,11 @@ bzr branch lp:~grm08/ffc/fluidity-pyop2
 This may also depend on development trunk versions of other FEniCS programs.
 """
 
-from pyop2 import op2
+from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from triangle_reader import read_triangle
 from ufl import *
 import sys
-import argparse
 
 import numpy as np
 

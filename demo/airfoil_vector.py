@@ -33,8 +33,7 @@
 
 from math import atan, sqrt
 import numpy as np
-import argparse
-from pyop2 import op2
+from pyop2 import op2, utils
 import h5py
 
 parser = utils.argparse_op2_parser()

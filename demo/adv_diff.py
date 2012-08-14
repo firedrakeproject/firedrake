@@ -43,13 +43,12 @@ This may also depend on development trunk versions of other FEniCS programs.
 FEniCS Viper is also required and is used to visualise the solution.
 """
 
-from pyop2 import op2
+from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from triangle_reader import read_triangle
 from ufl import *
 import viper
 import sys
-import argparse
 
 import numpy as np
 

@@ -31,10 +31,9 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from pyop2 import op2
+from pyop2 import op2, utils
 import numpy as np
 import h5py
-import argparse
 from math import sqrt
 
 parser = utils.argparse_op2_parser()

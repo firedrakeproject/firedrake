@@ -42,10 +42,9 @@ bzr branch lp:~grm08/ffc/fluidity-pyop2
 This may also depend on development trunk versions of other FEniCS programs.
 """
 
-from pyop2 import op2
+from pyop2 import op2, utils
 from ufl import *
 import ffc
-import argparse
 import numpy as np
 
 parser = utils.argparse_op2_parser()
