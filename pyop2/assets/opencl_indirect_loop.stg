@@ -214,9 +214,9 @@ for (i_2 = 0; i_2 < $it._dat._dim$; ++i_2)
   $if(it._is_INC)$
   $shared_indirection_mapping_memory_name()$[i_2 + $mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$] += $reduc_arg_local_name()$[i_2];
   $elseif(it._is_MIN)$
-  $shared_indirection_mapping_memory_name()$[i_2 + $mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$] = MIN($shared_indirection_mapping_memory_name()$[i_2 + $mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$], $reduc_arg_local_name()$[i_2]);
+  $shared_indirection_mapping_memory_name()$[i_2 + $mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$] = min($shared_indirection_mapping_memory_name()$[i_2 + $mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$], $reduc_arg_local_name()$[i_2]);
   $elseif(it._is_MAX)$
-  $shared_indirection_mapping_memory_name()$[i_2 + $mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$] =MAX($shared_indirection_mapping_memory_name()$[i_2 + $mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$], $reduc_arg_local_name()$[i_2]);
+  $shared_indirection_mapping_memory_name()$[i_2 + $mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$] = max($shared_indirection_mapping_memory_name()$[i_2 + $mappingarrayname()$[i_1 + shared_memory_offset] * $it._dat._dim$], $reduc_arg_local_name()$[i_2]);
   $else$
   SOMETHING WENT SOUTH
   $endif$
@@ -296,8 +296,6 @@ header()::=<<
 
 #define ROUND_UP(bytes) (((bytes) + 15) & ~15)
 #define OP_WARPSIZE $const.warpsize$
-#define MIN(a,b) ((a < b) ? (a) : (b))
-#define MAX(a,b) ((a < b) ? (b) : (a))
 #define OP2_STRIDE(arr, idx) (arr[idx])
 >>
 
@@ -334,9 +332,9 @@ void $it._dat._name$_reduction_kernel (
 reduction_op()::=<<$if(it._is_INC)$
 reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];
 $elseif(it._is_MIN)$
-reduction_tmp_array[lid] += MIN(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+reduction_tmp_array[lid] += min(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
 $elseif(it._is_MAX)$
-reduction_tmp_array[lid] += MAX(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+reduction_tmp_array[lid] += max(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
 $else$
 SOMETHING WENT SOUTH;
 $endif$>>

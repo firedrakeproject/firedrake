@@ -314,16 +314,14 @@ class Global(op2.Global, DeviceDataMixin):
                 if reduction_operator is INC:
                     return "INC"
                 elif reduction_operator is MIN:
-                    return "MIN"
+                    return "min"
                 elif reduction_operator is MAX:
-                        return "MAX"
+                        return "max"
                 assert False
 
             return """
 %(headers)s
 #define INC(a,b) ((a)+(b))
-#define MIN(a,b) ((a < b) ? (a) : (b))
-#define MAX(a,b) ((a < b) ? (b) : (a))
 __kernel
 void %(name)s_reduction (
   __global %(type)s* dat,
