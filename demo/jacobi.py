@@ -65,13 +65,13 @@ import argparse
 import numpy as np
 from math import sqrt
 
-parser = argparse.ArgumentParser(description="Jacoby PyOP2 demo.",
+parser = argparse.ArgumentParser(description="Jacobi PyOP2 demo.",
                                  epilog="",
                                  add_help=True)
 utils.argparse_add_op2_args(parser)
 parser.add_argument('-s', '--single',
                     action='store_true',
-                    help='run Jacoby in single precision floating point')
+                    help='run Jacobi in single precision floating point')
 parser.add_argument('-n', '--niter',
                     action='store',
                     default=2,
