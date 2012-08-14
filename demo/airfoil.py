@@ -38,7 +38,7 @@ from pyop2 import op2, utils
 
 import h5py
 
-op2.init(**utils.default_parser_parse_args())
+op2.init(**utils.parse_args())
 
 from airfoil_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 

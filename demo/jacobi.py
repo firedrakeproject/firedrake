@@ -61,11 +61,10 @@
 
 from __future__ import print_function
 from pyop2 import op2, utils
-import argparse
 import numpy as np
 from math import sqrt
 
-parser = utils.argparse_op2_parser(group=True)
+parser = utils.parser(group=True)
 parser.add_argument('-s', '--single',
                     action='store_true',
                     help='single precision floating point mode')
