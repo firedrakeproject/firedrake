@@ -44,7 +44,7 @@ $endif$
   {
 $if(parloop._direct_non_scalar_args)$
     local_offset = i_1 - thread_id;
-    active_threads_count = MIN(OP_WARPSIZE, set_size - local_offset);
+    active_threads_count = min(OP_WARPSIZE, set_size - local_offset);
 $endif$
     $parloop._direct_non_scalar_read_args:stagein();separator="\n"$
     $kernel_call()$
@@ -92,9 +92,9 @@ void $it._dat._name$_reduction_kernel (
 reduction_op()::=<<$if(it._is_INC)$
 reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];
 $elseif(it._is_MIN)$
-reduction_tmp_array[lid] += MIN(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+reduction_tmp_array[lid] = min(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
 $elseif(it._is_MAX)$
-reduction_tmp_array[lid] += MAX(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
 $else$
 SOMETHING WENT SOUTH;
 $endif$>>
@@ -143,7 +143,5 @@ header()::=<<
 #endif
 
 #define OP_WARPSIZE $const.warpsize$
-#define MIN(a,b) ((a < b) ? (a) : (b))
-#define MAX(a,b) ((a < b) ? (b) : (a))
 #define OP2_STRIDE(arr, idx) (arr[idx])
 >>

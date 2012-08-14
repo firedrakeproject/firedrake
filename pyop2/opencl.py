@@ -275,7 +275,7 @@ class Global(op2.Global, DeviceDataMixin):
         cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
     def _allocate_reduction_array(self, nelems):
-        self._h_reduc_array = np.zeros ((align(nelems * self._data.itemsize, 16),), dtype=self._data.dtype)
+        self._h_reduc_array = np.zeros (nelems * self.cdim, dtype=self._data.dtype)
         self._d_reduc_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._h_reduc_array.nbytes)
         cl.enqueue_copy(_queue, self._d_reduc_buffer, self._h_reduc_array, is_blocking=True).wait()
 
@@ -314,16 +314,14 @@ class Global(op2.Global, DeviceDataMixin):
                 if reduction_operator is INC:
                     return "INC"
                 elif reduction_operator is MIN:
-                    return "MIN"
+                    return "min"
                 elif reduction_operator is MAX:
-                        return "MAX"
+                        return "max"
                 assert False
 
             return """
 %(headers)s
 #define INC(a,b) ((a)+(b))
-#define MIN(a,b) ((a < b) ? (a) : (b))
-#define MAX(a,b) ((a < b) ? (b) : (a))
 __kernel
 void %(name)s_reduction (
   __global %(type)s* dat,
