@@ -32,8 +32,8 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import sequential as op2
-from utils import verify_reshape
-from sequential import IdentityMap, READ, WRITE, RW, INC, MIN, MAX
+from utils import verify_reshape, align, uniquify
+from sequential import IdentityMap, READ, WRITE, RW, INC, MIN, MAX, Sparsity
 import op_lib_core as core
 import pyopencl as cl
 import pkg_resources
@@ -46,7 +46,7 @@ import warnings
 import sys
 import math
 from pycparser import c_parser, c_ast, c_generator
-from utils import align, uniquify
+import re
 
 class Kernel(op2.Kernel):
     """OP2 OpenCL kernel type."""
@@ -57,6 +57,7 @@ class Kernel(op2.Kernel):
     class Instrument(c_ast.NodeVisitor):
         """C AST visitor for instrumenting user kernels.
              - adds memory space attribute to user kernel declaration
+             - appends constant declaration to user kernel param list
              - adds a separate function declaration for user kernel
         """
         def instrument(self, ast, kernel_name, instrument, constants):
@@ -89,18 +90,31 @@ class Kernel(op2.Kernel):
                 node.params.append(decl)
 
     def instrument(self, instrument, constants):
-        ast = c_parser.CParser().parse(self._code)
+        def comment_remover(text):
+            """Remove all C- and C++-style comments from a string."""
+            # Reference: http://stackoverflow.com/questions/241327/python-snippet-to-remove-c-and-c-comments
+            def replacer(match):
+                s = match.group(0)
+                if s.startswith('/'):
+                    return ""
+                else:
+                    return s
+            pattern = re.compile(r'//.*?$|/\*.*?\*/|\'(?:\\.|[^\\\'])*\'|"(?:\\.|[^\\"])*"',
+                                 re.DOTALL | re.MULTILINE)
+            return re.sub(pattern, replacer, text)
+
+        ast = c_parser.CParser().parse(comment_remover(self._code).replace("\\\n", "\n"))
         Kernel.Instrument().instrument(ast, self._name, instrument, constants)
         self._inst_code = c_generator.CGenerator().visit(ast)
 
 class Arg(op2.Arg):
     """OP2 OpenCL argument type."""
 
-    def __init__(self, data=None, map=None, idx=None, access=None):
-        op2.Arg.__init__(self, data, map, idx, access)
+    @property
+    def _is_mat(self):
+        return isinstance(self._dat, Mat)
 
     # Codegen specific
-
     @property
     def _d_is_staged(self):
         return self._is_direct and not self._dat._is_scalar
@@ -109,7 +123,6 @@ class Arg(op2.Arg):
     def _i_gen_vec(self):
         assert self._is_vec_map
         return map(lambda i: Arg(self._dat, self._map, i, self._access), range(self._map._dim))
-
 
 class DeviceDataMixin:
     """Codegen mixin for datatype and literal translation."""
@@ -165,14 +178,70 @@ class Dat(op2.Dat, DeviceDataMixin):
             np.transpose(self._data)
         return self._data
 
+    def _upload_from_c_layer(self):
+        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
+
+def solve(M, x, b):
+    x.data
+    b.data
+    core.solve(M, x, b)
+    x._upload_from_c_layer()
+    b._upload_from_c_layer()
+
 class Mat(op2.Mat, DeviceDataMixin):
     """OP2 OpenCL matrix data type."""
 
     _arg_type = Arg
 
-    def __init__(self, datasets, dim, dtype=None, name=None):
-        op2.Mat.__init__(self, datasets, dim, dtype, name)
-        raise NotImplementedError('Matrix data is unsupported yet')
+    def __init__(self, sparsity, dim, dtype=None, name=None):
+        op2.Mat.__init__(self, sparsity, dim, dtype, name)
+
+        self._ab = None
+        self._cib = None
+        self._rpb = None
+
+    @property
+    def _array_buffer(self):
+        if not self._ab:
+            s = self._datatype.itemsize * self._sparsity.c_handle.total_nz
+            self._ab = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=s)
+        return self._ab
+
+    @property
+    def _colidx_buffer(self):
+        if not self._cib:
+            self._cib = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity.c_handle.colidx.nbytes)
+            cl.enqueue_copy(_queue, self._cib, self._sparsity.c_handle.colidx, is_blocking=True).wait()
+        return self._cib
+
+    @property
+    def _rowptr_buffer(self):
+        if not self._rpb:
+            self._rpb = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity.c_handle.rowptr.nbytes)
+            cl.enqueue_copy(_queue, self._rpb, self._sparsity.c_handle.rowptr, is_blocking=True).wait()
+        return self._rpb
+
+    def _upload_array(self):
+        cl.enqueue_copy(_queue, self._array_buffer, self.c_handle.array, is_blocking=True).wait()
+
+    def assemble(self):
+        cl.enqueue_copy(_queue, self.c_handle.array, self._array_buffer, is_blocking=True).wait()
+        self.c_handle.restore_array()
+        self.c_handle.assemble()
+
+    @property
+    def _dim(self):
+        warnings.warn("something fishy... what's Sparsity.dims and Mat.dims?")
+        return 1
+
+    @property
+    def _cl_type(self):
+        return DeviceDataMixin.CL_TYPES[self.dtype].clstring
+
+    @property
+    def _cl_type_zero(self):
+        return DeviceDataMixin.CL_TYPES[self.dtype].zero
+
 
 class Const(op2.Const, DeviceDataMixin):
     """OP2 OpenCL data that is constant for any element of any set."""
@@ -220,14 +289,41 @@ class Global(op2.Global, DeviceDataMixin):
         self._data = verify_reshape(value, self.dtype, self.dim)
         cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
-    def _post_kernel_reduction_task(self, nelems):
-        src = """
+    def _post_kernel_reduction_task(self, nelems, reduction_operator):
+        assert reduction_operator in [INC, MIN, MAX]
+
+        def generate_code():
+            def headers():
+                if self.dtype == np.dtype('float64'):
+                    return """
 #if defined(cl_khr_fp64)
+#if defined(cl_amd_fp64)
+#pragma OPENCL EXTENSION cl_amd_fp64 : enable
+#else
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
+#endif
 #elif defined(cl_amd_fp64)
 #pragma OPENCL EXTENSION cl_amd_fp64 : enable
 #endif
 
+"""
+                else:
+                    return ""
+
+            def op():
+                if reduction_operator is INC:
+                    return "INC"
+                elif reduction_operator is MIN:
+                    return "MIN"
+                elif reduction_operator is MAX:
+                        return "MAX"
+                assert False
+
+            return """
+%(headers)s
+#define INC(a,b) ((a)+(b))
+#define MIN(a,b) ((a < b) ? (a) : (b))
+#define MAX(a,b) ((a < b) ? (b) : (a))
 __kernel
 void %(name)s_reduction (
   __global %(type)s* dat,
@@ -238,26 +334,27 @@ void %(name)s_reduction (
   __private %(type)s accumulator[%(dim)d];
   for (int j = 0; j < %(dim)d; ++j)
   {
-    accumulator[j] = %(zero)s;
+    accumulator[j] = dat[j];
   }
   for (int i = 0; i < count; ++i)
   {
     for (int j = 0; j < %(dim)d; ++j)
     {
-      accumulator[j] += *(tmp + i * %(dim)d + j);
+      accumulator[j] = %(op)s(accumulator[j], *(tmp + i * %(dim)d + j));
     }
   }
   for (int j = 0; j < %(dim)d; ++j)
   {
-    *(dat + j) = accumulator[j];
+    dat[j] = accumulator[j];
   }
-
 }
-""" % {'name': self._name,
-       'dim': np.prod(self._dim),
-       'type': self._cl_type,
-       'zero': self._cl_type_zero}
+""" % {'headers': headers(), 'name': self._name, 'dim': np.prod(self._dim), 'type': self._cl_type, 'op': op()}
 
+
+        if not _reduction_task_cache.has_key((self.dtype, self.cdim, reduction_operator)):
+            _reduction_task_cache[(self.dtype, self.cdim, reduction_operator)] = generate_code()
+
+        src = _reduction_task_cache[(self.dtype, self.cdim, reduction_operator)]
         prg = cl.Program(_ctx, src).build(options="-Werror")
         kernel = prg.__getattr__(self._name + '_reduction')
         kernel.append_arg(self._buffer)
@@ -285,7 +382,7 @@ class OpPlanCache():
         self._cache = dict()
 
     def get_plan(self, parloop, **kargs):
-        cp = core.op_plan(parloop._kernel, parloop._it_space, *parloop._args, **kargs)
+        cp = core.op_plan(parloop._kernel, parloop._it_set, *parloop._args, **kargs)
         try:
             plan = self._cache[cp.hsh]
         except KeyError:
@@ -293,24 +390,6 @@ class OpPlanCache():
             self._cache[cp.hsh] = plan
 
         return plan
-
-class GenCodeCache():
-    """Cache for generated code.
-         Keys: OP2 kernels
-         Entries: generated code strings, OpenCL built programs tuples
-    """
-
-    def __init__(self):
-        self._cache = dict()
-
-    def get_code(self, kernel):
-        try:
-            return self._cache[kernel]
-        except KeyError:
-            return (None, None)
-
-    def cache_code(self, kernel, code):
-        self._cache[kernel] = code
 
 class OpPlan():
     """ Helper proxy for core.op_plan."""
@@ -359,16 +438,16 @@ class OpPlan():
 
         self._ind_map_buffers = [None] * self._core_plan.ninds
         for i in range(self._core_plan.ninds):
-            self._ind_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int32(0).itemsize * (_off[i+1] - _off[i]) * self._parloop._it_space.size))
-            s = self._parloop._it_space.size * _off[i]
-            e = s + (_off[i+1] - _off[i]) * self._parloop._it_space.size
+            self._ind_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int32(0).itemsize * (_off[i+1] - _off[i]) * self._parloop._it_set.size))
+            s = self._parloop._it_set.size * _off[i]
+            e = s + (_off[i+1] - _off[i]) * self._parloop._it_set.size
             cl.enqueue_copy(_queue, self._ind_map_buffers[i], self._core_plan.ind_map[s:e], is_blocking=True).wait()
 
         self._loc_map_buffers = [None] * self.nuinds
         for i in range(self.nuinds):
-            self._loc_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int16(0).itemsize * self._parloop._it_space.size))
-            s = i * self._parloop._it_space.size
-            e = s + self._parloop._it_space.size
+            self._loc_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int16(0).itemsize * self._parloop._it_set.size))
+            s = i * self._parloop._it_set.size
+            e = s + self._parloop._it_set.size
             cl.enqueue_copy(_queue, self._loc_map_buffers[i], self._core_plan.loc_map[s:e], is_blocking=True).wait()
 
         self._ind_sizes_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.ind_sizes.nbytes)
@@ -452,7 +531,13 @@ class ParLoopCall(object):
 
     def __init__(self, kernel, it_space, *args):
         self._kernel = kernel
-        self._it_space = it_space
+        if isinstance(it_space, op2.IterationSpace):
+            self._it_set = it_space._iterset
+            self._it_space = it_space
+        else:
+            self._it_set = it_space
+            self._it_space = False
+
         self._actual_args = list(args)
 
         self._args = list()
@@ -460,6 +545,8 @@ class ParLoopCall(object):
             if a._is_vec_map:
                 for i in range(a._map._dim):
                     self._args.append(Arg(a._dat, a._map, i, a._access))
+            elif a._is_mat:
+                pass
             else:
                 self._args.append(a)
 
@@ -480,8 +567,6 @@ class ParLoopCall(object):
     @property
     def _indirect_reduc_args(self):
         return uniquify(a for a in self._args if a._is_indirect_reduction)
-
-    # code generation specific
 
     @property
     def _direct_args(self):
@@ -513,6 +598,19 @@ class ParLoopCall(object):
             reduction = 0
 
         return max(staging, reduction)
+
+    @property
+    def _matrix_args(self):
+        return [a for a in self._actual_args if a._is_mat]
+
+    @property
+    def _unique_matrix(self):
+        return uniquify(a._dat for a in self._matrix_args)
+
+    @property
+    def _matrix_entry_maps(self):
+        """Set of all mappings used in matrix arguments."""
+        return uniquify(m for arg in self._actual_args  if arg._is_mat for m in arg._map)
 
     @property
     def _indirect_args(self):
@@ -547,7 +645,8 @@ class ParLoopCall(object):
         return uniquify(DatMapPair(a._dat, a._map) for a in self._args if a._is_indirect_reduction)
 
     def compute(self):
-        source, prg = _gen_code_cache.get_code(self._kernel)
+        # get generated code from cache if present
+        source = _kernel_stub_cache[self._kernel] if _kernel_stub_cache.has_key(self._kernel) else None
 
         if self.is_direct():
             per_elem_max_local_mem_req = self._d_max_dynamic_shared_memory()
@@ -568,7 +667,7 @@ class ParLoopCall(object):
                 available_local_memory -= 7
                 ps = available_local_memory / per_elem_max_local_mem_req
                 wgs = min(_queue.device.max_work_group_size, (ps / _warpsize) * _warpsize)
-            nwg = min(_pref_work_group_count, int(math.ceil(self._it_space.size / float(wgs))))
+            nwg = min(_pref_work_group_count, int(math.ceil(self._it_set.size / float(wgs))))
             ttc = wgs * nwg
 
             local_memory_req = per_elem_max_local_mem_req * wgs
@@ -593,7 +692,8 @@ class ParLoopCall(object):
                                   "shared_memory_offset": shared_memory_offset,\
                                   "dynamic_shared_memory_size": local_memory_req,\
                                   "threads_per_block": wgs,
-                                  "block_count": nwg}
+                                  "block_count": nwg,\
+                                  "amd": _AMD_fixes}
                 dloop['op2const'] = list(Const._defs)
                 source = str(dloop)
 
@@ -603,9 +703,9 @@ class ParLoopCall(object):
                     f.write(source)
                     f.close
 
-                prg = cl.Program (_ctx, source).build(options="-Werror")
-                _gen_code_cache.cache_code(self._kernel, (source, prg))
+                _kernel_stub_cache[self._kernel] = source
 
+            prg = cl.Program (_ctx, source).build(options="-Werror")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
 
             for a in self._unique_dats:
@@ -621,11 +721,11 @@ class ParLoopCall(object):
             for cst in Const._defs:
                 kernel.append_arg(cst._buffer)
 
-            kernel.append_arg(np.int32(self._it_space.size))
+            kernel.append_arg(np.int32(self._it_set.size))
 
             cl.enqueue_nd_range_kernel(_queue, kernel, (int(ttc),), (int(wgs),), g_times_l=False).wait()
             for i, a in enumerate(self._global_reduction_args):
-                a._dat._post_kernel_reduction_task(nwg)
+                a._dat._post_kernel_reduction_task(nwg, a._access)
         else:
             psize = self._i_compute_partition_size()
             plan = _plan_cache.get_plan(self, partition_size=psize)
@@ -635,6 +735,8 @@ class ParLoopCall(object):
                 for i, arg in enumerate(self._actual_args):
                     if arg._map == IdentityMap:
                         inst.append(("__global", None))
+                    elif arg._is_mat:
+                        inst.append(("__private", None))
                     elif arg._is_vec_map and arg._is_indirect_reduction:
                         inst.append(("__private", None))
                     elif arg._is_vec_map and not arg._is_indirect_reduction:
@@ -644,6 +746,12 @@ class ParLoopCall(object):
                     elif arg._is_global and not arg._is_global_reduction:
                         inst.append(("__global", None))
                     else:
+                        inst.append(("__private", None))
+
+                # user kernel has iteration spaceindex arguments,
+                # must be __private
+                if self._it_space:
+                    for i in range(len(self._it_space.extents)):
                         inst.append(("__private", None))
 
                 self._kernel.instrument(inst, list(Const._defs))
@@ -656,7 +764,8 @@ class ParLoopCall(object):
                                   'block_count': 'dynamic',\
                                   'threads_per_block': min(_max_work_group_size, psize),\
                                   'partition_size':psize,\
-                                  'warpsize': _warpsize}
+                                  'warpsize': _warpsize,\
+                                  'amd': _AMD_fixes}
                 iloop['op2const'] = list(Const._defs)
                 source = str(iloop)
 
@@ -666,11 +775,9 @@ class ParLoopCall(object):
                     f.write(source)
                     f.close
 
-                prg = cl.Program(_ctx, source).build(options="-Werror")
+                _kernel_stub_cache[self._kernel] = source
 
-                _gen_code_cache.cache_code(self._kernel, (source, prg))
-
-
+            prg = cl.Program(_ctx, source).build(options="-Werror")
             kernel = prg.__getattr__(self._kernel._name + '_stub')
 
             for a in self._unique_dats:
@@ -688,6 +795,15 @@ class ParLoopCall(object):
             for arg in self._global_reduction_args:
                 arg._dat._allocate_reduction_array(plan.nblocks)
                 kernel.append_arg(arg._dat._d_reduc_buffer)
+
+            for m in self._unique_matrix:
+                kernel.append_arg(m._array_buffer)
+                m._upload_array()
+                kernel.append_arg(m._rowptr_buffer)
+                kernel.append_arg(m._colidx_buffer)
+
+            for m in self._matrix_entry_maps:
+                kernel.append_arg(m._buffer)
 
             for cst in Const._defs:
                 kernel.append_arg(cst._buffer)
@@ -711,7 +827,10 @@ class ParLoopCall(object):
                 block_offset += blocks_per_grid
 
             for arg in self._global_reduction_args:
-                arg._dat._post_kernel_reduction_task(plan.nblocks)
+                arg._dat._post_kernel_reduction_task(plan.nblocks, arg._access)
+
+            for mat in [arg._dat for arg in self._matrix_args]:
+                mat.assemble()
 
     def is_direct(self):
         return all(map(lambda a: a._is_direct or isinstance(a._dat, Global), self._args))
@@ -792,6 +911,8 @@ elif _queue.device.type == cl.device_type.GPU:
     # assumes nvidia, will probably fail with AMD gpus
     _warpsize = 32
 
+_AMD_fixes = _queue.device.platform.vendor in ['Advanced Micro Devices, Inc.']
+
 if not _has_dpfloat:
     warnings.warn('device does not support double precision floating point computation, expect undefined behavior for double')
 
@@ -799,4 +920,5 @@ _stg_direct_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.Stri
 _stg_indirect_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.StringIO(pkg_resources.resource_string(__name__, "assets/opencl_indirect_loop.stg")), lexer="default")
 
 _plan_cache = OpPlanCache()
-_gen_code_cache = GenCodeCache()
+_kernel_stub_cache = dict()
+_reduction_task_cache = dict()

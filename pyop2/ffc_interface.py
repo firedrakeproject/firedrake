@@ -31,8 +31,18 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from ffc import default_parameters
+"""Provides the interface to FFC for compiling a form, and transforms the FFC-
+generated code in order to make it suitable for passing to the backends."""
 
-ffc_parameters = default_parameters()
-ffc_parameters['write_file'] = False
-ffc_parameters['format'] = 'pyop2'
+from ffc import default_parameters, compile_form as ffc_compile_form
+import re
+
+def compile_form(form, name):
+    """Compile a form using FFC and return an OP2 kernel"""
+
+    ffc_parameters = default_parameters()
+    ffc_parameters['write_file'] = False
+    ffc_parameters['format'] = 'pyop2'
+
+    code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
+    return code

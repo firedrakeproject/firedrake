@@ -164,25 +164,25 @@ cdef class op_set:
         cdef char * name = set.name
         self._handle = core.op_decl_set_core(size, name)
 
-    property size:
-        def __get__(self):
-            """Return the number of elements in the set"""
-            return self._handle.size
+    @property
+    def size(self):
+        """Return the number of elements in the set"""
+        return self._handle.size
 
-    property core_size:
-        def __get__(self):
-            """Return the number of core elements (MPI-only)"""
-            return self._handle.core_size
+    @property
+    def core_size(self):
+        """Return the number of core elements (MPI-only)"""
+        return self._handle.core_size
 
-    property exec_size:
-        def __get__(self):
-            """Return the number of additional imported elements to be executed"""
-            return self._handle.exec_size
+    @property
+    def exec_size(self):
+        """Return the number of additional imported elements to be executed"""
+        return self._handle.exec_size
 
-    property nonexec_size:
-        def __get__(self):
-            """Return the number of additional imported elements that are not executed"""
-            return self._handle.nonexec_size
+    @property
+    def nonexec_size(self):
+        """Return the number of additional imported elements that are not executed"""
+        return self._handle.nonexec_size
 
 cdef class op_dat:
     cdef core.op_dat _handle
@@ -250,8 +250,24 @@ cdef class op_sparsity:
         self._handle = core.op_decl_sparsity_core(rmaps, cmaps, nmaps,
                                                   dim, 2, name)
 
+    @property
+    def total_nz(self):
+        return self._handle.total_nz
+
+    @property
+    def rowptr(self):
+        size = self._handle.nrows + 1
+        return data_to_numpy_array_with_spec(self._handle.rowptr, size, np.NPY_INTP)
+
+    @property
+    def colidx(self):
+        size = self._handle.total_nz
+        return data_to_numpy_array_with_spec(self._handle.colidx, size, np.NPY_INTP)
+
 cdef class op_mat:
     cdef core.op_mat _handle
+    cdef int _nnzeros
+
     def __cinit__(self, mat):
         """Instantiate a C-level op_mat from MAT"""
         cdef op_sparsity sparsity = mat.sparsity.c_handle
@@ -259,6 +275,7 @@ cdef class op_mat:
         cdef char * type = mat.ctype
         cdef int size = mat.dtype.itemsize
         cdef char * name = mat.name
+        self._nnzeros = mat._sparsity.c_handle.total_nz
         dim[0] = mat.dims[0]
         dim[1] = mat.dims[1]
         self._handle = core.op_decl_mat(sparsity._handle, dim, 2, type, size, name)
@@ -274,23 +291,37 @@ cdef class op_mat:
         core.op_mat_zero_rows(self._handle, <int> n, r, <double> v)
         free(r)
 
-    property cptr:
-        def __get__(self):
-            cdef uintptr_t val
-            val = <uintptr_t>self._handle
-            return val
+    def assemble(self):
+        core.op_mat_assemble(self._handle)
 
-    property values:
-        def __get__(self):
-            cdef int m, n
-            cdef double *v
-            cdef np.ndarray[double, ndim=2, mode="c"] vals
-            core.op_mat_get_values(self._handle, &v, &m, &n)
-            cdef np.npy_intp *d2 = [m,n]
+    @property
+    def array(self):
+        cdef np.ndarray[double, ndim=1, mode="c"] arr
+        cdef np.npy_intp* dims = [self._nnzeros]
+        core.op_mat_get_array(self._handle)
+        arr = np.PyArray_SimpleNewFromData(1, dims, np.NPY_DOUBLE, <double*> self._handle.mat_array)
+        return arr
 
-            vals = np.PyArray_SimpleNew(2, d2, np.NPY_DOUBLE)
-            vals.data = <char *>v
-            return vals
+    def restore_array(self):
+        core.op_mat_put_array(self._handle)
+
+    @property
+    def cptr(self):
+        cdef uintptr_t val
+        val = <uintptr_t>self._handle
+        return val
+
+    @property
+    def values(self):
+        cdef int m, n
+        cdef double *v
+        cdef np.ndarray[double, ndim=2, mode="c"] vals
+        core.op_mat_get_values(self._handle, &v, &m, &n)
+        cdef np.npy_intp *d2 = [m,n]
+
+        vals = np.PyArray_SimpleNew(2, d2, np.NPY_DOUBLE)
+        vals.data = <char *>v
+        return vals
 
 cdef class op_arg:
     cdef core.op_arg _handle
@@ -430,52 +461,53 @@ further ARGS."""
             free(_args)
             free(inds)
 
-    property ninds:
+    @property
+    def ninds(self):
         """Return the number of unique indirect arguments"""
-        def __get__(self):
-            return self._handle.ninds
+        return self._handle.ninds
 
-    property nargs:
+    @property
+    def nargs(self):
         """Return the total number of arguments"""
-        def __get__(self):
-            return self._handle.nargs
+        return self._handle.nargs
 
-    property part_size:
+    @property
+    def part_size(self):
         """Return the partition size.
 
 Normally this will be zero, indicating that the plan should guess the
 best partition size."""
-        def __get__(self):
-            return self._handle.part_size
+        return self._handle.part_size
 
-    property nthrcol:
+    @property
+    def nthrcol(self):
         """The number of thread colours in each block.
 
 There are nblocks blocks so nthrcol[i] gives the number of colours in
 the ith block."""
-        def __get__(self):
-            cdef int size = self.nblocks
-            return data_to_numpy_array_with_spec(self._handle.nthrcol, size, np.NPY_INT32)
+        cdef int size = self.nblocks
+        return data_to_numpy_array_with_spec(self._handle.nthrcol, size, np.NPY_INT32)
 
-    property thrcol:
+    @property
+    def thrcol(self):
         """Thread colours of each element.
 
 The ith entry in this array is the colour of ith element of the
 iteration set the plan is defined on."""
-        def __get__(self):
-            cdef int size = self.set_size
-            return data_to_numpy_array_with_spec(self._handle.thrcol, size, np.NPY_INT32)
+        cdef int size = self.set_size
+        return data_to_numpy_array_with_spec(self._handle.thrcol, size, np.NPY_INT32)
 
-    property offset:
+    @property
+    def offset(self):
         """The offset into renumbered mappings for each block.
 
 This tells us where in loc_map (q.v.) this block's renumbered mapping
 starts."""
-        def __get__(self):
-            cdef int size = self.nblocks
-            return data_to_numpy_array_with_spec(self._handle.offset, size, np.NPY_INT32)
+        cdef int size = self.nblocks
+        return data_to_numpy_array_with_spec(self._handle.offset, size, np.NPY_INT32)
 
-    property ind_map:
+    @property
+    def ind_map(self):
         """Renumbered mappings for each indirect dataset.
 
 The ith indirect dataset's mapping starts at:
@@ -485,11 +517,11 @@ The ith indirect dataset's mapping starts at:
 But we need to fix this up for the block we're currently processing,
 so see also ind_offs.
 """
-        def __get__(self):
-            cdef int size = self.set_size * self.nind_ele
-            return data_to_numpy_array_with_spec(self._handle.ind_map, size, np.NPY_INT32)
+        cdef int size = self.set_size * self.nind_ele
+        return data_to_numpy_array_with_spec(self._handle.ind_map, size, np.NPY_INT32)
 
-    property ind_offs:
+    @property
+    def ind_offs(self):
         """Offsets for each block into ind_map (q.v.).
 
 The ith /unique/ indirect dataset's offset is at:
@@ -497,11 +529,11 @@ The ith /unique/ indirect dataset's offset is at:
     ind_offs[(i-1) + blockId * N]
 
 where N is the number of unique indirect datasets."""
-        def __get__(self):
-            cdef int size = self.nblocks * self.ninds
-            return data_to_numpy_array_with_spec(self._handle.ind_offs, size, np.NPY_INT32)
+        cdef int size = self.nblocks * self.ninds
+        return data_to_numpy_array_with_spec(self._handle.ind_offs, size, np.NPY_INT32)
 
-    property ind_sizes:
+    @property
+    def ind_sizes(self):
         """The size of each indirect dataset per block.
 
 The ith /unique/ indirect direct has
@@ -510,17 +542,17 @@ The ith /unique/ indirect direct has
 
 elements to be staged in, where N is the number of unique indirect
 datasets."""
-        def __get__(self):
-            cdef int size = self.nblocks * self.ninds
-            return data_to_numpy_array_with_spec(self._handle.ind_sizes, size, np.NPY_INT32)
+        cdef int size = self.nblocks * self.ninds
+        return data_to_numpy_array_with_spec(self._handle.ind_sizes, size, np.NPY_INT32)
 
-    property nindirect:
+    @property
+    def nindirect(self):
         """Total size of each unique indirect dataset"""
-        def __get__(self):
-            cdef int size = self.ninds
-            return data_to_numpy_array_with_spec(self._handle.nindirect, size, np.NPY_INT32)
+        cdef int size = self.ninds
+        return data_to_numpy_array_with_spec(self._handle.nindirect, size, np.NPY_INT32)
 
-    property loc_map:
+    @property
+    def loc_map(self):
         """Local indirect dataset indices, see also offset
 
 Once the ith unique indirect dataset has been copied into shared
@@ -529,87 +561,86 @@ memory the nth iteration element is:
 
     arg_i_s + loc_map[(i-1) * set_size + n + offset[blockId]] * dim(arg_i)
 """
-        def __get__(self):
-            cdef int size = self.set_size * self.nind_ele
-            return data_to_numpy_array_with_spec(self._handle.loc_map, size, np.NPY_INT16)
+        cdef int size = self.set_size * self.nind_ele
+        return data_to_numpy_array_with_spec(self._handle.loc_map, size, np.NPY_INT16)
 
-    property nblocks:
+    @property
+    def nblocks(self):
         """The number of blocks"""
-        def __get__(self):
-            return self._handle.nblocks
+        return self._handle.nblocks
 
-    property nelems:
+    @property
+    def nelems(self):
         """The number of elements in each block"""
-        def __get__(self):
-            cdef int size = self.nblocks
-            return data_to_numpy_array_with_spec(self._handle.nelems, size, np.NPY_INT32)
+        cdef int size = self.nblocks
+        return data_to_numpy_array_with_spec(self._handle.nelems, size, np.NPY_INT32)
 
-    property ncolors_core:
+    @property
+    def ncolors_core(self):
         """Number of core (non-halo colours)
 
 MPI only."""
-        def __get__(self):
-            return self._handle.ncolors_core
+        return self._handle.ncolors_core
 
-    property ncolors_owned:
+    @property
+    def ncolors_owned(self):
         """Number of colours for blocks with only owned elements
 
 MPI only."""
-        def __get__(self):
-            return self._handle.ncolors_owned
+        return self._handle.ncolors_owned
 
-    property ncolors:
+    @property
+    def ncolors(self):
         """Number of block colours"""
-        def __get__(self):
-            return self._handle.ncolors
+        return self._handle.ncolors
 
-    property ncolblk:
+    @property
+    def ncolblk(self):
         """Number of blocks for each colour
 
 This array is allocated to be set_size long, but this is the worst
 case scenario (every element interacts with every other).  The number
 of "real" elements is ncolors."""
-        def __get__(self):
-            cdef int size = self.set_size
-            return data_to_numpy_array_with_spec(self._handle.ncolblk, size, np.NPY_INT32)
+        cdef int size = self.set_size
+        return data_to_numpy_array_with_spec(self._handle.ncolblk, size, np.NPY_INT32)
 
-    property blkmap:
+    @property
+    def blkmap(self):
         """Mapping from device's block ID to plan's block ID.
 
 There are nblocks entries here, you should index into this with the
 device's "block" address plus an offset which is
 
     sum(ncolblk[i] for i in range(0, current_colour))"""
-        def __get__(self):
-            cdef int size = self.nblocks
-            return data_to_numpy_array_with_spec(self._handle.blkmap, size, np.NPY_INT32)
+        cdef int size = self.nblocks
+        return data_to_numpy_array_with_spec(self._handle.blkmap, size, np.NPY_INT32)
 
-    property nsharedCol:
+    @property
+    def nsharedCol(self):
         """The amount of shared memory required for each colour"""
-        def __get__(self):
-            cdef int size = self.ncolors
-            return data_to_numpy_array_with_spec(self._handle.nsharedCol, size, np.NPY_INT32)
+        cdef int size = self.ncolors
+        return data_to_numpy_array_with_spec(self._handle.nsharedCol, size, np.NPY_INT32)
 
-    property nshared:
+    @property
+    def nshared(self):
         """The total number of bytes of shared memory the plan uses"""
-        def __get__(self):
-            return self._handle.nshared
+        return self._handle.nshared
 
-    property transfer:
+    @property
+    def transfer(self):
         """Data transfer per kernel call"""
-        def __get__(self):
-            return self._handle.transfer
+        return self._handle.transfer
 
-    property transfer2:
+    @property
+    def transfer2(self):
         """Bytes of cache line per kernel call"""
-        def __get__(self):
-            return self._handle.transfer2
+        return self._handle.transfer2
 
-    property count:
+    @property
+    def count(self):
         """Number of times this plan has been used"""
-        def __get__(self):
-            return self._handle.count
+        return self._handle.count
 
-    property hsh:
-        def __get__(self):
-            return hash(<uintptr_t>self._handle)
+    @property
+    def hsh(self):
+        return hash(<uintptr_t>self._handle)
