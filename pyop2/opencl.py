@@ -628,15 +628,15 @@ class ParLoopCall(object):
         # 16bytes local mem used for global / local indices and sizes
         available_local_memory -= 16
         # (4/8)ptr size per dat passed as argument (dat)
-        available_local_memory -= (_queue.device.address_bits / 8) * (len(self._unique_dats) + len(self._global_non_reduction_args))
+        available_local_memory -= (_address_bits / 8) * (len(self._unique_dats) + len(self._global_non_reduction_args))
         # (4/8)ptr size per dat/map pair passed as argument (ind_map)
-        available_local_memory -= (_queue.device.address_bits / 8) * len(self._dat_map_pairs)
+        available_local_memory -= (_address_bits / 8) * len(self._dat_map_pairs)
         # (4/8)ptr size per global reduction temp array
-        available_local_memory -= (_queue.device.address_bits / 8) * len(self._global_reduction_args)
+        available_local_memory -= (_address_bits / 8) * len(self._global_reduction_args)
         # (4/8)ptr size per indirect arg (loc_map)
-        available_local_memory -= (_queue.device.address_bits / 8) * len(filter(lambda a: not a._is_indirect, self._args))
+        available_local_memory -= (_address_bits / 8) * len(filter(lambda a: not a._is_indirect, self._args))
         # (4/8)ptr size * 7: for plan objects
-        available_local_memory -= (_queue.device.address_bits / 8) * 7
+        available_local_memory -= (_address_bits / 8) * 7
         # 1 uint value for block offset
         available_local_memory -= 4
         # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
@@ -645,7 +645,7 @@ class ParLoopCall(object):
         #     and 3 for potential padding after shared mem buffer
         available_local_memory -= 12 + 3
         # 2 * (4/8)ptr size + 1uint32: DAT_via_MAP_indirection(./_size/_map) per dat map pairs
-        available_local_memory -= 4 + (_queue.device.address_bits / 8) * 2 * len(self._dat_map_pairs)
+        available_local_memory -= 4 + (_address_bits / 8) * 2 * len(self._dat_map_pairs)
         # inside shared memory padding
         available_local_memory -= 2 * (len(self._dat_map_pairs) - 1)
 
@@ -657,21 +657,21 @@ class ParLoopCall(object):
             per_elem_max_local_mem_req = self._d_max_local_memory_required_per_elem()
             shared_memory_offset = per_elem_max_local_mem_req * _warpsize
             if per_elem_max_local_mem_req == 0:
-                wgs = _queue.device.max_work_group_size
+                wgs = _max_work_group_size
             else:
                 # 16bytes local mem used for global / local indices and sizes
                 # (4/8)ptr bytes for each dat buffer passed to the kernel
                 # (4/8)ptr bytes for each temporary global reduction buffer passed to the kernel
                 # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
                 warnings.warn('temporary fix to available local memory computation (-512)')
-                available_local_memory = _queue.device.local_mem_size - 512
+                available_local_memory = _max_local_memory - 512
                 available_local_memory -= 16
                 available_local_memory -= (len(self._unique_dats) + len(self._global_non_reduction_args))\
-                                          * (_queue.device.address_bits / 8)
-                available_local_memory -= len(self._global_reduction_args) * (_queue.device.address_bits / 8)
+                                          * (_address_bits / 8)
+                available_local_memory -= len(self._global_reduction_args) * (_address_bits / 8)
                 available_local_memory -= 7
                 ps = available_local_memory / per_elem_max_local_mem_req
-                wgs = min(_queue.device.max_work_group_size, (ps / _warpsize) * _warpsize)
+                wgs = min(_max_work_group_size, (ps / _warpsize) * _warpsize)
             nwg = min(_pref_work_group_count, int(math.ceil(self._it_set.size / float(wgs))))
             ttc = wgs * nwg
 
