@@ -49,14 +49,14 @@ import sys
 
 import numpy as np
 
-if len(sys.argv) is not 2:
-    print "Usage: mass2d_triangle <mesh_name>"
-    sys.exit(1)
-mesh_name = sys.argv[1]
-
 parser = utils.argparse_op2_parser()
+parser.add_argument('-m', '--mesh',
+                    action='store',
+                    type=str,
+                    help='Base name of triangle mesh (excluding the .ele or .node extension)')
 opt = vars(parser.parse_args())
 op2.init(**opt)
+mesh_name = opt['mesh']
 
 # Set up finite element identity problem
 
