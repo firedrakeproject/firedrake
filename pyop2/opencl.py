@@ -234,14 +234,6 @@ class Mat(op2.Mat, DeviceDataMixin):
         warnings.warn("something fishy... what's Sparsity.dims and Mat.dims?")
         return 1
 
-    @property
-    def _cl_type(self):
-        return DeviceDataMixin.CL_TYPES[self.dtype].clstring
-
-    @property
-    def _cl_type_zero(self):
-        return DeviceDataMixin.CL_TYPES[self.dtype].zero
-
 
 class Const(op2.Const, DeviceDataMixin):
     """OP2 OpenCL data that is constant for any element of any set."""
