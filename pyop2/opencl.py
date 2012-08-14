@@ -771,47 +771,37 @@ class ParLoopCall(object):
             conf['local_memory_size'] = plan.nshared
             conf['ninds'] = plan.ninds
             conf['work_group_size'] = min(_max_work_group_size, conf['partition_size'])
-
+            conf['work_group_count'] = plan.nblocks
         conf['warpsize'] = _warpsize
 
         source = self.codegen(conf)
         kernel = compile_kernel(source, self._kernel._name)
 
+        for a in self._unique_dats:
+            kernel.append_arg(a._buffer)
+
+        for a in self._global_non_reduction_args:
+            kernel.append_arg(a._dat._buffer)
+
+        for a in self._global_reduction_args:
+            a._dat._allocate_reduction_array(conf['work_group_count'])
+            kernel.append_arg(a._dat._d_reduc_buffer)
+
+        for cst in Const._defs:
+            kernel.append_arg(cst._buffer)
+
         if self.is_direct():
-            for a in self._unique_dats:
-                kernel.append_arg(a._buffer)
-
-            for a in self._global_reduction_args:
-                a._dat._allocate_reduction_array(conf['work_group_count'])
-                kernel.append_arg(a._dat._d_reduc_buffer)
-
-            for a in self._global_non_reduction_args:
-                kernel.append_arg(a._dat._buffer)
-
-            for cst in Const._defs:
-                kernel.append_arg(cst._buffer)
-
             kernel.append_arg(np.int32(self._it_set.size))
 
             cl.enqueue_nd_range_kernel(_queue, kernel, (conf['thread_count'],), (conf['work_group_size'],), g_times_l=False).wait()
             for i, a in enumerate(self._global_reduction_args):
                 a._dat._post_kernel_reduction_task(conf['work_group_count'], a._access)
         else:
-            for a in self._unique_dats:
-                kernel.append_arg(a._buffer)
-
-            for a in self._global_non_reduction_args:
-                kernel.append_arg(a._dat._buffer)
-
             for i in range(plan.ninds):
                 kernel.append_arg(plan._ind_map_buffers[i])
 
             for i in range(plan.nuinds):
                 kernel.append_arg(plan._loc_map_buffers[i])
-
-            for arg in self._global_reduction_args:
-                arg._dat._allocate_reduction_array(plan.nblocks)
-                kernel.append_arg(arg._dat._d_reduc_buffer)
 
             for m in self._unique_matrix:
                 kernel.append_arg(m._array_buffer)
@@ -821,9 +811,6 @@ class ParLoopCall(object):
 
             for m in self._matrix_entry_maps:
                 kernel.append_arg(m._buffer)
-
-            for cst in Const._defs:
-                kernel.append_arg(cst._buffer)
 
             kernel.append_arg(plan._ind_sizes_buffer)
             kernel.append_arg(plan._ind_offs_buffer)
@@ -844,7 +831,7 @@ class ParLoopCall(object):
                 block_offset += blocks_per_grid
 
             for arg in self._global_reduction_args:
-                arg._dat._post_kernel_reduction_task(plan.nblocks, arg._access)
+                arg._dat._post_kernel_reduction_task(conf['work_group_count'], arg._access)
 
             for mat in [arg._dat for arg in self._matrix_args]:
                 mat.assemble()

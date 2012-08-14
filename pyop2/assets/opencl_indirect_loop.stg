@@ -14,12 +14,12 @@ __attribute__((reqd_work_group_size($launch.work_group_size$, 1, 1)))
 void $parloop._kernel._name$_stub(
   $parloop._unique_dats:{__global $it._cl_type$* $it._name$,};separator="\n"$
   $parloop._global_non_reduction_args:{__global $it._dat._cl_type$* $it._dat._name$,};separator="\n"$
+  $parloop._global_reduction_args:{__global $it._dat._cl_type$* $global_reduc_device_array_name()$,};separator="\n"$
+  $op2const:{__constant $it._cl_type$* $it._name$,};separator="\n"$
   $parloop._dat_map_pairs:{__global int* $shared_indirection_mapping_arg_name()$,};separator="\n"$
   $parloop._args:{$if(it._is_indirect)$__global short* $mappingarrayname()$,$endif$};separator="\n"$
-  $parloop._global_reduction_args:{__global $it._dat._cl_type$* $global_reduc_device_array_name()$,};separator="\n"$
   $parloop._unique_matrix:{__global $it._cl_type$* $it._name$, __global int* $it._name$_rowptr, __global int* $it._name$_colidx,};separator="\n"$
   $parloop._matrix_entry_maps:{__global int* $it._name$,};separator="\n"$
-  $op2const:{__constant $it._cl_type$* $it._name$,};separator="\n"$
   __global int* p_ind_sizes,
   __global int* p_ind_offsets,
   __global int* p_blk_map,
