@@ -52,7 +52,7 @@ import sys
 
 import numpy as np
 
-parser = utils.argparse_op2_parser()
+parser = utils.argparse_op2_parser(group=True)
 parser.add_argument('-m', '--mesh',
                     action='store',
                     type=str,

@@ -59,9 +59,7 @@ import ffc
 
 import numpy as np
 
-parser = utils.argparse_op2_parser()
-opt = vars(parser.parse_args())
-op2.init(**opt)
+op2.init(**utils.default_parser_parse_args())
 
 # Set up finite element problem
 

@@ -36,9 +36,7 @@ import numpy as np
 from pyop2 import op2, utils
 import h5py
 
-parser = utils.argparse_op2_parser()
-opt = vars(parser.parse_args())
-op2.init(**opt)
+op2.init(**utils.default_parser_parse_args())
 
 from airfoil_vector_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 

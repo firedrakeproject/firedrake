@@ -35,15 +35,10 @@ from pyop2 import op2, utils
 import numpy as np
 import h5py
 from math import sqrt
-
-parser = utils.argparse_op2_parser()
-opt = vars(parser.parse_args())
-op2.init(**opt)
-
 from aero_kernels import dirichlet, dotPV, dotR, init_cg, res_calc, spMV, \
     update, updateP, updateUR
 
-
+op2.init(**utils.default_parser_parse_args())
 
 # Constants
 

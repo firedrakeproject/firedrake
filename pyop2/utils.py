@@ -176,8 +176,13 @@ def uniquify(iterable):
     uniq = set()
     return [x for x in iterable if x not in uniq and (uniq.add(x) or True)]
 
-def argparse_add_op2_args(parser, group=True):
-    """Append op2 arguments to argparse.ArgumentParser parser."""
+def argparse_op2_parser(desc="Generic PyOP2 demos' command line arguments.",
+                        group=False):
+    """Create default argparse.ArgumentParser parser for pyop2 programs."""
+    parser = argparse.ArgumentParser(description=desc,
+                                     add_help=True,
+                                     prefix_chars="-")
+
     g = parser.add_argument_group('pyop2', 'backend configuration options') if group else parser
 
     g.add_argument('-b', '--backend',
@@ -196,14 +201,11 @@ def argparse_add_op2_args(parser, group=True):
                    default=argparse.SUPPRESS,
                    type=argparse.FileType('r'),
                    help='specify alternate configuration' if group else 'specify alternate pyop2 configuration')
+
     return parser
 
-def argparse_op2_parser():
-    """Create default argparse.ArgumentParser parser for pyop2 programs."""
-    parser = argparse.ArgumentParser(description="Generic PyOP2 demos' command line arguments.",
-                                     add_help=True,
-                                     prefix_chars="-")
-    return argparse_add_op2_args(parser, group=False)
+def default_parser_parse_args():
+    return vars(argparse_op2_parser.parse_args())
 
 try:
     OP2_DIR = os.environ['OP2_DIR']
