@@ -264,9 +264,6 @@ class Const(op2.Const, DeviceDataMixin):
         self._data = verify_reshape(value, self.dtype, self.dim)
         cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
-    @property
-    def _cl_value(self):
-        return list(self._data)
 
 class Global(op2.Global, DeviceDataMixin):
     """OP2 OpenCL global value."""
