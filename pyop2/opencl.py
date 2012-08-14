@@ -761,8 +761,6 @@ class ParLoopCall(object):
             kernel.append_arg(np.int32(self._it_set.size))
 
             cl.enqueue_nd_range_kernel(_queue, kernel, (conf['thread_count'],), (conf['work_group_size'],), g_times_l=False).wait()
-            for i, a in enumerate(self._global_reduction_args):
-                a._dat._post_kernel_reduction_task(conf['work_group_count'], a._access)
         else:
             for i in range(plan.ninds):
                 kernel.append_arg(plan._ind_map_buffers[i])
@@ -797,11 +795,11 @@ class ParLoopCall(object):
                 cl.enqueue_nd_range_kernel(_queue, kernel, (int(thread_count),), (int(threads_per_block),), g_times_l=False).wait()
                 block_offset += blocks_per_grid
 
-            for arg in self._global_reduction_args:
-                arg._dat._post_kernel_reduction_task(conf['work_group_count'], arg._access)
-
             for mat in [arg._dat for arg in self._matrix_args]:
                 mat.assemble()
+
+        for i, a in enumerate(self._global_reduction_args):
+            a._dat._post_kernel_reduction_task(conf['work_group_count'], a._access)
 
     def is_direct(self):
         return all(map(lambda a: a._is_direct or isinstance(a._dat, Global), self._args))
