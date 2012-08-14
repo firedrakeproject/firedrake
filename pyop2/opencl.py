@@ -452,10 +452,8 @@ class OpPlan():
             print '_off ' + str(_off)
             for i in range(self.ninds):
                 print 'ind_map[' + str(i) + '] = ' + str(self.ind_map[s:e])
-                pass
             for i in range(self.nuinds):
                 print 'loc_map[' + str(i) + '] = ' + str(self.loc_map[s:e])
-                pass
             print 'ind_sizes :' + str(self.ind_sizes)
             print 'ind_offs :' + str(self.ind_offs)
             print 'blk_map :' + str(self.blkmap)
