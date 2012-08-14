@@ -120,7 +120,7 @@ def par_loop(kernel, it_space, *args):
                         'data' : c_ind_data(arg, i)} )
         return ";\n".join(val)
 
-    def c_addto(arg, extents):
+    def c_addto(arg):
         name = c_arg_name(arg)
         p_data = 'p_%s' % name
         maps = as_tuple(arg.map, Map)
@@ -129,16 +129,24 @@ def par_loop(kernel, it_space, *args):
         dims = arg.data.sparsity.dims
         rmult = dims[0]
         cmult = dims[1]
-        row = "%(m)s * %(map)s[i * %(dim)s + i_0/%(m)s] + i_0%%%(m)s" % \
-              {'m' : rmult,
-               'map' : c_map_name(arg),
-               'dim' : nrows}
-        col = "%(m)s * %(map)s2[i * %(dim)s + i_1/%(m)s] + i_1%%%(m)s" % \
-              {'m' : cmult,
-               'map' : c_map_name(arg),
-               'dim' : ncols}
+        s = []
+        for i in xrange(rmult):
+            for j in xrange(cmult):
+                idx = '[%d][%d]' % (i, j)
+                val = "&%s%s" % (p_data, idx)
+                row = "%(m)s * %(map)s[i * %(dim)s + i_0] + %(i)s" % \
+                      {'m' : rmult,
+                       'map' : c_map_name(arg),
+                       'dim' : nrows,
+                       'i' : i }
+                col = "%(m)s * %(map)s2[i * %(dim)s + i_1] + %(j)s" % \
+                      {'m' : cmult,
+                       'map' : c_map_name(arg),
+                       'dim' : ncols,
+                       'j' : j }
 
-        return 'addto_scalar(%s, %s, %s, %s)' % (name, p_data, row, col)
+                s.append('addto_scalar(%s, %s, %s, %s)' % (name, val, row, col))
+        return ';\n'.join(s)
 
     def c_assemble(arg):
         name = c_arg_name(arg)
@@ -187,7 +195,7 @@ def par_loop(kernel, it_space, *args):
     _itspace_loops = '\n'.join([itspace_loop(i,e) for i, e in zip(range(len(it_space.extents)), it_space.extents)])
     _itspace_loop_close = '}'*len(it_space.extents)
 
-    _addtos = ';\n'.join([c_addto(arg, it_space.extents) for arg in args if arg._is_mat])
+    _addtos = ';\n'.join([c_addto(arg) for arg in args if arg._is_mat])
 
     _assembles = ';\n'.join([c_assemble(arg) for arg in args if arg._is_mat])
 

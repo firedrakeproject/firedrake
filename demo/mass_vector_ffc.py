@@ -44,7 +44,8 @@ This may also depend on development trunk versions of other FEniCS programs.
 
 from pyop2 import op2, utils
 from ufl import *
-import ffc
+from pyop2.ffc_interface import compile_form
+
 import numpy as np
 
 op2.init(**utils.parse_args(description="PyOP2 2D mass equation demo (vector field version)"))
@@ -62,86 +63,8 @@ L = inner(v,f)*dx
 
 # Generate code for mass and rhs assembly.
 
-params = ffc.default_parameters()
-params['representation'] = 'quadrature'
-params['write_file'] = False
-mass_code = ffc.compile_form(a, prefix="mass", parameters=params)
-#rhs_code  = ffc.compile_form(L, prefix="rhs",  parameters=params)
-rhs_code = """
-void rhs_cell_integral_0_0(double **A, double *x[2], double **w0)
-{
-    // Compute Jacobian of affine map from reference cell
-    const double J_00 = x[1][0] - x[0][0];
-    const double J_01 = x[2][0] - x[0][0];
-    const double J_10 = x[1][1] - x[0][1];
-    const double J_11 = x[2][1] - x[0][1];
-
-    // Compute determinant of Jacobian
-    double detJ = J_00*J_11 - J_01*J_10;
-
-    // Compute inverse of Jacobian
-
-    // Set scale factor
-    const double det = fabs(detJ);
-
-    // Cell Volume.
-
-    // Compute circumradius, assuming triangle is embedded in 2D.
-
-
-    // Facet Area.
-
-    // Array of quadrature weights.
-    static const double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
-    // Quadrature points on the UFC reference element: (0.166666666666667, 0.166666666666667), (0.166666666666667, 0.666666666666667), (0.666666666666667, 0.166666666666667)
-
-    // Value of basis functions at quadrature points.
-    static const double FE0_C0[3][6] = \
-    {{0.666666666666667, 0.166666666666667, 0.166666666666667, 0.0, 0.0, 0.0},
-    {0.166666666666667, 0.166666666666667, 0.666666666666667, 0.0, 0.0, 0.0},
-    {0.166666666666667, 0.666666666666667, 0.166666666666667, 0.0, 0.0, 0.0}};
-
-    static const double FE0_C1[3][6] = \
-    {{0.0, 0.0, 0.0, 0.666666666666667, 0.166666666666667, 0.166666666666667},
-    {0.0, 0.0, 0.0, 0.166666666666667, 0.166666666666667, 0.666666666666667},
-    {0.0, 0.0, 0.0, 0.166666666666667, 0.666666666666667, 0.166666666666667}};
-
-
-    // Compute element tensor using UFL quadrature representation
-    // Optimisations: ('eliminate zeros', False), ('ignore ones', False), ('ignore zero tables', False), ('optimisation', False), ('remove zero terms', False)
-
-    // Loop quadrature points for integral.
-    // Number of operations to compute element tensor for following IP loop = 180
-    for (unsigned int ip = 0; ip < 3; ip++)
-    {
-
-      // Coefficient declarations.
-      double F0 = 0.0;
-      double F1 = 0.0;
-
-      // Total number of operations to compute function values = 24
-      for (unsigned int r = 0; r < 3; r++)
-      {
-        for (unsigned int s = 0; s < 2; ++s)
-        {
-          F0 += FE0_C0[ip][r*2 + s]*w0[r][s];
-          F1 += FE0_C1[ip][r*2 + s]*w0[r][s];
-        }
-      }// end loop over 'r'
-
-      // Number of operations for primary indices: 36
-      for (unsigned int j = 0; j < 3; j++)
-      {
-        for (unsigned int s = 0; s < 2; ++s)
-        {
-          // Number of operations to compute entry: 6
-          A[j][s] += (FE0_C0[ip][j*2+s]*F0 + FE0_C1[ip][j*2+s]*F1)*W3[ip]*det;
-        }
-      }// end loop over 'j'
-    }// end loop over 'ip'
-}
-"""
-
+mass_code = compile_form(a, "mass")
+rhs_code  = compile_form(L, "rhs")
 mass = op2.Kernel(mass_code, "mass_cell_integral_0_0")
 rhs  = op2.Kernel(rhs_code,  "rhs_cell_integral_0_0" )
 
@@ -173,7 +96,7 @@ x = op2.Dat(nodes, 2, x_vals, valuetype, "x")
 
 # Assemble and solve
 
-op2.par_loop(mass, elements(6,6),
+op2.par_loop(mass, elements(3,3),
              mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
              coords(elem_node, op2.READ))
 
