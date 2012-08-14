@@ -124,6 +124,10 @@ class Arg(object):
         return self._is_indirect and self._idx is None
 
     @property
+    def _is_mat(self):
+        return isinstance(self._dat, Mat)
+
+    @property
     def _is_global(self):
         return isinstance(self._dat, Global)
 

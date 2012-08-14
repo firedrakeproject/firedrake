@@ -110,10 +110,6 @@ class Kernel(op2.Kernel):
 class Arg(op2.Arg):
     """OP2 OpenCL argument type."""
 
-    @property
-    def _is_mat(self):
-        return isinstance(self._dat, Mat)
-
     # Codegen specific
     @property
     def _d_is_staged(self):
