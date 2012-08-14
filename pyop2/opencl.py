@@ -705,7 +705,7 @@ class ParLoopCall(object):
                 inst.append(i)
 
             if self._it_space:
-                for i in range(len(self._it_space.extents)):
+                for i in self._it_space.extents:
                     inst.append(("__private", None))
 
             return self._kernel.instrument(inst, list(Const._defs))
