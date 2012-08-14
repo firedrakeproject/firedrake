@@ -384,17 +384,6 @@ class OpPlan():
 
         self.load()
 
-    def reclaim(self):
-        del self._ind_map_buffers
-        del self._loc_map_buffers
-        del self._ind_sizes_buffer
-        del self._ind_offs_buffer
-        del self._blkmap_buffer
-        del self._offset_buffer
-        del self._nelems_buffer
-        del self._nthrcol_buffer
-        del self._thrcol_buffer
-
     def load(self):
         self.nuinds = sum(map(lambda a: a._is_indirect, self._parloop._args))
         _ind_desc = [-1] * len(self._parloop._args)
