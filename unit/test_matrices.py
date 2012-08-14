@@ -99,7 +99,7 @@ class TestMatrices:
 
     def pytest_funcarg__mass(cls, request):
         kernel_code = """
-void mass(double* localTensor, double* c0[2], int i_r_0, int i_r_1)
+void mass(double localTensor[1][1], double* c0[2], int i_r_0, int i_r_1)
 {
   double CG1[3][6] = { {  0.09157621, 0.09157621, 0.81684757,
                                    0.44594849, 0.44594849, 0.10810302 },
@@ -148,7 +148,7 @@ void mass(double* localTensor, double* c0[2], int i_r_0, int i_r_1)
   {
     double ST0 = 0.0;
     ST0 += CG1[i_r_0][i_g] * CG1[i_r_1][i_g] * (c_q0[i_g][0][0] * c_q0[i_g][1][1] + -1 * c_q0[i_g][0][1] * c_q0[i_g][1][0]);
-    localTensor[0] += ST0 * w[i_g];
+    localTensor[0][0] += ST0 * w[i_g];
   };
 }"""
         return op2.Kernel(kernel_code, "mass")
@@ -221,7 +221,7 @@ void rhs(double** localTensor, double* c0[2], double* c1[1])
 
     def pytest_funcarg__mass_ffc(cls, request):
         kernel_code = """
-void mass_ffc(double *A, double *x[2], int j, int k)
+void mass_ffc(double A[1][1], double *x[2], int j, int k)
 {
     double J_00 = x[1][0] - x[0][0];
     double J_01 = x[2][0] - x[0][0];
@@ -239,7 +239,7 @@ void mass_ffc(double *A, double *x[2], int j, int k)
 
     for (unsigned int ip = 0; ip < 3; ip++)
     {
-      *A += FE0[ip][j]*FE0[ip][k]*W3[ip]*det;
+      A[0][0] += FE0[ip][j]*FE0[ip][k]*W3[ip]*det;
     }
 }
 """
