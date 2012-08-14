@@ -141,11 +141,11 @@ class DeviceDataMixin:
 
     @property
     def bytes_per_elem(self):
-        return self.dtype.itemsize * np.prod(self.dim)
+        return self.dtype.itemsize * self.cdim
 
     @property
     def _is_scalar(self):
-        return np.prod(self.dim) == 1
+        return self.cdim == 1
 
     @property
     def _cl_type(self):
@@ -167,7 +167,7 @@ class Dat(op2.Dat, DeviceDataMixin):
             cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
         else:
             self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE,
-                                     size=int(dataset.size * self.dtype.itemsize * np.prod(self.dim)))
+                                     size=int(dataset.size * self.bytes_per_elem))
 
     @property
     def data(self):
@@ -343,7 +343,7 @@ void %(name)s_reduction (
     dat[j] = accumulator[j];
   }
 }
-""" % {'headers': headers(), 'name': self._name, 'dim': np.prod(self._dim), 'type': self._cl_type, 'op': op()}
+""" % {'headers': headers(), 'name': self._name, 'dim': self.cdim, 'type': self._cl_type, 'op': op()}
 
 
         if not _reduction_task_cache.has_key((self.dtype, self.cdim, reduction_operator)):
