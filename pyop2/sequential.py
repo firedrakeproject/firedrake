@@ -563,8 +563,8 @@ class Sparsity(object):
 
     _globalcount = 0
 
-    @validate_type(('rmap', (Map, tuple), MapTypeError), \
-                   ('cmap', (Map, tuple), MapTypeError), \
+    @validate_type(('rmaps', (Map, tuple), MapTypeError), \
+                   ('cmaps', (Map, tuple), MapTypeError), \
                    ('dims', (int, tuple), TypeError))
     def __init__(self, rmaps, cmaps, dims, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
@@ -603,6 +603,14 @@ class Sparsity(object):
     @property
     def name(self):
         return self._name
+
+    def __str__(self):
+        return "OP2 Sparsity: rmaps %s, cmaps %s, dims %s, name %s" % \
+               (self._rmaps, self._cmaps, self._dims, self._name)
+
+    def __repr__(self):
+        return "Sparsity(%s,%s,%s,%s)" % \
+               (self._rmaps, self._cmaps, self._dims, self._name)
 
 class Mat(DataCarrier):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
@@ -669,12 +677,12 @@ class Mat(DataCarrier):
         return self._datatype
 
     def __str__(self):
-        return "OP2 Mat: %s, sparsity (%s), dimension %s, datatype %s" \
-               % (self._name, self._sparsity, self._dim, self._datatype.name)
+        return "OP2 Mat: %s, sparsity (%s), dimensions %s, datatype %s" \
+               % (self._name, self._sparsity, self._dims, self._datatype.name)
 
     def __repr__(self):
         return "Mat(%r, %s, '%s', '%s')" \
-               % (self._sparsity, self._dim, self._datatype, self._name)
+               % (self._sparsity, self._dims, self._datatype, self._name)
 
 # Kernel API
 
