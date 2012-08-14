@@ -200,8 +200,7 @@ def argparse_add_op2_args(parser, group=True):
 
 def argparse_op2_parser():
     """Create default argparse.ArgumentParser parser for pyop2 programs."""
-    parser = argparse.ArgumentParser(description="Before I speak, I have something important to say.",
-                                     epilog="I am leaving because the weather is too good. I hate London when it is not raining.",
+    parser = argparse.ArgumentParser(description="Generic PyOP2 demos' command line arguments.",
                                      add_help=True,
                                      prefix_chars="-")
     return argparse_add_op2_args(parser, group=False)
