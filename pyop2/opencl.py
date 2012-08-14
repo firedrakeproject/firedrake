@@ -380,7 +380,6 @@ class OpPlan():
     def __init__(self, parloop, core_plan):
         self._parloop = parloop
         self._core_plan = core_plan
-        self._loaded = False
 
         self.load()
 
