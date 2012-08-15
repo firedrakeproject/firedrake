@@ -122,7 +122,7 @@ class Arg(op2.Arg):
         assert self._is_vec_map
         return map(lambda i: Arg(self._dat, self._map, i, self._access), range(self._map._dim))
 
-class DeviceDataMixin:
+class DeviceDataMixin(object):
     """Codegen mixin for datatype and literal translation."""
 
     ClTypeInfo = collections.namedtuple('ClTypeInfo', ['clstring', 'zero'])
@@ -153,7 +153,19 @@ class DeviceDataMixin:
     def _cl_type_zero(self):
         return DeviceDataMixin.CL_TYPES[self.dtype].zero
 
+    @property
+    def _dirty(self):
+        if not hasattr(self, '_ddm_dirty'):
+            self._ddm_dirty = False
+        return self._ddm_dirty
+
+    @_dirty.setter
+    def _dirty(self, value):
+        self._ddm_dirty = value
+
+
 def one_time(func):
+    # decorator, memoize and return method first call result
     def wrap(self):
         try:
             value = self._memoize[func.__name__]
@@ -187,9 +199,12 @@ class Dat(op2.Dat, DeviceDataMixin):
     def data(self):
         if len(self._data) is 0:
             raise RuntimeError("Temporary dat has no data on the host")
-        cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
-        if self.soa:
-            np.transpose(self._data)
+
+        if self._dirty:
+            cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
+            if self.soa:
+                np.transpose(self._data)
+            self._dirty = False
         return self._data
 
     def _upload_from_c_layer(self):
@@ -225,16 +240,18 @@ class Mat(op2.Mat, DeviceDataMixin):
     @one_time
     def _dev_rowptr(self):
         _buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity._c_handle.rowptr.nbytes)
-        cl.enqueue_copy(_queue, self._buf, self._sparsity._c_handle.rowptr, is_blocking=True).wait()
         cl.enqueue_copy(_queue, _buf, self._sparsity._c_handle.rowptr, is_blocking=True).wait()
         return _buf
 
     def _upload_array(self):
         cl.enqueue_copy(_queue, self._dev_array, self._c_handle.array, is_blocking=True).wait()
+        self._dirty = False
 
     def assemble(self):
-        cl.enqueue_copy(_queue, self._c_handle.array, self._dev_array, is_blocking=True).wait()
-        self._c_handle.restore_array()
+        if self._dirty:
+            cl.enqueue_copy(_queue, self._c_handle.array, self._dev_array, is_blocking=True).wait()
+            self._c_handle.restore_array()
+            self._dirty = False
         self._c_handle.assemble()
 
     @property
@@ -282,13 +299,16 @@ class Global(op2.Global, DeviceDataMixin):
 
     @property
     def data(self):
-        cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
+        if self._dirty:
+            cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
+            self._dirty = False
         return self._data
 
     @data.setter
     def data(self, value):
         self._data = verify_reshape(value, self.dtype, self.dim)
         cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
+        self._dirty = False
 
     def _post_kernel_reduction_task(self, nelems, reduction_operator):
         assert reduction_operator in [INC, MIN, MAX]
@@ -813,8 +833,13 @@ class ParLoopCall(object):
                 cl.enqueue_nd_range_kernel(_queue, kernel, (int(thread_count),), (int(threads_per_block),), g_times_l=False).wait()
                 block_offset += blocks_per_grid
 
-            for mat in [arg._dat for arg in self._matrix_args]:
-                mat.assemble()
+        # mark !READ data as dirty
+        for arg in self._actual_args:
+            if arg._access not in [READ]:
+                arg._dat._dirty = True
+
+        for mat in [arg._dat for arg in self._matrix_args]:
+            mat.assemble()
 
         for i, a in enumerate(self._global_reduction_args):
             a._dat._post_kernel_reduction_task(conf['work_group_count'], a._access)
