@@ -158,21 +158,20 @@ class Dat(op2.Dat, DeviceDataMixin):
 
     _arg_type = Arg
 
-    def __init__(self, dataset, dim, data=None, dtype=None, name=None, soa=None):
-        op2.Dat.__init__(self, dataset, dim, data, dtype, name, soa)
-        if data is not None:
-            self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
-            cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
-        else:
-            self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE,
-                                     size=int(dataset.size * self.bytes_per_elem))
+    @property
+    def _buffer(self):
+        if not (hasattr(self, '_buf') and self._buf):
+            self._buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
+            if len(self._data) is not 0:
+                cl.enqueue_copy(_queue, self._buf, self._data, is_blocking=True).wait()
+        return self._buf
 
     @property
     def data(self):
         if len(self._data) is 0:
             raise RuntimeError("Temporary dat has no data on the host")
         cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
-        if self._soa:
+        if self.soa:
             np.transpose(self._data)
         return self._data
 
@@ -191,39 +190,32 @@ class Mat(op2.Mat, DeviceDataMixin):
 
     _arg_type = Arg
 
-    def __init__(self, sparsity, dtype=None, name=None):
-        op2.Mat.__init__(self, sparsity, dtype, name)
-
-        self._ab = None
-        self._cib = None
-        self._rpb = None
+    @property
+    def _dev_array(self):
+        if not (hasattr(self, '_da') and self._da):
+            s = self.dtype.itemsize * self._sparsity._c_handle.total_nz
+            self._da = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=s)
+        return self._da
 
     @property
-    def _array_buffer(self):
-        if not self._ab:
-            s = self._datatype.itemsize * self._sparsity._c_handle.total_nz
-            self._ab = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=s)
-        return self._ab
+    def _dev_colidx(self):
+        if not (hasattr(self, '_dc') and self._dc):
+            self._dc = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity._c_handle.colidx.nbytes)
+            cl.enqueue_copy(_queue, self._dc, self._sparsity._c_handle.colidx, is_blocking=True).wait()
+        return self._dc
 
     @property
-    def _colidx_buffer(self):
-        if not self._cib:
-            self._cib = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity._c_handle.colidx.nbytes)
-            cl.enqueue_copy(_queue, self._cib, self._sparsity._c_handle.colidx, is_blocking=True).wait()
-        return self._cib
-
-    @property
-    def _rowptr_buffer(self):
-        if not self._rpb:
-            self._rpb = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity._c_handle.rowptr.nbytes)
-            cl.enqueue_copy(_queue, self._rpb, self._sparsity._c_handle.rowptr, is_blocking=True).wait()
-        return self._rpb
+    def _dev_rowptr(self):
+        if not (hasattr(self, '_dr') and self._dr):
+            self._dr = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity._c_handle.rowptr.nbytes)
+            cl.enqueue_copy(_queue, self._dr, self._sparsity._c_handle.rowptr, is_blocking=True).wait()
+        return self._dr
 
     def _upload_array(self):
-        cl.enqueue_copy(_queue, self._array_buffer, self._c_handle.array, is_blocking=True).wait()
+        cl.enqueue_copy(_queue, self._dev_array, self._c_handle.array, is_blocking=True).wait()
 
     def assemble(self):
-        cl.enqueue_copy(_queue, self._c_handle.array, self._array_buffer, is_blocking=True).wait()
+        cl.enqueue_copy(_queue, self._c_handle.array, self._dev_array, is_blocking=True).wait()
         self._c_handle.restore_array()
         self._c_handle.assemble()
 
@@ -236,10 +228,12 @@ class Mat(op2.Mat, DeviceDataMixin):
 class Const(op2.Const, DeviceDataMixin):
     """OP2 OpenCL data that is constant for any element of any set."""
 
-    def __init__(self, dim, data, name, dtype=None):
-        op2.Const.__init__(self, dim, data, name, dtype)
-        self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._data.nbytes)
-        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
+    @property
+    def _buffer(self):
+        if not (hasattr(self, '_buf') and self._buf):
+            self._buf = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._data.nbytes)
+            cl.enqueue_copy(_queue, self._buf, self._data, is_blocking=True).wait()
+        return self._buf
 
     @property
     def data(self):
@@ -256,10 +250,12 @@ class Global(op2.Global, DeviceDataMixin):
 
     _arg_type = Arg
 
-    def __init__(self, dim, data, dtype=None, name=None):
-        op2.Global.__init__(self, dim, data, dtype, name)
-        self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
-        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
+    @property
+    def _buffer(self):
+        if not (hasattr(self, '_buf') and self._buf):
+            self._buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
+            cl.enqueue_copy(_queue, self._buf, self._data, is_blocking=True).wait()
+        return self._buf
 
     def _allocate_reduction_array(self, nelems):
         self._h_reduc_array = np.zeros (nelems * self.cdim, dtype=self.dtype)
@@ -354,11 +350,13 @@ class Map(op2.Map):
 
     _arg_type = Arg
 
-    def __init__(self, iterset, dataset, dim, values, name=None):
-        op2.Map.__init__(self, iterset, dataset, dim, values, name)
-        if self._iterset._size != 0:
-            self._buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._values.nbytes)
-            cl.enqueue_copy(_queue, self._buffer, self._values, is_blocking=True).wait()
+    @property
+    def _buffer(self):
+        assert self._iterset.size != 0, 'cannot upload IdentityMap'
+        if not(hasattr(self, '_buf') and self._buf):
+            self._buf = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._values.nbytes)
+            cl.enqueue_copy(_queue, self._buf, self._values, is_blocking=True).wait()
+        return self._buf
 
 class OpPlanCache():
     """Cache for OpPlan."""
@@ -771,10 +769,10 @@ class ParLoopCall(object):
                 kernel.append_arg(plan._loc_map_buffers[i])
 
             for m in self._unique_matrix:
-                kernel.append_arg(m._array_buffer)
+                kernel.append_arg(m._dev_array)
                 m._upload_array()
-                kernel.append_arg(m._rowptr_buffer)
-                kernel.append_arg(m._colidx_buffer)
+                kernel.append_arg(m._dev_rowptr)
+                kernel.append_arg(m._dev_colidx)
 
             for m in self._matrix_entry_maps:
                 kernel.append_arg(m._buffer)
