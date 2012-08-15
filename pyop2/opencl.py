@@ -153,18 +153,35 @@ class DeviceDataMixin:
     def _cl_type_zero(self):
         return DeviceDataMixin.CL_TYPES[self.dtype].zero
 
+def one_time(func):
+    def wrap(self):
+        try:
+            value = self._memoize[func.__name__]
+        except (KeyError, AttributeError):
+            value = func(self)
+            try:
+                cache = self._memoize
+            except AttributeError:
+                cache = self._memoize = dict()
+            cache[func.__name__] = value
+        return value
+
+    wrap.__name__ = func.__name__
+    wrap.__doc__ = func.__doc__
+    return wrap
+
 class Dat(op2.Dat, DeviceDataMixin):
     """OP2 OpenCL vector data type."""
 
     _arg_type = Arg
 
     @property
+    @one_time
     def _buffer(self):
-        if not (hasattr(self, '_buf') and self._buf):
-            self._buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
-            if len(self._data) is not 0:
-                cl.enqueue_copy(_queue, self._buf, self._data, is_blocking=True).wait()
-        return self._buf
+        _buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
+        if len(self._data) is not 0:
+            cl.enqueue_copy(_queue, _buf, self._data, is_blocking=True).wait()
+        return _buf
 
     @property
     def data(self):
@@ -191,25 +208,26 @@ class Mat(op2.Mat, DeviceDataMixin):
     _arg_type = Arg
 
     @property
+    @one_time
     def _dev_array(self):
-        if not (hasattr(self, '_da') and self._da):
-            s = self.dtype.itemsize * self._sparsity._c_handle.total_nz
-            self._da = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=s)
-        return self._da
+        s = self.dtype.itemsize * self._sparsity._c_handle.total_nz
+        _buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=s)
+        return _buf
 
     @property
+    @one_time
     def _dev_colidx(self):
-        if not (hasattr(self, '_dc') and self._dc):
-            self._dc = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity._c_handle.colidx.nbytes)
-            cl.enqueue_copy(_queue, self._dc, self._sparsity._c_handle.colidx, is_blocking=True).wait()
-        return self._dc
+        _buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity._c_handle.colidx.nbytes)
+        cl.enqueue_copy(_queue, _buf, self._sparsity._c_handle.colidx, is_blocking=True).wait()
+        return _buf
 
     @property
+    @one_time
     def _dev_rowptr(self):
-        if not (hasattr(self, '_dr') and self._dr):
-            self._dr = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity._c_handle.rowptr.nbytes)
-            cl.enqueue_copy(_queue, self._dr, self._sparsity._c_handle.rowptr, is_blocking=True).wait()
-        return self._dr
+        _buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity._c_handle.rowptr.nbytes)
+        cl.enqueue_copy(_queue, self._buf, self._sparsity._c_handle.rowptr, is_blocking=True).wait()
+        cl.enqueue_copy(_queue, _buf, self._sparsity._c_handle.rowptr, is_blocking=True).wait()
+        return _buf
 
     def _upload_array(self):
         cl.enqueue_copy(_queue, self._dev_array, self._c_handle.array, is_blocking=True).wait()
@@ -229,11 +247,11 @@ class Const(op2.Const, DeviceDataMixin):
     """OP2 OpenCL data that is constant for any element of any set."""
 
     @property
+    @one_time
     def _buffer(self):
-        if not (hasattr(self, '_buf') and self._buf):
-            self._buf = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._data.nbytes)
-            cl.enqueue_copy(_queue, self._buf, self._data, is_blocking=True).wait()
-        return self._buf
+        _buf = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._data.nbytes)
+        cl.enqueue_copy(_queue, _buf, self._data, is_blocking=True).wait()
+        return _buf
 
     @property
     def data(self):
@@ -251,11 +269,11 @@ class Global(op2.Global, DeviceDataMixin):
     _arg_type = Arg
 
     @property
+    @one_time
     def _buffer(self):
-        if not (hasattr(self, '_buf') and self._buf):
-            self._buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
-            cl.enqueue_copy(_queue, self._buf, self._data, is_blocking=True).wait()
-        return self._buf
+        _buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
+        cl.enqueue_copy(_queue, _buf, self._data, is_blocking=True).wait()
+        return _buf
 
     def _allocate_reduction_array(self, nelems):
         self._h_reduc_array = np.zeros (nelems * self.cdim, dtype=self.dtype)
@@ -351,12 +369,12 @@ class Map(op2.Map):
     _arg_type = Arg
 
     @property
+    @one_time
     def _buffer(self):
         assert self._iterset.size != 0, 'cannot upload IdentityMap'
-        if not(hasattr(self, '_buf') and self._buf):
-            self._buf = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._values.nbytes)
-            cl.enqueue_copy(_queue, self._buf, self._values, is_blocking=True).wait()
-        return self._buf
+        _buf = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._values.nbytes)
+        cl.enqueue_copy(_queue, _buf, self._values, is_blocking=True).wait()
+        return _buf
 
 class OpPlanCache():
     """Cache for OpPlan."""
