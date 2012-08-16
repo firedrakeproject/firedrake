@@ -32,6 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import runtime_base as op2
+from runtime_base import Set
 from utils import verify_reshape
 
 class Kernel(op2.Kernel):
