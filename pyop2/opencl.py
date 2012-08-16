@@ -411,12 +411,12 @@ class OpPlanCache():
         self._cache = dict()
 
     def get_plan(self, parloop, **kargs):
-        cp = core.op_plan(parloop._kernel, parloop._it_set, *parloop._args, **kargs)
         try:
-            plan = self._cache[cp.hsh]
+            plan = self._cache[parloop._plan_key]
         except KeyError:
+            cp = core.op_plan(parloop._kernel, parloop._it_set, *parloop._args, **kargs)
             plan = OpPlan(parloop, cp)
-            self._cache[cp.hsh] = plan
+            self._cache[parloop._plan_key] = plan
 
         return plan
 
@@ -576,6 +576,24 @@ class ParLoopCall(object):
 
         self._args = gbls + directs + indirects
 
+    @property
+    def _plan_key(self):
+        inds = list()
+        for dm in self._dat_map_pairs:
+            d = dm._dat
+            m = dm._map
+            indices = tuple(a._idx for a in self._args if a._dat == d and a._map == m)
+
+            inds.append((m._xored, m._dim, indices))
+
+        # Globals: irrelevant, they only possibly effect the partition
+        # size for reductions.
+        # Direct Dats: irrelevant, no staging
+        # iteration size: effect ind/loc maps sizes
+        # partition size: effect interpretation of ind/loc maps
+        return (self._it_set.size, self._i_partition_size(), tuple(inds))
+
+    # generic
     @property
     def _global_reduction_args(self):
         return uniquify(a for a in self._args if a._is_global_reduction)
