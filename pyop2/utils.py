@@ -176,8 +176,7 @@ def uniquify(iterable):
     uniq = set()
     return [x for x in iterable if x not in uniq and (uniq.add(x) or True)]
 
-def parser(description="Generic PyOP2 demos' command line arguments.",
-                        group=False):
+def parser(description=None, group=False):
     """Create default argparse.ArgumentParser parser for pyop2 programs."""
     parser = argparse.ArgumentParser(description=description,
                                      add_help=True,
