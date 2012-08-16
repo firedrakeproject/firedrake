@@ -51,31 +51,31 @@ def exit():
         backends.unset_backend()
 
 class IterationSpace(sequential.IterationSpace):
-    __metaclass__ = backends.BackendSelector
+    __metaclass__ = backends._BackendSelector
 
 class Kernel(sequential.Kernel):
-    __metaclass__ = backends.BackendSelector
+    __metaclass__ = backends._BackendSelector
 
 class Set(sequential.Set):
-    __metaclass__ = backends.BackendSelector
+    __metaclass__ = backends._BackendSelector
 
 class Dat(sequential.Dat):
-    __metaclass__ = backends.BackendSelector
+    __metaclass__ = backends._BackendSelector
 
 class Mat(sequential.Mat):
-    __metaclass__ = backends.BackendSelector
+    __metaclass__ = backends._BackendSelector
 
 class Const(sequential.Const):
-    __metaclass__ = backends.BackendSelector
+    __metaclass__ = backends._BackendSelector
 
 class Global(sequential.Global):
-    __metaclass__ = backends.BackendSelector
+    __metaclass__ = backends._BackendSelector
 
 class Map(sequential.Map):
-    __metaclass__ = backends.BackendSelector
+    __metaclass__ = backends._BackendSelector
 
 class Sparsity(sequential.Sparsity):
-    __metaclass__ = backends.BackendSelector
+    __metaclass__ = backends._BackendSelector
 
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel"""
