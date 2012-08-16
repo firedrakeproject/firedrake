@@ -35,8 +35,8 @@
 
 import backends
 import op_lib_core as core
-import sequential
-from sequential import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
+import base
+from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
 
 
 def init(backend='sequential', diags=2):
@@ -50,31 +50,31 @@ def exit():
         core.op_exit()
         backends.unset_backend()
 
-class IterationSpace(sequential.IterationSpace):
+class IterationSpace(base.IterationSpace):
     __metaclass__ = backends._BackendSelector
 
-class Kernel(sequential.Kernel):
+class Kernel(base.Kernel):
     __metaclass__ = backends._BackendSelector
 
-class Set(sequential.Set):
+class Set(base.Set):
     __metaclass__ = backends._BackendSelector
 
-class Dat(sequential.Dat):
+class Dat(base.Dat):
     __metaclass__ = backends._BackendSelector
 
-class Mat(sequential.Mat):
+class Mat(base.Mat):
     __metaclass__ = backends._BackendSelector
 
-class Const(sequential.Const):
+class Const(base.Const):
     __metaclass__ = backends._BackendSelector
 
-class Global(sequential.Global):
+class Global(base.Global):
     __metaclass__ = backends._BackendSelector
 
-class Map(sequential.Map):
+class Map(base.Map):
     __metaclass__ = backends._BackendSelector
 
-class Sparsity(sequential.Sparsity):
+class Sparsity(base.Sparsity):
     __metaclass__ = backends._BackendSelector
 
 def par_loop(kernel, it_space, *args):

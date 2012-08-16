@@ -31,7 +31,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import sequential as op2
+import runtime_base as op2
 from utils import verify_reshape
 
 class Kernel(op2.Kernel):
