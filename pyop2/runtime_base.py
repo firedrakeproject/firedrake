@@ -63,7 +63,7 @@ class Set(base.Set):
 
     @validate_type(('size', int, SizeTypeError))
     def __init__(self, size, name=None):
-        base.Set.__init__(self)
+        base.Set.__init__(self, size, name)
 
     @classmethod
     def fromhdf5(cls, f, name):
