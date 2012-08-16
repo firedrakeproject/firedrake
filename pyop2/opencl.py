@@ -396,6 +396,14 @@ class Map(op2.Map):
         cl.enqueue_copy(_queue, _buf, self._values, is_blocking=True).wait()
         return _buf
 
+    @property
+    @one_time
+    def _xored(self):
+        r = 0
+        for v in self._values.flatten():
+            r = r ^ v
+        return v
+
 class OpPlanCache():
     """Cache for OpPlan."""
 
@@ -557,7 +565,16 @@ class ParLoopCall(object):
             else:
                 self._args.append(a)
 
-    # generic
+        # sort args - keep actual args unchanged
+        # order globals r, globals reduc, direct, indirect
+        gbls = self._global_non_reduction_args +\
+               sorted(self._global_reduction_args,
+                      key=lambda arg: (arg._dat.dtype.itemsize,arg._dat.cdim))
+        directs = self._direct_args
+        indirects = sorted(self._indirect_args,
+                           key=lambda arg: (arg._map._xored, id(arg._dat), arg._idx))
+
+        self._args = gbls + directs + indirects
 
     @property
     def _global_reduction_args(self):
