@@ -73,6 +73,13 @@ class TestMatrices:
                 setup=lambda: op2.Mat(sparsity, valuetype, "mat"),
                 scope='session')
 
+    def pytest_funcarg__vecmat(cls, request):
+        elem_node = request.getfuncargvalue('elem_node')
+        sparsity = op2.Sparsity((elem_node, elem_node), 2, "sparsity")
+        return request.cached_setup(
+                setup=lambda: op2.Mat(sparsity, valuetype, "mat"),
+                scope='session')
+
     def pytest_funcarg__coords(cls, request):
         nodes = request.getfuncargvalue('nodes')
         coord_vals = numpy.asarray([ (0.0, 0.0), (2.0, 0.0),
@@ -288,6 +295,45 @@ void rhs_ffc(double **A, double *x[2], double **w0)
 
         return op2.Kernel(kernel_code, "rhs_ffc")
 
+    def pytest_funcarg__mass_vector_ffc(cls, request):
+
+        kernel_code="""
+void mass_vector_ffc(double A[2][2], double *x[2], int j, int k)
+{
+    const double J_00 = x[1][0] - x[0][0];
+    const double J_01 = x[2][0] - x[0][0];
+    const double J_10 = x[1][1] - x[0][1];
+    const double J_11 = x[2][1] - x[0][1];
+
+    double detJ = J_00*J_11 - J_01*J_10;
+
+    const double det = fabs(detJ);
+
+    const double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
+    const double FE0_C0[3][6] =
+    {{0.666666666666667, 0.166666666666667, 0.166666666666667, 0.0, 0.0, 0.0},
+    {0.166666666666667, 0.166666666666667, 0.666666666666667, 0.0, 0.0, 0.0},
+    {0.166666666666667, 0.666666666666667, 0.166666666666667, 0.0, 0.0, 0.0}};
+    const double FE0_C1[3][6] =
+    {{0.0, 0.0, 0.0, 0.666666666666667, 0.166666666666667, 0.166666666666667},
+    {0.0, 0.0, 0.0, 0.166666666666667, 0.166666666666667, 0.666666666666667},
+    {0.0, 0.0, 0.0, 0.166666666666667, 0.666666666666667, 0.166666666666667}};
+
+    for (unsigned int ip = 0; ip < 3; ip++)
+    {
+      for (unsigned int r = 0; r < 2; r++)
+      {
+        for (unsigned int s = 0; s < 2; s++)
+        {
+          A[r][s] += (((FE0_C0[ip][r*3+j]))*((FE0_C0[ip][s*3+k])) + ((FE0_C1[ip][r*3+j]))*((FE0_C1[ip][s*3+k])))*W3[ip]*det;
+        }
+      }
+    }
+}
+"""
+
+        return op2.Kernel(kernel_code, "mass_vector_ffc")
+
     def pytest_funcarg__zero_dat(cls, request):
 
         kernel_code="""
@@ -305,6 +351,18 @@ void zero_dat(double *dat)
                          (0.0, 0.0208333, 0.0416667, 0.0208333),
                          (0.125, 0.145833, 0.0208333, 0.291667) ]
         return numpy.asarray(expected_vals, dtype=valuetype)
+
+    def pytest_funcarg__expected_vector_matrix(cls, request):
+        expected_vals = [(0.25, 0., 0.125, 0., 0., 0., 0.125, 0.),
+                         (0., 0.25, 0., 0.125, 0., 0., 0., 0.125),
+                         (0.125, 0., 0.29166667, 0., 0.02083333, 0., 0.14583333, 0.),
+                         (0., 0.125, 0., 0.29166667, 0., 0.02083333, 0., 0.14583333),
+                         (0., 0., 0.02083333, 0., 0.04166667, 0., 0.02083333, 0.),
+                         (0., 0., 0., 0.02083333, 0., 0.04166667, 0., 0.02083333),
+                         (0.125, 0., 0.14583333, 0., 0.02083333, 0., 0.29166667, 0.),
+                         (0., 0.125, 0., 0.14583333, 0., 0.02083333, 0., 0.29166667)]
+        return numpy.asarray(expected_vals, dtype=valuetype)
+
 
     def pytest_funcarg__expected_rhs(cls, request):
         return numpy.asarray([[0.9999999523522115], [1.3541666031724144],
@@ -355,6 +413,15 @@ void zero_dat(double *dat)
                      coords(elem_node, op2.READ))
         eps=1.e-6
         assert (abs(mat.values-expected_matrix)<eps).all()
+
+    def test_assemble_vec_mass(self, backend, mass_vector_ffc, vecmat, coords,
+                               elements, elem_node, expected_vector_matrix):
+        """Test that the FFC vector mass assembly assembles the correct values."""
+        op2.par_loop(mass_vector_ffc, elements(3,3),
+                     vecmat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                     coords(elem_node, op2.READ))
+        eps=1.e-6
+        assert (abs(vecmat.values-expected_vector_matrix)<eps).all()
 
     def test_rhs_ffc(self, backend, rhs_ffc, elements, b, coords, f,
                      elem_node, expected_rhs):
