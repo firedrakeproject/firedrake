@@ -64,7 +64,7 @@ from pyop2 import op2, utils
 import numpy as np
 from math import sqrt
 
-parser = utils.parser(group=True)
+parser = utils.parser(group=True, description="Simple PyOP2 Jacobi demo")
 parser.add_argument('-s', '--single',
                     action='store_true',
                     help='single precision floating point mode')
