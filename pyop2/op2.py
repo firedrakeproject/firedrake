@@ -57,22 +57,22 @@ class Kernel(base.Kernel):
     __metaclass__ = backends._BackendSelector
 
 class Set(base.Set):
-    __metaclass__ = backends._BackendSelector
+    __metaclass__ = backends._BackendSelectorWithH5
 
 class Dat(base.Dat):
-    __metaclass__ = backends._BackendSelector
+    __metaclass__ = backends._BackendSelectorWithH5
 
 class Mat(base.Mat):
     __metaclass__ = backends._BackendSelector
 
 class Const(base.Const):
-    __metaclass__ = backends._BackendSelector
+    __metaclass__ = backends._BackendSelectorWithH5
 
 class Global(base.Global):
     __metaclass__ = backends._BackendSelector
 
 class Map(base.Map):
-    __metaclass__ = backends._BackendSelector
+    __metaclass__ = backends._BackendSelectorWithH5
 
 class Sparsity(base.Sparsity):
     __metaclass__ = backends._BackendSelector
