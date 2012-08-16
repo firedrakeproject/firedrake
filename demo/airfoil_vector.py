@@ -36,7 +36,7 @@ import numpy as np
 from pyop2 import op2, utils
 import h5py
 
-op2.init(**utils.parse_args())
+op2.init(**utils.parse_args(description="PyOP2 airfoil demo (vector map version)"))
 
 from airfoil_vector_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 

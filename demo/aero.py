@@ -38,7 +38,7 @@ from math import sqrt
 from aero_kernels import dirichlet, dotPV, dotR, init_cg, res_calc, spMV, \
     update, updateP, updateUR
 
-op2.init(**utils.parse_args())
+op2.init(**utils.parse_args(description="PyOP2 aero demo"))
 
 # Constants
 

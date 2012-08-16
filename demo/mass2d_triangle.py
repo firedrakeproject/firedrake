@@ -49,7 +49,7 @@ import sys
 
 import numpy as np
 
-parser = utils.parser(group=True, description="PyOP2 2D mass equation example")
+parser = utils.parser(group=True, description="PyOP2 2D mass equation demo")
 parser.add_argument('-m', '--mesh',
                     action='store',
                     type=str,

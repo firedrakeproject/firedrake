@@ -58,7 +58,7 @@ from ufl import *
 
 import numpy as np
 
-op2.init(**utils.parse_args())
+op2.init(**utils.parse_args(description="PyOP2 laplace equation demo (weak BCs)"))
 
 # Set up finite element problem
 

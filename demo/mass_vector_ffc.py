@@ -47,7 +47,7 @@ from ufl import *
 import ffc
 import numpy as np
 
-op2.init(**utils.parse_args())
+op2.init(**utils.parse_args(description="PyOP2 2D mass equation demo (vector field version)"))
 
 # Set up finite element identity problem
 
