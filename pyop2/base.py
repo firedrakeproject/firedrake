@@ -525,12 +525,6 @@ class Sparsity(object):
         Sparsity._globalcount += 1
 
     @property
-    def c_handle(self):
-        if self._lib_handle is None:
-            self._lib_handle = core.op_sparsity(self)
-        return self._lib_handle
-
-    @property
     def nmaps(self):
         return len(self._rmaps)
 
