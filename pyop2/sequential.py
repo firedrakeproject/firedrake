@@ -73,7 +73,7 @@ MAX   = Access("MAX")
 class Arg(object):
     """An argument to a :func:`par_loop`.
 
-    .. warning:: User code should not directly instantiate Arg. Instead, use the call syntax on the :class:`DataCarrier`.
+    .. warning:: User code should not directly instantiate :class:`Arg`. Instead, use the call syntax on the :class:`DataCarrier`.
     """
     def __init__(self, data=None, map=None, idx=None, access=None):
         self._dat = data
