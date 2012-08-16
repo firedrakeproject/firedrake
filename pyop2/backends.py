@@ -53,7 +53,7 @@ import void
 
 backends['sequential'] = sequential
 
-class BackendSelector(type):
+class _BackendSelector(type):
     """Metaclass creating the backend class corresponding to the requested
     class."""
 
@@ -100,24 +100,24 @@ class BackendSelector(type):
 def get_backend():
     """Get the OP2 backend"""
 
-    return BackendSelector._backend.__name__
+    return _BackendSelector._backend.__name__
 
 def set_backend(backend):
     """Set the OP2 backend"""
 
-    global BackendSelector
-    if BackendSelector._backend != void:
+    global _BackendSelector
+    if _BackendSelector._backend != void:
         raise RuntimeError("The backend can only be set once!")
     if backend not in backends:
         raise ValueError("backend must be one of %r" % backends.keys())
-    BackendSelector._backend = backends[backend]
+    _BackendSelector._backend = backends[backend]
 
 def unset_backend():
     """Unset the OP2 backend"""
-    BackendSelector._backend = void
+    _BackendSelector._backend = void
 
 def par_loop(kernel, it_space, *args):
-    return BackendSelector._backend.par_loop(kernel, it_space, *args)
+    return _BackendSelector._backend.par_loop(kernel, it_space, *args)
 
 def solve(M, x, b):
-    return BackendSelector._backend.solve(M, x, b)
+    return _BackendSelector._backend.solve(M, x, b)
