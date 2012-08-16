@@ -42,6 +42,7 @@ import h5py
 from pyop2 import op2
 from pyop2 import exceptions
 from pyop2 import sequential
+from pyop2 import base
 
 def pytest_funcarg__set(request):
     return op2.Set(5, 'foo')
@@ -122,16 +123,16 @@ class TestAccessAPI:
     Access API unit tests
     """
 
-    @pytest.mark.parametrize("mode", sequential.Access._modes)
+    @pytest.mark.parametrize("mode", base.Access._modes)
     def test_access(self, backend, mode):
         "Access repr should have the expected format."
-        a = sequential.Access(mode)
+        a = base.Access(mode)
         assert repr(a) == "Access('%s')" % mode
 
     def test_illegal_access(self, backend):
         "Illegal access modes should raise an exception."
         with pytest.raises(exceptions.ModeValueError):
-            sequential.Access('ILLEGAL_ACCESS')
+            base.Access('ILLEGAL_ACCESS')
 
 class TestSetAPI:
     """
@@ -370,11 +371,6 @@ class TestConstAPI:
         with pytest.raises(TypeError):
             op2.Const((1,'illegaldim'), 1, 'test_const_illegal_dim_tuple')
 
-    def test_const_illegal_data(self, backend):
-        "Passing None for Const data should not be allowed."
-        with pytest.raises(exceptions.DataValueError):
-            op2.Const(1, None, 'test_const_illegal_data')
-
     def test_const_nonunique_name(self, backend, const):
         "Const names should be unique."
         with pytest.raises(op2.Const.NonUniqueNameError):
@@ -493,11 +489,6 @@ class TestGlobalAPI:
         "Global name should be string."
         with pytest.raises(exceptions.NameTypeError):
             op2.Global(1, 1, name=2)
-
-    def test_global_illegal_data(self, backend):
-        "Passing None for Global data should not be allowed."
-        with pytest.raises(exceptions.DataValueError):
-            op2.Global(1, None)
 
     def test_global_dim(self, backend):
         "Global constructor should create a dim tuple."

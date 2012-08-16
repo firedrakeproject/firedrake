@@ -31,9 +31,10 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import sequential as op2
+import runtime_base as op2
 from utils import verify_reshape, align, uniquify
-from sequential import IdentityMap, READ, WRITE, RW, INC, MIN, MAX, Sparsity
+from runtime_base import IdentityMap, READ, WRITE, RW, INC, MIN, MAX, \
+    Sparsity, Set
 import op_lib_core as core
 import pyopencl as cl
 import pkg_resources
