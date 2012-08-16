@@ -49,6 +49,7 @@ import math
 from pycparser import c_parser, c_ast, c_generator
 import re
 import time
+import md5
 
 class Kernel(op2.Kernel):
     """OP2 OpenCL kernel type."""
@@ -108,6 +109,11 @@ class Kernel(op2.Kernel):
         ast = c_parser.CParser().parse(comment_remover(self._code).replace("\\\n", "\n"))
         Kernel.Instrument().instrument(ast, self._name, instrument, constants)
         return c_generator.CGenerator().visit(ast)
+
+    @property
+    def md5(self):
+        return md5.new(self._name + self._code).digest()
+
 
 class Arg(op2.Arg):
     """OP2 OpenCL argument type."""
@@ -593,6 +599,52 @@ class ParLoopCall(object):
         # partition size: effect interpretation of ind/loc maps
         return (self._it_set.size, self._i_partition_size(), tuple(inds))
 
+    @property
+    def _gencode_key(self):
+        def argdimacc(arg):
+            if self.is_direct():
+                if isinstance(arg._dat, Globals) or\
+                   (isinstance(arg._dat, Dat) and arg._dat.cdim > 1):
+                    return (arg._dat.cdim, arg._access)
+                else:
+                    return (None, None)
+            else:
+                if (isinstance(arg._dat, Globals) and arg._access is READ) or\
+                   (isinstance(arg._dat, Dat) and arg._map is IdentityMap):
+                    return (None, None)
+                else:
+                    return (arg._dat.cdim, arg._access)
+
+        #user kernel code: md5?
+        #for each arg:
+        #  (dat | gbl | mat)
+        #  dtype (casts, opencl extensions)
+        #  dat.dim (dloops: if staged or reduc; indloops; if not direct dat)
+        #  access (dloops: if staged or reduc; indloops; if not direct)
+        #  the ind map index: gbl = -1, direct = -1, indirect = X (first occurence
+        #    of the dat/map pair
+        #for vec map arg we need the dimension of the map
+        argdesc = []
+        seen = dict()
+        c = 0
+        for arg in self._actual_args:
+            if arg._map not in [None, IdentityMap]:
+                if seen.has_key((arg._dat,arg._map)):
+                    seen[(arg._dat,arg._map)] = c
+                    idesc = c
+                    c += 1
+                else:
+                    idesc = (seen[(arg._dat,arg._map)], arg._idx)
+            else:
+                idesc = (-1, None)
+
+            d = (arg._dat.__class__,
+                 arg._dat.dtype) + argdimacc(arg) + idesc
+
+            argdesc.append(d)
+
+        return (self._kernel.md5,) + tuple(argdesc)
+
     # generic
     @property
     def _global_reduction_args(self):
@@ -784,8 +836,8 @@ class ParLoopCall(object):
             return self._kernel.instrument(inst, list(Const._defs))
 
         # check cache
-        if _kernel_stub_cache.has_key(self._kernel):
-            return _kernel_stub_cache[self._kernel]
+        if _kernel_stub_cache.has_key(self._gencode_key):
+            return _kernel_stub_cache[self._gencode_key]
 
         #do codegen
         user_kernel = instrument_user_kernel()
@@ -796,7 +848,7 @@ class ParLoopCall(object):
         template['codegen'] = {'amd': _AMD_fixes}
         template['op2const'] = list(Const._defs)
         src = str(template)
-        _kernel_stub_cache[self._kernel] = src
+        _kernel_stub_cache[self._gencode_key] = src
         return src
 
     def compute(self):
