@@ -227,7 +227,7 @@ class IterationSpace(object):
 
     @property
     def iterset(self):
-        """Set this IterationSpace is defined on."""
+        """The :class:`Set` over which this IterationSpace is defined."""
         return self._iterset
 
     @property
@@ -347,7 +347,7 @@ class Dat(DataCarrier):
 
     @property
     def dataset(self):
-        """Set on which the Dat is defined."""
+        """:class:`Set` on which the Dat is defined."""
         return self._dataset
 
     @property

@@ -31,6 +31,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""This module contains stub implementations of core classes which are used to provide useful error messages if the user invokes them before calling :func:`pyop2.op2.init`"""
+
 class Access(object):
     def __init__(self, *args):
         raise RuntimeError("Please call op2.init to select a backend")
