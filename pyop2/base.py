@@ -446,11 +446,12 @@ class Map(object):
 
     @validate_type(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError), \
             ('dim', int, DimTypeError), ('name', str, NameTypeError))
-    def __init__(self, iterset, dataset, dim, values, name=None):
+    def __init__(self, iterset, dataset, dim, values=None, name=None):
         self._iterset = iterset
         self._dataset = dataset
         self._dim = dim
-        self._values = verify_reshape(values, np.int32, (iterset.size, dim))
+        self._values = verify_reshape(values, np.int32, (iterset.size, dim), \
+                                      allow_none=True)
         self._name = name or "map_%d" % Map._globalcount
         self._lib_handle = None
         Map._globalcount += 1
