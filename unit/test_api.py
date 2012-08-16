@@ -42,6 +42,7 @@ import h5py
 from pyop2 import op2
 from pyop2 import exceptions
 from pyop2 import sequential
+from pyop2 import base
 
 def pytest_funcarg__set(request):
     return op2.Set(5, 'foo')
@@ -122,16 +123,16 @@ class TestAccessAPI:
     Access API unit tests
     """
 
-    @pytest.mark.parametrize("mode", sequential.Access._modes)
+    @pytest.mark.parametrize("mode", base.Access._modes)
     def test_access(self, backend, mode):
         "Access repr should have the expected format."
-        a = sequential.Access(mode)
+        a = base.Access(mode)
         assert repr(a) == "Access('%s')" % mode
 
     def test_illegal_access(self, backend):
         "Illegal access modes should raise an exception."
         with pytest.raises(exceptions.ModeValueError):
-            sequential.Access('ILLEGAL_ACCESS')
+            base.Access('ILLEGAL_ACCESS')
 
 class TestSetAPI:
     """
