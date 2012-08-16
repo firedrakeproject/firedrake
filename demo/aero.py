@@ -31,19 +31,14 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from pyop2 import op2
-
+from pyop2 import op2, utils
 import numpy as np
-
 import h5py
-
 from math import sqrt
-
-op2.init(backend='sequential')
 from aero_kernels import dirichlet, dotPV, dotR, init_cg, res_calc, spMV, \
     update, updateP, updateUR
 
-
+op2.init(**utils.parse_args(description="PyOP2 aero demo"))
 
 # Constants
 

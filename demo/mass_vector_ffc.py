@@ -42,13 +42,12 @@ bzr branch lp:~grm08/ffc/fluidity-pyop2
 This may also depend on development trunk versions of other FEniCS programs.
 """
 
-from pyop2 import op2
+from pyop2 import op2, utils
 from ufl import *
 import ffc
-
 import numpy as np
 
-op2.init(backend='sequential')
+op2.init(**utils.parse_args(description="PyOP2 2D mass equation demo (vector field version)"))
 
 # Set up finite element identity problem
 

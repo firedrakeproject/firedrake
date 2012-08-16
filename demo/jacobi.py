@@ -60,24 +60,37 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
 
 from __future__ import print_function
-from pyop2 import op2
+from pyop2 import op2, utils
 import numpy as np
 from math import sqrt
 
-op2.init(backend='sequential')
+parser = utils.parser(group=True, description="Simple PyOP2 Jacobi demo")
+parser.add_argument('-s', '--single',
+                    action='store_true',
+                    help='single precision floating point mode')
+parser.add_argument('-n', '--niter',
+                    action='store',
+                    default=2,
+                    type=int,
+                    help='set the number of iteration')
+
+opt=vars(parser.parse_args())
+op2.init(**opt)
+
+fp_type = np.float32 if opt['single'] else np.float64
 
 NN = 6
-NITER = 2
+NITER = opt['niter']
 
 nnode = (NN-1)**2
 nedge = nnode + 4*(NN-1)*(NN-2)
 
 pp = np.zeros((2*nedge,),dtype=np.int)
 
-A = np.zeros((nedge,), dtype=np.float64)
-r = np.zeros((nnode,), dtype=np.float64)
-u = np.zeros((nnode,), dtype=np.float64)
-du = np.zeros((nnode,), dtype=np.float64)
+A = np.zeros((nedge,), dtype=fp_type)
+r = np.zeros((nnode,), dtype=fp_type)
+u = np.zeros((nnode,), dtype=fp_type)
+du = np.zeros((nnode,), dtype=fp_type)
 
 e = 0
 
@@ -118,19 +131,22 @@ p_r = op2.Dat(nodes, 1, data=r, name="p_r")
 p_u = op2.Dat(nodes, 1, data=u, name="p_u")
 p_du = op2.Dat(nodes, 1, data=du, name="p_du")
 
-alpha = op2.Const(1, data=1.0, name="alpha")
+alpha = op2.Const(1, data=1.0, name="alpha", dtype=fp_type)
 
-beta = op2.Global(1, data=1.0, name="beta")
-res = op2.Kernel("""void res(double *A, double *u, double *du, const double *beta){
+beta = op2.Global(1, data=1.0, name="beta", dtype=fp_type)
+
+
+res = op2.Kernel("""void res(%(t)s *A, %(t)s *u, %(t)s *du, const %(t)s *beta){
   *du += (*beta)*(*A)*(*u);
-}""", "res")
+}""" % {'t': "double" if fp_type == np.float64 else "float"}, "res")
 
-update = op2.Kernel("""void update(double *r, double *du, double *u, double *u_sum, double *u_max){
+update = op2.Kernel("""void update(%(t)s *r, %(t)s *du, %(t)s *u, %(t)s *u_sum, %(t)s *u_max){
   *u += *du + alpha * (*r);
-  *du = 0.0f;
+  *du = %(z)s;
   *u_sum += (*u)*(*u);
   *u_max = *u_max > *u ? *u_max : *u;
-}""", "update")
+}""" % {'t': "double" if fp_type == np.float64 else "float",
+        'z': "0.0" if fp_type == np.float64 else "0.0f"}, "update")
 
 
 for iter in xrange(0, NITER):
@@ -139,8 +155,8 @@ for iter in xrange(0, NITER):
                  p_u(ppedge(1), op2.READ),
                  p_du(ppedge(0), op2.INC),
                  beta(op2.READ))
-    u_sum = op2.Global(1, data=0.0, name="u_sum")
-    u_max = op2.Global(1, data=0.0, name="u_max")
+    u_sum = op2.Global(1, data=0.0, name="u_sum", dtype=fp_type)
+    u_max = op2.Global(1, data=0.0, name="u_max", dtype=fp_type)
 
     op2.par_loop(update, nodes,
                  p_r(op2.IdentityMap, op2.READ),

@@ -52,14 +52,14 @@ bzr branch lp:~grm08/ffc/fluidity-pyop2
 This may also depend on development trunk versions of other FEniCS programs.
 """
 
-from pyop2 import op2
+from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from ufl import *
 import ffc
 
 import numpy as np
 
-op2.init(backend='opencl')
+op2.init(**utils.parse_args(description="PyOP2 laplace equation demo"))
 
 # Set up finite element problem
 

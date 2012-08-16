@@ -41,7 +41,7 @@ bzr branch lp:~grm08/ffc/fluidity-pyop2
 This may also depend on development trunk versions of other FEniCS programs.
 """
 
-from pyop2 import op2
+from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from triangle_reader import read_triangle
 from ufl import *
@@ -49,12 +49,14 @@ import sys
 
 import numpy as np
 
-if len(sys.argv) is not 2:
-    print "Usage: mass2d_triangle <mesh_name>"
-    sys.exit(1)
-mesh_name = sys.argv[1]
-
-op2.init(backend='opencl')
+parser = utils.parser(group=True, description="PyOP2 2D mass equation demo")
+parser.add_argument('-m', '--mesh',
+                    action='store',
+                    type=str,
+                    help='Base name of triangle mesh (excluding the .ele or .node extension)')
+opt = vars(parser.parse_args())
+op2.init(**opt)
+mesh_name = opt['mesh']
 
 # Set up finite element identity problem
 

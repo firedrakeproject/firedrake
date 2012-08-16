@@ -34,18 +34,21 @@
 """The PyOP2 API specification."""
 
 import backends
+import configuration as cfg
 import op_lib_core as core
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
 
 
-def init(backend='sequential', diags=2):
+def init(**kwargs):
     """Initialise OP2: select the backend."""
-    backends.set_backend(backend)
-    core.op_init(args=None, diags=diags)
+    cfg.configure(**kwargs)
+    backends.set_backend(cfg.backend)
+    core.op_init(args=None, diags=0)
 
 def exit():
     """Exit OP2 and clean up"""
+    cfg.reset()
     if backends.get_backend() != 'pyop2.void':
         core.op_exit()
         backends.unset_backend()
