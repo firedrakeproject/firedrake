@@ -203,8 +203,12 @@ def parser(description=None, group=False):
 
     return parser
 
-def parse_args():
-    return vars(parser().parse_args())
+def parse_args(*args, **kwargs):
+    """Return parsed arguments as variables for later use.
+
+    ARGS and KWARGS are passed into the parser instantiation.
+    The only recognised options are `group` and `description`."""
+    return vars(parser(*args, **kwargs).parse_args())
 
 try:
     OP2_DIR = os.environ['OP2_DIR']
