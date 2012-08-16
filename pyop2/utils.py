@@ -204,7 +204,7 @@ def parser(description=None, group=False):
     return parser
 
 def parse_args():
-    return vars(parser.parse_args())
+    return vars(parser().parse_args())
 
 try:
     OP2_DIR = os.environ['OP2_DIR']
