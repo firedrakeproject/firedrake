@@ -606,7 +606,7 @@ class ParLoopCall(object):
 
         #for coloring:
         cols = list()
-        for i, d in enumerate(self._unique_dats):
+        for i, d in enumerate(dm._dat for dm in self._dat_map_pairs):
             conflicts = list()
             # get map pointing to d:
             for m in uniquify(a._map for a in self._args if a._dat == d and a._map not in [None, IdentityMap]):
