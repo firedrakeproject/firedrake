@@ -608,12 +608,15 @@ class ParLoopCall(object):
         cols = list()
         for i, d in enumerate(dm._dat for dm in self._dat_map_pairs):
             conflicts = list()
-            # get map pointing to d:
+            has_conflict = False
             for m in uniquify(a._map for a in self._args if a._dat == d and a._map not in [None, IdentityMap]):
                 idx = sorted(arg._idx for arg in self._indirect_reduc_args \
                              if arg._dat == d and arg._map == m)
-                conflicts.append((m._xored, tuple(idx)))
-            cols.append(tuple(conflicts))
+                if len(idx) > 0:
+                    has_conflict = True
+                    conflicts.append((m._xored, tuple(idx)))
+            if has_conflict:
+                cols.append(tuple(conflicts))
 
         return (self._it_set.size, self._i_partition_size(), tuple(inds), tuple(cols))
 
