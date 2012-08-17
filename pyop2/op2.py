@@ -120,4 +120,4 @@ def solve(M, b, x):
     :arg b: The :class:`Dat` containing the RHS.
     :arg x: The :class:`Dat` to receive the solution.
     """
-    return backends._BackendSelector._backend.solve(M, x, b)
+    return backends._BackendSelector._backend.solve(M, b, x)
