@@ -228,7 +228,7 @@ cdef class op_sparsity:
         cdef core.op_map *rmaps
         cdef core.op_map *cmaps
         cdef op_map rmap, cmap
-        cdef int nmaps = sparsity.nmaps
+        cdef int nmaps = sparsity._nmaps
         cdef int dim[2]
         cdef char * name = sparsity.name
 

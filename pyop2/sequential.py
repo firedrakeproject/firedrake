@@ -181,7 +181,7 @@ def par_loop(kernel, it_space, *args):
     _tmp_decs = ';\n'.join([tmp_decl(arg, it_space.extents) for arg in args if arg._is_mat])
     _wrapper_decs = ';\n'.join([c_wrapper_dec(arg) for arg in args])
 
-    _const_decs = '\n'.join([const.format_for_c() for const in sorted(Const._defs)]) + '\n'
+    _const_decs = '\n'.join([const._format_for_c() for const in sorted(Const._defs)]) + '\n'
 
     _kernel_user_args = [c_kernel_arg(arg, it_space.extents) for arg in args]
     _kernel_it_args   = ["i_%d" % d for d in range(len(it_space.extents))]
@@ -284,5 +284,5 @@ def par_loop(kernel, it_space, *args):
 @validate_type(('mat', Mat, MatTypeError),
                ('x', Dat, DatTypeError),
                ('b', Dat, DatTypeError))
-def solve(M, x, b):
-    core.solve(M, x, b)
+def solve(M, b, x):
+    core.solve(M, b, x)

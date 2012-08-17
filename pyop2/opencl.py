@@ -185,10 +185,10 @@ class Dat(op2.Dat, DeviceDataMixin):
     def _upload_from_c_layer(self):
         cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
-def solve(M, x, b):
+def solve(M, b, x):
     x.data
     b.data
-    core.solve(M, x, b)
+    core.solve(M, b, x)
     x._upload_from_c_layer()
     b._upload_from_c_layer()
 

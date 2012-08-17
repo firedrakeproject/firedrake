@@ -81,9 +81,43 @@ class Sparsity(base.Sparsity):
     __metaclass__ = backends._BackendSelector
 
 def par_loop(kernel, it_space, *args):
-    """Invocation of an OP2 kernel"""
-    return backends.par_loop(kernel, it_space, *args)
+    """Invocation of an OP2 kernel
 
-def solve(M, x, b):
-    """Invocation of an OP2 solve"""
-    return backends.solve(M, x, b)
+    :arg kernel: The :class:`Kernel` to be executed.
+    :arg it_space: The iteration space over which the kernel should be executed. The primary iteration space will be a :class:`Set`. If a local iteration space is required, then this can be provided in brackets. For example, to iterate over a :class:`Set` named ``elements`` assembling a 3x3 local matrix at each entry, the ``it_space`` argument should be ``elements(3,3)``.
+    :arg \*args: One or more objects of type :class:`Global`, :class:`Dat` or :class:`Mat` which are the global data structures from and to which the kernel will read and write.
+
+    ``par_loop`` invocation is illustrated by the following example::
+
+      op2.par_loop(mass, elements(3,3),
+             mat((elem_node(op2.i(0)), elem_node(op2.i(1))), op2.INC),
+             coords(elem_node, op2.READ))
+
+    This example will execute the :class:`Kernel` ``mass`` over the
+    :class:`Set` ``elements`` executing 3x3 times for each
+    :class:`Set` member. The :class:`Kernel` takes two arguments, the
+    first is a :class:`Mat` named ``mat``, the second is a field named
+    `coords`.
+
+    A :class:`Mat` requires a pair of :class:`Map` objects, one each
+    for the row and column spaces. In this case both are the same
+    ``elem_node`` map. The row :class:`Map` is indexed by the first
+    index in the local iteration space, indicated by ``0`` passed to
+    :func:`op2.i`, while the column space is indexed by the second local index.
+    The matrix is accessed to increment values using the ``op.INC`` :class:`pyop2.op2.Access` object.
+
+    The ``coords`` :class:`Dat` is also accessed via the ``elem_node``
+    :class:`Map`, however no indices are passed so all entries of
+    ``elem_node`` for the relevant member of ``elements`` will be
+    passed to the kernel as a vector.
+    """
+    return backends._BackendSelector._backend.par_loop(kernel, it_space, *args)
+
+def solve(M, b, x):
+    """Solve a the matrix equation.
+
+    :arg M: The :class:`Mat` containing the matrix.
+    :arg b: The :class:`Dat` containing the RHS.
+    :arg x: The :class:`Dat` to receive the solution.
+    """
+    return backends._BackendSelector._backend.solve(M, x, b)
