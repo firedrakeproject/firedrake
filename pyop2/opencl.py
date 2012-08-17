@@ -988,6 +988,14 @@ def ncached_plans():
     global _plan_cache
     return _plan_cache.nentries
 
+def empty_gencode_cache():
+    global _kernel_stub_cache
+    _kernel_stub_cache = dict()
+
+def ncached_gencode():
+    global _kernel_stub_cache
+    return len(_kernel_stub_cache)
+
 
 _debug = False
 _ctx = cl.create_some_context()

@@ -135,3 +135,9 @@ def empty_plan_cache():
 
 def ncached_plans():
     return backends._BackendSelector._backend.ncached_plans()
+
+def empty_gencode_cache():
+    return backends._BackendSelector._backend.empty_gencode_cache()
+
+def ncached_gencode():
+    return backends._BackendSelector._backend.ncached_gencode()
