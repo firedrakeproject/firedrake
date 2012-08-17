@@ -92,7 +92,7 @@ def pytest_funcarg__h5file(request):
 def pytest_funcarg__sparsity(request):
     s = op2.Set(2)
     m = op2.Map(s, s, 1, [0, 1])
-    return op2.Sparsity(m, m, 1)
+    return op2.Sparsity((m, m), 1)
 
 class TestInitAPI:
     """
@@ -299,18 +299,16 @@ class TestSparsityAPI:
 
     def test_sparsity_properties(self, backend, smap):
         "Sparsity constructor should correctly set attributes"
-        s = op2.Sparsity(smap, smap, 2, "foo")
-        assert s.rmaps[0] == smap
-        assert s.cmaps[0] == smap
+        s = op2.Sparsity((smap, smap), 2, "foo")
+        assert s.maps[0] == (smap, smap)
         assert s.dims == (2,2)
         assert s.name == "foo"
 
-    def test_sparsity_multiple_maps(self, backend, smap2):
-        "Sparsity constructor should accept tuple of maps"
-        s = op2.Sparsity(smap2, smap2,
+    def test_sparsity_multiple_maps(self, backend, smap, smap2):
+        "Sparsity constructor should accept tuple of pairs of maps"
+        s = op2.Sparsity(((smap, smap), (smap2, smap2)),
                          1, "foo")
-        assert s.rmaps == smap2
-        assert s.cmaps == smap2
+        assert s.maps == ((smap, smap), (smap2, smap2))
         assert s.dims == (1,1)
 
 class TestMatAPI:
