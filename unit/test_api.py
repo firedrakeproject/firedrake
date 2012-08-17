@@ -337,8 +337,8 @@ class TestMatAPI:
 
     def test_mat_properties(self, backend, sparsity):
         "Mat constructor should correctly set attributes."
-        m = op2.Mat(sparsity, 2, 'double', 'bar')
-        assert m.sparsity == sparsity and m.dims == (2,2) and \
+        m = op2.Mat(sparsity, 'double', 'bar')
+        assert m.sparsity == sparsity and  \
                 m.dtype == np.float64 and m.name == 'bar'
 
 class TestConstAPI:
