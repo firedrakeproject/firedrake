@@ -325,25 +325,10 @@ class TestMatAPI:
         with pytest.raises(TypeError):
             op2.Mat('illegalsparsity', 1)
 
-    def test_mat_illegal_dim(self, backend, sparsity):
-        "Mat dim should be int."
-        with pytest.raises(TypeError):
-            op2.Mat(sparsity, 'illegaldim')
-
     def test_mat_illegal_name(self, backend, sparsity):
         "Mat name should be string."
         with pytest.raises(sequential.NameTypeError):
             op2.Mat(sparsity, 1, name=2)
-
-    def test_mat_dim(self, backend, sparsity):
-        "Mat constructor should create a dim tuple."
-        m = op2.Mat(sparsity, 1)
-        assert m.dims == (1,1)
-
-    def test_mat_dim_list(self, backend, sparsity):
-        "Mat constructor should create a dim tuple from a list."
-        m = op2.Mat(sparsity, [2,3])
-        assert m.dims == (2,3)
 
     def test_mat_dtype(self, backend, sparsity):
         "Default data type should be numpy.float64."
