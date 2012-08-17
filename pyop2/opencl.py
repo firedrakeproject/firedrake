@@ -584,9 +584,14 @@ class ParLoopCall(object):
 
     @property
     def _plan_key(self):
-        # TODO FIX !!!!!!!!!!!!!!!
-        # what about coloring, we need info about INC args, and for those what is
-        # the pointed set, may be some index list pairs to describe conflicts
+        # Globals: irrelevant, they only possibly effect the partition
+        # size for reductions.
+        # Direct Dats: irrelevant, no staging
+        # iteration size: effect ind/loc maps sizes
+        # partition size: effect interpretation of ind/loc maps
+
+        # ind: for each dat map pair, the ind and loc map depend on the dim of
+        #   the map, and the actual indices referenced
         inds = list()
         for dm in self._dat_map_pairs:
             d = dm._dat
@@ -595,12 +600,18 @@ class ParLoopCall(object):
 
             inds.append((m._xored, m._dim, indices))
 
-        # Globals: irrelevant, they only possibly effect the partition
-        # size for reductions.
-        # Direct Dats: irrelevant, no staging
-        # iteration size: effect ind/loc maps sizes
-        # partition size: effect interpretation of ind/loc maps
-        return (self._it_set.size, self._i_partition_size(), tuple(inds))
+        #for coloring:
+        cols = list()
+        for i, d in enumerate(self._unique_dats):
+            conflicts = list()
+            # get map pointing to d:
+            for m in uniquify(a._map for a in self._args if a._dat == d and a._map not in [None, IdentityMap]):
+                idx = sorted(arg._idx for arg in self._indirect_reduc_args \
+                             if arg._dat == d and arg._map == m)
+                conflicts.append((m._xored, tuple(idx)))
+            cols.append(tuple(conflicts))
+
+        return (self._it_set.size, self._i_partition_size(), tuple(inds), tuple(cols))
 
     @property
     def _gencode_key(self):
