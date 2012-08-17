@@ -606,13 +606,13 @@ class ParLoopCall(object):
     def _gencode_key(self):
         def argdimacc(arg):
             if self.is_direct():
-                if isinstance(arg._dat, Globals) or\
+                if isinstance(arg._dat, Global) or\
                    (isinstance(arg._dat, Dat) and arg._dat.cdim > 1):
                     return (arg._dat.cdim, arg._access)
                 else:
                     return (None, None)
             else:
-                if (isinstance(arg._dat, Globals) and arg._access is READ) or\
+                if (isinstance(arg._dat, Global) and arg._access is READ) or\
                    (isinstance(arg._dat, Dat) and arg._map is IdentityMap):
                     return (None, None)
                 else:
