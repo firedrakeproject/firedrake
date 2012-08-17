@@ -70,7 +70,7 @@ class TestMatrices:
         elem_node = request.getfuncargvalue('elem_node')
         sparsity = op2.Sparsity(elem_node, elem_node, 1, "sparsity")
         return request.cached_setup(
-                setup=lambda: op2.Mat(sparsity, 1, valuetype, "mat"),
+                setup=lambda: op2.Mat(sparsity, valuetype, "mat"),
                 scope='session')
 
     def pytest_funcarg__coords(cls, request):
