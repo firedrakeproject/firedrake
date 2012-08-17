@@ -104,7 +104,7 @@ nodes, coords, elements, elem_node = read_triangle(mesh_name)
 num_nodes = nodes.size
 
 sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
-mat = op2.Mat(sparsity, 1, valuetype, "mat")
+mat = op2.Mat(sparsity, valuetype, "mat")
 
 tracer_vals = np.asarray([0.0]*num_nodes, dtype=valuetype)
 tracer = op2.Dat(nodes, 1, tracer_vals, valuetype, "tracer")

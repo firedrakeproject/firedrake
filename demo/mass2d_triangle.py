@@ -85,7 +85,7 @@ nodes, coords, elements, elem_node = read_triangle(mesh_name)
 num_nodes = nodes.size
 
 sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
-mat = op2.Mat(sparsity, 1, valuetype, "mat")
+mat = op2.Mat(sparsity, valuetype, "mat")
 
 f_vals = np.asarray([ float(i) for i in xrange(num_nodes) ], dtype=valuetype)
 b_vals = np.asarray([0.0]*num_nodes, dtype=valuetype)
