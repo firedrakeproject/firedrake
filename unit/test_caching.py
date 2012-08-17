@@ -54,6 +54,13 @@ class TestPlanCache:
     def pytest_funcarg__indset(cls, request):
         return op2.Set(nelems, "indset")
 
+    def pytest_funcarg__a64(cls, request):
+        return op2.Dat(request.getfuncargvalue('iterset'),
+                       1,
+                       range(nelems),
+                       numpy.uint64,
+                       "a")
+
     def pytest_funcarg__g(cls, request):
         return op2.Global(1, 0, numpy.uint32, "g")
 
@@ -199,6 +206,25 @@ void kernel_swap(unsigned int* x)
                      xl(iter2ind1(0), op2.RW))
 
         assert op2.ncached_plans() == 1
+
+    def test_same_nonstaged_arg_count(self, backend, iterset, iter2ind1, x, a64, g):
+        op2.empty_plan_cache()
+        assert op2.ncached_plans() == 0
+
+        kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned long* a64) { }"
+        op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
+                                iterset,
+                                x(iter2ind1(0), op2.INC),
+                                a64(op2.IdentityMap, op2.RW))
+        assert op2.ncached_plans() == 1
+
+        kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* g) { }"
+        op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
+                     iterset,
+                     x(iter2ind1(0), op2.INC),
+                     g(op2.READ))
+        assert op2.ncached_plans() == 1
+
 
 class TestGeneratedCodeCache:
     """
