@@ -151,6 +151,7 @@ class Mat(base.Mat):
     for each element in the :class:`Sparsity`."""
 
     def zero(self):
+        """Zero the matrix."""
         self.c_handle.zero()
 
     def zero_rows(self, rows, diag_val):

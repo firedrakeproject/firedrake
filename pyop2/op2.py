@@ -95,9 +95,10 @@ def par_loop(kernel, it_space, *args):
 
     This example will execute the :class:`Kernel` ``mass`` over the
     :class:`Set` ``elements`` executing 3x3 times for each
-    :class:`Set` member. The :class:`Kernel` takes two arguments, the
+    :class:`Set` member. The :class:`Kernel` takes four arguments, the
     first is a :class:`Mat` named ``mat``, the second is a field named
-    `coords`.
+    `coords`. The remaining two arguments indicate which local
+    iteration space point the kernel is to execute.
 
     A :class:`Mat` requires a pair of :class:`Map` objects, one each
     for the row and column spaces. In this case both are the same
