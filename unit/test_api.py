@@ -597,7 +597,7 @@ class TestMapAPI:
     def test_map_convert_float_int(self, backend, iterset, dataset):
         "Float data should be implicitely converted to int."
         m = op2.Map(iterset, dataset, 1, [1.5]*iterset.size)
-        assert m.dtype == np.int32 and m.values.sum() == iterset.size
+        assert m.values.dtype == np.int32 and m.values.sum() == iterset.size
 
     def test_map_reshape(self, backend, iterset, dataset):
         "Data should be reshaped according to dim."
