@@ -240,8 +240,8 @@ cdef class op_sparsity:
             raise MemoryError("Unable to allocate space for cmaps")
 
         for i in range(nmaps):
-            rmap = sparsity.rmaps[i]._c_handle
-            cmap = sparsity.cmaps[i]._c_handle
+            rmap = sparsity._rmaps[i]._c_handle
+            cmap = sparsity._cmaps[i]._c_handle
             rmaps[i] = rmap._handle
             cmaps[i] = cmap._handle
 

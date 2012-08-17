@@ -538,19 +538,27 @@ class Sparsity(object):
         return len(self._rmaps)
 
     @property
-    def rmaps(self):
-        return self._rmaps
-
-    @property
-    def cmaps(self):
-        return self._cmaps
+    def maps(self):
+        """A tuple of pairs (rmap, cmap) where each pair of
+        :class:'Map' objects will later be used to assemble into this
+        matrix. The iterset of each of the maps in a pair must be the
+        same, while the dataset of all the maps which appear first
+        must be common, this will form the row :class:`Set` of the
+        sparsity. Similarly, the dataset of all the maps which appear
+        second must be common and will form the column :class:`Set` of
+        the ``Sparsity``."""
+        return zip(self._rmaps, self._cmaps)
 
     @property
     def dims(self):
+        """A pair giving the number of rows per entry of the row
+        :class:`Set` and the number of columns per entry of the column
+        :class:`Set` of the ``Sparsity``."""
         return self._dims
 
     @property
     def name(self):
+        """A user-defined label."""
         return self._name
 
     def __str__(self):
