@@ -839,7 +839,7 @@ class ParLoopCall(object):
                 for i in self._it_space.extents:
                     inst.append(("__private", None))
 
-            return self._kernel.instrument(inst, list(Const._defs))
+            return self._kernel.instrument(inst, sorted(list(Const._defs), key=lambda c: c._name))
 
         # check cache
         if _kernel_stub_cache.has_key(self._gencode_key):
@@ -852,7 +852,7 @@ class ParLoopCall(object):
         template['user_kernel'] = user_kernel
         template['launch'] = conf
         template['codegen'] = {'amd': _AMD_fixes}
-        template['op2const'] = list(Const._defs)
+        template['op2const'] = sorted(list(Const._defs), key=lambda c: c._name)
         src = str(template)
         _kernel_stub_cache[self._gencode_key] = src
         return src
@@ -885,7 +885,7 @@ class ParLoopCall(object):
             a._dat._allocate_reduction_array(conf['work_group_count'])
             kernel.append_arg(a._dat._d_reduc_buffer)
 
-        for cst in Const._defs:
+        for cst in sorted(list(Const._defs), key=lambda c: c._name):
             kernel.append_arg(cst._buffer)
 
         if self.is_direct():
