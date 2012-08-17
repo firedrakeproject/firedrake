@@ -52,7 +52,7 @@ class Arg(base.Arg):
     """
 
     @property
-    def c_handle(self):
+    def _c_handle(self):
         if self._lib_handle is None:
             self._lib_handle = core.op_arg(self, dat=isinstance(self._dat, Dat),
                                          gbl=isinstance(self._dat, Global))
@@ -78,7 +78,7 @@ class Set(base.Set):
         return IterationSpace(self, dims)
 
     @property
-    def c_handle(self):
+    def _c_handle(self):
         if self._lib_handle is None:
             self._lib_handle = core.op_set(self)
         return self._lib_handle
@@ -102,7 +102,7 @@ class Dat(base.Dat):
         return ret
 
     @property
-    def c_handle(self):
+    def _c_handle(self):
         if self._lib_handle is None:
             self._lib_handle = core.op_dat(self)
         return self._lib_handle
@@ -123,7 +123,7 @@ class Map(base.Map):
     """OP2 map, a relation between two :class:`Set` objects."""
 
     @property
-    def c_handle(self):
+    def _c_handle(self):
         if self._lib_handle is None:
             self._lib_handle = core.op_map(self)
         return self._lib_handle
@@ -141,7 +141,7 @@ class Sparsity(base.Sparsity):
     """OP2 Sparsity, a matrix structure derived from the union of the outer product of pairs of :class:`Map` objects."""
 
     @property
-    def c_handle(self):
+    def _c_handle(self):
         if self._lib_handle is None:
             self._lib_handle = core.op_sparsity(self)
         return self._lib_handle
@@ -152,19 +152,19 @@ class Mat(base.Mat):
 
     def zero(self):
         """Zero the matrix."""
-        self.c_handle.zero()
+        self._c_handle.zero()
 
     def zero_rows(self, rows, diag_val):
         """Zeroes the specified rows of the matrix, with the exception of the
         diagonal entry, which is set to diag_val. May be used for applying
         strong boundary conditions."""
-        self.c_handle.zero_rows(rows, diag_val)
+        self._c_handle.zero_rows(rows, diag_val)
 
-    def assemble(self):
-        self.c_handle.assemble()
+    def _assemble(self):
+        self._c_handle.assemble()
 
     @property
-    def c_handle(self):
+    def _c_handle(self):
         if self._lib_handle is None:
             self._lib_handle = core.op_mat(self)
         return self._lib_handle

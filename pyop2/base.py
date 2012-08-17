@@ -599,7 +599,7 @@ class Mat(DataCarrier):
     @property
     def values(self):
         """A numpy array of matrix values."""
-        return self.c_handle.values
+        return self._c_handle.values
 
     @property
     def dtype(self):

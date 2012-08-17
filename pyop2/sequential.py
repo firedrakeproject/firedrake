@@ -267,7 +267,7 @@ def par_loop(kernel, it_space, *args):
     _args = [it_space.size]
     for arg in args:
         if arg._is_mat:
-            _args.append(arg.data.c_handle.cptr)
+            _args.append(arg.data._c_handle.cptr)
         else:
             _args.append(arg.data.data)
 
