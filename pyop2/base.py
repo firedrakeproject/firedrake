@@ -611,8 +611,8 @@ class Mat(DataCarrier):
                % (self._name, self._sparsity, self._dims, self._datatype.name)
 
     def __repr__(self):
-        return "Mat(%r, %s, '%s', '%s')" \
-               % (self._sparsity, self._dims, self._datatype, self._name)
+        return "Mat(%r, '%s', '%s')" \
+               % (self._sparsity, self._datatype, self._name)
 
 # Kernel API
 
