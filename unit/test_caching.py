@@ -316,7 +316,7 @@ class TestGeneratedCodeCache:
 
         assert op2.ncached_gencode() == 2
 
-    def test_arg_order(self, backend, iterset, iter2ind1, x, y):
+    def test_invert_arg_similar_shape(self, backend, iterset, iter2ind1, x, y):
         op2.empty_gencode_cache()
         assert op2.ncached_gencode() == 0
 
@@ -341,7 +341,7 @@ void kernel_swap(unsigned int* x, unsigned int* y)
                      y(iter2ind1(0), op2.RW),
                      x(iter2ind1(0), op2.RW))
 
-        assert op2.ncached_gencode() == 2
+        assert op2.ncached_gencode() == 1
 
     def test_dloop_ignore_scalar(self, backend, iterset, a, b):
         op2.empty_gencode_cache()
