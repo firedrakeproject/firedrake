@@ -584,6 +584,9 @@ class ParLoopCall(object):
 
     @property
     def _plan_key(self):
+        # TODO FIX !!!!!!!!!!!!!!!
+        # what about coloring, we need info about INC args, and for those what is
+        # the pointed set, may be some index list pairs to describe conflicts
         inds = list()
         for dm in self._dat_map_pairs:
             d = dm._dat
@@ -601,6 +604,9 @@ class ParLoopCall(object):
 
     @property
     def _gencode_key(self):
+        #TODO FIX: Const...
+        # - include in key
+        # - make sure we use them in order in generated code and instrumentation
         def argdimacc(arg):
             if self.is_direct():
                 if isinstance(arg._dat, Globals) or\
