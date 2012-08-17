@@ -35,7 +35,7 @@
 
 import runtime_base as op2
 from utils import verify_reshape, uniquify
-from runtime_base import IdentityMap, READ, WRITE, RW, INC, MIN, MAX, Sparsity
+from runtime_base import IdentityMap, READ, WRITE, RW, INC, MIN, MAX, Set
 import configuration as cfg
 import op_lib_core as core
 import pyopencl as cl
