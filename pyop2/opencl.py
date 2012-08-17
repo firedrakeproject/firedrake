@@ -197,8 +197,8 @@ class Mat(op2.Mat, DeviceDataMixin):
 
     _arg_type = Arg
 
-    def __init__(self, sparsity, dim, dtype=None, name=None):
-        op2.Mat.__init__(self, sparsity, dim, dtype, name)
+    def __init__(self, sparsity, dtype=None, name=None):
+        op2.Mat.__init__(self, sparsity, dtype, name)
 
         self._ab = None
         self._cib = None

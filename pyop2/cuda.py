@@ -57,8 +57,8 @@ class Dat(op2.Dat, DeviceDataMixin):
         self._on_device = False
 
 class Mat(op2.Mat, DeviceDataMixin):
-    def __init__(self, datasets, dim, dtype=None, name=None):
-        op2.Mat.__init__(self, datasets, dim, dtype, name)
+    def __init__(self, datasets, dtype=None, name=None):
+        op2.Mat.__init__(self, datasets, dtype, name)
         self._on_device = False
 
 class Const(op2.Const, DeviceDataMixin):

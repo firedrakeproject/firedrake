@@ -607,8 +607,8 @@ class Mat(DataCarrier):
         return self._datatype
 
     def __str__(self):
-        return "OP2 Mat: %s, sparsity (%s), dimensions %s, datatype %s" \
-               % (self._name, self._sparsity, self._dims, self._datatype.name)
+        return "OP2 Mat: %s, sparsity (%s), datatype %s" \
+               % (self._name, self._sparsity, self._datatype.name)
 
     def __repr__(self):
         return "Mat(%r, '%s', '%s')" \
