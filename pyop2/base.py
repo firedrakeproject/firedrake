@@ -518,14 +518,14 @@ class Sparsity(object):
 
     _globalcount = 0
 
-    @validate_type(('rmaps', (Map, tuple), MapTypeError), \
-                   ('cmaps', (Map, tuple), MapTypeError), \
+    @validate_type(('maps', (Map, tuple), MapTypeError), \
                    ('dims', (int, tuple), TypeError))
-    def __init__(self, rmaps, cmaps, dims, name=None):
+    def __init__(self, maps, dims, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
 
-        self._rmaps = as_tuple(rmaps, Map)
-        self._cmaps = as_tuple(cmaps, Map)
+        lmaps = (maps,) if isinstance(maps[0], Map) else maps
+        self._rmaps, self._cmaps = map (lambda x : as_tuple(x, Map), zip(*lmaps))
+
         assert len(self._rmaps) == len(self._cmaps), \
             "Must pass equal number of row and column maps"
         self._dims = as_tuple(dims, int, 2)
