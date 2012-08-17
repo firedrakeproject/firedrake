@@ -631,7 +631,8 @@ class ParLoopCall(object):
         seen = dict()
         c = 0
         for arg in self._actual_args:
-            if arg._map not in [None, IdentityMap]:
+            if not isinstance(arg._dat, Mat) and\
+               arg._map not in [None, IdentityMap]:
                 if not seen.has_key((arg._dat,arg._map)):
                     seen[(arg._dat,arg._map)] = c
                     idesc = (c, arg._idx)
