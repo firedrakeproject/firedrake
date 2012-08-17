@@ -323,16 +323,16 @@ class TestMatAPI:
     def test_mat_illegal_sets(self, backend):
         "Mat sparsity should be a Sparsity."
         with pytest.raises(TypeError):
-            op2.Mat('illegalsparsity', 1)
+            op2.Mat('illegalsparsity')
 
     def test_mat_illegal_name(self, backend, sparsity):
         "Mat name should be string."
         with pytest.raises(sequential.NameTypeError):
-            op2.Mat(sparsity, 1, name=2)
+            op2.Mat(sparsity, name=2)
 
     def test_mat_dtype(self, backend, sparsity):
         "Default data type should be numpy.float64."
-        m = op2.Mat(sparsity, 1)
+        m = op2.Mat(sparsity)
         assert m.dtype == np.double
 
     def test_mat_properties(self, backend, sparsity):
