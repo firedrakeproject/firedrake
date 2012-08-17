@@ -128,3 +128,10 @@ def solve(M, b, x):
     :arg x: The :class:`Dat` to receive the solution.
     """
     return backends._BackendSelector._backend.solve(M, b, x)
+
+#backend inspection interface
+def empty_plan_cache():
+    return backends._BackendSelector._backend.empty_plan_cache()
+
+def ncached_plans():
+    return backends._BackendSelector._backend.ncached_plans()

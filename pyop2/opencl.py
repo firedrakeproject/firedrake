@@ -426,6 +426,10 @@ class OpPlanCache():
 
         return plan
 
+    @property
+    def nentries(self):
+        return len(self._cache)
+
 class OpPlan():
     """ Helper proxy for core.op_plan."""
 
@@ -974,6 +978,16 @@ cl.Kernel = CLKernel
 
 def par_loop(kernel, it_space, *args):
     ParLoopCall(kernel, it_space, *args).compute()
+
+# backend interface:
+def empty_plan_cache():
+    global _plan_cache
+    _plan_cache = OpPlanCache()
+
+def ncached_plans():
+    global _plan_cache
+    return _plan_cache.nentries
+
 
 _debug = False
 _ctx = cl.create_some_context()
