@@ -225,6 +225,24 @@ void kernel_swap(unsigned int* x)
                      g(op2.READ))
         assert op2.ncached_plans() == 1
 
+    def test_same_conflicts(self, backend, iterset, iter2ind2, x, y):
+        op2.empty_plan_cache()
+        assert op2.ncached_plans() == 0
+
+        kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* y) { }"
+        op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
+                                iterset,
+                                x(iter2ind2(0), op2.READ),
+                                x(iter2ind2(1), op2.INC))
+        assert op2.ncached_plans() == 1
+
+        kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* y) { }"
+        op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
+                                iterset,
+                                y(iter2ind2(0), op2.READ),
+                                y(iter2ind2(1), op2.INC))
+        assert op2.ncached_plans() == 1
+
 
 class TestGeneratedCodeCache:
     """
