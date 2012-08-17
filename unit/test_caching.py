@@ -200,6 +200,174 @@ void kernel_swap(unsigned int* x)
 
         assert op2.ncached_plans() == 1
 
+class TestGeneratedCodeCache:
+    """
+    Generated Code Cache Tests.
+    """
+
+    def pytest_funcarg__iterset(cls, request):
+        return op2.Set(nelems, "iterset")
+
+    def pytest_funcarg__indset(cls, request):
+        return op2.Set(nelems, "indset")
+
+    def pytest_funcarg__a(cls, request):
+        return op2.Dat(request.getfuncargvalue('iterset'),
+                       1,
+                       range(nelems),
+                       numpy.uint32,
+                       "a")
+
+    def pytest_funcarg__b(cls, request):
+        return op2.Dat(request.getfuncargvalue('iterset'),
+                       1,
+                       range(nelems),
+                       numpy.uint32,
+                       "b")
+
+    def pytest_funcarg__g(cls, request):
+        return op2.Global(1, 0, numpy.uint32, "g")
+
+    def pytest_funcarg__x(cls, request):
+        return op2.Dat(request.getfuncargvalue('indset'),
+                       1,
+                       range(nelems),
+                       numpy.uint32,
+                       "x")
+
+    def pytest_funcarg__x2(cls, request):
+        return op2.Dat(request.getfuncargvalue('indset'),
+                       2,
+                       range(nelems) * 2,
+                       numpy.uint32,
+                       "x2")
+
+    def pytest_funcarg__xl(cls, request):
+        return op2.Dat(request.getfuncargvalue('indset'),
+                       1,
+                       range(nelems),
+                       numpy.uint64,
+                       "xl")
+
+    def pytest_funcarg__y(cls, request):
+        return op2.Dat(request.getfuncargvalue('indset'),
+                       1,
+                       [0] * nelems,
+                       numpy.uint32,
+                       "y")
+
+    def pytest_funcarg__iter2ind1(cls, request):
+        u_map = numpy.array(range(nelems), dtype=numpy.uint32)
+        random.shuffle(u_map, _seed)
+        return op2.Map(request.getfuncargvalue('iterset'),
+                       request.getfuncargvalue('indset'),
+                       1,
+                       u_map,
+                       "iter2ind1")
+
+    def pytest_funcarg__iter2ind2(cls, request):
+        u_map = numpy.array(range(nelems) * 2, dtype=numpy.uint32)
+        random.shuffle(u_map, _seed)
+        return op2.Map(request.getfuncargvalue('iterset'),
+                       request.getfuncargvalue('indset'),
+                       2,
+                       u_map,
+                       "iter2ind2")
+
+    def test_same_args(self, backend, iterset, iter2ind1, x, a):
+        op2.empty_gencode_cache()
+        assert op2.ncached_gencode() == 0
+
+        kernel_cpy = "void kernel_cpy(uint* dst, uint* src) { *dst = *src; }"
+
+        op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
+                     iterset,
+                     a(op2.IdentityMap, op2.WRITE),
+                     x(iter2ind1(0), op2.READ))
+
+        assert op2.ncached_gencode() == 1
+
+        op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
+                     iterset,
+                     a(op2.IdentityMap, op2.WRITE),
+                     x(iter2ind1(0), op2.READ))
+
+        assert op2.ncached_gencode() == 1
+
+    def test_diff_kernel(self, backend, iterset, iter2ind1, x, a):
+        op2.empty_gencode_cache()
+        assert op2.ncached_gencode() == 0
+
+        kernel_cpy = "void kernel_cpy(uint* dst, uint* src) { *dst = *src; }"
+
+        op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
+                     iterset,
+                     a(op2.IdentityMap, op2.WRITE),
+                     x(iter2ind1(0), op2.READ))
+
+        assert op2.ncached_gencode() == 1
+
+        kernel_cpy = "void kernel_cpy(uint* DST, uint* SRC) { *DST = *SRC; }"
+
+        op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
+                     iterset,
+                     a(op2.IdentityMap, op2.WRITE),
+                     x(iter2ind1(0), op2.READ))
+
+        assert op2.ncached_gencode() == 2
+
+    def test_arg_order(self, backend, iterset, iter2ind1, x, y):
+        op2.empty_gencode_cache()
+        assert op2.ncached_gencode() == 0
+
+        kernel_swap = """
+void kernel_swap(unsigned int* x, unsigned int* y)
+{
+  unsigned int t;
+  t = *x;
+  *x = *y;
+  *y = t;
+}
+"""
+        op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
+                     iterset,
+                     x(iter2ind1(0), op2.RW),
+                     y(iter2ind1(0), op2.RW))
+
+        assert op2.ncached_gencode() == 1
+
+        op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
+                     iterset,
+                     y(iter2ind1(0), op2.RW),
+                     x(iter2ind1(0), op2.RW))
+
+        assert op2.ncached_gencode() == 2
+
+    def test_dloop_ignore_scalar(self, backend, iterset, a, b):
+        op2.empty_gencode_cache()
+        assert op2.ncached_gencode() == 0
+
+        kernel_swap = """
+void kernel_swap(unsigned int* x, unsigned int* y)
+{
+  unsigned int t;
+  t = *x;
+  *x = *y;
+  *y = t;
+}
+"""
+        op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
+                     iterset,
+                     a(op2.IdentityMap, op2.RW),
+                     b(op2.IdentityMap, op2.RW))
+        assert op2.ncached_gencode() == 1
+
+        op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
+                     iterset,
+                     b(op2.IdentityMap, op2.RW),
+                     a(op2.IdentityMap, op2.RW))
+        assert op2.ncached_gencode() == 1
+
 
 if __name__ == '__main__':
     import os
