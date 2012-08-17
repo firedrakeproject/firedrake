@@ -604,9 +604,6 @@ class ParLoopCall(object):
 
     @property
     def _gencode_key(self):
-        #TODO FIX: Const...
-        # - include in key
-        # - make sure we use them in order in generated code and instrumentation
         def argdimacc(arg):
             if self.is_direct():
                 if isinstance(arg._dat, Globals) or\
@@ -649,7 +646,10 @@ class ParLoopCall(object):
 
             argdesc.append(d)
 
-        return (self._kernel.md5,) + tuple(argdesc)
+        consts = map(lambda c: (c._name, c.dtype, c.cdim == 1),
+                     sorted(list(Const._defs), key=lambda c: c._name))
+
+        return (self._kernel.md5,) + tuple(argdesc) + tuple(consts)
 
     # generic
     @property
