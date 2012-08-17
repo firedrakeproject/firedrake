@@ -278,7 +278,7 @@ class TestGeneratedCodeCache:
         op2.empty_gencode_cache()
         assert op2.ncached_gencode() == 0
 
-        kernel_cpy = "void kernel_cpy(uint* dst, uint* src) { *dst = *src; }"
+        kernel_cpy = "void kernel_cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
 
         op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
                      iterset,
@@ -298,7 +298,7 @@ class TestGeneratedCodeCache:
         op2.empty_gencode_cache()
         assert op2.ncached_gencode() == 0
 
-        kernel_cpy = "void kernel_cpy(uint* dst, uint* src) { *dst = *src; }"
+        kernel_cpy = "void kernel_cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
 
         op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
                      iterset,
@@ -307,7 +307,7 @@ class TestGeneratedCodeCache:
 
         assert op2.ncached_gencode() == 1
 
-        kernel_cpy = "void kernel_cpy(uint* DST, uint* SRC) { *DST = *SRC; }"
+        kernel_cpy = "void kernel_cpy(unsigned int* DST, unsigned int* SRC) { *DST = *SRC; }"
 
         op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
                      iterset,
