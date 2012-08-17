@@ -763,8 +763,6 @@ class ParLoopCall(object):
         return max(staging, reduction)
 
     def _i_partition_size(self):
-        staged_args = filter(lambda a: a._map != IdentityMap, self._args)
-        assert staged_args
         # will have to fix for vec dat
         #TODO FIX: something weird here
         #available_local_memory
@@ -794,7 +792,7 @@ class ParLoopCall(object):
         # inside shared memory padding
         available_local_memory -= 2 * (len(self._dat_map_pairs) - 1)
 
-        max_bytes = sum(map(lambda a: a._dat.bytes_per_elem, staged_args))
+        max_bytes = sum(map(lambda a: a._dat.bytes_per_elem, self._indirect_args))
         return available_local_memory / (2 * _warpsize * max_bytes) * (2 * _warpsize)
 
     def launch_configuration(self):
