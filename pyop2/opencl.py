@@ -588,6 +588,8 @@ class ParLoopCall(object):
 
     @property
     def _plan_key(self):
+        """Cannonical representation of a parloop wrt plan caching."""
+
         # Globals: irrelevant, they only possibly effect the partition
         # size for reductions.
         # Direct Dats: irrelevant, no staging
@@ -628,6 +630,21 @@ class ParLoopCall(object):
 
     @property
     def _gencode_key(self):
+        """Cannonical representation of a parloop wrt generated code caching."""
+
+        # user kernel: md5 of kernel name and code (same code can contain
+        #   multiple user kernels)
+        # for each actual arg:
+        #   its type (dat | gbl | mat)
+        #   dtype (required for casts and opencl extensions)
+        #   dat.dim (dloops: if staged or reduc; indloops; if not direct dat)
+        #   access  (dloops: if staged or reduc; indloops; if not direct dat)
+        #   the ind map index: gbl = -1, direct = -1, indirect = X (first occurence
+        #     of the dat/map pair) (will tell which arg use which ind/loc maps)
+        # for vec map arg we need the dimension of the map
+        # consts in alphabetial order: name, dtype (used in user kernel,
+        #   is_scalar (passed as pointed or value)
+
         def argdimacc(arg):
             if self.is_direct():
                 if isinstance(arg._dat, Global) or\
@@ -642,15 +659,6 @@ class ParLoopCall(object):
                 else:
                     return (arg._dat.cdim, arg._access)
 
-        #user kernel code: md5?
-        #for each arg:
-        #  (dat | gbl | mat)
-        #  dtype (casts, opencl extensions)
-        #  dat.dim (dloops: if staged or reduc; indloops; if not direct dat)
-        #  access (dloops: if staged or reduc; indloops; if not direct)
-        #  the ind map index: gbl = -1, direct = -1, indirect = X (first occurence
-        #    of the dat/map pair
-        #for vec map arg we need the dimension of the map
         argdesc = []
         seen = dict()
         c = 0
@@ -664,7 +672,7 @@ class ParLoopCall(object):
                 else:
                     idesc = (seen[(arg._dat,arg._map)], arg._idx)
             else:
-                idesc = (-1, None)
+                idesc = (-1,)
 
             d = (arg._dat.__class__,
                  arg._dat.dtype) + argdimacc(arg) + idesc
