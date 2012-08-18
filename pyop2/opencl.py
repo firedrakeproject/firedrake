@@ -604,7 +604,9 @@ class ParLoopCall(object):
 
             inds.append((m._xored, m._dim, indices))
 
-        #for coloring:
+        # coloring part of the key,
+        # for each dat, includes (map, (idx, ...)) involved (INC)
+        # dats do not matter here, but conflicts should be sorted
         cols = list()
         for i, d in enumerate(sorted((dm._dat for dm in self._dat_map_pairs),
                                      key=id)):
