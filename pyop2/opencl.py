@@ -619,7 +619,10 @@ class ParLoopCall(object):
             if has_conflict:
                 cols.append(tuple(conflicts))
 
-        return (self._it_set.size, self._i_partition_size(), tuple(inds), tuple(cols))
+        return (self._it_set.size,
+                self._i_partition_size(),
+                tuple(inds),
+                tuple(cols))
 
     @property
     def _gencode_key(self):
