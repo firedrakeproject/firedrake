@@ -634,11 +634,11 @@ class ParLoopCall(object):
                    (isinstance(arg._dat, Dat) and arg._dat.cdim > 1):
                     return (arg._dat.cdim, arg._access)
                 else:
-                    return (None, None)
+                    return ()
             else:
                 if (isinstance(arg._dat, Global) and arg._access is READ) or\
                    (isinstance(arg._dat, Dat) and arg._map is IdentityMap):
-                    return (None, None)
+                    return ()
                 else:
                     return (arg._dat.cdim, arg._access)
 
