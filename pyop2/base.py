@@ -589,6 +589,17 @@ class Sparsity(object):
 
         assert len(self._rmaps) == len(self._cmaps), \
             "Must pass equal number of row and column maps"
+
+        for pair in lmaps:
+            if pair[0].iterset is not pair[1].iterset:
+                raise RuntimeError("Iterset of both maps in a pair must be the same")
+
+        if not all(m.dataset is self._rmaps[0].dataset for m in self._rmaps):
+            raise RuntimeError("Dataset of all row maps must be the same")
+
+        if not all(m.dataset is self._cmaps[0].dataset for m in self._cmaps):
+            raise RuntimeError("Dataset of all column maps must be the same")
+
         self._dims = as_tuple(dims, int, 2)
         self._name = name or "global_%d" % Sparsity._globalcount
         self._lib_handle = None
