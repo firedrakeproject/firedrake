@@ -369,7 +369,7 @@ class Const(DataCarrier):
     """Data that is constant for any element of any set."""
 
     class NonUniqueNameError(ValueError):
-        """The Names of const variables are requried to be globally unique. This exception is raised if the name is already in use."""
+        """The Names of const variables are required to be globally unique. This exception is raised if the name is already in use."""
 
     _defs = set()
     _globalcount = 0
