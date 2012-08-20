@@ -542,8 +542,8 @@ class Sparsity(object):
 
     @property
     def maps(self):
-        """A tuple of pairs (rmap, cmap) where each pair of
-        :class:'Map' objects will later be used to assemble into this
+        """A list of pairs (rmap, cmap) where each pair of
+        :class:`Map` objects will later be used to assemble into this
         matrix. The iterset of each of the maps in a pair must be the
         same, while the dataset of all the maps which appear first
         must be common, this will form the row :class:`Set` of the
