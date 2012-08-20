@@ -255,7 +255,7 @@ class DataCarrier(object):
 
     @property
     def dtype(self):
-        """Data type."""
+        """The Python type of the data."""
         return self._data.dtype
 
     @property
@@ -642,7 +642,7 @@ class Sparsity(object):
                (self._rmaps, self._cmaps, self._dims, self._name)
 
 class Mat(DataCarrier):
-    """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
+    """OP2 matrix data. A ``Mat`` is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`.
 
     When a ``Mat`` is passed to :func:`par_loop`, the maps via which
@@ -702,7 +702,7 @@ class Mat(DataCarrier):
 
     @property
     def dtype(self):
-        """Data type."""
+        """The Python type of the data."""
         return self._datatype
 
     def __str__(self):
