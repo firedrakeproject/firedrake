@@ -531,6 +531,7 @@ class Map(object):
                % (self._iterset, self._dataset, self._dim, self._name)
 
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
+"""The identity map.  Used to indicate direct access to a :class:`Dat`."""
 
 class Sparsity(object):
     """OP2 Sparsity, a matrix structure derived from the union of the outer product of pairs of :class:`Map` objects."""
