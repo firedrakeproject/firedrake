@@ -469,7 +469,9 @@ def i(index):
     return IterationIndex(index)
 
 class Map(object):
-    """OP2 map, a relation between two :class:`Set` objects."""
+    """OP2 map, a relation between two :class:`Set` objects.
+
+    Each entry in the ``iterset`` maps to ``dim`` entries in the ``dataset``. When a map is used in a :func:`pyop2.op2.par_loop`"""
 
     _globalcount = 0
     _arg_type = Arg
