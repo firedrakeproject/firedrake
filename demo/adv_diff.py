@@ -172,7 +172,7 @@ while T < 0.2:
         mat.zero()
 
         op2.par_loop(mass, elements(3,3),
-                     mat((elem_node[op2.i(0)], elem_node[op2.i(1)]), op2.INC),
+                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
 
         op2.par_loop(zero_dat, nodes,
@@ -192,7 +192,7 @@ while T < 0.2:
         mat.zero()
 
         op2.par_loop(diff_matrix, elements(3,3),
-                     mat((elem_node[op2.i(0)], elem_node[op2.i(1)]), op2.INC),
+                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
 
         op2.par_loop(zero_dat, nodes,
