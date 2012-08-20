@@ -185,10 +185,10 @@ class Dat(op2.Dat, DeviceDataMixin):
     def _upload_from_c_layer(self):
         cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
 
-def solve(M, x, b):
+def solve(M, b, x):
     x.data
     b.data
-    core.solve(M, x, b)
+    core.solve(M, b, x)
     x._upload_from_c_layer()
     b._upload_from_c_layer()
 
@@ -197,8 +197,8 @@ class Mat(op2.Mat, DeviceDataMixin):
 
     _arg_type = Arg
 
-    def __init__(self, sparsity, dim, dtype=None, name=None):
-        op2.Mat.__init__(self, sparsity, dim, dtype, name)
+    def __init__(self, sparsity, dtype=None, name=None):
+        op2.Mat.__init__(self, sparsity, dtype, name)
 
         self._ab = None
         self._cib = None
@@ -207,31 +207,31 @@ class Mat(op2.Mat, DeviceDataMixin):
     @property
     def _array_buffer(self):
         if not self._ab:
-            s = self._datatype.itemsize * self._sparsity.c_handle.total_nz
+            s = self._datatype.itemsize * self._sparsity._c_handle.total_nz
             self._ab = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=s)
         return self._ab
 
     @property
     def _colidx_buffer(self):
         if not self._cib:
-            self._cib = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity.c_handle.colidx.nbytes)
-            cl.enqueue_copy(_queue, self._cib, self._sparsity.c_handle.colidx, is_blocking=True).wait()
+            self._cib = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity._c_handle.colidx.nbytes)
+            cl.enqueue_copy(_queue, self._cib, self._sparsity._c_handle.colidx, is_blocking=True).wait()
         return self._cib
 
     @property
     def _rowptr_buffer(self):
         if not self._rpb:
-            self._rpb = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity.c_handle.rowptr.nbytes)
-            cl.enqueue_copy(_queue, self._rpb, self._sparsity.c_handle.rowptr, is_blocking=True).wait()
+            self._rpb = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity._c_handle.rowptr.nbytes)
+            cl.enqueue_copy(_queue, self._rpb, self._sparsity._c_handle.rowptr, is_blocking=True).wait()
         return self._rpb
 
     def _upload_array(self):
-        cl.enqueue_copy(_queue, self._array_buffer, self.c_handle.array, is_blocking=True).wait()
+        cl.enqueue_copy(_queue, self._array_buffer, self._c_handle.array, is_blocking=True).wait()
 
     def assemble(self):
-        cl.enqueue_copy(_queue, self.c_handle.array, self._array_buffer, is_blocking=True).wait()
-        self.c_handle.restore_array()
-        self.c_handle.assemble()
+        cl.enqueue_copy(_queue, self._c_handle.array, self._array_buffer, is_blocking=True).wait()
+        self._c_handle.restore_array()
+        self._c_handle.assemble()
 
     @property
     def _dim(self):

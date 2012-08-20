@@ -99,9 +99,9 @@ for i in range(1, niter+1):
 
         op2.par_loop(bres_calc, bedges,
                      p_x    (pbedge,       op2.READ),
-                     p_q    (pbecell(0),      op2.READ),
-                     p_adt  (pbecell(0),      op2.READ),
-                     p_res  (pbecell(0),      op2.INC),
+                     p_q    (pbecell[0],      op2.READ),
+                     p_adt  (pbecell[0],      op2.READ),
+                     p_res  (pbecell[0],      op2.INC),
                      p_bound(op2.IdentityMap, op2.READ))
 
         # Update flow field

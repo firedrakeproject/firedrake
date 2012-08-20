@@ -103,8 +103,8 @@ valuetype=np.float64
 nodes, coords, elements, elem_node = read_triangle(mesh_name)
 num_nodes = nodes.size
 
-sparsity = op2.Sparsity(elem_node, elem_node, 1, "sparsity")
-mat = op2.Mat(sparsity, 1, valuetype, "mat")
+sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
+mat = op2.Mat(sparsity, valuetype, "mat")
 
 tracer_vals = np.asarray([0.0]*num_nodes, dtype=valuetype)
 tracer = op2.Dat(nodes, 1, tracer_vals, valuetype, "tracer")
@@ -172,7 +172,7 @@ while T < 0.2:
         mat.zero()
 
         op2.par_loop(mass, elements(3,3),
-                     mat((elem_node(op2.i(0)), elem_node(op2.i(1))), op2.INC),
+                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
 
         op2.par_loop(zero_dat, nodes,
@@ -192,7 +192,7 @@ while T < 0.2:
         mat.zero()
 
         op2.par_loop(diff_matrix, elements(3,3),
-                     mat((elem_node(op2.i(0)), elem_node(op2.i(1))), op2.INC),
+                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
 
         op2.par_loop(zero_dat, nodes,

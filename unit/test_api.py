@@ -58,13 +58,6 @@ def pytest_funcarg__smap(request):
     dataset = op2.Set(2, 'dataset')
     return op2.Map(iterset, dataset, 1, [0, 1])
 
-def pytest_funcarg__smap2(request):
-    iterset = op2.Set(2, 'iterset')
-    dataset = op2.Set(2, 'dataset')
-    smap = op2.Map(iterset, dataset, 1, [1, 0])
-    smap2 = op2.Map(iterset, dataset, 1, [0, 1])
-    return (smap, smap2)
-
 def pytest_funcarg__const(request):
     return request.cached_setup(scope='function',
             setup=lambda: op2.Const(1, 1, 'test_const_nonunique_name'),
@@ -92,7 +85,7 @@ def pytest_funcarg__h5file(request):
 def pytest_funcarg__sparsity(request):
     s = op2.Set(2)
     m = op2.Map(s, s, 1, [0, 1])
-    return op2.Sparsity(m, m, 1)
+    return op2.Sparsity((m, m), 1)
 
 class TestInitAPI:
     """
@@ -299,19 +292,41 @@ class TestSparsityAPI:
 
     def test_sparsity_properties(self, backend, smap):
         "Sparsity constructor should correctly set attributes"
-        s = op2.Sparsity(smap, smap, 2, "foo")
-        assert s.rmaps[0] == smap
-        assert s.cmaps[0] == smap
+        s = op2.Sparsity((smap, smap), 2, "foo")
+        assert s.maps[0] == (smap, smap)
         assert s.dims == (2,2)
         assert s.name == "foo"
 
-    def test_sparsity_multiple_maps(self, backend, smap2):
-        "Sparsity constructor should accept tuple of maps"
-        s = op2.Sparsity(smap2, smap2,
+    def test_sparsity_multiple_maps(self, backend, smap):
+        "Sparsity constructor should accept tuple of pairs of maps"
+        s = op2.Sparsity(((smap, smap), (smap, smap)),
                          1, "foo")
-        assert s.rmaps == smap2
-        assert s.cmaps == smap2
+        assert s.maps == [(smap, smap), (smap, smap)]
         assert s.dims == (1,1)
+
+    def test_sparsity_illegal_itersets(self, backend):
+        s = op2.Set(1)
+        s2 = op2.Set(2)
+        m = op2.Map(s, s2, 1, 0)
+        m2 = op2.Map(s2, s, 1, [0, 0])
+        with pytest.raises(RuntimeError):
+            op2.Sparsity((m, m2), 1)
+
+    def test_sparsity_illegal_row_datasets(self, backend):
+        s = op2.Set(1)
+        s2 = op2.Set(2)
+        m = op2.Map(s, s2, 1, 0)
+        m2 = op2.Map(s2, s, 1, [0, 0])
+        with pytest.raises(RuntimeError):
+            op2.Sparsity(((m, m), (m2, m2)), 1)
+
+    def test_sparsity_illegal_col_datasets(self, backend):
+        s = op2.Set(1)
+        s2 = op2.Set(2)
+        m = op2.Map(s, s, 1, 0)
+        m2 = op2.Map(s, s2, 1, 0)
+        with pytest.raises(RuntimeError):
+            op2.Sparsity(((m, m), (m, m2)), 1)
 
 class TestMatAPI:
     """
@@ -323,37 +338,22 @@ class TestMatAPI:
     def test_mat_illegal_sets(self, backend):
         "Mat sparsity should be a Sparsity."
         with pytest.raises(TypeError):
-            op2.Mat('illegalsparsity', 1)
-
-    def test_mat_illegal_dim(self, backend, sparsity):
-        "Mat dim should be int."
-        with pytest.raises(TypeError):
-            op2.Mat(sparsity, 'illegaldim')
+            op2.Mat('illegalsparsity')
 
     def test_mat_illegal_name(self, backend, sparsity):
         "Mat name should be string."
         with pytest.raises(sequential.NameTypeError):
-            op2.Mat(sparsity, 1, name=2)
-
-    def test_mat_dim(self, backend, sparsity):
-        "Mat constructor should create a dim tuple."
-        m = op2.Mat(sparsity, 1)
-        assert m.dims == (1,1)
-
-    def test_mat_dim_list(self, backend, sparsity):
-        "Mat constructor should create a dim tuple from a list."
-        m = op2.Mat(sparsity, [2,3])
-        assert m.dims == (2,3)
+            op2.Mat(sparsity, name=2)
 
     def test_mat_dtype(self, backend, sparsity):
         "Default data type should be numpy.float64."
-        m = op2.Mat(sparsity, 1)
+        m = op2.Mat(sparsity)
         assert m.dtype == np.double
 
     def test_mat_properties(self, backend, sparsity):
         "Mat constructor should correctly set attributes."
-        m = op2.Mat(sparsity, 2, 'double', 'bar')
-        assert m.sparsity == sparsity and m.dims == (2,2) and \
+        m = op2.Mat(sparsity, 'double', 'bar')
+        assert m.sparsity == sparsity and  \
                 m.dtype == np.float64 and m.name == 'bar'
 
 class TestConstAPI:
@@ -597,7 +597,7 @@ class TestMapAPI:
     def test_map_convert_float_int(self, backend, iterset, dataset):
         "Float data should be implicitely converted to int."
         m = op2.Map(iterset, dataset, 1, [1.5]*iterset.size)
-        assert m.dtype == np.int32 and m.values.sum() == iterset.size
+        assert m.values.dtype == np.int32 and m.values.sum() == iterset.size
 
     def test_map_reshape(self, backend, iterset, dataset):
         "Data should be reshaped according to dim."
@@ -609,6 +609,21 @@ class TestMapAPI:
         m = op2.Map(iterset, dataset, 2, [1]*2*iterset.size, 'bar')
         assert m.iterset == iterset and m.dataset == dataset and m.dim == 2 \
                 and m.values.sum() == 2*iterset.size and m.name == 'bar'
+
+
+    def test_map_indexing(self, backend, iterset, dataset):
+        "Indexing a map should create an appropriate Arg"
+        m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size, 'm')
+
+        arg = m[0]
+        assert arg.idx == 0
+
+    def test_map_slicing(self, backend, iterset, dataset):
+        "Slicing a map is not allowed"
+        m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size, 'm')
+
+        with pytest.raises(NotImplementedError):
+            arg = m[:]
 
     def test_map_hdf5(self, backend, iterset, dataset, h5file):
         "Should be able to create Map from hdf5 file."

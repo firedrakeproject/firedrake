@@ -80,8 +80,8 @@ elements = op2.Set(NUM_ELE, "elements")
 elem_node_map = np.asarray([ 0, 1, 3, 2, 3, 1 ], dtype=np.uint32)
 elem_node = op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 
-sparsity = op2.Sparsity(elem_node, elem_node, 1, "sparsity")
-mat = op2.Mat(sparsity, 1, valuetype, "mat")
+sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
+mat = op2.Mat(sparsity, valuetype, "mat")
 
 coord_vals = np.asarray([ (0.0, 0.0), (2.0, 0.0), (1.0, 1.0), (0.0, 1.5) ],
                            dtype=valuetype)
@@ -97,7 +97,7 @@ x = op2.Dat(nodes, 1, x_vals, valuetype, "x")
 # Assemble and solve
 
 op2.par_loop(mass, elements(3,3),
-             mat((elem_node(op2.i(0)), elem_node(op2.i(1))), op2.INC),
+             mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
              coords(elem_node, op2.READ))
 
 op2.par_loop(rhs, elements,

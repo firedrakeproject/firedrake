@@ -31,7 +31,10 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""OP2 backend configuration and auxiliaries."""
+"""OP2 backend configuration and auxiliaries.
+
+.. warning :: User code should usually set the backend via :func:`pyop2.op2.init`
+"""
 
 backends = {}
 try:
@@ -120,9 +123,3 @@ def set_backend(backend):
 def unset_backend():
     """Unset the OP2 backend"""
     _BackendSelector._backend = void
-
-def par_loop(kernel, it_space, *args):
-    return _BackendSelector._backend.par_loop(kernel, it_space, *args)
-
-def solve(M, x, b):
-    return _BackendSelector._backend.solve(M, x, b)

@@ -33,10 +33,11 @@
 
 """PyOP2 configuration module.
 
-The PyOP2 configuration module exposes itself as a dictionnary object holding
+The PyOP2 configuration module exposes itself as a dictionary object holding
 configuration options.
 
-Example:
+Example::
+
     from pyop2 import configuration as cfg
 
     # should be called once by the backend selector logic.
@@ -51,12 +52,13 @@ Example:
     cfg.backend :> 'opencl'
 
 Configuration option lookup order:
-    (1) Named parameters specified at configuration.
-    (2) From 'opconfig' configuration file if specified
-    (3) From 'user' configuration './pyop2.yaml' (relative to working directory)
-        if present and no 'opconfig' specified
-    (4) From default value defined by pyop2 (assets/default.yaml)
-    (5) KeyError
+
+    1. Named parameters specified at configuration.
+    2. From `opconfig` configuration file if specified
+    3. From user configuration `./pyop2.yaml` (relative to working directory)
+       if present and no `opconfig` specified
+    4. From default value defined by pyop2 (`assets/default.yaml`)
+    5. KeyError
 
 Reserved option names:
     - configure, reset, __*__
@@ -70,7 +72,7 @@ import warnings
 import UserDict
 
 class ConfigModule(types.ModuleType):
-    """Dictionnary impersonating a module allowing direct access to attributes."""
+    """Dictionary impersonating a module allowing direct access to attributes."""
 
     OP_CONFIG_KEY = 'opconfig'
     DEFAULT_CONFIG = 'assets/default.yaml'

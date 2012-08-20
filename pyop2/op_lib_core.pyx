@@ -52,7 +52,7 @@ A python object that has a C counterpart has a slot named
 _lib_handle.  This is either None, meaning the C initialiser has not
 yet been called, or else a handle to the Cython class wrapping the C
 data structure.  This handle is exposed to the Cython layer through
-the c_handle property which takes care of instantiating the C layer
+the _c_handle property which takes care of instantiating the C layer
 object if it does not already exist.
 
 To get this interfacing library, do something like:
@@ -60,7 +60,7 @@ To get this interfacing library, do something like:
     import op_lib_core as core
 
 The C data structure is built on demand when asking for the handle
-through the c_handle property.
+through the _c_handle property.
 
 C layer function calls that require an OP2 object as an argument are
 wrapped such that you don't need to worry about passing the handle,
@@ -70,7 +70,7 @@ instead, just pass the python object.  That is, you do:
 
 not
 
-   core.op_function(set.c_handle)
+   core.op_function(set._c_handle)
 
 Most C level objects are completely opaque to the python layer.  The
 exception is the op_plan structure, whose data must be marshalled to
@@ -188,7 +188,7 @@ cdef class op_dat:
     cdef core.op_dat _handle
     def __cinit__(self, dat):
         """Instantiate a C-level op_dat from DAT"""
-        cdef op_set set = dat.dataset.c_handle
+        cdef op_set set = dat.dataset._c_handle
         cdef int dim = dat.cdim
         cdef int size = dat.dtype.itemsize
         cdef char * type
@@ -209,8 +209,8 @@ cdef class op_map:
     cdef core.op_map _handle
     def __cinit__(self, map):
         """Instantiate a C-level op_map from MAP"""
-        cdef op_set frm = map.iterset.c_handle
-        cdef op_set to = map.dataset.c_handle
+        cdef op_set frm = map.iterset._c_handle
+        cdef op_set to = map.dataset._c_handle
         cdef int dim = map.dim
         cdef np.ndarray values = map.values
         cdef char * name = map.name
@@ -228,7 +228,7 @@ cdef class op_sparsity:
         cdef core.op_map *rmaps
         cdef core.op_map *cmaps
         cdef op_map rmap, cmap
-        cdef int nmaps = sparsity.nmaps
+        cdef int nmaps = sparsity._nmaps
         cdef int dim[2]
         cdef char * name = sparsity.name
 
@@ -240,8 +240,8 @@ cdef class op_sparsity:
             raise MemoryError("Unable to allocate space for cmaps")
 
         for i in range(nmaps):
-            rmap = sparsity.rmaps[i].c_handle
-            cmap = sparsity.cmaps[i].c_handle
+            rmap = sparsity._rmaps[i]._c_handle
+            cmap = sparsity._cmaps[i]._c_handle
             rmaps[i] = rmap._handle
             cmaps[i] = cmap._handle
 
@@ -270,12 +270,12 @@ cdef class op_mat:
 
     def __cinit__(self, mat):
         """Instantiate a C-level op_mat from MAT"""
-        cdef op_sparsity sparsity = mat.sparsity.c_handle
+        cdef op_sparsity sparsity = mat.sparsity._c_handle
         cdef int dim[2]
         cdef char * type = mat.ctype
         cdef int size = mat.dtype.itemsize
         cdef char * name = mat.name
-        self._nnzeros = mat._sparsity.c_handle.total_nz
+        self._nnzeros = mat._sparsity._c_handle.total_nz
         dim[0] = mat.dims[0]
         dim[1] = mat.dims[1]
         self._handle = core.op_decl_mat(sparsity._handle, dim, 2, type, size, name)
@@ -358,10 +358,10 @@ isinstance(arg, Dat)."""
                'MAX'   : core.OP_MAX}[arg.access._mode]
 
         if dat:
-            _dat = arg.data.c_handle
+            _dat = arg.data._c_handle
             if arg._is_indirect:
                 idx = arg.idx
-                map = arg.map.c_handle
+                map = arg.map._c_handle
                 _map = map._handle
             else:
                 idx = -1
@@ -381,9 +381,9 @@ isinstance(arg, Dat)."""
 def solve(A, b, x):
     cdef op_mat cA
     cdef op_dat cb, cx
-    cA = A.c_handle
-    cb = b.c_handle
-    cx = x.c_handle
+    cA = A._c_handle
+    cb = b._c_handle
+    cx = x._c_handle
     core.op_solve(cA._handle, cb._handle, cx._handle)
 
 cdef class op_plan:
@@ -396,7 +396,7 @@ cdef class op_plan:
 Arguments to this constructor should be the arguments of the parallel
 loop, i.e. the KERNEL, the ISET (iteration set) and any
 further ARGS."""
-        cdef op_set _set = iset.c_handle
+        cdef op_set _set = iset._c_handle
         cdef char * name = kernel.name
         cdef int part_size = partition_size
         cdef int nargs = len(args)
@@ -441,7 +441,7 @@ further ARGS."""
             for i in range(nargs):
                 inds[i] = -1    # Assume direct
                 arg = args[i]
-                _arg = arg.c_handle
+                _arg = arg._c_handle
                 _args[i] = _arg._handle
                 # Fix up inds[i] in indirect case
                 if arg._is_indirect:

@@ -40,7 +40,7 @@ help:
 	@echo "  doctest    to run all doctests embedded in the documentation (if enabled)"
 
 apidoc:
-	sphinx-apidoc ../../pyop2 -o source/ -f
+	sphinx-apidoc ../../pyop2 -o source/ -f -T
 
 clean:
 	-rm -rf $(BUILDDIR)/*

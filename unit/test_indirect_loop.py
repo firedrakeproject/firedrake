@@ -67,13 +67,13 @@ class TestIndirectLoop:
     def test_onecolor_wo(self, backend, iterset, x, iterset2indset):
         kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"
 
-        op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), iterset, x(iterset2indset(0), op2.WRITE))
+        op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), iterset, x(iterset2indset[0], op2.WRITE))
         assert all(map(lambda x: x==42, x.data))
 
     def test_onecolor_rw(self, backend, iterset, x, iterset2indset):
         kernel_rw = "void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }\n"
 
-        op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"), iterset, x(iterset2indset(0), op2.RW))
+        op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"), iterset, x(iterset2indset[0], op2.RW))
         assert sum(x.data) == nelems * (nelems + 1) / 2
 
     def test_indirect_inc(self, backend, iterset):
@@ -86,7 +86,7 @@ class TestIndirectLoop:
 
         kernel_inc = "void kernel_inc(unsigned int* x) { (*x) = (*x) + 1; }\n"
 
-        op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"), iterset, u(iterset2unit(0), op2.INC))
+        op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"), iterset, u(iterset2unit[0], op2.INC))
         assert u.data[0] == nelems
 
     def test_global_read(self, backend, iterset, x, iterset2indset):
@@ -95,7 +95,7 @@ class TestIndirectLoop:
         kernel_global_read = "void kernel_global_read(unsigned int* x, unsigned int* g) { (*x) /= (*g); }\n"
 
         op2.par_loop(op2.Kernel(kernel_global_read, "kernel_global_read"), iterset,
-                     x(iterset2indset(0), op2.RW),
+                     x(iterset2indset[0], op2.RW),
                      g(op2.READ))
         assert sum(x.data) == sum(map(lambda v: v / 2, range(nelems)))
 
@@ -105,7 +105,7 @@ class TestIndirectLoop:
         kernel_global_inc = "void kernel_global_inc(unsigned int *x, unsigned int *inc) { (*x) = (*x) + 1; (*inc) += (*x); }\n"
 
         op2.par_loop(op2.Kernel(kernel_global_inc, "kernel_global_inc"), iterset,
-                     x(iterset2indset(0), op2.RW),
+                     x(iterset2indset[0], op2.RW),
                      g(op2.INC))
         assert sum(x.data) == nelems * (nelems + 1) / 2
         assert g.data[0] == nelems * (nelems + 1) / 2
@@ -115,7 +115,7 @@ class TestIndirectLoop:
 
         kernel_wo = "void kernel_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }\n"
 
-        op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), iterset, x(iterset2indset(0), op2.WRITE))
+        op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), iterset, x(iterset2indset[0], op2.WRITE))
         assert all(map(lambda x: all(x==[42,43]), x.data))
 
     def test_2d_map(self, backend):
@@ -133,8 +133,8 @@ class TestIndirectLoop:
         { *edge = *nodes1 + *nodes2; }
         """
         op2.par_loop(op2.Kernel(kernel_sum, "kernel_sum"), edges,
-                     node_vals(edge2node(0), op2.READ),
-                     node_vals(edge2node(1), op2.READ),
+                     node_vals(edge2node[0], op2.READ),
+                     node_vals(edge2node[1], op2.READ),
                      edge_vals(op2.IdentityMap, op2.WRITE))
 
         expected = numpy.asarray(range(1, nedges * 2 + 1, 2)).reshape(nedges, 1)

@@ -68,9 +68,9 @@ class TestMatrices:
 
     def pytest_funcarg__mat(cls, request):
         elem_node = request.getfuncargvalue('elem_node')
-        sparsity = op2.Sparsity(elem_node, elem_node, 1, "sparsity")
+        sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
         return request.cached_setup(
-                setup=lambda: op2.Mat(sparsity, 1, valuetype, "mat"),
+                setup=lambda: op2.Mat(sparsity, valuetype, "mat"),
                 scope='session')
 
     def pytest_funcarg__coords(cls, request):
@@ -314,7 +314,7 @@ void zero_dat(double *dat)
     def test_assemble(self, backend, mass, mat, coords, elements, elem_node,
                       expected_matrix):
         op2.par_loop(mass, elements(3,3),
-                     mat((elem_node(op2.i(0)), elem_node(op2.i(1))), op2.INC),
+                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
         eps=1.e-6
         assert (abs(mat.values-expected_matrix)<eps).all()
@@ -351,7 +351,7 @@ void zero_dat(double *dat)
                           elem_node, expected_matrix):
         """Test that the FFC mass assembly assembles the correct values."""
         op2.par_loop(mass_ffc, elements(3,3),
-                     mat((elem_node(op2.i(0)), elem_node(op2.i(1))), op2.INC),
+                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
         eps=1.e-6
         assert (abs(mat.values-expected_matrix)<eps).all()

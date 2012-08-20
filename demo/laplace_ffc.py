@@ -100,8 +100,8 @@ elem_node = op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 bdry_node_node_map = np.asarray([0, 1, 2, 6, 7, 8 ], dtype=valuetype)
 bdry_node_node = op2.Map(bdry_nodes, nodes, 1, bdry_node_node_map, "bdry_node_node")
 
-sparsity = op2.Sparsity(elem_node, elem_node, 1, "sparsity")
-mat = op2.Mat(sparsity, 1, valuetype, "mat")
+sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
+mat = op2.Mat(sparsity, valuetype, "mat")
 
 coord_vals = np.asarray([ (0.0, 0.0), (0.5, 0.0), (1.0, 0.0),
                           (0.0, 0.5), (0.5, 0.5), (1.0, 0.5),
@@ -122,7 +122,7 @@ bdry = op2.Dat(bdry_nodes, 1, bdry_vals, valuetype, "bdry")
 # Assemble matrix and rhs
 
 op2.par_loop(mass, elements(3,3),
-             mat((elem_node(op2.i(0)), elem_node(op2.i(1))), op2.INC),
+             mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
              coords(elem_node, op2.READ))
 
 op2.par_loop(rhs, elements,
@@ -138,7 +138,7 @@ void strongbc_rhs(double *val, double *target) { *target = *val; }
 """, "strongbc_rhs")
 op2.par_loop(strongbc_rhs, bdry_nodes,
              bdry(op2.IdentityMap, op2.READ),
-             b(bdry_node_node(0), op2.WRITE))
+             b(bdry_node_node[0], op2.WRITE))
 
 op2.solve(mat, b, x)
 

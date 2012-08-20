@@ -43,8 +43,7 @@ from utils import *
 class Access(object):
     """OP2 access type. In an :py:class:`Arg`, this describes how the :py:class:`DataCarrier` will be accessed.
 
-    Permissable values are:
-    "READ", "WRITE", "RW", "INC", "MIN", "MAX"
+    .. warning :: Access should not be instantiated by user code. Instead, use the predefined values: :const:`READ`, :const:`WRITE`, :const:`RW`, :const:`INC`, :const:`MIN`, :const:`MAX`
 """
 
     _modes = ["READ", "WRITE", "RW", "INC", "MIN", "MAX"]
@@ -60,11 +59,22 @@ class Access(object):
         return "Access('%s')" % self._mode
 
 READ  = Access("READ")
+"""The :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed read-only."""
+
 WRITE = Access("WRITE")
+"""The  :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed write-only, and OP2 is not required to handle write conflicts."""
+
 RW    = Access("RW")
+"""The  :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed for reading and writing, and OP2 is not required to handle write conflicts."""
+
 INC   = Access("INC")
+"""The kernel computes increments to be summed onto a :class:`Global`, :class:`Dat`, or :class:`Mat`. OP2 is responsible for managing the write conflicts caused."""
+
 MIN   = Access("MIN")
+"""The kernel contributes to a reduction into a :class:`Global` using a ``min`` operation. OP2 is responsible for reducing over the different kernel invocations."""
+
 MAX   = Access("MAX")
+"""The kernel contributes to a reduction into a :class:`Global` using a ``max`` operation. OP2 is responsible for reducing over the different kernel invocations."""
 
 # Data API
 
@@ -92,7 +102,7 @@ class Arg(object):
 
     @property
     def map(self):
-        """Mapping."""
+        """The :class:`Map` via which the data is to be accessed."""
         return self._map
 
     @property
@@ -102,7 +112,7 @@ class Arg(object):
 
     @property
     def access(self):
-        """Access descriptor."""
+        """Access descriptor. One of the constants of type :class:`Access`"""
         return self._access
 
     @property
@@ -163,7 +173,10 @@ class Arg(object):
         return isinstance(self._dat, Mat)
 
 class Set(object):
-    """OP2 set."""
+    """OP2 set.
+
+    When the set is employed as an iteration space in a :func:`par_loop`, the extent of any local iteration space within each set entry is indicated in brackets. See the example in :func:`pyop2.op2.par_loop` for more details.
+    """
 
     _globalcount = 0
 
@@ -194,7 +207,10 @@ class Set(object):
         return "Set(%s, '%s')" % (self._size, self._name)
 
 class IterationSpace(object):
-    """OP2 iteration space type."""
+    """OP2 iteration space type.
+
+    .. Warning:: User code should not directly instantiate IterationSpace. Instead use the call syntax on the iteration set in the :func:`par_loop` call.
+"""
 
     @validate_type(('iterset', Set, SetTypeError))
     def __init__(self, iterset, extents=()):
@@ -208,15 +224,17 @@ class IterationSpace(object):
 
     @property
     def extents(self):
-        """Extents of the IterationSpace."""
+        """Extents of the IterationSpace within each item of ``iterset``"""
         return self._extents
 
     @property
     def name(self):
+        """The name of the :class:`Set` over which this IterationSpace is defined."""
         return self._iterset.name
 
     @property
     def size(self):
+        """The size of the :class:`Set` over which this IterationSpace is defined."""
         return self._iterset.size
 
     @property
@@ -230,15 +248,19 @@ class IterationSpace(object):
         return "IterationSpace(%r, %r)" % (self._iterset, self._extents)
 
 class DataCarrier(object):
-    """Abstract base class for OP2 data."""
+    """Abstract base class for OP2 data. Actual objects will be
+    ``DataCarrier`` objects of rank 0 (:class:`Const` and
+    :class:`Global`), rank 1 (:class:`Dat`), or rank 2
+    (:class:`Mat`)"""
 
     @property
     def dtype(self):
-        """Data type."""
+        """The Python type of the data."""
         return self._data.dtype
 
     @property
     def ctype(self):
+        """The c type of the data."""
         # FIXME: Complex and float16 not supported
         typemap = { "bool":    "unsigned char",
                     "int":     "int",
@@ -262,16 +284,29 @@ class DataCarrier(object):
 
     @property
     def dim(self):
-        """Dimension/shape of a single data item."""
+        """The shape of the values for each element of the object."""
         return self._dim
 
     @property
     def cdim(self):
-        """Dimension of a single data item on C side (product of dims)"""
+        """The number of values for each member of the object. This is the product of the dims."""
         return np.prod(self.dim)
 
 class Dat(DataCarrier):
-    """OP2 vector data. A ``Dat`` holds a value for every member of a :class:`Set`."""
+    """OP2 vector data. A ``Dat`` holds a ``dim`` values for every member of a :class:`Set`.
+
+    When a ``Dat`` is passed to :func:`par_loop`, the map via which
+    indirection occurs and the access descriptor are passed by
+    `calling` the ``Dat``. For instance, if a ``Dat`` named ``D`` is
+    to be accessed for reading via a :class:`Map` named ``M``, this is
+    accomplished by::
+    D(M, pyop2.READ)
+
+    The :class:`Map` through which indirection occurs can be indexed
+    using the index notation described in the documentation for the
+    :class:`Map` class. Direct access to a Dat can be accomplished by
+    using the :data:`IdentityMap` as the indirection.
+    """
 
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
@@ -312,10 +347,15 @@ class Dat(DataCarrier):
 
     @property
     def data(self):
-        """Data array."""
+        """Numpy array containing the data values."""
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
         return self._data
+
+    @property
+    def dim(self):
+        '''The number of values at each member of the dataset.'''
+        return self._dim
 
     def __str__(self):
         return "OP2 Dat: %s on (%s) with dim %s and datatype %s" \
@@ -329,7 +369,7 @@ class Const(DataCarrier):
     """Data that is constant for any element of any set."""
 
     class NonUniqueNameError(ValueError):
-        """Name already in use."""
+        """The Names of const variables are required to be globally unique. This exception is raised if the name is already in use."""
 
     _defs = set()
     _globalcount = 0
@@ -366,10 +406,13 @@ class Const(DataCarrier):
                % (self._dim, self._data, self._name)
 
     def remove_from_namespace(self):
+        """Remove this Const object from the namespace
+
+        This allows the same name to be redeclared with a different shape."""
         if self in Const._defs:
             Const._defs.remove(self)
 
-    def format_for_c(self):
+    def _format_for_c(self):
         d = {'type' : self.ctype,
              'name' : self.name,
              'dim' : self.cdim}
@@ -420,8 +463,8 @@ class Global(DataCarrier):
 class IterationIndex(object):
     """OP2 iteration space index"""
 
-    def __init__(self, index):
-        assert isinstance(index, int), "i must be an int"
+    def __init__(self, index=None):
+        assert index is None or isinstance(index, int), "i must be an int"
         self._index = index
 
     def __str__(self):
@@ -434,12 +477,33 @@ class IterationIndex(object):
     def index(self):
         return self._index
 
-def i(index):
-    """Shorthand for constructing :class:`IterationIndex` objects"""
-    return IterationIndex(index)
+    def __getitem__(self, idx):
+        return IterationIndex(idx)
+
+i = IterationIndex()
+"""Shorthand for constructing :class:`IterationIndex` objects.
+
+    i[idx]
+
+builds an :class:`IterationIndex` object for which the `index` property is `idx`"""
 
 class Map(object):
-    """OP2 map, a relation between two :class:`Set` objects."""
+    """OP2 map, a relation between two :class:`Set` objects.
+
+    Each entry in the ``iterset`` maps to ``dim`` entries in the
+    ``dataset``. When a map is used in a :func:`par_loop`,
+    it is possible to use Python index notation to select an
+    individual entry on the right hand side of this map. There are three possibilities:
+
+    * No index. All ``dim`` :class:`Dat` entries will be passed to the
+      kernel.
+    * An integer: ``some_map[n]``. The ``n`` th entry of the
+      map result will be passed to the kernel.
+    * An :class:`IterationIndex`, ``some_map[pyop2.i[n]]``. ``n``
+      will take each value from ``0`` to ``e-1`` where ``e`` is the
+      ``n`` th extent passed to the iteration space for this :func:`par_loop`.
+      See also :data:`i`.
+    """
 
     _globalcount = 0
     _arg_type = Arg
@@ -457,21 +521,30 @@ class Map(object):
         Map._globalcount += 1
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
-    def __call__(self, index):
+    def __getitem__(self, index):
         if isinstance(index, int) and not (0 <= index < self._dim):
             raise IndexValueError("Index must be in interval [0,%d]" % (self._dim-1))
         if isinstance(index, IterationIndex) and index.index not in [0, 1]:
             raise IndexValueError("IterationIndex must be in interval [0,1]")
         return self._arg_type(map=self, idx=index)
 
+    # This is necessary so that we can convert a Map to a tuple
+    # (needed in as_tuple).  Because, __getitem__ no longer returns a
+    # Map we have to explicitly provide an iterable interface
+    def __iter__(self):
+        yield self
+
+    def __getslice__(self, i, j):
+        raise NotImplementedError("Slicing maps is not currently implemented")
+
     @property
     def iterset(self):
-        """Set mapped from."""
+        """:class:`Set` mapped from."""
         return self._iterset
 
     @property
     def dataset(self):
-        """Set mapped to."""
+        """:class:`Set` mapped to."""
         return self._dataset
 
     @property
@@ -479,11 +552,6 @@ class Map(object):
         """Dimension of the mapping: number of dataset elements mapped to per
         iterset element."""
         return self._dim
-
-    @property
-    def dtype(self):
-        """Data type."""
-        return self._values.dtype
 
     @property
     def values(self):
@@ -504,45 +572,65 @@ class Map(object):
                % (self._iterset, self._dataset, self._dim, self._name)
 
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
+"""The identity map.  Used to indicate direct access to a :class:`Dat`."""
 
 class Sparsity(object):
     """OP2 Sparsity, a matrix structure derived from the union of the outer product of pairs of :class:`Map` objects."""
 
     _globalcount = 0
 
-    @validate_type(('rmaps', (Map, tuple), MapTypeError), \
-                   ('cmaps', (Map, tuple), MapTypeError), \
+    @validate_type(('maps', (Map, tuple), MapTypeError), \
                    ('dims', (int, tuple), TypeError))
-    def __init__(self, rmaps, cmaps, dims, name=None):
+    def __init__(self, maps, dims, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
 
-        self._rmaps = as_tuple(rmaps, Map)
-        self._cmaps = as_tuple(cmaps, Map)
+        lmaps = (maps,) if isinstance(maps[0], Map) else maps
+        self._rmaps, self._cmaps = map (lambda x : as_tuple(x, Map), zip(*lmaps))
+
         assert len(self._rmaps) == len(self._cmaps), \
             "Must pass equal number of row and column maps"
+
+        for pair in lmaps:
+            if pair[0].iterset is not pair[1].iterset:
+                raise RuntimeError("Iterset of both maps in a pair must be the same")
+
+        if not all(m.dataset is self._rmaps[0].dataset for m in self._rmaps):
+            raise RuntimeError("Dataset of all row maps must be the same")
+
+        if not all(m.dataset is self._cmaps[0].dataset for m in self._cmaps):
+            raise RuntimeError("Dataset of all column maps must be the same")
+
         self._dims = as_tuple(dims, int, 2)
         self._name = name or "global_%d" % Sparsity._globalcount
         self._lib_handle = None
         Sparsity._globalcount += 1
 
     @property
-    def nmaps(self):
+    def _nmaps(self):
         return len(self._rmaps)
 
     @property
-    def rmaps(self):
-        return self._rmaps
-
-    @property
-    def cmaps(self):
-        return self._cmaps
+    def maps(self):
+        """A list of pairs (rmap, cmap) where each pair of
+        :class:`Map` objects will later be used to assemble into this
+        matrix. The iterset of each of the maps in a pair must be the
+        same, while the dataset of all the maps which appear first
+        must be common, this will form the row :class:`Set` of the
+        sparsity. Similarly, the dataset of all the maps which appear
+        second must be common and will form the column :class:`Set` of
+        the ``Sparsity``."""
+        return zip(self._rmaps, self._cmaps)
 
     @property
     def dims(self):
+        """A pair giving the number of rows per entry of the row
+        :class:`Set` and the number of columns per entry of the column
+        :class:`Set` of the ``Sparsity``."""
         return self._dims
 
     @property
     def name(self):
+        """A user-defined label."""
         return self._name
 
     def __str__(self):
@@ -554,19 +642,29 @@ class Sparsity(object):
                (self._rmaps, self._cmaps, self._dims, self._name)
 
 class Mat(DataCarrier):
-    """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
-    for each element in the :class:`Sparsity`."""
+    """OP2 matrix data. A ``Mat`` is defined on a sparsity pattern and holds a value
+    for each element in the :class:`Sparsity`.
+
+    When a ``Mat`` is passed to :func:`par_loop`, the maps via which
+    indirection occurs for the row and column space, and the access
+    descriptor are passed by `calling` the ``Mat``. For instance, if a
+    ``Mat`` named ``A`` is to be accessed for reading via a row :class:`Map`
+    named ``R`` and a column :class:`Map` named ``C``, this is accomplished by::
+
+     A( (R[pyop2.i[0]], C[pyop2.i[1]]), pyop2.READ)
+
+    Notice that it is `always` necessary to index the indirection maps
+    for a ``Mat``. See the :class:`Mat` documentation for more
+    details."""
 
     _globalcount = 0
     _modes = [WRITE, INC]
     _arg_type = Arg
 
     @validate_type(('sparsity', Sparsity, SparsityTypeError), \
-                   ('dims', (int, tuple, list), TypeError), \
                    ('name', str, NameTypeError))
-    def __init__(self, sparsity, dims, dtype=None, name=None):
+    def __init__(self, sparsity, dtype=None, name=None):
         self._sparsity = sparsity
-        self._dims = as_tuple(dims, int, 2)
         self._datatype = np.dtype(dtype)
         self._name = name or "mat_%d" % Mat._globalcount
         self._lib_handle = None
@@ -582,30 +680,38 @@ class Mat(DataCarrier):
 
     @property
     def dims(self):
-        return self._dims
+        """A pair of integers giving the number of matrix rows and columns for each member of the row :class:`Set`  and column :class:`Set` respectively. This corresponds to the ``dim`` member of a :class:`Dat`. Note that ``dims`` is actually specified at the :class:`Sparsity` level and inherited by the ``Mat``."""
+        return self._sparsity._dims
 
     @property
     def sparsity(self):
-        """Sparsity on which the Mat is defined."""
+        """:class:`Sparsity` on which the ``Mat`` is defined."""
         return self._sparsity
 
     @property
     def values(self):
-        """Return a numpy array of matrix values."""
-        return self.c_handle.values
+        """A numpy array of matrix values.
+
+        .. warning ::
+            This is a dense array, so will need a lot of memory.  It's
+            probably not a good idea to access this property if your
+            matrix has more than around 10000 degrees of freedom.
+
+        """
+        return self._c_handle.values
 
     @property
     def dtype(self):
-        """Data type."""
+        """The Python type of the data."""
         return self._datatype
 
     def __str__(self):
-        return "OP2 Mat: %s, sparsity (%s), dimensions %s, datatype %s" \
-               % (self._name, self._sparsity, self._dims, self._datatype.name)
+        return "OP2 Mat: %s, sparsity (%s), datatype %s" \
+               % (self._name, self._sparsity, self._datatype.name)
 
     def __repr__(self):
-        return "Mat(%r, %s, '%s', '%s')" \
-               % (self._sparsity, self._dims, self._datatype, self._name)
+        return "Mat(%r, '%s', '%s')" \
+               % (self._sparsity, self._datatype, self._name)
 
 # Kernel API
 
@@ -627,14 +733,9 @@ class Kernel(object):
 
     @property
     def code(self):
-        """String containing the code for this kernel routine."""
+        """String containing the c code for this kernel routine. This
+        code must conform to the OP2 user kernel API."""
         return self._code
-
-    def compile(self):
-        pass
-
-    def handle(self):
-        pass
 
     def __str__(self):
         return "OP2 Kernel: %s" % self._name
