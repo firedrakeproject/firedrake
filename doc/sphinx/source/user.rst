@@ -4,7 +4,7 @@ pyop2 user documentation
 :mod:`pyop2` Package
 --------------------
 
-.. automodule:: pyop2.__init__
+.. automodule:: pyop2
     :members:
     :undoc-members:
     :show-inheritance:
@@ -19,7 +19,6 @@ pyop2 user documentation
     .. autoclass:: Map
     .. autoclass:: Sparsity
 
-    .. autoclass:: DataCarrier
     .. autoclass:: Const
     .. autoclass:: Global
     .. autoclass:: Dat
