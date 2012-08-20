@@ -12,6 +12,7 @@ Contents:
    :maxdepth: 2
 
    pyop2
+   user
 
 
 Indices and tables
