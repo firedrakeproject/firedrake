@@ -298,7 +298,7 @@ class Dat(DataCarrier):
     When a ``Dat`` is passed to :func:`par_loop`, the map via which
     indirection occurs and the access descriptor are passed by
     `calling` the ``Dat``. For instance, if a ``Dat`` named ``D`` is
-    to be accessed for reading via a ``Map`` named ``M``, this is
+    to be accessed for reading via a :class:`Map` named ``M``, this is
     accomplished by::
       D(M, pyop2.READ)
 
@@ -632,7 +632,19 @@ class Sparsity(object):
 
 class Mat(DataCarrier):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
-    for each element in the :class:`Sparsity`."""
+    for each element in the :class:`Sparsity`.
+
+    When a ``Mat`` is passed to :func:`par_loop`, the maps via which
+    indirection occurs for the row and column space, and the access
+    descriptor are passed by `calling` the ``Mat``. For instance, if a
+    ``Mat`` named ``A`` is to be accessed for reading via a row :class:`Map`
+    named ``R`` and a column :class:`Map` named ``C``, this is accomplished by::
+
+     A( (R[pyop2.i[0]], C[pyop2.i[1]]), pyop2.READ)
+
+    Notice that it is `always` necessary to index the indirection maps
+    for a ``Mat``. See the :class:`Mat` documentation for more
+    details."""
 
     _globalcount = 0
     _modes = [WRITE, INC]
