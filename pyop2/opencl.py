@@ -262,7 +262,6 @@ class Mat(op2.Mat, DeviceDataMixin):
 
     @property
     def _dim(self):
-        warnings.warn("something fishy... what's Sparsity.dims and Mat.dims?")
         return 1
 
 
