@@ -11,8 +11,8 @@ Contents:
 .. toctree::
    :maxdepth: 2
 
-   pyop2
    user
+   pyop2
 
 
 Indices and tables
