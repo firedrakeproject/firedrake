@@ -122,7 +122,7 @@ bdry = op2.Dat(bdry_nodes, 1, bdry_vals, valuetype, "bdry")
 # Assemble matrix and rhs
 
 op2.par_loop(mass, elements(3,3),
-             mat((elem_node(op2.i(0)), elem_node(op2.i(1))), op2.INC),
+             mat((elem_node[op2.i(0)], elem_node[op2.i(1)]), op2.INC),
              coords(elem_node, op2.READ))
 
 op2.par_loop(rhs, elements,
@@ -138,7 +138,7 @@ void strongbc_rhs(double *val, double *target) { *target = *val; }
 """, "strongbc_rhs")
 op2.par_loop(strongbc_rhs, bdry_nodes,
              bdry(op2.IdentityMap, op2.READ),
-             b(bdry_node_node(0), op2.WRITE))
+             b(bdry_node_node[0], op2.WRITE))
 
 op2.solve(mat, b, x)
 

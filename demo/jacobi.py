@@ -152,8 +152,8 @@ update = op2.Kernel("""void update(%(t)s *r, %(t)s *du, %(t)s *u, %(t)s *u_sum, 
 for iter in xrange(0, NITER):
     op2.par_loop(res, edges,
                  p_A(op2.IdentityMap, op2.READ),
-                 p_u(ppedge(1), op2.READ),
-                 p_du(ppedge(0), op2.INC),
+                 p_u(ppedge[1], op2.READ),
+                 p_du(ppedge[0], op2.INC),
                  beta(op2.READ))
     u_sum = op2.Global(1, data=0.0, name="u_sum", dtype=fp_type)
     u_max = op2.Global(1, data=0.0, name="u_max", dtype=fp_type)

@@ -115,7 +115,7 @@ for i in xrange(1, niter+1):
                  p_resm(pcell, op2.INC))
 
     op2.par_loop(dirichlet, bnodes,
-                 p_resm(pbnodes(0), op2.WRITE))
+                 p_resm(pbnodes[0], op2.WRITE))
 
     c1 = op2.Global(1, data=0.0, name='c1')
     c2 = op2.Global(1, data=0.0, name='c2')
@@ -144,7 +144,7 @@ for i in xrange(1, niter+1):
                      p_P(pcell, op2.READ))
 
         op2.par_loop(dirichlet, bnodes,
-                     p_V(pbnodes(0), op2.WRITE))
+                     p_V(pbnodes[0], op2.WRITE))
 
         c2.data = 0.0
 
