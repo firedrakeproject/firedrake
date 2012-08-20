@@ -59,16 +59,16 @@ class Access(object):
         return "Access('%s')" % self._mode
 
 READ  = Access("READ")
-"""The :class:`DataCarrier` is accessed read-only."""
+"""The :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed read-only."""
 
 WRITE = Access("WRITE")
-"""The :class:`DataCarrier` is accessed write-only, and OP2 is not required to handle write conflicts."""
+"""The  :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed write-only, and OP2 is not required to handle write conflicts."""
 
 RW    = Access("RW")
-"""The :class:`DataCarrier` is accessed for reading and writing, and OP2 is not required to handle write conflicts."""
+"""The  :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed for reading and writing, and OP2 is not required to handle write conflicts."""
 
 INC   = Access("INC")
-"""The kernel computes increments to be summed onto :class:`DataCarrier`. OP2 is responsible for managing the write conflicts caused."""
+"""The kernel computes increments to be summed onto a :class:`Global`, :class:`Dat`, or :class:`Mat`. OP2 is responsible for managing the write conflicts caused."""
 
 MIN   = Access("MIN")
 """The kernel contributes to a reduction into a :class:`Global` using a ``min`` operation. OP2 is responsible for reducing over the different kernel invocations."""
