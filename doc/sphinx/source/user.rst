@@ -8,6 +8,7 @@ pyop2 user documentation
     :members:
     :undoc-members:
     :show-inheritance:
+    :inherited-members:
 
     .. autofunction:: init
     .. autofunction:: exit
@@ -15,14 +16,22 @@ pyop2 user documentation
     .. autofunction:: solve
 
     .. autoclass:: Kernel
+       :inherited-members:
     .. autoclass:: Set
+       :inherited-members:
     .. autoclass:: Map
+       :inherited-members:
     .. autoclass:: Sparsity
+       :inherited-members:
 
     .. autoclass:: Const
+       :inherited-members:
     .. autoclass:: Global
+       :inherited-members:
     .. autoclass:: Dat
+       :inherited-members:
     .. autoclass:: Mat
+       :inherited-members:
 
     .. autodata:: i
     .. autodata:: READ
