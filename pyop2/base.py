@@ -489,12 +489,21 @@ class Map(object):
         Map._globalcount += 1
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
-    def __call__(self, index):
+    def __getitem__(self, index):
         if isinstance(index, int) and not (0 <= index < self._dim):
             raise IndexValueError("Index must be in interval [0,%d]" % (self._dim-1))
         if isinstance(index, IterationIndex) and index.index not in [0, 1]:
             raise IndexValueError("IterationIndex must be in interval [0,1]")
         return self._arg_type(map=self, idx=index)
+
+    # This is necessary so that we can convert a Map to a tuple
+    # (needed in as_tuple).  Because, __getitem__ no longer returns a
+    # Map we have to explicitly provide an iterable interface
+    def __iter__(self):
+        yield self
+
+    def __getslice__(self, i, j):
+        raise NotImplementedError("Slicing maps is not currently implemented")
 
     @property
     def iterset(self):
