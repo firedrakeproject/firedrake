@@ -36,68 +36,66 @@
 }
 {%- endmacro -%}
 
-{%- macro mapping_array_name(it) -%}
-  mapping_array_{{ it._dat._name }}_at_{{ it._idx }}_via_{{ it._map._name }}
+{%- macro mapping_array_name(arg) -%}
+  mapping_array_{{ arg._dat._name }}_at_{{ arg._idx }}_via_{{ arg._map._name }}
 {%- endmacro -%}
 
-{%- macro global_reduc_local_name(it) -%}
-  {{ it._dat._name }}_gbl_reduc_local
+{%- macro global_reduc_local_name(arg) -%}
+  {{ arg._dat._name }}_gbl_reduc_local
 {%- endmacro -%}
 
-{%- macro global_reduc_device_array_name(it) -%}
-  {{ it._dat._name }}_gbl_reduc_device_array
+{%- macro global_reduc_device_array_name(arg) -%}
+  {{ arg._dat._name }}_gbl_reduc_device_array
 {%- endmacro -%}
 
-{%- macro dat_vec_name(it) -%}
-  {{ it._dat._name }}_via_{{ it._map._name }}_vec
+{%- macro dat_vec_name(arg) -%}
+  {{ arg._dat._name }}_via_{{ arg._map._name }}_vec
 {%- endmacro -%}
 
-{%- macro reduc_arg_local_name(it) -%}
-  {{ it._dat._name }}_via_{{ it._map._name }}_at_{{ it._idx }}_local
+{%- macro reduc_arg_local_name(arg) -%}
+  {{ arg._dat._name }}_via_{{ arg._map._name }}_at_{{ arg._idx }}_local
 {%- endmacro -%}
 
-{%- macro dat_arg_name(it) -%}
-  {{ it._dat._name }}
+{%- macro dat_arg_name(arg) -%}
+  {{ arg._dat._name }}
 {%- endmacro -%}
 
-{%- macro shared_indirection_mapping_name(it) -%}
-  {{ it._dat._name }}_via_{{ it._map._name }}_indirection_map
+{%- macro shared_indirection_mapping_name(arg) -%}
+  {{ arg._dat._name }}_via_{{ arg._map._name }}_indirection_map
 {%- endmacro -%}
 
-{%- macro shared_indirection_mapping_size_name(it) -%}
-  {{ it._dat._name }}_via_{{ it._map._name }}_indirection_size
+{%- macro shared_indirection_mapping_size_name(arg) -%}
+  {{ arg._dat._name }}_via_{{ arg._map._name }}_indirection_size
 {%- endmacro -%}
 
-{%- macro shared_indirection_mapping_memory_name(it) -%}
-  {{ it._dat._name }}_via_{{ it._map._name }}_indirection
+{%- macro shared_indirection_mapping_memory_name(arg) -%}
+  {{ arg._dat._name }}_via_{{ arg._map._name }}_indirection
 {%- endmacro -%}
 
-{%- macro shared_indirection_mapping_idx_name(it) -%}
-  {{ it._dat._name }}_via_{{ it._map._name }}_idx
+{%- macro shared_indirection_mapping_idx_name(arg) -%}
+  {{ arg._dat._name }}_via_{{ arg._map._name }}_idx
 {%- endmacro -%}
 
-{%- macro shared_indirection_mapping_arg_name(it) -%}
-  ind_{{ it._dat._name }}_via_{{ it._map._name }}_map
+{%- macro shared_indirection_mapping_arg_name(arg) -%}
+  ind_{{ arg._dat._name }}_via_{{ arg._map._name }}_map
 {%- endmacro -%}
 
-{%- macro reduction_op(it) -%}
-   {% if(it._is_INC) -%}
+{%- macro reduction_op(arg) -%}
+   {% if(arg._is_INC) -%}
       reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];
-   {%- elif(it._is_MIN) -%}
+   {%- elif(arg._is_MIN) -%}
       reduction_tmp_array[lid] = min(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
-   {%- elif(it._is_MAX) -%}
+   {%- elif(arg._is_MAX) -%}
       reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
-   {%- else -%}
-      SOMETHING WENT SOUTH;
    {%- endif -%}
 {%- endmacro -%}
 
-{%- macro reduction_kernel(it) -%}
+{%- macro reduction_kernel(arg) -%}
 __kernel
-void {{ it._dat._name }}_reduction_kernel (
-  __global {{ it._dat._cl_type }}* reduction_result,
-  __private {{ it._dat._cl_type }} input_value,
-  __local {{ it._dat._cl_type }}* reduction_tmp_array
+void {{ arg._dat._name }}_reduction_kernel (
+  __global {{ arg._dat._cl_type }}* reduction_result,
+  __private {{ arg._dat._cl_type }} input_value,
+  __local {{ arg._dat._cl_type }}* reduction_tmp_array
 ) {
   barrier(CLK_LOCAL_MEM_FENCE);
   int lid = get_local_id(0);
@@ -107,7 +105,7 @@ void {{ it._dat._name }}_reduction_kernel (
   for(int offset = 1; offset < (int)get_local_size(0); offset <<= 1) {
     int mask = (offset << 1) - 1;
     if(((lid & mask) == 0) && (lid + offset < (int)get_local_size(0))) {
-      {{ reduction_op(it) }}
+      {{ reduction_op(arg) }}
     }
     barrier(CLK_LOCAL_MEM_FENCE);
   }
@@ -117,56 +115,54 @@ void {{ it._dat._name }}_reduction_kernel (
 }
 {%- endmacro -%}
 
-{%- macro populate_vec_map(it) -%}
+{%- macro populate_vec_map(arg) -%}
 // populate vec map
-{%- if(it._is_indirect_reduction) -%}
-{%- for it in it._i_gen_vec %}
-  {{ dat_vec_name(it) }}[{{ it._idx }}] = {{ reduc_arg_local_name(it) }};
+{%- if(arg._is_indirect_reduction) -%}
+{%- for arg in arg._i_gen_vec %}
+  {{ dat_vec_name(arg) }}[{{ arg._idx }}] = {{ reduc_arg_local_name(arg) }};
 {% endfor -%}
 {%- else -%}
-{%- for it in it._i_gen_vec %}
-  {{ dat_vec_name(it) }}[{{ it._idx }}] = &{{ shared_indirection_mapping_memory_name(it) }}[{{ mapping_array_name(it) }}[i_1 + shared_memory_offset] * {{ it._dat._dim[0] }}];
+{%- for arg in arg._i_gen_vec %}
+  {{ dat_vec_name(arg) }}[{{ arg._idx }}] = &{{ shared_indirection_mapping_memory_name(arg) }}[{{ mapping_array_name(arg) }}[i_1 + shared_memory_offset] * {{ arg._dat._dim[0] }}];
 {%- endfor -%}
 {%- endif -%}
 {%- endmacro -%}
 
-{%- macro staged_arg_local_variable_zeroing(it) -%}
-for (i_2 = 0; i_2 < {{ it._dat._dim[0] }}; ++i_2) {
-  {{ reduc_arg_local_name(it) }}[i_2] = {{ it._dat._cl_type_zero }};
+{%- macro staged_arg_local_variable_zeroing(arg) -%}
+for (i_2 = 0; i_2 < {{ arg._dat._dim[0] }}; ++i_2) {
+  {{ reduc_arg_local_name(arg) }}[i_2] = {{ arg._dat._cl_type_zero }};
 }
 {%- endmacro -%}
 
-{%- macro reduction(it) -%}
-for (i_2 = 0; i_2 < {{ it._dat._dim[0] }}; ++i_2) {
-   {%- if(it._is_INC) %}
-      {{ shared_indirection_mapping_memory_name(it) }}[i_2 + {{ mapping_array_name(it) }}[i_1 + shared_memory_offset] * {{ it._dat._dim[0] }}] += {{ reduc_arg_local_name(it) }}[i_2];
-   {% elif(it._is_MIN) %}
-      {{ shared_indirection_mapping_memory_name(it) }}[i_2 + {{ mapping_array_name(it) }}[i_1 + shared_memory_offset] * {{ it._dat._dim[0] }}] = min({{ shared_indirection_mapping_memory_name(it) }}[i_2 + {{ mapping_array_name(it) }}[i_1 + shared_memory_offset] * {{ it._dat._dim[0] }}], {{ reduc_arg_local_name(it) }}[i_2]);
-   {% elif(it._is_MAX) %}
-      {{ shared_indirection_mapping_memory_name(it) }}[i_2 + {{ mapping_array_name(it) }}[i_1 + shared_memory_offset] * {{ it._dat._dim[0] }}] = max({{ shared_indirection_mapping_memory_name(it) }}[i_2 + {{ mapping_array_name(it) }}[i_1 + shared_memory_offset] * {{ it._dat._dim[0] }}], {{ reduc_arg_local_name(it) }}[i_2]);
-   {% else %}
-      SOMETHING WENT SOUTH;
+{%- macro reduction(arg) -%}
+for (i_2 = 0; i_2 < {{ arg._dat._dim[0] }}; ++i_2) {
+   {%- if(arg._is_INC) %}
+      {{ shared_indirection_mapping_memory_name(arg) }}[i_2 + {{ mapping_array_name(arg) }}[i_1 + shared_memory_offset] * {{ arg._dat._dim[0] }}] += {{ reduc_arg_local_name(arg) }}[i_2];
+   {% elif(arg._is_MIN) %}
+      {{ shared_indirection_mapping_memory_name(arg) }}[i_2 + {{ mapping_array_name(arg) }}[i_1 + shared_memory_offset] * {{ arg._dat._dim[0] }}] = min({{ shared_indirection_mapping_memory_name(arg) }}[i_2 + {{ mapping_array_name(arg) }}[i_1 + shared_memory_offset] * {{ arg._dat._dim[0] }}], {{ reduc_arg_local_name(arg) }}[i_2]);
+   {% elif(arg._is_MAX) %}
+      {{ shared_indirection_mapping_memory_name(arg) }}[i_2 + {{ mapping_array_name(arg) }}[i_1 + shared_memory_offset] * {{ arg._dat._dim[0] }}] = max({{ shared_indirection_mapping_memory_name(arg) }}[i_2 + {{ mapping_array_name(arg) }}[i_1 + shared_memory_offset] * {{ arg._dat._dim[0] }}], {{ reduc_arg_local_name(arg) }}[i_2]);
    {% endif %}
 }
 {%- endmacro -%}
 
-{%- macro reduction2(it) -%}
-  for (i_1 = get_local_id(0); i_1 < {{ shared_indirection_mapping_size_name(it) }} * {{ it._dat._dim[0] }}; i_1 += get_local_size(0)) {
-  {{ it._dat._name }}[i_1 % {{ it._dat._dim[0] }} + {{ shared_indirection_mapping_name(it) }}[i_1 / {{ it._dat._dim[0] }}] * {{ it._dat._dim[0] }}] += {{ shared_indirection_mapping_memory_name(it) }}[i_1];
+{%- macro reduction2(arg) -%}
+  for (i_1 = get_local_id(0); i_1 < {{ shared_indirection_mapping_size_name(arg) }} * {{ arg._dat._dim[0] }}; i_1 += get_local_size(0)) {
+  {{ arg._dat._name }}[i_1 % {{ arg._dat._dim[0] }} + {{ shared_indirection_mapping_name(arg) }}[i_1 / {{ arg._dat._dim[0] }}] * {{ arg._dat._dim[0] }}] += {{ shared_indirection_mapping_memory_name(arg) }}[i_1];
 }
 {%- endmacro -%}
 
-{%- macro global_reduction_local_zeroing(it) -%}
-for (i_1 = 0; i_1 < {{ it._dat._dim[0] }}; ++i_1) {
-  {{ global_reduc_local_name(it) }}[i_1] = {{ it._dat._cl_type_zero }};
+{%- macro global_reduction_local_zeroing(arg) -%}
+for (i_1 = 0; i_1 < {{ arg._dat._dim[0] }}; ++i_1) {
+  {{ global_reduc_local_name(arg) }}[i_1] = {{ arg._dat._cl_type_zero }};
 }
 {%- endmacro -%}
 
-{%- macro on_device_global_reduction(it) -%}
+{%- macro on_device_global_reduction(arg) -%}
 // THIS TEMPLATE SHOULD BE FACTORISED WITH DIRECT LOOPS REDUCTIONS
-for (i_1 = 0; i_1 < {{ it._dat._dim[0] }}; ++i_1)
+for (i_1 = 0; i_1 < {{ arg._dat._dim[0] }}; ++i_1)
 {
-  {{ it._dat._name }}_reduction_kernel(&{{ global_reduc_device_array_name(it) }}[i_1 + get_group_id(0) * {{ it._dat._dim[0] }}], {{ global_reduc_local_name(it) }}[i_1], (__local {{ it._dat._cl_type }}*) shared);
+  {{ arg._dat._name }}_reduction_kernel(&{{ global_reduc_device_array_name(arg) }}[i_1 + get_group_id(0) * {{ arg._dat._dim[0] }}], {{ global_reduc_local_name(arg) }}[i_1], (__local {{ arg._dat._cl_type }}*) shared);
 }
 {%- endmacro -%}
 
@@ -174,31 +170,31 @@ for (i_1 = 0; i_1 < {{ it._dat._dim[0] }}; ++i_1)
 __kernel
 __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
 void {{ parloop._kernel._name }}_stub(
-  {%- for it in parloop._unique_dats %}
-  __global {{ it._cl_type }}* {{ it._name }},
+  {%- for arg in parloop._unique_dats %}
+  __global {{ arg._cl_type }}* {{ arg._name }},
   {%- endfor -%}
-  {% for it in parloop._global_non_reduction_args %}
-  __global {{ it._dat._cl_type }}* {{ it._dat._name }},
+  {% for arg in parloop._global_non_reduction_args %}
+  __global {{ arg._dat._cl_type }}* {{ arg._dat._name }},
   {%- endfor -%}
-  {% for it in parloop._global_reduction_args %}
-  __global {{ it._dat._cl_type }}* {{ global_reduc_device_array_name(it) }},
+  {% for arg in parloop._global_reduction_args %}
+  __global {{ arg._dat._cl_type }}* {{ global_reduc_device_array_name(arg) }},
   {%- endfor -%}
-  {% for it in op2const %}
-  __constant {{ it._cl_type }}* {{ it._name }},
+  {% for c in op2const %}
+  __constant {{ c._cl_type }}* {{ c._name }},
   {% endfor %}
-  {% for it in parloop._dat_map_pairs %}
-  __global int* {{ shared_indirection_mapping_arg_name(it) }},
+  {% for dm in parloop._dat_map_pairs %}
+  __global int* {{ shared_indirection_mapping_arg_name(dm) }},
   {%- endfor -%}
-  {% for it in parloop._args %}
-  {% if(it._is_indirect) %}__global short* {{ mapping_array_name(it) }},{% endif %}
+  {% for arg in parloop._args %}
+  {% if(arg._is_indirect) %}__global short* {{ mapping_array_name(arg) }},{% endif %}
   {%- endfor -%}
-  {% for it in parloop._unique_matrix %}
-  __global {{ it._cl_type }}* {{ it._name }},
-  __global int* {{ it._name }}_rowptr,
-  __global int* {{ it._name }}_colidx,
+  {% for mat in parloop._unique_matrix %}
+  __global {{ mat._cl_type }}* {{ mat._name }},
+  __global int* {{ mat._name }}_rowptr,
+  __global int* {{ mat._name }}_colidx,
   {%- endfor -%}
-  {% for it in parloop._matrix_entry_maps %}
-  __global int* {{ it._name }},
+  {% for matem in parloop._matrix_entry_maps %}
+  __global int* {{ matem._name }},
   {%- endfor -%}
 
   __global int* p_ind_sizes,
@@ -227,43 +223,37 @@ void {{ parloop._kernel._name }}_stub(
   int i_2;
 
   // reduction args
-{%- for it in parloop._indirect_reduc_args %}
-  {{ it._dat._cl_type }} {{ reduc_arg_local_name(it) }}[{{ it._dat._dim[0] }}];
+{%- for arg in parloop._indirect_reduc_args %}
+  {{ arg._dat._cl_type }} {{ reduc_arg_local_name(arg) }}[{{ arg._dat._dim[0] }}];
 {%- endfor %}
 {%- endif %}
 
 {%- if(parloop._global_reduction_args) %}
   // global reduction local declarations
-{% for it in parloop._global_reduction_args %}
-  {{ it._dat._cl_type }} {{ global_reduc_local_name(it) }}[{{ it._dat._dim[0] }}];
+{% for arg in parloop._global_reduction_args %}
+  {{ arg._dat._cl_type }} {{ global_reduc_local_name(arg) }}[{{ arg._dat._dim[0] }}];
 {%- endfor %}
 {%- endif %}
 
 {% if(parloop._matrix_args) %}
   // local matrix entry
-  {% for it in parloop._matrix_args %}
-  __private {{ it._dat._cl_type }} {{ it._dat._name }}_entry;
+  {% for arg in parloop._matrix_args %}
+  __private {{ arg._dat._cl_type }} {{ arg._dat._name }}_entry;
   {% endfor %}
 {% endif %}
 
   // shared indirection mappings
-{%- for it in parloop._dat_map_pairs %}
-  __global int* __local {{ shared_indirection_mapping_name(it) }};
-{%- endfor -%}
-{% for it in parloop._dat_map_pairs %}
-  __local int {{ shared_indirection_mapping_size_name(it) }};
-{%- endfor -%}
-{% for it in parloop._dat_map_pairs %}
-  __local {{ it._dat._cl_type }}* __local {{ shared_indirection_mapping_memory_name(it) }};
-{%- endfor -%}
-{% for it in parloop._dat_map_pairs %}
-  const int {{ shared_indirection_mapping_idx_name(it) }} = {{ loop.index0 }};
+{%- for dm in parloop._dat_map_pairs %}
+  __global int* __local {{ shared_indirection_mapping_name(dm) }};
+  __local int {{ shared_indirection_mapping_size_name(dm) }};
+  __local {{ dm._dat._cl_type }}* __local {{ shared_indirection_mapping_memory_name(dm) }};
+  const int {{ shared_indirection_mapping_idx_name(dm) }} = {{ loop.index0 }};
 {%- endfor %}
-{% for it in parloop._nonreduc_vec_dat_map_pairs %}
-  __local {{ it._dat._cl_type }}* {{ dat_vec_name(it) }}[{{ it._map._dim }}];
+{% for dm in parloop._nonreduc_vec_dat_map_pairs %}
+  __local {{ dm._dat._cl_type }}* {{ dat_vec_name(dm) }}[{{ dm._map._dim }}];
 {%- endfor %}
-{% for it in parloop._reduc_vec_dat_map_pairs %}
-  {{ it._dat._cl_type }}* {{ dat_vec_name(it) }}[{{ it._map._dim }}];
+{% for dm in parloop._reduc_vec_dat_map_pairs %}
+  {{ dm._dat._cl_type }}* {{ dat_vec_name(dm) }}[{{ dm._map._dim }}];
 {%- endfor %}
 
   if (get_local_id(0) == 0) {
@@ -274,42 +264,39 @@ void {{ parloop._kernel._name }}_stub(
     colors_count = p_nthrcol[block_id];
 {%- endif %}
     shared_memory_offset = p_offset[block_id];
-{% for it in parloop._dat_map_pairs %}
-    {{ shared_indirection_mapping_size_name(it) }} = p_ind_sizes[{{ shared_indirection_mapping_idx_name(it) }} + block_id * {{ launch.ninds }}];
-{%- endfor %}
-
-{%- for it in parloop._dat_map_pairs %}
-    {{ shared_indirection_mapping_name(it) }} = {{ shared_indirection_mapping_arg_name(it) }} + p_ind_offsets[{{ shared_indirection_mapping_idx_name(it) }} + block_id * {{ launch.ninds }}];
+{% for dm in parloop._dat_map_pairs %}
+    {{ shared_indirection_mapping_size_name(dm) }} = p_ind_sizes[{{ shared_indirection_mapping_idx_name(dm) }} + block_id * {{ launch.ninds }}];
+    {{ shared_indirection_mapping_name(dm) }} = {{ shared_indirection_mapping_arg_name(dm) }} + p_ind_offsets[{{ shared_indirection_mapping_idx_name(dm) }} + block_id * {{ launch.ninds }}];
 {%- endfor %}
 
     nbytes = 0;
-{%- for it in parloop._dat_map_pairs %}
-    {{ shared_indirection_mapping_memory_name(it) }} = (__local {{ it._dat._cl_type }}*) (&shared[nbytes]);
-    nbytes += ROUND_UP({{ shared_indirection_mapping_size_name(it) }} * {{ it._dat._dim[0] }} * sizeof({{ it._dat._cl_type }}));
+{%- for dm in parloop._dat_map_pairs %}
+    {{ shared_indirection_mapping_memory_name(dm) }} = (__local {{ dm._dat._cl_type }}*) (&shared[nbytes]);
+    nbytes += ROUND_UP({{ shared_indirection_mapping_size_name(dm) }} * {{ dm._dat._dim[0] }} * sizeof({{ dm._dat._cl_type }}));
 {%- endfor %}
   }
   barrier(CLK_LOCAL_MEM_FENCE);
 
 {% if(parloop._read_dat_map_pairs) -%}
   // staging in of indirect dats
-  {% for it in parloop._read_dat_map_pairs %}
-  {{ stagingin(it) }}
+  {% for dm in parloop._read_dat_map_pairs %}
+  {{ stagingin(dm) }}
   {% endfor %}
   barrier(CLK_LOCAL_MEM_FENCE);
 {% endif %}
 
 {%- if(parloop._indirect_reduc_dat_map_pairs) %}
   // zeroing local memory for indirect reduction
-  {% for it in parloop._indirect_reduc_dat_map_pairs %}
-  {{ shared_memory_reduc_zeroing(it) | indent(2) }}
+  {% for dm in parloop._indirect_reduc_dat_map_pairs %}
+  {{ shared_memory_reduc_zeroing(dm) | indent(2) }}
   {% endfor %}
   barrier(CLK_LOCAL_MEM_FENCE);
 {% endif %}
 
 {%- if(parloop._global_reduction_args) %}
   // zeroing private memory for global reduction
-  {% for it in parloop._global_reduction_args %}
-  {{ global_reduction_local_zeroing(it) }}
+  {% for arg in parloop._global_reduction_args %}
+  {{ global_reduction_local_zeroing(arg) }}
   {% endfor %}
 {% endif %}
 
@@ -317,8 +304,8 @@ void {{ parloop._kernel._name }}_stub(
   for (i_1 = get_local_id(0); i_1 < active_threads_count_ceiling; i_1 += get_local_size(0)) {
     color_2 = -1;
     if (i_1 < active_threads_count) {
-      {% for it in parloop._indirect_reduc_args %}
-      {{ staged_arg_local_variable_zeroing(it) | indent(6) }}
+      {% for arg in parloop._indirect_reduc_args %}
+      {{ staged_arg_local_variable_zeroing(arg) | indent(6) }}
       {%- endfor %}
 
       {{ kernel_call() | indent(6) }}
@@ -327,8 +314,8 @@ void {{ parloop._kernel._name }}_stub(
     for (color_1 = 0; color_1 < colors_count; ++color_1) {
       // should there be a if + barrier pattern for each indirect reduction argument ?
       if (color_2 == color_1) {
-        {% for it in parloop._indirect_reduc_args %}
-        {{ reduction(it) | indent(8) }}
+        {% for arg in parloop._indirect_reduc_args %}
+        {{ reduction(arg) | indent(8) }}
     {% endfor %}
       }
       barrier(CLK_LOCAL_MEM_FENCE);
@@ -341,24 +328,24 @@ void {{ parloop._kernel._name }}_stub(
 {%- endif %}
 
 {%- if(parloop._indirect_reduc_dat_map_pairs) %}
-  {% for it in parloop._indirect_reduc_dat_map_pairs %}
-  {{ reduction2(it) | indent(2) }}
+  {% for dm in parloop._indirect_reduc_dat_map_pairs %}
+  {{ reduction2(dm) | indent(2) }}
   {%- endfor %}
 {%- endif %}
 
 {%- if(parloop._written_dat_map_pairs) %}
   // staging out indirect dats
   barrier(CLK_LOCAL_MEM_FENCE);
-  {% for it in parloop._written_dat_map_pairs %}
-  {{ stagingout(it) | indent(2) }}
+  {% for dm in parloop._written_dat_map_pairs %}
+  {{ stagingout(dm) | indent(2) }}
   {%- endfor %}
 {%- endif %}
 
 {%- if(parloop._global_reduction_args) %}
   barrier(CLK_LOCAL_MEM_FENCE);
   // on device global reductions
-  {% for it in parloop._global_reduction_args %}
-  {{ on_device_global_reduction(it) | indent(2) }}
+  {% for arg in parloop._global_reduction_args %}
+  {{ on_device_global_reduction(arg) | indent(2) }}
   {%- endfor %}
 {%- endif %}
 }
@@ -370,16 +357,16 @@ void {{ parloop._kernel._name }}_stub(
 {%- for it in parloop._it_space._extent_ranges %}
 for (int idx_{{ loop.index0 }} = 0; idx_{{ loop.index0 }} < {{ it }}; ++idx_{{ loop.index0 }}) {
 {%- endfor %}
-{% for it in parloop._matrix_args %}
-{{ it._dat._name }}_entry = {{ it._dat._cl_type_zero }};
+{% for arg in parloop._matrix_args %}
+{{ arg._dat._name }}_entry = {{ arg._dat._cl_type_zero }};
 {% endfor %}
 {{ parloop._kernel._name }}(
   {% filter trim|replace("\n", ",\n") -%}
-  {%- for it in parloop._actual_args %}
-  {{ kernel_call_arg(it) }}
+  {%- for arg in parloop._actual_args %}
+  {{ kernel_call_arg(arg) }}
   {%- endfor -%}
   {{- kernel_call_const_args() -}}
-  {%- for it in parloop._it_space._extent_ranges %}
+  {%- for ext in parloop._it_space._extent_ranges %}
   idx_{{ loop.index0 }}
   {%- endfor -%}
   {%- endfilter %}
@@ -407,16 +394,16 @@ for (int idx_{{ loop.index0 }} = 0; idx_{{ loop.index0 }} < {{ it }}; ++idx_{{ l
 {%- endmacro -%}
 
 {%- macro kernel_call() -%}
-{% for it in parloop._actual_args if(it._is_vec_map) %}
-  {{ populate_vec_map(it) }}
+{% for arg in parloop._actual_args if(arg._is_vec_map) %}
+  {{ populate_vec_map(arg) }}
 {% endfor %}
 {% if(parloop._it_space) %}
 {{ matrix_kernel_call() }}
 {% else %}
 {{ parloop._kernel._name }}(
   {% filter trim|replace("\n", ",\n") -%}
-  {%- for it in parloop._actual_args -%}
-  {{ kernel_call_arg(it) }}
+  {%- for arg in parloop._actual_args -%}
+  {{ kernel_call_arg(arg) }}
   {% endfor -%}
   {{ kernel_call_const_args() }}
   {%- endfilter %}
@@ -430,22 +417,22 @@ for (int idx_{{ loop.index0 }} = 0; idx_{{ loop.index0 }} < {{ it }}; ++idx_{{ l
 {% endfor -%}
 {%- endmacro -%}
 
-{%- macro kernel_call_arg(it) -%}
-{% if(it._is_direct) -%}
-  {{ typecast("__global", it._dat._cl_type + "*", "__private") -}}
-  ({{ it._dat._name }} + (i_1 + shared_memory_offset) * {{ it._dat._dim[0] }})
-{%- elif(it._is_mat) -%}
-  &{{ it._dat._name }}_entry
-{%- elif(it._is_vec_map) -%}
-  {{ dat_vec_name(it) }}
-{%- elif(it._is_global_reduction) -%}
-  {{ global_reduc_local_name(it) }}
-{%- elif(it._is_indirect_reduction) -%}
-  {{ reduc_arg_local_name(it) }}
-{%- elif(it._is_global) -%}
-  {{ it._dat._name }}
+{%- macro kernel_call_arg(arg) -%}
+{% if(arg._is_direct) -%}
+  {{ typecast("__global", arg._dat._cl_type + "*", "__private") -}}
+  ({{ arg._dat._name }} + (i_1 + shared_memory_offset) * {{ arg._dat._dim[0] }})
+{%- elif(arg._is_mat) -%}
+  &{{ arg._dat._name }}_entry
+{%- elif(arg._is_vec_map) -%}
+  {{ dat_vec_name(arg) }}
+{%- elif(arg._is_global_reduction) -%}
+  {{ global_reduc_local_name(arg) }}
+{%- elif(arg._is_indirect_reduction) -%}
+  {{ reduc_arg_local_name(arg) }}
+{%- elif(arg._is_global) -%}
+  {{ arg._dat._name }}
 {%- else -%}
-  &{{ shared_indirection_mapping_memory_name(it) }}[{{ mapping_array_name(it) }}[i_1 + shared_memory_offset] * {{ it._dat._dim[0] }}]
+  &{{ shared_indirection_mapping_memory_name(arg) }}[{{ mapping_array_name(arg) }}[i_1 + shared_memory_offset] * {{ arg._dat._dim[0] }}]
 {%- endif -%}
 {%- endmacro -%}
 
@@ -453,9 +440,9 @@ for (int idx_{{ loop.index0 }} = 0; idx_{{ loop.index0 }} < {{ it }}; ++idx_{{ l
 ({{ storage }} {{ type }}{% if(not codegen.amd) %} {{ qualifier }}{% endif %})
 {%- endmacro -%}
 
-{%- macro shared_memory_reduc_zeroing(it) -%}
-for (i_1 = get_local_id(0); i_1 < {{ shared_indirection_mapping_size_name(it) }} * {{ it._dat._dim[0] }}; i_1 += get_local_size(0)) {
-  {{ shared_indirection_mapping_memory_name(it) }}[i_1] = 0;
+{%- macro shared_memory_reduc_zeroing(arg) -%}
+for (i_1 = get_local_id(0); i_1 < {{ shared_indirection_mapping_size_name(arg) }} * {{ arg._dat._dim[0] }}; i_1 += get_local_size(0)) {
+  {{ shared_indirection_mapping_memory_name(arg) }}[i_1] = 0;
 }
 {%- endmacro -%}
 
@@ -535,8 +522,8 @@ void matrix_set(__global double* mat_array, __global int* mat_rowptr, __global i
 
 {{- header() }}
 
-{% for it in parloop._global_reduction_args -%}
-  {{ reduction_kernel(it) }}
+{% for arg in parloop._global_reduction_args -%}
+  {{ reduction_kernel(arg) }}
 {% endfor %}
 {{ user_kernel }}
 {{ matrix_support() }}

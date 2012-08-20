@@ -37,27 +37,25 @@ for (i_2 = 0; i_2 < {{ arg._dat._dim[0] }}; ++i_2)
   {{ arg._dat._name }}[thread_id + i_2 * active_threads_count + local_offset * {{ arg._dat._dim[0] }}] = {{ arg._dat._name }}_shared[thread_id + i_2 * active_threads_count];
 {%- endmacro -%}
 
-{%- macro reduction_op(it) -%}
-{%- if(it._is_INC) -%}
+{%- macro reduction_op(arg) -%}
+{%- if(arg._is_INC) -%}
 reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];
-{%- elif(it._is_MIN) -%}
+{%- elif(arg._is_MIN) -%}
 reduction_tmp_array[lid] = min(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
-{%- elif(it._is_MAX) -%}
+{%- elif(arg._is_MAX) -%}
 reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
-{%- else -%}
-SOMETHING WENT SOUTH;
 {%- endif -%}
 {%- endmacro -%}
 
-{%- macro kernel_call_arg(it) -%}
-{% if(it._d_is_staged) -%}
-{{ it._dat._name }}_local
-{%- elif(it._is_global_reduction) -%}
-{{ it._dat._name }}_reduc_local
-{%- elif(it._is_global) -%}
-{{ it._dat._name }}
+{%- macro kernel_call_arg(arg) -%}
+{% if(arg._d_is_staged) -%}
+{{ arg._dat._name }}_local
+{%- elif(arg._is_global_reduction) -%}
+{{ arg._dat._name }}_reduc_local
+{%- elif(arg._is_global) -%}
+{{ arg._dat._name }}
 {%- else -%}
-&{{ it._dat._name }}[i_1]
+&{{ arg._dat._name }}[i_1]
 {%- endif -%}
 {%- endmacro -%}
 
@@ -70,20 +68,20 @@ SOMETHING WENT SOUTH;
 {%- macro kernel_call() -%}
 {{ parloop._kernel._name }}(
 {%- filter trim|replace("\n", ", ") -%}
-{%- for it in parloop._actual_args -%}
-{{ kernel_call_arg(it) }}
+{%- for arg in parloop._actual_args -%}
+{{ kernel_call_arg(arg) }}
 {% endfor -%}
 {{ kernel_call_const_args() }}
 {%- endfilter -%}
 );
 {%- endmacro -%}
 
-{%- macro reduction_kernel(it) -%}
+{%- macro reduction_kernel(arg) -%}
 __kernel
-void {{ it._dat._name }}_reduction_kernel (
-  __global {{ it._dat._cl_type }} *reduction_result,
-  __private {{ it._dat._cl_type }} input_value,
-  __local {{ it._dat._cl_type }} *reduction_tmp_array
+void {{ arg._dat._name }}_reduction_kernel (
+  __global {{ arg._dat._cl_type }} *reduction_result,
+  __private {{ arg._dat._cl_type }} input_value,
+  __local {{ arg._dat._cl_type }} *reduction_tmp_array
 ) {
   barrier(CLK_LOCAL_MEM_FENCE);
   int lid = get_local_id(0);
@@ -93,7 +91,7 @@ void {{ it._dat._name }}_reduction_kernel (
   for(int offset = 1; offset < (int)get_local_size(0); offset <<= 1) {
     int mask = (offset << 1) - 1;
     if(((lid & mask) == 0) && (lid + offset < (int)get_local_size(0))) {
-      {{ reduction_op(it) }}
+      {{ reduction_op(arg) }}
     }
     barrier(CLK_LOCAL_MEM_FENCE);
   }
@@ -108,17 +106,17 @@ __kernel
 __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
 void {{ parloop._kernel._name }}_stub (
   {% filter trim|replace("\n", ",\n") -%}
-  {%- for it in parloop._unique_dats -%}
-  __global {{ it._cl_type }} *{{ it._name }}
+  {%- for dat in parloop._unique_dats -%}
+  __global {{ dat._cl_type }} *{{ dat._name }}
   {% endfor -%}
-  {%- for it in parloop._global_reduction_args -%}
-  __global {{ it._dat._cl_type }} *{{ it._dat._name }}_reduction_array
+  {%- for arg in parloop._global_reduction_args -%}
+  __global {{ arg._dat._cl_type }} *{{ arg._dat._name }}_reduction_array
   {% endfor -%}
-  {%- for it in parloop._global_non_reduction_args -%}
-  __global {{ it._dat._cl_type }} *{{ it._dat._name }}
+  {%- for arg in parloop._global_non_reduction_args -%}
+  __global {{ arg._dat._cl_type }} *{{ arg._dat._name }}
   {% endfor -%}
-  {%- for it in op2const -%}
-  __constant {{ it._cl_type }} *{{ it._name }}
+  {%- for c in op2const -%}
+  __constant {{ c._cl_type }} *{{ c._name }}
   {% endfor -%}
   int set_size
   {%- endfilter %}
@@ -135,27 +133,27 @@ void {{ parloop._kernel._name }}_stub (
   int active_threads_count;
   int thread_id = get_local_id(0) % OP_WARPSIZE;
 
-  {%- for it in parloop._direct_non_scalar_args -%}
-  __private {{ it._dat._cl_type }} {{ it._dat._name }}_local[{{ it._dat._dim[0] }}];
+  {%- for arg in parloop._direct_non_scalar_args -%}
+  __private {{ arg._dat._cl_type }} {{ arg._dat._name }}_local[{{ arg._dat._dim[0] }}];
   {% endfor %}
 
-  {% for it in parloop._direct_non_scalar_args -%}
-  __local {{ it._dat._cl_type }} *{{ it._dat._name }}_shared = (__local {{ it._dat._cl_type }}*) (shared + shared_memory_offset * (get_local_id(0) / OP_WARPSIZE));
+  {% for arg in parloop._direct_non_scalar_args -%}
+  __local {{ arg._dat._cl_type }} *{{ arg._dat._name }}_shared = (__local {{ arg._dat._cl_type }}*) (shared + shared_memory_offset * (get_local_id(0) / OP_WARPSIZE));
   {% endfor %}
   {%- endif %}
 
-  {% for it in parloop._global_reduction_args -%}
-  __private {{ it._dat._cl_type }} {{ it._dat._name }}_reduc_local[{{ it._dat._dim[0] }}];
+  {% for arg in parloop._global_reduction_args -%}
+  __private {{ arg._dat._cl_type }} {{ arg._dat._name }}_reduc_local[{{ arg._dat._dim[0] }}];
   {% endfor %}
 
-  {% for it in parloop._global_reduction_args -%}
-  __local {{ it._dat._cl_type }}* {{ it._dat._name }}_reduc_tmp = (__local {{ it._dat._cl_type }}*) shared;
+  {% for arg in parloop._global_reduction_args -%}
+  __local {{ arg._dat._cl_type }}* {{ arg._dat._name }}_reduc_tmp = (__local {{ arg._dat._cl_type }}*) shared;
   {% endfor %}
 
   // reduction zeroing
-  {% for it in parloop._global_reduction_args %}
-  for (i_1 = 0; i_1 < {{ it._dat._dim[0] }}; ++i_1)
-    {{ it._dat._name }}_reduc_local[i_1] = {{ it._dat._cl_type_zero }};
+  {% for arg in parloop._global_reduction_args %}
+  for (i_1 = 0; i_1 < {{ arg._dat._dim[0] }}; ++i_1)
+    {{ arg._dat._name }}_reduc_local[i_1] = {{ arg._dat._cl_type_zero }};
   {% endfor %}
 
   for (i_1 = get_global_id(0); i_1 < set_size; i_1 += get_global_size(0)) {
@@ -175,9 +173,9 @@ void {{ parloop._kernel._name }}_stub (
 
   {% if(parloop._global_reduction_args) %}
   // on device reduction
-  {% for it in parloop._global_reduction_args %}
-  for (i_1 = 0; i_1 < {{ it._dat._dim[0] }}; ++i_1)
-    {{ it._dat._name }}_reduction_kernel(&{{ it._dat._name }}_reduction_array[i_1 + get_group_id(0) * {{ it._dat._dim[0] }}], {{ it._dat._name }}_reduc_local[i_1], {{ it._dat._name }}_reduc_tmp);
+  {% for arg in parloop._global_reduction_args %}
+  for (i_1 = 0; i_1 < {{ arg._dat._dim[0] }}; ++i_1)
+    {{ arg._dat._name }}_reduction_kernel(&{{ arg._dat._name }}_reduction_array[i_1 + get_group_id(0) * {{ arg._dat._dim[0] }}], {{ arg._dat._name }}_reduc_local[i_1], {{ arg._dat._name }}_reduc_tmp);
   {% endfor %}
   {% endif %}
 }
@@ -186,8 +184,8 @@ void {{ parloop._kernel._name }}_stub (
 
 
 {{- header() }}
-{% for it in parloop._global_reduction_args %}
-{{ reduction_kernel(it) }}
+{% for arg in parloop._global_reduction_args %}
+{{ reduction_kernel(arg) }}
 {% endfor %}
 
 {{- user_kernel }}
