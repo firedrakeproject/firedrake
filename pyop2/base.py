@@ -379,6 +379,9 @@ class Const(DataCarrier):
                % (self._dim, self._data, self._name)
 
     def remove_from_namespace(self):
+        """Remove this Const object from the namespace
+
+        This allows the same name to be redeclared with a different shape."""
         if self in Const._defs:
             Const._defs.remove(self)
 
