@@ -40,12 +40,12 @@ import configuration as cfg
 import op_lib_core as core
 import pyopencl as cl
 import pkg_resources
-import stringtemplate3
 import pycparser
 import numpy as np
 import collections
 import warnings
 import math
+from jinja2 import Environment, PackageLoader
 from pycparser import c_parser, c_ast, c_generator
 import re
 import time
@@ -878,13 +878,16 @@ class ParLoopCall(object):
 
         #do codegen
         user_kernel = instrument_user_kernel()
-        template = _stg_direct_loop.getInstanceOf("direct_loop") if self.is_direct() else _stg_indirect_loop.getInstanceOf("indirect_loop")
-        template['parloop'] = self
-        template['user_kernel'] = user_kernel
-        template['launch'] = conf
-        template['codegen'] = {'amd': _AMD_fixes}
-        template['op2const'] = sorted(list(Const._defs), key=lambda c: c._name)
-        src = str(template)
+        template = _jinja2_direct_loop if self.is_direct()\
+                                       else _jinja2_indirect_loop
+
+        src = template.render({'parloop': self,
+                               'user_kernel': user_kernel,
+                               'launch': conf,
+                               'codegen': {'amd': _AMD_fixes},
+                               'op2const': sorted(list(Const._defs),
+                                                  key=lambda c: c._name)
+                              }).encode("ascii")
         _kernel_stub_cache[self._gencode_key] = src
         return src
 
@@ -1034,8 +1037,9 @@ _AMD_fixes = _queue.device.platform.vendor in ['Advanced Micro Devices, Inc.']
 if not _has_dpfloat:
     warnings.warn('device does not support double precision floating point computation, expect undefined behavior for double')
 
-_stg_direct_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.StringIO(pkg_resources.resource_string(__name__, "assets/opencl_direct_loop.stg")), lexer="default")
-_stg_indirect_loop = stringtemplate3.StringTemplateGroup(file=stringtemplate3.StringIO(pkg_resources.resource_string(__name__, "assets/opencl_indirect_loop.stg")), lexer="default")
+_jinja2_env = Environment(loader=PackageLoader("pyop2", "assets"))
+_jinja2_direct_loop = _jinja2_env.get_template("opencl_direct_loop.jinja2")
+_jinja2_indirect_loop = _jinja2_env.get_template("opencl_indirect_loop.jinja2")
 
 _plan_cache = OpPlanCache()
 _kernel_stub_cache = dict()
