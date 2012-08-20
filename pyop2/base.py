@@ -300,7 +300,7 @@ class Dat(DataCarrier):
     `calling` the ``Dat``. For instance, if a ``Dat`` named ``D`` is
     to be accessed for reading via a :class:`Map` named ``M``, this is
     accomplished by::
-      D(M, pyop2.READ)
+    D(M, pyop2.READ)
 
     The :class:`Map` through which indirection occurs can be indexed
     using the index notation described in the documentation for the

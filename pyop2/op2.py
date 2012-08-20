@@ -41,7 +41,12 @@ from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
 
 
 def init(**kwargs):
-    """Initialise OP2: select the backend."""
+    """Initialise OP2: select the backend and potentially other configuration options.
+
+    :arg backend: Set the hardware-specific backend. Current choices
+     are ``"sequential"`` and ``"opencl"``.
+    :arg debug: The level of debugging output.
+    """
     cfg.configure(**kwargs)
     backends.set_backend(cfg.backend)
     core.op_init(args=None, diags=0)
