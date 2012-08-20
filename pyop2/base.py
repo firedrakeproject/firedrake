@@ -450,8 +450,8 @@ class Global(DataCarrier):
 class IterationIndex(object):
     """OP2 iteration space index"""
 
-    def __init__(self, index):
-        assert isinstance(index, int), "i must be an int"
+    def __init__(self, index=None):
+        assert index is None or isinstance(index, int), "i must be an int"
         self._index = index
 
     def __str__(self):
@@ -464,9 +464,15 @@ class IterationIndex(object):
     def index(self):
         return self._index
 
-def i(index):
-    """Shorthand for constructing :class:`IterationIndex` objects"""
-    return IterationIndex(index)
+    def __getitem__(self, idx):
+        return IterationIndex(idx)
+
+i = IterationIndex()
+"""Shorthand for constructing :class:`IterationIndex` objects.
+
+    i[idx]
+
+builds an :class:`IterationIndex` object for which the `index` property is `idx`"""
 
 class Map(object):
     """OP2 map, a relation between two :class:`Set` objects.
