@@ -679,7 +679,14 @@ class Mat(DataCarrier):
 
     @property
     def values(self):
-        """A numpy array of matrix values."""
+        """A numpy array of matrix values.
+
+        .. warning ::
+            This is a dense array, so will need a lot of memory.  It's
+            probably not a good idea to access this property if your
+            matrix has more than around 10000 degrees of freedom.
+
+        """
         return self._c_handle.values
 
     @property
