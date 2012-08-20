@@ -293,7 +293,20 @@ class DataCarrier(object):
         return np.prod(self.dim)
 
 class Dat(DataCarrier):
-    """OP2 vector data. A ``Dat`` holds a ``dim`` values for every member of a :class:`Set`."""
+    """OP2 vector data. A ``Dat`` holds a ``dim`` values for every member of a :class:`Set`.
+
+    When a ``Dat`` is passed to :func:`par_loop`, the map via which
+    indirection occurs and the access descriptor are passed by
+    `calling` the ``Dat``. For instance, if a ``Dat`` named ``D`` is
+    to be accessed for reading via a ``Map`` named ``M``, this is
+    accomplished by::
+      D(M, pyop2.READ)
+
+    The :class:`Map` through which indirection occurs can be indexed
+    using the index notation described in the documentation for the
+    :class:`Map` class. Direct access to a Dat can be accomplished by
+    using the :data:`IdentityMap` as the indirection.
+    """
 
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
