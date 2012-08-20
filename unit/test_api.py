@@ -62,8 +62,7 @@ def pytest_funcarg__smap2(request):
     iterset = op2.Set(2, 'iterset')
     dataset = op2.Set(2, 'dataset')
     smap = op2.Map(iterset, dataset, 1, [1, 0])
-    smap2 = op2.Map(iterset, dataset, 1, [0, 1])
-    return (smap, smap2)
+    return smap
 
 def pytest_funcarg__const(request):
     return request.cached_setup(scope='function',
@@ -308,7 +307,7 @@ class TestSparsityAPI:
         "Sparsity constructor should accept tuple of pairs of maps"
         s = op2.Sparsity(((smap, smap), (smap2, smap2)),
                          1, "foo")
-        assert s.maps == ((smap, smap), (smap2, smap2))
+        assert s.maps == [(smap, smap), (smap2, smap2)]
         assert s.dims == (1,1)
 
 class TestMatAPI:
