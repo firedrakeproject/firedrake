@@ -119,12 +119,12 @@ class TestPlanCache:
 
         op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"),
                      iterset,
-                     x(iter2ind1(0), op2.RW))
+                     x(iter2ind1[0], op2.RW))
         assert op2.ncached_plans() == 1
 
         op2.par_loop(op2.Kernel(kernel_dec, "kernel_dec"),
                      iterset,
-                     x(iter2ind1(0), op2.RW))
+                     x(iter2ind1[0], op2.RW))
         assert op2.ncached_plans() == 1
 
     def test_arg_order(self, backend, iterset, iter2ind1, x, y):
@@ -142,15 +142,15 @@ void kernel_swap(unsigned int* x, unsigned int* y)
 """
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     x(iter2ind1(0), op2.RW),
-                     y(iter2ind1(0), op2.RW))
+                     x(iter2ind1[0], op2.RW),
+                     y(iter2ind1[0], op2.RW))
 
         assert op2.ncached_plans() == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     y(iter2ind1(0), op2.RW),
-                     x(iter2ind1(0), op2.RW))
+                     y(iter2ind1[0], op2.RW),
+                     x(iter2ind1[0], op2.RW))
 
         assert op2.ncached_plans() == 1
 
@@ -169,15 +169,15 @@ void kernel_swap(unsigned int* x, unsigned int* y)
 """
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     x(iter2ind2(0), op2.RW),
-                     x(iter2ind2(1), op2.RW))
+                     x(iter2ind2[0], op2.RW),
+                     x(iter2ind2[1], op2.RW))
 
         assert op2.ncached_plans() == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     x(iter2ind2(1), op2.RW),
-                     x(iter2ind2(0), op2.RW))
+                     x(iter2ind2[1], op2.RW),
+                     x(iter2ind2[0], op2.RW))
 
         assert op2.ncached_plans() == 1
 
@@ -196,14 +196,14 @@ void kernel_swap(unsigned int* x)
 """
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     x2(iter2ind1(0), op2.RW))
+                     x2(iter2ind1[0], op2.RW))
 
         assert op2.ncached_plans() == 1
 
         kernel_inc = "void kernel_inc(unsigned long* x) { *x += 1; }"
         op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"),
                      iterset,
-                     xl(iter2ind1(0), op2.RW))
+                     xl(iter2ind1[0], op2.RW))
 
         assert op2.ncached_plans() == 1
 
@@ -214,14 +214,14 @@ void kernel_swap(unsigned int* x)
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned long* a64) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
                                 iterset,
-                                x(iter2ind1(0), op2.INC),
+                                x(iter2ind1[0], op2.INC),
                                 a64(op2.IdentityMap, op2.RW))
         assert op2.ncached_plans() == 1
 
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* g) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
                      iterset,
-                     x(iter2ind1(0), op2.INC),
+                     x(iter2ind1[0], op2.INC),
                      g(op2.READ))
         assert op2.ncached_plans() == 1
 
@@ -232,15 +232,15 @@ void kernel_swap(unsigned int* x)
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* y) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
                                 iterset,
-                                x(iter2ind2(0), op2.READ),
-                                x(iter2ind2(1), op2.INC))
+                                x(iter2ind2[0], op2.READ),
+                                x(iter2ind2[1], op2.INC))
         assert op2.ncached_plans() == 1
 
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* y) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
                                 iterset,
-                                y(iter2ind2(0), op2.READ),
-                                y(iter2ind2(1), op2.INC))
+                                y(iter2ind2[0], op2.READ),
+                                y(iter2ind2[1], op2.INC))
         assert op2.ncached_plans() == 1
 
     def test_diff_conflicts(self, backend, iterset, iter2ind2, x, y):
@@ -250,17 +250,16 @@ void kernel_swap(unsigned int* x)
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* y) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
                                 iterset,
-                                x(iter2ind2(0), op2.READ),
-                                x(iter2ind2(1), op2.INC))
+                                x(iter2ind2[0], op2.READ),
+                                x(iter2ind2[1], op2.INC))
         assert op2.ncached_plans() == 1
 
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* y) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
                                 iterset,
-                                y(iter2ind2(0), op2.INC),
-                                y(iter2ind2(1), op2.INC))
+                                y(iter2ind2[0], op2.INC),
+                                y(iter2ind2[1], op2.INC))
         assert op2.ncached_plans() == 2
-
 
 
 class TestGeneratedCodeCache:
@@ -346,14 +345,14 @@ class TestGeneratedCodeCache:
         op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
                      iterset,
                      a(op2.IdentityMap, op2.WRITE),
-                     x(iter2ind1(0), op2.READ))
+                     x(iter2ind1[0], op2.READ))
 
         assert op2.ncached_gencode() == 1
 
         op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
                      iterset,
                      a(op2.IdentityMap, op2.WRITE),
-                     x(iter2ind1(0), op2.READ))
+                     x(iter2ind1[0], op2.READ))
 
         assert op2.ncached_gencode() == 1
 
@@ -366,7 +365,7 @@ class TestGeneratedCodeCache:
         op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
                      iterset,
                      a(op2.IdentityMap, op2.WRITE),
-                     x(iter2ind1(0), op2.READ))
+                     x(iter2ind1[0], op2.READ))
 
         assert op2.ncached_gencode() == 1
 
@@ -375,7 +374,7 @@ class TestGeneratedCodeCache:
         op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
                      iterset,
                      a(op2.IdentityMap, op2.WRITE),
-                     x(iter2ind1(0), op2.READ))
+                     x(iter2ind1[0], op2.READ))
 
         assert op2.ncached_gencode() == 2
 
@@ -394,15 +393,15 @@ void kernel_swap(unsigned int* x, unsigned int* y)
 """
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     x(iter2ind1(0), op2.RW),
-                     y(iter2ind1(0), op2.RW))
+                     x(iter2ind1[0], op2.RW),
+                     y(iter2ind1[0], op2.RW))
 
         assert op2.ncached_gencode() == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     y(iter2ind1(0), op2.RW),
-                     x(iter2ind1(0), op2.RW))
+                     y(iter2ind1[0], op2.RW),
+                     x(iter2ind1[0], op2.RW))
 
         assert op2.ncached_gencode() == 1
 
