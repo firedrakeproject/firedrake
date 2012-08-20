@@ -134,7 +134,7 @@ for (i_2 = 0; i_2 < {{ arg._dat._dim[0] }}; ++i_2) {
 }
 {%- endmacro -%}
 
-{%- macro reduction(arg) -%}
+{%- macro color_reduction(arg) -%}
 for (i_2 = 0; i_2 < {{ arg._dat._dim[0] }}; ++i_2) {
    {%- if(arg._is_INC) %}
       {{ shared_indirection_mapping_memory_name(arg) }}[i_2 + {{ mapping_array_name(arg) }}[i_1 + shared_memory_offset] * {{ arg._dat._dim[0] }}] += {{ reduc_arg_local_name(arg) }}[i_2];
@@ -146,7 +146,7 @@ for (i_2 = 0; i_2 < {{ arg._dat._dim[0] }}; ++i_2) {
 }
 {%- endmacro -%}
 
-{%- macro reduction2(arg) -%}
+{%- macro work_group_reduction(arg) -%}
   for (i_1 = get_local_id(0); i_1 < {{ shared_indirection_mapping_size_name(arg) }} * {{ arg._dat._dim[0] }}; i_1 += get_local_size(0)) {
   {{ arg._dat._name }}[i_1 % {{ arg._dat._dim[0] }} + {{ shared_indirection_mapping_name(arg) }}[i_1 / {{ arg._dat._dim[0] }}] * {{ arg._dat._dim[0] }}] += {{ shared_indirection_mapping_memory_name(arg) }}[i_1];
 }
@@ -315,7 +315,7 @@ void {{ parloop._kernel._name }}_stub(
       // should there be a if + barrier pattern for each indirect reduction argument ?
       if (color_2 == color_1) {
         {% for arg in parloop._indirect_reduc_args %}
-        {{ reduction(arg) | indent(8) }}
+        {{ color_reduction(arg) | indent(8) }}
     {% endfor %}
       }
       barrier(CLK_LOCAL_MEM_FENCE);
@@ -329,7 +329,7 @@ void {{ parloop._kernel._name }}_stub(
 
 {%- if(parloop._indirect_reduc_dat_map_pairs) %}
   {% for dm in parloop._indirect_reduc_dat_map_pairs %}
-  {{ reduction2(dm) | indent(2) }}
+  {{ work_group_reduction(dm) | indent(2) }}
   {%- endfor %}
 {%- endif %}
 
