@@ -58,12 +58,6 @@ def pytest_funcarg__smap(request):
     dataset = op2.Set(2, 'dataset')
     return op2.Map(iterset, dataset, 1, [0, 1])
 
-def pytest_funcarg__smap2(request):
-    iterset = op2.Set(2, 'iterset')
-    dataset = op2.Set(2, 'dataset')
-    smap = op2.Map(iterset, dataset, 1, [1, 0])
-    return smap
-
 def pytest_funcarg__const(request):
     return request.cached_setup(scope='function',
             setup=lambda: op2.Const(1, 1, 'test_const_nonunique_name'),
@@ -303,12 +297,36 @@ class TestSparsityAPI:
         assert s.dims == (2,2)
         assert s.name == "foo"
 
-    def test_sparsity_multiple_maps(self, backend, smap, smap2):
+    def test_sparsity_multiple_maps(self, backend, smap):
         "Sparsity constructor should accept tuple of pairs of maps"
-        s = op2.Sparsity(((smap, smap), (smap2, smap2)),
+        s = op2.Sparsity(((smap, smap), (smap, smap)),
                          1, "foo")
-        assert s.maps == [(smap, smap), (smap2, smap2)]
+        assert s.maps == [(smap, smap), (smap, smap)]
         assert s.dims == (1,1)
+
+    def test_sparsity_illegal_itersets(self, backend):
+        s = op2.Set(1)
+        s2 = op2.Set(2)
+        m = op2.Map(s, s2, 1, 0)
+        m2 = op2.Map(s2, s, 1, [0, 0])
+        with pytest.raises(RuntimeError):
+            op2.Sparsity((m, m2), 1)
+
+    def test_sparsity_illegal_row_datasets(self, backend):
+        s = op2.Set(1)
+        s2 = op2.Set(2)
+        m = op2.Map(s, s2, 1, 0)
+        m2 = op2.Map(s2, s, 1, [0, 0])
+        with pytest.raises(RuntimeError):
+            op2.Sparsity(((m, m), (m2, m2)), 1)
+
+    def test_sparsity_illegal_col_datasets(self, backend):
+        s = op2.Set(1)
+        s2 = op2.Set(2)
+        m = op2.Map(s, s, 1, 0)
+        m2 = op2.Map(s, s2, 1, 0)
+        with pytest.raises(RuntimeError):
+            op2.Sparsity(((m, m), (m, m2)), 1)
 
 class TestMatAPI:
     """
