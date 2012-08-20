@@ -592,6 +592,21 @@ class TestMapAPI:
         assert m.iterset == iterset and m.dataset == dataset and m.dim == 2 \
                 and m.values.sum() == 2*iterset.size and m.name == 'bar'
 
+
+    def test_map_indexing(self, backend, iterset, dataset):
+        "Indexing a map should create an appropriate Arg"
+        m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size, 'm')
+
+        arg = m[0]
+        assert arg.idx == 0
+
+    def test_map_slicing(self, backend, iterset, dataset):
+        "Slicing a map is not allowed"
+        m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size, 'm')
+
+        with pytest.raises(NotImplementedError):
+            arg = m[:]
+
     def test_map_hdf5(self, backend, iterset, dataset, h5file):
         "Should be able to create Map from hdf5 file."
         m = op2.Map.fromhdf5(iterset, dataset, h5file, name="map")
