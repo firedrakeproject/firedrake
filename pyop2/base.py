@@ -284,16 +284,16 @@ class DataCarrier(object):
 
     @property
     def dim(self):
-        """Dimension/shape of a single data item."""
+        """The shape of the values for each element of the object."""
         return self._dim
 
     @property
     def cdim(self):
-        """The size of a single data item, this is the product of the dims."""
+        """The number of values for each member of the object. This is the product of the dims."""
         return np.prod(self.dim)
 
 class Dat(DataCarrier):
-    """OP2 vector data. A ``Dat`` holds a value for every member of a :class:`Set`."""
+    """OP2 vector data. A ``Dat`` holds a ``dim`` values for every member of a :class:`Set`."""
 
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
