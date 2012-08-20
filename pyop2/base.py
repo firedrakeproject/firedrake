@@ -486,10 +486,10 @@ class Map(object):
       kernel.
     * An integer: ``some_map[n]``. The ``n`` th entry of the
       map result will be passed to the kernel.
-    * An :class:`IterationIndex` : :data:`i` ``[n]``. ``n`` will take each
-      value from ``0`` to ``e-1`` where ``e`` is the ``n`` th extent
-      passed to the :class:`IterationSpace` for this
-      :func:`par_loop`.
+    * An :class:`IterationIndex`, ``some_map[pyop2.i[n]]``. ``n``
+      will take each value from ``0`` to ``e-1`` where ``e`` is the
+      ``n`` th extent passed to the iteration space for this :func:`par_loop`.
+      See also :data:`i`.
     """
 
     _globalcount = 0
