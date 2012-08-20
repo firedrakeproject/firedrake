@@ -477,7 +477,20 @@ builds an :class:`IterationIndex` object for which the `index` property is `idx`
 class Map(object):
     """OP2 map, a relation between two :class:`Set` objects.
 
-    Each entry in the ``iterset`` maps to ``dim`` entries in the ``dataset``. When a map is used in a :func:`pyop2.op2.par_loop`"""
+    Each entry in the ``iterset`` maps to ``dim`` entries in the
+    ``dataset``. When a map is used in a :func:`par_loop`,
+    it is possible to use Python index notation to select an
+    individual entry on the right hand side of this map. There are three possibilities:
+
+    * No index. All ``dim`` :class:`Dat` entries will be passed to the
+      kernel.
+    * An integer: ``some_map[n]``. The ``n`` th entry of the
+      map result will be passed to the kernel.
+    * An :class:`IterationIndex` : :data:`i` ``[n]``. ``n`` will take each
+      value from ``0`` to ``e-1`` where ``e`` is the ``n`` th extent
+      passed to the :class:`IterationSpace` for this
+      :func:`par_loop`.
+    """
 
     _globalcount = 0
     _arg_type = Arg
