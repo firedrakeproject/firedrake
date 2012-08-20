@@ -6,9 +6,11 @@
  *   local memory offset : {{ launch.local_memory_offset }}
  *   warpsize            : {{ launch.warpsize }}
  */
+{% if(parloop._matrix_args) %}
 #if defined(cl_khr_int64_base_atomics)
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 #endif
+{% endif %}
 #if defined(cl_khr_fp64)
 #if defined(cl_amd_fp64)
 #pragma OPENCL EXTENSION cl_amd_fp64 : enable
@@ -525,7 +527,9 @@ void matrix_set(__global double* mat_array, __global int* mat_rowptr, __global i
 {% for arg in parloop._global_reduction_args -%}
   {{ reduction_kernel(arg) }}
 {% endfor %}
-{{ user_kernel }}
+{% if(parloop._matrix_args) %}
+// Matrix support code
 {{ matrix_support() }}
-
+{% endif %}
+{{ user_kernel }}
 {{ kernel_stub() }}
