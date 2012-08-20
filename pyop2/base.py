@@ -248,7 +248,10 @@ class IterationSpace(object):
         return "IterationSpace(%r, %r)" % (self._iterset, self._extents)
 
 class DataCarrier(object):
-    """Abstract base class for OP2 data."""
+    """Abstract base class for OP2 data. Actual objects will be
+    ``DataCarrier`` objects of rank 0 (:class:`Const` and
+    :class:`Global`), rank 1 (:class:`Dat`), or rank 2
+    (:class:`Mat`)"""
 
     @property
     def dtype(self):
