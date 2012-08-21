@@ -21,20 +21,20 @@
 
 {%- macro stagein(arg) -%}
 // {{ arg._dat._name }}
-for (i_2 = 0; i_2 < {{ arg._dat._dim[0] }}; ++i_2)
-  {{ arg._dat._name }}_shared[thread_id + i_2 * active_threads_count] = {{ arg._dat._name }}[thread_id + i_2 * active_threads_count + local_offset * {{ arg._dat._dim[0] }}];
+for (i_2 = 0; i_2 < {{ arg._dat.cdim }}; ++i_2)
+  {{ arg._dat._name }}_shared[thread_id + i_2 * active_threads_count] = {{ arg._dat._name }}[thread_id + i_2 * active_threads_count + local_offset * {{ arg._dat.cdim }}];
 
-for (i_2 = 0; i_2 < {{ arg._dat._dim[0] }}; ++i_2)
-  {{ arg._dat._name }}_local[i_2] = {{ arg._dat._name }}_shared[i_2 + thread_id * {{ arg._dat._dim[0] }}];
+for (i_2 = 0; i_2 < {{ arg._dat.cdim }}; ++i_2)
+  {{ arg._dat._name }}_local[i_2] = {{ arg._dat._name }}_shared[i_2 + thread_id * {{ arg._dat.cdim }}];
 {%- endmacro -%}
 
 {%- macro stageout(arg) -%}
 // {{ arg._dat._name }}
-for (i_2 = 0; i_2 < {{ arg._dat._dim[0] }}; ++i_2)
-  {{ arg._dat._name }}_shared[i_2 + thread_id * {{ arg._dat._dim[0] }}] = {{ arg._dat._name }}_local[i_2];
+for (i_2 = 0; i_2 < {{ arg._dat.cdim }}; ++i_2)
+  {{ arg._dat._name }}_shared[i_2 + thread_id * {{ arg._dat.cdim }}] = {{ arg._dat._name }}_local[i_2];
 
-for (i_2 = 0; i_2 < {{ arg._dat._dim[0] }}; ++i_2)
-  {{ arg._dat._name }}[thread_id + i_2 * active_threads_count + local_offset * {{ arg._dat._dim[0] }}] = {{ arg._dat._name }}_shared[thread_id + i_2 * active_threads_count];
+for (i_2 = 0; i_2 < {{ arg._dat.cdim }}; ++i_2)
+  {{ arg._dat._name }}[thread_id + i_2 * active_threads_count + local_offset * {{ arg._dat.cdim }}] = {{ arg._dat._name }}_shared[thread_id + i_2 * active_threads_count];
 {%- endmacro -%}
 
 {%- macro reduction_op(arg) -%}
@@ -134,7 +134,7 @@ void {{ parloop._kernel._name }}_stub (
   int thread_id = get_local_id(0) % OP_WARPSIZE;
 
   {%- for arg in parloop._direct_non_scalar_args -%}
-  __private {{ arg._dat._cl_type }} {{ arg._dat._name }}_local[{{ arg._dat._dim[0] }}];
+  __private {{ arg._dat._cl_type }} {{ arg._dat._name }}_local[{{ arg._dat.cdim }}];
   {% endfor %}
 
   {% for arg in parloop._direct_non_scalar_args -%}
@@ -143,7 +143,7 @@ void {{ parloop._kernel._name }}_stub (
   {%- endif %}
 
   {% for arg in parloop._global_reduction_args -%}
-  __private {{ arg._dat._cl_type }} {{ arg._dat._name }}_reduc_local[{{ arg._dat._dim[0] }}];
+  __private {{ arg._dat._cl_type }} {{ arg._dat._name }}_reduc_local[{{ arg._dat.cdim }}];
   {% endfor %}
 
   {% for arg in parloop._global_reduction_args -%}
@@ -152,7 +152,7 @@ void {{ parloop._kernel._name }}_stub (
 
   // reduction zeroing
   {% for arg in parloop._global_reduction_args %}
-  for (i_1 = 0; i_1 < {{ arg._dat._dim[0] }}; ++i_1)
+  for (i_1 = 0; i_1 < {{ arg._dat.cdim }}; ++i_1)
     {{ arg._dat._name }}_reduc_local[i_1] = {{ arg._dat._cl_type_zero }};
   {% endfor %}
 
@@ -174,8 +174,8 @@ void {{ parloop._kernel._name }}_stub (
   {% if(parloop._global_reduction_args) %}
   // on device reduction
   {% for arg in parloop._global_reduction_args %}
-  for (i_1 = 0; i_1 < {{ arg._dat._dim[0] }}; ++i_1)
-    {{ arg._dat._name }}_reduction_kernel(&{{ arg._dat._name }}_reduction_array[i_1 + get_group_id(0) * {{ arg._dat._dim[0] }}], {{ arg._dat._name }}_reduc_local[i_1], {{ arg._dat._name }}_reduc_tmp);
+  for (i_1 = 0; i_1 < {{ arg._dat.cdim }}; ++i_1)
+    {{ arg._dat._name }}_reduction_kernel(&{{ arg._dat._name }}_reduction_array[i_1 + get_group_id(0) * {{ arg._dat.cdim }}], {{ arg._dat._name }}_reduc_local[i_1], {{ arg._dat._name }}_reduc_tmp);
   {% endfor %}
   {% endif %}
 }
