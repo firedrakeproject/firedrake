@@ -293,7 +293,7 @@ class DataCarrier(object):
         return np.prod(self.dim)
 
 class Dat(DataCarrier):
-    """OP2 vector data. A ``Dat`` holds a ``dim`` values for every member of a :class:`Set`.
+    """OP2 vector data. A ``Dat`` holds ``dim`` values for every member of a :class:`Set`.
 
     When a ``Dat`` is passed to :func:`par_loop`, the map via which
     indirection occurs and the access descriptor are passed by
