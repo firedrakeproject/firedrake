@@ -172,9 +172,6 @@ class Arg(object):
     def _is_global(self):
         return isinstance(self._dat, Global)
 
-    @property
-    def _is_mat(self):
-        return isinstance(self._dat, Mat)
 
 class Set(object):
     """OP2 set.
