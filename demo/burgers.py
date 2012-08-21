@@ -35,13 +35,17 @@
 This demo solves the steady-state Burgers equation on a unit interval.
 """
 
-from pyop2 import op2
+from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from ufl import *
 import numpy as np
 import pylab
 
-op2.init(backend='sequential')
+parser = utils.parser(group=True,
+                      description="Burgers equation demo (unstable forward-Euler integration)")
+
+opt = vars(parser.parse_args())
+op2.init(**opt)
 
 # Simulation parameters
 n = 100
