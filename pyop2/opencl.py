@@ -407,11 +407,8 @@ class Map(op2.Map):
 
     @property
     @one_time
-    def _xored(self):
-        r = 0
-        for v in self._values.flatten():
-            r = r ^ v
-        return r
+    def md5(self):
+        return md5.new(self._values).digest()
 
 class OpPlanCache():
     """Cache for OpPlan."""
@@ -585,7 +582,7 @@ class ParLoopCall(object):
                       key=lambda arg: (arg.dat.dtype.itemsize,arg.dat.cdim))
         directs = self._direct_args
         indirects = sorted(self._indirect_args,
-                           key=lambda arg: (arg.map._xored, id(arg.dat), arg.idx))
+                           key=lambda arg: (arg.map.md5, id(arg.dat), arg.idx))
 
         self._args = gbls + directs + indirects
 
@@ -607,7 +604,7 @@ class ParLoopCall(object):
             m = dm.map
             indices = tuple(a.idx for a in self._args if a.dat == d and a.map == m)
 
-            inds.append((m._xored, m._dim, indices))
+            inds.append((m.md5, m._dim, indices))
 
         # coloring part of the key,
         # for each dat, includes (map, (idx, ...)) involved (INC)
@@ -622,7 +619,7 @@ class ParLoopCall(object):
                              if arg.dat == d and arg.map == m)
                 if len(idx) > 0:
                     has_conflict = True
-                    conflicts.append((m._xored, tuple(idx)))
+                    conflicts.append((m.md5, tuple(idx)))
             if has_conflict:
                 cols.append(tuple(conflicts))
 
