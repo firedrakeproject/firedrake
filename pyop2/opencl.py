@@ -262,7 +262,7 @@ class Mat(op2.Mat, DeviceDataMixin):
 
     @property
     def cdim(self):
-        return 1
+        return np.prod(self.dims)
 
 
 class Const(op2.Const, DeviceDataMixin):
