@@ -49,6 +49,7 @@ def init(**kwargs):
     """
     cfg.configure(**kwargs)
     backends.set_backend(cfg.backend)
+    backends._BackendSelector._backend._setup()
     core.op_init(args=None, diags=0)
 
 def exit():
@@ -128,3 +129,16 @@ def solve(M, b, x):
     :arg x: The :class:`Dat` to receive the solution.
     """
     return backends._BackendSelector._backend.solve(M, b, x)
+
+#backend inspection interface
+def _empty_plan_cache():
+    return backends._BackendSelector._backend.empty_plan_cache()
+
+def _ncached_plans():
+    return backends._BackendSelector._backend.ncached_plans()
+
+def _empty_gencode_cache():
+    return backends._BackendSelector._backend.empty_gencode_cache()
+
+def _ncached_gencode():
+    return backends._BackendSelector._backend.ncached_gencode()

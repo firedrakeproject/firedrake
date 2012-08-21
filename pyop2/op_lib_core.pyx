@@ -640,7 +640,3 @@ device's "block" address plus an offset which is
     def count(self):
         """Number of times this plan has been used"""
         return self._handle.count
-
-    @property
-    def hsh(self):
-        return hash(<uintptr_t>self._handle)

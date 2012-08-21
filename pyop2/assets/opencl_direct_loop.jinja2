@@ -1,0 +1,192 @@
+{%- macro header() -%}
+/* Launch configuration:
+ *   work group size     : {{ launch.work_group_size }}
+ *   local memory size   : {{ launch.local_memory_size }}
+ *   local memory offset : {{ launch.local_memory_offset }}
+ *   warpsize            : {{ launch.warpsize }}
+ */
+#if defined(cl_khr_fp64)
+#if defined(cl_amd_fp64)
+#pragma OPENCL EXTENSION cl_amd_fp64 : enable
+#else
+#pragma OPENCL EXTENSION cl_khr_fp64 : enable
+#endif
+#elif defined(cl_amd_fp64)
+#pragma OPENCL EXTENSION cl_amd_fp64 : enable
+#endif
+
+#define OP_WARPSIZE {{ launch.warpsize }}
+#define OP2_STRIDE(arr, idx) (arr[idx])
+{%- endmacro -%}
+
+{%- macro stagein(arg) -%}
+// {{ arg.data.name }}
+for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2)
+  {{ arg.data.name }}_shared[thread_id + i_2 * active_threads_count] = {{ arg.data.name }}[thread_id + i_2 * active_threads_count + local_offset * {{ arg.data.cdim }}];
+
+for (i_2 = 0; i_2 < {{ arg._dat.cdim }}; ++i_2)
+  {{ arg.data.name }}_local[i_2] = {{ arg.data.name }}_shared[i_2 + thread_id * {{ arg.data.cdim }}];
+{%- endmacro -%}
+
+{%- macro stageout(arg) -%}
+// {{ arg.data.name }}
+for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2)
+  {{ arg.data.name }}_shared[i_2 + thread_id * {{ arg.data.cdim }}] = {{ arg.data.name }}_local[i_2];
+
+for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2)
+  {{ arg.data._name }}[thread_id + i_2 * active_threads_count + local_offset * {{ arg.data.cdim }}] = {{ arg.data.name }}_shared[thread_id + i_2 * active_threads_count];
+{%- endmacro -%}
+
+{%- macro reduction_op(arg) -%}
+{%- if(arg._is_INC) -%}
+reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];
+{%- elif(arg._is_MIN) -%}
+reduction_tmp_array[lid] = min(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+{%- elif(arg._is_MAX) -%}
+reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro kernel_call_arg(arg) -%}
+{% if(arg._d_is_staged) -%}
+{{ arg.data.name }}_local
+{%- elif(arg._is_global_reduction) -%}
+{{ arg.data.name }}_reduc_local
+{%- elif(arg._is_global) -%}
+{{ arg.data.name }}
+{%- else -%}
+&{{ arg.data.name }}[i_1]
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro kernel_call_const_args() -%}
+{%- for c in op2const -%}
+{% if(c._is_scalar) %}*{% endif %}{{ c.name }}
+{% endfor -%}
+{%- endmacro -%}
+
+{%- macro kernel_call() -%}
+{{ parloop._kernel.name }}(
+{%- filter trim|replace("\n", ", ") -%}
+{%- for arg in parloop._actual_args -%}
+{{ kernel_call_arg(arg) }}
+{% endfor -%}
+{{ kernel_call_const_args() }}
+{%- endfilter -%}
+);
+{%- endmacro -%}
+
+{%- macro reduction_kernel(arg) -%}
+__kernel
+void {{ arg.data.name }}_reduction_kernel (
+  __global {{ arg.data._cl_type }} *reduction_result,
+  __private {{ arg.data._cl_type }} input_value,
+  __local {{ arg.data._cl_type }} *reduction_tmp_array
+) {
+  barrier(CLK_LOCAL_MEM_FENCE);
+  int lid = get_local_id(0);
+  reduction_tmp_array[lid] = input_value;
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  for(int offset = 1; offset < (int)get_local_size(0); offset <<= 1) {
+    int mask = (offset << 1) - 1;
+    if(((lid & mask) == 0) && (lid + offset < (int)get_local_size(0))) {
+      {{ reduction_op(arg) }}
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+  }
+
+  if (lid == 0)
+    *reduction_result = reduction_tmp_array[0];
+}
+{%- endmacro -%}
+
+{%- macro kernel_stub() -%}
+__kernel
+__attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
+void {{ parloop._kernel.name }}_stub (
+  {% filter trim|replace("\n", ",\n") -%}
+  {%- for dat in parloop._unique_dats -%}
+  __global {{ dat._cl_type }} *{{ dat.name }}
+  {% endfor -%}
+  {%- for arg in parloop._global_reduction_args -%}
+  __global {{ arg.data._cl_type }} *{{ arg.data._name }}_reduction_array
+  {% endfor -%}
+  {%- for arg in parloop._global_non_reduction_args -%}
+  __global {{ arg.data._cl_type }} *{{ arg.data.name }}
+  {% endfor -%}
+  {%- for c in op2const -%}
+  __constant {{ c._cl_type }} *{{ c.name }}
+  {% endfor -%}
+  int set_size
+  {%- endfilter %}
+  ) {
+  {% if(parloop._global_reduction_args or parloop._direct_non_scalar_args) -%}
+  __local char shared[{{ launch.local_memory_size }}] __attribute__((aligned(sizeof(long))));
+  {%- endif %}
+  int i_1;
+
+  {% if(parloop._direct_non_scalar_args) -%}
+  unsigned int shared_memory_offset = {{ launch.local_memory_offset }};
+  int i_2;
+  int local_offset;
+  int active_threads_count;
+  int thread_id = get_local_id(0) % OP_WARPSIZE;
+
+  {%- for arg in parloop._direct_non_scalar_args -%}
+  __private {{ arg.data._cl_type }} {{ arg.data._name }}_local[{{ arg.data.cdim }}];
+  {% endfor %}
+
+  {% for arg in parloop._direct_non_scalar_args -%}
+  __local {{ arg.data._cl_type }} *{{ arg.data.name }}_shared = (__local {{ arg.data._cl_type }}*) (shared + shared_memory_offset * (get_local_id(0) / OP_WARPSIZE));
+  {% endfor %}
+  {%- endif %}
+
+  {% for arg in parloop._global_reduction_args -%}
+  __private {{ arg.data._cl_type }} {{ arg.data.name }}_reduc_local[{{ arg.data.cdim }}];
+  {% endfor %}
+
+  {% for arg in parloop._global_reduction_args -%}
+  __local {{ arg.data._cl_type }}* {{ arg.data.name }}_reduc_tmp = (__local {{ arg.data._cl_type }}*) shared;
+  {% endfor %}
+
+  // reduction zeroing
+  {% for arg in parloop._global_reduction_args %}
+  for (i_1 = 0; i_1 < {{ arg.data.cdim }}; ++i_1)
+    {{ arg.data.name }}_reduc_local[i_1] = {{ arg.data._cl_type_zero }};
+  {% endfor %}
+
+  for (i_1 = get_global_id(0); i_1 < set_size; i_1 += get_global_size(0)) {
+    {%- if(parloop._direct_non_scalar_args) %}
+    local_offset = i_1 - thread_id;
+    active_threads_count = min(OP_WARPSIZE, set_size - local_offset);
+    {%- endif -%}
+
+    {% for arg in parloop._direct_non_scalar_read_args -%}
+    {{ stagein(arg) }}
+    {% endfor %}
+    {{ kernel_call() }}
+    {% for arg in parloop._direct_non_scalar_written_args %}
+      {{ stageout(arg) }}
+    {%- endfor %}
+  }
+
+  {% if(parloop._global_reduction_args) %}
+  // on device reduction
+  {% for arg in parloop._global_reduction_args %}
+  for (i_1 = 0; i_1 < {{ arg.data.cdim }}; ++i_1)
+    {{ arg.data.name }}_reduction_kernel(&{{ arg.data.name }}_reduction_array[i_1 + get_group_id(0) * {{ arg.data.cdim }}], {{ arg.data.name }}_reduc_local[i_1], {{ arg.data.name }}_reduc_tmp);
+  {% endfor %}
+  {% endif %}
+}
+{%- endmacro -%}
+
+
+{{- header() }}
+{% for arg in parloop._global_reduction_args %}
+{{ reduction_kernel(arg) }}
+{% endfor %}
+
+{{- user_kernel }}
+
+{{- kernel_stub() }}

@@ -288,3 +288,6 @@ def par_loop(kernel, it_space, *args):
                ('b', Dat, DatTypeError))
 def solve(M, b, x):
     core.solve(M, b, x)
+
+def _setup():
+    pass
