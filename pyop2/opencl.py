@@ -264,6 +264,10 @@ class Mat(op2.Mat, DeviceDataMixin):
             self._dirty = False
         self._c_handle.assemble()
 
+    @property
+    def cdim(self):
+        return 1
+
 
 class Const(op2.Const, DeviceDataMixin):
     """OP2 OpenCL data that is constant for any element of any set."""
