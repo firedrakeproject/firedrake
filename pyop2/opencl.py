@@ -993,19 +993,19 @@ def par_loop(kernel, it_space, *args):
     ParLoopCall(kernel, it_space, *args).compute()
 
 # backend interface:
-def empty_plan_cache():
+def _empty_plan_cache():
     global _plan_cache
     _plan_cache = OpPlanCache()
 
-def ncached_plans():
+def _ncached_plans():
     global _plan_cache
     return _plan_cache.nentries
 
-def empty_gencode_cache():
+def _empty_gencode_cache():
     global _kernel_stub_cache
     _kernel_stub_cache = dict()
 
-def ncached_gencode():
+def _ncached_gencode():
     global _kernel_stub_cache
     return len(_kernel_stub_cache)
 
