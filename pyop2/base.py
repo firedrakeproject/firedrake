@@ -168,10 +168,6 @@ class Arg(object):
     def _is_indirect_reduction(self):
         return self._is_indirect and self._access is INC
 
-    @property
-    def _is_global(self):
-        return isinstance(self._dat, Global)
-
 
 class Set(object):
     """OP2 set.
