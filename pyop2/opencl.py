@@ -646,7 +646,7 @@ class ParLoopCall(object):
 
         def argdimacc(arg):
             if self.is_direct():
-                if arg._is_global or (arg._is_dat and not arg._is_scalar):
+                if arg._is_global or (arg._is_dat and not arg.dat._is_scalar):
                     return (arg.dat.cdim, arg.access)
                 else:
                     return ()
