@@ -403,7 +403,7 @@ class Map(op2.Map):
         r = 0
         for v in self._values.flatten():
             r = r ^ v
-        return v
+        return r
 
 class OpPlanCache():
     """Cache for OpPlan."""
