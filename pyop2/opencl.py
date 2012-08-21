@@ -587,7 +587,7 @@ class ParLoopCall(object):
 
     @property
     def _plan_key(self):
-        """Cannonical representation of a parloop wrt plan caching."""
+        """Canonical representation of a parloop wrt plan caching."""
 
         # Globals: irrelevant, they only possibly effect the partition
         # size for reductions.
@@ -629,7 +629,7 @@ class ParLoopCall(object):
 
     @property
     def _gencode_key(self):
-        """Cannonical representation of a parloop wrt generated code caching."""
+        """Canonical representation of a parloop wrt generated code caching."""
 
         # user kernel: md5 of kernel name and code (same code can contain
         #   multiple user kernels)
