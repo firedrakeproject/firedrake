@@ -646,14 +646,12 @@ class ParLoopCall(object):
 
         def argdimacc(arg):
             if self.is_direct():
-                if isinstance(arg._dat, Global) or\
-                   (isinstance(arg._dat, Dat) and arg._dat.cdim > 1):
+                if arg._is_global or (arg._is_dat and not arg._is_scalar):
                     return (arg._dat.cdim, arg._access)
                 else:
                     return ()
             else:
-                if (isinstance(arg._dat, Global) and arg._access is READ) or\
-                   (isinstance(arg._dat, Dat) and arg._map is IdentityMap):
+                if (arg._is_global and arg._access is READ) or arg._is_direct:
                     return ()
                 else:
                     return (arg._dat.cdim, arg._access)
@@ -662,8 +660,7 @@ class ParLoopCall(object):
         seen = dict()
         c = 0
         for arg in self._actual_args:
-            if not isinstance(arg._dat, Mat) and\
-               arg._map not in [None, IdentityMap]:
+            if not arg._is_mat and arg._map not in [None, IdentityMap]:
                 if not seen.has_key((arg._dat,arg._map)):
                     seen[(arg._dat,arg._map)] = c
                     idesc = (c, arg._idx)
