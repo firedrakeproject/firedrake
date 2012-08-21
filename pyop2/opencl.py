@@ -118,19 +118,15 @@ class Kernel(op2.Kernel):
 class Arg(op2.Arg):
     """OP2 OpenCL argument type."""
 
-    @property
-    def dat(self):
-        return self.data
-
     # Codegen specific
     @property
     def _d_is_staged(self):
-        return self._is_direct and not self.dat._is_scalar
+        return self._is_direct and not self.data._is_scalar
 
     @property
     def _i_gen_vec(self):
         assert self._is_vec_map
-        return map(lambda i: Arg(self.dat, self.map, i, self.access), range(self.map.dim))
+        return map(lambda i: Arg(self.data, self.map, i, self.access), range(self.map.dim))
 
 class DeviceDataMixin(object):
     """Codegen mixin for datatype and literal translation."""
@@ -446,11 +442,11 @@ class OpPlan():
         _c = 0
         for i, arg in enumerate(self._parloop._args):
             if arg._is_indirect:
-                if _d.has_key((arg.dat, arg.map)):
-                    _ind_desc[i] = _d[(arg.dat, arg.map)]
+                if _d.has_key((arg.data, arg.map)):
+                    _ind_desc[i] = _d[(arg.data, arg.map)]
                 else:
                     _ind_desc[i] = _c
-                    _d[(arg.dat, arg.map)] = _c
+                    _d[(arg.data, arg.map)] = _c
                     _c += 1
         del _c
         del _d
@@ -541,12 +537,12 @@ class DatMapPair(object):
     """ Dummy class needed for codegen
         (could do without but would obfuscate codegen templates)
     """
-    def __init__(self, dat, map):
-        self.dat = dat
+    def __init__(self, data, map):
+        self.data = data
         self.map = map
 
     def __hash__(self):
-        return hash(self.dat) ^ hash(self.map)
+        return hash(self.data) ^ hash(self.map)
 
     def __eq__(self, other):
         return self.__dict__ == other.__dict__
@@ -569,7 +565,7 @@ class ParLoopCall(object):
         for a in self._actual_args:
             if a._is_vec_map:
                 for i in range(a.map._dim):
-                    self._args.append(Arg(a.dat, a.map, i, a.access))
+                    self._args.append(Arg(a.data, a.map, i, a.access))
             elif a._is_mat:
                 pass
             else:
@@ -579,10 +575,10 @@ class ParLoopCall(object):
         # order globals r, globals reduc, direct, indirect
         gbls = self._global_non_reduction_args +\
                sorted(self._global_reduction_args,
-                      key=lambda arg: (arg.dat.dtype.itemsize,arg.dat.cdim))
+                      key=lambda arg: (arg.data.dtype.itemsize,arg.data.cdim))
         directs = self._direct_args
         indirects = sorted(self._indirect_args,
-                           key=lambda arg: (arg.map.md5, id(arg.dat), arg.idx))
+                           key=lambda arg: (arg.map.md5, id(arg.data), arg.idx))
 
         self._args = gbls + directs + indirects
 
@@ -600,9 +596,9 @@ class ParLoopCall(object):
         #   the map, and the actual indices referenced
         inds = list()
         for dm in self._dat_map_pairs:
-            d = dm.dat
+            d = dm.data
             m = dm.map
-            indices = tuple(a.idx for a in self._args if a.dat == d and a.map == m)
+            indices = tuple(a.idx for a in self._args if a.data == d and a.map == m)
 
             inds.append((m.md5, m._dim, indices))
 
@@ -610,13 +606,13 @@ class ParLoopCall(object):
         # for each dat, includes (map, (idx, ...)) involved (INC)
         # dats do not matter here, but conflicts should be sorted
         cols = list()
-        for i, d in enumerate(sorted((dm.dat for dm in self._dat_map_pairs),
+        for i, d in enumerate(sorted((dm.data for dm in self._dat_map_pairs),
                                      key=id)):
             conflicts = list()
             has_conflict = False
-            for m in uniquify(a.map for a in self._args if a.dat == d and a._is_indirect):
+            for m in uniquify(a.map for a in self._args if a.data == d and a._is_indirect):
                 idx = sorted(arg.idx for arg in self._indirect_reduc_args \
-                             if arg.dat == d and arg.map == m)
+                             if arg.data == d and arg.map == m)
                 if len(idx) > 0:
                     has_conflict = True
                     conflicts.append((m.md5, tuple(idx)))
@@ -647,32 +643,32 @@ class ParLoopCall(object):
 
         def argdimacc(arg):
             if self.is_direct():
-                if arg._is_global or (arg._is_dat and not arg.dat._is_scalar):
-                    return (arg.dat.cdim, arg.access)
+                if arg._is_global or (arg._is_dat and not arg.data._is_scalar):
+                    return (arg.data.cdim, arg.access)
                 else:
                     return ()
             else:
                 if (arg._is_global and arg.access is READ) or arg._is_direct:
                     return ()
                 else:
-                    return (arg.dat.cdim, arg.access)
+                    return (arg.data.cdim, arg.access)
 
         argdesc = []
         seen = dict()
         c = 0
         for arg in self._actual_args:
             if arg._is_indirect:
-                if not seen.has_key((arg.dat,arg.map)):
-                    seen[(arg.dat,arg.map)] = c
+                if not seen.has_key((arg.data,arg.map)):
+                    seen[(arg.data,arg.map)] = c
                     idesc = (c, arg.idx)
                     c += 1
                 else:
-                    idesc = (seen[(arg.dat,arg.map)], arg.idx)
+                    idesc = (seen[(arg.data,arg.map)], arg.idx)
             else:
                 idesc = (-1,)
 
-            d = (arg.dat.__class__,
-                 arg.dat.dtype) + argdimacc(arg) + idesc
+            d = (arg.data.__class__,
+                 arg.data.dtype) + argdimacc(arg) + idesc
 
             argdesc.append(d)
 
@@ -692,7 +688,7 @@ class ParLoopCall(object):
 
     @property
     def _unique_dats(self):
-        return uniquify(a.dat for a in self._args if a._is_dat)
+        return uniquify(a.data for a in self._args if a._is_dat)
 
     @property
     def _indirect_reduc_args(self):
@@ -704,7 +700,7 @@ class ParLoopCall(object):
 
     @property
     def _direct_non_scalar_args(self):
-        return [a for a in self._direct_args if not a.dat._is_scalar]
+        return [a for a in self._direct_args if not a.data._is_scalar]
 
     @property
     def _direct_non_scalar_read_args(self):
@@ -720,7 +716,7 @@ class ParLoopCall(object):
 
     @property
     def _unique_matrix(self):
-        return uniquify(a.dat for a in self._matrix_args)
+        return uniquify(a.data for a in self._matrix_args)
 
     @property
     def _matrix_entry_maps(self):
@@ -737,27 +733,27 @@ class ParLoopCall(object):
 
     @property
     def _dat_map_pairs(self):
-        return uniquify(DatMapPair(a.dat, a.map) for a in self._indirect_args)
+        return uniquify(DatMapPair(a.data, a.map) for a in self._indirect_args)
 
     @property
     def _nonreduc_vec_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.dat, a.map) for a in self._vec_map_args if a.access is not INC)
+        return uniquify(DatMapPair(a.data, a.map) for a in self._vec_map_args if a.access is not INC)
 
     @property
     def _reduc_vec_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.dat, a.map) for a in self._vec_map_args if a.access is INC)
+        return uniquify(DatMapPair(a.data, a.map) for a in self._vec_map_args if a.access is INC)
 
     @property
     def _read_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.dat, a.map) for a in self._indirect_args if a.access in [READ, RW])
+        return uniquify(DatMapPair(a.data, a.map) for a in self._indirect_args if a.access in [READ, RW])
 
     @property
     def _written_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.dat, a.map) for a in self._indirect_args if a.access in [WRITE, RW])
+        return uniquify(DatMapPair(a.data, a.map) for a in self._indirect_args if a.access in [WRITE, RW])
 
     @property
     def _indirect_reduc_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.dat, a.map) for a in self._args if a._is_indirect_reduction)
+        return uniquify(DatMapPair(a.data, a.map) for a in self._args if a._is_indirect_reduction)
 
     def dump_gen_code(self, src):
         if cfg['dump-gencode']:
@@ -772,8 +768,8 @@ class ParLoopCall(object):
         """Computes the maximum shared memory requirement per iteration set elements."""
         def max_0(iterable):
             return max(iterable) if iterable else 0
-        staging = max_0([a.dat.bytes_per_elem for a in self._direct_non_scalar_args])
-        reduction = max_0([a.dat.dtype.itemsize for a in self._global_reduction_args])
+        staging = max_0([a.data.bytes_per_elem for a in self._direct_non_scalar_args])
+        reduction = max_0([a.data.dtype.itemsize for a in self._global_reduction_args])
         return max(staging, reduction)
 
     def _i_partition_size(self):
@@ -805,7 +801,7 @@ class ParLoopCall(object):
         # inside shared memory padding
         available_local_memory -= 2 * (len(self._dat_map_pairs) - 1)
 
-        max_bytes = sum(map(lambda a: a.dat.bytes_per_elem, self._indirect_args))
+        max_bytes = sum(map(lambda a: a.data.bytes_per_elem, self._indirect_args))
         return available_local_memory / (2 * _warpsize * max_bytes) * (2 * _warpsize)
 
     def launch_configuration(self):
@@ -847,7 +843,7 @@ class ParLoopCall(object):
             for arg in self._actual_args:
                 i = None
                 if self.is_direct():
-                    if (arg._is_direct and arg.dat._is_scalar) or\
+                    if (arg._is_direct and arg.data._is_scalar) or\
                        (arg._is_global and not arg._is_global_reduction):
                         i = ("__global", None)
                     else:
@@ -909,11 +905,11 @@ class ParLoopCall(object):
             kernel.append_arg(a._buffer)
 
         for a in self._global_non_reduction_args:
-            kernel.append_arg(a.dat._buffer)
+            kernel.append_arg(a.data._buffer)
 
         for a in self._global_reduction_args:
-            a.dat._allocate_reduction_array(conf['work_group_count'])
-            kernel.append_arg(a.dat._d_reduc_buffer)
+            a.data._allocate_reduction_array(conf['work_group_count'])
+            kernel.append_arg(a.data._d_reduc_buffer)
 
         for cst in sorted(list(Const._defs), key=lambda c: c._name):
             kernel.append_arg(cst._buffer)
@@ -959,16 +955,16 @@ class ParLoopCall(object):
         # mark !READ data as dirty
         for arg in self._actual_args:
             if arg.access not in [READ]:
-                arg.dat._dirty = True
+                arg.data._dirty = True
 
-        for mat in [arg.dat for arg in self._matrix_args]:
+        for mat in [arg.data for arg in self._matrix_args]:
             mat.assemble()
 
         for i, a in enumerate(self._global_reduction_args):
-            a.dat._post_kernel_reduction_task(conf['work_group_count'], a.access)
+            a.data._post_kernel_reduction_task(conf['work_group_count'], a.access)
 
     def is_direct(self):
-        return all(map(lambda a: a._is_direct or isinstance(a.dat, Global), self._args))
+        return all(map(lambda a: a._is_direct or isinstance(a.data, Global), self._args))
 
 #Monkey patch pyopencl.Kernel for convenience
 _original_clKernel = cl.Kernel
