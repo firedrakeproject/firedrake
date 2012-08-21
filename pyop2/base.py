@@ -484,9 +484,9 @@ class IterationIndex(object):
 i = IterationIndex()
 """Shorthand for constructing :class:`IterationIndex` objects.
 
-    i[idx]
-
-builds an :class:`IterationIndex` object for which the `index` property is `idx`"""
+``i[idx]`` builds an :class:`IterationIndex` object for which the `index`
+property is `idx`.
+"""
 
 class Map(object):
     """OP2 map, a relation between two :class:`Set` objects.
