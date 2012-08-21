@@ -594,7 +594,7 @@ class ParLoopCall(object):
         # ind: for each dat map pair, the ind and loc map depend on the dim of
         #   the map, and the actual indices referenced
         inds = list()
-        for dm in self      _map_pairs:
+        for dm in self._dat_map_pairs:
             d = dm.dat
             m = dm.map
             indices = tuple(a.idx for a in self._args if a.dat == d and a.map == m)
@@ -989,19 +989,19 @@ def par_loop(kernel, it_space, *args):
     ParLoopCall(kernel, it_space, *args).compute()
 
 # backend interface:
-def _empty_plan_cache():
+def empty_plan_cache():
     global _plan_cache
     _plan_cache = OpPlanCache()
 
-def _ncached_plans():
+def ncached_plans():
     global _plan_cache
     return _plan_cache.nentries
 
-def _empty_gencode_cache():
+def empty_gencode_cache():
     global _kernel_stub_cache
     _kernel_stub_cache = dict()
 
-def _ncached_gencode():
+def ncached_gencode():
     global _kernel_stub_cache
     return len(_kernel_stub_cache)
 
