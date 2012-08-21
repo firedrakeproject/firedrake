@@ -34,7 +34,7 @@
 
 {%- macro stagingout(arg) -%}
   for (i_1 = get_local_id(0); i_1 < {{ shared_indirection_mapping_size_name(arg) }} * {{ arg.data.cdim }}; i_1 += get_local_size(0)) {
-  {{ arg.data._name }}[i_1 % {{ arg.data.cdim }} + {{ shared_indirection_mapping_name(arg) }}[i_1 / {{ arg.data.cdim }}] * {{ arg.data.cdim }}] = {{ shared_indirection_mapping_memory_name(arg) }}[i_1];
+  {{ arg.data.name }}[i_1 % {{ arg.data.cdim }} + {{ shared_indirection_mapping_name(arg) }}[i_1 / {{ arg.data.cdim }}] * {{ arg.data.cdim }}] = {{ shared_indirection_mapping_memory_name(arg) }}[i_1];
 }
 {%- endmacro -%}
 
@@ -170,7 +170,7 @@ for (i_1 = 0; i_1 < {{ arg.data.cdim }}; ++i_1)
 {%- macro kernel_stub() -%}
 __kernel
 __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
-void {{ parloop._kernel._name }}_stub(
+void {{ parloop._kernel.name }}_stub(
   {%- for arg in parloop._unique_dats %}
   __global {{ arg._cl_type }}* {{ arg.name }},
   {%- endfor -%}
@@ -239,7 +239,7 @@ void {{ parloop._kernel._name }}_stub(
 {% if(parloop._matrix_args) %}
   // local matrix entry
   {% for arg in parloop._matrix_args %}
-  __private {{ arg.data._cl_type }} {{ arg.data._name }}_entry
+  __private {{ arg.data._cl_type }} {{ arg.data.name }}_entry
   {%- for dim in arg.data.sparsity.dims %}[{{ dim }}]{% endfor %};
   {% endfor %}
 {% endif %}
@@ -363,7 +363,7 @@ for (int idx_{{ loop.index0 }} = 0; idx_{{ loop.index0 }} < {{ it }}; ++idx_{{ l
 {% for dim in arg.data.sparsity.dims %}
 for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }})
 {%- endfor %}
-  {{ arg.dat.name }}_entry[i0][i1] = {{ arg.dat._cl_type_zero }};
+  {{ arg.data.name }}_entry[i0][i1] = {{ arg.data._cl_type_zero }};
 {% endfor %}
 {{ parloop._kernel.name }}(
   {% filter trim|replace("\n", ",\n") -%}
@@ -386,15 +386,15 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
   {%- else -%}
     matrix_set
   {%- endif -%}(
-    {{ arg._dat._name }},
-    {{ arg._dat._name }}_rowptr,
-    {{ arg._dat._name }}_colidx,
+    {{ arg.data.name }},
+    {{ arg.data.name }}_rowptr,
+    {{ arg.data.name }}_colidx,
     {%- for map in arg._map %}
     {% set ext = parloop._it_space._extent_ranges[loop.index0] -%}
     {% set dim = arg.data.sparsity.dims[loop.index0] -%}
-    {{ dim }}*{{ map._name }}[(i_1 + shared_memory_offset) * {{ ext }} + idx_{{ loop.index0 }}]+i{{ loop.index0 }},
+    {{ dim }}*{{ map.name }}[(i_1 + shared_memory_offset) * {{ ext }} + idx_{{ loop.index0 }}]+i{{ loop.index0 }},
     {%- endfor %}
-    {{ arg._dat._name }}_entry[i0][i1]
+    {{ arg.data.name }}_entry[i0][i1]
   );
 {% endfor %}
 {%- for it in parloop._it_space._extent_ranges %}
@@ -431,7 +431,7 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
   {{ typecast("__global", arg.data._cl_type + "*", "__private") -}}
   ({{ arg.data.name }} + (i_1 + shared_memory_offset) * {{ arg.data.cdim }})
 {%- elif(arg._is_mat) -%}
-  {{ arg._dat._name }}_entry
+  {{ arg.data.name }}_entry
 {%- elif(arg._is_vec_map) -%}
   {{ dat_vec_name(arg) }}
 {%- elif(arg._is_global_reduction) -%}
