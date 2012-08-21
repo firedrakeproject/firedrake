@@ -776,7 +776,6 @@ class ParLoopCall(object):
         return max(staging, reduction)
 
     def _i_partition_size(self):
-        # will have to fix for vec dat
         #TODO FIX: something weird here
         #available_local_memory
         warnings.warn('temporary fix to available local memory computation (-512)')
