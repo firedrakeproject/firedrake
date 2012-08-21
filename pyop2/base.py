@@ -424,7 +424,15 @@ class Const(DataCarrier):
         return "static %(type)s %(name)s[%(dim)s];" % d
 
 class Global(DataCarrier):
-    """OP2 global value."""
+    """OP2 global value.
+
+    When a ``Global`` is passed to a :func:`par_loop`, the access
+    descriptor is passed by `calling` the ``Global``.  For example, if
+    a ``Global`` named ``G`` is to be accessed for reading, this is
+    accomplished by::
+
+      G(pyop2.READ)
+    """
 
     _globalcount = 0
     _modes = [READ, INC, MIN, MAX]
