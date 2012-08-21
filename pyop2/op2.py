@@ -49,6 +49,7 @@ def init(**kwargs):
     """
     cfg.configure(**kwargs)
     backends.set_backend(cfg.backend)
+    backends._BackendSelector._backend._setup()
     core.op_init(args=None, diags=0)
 
 def exit():

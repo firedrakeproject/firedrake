@@ -1009,33 +1009,55 @@ def _ncached_gencode():
     global _kernel_stub_cache
     return len(_kernel_stub_cache)
 
+def _setup():
+    global _ctx
+    global _queue
+    global _pref_work_group_count
+    global _max_local_memory
+    global _address_bits
+    global _max_work_group_size
+    global _has_dpfloat
+    global _warpsize
+    global _AMD_fixes
+    global _plan_cache
+    global _kernel_stub_cache
+    global _reduction_task_cache
+
+    _ctx = cl.create_some_context()
+    _queue = cl.CommandQueue(_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
+    _pref_work_group_count = _queue.device.max_compute_units
+    _max_local_memory = _queue.device.local_mem_size
+    _address_bits = _queue.device.address_bits
+    _max_work_group_size = _queue.device.max_work_group_size
+    _has_dpfloat = 'cl_khr_fp64' in _queue.device.extensions or 'cl_amd_fp64' in _queue.device.extensions
+    if not _has_dpfloat:
+        warnings.warn('device does not support double precision floating point computation, expect undefined behavior for double')
+
+    if _queue.device.type == cl.device_type.CPU:
+        _warpsize = 1
+    elif _queue.device.type == cl.device_type.GPU:
+        # assumes nvidia, will probably fail with AMD gpus
+        _warpsize = 32
+
+    _AMD_fixes = _queue.device.platform.vendor in ['Advanced Micro Devices, Inc.']
+    _plan_cache = OpPlanCache()
+    _kernel_stub_cache = dict()
+    _reduction_task_cache = dict()
 
 _debug = False
-_ctx = cl.create_some_context()
-_queue = cl.CommandQueue(_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
-_pref_work_group_count = _queue.device.max_compute_units
-_max_local_memory = _queue.device.local_mem_size
-_address_bits = _queue.device.address_bits
-_max_work_group_size = _queue.device.max_work_group_size
-_has_dpfloat = 'cl_khr_fp64' in _queue.device.extensions or 'cl_amd_fp64' in _queue.device.extensions
-
-# CPU
-if _queue.device.type == cl.device_type.CPU:
-    _warpsize = 1
-# GPU
-elif _queue.device.type == cl.device_type.GPU:
-    # assumes nvidia, will probably fail with AMD gpus
-    _warpsize = 32
-
-_AMD_fixes = _queue.device.platform.vendor in ['Advanced Micro Devices, Inc.']
-
-if not _has_dpfloat:
-    warnings.warn('device does not support double precision floating point computation, expect undefined behavior for double')
+_ctx = None
+_queue = None
+_pref_work_group_count = 0
+_max_local_memory = 0
+_address_bits = 32
+_max_work_group_size = 0
+_has_dpfloat = False
+_warpsize = 0
+_AMD_fixes = False
+_plan_cache = None
+_kernel_stub_cache = None
+_reduction_task_cache = None
 
 _jinja2_env = Environment(loader=PackageLoader("pyop2", "assets"))
 _jinja2_direct_loop = _jinja2_env.get_template("opencl_direct_loop.jinja2")
 _jinja2_indirect_loop = _jinja2_env.get_template("opencl_indirect_loop.jinja2")
-
-_plan_cache = OpPlanCache()
-_kernel_stub_cache = dict()
-_reduction_task_cache = dict()
