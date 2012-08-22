@@ -44,7 +44,7 @@ Example::
     # configuration values can be overiden upon calling 'configure'
     cfg.configure(backend='opencl', debug=6)
     # or using a specific yaml configuration file
-    cfg.configure(opconfig='./conf-alt.yaml')
+    cfg.configure(config='./conf-alt.yaml')
 
     # configuration value access:
     cfg['backend'] :> 'opencl'
@@ -54,9 +54,9 @@ Example::
 Configuration option lookup order:
 
     1. Named parameters specified at configuration.
-    2. From `opconfig` configuration file if specified
+    2. From `config` configuration file if specified
     3. From user configuration `./pyop2.yaml` (relative to working directory)
-       if present and no `opconfig` specified
+       if present and no `config` specified
     4. From default value defined by pyop2 (`assets/default.yaml`)
     5. KeyError
 
