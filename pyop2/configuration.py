@@ -74,7 +74,7 @@ import UserDict
 class ConfigModule(types.ModuleType):
     """Dictionary impersonating a module allowing direct access to attributes."""
 
-    OP_CONFIG_KEY = 'opconfig'
+    OP_CONFIG_KEY = 'config'
     DEFAULT_CONFIG = 'assets/default.yaml'
     DEFAULT_USER_CONFIG = 'pyop2.yaml'
 
