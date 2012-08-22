@@ -88,7 +88,7 @@ class ConfigModule(types.ModuleType):
         if kargs.has_key(ConfigModule.OP_CONFIG_KEY):
             alt_user_config = True
             try:
-                from_file = yaml.load(file(kargs[ConfigModule.OP_CONFIG_KEY]))
+                from_file = yaml.load(kargs[ConfigModule.OP_CONFIG_KEY])
                 entries += from_file.items() if from_file else []
             except IOError:
                 pass
