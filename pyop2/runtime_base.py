@@ -38,7 +38,7 @@ import numpy as np
 from exceptions import *
 from utils import *
 import base
-from base import READ, WRITE, RW, INC, MIN, MAX, IterationSpace, DataCarrier, Global, \
+from base import READ, WRITE, RW, INC, MIN, MAX, IterationSpace, DataCarrier, \
     IterationIndex, i, IdentityMap, Kernel
 import op_lib_core as core
 from pyop2.utils import OP2_INC, OP2_LIB
@@ -86,6 +86,8 @@ class Set(base.Set):
 class Dat(base.Dat):
     """OP2 vector data. A ``Dat`` holds a value for every member of a :class:`Set`."""
 
+    _arg_type = Arg
+
     @classmethod
     def fromhdf5(cls, dataset, f, name):
         slot = f[name]
@@ -119,8 +121,14 @@ class Const(base.Const):
             raise DimTypeError("Invalid dimension value %s" % dim)
         return cls(dim, data, name)
 
+class Global(base.Global):
+    """OP2 Global object."""
+    _arg_type = Arg
+
 class Map(base.Map):
     """OP2 map, a relation between two :class:`Set` objects."""
+
+    _arg_type = Arg
 
     @property
     def _c_handle(self):
@@ -149,6 +157,8 @@ class Sparsity(base.Sparsity):
 class Mat(base.Mat):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`."""
+
+    _arg_type = Arg
 
     def zero(self):
         """Zero the matrix."""
