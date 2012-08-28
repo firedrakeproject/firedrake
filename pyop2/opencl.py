@@ -662,10 +662,10 @@ class ParLoopCall(object):
             if arg._is_indirect:
                 if not seen.has_key((arg.data,arg.map)):
                     seen[(arg.data,arg.map)] = c
-                    idesc = (c, arg.idx)
+                    idesc = (c, (- arg.map.dim) if arg._is_vec_map else arg.idx)
                     c += 1
                 else:
-                    idesc = (seen[(arg.data,arg.map)], arg.idx)
+                    idesc = (seen[(arg.data,arg.map)], (- arg.map.dim) if arg._is_vec_map else arg.idx)
             else:
                 idesc = ()
 
