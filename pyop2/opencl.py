@@ -630,6 +630,7 @@ class ParLoopCall(object):
 
         # user kernel: md5 of kernel name and code (same code can contain
         #   multiple user kernels)
+        # iteration space description
         # for each actual arg:
         #   its type (dat | gbl | mat)
         #   dtype (required for casts and opencl extensions)
@@ -637,6 +638,7 @@ class ParLoopCall(object):
         #   access  (dloops: if staged or reduc; indloops; if not direct dat)
         #   the ind map index: gbl = -1, direct = -1, indirect = X (first occurence
         #     of the dat/map pair) (will tell which arg use which ind/loc maps)
+        #     vecmap = -X (size of the map)
         # for vec map arg we need the dimension of the map
         # consts in alphabetial order: name, dtype (used in user kernel,
         #   is_scalar (passed as pointed or value)
@@ -675,7 +677,8 @@ class ParLoopCall(object):
         consts = map(lambda c: (c.name, c.dtype, c.cdim == 1),
                      sorted(list(Const._defs), key=lambda c: c.name))
 
-        return (self._kernel.md5,) + tuple(argdesc) + tuple(consts)
+        itspace = (self._it_space.extents,) if self._it_space else ((None,))
+        return (self._kernel.md5,) + itspace + tuple(argdesc) + tuple(consts)
 
     # generic
     @property
