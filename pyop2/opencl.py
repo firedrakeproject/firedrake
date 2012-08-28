@@ -667,7 +667,7 @@ class ParLoopCall(object):
                 else:
                     idesc = (seen[(arg.data,arg.map)], arg.idx)
             else:
-                idesc = (-1,)
+                idesc = ()
 
             d = (arg.data.__class__,
                  arg.data.dtype) + argdimacc(arg) + idesc
