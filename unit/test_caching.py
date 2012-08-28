@@ -430,6 +430,33 @@ void kernel_swap(unsigned int* x, unsigned int* y)
                      a(op2.IdentityMap, op2.RW))
         assert op2._ncached_gencode() == 1
 
+    def test_vector_map(self, backend, iterset, indset, iter2ind1):
+        op2._empty_gencode_cache()
+        assert op2._ncached_gencode() == 0
+
+        kernel_swap = """
+void kernel_swap(unsigned int* x[2])
+{
+  unsigned int t;
+  t = *x[0];
+  *x[0] = *x[1];
+  *x[1] = t;
+}
+"""
+        d1 = op2.Dat(indset, 2, range(nelems) * 2, numpy.uint32, "d1")
+        d2 = op2.Dat(indset, 2, range(nelems) * 2, numpy.uint32, "d2")
+
+        op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
+                     iterset,
+                     d1(iter2ind1, op2.RW))
+        assert op2._ncached_gencode() == 1
+
+        op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
+                     iterset,
+                     d2(iter2ind1, op2.RW))
+
+        assert op2._ncached_gencode() == 1
+
 
 if __name__ == '__main__':
     import os
