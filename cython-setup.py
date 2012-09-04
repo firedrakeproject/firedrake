@@ -36,7 +36,7 @@
 from distutils.core import setup
 from Cython.Distutils import build_ext, Extension
 import numpy as np
-import os
+import os, sys
 
 try:
     OP2_DIR = os.environ['OP2_DIR']

@@ -90,6 +90,14 @@ class Arg(object):
         self._access = access
         self._lib_handle = None
 
+    def __str__(self):
+        return "OP2 Arg: dat %s, map %s, index %s, access %s" % \
+                   (self._dat, self._map, self._idx, self._access)
+
+    def __repr__(self):
+        return "Arg(%r, %r, %r, %r)" % \
+                   (self._dat, self._map, self._idx, self._access)
+
     @property
     def data(self):
         """Data carrier: :class:`Dat`, :class:`Mat`, :class:`Const` or :class:`Global`."""
