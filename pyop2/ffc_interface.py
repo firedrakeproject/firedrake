@@ -34,15 +34,36 @@
 """Provides the interface to FFC for compiling a form, and transforms the FFC-
 generated code in order to make it suitable for passing to the backends."""
 
+from ufl import Form
+from ufl.algorithms import preprocess, as_form
 from ffc import default_parameters, compile_form as ffc_compile_form
+from ffc.log import set_level, ERROR
+from ffc.jitobject import JITObject
 import re
+
+_form_cache = {}
 
 def compile_form(form, name):
     """Compile a form using FFC and return an OP2 kernel"""
+
+    # Check that we get a Form
+    if not isinstance(form, Form):
+        form = as_form(form)
 
     ffc_parameters = default_parameters()
     ffc_parameters['write_file'] = False
     ffc_parameters['format'] = 'pyop2'
 
-    code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
+    # Silence FFC
+    set_level(ERROR)
+
+    # Use an FFC JIT object for the key to iron out spurious differences in
+    # coefficient/index counts etc.
+    key = JITObject(form, preprocess(form).preprocessed_form, ffc_parameters, None)
+    # Check the cache first: this saves recompiling the form for every time
+    # step in time-varying problems
+    code = _form_cache.get(key)
+    if not code:
+        code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
+        _form_cache[key] = code
     return code
