@@ -257,6 +257,12 @@ void {{ parloop._kernel.name }}_stub(
 {% for dm in parloop._reduc_vec_dat_map_pairs %}
   {{ dm.data._cl_type }}* {{ dat_vec_name(dm) }}[{{ dm.map.dim }}];
 {%- endfor %}
+{% for dm in parloop._nonreduc_itspace_dat_map_pairs %}
+  __local {{ dm.data._cl_type }}* {{ dat_vec_name(dm) }}[{{ dm.map.dim }}];
+{%- endfor %}
+{% for dm in parloop._reduc_itspace_dat_map_pairs %}
+  {{ dm.data._cl_type }}* {{ dat_vec_name(dm) }}[{{ dm.map.dim }}];
+{%- endfor %}
 
   if (get_local_id(0) == 0) {
     block_id = p_blk_map[get_group_id(0) + block_offset];
@@ -403,7 +409,7 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
 {%- endmacro -%}
 
 {%- macro kernel_call() -%}
-{% for arg in parloop._actual_args if(arg._is_vec_map) %}
+{% for arg in parloop._actual_args if(arg._is_vec_map or arg._uses_itspace) %}
   {{ populate_vec_map(arg) }}
 {% endfor %}
 {% if(parloop._it_space) %}
@@ -432,6 +438,8 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
   ({{ arg.data.name }} + (i_1 + shared_memory_offset) * {{ arg.data.cdim }})
 {%- elif(arg._is_mat) -%}
   {{ arg.data.name }}_entry
+{%- elif(arg._uses_itspace) -%}
+  {{ dat_vec_name(arg) }}[idx_0]
 {%- elif(arg._is_vec_map) -%}
   {{ dat_vec_name(arg) }}
 {%- elif(arg._is_global_reduction) -%}

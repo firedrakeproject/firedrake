@@ -125,8 +125,8 @@ op2.par_loop(mass, elements(3,3),
              mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
              coords(elem_node, op2.READ))
 
-op2.par_loop(rhs, elements,
-                     b(elem_node, op2.INC),
+op2.par_loop(rhs, elements(3),
+                     b(elem_node[op2.i[0]], op2.INC),
                      coords(elem_node, op2.READ),
                      f(elem_node, op2.READ))
 

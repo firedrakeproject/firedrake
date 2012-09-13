@@ -50,7 +50,7 @@ def par_loop(kernel, it_space, *args):
 
     def c_arg_name(arg):
         name = arg.data.name
-        if arg._is_indirect and not (arg._is_mat or arg._is_vec_map):
+        if arg._is_indirect and not (arg._is_vec_map or arg._uses_itspace):
             name += str(arg.idx)
         return name
 
@@ -98,8 +98,11 @@ def par_loop(kernel, it_space, *args):
                  'dim' : arg.data.cdim}
 
     def c_kernel_arg(arg):
-        if arg._is_mat:
-            return "p_"+c_arg_name(arg)
+        if arg._uses_itspace:
+            if arg._is_mat:
+                return "p_"+c_arg_name(arg)
+            else:
+                return c_ind_data(arg, "i_%d" % arg.idx.index)
         elif arg._is_indirect:
             if arg._is_vec_map:
                 return c_vec_name(arg)

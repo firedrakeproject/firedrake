@@ -125,7 +125,7 @@ class Arg(op2.Arg):
 
     @property
     def _i_gen_vec(self):
-        assert self._is_vec_map
+        assert self._is_vec_map or self._uses_itspace
         return map(lambda i: Arg(self.data, self.map, i, self.access), range(self.map.dim))
 
 class DeviceDataMixin(object):
@@ -568,6 +568,9 @@ class ParLoopCall(object):
                     self._args.append(Arg(a.data, a.map, i, a.access))
             elif a._is_mat:
                 pass
+            elif a._uses_itspace:
+                for i in range(it_space.extents[a.idx.index]):
+                    self._args.append(Arg(a.data, a.map, i, a.access))
             else:
                 self._args.append(a)
 
@@ -718,6 +721,10 @@ class ParLoopCall(object):
         return [a for a in self._actual_args if a._is_mat]
 
     @property
+    def _itspace_args(self):
+        return [a for a in self._actual_args if a._uses_itspace and not a._is_mat]
+
+    @property
     def _unique_matrix(self):
         return uniquify(a.data for a in self._matrix_args)
 
@@ -745,6 +752,14 @@ class ParLoopCall(object):
     @property
     def _reduc_vec_dat_map_pairs(self):
         return uniquify(DatMapPair(a.data, a.map) for a in self._vec_map_args if a.access is INC)
+
+    @property
+    def _nonreduc_itspace_dat_map_pairs(self):
+        return uniquify(DatMapPair(a.data, a.map) for a in self._itspace_args if a.access is not INC)
+
+    @property
+    def _reduc_itspace_dat_map_pairs(self):
+        return uniquify(DatMapPair(a.data, a.map) for a in self._itspace_args if a.access is INC)
 
     @property
     def _read_dat_map_pairs(self):

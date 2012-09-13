@@ -34,11 +34,11 @@
 """Code-generation strings for FFC to generate PyOP2 code."""
 
 __date__    = "2012-08-06"
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 PYOP2_VERSION_MAJOR = 0
 PYOP2_VERSION_MINOR = 0
-PYOP2_VERSION_MAINTENANCE = 2
+PYOP2_VERSION_MAINTENANCE = 3
 
 PYOP2_VERSION = __version__
 

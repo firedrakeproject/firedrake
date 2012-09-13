@@ -140,15 +140,15 @@ op2.par_loop(mass, elements(3,3),
              mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
              coords(elem_node, op2.READ))
 
-op2.par_loop(rhs, elements,
-                     b(elem_node, op2.INC),
+op2.par_loop(rhs, elements(3),
+                     b(elem_node[op2.i[0]], op2.INC),
                      coords(elem_node, op2.READ),
                      f(elem_node, op2.READ))
 
 # Apply weak BC
 
-op2.par_loop(weak, top_bdry_elements,
-             b(top_bdry_elem_node, op2.INC),
+op2.par_loop(weak, top_bdry_elements(3),
+             b(top_bdry_elem_node[op2.i[0]], op2.INC),
              coords(top_bdry_elem_node, op2.READ),
              bdry_grad(top_bdry_elem_node, op2.READ),
              facet(op2.READ))

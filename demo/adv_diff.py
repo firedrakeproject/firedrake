@@ -178,8 +178,8 @@ while T < 0.2:
         op2.par_loop(zero_dat, nodes,
                      b(op2.IdentityMap, op2.WRITE))
 
-        op2.par_loop(adv_rhs, elements,
-                     b(elem_node, op2.INC),
+        op2.par_loop(adv_rhs, elements(3),
+                     b(elem_node[op2.i[0]], op2.INC),
                      coords(elem_node, op2.READ),
                      tracer(elem_node, op2.READ),
                      velocity(elem_node, op2.READ))
@@ -198,8 +198,8 @@ while T < 0.2:
         op2.par_loop(zero_dat, nodes,
                      b(op2.IdentityMap, op2.WRITE))
 
-        op2.par_loop(diff_rhs, elements,
-                     b(elem_node, op2.INC),
+        op2.par_loop(diff_rhs, elements(3),
+                     b(elem_node[op2.i[0]], op2.INC),
                      coords(elem_node, op2.READ),
                      tracer(elem_node, op2.READ))
 
