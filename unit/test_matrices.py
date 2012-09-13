@@ -92,6 +92,11 @@ class TestMatrices:
         f_vals = numpy.asarray([ 1.0, 2.0, 3.0, 4.0 ], dtype=valuetype)
         return op2.Dat(nodes, 1, f_vals, valuetype, "f")
 
+    def pytest_funcarg__f_vec(cls, request):
+        nodes = request.getfuncargvalue('nodes')
+        f_vals = numpy.asarray([(1.0, 2.0)]*4, dtype=valuetype)
+        return op2.Dat(nodes, 2, f_vals, valuetype, "f")
+
     def pytest_funcarg__b(cls, request):
         nodes = request.getfuncargvalue('nodes')
         b_vals = numpy.asarray([0.0]*NUM_NODES, dtype=valuetype)
@@ -99,10 +104,22 @@ class TestMatrices:
                 setup=lambda: op2.Dat(nodes, 1, b_vals, valuetype, "b"),
                 scope='session')
 
+    def pytest_funcarg__b_vec(cls, request):
+        nodes = request.getfuncargvalue('nodes')
+        b_vals = numpy.asarray([0.0]*NUM_NODES*2, dtype=valuetype)
+        return request.cached_setup(
+                setup=lambda: op2.Dat(nodes, 2, b_vals, valuetype, "b"),
+                scope='session')
+
     def pytest_funcarg__x(cls, request):
         nodes = request.getfuncargvalue('nodes')
         x_vals = numpy.asarray([0.0]*NUM_NODES, dtype=valuetype)
         return op2.Dat(nodes, 1, x_vals, valuetype, "x")
+
+    def pytest_funcarg__x_vec(cls, request):
+        nodes = request.getfuncargvalue('nodes')
+        x_vals = numpy.asarray([0.0]*NUM_NODES*2, dtype=valuetype)
+        return op2.Dat(nodes, 2, x_vals, valuetype, "x")
 
     def pytest_funcarg__mass(cls, request):
         kernel_code = """
@@ -295,6 +312,46 @@ void rhs_ffc(double **A, double *x[2], double **w0)
 
         return op2.Kernel(kernel_code, "rhs_ffc")
 
+    def pytest_funcarg__rhs_ffc_itspace(cls, request):
+
+        kernel_code="""
+void rhs_ffc_itspace(double A[1], double *x[2], double **w0, int j)
+{
+    double J_00 = x[1][0] - x[0][0];
+    double J_01 = x[2][0] - x[0][0];
+    double J_10 = x[1][1] - x[0][1];
+    double J_11 = x[2][1] - x[0][1];
+
+    double detJ = J_00*J_11 - J_01*J_10;
+
+    double det = fabs(detJ);
+
+    double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
+    double FE0[3][3] = \
+    {{0.666666666666667, 0.166666666666667, 0.166666666666667},
+    {0.166666666666667, 0.166666666666667, 0.666666666666667},
+    {0.166666666666667, 0.666666666666667, 0.166666666666667}};
+
+
+    for (unsigned int ip = 0; ip < 3; ip++)
+    {
+
+      double F0 = 0.0;
+
+      for (unsigned int r = 0; r < 3; r++)
+      {
+        F0 += FE0[ip][r]*w0[r][0];
+      }
+
+
+      A[0] += FE0[ip][j]*F0*W3[ip]*det;
+    }
+}
+"""
+
+        return op2.Kernel(kernel_code, "rhs_ffc_itspace")
+
+
     def pytest_funcarg__mass_vector_ffc(cls, request):
 
         kernel_code="""
@@ -334,6 +391,105 @@ void mass_vector_ffc(double A[2][2], double *x[2], int j, int k)
 
         return op2.Kernel(kernel_code, "mass_vector_ffc")
 
+    def pytest_funcarg__rhs_ffc_vector(cls, request):
+
+        kernel_code="""
+void rhs_vector_ffc(double **A, double *x[2], double **w0)
+{
+    const double J_00 = x[1][0] - x[0][0];
+    const double J_01 = x[2][0] - x[0][0];
+    const double J_10 = x[1][1] - x[0][1];
+    const double J_11 = x[2][1] - x[0][1];
+
+    double detJ = J_00*J_11 - J_01*J_10;
+
+    const double det = fabs(detJ);
+
+    const double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
+    const double FE0_C0[3][6] = \
+    {{0.666666666666667, 0.166666666666667, 0.166666666666667, 0.0, 0.0, 0.0},
+    {0.166666666666667, 0.166666666666667, 0.666666666666667, 0.0, 0.0, 0.0},
+    {0.166666666666667, 0.666666666666667, 0.166666666666667, 0.0, 0.0, 0.0}};
+    const double FE0_C1[3][6] = \
+    {{0.0, 0.0, 0.0, 0.666666666666667, 0.166666666666667, 0.166666666666667},
+    {0.0, 0.0, 0.0, 0.166666666666667, 0.166666666666667, 0.666666666666667},
+    {0.0, 0.0, 0.0, 0.166666666666667, 0.666666666666667, 0.166666666666667}};
+
+    for (unsigned int ip = 0; ip < 3; ip++)
+    {
+      double F0 = 0.0;
+      double F1 = 0.0;
+
+      for (unsigned int r = 0; r < 3; r++)
+      {
+        for (unsigned int s = 0; s < 2; s++)
+        {
+          F0 += (FE0_C0[ip][3*s+r])*w0[r][s];
+          F1 += (FE0_C1[ip][3*s+r])*w0[r][s];
+        }
+      }
+
+      for (unsigned int j = 0; j < 3; j++)
+      {
+        for (unsigned int r = 0; r < 2; r++)
+        {
+          A[j][r] += (((FE0_C0[ip][r*3+j]))*F0 + ((FE0_C1[ip][r*3+j]))*F1)*W3[ip]*det;
+        }
+      }
+    }
+}"""
+
+        return op2.Kernel(kernel_code, "rhs_vector_ffc")
+
+    def pytest_funcarg__rhs_ffc_vector_itspace(cls, request):
+
+        kernel_code="""
+void rhs_vector_ffc_itspace(double A[2], double *x[2], double **w0, int j)
+{
+    const double J_00 = x[1][0] - x[0][0];
+    const double J_01 = x[2][0] - x[0][0];
+    const double J_10 = x[1][1] - x[0][1];
+    const double J_11 = x[2][1] - x[0][1];
+
+    double detJ = J_00*J_11 - J_01*J_10;
+
+    const double det = fabs(detJ);
+
+    const double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
+    const double FE0_C0[3][6] = \
+    {{0.666666666666667, 0.166666666666667, 0.166666666666667, 0.0, 0.0, 0.0},
+    {0.166666666666667, 0.166666666666667, 0.666666666666667, 0.0, 0.0, 0.0},
+    {0.166666666666667, 0.666666666666667, 0.166666666666667, 0.0, 0.0, 0.0}};
+    const double FE0_C1[3][6] = \
+    {{0.0, 0.0, 0.0, 0.666666666666667, 0.166666666666667, 0.166666666666667},
+    {0.0, 0.0, 0.0, 0.166666666666667, 0.166666666666667, 0.666666666666667},
+    {0.0, 0.0, 0.0, 0.166666666666667, 0.666666666666667, 0.166666666666667}};
+
+    for (unsigned int ip = 0; ip < 3; ip++)
+    {
+      double F0 = 0.0;
+      double F1 = 0.0;
+
+      for (unsigned int r = 0; r < 3; r++)
+      {
+        for (unsigned int s = 0; s < 2; s++)
+        {
+          F0 += (FE0_C0[ip][3*s+r])*w0[r][s];
+          F1 += (FE0_C1[ip][3*s+r])*w0[r][s];
+        }
+      }
+
+      for (unsigned int r = 0; r < 2; r++)
+      {
+        A[r] += (((FE0_C0[ip][r*3+j]))*F0 + ((FE0_C1[ip][r*3+j]))*F1)*W3[ip]*det;
+      }
+    }
+}"""
+
+        return op2.Kernel(kernel_code, "rhs_vector_ffc_itspace")
+
+
+
     def pytest_funcarg__zero_dat(cls, request):
 
         kernel_code="""
@@ -344,6 +500,17 @@ void zero_dat(double *dat)
 """
 
         return op2.Kernel(kernel_code, "zero_dat")
+
+    def pytest_funcarg__zero_vec_dat(cls, request):
+
+        kernel_code="""
+void zero_vec_dat(double *dat)
+{
+  dat[0] = 0.0; dat[1] = 0.0;
+}
+"""
+
+        return op2.Kernel(kernel_code, "zero_vec_dat")
 
     def pytest_funcarg__expected_matrix(cls, request):
         expected_vals = [(0.25, 0.125, 0.0, 0.125),
@@ -367,6 +534,11 @@ void zero_dat(double *dat)
     def pytest_funcarg__expected_rhs(cls, request):
         return numpy.asarray([[0.9999999523522115], [1.3541666031724144],
                               [0.2499999883507239], [1.6458332580869566]],
+                              dtype=valuetype)
+
+    def pytest_funcarg__expected_vec_rhs(cls, request):
+        return numpy.asarray([[0.5, 1.0], [0.58333333, 1.16666667],
+                              [0.08333333, 0.16666667], [0.58333333, 1.16666667]],
                               dtype=valuetype)
 
     def test_assemble(self, backend, mass, mat, coords, elements, elem_node,
@@ -433,11 +605,59 @@ void zero_dat(double *dat)
         eps = 1.e-6
         assert all(abs(b.data-expected_rhs)<eps)
 
+    def test_rhs_ffc_itspace(self, backend, rhs_ffc_itspace, elements, b, coords, f,
+                     elem_node, expected_rhs, zero_dat, nodes):
+        # Zero the RHS first
+        op2.par_loop(zero_dat, nodes,
+                     b(op2.IdentityMap, op2.WRITE))
+        op2.par_loop(rhs_ffc_itspace, elements(3),
+                     b(elem_node[op2.i[0]], op2.INC),
+                     coords(elem_node, op2.READ),
+                     f(elem_node, op2.READ))
+        eps = 1.e-6
+        assert all(abs(b.data-expected_rhs)<eps)
+
+    def test_rhs_vector_ffc(self, backend, rhs_ffc_vector, elements, b_vec, coords, f_vec,
+                            elem_node, expected_vec_rhs, nodes):
+        op2.par_loop(rhs_ffc_vector, elements,
+                     b_vec(elem_node, op2.INC),
+                     coords(elem_node, op2.READ),
+                     f_vec(elem_node, op2.READ))
+        eps = 1.e-6
+        diff = abs((b_vec.data-expected_vec_rhs)<eps)
+        assert diff.all()
+
+    def test_rhs_vector_ffc_itspace(self, backend, rhs_ffc_vector_itspace, elements, b_vec,
+                                    coords, f_vec, elem_node, expected_vec_rhs, nodes, zero_vec_dat):
+        # Zero the RHS first
+        op2.par_loop(zero_vec_dat, nodes,
+                     b_vec(op2.IdentityMap, op2.WRITE))
+        op2.par_loop(rhs_ffc_vector_itspace, elements(3),
+                     b_vec(elem_node[op2.i[0]], op2.INC),
+                     coords(elem_node, op2.READ),
+                     f_vec(elem_node, op2.READ))
+        eps = 1.e-6
+        diff = abs((b_vec.data-expected_vec_rhs)<eps)
+        assert diff.all()
+
     def test_zero_rows(self, backend, mat, expected_matrix):
         expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
         mat.zero_rows([0], 12.0)
         eps=1.e-6
         assert (abs(mat.values-expected_matrix)<eps).all()
+
+    def test_vector_solve(self, backend, vecmat, b_vec, x_vec, f_vec):
+        op2.solve(vecmat, b_vec, x_vec)
+        eps = 1.e-12
+        diff = abs(x_vec.data-f_vec.data)<eps
+        assert diff.all()
+
+    def test_zero_vector_matrix(self, backend, vecmat):
+        """Test that the matrix is zeroed correctly."""
+        vecmat.zero()
+        expected_matrix = numpy.asarray([[0.0]*8]*8, dtype=valuetype)
+        eps=1.e-14
+        assert (abs(vecmat.values-expected_matrix)<eps).all()
 
 if __name__ == '__main__':
     import os
