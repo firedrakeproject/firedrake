@@ -171,11 +171,13 @@ class Arg(object):
     def _is_indirect_and_not_read(self):
         return self._is_indirect and self._access is not READ
 
-
     @property
     def _is_indirect_reduction(self):
         return self._is_indirect and self._access is INC
 
+    @property
+    def _uses_itspace(self):
+        return self._is_mat or isinstance(self.idx, IterationIndex)
 
 class Set(object):
     """OP2 set.

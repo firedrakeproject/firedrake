@@ -90,7 +90,7 @@ def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel
 
     :arg kernel: The :class:`Kernel` to be executed.
-    :arg it_space: The iteration space over which the kernel should be executed. The primary iteration space will be a :class:`Set`. If a local iteration space is required, then this can be provided in brackets. For example, to iterate over a :class:`Set` named ``elements`` assembling a 3x3 local matrix at each entry, the ``it_space`` argument should be ``elements(3,3)``.
+    :arg it_space: The iteration space over which the kernel should be executed. The primary iteration space will be a :class:`Set`. If a local iteration space is required, then this can be provided in brackets. The local iteration space may be either rank-1 or rank-2. For example, to iterate over a :class:`Set` named ``elements`` assembling a 3x3 local matrix at each entry, the ``it_space`` argument should be ``elements(3,3)``. To iterate over ``elements`` assembling a dimension-3 local vector at each entry, the ``it_space`` argument should be ``elements(3)``.
     :arg \*args: One or more objects of type :class:`Global`, :class:`Dat` or :class:`Mat` which are the global data structures from and to which the kernel will read and write.
 
     ``par_loop`` invocation is illustrated by the following example::
