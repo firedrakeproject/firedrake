@@ -46,7 +46,7 @@ exterior_facet_integral_combined = """\
 /// tensor corresponding to the local contribution to a form from
 /// the integral over an exterior facet.
 
-void %(classname)s(%(arglist)s, unsigned int *facet_p)
+void %(classname)s(%(arglist)s)
 {
   unsigned int facet = *facet_p;
 %(tabulate_tensor)s
