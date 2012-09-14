@@ -44,9 +44,11 @@ class TestProblem:
             elif tag == "problem_definition":
                 self.length = child.getAttribute("length")
                 self.nprocs = int(child.getAttribute("nprocs"))
-                xmlcmd = child.getElementsByTagName("command_line")[0].childNodes[0].nodeValue
-                if self.command is not None:
-                  self.command_line = self.command(xmlcmd)
+                cmd = child.getElementsByTagName("command_line")[0]
+                if cmd.hasChildNodes():
+                    xmlcmd = cmd.childNodes[0].nodeValue
+                    if self.command is not None:
+                        self.command_line = self.command(xmlcmd)
             elif tag == "variables":
                 for var in child.childNodes:
                     try:
