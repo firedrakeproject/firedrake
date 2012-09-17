@@ -43,6 +43,61 @@ def _seed():
 
 nelems = 2048
 
+def pytest_funcarg__iterset(request):
+    return op2.Set(nelems, "iterset")
+
+def pytest_funcarg__indset(request):
+    return op2.Set(nelems, "indset")
+
+def pytest_funcarg__g(request):
+    return op2.Global(1, 0, numpy.uint32, "g")
+
+def pytest_funcarg__x(request):
+    return op2.Dat(request.getfuncargvalue('indset'),
+                   1,
+                   range(nelems),
+                   numpy.uint32,
+                   "x")
+
+def pytest_funcarg__x2(request):
+    return op2.Dat(request.getfuncargvalue('indset'),
+                   2,
+                   range(nelems) * 2,
+                   numpy.uint32,
+                   "x2")
+
+def pytest_funcarg__xl(request):
+    return op2.Dat(request.getfuncargvalue('indset'),
+                   1,
+                   range(nelems),
+                   numpy.uint64,
+                   "xl")
+
+def pytest_funcarg__y(request):
+    return op2.Dat(request.getfuncargvalue('indset'),
+                   1,
+                   [0] * nelems,
+                   numpy.uint32,
+                   "y")
+
+def pytest_funcarg__iter2ind1(request):
+    u_map = numpy.array(range(nelems), dtype=numpy.uint32)
+    random.shuffle(u_map, _seed)
+    return op2.Map(request.getfuncargvalue('iterset'),
+                   request.getfuncargvalue('indset'),
+                   1,
+                   u_map,
+                   "iter2ind1")
+
+def pytest_funcarg__iter2ind2(request):
+    u_map = numpy.array(range(nelems) * 2, dtype=numpy.uint32)
+    random.shuffle(u_map, _seed)
+    return op2.Map(request.getfuncargvalue('iterset'),
+                   request.getfuncargvalue('indset'),
+                   2,
+                   u_map,
+                   "iter2ind2")
+
 class TestPlanCache:
     """
     Plan Object Cache Tests.
@@ -50,67 +105,12 @@ class TestPlanCache:
     # No plan for sequential backend
     skip_backends = ['sequential']
 
-    def pytest_funcarg__iterset(cls, request):
-        return op2.Set(nelems, "iterset")
-
-    def pytest_funcarg__indset(cls, request):
-        return op2.Set(nelems, "indset")
-
     def pytest_funcarg__a64(cls, request):
         return op2.Dat(request.getfuncargvalue('iterset'),
                        1,
                        range(nelems),
                        numpy.uint64,
                        "a")
-
-    def pytest_funcarg__g(cls, request):
-        return op2.Global(1, 0, numpy.uint32, "g")
-
-    def pytest_funcarg__x(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       1,
-                       range(nelems),
-                       numpy.uint32,
-                       "x")
-
-    def pytest_funcarg__x2(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       2,
-                       range(nelems) * 2,
-                       numpy.uint32,
-                       "x2")
-
-    def pytest_funcarg__xl(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       1,
-                       range(nelems),
-                       numpy.uint64,
-                       "xl")
-
-    def pytest_funcarg__y(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       1,
-                       [0] * nelems,
-                       numpy.uint32,
-                       "y")
-
-    def pytest_funcarg__iter2ind1(cls, request):
-        u_map = numpy.array(range(nelems), dtype=numpy.uint32)
-        random.shuffle(u_map, _seed)
-        return op2.Map(request.getfuncargvalue('iterset'),
-                       request.getfuncargvalue('indset'),
-                       1,
-                       u_map,
-                       "iter2ind1")
-
-    def pytest_funcarg__iter2ind2(cls, request):
-        u_map = numpy.array(range(nelems) * 2, dtype=numpy.uint32)
-        random.shuffle(u_map, _seed)
-        return op2.Map(request.getfuncargvalue('iterset'),
-                       request.getfuncargvalue('indset'),
-                       2,
-                       u_map,
-                       "iter2ind2")
 
     def test_same_arg(self, backend, iterset, iter2ind1, x):
         op2._empty_plan_cache()
@@ -269,12 +269,6 @@ class TestGeneratedCodeCache:
     Generated Code Cache Tests.
     """
 
-    def pytest_funcarg__iterset(cls, request):
-        return op2.Set(nelems, "iterset")
-
-    def pytest_funcarg__indset(cls, request):
-        return op2.Set(nelems, "indset")
-
     def pytest_funcarg__a(cls, request):
         return op2.Dat(request.getfuncargvalue('iterset'),
                        1,
@@ -288,55 +282,6 @@ class TestGeneratedCodeCache:
                        range(nelems),
                        numpy.uint32,
                        "b")
-
-    def pytest_funcarg__g(cls, request):
-        return op2.Global(1, 0, numpy.uint32, "g")
-
-    def pytest_funcarg__x(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       1,
-                       range(nelems),
-                       numpy.uint32,
-                       "x")
-
-    def pytest_funcarg__x2(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       2,
-                       range(nelems) * 2,
-                       numpy.uint32,
-                       "x2")
-
-    def pytest_funcarg__xl(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       1,
-                       range(nelems),
-                       numpy.uint64,
-                       "xl")
-
-    def pytest_funcarg__y(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       1,
-                       [0] * nelems,
-                       numpy.uint32,
-                       "y")
-
-    def pytest_funcarg__iter2ind1(cls, request):
-        u_map = numpy.array(range(nelems), dtype=numpy.uint32)
-        random.shuffle(u_map, _seed)
-        return op2.Map(request.getfuncargvalue('iterset'),
-                       request.getfuncargvalue('indset'),
-                       1,
-                       u_map,
-                       "iter2ind1")
-
-    def pytest_funcarg__iter2ind2(cls, request):
-        u_map = numpy.array(range(nelems) * 2, dtype=numpy.uint32)
-        random.shuffle(u_map, _seed)
-        return op2.Map(request.getfuncargvalue('iterset'),
-                       request.getfuncargvalue('indset'),
-                       2,
-                       u_map,
-                       "iter2ind2")
 
     def test_same_args(self, backend, iterset, iter2ind1, x, a):
         op2._empty_parloop_cache()
