@@ -809,3 +809,38 @@ class Kernel(object):
 
     def __repr__(self):
         return 'Kernel("""%s""", "%s")' % (self._code, self._name)
+
+_parloop_cache = dict()
+
+def _empty_parloop_cache():
+    _parloop_cache.clear()
+
+def _parloop_cache_size():
+    return len(_parloop_cache)
+
+class ParLoop(object):
+    def __init__(self, kernel, itspace, *args):
+        self._kernel = kernel
+        if isinstance(itspace, IterationSpace):
+            self._it_space = itspace
+        else:
+            self._it_space = IterationSpace(itspace)
+        self._actual_args = list(args)
+
+    def generate_code(self):
+        raise RuntimeError('Must select a backend')
+
+    @property
+    def args(self):
+        return self._actual_args
+
+    def __hash__(self):
+        hsh = hash(self._kernel)
+        hsh ^= hash(self._it_space)
+        for arg in self.args:
+            hsh ^= hash(arg)
+
+        for c in sorted(Const._defs):
+            hsh ^= hash(c)
+
+        return hsh
