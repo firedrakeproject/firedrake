@@ -249,7 +249,7 @@ class IterationSpace(object):
         return [e for e in self.extents]
 
     def __str__(self):
-        return "OP2 Iteration Space: %s with extents %s" % self._extents
+        return "OP2 Iteration Space: %s with extents %s" % (self._iterset, self._extents)
 
     def __repr__(self):
         return "IterationSpace(%r, %r)" % (self._iterset, self._extents)
