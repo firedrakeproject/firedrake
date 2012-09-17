@@ -496,6 +496,12 @@ class IterationIndex(object):
     def __getitem__(self, idx):
         return IterationIndex(idx)
 
+    # This is necessary so that we can convert an IterationIndex to a
+    # tuple.  Because, __getitem__ returns a new IterationIndex
+    # we have to explicitly provide an iterable interface
+    def __iter__(self):
+        yield self
+
 i = IterationIndex()
 """Shorthand for constructing :class:`IterationIndex` objects.
 
