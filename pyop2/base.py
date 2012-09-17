@@ -58,6 +58,9 @@ class Access(object):
     def __repr__(self):
         return "Access('%s')" % self._mode
 
+    def __hash__(self):
+        return hash(self._mode)
+
 READ  = Access("READ")
 """The :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed read-only."""
 
@@ -97,6 +100,21 @@ class Arg(object):
     def __repr__(self):
         return "Arg(%r, %r, %r, %r)" % \
                    (self._dat, self._map, self._idx, self._access)
+
+    def __hash__(self):
+        hsh = hash(self._dat.__class__)
+        hsh ^= hash(self._dat.dtype)
+        if self._is_mat:
+            hsh ^= hash(self._dat.dims)
+        else:
+            hsh ^= hash(self._dat.dim)
+        hsh ^= hash(self._access)
+        if self._is_mat:
+            for m in self._map:
+                hsh ^= hash(m)
+        else:
+            hsh ^= hash(self._map)
+        return hsh
 
     @property
     def data(self):
@@ -207,6 +225,9 @@ class Set(object):
         """User-defined label"""
         return self._name
 
+    def __hash__(self):
+        return hash(self._size) ^ hash(self._name)
+
     def __str__(self):
         return "OP2 Set: %s with size %s" % (self._name, self._size)
 
@@ -250,6 +271,12 @@ class IterationSpace(object):
 
     def __str__(self):
         return "OP2 Iteration Space: %s with extents %s" % (self._iterset, self._extents)
+
+    def __hash__(self):
+        hsh = hash(self._iterset)
+        for e in self.extents:
+            hsh ^= hash(e)
+        return hsh
 
     def __repr__(self):
         return "IterationSpace(%r, %r)" % (self._iterset, self._extents)
@@ -408,6 +435,9 @@ class Const(DataCarrier):
     def __str__(self):
         return "OP2 Const: %s of dim %s and type %s with value %s" \
                % (self._name, self._dim, self._data.dtype.name, self._data)
+
+    def __hash__(self):
+        return hash(self._name) ^ hash(self.dtype) ^ hash(self.cdim)
 
     def __repr__(self):
         return "Const(%s, %s, '%s')" \
@@ -584,6 +614,9 @@ class Map(object):
     def name(self):
         """User-defined label"""
         return self._name
+
+    def __hash__(self):
+        return hash(self._iterset) ^ hash(self._dataset) ^ hash(self._dim)
 
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with dim %s" \
@@ -766,6 +799,10 @@ class Kernel(object):
         """String containing the c code for this kernel routine. This
         code must conform to the OP2 user kernel API."""
         return self._code
+
+    def __hash__(self):
+        import md5
+        return hash(md5.new(self._code + self._name).digest())
 
     def __str__(self):
         return "OP2 Kernel: %s" % self._name
