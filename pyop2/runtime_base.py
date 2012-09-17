@@ -38,8 +38,9 @@ import numpy as np
 from exceptions import *
 from utils import *
 import base
-from base import READ, WRITE, RW, INC, MIN, MAX, IterationSpace, DataCarrier, \
-    IterationIndex, i, IdentityMap, Kernel
+from base import READ, WRITE, RW, INC, MIN, MAX, IterationSpace
+from base import DataCarrier, IterationIndex, i, IdentityMap, Kernel
+from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 import op_lib_core as core
 from pyop2.utils import OP2_INC, OP2_LIB
 
@@ -181,3 +182,7 @@ class Mat(base.Mat):
     def __del__(self):
         self._lib_handle.__del__()
         self._lib_handle = None
+
+class ParLoop(base.ParLoop):
+    def compute(self):
+        raise RuntimeError('Must select a backend')
