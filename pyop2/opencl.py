@@ -47,6 +47,7 @@ import warnings
 import math
 from jinja2 import Environment, PackageLoader
 from pycparser import c_parser, c_ast, c_generator
+import os
 import re
 import time
 import md5
