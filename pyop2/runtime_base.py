@@ -145,13 +145,16 @@ class Map(base.Map):
             raise DimTypeError("Unrecognised dimension value %s" % dim)
         return cls(iterset, dataset, dim[0], values, name)
 
+_sparsity_cache = dict()
 class Sparsity(base.Sparsity):
     """OP2 Sparsity, a matrix structure derived from the union of the outer product of pairs of :class:`Map` objects."""
 
     @property
     def _c_handle(self):
         if self._lib_handle is None:
-            self._lib_handle = core.op_sparsity(self)
+            key = (self._rmaps, self._cmaps, self._dims)
+            self._lib_handle = _sparsity_cache.get(key) or core.op_sparsity(self)
+            _sparsity_cache[key] = self._lib_handle
         return self._lib_handle
 
 class Mat(base.Mat):
