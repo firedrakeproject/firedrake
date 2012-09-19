@@ -100,7 +100,17 @@ def par_loop(kernel, it_space, *args):
     def c_kernel_arg(arg):
         if arg._uses_itspace:
             if arg._is_mat:
-                return "p_"+c_arg_name(arg)
+                name = "p_%s" % c_arg_name(arg)
+                if arg.data._is_vector_field:
+                    return name
+                elif arg.data._is_scalar_field:
+                    idx = ''.join(["[i_%d]" % i for i, _ in enumerate(arg.data.dims)])
+                    return "(%(t)s (*)[1])&%(name)s%(idx)s" % \
+                        {'t' : arg.ctype,
+                         'name' : name,
+                         'idx' : idx}
+                else:
+                    raise RuntimeError("Don't know how to pass kernel arg %s" % arg)
             else:
                 return c_ind_data(arg, "i_%d" % arg.idx.index)
         elif arg._is_indirect:
@@ -123,7 +133,22 @@ def par_loop(kernel, it_space, *args):
                         'data' : c_ind_data(arg, i)} )
         return ";\n".join(val)
 
-    def c_addto(arg):
+    def c_addto_scalar_field(arg):
+        name = c_arg_name(arg)
+        p_data = 'p_%s' % name
+        maps = as_tuple(arg.map, Map)
+        nrows = maps[0].dim
+        ncols = maps[1].dim
+
+        return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s)' % \
+            {'mat' : name,
+             'vals' : p_data,
+             'nrows' : nrows,
+             'ncols' : ncols,
+             'rows' : "%s + i * %s" % (c_map_name(arg), nrows),
+             'cols' : "%s2 + i * %s" % (c_map_name(arg), ncols)}
+
+    def c_addto_vector_field(arg):
         name = c_arg_name(arg)
         p_data = 'p_%s' % name
         maps = as_tuple(arg.map, Map)
@@ -158,14 +183,29 @@ def par_loop(kernel, it_space, *args):
     def itspace_loop(i, d):
         return "for (int i_%d=0; i_%d<%d; ++i_%d){" % (i, i, d, i)
 
-    def tmp_decl(arg):
+    def tmp_decl(arg, extents):
         t = arg.data.ctype
-        dims = ''.join(["[%d]" % d for d in arg.data.sparsity.dims])
+        if arg.data._is_scalar_field:
+            dims = ''.join(["[%d]" % d for d in extents])
+        elif arg.data._is_vector_field:
+            dims = ''.join(["[%d]" % d for d in arg.data.dims])
+        else:
+            raise RuntimeError("Don't know how to declare temp array for %s" % arg)
         return "%s p_%s%s" % (t, c_arg_name(arg), dims)
 
     def c_zero_tmp(arg):
-        size = reduce(lambda x,y: x*y, arg.data.sparsity.dims)
-        return "memset(p_%s, 0, sizeof(%s)*%s)" % (c_arg_name(arg), arg.data.ctype, size)
+        name = "p_" + c_arg_name(arg)
+        t = arg.ctype
+        if arg.data._is_scalar_field:
+            idx = ''.join(["[i_%d]" % i for i,_ in enumerate(arg.data.dims)])
+            return "%(name)s%(idx)s = (%(t)s)0" % \
+                {'name' : name, 't' : t, 'idx' : idx}
+        elif arg.data._is_vector_field:
+            size = np.prod(arg.data.dims)
+            return "memset(%(name)s, 0, sizeof(%(t)s) * %(size)s)" % \
+                {'name' : name, 't' : t, 'size' : size}
+        else:
+            raise RuntimeError("Don't know how to zero temp array for %s" % arg)
 
     def c_const_arg(c):
         return 'PyObject *_%s' % c.name
@@ -183,7 +223,7 @@ def par_loop(kernel, it_space, *args):
 
     _wrapper_args = ', '.join([c_wrapper_arg(arg) for arg in args])
 
-    _tmp_decs = ';\n'.join([tmp_decl(arg) for arg in args if arg._is_mat])
+    _tmp_decs = ';\n'.join([tmp_decl(arg, it_space.extents) for arg in args if arg._is_mat])
     _wrapper_decs = ';\n'.join([c_wrapper_dec(arg) for arg in args])
 
     _const_decs = '\n'.join([const._format_for_c() for const in sorted(Const._defs)]) + '\n'
@@ -198,7 +238,10 @@ def par_loop(kernel, it_space, *args):
     _itspace_loops = '\n'.join([itspace_loop(i,e) for i, e in zip(range(len(it_space.extents)), it_space.extents)])
     _itspace_loop_close = '}'*len(it_space.extents)
 
-    _addtos = ';\n'.join([c_addto(arg) for arg in args if arg._is_mat])
+    _addtos_vector_field = ';\n'.join([c_addto_vector_field(arg) for arg in args \
+                                       if arg._is_mat and arg.data._is_vector_field])
+    _addtos_scalar_field = ';\n'.join([c_addto_scalar_field(arg) for arg in args \
+                                       if arg._is_mat and arg.data._is_scalar_field])
 
     _assembles = ';\n'.join([c_assemble(arg) for arg in args if arg._is_mat])
 
@@ -226,8 +269,9 @@ def par_loop(kernel, it_space, *args):
             %(itspace_loops)s
             %(zero_tmps)s;
             %(kernel_name)s(%(kernel_args)s);
-            %(addtos)s;
+            %(addtos_vector_field)s;
             %(itspace_loop_close)s
+            %(addtos_scalar_field)s;
         }
         %(assembles)s;
     }"""
@@ -257,7 +301,8 @@ def par_loop(kernel, it_space, *args):
                       'vec_inits' : _vec_inits,
                       'zero_tmps' : _zero_tmps,
                       'kernel_args' : _kernel_args,
-                      'addtos' : _addtos,
+                      'addtos_vector_field' : _addtos_vector_field,
+                      'addtos_scalar_field' : _addtos_scalar_field,
                       'assembles' : _assembles}
 
     _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
