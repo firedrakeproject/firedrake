@@ -705,6 +705,14 @@ class Mat(DataCarrier):
         return self._sparsity
 
     @property
+    def _is_scalar_field(self):
+        return np.prod(self.dims) == 1
+
+    @property
+    def _is_vector_field(self):
+        return not self._is_scalar_field
+
+    @property
     def values(self):
         """A numpy array of matrix values.
 
