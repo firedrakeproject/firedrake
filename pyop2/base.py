@@ -443,6 +443,10 @@ class Const(DataCarrier):
         return "Const(%s, %s, '%s')" \
                % (self._dim, self._data, self._name)
 
+    @classmethod
+    def _definitions(cls):
+        return sorted(Const._defs, key=lambda c: c.name)
+
     def remove_from_namespace(self):
         """Remove this Const object from the namespace
 
