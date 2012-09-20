@@ -843,7 +843,7 @@ class ParLoop(object):
         for arg in self.args:
             hsh ^= hash(arg)
 
-        for c in sorted(Const._defs):
+        for c in Const._definitions():
             hsh ^= hash(c)
 
         return hsh

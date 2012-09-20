@@ -63,7 +63,7 @@ class ParLoop(rt.ParLoop):
                 for map in maps:
                     _args.append(map.values)
 
-        for c in sorted(Const._defs):
+        for c in Const._definitions():
             _args.append(c.data)
 
         _fun(*_args)
@@ -253,7 +253,7 @@ class ParLoop(rt.ParLoop):
         _tmp_decs = ';\n'.join([tmp_decl(arg, self._it_space.extents) for arg in args if arg._is_mat])
         _wrapper_decs = ';\n'.join([c_wrapper_dec(arg) for arg in args])
 
-        _const_decs = '\n'.join([const._format_for_c() for const in sorted(Const._defs)]) + '\n'
+        _const_decs = '\n'.join([const._format_for_c() for const in Const._definitions()]) + '\n'
 
         _kernel_user_args = [c_kernel_arg(arg) for arg in args]
         _kernel_it_args   = ["i_%d" % d for d in range(len(self._it_space.extents))]
@@ -279,10 +279,10 @@ class ParLoop(rt.ParLoop):
 
         if len(Const._defs) > 0:
             _const_args = ', '
-            _const_args += ', '.join([c_const_arg(c) for c in sorted(Const._defs)])
+            _const_args += ', '.join([c_const_arg(c) for c in Const._definitions()])
         else:
             _const_args = ''
-        _const_inits = ';\n'.join([c_const_init(c) for c in sorted(Const._defs)])
+        _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
         wrapper = """
             void wrap_%(kernel_name)s__(%(set_size_wrapper)s, %(wrapper_args)s %(const_args)s) {
             %(set_size_dec)s;

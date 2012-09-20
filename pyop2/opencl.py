@@ -680,7 +680,7 @@ class ParLoopCall(object):
             argdesc.append(d)
 
         consts = map(lambda c: (c.name, c.dtype, c.cdim == 1),
-                     sorted(list(Const._defs), key=lambda c: c.name))
+                     Const._definitions())
 
         itspace = (self._it_space.extents,) if self._it_space else ((None,))
         return (self._kernel.md5,) + itspace + tuple(argdesc) + tuple(consts)
@@ -882,7 +882,7 @@ class ParLoopCall(object):
                 for i in self._it_space.extents:
                     inst.append(("__private", None))
 
-            return self._kernel.instrument(inst, sorted(list(Const._defs), key=lambda c: c._name))
+            return self._kernel.instrument(inst, Const._definitions())
 
         # check cache
         if _kernel_stub_cache.has_key(self._gencode_key):
@@ -897,8 +897,7 @@ class ParLoopCall(object):
                                'user_kernel': user_kernel,
                                'launch': conf,
                                'codegen': {'amd': _AMD_fixes},
-                               'op2const': sorted(list(Const._defs),
-                                                  key=lambda c: c._name)
+                               'op2const': Const._definitions()
                               }).encode("ascii")
         self.dump_gen_code(src)
         _kernel_stub_cache[self._gencode_key] = src
@@ -932,7 +931,7 @@ class ParLoopCall(object):
             a.data._allocate_reduction_array(conf['work_group_count'])
             kernel.append_arg(a.data._d_reduc_buffer)
 
-        for cst in sorted(list(Const._defs), key=lambda c: c._name):
+        for cst in Const._definitions():
             kernel.append_arg(cst._buffer)
 
         if self.is_direct():
