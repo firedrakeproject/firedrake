@@ -418,7 +418,7 @@ class OpPlanCache():
         try:
             plan = self._cache[parloop._plan_key]
         except KeyError:
-            cp = core.op_plan(parloop._kernel, parloop._it_set, *parloop._args, **kargs)
+            cp = core.op_plan(parloop._kernel, parloop._it_space.iterset, *parloop._args, **kargs)
             plan = OpPlan(parloop, cp)
             self._cache[parloop._plan_key] = plan
 
@@ -463,16 +463,16 @@ class OpPlan():
 
         self._ind_map_buffers = [None] * self._core_plan.ninds
         for i in range(self._core_plan.ninds):
-            self._ind_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int32(0).itemsize * (_off[i+1] - _off[i]) * self._parloop._it_set.size))
-            s = self._parloop._it_set.size * _off[i]
-            e = s + (_off[i+1] - _off[i]) * self._parloop._it_set.size
+            self._ind_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int32(0).itemsize * (_off[i+1] - _off[i]) * self._parloop._it_space.size))
+            s = self._parloop._it_space.size * _off[i]
+            e = s + (_off[i+1] - _off[i]) * self._parloop._it_space.size
             cl.enqueue_copy(_queue, self._ind_map_buffers[i], self._core_plan.ind_map[s:e], is_blocking=True).wait()
 
         self._loc_map_buffers = [None] * self.nuinds
         for i in range(self.nuinds):
-            self._loc_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int16(0).itemsize * self._parloop._it_set.size))
-            s = i * self._parloop._it_set.size
-            e = s + self._parloop._it_set.size
+            self._loc_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int16(0).itemsize * self._parloop._it_space.size))
+            s = i * self._parloop._it_space.size
+            e = s + self._parloop._it_space.size
             cl.enqueue_copy(_queue, self._loc_map_buffers[i], self._core_plan.loc_map[s:e], is_blocking=True).wait()
 
         self._ind_sizes_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.ind_sizes.nbytes)
@@ -549,20 +549,11 @@ class DatMapPair(object):
     def __eq__(self, other):
         return self.__dict__ == other.__dict__
 
-class ParLoopCall(object):
+class ParLoop(op2.ParLoop):
     """Invocation of an OP2 OpenCL kernel with an access descriptor"""
 
     def __init__(self, kernel, it_space, *args):
-        self._kernel = kernel
-        if isinstance(it_space, op2.IterationSpace):
-            self._it_set = it_space._iterset
-            self._it_space = it_space
-        else:
-            self._it_set = it_space
-            self._it_space = False
-
-        self._actual_args = list(args)
-
+        op2.ParLoop.__init__(self, kernel, it_space, *args)
         self._args = list()
         for a in self._actual_args:
             if a._is_vec_map:
@@ -571,7 +562,7 @@ class ParLoopCall(object):
             elif a._is_mat:
                 pass
             elif a._uses_itspace:
-                for i in range(it_space.extents[a.idx.index]):
+                for i in range(self._it_space.extents[a.idx.index]):
                     self._args.append(Arg(a.data, a.map, i, a.access))
             else:
                 self._args.append(a)
@@ -624,7 +615,7 @@ class ParLoopCall(object):
             if has_conflict:
                 cols.append(tuple(conflicts))
 
-        return (self._it_set.size,
+        return (self._it_space.size,
                 self._i_partition_size(),
                 tuple(inds),
                 tuple(cols))
@@ -682,7 +673,7 @@ class ParLoopCall(object):
         consts = map(lambda c: (c.name, c.dtype, c.cdim == 1),
                      Const._definitions())
 
-        itspace = (self._it_space.extents,) if self._it_space else ((None,))
+        itspace = (self._it_space.extents,)
         return (self._kernel.md5,) + itspace + tuple(argdesc) + tuple(consts)
 
     # generic
@@ -717,6 +708,10 @@ class ParLoopCall(object):
     @property
     def _direct_non_scalar_written_args(self):
         return [a for a in self._direct_non_scalar_args if a.access in [WRITE, RW]]
+
+    @property
+    def _has_itspace(self):
+        return len(self._it_space.extents) > 0
 
     @property
     def _matrix_args(self):
@@ -844,7 +839,7 @@ class ParLoopCall(object):
                 available_local_memory -= 7
                 ps = available_local_memory / per_elem_max_local_mem_req
                 wgs = min(_max_work_group_size, (ps / _warpsize) * _warpsize)
-            nwg = min(_pref_work_group_count, int(math.ceil(self._it_set.size / float(wgs))))
+            nwg = min(_pref_work_group_count, int(math.ceil(self._it_space.size / float(wgs))))
             ttc = wgs * nwg
 
             local_memory_req = per_elem_max_local_mem_req * wgs
@@ -878,9 +873,8 @@ class ParLoopCall(object):
 
                 inst.append(i)
 
-            if self._it_space:
-                for i in self._it_space.extents:
-                    inst.append(("__private", None))
+            for i in self._it_space.extents:
+                inst.append(("__private", None))
 
             return self._kernel.instrument(inst, Const._definitions())
 
@@ -935,7 +929,7 @@ class ParLoopCall(object):
             kernel.append_arg(cst._buffer)
 
         if self.is_direct():
-            kernel.append_arg(np.int32(self._it_set.size))
+            kernel.append_arg(np.int32(self._it_space.size))
 
             cl.enqueue_nd_range_kernel(_queue, kernel, (conf['thread_count'],), (conf['work_group_size'],), g_times_l=False).wait()
         else:
@@ -1007,7 +1001,7 @@ class CLKernel (_original_clKernel):
 cl.Kernel = CLKernel
 
 def par_loop(kernel, it_space, *args):
-    ParLoopCall(kernel, it_space, *args).compute()
+    ParLoop(kernel, it_space, *args).compute()
 
 # backend interface:
 def empty_plan_cache():

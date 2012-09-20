@@ -412,7 +412,7 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
 {% for arg in parloop._actual_args if(arg._is_vec_map or arg._uses_itspace) %}
   {{ populate_vec_map(arg) }}
 {% endfor %}
-{% if(parloop._it_space) %}
+{% if(parloop._has_itspace) %}
 {{ matrix_kernel_call() }}
 {% else %}
 {{ parloop._kernel.name }}(
