@@ -61,7 +61,6 @@ class _BackendSelector(type):
     class."""
 
     _backend = void
-    _defaultbackend = sequential
 
     def __new__(cls, name, bases, dct):
         """Inherit Docstrings when creating a class definition. A variation of
@@ -94,9 +93,11 @@ class _BackendSelector(type):
         # Try the selected backend first
         try:
             t = cls._backend.__dict__[cls.__name__]
-        # Fall back to the default (i.e. sequential) backend
-        except KeyError:
-            t = cls._defaultbackend.__dict__[cls.__name__]
+        except KeyError as e:
+            from warnings import warn
+            warn('Backend %s does not appear to implement class %s'
+                 % (cls._backend.__name__, cls.__name__))
+            raise e
         # Invoke the constructor with the arguments given
         return t(*args, **kwargs)
 
