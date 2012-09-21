@@ -112,11 +112,6 @@ class Kernel(op2.Kernel):
         Kernel.Instrument().instrument(ast, self._name, instrument, constants)
         return c_generator.CGenerator().visit(ast)
 
-    @property
-    def md5(self):
-        return md5.new(self._name + self._code).digest()
-
-
 class Arg(op2.Arg):
     """OP2 OpenCL argument type."""
 
@@ -620,13 +615,11 @@ class ParLoop(op2.ParLoop):
                 tuple(inds),
                 tuple(cols))
 
-    @property
-    def _gencode_key(self):
+    def __hash__(self):
         """Canonical representation of a parloop wrt generated code caching."""
-
-        # user kernel: md5 of kernel name and code (same code can contain
+        # user kernel: hash of Kernel [code + name] (same code can contain
         #   multiple user kernels)
-        # iteration space description
+        # hash iteration space description
         # for each actual arg:
         #   its type (dat | gbl | mat)
         #   dtype (required for casts and opencl extensions)
@@ -636,8 +629,7 @@ class ParLoop(op2.ParLoop):
         #     of the dat/map pair) (will tell which arg use which ind/loc maps)
         #     vecmap = -X (size of the map)
         # for vec map arg we need the dimension of the map
-        # consts in alphabetial order: name, dtype (used in user kernel,
-        #   is_scalar (passed as pointed or value)
+        # hash of consts in alphabetial order: name, dtype (used in user kernel)
 
         def argdimacc(arg):
             if self.is_direct():
@@ -670,11 +662,13 @@ class ParLoop(op2.ParLoop):
 
             argdesc.append(d)
 
-        consts = map(lambda c: (c.name, c.dtype, c.cdim == 1),
-                     Const._definitions())
+        hsh = hash(self._kernel)
+        hsh ^= hash(self._it_space)
+        hsh ^= hash(tuple(argdesc))
+        for c in Const._definitions():
+            hsh ^= hash(c)
 
-        itspace = (self._it_space.extents,)
-        return (self._kernel.md5,) + itspace + tuple(argdesc) + tuple(consts)
+        return hsh
 
     # generic
     @property
@@ -879,8 +873,9 @@ class ParLoop(op2.ParLoop):
             return self._kernel.instrument(inst, Const._definitions())
 
         # check cache
-        if _kernel_stub_cache.has_key(self._gencode_key):
-            return _kernel_stub_cache[self._gencode_key]
+        src = op2._parloop_cache.get(hash(self))
+        if src:
+            return src
 
         #do codegen
         user_kernel = instrument_user_kernel()
@@ -894,7 +889,7 @@ class ParLoop(op2.ParLoop):
                                'op2const': Const._definitions()
                               }).encode("ascii")
         self.dump_gen_code(src)
-        _kernel_stub_cache[self._gencode_key] = src
+        op2._parloop_cache[hash(self)] = src
         return src
 
     def compute(self):
@@ -1012,14 +1007,6 @@ def ncached_plans():
     global _plan_cache
     return _plan_cache.nentries
 
-def empty_gencode_cache():
-    global _kernel_stub_cache
-    _kernel_stub_cache = dict()
-
-def ncached_gencode():
-    global _kernel_stub_cache
-    return len(_kernel_stub_cache)
-
 def _setup():
     global _ctx
     global _queue
@@ -1031,7 +1018,6 @@ def _setup():
     global _warpsize
     global _AMD_fixes
     global _plan_cache
-    global _kernel_stub_cache
     global _reduction_task_cache
 
     _ctx = cl.create_some_context()
@@ -1052,7 +1038,6 @@ def _setup():
 
     _AMD_fixes = _queue.device.platform.vendor in ['Advanced Micro Devices, Inc.']
     _plan_cache = OpPlanCache()
-    _kernel_stub_cache = dict()
     _reduction_task_cache = dict()
 
 _debug = False
@@ -1066,7 +1051,6 @@ _has_dpfloat = False
 _warpsize = 0
 _AMD_fixes = False
 _plan_cache = None
-_kernel_stub_cache = None
 _reduction_task_cache = None
 
 _jinja2_env = Environment(loader=PackageLoader("pyop2", "assets"))

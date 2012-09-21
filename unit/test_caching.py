@@ -337,8 +337,8 @@ class TestGeneratedCodeCache:
                        "iter2ind2")
 
     def test_same_args(self, backend, iterset, iter2ind1, x, a):
-        op2._empty_gencode_cache()
-        assert op2._ncached_gencode() == 0
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
 
         kernel_cpy = "void kernel_cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
 
@@ -347,18 +347,18 @@ class TestGeneratedCodeCache:
                      a(op2.IdentityMap, op2.WRITE),
                      x(iter2ind1[0], op2.READ))
 
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
         op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
                      iterset,
                      a(op2.IdentityMap, op2.WRITE),
                      x(iter2ind1[0], op2.READ))
 
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
     def test_diff_kernel(self, backend, iterset, iter2ind1, x, a):
-        op2._empty_gencode_cache()
-        assert op2._ncached_gencode() == 0
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
 
         kernel_cpy = "void kernel_cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
 
@@ -367,7 +367,7 @@ class TestGeneratedCodeCache:
                      a(op2.IdentityMap, op2.WRITE),
                      x(iter2ind1[0], op2.READ))
 
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
         kernel_cpy = "void kernel_cpy(unsigned int* DST, unsigned int* SRC) { *DST = *SRC; }"
 
@@ -376,11 +376,11 @@ class TestGeneratedCodeCache:
                      a(op2.IdentityMap, op2.WRITE),
                      x(iter2ind1[0], op2.READ))
 
-        assert op2._ncached_gencode() == 2
+        assert op2._parloop_cache_size() == 2
 
     def test_invert_arg_similar_shape(self, backend, iterset, iter2ind1, x, y):
-        op2._empty_gencode_cache()
-        assert op2._ncached_gencode() == 0
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
 
         kernel_swap = """
 void kernel_swap(unsigned int* x, unsigned int* y)
@@ -396,18 +396,18 @@ void kernel_swap(unsigned int* x, unsigned int* y)
                      x(iter2ind1[0], op2.RW),
                      y(iter2ind1[0], op2.RW))
 
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
                      y(iter2ind1[0], op2.RW),
                      x(iter2ind1[0], op2.RW))
 
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
     def test_dloop_ignore_scalar(self, backend, iterset, a, b):
-        op2._empty_gencode_cache()
-        assert op2._ncached_gencode() == 0
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
 
         kernel_swap = """
 void kernel_swap(unsigned int* x, unsigned int* y)
@@ -422,17 +422,17 @@ void kernel_swap(unsigned int* x, unsigned int* y)
                      iterset,
                      a(op2.IdentityMap, op2.RW),
                      b(op2.IdentityMap, op2.RW))
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
                      b(op2.IdentityMap, op2.RW),
                      a(op2.IdentityMap, op2.RW))
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
     def test_vector_map(self, backend, iterset, indset, iter2ind1):
-        op2._empty_gencode_cache()
-        assert op2._ncached_gencode() == 0
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
 
         kernel_swap = """
 void kernel_swap(unsigned int* x[2])
@@ -449,13 +449,13 @@ void kernel_swap(unsigned int* x[2])
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
                      d1(iter2ind1, op2.RW))
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
                      d2(iter2ind1, op2.RW))
 
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
 class TestSparsityCache:
     def test_sparsities_differing_maps_share_no_data(self, backend):
