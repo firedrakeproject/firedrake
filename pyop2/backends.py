@@ -36,25 +36,11 @@
 .. warning :: User code should usually set the backend via :func:`pyop2.op2.init`
 """
 
-backends = {}
-try:
-    import cuda
-    backends['cuda'] = cuda
-except ImportError, e:
-    from warnings import warn
-    warn("Unable to import cuda backend: %s" % str(e))
-
-try:
-    import opencl
-    backends['opencl'] = opencl
-except ImportError, e:
-    from warnings import warn
-    warn("Unable to import opencl backend: %s" % str(e))
-
-import sequential
 import void
-
-backends['sequential'] = sequential
+backends = {'void' : void,
+            'cuda' : None,
+            'opencl' : None,
+            'sequential' : None}
 
 class _BackendSelector(type):
     """Metaclass creating the backend class corresponding to the requested
@@ -119,7 +105,20 @@ def set_backend(backend):
         raise RuntimeError("The backend can only be set once!")
     if backend not in backends:
         raise ValueError("backend must be one of %r" % backends.keys())
-    _BackendSelector._backend = backends[backend]
+
+    mod = backends.get(backend)
+    if mod is None:
+        try:
+            # We need to pass a non-empty fromlist so that __import__
+            # returns the submodule (i.e. the backend) rather than the
+            # package.
+            mod = __import__('pyop2.%s' % backend, fromlist=[None])
+        except ImportError as e:
+            from warnings import warn
+            warn('Unable to import backend %s' % backend)
+            raise e
+    backends[backend] = mod
+    _BackendSelector._backend = mod
 
 def unset_backend():
     """Unset the OP2 backend"""
