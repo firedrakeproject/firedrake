@@ -80,3 +80,6 @@ class Map(op2.Map):
 
 def par_loop(kernel, it_space, *args):
     pass
+
+def _setup():
+    pass
