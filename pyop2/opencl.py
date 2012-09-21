@@ -555,7 +555,7 @@ class ParLoop(op2.ParLoop):
     def __init__(self, kernel, it_space, *args):
         op2.ParLoop.__init__(self, kernel, it_space, *args)
         self._args = list()
-        for a in self._actual_args:
+        for a in self.args:
             if a._is_vec_map:
                 for i in range(a.map._dim):
                     self._args.append(Arg(a.data, a.map, i, a.access))
@@ -654,7 +654,7 @@ class ParLoop(op2.ParLoop):
         argdesc = []
         seen = dict()
         c = 0
-        for arg in self._actual_args:
+        for arg in self.args:
             if arg._is_indirect:
                 if not seen.has_key((arg.data,arg.map)):
                     seen[(arg.data,arg.map)] = c
@@ -715,11 +715,11 @@ class ParLoop(op2.ParLoop):
 
     @property
     def _matrix_args(self):
-        return [a for a in self._actual_args if a._is_mat]
+        return [a for a in self.args if a._is_mat]
 
     @property
     def _itspace_args(self):
-        return [a for a in self._actual_args if a._uses_itspace and not a._is_mat]
+        return [a for a in self.args if a._uses_itspace and not a._is_mat]
 
     @property
     def _unique_matrix(self):
@@ -728,7 +728,7 @@ class ParLoop(op2.ParLoop):
     @property
     def _matrix_entry_maps(self):
         """Set of all mappings used in matrix arguments."""
-        return uniquify(m for arg in self._actual_args  if arg._is_mat for m in arg.map)
+        return uniquify(m for arg in self.args  if arg._is_mat for m in arg.map)
 
     @property
     def _indirect_args(self):
@@ -736,7 +736,7 @@ class ParLoop(op2.ParLoop):
 
     @property
     def _vec_map_args(self):
-        return [a for a in self._actual_args if a._is_vec_map]
+        return [a for a in self.args if a._is_vec_map]
 
     @property
     def _dat_map_pairs(self):
@@ -855,7 +855,7 @@ class ParLoop(op2.ParLoop):
         def instrument_user_kernel():
             inst = []
 
-            for arg in self._actual_args:
+            for arg in self.args:
                 i = None
                 if self.is_direct():
                     if (arg._is_direct and arg.data._is_scalar) or\
@@ -967,7 +967,7 @@ class ParLoop(op2.ParLoop):
                 block_offset += blocks_per_grid
 
         # mark !READ data as dirty
-        for arg in self._actual_args:
+        for arg in self.args:
             if arg.access not in [READ]:
                 arg.data._dirty = True
 
