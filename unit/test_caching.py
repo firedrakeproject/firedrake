@@ -438,9 +438,9 @@ void kernel_swap(unsigned int* x, unsigned int* y)
 void kernel_swap(unsigned int* x[2])
 {
   unsigned int t;
-  t = *x[0];
-  *x[0] = *x[1];
-  *x[1] = t;
+  t = x[0][0];
+  x[0][0] = x[0][1];
+  x[0][1] = t;
 }
 """
         d1 = op2.Dat(indset, 2, range(nelems) * 2, numpy.uint32, "d1")
