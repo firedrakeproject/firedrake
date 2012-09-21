@@ -36,7 +36,7 @@ import numpy
 import random
 from pyop2 import op2
 
-backends = ['opencl']
+backends = ['opencl', 'sequential']
 
 def _seed():
     return 0.02041724
@@ -47,6 +47,8 @@ class TestPlanCache:
     """
     Plan Object Cache Tests.
     """
+    # No plan for sequential backend
+    skip_backends = ['sequential']
 
     def pytest_funcarg__iterset(cls, request):
         return op2.Set(nelems, "iterset")
