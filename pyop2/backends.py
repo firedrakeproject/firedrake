@@ -37,10 +37,7 @@
 """
 
 import void
-backends = {'void' : void,
-            'cuda' : None,
-            'opencl' : None,
-            'sequential' : None}
+backends = {'void' : void}
 
 class _BackendSelector(type):
     """Metaclass creating the backend class corresponding to the requested
@@ -103,8 +100,6 @@ def set_backend(backend):
     global _BackendSelector
     if _BackendSelector._backend != void:
         raise RuntimeError("The backend can only be set once!")
-    if backend not in backends:
-        raise ValueError("backend must be one of %r" % backends.keys())
 
     mod = backends.get(backend)
     if mod is None:

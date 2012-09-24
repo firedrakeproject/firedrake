@@ -99,7 +99,7 @@ class TestInitAPI:
 
     def test_invalid_init(self):
         "init should not accept an invalid backend."
-        with pytest.raises(ValueError):
+        with pytest.raises(ImportError):
             op2.init(backend='invalid_backend')
 
     def test_init(self, backend):
