@@ -37,6 +37,7 @@ generated code in order to make it suitable for passing to the backends."""
 from ufl import Form
 from ufl.algorithms import as_form
 from ffc import default_parameters, compile_form as ffc_compile_form
+from ffc import constants
 from ffc.log import set_level, ERROR
 from ffc.jitobject import JITObject
 import re
