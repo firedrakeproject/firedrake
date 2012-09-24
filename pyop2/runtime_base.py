@@ -178,3 +178,7 @@ class Mat(base.Mat):
         if self._lib_handle is None:
             self._lib_handle = core.op_mat(self)
         return self._lib_handle
+
+    def __del__(self):
+        self._lib_handle.__del__()
+        self._lib_handle = None

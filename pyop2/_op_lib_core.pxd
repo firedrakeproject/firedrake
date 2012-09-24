@@ -107,6 +107,8 @@ cdef extern from "op_lib_mat.h":
 
     op_mat op_decl_mat(op_sparsity, int *, int, char *, int, char *)
 
+    void op_mat_destroy(op_mat)
+
     void op_mat_get_values ( op_mat mat, double **v, int *m, int *n)
 
     void op_mat_zero_rows ( op_mat mat, int n, int *rows, double val)
