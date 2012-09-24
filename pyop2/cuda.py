@@ -32,7 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import runtime_base as op2
-from runtime_base import Set
+from runtime_base import Set, IterationSpace, Sparsity
 from utils import verify_reshape
 
 class Kernel(op2.Kernel):
@@ -79,4 +79,7 @@ class Map(op2.Map):
         self._on_device = False
 
 def par_loop(kernel, it_space, *args):
+    pass
+
+def _setup():
     pass

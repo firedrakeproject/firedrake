@@ -36,32 +36,14 @@
 .. warning :: User code should usually set the backend via :func:`pyop2.op2.init`
 """
 
-backends = {}
-try:
-    import cuda
-    backends['cuda'] = cuda
-except ImportError, e:
-    from warnings import warn
-    warn("Unable to import cuda backend: %s" % str(e))
-
-try:
-    import opencl
-    backends['opencl'] = opencl
-except ImportError, e:
-    from warnings import warn
-    warn("Unable to import opencl backend: %s" % str(e))
-
-import sequential
 import void
-
-backends['sequential'] = sequential
+backends = {'void' : void}
 
 class _BackendSelector(type):
     """Metaclass creating the backend class corresponding to the requested
     class."""
 
     _backend = void
-    _defaultbackend = sequential
 
     def __new__(cls, name, bases, dct):
         """Inherit Docstrings when creating a class definition. A variation of
@@ -94,9 +76,11 @@ class _BackendSelector(type):
         # Try the selected backend first
         try:
             t = cls._backend.__dict__[cls.__name__]
-        # Fall back to the default (i.e. sequential) backend
-        except KeyError:
-            t = cls._defaultbackend.__dict__[cls.__name__]
+        except KeyError as e:
+            from warnings import warn
+            warn('Backend %s does not appear to implement class %s'
+                 % (cls._backend.__name__, cls.__name__))
+            raise e
         # Invoke the constructor with the arguments given
         return t(*args, **kwargs)
 
@@ -116,9 +100,20 @@ def set_backend(backend):
     global _BackendSelector
     if _BackendSelector._backend != void:
         raise RuntimeError("The backend can only be set once!")
-    if backend not in backends:
-        raise ValueError("backend must be one of %r" % backends.keys())
-    _BackendSelector._backend = backends[backend]
+
+    mod = backends.get(backend)
+    if mod is None:
+        try:
+            # We need to pass a non-empty fromlist so that __import__
+            # returns the submodule (i.e. the backend) rather than the
+            # package.
+            mod = __import__('pyop2.%s' % backend, fromlist=[None])
+        except ImportError as e:
+            from warnings import warn
+            warn('Unable to import backend %s' % backend)
+            raise e
+    backends[backend] = mod
+    _BackendSelector._backend = mod
 
 def unset_backend():
     """Unset the OP2 backend"""
