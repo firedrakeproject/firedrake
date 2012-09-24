@@ -405,61 +405,53 @@ void kernel_swap(unsigned int* x[2])
         assert op2._parloop_cache_size() == 1
 
 class TestSparsityCache:
-    def test_sparsities_differing_maps_share_no_data(self, backend):
-        """Sparsities with different maps should not share a C handle."""
-        s1 = op2.Set(5)
-        s2 = op2.Set(5)
-        m1 = op2.Map(s1, s2, 1, [1,2,3,4,5])
-        m2 = op2.Map(s1, s2, 1, [2,3,4,5,1])
 
+    def pytest_funcarg__s1(cls, request):
+        return op2.Set(5)
+
+    def pytest_funcarg__s2(cls, request):
+        return op2.Set(5)
+
+    def pytest_funcarg__m1(cls, request):
+        return op2.Map(request.getfuncargvalue('s1'), request.getfuncargvalue('s2'), 1, [1,2,3,4,5])
+
+    def pytest_funcarg__m2(cls, request):
+        return op2.Map(request.getfuncargvalue('s1'), request.getfuncargvalue('s2'), 1, [2,3,4,5,1])
+
+    def test_sparsities_differing_maps_share_no_data(self, backend, m1, m2):
+        """Sparsities with different maps should not share a C handle."""
         sp1 = op2.Sparsity((m1, m1), 1)
         sp2 = op2.Sparsity((m2, m2), 1)
 
         assert sp1._c_handle is not sp2._c_handle
 
-    def test_sparsities_differing_dims_share_no_data(self, backend):
+    def test_sparsities_differing_dims_share_no_data(self, backend, m1):
         """Sparsities with the same maps but different dims should not
         share a C handle."""
-        s1 = op2.Set(5)
-        s2 = op2.Set(5)
-        m1 = op2.Map(s1, s2, 1, [1,2,3,4,5])
-
         sp1 = op2.Sparsity((m1, m1), 1)
         sp2 = op2.Sparsity((m1, m1), 2)
 
         assert sp1._c_handle is not sp2._c_handle
 
-    def test_sparsities_differing_maps_and_dims_share_no_data(self, backend):
+    def test_sparsities_differing_maps_and_dims_share_no_data(self, backend, m1, m2):
         """Sparsities with different maps and dims should not share a
         C handle."""
-        s1 = op2.Set(5)
-        s2 = op2.Set(5)
-        m1 = op2.Map(s1, s2, 1, [1,2,3,4,5])
-        m2 = op2.Map(s1, s2, 1, [2,3,4,5,1])
         sp1 = op2.Sparsity((m1, m1), 2)
         sp2 = op2.Sparsity((m2, m2), 1)
 
         assert sp1._c_handle is not sp2._c_handle
 
-    def test_sparsities_same_map_and_dim_share_data(self, backend):
+    def test_sparsities_same_map_and_dim_share_data(self, backend, m1):
         """Sparsities with the same map and dim should share a C handle."""
-        s1 = op2.Set(5)
-        s2 = op2.Set(5)
-        m1 = op2.Map(s1, s2, 1, [1,2,3,4,5])
-
         sp1 = op2.Sparsity((m1, m1), (1,1))
-        sp2 = op2.Sparsity((m1, m1), 1)
+        sp2 = op2.Sparsity((m1, m1), (1,1))
 
         assert sp1._c_handle is sp2._c_handle
 
-    def test_sparsities_same_map_and_dim_share_data_longhand(self, backend):
+    def test_sparsities_same_map_and_dim_share_data_longhand(self, backend, m1):
         """Sparsities with the same map and dim should share a C handle
 
 Even if we spell the dimension with a shorthand and longhand form."""
-        s1 = op2.Set(5)
-        s2 = op2.Set(5)
-        m1 = op2.Map(s1, s2, 1, [1,2,3,4,5])
-
         sp1 = op2.Sparsity((m1, m1), (1,1))
         sp2 = op2.Sparsity((m1, m1), 1)
 
