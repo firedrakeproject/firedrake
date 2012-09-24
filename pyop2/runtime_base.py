@@ -146,6 +146,9 @@ class Map(base.Map):
         return cls(iterset, dataset, dim[0], values, name)
 
 _sparsity_cache = dict()
+def _empty_sparsity_cache():
+    _sparsity_cache.clear()
+
 class Sparsity(base.Sparsity):
     """OP2 Sparsity, a matrix structure derived from the union of the outer product of pairs of :class:`Map` objects."""
 

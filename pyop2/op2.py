@@ -39,6 +39,7 @@ import op_lib_core as core
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
 from base import _empty_parloop_cache, _parloop_cache_size
+from runtime_base import _empty_sparsity_cache
 
 def init(**kwargs):
     """Initialise OP2: select the backend and potentially other configuration options.
