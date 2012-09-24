@@ -38,7 +38,8 @@ import configuration as cfg
 import op_lib_core as core
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
-
+from base import _empty_parloop_cache, _parloop_cache_size
+from runtime_base import _empty_sparsity_cache
 
 def init(**kwargs):
     """Initialise OP2: select the backend and potentially other configuration options.
@@ -136,9 +137,3 @@ def _empty_plan_cache():
 
 def _ncached_plans():
     return backends._BackendSelector._backend.ncached_plans()
-
-def _empty_gencode_cache():
-    return backends._BackendSelector._backend.empty_gencode_cache()
-
-def _ncached_gencode():
-    return backends._BackendSelector._backend.ncached_gencode()

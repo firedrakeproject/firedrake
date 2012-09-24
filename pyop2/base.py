@@ -58,6 +58,9 @@ class Access(object):
     def __repr__(self):
         return "Access('%s')" % self._mode
 
+    def __hash__(self):
+        return hash(self._mode)
+
 READ  = Access("READ")
 """The :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed read-only."""
 
@@ -97,6 +100,21 @@ class Arg(object):
     def __repr__(self):
         return "Arg(%r, %r, %r, %r)" % \
                    (self._dat, self._map, self._idx, self._access)
+
+    def __hash__(self):
+        hsh = hash(self._dat.__class__)
+        hsh ^= hash(self._dat.dtype)
+        if self._is_mat:
+            hsh ^= hash(self._dat.dims)
+        else:
+            hsh ^= hash(self._dat.dim)
+        hsh ^= hash(self._access)
+        if self._is_mat:
+            for m in self._map:
+                hsh ^= hash(m)
+        else:
+            hsh ^= hash(self._map)
+        return hsh
 
     @property
     def data(self):
@@ -207,6 +225,9 @@ class Set(object):
         """User-defined label"""
         return self._name
 
+    def __hash__(self):
+        return hash(self._size) ^ hash(self._name)
+
     def __str__(self):
         return "OP2 Set: %s with size %s" % (self._name, self._size)
 
@@ -249,7 +270,13 @@ class IterationSpace(object):
         return [e for e in self.extents]
 
     def __str__(self):
-        return "OP2 Iteration Space: %s with extents %s" % self._extents
+        return "OP2 Iteration Space: %s with extents %s" % (self._iterset, self._extents)
+
+    def __hash__(self):
+        hsh = hash(self._iterset)
+        for e in self.extents:
+            hsh ^= hash(e)
+        return hsh
 
     def __repr__(self):
         return "IterationSpace(%r, %r)" % (self._iterset, self._extents)
@@ -409,16 +436,22 @@ class Const(DataCarrier):
         return "OP2 Const: %s of dim %s and type %s with value %s" \
                % (self._name, self._dim, self._data.dtype.name, self._data)
 
+    def __hash__(self):
+        return hash(self._name) ^ hash(self.dtype) ^ hash(self.cdim)
+
     def __repr__(self):
         return "Const(%s, %s, '%s')" \
                % (self._dim, self._data, self._name)
+
+    @classmethod
+    def _definitions(cls):
+        return sorted(Const._defs, key=lambda c: c.name)
 
     def remove_from_namespace(self):
         """Remove this Const object from the namespace
 
         This allows the same name to be redeclared with a different shape."""
-        if self in Const._defs:
-            Const._defs.remove(self)
+        Const._defs.discard(self)
 
     def _format_for_c(self):
         d = {'type' : self.ctype,
@@ -495,6 +528,12 @@ class IterationIndex(object):
 
     def __getitem__(self, idx):
         return IterationIndex(idx)
+
+    # This is necessary so that we can convert an IterationIndex to a
+    # tuple.  Because, __getitem__ returns a new IterationIndex
+    # we have to explicitly provide an iterable interface
+    def __iter__(self):
+        yield self
 
 i = IterationIndex()
 """Shorthand for constructing :class:`IterationIndex` objects.
@@ -578,6 +617,9 @@ class Map(object):
     def name(self):
         """User-defined label"""
         return self._name
+
+    def __hash__(self):
+        return hash(self._iterset) ^ hash(self._dataset) ^ hash(self._dim)
 
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with dim %s" \
@@ -761,8 +803,47 @@ class Kernel(object):
         code must conform to the OP2 user kernel API."""
         return self._code
 
+    def __hash__(self):
+        import md5
+        return hash(md5.new(self._code + self._name).digest())
+
     def __str__(self):
         return "OP2 Kernel: %s" % self._name
 
     def __repr__(self):
         return 'Kernel("""%s""", "%s")' % (self._code, self._name)
+
+_parloop_cache = dict()
+
+def _empty_parloop_cache():
+    _parloop_cache.clear()
+
+def _parloop_cache_size():
+    return len(_parloop_cache)
+
+class ParLoop(object):
+    def __init__(self, kernel, itspace, *args):
+        self._kernel = kernel
+        if isinstance(itspace, IterationSpace):
+            self._it_space = itspace
+        else:
+            self._it_space = IterationSpace(itspace)
+        self._actual_args = list(args)
+
+    def generate_code(self):
+        raise RuntimeError('Must select a backend')
+
+    @property
+    def args(self):
+        return self._actual_args
+
+    def __hash__(self):
+        hsh = hash(self._kernel)
+        hsh ^= hash(self._it_space)
+        for arg in self.args:
+            hsh ^= hash(arg)
+
+        for c in Const._definitions():
+            hsh ^= hash(c)
+
+        return hsh

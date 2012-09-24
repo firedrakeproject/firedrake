@@ -35,8 +35,9 @@
 generated code in order to make it suitable for passing to the backends."""
 
 from ufl import Form
-from ufl.algorithms import preprocess, as_form
+from ufl.algorithms import as_form
 from ffc import default_parameters, compile_form as ffc_compile_form
+from ffc import constants
 from ffc.log import set_level, ERROR
 from ffc.jitobject import JITObject
 import re
@@ -57,13 +58,18 @@ def compile_form(form, name):
     # Silence FFC
     set_level(ERROR)
 
-    # Use an FFC JIT object for the key to iron out spurious differences in
-    # coefficient/index counts etc.
-    key = JITObject(form, preprocess(form).preprocessed_form, ffc_parameters, None)
+    # As of UFL 1.0.0-2 a form signature is stable w.r.t. to Coefficient/Index
+    # counts
+    key = form.signature()
     # Check the cache first: this saves recompiling the form for every time
     # step in time-varying problems
-    code = _form_cache.get(key)
-    if not code:
+    code, form_data = _form_cache.get(key, (None, None))
+    if not (code and form_data):
         code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
-        _form_cache[key] = code
+        form_data = form.form_data()
+        _form_cache[key] = code, form_data
+
+    # Attach the form data FFC has computed for our form (saves preprocessing
+    # the form later on)
+    form._form_data = form_data
     return code

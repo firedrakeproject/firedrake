@@ -68,7 +68,7 @@ reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid
 {%- macro kernel_call() -%}
 {{ parloop._kernel.name }}(
 {%- filter trim|replace("\n", ", ") -%}
-{%- for arg in parloop._actual_args -%}
+{%- for arg in parloop.args -%}
 {{ kernel_call_arg(arg) }}
 {% endfor -%}
 {{ kernel_call_const_args() }}

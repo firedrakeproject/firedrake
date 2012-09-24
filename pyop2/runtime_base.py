@@ -38,8 +38,9 @@ import numpy as np
 from exceptions import *
 from utils import *
 import base
-from base import READ, WRITE, RW, INC, MIN, MAX, IterationSpace, DataCarrier, \
-    IterationIndex, i, IdentityMap, Kernel
+from base import READ, WRITE, RW, INC, MIN, MAX, IterationSpace
+from base import DataCarrier, IterationIndex, i, IdentityMap, Kernel
+from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 import op_lib_core as core
 from pyop2.utils import OP2_INC, OP2_LIB
 
@@ -144,13 +145,19 @@ class Map(base.Map):
             raise DimTypeError("Unrecognised dimension value %s" % dim)
         return cls(iterset, dataset, dim[0], values, name)
 
+_sparsity_cache = dict()
+def _empty_sparsity_cache():
+    _sparsity_cache.clear()
+
 class Sparsity(base.Sparsity):
     """OP2 Sparsity, a matrix structure derived from the union of the outer product of pairs of :class:`Map` objects."""
 
     @property
     def _c_handle(self):
         if self._lib_handle is None:
-            self._lib_handle = core.op_sparsity(self)
+            key = (self._rmaps, self._cmaps, self._dims)
+            self._lib_handle = _sparsity_cache.get(key) or core.op_sparsity(self)
+            _sparsity_cache[key] = self._lib_handle
         return self._lib_handle
 
 class Mat(base.Mat):
@@ -181,3 +188,7 @@ class Mat(base.Mat):
     def __del__(self):
         self._lib_handle.__del__()
         self._lib_handle = None
+
+class ParLoop(base.ParLoop):
+    def compute(self):
+        raise RuntimeError('Must select a backend')

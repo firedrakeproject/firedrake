@@ -373,7 +373,7 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
 {% endfor %}
 {{ parloop._kernel.name }}(
   {% filter trim|replace("\n", ",\n") -%}
-  {%- for arg in parloop._actual_args %}
+  {%- for arg in parloop.args %}
   {{ kernel_call_arg(arg) }}
   {%- endfor -%}
   {{- kernel_call_const_args() -}}
@@ -409,15 +409,15 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
 {%- endmacro -%}
 
 {%- macro kernel_call() -%}
-{% for arg in parloop._actual_args if(arg._is_vec_map or arg._uses_itspace) %}
+{% for arg in parloop.args if(arg._is_vec_map or arg._uses_itspace) %}
   {{ populate_vec_map(arg) }}
 {% endfor %}
-{% if(parloop._it_space) %}
+{% if(parloop._has_itspace) %}
 {{ matrix_kernel_call() }}
 {% else %}
 {{ parloop._kernel.name }}(
   {% filter trim|replace("\n", ",\n") -%}
-  {%- for arg in parloop._actual_args -%}
+  {%- for arg in parloop.args -%}
   {{ kernel_call_arg(arg) }}
   {% endfor -%}
   {{ kernel_call_const_args() }}

@@ -34,25 +34,77 @@
 import pytest
 import numpy
 import random
-from pyop2 import op2
+from pyop2 import op2, ffc_interface
+from ufl import *
 
-backends = ['opencl']
+backends = ['opencl', 'sequential']
 
 def _seed():
     return 0.02041724
 
 nelems = 2048
 
+def pytest_funcarg__iterset(request):
+    return op2.Set(nelems, "iterset")
+
+def pytest_funcarg__indset(request):
+    return op2.Set(nelems, "indset")
+
+def pytest_funcarg__g(request):
+    return op2.Global(1, 0, numpy.uint32, "g")
+
+def pytest_funcarg__x(request):
+    return op2.Dat(request.getfuncargvalue('indset'),
+                   1,
+                   range(nelems),
+                   numpy.uint32,
+                   "x")
+
+def pytest_funcarg__x2(request):
+    return op2.Dat(request.getfuncargvalue('indset'),
+                   2,
+                   range(nelems) * 2,
+                   numpy.uint32,
+                   "x2")
+
+def pytest_funcarg__xl(request):
+    return op2.Dat(request.getfuncargvalue('indset'),
+                   1,
+                   range(nelems),
+                   numpy.uint64,
+                   "xl")
+
+def pytest_funcarg__y(request):
+    return op2.Dat(request.getfuncargvalue('indset'),
+                   1,
+                   [0] * nelems,
+                   numpy.uint32,
+                   "y")
+
+def pytest_funcarg__iter2ind1(request):
+    u_map = numpy.array(range(nelems), dtype=numpy.uint32)
+    random.shuffle(u_map, _seed)
+    return op2.Map(request.getfuncargvalue('iterset'),
+                   request.getfuncargvalue('indset'),
+                   1,
+                   u_map,
+                   "iter2ind1")
+
+def pytest_funcarg__iter2ind2(request):
+    u_map = numpy.array(range(nelems) * 2, dtype=numpy.uint32)
+    random.shuffle(u_map, _seed)
+    return op2.Map(request.getfuncargvalue('iterset'),
+                   request.getfuncargvalue('indset'),
+                   2,
+                   u_map,
+                   "iter2ind2")
+
 class TestPlanCache:
     """
     Plan Object Cache Tests.
     """
-
-    def pytest_funcarg__iterset(cls, request):
-        return op2.Set(nelems, "iterset")
-
-    def pytest_funcarg__indset(cls, request):
-        return op2.Set(nelems, "indset")
+    # No plan for sequential backend
+    skip_backends = ['sequential']
 
     def pytest_funcarg__a64(cls, request):
         return op2.Dat(request.getfuncargvalue('iterset'),
@@ -60,55 +112,6 @@ class TestPlanCache:
                        range(nelems),
                        numpy.uint64,
                        "a")
-
-    def pytest_funcarg__g(cls, request):
-        return op2.Global(1, 0, numpy.uint32, "g")
-
-    def pytest_funcarg__x(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       1,
-                       range(nelems),
-                       numpy.uint32,
-                       "x")
-
-    def pytest_funcarg__x2(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       2,
-                       range(nelems) * 2,
-                       numpy.uint32,
-                       "x2")
-
-    def pytest_funcarg__xl(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       1,
-                       range(nelems),
-                       numpy.uint64,
-                       "xl")
-
-    def pytest_funcarg__y(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       1,
-                       [0] * nelems,
-                       numpy.uint32,
-                       "y")
-
-    def pytest_funcarg__iter2ind1(cls, request):
-        u_map = numpy.array(range(nelems), dtype=numpy.uint32)
-        random.shuffle(u_map, _seed)
-        return op2.Map(request.getfuncargvalue('iterset'),
-                       request.getfuncargvalue('indset'),
-                       1,
-                       u_map,
-                       "iter2ind1")
-
-    def pytest_funcarg__iter2ind2(cls, request):
-        u_map = numpy.array(range(nelems) * 2, dtype=numpy.uint32)
-        random.shuffle(u_map, _seed)
-        return op2.Map(request.getfuncargvalue('iterset'),
-                       request.getfuncargvalue('indset'),
-                       2,
-                       u_map,
-                       "iter2ind2")
 
     def test_same_arg(self, backend, iterset, iter2ind1, x):
         op2._empty_plan_cache()
@@ -267,12 +270,6 @@ class TestGeneratedCodeCache:
     Generated Code Cache Tests.
     """
 
-    def pytest_funcarg__iterset(cls, request):
-        return op2.Set(nelems, "iterset")
-
-    def pytest_funcarg__indset(cls, request):
-        return op2.Set(nelems, "indset")
-
     def pytest_funcarg__a(cls, request):
         return op2.Dat(request.getfuncargvalue('iterset'),
                        1,
@@ -287,58 +284,9 @@ class TestGeneratedCodeCache:
                        numpy.uint32,
                        "b")
 
-    def pytest_funcarg__g(cls, request):
-        return op2.Global(1, 0, numpy.uint32, "g")
-
-    def pytest_funcarg__x(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       1,
-                       range(nelems),
-                       numpy.uint32,
-                       "x")
-
-    def pytest_funcarg__x2(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       2,
-                       range(nelems) * 2,
-                       numpy.uint32,
-                       "x2")
-
-    def pytest_funcarg__xl(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       1,
-                       range(nelems),
-                       numpy.uint64,
-                       "xl")
-
-    def pytest_funcarg__y(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'),
-                       1,
-                       [0] * nelems,
-                       numpy.uint32,
-                       "y")
-
-    def pytest_funcarg__iter2ind1(cls, request):
-        u_map = numpy.array(range(nelems), dtype=numpy.uint32)
-        random.shuffle(u_map, _seed)
-        return op2.Map(request.getfuncargvalue('iterset'),
-                       request.getfuncargvalue('indset'),
-                       1,
-                       u_map,
-                       "iter2ind1")
-
-    def pytest_funcarg__iter2ind2(cls, request):
-        u_map = numpy.array(range(nelems) * 2, dtype=numpy.uint32)
-        random.shuffle(u_map, _seed)
-        return op2.Map(request.getfuncargvalue('iterset'),
-                       request.getfuncargvalue('indset'),
-                       2,
-                       u_map,
-                       "iter2ind2")
-
     def test_same_args(self, backend, iterset, iter2ind1, x, a):
-        op2._empty_gencode_cache()
-        assert op2._ncached_gencode() == 0
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
 
         kernel_cpy = "void kernel_cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
 
@@ -347,18 +295,18 @@ class TestGeneratedCodeCache:
                      a(op2.IdentityMap, op2.WRITE),
                      x(iter2ind1[0], op2.READ))
 
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
         op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
                      iterset,
                      a(op2.IdentityMap, op2.WRITE),
                      x(iter2ind1[0], op2.READ))
 
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
     def test_diff_kernel(self, backend, iterset, iter2ind1, x, a):
-        op2._empty_gencode_cache()
-        assert op2._ncached_gencode() == 0
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
 
         kernel_cpy = "void kernel_cpy(unsigned int* dst, unsigned int* src) { *dst = *src; }"
 
@@ -367,7 +315,7 @@ class TestGeneratedCodeCache:
                      a(op2.IdentityMap, op2.WRITE),
                      x(iter2ind1[0], op2.READ))
 
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
         kernel_cpy = "void kernel_cpy(unsigned int* DST, unsigned int* SRC) { *DST = *SRC; }"
 
@@ -376,11 +324,11 @@ class TestGeneratedCodeCache:
                      a(op2.IdentityMap, op2.WRITE),
                      x(iter2ind1[0], op2.READ))
 
-        assert op2._ncached_gencode() == 2
+        assert op2._parloop_cache_size() == 2
 
     def test_invert_arg_similar_shape(self, backend, iterset, iter2ind1, x, y):
-        op2._empty_gencode_cache()
-        assert op2._ncached_gencode() == 0
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
 
         kernel_swap = """
 void kernel_swap(unsigned int* x, unsigned int* y)
@@ -396,18 +344,18 @@ void kernel_swap(unsigned int* x, unsigned int* y)
                      x(iter2ind1[0], op2.RW),
                      y(iter2ind1[0], op2.RW))
 
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
                      y(iter2ind1[0], op2.RW),
                      x(iter2ind1[0], op2.RW))
 
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
     def test_dloop_ignore_scalar(self, backend, iterset, a, b):
-        op2._empty_gencode_cache()
-        assert op2._ncached_gencode() == 0
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
 
         kernel_swap = """
 void kernel_swap(unsigned int* x, unsigned int* y)
@@ -422,25 +370,25 @@ void kernel_swap(unsigned int* x, unsigned int* y)
                      iterset,
                      a(op2.IdentityMap, op2.RW),
                      b(op2.IdentityMap, op2.RW))
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
                      b(op2.IdentityMap, op2.RW),
                      a(op2.IdentityMap, op2.RW))
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
     def test_vector_map(self, backend, iterset, indset, iter2ind1):
-        op2._empty_gencode_cache()
-        assert op2._ncached_gencode() == 0
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
 
         kernel_swap = """
 void kernel_swap(unsigned int* x[2])
 {
   unsigned int t;
-  t = *x[0];
-  *x[0] = *x[1];
-  *x[1] = t;
+  t = x[0][0];
+  x[0][0] = x[0][1];
+  x[0][1] = t;
 }
 """
         d1 = op2.Dat(indset, 2, range(nelems) * 2, numpy.uint32, "d1")
@@ -449,14 +397,98 @@ void kernel_swap(unsigned int* x[2])
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
                      d1(iter2ind1, op2.RW))
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
                      d2(iter2ind1, op2.RW))
 
-        assert op2._ncached_gencode() == 1
+        assert op2._parloop_cache_size() == 1
 
+class TestSparsityCache:
+
+    def pytest_funcarg__s1(cls, request):
+        return op2.Set(5)
+
+    def pytest_funcarg__s2(cls, request):
+        return op2.Set(5)
+
+    def pytest_funcarg__m1(cls, request):
+        return op2.Map(request.getfuncargvalue('s1'), request.getfuncargvalue('s2'), 1, [1,2,3,4,5])
+
+    def pytest_funcarg__m2(cls, request):
+        return op2.Map(request.getfuncargvalue('s1'), request.getfuncargvalue('s2'), 1, [2,3,4,5,1])
+
+    def test_sparsities_differing_maps_share_no_data(self, backend, m1, m2):
+        """Sparsities with different maps should not share a C handle."""
+        sp1 = op2.Sparsity((m1, m1), 1)
+        sp2 = op2.Sparsity((m2, m2), 1)
+
+        assert sp1._c_handle is not sp2._c_handle
+
+    def test_sparsities_differing_dims_share_no_data(self, backend, m1):
+        """Sparsities with the same maps but different dims should not
+        share a C handle."""
+        sp1 = op2.Sparsity((m1, m1), 1)
+        sp2 = op2.Sparsity((m1, m1), 2)
+
+        assert sp1._c_handle is not sp2._c_handle
+
+    def test_sparsities_differing_maps_and_dims_share_no_data(self, backend, m1, m2):
+        """Sparsities with different maps and dims should not share a
+        C handle."""
+        sp1 = op2.Sparsity((m1, m1), 2)
+        sp2 = op2.Sparsity((m2, m2), 1)
+
+        assert sp1._c_handle is not sp2._c_handle
+
+    def test_sparsities_same_map_and_dim_share_data(self, backend, m1):
+        """Sparsities with the same map and dim should share a C handle."""
+        sp1 = op2.Sparsity((m1, m1), (1,1))
+        sp2 = op2.Sparsity((m1, m1), (1,1))
+
+        assert sp1._c_handle is sp2._c_handle
+
+    def test_sparsities_same_map_and_dim_share_data_longhand(self, backend, m1):
+        """Sparsities with the same map and dim should share a C handle
+
+Even if we spell the dimension with a shorthand and longhand form."""
+        sp1 = op2.Sparsity((m1, m1), (1,1))
+        sp2 = op2.Sparsity((m1, m1), 1)
+
+        assert sp1._c_handle is sp2._c_handle
+
+@pytest.mark.xfail("not hasattr(ffc_interface.constants, 'PYOP2_VERSION')")
+class TestFFCCache:
+    """FFC code generation cache tests."""
+
+    def pytest_funcarg__mass(cls, request):
+        e = FiniteElement('CG', triangle, 1)
+        u = TestFunction(e)
+        v = TrialFunction(e)
+        return u*v*dx
+
+    def pytest_funcarg__mass2(cls, request):
+        e = FiniteElement('CG', triangle, 2)
+        u = TestFunction(e)
+        v = TrialFunction(e)
+        return u*v*dx
+
+    def test_ffc_same_form(self, backend, mass):
+        """Compiling the same form twice should load the generated code from
+        cache."""
+        c1 = ffc_interface.compile_form(mass, 'mass')
+        c2 = ffc_interface.compile_form(mass, 'mass')
+
+        assert c1 is c2
+
+    def test_ffc_different_forms(self, backend, mass, mass2):
+        """Compiling different forms should not load generated code from
+        cache."""
+        c1 = ffc_interface.compile_form(mass, 'mass')
+        c2 = ffc_interface.compile_form(mass2, 'mass')
+
+        assert c1 is not c2
 
 if __name__ == '__main__':
     import os
