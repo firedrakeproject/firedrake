@@ -54,8 +54,7 @@ class Arg(base.Arg):
     @property
     def _c_handle(self):
         if self._lib_handle is None:
-            self._lib_handle = core.op_arg(self, dat=isinstance(self._dat, Dat),
-                                         gbl=isinstance(self._dat, Global))
+            self._lib_handle = core.op_arg(self)
         return self._lib_handle
 
 class Set(base.Set):

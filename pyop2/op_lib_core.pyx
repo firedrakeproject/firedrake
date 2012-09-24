@@ -96,6 +96,7 @@ Cleanup of C level datastructures is currently not handled.
 
 from libc.stdlib cimport malloc, free
 from libc.stdint cimport uintptr_t
+import base
 import numpy as np
 cimport numpy as np
 cimport _op_lib_core as core
@@ -325,15 +326,8 @@ cdef class op_mat:
 
 cdef class op_arg:
     cdef core.op_arg _handle
-    def __cinit__(self, arg, dat=False, gbl=False):
-        """Instantiate a C-level op_arg from ARG
-
-If DAT is True, this arg is actually an op_dat.
-If GBL is True, this arg is actually an op_gbl.
-
-The reason we have to pass these extra arguments in is because we
-can't import sequential into this file, and hence cannot do
-isinstance(arg, Dat)."""
+    def __cinit__(self, arg):
+        """Instantiate a C-level op_arg from ARG."""
         cdef int idx
         cdef op_map map
         cdef core.op_map _map
@@ -343,11 +337,6 @@ isinstance(arg, Dat)."""
         cdef core.op_access acc
         cdef np.ndarray data
         cdef op_dat _dat
-        if not (dat or gbl):
-            raise RuntimeError("Must tell me what type of arg this is")
-
-        if dat and gbl:
-            raise RuntimeError("An argument cannot be both a Dat and Global!")
 
         # Map Python-layer access descriptors down to C enum
         acc = {'READ'  : core.OP_READ,
@@ -357,7 +346,7 @@ isinstance(arg, Dat)."""
                'MIN'   : core.OP_MIN,
                'MAX'   : core.OP_MAX}[arg.access._mode]
 
-        if dat:
+        if isinstance(arg.data, base.Dat):
             _dat = arg.data._c_handle
             if arg._is_indirect:
                 idx = arg.idx
@@ -370,7 +359,7 @@ isinstance(arg, Dat)."""
             type = arg.ctype
             self._handle = core.op_arg_dat_core(_dat._handle, idx, _map,
                                                 dim, type, acc)
-        elif gbl:
+        elif isinstance(arg.data, base.Global):
             dim = arg.data.cdim
             size = arg.data.data.size/dim
             type = arg.ctype
