@@ -2,7 +2,7 @@
 <testproblem>
   <name>mass2d</name>
   <owner userid="grm08"/>
-  <tags></tags>
+  <tags>pyop2</tags>
   <problem_definition length="short" nprocs="1">
     <command_line>python demo/mass2d_ffc.py --save-output</command_line>
   </problem_definition>
