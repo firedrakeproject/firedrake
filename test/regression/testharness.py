@@ -18,8 +18,9 @@ except ImportError:
   import elementtree.ElementTree as etree
 
 class TestHarness:
-    def __init__(self, length="any", parallel=False, exclude_tags=None, tags=None, file="", verbose=True, justtest=False,
-        valgrind=False):
+    def __init__(self, length="any", parallel=False, exclude_tags=None,
+                 tags=None, file="", verbose=True, justtest=False,
+                 valgrind=False, backend=None):
         self.tests = []
         self.verbose = verbose
         self.length = length
@@ -31,7 +32,7 @@ class TestHarness:
         self.completed_tests = []
         self.justtest = justtest
         self.valgrind = valgrind
-
+        self.backend = backend
         if file == "":
           print "Test criteria:"
           print "-" * 80
@@ -68,11 +69,19 @@ class TestHarness:
 
         # step 2. if the user has specified a particular file, let's use that.
 
+        def should_add_backend_to_commandline(subdir, xml_file):
+            f = os.path.join(subdir, xml_file)
+            ret = self.backend is not None
+            return ret and 'pyop2' in get_xml_file_tags(f)
+
         if file != "":
           for (subdir, xml_file) in [os.path.split(x) for x in xml_files]:
             if xml_file == file:
               testprob = regressiontest.TestProblem(filename=os.path.join(subdir, xml_file),
                            verbose=self.verbose, replace=self.modify_command_line())
+
+              if should_add_backend_to_commandline(subdir, xml_file):
+                  testprob.command_line += " --backend=%s" % self.backend
               self.tests = [(subdir, testprob)]
               return
           print "Could not find file %s." % file
@@ -138,6 +147,8 @@ class TestHarness:
         for (subdir, xml_file) in [os.path.split(x) for x in tagged_set]:
           testprob = regressiontest.TestProblem(filename=os.path.join(subdir, xml_file),
                        verbose=self.verbose, replace=self.modify_command_line())
+          if should_add_backend_to_commandline(subdir, xml_file):
+              testprob.command_line += " --backend=%s" % self.backend
           self.tests.append((subdir, testprob))
 
         if len(self.tests) == 0:
@@ -275,6 +286,8 @@ if __name__ == "__main__":
     parser.add_option("-l", "--length", dest="length", help="length of problem (default=short)", default="any")
     parser.add_option("-p", "--parallelism", dest="parallel", help="parallelism of problem (default=serial)",
                       default="serial")
+    parser.add_option("-b", "--backend", dest="backend", help="Which code generation backend to test (default=sequential)",
+                      default=None)
     parser.add_option("-e", "--exclude-tags", dest="exclude_tags", help="run only tests that do not have specific tags (takes precidence over -t)", default=[], action="append")
     parser.add_option("-t", "--tags", dest="tags", help="run tests with specific tags", default=[], action="append")
     parser.add_option("-f", "--file", dest="file", help="specific test case to run (by filename)", default="")
@@ -317,8 +330,12 @@ if __name__ == "__main__":
     else:
       tags = options.tags
 
-    testharness = TestHarness(length=options.length, parallel=para, exclude_tags=exclude_tags, tags=tags, file=options.file, verbose=True,
-        justtest=options.justtest, valgrind=options.valgrind)
+    testharness = TestHarness(length=options.length, parallel=para,
+                              exclude_tags=exclude_tags, tags=tags,
+                              file=options.file, verbose=True,
+                              justtest=options.justtest,
+                              valgrind=options.valgrind,
+                              backend=options.backend)
 
     if options.justlist:
       testharness.list()
