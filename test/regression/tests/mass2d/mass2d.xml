@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>mass2d</name>
+  <owner userid="grm08"/>
+  <tags></tags>
+  <problem_definition length="short" nprocs="1">
+    <command_line>python demo/mass2d_ffc.py --save-output</command_line>
+  </problem_definition>
+  <variables>
+    <variable name="diffsum" language="python">import pickle
+with open("mass2d.out", "r") as f:
+    f_vals, x_vals = pickle.load(f)
+diffsum = sum(abs(f_vals-x_vals))
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="Error sum." language="python">assert diffsum &lt; 1.0e-12</test>
+  </pass_tests>
+  <warn_tests/>
+</testproblem>
