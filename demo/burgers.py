@@ -92,11 +92,8 @@ v = TestFunction(V)
 a = (dot(u,grad(u_next))*v + nu*grad(u_next)*grad(v))*dx
 L = v*u*dx
 
-burgers_code = compile_form(a, "burgers")
-rhs_code = compile_form(L, "rhs")
-
-burgers = op2.Kernel(burgers_code, "burgers_cell_integral_0_0")
-rhs = op2.Kernel(rhs_code, "rhs_cell_integral_0_0")
+burgers, _, _ = compile_form(a, "burgers")
+rhs, _, _ = compile_form(L, "rhs")
 
 # Initial condition
 

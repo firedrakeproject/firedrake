@@ -71,11 +71,8 @@ L = v*f*dx
 
 # Generate code for mass and rhs assembly.
 
-mass_code = compile_form(a, "mass")
-rhs_code  = compile_form(L, "rhs")
-
-mass = op2.Kernel(mass_code, "mass_cell_integral_0_0")
-rhs  = op2.Kernel(rhs_code,  "rhs_cell_integral_0_0" )
+mass, _, _ = compile_form(a, "mass")
+rhs, _, _  = compile_form(L, "rhs")
 
 # Set up simulation data structures
 

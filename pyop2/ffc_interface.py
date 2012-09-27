@@ -42,6 +42,8 @@ from ffc.log import set_level, ERROR
 from ffc.jitobject import JITObject
 import re
 
+from op2 import Kernel
+
 _form_cache = {}
 
 def compile_form(form, name):
@@ -63,13 +65,23 @@ def compile_form(form, name):
     key = form.signature()
     # Check the cache first: this saves recompiling the form for every time
     # step in time-varying problems
-    code, form_data = _form_cache.get(key, (None, None))
-    if not (code and form_data):
+    kernels, form_data = _form_cache.get(key, (None, None))
+    if form_data is None:
         code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
         form_data = form.form_data()
-        _form_cache[key] = code, form_data
+
+        # FIXME: This breaks if the form contains > 1 domain of a particular kind
+        cell = Kernel(code, name + '_cell_integral_0_0') \
+                if form_data.num_cell_domains > 0 else None
+        interior_facet = Kernel(code, name + '_interior_facet_integral_0_0') \
+                if form_data.num_interior_facet_domains > 0 else None
+        exterior_facet = Kernel(code, name + '_exterior_facet_integral_0_0') \
+                if form_data.num_exterior_facet_domains > 0 else None
+
+        kernels = (cell, interior_facet, exterior_facet)
+        _form_cache[key] = kernels, form_data
 
     # Attach the form data FFC has computed for our form (saves preprocessing
     # the form later on)
     form._form_data = form_data
-    return code
+    return kernels
