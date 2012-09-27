@@ -130,7 +130,7 @@ class Arg(object):
 
     @property
     def _is_soa(self):
-        return isinstance(self._dat, Dat) and self._dat.soa
+        return self._is_dat and self._dat.soa
 
     @property
     def _is_vec_map(self):
