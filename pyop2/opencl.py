@@ -946,6 +946,15 @@ class ParLoop(op2.ParLoop):
         for cst in Const._definitions():
             kernel.append_arg(cst._buffer)
 
+        for m in self._unique_matrix:
+            kernel.append_arg(m._dev_array)
+            m._upload_array()
+            kernel.append_arg(m._dev_rowptr)
+            kernel.append_arg(m._dev_colidx)
+
+        for m in self._matrix_entry_maps:
+            kernel.append_arg(m._buffer)
+
         if self.is_direct():
             kernel.append_arg(np.int32(self._it_space.size))
 
@@ -956,15 +965,6 @@ class ParLoop(op2.ParLoop):
 
             for i in range(plan.nuinds):
                 kernel.append_arg(plan._loc_map_buffers[i])
-
-            for m in self._unique_matrix:
-                kernel.append_arg(m._dev_array)
-                m._upload_array()
-                kernel.append_arg(m._dev_rowptr)
-                kernel.append_arg(m._dev_colidx)
-
-            for m in self._matrix_entry_maps:
-                kernel.append_arg(m._buffer)
 
             kernel.append_arg(plan._ind_sizes_buffer)
             kernel.append_arg(plan._ind_offs_buffer)
