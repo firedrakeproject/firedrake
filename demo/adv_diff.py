@@ -56,6 +56,7 @@ parser = utils.parser(group=True, description="PyOP2 P1 advection-diffusion demo
 parser.add_argument('-m', '--mesh',
                     action='store',
                     type=str,
+                    required=True,
                     help='Base name of triangle mesh (excluding the .ele or .node extension)')
 opt = vars(parser.parse_args())
 op2.init(**opt)

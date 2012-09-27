@@ -53,6 +53,7 @@ parser = utils.parser(group=True, description="PyOP2 2D mass equation demo")
 parser.add_argument('-m', '--mesh',
                     action='store',
                     type=str,
+                    required=True,
                     help='Base name of triangle mesh (excluding the .ele or .node extension)')
 opt = vars(parser.parse_args())
 op2.init(**opt)
