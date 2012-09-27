@@ -43,6 +43,9 @@ import pylab
 
 parser = utils.parser(group=True,
                       description="Burgers equation demo (unstable forward-Euler integration)")
+parser.add_argument('-p', '--plot',
+                    action='store_true',
+                    help='Plot the resulting L2 error norm')
 
 opt = vars(parser.parse_args())
 op2.init(**opt)
@@ -197,5 +200,6 @@ while normsq.data[0] > tolsq:
 
     print "L2 Norm squared: %s" % normsq.data[0]
 
-pylab.plot(coords.data, tracer.data)
-pylab.show()
+if opt['plot']:
+    pylab.plot(coords.data, tracer.data)
+    pylab.show()
