@@ -1,0 +1,91 @@
+{%- macro stagein(arg) -%}
+for (int idx = 0; idx < {{ arg.data.cdim }}; ++idx) {
+    {{ arg.data.name }}_shared[thread_id + idx * active_threads_count] = {{ arg.data.name}}[thread_id + idx * active_threads_count + local_offset * {{ arg.data.cdim }}];
+}
+
+for (int idx = 0; idx < {{ arg.data.cdim }}; ++idx) {
+    {{ arg.data.name }}_local[idx] = {{ arg.data.name}}_shared[idx + thread_id * {{ arg.data.cdim }}];
+}
+{%- endmacro -%}
+
+{%- macro stageout(arg) -%}
+for (int idx = 0; idx < {{ arg.data.cdim }}; ++idx) {
+    {{ arg.data.name}}_shared[idx + thread_id * {{ arg.data.cdim }}] = {{ arg.data.name }}_local[idx];
+}
+
+for (int idx = 0; idx < {{ arg.data.cdim }}; ++idx) {
+    {{ arg.data.name}}[thread_id + idx * active_threads_count + local_offset * {{ arg.data.cdim }}] = {{ arg.data.name }}_shared[thread_id + idx * active_threads_count];
+}
+{%- endmacro -%}
+
+{%- macro reduction_op(arg) -%}
+{%- if(arg._is_INC) -%}
+reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];
+{%- elif(arg._is_MIN) -%}
+reduction_tmp_array[lid] = min(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+{%- elif(arg._is_MAX) -%}
+reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro kernel_call(loop_idx) -%}
+{{ parloop.kernel.name }}(
+    {%- set comma = joiner(", ") -%}
+    {%- for arg in parloop.args -%}
+    {{- comma() -}}
+    {{ arg._kernel_arg_name(loop_idx) }}
+    {%- endfor -%}
+    );
+{%- endmacro -%}
+
+{%- macro kernel_stub() -%}
+__global__ void {{ parloop._stub_name }} (int set_size
+    {%- for arg in parloop.args -%}
+    ,
+    {{ arg.ctype }} *{{arg.data.name}}
+    {%- endfor -%}
+    )
+{
+    {%- if (parloop._needs_smem) %}
+    extern __shared__ char shared[];
+    {% endif %}
+
+    {%- if (parloop._direct_non_scalar_args) -%}
+    unsigned int smem_offset = {{ launch.smem_offset }};
+    int local_offset;
+    int active_threads_count;
+    int thread_id = threadIdx.x % {{ launch.WARPSIZE }};
+    // thread private storage
+    {% for arg in parloop._direct_non_scalar_args -%}
+    {{ arg.ctype }} {{ arg.data.name }}_local[{{ arg.data.cdim }}];
+    {% endfor %}
+    // smem storage
+    {% for arg in parloop._direct_non_scalar_args -%}
+    {{ arg.ctype }} *{{ arg.data.name }}_shared = ({{ arg.ctype }} *)(shared + smem_offset * (threadIdx.x / {{ launch.WARPSIZE }}));
+    {% endfor -%}
+    {%- endif %}
+
+    // FIXME reductions
+
+    for ( int n = threadIdx.x + blockIdx.x * blockDim.x;
+          n < set_size; n+= blockDim.x * gridDim.x ) {
+        {% if (parloop._direct_non_scalar_args) %}
+        local_offset = n - thread_id;
+        active_threads_count = min({{ launch.WARPSIZE }}, set_size - local_offset);
+        {% endif %}
+        {% for arg in parloop._direct_non_scalar_read_args %}
+        {{ stagein(arg)|indent(8) }}
+        {% endfor %}
+        {{ kernel_call('n') }}
+        {% for arg in parloop._direct_non_scalar_written_args %}
+        {{ stageout(arg)|indent(8) }}
+        {% endfor %}
+    }
+}
+{%- endmacro -%}
+
+#define OP2_STRIDE(array, idx) array[idx]
+
+{{ parloop.kernel.code }}
+
+{{ kernel_stub() }}
