@@ -289,14 +289,31 @@ class ParLoop(op2.ParLoop):
         if self.is_direct():
             max_smem = self._max_smem_per_elem_direct()
             smem_offset = max_smem * _WARPSIZE
-            return {'smem_offset' : smem_offset,
-                    'WARPSIZE' : _WARPSIZE}
+            max_block = _device.get_attribute(driver.device_attribute.MAX_BLOCK_DIM_X)
+            if max_smem == 0:
+                block_size = max_block
+            else:
+                available_smem = _device.get_attribute(driver.device_attribute.MAX_SHARED_MEMORY_PER_BLOCK)
+                threads_per_sm = available_smem / max_smem
+                block_size = min(max_block, (threads_per_sm / _WARPSIZE) * _WARPSIZE)
+            max_grid = _device.get_attribute(driver.device_attribute.MAX_GRID_DIM_X)
+            grid_size = min(max_grid, (block_size + self._it_space.size) / block_size)
 
-    def generate_direct_loop(self):
+            block_size = (block_size, 1, 1)
+            grid_size = (grid_size, 1, 1)
+
+            required_smem = np.asscalar(max_smem * np.prod(block_size))
+            return {'smem_offset' : smem_offset,
+                    'WARPSIZE' : _WARPSIZE,
+                    'required_smem' : required_smem,
+                    'block_size' : block_size,
+                    'grid_size' : grid_size}
+
+    def generate_direct_loop(self, config):
         if self._src is not None:
             return
         d = {'parloop' : self,
-             'launch' : self.launch_configuration()}
+             'launch' : config}
         self._src = _direct_loop_template.render(d).encode('ascii')
 
     def device_function(self):
@@ -304,12 +321,14 @@ class ParLoop(op2.ParLoop):
 
     def compute(self):
         if self.is_direct():
-            self.generate_direct_loop()
+            config = self.launch_configuration()
+            self.generate_direct_loop(config)
             self.compile()
             fun = self.device_function()
             arglist = [np.int32(self._it_space.size)]
-            block_size=(128, 1, 1)
-            grid_size = (200, 1)
+            block_size = config['block_size']
+            grid_size = config['grid_size']
+            shared_size = config['required_smem']
             for arg in self.args:
                 arg.data._allocate_device()
                 if arg.access is not op2.WRITE:
@@ -319,7 +338,8 @@ class ParLoop(op2.ParLoop):
                     arg.data._allocate_reduction_buffer(grid_size, arg.access)
                     karg = arg.data._reduction_buffer
                 arglist.append(karg)
-            fun(*arglist, block=block_size, grid=grid_size, shared=48 * 1024)
+            fun(*arglist, block=block_size, grid=grid_size,
+                shared=shared_size)
             for arg in self.args:
                 if arg._is_global_reduction:
                     arg.data._finalise_reduction(grid_size, arg.access)
