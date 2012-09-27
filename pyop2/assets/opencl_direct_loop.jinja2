@@ -128,6 +128,14 @@ void {{ parloop._kernel.name }}_stub (
   {%- for c in op2const -%}
   __constant {{ c._cl_type }} *{{ c.name }}
   {% endfor -%}
+  {% for mat in parloop._unique_matrix %}
+  __global {{ mat._cl_type }}* {{ mat.name }}
+  __global int* {{ mat.name }}_rowptr
+  __global int* {{ mat.name }}_colidx
+  {%- endfor -%}
+  {% for matem in parloop._matrix_entry_maps %}
+  __global int* {{ matem.name }}
+  {%- endfor -%}
   int set_size
   {%- endfilter %}
   ) {
