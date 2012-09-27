@@ -109,6 +109,11 @@ class Arg(object):
         return self.data.ctype
 
     @property
+    def dtype(self):
+        """Numpy datatype of this Arg"""
+        return self.data.dtype
+
+    @property
     def map(self):
         """The :class:`Map` via which the data is to be accessed."""
         return self._map
