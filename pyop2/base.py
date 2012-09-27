@@ -824,6 +824,10 @@ class ParLoop(object):
         raise RuntimeError('Must select a backend')
 
     @property
+    def kernel(self):
+        return self._kernel
+
+    @property
     def args(self):
         return self._actual_args
 
