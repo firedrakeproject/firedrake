@@ -203,6 +203,14 @@ void {{ parloop._kernel.name }}_stub (
   __local {{ arg.data._cl_type }}* {{ arg.data.name }}_reduc_tmp = (__local {{ arg.data._cl_type }}*) shared;
   {% endfor %}
 
+  {% if(parloop._matrix_args) %}
+  // local matrix entry
+  {% for arg in parloop._matrix_args %}
+  __private {{ arg.data._cl_type }} {{ arg.data.name }}_entry{%- for dim in arg.data.sparsity.dims -%}[{{ dim }}]
+  {%- endfor -%};
+  {% endfor %}
+  {% endif %}
+
   // reduction zeroing
   {% for arg in parloop._global_reduction_args %}
   for (i_1 = 0; i_1 < {{ arg.data.cdim }}; ++i_1)
