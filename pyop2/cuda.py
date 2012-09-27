@@ -99,13 +99,15 @@ class DeviceDataMixin(object):
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
         self._from_device()
-        self.state = DeviceDataMixin.CPU
+        if self.state is not DeviceDataMixin.UNALLOCATED:
+            self.state = DeviceDataMixin.CPU
         return self._data
 
     @data.setter
     def data(self, value):
         self._data = verify_reshape(value, self.dtype, self.dim)
-        self.state = DeviceDataMixin.CPU
+        if self.state is not DeviceDataMixin.UNALLOCATED:
+            self.state = DeviceDataMixin.CPU
 
 class Dat(DeviceDataMixin, op2.Dat):
 
@@ -142,7 +144,8 @@ class Const(DeviceDataMixin, op2.Const):
     @data.setter
     def data(self, value):
         self._data = verify_reshape(value, self.dtype, self.dim)
-        self.state = DeviceDataMixin.CPU
+        if self.state is not DeviceDataMixin.UNALLOCATED:
+            self.state = DeviceDataMixin.CPU
 
     def _to_device(self, module):
         ptr, size = module.get_global(self.name)
@@ -162,6 +165,46 @@ class Global(DeviceDataMixin, op2.Global):
     def __init__(self, dim, data, dtype=None, name=None):
         op2.Global.__init__(self, dim, data, dtype, name)
         self.state = DeviceDataMixin.UNALLOCATED
+        self._reduction_buffer = None
+        self._host_reduction_buffer = None
+
+    def _allocate_reduction_buffer(self, grid_size, op):
+        if self._reduction_buffer is None:
+            self._host_reduction_buffer = np.zeros(np.prod(grid_size) * self.cdim,
+                                                   dtype=self.dtype).reshape((-1,)+self._dim)
+            if op is not op2.INC:
+                self._host_reduction_buffer[:] = self._data
+            self._reduction_buffer = gpuarray.to_gpu(self._host_reduction_buffer)
+
+    @property
+    def data(self):
+        if self.state is not DeviceDataMixin.UNALLOCATED:
+            self.state = DeviceDataMixin.CPU
+        return self._data
+
+    @data.setter
+    def data(self, value):
+        self._data = verify_reshape(value, self.dtype, self.dim)
+        if self.state is not DeviceDataMixin.UNALLOCATED:
+            self.state = DeviceDataMixin.CPU
+
+    def _finalise_reduction(self, grid_size, op):
+        self.state = DeviceDataMixin.CPU
+        tmp = self._host_reduction_buffer
+        driver.memcpy_dtoh(tmp, self._reduction_buffer.ptr)
+        if op is op2.MIN:
+            tmp = np.min(tmp, axis=0)
+            fn = min
+        elif op is op2.MAX:
+            tmp = np.max(tmp, axis=0)
+            fn = max
+        else:
+            tmp = np.sum(tmp, axis=0)
+        for i in range(self.cdim):
+            if op is op2.INC:
+                self._data[i] += tmp[i]
+            else:
+                self._data[i] = fn(self._data[i], tmp[i])
 
 class Map(op2.Map):
 
@@ -271,9 +314,15 @@ class ParLoop(op2.ParLoop):
                 arg.data._allocate_device()
                 if arg.access is not op2.WRITE:
                     arg.data._to_device()
-                arglist.append(arg.data._device_data)
+                karg = arg.data._device_data
+                if arg._is_global_reduction:
+                    arg.data._allocate_reduction_buffer(grid_size, arg.access)
+                    karg = arg.data._reduction_buffer
+                arglist.append(karg)
             fun(*arglist, block=block_size, grid=grid_size, shared=48 * 1024)
             for arg in self.args:
+                if arg._is_global_reduction:
+                    arg.data._finalise_reduction(grid_size, arg.access)
                 if arg.access is not op2.READ:
                     arg.data.state = DeviceDataMixin.GPU
         else:
@@ -290,11 +339,11 @@ def _setup():
     global _context
     global _WARPSIZE
     if _device is None or _context is None:
-        pass
         import pycuda.autoinit
         _device = pycuda.autoinit.device
         _context = pycuda.autoinit.context
         _WARPSIZE=_device.get_attribute(driver.device_attribute.WARP_SIZE)
+        pass
     global _direct_loop_template
     global _indirect_loop_template
     env = jinja2.Environment(loader=jinja2.PackageLoader('pyop2', 'assets'))

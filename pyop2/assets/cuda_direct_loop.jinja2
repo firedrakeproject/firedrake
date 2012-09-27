@@ -18,16 +18,6 @@ for (int idx = 0; idx < {{ arg.data.cdim }}; ++idx) {
 }
 {%- endmacro -%}
 
-{%- macro reduction_op(arg) -%}
-{%- if(arg._is_INC) -%}
-reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];
-{%- elif(arg._is_MIN) -%}
-reduction_tmp_array[lid] = min(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
-{%- elif(arg._is_MAX) -%}
-reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
-{%- endif -%}
-{%- endmacro -%}
-
 {%- macro kernel_call(loop_idx) -%}
 {{ parloop.kernel.name }}(
     {%- set comma = joiner(", ") -%}
@@ -36,6 +26,80 @@ reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid
     {{ arg._kernel_arg_name(loop_idx) }}
     {%- endfor -%}
     );
+{%- endmacro -%}
+
+
+{%- macro reduction_op(arg, lvalue, rvalue) -%}
+{%- if(arg._is_INC) -%}
+{{lvalue}} += {{rvalue}};
+{%- elif(arg._is_MIN) -%}
+if ( {{rvalue}} < {{lvalue}} ) {
+    {{lvalue}} = {{rvalue}};
+}
+{%- elif(arg._is_MAX) -%}
+if ( {{rvalue}} > {{lvalue}} ) {
+    {{lvalue}} = {{rvalue}};
+}
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro reduction_kernel(arg) -%}
+__device__ void {{ arg.data.name }}_reduction_kernel (
+    volatile {{ arg.data.ctype }} *reduction_result,
+    {{ arg.data.ctype }} input_value)
+{
+    extern __shared__ volatile {{ arg.data.ctype }} temp[];
+    {{ arg.data.ctype }} dat_t;
+    int tid = threadIdx.x;
+    __syncthreads();
+    temp[tid] = input_value;
+    __syncthreads();
+
+    // Fixup non-power of 2 blockDim
+    // blockDim.x/2 rounded up to a power of 2
+    int d = 1 << (31 - __clz((int)blockDim.x - 1));
+
+    if ( tid + d < blockDim.x ) {
+        dat_t = temp[tid + d];
+        {{ reduction_op(arg, 'input_value', 'dat_t')|indent(8) }}
+        temp[tid] = input_value;
+    }
+
+    // Reductions with more than one warp
+
+    for ( d >>= 1; d > {{ launch.WARPSIZE }}; d >>= 1 ) {
+        __syncthreads();
+        if ( tid < d ) {
+            dat_t = temp[tid + d];
+            {{ reduction_op(arg, 'input_value', 'dat_t')|indent(12) }}
+            temp[tid] = input_value;
+        }
+    }
+
+    // intra-warp reduction
+    __syncthreads();
+    if ( tid < {{ launch.WARPSIZE }} ) {
+        for ( ; d > 0; d >>= 1 ) {
+            if ( tid < d ) {
+                dat_t = temp[tid + d];
+                {{ reduction_op(arg, 'input_value', 'dat_t')|indent(16) }}
+                temp[tid] = input_value;
+            }
+        }
+        // Update global reduction var
+        if ( tid == 0 ) {
+            {{ reduction_op(arg, '*reduction_result', 'input_value')|indent(12) }}
+        }
+    }
+}
+{%- endmacro -%}
+
+{%- macro reduction_init(arg) -%}
+{%- if (arg._is_INC) -%}
+{{ arg.data.name }}_reduc_local[idx] = ({{arg.ctype}})0;
+{%- else -%}
+{{ arg.data.name }}_reduc_local[idx] = {{arg.data.name}}[idx + blockIdx.x * {{arg.data.cdim}}];
+{%- endif -%}
 {%- endmacro -%}
 
 {%- macro kernel_stub() -%}
@@ -65,7 +129,15 @@ __global__ void {{ parloop._stub_name }} (int set_size
     {% endfor -%}
     {%- endif %}
 
-    // FIXME reductions
+    {% for arg in parloop._global_reduction_args -%}
+    {{ arg.data.ctype }} {{arg.data.name}}_reduc_local[{{arg.data.cdim}}];
+    {% endfor %}
+
+    {% for arg in parloop._global_reduction_args %}
+    for ( int idx = 0; idx < {{ arg.data.cdim }}; ++idx ) {
+        {{ reduction_init(arg) }}
+    }
+    {% endfor -%}
 
     for ( int n = threadIdx.x + blockIdx.x * blockDim.x;
           n < set_size; n+= blockDim.x * gridDim.x ) {
@@ -81,11 +153,20 @@ __global__ void {{ parloop._stub_name }} (int set_size
         {{ stageout(arg)|indent(8) }}
         {% endfor %}
     }
+
+    {%- for arg in parloop._global_reduction_args %}
+    for ( int idx = 0; idx < {{ arg.data.cdim}}; ++idx ) {
+        {{ arg.data.name }}_reduction_kernel(&{{arg.data.name}}[idx + blockIdx.x * {{arg.data.cdim}}], {{arg.data.name}}_reduc_local[idx]);
+    }
+    {% endfor %}
 }
 {%- endmacro -%}
 
 #define OP2_STRIDE(array, idx) array[idx]
-
 {{ parloop.kernel.code }}
+
+{% for arg in parloop._global_reduction_args -%}
+{{ reduction_kernel(arg) }}
+{% endfor %}
 
 {{ kernel_stub() }}
