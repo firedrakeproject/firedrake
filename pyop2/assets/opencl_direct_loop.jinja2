@@ -100,7 +100,7 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
     {%- for map in arg._map %}
     {% set ext = parloop._it_space._extent_ranges[loop.index0] -%}
     {% set dim = arg.data.sparsity.dims[loop.index0] -%}
-    {{ dim }}*{{ map.name }}[(i_1 + shared_memory_offset) * {{ ext }} + idx_{{ loop.index0 }}]+i{{ loop.index0 }},
+    {{ dim }}*{{ map.name }}[i_1 * {{ ext }} + idx_{{ loop.index0 }}]+i{{ loop.index0 }},
     {%- endfor %}
     {{ arg.data.name }}_entry[i0][i1]
   );
@@ -242,11 +242,87 @@ void {{ parloop._kernel.name }}_stub (
 }
 {%- endmacro -%}
 
+{%- macro matrix_support() -%}
+void matrix_atomic_add(__global double* dst, double value);
+void matrix_atomic_add(__global double* dst, double value)
+{
+#if defined(cl_khr_int64_base_atomics)
+  {{ union_decl() }}
+  do
+  {
+    old.val = *dst;
+    new.val = old.val + value;
+  } while (atom_cmpxchg((volatile __global unsigned long int*) dst, old.dummy, new.dummy) != old.dummy);
+#else
+  *dst = *dst + value;
+#endif
+}
+
+void matrix_atomic_set(__global double* dst, double value);
+void matrix_atomic_set(__global double* dst, double value)
+{
+#if defined(cl_khr_int64_base_atomics)
+  {{ union_decl() }}
+  do
+  {
+    old.val = 0.0;
+    new.val = value;
+  } while (atom_cmpxchg((volatile __global unsigned long int*) dst, old.dummy, new.dummy) != old.dummy);
+#else
+  *dst = value;
+#endif
+}
+
+int rc2offset(__global int* mat_rowptr, __global int* mat_colidx, int r, int c);
+int rc2offset(__global int* mat_rowptr, __global int* mat_colidx, int r, int c)
+{
+  int offset = mat_rowptr[r];
+  int end = mat_rowptr[r+1];
+  __global int * cursor;
+  for (cursor = &mat_colidx[offset]; cursor < &mat_colidx[end]; ++cursor)
+  {
+    if (*cursor == c) break;
+    ++offset;
+  }
+  return offset;
+}
+
+void matrix_add(__global double* mat_array, __global int* mat_rowptr, __global int* mat_colidx, int r, int c, double v);
+void matrix_add(__global double* mat_array, __global int* mat_rowptr, __global int* mat_colidx, int r, int c, double v)
+{
+  int offset = rc2offset(mat_rowptr, mat_colidx, r, c);
+  matrix_atomic_add(mat_array + offset, v);
+}
+
+void matrix_set(__global double* mat_array, __global int* mat_rowptr, __global int* mat_colidx, int r, int c, double v);
+void matrix_set(__global double* mat_array, __global int* mat_rowptr, __global int* mat_colidx, int r, int c, double v)
+{
+  int offset = rc2offset(mat_rowptr, mat_colidx, r, c);
+  matrix_atomic_set(mat_array + offset, v);
+}
+{%- endmacro -%}
+
+{%- macro union_decl() -%}
+  union {
+    unsigned long dummy;
+    double val;
+  } new;
+
+  union {
+    unsigned long dummy;
+    double val;
+  } old;
+{%- endmacro -%}
 
 {{- header() }}
 {% for arg in parloop._global_reduction_args %}
 {{ reduction_kernel(arg) }}
 {% endfor %}
+
+{% if(parloop._matrix_args) %}
+// Matrix support code
+{{ matrix_support() }}
+{% endif %}
 
 {{- user_kernel }}
 
