@@ -10,3 +10,4 @@ pyop2.log
 *.msh
 *.node
 *.geo
+/test/regression/tests/**/*.out

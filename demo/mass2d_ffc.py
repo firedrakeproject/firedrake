@@ -47,7 +47,12 @@ from ufl import *
 import ffc
 import numpy as np
 
-op2.init(**utils.parse_args(description="PyOP2 2D mass equation demo"))
+parser = utils.parser(group=True, description="PyOP2 2D mass equation demo")
+parser.add_argument('-s', '--save-output',
+                    action='store_true',
+                    help='Save the output of the run (used for testing)')
+opt = vars(parser.parse_args())
+op2.init(**opt)
 
 # Set up finite element identity problem
 
@@ -109,5 +114,11 @@ op2.solve(mat, b, x)
 
 # Print solution
 
-print "Expected solution: %s" % f_vals
-print "Computed solution: %s" % x_vals
+print "Expected solution: %s" % f.data
+print "Computed solution: %s" % x.data
+
+# Save output (if necessary)
+if opt['save_output']:
+    import pickle
+    with open("mass2d.out","w") as out:
+        pickle.dump((f.data, x.data), out)
