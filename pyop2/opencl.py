@@ -998,7 +998,7 @@ class ParLoop(op2.ParLoop):
             a.data._post_kernel_reduction_task(conf['work_group_count'], a.access)
 
     def is_direct(self):
-        return all(map(lambda a: a._is_direct or isinstance(a.data, Global), self._args))
+        return all(map(lambda a: a._is_direct or isinstance(a.data, Global) or isinstance(a.data, Mat), self._args))
 
 #Monkey patch pyopencl.Kernel for convenience
 _original_clKernel = cl.Kernel
