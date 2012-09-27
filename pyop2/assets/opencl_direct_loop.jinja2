@@ -54,6 +54,8 @@ reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid
 {{ arg.data.name }}_reduc_local
 {%- elif(arg._is_global) -%}
 {{ arg.data.name }}
+{%- elif(arg._is_mat) -%}
+{{ arg.data.name }}_entry
 {%- else -%}
 &{{ arg.data.name }}[i_1]
 {%- endif -%}
@@ -82,6 +84,9 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
 {{ kernel_call_arg(arg) }}
 {% endfor -%}
 {{ kernel_call_const_args() }}
+{%- for ext in parloop._it_space._extent_ranges -%}
+idx_{{ loop.index0 }}
+{% endfor -%}
 {%- endfilter -%}
 );
 
