@@ -132,10 +132,10 @@ void {{ parloop._kernel.name }}_stub (
   __global {{ mat._cl_type }}* {{ mat.name }}
   __global int* {{ mat.name }}_rowptr
   __global int* {{ mat.name }}_colidx
-  {%- endfor -%}
-  {% for matem in parloop._matrix_entry_maps %}
+  {% endfor -%}
+  {% for matem in parloop._matrix_entry_maps -%}
   __global int* {{ matem.name }}
-  {%- endfor -%}
+  {%- endfor %}
   int set_size
   {%- endfilter %}
   ) {
