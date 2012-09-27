@@ -66,6 +66,16 @@ reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid
 {%- endmacro -%}
 
 {%- macro kernel_call() -%}
+{%- for it in parloop._it_space._extent_ranges %}
+for (int idx_{{ loop.index0 }} = 0; idx_{{ loop.index0 }} < {{ it }}; ++idx_{{ loop.index0 }}) {
+{%- endfor %}
+{% for arg in parloop._matrix_args %}
+{% for dim in arg.data.sparsity.dims %}
+for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }})
+{%- endfor %}
+  {{ arg.data.name }}_entry[i0][i1] = {{ arg.data._cl_type_zero }};
+{% endfor %}
+
 {{ parloop._kernel.name }}(
 {%- filter trim|replace("\n", ", ") -%}
 {%- for arg in parloop.args -%}
@@ -74,6 +84,31 @@ reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid
 {{ kernel_call_const_args() }}
 {%- endfilter -%}
 );
+
+{% for arg in parloop._matrix_args -%}
+{% for dim in arg.data.sparsity.dims %}
+for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }})
+{%- endfor %}
+  {% if(arg._is_INC) -%}
+    matrix_add
+  {%- else -%}
+    matrix_set
+  {%- endif -%}(
+    {{ arg.data.name }},
+    {{ arg.data.name }}_rowptr,
+    {{ arg.data.name }}_colidx,
+    {%- for map in arg._map %}
+    {% set ext = parloop._it_space._extent_ranges[loop.index0] -%}
+    {% set dim = arg.data.sparsity.dims[loop.index0] -%}
+    {{ dim }}*{{ map.name }}[(i_1 + shared_memory_offset) * {{ ext }} + idx_{{ loop.index0 }}]+i{{ loop.index0 }},
+    {%- endfor %}
+    {{ arg.data.name }}_entry[i0][i1]
+  );
+{% endfor %}
+{%- for it in parloop._it_space._extent_ranges %}
+}
+{%- endfor -%}
+
 {%- endmacro -%}
 
 {%- macro reduction_id_value(arg) -%}
