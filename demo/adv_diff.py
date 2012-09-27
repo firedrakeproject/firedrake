@@ -58,6 +58,9 @@ parser.add_argument('-m', '--mesh',
                     type=str,
                     required=True,
                     help='Base name of triangle mesh (excluding the .ele or .node extension)')
+parser.add_argument('-v', '--visualize',
+                    action='store_true',
+                    help='Visualize the result using viper')
 opt = vars(parser.parse_args())
 op2.init(**opt)
 mesh_name = opt['mesh']
@@ -154,8 +157,9 @@ def viper_shape(array):
 T = 0.1
 
 vis_coords = np.asarray([ [x, y, 0.0] for x, y in coords.data ],dtype=np.float64)
-v = viper.Viper(x=viper_shape(tracer.data), coordinates=vis_coords, cells=elem_node.values)
-v.interactive()
+if opt['visualize']:
+    v = viper.Viper(x=viper_shape(tracer.data), coordinates=vis_coords, cells=elem_node.values)
+    v.interactive()
 
 have_advection = True
 have_diffusion = True
@@ -201,9 +205,11 @@ while T < 0.2:
 
         op2.solve(mat, b, tracer)
 
-    v.update(viper_shape(tracer.data))
+    if opt['visualize']:
+        v.update(viper_shape(tracer.data))
 
     T = T + dt
 
 # Interactive visulatisation
-v.interactive()
+if opt['visualize']:
+    v.interactive()
