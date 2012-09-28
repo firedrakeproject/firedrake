@@ -147,6 +147,15 @@ class Const(DeviceDataMixin, op2.Const):
         if self.state is not DeviceDataMixin.UNALLOCATED:
             self.state = DeviceDataMixin.CPU
 
+    def _format_declaration(self):
+        d = {'dim' : self.cdim,
+             'type' : self.ctype,
+             'name' : self.name}
+
+        if self.cdim == 1:
+            return "__constant__ %(type)s %(name)s;" % d
+        return "__constant__ %(type)s %(name)s[%(dim)s];" % d
+
     def _to_device(self, module):
         ptr, size = module.get_global(self.name)
         if size != self.data.nbytes:
