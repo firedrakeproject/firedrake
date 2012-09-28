@@ -445,7 +445,7 @@ class Const(DataCarrier):
         This allows the same name to be redeclared with a different shape."""
         Const._defs.discard(self)
 
-    def _format_for_c(self):
+    def _format_declaration(self):
         d = {'type' : self.ctype,
              'name' : self.name,
              'dim' : self.cdim}
