@@ -135,17 +135,17 @@ class Const(DeviceDataMixin, op2.Const):
 
     def __init__(self, dim, data, name, dtype=None):
         op2.Const.__init__(self, dim, data, name, dtype)
-        self.state = DeviceDataMixin.UNALLOCATED
+        self.state = DeviceDataMixin.CPU
 
     @property
     def data(self):
+        self.state = DeviceDataMixin.CPU
         return self._data
 
     @data.setter
     def data(self, value):
         self._data = verify_reshape(value, self.dtype, self.dim)
-        if self.state is not DeviceDataMixin.UNALLOCATED:
-            self.state = DeviceDataMixin.CPU
+        self.state = DeviceDataMixin.CPU
 
     def _format_declaration(self):
         d = {'dim' : self.cdim,
@@ -322,7 +322,8 @@ class ParLoop(op2.ParLoop):
         if self._src is not None:
             return
         d = {'parloop' : self,
-             'launch' : config}
+             'launch' : config,
+             'constants' : Const._definitions()}
         self._src = _direct_loop_template.render(d).encode('ascii')
 
     def device_function(self):
@@ -338,6 +339,8 @@ class ParLoop(op2.ParLoop):
             block_size = config['block_size']
             grid_size = config['grid_size']
             shared_size = config['required_smem']
+            for c in Const._definitions():
+                c._to_device(self._module)
             for arg in self.args:
                 arg.data._allocate_device()
                 if arg.access is not op2.WRITE:

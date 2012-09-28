@@ -163,6 +163,10 @@ __global__ void {{ parloop._stub_name }} (int set_size
 {%- endmacro -%}
 
 #define OP2_STRIDE(array, idx) array[idx]
+{% for c in constants -%}
+{{ c._format_declaration() }}
+{% endfor %}
+
 {{ parloop.kernel.code }}
 
 {% for arg in parloop._global_reduction_args -%}
