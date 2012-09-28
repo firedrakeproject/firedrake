@@ -829,6 +829,10 @@ class ParLoop(object):
         return self._actual_args
 
     @property
+    def _has_soa(self):
+        return any(a._is_soa for a in self._actual_args)
+
+    @property
     def _cache_key(self):
         key = (self._kernel.md5, )
 
