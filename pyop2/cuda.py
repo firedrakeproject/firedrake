@@ -49,7 +49,7 @@ class Kernel(op2.Kernel):
 class Arg(op2.Arg):
     @property
     def _d_is_staged(self):
-        return self._is_direct and not self.data._is_scalar
+        return self._is_direct and not (self.data._is_scalar or self._is_soa)
 
     def _kernel_arg_name(self, idx=None):
         name = self.data.name
@@ -80,18 +80,31 @@ class DeviceDataMixin(object):
 
     def _allocate_device(self):
         if self.state is DeviceDataMixin.UNALLOCATED:
-            self._device_data = gpuarray.empty(shape=self._data.shape, dtype=self.dtype)
+            if self.soa:
+                shape = self._data.T.shape
+            else:
+                shape = self._data.shape
+            self._device_data = gpuarray.empty(shape=shape, dtype=self.dtype)
             self.state = DeviceDataMixin.CPU
 
     def _to_device(self):
         self._allocate_device()
         if self.state is DeviceDataMixin.CPU:
-            self._device_data.set(self._data)
+            if self.soa:
+                shape = self._device_data.shape
+                tmp = self._data.T.ravel().reshape(shape)
+            else:
+                tmp = self._data
+            self._device_data.set(tmp)
         self.state = DeviceDataMixin.BOTH
 
     def _from_device(self):
         if self.state is DeviceDataMixin.GPU:
             self._device_data.get(self._data)
+            if self.soa:
+                shape = self._data.T.shape
+                self._data = self._data.reshape(shape).T
+                print self._data
             self.state = DeviceDataMixin.BOTH
 
     @property
@@ -186,6 +199,10 @@ class Global(DeviceDataMixin, op2.Global):
             self._reduction_buffer = gpuarray.to_gpu(self._host_reduction_buffer)
 
     @property
+    def soa(self):
+        return False
+
+    @property
     def data(self):
         if self.state is not DeviceDataMixin.UNALLOCATED:
             self.state = DeviceDataMixin.CPU
@@ -265,7 +282,7 @@ class ParLoop(op2.ParLoop):
 
     @property
     def _direct_non_scalar_args(self):
-        return [a for a in self._direct_args if not a.data._is_scalar]
+        return [a for a in self._direct_args if not (a.data._is_scalar or a._is_soa)]
 
     @property
     def _direct_non_scalar_read_args(self):
@@ -332,6 +349,9 @@ class ParLoop(op2.ParLoop):
     def compute(self):
         if self.is_direct():
             config = self.launch_configuration()
+            if self._has_soa:
+                op2stride = Const(1, self._it_space.size, name='op2stride',
+                                  dtype='int32')
             self.generate_direct_loop(config)
             self.compile()
             fun = self.device_function()
@@ -357,6 +377,8 @@ class ParLoop(op2.ParLoop):
                     arg.data._finalise_reduction(grid_size, arg.access)
                 if arg.access is not op2.READ:
                     arg.data.state = DeviceDataMixin.GPU
+            if self._has_soa:
+                op2stride.remove_from_namespace()
         else:
             raise NotImplementedError("Indirect loops in CUDA not yet implemented")
 
