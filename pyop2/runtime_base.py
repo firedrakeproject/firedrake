@@ -96,11 +96,7 @@ class Dat(base.Dat):
         soa = slot.attrs['type'].find(':soa') > 0
         if len(dim) < 1:
             raise DimTypeError("Invalid dimension value %s" % dim)
-        # We don't pass soa to the constructor, because that
-        # transposes the data, but we've got them from the hdf5 file
-        # which has them in the right shape already.
-        ret = cls(dataset, dim, data, name=name)
-        ret._soa = soa
+        ret = cls(dataset, dim, data, name=name, soa=soa)
         return ret
 
     @property

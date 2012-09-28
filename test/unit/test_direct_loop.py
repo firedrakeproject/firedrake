@@ -164,7 +164,7 @@ void kernel_2d_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }
 void kernel_soa(unsigned int * x) { OP2_STRIDE(x, 0) = 42; OP2_STRIDE(x, 1) = 43; }
 """
         l = op2.par_loop(op2.Kernel(kernel_soa, "kernel_soa"), elems(), soa(op2.IdentityMap, op2.WRITE))
-        assert all(soa.data[0] == 42) and all(soa.data[1] == 43)
+        assert all(soa.data[:,0] == 42) and all(soa.data[:,1] == 43)
 
     def test_parloop_should_set_ro_flag(self, backend, x):
         kernel = """void k(unsigned int *x) { *x = 1; }"""

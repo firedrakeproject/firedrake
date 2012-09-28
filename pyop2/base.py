@@ -333,11 +333,8 @@ class Dat(DataCarrier):
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
         self._data = verify_reshape(data, dtype, (dataset.size,)+self._dim, allow_none=True)
-        # Are these data in SoA format, rather than standard AoS?
+        # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
-        # Make data "look" right
-        if self._soa:
-            self._data = self._data.T
         self._name = name or "dat_%d" % Dat._globalcount
         self._lib_handle = None
         Dat._globalcount += 1
