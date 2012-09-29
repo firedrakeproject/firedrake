@@ -70,18 +70,12 @@ f = Coefficient(E)
 g = Coefficient(E)
 
 a = dot(grad(v,),grad(u))*dx
-L = v*f*dx
-L_b = v*g*ds
+L = v*f*dx + v*g*ds
 
 # Generate code for mass and rhs assembly.
 
-mass_code = compile_form(a, "mass")
-rhs_code  = compile_form(L, "rhs")
-bdry_code = compile_form(L_b, "weak")
-
-mass = op2.Kernel(mass_code, "mass_cell_integral_0_0")
-rhs  = op2.Kernel(rhs_code,  "rhs_cell_integral_0_0" )
-weak = op2.Kernel(bdry_code, "weak_exterior_facet_integral_0_0")
+mass, _, _ = compile_form(a, "mass")
+rhs, _, weak  = compile_form(L, "rhs")
 
 # Set up simulation data structures
 
@@ -141,15 +135,17 @@ op2.par_loop(mass, elements(3,3),
              coords(elem_node, op2.READ))
 
 op2.par_loop(rhs, elements(3),
-                     b(elem_node[op2.i[0]], op2.INC),
-                     coords(elem_node, op2.READ),
-                     f(elem_node, op2.READ))
+             b(elem_node[op2.i[0]], op2.INC),
+             coords(elem_node, op2.READ),
+             f(elem_node, op2.READ),
+             bdry_grad(top_bdry_elem_node, op2.READ))
 
 # Apply weak BC
 
 op2.par_loop(weak, top_bdry_elements(3),
              b(top_bdry_elem_node[op2.i[0]], op2.INC),
              coords(top_bdry_elem_node, op2.READ),
+             f(elem_node, op2.READ),
              bdry_grad(top_bdry_elem_node, op2.READ),
              facet(op2.READ))
 

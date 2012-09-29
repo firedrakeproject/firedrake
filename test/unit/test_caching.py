@@ -34,8 +34,7 @@
 import pytest
 import numpy
 import random
-from pyop2 import op2, ffc_interface
-from ufl import *
+from pyop2 import op2
 
 backends = ['opencl', 'sequential']
 
@@ -457,38 +456,6 @@ Even if we spell the dimension with a shorthand and longhand form."""
         sp2 = op2.Sparsity((m1, m1), 1)
 
         assert sp1._c_handle is sp2._c_handle
-
-@pytest.mark.xfail("not hasattr(ffc_interface.constants, 'PYOP2_VERSION')")
-class TestFFCCache:
-    """FFC code generation cache tests."""
-
-    def pytest_funcarg__mass(cls, request):
-        e = FiniteElement('CG', triangle, 1)
-        u = TestFunction(e)
-        v = TrialFunction(e)
-        return u*v*dx
-
-    def pytest_funcarg__mass2(cls, request):
-        e = FiniteElement('CG', triangle, 2)
-        u = TestFunction(e)
-        v = TrialFunction(e)
-        return u*v*dx
-
-    def test_ffc_same_form(self, backend, mass):
-        """Compiling the same form twice should load the generated code from
-        cache."""
-        c1 = ffc_interface.compile_form(mass, 'mass')
-        c2 = ffc_interface.compile_form(mass, 'mass')
-
-        assert c1 is c2
-
-    def test_ffc_different_forms(self, backend, mass, mass2):
-        """Compiling different forms should not load generated code from
-        cache."""
-        c1 = ffc_interface.compile_form(mass, 'mass')
-        c2 = ffc_interface.compile_form(mass2, 'mass')
-
-        assert c1 is not c2
 
 if __name__ == '__main__':
     import os

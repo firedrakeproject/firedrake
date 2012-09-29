@@ -56,7 +56,11 @@ parser = utils.parser(group=True, description="PyOP2 P1 advection-diffusion demo
 parser.add_argument('-m', '--mesh',
                     action='store',
                     type=str,
+                    required=True,
                     help='Base name of triangle mesh (excluding the .ele or .node extension)')
+parser.add_argument('-v', '--visualize',
+                    action='store_true',
+                    help='Visualize the result using viper')
 opt = vars(parser.parse_args())
 op2.init(**opt)
 mesh_name = opt['mesh']
@@ -86,15 +90,10 @@ diff_rhs=action(M+0.5*d,t)
 
 # Generate code for mass and rhs assembly.
 
-mass_code        = compile_form(M,           "mass")
-adv_rhs_code     = compile_form(adv_rhs,     "adv_rhs")
-diff_matrix_code = compile_form(diff_matrix, "diff_matrix")
-diff_rhs_code    = compile_form(diff_rhs,    "diff_rhs")
-
-mass        = op2.Kernel(mass_code,        "mass_cell_integral_0_0")
-adv_rhs     = op2.Kernel(adv_rhs_code,     "adv_rhs_cell_integral_0_0" )
-diff_matrix = op2.Kernel(diff_matrix_code, "diff_matrix_cell_integral_0_0")
-diff_rhs    = op2.Kernel(diff_rhs_code,    "diff_rhs_cell_integral_0_0")
+mass, _, _        = compile_form(M,           "mass")
+adv_rhs, _, _     = compile_form(adv_rhs,     "adv_rhs")
+diff_matrix, _, _ = compile_form(diff_matrix, "diff_matrix")
+diff_rhs, _, _    = compile_form(diff_rhs,    "diff_rhs")
 
 # Set up simulation data structures
 
@@ -158,8 +157,9 @@ def viper_shape(array):
 T = 0.1
 
 vis_coords = np.asarray([ [x, y, 0.0] for x, y in coords.data ],dtype=np.float64)
-v = viper.Viper(x=viper_shape(tracer.data), coordinates=vis_coords, cells=elem_node.values)
-v.interactive()
+if opt['visualize']:
+    v = viper.Viper(x=viper_shape(tracer.data), coordinates=vis_coords, cells=elem_node.values)
+    v.interactive()
 
 have_advection = True
 have_diffusion = True
@@ -205,9 +205,11 @@ while T < 0.2:
 
         op2.solve(mat, b, tracer)
 
-    v.update(viper_shape(tracer.data))
+    if opt['visualize']:
+        v.update(viper_shape(tracer.data))
 
     T = T + dt
 
 # Interactive visulatisation
-v.interactive()
+if opt['visualize']:
+    v.interactive()
