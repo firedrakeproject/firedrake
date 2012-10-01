@@ -37,7 +37,7 @@ import random
 
 from pyop2 import op2
 
-backends = ['sequential', 'opencl']
+backends = ['sequential', 'opencl', 'cuda']
 
 def _seed():
     return 0.02041724
