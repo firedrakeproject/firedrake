@@ -268,6 +268,23 @@ class TestDatAPI:
         assert d.soa
         assert d.data.shape == (2,5) and d.data.sum() == 9 * 10 / 2
 
+    def test_dat_ro_accessor(self, backend, set):
+        "Attempting to set values through the RO accessor should raise an error."
+        d = op2.Dat(set, 2, range(2 * set.size), dtype=np.int32)
+        x = d.data_ro
+        with pytest.raises(RuntimeError):
+            x[0] = 1
+
+    def test_dat_ro_write_accessor(self, backend, set):
+        "Re-accessing the data in writeable form should be allowed."
+        d = op2.Dat(set, 1, range(set.size), dtype=np.int32)
+        x = d.data_ro
+        with pytest.raises(RuntimeError):
+            x[0] = 1
+        x = d.data
+        x[0] = -100
+        assert d.data_ro[0] == -100
+
 class TestSparsityAPI:
     """
     Sparsity API unit tests
