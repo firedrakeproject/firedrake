@@ -283,7 +283,7 @@ class DataCarrier(object):
                     "uint8":   "unsigned char",
                     "uint16":  "unsigned short",
                     "uint32":  "unsigned int",
-                    "uint64":  "unsigned long long",
+                    "uint64":  "unsigned long",
                     "float":   "double",
                     "float32": "float",
                     "float64": "double" }
