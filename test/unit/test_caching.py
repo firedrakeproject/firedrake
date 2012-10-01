@@ -36,7 +36,7 @@ import numpy
 import random
 from pyop2 import op2
 
-backends = ['opencl', 'sequential']
+backends = ['opencl', 'sequential', 'cuda']
 
 def _seed():
     return 0.02041724
@@ -269,6 +269,7 @@ class TestGeneratedCodeCache:
     Generated Code Cache Tests.
     """
 
+    skip_backends = ['cuda']
     def pytest_funcarg__a(cls, request):
         return op2.Dat(request.getfuncargvalue('iterset'),
                        1,
