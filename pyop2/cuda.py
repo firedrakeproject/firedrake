@@ -279,9 +279,31 @@ class Map(op2.Map):
             raise RuntimeError("No values for Map %s on device" % self)
         self._device_values.get(self._values)
 
+_plan_cache = dict()
+
+def empty_plan_cache():
+    _plan_cache.clear()
+
+def ncached_plans():
+    return len(_plan_cache)
+
 class Plan(core.op_plan):
-    def __init__(self, kernel, itspace, *args, **kwargs):
-        core.op_plan.__init__(self, kernel, itspace.iterset, *args, **kwargs)
+    def __new__(cls, kernel, iset, *args, **kwargs):
+        ps = kwargs.get('partition_size', 0)
+        key = Plan.cache_key(iset, ps, *args)
+        cached = _plan_cache.get(key, None)
+        if cached is not None:
+            return cached
+        else:
+            return super(Plan, cls).__new__(cls, kernel, iset, *args,
+                                            **kwargs)
+    def __init__(self, kernel, iset, *args, **kwargs):
+        ps = kwargs.get('partition_size', 0)
+        key = Plan.cache_key(iset, ps, *args)
+        cached = _plan_cache.get(key, None)
+        if cached is not None:
+            return
+        core.op_plan.__init__(self, kernel, iset, *args, **kwargs)
         self._nthrcol = None
         self._thrcol = None
         self._offset = None
@@ -291,6 +313,30 @@ class Plan(core.op_plan):
         self._loc_map = None
         self._nelems = None
         self._blkmap = None
+        _plan_cache[key] = self
+
+    @classmethod
+    def cache_key(cls, iset, partition_size, *args):
+        # Set size
+        key = (iset.size, )
+        # Size of partitions (amount of smem)
+        key += (partition_size, )
+
+        # For each indirect arg, the map and the indices into the map
+        # are important
+        inds = {}
+        for arg in args:
+            if arg._is_indirect:
+                dat = arg.data
+                map = arg.map
+                l = inds.get((dat, map), [])
+                l.append(arg.idx)
+                inds[(dat, map)] = l
+
+        for k,v in inds.iteritems():
+            key += (k[1],) + tuple(sorted(v))
+
+        return key
 
     @property
     def nthrcol(self):
@@ -544,7 +590,9 @@ class ParLoop(op2.ParLoop):
             maxbytes = sum([a.dtype.itemsize * a.data.cdim for a in self.args \
                                 if a._is_indirect])
             part_size = ((47 * 1024) / (64 * maxbytes)) * 64
-            self._plan = Plan(self.kernel, self._it_space.iterset, *self._unwound_args, partition_size=part_size)
+            self._plan = Plan(self.kernel, self._it_space.iterset,
+                              *self._unwound_args,
+                              partition_size=part_size)
             max_grid_size = self._plan.ncolblk.max()
             for c in Const._definitions():
                 c._to_device(self._module)
