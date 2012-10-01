@@ -109,6 +109,25 @@ void kernel_soa(unsigned int * x) { OP2_STRIDE(x, 0) = 42; OP2_STRIDE(x, 1) = 43
         l = op2.par_loop(op2.Kernel(kernel_soa, "kernel_soa"), elems(), soa(op2.IdentityMap, op2.WRITE))
         assert all(soa.data[0] == 42) and all(soa.data[1] == 43)
 
+    def test_parloop_should_set_ro_flag(self, backend, x):
+        kernel = """void k(unsigned int *x) { *x = 1; }"""
+        x_data = x.data
+        op2.par_loop(op2.Kernel(kernel, 'k'), elems(), x(op2.IdentityMap, op2.WRITE))
+        with pytest.raises(RuntimeError):
+            x_data[0] = 1
+
+    def test_host_write_works(self, backend, x, g):
+        kernel = """void k(unsigned int *x, unsigned int *g) { *g += *x; }"""
+        x.data[:] = 1
+        g.data[:] = 0
+        op2.par_loop(op2.Kernel(kernel, 'k'), elems(), x(op2.IdentityMap, op2.READ), g(op2.INC))
+        assert g.data[0] == nelems
+
+        x.data[:] = 2
+        g.data[:] = 0
+        op2.par_loop(op2.Kernel(kernel, 'k'), elems(), x(op2.IdentityMap, op2.READ), g(op2.INC))
+        assert g.data[0] == 2*nelems
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
