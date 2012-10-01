@@ -203,11 +203,25 @@ class Dat(op2.Dat, DeviceDataMixin):
         if len(self._data) is 0:
             raise RuntimeError("Temporary dat has no data on the host")
 
+        self._data.setflags(write=True)
         if self._dirty:
             cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
             if self.soa:
                 np.transpose(self._data)
             self._dirty = False
+        return self._data
+
+    @property
+    def data_ro(self):
+        if len(self._data) is 0:
+            raise RuntimeError("Temporary dat has no data on the host")
+        self._data.setflags(write=True)
+        if self._dirty:
+            cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
+            if self.soa:
+                np.transpose(self._data)
+            self._dirty = False
+        self._data.setflags(write=False)
         return self._data
 
     def _upload_from_c_layer(self):
@@ -965,6 +979,8 @@ class ParLoop(op2.ParLoop):
         for arg in self.args:
             if arg.access not in [READ]:
                 arg.data._dirty = True
+            if arg._is_dat:
+                arg.data._data.setflags(write=False)
 
         for mat in [arg.data for arg in self._matrix_args]:
             mat.assemble()
