@@ -269,7 +269,6 @@ class TestGeneratedCodeCache:
     Generated Code Cache Tests.
     """
 
-    skip_backends = ['cuda']
     def pytest_funcarg__a(cls, request):
         return op2.Dat(request.getfuncargvalue('iterset'),
                        1,

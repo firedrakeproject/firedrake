@@ -430,6 +430,48 @@ class ParLoop(op2.ParLoop):
             else:
                 self.__unique_args.append(arg)
 
+    def __hash__(self):
+        """Canonical representation of a parloop wrt generated code caching."""
+        # FIXME, make clearer, converge on hashing with opencl code
+        def argdimacc(arg):
+            if self.is_direct():
+                if arg._is_global or (arg._is_dat and not arg.data._is_scalar):
+                    return (arg.data.cdim, arg.access)
+                else:
+                    return ()
+            else:
+                if (arg._is_global and arg.access is op2.READ) or arg._is_direct:
+                    return ()
+                else:
+                    return (arg.data.cdim, arg.access)
+
+        argdesc = []
+        seen = dict()
+        c = 0
+        for arg in self.args:
+            if arg._is_indirect:
+                if not seen.has_key((arg.data,arg.map)):
+                    seen[(arg.data,arg.map)] = c
+                    idesc = (c, (- arg.map.dim) if arg._is_vec_map else arg.idx)
+                    c += 1
+                else:
+                    idesc = (seen[(arg.data,arg.map)], (- arg.map.dim) if arg._is_vec_map else arg.idx)
+            else:
+                idesc = ()
+
+            d = (arg.data.__class__,
+                 arg.data.dtype) + argdimacc(arg) + idesc
+
+            argdesc.append(d)
+
+        hsh = hash(self._kernel)
+        hsh ^= hash(self._it_space)
+        hsh ^= hash(tuple(argdesc))
+        for c in Const._definitions():
+            hsh ^= hash(c)
+
+        return hsh
+
     @property
     def _unique_args(self):
         return self.__unique_args
@@ -455,7 +497,8 @@ class ParLoop(op2.ParLoop):
 
     @property
     def _inc_indirect_dat_args(self):
-        return [a for a in self.args if a.access is op2.INC]
+        return [a for a in self.args if a.access is op2.INC and
+                a._is_indirect]
 
     @property
     def _needs_smem(self):
@@ -494,8 +537,38 @@ class ParLoop(op2.ParLoop):
     def is_direct(self):
         return all([a._is_direct or a._is_global for a in self.args])
 
-    def compile(self):
-        self._module = SourceModule(self._src)
+    def device_function(self):
+        return self._module.get_function(self._stub_name)
+
+    def compile(self, config=None):
+
+        self._module, self._fun = op2._parloop_cache.get(hash(self),
+                                                         (None, None))
+        if self._module is not None:
+            return
+        if self.is_direct():
+            self.generate_direct_loop(config)
+            self._module = SourceModule(self._src, options=['-O3', '--use_fast_math'])
+            self._fun = self.device_function()
+            argtypes = np.dtype('int32').char
+            for arg in self.args:
+                argtypes += "P"
+            self._fun.prepare(argtypes)
+            op2._parloop_cache[hash(self)] = self._module, self._fun
+        else:
+            self.generate_indirect_loop()
+            self._module = SourceModule(self._src, options=['-O3', '--use_fast_math'])
+            self._fun = self.device_function()
+            argtypes = np.dtype('int32').char
+            for arg in self._unique_args:
+                argtypes += "P"
+            itype = np.dtype('int32').char
+            argtypes += "PPPP"
+            argtypes += itype
+            argtypes += "PPPPP"
+            argtypes += itype
+            self._fun.prepare(argtypes)
+            op2._parloop_cache[hash(self)] = self._module, self._fun
 
     def _max_smem_per_elem_direct(self):
         m_stage = 0
@@ -548,9 +621,6 @@ class ParLoop(op2.ParLoop):
              'constants' : Const._definitions()}
         self._src = _indirect_loop_template.render(d).encode('ascii')
 
-    def device_function(self):
-        return self._module.get_function(self._stub_name)
-
     def compute(self):
         if self._has_soa:
             op2stride = Const(1, self._it_space.size, name='op2stride',
@@ -558,9 +628,7 @@ class ParLoop(op2.ParLoop):
         arglist = [np.int32(self._it_space.size)]
         if self.is_direct():
             config = self.launch_configuration()
-            self.generate_direct_loop(config)
-            self.compile()
-            fun = self.device_function()
+            self.compile(config=config)
             block_size = config['block_size']
             grid_size = config['grid_size']
             shared_size = config['required_smem']
@@ -574,9 +642,9 @@ class ParLoop(op2.ParLoop):
                 if arg._is_global_reduction:
                     arg.data._allocate_reduction_buffer(grid_size, arg.access)
                     karg = arg.data._reduction_buffer
-                arglist.append(karg)
-            fun(*arglist, block=block_size, grid=grid_size,
-                shared=shared_size)
+                arglist.append(np.intp(karg.gpudata))
+            self._fun.prepared_call(grid_size, block_size, *arglist,
+                                    shared_size=shared_size)
             for arg in self.args:
                 if arg._is_global_reduction:
                     arg.data._finalise_reduction_begin(grid_size, arg.access)
@@ -584,9 +652,7 @@ class ParLoop(op2.ParLoop):
                 if arg.access is not op2.READ:
                     arg.data.state = DeviceDataMixin.GPU
         else:
-            self.generate_indirect_loop()
             self.compile()
-            fun = self.device_function()
             maxbytes = sum([a.dtype.itemsize * a.data.cdim for a in self.args \
                                 if a._is_indirect])
             part_size = ((47 * 1024) / (64 * maxbytes)) * 64
@@ -605,17 +671,17 @@ class ParLoop(op2.ParLoop):
                     arg.data._allocate_reduction_buffer(max_grid_size,
                                                         arg.access)
                     karg = arg.data._reduction_buffer
-                arglist.append(karg)
-            arglist.append(self._plan.ind_map)
-            arglist.append(self._plan.loc_map)
-            arglist.append(self._plan.ind_sizes)
-            arglist.append(self._plan.ind_offs)
+                arglist.append(karg.gpudata)
+            arglist.append(self._plan.ind_map.gpudata)
+            arglist.append(self._plan.loc_map.gpudata)
+            arglist.append(self._plan.ind_sizes.gpudata)
+            arglist.append(self._plan.ind_offs.gpudata)
             arglist.append(None) # Block offset
-            arglist.append(self._plan.blkmap)
-            arglist.append(self._plan.offset)
-            arglist.append(self._plan.nelems)
-            arglist.append(self._plan.nthrcol)
-            arglist.append(self._plan.thrcol)
+            arglist.append(self._plan.blkmap.gpudata)
+            arglist.append(self._plan.offset.gpudata)
+            arglist.append(self._plan.nelems.gpudata)
+            arglist.append(self._plan.nthrcol.gpudata)
+            arglist.append(self._plan.thrcol.gpudata)
             arglist.append(None) # Number of colours in this block
             block_offset = 0
             for col in xrange(self._plan.ncolors):
@@ -636,8 +702,8 @@ class ParLoop(op2.ParLoop):
                 block_size = (128, 1, 1)
                 shared_size = np.asscalar(self._plan.nsharedCol[col])
 
-                fun(*arglist, block=block_size, grid=grid_size,
-                    shared=shared_size)
+                self._fun.prepared_call(grid_size, block_size, *arglist,
+                                        shared_size=shared_size)
 
                 if col == self._plan.ncolors_owned - 1:
                     for arg in self.args:
