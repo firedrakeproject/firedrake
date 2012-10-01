@@ -96,7 +96,9 @@ __global__ void {{ parloop._stub_name }} (
     __shared__ int {{arg.data.name}}_size;
     __shared__ {{arg.ctype}} * {{arg.data.name}}_s;
     {%- endfor %}
+    {% if parloop._inc_indirect_dat_args %}
     __shared__ int nelems2, ncolor;
+    {% endif -%}
     __shared__ int nelem, offset_b;
 
     {%- for arg in parloop._inc_indirect_dat_args %}
@@ -119,9 +121,10 @@ __global__ void {{ parloop._stub_name }} (
         nelem = nelems[blockId];
         offset_b = offset[blockId];
 
+        {%- if parloop._inc_indirect_dat_args %}
         nelems2 = blockDim.x * (1 + (nelem - 1)/blockDim.x);
         ncolor = nthrcol[blockId];
-
+        {% endif -%}
         {% for arg in parloop._unique_indirect_dat_args -%}
         {{arg.data.name}}_size = ind_sizes[{{loop.index0}} + blockId * {{loop.length}}];
         {{arg.data.name}}_map = &ind_map[{{arg._which_indirect}} * set_size] + ind_offs[{{loop.index0}} + blockId * {{loop.length}}];
@@ -152,10 +155,17 @@ __global__ void {{ parloop._stub_name }} (
 
     __syncthreads();
     // process set elements
+    {%- if parloop._inc_indirect_dat_args %}
+    {%- set _nelems = 'nelems2' -%}
+    {%- else -%}
+    {%- set _nelems = 'nelem' -%}
+    {% endif %}
 
-    for ( int idx = threadIdx.x; idx < nelems2; idx += blockDim.x ) {
+    for ( int idx = threadIdx.x; idx < {{_nelems}}; idx += blockDim.x ) {
+        {% if parloop._inc_indirect_dat_args -%}
         int col2 = -1;
         if ( idx < nelem ) {
+        {%- endif %}
             // initialise locals
             {% for arg in parloop._inc_indirect_dat_args %}
             for ( int idx2 = 0; idx2 < {{arg.data.cdim}}; ++idx2 ) {
@@ -171,10 +181,11 @@ __global__ void {{ parloop._stub_name }} (
                 {%- endfor -%}
                 );
 
-
+        {% if parloop._inc_indirect_dat_args -%}
             col2 = thrcol[idx + offset_b];
         }
-
+        {% endif -%}
+        {%- if parloop._inc_indirect_dat_args %}
         for ( int col = 0; col < ncolor; ++col ) {
             if ( col2 == col ) {
                 {%- for arg in parloop._inc_indirect_dat_args %}
@@ -186,7 +197,9 @@ __global__ void {{ parloop._stub_name }} (
             }
             __syncthreads();
         }
+        {%- endif %}
     }
+
     // Write to global
 
     {%- for arg in parloop._unique_written_indirect_dat_args %}
