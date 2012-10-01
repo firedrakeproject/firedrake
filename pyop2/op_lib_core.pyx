@@ -258,12 +258,12 @@ cdef class op_sparsity:
     @property
     def rowptr(self):
         size = self._handle.nrows + 1
-        return data_to_numpy_array_with_spec(self._handle.rowptr, size, np.NPY_INTP)
+        return data_to_numpy_array_with_spec(self._handle.rowptr, size, np.NPY_INT32)
 
     @property
     def colidx(self):
         size = self._handle.total_nz
-        return data_to_numpy_array_with_spec(self._handle.colidx, size, np.NPY_INTP)
+        return data_to_numpy_array_with_spec(self._handle.colidx, size, np.NPY_INT32)
 
 cdef class op_mat:
     cdef core.op_mat _handle
