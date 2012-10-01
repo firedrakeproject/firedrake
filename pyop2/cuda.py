@@ -51,6 +51,25 @@ class Arg(op2.Arg):
     def _d_is_staged(self):
         return self._is_direct and not (self.data._is_scalar or self._is_soa)
 
+    def _indirect_kernel_arg_name(self, idx):
+        name = self.data.name
+        if self._is_global:
+            if self._is_global_reduction:
+                return "%s_l" % name
+            else:
+                return name
+        if self._is_direct:
+            return "%s + (%s + offset_b) * %s" % (name, idx, self.data.cdim)
+        if self._is_indirect:
+            if self._is_vec_map:
+                return "%s_vec" % name
+            if self.access is op2.INC:
+                return "%s%s_l" % (name, self.idx)
+            else:
+                return "%s_s + loc_map[%s * set_size + %s + offset_b]*%s" \
+                    % (name, self._which_indirect, idx, self.data.cdim)
+
+
     def _kernel_arg_name(self, idx=None):
         name = self.data.name
         if self._d_is_staged:
@@ -214,10 +233,16 @@ class Global(DeviceDataMixin, op2.Global):
         if self.state is not DeviceDataMixin.UNALLOCATED:
             self.state = DeviceDataMixin.CPU
 
-    def _finalise_reduction(self, grid_size, op):
+    def _finalise_reduction_begin(self, grid_size, op):
+        self._stream = driver.Stream()
+        driver.memcpy_dtoh_async(self._host_reduction_buffer,
+                                 self._reduction_buffer.ptr,
+                                 self._stream)
+    def _finalise_reduction_end(self, grid_size, op):
         self.state = DeviceDataMixin.CPU
+        self._stream.synchronize()
+        del self._stream
         tmp = self._host_reduction_buffer
-        driver.memcpy_dtoh(tmp, self._reduction_buffer.ptr)
         if op is op2.MIN:
             tmp = np.min(tmp, axis=0)
             fn = min
@@ -254,6 +279,73 @@ class Map(op2.Map):
             raise RuntimeError("No values for Map %s on device" % self)
         self._device_values.get(self._values)
 
+class Plan(core.op_plan):
+    def __init__(self, kernel, itspace, *args, **kwargs):
+        core.op_plan.__init__(self, kernel, itspace.iterset, *args, **kwargs)
+        self._nthrcol = None
+        self._thrcol = None
+        self._offset = None
+        self._ind_map = None
+        self._ind_offs = None
+        self._ind_sizes = None
+        self._loc_map = None
+        self._nelems = None
+        self._blkmap = None
+
+    @property
+    def nthrcol(self):
+        if self._nthrcol is None:
+            self._nthrcol = gpuarray.to_gpu(super(Plan, self).nthrcol)
+        return self._nthrcol
+
+    @property
+    def thrcol(self):
+        if self._thrcol is None:
+            self._thrcol = gpuarray.to_gpu(super(Plan, self).thrcol)
+        return self._thrcol
+
+    @property
+    def offset(self):
+        if self._offset is None:
+            self._offset = gpuarray.to_gpu(super(Plan, self).offset)
+        return self._offset
+
+    @property
+    def ind_map(self):
+        if self._ind_map is None:
+            self._ind_map = gpuarray.to_gpu(super(Plan, self).ind_map)
+        return self._ind_map
+
+    @property
+    def ind_offs(self):
+        if self._ind_offs is None:
+            self._ind_offs = gpuarray.to_gpu(super(Plan, self).ind_offs)
+        return self._ind_offs
+
+    @property
+    def ind_sizes(self):
+        if self._ind_sizes is None:
+            self._ind_sizes = gpuarray.to_gpu(super(Plan, self).ind_sizes)
+        return self._ind_sizes
+
+    @property
+    def loc_map(self):
+        if self._loc_map is None:
+            self._loc_map = gpuarray.to_gpu(super(Plan, self).loc_map)
+        return self._loc_map
+
+    @property
+    def nelems(self):
+        if self._nelems is None:
+            self._nelems = gpuarray.to_gpu(super(Plan, self).nelems)
+        return self._nelems
+
+    @property
+    def blkmap(self):
+        if self._blkmap is None:
+            self._blkmap = gpuarray.to_gpu(super(Plan, self).blkmap)
+        return self._blkmap
+
 def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()
 
@@ -261,6 +353,63 @@ class ParLoop(op2.ParLoop):
     def __init__(self, kernel, it_space, *args):
         op2.ParLoop.__init__(self, kernel, it_space, *args)
         self._src = None
+        self.__unique_args = []
+        self._unwound_args = []
+        seen = set()
+        c = 0
+        for arg in self.args:
+            if arg._is_vec_map:
+                for i in range(arg.map.dim):
+                    self._unwound_args.append(arg.data(arg.map[i],
+                                                       arg.access))
+            elif arg._is_mat:
+                pass
+            elif arg._uses_itspace:
+                for i in range(self._it_space.extents[arg.idx.index]):
+                    self._unwound_args.append(arg.data(arg.map[i],
+                                                       arg.access))
+            else:
+                self._unwound_args.append(arg)
+
+            if arg._is_dat:
+                k = (arg.data, arg.map)
+                if arg._is_indirect:
+                    arg._which_indirect = c
+                    c += 1
+                if k in seen:
+                    pass
+                else:
+                    self.__unique_args.append(arg)
+                    seen.add(k)
+            else:
+                self.__unique_args.append(arg)
+
+    @property
+    def _unique_args(self):
+        return self.__unique_args
+
+    @property
+    def _unique_indirect_dat_args(self):
+        return [a for a in self._unique_args if a._is_indirect]
+
+    @property
+    def _unique_read_indirect_dat_args(self):
+        return [a for a in self._unique_indirect_dat_args \
+                if a.access in [op2.READ, op2.RW]]
+
+    @property
+    def _unique_written_indirect_dat_args(self):
+        return [a for a in self._unique_indirect_dat_args \
+                if a.access in [op2.RW, op2.WRITE, op2.INC]]
+
+    @property
+    def _unique_inc_indirect_dat_args(self):
+        return [a for a in self._unique_indirect_dat_args \
+                if a.access is op2.INC]
+
+    @property
+    def _inc_indirect_dat_args(self):
+        return [a for a in self.args if a.access is op2.INC]
 
     @property
     def _needs_smem(self):
@@ -325,6 +474,7 @@ class ParLoop(op2.ParLoop):
             max_grid = _device.get_attribute(driver.device_attribute.MAX_GRID_DIM_X)
             grid_size = min(max_grid, (block_size + self._it_space.size) / block_size)
 
+            grid_size = np.asscalar(np.int64(grid_size))
             block_size = (block_size, 1, 1)
             grid_size = (grid_size, 1, 1)
 
@@ -343,19 +493,28 @@ class ParLoop(op2.ParLoop):
              'constants' : Const._definitions()}
         self._src = _direct_loop_template.render(d).encode('ascii')
 
+    def generate_indirect_loop(self):
+        if self._src is not None:
+            return
+        config = {'WARPSIZE': 32}
+        d = {'parloop' : self,
+             'launch' : config,
+             'constants' : Const._definitions()}
+        self._src = _indirect_loop_template.render(d).encode('ascii')
+
     def device_function(self):
         return self._module.get_function(self._stub_name)
 
     def compute(self):
+        if self._has_soa:
+            op2stride = Const(1, self._it_space.size, name='op2stride',
+                              dtype='int32')
+        arglist = [np.int32(self._it_space.size)]
         if self.is_direct():
             config = self.launch_configuration()
-            if self._has_soa:
-                op2stride = Const(1, self._it_space.size, name='op2stride',
-                                  dtype='int32')
             self.generate_direct_loop(config)
             self.compile()
             fun = self.device_function()
-            arglist = [np.int32(self._it_space.size)]
             block_size = config['block_size']
             grid_size = config['grid_size']
             shared_size = config['required_smem']
@@ -374,13 +533,78 @@ class ParLoop(op2.ParLoop):
                 shared=shared_size)
             for arg in self.args:
                 if arg._is_global_reduction:
-                    arg.data._finalise_reduction(grid_size, arg.access)
+                    arg.data._finalise_reduction_begin(grid_size, arg.access)
+                    arg.data._finalise_reduction_end(grid_size, arg.access)
                 if arg.access is not op2.READ:
                     arg.data.state = DeviceDataMixin.GPU
-            if self._has_soa:
-                op2stride.remove_from_namespace()
         else:
-            raise NotImplementedError("Indirect loops in CUDA not yet implemented")
+            self.generate_indirect_loop()
+            self.compile()
+            fun = self.device_function()
+            maxbytes = sum([a.dtype.itemsize * a.data.cdim for a in self.args \
+                                if a._is_indirect])
+            part_size = ((47 * 1024) / (64 * maxbytes)) * 64
+            self._plan = Plan(self.kernel, self._it_space.iterset, *self._unwound_args, partition_size=part_size)
+            max_grid_size = self._plan.ncolblk.max()
+            for c in Const._definitions():
+                c._to_device(self._module)
+            for arg in self._unique_args:
+                arg.data._allocate_device()
+                if arg.access is not op2.WRITE:
+                    arg.data._to_device()
+                karg = arg.data._device_data
+                if arg._is_global_reduction:
+                    arg.data._allocate_reduction_buffer(max_grid_size,
+                                                        arg.access)
+                    karg = arg.data._reduction_buffer
+                arglist.append(karg)
+            arglist.append(self._plan.ind_map)
+            arglist.append(self._plan.loc_map)
+            arglist.append(self._plan.ind_sizes)
+            arglist.append(self._plan.ind_offs)
+            arglist.append(None) # Block offset
+            arglist.append(self._plan.blkmap)
+            arglist.append(self._plan.offset)
+            arglist.append(self._plan.nelems)
+            arglist.append(self._plan.nthrcol)
+            arglist.append(self._plan.thrcol)
+            arglist.append(None) # Number of colours in this block
+            block_offset = 0
+            for col in xrange(self._plan.ncolors):
+                # if col == self._plan.ncolors_core: wait for mpi
+
+                blocks = self._plan.ncolblk[col]
+                if blocks <= 0:
+                    continue
+
+                arglist[-1] = np.int32(blocks)
+                arglist[-7] = np.int32(block_offset)
+                blocks = np.asscalar(blocks)
+                if blocks >= 2**16:
+                    grid_size = (2**16 - 1, (blocks - 1)/(2**16-1) + 1, 1)
+                else:
+                    grid_size = (blocks, 1, 1)
+
+                block_size = (128, 1, 1)
+                shared_size = np.asscalar(self._plan.nsharedCol[col])
+
+                fun(*arglist, block=block_size, grid=grid_size,
+                    shared=shared_size)
+
+                if col == self._plan.ncolors_owned - 1:
+                    for arg in self.args:
+                        if arg._is_global_reduction:
+                            arg.data._finalise_reduction_begin(max_grid_size,
+                                                               arg.access)
+                block_offset += blocks
+            for arg in self.args:
+                if arg._is_global_reduction:
+                    arg.data._finalise_reduction_end(max_grid_size,
+                                                     arg.access)
+                if arg.access is not op2.READ:
+                    arg.data.state = DeviceDataMixin.GPU
+        if self._has_soa:
+            op2stride.remove_from_namespace()
 
 _device = None
 _context = None
@@ -405,4 +629,4 @@ def _setup():
         _direct_loop_template = env.get_template('cuda_direct_loop.jinja2')
 
     if _indirect_loop_template is None:
-        pass
+        _indirect_loop_template = env.get_template('cuda_indirect_loop.jinja2')
