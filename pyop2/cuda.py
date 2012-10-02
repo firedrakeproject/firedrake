@@ -218,6 +218,11 @@ class Global(DeviceDataMixin, op2.Global):
             if op is not op2.INC:
                 self._host_reduction_buffer[:] = self._data
             self._reduction_buffer = gpuarray.to_gpu(self._host_reduction_buffer)
+        else:
+            if op is not op2.INC:
+                self._reduction_buffer.fill(self._data)
+            else:
+                self._reduction_buffer.fill(0)
 
     @property
     def soa(self):
@@ -572,9 +577,12 @@ class ParLoop(op2.ParLoop):
                                                          (None, None))
         if self._module is not None:
             return
+
+        compiler_opts = ['-m64', '-Xptxas', '-dlcm=ca',
+                         '-Xptxas=-v', '-O3', '-use_fast_math', '-DNVCC']
         if self.is_direct():
             self.generate_direct_loop(config)
-            self._module = SourceModule(self._src, options=['-O3', '--use_fast_math'])
+            self._module = SourceModule(self._src, options=compiler_opts)
             self._fun = self.device_function()
             argtypes = np.dtype('int32').char
             for arg in self.args:
@@ -583,7 +591,7 @@ class ParLoop(op2.ParLoop):
             op2._parloop_cache[hash(self)] = self._module, self._fun
         else:
             self.generate_indirect_loop()
-            self._module = SourceModule(self._src, options=['-O3', '--use_fast_math'])
+            self._module = SourceModule(self._src, options=compiler_opts)
             self._fun = self.device_function()
             argtypes = np.dtype('int32').char
             for arg in self._unique_args:
