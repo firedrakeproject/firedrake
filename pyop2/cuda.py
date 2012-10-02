@@ -59,6 +59,8 @@ class Arg(op2.Arg):
             else:
                 return name
         if self._is_direct:
+            if self.data.soa:
+                return "%s + (%s + offset_b)" % (name, idx)
             return "%s + (%s + offset_b) * %s" % (name, idx, self.data.cdim)
         if self._is_indirect:
             if self._is_vec_map:
@@ -421,7 +423,10 @@ class ParLoop(op2.ParLoop):
                 k = (arg.data, arg.map)
                 if arg._is_indirect:
                     arg._which_indirect = c
-                    c += 1
+                    if arg._is_vec_map:
+                        c += arg.map.dim
+                    else:
+                        c += 1
                 if k in seen:
                     pass
                 else:
@@ -477,6 +482,10 @@ class ParLoop(op2.ParLoop):
         return self.__unique_args
 
     @property
+    def _unique_vec_map_args(self):
+        return [a for a in self._unique_args if a._is_vec_map]
+
+    @property
     def _unique_indirect_dat_args(self):
         return [a for a in self._unique_args if a._is_indirect]
 
@@ -491,6 +500,10 @@ class ParLoop(op2.ParLoop):
                 if a.access in [op2.RW, op2.WRITE, op2.INC]]
 
     @property
+    def _vec_map_args(self):
+        return [a for a in self.args if a._is_vec_map]
+
+    @property
     def _unique_inc_indirect_dat_args(self):
         return [a for a in self._unique_indirect_dat_args \
                 if a.access is op2.INC]
@@ -499,6 +512,19 @@ class ParLoop(op2.ParLoop):
     def _inc_indirect_dat_args(self):
         return [a for a in self.args if a.access is op2.INC and
                 a._is_indirect]
+
+    @property
+    def _inc_non_vec_map_indirect_dat_args(self):
+        return [a for a in self.args if a.access is op2.INC and
+                a._is_indirect and not a._is_vec_map]
+
+    @property
+    def _non_inc_vec_map_args(self):
+        return [a for a in self._vec_map_args if a.access is not op2.INC]
+
+    @property
+    def _inc_vec_map_args(self):
+        return [a for a in self._vec_map_args if a.access is op2.INC]
 
     @property
     def _needs_smem(self):
@@ -653,7 +679,7 @@ class ParLoop(op2.ParLoop):
                     arg.data.state = DeviceDataMixin.GPU
         else:
             self.compile()
-            maxbytes = sum([a.dtype.itemsize * a.data.cdim for a in self.args \
+            maxbytes = sum([a.dtype.itemsize * a.data.cdim for a in self._unwound_args \
                                 if a._is_indirect])
             part_size = ((47 * 1024) / (64 * maxbytes)) * 64
             self._plan = Plan(self.kernel, self._it_space.iterset,
