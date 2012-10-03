@@ -76,6 +76,16 @@ reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid
 );
 {%- endmacro -%}
 
+{%- macro reduction_id_value(arg) -%}
+{%- if(arg._is_INC) -%}
+{{ arg.data._cl_type_zero }}
+{%- elif(arg._is_MIN) -%}
+{{ arg.data._cl_type_max }}
+{%- elif(arg._is_MAX) -%}
+{{ arg.data._cl_type_min }}
+{%- endif -%}
+{%- endmacro -%}
+
 {%- macro reduction_kernel(arg) -%}
 __kernel
 void {{ arg.data.name }}_reduction_kernel (
@@ -153,7 +163,7 @@ void {{ parloop._kernel.name }}_stub (
   // reduction zeroing
   {% for arg in parloop._global_reduction_args %}
   for (i_1 = 0; i_1 < {{ arg.data.cdim }}; ++i_1)
-    {{ arg.data.name }}_reduc_local[i_1] = {{ arg.data._cl_type_zero }};
+    {{ arg.data.name }}_reduc_local[i_1] = {{ reduction_id_value(arg) }};
   {% endfor %}
 
   for (i_1 = get_global_id(0); i_1 < set_size; i_1 += get_global_size(0)) {

@@ -154,9 +154,19 @@ for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2) {
 }
 {%- endmacro -%}
 
+{%- macro reduction_id_value(arg) -%}
+{%- if(arg._is_INC) -%}
+{{ arg.data._cl_type_zero }}
+{%- elif(arg._is_MIN) -%}
+{{ arg.data._cl_type_max }}
+{%- elif(arg._is_MAX) -%}
+{{ arg.data._cl_type_min }}
+{%- endif -%}
+{%- endmacro -%}
+
 {%- macro global_reduction_local_zeroing(arg) -%}
 for (i_1 = 0; i_1 < {{ arg.data.cdim }}; ++i_1) {
-  {{ global_reduc_local_name(arg) }}[i_1] = {{ arg.data._cl_type_zero }};
+  {{ global_reduc_local_name(arg) }}[i_1] = {{ reduction_id_value(arg) }};
 }
 {%- endmacro -%}
 
