@@ -128,17 +128,17 @@ class Arg(op2.Arg):
 class DeviceDataMixin(object):
     """Codegen mixin for datatype and literal translation."""
 
-    ClTypeInfo = collections.namedtuple('ClTypeInfo', ['clstring', 'zero'])
-    CL_TYPES = {np.dtype('uint8'): ClTypeInfo('uchar', '0'),
-                np.dtype('int8'): ClTypeInfo('char', '0'),
-                np.dtype('uint16'): ClTypeInfo('ushort', '0'),
-                np.dtype('int16'): ClTypeInfo('short', '0'),
-                np.dtype('uint32'): ClTypeInfo('uint', '0u'),
-                np.dtype('int32'): ClTypeInfo('int', '0'),
-                np.dtype('uint64'): ClTypeInfo('ulong', '0ul'),
-                np.dtype('int64'): ClTypeInfo('long', '0l'),
-                np.dtype('float32'): ClTypeInfo('float', '0.0f'),
-                np.dtype('float64'): ClTypeInfo('double', '0.0')}
+    ClTypeInfo = collections.namedtuple('ClTypeInfo', ['clstring', 'zero', 'min', 'max'])
+    CL_TYPES = {np.dtype('uint8'): ClTypeInfo('uchar', '0', '0', '255'),
+                np.dtype('int8'): ClTypeInfo('char', '0', '-127', '127'),
+                np.dtype('uint16'): ClTypeInfo('ushort', '0', '0', '65535'),
+                np.dtype('int16'): ClTypeInfo('short', '0', '-32767', '32767'),
+                np.dtype('uint32'): ClTypeInfo('uint', '0u', '0u', '4294967295u'),
+                np.dtype('int32'): ClTypeInfo('int', '0', '-2147483647', '2147483647'),
+                np.dtype('uint64'): ClTypeInfo('ulong', '0ul', '0ul', '18446744073709551615ul'),
+                np.dtype('int64'): ClTypeInfo('long', '0l', '-9223372036854775807l', '9223372036854775807l'),
+                np.dtype('float32'): ClTypeInfo('float', '0.0f', '-3.4028235e+38f', '3.4028235e+38f'),
+                np.dtype('float64'): ClTypeInfo('double', '0.0', '-1.7976931348623157e+308', '1.7976931348623157e+308')}
 
     @property
     def bytes_per_elem(self):
@@ -155,6 +155,14 @@ class DeviceDataMixin(object):
     @property
     def _cl_type_zero(self):
         return DeviceDataMixin.CL_TYPES[self.dtype].zero
+
+    @property
+    def _cl_type_min(self):
+        return DeviceDataMixin.CL_TYPES[self.dtype].min
+
+    @property
+    def _cl_type_max(self):
+        return DeviceDataMixin.CL_TYPES[self.dtype].max
 
     @property
     def _dirty(self):
