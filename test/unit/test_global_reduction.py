@@ -32,7 +32,6 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-xfail = pytest.mark.xfail
 import numpy
 
 from pyop2 import op2
@@ -274,8 +273,6 @@ void kernel_max(double* x, double* g)
 
         assert g.data == d1.data.sum()
 
-    @xfail("'opencl' in pytest.config.option.__dict__['backend']",
-           reason='OpenCL reduction bug, kernel names')
     def test_1d_min_dat_is_min(self, backend, k1_min_to_global, set, d1):
         val = d1.data.min() + 1
         g = op2.Global(1, val, dtype=numpy.uint32)
@@ -285,8 +282,6 @@ void kernel_max(double* x, double* g)
 
         assert g.data == d1.data.min()
 
-    @xfail("'opencl' in pytest.config.option.__dict__['backend']",
-           reason='OpenCL reduction bug, kernel names')
     def test_1d_min_global_is_min(self, backend, k1_min_to_global, set, d1):
         d1.data[:] += 10
         val = d1.data.min() - 1
@@ -305,8 +300,6 @@ void kernel_max(double* x, double* g)
 
         assert g.data == d1.data.max()
 
-    @xfail("'opencl' in pytest.config.option.__dict__['backend']",
-           reason='OpenCL reduction bug, kernel names')
     def test_1d_max_global_is_max(self, backend, k1_max_to_global, set, d1):
         val = d1.data.max() + 1
         g = op2.Global(1, val, dtype=numpy.uint32)
@@ -336,8 +329,6 @@ void kernel_max(double* x, double* g)
         assert g.data[0] == d2.data[:,0].min()
         assert g.data[1] == d2.data[:,1].min()
 
-    @xfail("'opencl' in pytest.config.option.__dict__['backend']",
-           reason='OpenCL reduction bug, kernel names')
     def test_2d_min_global_is_min(self, backend, k2_min_to_global, set, d2):
         d2.data[:,0] += 10
         d2.data[:,1] += 10
@@ -361,8 +352,6 @@ void kernel_max(double* x, double* g)
         assert g.data[0] == d2.data[:,0].max()
         assert g.data[1] == d2.data[:,1].max()
 
-    @xfail("'opencl' in pytest.config.option.__dict__['backend']",
-           reason='OpenCL reduction bug, kernel names')
     def test_2d_max_global_is_max(self, backend, k2_max_to_global, set, d2):
         max_val_0 = d2.data[:,0].max() + 1
         max_val_1 = d2.data[:,1].max() + 1
@@ -374,8 +363,6 @@ void kernel_max(double* x, double* g)
         assert g.data[0] == max_val_0
         assert g.data[1] == max_val_1
 
-    @xfail("'opencl' in pytest.config.option.__dict__['backend']",
-           reason='OpenCL reduction bug, kernel names')
     def test_1d_multi_inc_same_global(self, backend, k1_inc_to_global, set, d1):
         g = op2.Global(1, 0, dtype=numpy.uint32)
         op2.par_loop(k1_inc_to_global, set,
@@ -389,8 +376,6 @@ void kernel_max(double* x, double* g)
 
         assert g.data == d1.data.sum()*2
 
-    @xfail("'opencl' in pytest.config.option.__dict__['backend']",
-           reason='OpenCL reduction bug, kernel names')
     def test_1d_multi_inc_same_global_reset(self, backend, k1_inc_to_global, set, d1):
         g = op2.Global(1, 0, dtype=numpy.uint32)
         op2.par_loop(k1_inc_to_global, set,
@@ -405,8 +390,6 @@ void kernel_max(double* x, double* g)
 
         assert g.data == d1.data.sum() + 10
 
-    @xfail("'opencl' in pytest.config.option.__dict__['backend']",
-           reason='OpenCL reduction bug, kernel names')
     def test_1d_multi_inc_diff_global(self, backend, k1_inc_to_global, set, d1):
         g = op2.Global(1, 0, dtype=numpy.uint32)
         g2 = op2.Global(1, 10, dtype=numpy.uint32)
