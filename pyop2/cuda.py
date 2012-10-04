@@ -245,6 +245,7 @@ class Global(DeviceDataMixin, op2.Global):
         driver.memcpy_dtoh_async(self._host_reduction_buffer,
                                  self._reduction_buffer.ptr,
                                  self._stream)
+
     def _finalise_reduction_end(self, grid_size, op):
         self.state = DeviceDataMixin.CPU
         self._stream.synchronize()
@@ -304,6 +305,7 @@ class Plan(core.op_plan):
         else:
             return super(Plan, cls).__new__(cls, kernel, iset, *args,
                                             **kwargs)
+
     def __init__(self, kernel, iset, *args, **kwargs):
         ps = kwargs.get('partition_size', 0)
         key = Plan.cache_key(iset, ps, *args)
@@ -458,6 +460,7 @@ class ParLoop(op2.ParLoop):
         argdesc = []
         seen = dict()
         c = 0
+
         for arg in self.args:
             if arg._is_indirect:
                 if not seen.has_key((arg.data,arg.map)):
@@ -573,36 +576,32 @@ class ParLoop(op2.ParLoop):
 
     def compile(self, config=None):
 
-        self._module, self._fun = op2._parloop_cache.get(hash(self),
-                                                         (None, None))
+        key = hash(self)
+        self._module, self._fun = op2._parloop_cache.get(key, (None, None))
         if self._module is not None:
             return
 
         compiler_opts = ['-m64', '-Xptxas', '-dlcm=ca',
                          '-Xptxas=-v', '-O3', '-use_fast_math', '-DNVCC']
+        inttype = np.dtype('int32').char
+        argtypes = inttype      # set size
         if self.is_direct():
             self.generate_direct_loop(config)
-            self._module = SourceModule(self._src, options=compiler_opts)
-            self._fun = self.device_function()
-            argtypes = np.dtype('int32').char
             for arg in self.args:
-                argtypes += "P"
-            self._fun.prepare(argtypes)
-            op2._parloop_cache[hash(self)] = self._module, self._fun
+                argtypes += "P" # pointer to each Dat's data
         else:
             self.generate_indirect_loop()
-            self._module = SourceModule(self._src, options=compiler_opts)
-            self._fun = self.device_function()
-            argtypes = np.dtype('int32').char
             for arg in self._unique_args:
-                argtypes += "P"
-            itype = np.dtype('int32').char
-            argtypes += "PPPP"
-            argtypes += itype
-            argtypes += "PPPPP"
-            argtypes += itype
-            self._fun.prepare(argtypes)
-            op2._parloop_cache[hash(self)] = self._module, self._fun
+                argtypes += "P" # pointer to each unique Dat's data
+            argtypes += "PPPP"  # ind_map, loc_map, ind_sizes, ind_offs
+            argtypes += inttype # block offset
+            argtypes += "PPPPP" # blkmap, offset, nelems, nthrcol, thrcol
+            argtypes += inttype # number of colours in the block
+
+        op2._parloop_cache[key] = self._module, self._fun
+        self._module = SourceModule(self._src, options=compiler_opts)
+        self._fun = self.device_function()
+        self._fun.prepare(argtypes)
 
     def _max_smem_per_elem_direct(self):
         m_stage = 0
@@ -660,52 +659,50 @@ class ParLoop(op2.ParLoop):
             op2stride = Const(1, self._it_space.size, name='op2stride',
                               dtype='int32')
         arglist = [np.int32(self._it_space.size)]
+        config = self.launch_configuration()
+        self.compile(config=config)
+
         if self.is_direct():
-            config = self.launch_configuration()
-            self.compile(config=config)
+            _args = self.args
             block_size = config['block_size']
-            grid_size = config['grid_size']
+            max_grid_size = config['grid_size']
             shared_size = config['required_smem']
-            for c in Const._definitions():
-                c._to_device(self._module)
-            for arg in self.args:
-                arg.data._allocate_device()
-                if arg.access is not op2.WRITE:
-                    arg.data._to_device()
-                karg = arg.data._device_data
-                if arg._is_global_reduction:
-                    arg.data._allocate_reduction_buffer(grid_size, arg.access)
-                    karg = arg.data._reduction_buffer
-                arglist.append(np.intp(karg.gpudata))
-            self._fun.prepared_call(grid_size, block_size, *arglist,
-                                    shared_size=shared_size)
-            for arg in self.args:
-                if arg._is_global_reduction:
-                    arg.data._finalise_reduction_begin(grid_size, arg.access)
-                    arg.data._finalise_reduction_end(grid_size, arg.access)
-                if arg.access is not op2.READ:
-                    arg.data.state = DeviceDataMixin.GPU
         else:
-            self.compile()
-            maxbytes = sum([a.dtype.itemsize * a.data.cdim for a in self._unwound_args \
-                                if a._is_indirect])
+            _args = self._unique_args
+            maxbytes = sum([a.dtype.itemsize * a.data.cdim \
+                            for a in self._unwound_args if a._is_indirect])
             part_size = ((47 * 1024) / (64 * maxbytes)) * 64
             self._plan = Plan(self.kernel, self._it_space.iterset,
                               *self._unwound_args,
                               partition_size=part_size)
             max_grid_size = self._plan.ncolblk.max()
-            for c in Const._definitions():
-                c._to_device(self._module)
-            for arg in self._unique_args:
-                arg.data._allocate_device()
-                if arg.access is not op2.WRITE:
-                    arg.data._to_device()
-                karg = arg.data._device_data
+
+        # Upload Const data.
+        for c in Const._definitions():
+            c._to_device(self._module)
+
+        for arg in _args:
+            arg.data._allocate_device()
+            if arg.access is not op2.WRITE:
+                arg.data._to_device()
+            karg = arg.data._device_data
+            if arg._is_global_reduction:
+                arg.data._allocate_reduction_buffer(max_grid_size, arg.access)
+                karg = arg.data._reduction_buffer
+            arglist.append(np.intp(karg.gpudata))
+
+        if self.is_direct():
+            self._fun.prepared_call(max_grid_size, block_size, *arglist,
+                                    shared_size=shared_size)
+            for arg in self.args:
                 if arg._is_global_reduction:
-                    arg.data._allocate_reduction_buffer(max_grid_size,
-                                                        arg.access)
-                    karg = arg.data._reduction_buffer
-                arglist.append(karg.gpudata)
+                    arg.data._finalise_reduction_begin(max_grid_size, arg.access)
+                    arg.data._finalise_reduction_end(max_grid_size, arg.access)
+                else:
+                    # Data state is updated in finalise_reduction for Global
+                    if arg.access is not op2.READ:
+                        arg.data.state = DeviceDataMixin.GPU
+        else:
             arglist.append(self._plan.ind_map.gpudata)
             arglist.append(self._plan.loc_map.gpudata)
             arglist.append(self._plan.ind_sizes.gpudata)
@@ -739,6 +736,9 @@ class ParLoop(op2.ParLoop):
                 self._fun.prepared_call(grid_size, block_size, *arglist,
                                         shared_size=shared_size)
 
+                # In the MPI case, we've reached the end of the
+                # elements that should contribute to a reduction.  So
+                # kick off the reduction by copying data back to host.
                 if col == self._plan.ncolors_owned - 1:
                     for arg in self.args:
                         if arg._is_global_reduction:
@@ -749,8 +749,10 @@ class ParLoop(op2.ParLoop):
                 if arg._is_global_reduction:
                     arg.data._finalise_reduction_end(max_grid_size,
                                                      arg.access)
-                if arg.access is not op2.READ:
-                    arg.data.state = DeviceDataMixin.GPU
+                else:
+                    # Data state is updated in finalise_reduction for Global
+                    if arg.access is not op2.READ:
+                        arg.data.state = DeviceDataMixin.GPU
         if self._has_soa:
             op2stride.remove_from_namespace()
 
