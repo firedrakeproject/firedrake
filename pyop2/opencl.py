@@ -40,6 +40,7 @@ from runtime_base import Sparsity, IterationSpace
 import configuration as cfg
 import op_lib_core as core
 import pyopencl as cl
+from pyopencl import array
 import pkg_resources
 import pycparser
 import numpy as np
@@ -200,11 +201,10 @@ class Dat(op2.Dat, DeviceDataMixin):
 
     @property
     @one_time
-    def _buffer(self):
-        _buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
+    def _array(self):
         if len(self._data) is not 0:
-            cl.enqueue_copy(_queue, _buf, self._data, is_blocking=True).wait()
-        return _buf
+            return array.to_device(_queue, self._data)
+        return array.empty(_queue, self._data.shape, self.dtype)
 
     @property
     def data(self):
@@ -213,7 +213,7 @@ class Dat(op2.Dat, DeviceDataMixin):
 
         maybe_setflags(self._data, write=True)
         if self._dirty:
-            cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
+            self._array.get(queue=_queue, ary=self._data)
             if self.soa:
                 np.transpose(self._data)
             self._dirty = False
@@ -225,7 +225,7 @@ class Dat(op2.Dat, DeviceDataMixin):
             raise RuntimeError("Temporary dat has no data on the host")
         maybe_setflags(self._data, write=True)
         if self._dirty:
-            cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
+            self._array.get(queue=_queue, ary=self._data)
             if self.soa:
                 np.transpose(self._data)
             self._dirty = False
@@ -233,7 +233,7 @@ class Dat(op2.Dat, DeviceDataMixin):
         return self._data
 
     def _upload_from_c_layer(self):
-        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
+        self._array.set(self._data, queue=_queue)
 
 def solve(M, b, x):
     x.data
@@ -250,31 +250,25 @@ class Mat(op2.Mat, DeviceDataMixin):
     @property
     @one_time
     def _dev_array(self):
-        s = self.dtype.itemsize * self._sparsity._c_handle.total_nz
-        _buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=s)
-        return _buf
+        return array.empty(_queue, self._sparsity._c_handle.total_nz, self.dtype)
 
     @property
     @one_time
     def _dev_colidx(self):
-        _buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity._c_handle.colidx.nbytes)
-        cl.enqueue_copy(_queue, _buf, self._sparsity._c_handle.colidx, is_blocking=True).wait()
-        return _buf
+        return array.to_device(_queue, self._sparsity._c_handle.colidx)
 
     @property
     @one_time
     def _dev_rowptr(self):
-        _buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._sparsity._c_handle.rowptr.nbytes)
-        cl.enqueue_copy(_queue, _buf, self._sparsity._c_handle.rowptr, is_blocking=True).wait()
-        return _buf
+        return array.to_device(_queue, self._sparsity._c_handle.rowptr)
 
     def _upload_array(self):
-        cl.enqueue_copy(_queue, self._dev_array, self._c_handle.array, is_blocking=True).wait()
+        self._dev_array.set(self._c_handle.array, queue=_queue)
         self._dirty = False
 
     def assemble(self):
         if self._dirty:
-            cl.enqueue_copy(_queue, self._c_handle.array, self._dev_array, is_blocking=True).wait()
+            self._dev_array.get(queue=_queue, ary=self._c_handle.array)
             self._c_handle.restore_array()
             self._dirty = False
         self._c_handle.assemble()
@@ -289,10 +283,8 @@ class Const(op2.Const, DeviceDataMixin):
 
     @property
     @one_time
-    def _buffer(self):
-        _buf = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._data.nbytes)
-        cl.enqueue_copy(_queue, _buf, self._data, is_blocking=True).wait()
-        return _buf
+    def _array(self):
+        return array.to_device(_queue, self._data)
 
     @property
     def data(self):
@@ -301,7 +293,7 @@ class Const(op2.Const, DeviceDataMixin):
     @data.setter
     def data(self, value):
         self._data = verify_reshape(value, self.dtype, self.dim)
-        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
+        self._array.set(self._data, queue=_queue)
 
 
 class Global(op2.Global, DeviceDataMixin):
@@ -311,10 +303,8 @@ class Global(op2.Global, DeviceDataMixin):
 
     @property
     @one_time
-    def _buffer(self):
-        _buf = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._data.nbytes)
-        cl.enqueue_copy(_queue, _buf, self._data, is_blocking=True).wait()
-        return _buf
+    def _array(self):
+        return array.to_device(_queue, self._data)
 
     def _allocate_reduction_array(self, nelems):
         self._h_reduc_array = np.zeros (nelems * self.cdim, dtype=self.dtype)
@@ -324,14 +314,14 @@ class Global(op2.Global, DeviceDataMixin):
     @property
     def data(self):
         if self._dirty:
-            cl.enqueue_copy(_queue, self._data, self._buffer, is_blocking=True).wait()
+            self._array.get(queue=_queue, ary=self._data)
             self._dirty = False
         return self._data
 
     @data.setter
     def data(self, value):
         self._data = verify_reshape(value, self.dtype, self.dim)
-        cl.enqueue_copy(_queue, self._buffer, self._data, is_blocking=True).wait()
+        self._array.set(self._data, queue=_queue)
         self._dirty = False
 
     def _post_kernel_reduction_task(self, nelems, reduction_operator):
@@ -401,7 +391,7 @@ void global_%(type)s_%(dim)s_post_reduction (
         name = "global_%s_%s_post_reduction" % (self._cl_type, self.cdim)
         prg = cl.Program(_ctx, src).build(options="-Werror")
         kernel = prg.__getattr__(name)
-        kernel.append_arg(self._buffer)
+        kernel.append_arg(self._array.data)
         kernel.append_arg(self._d_reduc_buffer)
         kernel.append_arg(np.int32(nelems))
         cl.enqueue_task(_queue, kernel).wait()
@@ -415,11 +405,9 @@ class Map(op2.Map):
 
     @property
     @one_time
-    def _buffer(self):
+    def _array(self):
         assert self._iterset.size != 0, 'cannot upload IdentityMap'
-        _buf = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._values.nbytes)
-        cl.enqueue_copy(_queue, _buf, self._values, is_blocking=True).wait()
-        return _buf
+        return array.to_device(_queue, self._values)
 
     @property
     @one_time
@@ -934,26 +922,26 @@ class ParLoop(op2.ParLoop):
         kernel = compile_kernel(source, self._kernel._name)
 
         for a in self._unique_dats:
-            kernel.append_arg(a._buffer)
+            kernel.append_arg(a._array.data)
 
         for a in self._global_non_reduction_args:
-            kernel.append_arg(a.data._buffer)
+            kernel.append_arg(a.data._array.data)
 
         for a in self._global_reduction_args:
             a.data._allocate_reduction_array(conf['work_group_count'])
             kernel.append_arg(a.data._d_reduc_buffer)
 
         for cst in Const._definitions():
-            kernel.append_arg(cst._buffer)
+            kernel.append_arg(cst._array.data)
 
         for m in self._unique_matrix:
-            kernel.append_arg(m._dev_array)
+            kernel.append_arg(m._dev_array.data)
             m._upload_array()
-            kernel.append_arg(m._dev_rowptr)
-            kernel.append_arg(m._dev_colidx)
+            kernel.append_arg(m._dev_rowptr.data)
+            kernel.append_arg(m._dev_colidx.data)
 
         for m in self._matrix_entry_maps:
-            kernel.append_arg(m._buffer)
+            kernel.append_arg(m._array.data)
 
         if self.is_direct():
             kernel.append_arg(np.int32(self._it_space.size))
