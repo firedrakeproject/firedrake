@@ -368,7 +368,7 @@ class Global(op2.Global, DeviceDataMixin):
 %(headers)s
 #define INC(a,b) ((a)+(b))
 __kernel
-void %(name)s_reduction (
+void global_%(type)s_%(dim)s_post_reduction (
   __global %(type)s* dat,
   __global %(type)s* tmp,
   __private int count
@@ -391,15 +391,16 @@ void %(name)s_reduction (
     dat[j] = accumulator[j];
   }
 }
-""" % {'headers': headers(), 'name': self._name, 'dim': self.cdim, 'type': self._cl_type, 'op': op()}
+""" % {'headers': headers(), 'dim': self.cdim, 'type': self._cl_type, 'op': op()}
 
 
         if not _reduction_task_cache.has_key((self.dtype, self.cdim, reduction_operator)):
             _reduction_task_cache[(self.dtype, self.cdim, reduction_operator)] = generate_code()
 
         src = _reduction_task_cache[(self.dtype, self.cdim, reduction_operator)]
+        name = "global_%s_%s_post_reduction" % (self._cl_type, self.cdim)
         prg = cl.Program(_ctx, src).build(options="-Werror")
-        kernel = prg.__getattr__(self._name + '_reduction')
+        kernel = prg.__getattr__(name)
         kernel.append_arg(self._buffer)
         kernel.append_arg(self._d_reduc_buffer)
         kernel.append_arg(np.int32(nelems))

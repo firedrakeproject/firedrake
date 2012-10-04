@@ -39,11 +39,96 @@ from pyop2 import op2
 backends = ['sequential', 'opencl']
 
 nelems = 4
+size = 100
 
 class TestGlobalReductions:
     """
     Global reduction argument tests
     """
+
+    def pytest_funcarg__set(cls, request):
+        return request.cached_setup(
+            setup=lambda: op2.Set(size, 'set'), scope='session')
+
+    def pytest_funcarg__d1(cls, request):
+        return op2.Dat(request.getfuncargvalue('set'),
+                       1, numpy.arange(size)+1, dtype=numpy.uint32)
+
+    def pytest_funcarg__d2(cls, request):
+        return op2.Dat(request.getfuncargvalue('set'),
+                       2, numpy.arange(2*size)+1, dtype=numpy.uint32)
+
+    def pytest_funcarg__k1_write_to_dat(cls, request):
+        k = """
+        void k(unsigned int *x, unsigned int *g) { *x = *g; }
+        """
+        return request.cached_setup(
+            setup=lambda: op2.Kernel(k, "k"),
+            scope='session')
+
+    def pytest_funcarg__k1_inc_to_global(cls, request):
+        k = """
+        void k(unsigned int *x, unsigned int *g) { *g += *x; }
+        """
+        return request.cached_setup(
+            setup=lambda: op2.Kernel(k, "k"),
+            scope='session')
+
+    def pytest_funcarg__k1_min_to_global(cls, request):
+        k = """
+        void k(unsigned int *x, unsigned int *g) { if (*x < *g) *g = *x; }
+        """
+        return request.cached_setup(
+            setup=lambda: op2.Kernel(k, "k"),
+            scope='session')
+
+    def pytest_funcarg__k2_min_to_global(cls, request):
+        k = """
+        void k(unsigned int *x, unsigned int *g) {
+        if (x[0] < g[0]) g[0] = x[0];
+        if (x[1] < g[1]) g[1] = x[1];
+        }
+        """
+        return request.cached_setup(
+            setup=lambda: op2.Kernel(k, "k"),
+            scope='session')
+
+    def pytest_funcarg__k1_max_to_global(cls, request):
+        k = """
+        void k(unsigned int *x, unsigned int *g) {
+        if (*x > *g) *g = *x;
+        }
+        """
+        return request.cached_setup(
+            setup=lambda: op2.Kernel(k, "k"),
+            scope='session')
+
+    def pytest_funcarg__k2_max_to_global(cls, request):
+        k = """
+        void k(unsigned int *x, unsigned int *g) {
+        if (x[0] > g[0]) g[0] = x[0];
+        if (x[1] > g[1]) g[1] = x[1];
+        }
+        """
+        return request.cached_setup(
+            setup=lambda: op2.Kernel(k, "k"),
+            scope='session')
+
+    def pytest_funcarg__k2_write_to_dat(cls, request):
+        k = """
+        void k(unsigned int *x, unsigned int *g) { *x = g[0] + g[1]; }
+        """
+        return request.cached_setup(
+            setup=lambda: op2.Kernel(k, "k"),
+            scope='session')
+
+    def pytest_funcarg__k2_inc_to_global(cls, request):
+        k = """
+        void k(unsigned int *x, unsigned int *g) { g[0] += x[0]; g[1] += x[1]; }
+        """
+        return request.cached_setup(
+            setup=lambda: op2.Kernel(k, "k"),
+            scope='session')
 
     def pytest_funcarg__eps(cls, request):
         return 1.e-6
@@ -163,3 +248,158 @@ void kernel_max(double* x, double* g)
                      dfloat64(op2.IdentityMap, op2.READ),
                      g(op2.MAX))
         assert abs(g.data[0] - (-12.0)) < eps
+
+    def test_1d_read(self, backend, k1_write_to_dat, set, d1):
+        g = op2.Global(1, 1, dtype=numpy.uint32)
+        op2.par_loop(k1_write_to_dat, set,
+                     d1(op2.IdentityMap, op2.WRITE),
+                     g(op2.READ))
+
+        assert all(d1.data == g.data)
+
+    def test_2d_read(self, backend, k2_write_to_dat, set, d1):
+        g = op2.Global(2, (1, 2), dtype=numpy.uint32)
+        op2.par_loop(k2_write_to_dat, set,
+                     d1(op2.IdentityMap, op2.WRITE),
+                     g(op2.READ))
+
+        assert all(d1.data == g.data.sum())
+
+    def test_1d_inc(self, backend, k1_inc_to_global, set, d1):
+        g = op2.Global(1, 0, dtype=numpy.uint32)
+        op2.par_loop(k1_inc_to_global, set,
+                     d1(op2.IdentityMap, op2.READ),
+                     g(op2.INC))
+
+        assert g.data == d1.data.sum()
+
+    def test_1d_min_dat_is_min(self, backend, k1_min_to_global, set, d1):
+        val = d1.data.min() + 1
+        g = op2.Global(1, val, dtype=numpy.uint32)
+        op2.par_loop(k1_min_to_global, set,
+                     d1(op2.IdentityMap, op2.READ),
+                     g(op2.MIN))
+
+        assert g.data == d1.data.min()
+
+    def test_1d_min_global_is_min(self, backend, k1_min_to_global, set, d1):
+        d1.data[:] += 10
+        val = d1.data.min() - 1
+        g = op2.Global(1, val, dtype=numpy.uint32)
+        op2.par_loop(k1_min_to_global, set,
+                     d1(op2.IdentityMap, op2.READ),
+                     g(op2.MIN))
+        assert g.data == val
+
+    def test_1d_max_dat_is_max(self, backend, k1_max_to_global, set, d1):
+        val = d1.data.max() - 1
+        g = op2.Global(1, val, dtype=numpy.uint32)
+        op2.par_loop(k1_max_to_global, set,
+                     d1(op2.IdentityMap, op2.READ),
+                     g(op2.MAX))
+
+        assert g.data == d1.data.max()
+
+    def test_1d_max_global_is_max(self, backend, k1_max_to_global, set, d1):
+        val = d1.data.max() + 1
+        g = op2.Global(1, val, dtype=numpy.uint32)
+        op2.par_loop(k1_max_to_global, set,
+                     d1(op2.IdentityMap, op2.READ),
+                     g(op2.MAX))
+
+        assert g.data == val
+
+    def test_2d_inc(self, backend, k2_inc_to_global, set, d2):
+        g = op2.Global(2, (0, 0), dtype=numpy.uint32)
+        op2.par_loop(k2_inc_to_global, set,
+                     d2(op2.IdentityMap, op2.READ),
+                     g(op2.INC))
+
+        assert g.data[0] == d2.data[:,0].sum()
+        assert g.data[1] == d2.data[:,1].sum()
+
+    def test_2d_min_dat_is_min(self, backend, k2_min_to_global, set, d2):
+        val_0 = d2.data[:,0].min() + 1
+        val_1 = d2.data[:,1].min() + 1
+        g = op2.Global(2, (val_0, val_1), dtype=numpy.uint32)
+        op2.par_loop(k2_min_to_global, set,
+                     d2(op2.IdentityMap, op2.READ),
+                     g(op2.MIN))
+
+        assert g.data[0] == d2.data[:,0].min()
+        assert g.data[1] == d2.data[:,1].min()
+
+    def test_2d_min_global_is_min(self, backend, k2_min_to_global, set, d2):
+        d2.data[:,0] += 10
+        d2.data[:,1] += 10
+        val_0 = d2.data[:,0].min() - 1
+        val_1 = d2.data[:,1].min() - 1
+        g = op2.Global(2, (val_0, val_1), dtype=numpy.uint32)
+        op2.par_loop(k2_min_to_global, set,
+                     d2(op2.IdentityMap, op2.READ),
+                     g(op2.MIN))
+        assert g.data[0] == val_0
+        assert g.data[1] == val_1
+
+    def test_2d_max_dat_is_max(self, backend, k2_max_to_global, set, d2):
+        val_0 = d2.data[:,0].max() - 1
+        val_1 = d2.data[:,1].max() - 1
+        g = op2.Global(2, (val_0, val_1), dtype=numpy.uint32)
+        op2.par_loop(k2_max_to_global, set,
+                     d2(op2.IdentityMap, op2.READ),
+                     g(op2.MAX))
+
+        assert g.data[0] == d2.data[:,0].max()
+        assert g.data[1] == d2.data[:,1].max()
+
+    def test_2d_max_global_is_max(self, backend, k2_max_to_global, set, d2):
+        max_val_0 = d2.data[:,0].max() + 1
+        max_val_1 = d2.data[:,1].max() + 1
+        g = op2.Global(2, (max_val_0, max_val_1), dtype=numpy.uint32)
+        op2.par_loop(k2_max_to_global, set,
+                     d2(op2.IdentityMap, op2.READ),
+                     g(op2.MAX))
+
+        assert g.data[0] == max_val_0
+        assert g.data[1] == max_val_1
+
+    def test_1d_multi_inc_same_global(self, backend, k1_inc_to_global, set, d1):
+        g = op2.Global(1, 0, dtype=numpy.uint32)
+        op2.par_loop(k1_inc_to_global, set,
+                     d1(op2.IdentityMap, op2.READ),
+                     g(op2.INC))
+        assert g.data == d1.data.sum()
+
+        op2.par_loop(k1_inc_to_global, set,
+                     d1(op2.IdentityMap, op2.READ),
+                     g(op2.INC))
+
+        assert g.data == d1.data.sum()*2
+
+    def test_1d_multi_inc_same_global_reset(self, backend, k1_inc_to_global, set, d1):
+        g = op2.Global(1, 0, dtype=numpy.uint32)
+        op2.par_loop(k1_inc_to_global, set,
+                     d1(op2.IdentityMap, op2.READ),
+                     g(op2.INC))
+        assert g.data == d1.data.sum()
+
+        g.data = 10
+        op2.par_loop(k1_inc_to_global, set,
+                     d1(op2.IdentityMap, op2.READ),
+                     g(op2.INC))
+
+        assert g.data == d1.data.sum() + 10
+
+    def test_1d_multi_inc_diff_global(self, backend, k1_inc_to_global, set, d1):
+        g = op2.Global(1, 0, dtype=numpy.uint32)
+        g2 = op2.Global(1, 10, dtype=numpy.uint32)
+        op2.par_loop(k1_inc_to_global, set,
+                     d1(op2.IdentityMap, op2.READ),
+                     g(op2.INC))
+        assert g.data == d1.data.sum()
+
+        op2.par_loop(k1_inc_to_global, set,
+                     d1(op2.IdentityMap, op2.READ),
+                     g2(op2.INC))
+        assert g2.data == d1.data.sum() + 10
+

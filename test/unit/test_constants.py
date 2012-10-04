@@ -45,30 +45,77 @@ class TestConstant:
     Tests of OP2 Constants
     """
 
-    def test_1d_read(self, backend):
+    def pytest_funcarg__set(cls, request):
+        return request.cached_setup(
+            setup=lambda: op2.Set(size), scope='session')
+
+    def pytest_funcarg__dat(cls, request):
+        return op2.Dat(request.getfuncargvalue('set'), 1,
+                       numpy.zeros(size, dtype=numpy.int32))
+
+    def test_1d_read(self, backend, set, dat):
         kernel = """
-        void kernel_1d_read(unsigned int *x) { *x = myconstant; }
+        void kernel_1d_read(int *x) { *x = myconstant; }
         """
-        constant = op2.Const(1, 100, dtype=numpy.uint32, name="myconstant")
-        itset = op2.Set(size)
-        dat = op2.Dat(itset, 1, numpy.zeros(size, dtype=numpy.uint32))
+        constant = op2.Const(1, 100, dtype=numpy.int32, name="myconstant")
         op2.par_loop(op2.Kernel(kernel, "kernel_1d_read"),
-                     itset, dat(op2.IdentityMap, op2.WRITE))
+                     set, dat(op2.IdentityMap, op2.WRITE))
 
         constant.remove_from_namespace()
-        assert all(dat.data == constant._data)
+        assert all(dat.data == constant.data)
 
-    def test_2d_read(self, backend):
+    def test_2d_read(self, backend, set, dat):
         kernel = """
-        void kernel_2d_read(unsigned int *x) { *x = myconstant[0] + myconstant[1]; }
+        void kernel_2d_read(int *x) { *x = myconstant[0] + myconstant[1]; }
         """
-        constant = op2.Const(2, (100, 200), dtype=numpy.uint32, name="myconstant")
-        itset = op2.Set(size)
-        dat = op2.Dat(itset, 1, numpy.zeros(size, dtype=numpy.uint32))
+        constant = op2.Const(2, (100, 200), dtype=numpy.int32, name="myconstant")
         op2.par_loop(op2.Kernel(kernel, "kernel_2d_read"),
-                     itset, dat(op2.IdentityMap, op2.WRITE))
+                     set, dat(op2.IdentityMap, op2.WRITE))
         constant.remove_from_namespace()
-        assert all(dat.data == constant._data.sum())
+        assert all(dat.data == constant.data.sum())
+
+    def test_change_constant_works(self, backend, set, dat):
+        k = """
+        void k(int *x) { *x = myconstant; }
+        """
+
+        constant = op2.Const(1, 10, dtype=numpy.int32, name="myconstant")
+
+        op2.par_loop(op2.Kernel(k, 'k'),
+                     set, dat(op2.IdentityMap, op2.WRITE))
+
+        assert all(dat.data == constant.data)
+
+        constant.data == 11
+
+        op2.par_loop(op2.Kernel(k, 'k'),
+                     set, dat(op2.IdentityMap, op2.WRITE))
+
+        constant.remove_from_namespace()
+        assert all(dat.data == constant.data)
+
+    def test_change_constant_doesnt_require_parloop_regen(self, backend, set, dat):
+        k = """
+        void k(int *x) { *x = myconstant; }
+        """
+
+        op2._empty_parloop_cache()
+        constant = op2.Const(1, 10, dtype=numpy.int32, name="myconstant")
+
+        op2.par_loop(op2.Kernel(k, 'k'),
+                     set, dat(op2.IdentityMap, op2.WRITE))
+
+        assert op2._parloop_cache_size() == 1
+        assert all(dat.data == constant.data)
+
+        constant.data == 11
+
+        op2.par_loop(op2.Kernel(k, 'k'),
+                     set, dat(op2.IdentityMap, op2.WRITE))
+
+        constant.remove_from_namespace()
+        assert op2._parloop_cache_size() == 1
+        assert all(dat.data == constant.data)
 
 if __name__ == '__main__':
     import os
