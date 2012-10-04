@@ -541,6 +541,25 @@ void zero_vec_dat(double *dat)
                               [0.08333333, 0.16666667], [0.58333333, 1.16666667]],
                               dtype=valuetype)
 
+    def test_minimal_zero_mat(self, backend):
+        zero_mat_code = """
+void zero_mat(double local_mat[1][1], int i, int j)
+{
+  local_mat[i][j] = 0.0;
+}
+"""
+        nelems = 128
+        set = op2.Set(nelems)
+        map = op2.Map(set, set, 1, numpy.array(range(nelems), numpy.uint32))
+        sparsity = op2.Sparsity((map,map), (1,1))
+        mat = op2.Mat(sparsity, numpy.float64)
+        kernel = op2.Kernel(zero_mat_code, "zero_mat")
+        op2.par_loop(kernel, set(1,1), mat((map[op2.i[0]], map[op2.i[1]]), op2.WRITE))
+
+        expected_matrix = numpy.asarray([[0.0]*nelems]*nelems, dtype=numpy.float64)
+        eps = 1.e-12
+        assert (abs(mat.values-expected_matrix)<eps).all()
+
     def test_assemble(self, backend, mass, mat, coords, elements, elem_node,
                       expected_matrix):
         op2.par_loop(mass, elements(3,3),

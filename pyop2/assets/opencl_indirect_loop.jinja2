@@ -193,12 +193,6 @@ void {{ parloop._kernel.name }}_stub(
   {% for c in op2const %}
   __constant {{ c._cl_type }}* {{ c.name }},
   {% endfor %}
-  {% for dm in parloop._dat_map_pairs %}
-  __global int* {{ shared_indirection_mapping_arg_name(dm) }},
-  {%- endfor -%}
-  {% for arg in parloop._args %}
-  {% if(arg._is_indirect) %}__global short* {{ mapping_array_name(arg) }},{% endif %}
-  {%- endfor -%}
   {% for mat in parloop._unique_matrix %}
   __global {{ mat._cl_type }}* {{ mat.name }},
   __global int* {{ mat.name }}_rowptr,
@@ -206,6 +200,12 @@ void {{ parloop._kernel.name }}_stub(
   {%- endfor -%}
   {% for matem in parloop._matrix_entry_maps %}
   __global int* {{ matem.name }},
+  {%- endfor -%}
+  {% for dm in parloop._dat_map_pairs %}
+  __global int* {{ shared_indirection_mapping_arg_name(dm) }},
+  {%- endfor -%}
+  {% for arg in parloop._args %}
+  {% if(arg._is_indirect) %}__global short* {{ mapping_array_name(arg) }},{% endif %}
   {%- endfor -%}
 
   __global int* p_ind_sizes,

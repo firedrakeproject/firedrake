@@ -946,6 +946,15 @@ class ParLoop(op2.ParLoop):
         for cst in Const._definitions():
             kernel.append_arg(cst._buffer)
 
+        for m in self._unique_matrix:
+            kernel.append_arg(m._dev_array)
+            m._upload_array()
+            kernel.append_arg(m._dev_rowptr)
+            kernel.append_arg(m._dev_colidx)
+
+        for m in self._matrix_entry_maps:
+            kernel.append_arg(m._buffer)
+
         if self.is_direct():
             kernel.append_arg(np.int32(self._it_space.size))
 
@@ -956,15 +965,6 @@ class ParLoop(op2.ParLoop):
 
             for i in range(plan.nuinds):
                 kernel.append_arg(plan._loc_map_buffers[i])
-
-            for m in self._unique_matrix:
-                kernel.append_arg(m._dev_array)
-                m._upload_array()
-                kernel.append_arg(m._dev_rowptr)
-                kernel.append_arg(m._dev_colidx)
-
-            for m in self._matrix_entry_maps:
-                kernel.append_arg(m._buffer)
 
             kernel.append_arg(plan._ind_sizes_buffer)
             kernel.append_arg(plan._ind_offs_buffer)
@@ -998,7 +998,7 @@ class ParLoop(op2.ParLoop):
             a.data._post_kernel_reduction_task(conf['work_group_count'], a.access)
 
     def is_direct(self):
-        return all(map(lambda a: a._is_direct or isinstance(a.data, Global), self._args))
+        return all(map(lambda a: a._is_direct or isinstance(a.data, Global) or isinstance(a.data, Mat), self._args))
 
 #Monkey patch pyopencl.Kernel for convenience
 _original_clKernel = cl.Kernel
