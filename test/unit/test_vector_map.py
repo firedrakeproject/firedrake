@@ -42,13 +42,47 @@ backends = ['sequential', 'opencl']
 def _seed():
     return 0.02041724
 
-#max...
-nnodes = 92681
+nnodes = 92680
+nele = nnodes / 2
 
 class TestVectorMap:
     """
     Vector Map Tests
     """
+
+    def pytest_funcarg__node_set(cls, request):
+        return request.cached_setup(
+            setup=lambda: op2.Set(nnodes, 'node_set'), scope='session')
+
+    def pytest_funcarg__ele_set(cls, request):
+        return request.cached_setup(
+            setup=lambda: op2.Set(nele, 'ele_set'), scope='session')
+
+    def pytest_funcarg__d1(cls, request):
+        return op2.Dat(request.getfuncargvalue('node_set'),
+                       1, numpy.zeros(nnodes), dtype=numpy.int32)
+
+    def pytest_funcarg__d2(cls, request):
+        return op2.Dat(request.getfuncargvalue('node_set'),
+                       2, numpy.zeros(2 * nnodes), dtype=numpy.int32)
+
+    def pytest_funcarg__vd1(cls, request):
+        return op2.Dat(request.getfuncargvalue('ele_set'),
+                       1, numpy.zeros(nele), dtype=numpy.int32)
+
+    def pytest_funcarg__vd2(cls, request):
+        return op2.Dat(request.getfuncargvalue('ele_set'),
+                       2, numpy.zeros(2 * nele), dtype=numpy.int32)
+
+    def pytest_funcarg__node2ele(cls, request):
+        def setup():
+            vals = numpy.arange(nnodes)
+            vals /= 2
+            return op2.Map(request.getfuncargvalue('node_set'),
+                           request.getfuncargvalue('ele_set'),
+                           1,
+                           vals, 'node2ele')
+        return request.cached_setup(setup=setup, scope='session')
 
     def test_sum_nodes_to_edges(self, backend):
         """Creates a 1D grid with edge values numbered consecutively.
@@ -75,6 +109,98 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
 
         expected = numpy.asarray(range(1, nedges*2+1, 2)).reshape(nedges, 1)
         assert(all(expected == edge_vals.data))
+
+    def test_read_1d_vector_map(self, backend, node_set, d1, vd1, node2ele):
+        vd1.data[:] = numpy.arange(nele).reshape(nele, 1)
+        k = """
+        void k(int *d, int *vd[1]) {
+        *d = vd[0][0];
+        }"""
+        op2.par_loop(op2.Kernel(k, 'k'), node_set,
+                     d1(op2.IdentityMap, op2.WRITE),
+                     vd1(node2ele, op2.READ))
+        assert all(d1.data[::2] == vd1.data)
+        assert all(d1.data[1::2] == vd1.data)
+
+    def test_write_1d_vector_map(self, backend, node_set, vd1, node2ele):
+        k = """
+        void k(int *vd[1]) {
+        vd[0][0] = 2;
+        }
+        """
+
+        op2.par_loop(op2.Kernel(k, 'k'), node_set,
+                     vd1(node2ele, op2.WRITE))
+        assert all(vd1.data == 2)
+
+    def test_inc_1d_vector_map(self, backend, node_set, d1, vd1, node2ele):
+        vd1.data[:] = 3
+        d1.data[:] = numpy.arange(nnodes).reshape(d1.data.shape)
+
+        k = """
+        void k(int *d, int *vd[1]) {
+        vd[0][0] += *d;
+        }"""
+        op2.par_loop(op2.Kernel(k, 'k'), node_set,
+                     d1(op2.IdentityMap, op2.READ),
+                     vd1(node2ele, op2.INC))
+        expected = numpy.zeros_like(vd1.data)
+        expected[:] = 3
+        expected += numpy.arange(start=0, stop=nnodes, step=2).reshape(expected.shape)
+        expected += numpy.arange(start=1, stop=nnodes, step=2).reshape(expected.shape)
+        assert all(vd1.data == expected)
+
+    def test_read_2d_vector_map(self, backend, node_set, d2, vd2, node2ele):
+        vd2.data[:] = numpy.arange(nele*2).reshape(nele, 2)
+        k = """
+        void k(int *d, int *vd[2]) {
+        d[0] = vd[0][0];
+        d[1] = vd[0][1];
+        }"""
+        op2.par_loop(op2.Kernel(k, 'k'), node_set,
+                     d2(op2.IdentityMap, op2.WRITE),
+                     vd2(node2ele, op2.READ))
+        assert all(d2.data[::2,0] == vd2.data[:,0])
+        assert all(d2.data[::2,1] == vd2.data[:,1])
+        assert all(d2.data[1::2,0] == vd2.data[:,0])
+        assert all(d2.data[1::2,1] == vd2.data[:,1])
+
+    def test_write_2d_vector_map(self, backend, node_set, vd2, node2ele):
+        k = """
+        void k(int *vd[2]) {
+        vd[0][0] = 2;
+        vd[0][1] = 3;
+        }
+        """
+
+        op2.par_loop(op2.Kernel(k, 'k'), node_set,
+                     vd2(node2ele, op2.WRITE))
+        assert all(vd2.data[:,0] == 2)
+        assert all(vd2.data[:,1] == 3)
+
+    def test_inc_2d_vector_map(self, backend, node_set, d2, vd2, node2ele):
+        vd2.data[:, 0] = 3
+        vd2.data[:, 1] = 4
+        d2.data[:] = numpy.arange(2 * nnodes).reshape(d2.data.shape)
+
+        k = """
+        void k(int *d, int *vd[2]) {
+        vd[0][0] += d[0];
+        vd[0][1] += d[1];
+        }"""
+        op2.par_loop(op2.Kernel(k, 'k'), node_set,
+                     d2(op2.IdentityMap, op2.READ),
+                     vd2(node2ele, op2.INC))
+
+        expected = numpy.zeros_like(vd2.data)
+        expected[:, 0] = 3
+        expected[:, 1] = 4
+        expected[:, 0] += numpy.arange(start=0, stop=2*nnodes, step=4)
+        expected[:, 0] += numpy.arange(start=2, stop=2*nnodes, step=4)
+        expected[:, 1] += numpy.arange(start=1, stop=2*nnodes, step=4)
+        expected[:, 1] += numpy.arange(start=3, stop=2*nnodes, step=4)
+        assert all(vd2.data[:,0] == expected[:,0])
+        assert all(vd2.data[:,1] == expected[:,1])
 
 if __name__ == '__main__':
     import os
