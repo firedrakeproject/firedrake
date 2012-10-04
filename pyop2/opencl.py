@@ -673,61 +673,6 @@ class ParLoop(op2.ParLoop):
                 tuple(inds),
                 tuple(cols))
 
-    def __hash__(self):
-        """Canonical representation of a parloop wrt generated code caching."""
-        # user kernel: hash of Kernel [code + name] (same code can contain
-        #   multiple user kernels)
-        # hash iteration space description
-        # for each actual arg:
-        #   its type (dat | gbl | mat)
-        #   dtype (required for casts and opencl extensions)
-        #   dat.dim (dloops: if staged or reduc; indloops; if not direct dat)
-        #   access  (dloops: if staged or reduc; indloops; if not direct dat)
-        #   the ind map index: gbl = -1, direct = -1, indirect = X (first occurence
-        #     of the dat/map pair) (will tell which arg use which ind/loc maps)
-        #     vecmap = -X (size of the map)
-        # for vec map arg we need the dimension of the map
-        # hash of consts in alphabetial order: name, dtype (used in user kernel)
-
-        def argdimacc(arg):
-            if self.is_direct():
-                if arg._is_global or (arg._is_dat and not arg.data._is_scalar):
-                    return (arg.data.cdim, arg.access)
-                else:
-                    return ()
-            else:
-                if (arg._is_global and arg.access is READ) or arg._is_direct:
-                    return ()
-                else:
-                    return (arg.data.cdim, arg.access)
-
-        argdesc = []
-        seen = dict()
-        c = 0
-        for arg in self.args:
-            if arg._is_indirect:
-                if not seen.has_key((arg.data,arg.map)):
-                    seen[(arg.data,arg.map)] = c
-                    idesc = (c, (- arg.map.dim) if arg._is_vec_map else arg.idx)
-                    c += 1
-                else:
-                    idesc = (seen[(arg.data,arg.map)], (- arg.map.dim) if arg._is_vec_map else arg.idx)
-            else:
-                idesc = ()
-
-            d = (arg.data.__class__,
-                 arg.data.dtype) + argdimacc(arg) + idesc
-
-            argdesc.append(d)
-
-        hsh = hash(self._kernel)
-        hsh ^= hash(self._it_space)
-        hsh ^= hash(tuple(argdesc))
-        for c in Const._definitions():
-            hsh ^= hash(c)
-
-        return hsh
-
     # generic
     @property
     def _global_reduction_args(self):
@@ -931,7 +876,8 @@ class ParLoop(op2.ParLoop):
             return self._kernel.instrument(inst, Const._definitions())
 
         # check cache
-        src = op2._parloop_cache.get(hash(self))
+        key = self._cache_key
+        src = op2._parloop_cache.get(key)
         if src:
             return src
 
@@ -947,7 +893,7 @@ class ParLoop(op2.ParLoop):
                                'op2const': Const._definitions()
                               }).encode("ascii")
         self.dump_gen_code(src)
-        op2._parloop_cache[hash(self)] = src
+        op2._parloop_cache[key] = src
         return src
 
     def compute(self):

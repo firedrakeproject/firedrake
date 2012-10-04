@@ -106,7 +106,8 @@ class ParLoop(rt.ParLoop):
 
     def generate_code(self):
 
-        _fun = rt._parloop_cache.get(hash(self))
+        key = self._cache_key
+        _fun = rt._parloop_cache.get(key)
 
         if _fun is not None:
             return _fun
@@ -374,7 +375,7 @@ class ParLoop(rt.ParLoop):
                                  libraries=['op2_seq'],
                                  sources=["mat_utils.cxx"])
 
-        rt._parloop_cache[hash(self)] = _fun
+        rt._parloop_cache[key] = _fun
         return _fun
 
 

@@ -820,6 +820,11 @@ class Kernel(object):
         code must conform to the OP2 user kernel API."""
         return self._code
 
+    @property
+    def md5(self):
+        import md5
+        return md5.new(self._code + self._name).digest()
+
     def __hash__(self):
         import md5
         return hash(md5.new(self._code + self._name).digest())
@@ -854,13 +859,32 @@ class ParLoop(object):
     def args(self):
         return self._actual_args
 
-    def __hash__(self):
-        hsh = hash(self._kernel)
-        hsh ^= hash(self._it_space)
+    @property
+    def _cache_key(self):
+        key = (self._kernel.md5, )
+
+        key += (self._it_space.extents, )
         for arg in self.args:
-            hsh ^= hash(arg)
+            if arg._is_global:
+                key += (arg.data.dim, arg.data.dtype, arg.access)
+            elif arg._is_dat:
+                if isinstance(arg.idx, IterationIndex):
+                    idx = (arg.idx.__class__, arg.idx.index)
+                else:
+                    idx = arg.idx
+                if arg.map is IdentityMap:
+                    map_dim = None
+                else:
+                    map_dim = arg.map.dim
+                key += (arg.data.dim, arg.data.dtype, map_dim, idx, arg.access)
+            elif arg._is_mat:
+                idxs = (arg.idx[0].__class__, arg.idx[0].index,
+                        arg.idx[1].index)
+                map_dims = (arg.map[0].dim, arg.map[1].dim)
+                key += (arg.data.dims, arg.data.dtype, idxs,
+                      map_dims, arg.access)
 
         for c in Const._definitions():
-            hsh ^= hash(c)
+            key += (c.name, c.dtype, c.cdim)
 
-        return hsh
+        return key
