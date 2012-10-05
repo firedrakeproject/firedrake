@@ -12,27 +12,39 @@
 {{ common.defines(launch) }}
 {%- endmacro -%}
 
+{#                                  #}
+{# kernel stub local variable names #}
+
+{%- macro lmemptr(arg) -%}
+{{ arg.data.name }}_local
+{%- endmacro -%}
+
+{%- macro pmemptr(arg) -%}
+{{ arg.data.name }}_private
+{%- endmacro -%}
+
+
 {%- macro stagein(arg) -%}
-// {{ arg.data.name }}
+// staging in: {{ arg.data.name }}
 for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2)
-  {{ arg.data.name }}_shared[thread_id + i_2 * active_threads_count] = {{ arg.data.name }}[thread_id + i_2 * active_threads_count + local_offset * {{ arg.data.cdim }}];
+  {{ lmemptr(arg) }}[thread_id + i_2 * active_threads_count] = {{ arg.data.name }}[thread_id + i_2 * active_threads_count + local_offset * {{ arg.data.cdim }}];
 
 for (i_2 = 0; i_2 < {{ arg._dat.cdim }}; ++i_2)
-  {{ arg.data.name }}_local[i_2] = {{ arg.data.name }}_shared[i_2 + thread_id * {{ arg.data.cdim }}];
+  {{ pmemptr(arg) }}[i_2] = {{ lmemptr(arg) }}[i_2 + thread_id * {{ arg.data.cdim }}];
 {%- endmacro -%}
 
 {%- macro stageout(arg) -%}
-// {{ arg.data.name }}
+// staging out: {{ arg.data.name }}
 for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2)
-  {{ arg.data.name }}_shared[i_2 + thread_id * {{ arg.data.cdim }}] = {{ arg.data.name }}_local[i_2];
+  {{ lmemptr(arg) }}[i_2 + thread_id * {{ arg.data.cdim }}] = {{ pmemptr(arg) }}[i_2];
 
 for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2)
-  {{ arg.data._name }}[thread_id + i_2 * active_threads_count + local_offset * {{ arg.data.cdim }}] = {{ arg.data.name }}_shared[thread_id + i_2 * active_threads_count];
+  {{ arg.data._name }}[thread_id + i_2 * active_threads_count + local_offset * {{ arg.data.cdim }}] = {{ lmemptr(arg) }}[thread_id + i_2 * active_threads_count];
 {%- endmacro -%}
 
 {%- macro kernel_call_arg(arg) -%}
 {% if(arg._d_is_staged) -%}
-{{ arg.data.name }}_local
+{{ pmemptr(arg) }}
 {%- elif(arg._is_global_reduction) -%}
 {{ arg.data.name }}_reduc_local
 {%- elif(arg._is_global) -%}
@@ -137,11 +149,11 @@ void {{ parloop._kernel.name }}_stub (
   int thread_id = get_local_id(0) % OP_WARPSIZE;
 
   {%- for arg in parloop._direct_non_scalar_args -%}
-  __private {{ arg.data._cl_type }} {{ arg.data._name }}_local[{{ arg.data.cdim }}];
+  __private {{ arg.data._cl_type }} {{ pmemptr(arg) }}[{{ arg.data.cdim }}];
   {% endfor %}
 
   {% for arg in parloop._direct_non_scalar_args -%}
-  __local {{ arg.data._cl_type }} *{{ arg.data.name }}_shared = (__local {{ arg.data._cl_type }}*) (shared + shared_memory_offset * (get_local_id(0) / OP_WARPSIZE));
+  __local {{ arg.data._cl_type }} *{{ lmemptr(arg) }} = (__local {{ arg.data._cl_type }}*) (shared + shared_memory_offset * (get_local_id(0) / OP_WARPSIZE));
   {% endfor %}
   {%- endif %}
 
