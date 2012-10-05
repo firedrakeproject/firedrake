@@ -1,3 +1,30 @@
+{#        #}
+{# common #}
+{#        #}
+
+{%- macro pragma_clext(parloop) -%}
+{% if(parloop._matrix_args) %}
+#if defined(cl_khr_int64_base_atomics)
+#pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
+#endif
+{% endif %}
+#if defined(cl_khr_fp64)
+#if defined(cl_amd_fp64)
+#pragma OPENCL EXTENSION cl_amd_fp64 : enable
+#else
+#pragma OPENCL EXTENSION cl_khr_fp64 : enable
+#endif
+#elif defined(cl_amd_fp64)
+#pragma OPENCL EXTENSION cl_amd_fp64 : enable
+#endif
+{%- endmacro -%}
+
+{%- macro defines(launch) -%}
+#define ROUND_UP(bytes) (((bytes) + 15) & ~15)
+#define OP_WARPSIZE {{ launch.warpsize }}
+#define OP2_STRIDE(arr, idx) (arr[idx])
+{%- endmacro -%}
+
 {#                                    #}
 {# global reduction support templates #}
 {#                                    #}
