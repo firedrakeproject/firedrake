@@ -198,13 +198,25 @@ class Dat(op2.Dat, DeviceDataMixin):
     """OP2 OpenCL vector data type."""
 
     _arg_type = Arg
+    _array = None
+
+    def _init_array(self):
+        if self._array is None:
+            if len(self._data) is not 0:
+                self._array =  array.to_device(_queue, self._data)
+            else:
+                self._array =  array.empty(_queue, self._data.shape, self.dtype)
 
     @property
-    @one_time
-    def _array(self):
-        if len(self._data) is not 0:
-            return array.to_device(_queue, self._data)
-        return array.empty(_queue, self._data.shape, self.dtype)
+    def array(self):
+        self._init_array()
+        return self._array
+
+    @array.setter
+    def array(self, ary):
+        self._init_array()
+        self._array = ary
+        self._dirty = True
 
     @property
     def data(self):
@@ -213,7 +225,7 @@ class Dat(op2.Dat, DeviceDataMixin):
 
         maybe_setflags(self._data, write=True)
         if self._dirty:
-            self._array.get(queue=_queue, ary=self._data)
+            self.array.get(queue=_queue, ary=self._data)
             if self.soa:
                 np.transpose(self._data)
             self._dirty = False
@@ -225,7 +237,7 @@ class Dat(op2.Dat, DeviceDataMixin):
             raise RuntimeError("Temporary dat has no data on the host")
         maybe_setflags(self._data, write=True)
         if self._dirty:
-            self._array.get(queue=_queue, ary=self._data)
+            self.array.get(queue=_queue, ary=self._data)
             if self.soa:
                 np.transpose(self._data)
             self._dirty = False
@@ -233,7 +245,7 @@ class Dat(op2.Dat, DeviceDataMixin):
         return self._data
 
     def _upload_from_c_layer(self):
-        self._array.set(self._data, queue=_queue)
+        self.array.set(self._data, queue=_queue)
 
 def solve(M, b, x):
     x.data
@@ -922,7 +934,7 @@ class ParLoop(op2.ParLoop):
         kernel = compile_kernel(source, self._kernel._name)
 
         for a in self._unique_dats:
-            kernel.append_arg(a._array.data)
+            kernel.append_arg(a.array.data)
 
         for a in self._global_non_reduction_args:
             kernel.append_arg(a.data._array.data)
