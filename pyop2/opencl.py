@@ -247,6 +247,26 @@ class Dat(op2.Dat, DeviceDataMixin):
     def _upload_from_c_layer(self):
         self.array.set(self._data, queue=_queue)
 
+    def __iadd__(self, other):
+        self.array += other.array
+        return self
+
+    def __isub__(self, other):
+        self.array -= other.array
+        return self
+
+    def __imul__(self, other):
+        self.array *= other.array
+        return self
+
+    def __idiv__(self, other):
+        self.array /= other.array
+        return self
+
+    @property
+    def norm(self):
+        return np.sqrt(array.dot(self.array, self.array).get())
+
 def solve(M, b, x):
     x.data
     b.data

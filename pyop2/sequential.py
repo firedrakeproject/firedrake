@@ -48,6 +48,28 @@ def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
     ParLoop(kernel, it_space, *args).compute()
 
+class Dat(Dat):
+
+    def __iadd__(self, other):
+        self._data += other._data
+        return self
+
+    def __isub__(self, other):
+        self._data -= other._data
+        return self
+
+    def __imul__(self, other):
+        self._data *= other._data
+        return self
+
+    def __idiv__(self, other):
+        self._data /= other._data
+        return self
+
+    @property
+    def norm(self):
+        return np.linalg.norm(self._data)
+
 class ParLoop(rt.ParLoop):
     def compute(self):
         _fun = self.generate_code()
