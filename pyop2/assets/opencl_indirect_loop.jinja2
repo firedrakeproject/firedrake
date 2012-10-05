@@ -1,3 +1,5 @@
+{% import 'opencl_common.jinja2' as common %}
+
 {%- macro header() -%}
 /* Launch configuration:
  *   work group size     : {{ launch.work_group_size }}
@@ -82,41 +84,6 @@
   ind_{{ arg.data.name }}_via_{{ arg.map.name }}_map
 {%- endmacro -%}
 
-{%- macro reduction_op(arg) -%}
-   {% if(arg._is_INC) -%}
-      reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];
-   {%- elif(arg._is_MIN) -%}
-      reduction_tmp_array[lid] = min(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
-   {%- elif(arg._is_MAX) -%}
-      reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
-   {%- endif -%}
-{%- endmacro -%}
-
-{%- macro reduction_kernel(arg) -%}
-__kernel
-void {{ arg.data.name }}_reduction_kernel (
-  __global {{ arg.data._cl_type }}* reduction_result,
-  __private {{ arg.data._cl_type }} input_value,
-  __local {{ arg.data._cl_type }}* reduction_tmp_array
-) {
-  barrier(CLK_LOCAL_MEM_FENCE);
-  int lid = get_local_id(0);
-  reduction_tmp_array[lid] = input_value;
-  barrier(CLK_LOCAL_MEM_FENCE);
-
-  for(int offset = 1; offset < (int)get_local_size(0); offset <<= 1) {
-    int mask = (offset << 1) - 1;
-    if(((lid & mask) == 0) && (lid + offset < (int)get_local_size(0))) {
-      {{ reduction_op(arg) }}
-    }
-    barrier(CLK_LOCAL_MEM_FENCE);
-  }
-
-  if (lid == 0)
-    *reduction_result = reduction_tmp_array[0];
-}
-{%- endmacro -%}
-
 {%- macro populate_vec_map(arg) -%}
 // populate vec map
 {%- if(arg._is_indirect_reduction) -%}
@@ -154,19 +121,9 @@ for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2) {
 }
 {%- endmacro -%}
 
-{%- macro reduction_id_value(arg) -%}
-{%- if(arg._is_INC) -%}
-{{ arg.data._cl_type_zero }}
-{%- elif(arg._is_MIN) -%}
-{{ arg.data._cl_type_max }}
-{%- elif(arg._is_MAX) -%}
-{{ arg.data._cl_type_min }}
-{%- endif -%}
-{%- endmacro -%}
-
 {%- macro global_reduction_local_zeroing(arg) -%}
 for (i_1 = 0; i_1 < {{ arg.data.cdim }}; ++i_1) {
-  {{ global_reduc_local_name(arg) }}[i_1] = {{ reduction_id_value(arg) }};
+  {{ global_reduc_local_name(arg) }}[i_1] = {{ common.reduction_id_value(arg) }};
 }
 {%- endmacro -%}
 
@@ -550,7 +507,7 @@ void matrix_set(__global double* mat_array, __global int* mat_rowptr, __global i
 {{- header() }}
 
 {% for arg in parloop._global_reduction_args -%}
-  {{ reduction_kernel(arg) }}
+  {{ common.reduction_kernel(arg) }}
 {% endfor %}
 {% if(parloop._matrix_args) %}
 // Matrix support code

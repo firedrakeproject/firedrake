@@ -1,0 +1,48 @@
+{#                                    #}
+{# global reduction support templates #}
+{#                                    #}
+
+{%- macro reduction_id_value(arg) -%}
+{%- if(arg._is_INC) -%}
+{{ arg.data._cl_type_zero }}
+{%- elif(arg._is_MIN) -%}
+{{ arg.data._cl_type_max }}
+{%- elif(arg._is_MAX) -%}
+{{ arg.data._cl_type_min }}
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro reduction_op(arg) -%}
+{%- if(arg._is_INC) -%}
+reduction_tmp_array[lid] += reduction_tmp_array[lid + offset];
+{%- elif(arg._is_MIN) -%}
+reduction_tmp_array[lid] = min(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+{%- elif(arg._is_MAX) -%}
+reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid + offset]);
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro reduction_kernel(arg) -%}
+__kernel
+void {{ arg.data.name }}_reduction_kernel (
+  __global {{ arg.data._cl_type }} *reduction_result,
+  __private {{ arg.data._cl_type }} input_value,
+  __local {{ arg.data._cl_type }} *reduction_tmp_array
+) {
+  barrier(CLK_LOCAL_MEM_FENCE);
+  int lid = get_local_id(0);
+  reduction_tmp_array[lid] = input_value;
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  for(int offset = 1; offset < (int)get_local_size(0); offset <<= 1) {
+    int mask = (offset << 1) - 1;
+    if(((lid & mask) == 0) && (lid + offset < (int)get_local_size(0))) {
+      {{ reduction_op(arg) }}
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+  }
+
+  if (lid == 0)
+    *reduction_result = reduction_tmp_array[0];
+}
+{%- endmacro -%}
