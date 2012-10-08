@@ -162,7 +162,10 @@ def verify_reshape(data, dtype, shape, allow_none=False):
         except ValueError:
             raise DataValueError("Invalid data: cannot convert to %s!" % dtype)
         try:
-            return a.reshape(shape)
+            # Destructively modify shape.  Fails if data are not
+            # contiguous, but that's what we want anyway.
+            a.shape = shape
+            return a
         except ValueError:
             raise DataValueError("Invalid data: expected %d values, got %d!" % \
                     (np.prod(shape), np.asarray(data).size))
