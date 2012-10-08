@@ -162,7 +162,10 @@ def verify_reshape(data, dtype, shape, allow_none=False):
         except ValueError:
             raise DataValueError("Invalid data: cannot convert to %s!" % dtype)
         try:
-            return a.reshape(shape)
+            # Destructively modify shape.  Fails if data are not
+            # contiguous, but that's what we want anyway.
+            a.shape = shape
+            return a
         except ValueError:
             raise DataValueError("Invalid data: expected %d values, got %d!" % \
                     (np.prod(shape), np.asarray(data).size))
@@ -202,6 +205,14 @@ def parser(description=None, group=False):
                    help='specify alternate configuration' if group else 'specify alternate pyop2 configuration')
 
     return parser
+
+def maybe_setflags(array, write=None, align=None, uic=None):
+    """Set flags on a numpy ary.
+
+    But don't try to set the write flag if the data aren't owned by this array.
+    See `numpy.ndarray.setflags` for details of the parameters."""
+    write = write if array.flags['OWNDATA'] else None
+    array.setflags(write=write, align=align, uic=uic)
 
 def parse_args(*args, **kwargs):
     """Return parsed arguments as variables for later use.
