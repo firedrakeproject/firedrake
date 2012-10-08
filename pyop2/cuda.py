@@ -254,9 +254,8 @@ class Global(DeviceDataMixin, op2.Global):
 
     def _finalise_reduction_begin(self, grid_size, op):
         self._stream = driver.Stream()
-        driver.memcpy_dtoh_async(self._host_reduction_buffer,
-                                 self._reduction_buffer.ptr,
-                                 self._stream)
+        self._reduction_buffer.get_async(ary=self._host_reduction_buffer,
+                                         stream=self._stream)
 
     def _finalise_reduction_end(self, grid_size, op):
         self.state = DeviceDataMixin.CPU
