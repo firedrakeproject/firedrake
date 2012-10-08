@@ -132,6 +132,7 @@ class DeviceDataMixin(object):
     def data(self):
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
+        self._data.setflags(write=True)
         self._from_device()
         if self.state is not DeviceDataMixin.UNALLOCATED:
             self.state = DeviceDataMixin.CPU
@@ -139,9 +140,20 @@ class DeviceDataMixin(object):
 
     @data.setter
     def data(self, value):
+        self._data.setflags(write=True)
         self._data = verify_reshape(value, self.dtype, self.dim)
         if self.state is not DeviceDataMixin.UNALLOCATED:
             self.state = DeviceDataMixin.CPU
+
+    @property
+    def data_ro(self):
+        if len(self._data) is 0:
+            raise RuntimeError("Illegal access: No data associated with this Dat!")
+        self._data.setflags(write=True)
+        self._from_device()
+        self.state = DeviceDataMixin.BOTH
+        self._data.setflags(write=False)
+        return self._data
 
 class Dat(DeviceDataMixin, op2.Dat):
 
@@ -682,6 +694,8 @@ class ParLoop(op2.ParLoop):
             c._to_device(self._module)
 
         for arg in _args:
+            if arg._is_dat:
+                arg.data._data.setflags(write=False)
             arg.data._allocate_device()
             if arg.access is not op2.WRITE:
                 arg.data._to_device()
