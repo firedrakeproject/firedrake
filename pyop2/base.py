@@ -385,7 +385,7 @@ class Dat(DataCarrier):
         """Numpy array containing the data values."""
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
-        self._data.setflags(write=True)
+        maybe_setflags(self._data, write=True)
         return self._data
 
     @property
@@ -393,7 +393,7 @@ class Dat(DataCarrier):
         """Numpy array containing the data values.  Read-only"""
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
-        self._data.setflags(write=False)
+        maybe_setflags(self._data, write=False)
         return self._data
 
     @property
