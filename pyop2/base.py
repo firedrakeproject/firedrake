@@ -496,6 +496,10 @@ class Global(DataCarrier):
     def data(self, value):
         self._data = verify_reshape(value, self.dtype, self.dim)
 
+    @property
+    def soa(self):
+        return False
+
 #FIXME: Part of kernel API, but must be declared before Map for the validation.
 
 class IterationIndex(object):
