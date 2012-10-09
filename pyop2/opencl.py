@@ -200,21 +200,16 @@ class Dat(op2.Dat, DeviceDataMixin):
     _arg_type = Arg
     _array = None
 
-    def _init_array(self):
-        if self._array is None:
-            if len(self._data) is not 0:
-                self._array =  array.to_device(_queue, self._data)
-            else:
-                self._array =  array.empty(_queue, self._data.shape, self.dtype)
-
     @property
     def array(self):
-        self._init_array()
+        """Return the OpenCL device array or None if not yet initialised."""
+        if self._array is None and len(self._data) is not 0:
+            self._array =  array.to_device(_queue, self._data)
         return self._array
 
     @array.setter
     def array(self, ary):
-        self._init_array()
+        assert self._array is None or self._array.shape == ary.shape
         self._array = ary
         self._dirty = True
 
