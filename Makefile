@@ -9,8 +9,16 @@ REGRESSION_TEST_DIR = $(TEST_BASE_DIR)/regression
 TESTHARNESS = $(REGRESSION_TEST_DIR)/testharness.py
 BACKENDS ?= sequential opencl
 
-all: test
+help:
+	@echo "make COMMAND with COMMAND one of:"
+	@echo "  test               : run unit and regression tests"
+	@echo "  unit               : run unit tests"
+	@echo "  unit_BACKEND       : run unit tests for BACKEND"
+	@echo "  regression         : run regression tests"
+	@echo "  regression_BACKEND : run regression tests for BACKEND"
+
 test: unit regression
+
 unit: $(foreach backend,$(BACKENDS), unit_$(backend))
 
 unit_%:
