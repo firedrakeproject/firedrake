@@ -44,6 +44,7 @@ from pyopencl import array
 import pkg_resources
 import pycparser
 import numpy as np
+from numbers import Number
 import collections
 import warnings
 import math
@@ -243,19 +244,29 @@ class Dat(op2.Dat, DeviceDataMixin):
         self.array.set(self._data, queue=_queue)
 
     def __iadd__(self, other):
+        """Pointwise addition of fields."""
         self.array += other.array
         return self
 
     def __isub__(self, other):
+        """Pointwise multiplication of fields."""
         self.array -= other.array
         return self
 
     def __imul__(self, other):
-        self.array *= other.array
+        """Pointwise multiplication or scaling of fields."""
+        if isinstance(other, (Number, np.generic)):
+            self.array *= other
+        else:
+            self.array *= other.array
         return self
 
     def __idiv__(self, other):
-        self.array /= other.array
+        """Pointwise division or scaling of fields."""
+        if isinstance(other, (Number, np.generic)):
+            self.array /= other
+        else:
+            self.array /= other.array
         return self
 
     @property

@@ -34,6 +34,7 @@
 """OP2 sequential backend."""
 
 import numpy as np
+from numbers import Number
 
 from exceptions import *
 from utils import *
@@ -51,19 +52,29 @@ def par_loop(kernel, it_space, *args):
 class Dat(Dat):
 
     def __iadd__(self, other):
+        """Pointwise addition of fields."""
         self._data += other._data
         return self
 
     def __isub__(self, other):
+        """Pointwise subtraction of fields."""
         self._data -= other._data
         return self
 
     def __imul__(self, other):
-        self._data *= other._data
+        """Pointwise multiplication or scaling of fields."""
+        if isinstance(other, (Number, np.generic)):
+            self._data *= other
+        else:
+            self._data *= other.data
         return self
 
     def __idiv__(self, other):
-        self._data /= other._data
+        """Pointwise division or scaling of fields."""
+        if isinstance(other, (Number, np.generic)):
+            self._data /= other
+        else:
+            self._data /= other.data
         return self
 
     @property

@@ -46,35 +46,35 @@ def pytest_funcarg__x(request):
     return op2.Dat(request.getfuncargvalue('set'),
                    1,
                    [2*x for x in range(1,nelems+1)],
-                   numpy.uint32,
+                   numpy.float64,
                    "x")
 
 def pytest_funcarg__y(request):
     return op2.Dat(request.getfuncargvalue('set'),
                    1,
                    range(1,nelems+1),
-                   numpy.uint32,
+                   numpy.float64,
                    "y")
 
 def pytest_funcarg__n(request):
     return op2.Dat(op2.Set(2),
                    1,
                    [3,4],
-                   numpy.uint32,
+                   numpy.float64,
                    "n")
 
 def pytest_funcarg__x4(request):
     return op2.Dat(request.getfuncargvalue('set'),
                    (2,2),
                    [2*x for x in range(4*nelems)],
-                   numpy.uint32,
+                   numpy.float64,
                    "x")
 
 def pytest_funcarg__y4(request):
     return op2.Dat(request.getfuncargvalue('set'),
                    (2,2),
                    range(4*nelems),
-                   numpy.uint32,
+                   numpy.float64,
                    "y")
 
 class TestLinAlg:
@@ -104,7 +104,15 @@ class TestLinAlg:
 
     def test_idiv(self, backend, x, y):
         x /= y
-        assert all(x.data == 2)
+        assert all(x.data == 2.0)
+
+    def test_imul_scalar(self, backend, x, y):
+        y *= 2.0
+        assert all(x.data == y.data)
+
+    def test_idiv_scalar(self, backend, x, y):
+        x /= 2.0
+        assert all(x.data == y.data)
 
     def test_norm(self, backend, n):
         assert abs(n.norm - 5) < 1e-12

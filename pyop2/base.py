@@ -343,7 +343,7 @@ class Dat(DataCarrier):
     using the :data:`IdentityMap` as the indirection.
 
     ``Dat`` objects support the pointwise linear algebra operations +=, *=,
-    -=, /=.
+    -=, /=, where *= and /= also support multiplication/dvision by a scalar.
     """
 
     _globalcount = 0
