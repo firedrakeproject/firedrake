@@ -795,8 +795,10 @@ class Kernel(object):
 
     @property
     def md5(self):
-        import md5
-        return md5.new(self._code + self._name).digest()
+        if not hasattr(self, '_md5'):
+            import md5
+            self._md5 = md5.new(self._code + self._name).hexdigest()
+        return self._md5
 
     def __str__(self):
         return "OP2 Kernel: %s" % self._name
