@@ -31,12 +31,11 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import runtime_base as op2
+from device import *
+import device as op2
 import numpy as np
-from runtime_base import Set, IterationSpace, Sparsity
 from utils import verify_reshape
 import jinja2
-import op_lib_core as core
 import pycuda.driver as driver
 import pycuda.gpuarray as gpuarray
 from pycuda.compiler import SourceModule
@@ -47,70 +46,51 @@ class Kernel(op2.Kernel):
         self._code = "__device__ %s" % self._code
 
 class Arg(op2.Arg):
-    @property
-    def _d_is_staged(self):
-        return self._is_direct and not (self.data._is_scalar or self._is_soa)
-
     def _indirect_kernel_arg_name(self, idx):
-        name = self.data.name
         if self._is_global:
             if self._is_global_reduction:
-                return "%s_l" % name
+                return self._reduction_local_name
             else:
-                return name
+                return self._name
         if self._is_direct:
             if self.data.soa:
-                return "%s + (%s + offset_b)" % (name, idx)
-            return "%s + (%s + offset_b) * %s" % (name, idx, self.data.cdim)
+                return "%s + (%s + offset_b)" % (self._name, idx)
+            return "%s + (%s + offset_b) * %s" % (self._name, idx,
+                                                  self.data.cdim)
         if self._is_indirect:
             if self._is_vec_map:
-                return "%s_vec" % name
+                return self._vec_name
             if self.access is op2.INC:
-                return "%s%s_l" % (name, self.idx)
+                return self._local_name()
             else:
-                return "%s_s + loc_map[%s * set_size + %s + offset_b]*%s" \
-                    % (name, self._which_indirect, idx, self.data.cdim)
+                return "%s + loc_map[%s * set_size + %s + offset_b]*%s" \
+                    % (self._shared_name, self._which_indirect, idx,
+                       self.data.cdim)
 
 
-    def _kernel_arg_name(self, idx=None):
-        name = self.data.name
-        if self._d_is_staged:
-            return "%s_local" % name
+    def _direct_kernel_arg_name(self, idx=None):
+        if self._is_staged_direct:
+            return self._local_name()
         elif self._is_global_reduction:
-            return "%s_reduc_local" % name
+            return self._reduction_local_name
         elif self._is_global:
-            return name
+            return self._name
         else:
-            return "%s + %s" % (name, idx)
+            return "%s + %s" % (self._name, idx)
 
-class DeviceDataMixin(object):
-    UNALLOCATED = 0             # device_data is not yet allocated
-    GPU = 1                     # device_data is valid, data is invalid
-    CPU = 2                     # device_data is allocated, but invalid
-    BOTH = 3                    # device_data and data are both valid
-
-    @property
-    def bytes_per_elem(self):
-        return self.dtype.itemsize * self.cdim
-    @property
-    def state(self):
-        return self._state
-    @state.setter
-    def state(self, value):
-        self._state = value
-
+class DeviceDataMixin(op2.DeviceDataMixin):
     def _allocate_device(self):
-        if self.state is DeviceDataMixin.UNALLOCATED:
+        if self.state is DeviceDataMixin.DEVICE_UNALLOCATED:
             if self.soa:
                 shape = self._data.T.shape
             else:
                 shape = self._data.shape
             self._device_data = gpuarray.empty(shape=shape, dtype=self.dtype)
-            self.state = DeviceDataMixin.CPU
+            self.state = DeviceDataMixin.HOST
 
     def _to_device(self):
         self._allocate_device()
-        if self.state is DeviceDataMixin.CPU:
+        if self.state is DeviceDataMixin.HOST:
             if self.soa:
                 shape = self._device_data.shape
                 tmp = self._data.T.ravel().reshape(shape)
@@ -120,7 +100,7 @@ class DeviceDataMixin(object):
         self.state = DeviceDataMixin.BOTH
 
     def _from_device(self):
-        if self.state is DeviceDataMixin.GPU:
+        if self.state is DeviceDataMixin.DEVICE:
             self._device_data.get(self._data)
             if self.soa:
                 shape = self._data.T.shape
@@ -128,70 +108,14 @@ class DeviceDataMixin(object):
                 print self._data
             self.state = DeviceDataMixin.BOTH
 
-    @property
-    def data(self):
-        if len(self._data) is 0:
-            raise RuntimeError("Illegal access: No data associated with this Dat!")
-        self._data.setflags(write=True)
-        self._from_device()
-        if self.state is not DeviceDataMixin.UNALLOCATED:
-            self.state = DeviceDataMixin.CPU
-        return self._data
-
-    @data.setter
-    def data(self, value):
-        self._data.setflags(write=True)
-        self._data = verify_reshape(value, self.dtype, self.dim)
-        if self.state is not DeviceDataMixin.UNALLOCATED:
-            self.state = DeviceDataMixin.CPU
-
-    @property
-    def data_ro(self):
-        if len(self._data) is 0:
-            raise RuntimeError("Illegal access: No data associated with this Dat!")
-        self._data.setflags(write=True)
-        self._from_device()
-        self.state = DeviceDataMixin.BOTH
-        self._data.setflags(write=False)
-        return self._data
-
 class Dat(DeviceDataMixin, op2.Dat):
-
     _arg_type = Arg
-
-    @property
-    def _is_scalar(self):
-        return self.cdim == 1
-
-    def __init__(self, dataset, dim, data=None, dtype=None, name=None, soa=None):
-        op2.Dat.__init__(self, dataset, dim, data, dtype, name, soa)
-        self.state = DeviceDataMixin.UNALLOCATED
 
 class Mat(DeviceDataMixin, op2.Mat):
-
     _arg_type = Arg
-
-    def __init__(self, datasets, dtype=None, name=None):
-        op2.Mat.__init__(self, datasets, dtype, name)
-        self.state = DeviceDataMixin.UNALLOCATED
 
 class Const(DeviceDataMixin, op2.Const):
-
     _arg_type = Arg
-
-    def __init__(self, dim, data, name, dtype=None):
-        op2.Const.__init__(self, dim, data, name, dtype)
-        self.state = DeviceDataMixin.CPU
-
-    @property
-    def data(self):
-        self.state = DeviceDataMixin.CPU
-        return self._data
-
-    @data.setter
-    def data(self, value):
-        self._data = verify_reshape(value, self.dtype, self.dim)
-        self.state = DeviceDataMixin.CPU
 
     def _format_declaration(self):
         d = {'dim' : self.cdim,
@@ -206,7 +130,7 @@ class Const(DeviceDataMixin, op2.Const):
         ptr, size = module.get_global(self.name)
         if size != self.data.nbytes:
             raise RuntimeError("Const %s needs %d bytes, but only space for %d" % (self, self.data.nbytes, size))
-        if self.state is DeviceDataMixin.CPU:
+        if self.state is DeviceDataMixin.HOST:
             driver.memcpy_htod(ptr, self._data)
             self.state = DeviceDataMixin.BOTH
 
@@ -214,17 +138,11 @@ class Const(DeviceDataMixin, op2.Const):
         raise RuntimeError("Copying Const %s from device makes no sense" % self)
 
 class Global(DeviceDataMixin, op2.Global):
-
     _arg_type = Arg
 
-    def __init__(self, dim, data, dtype=None, name=None):
-        op2.Global.__init__(self, dim, data, dtype, name)
-        self.state = DeviceDataMixin.UNALLOCATED
-        self._reduction_buffer = None
-        self._host_reduction_buffer = None
-
     def _allocate_reduction_buffer(self, grid_size, op):
-        if self._reduction_buffer is None:
+        if not hasattr(self, '_reduction_buffer') or \
+           self._reduction_buffer.size != grid_size:
             self._host_reduction_buffer = np.zeros(np.prod(grid_size) * self.cdim,
                                                    dtype=self.dtype).reshape((-1,)+self._dim)
             if op is not op2.INC:
@@ -237,20 +155,16 @@ class Global(DeviceDataMixin, op2.Global):
                 self._reduction_buffer.fill(0)
 
     @property
-    def soa(self):
-        return False
-
-    @property
     def data(self):
-        if self.state is not DeviceDataMixin.UNALLOCATED:
-            self.state = DeviceDataMixin.CPU
+        if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
+            self.state = DeviceDataMixin.HOST
         return self._data
 
     @data.setter
     def data(self, value):
         self._data = verify_reshape(value, self.dtype, self.dim)
-        if self.state is not DeviceDataMixin.UNALLOCATED:
-            self.state = DeviceDataMixin.CPU
+        if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
+            self.state = DeviceDataMixin.HOST
 
     def _finalise_reduction_begin(self, grid_size, op):
         self._stream = driver.Stream()
@@ -258,7 +172,7 @@ class Global(DeviceDataMixin, op2.Global):
                                          stream=self._stream)
 
     def _finalise_reduction_end(self, grid_size, op):
-        self.state = DeviceDataMixin.CPU
+        self.state = DeviceDataMixin.HOST
         self._stream.synchronize()
         del self._stream
         tmp = self._host_reduction_buffer
@@ -277,15 +191,10 @@ class Global(DeviceDataMixin, op2.Global):
                 self._data[i] = fn(self._data[i], tmp[i])
 
 class Map(op2.Map):
-
     _arg_type = Arg
 
-    def __init__(self, iterset, dataset, dim, values, name=None):
-        op2.Map.__init__(self, iterset, dataset, dim, values, name)
-        self._device_values = None
-
     def _to_device(self):
-        if self._device_values is None:
+        if not hasattr(self, '_device_values'):
             self._device_values = gpuarray.to_gpu(self._values)
         else:
             from warnings import warn
@@ -294,121 +203,62 @@ class Map(op2.Map):
             self._device_values.set(self._values)
 
     def _from_device(self):
-        if self._device_values is None:
+        if not hasattr(self, '_device_values') is None:
             raise RuntimeError("No values for Map %s on device" % self)
         self._device_values.get(self._values)
 
-_plan_cache = dict()
-
-def empty_plan_cache():
-    _plan_cache.clear()
-
-def ncached_plans():
-    return len(_plan_cache)
-
-class Plan(core.op_plan):
-    def __new__(cls, kernel, iset, *args, **kwargs):
-        ps = kwargs.get('partition_size', 0)
-        key = Plan.cache_key(iset, ps, *args)
-        cached = _plan_cache.get(key, None)
-        if cached is not None:
-            return cached
-        else:
-            return super(Plan, cls).__new__(cls, kernel, iset, *args,
-                                            **kwargs)
-
-    def __init__(self, kernel, iset, *args, **kwargs):
-        ps = kwargs.get('partition_size', 0)
-        key = Plan.cache_key(iset, ps, *args)
-        cached = _plan_cache.get(key, None)
-        if cached is not None:
-            return
-        core.op_plan.__init__(self, kernel, iset, *args, **kwargs)
-        self._nthrcol = None
-        self._thrcol = None
-        self._offset = None
-        self._ind_map = None
-        self._ind_offs = None
-        self._ind_sizes = None
-        self._loc_map = None
-        self._nelems = None
-        self._blkmap = None
-        _plan_cache[key] = self
-
-    @classmethod
-    def cache_key(cls, iset, partition_size, *args):
-        # Set size
-        key = (iset.size, )
-        # Size of partitions (amount of smem)
-        key += (partition_size, )
-
-        # For each indirect arg, the map and the indices into the map
-        # are important
-        inds = {}
-        for arg in args:
-            if arg._is_indirect:
-                dat = arg.data
-                map = arg.map
-                l = inds.get((dat, map), [])
-                l.append(arg.idx)
-                inds[(dat, map)] = l
-
-        for k,v in inds.iteritems():
-            key += (k[1],) + tuple(sorted(v))
-
-        return key
-
+class Plan(op2.Plan):
     @property
     def nthrcol(self):
-        if self._nthrcol is None:
+        if not hasattr(self, '_nthrcol'):
             self._nthrcol = gpuarray.to_gpu(super(Plan, self).nthrcol)
         return self._nthrcol
 
     @property
     def thrcol(self):
-        if self._thrcol is None:
+        if not hasattr(self, '_thrcol'):
             self._thrcol = gpuarray.to_gpu(super(Plan, self).thrcol)
         return self._thrcol
 
     @property
     def offset(self):
-        if self._offset is None:
+        if not hasattr(self, '_offset'):
             self._offset = gpuarray.to_gpu(super(Plan, self).offset)
         return self._offset
 
     @property
     def ind_map(self):
-        if self._ind_map is None:
+        if not hasattr(self, '_ind_map'):
             self._ind_map = gpuarray.to_gpu(super(Plan, self).ind_map)
         return self._ind_map
 
     @property
     def ind_offs(self):
-        if self._ind_offs is None:
+        if not hasattr(self, '_ind_offs'):
             self._ind_offs = gpuarray.to_gpu(super(Plan, self).ind_offs)
         return self._ind_offs
 
     @property
     def ind_sizes(self):
-        if self._ind_sizes is None:
+        if not hasattr(self, '_ind_sizes'):
             self._ind_sizes = gpuarray.to_gpu(super(Plan, self).ind_sizes)
         return self._ind_sizes
 
     @property
     def loc_map(self):
-        if self._loc_map is None:
+        if not hasattr(self, '_loc_map'):
             self._loc_map = gpuarray.to_gpu(super(Plan, self).loc_map)
         return self._loc_map
 
     @property
     def nelems(self):
-        if self._nelems is None:
+        if not hasattr(self, '_nelems'):
             self._nelems = gpuarray.to_gpu(super(Plan, self).nelems)
         return self._nelems
 
     @property
     def blkmap(self):
-        if self._blkmap is None:
+        if not hasattr(self, '_blkmap'):
             self._blkmap = gpuarray.to_gpu(super(Plan, self).blkmap)
         return self._blkmap
 
@@ -416,178 +266,12 @@ def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()
 
 class ParLoop(op2.ParLoop):
-    def __init__(self, kernel, it_space, *args):
-        op2.ParLoop.__init__(self, kernel, it_space, *args)
-        self._src = None
-        self.__unique_args = []
-        self._unwound_args = []
-        seen = set()
-        c = 0
-        for arg in self.args:
-            if arg._is_vec_map:
-                for i in range(arg.map.dim):
-                    self._unwound_args.append(arg.data(arg.map[i],
-                                                       arg.access))
-            elif arg._is_mat:
-                pass
-            elif arg._uses_itspace:
-                for i in range(self._it_space.extents[arg.idx.index]):
-                    self._unwound_args.append(arg.data(arg.map[i],
-                                                       arg.access))
-            else:
-                self._unwound_args.append(arg)
-
-            if arg._is_dat:
-                k = (arg.data, arg.map)
-                if arg._is_indirect:
-                    arg._which_indirect = c
-                    if arg._is_vec_map:
-                        c += arg.map.dim
-                    else:
-                        c += 1
-                if k in seen:
-                    pass
-                else:
-                    self.__unique_args.append(arg)
-                    seen.add(k)
-            else:
-                self.__unique_args.append(arg)
-
-    def __hash__(self):
-        """Canonical representation of a parloop wrt generated code caching."""
-        # FIXME, make clearer, converge on hashing with opencl code
-        def argdimacc(arg):
-            if self.is_direct():
-                if arg._is_global or (arg._is_dat and not arg.data._is_scalar):
-                    return (arg.data.cdim, arg.access)
-                else:
-                    return ()
-            else:
-                if (arg._is_global and arg.access is op2.READ) or arg._is_direct:
-                    return ()
-                else:
-                    return (arg.data.cdim, arg.access)
-
-        argdesc = []
-        seen = dict()
-        c = 0
-
-        for arg in self.args:
-            if arg._is_indirect:
-                if not seen.has_key((arg.data,arg.map)):
-                    seen[(arg.data,arg.map)] = c
-                    idesc = (c, (- arg.map.dim) if arg._is_vec_map else arg.idx)
-                    c += 1
-                else:
-                    idesc = (seen[(arg.data,arg.map)], (- arg.map.dim) if arg._is_vec_map else arg.idx)
-            else:
-                idesc = ()
-
-            d = (arg.data.__class__,
-                 arg.data.dtype) + argdimacc(arg) + idesc
-
-            argdesc.append(d)
-
-        hsh = hash(self._kernel)
-        hsh ^= hash(self._it_space)
-        hsh ^= hash(tuple(argdesc))
-        for c in Const._definitions():
-            hsh ^= hash(c)
-
-        return hsh
-
-    @property
-    def _unique_args(self):
-        return self.__unique_args
-
-    @property
-    def _unique_vec_map_args(self):
-        return [a for a in self._unique_args if a._is_vec_map]
-
-    @property
-    def _unique_indirect_dat_args(self):
-        return [a for a in self._unique_args if a._is_indirect]
-
-    @property
-    def _unique_read_indirect_dat_args(self):
-        return [a for a in self._unique_indirect_dat_args \
-                if a.access in [op2.READ, op2.RW]]
-
-    @property
-    def _unique_written_indirect_dat_args(self):
-        return [a for a in self._unique_indirect_dat_args \
-                if a.access in [op2.RW, op2.WRITE, op2.INC]]
-
-    @property
-    def _vec_map_args(self):
-        return [a for a in self.args if a._is_vec_map]
-
-    @property
-    def _unique_inc_indirect_dat_args(self):
-        return [a for a in self._unique_indirect_dat_args \
-                if a.access is op2.INC]
-
-    @property
-    def _inc_indirect_dat_args(self):
-        return [a for a in self.args if a.access is op2.INC and
-                a._is_indirect]
-
-    @property
-    def _inc_non_vec_map_indirect_dat_args(self):
-        return [a for a in self.args if a.access is op2.INC and
-                a._is_indirect and not a._is_vec_map]
-
-    @property
-    def _non_inc_vec_map_args(self):
-        return [a for a in self._vec_map_args if a.access is not op2.INC]
-
-    @property
-    def _inc_vec_map_args(self):
-        return [a for a in self._vec_map_args if a.access is op2.INC]
-
-    @property
-    def _needs_smem(self):
-        if not self.is_direct():
-            return True
-        for a in self.args:
-            if a._is_global_reduction:
-                return True
-            if not a.data._is_scalar:
-                return True
-        return False
-
-    @property
-    def _global_reduction_args(self):
-        return [a for a in self.args if a._is_global_reduction]
-    @property
-    def _direct_args(self):
-        return [a for a in self.args if a._is_direct]
-
-    @property
-    def _direct_non_scalar_args(self):
-        return [a for a in self._direct_args if not (a.data._is_scalar or a._is_soa)]
-
-    @property
-    def _direct_non_scalar_read_args(self):
-        return [a for a in self._direct_non_scalar_args if a.access is not op2.WRITE]
-
-    @property
-    def _direct_non_scalar_written_args(self):
-        return [a for a in self._direct_non_scalar_args if a.access is not op2.READ]
-
-    @property
-    def _stub_name(self):
-        return "__%s_stub" % self.kernel.name
-
-    def is_direct(self):
-        return all([a._is_direct or a._is_global for a in self.args])
-
     def device_function(self):
         return self._module.get_function(self._stub_name)
 
     def compile(self, config=None):
 
-        key = hash(self)
+        key = self._cache_key
         self._module, self._fun = op2._parloop_cache.get(key, (None, None))
         if self._module is not None:
             return
@@ -596,7 +280,7 @@ class ParLoop(op2.ParLoop):
                          '-Xptxas=-v', '-O3', '-use_fast_math', '-DNVCC']
         inttype = np.dtype('int32').char
         argtypes = inttype      # set size
-        if self.is_direct():
+        if self._is_direct():
             self.generate_direct_loop(config)
             for arg in self.args:
                 argtypes += "P" # pointer to each Dat's data
@@ -609,23 +293,14 @@ class ParLoop(op2.ParLoop):
             argtypes += "PPPPP" # blkmap, offset, nelems, nthrcol, thrcol
             argtypes += inttype # number of colours in the block
 
-        op2._parloop_cache[key] = self._module, self._fun
         self._module = SourceModule(self._src, options=compiler_opts)
         self._fun = self.device_function()
         self._fun.prepare(argtypes)
-
-    def _max_smem_per_elem_direct(self):
-        m_stage = 0
-        m_reduc = 0
-        if self._direct_non_scalar_args:
-            m_stage = max(a.data.bytes_per_elem for a in self._direct_non_scalar_args)
-        if self._global_reduction_args:
-            m_reduc = max(a.dtype.itemsize for a in self._global_reduction_args)
-        return max(m_stage, m_reduc)
+        op2._parloop_cache[key] = self._module, self._fun
 
     def launch_configuration(self):
-        if self.is_direct():
-            max_smem = self._max_smem_per_elem_direct()
+        if self._is_direct():
+            max_smem = self._max_shared_memory_needed_per_set_element()
             smem_offset = max_smem * _WARPSIZE
             max_block = _device.get_attribute(driver.device_attribute.MAX_BLOCK_DIM_X)
             if max_smem == 0:
@@ -673,7 +348,7 @@ class ParLoop(op2.ParLoop):
         config = self.launch_configuration()
         self.compile(config=config)
 
-        if self.is_direct():
+        if self._is_direct():
             _args = self.args
             block_size = config['block_size']
             max_grid_size = config['grid_size']
@@ -704,7 +379,7 @@ class ParLoop(op2.ParLoop):
                 karg = arg.data._reduction_buffer
             arglist.append(np.intp(karg.gpudata))
 
-        if self.is_direct():
+        if self._is_direct():
             self._fun.prepared_call(max_grid_size, block_size, *arglist,
                                     shared_size=shared_size)
             for arg in self.args:
@@ -714,7 +389,7 @@ class ParLoop(op2.ParLoop):
                 else:
                     # Data state is updated in finalise_reduction for Global
                     if arg.access is not op2.READ:
-                        arg.data.state = DeviceDataMixin.GPU
+                        arg.data.state = DeviceDataMixin.DEVICE
         else:
             arglist.append(self._plan.ind_map.gpudata)
             arglist.append(self._plan.loc_map.gpudata)
@@ -765,7 +440,7 @@ class ParLoop(op2.ParLoop):
                 else:
                     # Data state is updated in finalise_reduction for Global
                     if arg.access is not op2.READ:
-                        arg.data.state = DeviceDataMixin.GPU
+                        arg.data.state = DeviceDataMixin.DEVICE
         if self._has_soa:
             op2stride.remove_from_namespace()
 
