@@ -341,6 +341,9 @@ class Dat(DataCarrier):
     using the index notation described in the documentation for the
     :class:`Map` class. Direct access to a Dat can be accomplished by
     using the :data:`IdentityMap` as the indirection.
+
+    ``Dat`` objects support the pointwise linear algebra operations +=, *=,
+    -=, /=.
     """
 
     _globalcount = 0
@@ -400,6 +403,11 @@ class Dat(DataCarrier):
     def dim(self):
         '''The number of values at each member of the dataset.'''
         return self._dim
+
+    @property
+    def norm(self):
+        """The L2-norm on the flattened vector."""
+        raise NotImplementedError("Norm is not implemented.")
 
     def __str__(self):
         return "OP2 Dat: %s on (%s) with dim %s and datatype %s" \

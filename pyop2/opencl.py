@@ -260,6 +260,7 @@ class Dat(op2.Dat, DeviceDataMixin):
 
     @property
     def norm(self):
+        """The L2-norm on the flattened vector."""
         return np.sqrt(array.dot(self.array, self.array).get())
 
 def solve(M, b, x):

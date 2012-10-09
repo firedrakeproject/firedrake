@@ -68,6 +68,7 @@ class Dat(Dat):
 
     @property
     def norm(self):
+        """The L2-norm on the flattened vector."""
         return np.linalg.norm(self._data)
 
 class ParLoop(rt.ParLoop):
