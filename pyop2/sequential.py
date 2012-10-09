@@ -34,7 +34,6 @@
 """OP2 sequential backend."""
 
 import numpy as np
-from numbers import Number
 
 from exceptions import *
 from utils import *
@@ -53,28 +52,36 @@ class Dat(Dat):
 
     def __iadd__(self, other):
         """Pointwise addition of fields."""
-        self._data += other._data
+        if self.data.dtype == other.data.dtype:
+            self._data += other.data
+        else:
+            self._data += other.data.astype(self.dtype)
         return self
 
     def __isub__(self, other):
         """Pointwise subtraction of fields."""
-        self._data -= other._data
+        if self.data.dtype == other.data.dtype:
+            self._data -= other.data
+        else:
+            self._data -= other.data.astype(self.dtype)
         return self
 
     def __imul__(self, other):
         """Pointwise multiplication or scaling of fields."""
-        if isinstance(other, (Number, np.generic)):
-            self._data *= other
+        if self.dtype == other.dtype:
+            self._data *= other if np.isscalar(other) else other.data
         else:
-            self._data *= other.data
+            self._data *= other.astype(self.dtype) if np.isscalar(other) \
+                    else other.data.astype(self.dtype)
         return self
 
     def __idiv__(self, other):
         """Pointwise division or scaling of fields."""
-        if isinstance(other, (Number, np.generic)):
-            self._data /= other
+        if self.dtype == other.dtype:
+            self._data /= other if np.isscalar(other) else other.data
         else:
-            self._data /= other.data
+            self._data /= other.astype(self.dtype) if np.isscalar(other) \
+                    else other.data.astype(self.dtype)
         return self
 
     @property

@@ -44,7 +44,6 @@ from pyopencl import array
 import pkg_resources
 import pycparser
 import numpy as np
-from numbers import Number
 import collections
 import warnings
 import math
@@ -245,28 +244,36 @@ class Dat(op2.Dat, DeviceDataMixin):
 
     def __iadd__(self, other):
         """Pointwise addition of fields."""
-        self.array += other.array
+        if self.array.dtype == other.array.dtype:
+            self.array += other.array
+        else:
+            self.array += other.array.astype(self.dtype)
         return self
 
     def __isub__(self, other):
         """Pointwise multiplication of fields."""
-        self.array -= other.array
+        if self.array.dtype == other.array.dtype:
+            self.array -= other.array
+        else:
+            self.array -= other.array.astype(self.dtype)
         return self
 
     def __imul__(self, other):
         """Pointwise multiplication or scaling of fields."""
-        if isinstance(other, (Number, np.generic)):
-            self.array *= other
+        if self.dtype == other.dtype:
+            self.array *= other if np.isscalar(other) else other.array
         else:
-            self.array *= other.array
+            self.array *= other.astype(self.dtype) if np.isscalar(other) \
+                    else other.array.astype(self.dtype)
         return self
 
     def __idiv__(self, other):
         """Pointwise division or scaling of fields."""
-        if isinstance(other, (Number, np.generic)):
-            self.array /= other
+        if self.dtype == other.dtype:
+            self.array /= other if np.isscalar(other) else other.array
         else:
-            self.array /= other.array
+            self.array /= other.astype(self.dtype) if np.isscalar(other) \
+                    else other.array.astype(self.dtype)
         return self
 
     @property
