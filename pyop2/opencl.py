@@ -119,7 +119,7 @@ class Arg(op2.Arg):
     # Codegen specific
     @property
     def _d_is_staged(self):
-        return self._is_direct and not self.data._is_scalar
+        return self._is_direct and not (self.data._is_scalar or self.data.soa)
 
     @property
     def _i_gen_vec(self):
@@ -204,7 +204,12 @@ class Dat(op2.Dat, DeviceDataMixin):
     def array(self):
         """Return the OpenCL device array or None if not yet initialised."""
         if self._array is None and len(self._data) is not 0:
-            self._array =  array.to_device(_queue, self._data)
+            if self.soa:
+                shape = self._data.T.shape
+                tmp = self._data.T.ravel().reshape(shape)
+            else:
+                tmp = self._data
+            self._array =  array.to_device(_queue, tmp)
         return self._array
 
     @array.setter
@@ -222,7 +227,8 @@ class Dat(op2.Dat, DeviceDataMixin):
         if self._dirty:
             self.array.get(queue=_queue, ary=self._data)
             if self.soa:
-                np.transpose(self._data)
+                shape = self._data.T.shape
+                self._data = self._data.reshape(shape).T
             self._dirty = False
         return self._data
 
@@ -234,7 +240,8 @@ class Dat(op2.Dat, DeviceDataMixin):
         if self._dirty:
             self.array.get(queue=_queue, ary=self._data)
             if self.soa:
-                np.transpose(self._data)
+                shape = self._data.T.shape
+                self._data = self._data.reshape(shape).T
             self._dirty = False
         maybe_setflags(self._data, write=False)
         return self._data
@@ -696,7 +703,7 @@ class ParLoop(op2.ParLoop):
 
     @property
     def _direct_non_scalar_args(self):
-        return [a for a in self._direct_args if not a.data._is_scalar]
+        return [a for a in self._direct_args if not (a.data._is_scalar or a.data.soa)]
 
     @property
     def _direct_non_scalar_read_args(self):
@@ -854,8 +861,8 @@ class ParLoop(op2.ParLoop):
 
             for arg in self.args:
                 i = None
-                if self.is_direct():
-                    if (arg._is_direct and arg.data._is_scalar) or\
+                if self._is_direct():
+                    if (arg._is_direct and (arg.data._is_scalar or arg.data.soa)) or\
                        (arg._is_global and not arg._is_global_reduction):
                         i = ("__global", None)
                     else:
@@ -897,6 +904,9 @@ class ParLoop(op2.ParLoop):
         return src
 
     def compute(self):
+        if self._has_soa:
+            op2stride = Const(1, self._it_space.size, name='op2stride',
+                              dtype='int32')
         def compile_kernel(src, name):
             prg = cl.Program(_ctx, source).build(options="-Werror")
             return prg.__getattr__(name + '_stub')
@@ -977,6 +987,9 @@ class ParLoop(op2.ParLoop):
 
         for i, a in enumerate(self._global_reduction_args):
             a.data._post_kernel_reduction_task(conf['work_group_count'], a.access)
+
+        if self._has_soa:
+            op2stride.remove_from_namespace()
 
     def is_direct(self):
         return all(map(lambda a: a._is_direct or isinstance(a.data, Global) or isinstance(a.data, Mat), self._args))
