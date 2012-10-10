@@ -105,7 +105,6 @@ class DeviceDataMixin(op2.DeviceDataMixin):
             if self.soa:
                 shape = self._data.T.shape
                 self._data = self._data.reshape(shape).T
-                print self._data
             self.state = DeviceDataMixin.BOTH
 
 class Dat(DeviceDataMixin, op2.Dat):
