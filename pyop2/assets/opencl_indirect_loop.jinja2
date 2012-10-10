@@ -146,7 +146,7 @@ void {{ parloop._kernel.name }}_stub(
   {% for dm in parloop._dat_map_pairs %}
   __global int* {{ shared_indirection_mapping_arg_name(dm) }},
   {%- endfor -%}
-  {% for arg in parloop._args %}
+  {% for arg in parloop._unwound_args %}
   {% if(arg._is_indirect) %}__global short* {{ mapping_array_name(arg) }},{% endif %}
   {%- endfor -%}
 
