@@ -60,6 +60,11 @@ def as_tuple(item, type=None, length=None):
         raise TypeError("Items need to be of type %s" % type)
     return t
 
+def as_type(obj, typ):
+    """Return obj if it is of dtype typ, otherwise return a copy type-cast to
+    typ."""
+    return obj if obj.dtype == type else obj.astype(typ)
+
 class validate_base:
     """Decorator to validate arguments
 

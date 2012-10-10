@@ -34,7 +34,7 @@
 """OP2 OpenCL backend."""
 
 import runtime_base as op2
-from utils import verify_reshape, uniquify, maybe_setflags
+from utils import verify_reshape, uniquify, maybe_setflags, as_type
 from runtime_base import IdentityMap, READ, WRITE, RW, INC, MIN, MAX, Set
 from runtime_base import Sparsity, IterationSpace
 import configuration as cfg
@@ -244,36 +244,28 @@ class Dat(op2.Dat, DeviceDataMixin):
 
     def __iadd__(self, other):
         """Pointwise addition of fields."""
-        if self.array.dtype == other.array.dtype:
-            self.array += other.array
-        else:
-            self.array += other.array.astype(self.dtype)
+        self.array += as_type(other.array, self.dtype)
         return self
 
     def __isub__(self, other):
-        """Pointwise multiplication of fields."""
-        if self.array.dtype == other.array.dtype:
-            self.array -= other.array
-        else:
-            self.array -= other.array.astype(self.dtype)
+        """Pointwise subtraction of fields."""
+        self.array -= as_type(other.array, self.dtype)
         return self
 
     def __imul__(self, other):
         """Pointwise multiplication or scaling of fields."""
-        if self.dtype == other.dtype:
-            self.array *= other if np.isscalar(other) else other.array
+        if np.isscalar(other):
+            self.array *= as_type(other, self.dtype)
         else:
-            self.array *= other.astype(self.dtype) if np.isscalar(other) \
-                    else other.array.astype(self.dtype)
+            self.array *= as_type(other.array, self.dtype)
         return self
 
     def __idiv__(self, other):
         """Pointwise division or scaling of fields."""
-        if self.dtype == other.dtype:
-            self.array /= other if np.isscalar(other) else other.array
+        if np.isscalar(other):
+            self.array /= as_type(other, self.dtype)
         else:
-            self.array /= other.astype(self.dtype) if np.isscalar(other) \
-                    else other.array.astype(self.dtype)
+            self.array /= as_type(other.array, self.dtype)
         return self
 
     @property

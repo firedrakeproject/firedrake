@@ -52,36 +52,28 @@ class Dat(Dat):
 
     def __iadd__(self, other):
         """Pointwise addition of fields."""
-        if self.data.dtype == other.data.dtype:
-            self._data += other.data
-        else:
-            self._data += other.data.astype(self.dtype)
+        self._data += as_type(other.data, self.dtype)
         return self
 
     def __isub__(self, other):
         """Pointwise subtraction of fields."""
-        if self.data.dtype == other.data.dtype:
-            self._data -= other.data
-        else:
-            self._data -= other.data.astype(self.dtype)
+        self._data -= as_type(other.data, self.dtype)
         return self
 
     def __imul__(self, other):
         """Pointwise multiplication or scaling of fields."""
-        if self.dtype == other.dtype:
-            self._data *= other if np.isscalar(other) else other.data
+        if np.isscalar(other):
+            self._data *= as_type(other, self.dtype)
         else:
-            self._data *= other.astype(self.dtype) if np.isscalar(other) \
-                    else other.data.astype(self.dtype)
+            self._data *= as_type(other.data, self.dtype)
         return self
 
     def __idiv__(self, other):
         """Pointwise division or scaling of fields."""
-        if self.dtype == other.dtype:
-            self._data /= other if np.isscalar(other) else other.data
+        if np.isscalar(other):
+            self._data /= as_type(other, self.dtype)
         else:
-            self._data /= other.astype(self.dtype) if np.isscalar(other) \
-                    else other.data.astype(self.dtype)
+            self._data /= as_type(other.data, self.dtype)
         return self
 
     @property
