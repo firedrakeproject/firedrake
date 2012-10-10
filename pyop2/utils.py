@@ -63,7 +63,16 @@ def as_tuple(item, type=None, length=None):
 def as_type(obj, typ):
     """Return obj if it is of dtype typ, otherwise return a copy type-cast to
     typ."""
-    return obj if obj.dtype == type else obj.astype(typ)
+    # Assume it's a NumPy data type
+    try:
+        return obj if obj.dtype == typ else obj.astype(typ)
+    except AttributeError:
+        if isinstance(obj, int):
+            return np.int64(obj).astype(typ)
+        elif isinstance(obj, float):
+            return np.float64(obj).astype(typ)
+        else:
+            raise TypeError("Invalid type %s" % type(obj))
 
 class validate_base:
     """Decorator to validate arguments

@@ -107,11 +107,11 @@ class TestLinAlg:
         assert all(x.data == 2.0)
 
     def test_imul_scalar(self, backend, x, y):
-        y *= np.float64(2.0)
+        y *= 2.0
         assert all(x.data == y.data)
 
     def test_idiv_scalar(self, backend, x, y):
-        x /= np.float64(2.0)
+        x /= 2.0
         assert all(x.data == y.data)
 
     def test_norm(self, backend, n):
