@@ -387,3 +387,8 @@ def solve(M, b, x):
 
 def _setup():
     pass
+
+class Solver(rt.Solver):
+    def solve(self, A, x, b):
+        # Note: b and x are reversed in the core interface!
+        core.solve(A, b, x)

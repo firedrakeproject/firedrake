@@ -163,6 +163,7 @@ if opt['visualize']:
 
 have_advection = True
 have_diffusion = True
+solver = op2.Solver()
 
 while T < 0.2:
 
@@ -184,7 +185,7 @@ while T < 0.2:
                      tracer(elem_node, op2.READ),
                      velocity(elem_node, op2.READ))
 
-        op2.solve(mat, b, tracer)
+        solver.solve(mat, tracer, b)
 
     # Diffusion
 
@@ -203,7 +204,7 @@ while T < 0.2:
                      coords(elem_node, op2.READ),
                      tracer(elem_node, op2.READ))
 
-        op2.solve(mat, b, tracer)
+        solver.solve(mat, tracer, b)
 
     if opt['visualize']:
         v.update(viper_shape(tracer.data))

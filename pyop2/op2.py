@@ -101,6 +101,9 @@ class Map(base.Map):
 class Sparsity(base.Sparsity):
     __metaclass__ = backends._BackendSelector
 
+class Solver(base.Solver):
+    __metaclass__ = backends._BackendSelector
+
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel
 
@@ -136,11 +139,3 @@ def par_loop(kernel, it_space, *args):
     """
     return backends._BackendSelector._backend.par_loop(kernel, it_space, *args)
 
-def solve(M, b, x):
-    """Solve a the matrix equation.
-
-    :arg M: The :class:`Mat` containing the matrix.
-    :arg b: The :class:`Dat` containing the RHS.
-    :arg x: The :class:`Dat` to receive the solution.
-    """
-    return backends._BackendSelector._backend.solve(M, b, x)

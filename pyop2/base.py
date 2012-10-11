@@ -867,3 +867,27 @@ class ParLoop(object):
             key += (c.name, c.dtype, c.cdim)
 
         return key
+
+_DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
+                              'preconditioner':     'jacobi',
+                              'relative_tolerance': 1.0e-7,
+                              'absolute_tolerance': 1.0e-50,
+                              'divergence_tolerance': 1.0e+4,
+                              'maximum_iterations': 1000 }
+
+class Solver(object):
+    """OP2 Solver object. The :class:`Solver` holds a set of parameters that are
+    passed to the underlying linear algebra library when the ``solve`` method
+    is called."""
+
+    def __init__(self, parameters=None):
+        self.parameters = parameters or _DEFAULT_SOLVER_PARAMETERS.copy()
+
+    def solve(self, A, x, b):
+        """Solve a matrix equation.
+
+        :arg A: The :class:`Mat` containing the matrix.
+        :arg x: The :class:`Dat` to receive the solution.
+        :arg b: The :class:`Dat` containing the RHS.
+        """
+        raise NotImplementedError("solve must be implemented by backend")

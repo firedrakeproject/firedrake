@@ -216,11 +216,13 @@ class Dat(op2.Dat, DeviceDataMixin):
         """The L2-norm on the flattened vector."""
         return np.sqrt(array.dot(self.array, self.array).get())
 
-def solve(M, b, x):
-    x._from_device()
-    b._from_device()
-    core.solve(M, b, x)
-    x._to_device()
+class Solver(op2.Solver):
+    def solve(self, A, x, b):
+        x._from_device()
+        b._from_device()
+        # Note: the order of b and x is reversed in the core interface
+        core.solve(A, b, x)
+        x._to_device()
 
 class Sparsity(op2.Sparsity):
     @property
