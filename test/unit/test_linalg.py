@@ -56,6 +56,13 @@ def pytest_funcarg__y(request):
                    np.float64,
                    "y")
 
+def pytest_funcarg__yi(request):
+    return op2.Dat(request.getfuncargvalue('set'),
+                   1,
+                   np.arange(1,nelems+1),
+                   np.int64,
+                   "y")
+
 def pytest_funcarg__x2(request):
     return op2.Dat(request.getfuncargvalue('set'),
                    (1,2),
@@ -120,6 +127,38 @@ class TestLinAlg:
         x._data = 2*y.data
         x /= 2.0
         assert all(x.data == y.data)
+
+    def test_iadd_ftype(self, backend, y, yi):
+        y += yi
+        assert y.data.dtype == np.float64
+
+    def test_isub_ftype(self, backend, y, yi):
+        y -= yi
+        assert y.data.dtype == np.float64
+
+    def test_imul_ftype(self, backend, y, yi):
+        y *= yi
+        assert y.data.dtype == np.float64
+
+    def test_idiv_ftype(self, backend, y, yi):
+        y /= yi
+        assert y.data.dtype == np.float64
+
+    def test_iadd_itype(self, backend, y, yi):
+        yi += y
+        assert yi.data.dtype == np.int64
+
+    def test_isub_itype(self, backend, y, yi):
+        yi -= y
+        assert yi.data.dtype == np.int64
+
+    def test_imul_itype(self, backend, y, yi):
+        yi *= y
+        assert yi.data.dtype == np.int64
+
+    def test_idiv_itype(self, backend, y, yi):
+        yi /= y
+        assert yi.data.dtype == np.int64
 
     def test_norm(self, backend):
         n = op2.Dat(op2.Set(2), 1, [3,4], np.float64, "n")
