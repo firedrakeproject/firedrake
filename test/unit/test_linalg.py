@@ -63,17 +63,17 @@ def pytest_funcarg__n(request):
                    np.float64,
                    "n")
 
-def pytest_funcarg__x4(request):
+def pytest_funcarg__x2(request):
     return op2.Dat(request.getfuncargvalue('set'),
-                   (2,2),
-                   [2*x for x in range(4*nelems)],
+                   (1,2),
+                   np.zeros(2*nelems),
                    np.float64,
                    "x")
 
-def pytest_funcarg__y4(request):
+def pytest_funcarg__y2(request):
     return op2.Dat(request.getfuncargvalue('set'),
-                   (2,2),
-                   range(4*nelems),
+                   (2,1),
+                   np.zeros(2*nelems),
                    np.float64,
                    "y")
 
@@ -90,14 +90,6 @@ class TestLinAlg:
         x -= y
         assert all(x.data == y.data)
 
-    def test_iadd4(self, backend, x4, y4):
-        x4 += y4
-        assert np.all(x4.data == 3*y4.data)
-
-    def test_isub4(self, backend, x4, y4):
-        x4 -= y4
-        assert np.all(x4.data == y4.data)
-
     def test_imul(self, backend, x, y):
         x *= y
         assert all(x.data == 2*y.data*y.data)
@@ -105,6 +97,22 @@ class TestLinAlg:
     def test_idiv(self, backend, x, y):
         x /= y
         assert all(x.data == 2.0)
+
+    def test_iadd_shape_mismatch(self, backend, x2, y2):
+        with pytest.raises(ValueError):
+            x2 += y2
+
+    def test_isub_shape_mismatch(self, backend, x2, y2):
+        with pytest.raises(ValueError):
+            x2 -= y2
+
+    def test_imul_shape_mismatch(self, backend, x2, y2):
+        with pytest.raises(ValueError):
+            x2 *= y2
+
+    def test_idiv_shape_mismatch(self, backend, x2, y2):
+        with pytest.raises(ValueError):
+            x2 -= y2
 
     def test_imul_scalar(self, backend, x, y):
         y *= 2.0
