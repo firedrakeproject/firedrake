@@ -242,13 +242,20 @@ class Dat(op2.Dat, DeviceDataMixin):
     def _upload_from_c_layer(self):
         self.array.set(self._data, queue=_queue)
 
+    def _check_shape(self, other):
+        if not self.array.shape == other.array.shape:
+            raise ValueError("operands could not be broadcast together with shapes %s, %s" \
+                    % (self.array.shape, other.array.shape))
+
     def __iadd__(self, other):
         """Pointwise addition of fields."""
+        self._check_shape(other)
         self.array += as_type(other.array, self.dtype)
         return self
 
     def __isub__(self, other):
         """Pointwise subtraction of fields."""
+        self._check_shape(other)
         self.array -= as_type(other.array, self.dtype)
         return self
 
@@ -257,6 +264,7 @@ class Dat(op2.Dat, DeviceDataMixin):
         if np.isscalar(other):
             self.array *= as_type(other, self.dtype)
         else:
+            self._check_shape(other)
             self.array *= as_type(other.array, self.dtype)
         return self
 
@@ -265,6 +273,7 @@ class Dat(op2.Dat, DeviceDataMixin):
         if np.isscalar(other):
             self.array /= as_type(other, self.dtype)
         else:
+            self._check_shape(other)
             self.array /= as_type(other.array, self.dtype)
         return self
 
