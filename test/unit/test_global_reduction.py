@@ -38,8 +38,7 @@ from pyop2 import op2
 
 backends = ['sequential', 'opencl']
 
-nelems = 4
-size = 100
+nelems = 8
 
 class TestGlobalReductions:
     """
@@ -155,12 +154,12 @@ void kernel_min(unsigned int* x, unsigned int* g)
 """
         g = op2.Global(1, 8, numpy.uint32, "g")
 
-        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), s,
+        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), set,
                      duint32(op2.IdentityMap, op2.READ),
                      g(op2.MIN))
         assert g.data[0] == 8
 
-    def test_direct_min_int32(self, backend, s, dint32):
+    def test_direct_min_int32(self, backend, set, dint32):
         kernel_min = """
 void kernel_min(int* x, int* g)
 {
@@ -169,12 +168,12 @@ void kernel_min(int* x, int* g)
 """
         g = op2.Global(1, 8, numpy.int32, "g")
 
-        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), s,
+        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), set,
                      dint32(op2.IdentityMap, op2.READ),
                      g(op2.MIN))
         assert g.data[0] == -12
 
-    def test_direct_max_int32(self, backend, s, dint32):
+    def test_direct_max_int32(self, backend, set, dint32):
         kernel_max = """
 void kernel_max(int* x, int* g)
 {
@@ -183,13 +182,13 @@ void kernel_max(int* x, int* g)
 """
         g = op2.Global(1, -42, numpy.int32, "g")
 
-        op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), s,
+        op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), set,
                      dint32(op2.IdentityMap, op2.READ),
                      g(op2.MAX))
         assert g.data[0] == -12
 
 
-    def test_direct_min_float(self, backend, s, dfloat32, eps):
+    def test_direct_min_float(self, backend, set, dfloat32, eps):
         kernel_min = """
 void kernel_min(float* x, float* g)
 {
@@ -198,12 +197,12 @@ void kernel_min(float* x, float* g)
 """
         g = op2.Global(1, -.8, numpy.float32, "g")
 
-        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), s,
+        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), set,
                      dfloat32(op2.IdentityMap, op2.READ),
                      g(op2.MIN))
         assert abs(g.data[0] - (-12.0)) < eps
 
-    def test_direct_max_float(self, backend, s, dfloat32, eps):
+    def test_direct_max_float(self, backend, set, dfloat32, eps):
         kernel_max = """
 void kernel_max(float* x, float* g)
 {
@@ -212,13 +211,13 @@ void kernel_max(float* x, float* g)
 """
         g = op2.Global(1, -42.8, numpy.float32, "g")
 
-        op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), s,
+        op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), set,
                      dfloat32(op2.IdentityMap, op2.READ),
                      g(op2.MAX))
         assert abs(g.data[0] - (-12.0)) < eps
 
 
-    def test_direct_min_float(self, backend, s, dfloat64, eps):
+    def test_direct_min_float(self, backend, set, dfloat64, eps):
         kernel_min = """
 void kernel_min(double* x, double* g)
 {
@@ -227,12 +226,12 @@ void kernel_min(double* x, double* g)
 """
         g = op2.Global(1, -.8, numpy.float64, "g")
 
-        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), s,
+        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), set,
                      dfloat64(op2.IdentityMap, op2.READ),
                      g(op2.MIN))
         assert abs(g.data[0] - (-12.0)) < eps
 
-    def test_direct_max_double(self, backend, s, dfloat64, eps):
+    def test_direct_max_double(self, backend, set, dfloat64, eps):
         kernel_max = """
 void kernel_max(double* x, double* g)
 {
@@ -241,7 +240,7 @@ void kernel_max(double* x, double* g)
 """
         g = op2.Global(1, -42.8, numpy.float64, "g")
 
-        op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), s,
+        op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), set,
                      dfloat64(op2.IdentityMap, op2.READ),
                      g(op2.MAX))
         assert abs(g.data[0] - (-12.0)) < eps

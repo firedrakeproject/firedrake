@@ -42,7 +42,7 @@ backends = ['sequential', 'opencl']
 def _seed():
     return 0.02041724
 
-nnodes = 92680
+nnodes = 8
 nele = nnodes / 2
 
 class TestVectorMap:

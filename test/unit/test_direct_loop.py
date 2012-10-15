@@ -38,8 +38,7 @@ from pyop2 import op2
 
 backends = ['sequential', 'opencl']
 
-#max...
-nelems = 92681
+nelems = 8
 
 def elems():
     return op2.Set(nelems, "elems")

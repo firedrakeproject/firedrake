@@ -42,8 +42,7 @@ backends = ['sequential', 'opencl']
 def _seed():
     return 0.02041724
 
-#max...
-nelems = 92681
+nelems = 8
 
 class TestIndirectLoop:
     """
