@@ -117,10 +117,10 @@ void {{ parloop._kernel.name }}_stub (
   {%- for dat in parloop._unique_dats -%}
   __global {{ dat._cl_type }} *{{ dat.name }},
   {% endfor -%}
-  {%- for arg in parloop._global_reduction_args -%}
+  {%- for arg in parloop._all_global_reduction_args -%}
   __global {{ arg.data._cl_type }} *{{ arg.data._name }}_reduction_array,
   {% endfor -%}
-  {%- for arg in parloop._global_non_reduction_args -%}
+  {%- for arg in parloop._all_global_non_reduction_args -%}
   __global {{ arg.data._cl_type }} *{{ arg.data.name }},
   {% endfor -%}
   {%- for c in op2const -%}
@@ -136,7 +136,7 @@ void {{ parloop._kernel.name }}_stub (
   {%- endfor %}
   int set_size
   ) {
-  {% if(parloop._global_reduction_args or parloop._direct_non_scalar_args) -%}
+  {% if(parloop._needs_shared_memory) -%}
   __local char shared[{{ launch.local_memory_size }}] __attribute__((aligned(sizeof(long))));
   {%- endif %}
   int i_1;
@@ -157,11 +157,11 @@ void {{ parloop._kernel.name }}_stub (
   {% endfor %}
   {%- endif %}
 
-  {% for arg in parloop._global_reduction_args -%}
+  {% for arg in parloop._all_global_reduction_args -%}
   __private {{ arg.data._cl_type }} {{ arg.data.name }}_reduc_local[{{ arg.data.cdim }}];
   {% endfor %}
 
-  {% for arg in parloop._global_reduction_args -%}
+  {% for arg in parloop._all_global_reduction_args -%}
   __local {{ arg.data._cl_type }}* {{ arg.data.name }}_reduc_tmp = (__local {{ arg.data._cl_type }}*) shared;
   {% endfor %}
 
@@ -174,7 +174,7 @@ void {{ parloop._kernel.name }}_stub (
   {% endif %}
 
   // reduction zeroing
-  {% for arg in parloop._global_reduction_args %}
+  {% for arg in parloop._all_global_reduction_args %}
   for (i_1 = 0; i_1 < {{ arg.data.cdim }}; ++i_1)
     {{ arg.data.name }}_reduc_local[i_1] = {{ common.reduction_id_value(arg) }};
   {% endfor %}
@@ -194,9 +194,9 @@ void {{ parloop._kernel.name }}_stub (
     {%- endfor %}
   }
 
-  {% if(parloop._global_reduction_args) %}
+  {% if(parloop._all_global_reduction_args) %}
   // on device reduction
-  {% for arg in parloop._global_reduction_args %}
+  {% for arg in parloop._all_global_reduction_args %}
   for (i_1 = 0; i_1 < {{ arg.data.cdim }}; ++i_1)
     {{ arg.data.name }}_reduction_kernel(&{{ arg.data.name }}_reduction_array[i_1 + get_group_id(0) * {{ arg.data.cdim }}], {{ arg.data.name }}_reduc_local[i_1], {{ arg.data.name }}_reduc_tmp);
   {% endfor %}
@@ -205,7 +205,7 @@ void {{ parloop._kernel.name }}_stub (
 {%- endmacro -%}
 
 {{- header() }}
-{% for arg in parloop._global_reduction_args %}
+{% for arg in parloop._all_global_reduction_args %}
 {{ common.reduction_kernel(arg) }}
 {% endfor %}
 
