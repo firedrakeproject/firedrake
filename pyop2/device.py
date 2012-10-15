@@ -51,8 +51,12 @@ class Arg(op2.Arg):
         if self._is_direct:
             return "%s_local" % self._name
         else:
-            if self._is_vec_map and idx:
+            if self._is_vec_map and idx is not None:
                 return "%s%s_local" % (self._name, self._which_indirect + idx)
+            if self._uses_itspace:
+                if idx is not None:
+                    return "%s%s_local" % (self._name, self._which_indirect + idx)
+                return "%s%s_local" % (self._name, self.idx.index)
             return "%s%s_local" % (self._name, self.idx)
 
     @property
