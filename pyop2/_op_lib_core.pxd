@@ -124,6 +124,8 @@ cdef extern from "op_lib_c.h":
 
     void op_exit()
 
+    int OP_plan_index
+
 cdef extern from "op_rt_support.h":
     ctypedef struct op_plan:
         char * name
@@ -161,6 +163,7 @@ cdef extern from "op_rt_support.h":
     op_plan * op_plan_core(char *, op_set, int, int, op_arg *,
                            int, int *)
 
+    op_plan * OP_plans
     void op_rt_exit()
 
 
