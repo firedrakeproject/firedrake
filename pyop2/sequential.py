@@ -41,6 +41,7 @@ import op_lib_core as core
 from pyop2.utils import OP2_INC, OP2_LIB
 import runtime_base as rt
 from runtime_base import *
+from la_petsc import KspSolver
 
 # Parallel loop API
 
@@ -389,6 +390,15 @@ def _setup():
     pass
 
 class Solver(rt.Solver):
+
+    def __init__(self):
+        super(Solver, self).__init__()
+        self._ksp_solver = KspSolver()
+
     def solve(self, A, x, b):
-        # Note: b and x are reversed in the core interface!
-        core.solve(A, b, x)
+        self._ksp_solver.set_parameters(self.parameters)
+        self._ksp_solver.solve(A, x, b)
+        reason = self._ksp_solver.get_converged_reason()
+        its = self._ksp_solver.get_iteration_number()
+        print "Converged reason", reason
+        print "Iterations", its
