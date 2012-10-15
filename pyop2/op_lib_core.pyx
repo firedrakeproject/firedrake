@@ -380,7 +380,7 @@ def solve(A, b, x):
     core.op_solve(cA._handle, cb._handle, cx._handle)
 
 cdef class op_plan:
-    cdef core.op_plan *_handle
+    cdef int idx
     cdef int set_size
     cdef int nind_ele
     def __cinit__(self, kernel, iset, *args, partition_size=0):
@@ -445,24 +445,28 @@ further ARGS."""
                         d[(arg._dat,arg._map)] = ind
                         ind += 1
                         ninds += 1
-            self._handle = core.op_plan_core(name, _set._handle,
-                                             part_size, nargs, _args,
-                                             ninds, inds)
+            core.op_plan_core(name, _set._handle,
+                              part_size, nargs, _args,
+                              ninds, inds)
+            self.idx = core.OP_plan_index - 1
         finally:
             # We can free these because op_plan_core doesn't keep a
             # handle to them.
             free(_args)
             free(inds)
 
+    cdef core.op_plan *_handle(self):
+        return &core.OP_plans[self.idx]
+
     @property
     def ninds(self):
         """Return the number of unique indirect arguments"""
-        return self._handle.ninds
+        return self._handle().ninds
 
     @property
     def nargs(self):
         """Return the total number of arguments"""
-        return self._handle.nargs
+        return self._handle().nargs
 
     @property
     def part_size(self):
@@ -470,7 +474,7 @@ further ARGS."""
 
 Normally this will be zero, indicating that the plan should guess the
 best partition size."""
-        return self._handle.part_size
+        return self._handle().part_size
 
     @property
     def nthrcol(self):
@@ -479,7 +483,7 @@ best partition size."""
 There are nblocks blocks so nthrcol[i] gives the number of colours in
 the ith block."""
         cdef int size = self.nblocks
-        return data_to_numpy_array_with_spec(self._handle.nthrcol, size, np.NPY_INT32)
+        return data_to_numpy_array_with_spec(self._handle().nthrcol, size, np.NPY_INT32)
 
     @property
     def thrcol(self):
@@ -488,7 +492,7 @@ the ith block."""
 The ith entry in this array is the colour of ith element of the
 iteration set the plan is defined on."""
         cdef int size = self.set_size
-        return data_to_numpy_array_with_spec(self._handle.thrcol, size, np.NPY_INT32)
+        return data_to_numpy_array_with_spec(self._handle().thrcol, size, np.NPY_INT32)
 
     @property
     def offset(self):
@@ -497,7 +501,7 @@ iteration set the plan is defined on."""
 This tells us where in loc_map (q.v.) this block's renumbered mapping
 starts."""
         cdef int size = self.nblocks
-        return data_to_numpy_array_with_spec(self._handle.offset, size, np.NPY_INT32)
+        return data_to_numpy_array_with_spec(self._handle().offset, size, np.NPY_INT32)
 
     @property
     def ind_map(self):
@@ -511,7 +515,7 @@ But we need to fix this up for the block we're currently processing,
 so see also ind_offs.
 """
         cdef int size = self.set_size * self.nind_ele
-        return data_to_numpy_array_with_spec(self._handle.ind_map, size, np.NPY_INT32)
+        return data_to_numpy_array_with_spec(self._handle().ind_map, size, np.NPY_INT32)
 
     @property
     def ind_offs(self):
@@ -523,7 +527,7 @@ The ith /unique/ indirect dataset's offset is at:
 
 where N is the number of unique indirect datasets."""
         cdef int size = self.nblocks * self.ninds
-        return data_to_numpy_array_with_spec(self._handle.ind_offs, size, np.NPY_INT32)
+        return data_to_numpy_array_with_spec(self._handle().ind_offs, size, np.NPY_INT32)
 
     @property
     def ind_sizes(self):
@@ -536,13 +540,13 @@ The ith /unique/ indirect direct has
 elements to be staged in, where N is the number of unique indirect
 datasets."""
         cdef int size = self.nblocks * self.ninds
-        return data_to_numpy_array_with_spec(self._handle.ind_sizes, size, np.NPY_INT32)
+        return data_to_numpy_array_with_spec(self._handle().ind_sizes, size, np.NPY_INT32)
 
     @property
     def nindirect(self):
         """Total size of each unique indirect dataset"""
         cdef int size = self.ninds
-        return data_to_numpy_array_with_spec(self._handle.nindirect, size, np.NPY_INT32)
+        return data_to_numpy_array_with_spec(self._handle().nindirect, size, np.NPY_INT32)
 
     @property
     def loc_map(self):
@@ -555,37 +559,37 @@ memory the nth iteration element is:
     arg_i_s + loc_map[(i-1) * set_size + n + offset[blockId]] * dim(arg_i)
 """
         cdef int size = self.set_size * self.nind_ele
-        return data_to_numpy_array_with_spec(self._handle.loc_map, size, np.NPY_INT16)
+        return data_to_numpy_array_with_spec(self._handle().loc_map, size, np.NPY_INT16)
 
     @property
     def nblocks(self):
         """The number of blocks"""
-        return self._handle.nblocks
+        return self._handle().nblocks
 
     @property
     def nelems(self):
         """The number of elements in each block"""
         cdef int size = self.nblocks
-        return data_to_numpy_array_with_spec(self._handle.nelems, size, np.NPY_INT32)
+        return data_to_numpy_array_with_spec(self._handle().nelems, size, np.NPY_INT32)
 
     @property
     def ncolors_core(self):
         """Number of core (non-halo colours)
 
 MPI only."""
-        return self._handle.ncolors_core
+        return self._handle().ncolors_core
 
     @property
     def ncolors_owned(self):
         """Number of colours for blocks with only owned elements
 
 MPI only."""
-        return self._handle.ncolors_owned
+        return self._handle().ncolors_owned
 
     @property
     def ncolors(self):
         """Number of block colours"""
-        return self._handle.ncolors
+        return self._handle().ncolors
 
     @property
     def ncolblk(self):
@@ -595,7 +599,7 @@ This array is allocated to be set_size long, but this is the worst
 case scenario (every element interacts with every other).  The number
 of "real" elements is ncolors."""
         cdef int size = self.set_size
-        return data_to_numpy_array_with_spec(self._handle.ncolblk, size, np.NPY_INT32)
+        return data_to_numpy_array_with_spec(self._handle().ncolblk, size, np.NPY_INT32)
 
     @property
     def blkmap(self):
@@ -606,30 +610,30 @@ device's "block" address plus an offset which is
 
     sum(ncolblk[i] for i in range(0, current_colour))"""
         cdef int size = self.nblocks
-        return data_to_numpy_array_with_spec(self._handle.blkmap, size, np.NPY_INT32)
+        return data_to_numpy_array_with_spec(self._handle().blkmap, size, np.NPY_INT32)
 
     @property
     def nsharedCol(self):
         """The amount of shared memory required for each colour"""
         cdef int size = self.ncolors
-        return data_to_numpy_array_with_spec(self._handle.nsharedCol, size, np.NPY_INT32)
+        return data_to_numpy_array_with_spec(self._handle().nsharedCol, size, np.NPY_INT32)
 
     @property
     def nshared(self):
         """The total number of bytes of shared memory the plan uses"""
-        return self._handle.nshared
+        return self._handle().nshared
 
     @property
     def transfer(self):
         """Data transfer per kernel call"""
-        return self._handle.transfer
+        return self._handle().transfer
 
     @property
     def transfer2(self):
         """Bytes of cache line per kernel call"""
-        return self._handle.transfer2
+        return self._handle().transfer2
 
     @property
     def count(self):
         """Number of times this plan has been used"""
-        return self._handle.count
+        return self._handle().count
