@@ -150,8 +150,6 @@ class Dat(DeviceDataMixin, op2.Dat):
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
 class Const(DeviceDataMixin, op2.Const):
-    _arg_type = Arg
-
     def __init__(self, dim, data, name, dtype=None):
         op2.Const.__init__(self, dim, data, name, dtype)
         self.state = DeviceDataMixin.HOST
