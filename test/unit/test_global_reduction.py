@@ -48,15 +48,15 @@ class TestGlobalReductions:
 
     def pytest_funcarg__set(cls, request):
         return request.cached_setup(
-            setup=lambda: op2.Set(size, 'set'), scope='session')
+            setup=lambda: op2.Set(nelems, 'set'), scope='module')
 
     def pytest_funcarg__d1(cls, request):
         return op2.Dat(request.getfuncargvalue('set'),
-                       1, numpy.arange(size)+1, dtype=numpy.uint32)
+                       1, numpy.arange(nelems)+1, dtype=numpy.uint32)
 
     def pytest_funcarg__d2(cls, request):
         return op2.Dat(request.getfuncargvalue('set'),
-                       2, numpy.arange(2*size)+1, dtype=numpy.uint32)
+                       2, numpy.arange(2*nelems)+1, dtype=numpy.uint32)
 
     def pytest_funcarg__k1_write_to_dat(cls, request):
         k = """
@@ -64,7 +64,7 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__k1_inc_to_global(cls, request):
         k = """
@@ -72,7 +72,7 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__k1_min_to_global(cls, request):
         k = """
@@ -80,7 +80,7 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__k2_min_to_global(cls, request):
         k = """
@@ -91,7 +91,7 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__k1_max_to_global(cls, request):
         k = """
@@ -101,7 +101,7 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__k2_max_to_global(cls, request):
         k = """
@@ -112,7 +112,7 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__k2_write_to_dat(cls, request):
         k = """
@@ -120,7 +120,7 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__k2_inc_to_global(cls, request):
         k = """
@@ -128,28 +128,25 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__eps(cls, request):
         return 1.e-6
 
-    def pytest_funcarg__s(cls, request):
-        return op2.Set(nelems, "elems")
-
     def pytest_funcarg__duint32(cls, request):
-        return op2.Dat(request.getfuncargvalue('s'), 1, [12]*nelems, numpy.uint32, "duint32")
+        return op2.Dat(request.getfuncargvalue('set'), 1, [12]*nelems, numpy.uint32, "duint32")
 
     def pytest_funcarg__dint32(cls, request):
-        return op2.Dat(request.getfuncargvalue('s'), 1, [-12]*nelems, numpy.int32, "dint32")
+        return op2.Dat(request.getfuncargvalue('set'), 1, [-12]*nelems, numpy.int32, "dint32")
 
     def pytest_funcarg__dfloat32(cls, request):
-        return op2.Dat(request.getfuncargvalue('s'), 1, [-12.0]*nelems, numpy.float32, "dfloat32")
+        return op2.Dat(request.getfuncargvalue('set'), 1, [-12.0]*nelems, numpy.float32, "dfloat32")
 
     def pytest_funcarg__dfloat64(cls, request):
-        return op2.Dat(request.getfuncargvalue('s'), 1, [-12.0]*nelems, numpy.float64, "dfloat64")
+        return op2.Dat(request.getfuncargvalue('set'), 1, [-12.0]*nelems, numpy.float64, "dfloat64")
 
 
-    def test_direct_min_uint32(self, backend, s, duint32):
+    def test_direct_min_uint32(self, backend, set, duint32):
         kernel_min = """
 void kernel_min(unsigned int* x, unsigned int* g)
 {

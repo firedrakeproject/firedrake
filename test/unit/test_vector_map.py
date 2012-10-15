@@ -52,11 +52,11 @@ class TestVectorMap:
 
     def pytest_funcarg__node_set(cls, request):
         return request.cached_setup(
-            setup=lambda: op2.Set(nnodes, 'node_set'), scope='session')
+            setup=lambda: op2.Set(nnodes, 'node_set'), scope='module')
 
     def pytest_funcarg__ele_set(cls, request):
         return request.cached_setup(
-            setup=lambda: op2.Set(nele, 'ele_set'), scope='session')
+            setup=lambda: op2.Set(nele, 'ele_set'), scope='module')
 
     def pytest_funcarg__d1(cls, request):
         return op2.Dat(request.getfuncargvalue('node_set'),
@@ -82,7 +82,7 @@ class TestVectorMap:
                            request.getfuncargvalue('ele_set'),
                            1,
                            vals, 'node2ele')
-        return request.cached_setup(setup=setup, scope='session')
+        return request.cached_setup(setup=setup, scope='module')
 
     def test_sum_nodes_to_edges(self, backend):
         """Creates a 1D grid with edge values numbered consecutively.
