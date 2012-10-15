@@ -38,7 +38,9 @@ from pyop2 import op2
 
 backends = ['sequential', 'opencl']
 
-nelems = 8
+# Large enough that there is more than one block and more than one
+# thread per element in device backends
+nelems = 4096
 
 def elems():
     return op2.Set(nelems, "elems")

@@ -42,7 +42,9 @@ backends = ['sequential', 'opencl']
 def _seed():
     return 0.02041724
 
-nnodes = 8
+# Large enough that there is more than one block and more than one
+# thread per element in device backends
+nnodes = 4096
 nele = nnodes / 2
 
 class TestVectorMap:

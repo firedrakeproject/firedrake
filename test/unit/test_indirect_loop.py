@@ -42,7 +42,9 @@ backends = ['sequential', 'opencl']
 def _seed():
     return 0.02041724
 
-nelems = 8
+# Large enough that there is more than one block and more than one
+# thread per element in device backends
+nelems = 4096
 
 class TestIndirectLoop:
     """
