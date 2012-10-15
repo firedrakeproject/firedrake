@@ -84,11 +84,11 @@ class Arg(op2.Arg):
         return self._is_direct and not (self.data._is_scalar or self._is_soa)
 
 class DeviceDataMixin(object):
-    DEVICE_UNALLOCATED = 0      # device_data not allocated
-    HOST_UNALLOCATED = 1        # host data not allocated
-    DEVICE = 2                  # device valid, host invalid
-    HOST = 3                    # host valid, device invalid
-    BOTH = 4                    # both valid
+    DEVICE_UNALLOCATED = 'DEVICE_UNALLOCATED' # device_data not allocated
+    HOST_UNALLOCATED = 'HOST_UNALLOCATED'     # host data not allocated
+    DEVICE = 'DEVICE'                         # device valid, host invalid
+    HOST = 'HOST'                             # host valid, device invalid
+    BOTH = 'BOTH'                             # both valid
 
     @property
     def _bytes_per_elem(self):
