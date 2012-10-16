@@ -213,7 +213,7 @@ def ncached_plans():
 class Plan(core.op_plan):
     def __new__(cls, kernel, iset, *args, **kwargs):
         ps = kwargs.get('partition_size', 0)
-        key = Plan.cache_key(iset, ps, *args)
+        key = Plan._cache_key(iset, ps, *args)
         cached = _plan_cache.get(key, None)
         if cached is not None:
             return cached
@@ -223,7 +223,7 @@ class Plan(core.op_plan):
 
     def __init__(self, kernel, iset, *args, **kwargs):
         ps = kwargs.get('partition_size', 0)
-        key = Plan.cache_key(iset, ps, *args)
+        key = Plan._cache_key(iset, ps, *args)
         cached = _plan_cache.get(key, None)
         if cached is not None:
             return
@@ -231,7 +231,7 @@ class Plan(core.op_plan):
         _plan_cache[key] = self
 
     @classmethod
-    def cache_key(cls, iset, partition_size, *args):
+    def _cache_key(cls, iset, partition_size, *args):
         # Set size
         key = (iset.size, )
         # Size of partitions (amount of smem)
