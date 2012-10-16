@@ -114,7 +114,7 @@ class Kernel(op2.Kernel):
 class Arg(op2.Arg):
     """OP2 OpenCL argument type."""
 
-    # FIXME
+    # FIXME actually use this in the template
     def _indirect_kernel_arg_name(self, idx):
         if self._is_global:
             if self._is_global_reduction:
