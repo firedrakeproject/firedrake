@@ -263,9 +263,11 @@ class ParLoop(op2.ParLoop):
         self._src = None
         # List of arguments with vector-map/iteration-space indexes
         # flattened out
+        # Does not contain Mat arguments
         self.__unwound_args = []
         # List of unique arguments:
         #  - indirect dats with the same dat/map pairing only appear once
+        # Does contain Mat arguments
         self.__unique_args = []
         seen = set()
         c = 0
