@@ -84,6 +84,10 @@ class Arg(op2.Arg):
         return "%s_size" % self._name
 
     @property
+    def _mat_entry_name(self):
+        return "%s_entry" % self._name
+
+    @property
     def _is_staged_direct(self):
         return self._is_direct and not (self.data._is_scalar or self._is_soa)
 
