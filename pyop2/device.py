@@ -204,10 +204,10 @@ class Mat(op2.Mat):
 
 _plan_cache = dict()
 
-def empty_plan_cache():
+def _empty_plan_cache():
     _plan_cache.clear()
 
-def ncached_plans():
+def _plan_cache_size():
     return len(_plan_cache)
 
 class Plan(core.op_plan):

@@ -40,6 +40,7 @@ import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
 from base import _empty_parloop_cache, _parloop_cache_size
 from runtime_base import _empty_sparsity_cache
+from device import _empty_plan_cache, _plan_cache_size
 
 def init(**kwargs):
     """Initialise OP2: select the backend and potentially other configuration options.
@@ -130,10 +131,3 @@ def solve(M, b, x):
     :arg x: The :class:`Dat` to receive the solution.
     """
     return backends._BackendSelector._backend.solve(M, b, x)
-
-#backend inspection interface
-def _empty_plan_cache():
-    return backends._BackendSelector._backend.empty_plan_cache()
-
-def _ncached_plans():
-    return backends._BackendSelector._backend.ncached_plans()
