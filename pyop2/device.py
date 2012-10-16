@@ -168,6 +168,41 @@ class Dat(DeviceDataMixin, op2.Dat):
         self._device_data = ary
         self.state = DeviceDataMixin.DEVICE
 
+    def _check_shape(self, other):
+        if not self.array.shape == other.array.shape:
+            raise ValueError("operands could not be broadcast together with shapes %s, %s" \
+                    % (self.array.shape, other.array.shape))
+
+    def __iadd__(self, other):
+        """Pointwise addition of fields."""
+        self._check_shape(other)
+        self.array += as_type(other.array, self.dtype)
+        return self
+
+    def __isub__(self, other):
+        """Pointwise subtraction of fields."""
+        self._check_shape(other)
+        self.array -= as_type(other.array, self.dtype)
+        return self
+
+    def __imul__(self, other):
+        """Pointwise multiplication or scaling of fields."""
+        if np.isscalar(other):
+            self.array *= as_type(other, self.dtype)
+        else:
+            self._check_shape(other)
+            self.array *= as_type(other.array, self.dtype)
+        return self
+
+    def __idiv__(self, other):
+        """Pointwise division or scaling of fields."""
+        if np.isscalar(other):
+            self.array /= as_type(other, self.dtype)
+        else:
+            self._check_shape(other)
+            self.array /= as_type(other.array, self.dtype)
+        return self
+
 class Const(DeviceDataMixin, op2.Const):
     def __init__(self, dim, data, name, dtype=None):
         op2.Const.__init__(self, dim, data, name, dtype)

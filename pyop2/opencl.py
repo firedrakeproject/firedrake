@@ -213,40 +213,6 @@ class Dat(op2.Dat, DeviceDataMixin):
 
     _arg_type = Arg
 
-    def _check_shape(self, other):
-        if not self.array.shape == other.array.shape:
-            raise ValueError("operands could not be broadcast together with shapes %s, %s" \
-                    % (self.array.shape, other.array.shape))
-
-    def __iadd__(self, other):
-        """Pointwise addition of fields."""
-        self._check_shape(other)
-        self.array += as_type(other.array, self.dtype)
-        return self
-
-    def __isub__(self, other):
-        """Pointwise subtraction of fields."""
-        self._check_shape(other)
-        self.array -= as_type(other.array, self.dtype)
-        return self
-
-    def __imul__(self, other):
-        """Pointwise multiplication or scaling of fields."""
-        if np.isscalar(other):
-            self.array *= as_type(other, self.dtype)
-        else:
-            self._check_shape(other)
-            self.array *= as_type(other.array, self.dtype)
-        return self
-
-    def __idiv__(self, other):
-        """Pointwise division or scaling of fields."""
-        if np.isscalar(other):
-            self.array /= as_type(other, self.dtype)
-        else:
-            self._check_shape(other)
-            self.array /= as_type(other.array, self.dtype)
-        return self
 
     @property
     def norm(self):
