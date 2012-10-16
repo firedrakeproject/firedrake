@@ -215,9 +215,7 @@ class Dat(op2.Dat, DeviceDataMixin):
 
     @property
     def array(self):
-        if self.state in [DeviceDataMixin.HOST, DeviceDataMixin.DEVICE_UNALLOCATED]:
-            self._to_device()
-            self.state = DeviceDataMixin.BOTH
+        self._to_device()
         return self._device_data
 
     @array.setter
