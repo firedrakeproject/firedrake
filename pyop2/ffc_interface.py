@@ -70,15 +70,9 @@ def compile_form(form, name):
         code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
         form_data = form.form_data()
 
-        # FIXME: This breaks if the form contains > 1 domain of a particular kind
-        cell = Kernel(code, name + '_cell_integral_0_0') \
-                if form_data.num_cell_domains > 0 else None
-        interior_facet = Kernel(code, name + '_interior_facet_integral_0_0') \
-                if form_data.num_interior_facet_domains > 0 else None
-        exterior_facet = Kernel(code, name + '_exterior_facet_integral_0_0') \
-                if form_data.num_exterior_facet_domains > 0 else None
-
-        kernels = (cell, interior_facet, exterior_facet)
+        kernels = [ Kernel(code, '%s_%s_integral_0_%s' % (name, m.domain_type(), m.domain_id())) \
+                    for m in map(lambda x: x.measure(), form.integrals()) ]
+        kernels = tuple(kernels)
         _form_cache[key] = kernels, form_data
 
     # Attach the form data FFC has computed for our form (saves preprocessing

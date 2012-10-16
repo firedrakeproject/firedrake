@@ -72,12 +72,12 @@ f = Coefficient(E)
 g = Coefficient(E)
 
 a = dot(grad(v,),grad(u))*dx
-L = v*f*dx + v*g*ds
+L = v*f*dx + v*g*ds(2)
 
 # Generate code for Laplacian and rhs assembly.
 
-laplacian, _, _ = compile_form(a, "laplacian")
-rhs, _, weak  = compile_form(L, "rhs")
+laplacian, = compile_form(a, "laplacian")
+rhs, weak  = compile_form(L, "rhs")
 
 # Set up simulation data structures
 
@@ -169,6 +169,7 @@ op2.par_loop(strongbc_rhs, bdry_nodes,
              b(bdry_node_node[0], op2.WRITE))
 
 solver = op2.Solver()
+solver.parameters['linear_solver'] = 'gmres'
 solver.solve(mat, x, b)
 
 # Print solution
