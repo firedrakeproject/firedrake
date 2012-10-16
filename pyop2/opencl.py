@@ -562,8 +562,8 @@ class ParLoop(op2.ParLoop):
         return available_local_memory / (2 * _warpsize * max_bytes) * (2 * _warpsize)
 
     def launch_configuration(self):
-        if self._is_direct():
-            per_elem_max_local_mem_req = self._max_shared_memory_needed_per_set_element()
+        if self._is_direct:
+            per_elem_max_local_mem_req = self._max_shared_memory_needed_per_set_element
             shared_memory_offset = per_elem_max_local_mem_req * _warpsize
             if per_elem_max_local_mem_req == 0:
                 wgs = _max_work_group_size
@@ -599,7 +599,7 @@ class ParLoop(op2.ParLoop):
 
             for arg in self.args:
                 i = None
-                if self._is_direct():
+                if self._is_direct:
                     if (arg._is_direct and (arg.data._is_scalar or arg.data.soa)) or\
                        (arg._is_global and not arg._is_global_reduction):
                         i = ("__global", None)
@@ -628,7 +628,7 @@ class ParLoop(op2.ParLoop):
 
         #do codegen
         user_kernel = instrument_user_kernel()
-        template = _jinja2_direct_loop if self._is_direct()\
+        template = _jinja2_direct_loop if self._is_direct \
                                        else _jinja2_indirect_loop
 
         self._src = template.render({'parloop': self,
@@ -650,7 +650,7 @@ class ParLoop(op2.ParLoop):
 
         conf = self.launch_configuration()
 
-        if not self._is_direct():
+        if self._is_indirect:
             self._plan = Plan(self.kernel, self._it_space.iterset,
                               *self._unwound_args,
                               partition_size=conf['partition_size'])
@@ -692,7 +692,7 @@ class ParLoop(op2.ParLoop):
             m._to_device()
             kernel.append_arg(m._device_values.data)
 
-        if self._is_direct():
+        if self._is_direct:
             kernel.append_arg(np.int32(self._it_space.size))
 
             cl.enqueue_nd_range_kernel(_queue, kernel, (conf['thread_count'],), (conf['work_group_size'],), g_times_l=False).wait()

@@ -279,7 +279,7 @@ class ParLoop(op2.ParLoop):
                          '-Xptxas=-v', '-O3', '-use_fast_math', '-DNVCC']
         inttype = np.dtype('int32').char
         argtypes = inttype      # set size
-        if self._is_direct():
+        if self._is_direct:
             self.generate_direct_loop(config)
             for arg in self.args:
                 argtypes += "P" # pointer to each Dat's data
@@ -298,8 +298,8 @@ class ParLoop(op2.ParLoop):
         op2._parloop_cache[key] = self._module, self._fun
 
     def launch_configuration(self):
-        if self._is_direct():
-            max_smem = self._max_shared_memory_needed_per_set_element()
+        if self._is_direct:
+            max_smem = self._max_shared_memory_needed_per_set_element
             smem_offset = max_smem * _WARPSIZE
             max_block = _device.get_attribute(driver.device_attribute.MAX_BLOCK_DIM_X)
             if max_smem == 0:
@@ -347,7 +347,7 @@ class ParLoop(op2.ParLoop):
         config = self.launch_configuration()
         self.compile(config=config)
 
-        if self._is_direct():
+        if self._is_direct:
             _args = self.args
             block_size = config['block_size']
             max_grid_size = config['grid_size']
@@ -378,7 +378,7 @@ class ParLoop(op2.ParLoop):
                 karg = arg.data._reduction_buffer
             arglist.append(np.intp(karg.gpudata))
 
-        if self._is_direct():
+        if self._is_direct:
             self._fun.prepared_call(max_grid_size, block_size, *arglist,
                                     shared_size=shared_size)
             for arg in self.args:

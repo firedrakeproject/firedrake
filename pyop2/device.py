@@ -313,15 +313,18 @@ class ParLoop(op2.ParLoop):
         setattr(self, propname, attr)
         return attr
 
+    @property
     def _is_direct(self):
         for arg in self.__unwound_args:
             if arg._is_indirect:
                 return False
         return True
 
+    @property
     def _is_indirect(self):
-        return not self._is_direct()
+        return not self._is_direct
 
+    @property
     def _max_shared_memory_needed_per_set_element(self):
         staged = self._all_staged_direct_args
         reduction = self._all_global_reduction_args
@@ -345,7 +348,7 @@ class ParLoop(op2.ParLoop):
 
     @property
     def _needs_shared_memory(self):
-        if not self._is_direct():
+        if self._is_indirect:
             return True
         for arg in self._actual_args:
             if arg._is_global_reduction:
