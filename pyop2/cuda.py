@@ -110,6 +110,11 @@ class DeviceDataMixin(op2.DeviceDataMixin):
 class Dat(DeviceDataMixin, op2.Dat):
     _arg_type = Arg
 
+    @property
+    def norm(self):
+        """The L2-norm on the flattened vector."""
+        return np.sqrt(gpuarray.dot(self.array, self.array).get())
+
 class Mat(DeviceDataMixin, op2.Mat):
     _arg_type = Arg
 
