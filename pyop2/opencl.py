@@ -508,20 +508,6 @@ class Plan(op2.Plan):
             self._thrcol = array.to_device(_queue, super(Plan, self).thrcol)
         return self._thrcol
 
-class DatMapPair(object):
-    """ Dummy class needed for codegen
-        (could do without but would obfuscate codegen templates)
-    """
-    def __init__(self, data, map):
-        self.data = data
-        self.map = map
-
-    def __hash__(self):
-        return hash(self.data) ^ hash(self.map)
-
-    def __eq__(self, other):
-        return self.__dict__ == other.__dict__
-
 class ParLoop(op2.ParLoop):
     @property
     def _has_itspace(self):
