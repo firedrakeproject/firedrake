@@ -340,6 +340,10 @@ class ParLoop(op2.ParLoop):
         return "__%s_stub" % self.kernel.name
 
     @property
+    def _has_itspace(self):
+        return len(self._it_space.extents) > 0
+
+    @property
     def _needs_shared_memory(self):
         if not self._is_direct():
             return True

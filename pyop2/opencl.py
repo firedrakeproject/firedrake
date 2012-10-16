@@ -510,10 +510,6 @@ class Plan(op2.Plan):
 
 class ParLoop(op2.ParLoop):
     @property
-    def _has_itspace(self):
-        return len(self._it_space.extents) > 0
-
-    @property
     def _matrix_args(self):
         return [a for a in self.args if a._is_mat]
 
