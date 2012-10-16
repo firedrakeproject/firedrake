@@ -465,7 +465,6 @@ def _setup():
         _device = pycuda.autoinit.device
         _context = pycuda.autoinit.context
         _WARPSIZE=_device.get_attribute(driver.device_attribute.WARP_SIZE)
-        pass
     global _direct_loop_template
     global _indirect_loop_template
     env = jinja2.Environment(loader=jinja2.PackageLoader('pyop2', 'assets'))
