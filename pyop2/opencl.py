@@ -520,14 +520,14 @@ class ParLoop(op2.ParLoop):
         """Set of all mappings used in matrix arguments."""
         return uniquify(m for arg in self.args  if arg._is_mat for m in arg.map)
 
-    def dump_gen_code(self, src):
+    def dump_gen_code(self):
         if cfg['dump-gencode']:
-            path = cfg['dump-gencode-path'] % {"kernel": self._kernel._name,
+            path = cfg['dump-gencode-path'] % {"kernel": self.kernel.name,
                                                "time": time.strftime('%Y-%m-%d@%H:%M:%S')}
 
             if not os.path.exists(path):
                 with open(path, "w") as f:
-                    f.write(src)
+                    f.write(self._src)
 
     def _i_partition_size(self):
         #TODO FIX: something weird here
@@ -622,47 +622,47 @@ class ParLoop(op2.ParLoop):
 
         # check cache
         key = self._cache_key
-        src = op2._parloop_cache.get(key)
-        if src:
-            return src
+        self._src = op2._parloop_cache.get(key)
+        if self._src is not None:
+            return
 
         #do codegen
         user_kernel = instrument_user_kernel()
         template = _jinja2_direct_loop if self._is_direct()\
                                        else _jinja2_indirect_loop
 
-        src = template.render({'parloop': self,
-                               'user_kernel': user_kernel,
-                               'launch': conf,
-                               'codegen': {'amd': _AMD_fixes},
-                               'op2const': Const._definitions()
-                              }).encode("ascii")
-        self.dump_gen_code(src)
-        op2._parloop_cache[key] = src
-        return src
+        self._src = template.render({'parloop': self,
+                                     'user_kernel': user_kernel,
+                                     'launch': conf,
+                                     'codegen': {'amd': _AMD_fixes},
+                                     'op2const': Const._definitions()
+                                 }).encode("ascii")
+        self.dump_gen_code()
+        op2._parloop_cache[key] = self._src
 
     def compute(self):
         if self._has_soa:
             op2stride = Const(1, self._it_space.size, name='op2stride',
                               dtype='int32')
-        def compile_kernel(src):
-            prg = cl.Program(_ctx, source).build(options="-Werror")
+        def compile_kernel():
+            prg = cl.Program(_ctx, self._src).build(options="-Werror")
             return prg.__getattr__(self._stub_name)
 
         conf = self.launch_configuration()
 
         if not self._is_direct():
-            plan = Plan(self.kernel, self._it_space.iterset,
-                        *self._unwound_args,
-                        partition_size=conf['partition_size'])
-            conf['local_memory_size'] = plan.nshared
-            conf['ninds'] = plan.ninds
-            conf['work_group_size'] = min(_max_work_group_size, conf['partition_size'])
-            conf['work_group_count'] = plan.nblocks
+            self._plan = Plan(self.kernel, self._it_space.iterset,
+                              *self._unwound_args,
+                              partition_size=conf['partition_size'])
+            conf['local_memory_size'] = self._plan.nshared
+            conf['ninds'] = self._plan.ninds
+            conf['work_group_size'] = min(_max_work_group_size,
+                                          conf['partition_size'])
+            conf['work_group_count'] = self._plan.nblocks
         conf['warpsize'] = _warpsize
 
-        source = self.codegen(conf)
-        kernel = compile_kernel(source)
+        self.codegen(conf)
+        kernel = compile_kernel()
 
         for arg in self._unique_args:
             arg.data._allocate_device()
@@ -698,19 +698,19 @@ class ParLoop(op2.ParLoop):
             cl.enqueue_nd_range_kernel(_queue, kernel, (conf['thread_count'],), (conf['work_group_size'],), g_times_l=False).wait()
         else:
             kernel.append_arg(np.int32(self._it_space.size))
-            kernel.append_arg(plan.ind_map.data)
-            kernel.append_arg(plan.loc_map.data)
-            kernel.append_arg(plan.ind_sizes.data)
-            kernel.append_arg(plan.ind_offs.data)
-            kernel.append_arg(plan.blkmap.data)
-            kernel.append_arg(plan.offset.data)
-            kernel.append_arg(plan.nelems.data)
-            kernel.append_arg(plan.nthrcol.data)
-            kernel.append_arg(plan.thrcol.data)
+            kernel.append_arg(self._plan.ind_map.data)
+            kernel.append_arg(self._plan.loc_map.data)
+            kernel.append_arg(self._plan.ind_sizes.data)
+            kernel.append_arg(self._plan.ind_offs.data)
+            kernel.append_arg(self._plan.blkmap.data)
+            kernel.append_arg(self._plan.offset.data)
+            kernel.append_arg(self._plan.nelems.data)
+            kernel.append_arg(self._plan.nthrcol.data)
+            kernel.append_arg(self._plan.thrcol.data)
 
             block_offset = 0
-            for i in range(plan.ncolors):
-                blocks_per_grid = int(plan.ncolblk[i])
+            for i in range(self._plan.ncolors):
+                blocks_per_grid = int(self._plan.ncolblk[i])
                 threads_per_block = min(_max_work_group_size, conf['partition_size'])
                 thread_count = threads_per_block * blocks_per_grid
 
