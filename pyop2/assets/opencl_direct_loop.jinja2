@@ -1,4 +1,5 @@
 {% import 'opencl_common.jinja2' as common %}
+{% import 'device_common.jinja2' as device %}
 
 {%- macro header() -%}
 /* Launch configuration:
@@ -12,57 +13,13 @@
 {{ common.defines(launch) }}
 {%- endmacro -%}
 
-{#                                  #}
-{# kernel stub local variable names #}
-
-{%- macro lmemptr(arg) -%}
-{{ arg.data.name }}_local
-{%- endmacro -%}
-
-{%- macro pmemptr(arg) -%}
-{{ arg.data.name }}_private
-{%- endmacro -%}
-
-
-{%- macro stagein(arg) -%}
-// staging in: {{ arg.data.name }}
-for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2)
-  {{ lmemptr(arg) }}[thread_id + i_2 * active_threads_count] = {{ arg.data.name }}[thread_id + i_2 * active_threads_count + local_offset * {{ arg.data.cdim }}];
-
-for (i_2 = 0; i_2 < {{ arg._dat.cdim }}; ++i_2)
-  {{ pmemptr(arg) }}[i_2] = {{ lmemptr(arg) }}[i_2 + thread_id * {{ arg.data.cdim }}];
-{%- endmacro -%}
-
-{%- macro stageout(arg) -%}
-// staging out: {{ arg.data.name }}
-for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2)
-  {{ lmemptr(arg) }}[i_2 + thread_id * {{ arg.data.cdim }}] = {{ pmemptr(arg) }}[i_2];
-
-for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2)
-  {{ arg.data._name }}[thread_id + i_2 * active_threads_count + local_offset * {{ arg.data.cdim }}] = {{ lmemptr(arg) }}[thread_id + i_2 * active_threads_count];
-{%- endmacro -%}
-
-{%- macro kernel_call_arg(arg) -%}
-{% if(arg._d_is_staged) -%}
-{{ pmemptr(arg) }}
-{%- elif(arg._is_global_reduction) -%}
-{{ arg.data.name }}_reduc_local
-{%- elif(arg._is_global) -%}
-{{ arg.data.name }}
-{%- elif(arg._is_mat) -%}
-{{ arg.data.name }}_entry
-{%- else -%}
-&{{ arg.data.name }}[i_1]
-{%- endif -%}
-{%- endmacro -%}
-
 {%- macro kernel_call_const_args() -%}
 {%- for c in op2const -%}
-{% if(c._is_scalar) %}*{% endif %}{{ c.name }}
+, {% if(c._is_scalar) %}*{% endif %}{{ c.name }}
 {% endfor -%}
 {%- endmacro -%}
 
-{%- macro kernel_call() -%}
+{%- macro kernel_call(idx=None) -%}
 {%- for it in parloop._it_space._extent_ranges %}
 for (int idx_{{ loop.index0 }} = 0; idx_{{ loop.index0 }} < {{ it }}; ++idx_{{ loop.index0 }}) {
 {%- endfor %}
@@ -70,20 +27,20 @@ for (int idx_{{ loop.index0 }} = 0; idx_{{ loop.index0 }} < {{ it }}; ++idx_{{ l
 {% for dim in arg.data.sparsity.dims %}
 for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }})
 {%- endfor %}
-  {{ arg.data.name }}_entry[i0][i1] = {{ arg.data._cl_type_zero }};
+  {{ arg._mat_entry_name }}[i0][i1] = {{ arg.data._cl_type_zero }};
 {% endfor %}
 
 {{ parloop._kernel.name }}(
-{%- filter trim|replace("\n", ", ") -%}
-{%- for arg in parloop.args -%}
-{{ kernel_call_arg(arg) }}
-{% endfor -%}
-{{ kernel_call_const_args() }}
-{%- for ext in parloop._it_space._extent_ranges -%}
-idx_{{ loop.index0 }}
-{% endfor -%}
-{%- endfilter -%}
-);
+    {%- set comma = joiner(', ') -%}
+    {%- for arg in parloop.args -%}
+    {{- comma() }}
+    {{ arg._direct_kernel_arg_name(idx=idx) }}
+    {% endfor -%}
+    {{- kernel_call_const_args() }}
+    {%- for ext in parloop._it_space._extent_ranges -%}
+    , idx_{{ loop.index0 }}
+    {% endfor -%}
+    );
 
 {% for arg in parloop._matrix_args -%}
 {% for dim in arg.data.sparsity.dims %}
@@ -102,7 +59,7 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
     {% set dim = arg.data.sparsity.dims[loop.index0] -%}
     {{ dim }}*{{ map.name }}[i_1 * {{ ext }} + idx_{{ loop.index0 }}]+i{{ loop.index0 }},
     {%- endfor %}
-    {{ arg.data.name }}_entry[i0][i1]
+      {{ arg._mat_entry_name }}[i0][i1]
   );
 {% endfor %}
 {%- for it in parloop._it_space._extent_ranges %}
@@ -141,24 +98,24 @@ __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
   {%- endif %}
   int i_1;
 
-  {% if(parloop._direct_non_scalar_args) -%}
+  {% if(parloop._needs_shared_memory) -%}
   unsigned int shared_memory_offset = {{ launch.local_memory_offset }};
   int i_2;
   int local_offset;
   int active_threads_count;
   int thread_id = get_local_id(0) % OP_WARPSIZE;
 
-  {%- for arg in parloop._direct_non_scalar_args -%}
-  __private {{ arg.data._cl_type }} {{ pmemptr(arg) }}[{{ arg.data.cdim }}];
+  {%- for arg in parloop._all_staged_direct_args -%}
+  __private {{ arg.data._cl_type }} {{ arg._local_name() }}[{{ arg.data.cdim }}];
   {% endfor %}
 
-  {% for arg in parloop._direct_non_scalar_args -%}
-  __local {{ arg.data._cl_type }} *{{ lmemptr(arg) }} = (__local {{ arg.data._cl_type }}*) (shared + shared_memory_offset * (get_local_id(0) / OP_WARPSIZE));
+  {% for arg in parloop._all_staged_direct_args -%}
+  __local {{ arg.data._cl_type }} *{{ arg._shared_name }} = (__local {{ arg.data._cl_type }}*) (shared + shared_memory_offset * (get_local_id(0) / OP_WARPSIZE));
   {% endfor %}
   {%- endif %}
 
   {% for arg in parloop._all_global_reduction_args -%}
-  __private {{ arg.data._cl_type }} {{ arg.data.name }}_reduc_local[{{ arg.data.cdim }}];
+  __private {{ arg.data._cl_type }} {{ arg._reduction_local_name }}[{{ arg.data.cdim }}];
   {% endfor %}
 
   {% for arg in parloop._all_global_reduction_args -%}
@@ -168,7 +125,7 @@ __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
   {% if(parloop._matrix_args) %}
   // local matrix entry
   {% for arg in parloop._matrix_args %}
-  __private {{ arg.data._cl_type }} {{ arg.data.name }}_entry{%- for dim in arg.data.sparsity.dims -%}[{{ dim }}]
+  __private {{ arg.data._cl_type }} {{ arg._mat_entry_name }}{%- for dim in arg.data.sparsity.dims -%}[{{ dim }}]
   {%- endfor -%};
   {% endfor %}
   {% endif %}
@@ -176,21 +133,21 @@ __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
   // reduction zeroing
   {% for arg in parloop._all_global_reduction_args %}
   for (i_1 = 0; i_1 < {{ arg.data.cdim }}; ++i_1)
-    {{ arg.data.name }}_reduc_local[i_1] = {{ common.reduction_id_value(arg) }};
+    {{ arg._reduction_local_name }}[i_1] = {{ common.reduction_id_value(arg) }};
   {% endfor %}
 
   for (i_1 = get_global_id(0); i_1 < set_size; i_1 += get_global_size(0)) {
-    {%- if(parloop._direct_non_scalar_args) %}
+    {%- if (parloop._all_staged_direct_args) %}
     local_offset = i_1 - thread_id;
     active_threads_count = min(OP_WARPSIZE, set_size - local_offset);
     {%- endif -%}
 
-    {% for arg in parloop._direct_non_scalar_read_args -%}
-    {{ stagein(arg) }}
+    {% for arg in parloop._all_staged_in_direct_args -%}
+    {{ device.stagein(arg) }}
     {% endfor %}
-    {{ kernel_call() }}
-    {% for arg in parloop._direct_non_scalar_written_args %}
-      {{ stageout(arg) }}
+    {{ kernel_call('i_1') }}
+    {% for arg in parloop._all_staged_out_direct_args %}
+    {{ device.stageout(arg) }}
     {%- endfor %}
   }
 
@@ -198,7 +155,7 @@ __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
   // on device reduction
   {% for arg in parloop._all_global_reduction_args %}
   for (i_1 = 0; i_1 < {{ arg.data.cdim }}; ++i_1)
-    {{ arg.data.name }}_reduction_kernel(&{{ arg.data.name }}_reduction_array[i_1 + get_group_id(0) * {{ arg.data.cdim }}], {{ arg.data.name }}_reduc_local[i_1], {{ arg.data.name }}_reduc_tmp);
+  {{ arg.data.name }}_reduction_kernel(&{{ arg.data.name }}_reduction_array[i_1 + get_group_id(0) * {{ arg.data.cdim }}], {{ arg._reduction_local_name }}[i_1], {{ arg.data.name }}_reduc_tmp);
   {% endfor %}
   {% endif %}
 }

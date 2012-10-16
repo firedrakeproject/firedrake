@@ -114,11 +114,6 @@ class Kernel(op2.Kernel):
 class Arg(op2.Arg):
     """OP2 OpenCL argument type."""
 
-    # Codegen specific
-    @property
-    def _d_is_staged(self):
-        return self._is_direct and not (self.data._is_scalar or self.data.soa)
-
     # FIXME
     def _indirect_kernel_arg_name(self, idx):
         if self._is_global:
@@ -142,6 +137,8 @@ class Arg(op2.Arg):
                        self.data.cdim)
 
     def _direct_kernel_arg_name(self, idx=None):
+        if self._is_mat:
+            return self._mat_entry_name
         if self._is_staged_direct:
             return self._local_name()
         elif self._is_global_reduction:
@@ -533,22 +530,6 @@ class ParLoop(op2.ParLoop):
     @property
     def _indirect_reduc_args(self):
         return uniquify(a for a in self._unwound_args if a._is_indirect_reduction)
-
-    @property
-    def _direct_args(self):
-        return uniquify(a for a in self._unwound_args if a._is_direct)
-
-    @property
-    def _direct_non_scalar_args(self):
-        return [a for a in self._direct_args if not (a.data._is_scalar or a.data.soa)]
-
-    @property
-    def _direct_non_scalar_read_args(self):
-        return [a for a in self._direct_non_scalar_args if a.access in [READ, RW]]
-
-    @property
-    def _direct_non_scalar_written_args(self):
-        return [a for a in self._direct_non_scalar_args if a.access in [WRITE, RW]]
 
     @property
     def _has_itspace(self):
