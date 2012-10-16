@@ -432,6 +432,12 @@ class ParLoop(op2.ParLoop):
                                   '_all_itspace_dat_args', keep)
 
     @property
+    def _all_non_inc_itspace_dat_args(self):
+        keep = lambda x: x.access is not INC
+        return self._get_arg_list('__all_non_inc_itspace_dat_args',
+                                  '_all_itspace_dat_args', keep)
+
+    @property
     def _all_inc_vec_map_args(self):
         keep = lambda x: x._is_vec_map and x.access is INC
         return self._get_arg_list('__all_inc_vec_map_args',
@@ -442,6 +448,12 @@ class ParLoop(op2.ParLoop):
         keep = lambda x: x._is_vec_map and x.access is not INC
         return self._get_arg_list('__all_non_inc_vec_map_args',
                                   '_actual_args', keep)
+
+    @property
+    def _all_indirect_args(self):
+        keep = lambda x: x._is_indirect
+        return self._get_arg_list('__all_indirect_args',
+                                  '_unwound_args', keep)
 
     @property
     def _all_direct_args(self):
