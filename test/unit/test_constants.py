@@ -36,7 +36,7 @@ import numpy
 
 from pyop2 import op2
 
-size = 100
+size = 8
 
 backends = ['sequential', 'opencl']
 
@@ -47,7 +47,7 @@ class TestConstant:
 
     def pytest_funcarg__set(cls, request):
         return request.cached_setup(
-            setup=lambda: op2.Set(size), scope='session')
+            setup=lambda: op2.Set(size), scope='module')
 
     def pytest_funcarg__dat(cls, request):
         return op2.Dat(request.getfuncargvalue('set'), 1,

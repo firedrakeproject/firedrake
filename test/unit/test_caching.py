@@ -41,7 +41,7 @@ backends = ['opencl', 'sequential']
 def _seed():
     return 0.02041724
 
-nelems = 2048
+nelems = 8
 
 def pytest_funcarg__iterset(request):
     return op2.Set(nelems, "iterset")

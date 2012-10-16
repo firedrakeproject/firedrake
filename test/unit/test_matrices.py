@@ -55,7 +55,7 @@ class TestMatrices:
     def pytest_funcarg__nodes(cls, request):
         # FIXME: Cached setup can be removed when __eq__ methods implemented.
         return request.cached_setup(
-                setup=lambda: op2.Set(NUM_NODES, "nodes"), scope='session')
+                setup=lambda: op2.Set(NUM_NODES, "nodes"), scope='module')
 
     def pytest_funcarg__elements(cls, request):
         return op2.Set(NUM_ELE, "elements")
@@ -71,14 +71,14 @@ class TestMatrices:
         sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
         return request.cached_setup(
                 setup=lambda: op2.Mat(sparsity, valuetype, "mat"),
-                scope='session')
+                scope='module')
 
     def pytest_funcarg__vecmat(cls, request):
         elem_node = request.getfuncargvalue('elem_node')
         sparsity = op2.Sparsity((elem_node, elem_node), 2, "sparsity")
         return request.cached_setup(
                 setup=lambda: op2.Mat(sparsity, valuetype, "mat"),
-                scope='session')
+                scope='module')
 
     def pytest_funcarg__coords(cls, request):
         nodes = request.getfuncargvalue('nodes')
@@ -102,14 +102,14 @@ class TestMatrices:
         b_vals = numpy.asarray([0.0]*NUM_NODES, dtype=valuetype)
         return request.cached_setup(
                 setup=lambda: op2.Dat(nodes, 1, b_vals, valuetype, "b"),
-                scope='session')
+                scope='module')
 
     def pytest_funcarg__b_vec(cls, request):
         nodes = request.getfuncargvalue('nodes')
         b_vals = numpy.asarray([0.0]*NUM_NODES*2, dtype=valuetype)
         return request.cached_setup(
                 setup=lambda: op2.Dat(nodes, 2, b_vals, valuetype, "b"),
-                scope='session')
+                scope='module')
 
     def pytest_funcarg__x(cls, request):
         nodes = request.getfuncargvalue('nodes')

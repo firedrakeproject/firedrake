@@ -38,8 +38,9 @@ from pyop2 import op2
 
 backends = ['sequential', 'opencl']
 
-nelems = 4
-size = 100
+# Large enough that there is more than one block and more than one
+# thread per element in device backends
+nelems = 4096
 
 class TestGlobalReductions:
     """
@@ -48,15 +49,15 @@ class TestGlobalReductions:
 
     def pytest_funcarg__set(cls, request):
         return request.cached_setup(
-            setup=lambda: op2.Set(size, 'set'), scope='session')
+            setup=lambda: op2.Set(nelems, 'set'), scope='module')
 
     def pytest_funcarg__d1(cls, request):
         return op2.Dat(request.getfuncargvalue('set'),
-                       1, numpy.arange(size)+1, dtype=numpy.uint32)
+                       1, numpy.arange(nelems)+1, dtype=numpy.uint32)
 
     def pytest_funcarg__d2(cls, request):
         return op2.Dat(request.getfuncargvalue('set'),
-                       2, numpy.arange(2*size)+1, dtype=numpy.uint32)
+                       2, numpy.arange(2*nelems)+1, dtype=numpy.uint32)
 
     def pytest_funcarg__k1_write_to_dat(cls, request):
         k = """
@@ -64,7 +65,7 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__k1_inc_to_global(cls, request):
         k = """
@@ -72,7 +73,7 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__k1_min_to_global(cls, request):
         k = """
@@ -80,7 +81,7 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__k2_min_to_global(cls, request):
         k = """
@@ -91,7 +92,7 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__k1_max_to_global(cls, request):
         k = """
@@ -101,7 +102,7 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__k2_max_to_global(cls, request):
         k = """
@@ -112,7 +113,7 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__k2_write_to_dat(cls, request):
         k = """
@@ -120,7 +121,7 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__k2_inc_to_global(cls, request):
         k = """
@@ -128,28 +129,25 @@ class TestGlobalReductions:
         """
         return request.cached_setup(
             setup=lambda: op2.Kernel(k, "k"),
-            scope='session')
+            scope='module')
 
     def pytest_funcarg__eps(cls, request):
         return 1.e-6
 
-    def pytest_funcarg__s(cls, request):
-        return op2.Set(nelems, "elems")
-
     def pytest_funcarg__duint32(cls, request):
-        return op2.Dat(request.getfuncargvalue('s'), 1, [12]*nelems, numpy.uint32, "duint32")
+        return op2.Dat(request.getfuncargvalue('set'), 1, [12]*nelems, numpy.uint32, "duint32")
 
     def pytest_funcarg__dint32(cls, request):
-        return op2.Dat(request.getfuncargvalue('s'), 1, [-12]*nelems, numpy.int32, "dint32")
+        return op2.Dat(request.getfuncargvalue('set'), 1, [-12]*nelems, numpy.int32, "dint32")
 
     def pytest_funcarg__dfloat32(cls, request):
-        return op2.Dat(request.getfuncargvalue('s'), 1, [-12.0]*nelems, numpy.float32, "dfloat32")
+        return op2.Dat(request.getfuncargvalue('set'), 1, [-12.0]*nelems, numpy.float32, "dfloat32")
 
     def pytest_funcarg__dfloat64(cls, request):
-        return op2.Dat(request.getfuncargvalue('s'), 1, [-12.0]*nelems, numpy.float64, "dfloat64")
+        return op2.Dat(request.getfuncargvalue('set'), 1, [-12.0]*nelems, numpy.float64, "dfloat64")
 
 
-    def test_direct_min_uint32(self, backend, s, duint32):
+    def test_direct_min_uint32(self, backend, set, duint32):
         kernel_min = """
 void kernel_min(unsigned int* x, unsigned int* g)
 {
@@ -158,12 +156,12 @@ void kernel_min(unsigned int* x, unsigned int* g)
 """
         g = op2.Global(1, 8, numpy.uint32, "g")
 
-        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), s,
+        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), set,
                      duint32(op2.IdentityMap, op2.READ),
                      g(op2.MIN))
         assert g.data[0] == 8
 
-    def test_direct_min_int32(self, backend, s, dint32):
+    def test_direct_min_int32(self, backend, set, dint32):
         kernel_min = """
 void kernel_min(int* x, int* g)
 {
@@ -172,12 +170,12 @@ void kernel_min(int* x, int* g)
 """
         g = op2.Global(1, 8, numpy.int32, "g")
 
-        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), s,
+        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), set,
                      dint32(op2.IdentityMap, op2.READ),
                      g(op2.MIN))
         assert g.data[0] == -12
 
-    def test_direct_max_int32(self, backend, s, dint32):
+    def test_direct_max_int32(self, backend, set, dint32):
         kernel_max = """
 void kernel_max(int* x, int* g)
 {
@@ -186,13 +184,13 @@ void kernel_max(int* x, int* g)
 """
         g = op2.Global(1, -42, numpy.int32, "g")
 
-        op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), s,
+        op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), set,
                      dint32(op2.IdentityMap, op2.READ),
                      g(op2.MAX))
         assert g.data[0] == -12
 
 
-    def test_direct_min_float(self, backend, s, dfloat32, eps):
+    def test_direct_min_float(self, backend, set, dfloat32, eps):
         kernel_min = """
 void kernel_min(float* x, float* g)
 {
@@ -201,12 +199,12 @@ void kernel_min(float* x, float* g)
 """
         g = op2.Global(1, -.8, numpy.float32, "g")
 
-        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), s,
+        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), set,
                      dfloat32(op2.IdentityMap, op2.READ),
                      g(op2.MIN))
         assert abs(g.data[0] - (-12.0)) < eps
 
-    def test_direct_max_float(self, backend, s, dfloat32, eps):
+    def test_direct_max_float(self, backend, set, dfloat32, eps):
         kernel_max = """
 void kernel_max(float* x, float* g)
 {
@@ -215,13 +213,13 @@ void kernel_max(float* x, float* g)
 """
         g = op2.Global(1, -42.8, numpy.float32, "g")
 
-        op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), s,
+        op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), set,
                      dfloat32(op2.IdentityMap, op2.READ),
                      g(op2.MAX))
         assert abs(g.data[0] - (-12.0)) < eps
 
 
-    def test_direct_min_float(self, backend, s, dfloat64, eps):
+    def test_direct_min_float(self, backend, set, dfloat64, eps):
         kernel_min = """
 void kernel_min(double* x, double* g)
 {
@@ -230,12 +228,12 @@ void kernel_min(double* x, double* g)
 """
         g = op2.Global(1, -.8, numpy.float64, "g")
 
-        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), s,
+        op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), set,
                      dfloat64(op2.IdentityMap, op2.READ),
                      g(op2.MIN))
         assert abs(g.data[0] - (-12.0)) < eps
 
-    def test_direct_max_double(self, backend, s, dfloat64, eps):
+    def test_direct_max_double(self, backend, set, dfloat64, eps):
         kernel_max = """
 void kernel_max(double* x, double* g)
 {
@@ -244,7 +242,7 @@ void kernel_max(double* x, double* g)
 """
         g = op2.Global(1, -42.8, numpy.float64, "g")
 
-        op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), s,
+        op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), set,
                      dfloat64(op2.IdentityMap, op2.READ),
                      g(op2.MAX))
         assert abs(g.data[0] - (-12.0)) < eps
