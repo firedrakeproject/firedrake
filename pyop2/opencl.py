@@ -767,7 +767,6 @@ def _setup():
     global _has_dpfloat
     global _warpsize
     global _AMD_fixes
-    global _plan_cache
     global _reduction_task_cache
 
     _ctx = cl.create_some_context()
