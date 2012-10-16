@@ -524,24 +524,12 @@ class DatMapPair(object):
 
 class ParLoop(op2.ParLoop):
     @property
-    def _unique_dats(self):
-        return uniquify(a.data for a in self._unwound_args if a._is_dat)
-
-    @property
-    def _indirect_reduc_args(self):
-        return uniquify(a for a in self._unwound_args if a._is_indirect_reduction)
-
-    @property
     def _has_itspace(self):
         return len(self._it_space.extents) > 0
 
     @property
     def _matrix_args(self):
         return [a for a in self.args if a._is_mat]
-
-    @property
-    def _itspace_args(self):
-        return [a for a in self.args if a._uses_itspace and not a._is_mat]
 
     @property
     def _unique_matrix(self):
@@ -551,46 +539,6 @@ class ParLoop(op2.ParLoop):
     def _matrix_entry_maps(self):
         """Set of all mappings used in matrix arguments."""
         return uniquify(m for arg in self.args  if arg._is_mat for m in arg.map)
-
-    @property
-    def _indirect_args(self):
-        return [a for a in self._unwound_args if a._is_indirect]
-
-    @property
-    def _vec_map_args(self):
-        return [a for a in self.args if a._is_vec_map]
-
-    @property
-    def _dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._indirect_args)
-
-    @property
-    def _nonreduc_vec_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._vec_map_args if a.access is not INC)
-
-    @property
-    def _reduc_vec_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._vec_map_args if a.access is INC)
-
-    @property
-    def _nonreduc_itspace_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._itspace_args if a.access is not INC)
-
-    @property
-    def _reduc_itspace_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._itspace_args if a.access is INC)
-
-    @property
-    def _read_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._indirect_args if a.access in [READ, RW])
-
-    @property
-    def _written_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._indirect_args if a.access in [WRITE, RW])
-
-    @property
-    def _indirect_reduc_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._unwound_args if a._is_indirect_reduction)
 
     def dump_gen_code(self, src):
         if cfg['dump-gencode']:
@@ -609,13 +557,13 @@ class ParLoop(op2.ParLoop):
         # 16bytes local mem used for global / local indices and sizes
         available_local_memory -= 16
         # (4/8)ptr size per dat passed as argument (dat)
-        available_local_memory -= (_address_bits / 8) * (len(self._unique_dats) + len(self._all_global_non_reduction_args))
+        available_local_memory -= (_address_bits / 8) * (len(self._unique_dat_args) + len(self._all_global_non_reduction_args))
         # (4/8)ptr size per dat/map pair passed as argument (ind_map)
-        available_local_memory -= (_address_bits / 8) * len(self._dat_map_pairs)
+        available_local_memory -= (_address_bits / 8) * len(self._unique_indirect_dat_args)
         # (4/8)ptr size per global reduction temp array
         available_local_memory -= (_address_bits / 8) * len(self._all_global_reduction_args)
         # (4/8)ptr size per indirect arg (loc_map)
-        available_local_memory -= (_address_bits / 8) * len(filter(lambda a: not a._is_indirect, self._unwound_args))
+        available_local_memory -= (_address_bits / 8) * len(self._all_indirect_args)
         # (4/8)ptr size * 7: for plan objects
         available_local_memory -= (_address_bits / 8) * 7
         # 1 uint value for block offset
@@ -626,11 +574,11 @@ class ParLoop(op2.ParLoop):
         #     and 3 for potential padding after shared mem buffer
         available_local_memory -= 12 + 3
         # 2 * (4/8)ptr size + 1uint32: DAT_via_MAP_indirection(./_size/_map) per dat map pairs
-        available_local_memory -= 4 + (_address_bits / 8) * 2 * len(self._dat_map_pairs)
+        available_local_memory -= 4 + (_address_bits / 8) * 2 * len(self._unique_indirect_dat_args)
         # inside shared memory padding
-        available_local_memory -= 2 * (len(self._dat_map_pairs) - 1)
+        available_local_memory -= 2 * (len(self._unique_indirect_dat_args) - 1)
 
-        max_bytes = sum(map(lambda a: a.data._bytes_per_elem, self._indirect_args))
+        max_bytes = sum(map(lambda a: a.data._bytes_per_elem, self._all_indirect_args))
         return available_local_memory / (2 * _warpsize * max_bytes) * (2 * _warpsize)
 
     def launch_configuration(self):
@@ -647,7 +595,7 @@ class ParLoop(op2.ParLoop):
                 warnings.warn('temporary fix to available local memory computation (-512)')
                 available_local_memory = _max_local_memory - 512
                 available_local_memory -= 16
-                available_local_memory -= (len(self._unique_dats) + len(self._all_global_non_reduction_args))\
+                available_local_memory -= (len(self._unique_dat_args) + len(self._all_global_non_reduction_args))\
                                           * (_address_bits / 8)
                 available_local_memory -= len(self._all_global_reduction_args) * (_address_bits / 8)
                 available_local_memory -= 7
@@ -741,8 +689,8 @@ class ParLoop(op2.ParLoop):
             if arg.access is not op2.WRITE:
                 arg.data._to_device()
 
-        for a in self._unique_dats:
-            kernel.append_arg(a.array.data)
+        for a in self._unique_dat_args:
+            kernel.append_arg(a.data.array.data)
 
         for a in self._all_global_non_reduction_args:
             kernel.append_arg(a.data._array.data)

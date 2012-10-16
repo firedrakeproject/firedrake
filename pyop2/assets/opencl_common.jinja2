@@ -51,7 +51,7 @@ reduction_tmp_array[lid] = max(reduction_tmp_array[lid], reduction_tmp_array[lid
 
 {%- macro reduction_kernel(arg) -%}
 __kernel
-void {{ arg.data.name }}_reduction_kernel (
+void {{ arg._reduction_kernel_name }} (
   __global {{ arg.data._cl_type }} *reduction_result,
   __private {{ arg.data._cl_type }} input_value,
   __local {{ arg.data._cl_type }} *reduction_tmp_array

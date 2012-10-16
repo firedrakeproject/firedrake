@@ -71,11 +71,11 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
 __kernel
 __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
     void {{ parloop._stub_name }} (
-  {%- for dat in parloop._unique_dats -%}
-  __global {{ dat._cl_type }} *{{ dat.name }},
+  {%- for arg in parloop._unique_dat_args -%}
+  __global {{ arg.data._cl_type }} *{{ arg._name }},
   {% endfor -%}
   {%- for arg in parloop._all_global_reduction_args -%}
-  __global {{ arg.data._cl_type }} *{{ arg.data._name }}_reduction_array,
+  __global {{ arg.data._cl_type }} *{{ arg._name }},
   {% endfor -%}
   {%- for arg in parloop._all_global_non_reduction_args -%}
   __global {{ arg.data._cl_type }} *{{ arg.data.name }},
@@ -155,7 +155,7 @@ __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
   // on device reduction
   {% for arg in parloop._all_global_reduction_args %}
   for (i_1 = 0; i_1 < {{ arg.data.cdim }}; ++i_1)
-  {{ arg.data.name }}_reduction_kernel(&{{ arg.data.name }}_reduction_array[i_1 + get_group_id(0) * {{ arg.data.cdim }}], {{ arg._reduction_local_name }}[i_1], {{ arg.data.name }}_reduc_tmp);
+  {{ arg._reduction_kernel_name }}(&{{ arg._name }}[i_1 + get_group_id(0) * {{ arg.data.cdim }}], {{ arg._reduction_local_name }}[i_1], {{ arg.data.name }}_reduc_tmp);
   {% endfor %}
   {% endif %}
 }
