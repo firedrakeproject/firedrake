@@ -404,6 +404,106 @@ void kernel_swap(unsigned int* x[2])
 
         assert op2._parloop_cache_size() == 1
 
+    def test_map_index_order_matters(self, backend, iterset, indset, iter2ind2):
+        d1 = op2.Dat(indset, 1, range(nelems), numpy.uint32)
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
+        k = op2.Kernel("""void k(unsigned int *x, unsigned int *y) {}""", 'k')
+
+        op2.par_loop(k, iterset,
+                     d1(iter2ind2[0], op2.INC),
+                     d1(iter2ind2[1], op2.INC))
+
+        assert op2._parloop_cache_size() == 1
+
+        op2.par_loop(k, iterset,
+                     d1(iter2ind2[1], op2.INC),
+                     d1(iter2ind2[0], op2.INC))
+
+        assert op2._parloop_cache_size() == 2
+
+    def test_same_iteration_space_works(self, backend, iterset, indset, iter2ind2):
+        d1 = op2.Dat(indset, 1, range(nelems), numpy.uint32)
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
+        k = op2.Kernel("""void k(unsigned int *x, int i) {}""", 'k')
+
+        op2.par_loop(k, iterset(2),
+                     d1(iter2ind2[op2.i[0]], op2.INC))
+
+        assert op2._parloop_cache_size() == 1
+
+        op2.par_loop(k, iterset(2),
+                     d1(iter2ind2[op2.i[0]], op2.INC))
+
+        assert op2._parloop_cache_size() == 1
+
+
+    def test_change_const_dim_matters(self, backend, iterset):
+        d = op2.Dat(iterset, 1, range(nelems), numpy.uint32)
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
+
+        k = op2.Kernel("""void k(unsigned int *x) {}""", 'k')
+        c = op2.Const(1, 1, name='c', dtype=numpy.uint32)
+
+        op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
+        assert op2._parloop_cache_size() == 1
+
+        c.remove_from_namespace()
+
+        c = op2.Const(2, (1,1), name='c', dtype=numpy.uint32)
+
+        op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
+        assert op2._parloop_cache_size() == 2
+
+        c.remove_from_namespace()
+
+    def test_change_const_data_doesnt_matter(self, backend, iterset):
+        d = op2.Dat(iterset, 1, range(nelems), numpy.uint32)
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
+
+        k = op2.Kernel("""void k(unsigned int *x) {}""", 'k')
+        c = op2.Const(1, 1, name='c', dtype=numpy.uint32)
+
+        op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
+        assert op2._parloop_cache_size() == 1
+
+        c.data = 2
+        op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
+        assert op2._parloop_cache_size() == 1
+
+        c.remove_from_namespace()
+
+    def test_change_dat_dtype_matters(self, backend, iterset):
+        d = op2.Dat(iterset, 1, range(nelems), numpy.uint32)
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
+
+        k = op2.Kernel("""void k(void *x) {}""", 'k')
+
+        op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
+        assert op2._parloop_cache_size() == 1
+
+        d = op2.Dat(iterset, 1, range(nelems), numpy.int32)
+        op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
+        assert op2._parloop_cache_size() == 2
+
+    def test_change_global_dtype_matters(self, backend, iterset):
+        g = op2.Global(1, 0, dtype=numpy.uint32)
+        op2._empty_parloop_cache()
+        assert op2._parloop_cache_size() == 0
+
+        k = op2.Kernel("""void k(void *x) {}""", 'k')
+
+        op2.par_loop(k, iterset, g(op2.INC))
+        assert op2._parloop_cache_size() == 1
+
+        g = op2.Global(1, 0, dtype=numpy.float64)
+        op2.par_loop(k, iterset, g(op2.INC))
+        assert op2._parloop_cache_size() == 2
+
 class TestSparsityCache:
 
     def pytest_funcarg__s1(cls, request):
