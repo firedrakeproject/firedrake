@@ -185,12 +185,15 @@ class DeviceDataMixin(op2.DeviceDataMixin):
         self.state = DeviceDataMixin.BOTH
 
     def _from_device(self):
+        flag = self._data.flags['WRITEABLE']
+        maybe_setflags(self._data, write=True)
         if self.state is DeviceDataMixin.DEVICE:
             self._device_data.get(_queue, self._data)
             if self.soa:
                 shape = self._data.T.shape
                 self._data = self._data.reshape(shape).T
             self.state = DeviceDataMixin.BOTH
+        maybe_setflags(self._data, write=flag)
 
     @property
     def _cl_type(self):
