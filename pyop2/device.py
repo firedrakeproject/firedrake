@@ -157,6 +157,17 @@ class Dat(DeviceDataMixin, op2.Dat):
         op2.Dat.__init__(self, dataset, dim, data, dtype, name, soa)
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
+    @property
+    def array(self):
+        self._to_device()
+        return self._device_data
+
+    @array.setter
+    def array(self, ary):
+        assert not getattr(self, '_device_data') or self._device_data.shape == ary.shape
+        self._device_data = ary
+        self.state = DeviceDataMixin.DEVICE
+
 class Const(DeviceDataMixin, op2.Const):
     def __init__(self, dim, data, name, dtype=None):
         op2.Const.__init__(self, dim, data, name, dtype)

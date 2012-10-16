@@ -213,17 +213,6 @@ class Dat(op2.Dat, DeviceDataMixin):
 
     _arg_type = Arg
 
-    @property
-    def array(self):
-        self._to_device()
-        return self._device_data
-
-    @array.setter
-    def array(self, ary):
-        assert not getattr(self, '_device_data') or self._device_data.shape == ary.shape
-        self._device_data = ary
-        self.state = DeviceDataMixin.DEVICE
-
     def _check_shape(self, other):
         if not self.array.shape == other.array.shape:
             raise ValueError("operands could not be broadcast together with shapes %s, %s" \
