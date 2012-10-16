@@ -128,7 +128,7 @@ for (i_1 = 0; i_1 < {{ arg.data.cdim }}; ++i_1)
 {%- macro kernel_stub() -%}
 __kernel
 __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
-void {{ parloop._kernel.name }}_stub(
+void {{ parloop._stub_name }}(
   {%- for arg in parloop._unique_dats %}
   __global {{ arg._cl_type }}* {{ arg.name }},
   {%- endfor -%}

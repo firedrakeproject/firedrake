@@ -113,7 +113,7 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
 {%- macro kernel_stub() -%}
 __kernel
 __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
-void {{ parloop._kernel.name }}_stub (
+    void {{ parloop._stub_name }} (
   {%- for dat in parloop._unique_dats -%}
   __global {{ dat._cl_type }} *{{ dat.name }},
   {% endfor -%}

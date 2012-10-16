@@ -736,9 +736,9 @@ class ParLoop(op2.ParLoop):
         if self._has_soa:
             op2stride = Const(1, self._it_space.size, name='op2stride',
                               dtype='int32')
-        def compile_kernel(src, name):
+        def compile_kernel(src):
             prg = cl.Program(_ctx, source).build(options="-Werror")
-            return prg.__getattr__(name + '_stub')
+            return prg.__getattr__(self._stub_name)
 
         conf = self.launch_configuration()
 
@@ -753,7 +753,7 @@ class ParLoop(op2.ParLoop):
         conf['warpsize'] = _warpsize
 
         source = self.codegen(conf)
-        kernel = compile_kernel(source, self._kernel._name)
+        kernel = compile_kernel(source)
 
         for arg in self._unique_args:
             arg.data._allocate_device()
