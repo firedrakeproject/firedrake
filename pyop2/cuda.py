@@ -412,7 +412,12 @@ class ParLoop(op2.ParLoop):
             arglist.append(None) # Number of colours in this block
             block_offset = 0
             for col in xrange(self._plan.ncolors):
-                # if col == self._plan.ncolors_core: wait for mpi
+                # At this point, before we can continue processing in
+                # the MPI case, we'll need to wait for halo swaps to
+                # complete, but at the moment we don't support that
+                # use case, so we just pass through for now.
+                if col == self._plan.ncolors_core:
+                    pass
 
                 blocks = self._plan.ncolblk[col]
                 if blocks <= 0:
@@ -434,9 +439,12 @@ class ParLoop(op2.ParLoop):
                 self._fun.prepared_call(grid_size, block_size, *arglist,
                                         shared_size=shared_size)
 
-                # In the MPI case, we've reached the end of the
-                # elements that should contribute to a reduction.  So
-                # kick off the reduction by copying data back to host.
+                # We've reached the end of elements that should
+                # contribute to a reduction (this is only different
+                # from the total number of elements in the MPI case).
+                # So copy the reduction array back to the host now (so
+                # that we don't double count halo elements).  We'll
+                # finalise the reduction a little later.
                 if col == self._plan.ncolors_owned - 1:
                     for arg in self.args:
                         if arg._is_global_reduction:
