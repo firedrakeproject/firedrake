@@ -310,8 +310,7 @@ class ParLoop(op2.ParLoop):
             if max_smem == 0:
                 block_size = max_block
             else:
-                available_smem = _device.get_attribute(driver.device_attribute.MAX_SHARED_MEMORY_PER_BLOCK)
-                threads_per_sm = available_smem / max_smem
+                threads_per_sm = _AVAILABLE_SHARED_MEMORY / max_smem
                 block_size = min(max_block, (threads_per_sm / _WARPSIZE) * _WARPSIZE)
             max_grid = _device.get_attribute(driver.device_attribute.MAX_GRID_DIM_X)
             grid_size = min(max_grid, (block_size + self._it_space.size) / block_size)
@@ -361,7 +360,12 @@ class ParLoop(op2.ParLoop):
             _args = self._unique_args
             maxbytes = sum([a.dtype.itemsize * a.data.cdim \
                             for a in self._unwound_args if a._is_indirect])
-            part_size = ((47 * 1024) / (64 * maxbytes)) * 64
+            # shared memory as reported by the device, divided by some
+            # factor.  This is the same calculation as done inside
+            # op_plan_core, but without assuming 48K shared memory.
+            # It would be much nicer if we could tell op_plan_core "I
+            # have X bytes shared memory"
+            part_size = (_AVAILABLE_SHARED_MEMORY / (64 * maxbytes)) * 64
             self._plan = Plan(self.kernel, self._it_space.iterset,
                               *self._unwound_args,
                               partition_size=part_size)
@@ -417,6 +421,8 @@ class ParLoop(op2.ParLoop):
                 arglist[-1] = np.int32(blocks)
                 arglist[-7] = np.int32(block_offset)
                 blocks = np.asscalar(blocks)
+                # Compute capability < 3 can handle at most 2**16  - 1
+                # blocks in any one dimension of the grid.
                 if blocks >= 2**16:
                     grid_size = (2**16 - 1, (blocks - 1)/(2**16-1) + 1, 1)
                 else:
@@ -453,6 +459,7 @@ class ParLoop(op2.ParLoop):
 _device = None
 _context = None
 _WARPSIZE = 32
+_AVAILABLE_SHARED_MEMORY = 0
 _direct_loop_template = None
 _indirect_loop_template = None
 
@@ -460,11 +467,13 @@ def _setup():
     global _device
     global _context
     global _WARPSIZE
+    global _AVAILABLE_SHARED_MEMORY
     if _device is None or _context is None:
         import pycuda.autoinit
         _device = pycuda.autoinit.device
         _context = pycuda.autoinit.context
         _WARPSIZE=_device.get_attribute(driver.device_attribute.WARP_SIZE)
+        _AVAILABLE_SHARED_MEMORY = _device.get_attribute(driver.device_attribute.MAX_SHARED_MEMORY_PER_BLOCK)
     global _direct_loop_template
     global _indirect_loop_template
     env = jinja2.Environment(loader=jinja2.PackageLoader('pyop2', 'assets'))
