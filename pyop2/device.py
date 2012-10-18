@@ -300,7 +300,8 @@ class Plan(core.op_plan):
 
         # order of indices doesn't matter
         for k,v in inds.iteritems():
-            key += (k[1:],) + tuple(sorted(v))
+            # Only dimension of dat matters, but identity of map does
+            key += (k[0].cdim, k[1:],) + tuple(sorted(v))
         return key
 
 class ParLoop(op2.ParLoop):
