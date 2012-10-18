@@ -207,7 +207,7 @@ void kernel_swap(unsigned int* x)
                      iterset,
                      xl(iter2ind1[0], op2.RW))
 
-        assert op2._plan_cache_size() == 1
+        assert op2._plan_cache_size() == 2
 
     def test_same_nonstaged_arg_count(self, backend, iterset, iter2ind1, x, a64, g):
         op2._empty_plan_cache()
