@@ -47,6 +47,21 @@ NUM_ELE   = 2
 NUM_NODES = 4
 NUM_DIMS  = 2
 
+class TestSparsity:
+    """
+    Sparsity tests
+    """
+
+    def test_build_sparsity(self, backend):
+        elements = op2.Set(4)
+        nodes = op2.Set(5)
+        elem_node = op2.Map(elements, nodes, 3, [0, 4, 3, 0, 1, 4, \
+                                                 1, 2, 4, 2, 3, 4])
+        sparsity = op2.Sparsity((elem_node, elem_node), 1)
+        assert all(sparsity._rowptr == [0, 4, 8, 12, 16, 21])
+        assert all(sparsity._colidx == [ 0, 1, 3, 4, 0, 1, 2, 4, 1, 2, \
+                                         3, 4, 0, 2, 3, 4, 0, 1, 2, 3, 4 ])
+
 class TestMatrices:
     """
     Matrix tests

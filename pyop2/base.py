@@ -648,6 +648,10 @@ class Sparsity(object):
         if not all(m.dataset is self._cmaps[0].dataset for m in self._cmaps):
             raise RuntimeError("Dataset of all column maps must be the same")
 
+        # All rmaps and cmaps have the same dataset - just use the first.
+        self._nrows = self._rmaps[0].dataset.size
+        self._ncols = self._cmaps[0].dataset.size
+
         self._dims = as_tuple(dims, int, 2)
         self._name = name or "global_%d" % Sparsity._globalcount
         self._lib_handle = None
