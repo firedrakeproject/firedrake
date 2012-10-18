@@ -88,7 +88,7 @@ class ParLoop(rt.ParLoop):
         _args = [self._it_space.size]
         for arg in self.args:
             if arg._is_mat:
-                _args.append(arg.data._c_handle.cptr)
+                _args.append(arg.data.handle.handle)
             else:
                 _args.append(arg.data.data)
 

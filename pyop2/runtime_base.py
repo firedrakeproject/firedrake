@@ -43,6 +43,7 @@ from base import DataCarrier, IterationIndex, i, IdentityMap, Kernel
 from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 import op_lib_core as core
 from pyop2.utils import OP2_INC, OP2_LIB
+from la_petsc import PETSc
 
 # Data API
 
@@ -203,11 +204,39 @@ class Sparsity(base.Sparsity):
         self._colidx = colidx
         self._d_nnz = d_nnz
 
+    @property
+    def rowptr(self):
+        return self._rowptr
+
+    @property
+    def colidx(self):
+        return self._colidx
+
+    @property
+    def d_nnz(self):
+        return self._d_nnz
+
 class Mat(base.Mat):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`."""
 
     _arg_type = Arg
+
+    def __init__(self, *args, **kwargs):
+        super(Mat, self).__init__(*args, **kwargs)
+        self._handle = None
+
+    def _init(self):
+        mat = PETSc.Mat()
+        mat.create()
+        mat.setType(PETSc.Mat.Type.SEQAIJ)
+        rdim, cdim = self.sparsity.dims
+        # We're not currently building a blocked matrix, so need to scale the
+        # number of rows and columns by the sparsity dimensions
+        # FIXME: This needs to change if we want to do blocked sparse
+        mat.setSizes([self.sparsity.nrows*rdim, self.sparsity.ncols*cdim])
+        mat.setPreallocationCSR((self.sparsity._rowptr, self.sparsity._colidx, None))
+        self._handle = mat
 
     def zero(self):
         """Zero the matrix."""
@@ -223,10 +252,14 @@ class Mat(base.Mat):
         self._c_handle.assemble()
 
     @property
-    def _c_handle(self):
-        if self._lib_handle is None:
-            self._lib_handle = core.op_mat(self)
-        return self._lib_handle
+    def values(self):
+        return self._c_handle.values
+
+    @property
+    def handle(self):
+        if self._handle is None:
+            self._init()
+        return self._handle
 
 class ParLoop(base.ParLoop):
     def compute(self):
