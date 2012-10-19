@@ -268,13 +268,15 @@ class Plan(core.op_plan):
                                             **kwargs)
 
     def __init__(self, kernel, iset, *args, **kwargs):
-        ps = kwargs.get('partition_size', 0)
-        key = Plan._cache_key(iset, ps, *args)
-        cached = _plan_cache.get(key, None)
-        if cached is not None:
+        # This is actually a cached instance, everything's in place,
+        # so just return.
+        if getattr(self, '_cached', False):
             return
         core.op_plan.__init__(self, kernel, iset, *args, **kwargs)
+        ps = kwargs.get('partition_size', 0)
+        key = Plan._cache_key(iset, ps, *args)
         _plan_cache[key] = self
+        self._cached = True
 
     @classmethod
     def _cache_key(cls, iset, partition_size, *args):
