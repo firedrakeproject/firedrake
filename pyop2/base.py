@@ -302,7 +302,7 @@ class DataCarrier(object):
     @property
     def cdim(self):
         """The number of values for each member of the object. This is the product of the dims."""
-        return np.prod(self.dim)
+        return np.asscalar(np.prod(self.dim))
 
 class Dat(DataCarrier):
     """OP2 vector data. A ``Dat`` holds ``dim`` values for every member of a :class:`Set`.
