@@ -109,6 +109,11 @@ class Arg(object):
         return self.data.ctype
 
     @property
+    def dtype(self):
+        """Numpy datatype of this Arg"""
+        return self.data.dtype
+
+    @property
     def map(self):
         """The :class:`Map` via which the data is to be accessed."""
         return self._map
@@ -125,7 +130,7 @@ class Arg(object):
 
     @property
     def _is_soa(self):
-        return isinstance(self._dat, Dat) and self._dat.soa
+        return self._is_dat and self._dat.soa
 
     @property
     def _is_vec_map(self):
@@ -278,7 +283,7 @@ class DataCarrier(object):
                     "uint8":   "unsigned char",
                     "uint16":  "unsigned short",
                     "uint32":  "unsigned int",
-                    "uint64":  "unsigned long long",
+                    "uint64":  "unsigned long",
                     "float":   "double",
                     "float32": "float",
                     "float64": "double" }
@@ -328,11 +333,8 @@ class Dat(DataCarrier):
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
         self._data = verify_reshape(data, dtype, (dataset.size,)+self._dim, allow_none=True)
-        # Are these data in SoA format, rather than standard AoS?
+        # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
-        # Make data "look" right
-        if self._soa:
-            self._data = self._data.T
         self._name = name or "dat_%d" % Dat._globalcount
         self._lib_handle = None
         Dat._globalcount += 1
@@ -440,7 +442,7 @@ class Const(DataCarrier):
         This allows the same name to be redeclared with a different shape."""
         Const._defs.discard(self)
 
-    def _format_for_c(self):
+    def _format_declaration(self):
         d = {'type' : self.ctype,
              'name' : self.name,
              'dim' : self.cdim}
@@ -493,6 +495,10 @@ class Global(DataCarrier):
     @data.setter
     def data(self, value):
         self._data = verify_reshape(value, self.dtype, self.dim)
+
+    @property
+    def soa(self):
+        return False
 
 #FIXME: Part of kernel API, but must be declared before Map for the validation.
 
@@ -789,8 +795,10 @@ class Kernel(object):
 
     @property
     def md5(self):
-        import md5
-        return md5.new(self._code + self._name).digest()
+        if not hasattr(self, '_md5'):
+            import md5
+            self._md5 = md5.new(self._code + self._name).hexdigest()
+        return self._md5
 
     def __str__(self):
         return "OP2 Kernel: %s" % self._name
@@ -819,8 +827,16 @@ class ParLoop(object):
         raise RuntimeError('Must select a backend')
 
     @property
+    def kernel(self):
+        return self._kernel
+
+    @property
     def args(self):
         return self._actual_args
+
+    @property
+    def _has_soa(self):
+        return any(a._is_soa for a in self._actual_args)
 
     @property
     def _cache_key(self):

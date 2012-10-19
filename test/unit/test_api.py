@@ -70,7 +70,7 @@ def pytest_funcarg__h5file(request):
         f.create_dataset('dat', data=np.arange(10).reshape(5,2),
                          dtype=np.float64)
         f['dat'].attrs['type'] = 'double'
-        f.create_dataset('soadat', data=np.arange(10).reshape(2,5),
+        f.create_dataset('soadat', data=np.arange(10).reshape(5,2),
                          dtype=np.float64)
         f['soadat'].attrs['type'] = 'double:soa'
         f.create_dataset('set', data=np.array((5,)))
@@ -250,23 +250,17 @@ class TestDatAPI:
                 d.dtype == np.float64 and d.name == 'bar' and \
                 d.data.sum() == set.size*4
 
-    def test_dat_soa(self, backend, set):
-        "SoA flag should transpose data view"
-        d = op2.Dat(set, 2, range(2 * set.size), dtype=np.int32, soa=True)
-        expect = np.arange(2 * set.size, dtype=np.int32).reshape(2, 5)
-        assert (d.data.shape == expect.shape)
-
     def test_dat_hdf5(self, backend, h5file, set):
         "Creating a dat from h5file should work"
         d = op2.Dat.fromhdf5(set, h5file, 'dat')
         assert d.dtype == np.float64
         assert d.data.shape == (5,2) and d.data.sum() == 9 * 10 / 2
 
-    def test_data_hdf5_soa(self, backend, h5file, iterset):
+    def test_data_hdf5_soa(self, backend, h5file, set):
         "Creating an SoA dat from h5file should work"
-        d = op2.Dat.fromhdf5(iterset, h5file, 'soadat')
+        d = op2.Dat.fromhdf5(set, h5file, 'soadat')
         assert d.soa
-        assert d.data.shape == (2,5) and d.data.sum() == 9 * 10 / 2
+        assert d.data.shape == (5,2) and d.data.sum() == 9 * 10 / 2
 
     def test_dat_ro_accessor(self, backend, set):
         "Attempting to set values through the RO accessor should raise an error."

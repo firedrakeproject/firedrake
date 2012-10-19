@@ -36,7 +36,7 @@ import numpy
 
 from pyop2 import op2
 
-backends = ['sequential', 'opencl']
+backends = ['sequential', 'opencl', 'cuda']
 
 # Large enough that there is more than one block and more than one
 # thread per element in device backends
@@ -89,6 +89,62 @@ void kernel_global_inc(unsigned int* x, unsigned int* inc) { (*x) = (*x) + 1; (*
         l = op2.par_loop(op2.Kernel(kernel_global_inc, "kernel_global_inc"), elems(), x(op2.IdentityMap, op2.RW), g(op2.INC))
         assert g.data[0] == nelems * (nelems + 1) / 2
 
+    def test_global_inc_init_not_zero(self, backend, g):
+        k = """
+void k(unsigned int* inc) { (*inc) += 1; }
+"""
+        g.data[0] = 10
+        op2.par_loop(op2.Kernel(k, 'k'), elems(), g(op2.INC))
+        assert g.data[0] == elems().size + 10
+
+    def test_global_max_dat_is_max(self, backend, x, g):
+        k_code = """
+        void k(unsigned int *x, unsigned int *g) {
+        if ( *g < *x ) { *g = *x; }
+        }"""
+        k = op2.Kernel(k_code, 'k')
+
+        op2.par_loop(k, elems(), x(op2.IdentityMap, op2.READ), g(op2.MAX))
+        assert g.data[0] == x.data.max()
+
+    def test_global_max_g_is_max(self, backend, x, g):
+        k_code = """
+        void k(unsigned int *x, unsigned int *g) {
+        if ( *g < *x ) { *g = *x; }
+        }"""
+
+        k = op2.Kernel(k_code, 'k')
+
+        g.data[0] = nelems * 2
+
+        op2.par_loop(k, elems(), x(op2.IdentityMap, op2.READ), g(op2.MAX))
+
+        assert g.data[0] == nelems * 2
+
+    def test_global_min_dat_is_min(self, backend, x, g):
+        k_code = """
+        void k(unsigned int *x, unsigned int *g) {
+        if ( *g > *x ) { *g = *x; }
+        }"""
+        k = op2.Kernel(k_code, 'k')
+        g.data[0] = 1000
+        op2.par_loop(k, elems(), x(op2.IdentityMap, op2.READ), g(op2.MIN))
+
+        assert g.data[0] == x.data.min()
+
+    def test_global_min_g_is_min(self, backend, x, g):
+        k_code = """
+        void k(unsigned int *x, unsigned int *g) {
+        if ( *g > *x ) { *g = *x; }
+        }"""
+
+        k = op2.Kernel(k_code, 'k')
+        g.data[0] = 10
+        x.data[:] = 11
+        op2.par_loop(k, elems(), x(op2.IdentityMap, op2.READ), g(op2.MIN))
+
+        assert g.data[0] == 10
+
     def test_global_read(self, backend, x, h):
         kernel_global_read = """
 void kernel_global_read(unsigned int* x, unsigned int* h) { (*x) += (*h); }
@@ -108,7 +164,7 @@ void kernel_2d_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }
 void kernel_soa(unsigned int * x) { OP2_STRIDE(x, 0) = 42; OP2_STRIDE(x, 1) = 43; }
 """
         l = op2.par_loop(op2.Kernel(kernel_soa, "kernel_soa"), elems(), soa(op2.IdentityMap, op2.WRITE))
-        assert all(soa.data[0] == 42) and all(soa.data[1] == 43)
+        assert all(soa.data[:,0] == 42) and all(soa.data[:,1] == 43)
 
     def test_parloop_should_set_ro_flag(self, backend, x):
         kernel = """void k(unsigned int *x) { *x = 1; }"""

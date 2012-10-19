@@ -33,12 +33,10 @@
 
 """OP2 OpenCL backend."""
 
-import runtime_base as op2
-from utils import verify_reshape, uniquify, maybe_setflags, as_type
-from runtime_base import IdentityMap, READ, WRITE, RW, INC, MIN, MAX, Set
-from runtime_base import Sparsity, IterationSpace
+from device import *
+import device as op2
+from utils import verify_reshape, uniquify, maybe_setflags
 import configuration as cfg
-import op_lib_core as core
 import pyopencl as cl
 from pyopencl import array
 import pkg_resources
@@ -116,17 +114,41 @@ class Kernel(op2.Kernel):
 class Arg(op2.Arg):
     """OP2 OpenCL argument type."""
 
-    # Codegen specific
-    @property
-    def _d_is_staged(self):
-        return self._is_direct and not self.data._is_scalar
+    # FIXME actually use this in the template
+    def _indirect_kernel_arg_name(self, idx):
+        if self._is_global:
+            if self._is_global_reduction:
+                return self._reduction_local_name
+            else:
+                return self._name
+        if self._is_direct:
+            if self.data.soa:
+                return "%s + (%s + offset_b)" % (self._name, idx)
+            return "%s + (%s + offset_b) * %s" % (self._name, idx,
+                                                  self.data.cdim)
+        if self._is_indirect:
+            if self._is_vec_map:
+                return self._vec_name
+            if self.access is op2.INC:
+                return self._local_name()
+            else:
+                return "%s + loc_map[%s * set_size + %s + offset_b]*%s" \
+                    % (self._shared_name, self._which_indirect, idx,
+                       self.data.cdim)
 
-    @property
-    def _i_gen_vec(self):
-        assert self._is_vec_map or self._uses_itspace
-        return map(lambda i: Arg(self.data, self.map, i, self.access), range(self.map.dim))
+    def _direct_kernel_arg_name(self, idx=None):
+        if self._is_mat:
+            return self._mat_entry_name
+        if self._is_staged_direct:
+            return self._local_name()
+        elif self._is_global_reduction:
+            return self._reduction_local_name
+        elif self._is_global:
+            return self._name
+        else:
+            return "%s + %s" % (self._name, idx)
 
-class DeviceDataMixin(object):
+class DeviceDataMixin(op2.DeviceDataMixin):
     """Codegen mixin for datatype and literal translation."""
 
     ClTypeInfo = collections.namedtuple('ClTypeInfo', ['clstring', 'zero', 'min', 'max'])
@@ -141,13 +163,37 @@ class DeviceDataMixin(object):
                 np.dtype('float32'): ClTypeInfo('float', '0.0f', '-3.4028235e+38f', '3.4028235e+38f'),
                 np.dtype('float64'): ClTypeInfo('double', '0.0', '-1.7976931348623157e+308', '1.7976931348623157e+308')}
 
-    @property
-    def bytes_per_elem(self):
-        return self.dtype.itemsize * self.cdim
+    def _allocate_device(self):
+        if self.state is DeviceDataMixin.DEVICE_UNALLOCATED:
+            if self.soa:
+                shape = self._data.T.shape
+            else:
+                shape = self._data.shape
+            self._device_data = array.empty(_queue, shape=shape,
+                                            dtype=self.dtype)
+            self.state = DeviceDataMixin.HOST
 
-    @property
-    def _is_scalar(self):
-        return self.cdim == 1
+    def _to_device(self):
+        self._allocate_device()
+        if self.state is DeviceDataMixin.HOST:
+            if self.soa:
+                shape = self._device_data.shape
+                tmp = self._data.T.ravel().reshape(shape)
+            else:
+                tmp = self._data
+            self._device_data.set(tmp, queue=_queue)
+        self.state = DeviceDataMixin.BOTH
+
+    def _from_device(self):
+        flag = self._data.flags['WRITEABLE']
+        maybe_setflags(self._data, write=True)
+        if self.state is DeviceDataMixin.DEVICE:
+            self._device_data.get(_queue, self._data)
+            if self.soa:
+                shape = self._data.T.shape
+                self._data = self._data.reshape(shape).T
+            self.state = DeviceDataMixin.BOTH
+        maybe_setflags(self._data, write=flag)
 
     @property
     def _cl_type(self):
@@ -165,117 +211,11 @@ class DeviceDataMixin(object):
     def _cl_type_max(self):
         return DeviceDataMixin.CL_TYPES[self.dtype].max
 
-    @property
-    def _dirty(self):
-        if not hasattr(self, '_ddm_dirty'):
-            self._ddm_dirty = False
-        return self._ddm_dirty
-
-    @_dirty.setter
-    def _dirty(self, value):
-        self._ddm_dirty = value
-
-
-def one_time(func):
-    # decorator, memoize and return method first call result
-    def wrap(self):
-        try:
-            value = self._memoize[func.__name__]
-        except (KeyError, AttributeError):
-            value = func(self)
-            try:
-                cache = self._memoize
-            except AttributeError:
-                cache = self._memoize = dict()
-            cache[func.__name__] = value
-        return value
-
-    wrap.__name__ = func.__name__
-    wrap.__doc__ = func.__doc__
-    return wrap
-
 class Dat(op2.Dat, DeviceDataMixin):
     """OP2 OpenCL vector data type."""
 
     _arg_type = Arg
-    _array = None
 
-    @property
-    def array(self):
-        """Return the OpenCL device array or None if not yet initialised."""
-        if self._array is None and len(self._data) is not 0:
-            self._array =  array.to_device(_queue, self._data)
-        return self._array
-
-    @array.setter
-    def array(self, ary):
-        assert self._array is None or self._array.shape == ary.shape
-        self._array = ary
-        self._dirty = True
-
-    @property
-    def data(self):
-        if len(self._data) is 0:
-            raise RuntimeError("Temporary dat has no data on the host")
-
-        maybe_setflags(self._data, write=True)
-        if self._dirty:
-            self.array.get(queue=_queue, ary=self._data)
-            if self.soa:
-                np.transpose(self._data)
-            self._dirty = False
-        return self._data
-
-    @property
-    def data_ro(self):
-        if len(self._data) is 0:
-            raise RuntimeError("Temporary dat has no data on the host")
-        maybe_setflags(self._data, write=True)
-        if self._dirty:
-            self.array.get(queue=_queue, ary=self._data)
-            if self.soa:
-                np.transpose(self._data)
-            self._dirty = False
-        maybe_setflags(self._data, write=False)
-        return self._data
-
-    def _upload_from_c_layer(self):
-        self.array.set(self._data, queue=_queue)
-
-    def _check_shape(self, other):
-        if not self.array.shape == other.array.shape:
-            raise ValueError("operands could not be broadcast together with shapes %s, %s" \
-                    % (self.array.shape, other.array.shape))
-
-    def __iadd__(self, other):
-        """Pointwise addition of fields."""
-        self._check_shape(other)
-        self.array += as_type(other.array, self.dtype)
-        return self
-
-    def __isub__(self, other):
-        """Pointwise subtraction of fields."""
-        self._check_shape(other)
-        self.array -= as_type(other.array, self.dtype)
-        return self
-
-    def __imul__(self, other):
-        """Pointwise multiplication or scaling of fields."""
-        if np.isscalar(other):
-            self.array *= as_type(other, self.dtype)
-        else:
-            self._check_shape(other)
-            self.array *= as_type(other.array, self.dtype)
-        return self
-
-    def __idiv__(self, other):
-        """Pointwise division or scaling of fields."""
-        if np.isscalar(other):
-            self.array /= as_type(other, self.dtype)
-        else:
-            self._check_shape(other)
-            self.array /= as_type(other.array, self.dtype)
-        return self
 
     @property
     def norm(self):
@@ -283,65 +223,73 @@ class Dat(op2.Dat, DeviceDataMixin):
         return np.sqrt(array.dot(self.array, self.array).get())
 
 def solve(M, b, x):
-    x.data
-    b.data
+    x._from_device()
+    b._from_device()
     core.solve(M, b, x)
-    x._upload_from_c_layer()
-    b._upload_from_c_layer()
+    x._to_device()
 
 class Mat(op2.Mat, DeviceDataMixin):
     """OP2 OpenCL matrix data type."""
 
     _arg_type = Arg
 
+    def _allocate_device(self):
+        pass
+
+    def _to_device(self):
+        pass
+
+    def _from_device(self):
+        pass
+
     @property
-    @one_time
     def _dev_array(self):
-        return array.empty(_queue, self._sparsity._c_handle.total_nz, self.dtype)
+        if not hasattr(self, '__dev_array'):
+            setattr(self, '__dev_array',
+                    array.empty(_queue,
+                                self._sparsity._c_handle.total_nz,
+                                self.dtype))
+        return getattr(self, '__dev_array')
 
     @property
-    @one_time
     def _dev_colidx(self):
-        return array.to_device(_queue, self._sparsity._c_handle.colidx)
+        if not hasattr(self, '__dev_colidx'):
+            setattr(self, '__dev_colidx',
+                    array.to_device(_queue,
+                                    self._sparsity._c_handle.colidx))
+        return getattr(self, '__dev_colidx')
 
     @property
-    @one_time
     def _dev_rowptr(self):
-        return array.to_device(_queue, self._sparsity._c_handle.rowptr)
+        if not hasattr(self, '__dev_rowptr'):
+            setattr(self, '__dev_rowptr',
+                    array.to_device(_queue,
+                                    self._sparsity._c_handle.rowptr))
+        return getattr(self, '__dev_rowptr')
 
     def _upload_array(self):
         self._dev_array.set(self._c_handle.array, queue=_queue)
-        self._dirty = False
+        self.state = DeviceDataMixin.BOTH
 
     def assemble(self):
-        if self._dirty:
+        if self.state is DeviceDataMixin.DEVICE:
             self._dev_array.get(queue=_queue, ary=self._c_handle.array)
             self._c_handle.restore_array()
-            self._dirty = False
+            self.state = DeviceDataMixin.BOTH
         self._c_handle.assemble()
 
     @property
     def cdim(self):
         return np.prod(self.dims)
 
-
 class Const(op2.Const, DeviceDataMixin):
     """OP2 OpenCL data that is constant for any element of any set."""
 
     @property
-    @one_time
     def _array(self):
-        return array.to_device(_queue, self._data)
-
-    @property
-    def data(self):
-        return self._data
-
-    @data.setter
-    def data(self, value):
-        self._data = verify_reshape(value, self.dtype, self.dim)
-        self._array.set(self._data, queue=_queue)
-
+        if not hasattr(self, '__array'):
+            setattr(self, '__array', array.to_device(_queue, self._data))
+        return getattr(self, '__array')
 
 class Global(op2.Global, DeviceDataMixin):
     """OP2 OpenCL global value."""
@@ -349,9 +297,10 @@ class Global(op2.Global, DeviceDataMixin):
     _arg_type = Arg
 
     @property
-    @one_time
     def _array(self):
-        return array.to_device(_queue, self._data)
+        if not hasattr(self, '_device_data'):
+            self._device_data = array.to_device(_queue, self._data)
+        return self._device_data
 
     def _allocate_reduction_array(self, nelems):
         self._h_reduc_array = np.zeros (nelems * self.cdim, dtype=self.dtype)
@@ -360,16 +309,17 @@ class Global(op2.Global, DeviceDataMixin):
 
     @property
     def data(self):
-        if self._dirty:
-            self._array.get(queue=_queue, ary=self._data)
-            self._dirty = False
+        if self.state is DeviceDataMixin.DEVICE:
+            self._array.get(_queue, ary=self._data)
+        if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
+            self.state = DeviceDataMixin.HOST
         return self._data
 
     @data.setter
     def data(self, value):
         self._data = verify_reshape(value, self.dtype, self.dim)
-        self._array.set(self._data, queue=_queue)
-        self._dirty = False
+        if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
+            self.state = DeviceDataMixin.HOST
 
     def _post_kernel_reduction_task(self, nelems, reduction_operator):
         assert reduction_operator in [INC, MIN, MAX]
@@ -450,273 +400,74 @@ class Map(op2.Map):
 
     _arg_type = Arg
 
+    def _to_device(self):
+        if not hasattr(self, '_device_values'):
+            self._device_values = array.to_device(_queue, self._values)
+        else:
+            from warnings import warn
+            warn("Copying Map data for %s again, do you really want to do this?" % \
+                 self)
+            self._device_values.set(_queue, self._values)
+
+class Plan(op2.Plan):
     @property
-    @one_time
-    def _array(self):
-        assert self._iterset.size != 0, 'cannot upload IdentityMap'
-        return array.to_device(_queue, self._values)
-
-    @property
-    @one_time
-    def md5(self):
-        return md5.new(self._values).digest()
-
-class OpPlanCache():
-    """Cache for OpPlan."""
-
-    def __init__(self):
-        self._cache = dict()
-
-    def get_plan(self, parloop, **kargs):
-        try:
-            plan = self._cache[parloop._plan_key]
-        except KeyError:
-            cp = core.op_plan(parloop._kernel, parloop._it_space.iterset, *parloop._args, **kargs)
-            plan = OpPlan(parloop, cp)
-            self._cache[parloop._plan_key] = plan
-
-        return plan
+    def ind_map(self):
+        if not hasattr(self, '_ind_map'):
+            self._ind_map = array.to_device(_queue, super(Plan, self).ind_map)
+        return self._ind_map
 
     @property
-    def nentries(self):
-        return len(self._cache)
-
-class OpPlan():
-    """ Helper proxy for core.op_plan."""
-
-    def __init__(self, parloop, core_plan):
-        self._parloop = parloop
-        self._core_plan = core_plan
-
-        self.load()
-
-    def load(self):
-        self.nuinds = sum(map(lambda a: a._is_indirect, self._parloop._args))
-        _ind_desc = [-1] * len(self._parloop._args)
-        _d = {}
-        _c = 0
-        for i, arg in enumerate(self._parloop._args):
-            if arg._is_indirect:
-                if _d.has_key((arg.data, arg.map)):
-                    _ind_desc[i] = _d[(arg.data, arg.map)]
-                else:
-                    _ind_desc[i] = _c
-                    _d[(arg.data, arg.map)] = _c
-                    _c += 1
-        del _c
-        del _d
-
-        _off = [0] * (self._core_plan.ninds + 1)
-        for i in range(self._core_plan.ninds):
-            _c = 0
-            for idesc in _ind_desc:
-                if idesc == i:
-                    _c += 1
-            _off[i+1] = _off[i] + _c
-
-        self._ind_map_buffers = [None] * self._core_plan.ninds
-        for i in range(self._core_plan.ninds):
-            self._ind_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int32(0).itemsize * (_off[i+1] - _off[i]) * self._parloop._it_space.size))
-            s = self._parloop._it_space.size * _off[i]
-            e = s + (_off[i+1] - _off[i]) * self._parloop._it_space.size
-            cl.enqueue_copy(_queue, self._ind_map_buffers[i], self._core_plan.ind_map[s:e], is_blocking=True).wait()
-
-        self._loc_map_buffers = [None] * self.nuinds
-        for i in range(self.nuinds):
-            self._loc_map_buffers[i] = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=int(np.int16(0).itemsize * self._parloop._it_space.size))
-            s = i * self._parloop._it_space.size
-            e = s + self._parloop._it_space.size
-            cl.enqueue_copy(_queue, self._loc_map_buffers[i], self._core_plan.loc_map[s:e], is_blocking=True).wait()
-
-        self._ind_sizes_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.ind_sizes.nbytes)
-        cl.enqueue_copy(_queue, self._ind_sizes_buffer, self._core_plan.ind_sizes, is_blocking=True).wait()
-
-        self._ind_offs_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.ind_offs.nbytes)
-        cl.enqueue_copy(_queue, self._ind_offs_buffer, self._core_plan.ind_offs, is_blocking=True).wait()
-
-        self._blkmap_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.blkmap.nbytes)
-        cl.enqueue_copy(_queue, self._blkmap_buffer, self._core_plan.blkmap, is_blocking=True).wait()
-
-        self._offset_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.offset.nbytes)
-        cl.enqueue_copy(_queue, self._offset_buffer, self._core_plan.offset, is_blocking=True).wait()
-
-        self._nelems_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.nelems.nbytes)
-        cl.enqueue_copy(_queue, self._nelems_buffer, self._core_plan.nelems, is_blocking=True).wait()
-
-        self._nthrcol_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.nthrcol.nbytes)
-        cl.enqueue_copy(_queue, self._nthrcol_buffer, self._core_plan.nthrcol, is_blocking=True).wait()
-
-        self._thrcol_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_ONLY, size=self._core_plan.thrcol.nbytes)
-        cl.enqueue_copy(_queue, self._thrcol_buffer, self._core_plan.thrcol, is_blocking=True).wait()
-
-        if _debug:
-            print 'plan ind_map ' + str(self._core_plan.ind_map)
-            print 'plan loc_map ' + str(self._core_plan.loc_map)
-            print '_ind_desc ' + str(_ind_desc)
-            print 'nuinds %d' % self.nuinds
-            print 'ninds %d' % self.ninds
-            print '_off ' + str(_off)
-            for i in range(self.ninds):
-                print 'ind_map[' + str(i) + '] = ' + str(self.ind_map[s:e])
-            for i in range(self.nuinds):
-                print 'loc_map[' + str(i) + '] = ' + str(self.loc_map[s:e])
-            print 'ind_sizes :' + str(self.ind_sizes)
-            print 'ind_offs :' + str(self.ind_offs)
-            print 'blk_map :' + str(self.blkmap)
-            print 'offset :' + str(self.offset)
-            print 'nelems :' + str(self.nelems)
-            print 'nthrcol :' + str(self.nthrcol)
-            print 'thrcol :' + str(self.thrcol)
+    def loc_map(self):
+        if not hasattr(self, '_loc_map'):
+            self._loc_map = array.to_device(_queue, super(Plan, self).loc_map)
+        return self._loc_map
 
     @property
-    def nshared(self):
-        return self._core_plan.nshared
+    def ind_sizes(self):
+        if not hasattr(self, '_ind_sizes'):
+            self._ind_sizes = array.to_device(_queue, super(Plan, self).ind_sizes)
+        return self._ind_sizes
 
     @property
-    def ninds(self):
-        return self._core_plan.ninds
+    def ind_offs(self):
+        if not hasattr(self, '_ind_offs'):
+            self._ind_offs = array.to_device(_queue, super(Plan, self).ind_offs)
+        return self._ind_offs
 
     @property
-    def ncolors(self):
-        return self._core_plan.ncolors
+    def blkmap(self):
+        if not hasattr(self, '_blkmap'):
+            self._blkmap = array.to_device(_queue, super(Plan, self).blkmap)
+        return self._blkmap
 
     @property
-    def ncolblk(self):
-        return self._core_plan.ncolblk
+    def offset(self):
+        if not hasattr(self, '_offset'):
+            self._offset = array.to_device(_queue, super(Plan, self).offset)
+        return self._offset
 
     @property
-    def nblocks(self):
-        return self._core_plan.nblocks
+    def nelems(self):
+        if not hasattr(self, '_nelems'):
+            self._nelems = array.to_device(_queue, super(Plan, self).nelems)
+        return self._nelems
 
-class DatMapPair(object):
-    """ Dummy class needed for codegen
-        (could do without but would obfuscate codegen templates)
-    """
-    def __init__(self, data, map):
-        self.data = data
-        self.map = map
+    @property
+    def nthrcol(self):
+        if not hasattr(self, '_nthrcol'):
+            self._nthrcol = array.to_device(_queue, super(Plan, self).nthrcol)
+        return self._nthrcol
 
-    def __hash__(self):
-        return hash(self.data) ^ hash(self.map)
-
-    def __eq__(self, other):
-        return self.__dict__ == other.__dict__
+    @property
+    def thrcol(self):
+        if not hasattr(self, '_thrcol'):
+            self._thrcol = array.to_device(_queue, super(Plan, self).thrcol)
+        return self._thrcol
 
 class ParLoop(op2.ParLoop):
-    """Invocation of an OP2 OpenCL kernel with an access descriptor"""
-
-    def __init__(self, kernel, it_space, *args):
-        op2.ParLoop.__init__(self, kernel, it_space, *args)
-        self._args = list()
-        for a in self.args:
-            if a._is_vec_map:
-                for i in range(a.map._dim):
-                    self._args.append(Arg(a.data, a.map, i, a.access))
-            elif a._is_mat:
-                pass
-            elif a._uses_itspace:
-                for i in range(self._it_space.extents[a.idx.index]):
-                    self._args.append(Arg(a.data, a.map, i, a.access))
-            else:
-                self._args.append(a)
-
-        # sort args - keep actual args unchanged
-        # order globals r, globals reduc, direct, indirect
-        gbls = self._global_non_reduction_args +\
-               sorted(self._global_reduction_args,
-                      key=lambda arg: (arg.data.dtype.itemsize,arg.data.cdim))
-        directs = self._direct_args
-        indirects = sorted(self._indirect_args,
-                           key=lambda arg: (arg.map.md5, id(arg.data), arg.idx))
-
-        self._args = gbls + directs + indirects
-
-    @property
-    def _plan_key(self):
-        """Canonical representation of a parloop wrt plan caching."""
-
-        # Globals: irrelevant, they only possibly effect the partition
-        # size for reductions.
-        # Direct Dats: irrelevant, no staging
-        # iteration size: effect ind/loc maps sizes
-        # partition size: effect interpretation of ind/loc maps
-
-        # ind: for each dat map pair, the ind and loc map depend on the dim of
-        #   the map, and the actual indices referenced
-        inds = list()
-        for dm in self._dat_map_pairs:
-            d = dm.data
-            m = dm.map
-            indices = tuple(a.idx for a in self._args if a.data == d and a.map == m)
-
-            inds.append((m.md5, m._dim, indices))
-
-        # coloring part of the key,
-        # for each dat, includes (map, (idx, ...)) involved (INC)
-        # dats do not matter here, but conflicts should be sorted
-        cols = list()
-        for i, d in enumerate(sorted((dm.data for dm in self._dat_map_pairs),
-                                     key=id)):
-            conflicts = list()
-            has_conflict = False
-            for m in uniquify(a.map for a in self._args if a.data == d and a._is_indirect):
-                idx = sorted(arg.idx for arg in self._indirect_reduc_args \
-                             if arg.data == d and arg.map == m)
-                if len(idx) > 0:
-                    has_conflict = True
-                    conflicts.append((m.md5, tuple(idx)))
-            if has_conflict:
-                cols.append(tuple(conflicts))
-
-        return (self._it_space.size,
-                self._i_partition_size(),
-                tuple(inds),
-                tuple(cols))
-
-    # generic
-    @property
-    def _global_reduction_args(self):
-        return uniquify(a for a in self._args if a._is_global_reduction)
-
-    @property
-    def _global_non_reduction_args(self):
-        return uniquify(a for a in self._args if a._is_global and not a._is_global_reduction)
-
-    @property
-    def _unique_dats(self):
-        return uniquify(a.data for a in self._args if a._is_dat)
-
-    @property
-    def _indirect_reduc_args(self):
-        return uniquify(a for a in self._args if a._is_indirect_reduction)
-
-    @property
-    def _direct_args(self):
-        return uniquify(a for a in self._args if a._is_direct)
-
-    @property
-    def _direct_non_scalar_args(self):
-        return [a for a in self._direct_args if not a.data._is_scalar]
-
-    @property
-    def _direct_non_scalar_read_args(self):
-        return [a for a in self._direct_non_scalar_args if a.access in [READ, RW]]
-
-    @property
-    def _direct_non_scalar_written_args(self):
-        return [a for a in self._direct_non_scalar_args if a.access in [WRITE, RW]]
-
-    @property
-    def _has_itspace(self):
-        return len(self._it_space.extents) > 0
-
     @property
     def _matrix_args(self):
         return [a for a in self.args if a._is_mat]
-
-    @property
-    def _itspace_args(self):
-        return [a for a in self.args if a._uses_itspace and not a._is_mat]
 
     @property
     def _unique_matrix(self):
@@ -727,62 +478,14 @@ class ParLoop(op2.ParLoop):
         """Set of all mappings used in matrix arguments."""
         return uniquify(m for arg in self.args  if arg._is_mat for m in arg.map)
 
-    @property
-    def _indirect_args(self):
-        return [a for a in self._args if a._is_indirect]
-
-    @property
-    def _vec_map_args(self):
-        return [a for a in self.args if a._is_vec_map]
-
-    @property
-    def _dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._indirect_args)
-
-    @property
-    def _nonreduc_vec_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._vec_map_args if a.access is not INC)
-
-    @property
-    def _reduc_vec_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._vec_map_args if a.access is INC)
-
-    @property
-    def _nonreduc_itspace_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._itspace_args if a.access is not INC)
-
-    @property
-    def _reduc_itspace_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._itspace_args if a.access is INC)
-
-    @property
-    def _read_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._indirect_args if a.access in [READ, RW])
-
-    @property
-    def _written_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._indirect_args if a.access in [WRITE, RW])
-
-    @property
-    def _indirect_reduc_dat_map_pairs(self):
-        return uniquify(DatMapPair(a.data, a.map) for a in self._args if a._is_indirect_reduction)
-
-    def dump_gen_code(self, src):
+    def dump_gen_code(self):
         if cfg['dump-gencode']:
-            path = cfg['dump-gencode-path'] % {"kernel": self._kernel._name,
+            path = cfg['dump-gencode-path'] % {"kernel": self.kernel.name,
                                                "time": time.strftime('%Y-%m-%d@%H:%M:%S')}
 
             if not os.path.exists(path):
                 with open(path, "w") as f:
-                    f.write(src)
-
-    def _d_max_local_memory_required_per_elem(self):
-        """Computes the maximum shared memory requirement per iteration set elements."""
-        def max_0(iterable):
-            return max(iterable) if iterable else 0
-        staging = max_0([a.data.bytes_per_elem for a in self._direct_non_scalar_args])
-        reduction = max_0([a.data.dtype.itemsize for a in self._global_reduction_args])
-        return max(staging, reduction)
+                    f.write(self._src)
 
     def _i_partition_size(self):
         #TODO FIX: something weird here
@@ -792,13 +495,13 @@ class ParLoop(op2.ParLoop):
         # 16bytes local mem used for global / local indices and sizes
         available_local_memory -= 16
         # (4/8)ptr size per dat passed as argument (dat)
-        available_local_memory -= (_address_bits / 8) * (len(self._unique_dats) + len(self._global_non_reduction_args))
+        available_local_memory -= (_address_bits / 8) * (len(self._unique_dat_args) + len(self._all_global_non_reduction_args))
         # (4/8)ptr size per dat/map pair passed as argument (ind_map)
-        available_local_memory -= (_address_bits / 8) * len(self._dat_map_pairs)
+        available_local_memory -= (_address_bits / 8) * len(self._unique_indirect_dat_args)
         # (4/8)ptr size per global reduction temp array
-        available_local_memory -= (_address_bits / 8) * len(self._global_reduction_args)
+        available_local_memory -= (_address_bits / 8) * len(self._all_global_reduction_args)
         # (4/8)ptr size per indirect arg (loc_map)
-        available_local_memory -= (_address_bits / 8) * len(filter(lambda a: not a._is_indirect, self._args))
+        available_local_memory -= (_address_bits / 8) * len(self._all_indirect_args)
         # (4/8)ptr size * 7: for plan objects
         available_local_memory -= (_address_bits / 8) * 7
         # 1 uint value for block offset
@@ -809,16 +512,16 @@ class ParLoop(op2.ParLoop):
         #     and 3 for potential padding after shared mem buffer
         available_local_memory -= 12 + 3
         # 2 * (4/8)ptr size + 1uint32: DAT_via_MAP_indirection(./_size/_map) per dat map pairs
-        available_local_memory -= 4 + (_address_bits / 8) * 2 * len(self._dat_map_pairs)
+        available_local_memory -= 4 + (_address_bits / 8) * 2 * len(self._unique_indirect_dat_args)
         # inside shared memory padding
-        available_local_memory -= 2 * (len(self._dat_map_pairs) - 1)
+        available_local_memory -= 2 * (len(self._unique_indirect_dat_args) - 1)
 
-        max_bytes = sum(map(lambda a: a.data.bytes_per_elem, self._indirect_args))
+        max_bytes = sum(map(lambda a: a.data._bytes_per_elem, self._all_indirect_args))
         return available_local_memory / (2 * _warpsize * max_bytes) * (2 * _warpsize)
 
     def launch_configuration(self):
-        if self.is_direct():
-            per_elem_max_local_mem_req = self._d_max_local_memory_required_per_elem()
+        if self._is_direct:
+            per_elem_max_local_mem_req = self._max_shared_memory_needed_per_set_element
             shared_memory_offset = per_elem_max_local_mem_req * _warpsize
             if per_elem_max_local_mem_req == 0:
                 wgs = _max_work_group_size
@@ -830,9 +533,9 @@ class ParLoop(op2.ParLoop):
                 warnings.warn('temporary fix to available local memory computation (-512)')
                 available_local_memory = _max_local_memory - 512
                 available_local_memory -= 16
-                available_local_memory -= (len(self._unique_dats) + len(self._global_non_reduction_args))\
+                available_local_memory -= (len(self._unique_dat_args) + len(self._all_global_non_reduction_args))\
                                           * (_address_bits / 8)
-                available_local_memory -= len(self._global_reduction_args) * (_address_bits / 8)
+                available_local_memory -= len(self._all_global_reduction_args) * (_address_bits / 8)
                 available_local_memory -= 7
                 ps = available_local_memory / per_elem_max_local_mem_req
                 wgs = min(_max_work_group_size, (ps / _warpsize) * _warpsize)
@@ -854,8 +557,8 @@ class ParLoop(op2.ParLoop):
 
             for arg in self.args:
                 i = None
-                if self.is_direct():
-                    if (arg._is_direct and arg.data._is_scalar) or\
+                if self._is_direct:
+                    if (arg._is_direct and (arg.data._is_scalar or arg.data.soa)) or\
                        (arg._is_global and not arg._is_global_reduction):
                         i = ("__global", None)
                     else:
@@ -877,50 +580,60 @@ class ParLoop(op2.ParLoop):
 
         # check cache
         key = self._cache_key
-        src = op2._parloop_cache.get(key)
-        if src:
-            return src
+        self._src = op2._parloop_cache.get(key)
+        if self._src is not None:
+            return
 
         #do codegen
         user_kernel = instrument_user_kernel()
-        template = _jinja2_direct_loop if self.is_direct()\
+        template = _jinja2_direct_loop if self._is_direct \
                                        else _jinja2_indirect_loop
 
-        src = template.render({'parloop': self,
-                               'user_kernel': user_kernel,
-                               'launch': conf,
-                               'codegen': {'amd': _AMD_fixes},
-                               'op2const': Const._definitions()
-                              }).encode("ascii")
-        self.dump_gen_code(src)
-        op2._parloop_cache[key] = src
-        return src
+        self._src = template.render({'parloop': self,
+                                     'user_kernel': user_kernel,
+                                     'launch': conf,
+                                     'codegen': {'amd': _AMD_fixes},
+                                     'op2const': Const._definitions()
+                                 }).encode("ascii")
+        self.dump_gen_code()
+        op2._parloop_cache[key] = self._src
 
     def compute(self):
-        def compile_kernel(src, name):
-            prg = cl.Program(_ctx, source).build(options="-Werror")
-            return prg.__getattr__(name + '_stub')
+        if self._has_soa:
+            op2stride = Const(1, self._it_space.size, name='op2stride',
+                              dtype='int32')
+        def compile_kernel():
+            prg = cl.Program(_ctx, self._src).build(options="-Werror")
+            return prg.__getattr__(self._stub_name)
 
         conf = self.launch_configuration()
 
-        if not self.is_direct():
-            plan = _plan_cache.get_plan(self, partition_size=conf['partition_size'])
-            conf['local_memory_size'] = plan.nshared
-            conf['ninds'] = plan.ninds
-            conf['work_group_size'] = min(_max_work_group_size, conf['partition_size'])
-            conf['work_group_count'] = plan.nblocks
+        if self._is_indirect:
+            self._plan = Plan(self.kernel, self._it_space.iterset,
+                              *self._unwound_args,
+                              partition_size=conf['partition_size'])
+            conf['local_memory_size'] = self._plan.nshared
+            conf['ninds'] = self._plan.ninds
+            conf['work_group_size'] = min(_max_work_group_size,
+                                          conf['partition_size'])
+            conf['work_group_count'] = self._plan.nblocks
         conf['warpsize'] = _warpsize
 
-        source = self.codegen(conf)
-        kernel = compile_kernel(source, self._kernel._name)
+        self.codegen(conf)
+        kernel = compile_kernel()
 
-        for a in self._unique_dats:
-            kernel.append_arg(a.array.data)
+        for arg in self._unique_args:
+            arg.data._allocate_device()
+            if arg.access is not op2.WRITE:
+                arg.data._to_device()
 
-        for a in self._global_non_reduction_args:
+        for a in self._unique_dat_args:
+            kernel.append_arg(a.data.array.data)
+
+        for a in self._all_global_non_reduction_args:
             kernel.append_arg(a.data._array.data)
 
-        for a in self._global_reduction_args:
+        for a in self._all_global_reduction_args:
             a.data._allocate_reduction_array(conf['work_group_count'])
             kernel.append_arg(a.data._d_reduc_buffer)
 
@@ -934,30 +647,28 @@ class ParLoop(op2.ParLoop):
             kernel.append_arg(m._dev_colidx.data)
 
         for m in self._matrix_entry_maps:
-            kernel.append_arg(m._array.data)
+            m._to_device()
+            kernel.append_arg(m._device_values.data)
 
-        if self.is_direct():
+        if self._is_direct:
             kernel.append_arg(np.int32(self._it_space.size))
 
             cl.enqueue_nd_range_kernel(_queue, kernel, (conf['thread_count'],), (conf['work_group_size'],), g_times_l=False).wait()
         else:
-            for i in range(plan.ninds):
-                kernel.append_arg(plan._ind_map_buffers[i])
-
-            for i in range(plan.nuinds):
-                kernel.append_arg(plan._loc_map_buffers[i])
-
-            kernel.append_arg(plan._ind_sizes_buffer)
-            kernel.append_arg(plan._ind_offs_buffer)
-            kernel.append_arg(plan._blkmap_buffer)
-            kernel.append_arg(plan._offset_buffer)
-            kernel.append_arg(plan._nelems_buffer)
-            kernel.append_arg(plan._nthrcol_buffer)
-            kernel.append_arg(plan._thrcol_buffer)
+            kernel.append_arg(np.int32(self._it_space.size))
+            kernel.append_arg(self._plan.ind_map.data)
+            kernel.append_arg(self._plan.loc_map.data)
+            kernel.append_arg(self._plan.ind_sizes.data)
+            kernel.append_arg(self._plan.ind_offs.data)
+            kernel.append_arg(self._plan.blkmap.data)
+            kernel.append_arg(self._plan.offset.data)
+            kernel.append_arg(self._plan.nelems.data)
+            kernel.append_arg(self._plan.nthrcol.data)
+            kernel.append_arg(self._plan.thrcol.data)
 
             block_offset = 0
-            for i in range(plan.ncolors):
-                blocks_per_grid = int(plan.ncolblk[i])
+            for i in range(self._plan.ncolors):
+                blocks_per_grid = int(self._plan.ncolblk[i])
                 threads_per_block = min(_max_work_group_size, conf['partition_size'])
                 thread_count = threads_per_block * blocks_per_grid
 
@@ -967,19 +678,19 @@ class ParLoop(op2.ParLoop):
 
         # mark !READ data as dirty
         for arg in self.args:
-            if arg.access not in [READ]:
-                arg.data._dirty = True
+            if arg.access is not READ:
+                arg.data.state = DeviceDataMixin.DEVICE
             if arg._is_dat:
                 maybe_setflags(arg.data._data, write=False)
 
         for mat in [arg.data for arg in self._matrix_args]:
             mat.assemble()
 
-        for i, a in enumerate(self._global_reduction_args):
+        for a in self._all_global_reduction_args:
             a.data._post_kernel_reduction_task(conf['work_group_count'], a.access)
 
-    def is_direct(self):
-        return all(map(lambda a: a._is_direct or isinstance(a.data, Global) or isinstance(a.data, Mat), self._args))
+        if self._has_soa:
+            op2stride.remove_from_namespace()
 
 #Monkey patch pyopencl.Kernel for convenience
 _original_clKernel = cl.Kernel
@@ -1004,15 +715,6 @@ cl.Kernel = CLKernel
 def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()
 
-# backend interface:
-def empty_plan_cache():
-    global _plan_cache
-    _plan_cache = OpPlanCache()
-
-def ncached_plans():
-    global _plan_cache
-    return _plan_cache.nentries
-
 def _setup():
     global _ctx
     global _queue
@@ -1023,7 +725,6 @@ def _setup():
     global _has_dpfloat
     global _warpsize
     global _AMD_fixes
-    global _plan_cache
     global _reduction_task_cache
 
     _ctx = cl.create_some_context()
@@ -1043,7 +744,6 @@ def _setup():
         _warpsize = 32
 
     _AMD_fixes = _queue.device.platform.vendor in ['Advanced Micro Devices, Inc.']
-    _plan_cache = OpPlanCache()
     _reduction_task_cache = dict()
 
 _debug = False
@@ -1056,7 +756,6 @@ _max_work_group_size = 0
 _has_dpfloat = False
 _warpsize = 0
 _AMD_fixes = False
-_plan_cache = None
 _reduction_task_cache = None
 
 _jinja2_env = Environment(loader=PackageLoader("pyop2", "assets"))

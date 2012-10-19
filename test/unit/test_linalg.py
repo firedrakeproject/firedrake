@@ -36,7 +36,7 @@ import numpy as np
 
 from pyop2 import op2
 
-backends = ['sequential', 'opencl']
+backends = ['sequential', 'opencl', 'cuda']
 nelems = 8
 
 def pytest_funcarg__set(request):

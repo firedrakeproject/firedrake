@@ -1,0 +1,210 @@
+{% import 'cuda_reductions.jinja2' as reduction with context %}
+
+{%- macro kernel_stub() -%}
+__global__ void {{ parloop._stub_name }} (
+    int set_size,
+    {% for arg in parloop._unique_args -%}
+    {{ arg.ctype }} *{{arg._name}},
+    {% endfor -%}
+    int *ind_map,
+    short *loc_map,
+    int *ind_sizes,
+    int *ind_offs,
+    int block_offset,
+    int *blkmap,
+    int *offset,
+    int *nelems,
+    int *nthrcol,
+    int *thrcol,
+    int nblocks)
+{
+    extern __shared__ char shared[];
+
+    {%- for arg in parloop._unique_indirect_dat_args %}
+    __shared__ int *{{arg._map_name}};
+    __shared__ int {{arg._size_name}};
+    __shared__ {{arg.ctype}} * {{arg._shared_name}};
+    {%- endfor %}
+    {% if parloop._unique_inc_indirect_dat_args %}
+    __shared__ int nelems2, ncolor;
+    {% endif -%}
+    __shared__ int nelem, offset_b;
+
+    {%- for arg in parloop._all_inc_non_vec_map_indirect_dat_args %}
+    {{arg.ctype}} {{arg._local_name()}}[{{arg.data.cdim}}];
+    {%- endfor %}
+
+    {%- for arg in parloop._all_inc_vec_map_args %}
+    {% for i in range(arg.map.dim) %}
+    {{arg.ctype}} {{arg._local_name(idx=i)}}[{{arg.data.cdim}}];
+    {%- endfor %}
+    {%- endfor %}
+
+    {%- for arg in parloop._all_global_reduction_args %}
+    {{arg.ctype}} {{arg._reduction_local_name}}[{{arg.data.cdim}}];
+    {% endfor %}
+
+    {%- for arg in parloop._all_vec_map_args %}
+    {%- if arg._is_INC %}
+    {{arg.ctype}} *{{arg._vec_name}}[{{arg.map.dim}}] = {
+        {%- set comma = joiner(", ") -%}
+        {%- for i in range(arg.map.dim) %}
+        {{- comma() }}
+        {{ arg._local_name(idx=i) }}
+        {%- endfor %}
+    };
+    {% else %}
+    {{arg.ctype}} *{{arg._vec_name}}[{{arg.map.dim}}];
+    {%- endif -%}
+    {%- endfor %}
+
+    {% for arg in parloop._all_global_reduction_args %}
+    for ( int idx = 0; idx < {{arg.data.cdim}}; ++idx ) {
+        {{ reduction.reduction_init(arg) }}
+    }
+    {% endfor %}
+
+    if (blockIdx.x + blockIdx.y * gridDim.x >= nblocks) return;
+    if (threadIdx.x == 0) {
+        int blockId = blkmap[blockIdx.x + blockIdx.y * gridDim.x + block_offset];
+        nelem = nelems[blockId];
+        offset_b = offset[blockId];
+
+        {%- if parloop._all_inc_indirect_dat_args %}
+        nelems2 = blockDim.x * (1 + (nelem - 1)/blockDim.x);
+        ncolor = nthrcol[blockId];
+        {% endif -%}
+        {% for arg in parloop._unique_indirect_dat_args -%}
+        {{arg._size_name}} = ind_sizes[{{loop.index0}} + blockId * {{loop.length}}];
+        {{arg._map_name}} = &ind_map[{{arg._which_indirect}} * set_size] + ind_offs[{{loop.index0}} + blockId * {{loop.length}}];
+        {% endfor %}
+        int nbytes = 0;
+        {% for arg in parloop._unique_indirect_dat_args -%}
+        {{arg._shared_name}} = ({{arg.ctype}} *) &shared[nbytes];
+        {%- if (not loop.last) %}
+        nbytes += ROUND_UP({{arg._size_name}} * sizeof({{arg.ctype}}) * {{arg.data.cdim}});
+        {% endif -%}
+        {% endfor %}
+    }
+
+    __syncthreads();
+
+    // Copy into shared memory
+    {% for arg in parloop._unique_read_or_rw_indirect_dat_args %}
+    for ( int idx = threadIdx.x; idx < {{arg._size_name}} * {{arg.data.cdim}}; idx += blockDim.x ) {
+        {{arg._shared_name}}[idx] = {{arg._name}}[idx % {{arg.data.cdim}} + {{arg._map_name}}[idx / {{arg.data.cdim}}] * {{arg.data.cdim}}];
+    }
+    {% endfor -%}
+
+    {% for arg in parloop._unique_inc_indirect_dat_args %}
+    for ( int idx = threadIdx.x; idx < {{arg._size_name}} * {{arg.data.cdim}}; idx += blockDim.x ) {
+        {{arg._shared_name}}[idx] = ({{arg.ctype}})0;
+    }
+    {% endfor %}
+
+    __syncthreads();
+    // process set elements
+    {%- if parloop._all_inc_indirect_dat_args %}
+    {%- set _nelems = 'nelems2' -%}
+    {%- else -%}
+    {%- set _nelems = 'nelem' -%}
+    {% endif %}
+
+    for ( int idx = threadIdx.x; idx < {{_nelems}}; idx += blockDim.x ) {
+        {% if parloop._all_inc_indirect_dat_args -%}
+        int col2 = -1;
+        if ( idx < nelem ) {
+        {%- endif %}
+            {%- for arg in parloop._all_non_inc_vec_map_args %}
+            {%- for i in range(arg.map.dim) %}
+            {{arg._vec_name}}[{{i}}] = {{arg._shared_name}} + loc_map[{{arg._which_indirect + i}}*set_size + idx + offset_b]*{{arg.data.cdim}};
+            {%- endfor -%}
+            {%- endfor %}
+            // initialise locals
+            {% for arg in parloop._all_inc_non_vec_map_indirect_dat_args %}
+            for ( int idx2 = 0; idx2 < {{arg.data.cdim}}; ++idx2 ) {
+                {{arg._local_name()}}[idx2] = ({{arg.ctype}})0;
+            }
+            {% endfor %}
+
+            {% for arg in parloop._all_inc_vec_map_args %}
+            for ( int idx2 = 0; idx2 < {{arg.data.cdim}}; ++idx2 ) {
+                {%- for i in range(arg.map.dim) %}
+                {{arg._local_name(idx=i)}}[idx2] = ({{arg.ctype}})0;
+                {%- endfor %}
+            }
+            {% endfor %}
+            {{parloop.kernel.name}}(
+                {%- set comma = joiner(",") -%}
+                {%- for arg in parloop.args -%}
+                {{ comma() }}
+                {{ arg._indirect_kernel_arg_name('idx') }}
+                {%- endfor -%}
+                );
+
+        {%- if parloop._all_inc_indirect_dat_args %}
+            col2 = thrcol[idx + offset_b];
+        }
+        {% endif -%}
+        {%- if parloop._all_inc_indirect_dat_args %}
+        for ( int col = 0; col < ncolor; ++col ) {
+            if ( col2 == col ) {
+                {%- for arg in parloop._all_inc_non_vec_map_indirect_dat_args %}
+                {% set tmp = 'loc_map[' ~ arg._which_indirect ~ ' * set_size + idx + offset_b]' -%}
+                for ( int idx2 = 0; idx2 < {{arg.data.cdim}}; ++idx2) {
+                    {{arg._shared_name}}[idx2 + {{tmp}}*{{arg.data.cdim}}] += {{arg._local_name()}}[idx2];
+                }
+                {%- endfor %}
+                {%- for arg in parloop._all_inc_vec_map_args %}
+                for ( int idx2 = 0; idx2 < {{arg.data.cdim}}; ++idx2) {
+                    {%- for i in range(arg.map.dim) %}
+                    {%- set tmp = 'loc_map[' ~ (arg._which_indirect + i) ~ ' * set_size + idx + offset_b]' %}
+                    {{arg._shared_name}}[idx2 + {{tmp}} * {{arg.data.cdim}}] += {{arg._local_name(idx=i)}}[idx2];
+                    {%- endfor %}
+                }
+                {%- endfor %}
+            }
+            __syncthreads();
+        }
+        {%- endif %}
+    }
+
+    // Write to global
+
+    {%- for arg in parloop._unique_write_or_rw_indirect_dat_args %}
+    for ( int idx = threadIdx.x; idx < {{arg._size_name}} * {{arg.data.cdim}}; idx += blockDim.x ) {
+        {{arg._name}}[idx % {{arg.data.cdim}} + {{arg._map_name}}[idx/{{arg.data.cdim}}] * {{arg.data.cdim}}] = {{arg._shared_name}}[idx];
+    }
+    {% endfor %}
+
+    {%- for arg in parloop._unique_inc_indirect_dat_args %}
+    for ( int idx = threadIdx.x; idx < {{arg._size_name}} * {{arg.data.cdim}}; idx += blockDim.x ) {
+        {{arg._name}}[idx % {{arg.data.cdim}} + {{arg._map_name}}[idx/{{arg.data.cdim}}] * {{arg.data.cdim}}] += {{arg._shared_name}}[idx];
+    }
+    {% endfor %}
+
+    // Reductions
+    {% for arg in parloop._all_global_reduction_args %}
+    for ( int idx = 0; idx < {{ arg.data.cdim}}; ++idx ) {
+        {{ arg._reduction_kernel_name }}(&{{arg._name}}[idx + blockIdx.x * {{arg.data.cdim}}], {{arg._reduction_local_name}}[idx]);
+    }
+    {% endfor %}
+}
+
+{%- endmacro -%}
+
+{% for c in constants -%}
+{{ c._format_declaration() }}
+{% endfor %}
+{%- if parloop._has_soa %}
+#define OP2_STRIDE(array, idx) (array)[op2stride * (idx)]
+{% endif %}
+#define ROUND_UP(bytes) (((bytes) + 15) & ~15)
+
+{{ parloop.kernel.code }}
+
+{% for arg in parloop._all_global_reduction_args -%}
+{{ reduction.reduction_kernel(arg) }}
+{% endfor %}
+
+{{ kernel_stub() }}
