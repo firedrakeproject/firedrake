@@ -117,6 +117,9 @@ class Dat(DeviceDataMixin, op2.Dat):
 class Mat(DeviceDataMixin, op2.Mat):
     _arg_type = Arg
 
+    def __init__(self, *args, **kwargs):
+        raise RuntimeError("Matrices not yet implemented for CUDA")
+
 class Const(DeviceDataMixin, op2.Const):
     _arg_type = Arg
 
