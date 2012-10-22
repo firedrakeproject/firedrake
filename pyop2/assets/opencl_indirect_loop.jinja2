@@ -141,11 +141,13 @@ void {{ parloop._stub_name }}(
   int i_1;
 
 {%- if(parloop._unique_indirect_dat_args) %}
+{%- if(parloop._all_inc_indirect_dat_args) %}
   __local int colors_count;
   __local int active_threads_count_ceiling;
   int color_1;
   int color_2;
   int i_2;
+{% endif %}
 
   // reduction args
 {%- for arg in parloop._all_inc_non_vec_map_indirect_dat_args %}
