@@ -60,6 +60,12 @@ class Arg(op2.Arg):
         if self._is_indirect:
             if self._is_vec_map:
                 return self._vec_name
+            if self._uses_itspace:
+                if self.access is op2.INC:
+                    return "%s[i%s]" % (self._vec_name, self.idx.index)
+                return "%s + loc_map[(%s+i%s) * set_size + %s + offset_b]*%s" \
+                    % (self._shared_name, self._which_indirect,
+                       self.idx.index, idx, self.data.cdim)
             if self.access is op2.INC:
                 return self._local_name()
             else:
