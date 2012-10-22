@@ -99,11 +99,13 @@ __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
   int i_1;
 
   {% if(parloop._needs_shared_memory) -%}
+  int thread_id = get_local_id(0) % OP_WARPSIZE;
+  {% if parloop._all_staged_direct_args %}
   unsigned int shared_memory_offset = {{ launch.local_memory_offset }};
   int i_2;
   int local_offset;
   int active_threads_count;
-  int thread_id = get_local_id(0) % OP_WARPSIZE;
+  {% endif %}
 
   {%- for arg in parloop._all_staged_direct_args -%}
   __private {{ arg.data._cl_type }} {{ arg._local_name() }}[{{ arg.data.cdim }}];
