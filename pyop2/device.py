@@ -531,6 +531,18 @@ class ParLoop(op2.ParLoop):
                                   '_actual_args', keep)
 
     @property
+    def _all_vec_like_args(self):
+        keep = lambda x: x._is_vec_map or (x._is_dat and x._uses_itspace)
+        return self._get_arg_list('__all_vec_like_args',
+                                  '_actual_args', keep)
+
+    @property
+    def _all_inc_vec_like_args(self):
+        keep = lambda x: x.access is INC
+        return self._get_arg_list('__all_inc_vec_like_args',
+                                  '_all_vec_like_args', keep)
+
+    @property
     def _all_indirect_args(self):
         keep = lambda x: x._is_indirect
         return self._get_arg_list('__all_indirect_args',
