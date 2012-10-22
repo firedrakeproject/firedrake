@@ -422,7 +422,6 @@ void kernel_swap(unsigned int* x[2])
 
         assert op2._parloop_cache_size() == 2
 
-    @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_same_iteration_space_works(self, backend, iterset, indset, iter2ind2):
         d1 = op2.Dat(indset, 1, range(nelems), numpy.uint32)
         op2._empty_parloop_cache()
