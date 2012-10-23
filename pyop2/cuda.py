@@ -91,20 +91,13 @@ class DeviceDataMixin(op2.DeviceDataMixin):
     def _to_device(self):
         self._allocate_device()
         if self.state is DeviceDataMixin.HOST:
-            if self.soa:
-                shape = self._device_data.shape
-                tmp = self._data.T.ravel().reshape(shape)
-            else:
-                tmp = self._data
-            self._device_data.set(tmp)
+            self._device_data.set(self._maybe_to_soa(self._data))
         self.state = DeviceDataMixin.BOTH
 
     def _from_device(self):
         if self.state is DeviceDataMixin.DEVICE:
             self._device_data.get(self._data)
-            if self.soa:
-                shape = self._data.T.shape
-                self._data = self._data.reshape(shape).T
+            self._data = self._maybe_to_aos(self._data)
             self.state = DeviceDataMixin.BOTH
 
 class Dat(DeviceDataMixin, op2.Dat):
