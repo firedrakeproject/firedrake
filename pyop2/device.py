@@ -141,6 +141,29 @@ class DeviceDataMixin(object):
         maybe_setflags(self._data, write=False)
         return self._data
 
+    def _maybe_to_soa(self, data):
+        """Convert host data to SoA order for device upload if necessary
+
+        If self.soa is True, return data in SoA order, otherwise just
+        return data.
+        """
+        if self.soa:
+            shape = data.T.shape
+            return data.T.ravel().reshape(shape)
+        return data
+
+    def _maybe_to_aos(self, data):
+        """Convert host data to AoS order after copy back from device
+
+        If self.soa is True, we will have copied data from device in
+        SoA order, convert these into AoS.
+        """
+        if self.soa:
+            tshape = data.T.shape
+            shape = data.shape
+            return data.reshape(tshape).T.ravel().reshape(shape)
+        return data
+
     def _allocate_device(self):
         raise RuntimeError("Abstract device class can't do this")
 
