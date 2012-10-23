@@ -166,6 +166,14 @@ void kernel_soa(unsigned int * x) { OP2_STRIDE(x, 0) = 42; OP2_STRIDE(x, 1) = 43
         l = op2.par_loop(op2.Kernel(kernel_soa, "kernel_soa"), elems(), soa(op2.IdentityMap, op2.WRITE))
         assert all(soa.data[:,0] == 42) and all(soa.data[:,1] == 43)
 
+    @pytest.mark.xfail("any(b in config.option.__dict__['backend'] for b in ['cuda', 'opencl'])")
+    def test_soa_should_stay_c_contigous(self, backend, soa):
+        k = "void dummy(unsigned int *x) {}"
+        assert soa.data.flags['C_CONTIGUOUS'] == True
+        op2.par_loop(op2.Kernel(k, "dummy"), elems(),
+                     soa(op2.IdentityMap, op2.WRITE))
+        assert soa.data.flags['C_CONTIGUOUS'] == True
+
     def test_parloop_should_set_ro_flag(self, backend, x):
         kernel = """void k(unsigned int *x) { *x = 1; }"""
         x_data = x.data
