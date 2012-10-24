@@ -129,7 +129,7 @@ class DeviceDataMixin(object):
     @data.setter
     def data(self, value):
         maybe_setflags(self._data, write=True)
-        self._data = verify_reshape(value, self.dtype, self.dim)
+        self._data = verify_reshape(value, self.dtype, self._data.shape)
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.HOST
 
