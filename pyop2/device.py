@@ -31,6 +31,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from collections import OrderedDict
 import numpy
 import op_lib_core as core
 import runtime_base as op2
@@ -319,6 +320,8 @@ class Plan(core.op_plan):
         key = (iset.size, )
         # Size of partitions (amount of smem)
         key += (partition_size, )
+        # do use matrix cooring ?
+        key += (matrix_coloring, )
 
         # For each indirect arg, the map, the access type, and the
         # indices into the map are important
@@ -335,9 +338,19 @@ class Plan(core.op_plan):
                 inds[k] = l
 
         # order of indices doesn't matter
+        subkey = ('dats', )
         for k,v in inds.iteritems():
             # Only dimension of dat matters, but identity of map does
-            key += (k[0].cdim, k[1:],) + tuple(sorted(v))
+            subkey += (k[0].cdim, k[1:],) + tuple(sorted(v))
+        key += subkey
+
+        # For each matrix arg, the maps and indices
+        subkey = ('mats', )
+        for arg in args:
+            if arg._is_mat:
+                subkey += (as_tuple(arg.map), as_tuple(arg.idx))
+        key += subkey
+
         return key
 
     def _fix_coloring(self, iset, ps, *args):
