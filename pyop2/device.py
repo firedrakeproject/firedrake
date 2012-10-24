@@ -46,6 +46,10 @@ class Arg(op2.Arg):
         return self.data.name
 
     @property
+    def _lmaoffset_name(self):
+        return "%s_lmaoffset" % self._name
+
+    @property
     def _shared_name(self):
         return "%s_shared" % self._name
 

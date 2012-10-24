@@ -5,6 +5,9 @@ __global__ void {{ parloop._stub_name }} (
     int set_size,
     {% for arg in parloop._unique_args -%}
     {{ arg.ctype }} *{{arg._name}},
+    {%- if arg._is_mat %}
+    int {{arg._lmaoffset_name}},
+    {%- endif %}
     {% endfor -%}
     int *ind_map,
     short *loc_map,

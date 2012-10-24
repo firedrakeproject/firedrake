@@ -47,6 +47,35 @@ class Kernel(op2.Kernel):
 
 class Arg(op2.Arg):
     def _indirect_kernel_arg_name(self, idx):
+        if self._is_mat:
+            rmap = self.map[0]
+            ridx = self.idx[0]
+            cmap = self.map[1]
+            cidx = self.idx[1]
+            esize = np.prod(self.data.dims)
+            size = esize * rmap.dim * cmap.dim
+            d = {'n' : self._name,
+                 'offset' : self._lmaoffset_name,
+                 'idx' : idx,
+                 't' : self.ctype,
+                 'size' : size,
+                 '0' : ridx.index,
+                 '1' : cidx.index,
+                 'lcdim' : self.data.dims[1],
+                 'roff' : cmap.dim * esize,
+                 'coff' : esize}
+            # We walk through the lma-data in order of the
+            # alphabet:
+            #  A B C
+            #  D E F
+            #  G H I
+            #       J K
+            #       L M
+            #  where each sub-block is walked in the same order:
+            #  A1 A2
+            #  A3 A4
+            return """(%(t)s (*)[%(lcdim)s])(%(n)s + %(offset)s + %(idx)s * %(size)s +
+            i%(0)s * %(roff)s + i%(1)s * %(coff)s)""" % d
         if self._is_global:
             if self._is_global_reduction:
                 return self._reduction_local_name
@@ -72,7 +101,6 @@ class Arg(op2.Arg):
                 return "%s + loc_map[%s * set_size + %s + offset_b]*%s" \
                     % (self._shared_name, self._which_indirect, idx,
                        self.data.cdim)
-
 
     def _direct_kernel_arg_name(self, idx=None):
         if self._is_staged_direct:
@@ -117,8 +145,67 @@ class Dat(DeviceDataMixin, op2.Dat):
 class Mat(DeviceDataMixin, op2.Mat):
     _arg_type = Arg
 
-    def __init__(self, *args, **kwargs):
-        raise RuntimeError("Matrices not yet implemented for CUDA")
+    def _assemble(self):
+        from warnings import warn
+        warn("Conversion from LMA to CSR not yet implemented")
+
+    @property
+    def _lmadata(self):
+        if not hasattr(self, '__lmadata'):
+            nentries = 0
+            # dense block of rmap.dim x cmap.dim for each rmap/cmap
+            # pair
+            for rmap, cmap in self.sparsity.maps:
+                nentries += rmap.dim * cmap.dim
+
+            entry_size = 0
+            # all pairs of maps in the sparsity must have the same
+            # iterset, there are sum(iterset.size) * nentries total
+            # entries in the LMA data
+            for rmap, cmap in self.sparsity.maps:
+                entry_size += rmap.iterset.size
+            # each entry in the block is size dims[0] x dims[1]
+            entry_size *= np.asscalar(np.prod(self.dims))
+            nentries *= entry_size
+            setattr(self, '__lmadata',
+                    gpuarray.zeros(shape=nentries, dtype=self.dtype))
+        return getattr(self, '__lmadata')
+
+    def _lmaoffset(self, iterset):
+        offset = 0
+        size = self.sparsity.maps[0][0].dataset.size
+        size *= np.asscalar(np.prod(self.dims))
+        for rmap, cmap in self.sparsity.maps:
+            if rmap.iterset is iterset:
+                break
+            offset += rmap.dim * cmap.dim
+        return offset * size
+
+    @property
+    def _rowptr(self):
+        if not hasattr(self, '__rowptr'):
+            setattr(self, '__rowptr',
+                    gpuarray.to_device(self._sparsity._c_handle.rowptr))
+        return getattr(self, '__rowptr')
+
+    @property
+    def _colidx(self):
+        if not hasattr(self, '__colidx'):
+            setattr(self, '__colidx',
+                    gpuarray.to_device(self._sparsity._c_handle.colidx))
+        return getattr(self, '__colidx')
+
+    @property
+    def _csrdata(self):
+        if not hasattr(self, '__csrdata'):
+            setattr(self, '__csrdata',
+                    gpuarray.zeros(shape=self._sparsity._c_handle.total_nz,
+                                   dtype=self.dtype))
+        return getattr(self, '__csrdata')
+
+    def zero(self):
+        self._csrdata.fill(0)
+
 
 class Const(DeviceDataMixin, op2.Const):
     _arg_type = Arg
@@ -292,7 +379,14 @@ class ParLoop(op2.ParLoop):
         else:
             self.generate_indirect_loop()
             for arg in self._unique_args:
-                argtypes += "P" # pointer to each unique Dat's data
+                if arg._is_mat:
+                    # pointer to lma data, offset into lma data
+                    # for case of multiple map pairs.
+                    argtypes += "P"
+                    argtypes += inttype
+                else:
+                    # pointer to each unique Dat's data
+                    argtypes += "P"
             argtypes += "PPPP"  # ind_map, loc_map, ind_sizes, ind_offs
             argtypes += inttype # block offset
             argtypes += "PPPPP" # blkmap, offset, nelems, nthrcol, thrcol
@@ -377,14 +471,21 @@ class ParLoop(op2.ParLoop):
             c._to_device(self._module)
 
         for arg in _args:
-            arg.data._allocate_device()
-            if arg.access is not op2.WRITE:
-                arg.data._to_device()
-            karg = arg.data._device_data
-            if arg._is_global_reduction:
-                arg.data._allocate_reduction_buffer(max_grid_size, arg.access)
-                karg = arg.data._reduction_buffer
-            arglist.append(np.intp(karg.gpudata))
+            if arg._is_mat:
+                d = arg.data._lmadata.gpudata
+                offset = arg.data._lmaoffset(self._it_space.iterset)
+                arglist.append(np.intp(d))
+                arglist.append(np.int32(offset))
+            else:
+                arg.data._allocate_device()
+                if arg.access is not op2.WRITE:
+                    arg.data._to_device()
+                karg = arg.data._device_data
+                if arg._is_global_reduction:
+                    arg.data._allocate_reduction_buffer(max_grid_size,
+                                                        arg.access)
+                    karg = arg.data._reduction_buffer
+                arglist.append(np.intp(karg.gpudata))
 
         if self._is_direct:
             self._fun.prepared_call(max_grid_size, block_size, *arglist,
@@ -456,12 +557,13 @@ class ParLoop(op2.ParLoop):
                 if arg._is_global_reduction:
                     arg.data._finalise_reduction_end(max_grid_size,
                                                      arg.access)
-                else:
-                    # Set write state to False
-                    maybe_setflags(arg.data._data, write=False)
+                elif not arg._is_mat:
                     # Data state is updated in finalise_reduction for Global
                     if arg.access is not op2.READ:
                         arg.data.state = DeviceDataMixin.DEVICE
+                else:
+                    # Mat, assemble from lma->csr
+                    arg.data._assemble()
         if self._has_soa:
             op2stride.remove_from_namespace()
 
