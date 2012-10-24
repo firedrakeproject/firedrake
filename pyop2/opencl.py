@@ -481,6 +481,11 @@ class ParLoop(op2.ParLoop):
                 with open(path, "w") as f:
                     f.write(self._src)
 
+    @property
+    def _requires_matrix_coloring(self):
+        """Direct code generation to follow colored execution for global matrix insertion."""
+        return _use_matrix_coloring and not not self._matrix_args
+
     def _i_partition_size(self):
         #TODO FIX: something weird here
         #available_local_memory
@@ -605,7 +610,8 @@ class ParLoop(op2.ParLoop):
         if self._is_indirect:
             self._plan = Plan(self.kernel, self._it_space.iterset,
                               *self._unwound_args,
-                              partition_size=conf['partition_size'])
+                              partition_size=conf['partition_size'],
+                              matrix_coloring=self._requires_matrix_coloring)
             conf['local_memory_size'] = self._plan.nshared
             conf['ninds'] = self._plan.ninds
             conf['work_group_size'] = min(_max_work_group_size,
