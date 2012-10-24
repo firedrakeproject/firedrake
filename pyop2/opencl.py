@@ -401,7 +401,7 @@ class Map(op2.Map):
             from warnings import warn
             warn("Copying Map data for %s again, do you really want to do this?" % \
                  self)
-            self._device_values.set(_queue, self._values)
+            self._device_values.set(self._values, _queue)
 
 class Plan(op2.Plan):
     @property
