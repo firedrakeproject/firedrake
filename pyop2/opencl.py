@@ -230,7 +230,7 @@ class Sparsity(op2.Sparsity):
         if not hasattr(self, '__dev_colidx'):
             setattr(self, '__dev_colidx',
                     array.to_device(_queue,
-                                    self._c_handle.colidx))
+                                    self._colidx))
         return getattr(self, '__dev_colidx')
 
     @property
@@ -238,7 +238,7 @@ class Sparsity(op2.Sparsity):
         if not hasattr(self, '__dev_rowptr'):
             setattr(self, '__dev_rowptr',
                     array.to_device(_queue,
-                                    self._c_handle.rowptr))
+                                    self._rowptr))
         return getattr(self, '__dev_rowptr')
 
 class Mat(op2.Mat, DeviceDataMixin):
@@ -260,7 +260,7 @@ class Mat(op2.Mat, DeviceDataMixin):
         if not hasattr(self, '__dev_array'):
             setattr(self, '__dev_array',
                     array.empty(_queue,
-                                self._sparsity._c_handle.total_nz,
+                                self.sparsity.total_nz,
                                 self.dtype))
         return getattr(self, '__dev_array')
 
@@ -273,15 +273,15 @@ class Mat(op2.Mat, DeviceDataMixin):
         return self._sparsity.rowptr
 
     def _upload_array(self):
-        self._dev_array.set(self._c_handle.array, queue=_queue)
+        self._dev_array.set(self._handle.array, queue=_queue)
         self.state = DeviceDataMixin.BOTH
 
     def assemble(self):
         if self.state is DeviceDataMixin.DEVICE:
-            self._dev_array.get(queue=_queue, ary=self._c_handle.array)
-            self._c_handle.restore_array()
+            self._dev_array.get(queue=_queue, ary=self.handle.array)
+            self._handle.restore_array()
             self.state = DeviceDataMixin.BOTH
-        self._c_handle.assemble()
+        self.handle.assemble()
 
     @property
     def cdim(self):

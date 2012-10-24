@@ -148,14 +148,14 @@ class Sparsity(op2.Sparsity):
     def rowptr(self):
         if not hasattr(self, '__rowptr'):
             setattr(self, '__rowptr',
-                    gpuarray.to_gpu(self._c_handle.rowptr))
+                    gpuarray.to_gpu(self._rowptr))
         return getattr(self, '__rowptr')
 
     @property
     def colidx(self):
         if not hasattr(self, '__colidx'):
             setattr(self, '__colidx',
-                    gpuarray.to_gpu(self._c_handle.colidx))
+                    gpuarray.to_gpu(self._colidx))
         return getattr(self, '__colidx')
 
 class Mat(DeviceDataMixin, op2.Mat):
@@ -206,7 +206,7 @@ class Mat(DeviceDataMixin, op2.Mat):
     def _csrdata(self):
         if not hasattr(self, '__csrdata'):
             setattr(self, '__csrdata',
-                    gpuarray.zeros(shape=self._sparsity._c_handle.total_nz,
+                    gpuarray.zeros(shape=self._sparsity.total_nz,
                                    dtype=self.dtype))
         return getattr(self, '__csrdata')
 
@@ -259,8 +259,8 @@ class Mat(DeviceDataMixin, op2.Mat):
         shape = (shape, shape)
         ret = np.zeros(shape=shape, dtype=self.dtype)
         csrdata = self._csrdata.get()
-        rowptr = self.sparsity._c_handle.rowptr
-        colidx = self.sparsity._c_handle.colidx
+        rowptr = self.sparsity._rowptr
+        colidx = self.sparsity._colidx
         for r, (rs, re) in enumerate(zip(rowptr[:-1], rowptr[1:])):
             cols = colidx[rs:re]
             ret[r, cols] = csrdata[rs:re]
@@ -268,9 +268,9 @@ class Mat(DeviceDataMixin, op2.Mat):
 
     def zero_rows(self, rows, diag_val):
         for row in rows:
-            s = self.sparsity._c_handle.rowptr[row]
-            e = self.sparsity._c_handle.rowptr[row+1]
-            diag = np.where(self.sparsity._c_handle.colidx[s:e] == row)[0]
+            s = self.sparsity._rowptr[row]
+            e = self.sparsity._rowptr[row+1]
+            diag = np.where(self.sparsity._colidx[s:e] == row)[0]
             self._csrdata[s:e].fill(0)
             if len(diag) == 1:
                 diag += s       # offset from row start
