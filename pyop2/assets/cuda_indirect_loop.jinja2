@@ -34,7 +34,7 @@ __global__ void {{ parloop._stub_name }} (
     {{arg.ctype}} {{arg._local_name()}}[{{arg.data.cdim}}];
     {%- endfor %}
 
-    {%- for arg in parloop._all_inc_vec_map_args %}
+    {%- for arg in parloop._all_inc_vec_like_args %}
     {% for i in range(arg.map.dim) %}
     {{arg.ctype}} {{arg._local_name(idx=i)}}[{{arg.data.cdim}}];
     {%- endfor %}
@@ -44,8 +44,7 @@ __global__ void {{ parloop._stub_name }} (
     {{arg.ctype}} {{arg._reduction_local_name}}[{{arg.data.cdim}}];
     {% endfor %}
 
-    {%- for arg in parloop._all_vec_map_args %}
-    {%- if arg._is_INC %}
+    {%- for arg in parloop._all_inc_vec_like_args %}
     {{arg.ctype}} *{{arg._vec_name}}[{{arg.map.dim}}] = {
         {%- set comma = joiner(", ") -%}
         {%- for i in range(arg.map.dim) %}
@@ -53,9 +52,10 @@ __global__ void {{ parloop._stub_name }} (
         {{ arg._local_name(idx=i) }}
         {%- endfor %}
     };
-    {% else %}
+    {%- endfor %}
+
+    {%- for arg in parloop._all_non_inc_vec_map_args %}
     {{arg.ctype}} *{{arg._vec_name}}[{{arg.map.dim}}];
-    {%- endif -%}
     {%- endfor %}
 
     {% for arg in parloop._all_global_reduction_args %}
@@ -127,12 +127,15 @@ __global__ void {{ parloop._stub_name }} (
             }
             {% endfor %}
 
-            {% for arg in parloop._all_inc_vec_map_args %}
+            {% for arg in parloop._all_inc_vec_like_args %}
             for ( int idx2 = 0; idx2 < {{arg.data.cdim}}; ++idx2 ) {
                 {%- for i in range(arg.map.dim) %}
                 {{arg._local_name(idx=i)}}[idx2] = ({{arg.ctype}})0;
                 {%- endfor %}
             }
+            {% endfor %}
+            {% for r in parloop._it_space.extents %}
+            for ( int i{{loop.index0}} = 0; i{{loop.index0}} < {{r}}; ++i{{loop.index0}} ) {
             {% endfor %}
             {{parloop.kernel.name}}(
                 {%- set comma = joiner(",") -%}
@@ -140,8 +143,13 @@ __global__ void {{ parloop._stub_name }} (
                 {{ comma() }}
                 {{ arg._indirect_kernel_arg_name('idx') }}
                 {%- endfor -%}
+                {%- for _ in parloop._it_space.extents -%}
+                , i{{loop.index0}}
+                {% endfor -%}
                 );
-
+            {% for r in parloop._it_space._extents %}
+            }
+            {% endfor %}
         {%- if parloop._all_inc_indirect_dat_args %}
             col2 = thrcol[idx + offset_b];
         }
@@ -155,7 +163,7 @@ __global__ void {{ parloop._stub_name }} (
                     {{arg._shared_name}}[idx2 + {{tmp}}*{{arg.data.cdim}}] += {{arg._local_name()}}[idx2];
                 }
                 {%- endfor %}
-                {%- for arg in parloop._all_inc_vec_map_args %}
+                {%- for arg in parloop._all_inc_vec_like_args %}
                 for ( int idx2 = 0; idx2 < {{arg.data.cdim}}; ++idx2) {
                     {%- for i in range(arg.map.dim) %}
                     {%- set tmp = 'loc_map[' ~ (arg._which_indirect + i) ~ ' * set_size + idx + offset_b]' %}

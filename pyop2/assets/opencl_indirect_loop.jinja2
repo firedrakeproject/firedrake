@@ -194,7 +194,7 @@ void {{ parloop._stub_name }}(
 {% for arg in parloop._all_inc_vec_map_args %}
   {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.dim }}];
 {%- endfor %}
-{% for dm in parloop._all_non_inc_itspace_dat_args %}
+{% for arg in parloop._all_non_inc_itspace_dat_args %}
   __local {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.dim }}];
 {%- endfor %}
 {% for arg in parloop._all_inc_itspace_dat_args %}

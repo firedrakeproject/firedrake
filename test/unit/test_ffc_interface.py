@@ -35,7 +35,7 @@ import pytest
 from pyop2 import op2, ffc_interface
 from ufl import *
 
-backends = ['opencl', 'sequential']
+backends = ['opencl', 'sequential', 'cuda']
 
 @pytest.mark.xfail("not hasattr(ffc_interface.constants, 'PYOP2_VERSION')")
 class TestFFCCache:

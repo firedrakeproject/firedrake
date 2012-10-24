@@ -181,10 +181,6 @@ class Mat(base.Mat):
             self._lib_handle = core.op_mat(self)
         return self._lib_handle
 
-    def __del__(self):
-        self._lib_handle.__del__()
-        self._lib_handle = None
-
 class ParLoop(base.ParLoop):
     def compute(self):
         raise RuntimeError('Must select a backend')

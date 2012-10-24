@@ -306,7 +306,7 @@ cdef class op_mat:
     def restore_array(self):
         core.op_mat_put_array(self._handle)
 
-    def __del__(self):
+    def __dealloc__(self):
         core.op_mat_destroy(self._handle)
         self._handle = NULL
 
