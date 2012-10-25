@@ -177,8 +177,14 @@ __global__ void {{ parloop._stub_name }} (
         {%- endif %}
     }
 
-    // Write to global
 
+    {%- if parloop._unique_write_or_rw_indirect_dat_args -%}
+    // necessary since the write to global from shared memory may come
+    // from a different thread than the one which wrote to shared
+    // memory in the user kernel (and they may not be in the same warp)
+    __syncthreads();
+    // Write to global
+    {%- endif %}
     {%- for arg in parloop._unique_write_or_rw_indirect_dat_args %}
     for ( int idx = threadIdx.x; idx < {{arg._size_name}} * {{arg.data.cdim}}; idx += blockDim.x ) {
         {{arg._name}}[idx % {{arg.data.cdim}} + {{arg._map_name}}[idx/{{arg.data.cdim}}] * {{arg.data.cdim}}] = {{arg._shared_name}}[idx];
@@ -192,6 +198,8 @@ __global__ void {{ parloop._stub_name }} (
     {% endfor %}
 
     // Reductions
+    // No syncthreads needed here, because there's one at the start of
+    // the reduction.
     {% for arg in parloop._all_global_reduction_args %}
     for ( int idx = 0; idx < {{ arg.data.cdim}}; ++idx ) {
         {{ arg._reduction_kernel_name }}(&{{arg._name}}[idx + blockIdx.x * {{arg.data.cdim}}], {{arg._reduction_local_name}}[idx]);
