@@ -146,10 +146,6 @@ class Dat(DeviceDataMixin, op2.Dat):
 class Mat(DeviceDataMixin, op2.Mat):
     _arg_type = Arg
 
-    def _assemble(self):
-        from warnings import warn
-        warn("Conversion from LMA to CSR not yet implemented")
-
     @property
     def _lmadata(self):
         if not hasattr(self, '__lmadata'):
@@ -203,6 +199,17 @@ class Mat(DeviceDataMixin, op2.Mat):
                     gpuarray.zeros(shape=self._sparsity._c_handle.total_nz,
                                    dtype=self.dtype))
         return getattr(self, '__csrdata')
+
+    def _assemble(self):
+        from warnings import warn
+        warn("Conversion from LMA to CSR not yet implemented")
+
+    @property
+    def values(self):
+        raise NotImplementedError("Mat.values not yet implemented for cuda")
+
+    def zero_rows(self):
+        raise NotImplementedError("Mat.zero_rows not yet implemented for cuda")
 
     def zero(self):
         self._csrdata.fill(0)
@@ -354,6 +361,9 @@ class Plan(op2.Plan):
         if not hasattr(self, '_blkmap'):
             self._blkmap = gpuarray.to_gpu(super(Plan, self).blkmap)
         return self._blkmap
+
+def solve(M, b, x):
+    raise NotImplementedError("solve not yet implemented for cuda")
 
 def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()
