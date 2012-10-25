@@ -561,10 +561,10 @@ class TestSparsityCache:
         return op2.Set(5)
 
     def pytest_funcarg__m1(cls, request):
-        return op2.Map(request.getfuncargvalue('s1'), request.getfuncargvalue('s2'), 1, [1,2,3,4,5])
+        return op2.Map(request.getfuncargvalue('s1'), request.getfuncargvalue('s2'), 1, [0,1,2,3,4])
 
     def pytest_funcarg__m2(cls, request):
-        return op2.Map(request.getfuncargvalue('s1'), request.getfuncargvalue('s2'), 1, [2,3,4,5,1])
+        return op2.Map(request.getfuncargvalue('s1'), request.getfuncargvalue('s2'), 1, [1,2,3,4,0])
 
     def test_sparsities_differing_maps_share_no_data(self, backend, m1, m2):
         """Sparsities with different maps should not share a C handle."""

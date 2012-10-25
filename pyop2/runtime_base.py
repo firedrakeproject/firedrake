@@ -174,12 +174,12 @@ class Sparsity(base.Sparsity):
             self._lib_handle = core.op_sparsity(self)
         return self._lib_handle
 
+    # FIXME: this will not work with MPI
     def _build_sparsity_pattern(self):
         rmult, cmult = self._dims
-        s_diag  = [ set() for i in xrange(self._nrows) ]
-        s_odiag = [ set() for i in xrange(self._nrows) ]
+        lsize = self._nrows*rmult
+        s  = [ set() for i in xrange(lsize) ]
 
-        lsize = self._nrows
         for rowmap, colmap in zip(self._rmaps, self._cmaps):
             #FIXME: exec_size will need adding for MPI support
             rsize = rowmap.iterset.size
@@ -187,30 +187,20 @@ class Sparsity(base.Sparsity):
                 for i in xrange(rowmap.dim):
                     for r in xrange(rmult):
                         row = rmult * rowmap.values[e][i] + r
-                        if row < lsize:
-                            for c in xrange(cmult):
-                                for d in xrange(colmap.dim):
-                                    entry = cmult * colmap.values[e][d] + c
-                                    if entry < lsize:
-                                        s_diag[row].add(entry)
-                                    else:
-                                        s_odiag[row].add(entry)
+                        for c in xrange(cmult):
+                            for d in xrange(colmap.dim):
+                                s[row].add(cmult * colmap.values[e][d] + c)
 
-        d_nnz = [0]*(cmult * self._nrows)
-        o_nnz = [0]*(cmult * self._nrows)
-        rowptr = [0]*(self._nrows+1)
-        for row in xrange(self._nrows):
-            d_nnz[row] = len(s_diag[row])
-            o_nnz[row] = len(s_odiag[row])
-            rowptr[row+1] = rowptr[row] + d_nnz[row] + o_nnz[row]
-        colidx = [0]*rowptr[self._nrows]
-        for row in xrange(self._nrows):
-            entries = list(s_diag[row]) + list(s_odiag[row])
-            colidx[rowptr[row]:rowptr[row+1]] = entries
+        d_nnz = np.array([len(r) for r in s], dtype=np.int32)
+        rowptr = np.zeros(lsize+1, dtype=np.int32)
+        rowptr[1:] = np.cumsum(d_nnz)
+        colidx = np.zeros(rowptr[-1], np.int32)
+        for row in xrange(lsize):
+            colidx[rowptr[row]:rowptr[row+1]] = list(s[row])
 
-        self._total_nz = rowptr[self._nrows]
-        self._rowptr = np.asarray(rowptr, np.uint32)
-        self._colidx = np.asarray(colidx, np.uint32)
+        self._total_nz = rowptr[-1]
+        self._rowptr = rowptr
+        self._colidx = colidx
         self._d_nnz = d_nnz
 
 class Mat(base.Mat):
