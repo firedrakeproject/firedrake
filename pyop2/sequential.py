@@ -34,6 +34,7 @@
 """OP2 sequential backend."""
 
 import numpy as np
+import petsc
 
 from exceptions import *
 from utils import *
@@ -138,7 +139,7 @@ class ParLoop(rt.ParLoop):
 
         def c_wrapper_dec(arg):
             if arg._is_mat:
-                val = "op_mat %(name)s = (op_mat)((uintptr_t)PyLong_AsUnsignedLong(_%(name)s))" % \
+                val = "Mat %(name)s = (Mat)((uintptr_t)PyLong_AsUnsignedLong(_%(name)s))" % \
                      { "name": c_arg_name(arg) }
             else:
                 val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
@@ -369,11 +370,11 @@ class ParLoop(rt.ParLoop):
 
         _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
                                  additional_definitions = _const_decs + kernel_code,
-                                 include_dirs=[OP2_INC],
+                                 include_dirs=[OP2_INC, petsc.get_petsc_dir()+'/include'],
                                  source_directory=os.path.dirname(os.path.abspath(__file__)),
                                  wrap_headers=["mat_utils.h"],
-                                 library_dirs=[OP2_LIB],
-                                 libraries=['op2_seq'],
+                                 library_dirs=[OP2_LIB, petsc.get_petsc_dir()+'/lib'],
+                                 libraries=['op2_seq', 'petsc'],
                                  sources=["mat_utils.cxx"])
 
         rt._parloop_cache[key] = _fun
