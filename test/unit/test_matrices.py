@@ -59,7 +59,8 @@ class TestMatrices:
                 setup=lambda: op2.Set(NUM_NODES, "nodes"), scope='module')
 
     def pytest_funcarg__elements(cls, request):
-        return op2.Set(NUM_ELE, "elements")
+        return request.cached_setup(
+                setup=lambda: op2.Set(NUM_ELE, "elements"), scope='module')
 
     def pytest_funcarg__elem_node(cls, request):
         elements = request.getfuncargvalue('elements')
