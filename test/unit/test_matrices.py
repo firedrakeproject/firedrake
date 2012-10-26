@@ -563,7 +563,6 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps = 1.e-12
         assert_allclose(mat.values, expected_matrix, eps)
 
-    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
     def test_assemble(self, backend, mass, mat, coords, elements, elem_node,
                       expected_matrix):
         op2.par_loop(mass, elements(3,3),
@@ -588,7 +587,6 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps = 1.e-12
         assert_allclose(x.data, f.data, eps)
 
-    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
     def test_zero_matrix(self, backend, mat):
         """Test that the matrix is zeroed correctly."""
         mat.zero()
@@ -602,7 +600,6 @@ void zero_mat(double local_mat[1][1], int i, int j)
                      b(op2.IdentityMap, op2.WRITE))
         assert all(b.data == numpy.zeros_like(b.data))
 
-    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
     def test_assemble_ffc(self, backend, mass_ffc, mat, coords, elements,
                           elem_node, expected_matrix):
         """Test that the FFC mass assembly assembles the correct values."""
@@ -612,7 +609,6 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps=1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
-    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
     def test_assemble_vec_mass(self, backend, mass_vector_ffc, vecmat, coords,
                                elements, elem_node, expected_vector_matrix):
         """Test that the FFC vector mass assembly assembles the correct values."""
@@ -678,7 +674,6 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps = 1.e-12
         assert_allclose(x_vec.data, f_vec.data, eps)
 
-    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
     def test_zero_vector_matrix(self, backend, vecmat):
         """Test that the matrix is zeroed correctly."""
         vecmat.zero()
