@@ -202,16 +202,19 @@ class Mat(DeviceDataMixin, op2.Mat):
         return getattr(self, '__csrdata')
 
     def _assemble(self, rowmap, colmap):
-        fun = Mat._lma2csr_cache.get(self.dtype)
-        if fun is None:
+        mod, sfun, vfun = Mat._lma2csr_cache.get(self.dtype,
+                                                 (None, None, None))
+        if mod is None:
             d = {'type' : self.ctype}
             src = _matrix_support_template.render(d).encode('ascii')
             compiler_opts = ['-m64', '-Xptxas', '-dlcm=ca',
                              '-Xptxas=-v', '-O3', '-use_fast_math', '-DNVCC']
             mod = SourceModule(src, options=compiler_opts)
-            fun = mod.get_function('__lma_to_csr')
-            fun.prepare('iPPPPPiPii')
-            Mat._lma2csr_cache[self.dtype] = fun
+            sfun = mod.get_function('__lma_to_csr')
+            vfun = mod.get_function('__lma_to_csr_vector')
+            sfun.prepare('iPPPPPiPii')
+            vfun.prepare('iPPPPPiiPiii')
+            Mat._lma2csr_cache[self.dtype] = mod, sfun, vfun
 
         assert rowmap.iterset is colmap.iterset
         nelems = rowmap.iterset.size
@@ -226,10 +229,19 @@ class Mat(DeviceDataMixin, op2.Mat):
                    self._rowptr.gpudata,
                    self._colidx.gpudata,
                    rowmap._device_values.gpudata,
-                   np.int32(rowmap.dim),
-                   colmap._device_values.gpudata,
-                   np.int32(colmap.dim),
-                   np.int32(nelems)]
+                   np.int32(rowmap.dim)]
+        if self._is_scalar_field:
+            arglist.extend([colmap._device_values.gpudata,
+                            np.int32(colmap.dim),
+                            np.int32(nelems)])
+            fun = sfun
+        else:
+            arglist.extend([np.int32(self.dims[0]),
+                            colmap._device_values.gpudata,
+                            np.int32(colmap.dim),
+                            np.int32(self.dims[1]),
+                            np.int32(nelems)])
+            fun = vfun
         fun.prepared_call((nblock, 1, 1), (nthread, 1, 1), *arglist)
 
     @property

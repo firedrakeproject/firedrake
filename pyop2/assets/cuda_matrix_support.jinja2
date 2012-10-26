@@ -47,5 +47,39 @@ __global__ void __lma_to_csr(int lmaoffset,
                      colmap[e * colmapdim + j],
                      rowptr, colidx);
 
-    __atomic_add(csrdata + offset, lmadata[n + lmaoffset]);
+    lmadata += lmaoffset;
+    __atomic_add(csrdata + offset, lmadata[n]);
+}
+
+__global__ void __lma_to_csr_vector(int lmaoffset,
+                                    {{type}} *lmadata,
+                                    {{type}} *csrdata,
+                                    int *rowptr,
+                                    int *colidx,
+                                    int *rowmap,
+                                    int rowmapdim,
+                                    int rmult,
+                                    int *colmap,
+                                    int colmapdim,
+                                    int cmult,
+                                    int nelems)
+{
+    int nentries_per_ele = rowmapdim * colmapdim;
+    int n = threadIdx.x + blockIdx.x * blockDim.x;
+    if ( n >= nelems * nentries_per_ele ) return;
+
+    int e = n / nentries_per_ele;
+    int i = (n - e * nentries_per_ele) / rowmapdim;
+    int j = (n - e * nentries_per_ele - i * colmapdim);
+
+    int row = rmult * rowmap[e * rowmapdim + i];
+    int col = cmult * colmap[e * colmapdim + j];
+    lmadata += lmaoffset;
+    for ( int k = 0; k < rmult; ++k ) {
+        for ( int l = 0; l < cmult; ++l ) {
+            int offset = pos(row + k, col + l,
+                             rowptr, colidx);
+            __atomic_add(csrdata + offset, lmadata[n*rmult*cmult + k*cmult + l]);
+        }
+    }
 }
