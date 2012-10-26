@@ -484,7 +484,7 @@ class ParLoop(op2.ParLoop):
     @property
     def _requires_matrix_coloring(self):
         """Direct code generation to follow colored execution for global matrix insertion."""
-        return _use_matrix_coloring and not not self._matrix_args
+        return _supports_64b_atomics and not not self._matrix_args
 
     def _i_partition_size(self):
         #TODO FIX: something weird here
@@ -726,7 +726,7 @@ def _setup():
     global _warpsize
     global _AMD_fixes
     global _reduction_task_cache
-    global _use_matrix_coloring
+    global _supports_64b_atomics
 
     _ctx = cl.create_some_context()
     _queue = cl.CommandQueue(_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
@@ -739,7 +739,7 @@ def _setup():
         warnings.warn('device does not support double precision floating point computation, expect undefined behavior for double')
 
     if not 'cl_khr_int64_base_atomics' in _queue.device.extensions:
-        _use_matrix_coloring = True
+        _supports_64b_atomics = True
 
     if _queue.device.type == cl.device_type.CPU:
         _warpsize = 1
@@ -750,7 +750,7 @@ def _setup():
     _AMD_fixes = _queue.device.platform.vendor in ['Advanced Micro Devices, Inc.']
     _reduction_task_cache = dict()
 
-_use_matrix_coloring = False
+_supports_64b_atomics = False
 _debug = False
 _ctx = None
 _queue = None
