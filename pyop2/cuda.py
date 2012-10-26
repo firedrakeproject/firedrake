@@ -246,7 +246,16 @@ class Mat(DeviceDataMixin, op2.Mat):
 
     @property
     def values(self):
-        raise NotImplementedError("Mat.values not yet implemented for cuda")
+        shape = self.sparsity.maps[0][0].dataset.size * self.dims[0]
+        shape = (shape, shape)
+        ret = np.zeros(shape=shape, dtype=self.dtype)
+        csrdata = self._csrdata.get()
+        rowptr = self.sparsity._c_handle.rowptr
+        colidx = self.sparsity._c_handle.colidx
+        for r, (rs, re) in enumerate(zip(rowptr[:-1], rowptr[1:])):
+            cols = colidx[rs:re]
+            ret[r, cols] = csrdata[rs:re]
+        return ret
 
     def zero_rows(self):
         raise NotImplementedError("Mat.zero_rows not yet implemented for cuda")
