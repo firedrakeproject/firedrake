@@ -145,6 +145,7 @@ class Dat(DeviceDataMixin, op2.Dat):
 
 class Mat(DeviceDataMixin, op2.Mat):
     _arg_type = Arg
+    _lma2csr_cache = dict()
 
     @property
     def _lmadata(self):
@@ -182,14 +183,14 @@ class Mat(DeviceDataMixin, op2.Mat):
     def _rowptr(self):
         if not hasattr(self, '__rowptr'):
             setattr(self, '__rowptr',
-                    gpuarray.to_device(self._sparsity._c_handle.rowptr))
+                    gpuarray.to_gpu(self._sparsity._c_handle.rowptr))
         return getattr(self, '__rowptr')
 
     @property
     def _colidx(self):
         if not hasattr(self, '__colidx'):
             setattr(self, '__colidx',
-                    gpuarray.to_device(self._sparsity._c_handle.colidx))
+                    gpuarray.to_gpu(self._sparsity._c_handle.colidx))
         return getattr(self, '__colidx')
 
     @property
@@ -200,9 +201,36 @@ class Mat(DeviceDataMixin, op2.Mat):
                                    dtype=self.dtype))
         return getattr(self, '__csrdata')
 
-    def _assemble(self):
-        from warnings import warn
-        warn("Conversion from LMA to CSR not yet implemented")
+    def _assemble(self, rowmap, colmap):
+        fun = Mat._lma2csr_cache.get(self.dtype)
+        if fun is None:
+            d = {'type' : self.ctype}
+            src = _matrix_support_template.render(d).encode('ascii')
+            compiler_opts = ['-m64', '-Xptxas', '-dlcm=ca',
+                             '-Xptxas=-v', '-O3', '-use_fast_math', '-DNVCC']
+            mod = SourceModule(src, options=compiler_opts)
+            fun = mod.get_function('__lma_to_csr')
+            fun.prepare('iPPPPPiPii')
+            Mat._lma2csr_cache[self.dtype] = fun
+
+        assert rowmap.iterset is colmap.iterset
+        nelems = rowmap.iterset.size
+        nthread = 128
+        nblock = (nelems * rowmap.dim * colmap.dim) / nthread + 1
+
+        rowmap._to_device()
+        colmap._to_device()
+        arglist = [np.int32(self._lmaoffset(rowmap.iterset)),
+                   self._lmadata.gpudata,
+                   self._csrdata.gpudata,
+                   self._rowptr.gpudata,
+                   self._colidx.gpudata,
+                   rowmap._device_values.gpudata,
+                   np.int32(rowmap.dim),
+                   colmap._device_values.gpudata,
+                   np.int32(colmap.dim),
+                   np.int32(nelems)]
+        fun.prepared_call((nblock, 1, 1), (nthread, 1, 1), *arglist)
 
     @property
     def values(self):
@@ -213,7 +241,7 @@ class Mat(DeviceDataMixin, op2.Mat):
 
     def zero(self):
         self._csrdata.fill(0)
-
+        self._lmadata.fill(0)
 
 class Const(DeviceDataMixin, op2.Const):
     _arg_type = Arg
@@ -574,7 +602,7 @@ class ParLoop(op2.ParLoop):
                         arg.data.state = DeviceDataMixin.DEVICE
                 else:
                     # Mat, assemble from lma->csr
-                    arg.data._assemble()
+                    arg.data._assemble(rowmap=arg.map[0], colmap=arg.map[1])
         if self._has_soa:
             op2stride.remove_from_namespace()
 
@@ -584,6 +612,7 @@ _WARPSIZE = 32
 _AVAILABLE_SHARED_MEMORY = 0
 _direct_loop_template = None
 _indirect_loop_template = None
+_matrix_support_template = None
 
 def _setup():
     global _device
@@ -598,9 +627,12 @@ def _setup():
         _AVAILABLE_SHARED_MEMORY = _device.get_attribute(driver.device_attribute.MAX_SHARED_MEMORY_PER_BLOCK)
     global _direct_loop_template
     global _indirect_loop_template
+    global _matrix_support_template
     env = jinja2.Environment(loader=jinja2.PackageLoader('pyop2', 'assets'))
     if _direct_loop_template is None:
         _direct_loop_template = env.get_template('cuda_direct_loop.jinja2')
 
     if _indirect_loop_template is None:
         _indirect_loop_template = env.get_template('cuda_indirect_loop.jinja2')
+    if _matrix_support_template is None:
+        _matrix_support_template = env.get_template('cuda_matrix_support.jinja2')
