@@ -202,15 +202,14 @@ class Map(op2.Map):
     def _to_device(self):
         if not hasattr(self, '_device_values'):
             self._device_values = gpuarray.to_gpu(self._values)
-        else:
-            from warnings import warn
-            warn("Copying Map data for %s again, do you really want to do this?" % \
-                 self)
+        elif self._state is not DeviceDataMixin.BOTH:
             self._device_values.set(self._values)
+        self._state = DeviceDataMixin.BOTH
 
     def _from_device(self):
         if not hasattr(self, '_device_values') is None:
             raise RuntimeError("No values for Map %s on device" % self)
+        self._state = DeviceDataMixin.HOST
         self._device_values.get(self._values)
 
 class Plan(op2.Plan):
