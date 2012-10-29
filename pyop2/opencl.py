@@ -484,7 +484,7 @@ class ParLoop(op2.ParLoop):
     @property
     def _requires_matrix_coloring(self):
         """Direct code generation to follow colored execution for global matrix insertion."""
-        return _supports_64b_atomics and not not self._matrix_args
+        return not _supports_64b_atomics and not not self._matrix_args
 
     def _i_partition_size(self):
         #TODO FIX: something weird here
@@ -738,7 +738,7 @@ def _setup():
     if not _has_dpfloat:
         warnings.warn('device does not support double precision floating point computation, expect undefined behavior for double')
 
-    if not 'cl_khr_int64_base_atomics' in _queue.device.extensions:
+    if 'cl_khr_int64_base_atomics' in _queue.device.extensions:
         _supports_64b_atomics = True
 
     if _queue.device.type == cl.device_type.CPU:
