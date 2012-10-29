@@ -386,57 +386,58 @@ class Map(op2.Map):
 class Plan(op2.Plan):
     @property
     def ind_map(self):
-        if not hasattr(self, '_ind_map'):
-            self._ind_map = array.to_device(_queue, super(Plan, self).ind_map)
-        return self._ind_map
-
-    @property
-    def loc_map(self):
-        if not hasattr(self, '_loc_map'):
-            self._loc_map = array.to_device(_queue, super(Plan, self).loc_map)
-        return self._loc_map
+        if not hasattr(self, '_ind_map_array'):
+            self._ind_map_array = array.to_device(_queue, super(Plan,self).ind_map)
+        return self._ind_map_array
 
     @property
     def ind_sizes(self):
-        if not hasattr(self, '_ind_sizes'):
-            self._ind_sizes = array.to_device(_queue, super(Plan, self).ind_sizes)
-        return self._ind_sizes
+        if not hasattr(self, '_ind_sizes_array'):
+            self._ind_sizes_array = array.to_device(_queue, super(Plan,self).ind_sizes)
+        return self._ind_sizes_array
 
     @property
     def ind_offs(self):
-        if not hasattr(self, '_ind_offs'):
-            self._ind_offs = array.to_device(_queue, super(Plan, self).ind_offs)
-        return self._ind_offs
+        if not hasattr(self, '_ind_offs_array'):
+            self._ind_offs_array = array.to_device(_queue, super(Plan,self).ind_offs)
+        return self._ind_offs_array
+
+    @property
+    def loc_map(self):
+        if not hasattr(self, '_loc_map_array'):
+            self._loc_map_array = array.to_device(_queue, super(Plan,self).loc_map)
+        return self._loc_map_array
 
     @property
     def blkmap(self):
-        if not hasattr(self, '_blkmap'):
-            self._blkmap = array.to_device(_queue, super(Plan, self).blkmap)
-        return self._blkmap
+        if not hasattr(self, '_blkmap_array'):
+            self._blkmap_array = array.to_device(_queue, super(Plan,self).blkmap)
+        return self._blkmap_array
 
     @property
     def offset(self):
-        if not hasattr(self, '_offset'):
-            self._offset = array.to_device(_queue, super(Plan, self).offset)
-        return self._offset
+        if not hasattr(self, '_offset_array'):
+            self._offset_array = array.to_device(_queue, super(Plan,self).offset)
+        return self._offset_array
 
     @property
     def nelems(self):
-        if not hasattr(self, '_nelems'):
-            self._nelems = array.to_device(_queue, super(Plan, self).nelems)
-        return self._nelems
+        if not hasattr(self, '_nelems_array'):
+            self._nelems_array = array.to_device(_queue, super(Plan,self).nelems)
+        return self._nelems_array
 
     @property
     def nthrcol(self):
-        if not hasattr(self, '_nthrcol'):
-            self._nthrcol = array.to_device(_queue, super(Plan, self).nthrcol)
-        return self._nthrcol
+        if not hasattr(self, '_nthrcol_array'):
+            self._nthrcol_array = array.to_device(_queue, super(Plan,self).nthrcol)
+        return self._nthrcol_array
 
     @property
     def thrcol(self):
-        if not hasattr(self, '_thrcol'):
-            self._thrcol = array.to_device(_queue, super(Plan, self).thrcol)
-        return self._thrcol
+        if not hasattr(self, '_thrcol_array'):
+            self._thrcol_array = array.to_device(_queue, super(Plan,self).thrcol)
+        return self._thrcol_array
+
 
 class Solver(op2.Solver):
 

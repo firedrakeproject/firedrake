@@ -571,3 +571,5 @@ def build_sparsity(object sparsity):
     finally:
         free(rmaps)
         free(cmaps)
+
+include "plan.pyx"

@@ -187,7 +187,7 @@ def verify_reshape(data, dtype, shape, allow_none=False):
 
 def align(bytes, alignment=16):
     """Align BYTES to a multiple of ALIGNMENT"""
-    return ((bytes + alignment) // alignment) * alignment
+    return ((bytes + alignment - 1) // alignment) * alignment
 
 def uniquify(iterable):
     """Remove duplicates in ITERABLE but preserve order."""

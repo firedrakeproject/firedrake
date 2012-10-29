@@ -387,57 +387,57 @@ class Map(op2.Map):
 class Plan(op2.Plan):
     @property
     def nthrcol(self):
-        if not hasattr(self, '_nthrcol'):
-            self._nthrcol = gpuarray.to_gpu(super(Plan, self).nthrcol)
-        return self._nthrcol
+        if not hasattr(self, '_nthrcol_gpuarray'):
+            self._nthrcol_gpuarray = gpuarray.to_gpu(super(Plan, self).nthrcol)
+        return self._nthrcol_gpuarray
 
     @property
     def thrcol(self):
-        if not hasattr(self, '_thrcol'):
-            self._thrcol = gpuarray.to_gpu(super(Plan, self).thrcol)
-        return self._thrcol
+        if not hasattr(self, '_thrcol_gpuarray'):
+            self._thrcol_gpuarray = gpuarray.to_gpu(super(Plan, self).thrcol)
+        return self._thrcol_gpuarray
 
     @property
     def offset(self):
-        if not hasattr(self, '_offset'):
-            self._offset = gpuarray.to_gpu(super(Plan, self).offset)
-        return self._offset
+        if not hasattr(self, '_offset_gpuarray'):
+            self._offset_gpuarray = gpuarray.to_gpu(super(Plan, self).offset)
+        return self._offset_gpuarray
 
     @property
     def ind_map(self):
-        if not hasattr(self, '_ind_map'):
-            self._ind_map = gpuarray.to_gpu(super(Plan, self).ind_map)
-        return self._ind_map
+        if not hasattr(self, '_ind_map_gpuarray'):
+            self._ind_map_gpuarray = gpuarray.to_gpu(super(Plan, self).ind_map)
+        return self._ind_map_gpuarray
 
     @property
     def ind_offs(self):
-        if not hasattr(self, '_ind_offs'):
-            self._ind_offs = gpuarray.to_gpu(super(Plan, self).ind_offs)
-        return self._ind_offs
+        if not hasattr(self, '_ind_offs_gpuarray'):
+            self._ind_offs_gpuarray = gpuarray.to_gpu(super(Plan, self).ind_offs)
+        return self._ind_offs_gpuarray
 
     @property
     def ind_sizes(self):
-        if not hasattr(self, '_ind_sizes'):
-            self._ind_sizes = gpuarray.to_gpu(super(Plan, self).ind_sizes)
-        return self._ind_sizes
+        if not hasattr(self, '_ind_sizes_gpuarray'):
+            self._ind_sizes_gpuarray = gpuarray.to_gpu(super(Plan, self).ind_sizes)
+        return self._ind_sizes_gpuarray
 
     @property
     def loc_map(self):
-        if not hasattr(self, '_loc_map'):
-            self._loc_map = gpuarray.to_gpu(super(Plan, self).loc_map)
-        return self._loc_map
+        if not hasattr(self, '_loc_map_gpuarray'):
+            self._loc_map_gpuarray = gpuarray.to_gpu(super(Plan, self).loc_map)
+        return self._loc_map_gpuarray
 
     @property
     def nelems(self):
-        if not hasattr(self, '_nelems'):
-            self._nelems = gpuarray.to_gpu(super(Plan, self).nelems)
-        return self._nelems
+        if not hasattr(self, '_nelems_gpuarray'):
+            self._nelems_gpuarray = gpuarray.to_gpu(super(Plan, self).nelems)
+        return self._nelems_gpuarray
 
     @property
     def blkmap(self):
-        if not hasattr(self, '_blkmap'):
-            self._blkmap = gpuarray.to_gpu(super(Plan, self).blkmap)
-        return self._blkmap
+        if not hasattr(self, '_blkmap_gpuarray'):
+            self._blkmap_gpuarray = gpuarray.to_gpu(super(Plan, self).blkmap)
+        return self._blkmap_gpuarray
 
 _cusp_cache = dict()
 
