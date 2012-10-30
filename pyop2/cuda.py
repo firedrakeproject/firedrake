@@ -411,7 +411,13 @@ class Plan(op2.Plan):
             self._blkmap = gpuarray.to_gpu(super(Plan, self).blkmap)
         return self._blkmap
 
-def _cusp_solve(M, b, x):
+_cusp_cache = dict()
+
+def _cusp_solver(M):
+    module = _cusp_cache.get(M.dtype)
+    if module:
+        return module
+
     import codepy.jit
     import codepy.toolchain
     from codepy.cgen import FunctionBody, FunctionDeclaration, If
@@ -529,6 +535,14 @@ def _cusp_solve(M, b, x):
     nvcc_toolchain.cflags.append('sm_20')
     module = nvcc_mod.compile(gcc_toolchain, nvcc_toolchain, debug=True)
 
+    _cusp_cache[M.dtype] = module
+    return module
+
+def solve(M, b, x):
+    b._to_device()
+    x._to_device()
+    solver_parameters = {'linear_solver': 'cg'}
+    module = _cusp_solver(M)
     module.__solve(M._rowptr,
                    M._colidx,
                    M._csrdata,
@@ -536,12 +550,8 @@ def _cusp_solve(M, b, x):
                    x._device_data,
                    b.dataset.size * b.cdim,
                    x.dataset.size * x.cdim,
-                   M._csrdata.size)
-
-def solve(M, b, x):
-    b._to_device()
-    x._to_device()
-    _cusp_solve(M, b, x)
+                   M._csrdata.size,
+                   solver_parameters)
     x.state = DeviceDataMixin.DEVICE
 
 def par_loop(kernel, it_space, *args):
