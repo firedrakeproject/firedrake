@@ -427,9 +427,18 @@ def _cusp_solve(M, b, x):
                      'thrust/fill.h',
                      'cusp/csr_matrix.h',
                      'cusp/krylov/cg.h',
+                     'cusp/krylov/bicgstab.h',
                      'cusp/krylov/gmres.h',
-                     'cusp/precond/diagonal.h']
+                     'cusp/precond/diagonal.h',
+                     'cusp/precond/smoothed_aggregation.h',
+                     'cusp/precond/ainv.h',
+                     'string']
     nvcc_mod.add_to_preamble([Include(s) for s in nvcc_includes])
+    nvcc_mod.add_to_preamble([Statement('using namespace std')])
+
+    solve_block = Block([If('ksp_type == "cg"', Statement('cusp::krylov::cg(A, x, b, monitor, M)')),
+                         If('ksp_type == "bicgstab"', Statement('cusp::krylov::bicgstab(A, x, b, monitor, M)')),
+                         If('ksp_type == "gmres"', Statement('cusp::krylov::gmres(A, x, b, restart, monitor, M)'))])
 
     nvcc_function = FunctionBody(
         FunctionDeclaration(Value('void', '__cusp_solve'),
@@ -440,10 +449,16 @@ def _cusp_solve(M, b, x):
                              Value('CUdeviceptr', '_x'),
                              Value('int', 'nrows'),
                              Value('int', 'ncols'),
-                             Value('int', 'nnz')]),
+                             Value('int', 'nnz'),
+                             Value('string', 'ksp_type'),
+                             Value('string', 'pc_type'),
+                             Value('double', 'rtol'),
+                             Value('double', 'atol'),
+                             Value('int', 'max_it'),
+                             Value('int', 'restart')]),
         Block([
-                Statement('typedef int IndexType'),
-                Statement('typedef %(t)s ValueType' % d),
+            Statement('typedef int IndexType'),
+            Statement('typedef %(t)s ValueType' % d),
             Statement('typedef typename cusp::array1d_view< thrust::device_ptr<IndexType> > indices'),
             Statement('typedef typename cusp::array1d_view< thrust::device_ptr<ValueType> > values'),
             Statement('typedef cusp::csr_matrix_view< indices, indices, values, IndexType, ValueType, cusp::device_memory > matrix'),
@@ -459,15 +474,26 @@ def _cusp_solve(M, b, x):
             Statement('values x(d_x, d_x + ncols)'),
             Statement('thrust::fill(x.begin(), x.end(), (ValueType)0)'),
             Statement('matrix A(nrows, ncols, nnz, row_offsets, column_indices, matrix_values)'),
-            Statement('cusp::default_monitor< ValueType > monitor(b, 1000, 1e-10)' % d),
-            Statement('cusp::precond::diagonal< ValueType, cusp::device_memory > M(A)' % d),
-            Statement('cusp::krylov::cg(A, x, b, monitor)')
+            Statement('cusp::default_monitor< ValueType > monitor(b, max_it, rtol, atol)'),
+            If('pc_type == "diagonal"',
+               Block([Statement('cusp::precond::diagonal< ValueType, cusp::device_memory >M(A)'),
+                      solve_block])),
+            If('pc_type == "ainv"',
+               Block([Statement('cusp::precond::scaled_bridson_ainv< ValueType, cusp::device_memory >M(A)'),
+                      solve_block])),
+            If('pc_type == "amg"',
+               Block([Statement('cusp::precond::smoothed_aggregation< IndexType, ValueType, cusp::device_memory >M(A)'),
+                      solve_block])),
+            If('pc_type == "None"',
+               Block([Statement('cusp::identity_operator< ValueType, cusp::device_memory >M(nrows, ncols)'),
+                      solve_block]))
             ]))
 
-    nvcc_mod.add_function(nvcc_function)
-
-    host_mod.add_to_preamble([Include('boost/python/extract.hpp')])
+    host_mod.add_to_preamble([Include('boost/python/extract.hpp'), Include('string')])
     host_mod.add_to_preamble([Statement('using namespace boost::python')])
+    host_mod.add_to_preamble([Statement('using namespace std')])
+
+    nvcc_mod.add_function(nvcc_function)
 
     host_mod.add_function(
         FunctionBody(
@@ -479,7 +505,8 @@ def _cusp_solve(M, b, x):
                                  Value('object', '_x'),
                                  Value('object', '_nrows'),
                                  Value('object', '_ncols'),
-                                 Value('object', '_nnz')]),
+                                 Value('object', '_nnz'),
+                                 Value('object', '_parms')]),
             Block([
                 Statement('CUdeviceptr rowptr = extract<CUdeviceptr>(_rowptr.attr("gpudata"))'),
                 Statement('CUdeviceptr colidx = extract<CUdeviceptr>(_colidx.attr("gpudata"))'),
@@ -489,7 +516,14 @@ def _cusp_solve(M, b, x):
                 Statement('int nrows = extract<int>(_nrows)'),
                 Statement('int ncols = extract<int>(_ncols)'),
                 Statement('int nnz = extract<int>(_nnz)'),
-                Statement('__cusp_solve(rowptr, colidx, csrdata, b, x, nrows, ncols, nnz)')])))
+                Statement('dict parms = extract<dict>(_parms)'),
+                Statement('string ksp_type = extract<string>(parms.get("linear_solver", "cg"))'),
+                Statement('double rtol = extract<double>(parms.get("relative_tolerance", 1.0e-7))'),
+                Statement('double atol = extract<double>(parms.get("absolute_tolerance", 1.0e-50))'),
+                Statement('int max_it = extract<int>(parms.get("maximum_iterations", 1000))'),
+                Statement('int restart = extract<int>(parms.get("restart_length", 30))'),
+                Statement('string pc_type = extract<string>(parms.get("preconditioner", "None"))'),
+                Statement('__cusp_solve(rowptr, colidx, csrdata, b, x, nrows, ncols, nnz, ksp_type, pc_type, rtol, atol, max_it, restart)')])))
 
     nvcc_toolchain.cflags.append('-arch')
     nvcc_toolchain.cflags.append('sm_20')
