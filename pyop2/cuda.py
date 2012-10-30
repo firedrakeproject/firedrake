@@ -411,8 +411,104 @@ class Plan(op2.Plan):
             self._blkmap = gpuarray.to_gpu(super(Plan, self).blkmap)
         return self._blkmap
 
+def _cusp_solve(M, b, x):
+    import codepy.jit
+    import codepy.toolchain
+    from codepy.cgen import FunctionBody, FunctionDeclaration, If
+    from codepy.cgen import Block, Statement, Include, Value
+    from codepy.bpl import BoostPythonModule
+    from codepy.cuda import CudaModule
+    gcc_toolchain = codepy.toolchain.guess_toolchain()
+    nvcc_toolchain = codepy.toolchain.guess_nvcc_toolchain()
+    host_mod = BoostPythonModule()
+    nvcc_mod = CudaModule(host_mod)
+    d = {'t' : M.ctype}
+    nvcc_includes = ['thrust/device_vector.h',
+                     'thrust/fill.h',
+                     'cusp/csr_matrix.h',
+                     'cusp/krylov/cg.h',
+                     'cusp/krylov/gmres.h',
+                     'cusp/precond/diagonal.h']
+    nvcc_mod.add_to_preamble([Include(s) for s in nvcc_includes])
+
+    nvcc_function = FunctionBody(
+        FunctionDeclaration(Value('void', '__cusp_solve'),
+                            [Value('CUdeviceptr', '_rowptr'),
+                             Value('CUdeviceptr', '_colidx'),
+                             Value('CUdeviceptr', '_csrdata'),
+                             Value('CUdeviceptr', '_b'),
+                             Value('CUdeviceptr', '_x'),
+                             Value('int', 'nrows'),
+                             Value('int', 'ncols'),
+                             Value('int', 'nnz')]),
+        Block([
+                Statement('typedef int IndexType'),
+                Statement('typedef %(t)s ValueType' % d),
+            Statement('typedef typename cusp::array1d_view< thrust::device_ptr<IndexType> > indices'),
+            Statement('typedef typename cusp::array1d_view< thrust::device_ptr<ValueType> > values'),
+            Statement('typedef cusp::csr_matrix_view< indices, indices, values, IndexType, ValueType, cusp::device_memory > matrix'),
+            Statement('thrust::device_ptr< IndexType > rowptr((IndexType *)_rowptr)'),
+            Statement('thrust::device_ptr< IndexType > colidx((IndexType *)_colidx)'),
+            Statement('thrust::device_ptr< ValueType > csrdata((ValueType *)_csrdata)'),
+            Statement('thrust::device_ptr< ValueType > d_b((ValueType *)_b)'),
+            Statement('thrust::device_ptr< ValueType > d_x((ValueType *)_x)'),
+            Statement('indices row_offsets(rowptr, rowptr + nrows + 1)'),
+            Statement('indices column_indices(colidx, colidx + nnz)'),
+            Statement('values matrix_values(csrdata, csrdata + nnz)'),
+            Statement('values b(d_b, d_b + nrows)'),
+            Statement('values x(d_x, d_x + ncols)'),
+            Statement('thrust::fill(x.begin(), x.end(), (ValueType)0)'),
+            Statement('matrix A(nrows, ncols, nnz, row_offsets, column_indices, matrix_values)'),
+            Statement('cusp::default_monitor< ValueType > monitor(b, 1000, 1e-10)' % d),
+            Statement('cusp::precond::diagonal< ValueType, cusp::device_memory > M(A)' % d),
+            Statement('cusp::krylov::cg(A, x, b, monitor)')
+            ]))
+
+    nvcc_mod.add_function(nvcc_function)
+
+    host_mod.add_to_preamble([Include('boost/python/extract.hpp')])
+    host_mod.add_to_preamble([Statement('using namespace boost::python')])
+
+    host_mod.add_function(
+        FunctionBody(
+            FunctionDeclaration(Value('void', '__solve'),
+                                [Value('object', '_rowptr'),
+                                 Value('object', '_colidx'),
+                                 Value('object', '_csrdata'),
+                                 Value('object', '_b'),
+                                 Value('object', '_x'),
+                                 Value('object', '_nrows'),
+                                 Value('object', '_ncols'),
+                                 Value('object', '_nnz')]),
+            Block([
+                Statement('CUdeviceptr rowptr = extract<CUdeviceptr>(_rowptr.attr("gpudata"))'),
+                Statement('CUdeviceptr colidx = extract<CUdeviceptr>(_colidx.attr("gpudata"))'),
+                Statement('CUdeviceptr csrdata = extract<CUdeviceptr>(_csrdata.attr("gpudata"))'),
+                Statement('CUdeviceptr b = extract<CUdeviceptr>(_b.attr("gpudata"))'),
+                Statement('CUdeviceptr x = extract<CUdeviceptr>(_x.attr("gpudata"))'),
+                Statement('int nrows = extract<int>(_nrows)'),
+                Statement('int ncols = extract<int>(_ncols)'),
+                Statement('int nnz = extract<int>(_nnz)'),
+                Statement('__cusp_solve(rowptr, colidx, csrdata, b, x, nrows, ncols, nnz)')])))
+
+    nvcc_toolchain.cflags.append('-arch')
+    nvcc_toolchain.cflags.append('sm_20')
+    module = nvcc_mod.compile(gcc_toolchain, nvcc_toolchain, debug=True)
+
+    module.__solve(M._rowptr,
+                   M._colidx,
+                   M._csrdata,
+                   b._device_data,
+                   x._device_data,
+                   b.dataset.size * b.cdim,
+                   x.dataset.size * x.cdim,
+                   M._csrdata.size)
+
 def solve(M, b, x):
-    raise NotImplementedError("solve not yet implemented for cuda")
+    b._to_device()
+    x._to_device()
+    _cusp_solve(M, b, x)
+    x.state = DeviceDataMixin.DEVICE
 
 def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()
