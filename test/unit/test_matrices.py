@@ -660,11 +660,19 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps = 1.e-6
         assert_allclose(b_vec.data, expected_vec_rhs, eps)
 
-    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
     def test_zero_rows(self, backend, mat, expected_matrix):
         expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
         mat.zero_rows([0], 12.0)
         eps=1.e-5
+        assert_allclose(mat.values, expected_matrix, eps)
+
+    def test_zero_last_row(self, backend, mat, expected_matrix):
+        which = NUM_NODES - 1
+        # because the previous test zeroed the first row
+        expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
+        expected_matrix[which] = [0.0, 0.0, 0.0, 4.0]
+        mat.zero_rows([which], 4.0)
+        eps = 1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
     def test_vector_solve(self, backend, vecmat, b_vec, x_vec, f_vec):
