@@ -581,7 +581,6 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps = 1.e-12
         assert_allclose(b.data, expected_rhs, eps)
 
-    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
     def test_solve(self, backend, mat, b, x, f):
         op2.solve(mat, b, x)
         eps = 1.e-12
@@ -668,7 +667,6 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps=1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
-    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
     def test_vector_solve(self, backend, vecmat, b_vec, x_vec, f_vec):
         op2.solve(vecmat, b_vec, x_vec)
         eps = 1.e-12
