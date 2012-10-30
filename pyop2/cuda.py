@@ -257,8 +257,15 @@ class Mat(DeviceDataMixin, op2.Mat):
             ret[r, cols] = csrdata[rs:re]
         return ret
 
-    def zero_rows(self):
-        raise NotImplementedError("Mat.zero_rows not yet implemented for cuda")
+    def zero_rows(self, rows, diag_val):
+        for row in rows:
+            s = self.sparsity._c_handle.rowptr[row]
+            e = self.sparsity._c_handle.rowptr[row+1]
+            diag = np.where(self.sparsity._c_handle.colidx[s:e] == row)[0]
+            self._csrdata[s:e].fill(0)
+            if len(diag) == 1:
+                diag += s       # offset from row start
+                self._csrdata[diag:diag+1].fill(diag_val)
 
     def zero(self):
         self._csrdata.fill(0)
