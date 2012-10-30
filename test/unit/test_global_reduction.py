@@ -33,6 +33,7 @@
 
 import pytest
 import numpy
+from numpy.testing import assert_allclose
 
 from pyop2 import op2
 
@@ -131,9 +132,6 @@ class TestGlobalReductions:
             setup=lambda: op2.Kernel(k, "k"),
             scope='module')
 
-    def pytest_funcarg__eps(cls, request):
-        return 1.e-6
-
     def pytest_funcarg__duint32(cls, request):
         return op2.Dat(request.getfuncargvalue('set'), 1, [12]*nelems, numpy.uint32, "duint32")
 
@@ -190,7 +188,7 @@ void kernel_max(int* x, int* g)
         assert g.data[0] == -12
 
 
-    def test_direct_min_float(self, backend, set, dfloat32, eps):
+    def test_direct_min_float(self, backend, set, dfloat32):
         kernel_min = """
 void kernel_min(float* x, float* g)
 {
@@ -202,9 +200,10 @@ void kernel_min(float* x, float* g)
         op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), set,
                      dfloat32(op2.IdentityMap, op2.READ),
                      g(op2.MIN))
-        assert abs(g.data[0] - (-12.0)) < eps
 
-    def test_direct_max_float(self, backend, set, dfloat32, eps):
+        assert_allclose(g.data[0], -12.0)
+
+    def test_direct_max_float(self, backend, set, dfloat32):
         kernel_max = """
 void kernel_max(float* x, float* g)
 {
@@ -216,10 +215,10 @@ void kernel_max(float* x, float* g)
         op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), set,
                      dfloat32(op2.IdentityMap, op2.READ),
                      g(op2.MAX))
-        assert abs(g.data[0] - (-12.0)) < eps
+        assert_allclose(g.data[0], -12.0)
 
 
-    def test_direct_min_float(self, backend, set, dfloat64, eps):
+    def test_direct_min_double(self, backend, set, dfloat64):
         kernel_min = """
 void kernel_min(double* x, double* g)
 {
@@ -231,9 +230,9 @@ void kernel_min(double* x, double* g)
         op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), set,
                      dfloat64(op2.IdentityMap, op2.READ),
                      g(op2.MIN))
-        assert abs(g.data[0] - (-12.0)) < eps
+        assert_allclose(g.data[0], -12.0)
 
-    def test_direct_max_double(self, backend, set, dfloat64, eps):
+    def test_direct_max_double(self, backend, set, dfloat64):
         kernel_max = """
 void kernel_max(double* x, double* g)
 {
@@ -245,7 +244,7 @@ void kernel_max(double* x, double* g)
         op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), set,
                      dfloat64(op2.IdentityMap, op2.READ),
                      g(op2.MAX))
-        assert abs(g.data[0] - (-12.0)) < eps
+        assert_allclose(g.data[0], -12.0)
 
     def test_1d_read(self, backend, k1_write_to_dat, set, d1):
         g = op2.Global(1, 1, dtype=numpy.uint32)
