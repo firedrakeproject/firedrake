@@ -541,7 +541,8 @@ def _cusp_solver(M):
 def solve(M, b, x):
     b._to_device()
     x._to_device()
-    solver_parameters = {'linear_solver': 'cg'}
+    solver_parameters = {'linear_solver': 'cg',
+                         'relative_tolerance': 1e-10}
     module = _cusp_solver(M)
     module.__solve(M._rowptr,
                    M._colidx,
