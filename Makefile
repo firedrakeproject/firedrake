@@ -7,7 +7,7 @@ UNIT_TEST_DIR = $(TEST_BASE_DIR)/unit
 REGRESSION_TEST_DIR = $(TEST_BASE_DIR)/regression
 
 TESTHARNESS = $(REGRESSION_TEST_DIR)/testharness.py
-BACKENDS ?= sequential opencl
+BACKENDS ?= sequential opencl cuda
 
 .PHONY : help test unit regression doc update_docs
 
