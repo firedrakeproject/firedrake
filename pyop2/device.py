@@ -466,42 +466,25 @@ class Plan(core.op_plan):
         self._fixed_ncolblk = numpy.bincount(pcolors)
         self._fixed_blkmap = numpy.argsort(pcolors, kind='mergesort').astype(numpy.int32)
 
-    # overload color dependent properties
-    # may be rewrite with a decorator ?
     @property
     def blkmap(self):
-        if self._fixed_coloring:
-            return self._fixed_blkmap
-        else:
-            return super(Plan, self).blkmap
+        return self._fixed_blkmap if self._fixed_coloring else super(Plan, self).blkmap
 
     @property
     def ncolors(self):
-        if self._fixed_coloring:
-            return self._fixed_ncolors
-        else:
-            return super(Plan, self).ncolors
+        return self._fixed_ncolors if self._fixed_coloring else super(Plan, self).ncolors
 
     @property
     def ncolblk(self):
-        if self._fixed_coloring:
-            return self._fixed_ncolblk
-        else:
-            return super(Plan, self).ncolblk
+        return self._fixed_ncolblk if self._fixed_coloring else super(Plan, self).ncolblk
 
     @property
     def thrcol(self):
-        if self._fixed_coloring:
-            return self._fixed_thrcol
-        else:
-            return super(Plan, self).thrcol
+        return self._fixed_thrcol if self._fixed_coloring else super(Plan, self).thrcol
 
     @property
     def nthrcol(self):
-        if self._fixed_coloring:
-            return self._fixed_nthrcol
-        else:
-            return super(Plan, self).nthrcol
+        return self._fixed_nthrcol if self._fixed_coloring else super(Plan, self).nthrcol
 
 class ParLoop(op2.ParLoop):
     def __init__(self, kernel, itspace, *args):
