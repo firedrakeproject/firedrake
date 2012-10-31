@@ -226,14 +226,13 @@ class Mat(base.Mat):
 
     def _init(self):
         mat = PETSc.Mat()
-        mat.create()
-        mat.setType(PETSc.Mat.Type.SEQAIJ)
         rdim, cdim = self.sparsity.dims
+        self._array = np.zeros(self.sparsity.total_nz, dtype=PETSc.RealType)
         # We're not currently building a blocked matrix, so need to scale the
         # number of rows and columns by the sparsity dimensions
         # FIXME: This needs to change if we want to do blocked sparse
-        mat.setSizes([self.sparsity.nrows*rdim, self.sparsity.ncols*cdim])
-        mat.setPreallocationCSR((self.sparsity._rowptr, self.sparsity._colidx, None))
+        mat.createAIJWithArrays((self.sparsity.nrows*rdim, self.sparsity.ncols*cdim),
+                (self.sparsity._rowptr, self.sparsity._colidx, self._array))
         self._handle = mat
 
     def zero(self):
@@ -251,7 +250,9 @@ class Mat(base.Mat):
 
     @property
     def array(self):
-        raise NotImplementedError("array is not implemented yet")
+        if not hasattr(self, '_array'):
+            self._init()
+        return self._array
 
     @property
     def values(self):
