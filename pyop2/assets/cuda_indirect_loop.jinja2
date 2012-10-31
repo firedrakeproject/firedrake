@@ -32,6 +32,9 @@ __global__ void {{ parloop._stub_name }} (
     __shared__ int nelems2, ncolor;
     {% endif -%}
     __shared__ int nelem, offset_b;
+    {% if parloop._has_matrix_arg %}
+    __shared__ int ele_offset;
+    {% endif %}
 
     {%- for arg in parloop._all_inc_non_vec_map_indirect_dat_args %}
     {{arg.ctype}} {{arg._local_name()}}[{{arg.data.cdim}}];
@@ -73,6 +76,12 @@ __global__ void {{ parloop._stub_name }} (
         nelem = nelems[blockId];
         offset_b = offset[blockId];
 
+        {% if parloop._has_matrix_arg %}
+        ele_offset = 0;
+        for ( int i = 0; i < blockId; i++ ) {
+            ele_offset += nelems[i];
+        }
+        {% endif %}
         {%- if parloop._all_inc_indirect_dat_args %}
         nelems2 = blockDim.x * (1 + (nelem - 1)/blockDim.x);
         ncolor = nthrcol[blockId];

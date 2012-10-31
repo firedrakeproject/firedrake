@@ -74,7 +74,8 @@ class Arg(op2.Arg):
             #  where each sub-block is walked in the same order:
             #  A1 A2
             #  A3 A4
-            return """(%(t)s (*)[%(lcdim)s])(%(n)s + %(offset)s + %(idx)s * %(size)s +
+            return """(%(t)s (*)[%(lcdim)s])(%(n)s + %(offset)s +
+            (ele_offset + %(idx)s) * %(size)s +
             i%(0)s * %(roff)s + i%(1)s * %(coff)s)""" % d
         if self._is_global:
             if self._is_global_reduction:
