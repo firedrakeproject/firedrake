@@ -98,7 +98,7 @@ class DeviceDataMixin(op2.DeviceDataMixin):
         self._allocate_device()
         if self.state is DeviceDataMixin.HOST:
             self._device_data.set(self._maybe_to_soa(self._data))
-        self.state = DeviceDataMixin.BOTH
+            self.state = DeviceDataMixin.BOTH
 
     def _from_device(self):
         if self.state is DeviceDataMixin.DEVICE:
