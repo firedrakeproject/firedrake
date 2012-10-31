@@ -149,9 +149,9 @@ def viper_shape(array):
 
 T = 0.1
 
-vis_coords = np.asarray([ [x, y, 0.0] for x, y in coords.data ],dtype=np.float64)
+vis_coords = np.asarray([ [x, y, 0.0] for x, y in coords.data_ro ],dtype=np.float64)
 if opt['visualize']:
-    v = viper.Viper(x=viper_shape(tracer.data), coordinates=vis_coords, cells=elem_node.values)
+    v = viper.Viper(x=viper_shape(tracer.data_ro), coordinates=vis_coords, cells=elem_node.values)
     v.interactive()
 
 have_advection = True
@@ -194,7 +194,7 @@ while T < 0.2:
         solver.solve(mat, tracer, b)
 
     if opt['visualize']:
-        v.update(viper_shape(tracer.data))
+        v.update(viper_shape(tracer.data_ro))
 
     T = T + dt
 
