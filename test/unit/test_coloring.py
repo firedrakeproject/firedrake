@@ -50,7 +50,7 @@ NUM_ENTRIES = 4
 
 backends = ['opencl']
 
-class TestMatrices:
+class TestColoring:
     """
     Matrix tests
 
