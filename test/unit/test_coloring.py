@@ -48,8 +48,6 @@ NUM_ELE   = 12
 NUM_NODES = 36
 NUM_ENTRIES = 4
 
-backends = ['opencl']
-
 class TestColoring:
     """
     Matrix tests
