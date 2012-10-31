@@ -379,12 +379,5 @@ class ParLoop(rt.ParLoop):
         rt._parloop_cache[key] = _fun
         return _fun
 
-
-@validate_type(('mat', Mat, MatTypeError),
-               ('x', Dat, DatTypeError),
-               ('b', Dat, DatTypeError))
-def solve(M, b, x):
-    core.solve(M, b, x)
-
 def _setup():
     pass

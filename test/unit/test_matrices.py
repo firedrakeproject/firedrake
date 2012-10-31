@@ -597,8 +597,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
         assert_allclose(b.data, expected_rhs, eps)
 
     def test_solve(self, backend, mat, b, x, f):
-        solver = op2.Solver()
-        solver.solve(mat, x, b)
+        op2.solve(mat, x, b)
         eps = 1.e-12
         assert_allclose(x.data, f.data, eps)
 
@@ -692,8 +691,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
         assert_allclose(mat.values, expected_matrix, eps)
 
     def test_vector_solve(self, backend, vecmat, b_vec, x_vec, f_vec):
-        solver = op2.Solver()
-        solver.solve(vecmat, x_vec, b_vec)
+        op2.solve(vecmat, x_vec, b_vec)
         eps = 1.e-12
         assert_allclose(x_vec.data, f_vec.data, eps)
 
