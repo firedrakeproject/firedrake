@@ -533,7 +533,8 @@ def _cusp_solver(M):
 
     nvcc_toolchain.cflags.append('-arch')
     nvcc_toolchain.cflags.append('sm_20')
-    module = nvcc_mod.compile(gcc_toolchain, nvcc_toolchain, debug=True)
+    nvcc_toolchain.cflags.append('-O3')
+    module = nvcc_mod.compile(gcc_toolchain, nvcc_toolchain, debug=False)
 
     _cusp_cache[M.dtype] = module
     return module
