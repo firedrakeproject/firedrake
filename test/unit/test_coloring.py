@@ -50,7 +50,7 @@ NUM_ENTRIES = 4
 
 class TestColoring:
     """
-    Matrix tests
+    Coloring tests
 
     """
 
