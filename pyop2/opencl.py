@@ -273,13 +273,12 @@ class Mat(op2.Mat, DeviceDataMixin):
         return self._sparsity.rowptr
 
     def _upload_array(self):
-        self._dev_array.set(self._handle.array, queue=_queue)
+        self._dev_array.set(self.array, queue=_queue)
         self.state = DeviceDataMixin.BOTH
 
     def assemble(self):
         if self.state is DeviceDataMixin.DEVICE:
-            self._dev_array.get(queue=_queue, ary=self.handle.array)
-            self._handle.restore_array()
+            self._dev_array.get(queue=_queue, ary=self.array)
             self.state = DeviceDataMixin.BOTH
         self.handle.assemble()
 
