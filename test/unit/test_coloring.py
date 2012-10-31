@@ -55,18 +55,14 @@ class TestColoring:
     """
 
     def pytest_funcarg__nodes(cls, request):
-        # FIXME: Cached setup can be removed when __eq__ methods implemented.
-        return request.cached_setup(
-                setup=lambda: op2.Set(NUM_NODES, "nodes"), scope='module')
+        return op2.Set(NUM_NODES, "nodes")
 
     def pytest_funcarg__elements(cls, request):
         return op2.Set(NUM_ELE, "elements")
 
     def pytest_funcarg__elem_node_map(cls, request):
         v = [randrange(NUM_ENTRIES) for i in range(NUM_ELE * 3)]
-        return request.cached_setup(
-                setup=lambda: numpy.asarray(v, dtype=numpy.uint32),
-                scope='module')
+        return numpy.asarray(v, dtype=numpy.uint32)
 
     def pytest_funcarg__elem_node(cls, request):
         elements = request.getfuncargvalue('elements')
@@ -77,9 +73,7 @@ class TestColoring:
     def pytest_funcarg__mat(cls, request):
         elem_node = request.getfuncargvalue('elem_node')
         sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
-        return request.cached_setup(
-                setup=lambda: op2.Mat(sparsity, valuetype, "mat"),
-                scope='module')
+        return op2.Mat(sparsity, valuetype, "mat")
 
     def pytest_funcarg__x(cls, request):
         nodes = request.getfuncargvalue('nodes')
