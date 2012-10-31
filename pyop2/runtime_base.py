@@ -43,7 +43,7 @@ from base import DataCarrier, IterationIndex, i, IdentityMap, Kernel
 from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 import op_lib_core as core
 from pyop2.utils import OP2_INC, OP2_LIB
-from la_petsc import PETSc
+from la_petsc import PETSc, KspSolver
 
 # Data API
 
@@ -268,4 +268,14 @@ class ParLoop(base.ParLoop):
     def compute(self):
         raise RuntimeError('Must select a backend')
 
-Solver = base.Solver
+class Solver(base.Solver):
+
+    def __init__(self, parameters=None):
+        super(Solver, self).__init__(parameters)
+        self._ksp_solver = KspSolver()
+        self._ksp_solver.set_parameters(self.parameters)
+
+    def solve(self, A, x, b):
+        self._ksp_solver.solve(A, x, b)
+        print "Converged reason", self._ksp_solver.get_converged_reason()
+        print "Iterations", self._ksp_solver.get_iteration_number()
