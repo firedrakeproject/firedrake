@@ -222,6 +222,23 @@ def solve(M, b, x):
     core.solve(M, b, x)
     x._to_device()
 
+class Sparsity(op2.Sparsity):
+    @property
+    def colidx(self):
+        if not hasattr(self, '__dev_colidx'):
+            setattr(self, '__dev_colidx',
+                    array.to_device(_queue,
+                                    self._c_handle.colidx))
+        return getattr(self, '__dev_colidx')
+
+    @property
+    def rowptr(self):
+        if not hasattr(self, '__dev_rowptr'):
+            setattr(self, '__dev_rowptr',
+                    array.to_device(_queue,
+                                    self._c_handle.rowptr))
+        return getattr(self, '__dev_rowptr')
+
 class Mat(op2.Mat, DeviceDataMixin):
     """OP2 OpenCL matrix data type."""
 
@@ -247,19 +264,11 @@ class Mat(op2.Mat, DeviceDataMixin):
 
     @property
     def _dev_colidx(self):
-        if not hasattr(self, '__dev_colidx'):
-            setattr(self, '__dev_colidx',
-                    array.to_device(_queue,
-                                    self._sparsity._c_handle.colidx))
-        return getattr(self, '__dev_colidx')
+        return self._sparsity.colidx
 
     @property
     def _dev_rowptr(self):
-        if not hasattr(self, '__dev_rowptr'):
-            setattr(self, '__dev_rowptr',
-                    array.to_device(_queue,
-                                    self._sparsity._c_handle.rowptr))
-        return getattr(self, '__dev_rowptr')
+        return self._sparsity.rowptr
 
     def _upload_array(self):
         self._dev_array.set(self._c_handle.array, queue=_queue)
