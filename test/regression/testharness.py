@@ -33,13 +33,6 @@ class TestHarness:
         self.justtest = justtest
         self.valgrind = valgrind
         self.backend = backend
-        # Prevent CUDA regression tests failing (temporary)
-        if backend == 'cuda':
-            print "Dummy output\n"*19
-            print "Passes:   1"
-            print "Failures: 0"
-            print "Warnings: 0"
-            return
         if file == "":
           print "Test criteria:"
           print "-" * 80

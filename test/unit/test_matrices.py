@@ -59,7 +59,8 @@ class TestMatrices:
                 setup=lambda: op2.Set(NUM_NODES, "nodes"), scope='module')
 
     def pytest_funcarg__elements(cls, request):
-        return op2.Set(NUM_ELE, "elements")
+        return request.cached_setup(
+                setup=lambda: op2.Set(NUM_ELE, "elements"), scope='module')
 
     def pytest_funcarg__elem_node(cls, request):
         elements = request.getfuncargvalue('elements')
@@ -542,7 +543,7 @@ void zero_vec_dat(double *dat)
                               [0.08333333, 0.16666667], [0.58333333, 1.16666667]],
                               dtype=valuetype)
 
-    @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
+    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
     def test_minimal_zero_mat(self, backend):
         zero_mat_code = """
 void zero_mat(double local_mat[1][1], int i, int j)
@@ -562,7 +563,6 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps = 1.e-12
         assert_allclose(mat.values, expected_matrix, eps)
 
-    @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_assemble(self, backend, mass, mat, coords, elements, elem_node,
                       expected_matrix):
         op2.par_loop(mass, elements(3,3),
@@ -581,13 +581,11 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps = 1.e-12
         assert_allclose(b.data, expected_rhs, eps)
 
-    @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_solve(self, backend, mat, b, x, f):
         op2.solve(mat, b, x)
         eps = 1.e-12
         assert_allclose(x.data, f.data, eps)
 
-    @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_zero_matrix(self, backend, mat):
         """Test that the matrix is zeroed correctly."""
         mat.zero()
@@ -601,7 +599,6 @@ void zero_mat(double local_mat[1][1], int i, int j)
                      b(op2.IdentityMap, op2.WRITE))
         assert all(b.data == numpy.zeros_like(b.data))
 
-    @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_assemble_ffc(self, backend, mass_ffc, mat, coords, elements,
                           elem_node, expected_matrix):
         """Test that the FFC mass assembly assembles the correct values."""
@@ -611,7 +608,6 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps=1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
-    @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_assemble_vec_mass(self, backend, mass_vector_ffc, vecmat, coords,
                                elements, elem_node, expected_vector_matrix):
         """Test that the FFC vector mass assembly assembles the correct values."""
@@ -664,20 +660,26 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps = 1.e-6
         assert_allclose(b_vec.data, expected_vec_rhs, eps)
 
-    @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_zero_rows(self, backend, mat, expected_matrix):
         expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
         mat.zero_rows([0], 12.0)
         eps=1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
-    @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
+    def test_zero_last_row(self, backend, mat, expected_matrix):
+        which = NUM_NODES - 1
+        # because the previous test zeroed the first row
+        expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
+        expected_matrix[which] = [0.0, 0.0, 0.0, 4.0]
+        mat.zero_rows([which], 4.0)
+        eps = 1.e-5
+        assert_allclose(mat.values, expected_matrix, eps)
+
     def test_vector_solve(self, backend, vecmat, b_vec, x_vec, f_vec):
         op2.solve(vecmat, b_vec, x_vec)
         eps = 1.e-12
         assert_allclose(x_vec.data, f_vec.data, eps)
 
-    @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_zero_vector_matrix(self, backend, vecmat):
         """Test that the matrix is zeroed correctly."""
         vecmat.zero()

@@ -178,7 +178,7 @@ class DeviceDataMixin(op2.DeviceDataMixin):
         if self.state is DeviceDataMixin.HOST:
             self._device_data.set(self._maybe_to_soa(self._data),
                                   queue=_queue)
-        self.state = DeviceDataMixin.BOTH
+            self.state = DeviceDataMixin.BOTH
 
     def _from_device(self):
         flag = self._data.flags['WRITEABLE']

@@ -46,6 +46,10 @@ class Arg(op2.Arg):
         return self.data.name
 
     @property
+    def _lmaoffset_name(self):
+        return "%s_lmaoffset" % self._name
+
+    @property
     def _shared_name(self):
         return "%s_shared" % self._name
 
@@ -129,7 +133,7 @@ class DeviceDataMixin(object):
     @data.setter
     def data(self, value):
         maybe_setflags(self._data, write=True)
-        self._data = verify_reshape(value, self.dtype, self.dim)
+        self._data = verify_reshape(value, self.dtype, self._data.shape)
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.HOST
 
@@ -584,7 +588,7 @@ class ParLoop(op2.ParLoop):
         for arg in self._actual_args:
             if arg._is_global_reduction:
                 return True
-            if not arg.data._is_scalar:
+            if arg._is_staged_direct:
                 return True
         return False
 
@@ -749,3 +753,7 @@ class ParLoop(op2.ParLoop):
         keep = lambda x: x._is_global and not x._is_global_reduction
         return self._get_arg_list('__all_global_non_reduction_args',
                                   '_actual_args', keep)
+
+    @property
+    def _has_matrix_arg(self):
+        return any(arg._is_mat for arg in self._unique_args)

@@ -47,6 +47,36 @@ class Kernel(op2.Kernel):
 
 class Arg(op2.Arg):
     def _indirect_kernel_arg_name(self, idx):
+        if self._is_mat:
+            rmap = self.map[0]
+            ridx = self.idx[0]
+            cmap = self.map[1]
+            cidx = self.idx[1]
+            esize = np.prod(self.data.dims)
+            size = esize * rmap.dim * cmap.dim
+            d = {'n' : self._name,
+                 'offset' : self._lmaoffset_name,
+                 'idx' : idx,
+                 't' : self.ctype,
+                 'size' : size,
+                 '0' : ridx.index,
+                 '1' : cidx.index,
+                 'lcdim' : self.data.dims[1],
+                 'roff' : cmap.dim * esize,
+                 'coff' : esize}
+            # We walk through the lma-data in order of the
+            # alphabet:
+            #  A B C
+            #  D E F
+            #  G H I
+            #       J K
+            #       L M
+            #  where each sub-block is walked in the same order:
+            #  A1 A2
+            #  A3 A4
+            return """(%(t)s (*)[%(lcdim)s])(%(n)s + %(offset)s +
+            (ele_offset + %(idx)s) * %(size)s +
+            i%(0)s * %(roff)s + i%(1)s * %(coff)s)""" % d
         if self._is_global:
             if self._is_global_reduction:
                 return self._reduction_local_name
@@ -73,7 +103,6 @@ class Arg(op2.Arg):
                     % (self._shared_name, self._which_indirect, idx,
                        self.data.cdim)
 
-
     def _direct_kernel_arg_name(self, idx=None):
         if self._is_staged_direct:
             return self._local_name()
@@ -98,7 +127,7 @@ class DeviceDataMixin(op2.DeviceDataMixin):
         self._allocate_device()
         if self.state is DeviceDataMixin.HOST:
             self._device_data.set(self._maybe_to_soa(self._data))
-        self.state = DeviceDataMixin.BOTH
+            self.state = DeviceDataMixin.BOTH
 
     def _from_device(self):
         if self.state is DeviceDataMixin.DEVICE:
@@ -116,9 +145,131 @@ class Dat(DeviceDataMixin, op2.Dat):
 
 class Mat(DeviceDataMixin, op2.Mat):
     _arg_type = Arg
+    _lma2csr_cache = dict()
 
-    def __init__(self, *args, **kwargs):
-        raise RuntimeError("Matrices not yet implemented for CUDA")
+    @property
+    def _lmadata(self):
+        if not hasattr(self, '__lmadata'):
+            nentries = 0
+            # dense block of rmap.dim x cmap.dim for each rmap/cmap
+            # pair
+            for rmap, cmap in self.sparsity.maps:
+                nentries += rmap.dim * cmap.dim
+
+            entry_size = 0
+            # all pairs of maps in the sparsity must have the same
+            # iterset, there are sum(iterset.size) * nentries total
+            # entries in the LMA data
+            for rmap, cmap in self.sparsity.maps:
+                entry_size += rmap.iterset.size
+            # each entry in the block is size dims[0] x dims[1]
+            entry_size *= np.asscalar(np.prod(self.dims))
+            nentries *= entry_size
+            setattr(self, '__lmadata',
+                    gpuarray.zeros(shape=nentries, dtype=self.dtype))
+        return getattr(self, '__lmadata')
+
+    def _lmaoffset(self, iterset):
+        offset = 0
+        size = self.sparsity.maps[0][0].dataset.size
+        size *= np.asscalar(np.prod(self.dims))
+        for rmap, cmap in self.sparsity.maps:
+            if rmap.iterset is iterset:
+                break
+            offset += rmap.dim * cmap.dim
+        return offset * size
+
+    @property
+    def _rowptr(self):
+        if not hasattr(self, '__rowptr'):
+            setattr(self, '__rowptr',
+                    gpuarray.to_gpu(self._sparsity._c_handle.rowptr))
+        return getattr(self, '__rowptr')
+
+    @property
+    def _colidx(self):
+        if not hasattr(self, '__colidx'):
+            setattr(self, '__colidx',
+                    gpuarray.to_gpu(self._sparsity._c_handle.colidx))
+        return getattr(self, '__colidx')
+
+    @property
+    def _csrdata(self):
+        if not hasattr(self, '__csrdata'):
+            setattr(self, '__csrdata',
+                    gpuarray.zeros(shape=self._sparsity._c_handle.total_nz,
+                                   dtype=self.dtype))
+        return getattr(self, '__csrdata')
+
+    def _assemble(self, rowmap, colmap):
+        mod, sfun, vfun = Mat._lma2csr_cache.get(self.dtype,
+                                                 (None, None, None))
+        if mod is None:
+            d = {'type' : self.ctype}
+            src = _matrix_support_template.render(d).encode('ascii')
+            compiler_opts = ['-m64', '-Xptxas', '-dlcm=ca',
+                             '-Xptxas=-v', '-O3', '-use_fast_math', '-DNVCC']
+            mod = SourceModule(src, options=compiler_opts)
+            sfun = mod.get_function('__lma_to_csr')
+            vfun = mod.get_function('__lma_to_csr_vector')
+            sfun.prepare('PPPPPiPii')
+            vfun.prepare('PPPPPiiPiii')
+            Mat._lma2csr_cache[self.dtype] = mod, sfun, vfun
+
+        assert rowmap.iterset is colmap.iterset
+        nelems = rowmap.iterset.size
+        nthread = 128
+        nblock = (nelems * rowmap.dim * colmap.dim) / nthread + 1
+
+        rowmap._to_device()
+        colmap._to_device()
+        offset = self._lmaoffset(rowmap.iterset) * self.dtype.itemsize
+        arglist = [np.intp(self._lmadata.gpudata) + offset,
+                   self._csrdata.gpudata,
+                   self._rowptr.gpudata,
+                   self._colidx.gpudata,
+                   rowmap._device_values.gpudata,
+                   np.int32(rowmap.dim)]
+        if self._is_scalar_field:
+            arglist.extend([colmap._device_values.gpudata,
+                            np.int32(colmap.dim),
+                            np.int32(nelems)])
+            fun = sfun
+        else:
+            arglist.extend([np.int32(self.dims[0]),
+                            colmap._device_values.gpudata,
+                            np.int32(colmap.dim),
+                            np.int32(self.dims[1]),
+                            np.int32(nelems)])
+            fun = vfun
+        fun.prepared_call((nblock, 1, 1), (nthread, 1, 1), *arglist)
+
+    @property
+    def values(self):
+        shape = self.sparsity.maps[0][0].dataset.size * self.dims[0]
+        shape = (shape, shape)
+        ret = np.zeros(shape=shape, dtype=self.dtype)
+        csrdata = self._csrdata.get()
+        rowptr = self.sparsity._c_handle.rowptr
+        colidx = self.sparsity._c_handle.colidx
+        for r, (rs, re) in enumerate(zip(rowptr[:-1], rowptr[1:])):
+            cols = colidx[rs:re]
+            ret[r, cols] = csrdata[rs:re]
+        return ret
+
+    def zero_rows(self, rows, diag_val):
+        for row in rows:
+            s = self.sparsity._c_handle.rowptr[row]
+            e = self.sparsity._c_handle.rowptr[row+1]
+            diag = np.where(self.sparsity._c_handle.colidx[s:e] == row)[0]
+            self._csrdata[s:e].fill(0)
+            if len(diag) == 1:
+                diag += s       # offset from row start
+                self._csrdata[diag:diag+1].fill(diag_val)
+
+    def zero(self):
+        self._csrdata.fill(0)
+        self._lmadata.fill(0)
 
 class Const(DeviceDataMixin, op2.Const):
     _arg_type = Arg
@@ -202,15 +353,14 @@ class Map(op2.Map):
     def _to_device(self):
         if not hasattr(self, '_device_values'):
             self._device_values = gpuarray.to_gpu(self._values)
-        else:
-            from warnings import warn
-            warn("Copying Map data for %s again, do you really want to do this?" % \
-                 self)
+        elif self._state is not DeviceDataMixin.BOTH:
             self._device_values.set(self._values)
+        self._state = DeviceDataMixin.BOTH
 
     def _from_device(self):
         if not hasattr(self, '_device_values') is None:
             raise RuntimeError("No values for Map %s on device" % self)
+        self._state = DeviceDataMixin.HOST
         self._device_values.get(self._values)
 
 class Plan(op2.Plan):
@@ -268,6 +418,151 @@ class Plan(op2.Plan):
             self._blkmap = gpuarray.to_gpu(super(Plan, self).blkmap)
         return self._blkmap
 
+_cusp_cache = dict()
+
+def _cusp_solver(M):
+    module = _cusp_cache.get(M.dtype)
+    if module:
+        return module
+
+    import codepy.jit
+    import codepy.toolchain
+    from codepy.cgen import FunctionBody, FunctionDeclaration, If
+    from codepy.cgen import Block, Statement, Include, Value
+    from codepy.bpl import BoostPythonModule
+    from codepy.cuda import CudaModule
+    gcc_toolchain = codepy.toolchain.guess_toolchain()
+    nvcc_toolchain = codepy.toolchain.guess_nvcc_toolchain()
+    host_mod = BoostPythonModule()
+    nvcc_mod = CudaModule(host_mod)
+    d = {'t' : M.ctype}
+    nvcc_includes = ['thrust/device_vector.h',
+                     'thrust/fill.h',
+                     'cusp/csr_matrix.h',
+                     'cusp/krylov/cg.h',
+                     'cusp/krylov/bicgstab.h',
+                     'cusp/krylov/gmres.h',
+                     'cusp/precond/diagonal.h',
+                     'cusp/precond/smoothed_aggregation.h',
+                     'cusp/precond/ainv.h',
+                     'string']
+    nvcc_mod.add_to_preamble([Include(s) for s in nvcc_includes])
+    nvcc_mod.add_to_preamble([Statement('using namespace std')])
+
+    solve_block = Block([If('ksp_type == "cg"', Statement('cusp::krylov::cg(A, x, b, monitor, M)')),
+                         If('ksp_type == "bicgstab"', Statement('cusp::krylov::bicgstab(A, x, b, monitor, M)')),
+                         If('ksp_type == "gmres"', Statement('cusp::krylov::gmres(A, x, b, restart, monitor, M)'))])
+
+    nvcc_function = FunctionBody(
+        FunctionDeclaration(Value('void', '__cusp_solve'),
+                            [Value('CUdeviceptr', '_rowptr'),
+                             Value('CUdeviceptr', '_colidx'),
+                             Value('CUdeviceptr', '_csrdata'),
+                             Value('CUdeviceptr', '_b'),
+                             Value('CUdeviceptr', '_x'),
+                             Value('int', 'nrows'),
+                             Value('int', 'ncols'),
+                             Value('int', 'nnz'),
+                             Value('string', 'ksp_type'),
+                             Value('string', 'pc_type'),
+                             Value('double', 'rtol'),
+                             Value('double', 'atol'),
+                             Value('int', 'max_it'),
+                             Value('int', 'restart')]),
+        Block([
+            Statement('typedef int IndexType'),
+            Statement('typedef %(t)s ValueType' % d),
+            Statement('typedef typename cusp::array1d_view< thrust::device_ptr<IndexType> > indices'),
+            Statement('typedef typename cusp::array1d_view< thrust::device_ptr<ValueType> > values'),
+            Statement('typedef cusp::csr_matrix_view< indices, indices, values, IndexType, ValueType, cusp::device_memory > matrix'),
+            Statement('thrust::device_ptr< IndexType > rowptr((IndexType *)_rowptr)'),
+            Statement('thrust::device_ptr< IndexType > colidx((IndexType *)_colidx)'),
+            Statement('thrust::device_ptr< ValueType > csrdata((ValueType *)_csrdata)'),
+            Statement('thrust::device_ptr< ValueType > d_b((ValueType *)_b)'),
+            Statement('thrust::device_ptr< ValueType > d_x((ValueType *)_x)'),
+            Statement('indices row_offsets(rowptr, rowptr + nrows + 1)'),
+            Statement('indices column_indices(colidx, colidx + nnz)'),
+            Statement('values matrix_values(csrdata, csrdata + nnz)'),
+            Statement('values b(d_b, d_b + nrows)'),
+            Statement('values x(d_x, d_x + ncols)'),
+            Statement('thrust::fill(x.begin(), x.end(), (ValueType)0)'),
+            Statement('matrix A(nrows, ncols, nnz, row_offsets, column_indices, matrix_values)'),
+            Statement('cusp::default_monitor< ValueType > monitor(b, max_it, rtol, atol)'),
+            If('pc_type == "diagonal"',
+               Block([Statement('cusp::precond::diagonal< ValueType, cusp::device_memory >M(A)'),
+                      solve_block])),
+            If('pc_type == "ainv"',
+               Block([Statement('cusp::precond::scaled_bridson_ainv< ValueType, cusp::device_memory >M(A)'),
+                      solve_block])),
+            If('pc_type == "amg"',
+               Block([Statement('cusp::precond::smoothed_aggregation< IndexType, ValueType, cusp::device_memory >M(A)'),
+                      solve_block])),
+            If('pc_type == "None"',
+               Block([Statement('cusp::identity_operator< ValueType, cusp::device_memory >M(nrows, ncols)'),
+                      solve_block]))
+            ]))
+
+    host_mod.add_to_preamble([Include('boost/python/extract.hpp'), Include('string')])
+    host_mod.add_to_preamble([Statement('using namespace boost::python')])
+    host_mod.add_to_preamble([Statement('using namespace std')])
+
+    nvcc_mod.add_function(nvcc_function)
+
+    host_mod.add_function(
+        FunctionBody(
+            FunctionDeclaration(Value('void', '__solve'),
+                                [Value('object', '_rowptr'),
+                                 Value('object', '_colidx'),
+                                 Value('object', '_csrdata'),
+                                 Value('object', '_b'),
+                                 Value('object', '_x'),
+                                 Value('object', '_nrows'),
+                                 Value('object', '_ncols'),
+                                 Value('object', '_nnz'),
+                                 Value('object', '_parms')]),
+            Block([
+                Statement('CUdeviceptr rowptr = extract<CUdeviceptr>(_rowptr.attr("gpudata"))'),
+                Statement('CUdeviceptr colidx = extract<CUdeviceptr>(_colidx.attr("gpudata"))'),
+                Statement('CUdeviceptr csrdata = extract<CUdeviceptr>(_csrdata.attr("gpudata"))'),
+                Statement('CUdeviceptr b = extract<CUdeviceptr>(_b.attr("gpudata"))'),
+                Statement('CUdeviceptr x = extract<CUdeviceptr>(_x.attr("gpudata"))'),
+                Statement('int nrows = extract<int>(_nrows)'),
+                Statement('int ncols = extract<int>(_ncols)'),
+                Statement('int nnz = extract<int>(_nnz)'),
+                Statement('dict parms = extract<dict>(_parms)'),
+                Statement('string ksp_type = extract<string>(parms.get("linear_solver", "cg"))'),
+                Statement('double rtol = extract<double>(parms.get("relative_tolerance", 1.0e-7))'),
+                Statement('double atol = extract<double>(parms.get("absolute_tolerance", 1.0e-50))'),
+                Statement('int max_it = extract<int>(parms.get("maximum_iterations", 1000))'),
+                Statement('int restart = extract<int>(parms.get("restart_length", 30))'),
+                Statement('string pc_type = extract<string>(parms.get("preconditioner", "None"))'),
+                Statement('__cusp_solve(rowptr, colidx, csrdata, b, x, nrows, ncols, nnz, ksp_type, pc_type, rtol, atol, max_it, restart)')])))
+
+    nvcc_toolchain.cflags.append('-arch')
+    nvcc_toolchain.cflags.append('sm_20')
+    nvcc_toolchain.cflags.append('-O3')
+    module = nvcc_mod.compile(gcc_toolchain, nvcc_toolchain, debug=False)
+
+    _cusp_cache[M.dtype] = module
+    return module
+
+def solve(M, b, x):
+    b._to_device()
+    x._to_device()
+    solver_parameters = {'linear_solver': 'cg',
+                         'relative_tolerance': 1e-10}
+    module = _cusp_solver(M)
+    module.__solve(M._rowptr,
+                   M._colidx,
+                   M._csrdata,
+                   b._device_data,
+                   x._device_data,
+                   b.dataset.size * b.cdim,
+                   x.dataset.size * x.cdim,
+                   M._csrdata.size,
+                   solver_parameters)
+    x.state = DeviceDataMixin.DEVICE
+
 def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()
 
@@ -293,7 +588,14 @@ class ParLoop(op2.ParLoop):
         else:
             self.generate_indirect_loop()
             for arg in self._unique_args:
-                argtypes += "P" # pointer to each unique Dat's data
+                if arg._is_mat:
+                    # pointer to lma data, offset into lma data
+                    # for case of multiple map pairs.
+                    argtypes += "P"
+                    argtypes += inttype
+                else:
+                    # pointer to each unique Dat's data
+                    argtypes += "P"
             argtypes += "PPPP"  # ind_map, loc_map, ind_sizes, ind_offs
             argtypes += inttype # block offset
             argtypes += "PPPPP" # blkmap, offset, nelems, nthrcol, thrcol
@@ -378,14 +680,21 @@ class ParLoop(op2.ParLoop):
             c._to_device(self._module)
 
         for arg in _args:
-            arg.data._allocate_device()
-            if arg.access is not op2.WRITE:
-                arg.data._to_device()
-            karg = arg.data._device_data
-            if arg._is_global_reduction:
-                arg.data._allocate_reduction_buffer(max_grid_size, arg.access)
-                karg = arg.data._reduction_buffer
-            arglist.append(np.intp(karg.gpudata))
+            if arg._is_mat:
+                d = arg.data._lmadata.gpudata
+                offset = arg.data._lmaoffset(self._it_space.iterset)
+                arglist.append(np.intp(d))
+                arglist.append(np.int32(offset))
+            else:
+                arg.data._allocate_device()
+                if arg.access is not op2.WRITE:
+                    arg.data._to_device()
+                karg = arg.data._device_data
+                if arg._is_global_reduction:
+                    arg.data._allocate_reduction_buffer(max_grid_size,
+                                                        arg.access)
+                    karg = arg.data._reduction_buffer
+                arglist.append(np.intp(karg.gpudata))
 
         if self._is_direct:
             self._fun.prepared_call(max_grid_size, block_size, *arglist,
@@ -457,12 +766,13 @@ class ParLoop(op2.ParLoop):
                 if arg._is_global_reduction:
                     arg.data._finalise_reduction_end(max_grid_size,
                                                      arg.access)
-                else:
-                    # Set write state to False
-                    maybe_setflags(arg.data._data, write=False)
+                elif not arg._is_mat:
                     # Data state is updated in finalise_reduction for Global
                     if arg.access is not op2.READ:
                         arg.data.state = DeviceDataMixin.DEVICE
+                else:
+                    # Mat, assemble from lma->csr
+                    arg.data._assemble(rowmap=arg.map[0], colmap=arg.map[1])
         if self._has_soa:
             op2stride.remove_from_namespace()
 
@@ -472,6 +782,7 @@ _WARPSIZE = 32
 _AVAILABLE_SHARED_MEMORY = 0
 _direct_loop_template = None
 _indirect_loop_template = None
+_matrix_support_template = None
 
 def _setup():
     global _device
@@ -486,9 +797,12 @@ def _setup():
         _AVAILABLE_SHARED_MEMORY = _device.get_attribute(driver.device_attribute.MAX_SHARED_MEMORY_PER_BLOCK)
     global _direct_loop_template
     global _indirect_loop_template
+    global _matrix_support_template
     env = jinja2.Environment(loader=jinja2.PackageLoader('pyop2', 'assets'))
     if _direct_loop_template is None:
         _direct_loop_template = env.get_template('cuda_direct_loop.jinja2')
 
     if _indirect_loop_template is None:
         _indirect_loop_template = env.get_template('cuda_indirect_loop.jinja2')
+    if _matrix_support_template is None:
+        _matrix_support_template = env.get_template('cuda_matrix_support.jinja2')
