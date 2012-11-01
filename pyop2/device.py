@@ -584,7 +584,7 @@ class ParLoop(op2.ParLoop):
         for arg in self._actual_args:
             if arg._is_global_reduction:
                 return True
-            if not arg.data._is_scalar:
+            if arg._is_staged_direct:
                 return True
         return False
 
