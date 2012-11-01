@@ -519,7 +519,7 @@ def _cusp_solver(M):
 
     host_mod.add_function(
         FunctionBody(
-            FunctionDeclaration(Value('void', '__solve'),
+            FunctionDeclaration(Value('void', 'solve'),
                                 [Value('object', '_rowptr'),
                                  Value('object', '_colidx'),
                                  Value('object', '_csrdata'),
@@ -555,22 +555,22 @@ def _cusp_solver(M):
     _cusp_cache[M.dtype] = module
     return module
 
-def solve(M, b, x):
-    b._to_device()
-    x._to_device()
-    solver_parameters = {'linear_solver': 'cg',
-                         'relative_tolerance': 1e-10}
-    module = _cusp_solver(M)
-    module.__solve(M._rowptr,
-                   M._colidx,
-                   M._csrdata,
-                   b._device_data,
-                   x._device_data,
-                   b.dataset.size * b.cdim,
-                   x.dataset.size * x.cdim,
-                   M._csrdata.size,
-                   solver_parameters)
-    x.state = DeviceDataMixin.DEVICE
+class Solver(op2.Solver):
+
+    def solve(self, M, x, b):
+        b._to_device()
+        x._to_device()
+        module = _cusp_solver(M)
+        module.solve(M._rowptr,
+                     M._colidx,
+                     M._csrdata,
+                     b._device_data,
+                     x._device_data,
+                     b.dataset.size * b.cdim,
+                     x.dataset.size * x.cdim,
+                     M._csrdata.size,
+                     self.parameters)
+        x.state = DeviceDataMixin.DEVICE
 
 def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()
