@@ -130,6 +130,13 @@ bdry_grad_vals = np.asarray([2.0]*9, dtype=valuetype)
 bdry_grad = op2.Dat(nodes, 1, bdry_grad_vals, valuetype, "gradient")
 facet = op2.Global(1, 2, np.uint32, "facet")
 
+# If a form contains multiple integrals with differing coefficients, FFC
+# generates kernels that take all the coefficients of the entire form (not
+# only the respective integral) as arguments. Arguments that correspond to
+# forms that are not used in that integral are simply not referenced.
+# We therefore need a dummy argument in place of the coefficient that is not
+# used in the par_loop for OP2 to generate the correct kernel call.
+
 # Assemble matrix and rhs
 
 op2.par_loop(mass, elements(3,3),
@@ -140,14 +147,14 @@ op2.par_loop(rhs, elements(3),
              b(elem_node[op2.i[0]], op2.INC),
              coords(elem_node, op2.READ),
              f(elem_node, op2.READ),
-             bdry_grad(top_bdry_elem_node, op2.READ))
+             bdry_grad(top_bdry_elem_node, op2.READ)) # argument ignored
 
 # Apply weak BC
 
 op2.par_loop(weak, top_bdry_elements(3),
              b(top_bdry_elem_node[op2.i[0]], op2.INC),
              coords(top_bdry_elem_node, op2.READ),
-             f(elem_node, op2.READ),
+             f(elem_node, op2.READ), # argument ignored
              bdry_grad(top_bdry_elem_node, op2.READ),
              facet(op2.READ))
 
