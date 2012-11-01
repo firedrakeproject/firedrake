@@ -148,12 +148,29 @@ def _empty_sparsity_cache():
 class Sparsity(base.Sparsity):
     """OP2 Sparsity, a matrix structure derived from the union of the outer product of pairs of :class:`Map` objects."""
 
+    @validate_type(('maps', (Map, tuple), MapTypeError), \
+                   ('dims', (int, tuple), TypeError))
+    def __new__(cls, maps, dims, name=None):
+        key = (maps, as_tuple(dims, int, 2))
+        cached = _sparsity_cache.get(key)
+        if cached is not None:
+            return cached
+        return super(Sparsity, cls).__new__(cls, maps, dims, name)
+
+    @validate_type(('maps', (Map, tuple), MapTypeError), \
+                   ('dims', (int, tuple), TypeError))
+    def __init__(self, maps, dims, name=None):
+        if getattr(self, '_cached', False):
+            return
+        base.Sparsity.__init__(self, maps, dims, name)
+        key = (maps, as_tuple(dims, int, 2))
+        self._cached = True
+        _sparsity_cache[key] = self
+
     @property
     def _c_handle(self):
         if self._lib_handle is None:
-            key = (self._rmaps, self._cmaps, self._dims)
-            self._lib_handle = _sparsity_cache.get(key) or core.op_sparsity(self)
-            _sparsity_cache[key] = self._lib_handle
+            self._lib_handle = core.op_sparsity(self)
         return self._lib_handle
 
 class Mat(base.Mat):
