@@ -31,7 +31,9 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""This demo uses ffc-generated kernels to solve the Laplace equation on a unit
+"""PyOP2 laplace equation demo
+
+This demo uses ffc-generated kernels to solve the Laplace equation on a unit
 square with boundary conditions:
 
   u = 1 on y = 0
@@ -45,9 +47,9 @@ The domain is meshed as follows:
   |/|/|
   *-*-*
 
-This demo requires the fluidity-pyop2 branch of ffc, which can be obtained with:
+This demo requires the pyop2 branch of ffc, which can be obtained with:
 
-bzr branch lp:~grm08/ffc/fluidity-pyop2
+bzr branch lp:~mapdes/ffc/pyop2
 
 This may also depend on development trunk versions of other FEniCS programs.
 """
@@ -59,7 +61,7 @@ import ffc
 
 import numpy as np
 
-op2.init(**utils.parse_args(description="PyOP2 laplace equation demo"))
+op2.init(**utils.parse_args(description=__doc__))
 
 # Set up finite element problem
 

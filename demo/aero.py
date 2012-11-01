@@ -31,12 +31,24 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
+"""PyOP2 aero demo
+
+Port of the aero demo from OP2-Common. Requires an HDF5 mesh file.
+"""
+
 from pyop2 import op2, utils
 import numpy as np
 import h5py
 from math import sqrt
 
-op2.init(**utils.parse_args(description="PyOP2 aero demo"))
+parser = utils.parser(group=True, description=__doc__)
+parser.add_argument('-m', '--mesh',
+                    action='store',
+                    type=str,
+                    default='FE_grid.h5',
+                    help='HDF5 mesh file to use (default: FE_grid.h5)')
+opt = vars(parser.parse_args())
+op2.init(**opt)
 
 from aero_kernels import dirichlet, dotPV, dotR, init_cg, res_calc, spMV, \
     update, updateP, updateUR
@@ -86,7 +98,7 @@ kappa = op2.Const(1, 1, 'kappa', dtype=np.double)
 nmode = op2.Const(1, 0, 'nmode', dtype=np.double)
 mfan = op2.Const(1, 1.0, 'mfan', dtype=np.double)
 
-with h5py.File('FE_grid.h5', 'r') as file:
+with h5py.File(opt['mesh'], 'r') as file:
     # sets
     nodes  = op2.Set.fromhdf5(file, 'nodes')
     bnodes = op2.Set.fromhdf5(file, 'bedges')

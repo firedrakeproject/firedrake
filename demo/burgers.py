@@ -31,7 +31,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""
+"""Burgers equation demo (unstable forward-Euler integration)
+
 This demo solves the steady-state Burgers equation on a unit interval.
 """
 
@@ -42,7 +43,7 @@ import numpy as np
 import pylab
 
 parser = utils.parser(group=True,
-                      description="Burgers equation demo (unstable forward-Euler integration)")
+                      description=__doc__)
 parser.add_argument('-p', '--plot',
                     action='store_true',
                     help='Plot the resulting L2 error norm')

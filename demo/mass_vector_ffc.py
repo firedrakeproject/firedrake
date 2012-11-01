@@ -31,13 +31,14 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""
+"""PyOP2 2D mass equation demo (vector field version)
+
 This demo solves the identity equation for a vector variable on a quadrilateral
 domain. The initial condition is that all DoFs are [1, 2]^T
 
-This demo requires the fluidity-pyop2 branch of ffc, which can be obtained with:
+This demo requires the pyop2 branch of ffc, which can be obtained with:
 
-bzr branch lp:~grm08/ffc/fluidity-pyop2
+bzr branch lp:~mapdes/ffc/pyop2
 
 This may also depend on development trunk versions of other FEniCS programs.
 """
@@ -48,7 +49,7 @@ from pyop2.ffc_interface import compile_form
 
 import numpy as np
 
-op2.init(**utils.parse_args(description="PyOP2 2D mass equation demo (vector field version)"))
+op2.init(**utils.parse_args(description=__doc__))
 
 # Set up finite element identity problem
 

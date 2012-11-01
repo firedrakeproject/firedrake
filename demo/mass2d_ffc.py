@@ -31,12 +31,13 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""
-This is a demo of the use of ffc to generate kernels. It solves the identity
-equation on a quadrilateral domain. It requires the fluidity-pyop2 branch of
-ffc, which can be obtained with:
+"""PyOP2 2D mass equation demo
 
-bzr branch lp:~grm08/ffc/fluidity-pyop2
+This is a demo of the use of ffc to generate kernels. It solves the identity
+equation on a quadrilateral domain. It requires the pyop2 branch of ffc,
+which can be obtained with:
+
+bzr branch lp:~mapdes/ffc/pyop2
 
 This may also depend on development trunk versions of other FEniCS programs.
 """
@@ -47,7 +48,7 @@ from ufl import *
 import ffc
 import numpy as np
 
-parser = utils.parser(group=True, description="PyOP2 2D mass equation demo")
+parser = utils.parser(group=True, description=__doc__)
 parser.add_argument('-s', '--save-output',
                     action='store_true',
                     help='Save the output of the run (used for testing)')
