@@ -34,6 +34,7 @@
 import pytest
 import numpy
 import random
+from pyop2 import device
 from pyop2 import op2
 
 backends = ['opencl', 'sequential', 'cuda']
@@ -104,6 +105,11 @@ class TestPlanCache:
     """
     # No plan for sequential backend
     skip_backends = ['sequential']
+
+    def pytest_funcarg__mat(cls, request):
+        iter2ind1 = request.getfuncargvalue('iter2ind1')
+        sparsity = op2.Sparsity((iter2ind1, iter2ind1), 1, "sparsity")
+        return op2.Mat(sparsity, 'float64', "mat")
 
     def pytest_funcarg__a64(cls, request):
         return op2.Dat(request.getfuncargvalue('iterset'),
@@ -263,6 +269,48 @@ void kernel_swap(unsigned int* x)
                                 y(iter2ind2[1], op2.INC))
         assert op2._plan_cache_size() == 2
 
+    def test_same_with_mat(self, backend, iterset, x, iter2ind1, mat):
+        k = op2.Kernel("""void dummy() {}""", "dummy")
+        op2._empty_plan_cache()
+        assert op2._plan_cache_size() == 0
+        plan1 = device.Plan(k,
+                            iterset,
+                            mat((iter2ind1[op2.i[0]],
+                                 iter2ind1[op2.i[1]]), op2.INC),
+                            x(iter2ind1[0], op2.READ),
+                            matrix_coloring=True)
+        assert op2._plan_cache_size() == 1
+        plan2 = device.Plan(k,
+                            iterset,
+                            mat((iter2ind1[op2.i[0]],
+                                 iter2ind1[op2.i[1]]), op2.INC),
+                            x(iter2ind1[0], op2.READ),
+                            matrix_coloring=True)
+
+        assert op2._plan_cache_size() == 1
+        assert plan1 is plan2
+
+    def test_iteration_index_order_matters_with_mat(self, backend, iterset,
+                                                    x, iter2ind1, mat):
+        k = op2.Kernel("""void dummy() {}""", "dummy")
+        op2._empty_plan_cache()
+        assert op2._plan_cache_size() == 0
+        plan1 = device.Plan(k,
+                            iterset,
+                            mat((iter2ind1[op2.i[0]],
+                                 iter2ind1[op2.i[1]]), op2.INC),
+                            x(iter2ind1[0], op2.READ),
+                            matrix_coloring=True)
+        assert op2._plan_cache_size() == 1
+        plan2 = device.Plan(k,
+                            iterset,
+                            mat((iter2ind1[op2.i[1]],
+                                 iter2ind1[op2.i[0]]), op2.INC),
+                            x(iter2ind1[0], op2.READ),
+                            matrix_coloring=True)
+
+        assert op2._plan_cache_size() == 2
+        assert plan1 is not plan2
 
 class TestGeneratedCodeCache:
     """

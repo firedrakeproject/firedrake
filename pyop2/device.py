@@ -352,7 +352,11 @@ class Plan(core.op_plan):
         subkey = ('mats', )
         for arg in args:
             if arg._is_mat:
-                subkey += (as_tuple(arg.map), as_tuple(arg.idx))
+                # For colouring, we only care about the rowmap
+                # and the associated iteration index
+                idxs = (arg.idx[0].__class__,
+                        arg.idx[0].index)
+                subkey += (as_tuple(arg.map[0]), idxs)
         key += subkey
 
         return key
