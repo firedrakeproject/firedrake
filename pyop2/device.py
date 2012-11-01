@@ -31,6 +31,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from collections import OrderedDict
+import numpy
 import op_lib_core as core
 import runtime_base as op2
 from runtime_base import *
@@ -210,7 +212,7 @@ class Dat(DeviceDataMixin, op2.Dat):
 
     def __imul__(self, other):
         """Pointwise multiplication or scaling of fields."""
-        if np.isscalar(other):
+        if numpy.isscalar(other):
             self.array *= as_type(other, self.dtype)
         else:
             self._check_shape(other)
@@ -219,7 +221,7 @@ class Dat(DeviceDataMixin, op2.Dat):
 
     def __idiv__(self, other):
         """Pointwise division or scaling of fields."""
-        if np.isscalar(other):
+        if numpy.isscalar(other):
             self.array /= as_type(other, self.dtype)
         else:
             self._check_shape(other)
@@ -282,7 +284,8 @@ def _plan_cache_size():
 class Plan(core.op_plan):
     def __new__(cls, kernel, iset, *args, **kwargs):
         ps = kwargs.get('partition_size', 0)
-        key = Plan._cache_key(iset, ps, *args)
+        mc = kwargs.get('matrix_coloring', False)
+        key = Plan._cache_key(iset, ps, mc, *args)
         cached = _plan_cache.get(key, None)
         if cached is not None:
             return cached
@@ -297,20 +300,31 @@ class Plan(core.op_plan):
             return
         core.op_plan.__init__(self, kernel, iset, *args, **kwargs)
         ps = kwargs.get('partition_size', 0)
-        key = Plan._cache_key(iset, ps, *args)
+        mc = kwargs.get('matrix_coloring', False)
+        key = Plan._cache_key(iset,
+                              ps,
+                              mc,
+                              *args)
+
+        self._fixed_coloring = False
+        if mc and any(arg._is_mat for arg in args):
+            self._fix_coloring(iset, ps, *args)
+            self._fixed_coloring = True
+
         _plan_cache[key] = self
         self._cached = True
 
     @classmethod
-    def _cache_key(cls, iset, partition_size, *args):
+    def _cache_key(cls, iset, partition_size, matrix_coloring, *args):
         # Set size
         key = (iset.size, )
         # Size of partitions (amount of smem)
         key += (partition_size, )
+        # do use matrix cooring ?
+        key += (matrix_coloring, )
 
         # For each indirect arg, the map, the access type, and the
         # indices into the map are important
-        from collections import OrderedDict
         inds = OrderedDict()
         for arg in args:
             if arg._is_indirect:
@@ -324,10 +338,153 @@ class Plan(core.op_plan):
                 inds[k] = l
 
         # order of indices doesn't matter
+        subkey = ('dats', )
         for k,v in inds.iteritems():
             # Only dimension of dat matters, but identity of map does
-            key += (k[0].cdim, k[1:],) + tuple(sorted(v))
+            subkey += (k[0].cdim, k[1:],) + tuple(sorted(v))
+        key += subkey
+
+        # For each matrix arg, the maps and indices
+        subkey = ('mats', )
+        for arg in args:
+            if arg._is_mat:
+                subkey += (as_tuple(arg.map), as_tuple(arg.idx))
+        key += subkey
+
         return key
+
+    def _fix_coloring(self, iset, ps, *args):
+        # list of indirect reductions args
+        cds = OrderedDict()
+        for arg in args:
+            if arg._is_indirect_reduction:
+                k = arg.data
+                l = cds.get(k, [])
+                l.append((arg.map, arg.idx))
+                cds[k] = l
+            elif arg._is_mat:
+                k = arg.data
+                rowmap = k.sparsity.maps[0][0]
+                l = cds.get(k, [])
+                for i in range(rowmap.dim):
+                    l.append((rowmap, i))
+                cds[k] = l
+
+        cds_work = dict()
+        for cd in cds.iterkeys():
+            if isinstance(cd, Dat):
+                s = cd.dataset.size
+            elif isinstance(cd, Mat):
+                s = cd.sparsity.maps[0][0].dataset.size
+            cds_work[cd] = numpy.empty((s,), dtype=numpy.uint32)
+
+        # intra partition coloring
+        self._fixed_thrcol = numpy.empty((iset.size, ),
+                                         dtype=numpy.int32)
+        self._fixed_thrcol.fill(-1)
+
+        tidx = 0
+        for p in range(self.nblocks):
+            base_color = 0
+            terminated = False
+            while not terminated:
+                terminated = True
+
+                # zero out working array:
+                for w in cds_work.itervalues():
+                    w.fill(0)
+
+                # color threads
+                for t in range(tidx, tidx + super(Plan, self).nelems[p]):
+                    if self._fixed_thrcol[t] == -1:
+                        mask = 0
+                        for cd in cds.iterkeys():
+                            for m, i in cds[cd]:
+                                mask |= cds_work[cd][m.values[t][i]]
+
+                        if mask == 0xffffffff:
+                            terminated = False
+                        else:
+                            c = 0
+                            while mask & 0x1:
+                                mask = mask >> 1
+                                c += 1
+                            self._fixed_thrcol[t] = base_color + c
+                            mask = 1 << c
+                            for cd in cds.iterkeys():
+                                for m, i in cds[cd]:
+                                    cds_work[cd][m.values[t][i]] |= mask
+                base_color += 32
+            tidx += super(Plan, self).nelems[p]
+
+        self._fixed_nthrcol = numpy.zeros(self.nblocks,dtype=numpy.int32)
+        tidx = 0
+        for p in range(self.nblocks):
+            self._fixed_nthrcol[p] = max(self._fixed_thrcol[tidx:(tidx + super(Plan, self).nelems[p])]) + 1
+            tidx += super(Plan, self).nelems[p]
+
+        # partition coloring
+        pcolors = numpy.empty(self.nblocks, dtype=numpy.int32)
+        pcolors.fill(-1)
+        base_color = 0
+        terminated = False
+        while not terminated:
+            terminated = True
+
+            # zero out working array:
+            for w in cds_work.itervalues():
+                w.fill(0)
+
+            tidx = 0
+            for p in range(self.nblocks):
+                if pcolors[p] == -1:
+                    mask = 0
+                    for t in range(tidx, tidx + super(Plan, self).nelems[p]):
+                        for cd in cds.iterkeys():
+                            for m, i in cds[cd]:
+                                mask |= cds_work[cd][m.values[t][i]]
+
+                    if mask == 0xffffffff:
+                        terminated = False
+                    else:
+                        c = 0
+                        while mask & 0x1:
+                            mask = mask >> 1
+                            c += 1
+                        pcolors[p] = base_color + c
+
+                        mask = 1 << c
+                        for t in range(tidx, tidx + super(Plan, self).nelems[p]):
+                            for cd in cds.iterkeys():
+                                for m, i in cds[cd]:
+                                    cds_work[cd][m.values[t][i]] |= mask
+                tidx += super(Plan, self).nelems[p]
+
+            base_color += 32
+
+        self._fixed_ncolors = max(pcolors) + 1
+        self._fixed_ncolblk = numpy.bincount(pcolors)
+        self._fixed_blkmap = numpy.argsort(pcolors, kind='mergesort').astype(numpy.int32)
+
+    @property
+    def blkmap(self):
+        return self._fixed_blkmap if self._fixed_coloring else super(Plan, self).blkmap
+
+    @property
+    def ncolors(self):
+        return self._fixed_ncolors if self._fixed_coloring else super(Plan, self).ncolors
+
+    @property
+    def ncolblk(self):
+        return self._fixed_ncolblk if self._fixed_coloring else super(Plan, self).ncolblk
+
+    @property
+    def thrcol(self):
+        return self._fixed_thrcol if self._fixed_coloring else super(Plan, self).thrcol
+
+    @property
+    def nthrcol(self):
+        return self._fixed_nthrcol if self._fixed_coloring else super(Plan, self).nthrcol
 
 class ParLoop(op2.ParLoop):
     def __init__(self, kernel, itspace, *args):
@@ -335,7 +492,7 @@ class ParLoop(op2.ParLoop):
         self._src = None
         # List of arguments with vector-map/iteration-space indexes
         # flattened out
-        # Does not contain Mat arguments
+        # Does contain Mat arguments (cause of coloring)
         self.__unwound_args = []
         # List of unique arguments:
         #  - indirect dats with the same dat/map pairing only appear once
@@ -349,7 +506,7 @@ class ParLoop(op2.ParLoop):
                     self.__unwound_args.append(arg.data(arg.map[i],
                                                         arg.access))
             elif arg._is_mat:
-                pass
+                self.__unwound_args.append(arg)
             elif arg._uses_itspace:
                 for i in range(self._it_space.extents[arg.idx.index]):
                     self.__unwound_args.append(arg.data(arg.map[i],
@@ -429,6 +586,16 @@ class ParLoop(op2.ParLoop):
                 return True
             if not arg.data._is_scalar:
                 return True
+        return False
+
+    @property
+    def _requires_coloring(self):
+        """Direct code generation to follow use colored execution scheme."""
+        return not not self._all_inc_indirect_dat_args or self._requires_matrix_coloring
+
+    @property
+    def _requires_matrix_coloring(self):
+        """Direct code generation to follow colored execution for global matrix insertion."""
         return False
 
     @property

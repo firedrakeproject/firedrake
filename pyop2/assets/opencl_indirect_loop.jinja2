@@ -140,8 +140,7 @@ void {{ parloop._stub_name }}(
 
   int i_1;
 
-{%- if(parloop._unique_indirect_dat_args) %}
-{%- if(parloop._all_inc_indirect_dat_args) %}
+{%- if(parloop._requires_coloring) %}
   __local int colors_count;
   __local int active_threads_count_ceiling;
   int color_1;
@@ -149,6 +148,7 @@ void {{ parloop._stub_name }}(
   int i_2;
 {% endif %}
 
+{%- if(parloop._unique_indirect_dat_args) %}
   // reduction args
 {%- for arg in parloop._all_inc_non_vec_map_indirect_dat_args %}
   {{ arg.data._cl_type }} {{ arg._local_name() }}[{{ arg.data.cdim }}];
@@ -178,6 +178,7 @@ void {{ parloop._stub_name }}(
   // local matrix entry
   {% for arg in parloop._matrix_args %}
   __private {{ arg.data._cl_type }} {{ arg.data.name }}_entry
+  {%- for it in parloop._it_space._extent_ranges -%}[{{ it }}]{%- endfor -%}
   {%- for dim in arg.data.sparsity.dims %}[{{ dim }}]{% endfor %};
   {% endfor %}
 {% endif %}
@@ -204,7 +205,7 @@ void {{ parloop._stub_name }}(
   if (get_local_id(0) == 0) {
     block_id = p_blk_map[get_group_id(0) + block_offset];
     active_threads_count = p_nelems[block_id];
-{%- if(parloop._all_inc_indirect_dat_args) %}
+{%- if(parloop._requires_coloring) %}
     active_threads_count_ceiling = get_local_size(0) * (1 + (active_threads_count - 1) / get_local_size(0));
     colors_count = p_nthrcol[block_id];
 {%- endif %}
@@ -245,7 +246,7 @@ void {{ parloop._stub_name }}(
   {% endfor %}
 {% endif %}
 
-{%- if(parloop._all_inc_indirect_dat_args) %}
+{%- if(parloop._requires_coloring) %}
   for (i_1 = get_local_id(0); i_1 < active_threads_count_ceiling; i_1 += get_local_size(0)) {
     color_2 = -1;
     if (i_1 < active_threads_count) {
@@ -268,6 +269,13 @@ void {{ parloop._stub_name }}(
         {% for arg in parloop._all_inc_itspace_dat_args %}
         {{ color_reduction_vec_map(arg) | indent(8) }}
         {% endfor %}
+        {%- if(parloop._requires_matrix_coloring) %}
+        // IterationSpace index loops ({{ parloop._it_space._extent_ranges }})
+        {%- for it in parloop._it_space._extent_ranges %}
+        for (int idx_{{ loop.index0 }} = 0; idx_{{ loop.index0 }} < {{ it }}; ++idx_{{ loop.index0 }})
+        {%- endfor %}
+            {{ matrix_insert() }}
+        {% endif %}
       }
       barrier(CLK_LOCAL_MEM_FENCE);
     }
@@ -312,7 +320,7 @@ for (int idx_{{ loop.index0 }} = 0; idx_{{ loop.index0 }} < {{ it }}; ++idx_{{ l
 {% for dim in arg.data.sparsity.dims %}
 for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }})
 {%- endfor %}
-  {{ arg.data.name }}_entry[i0][i1] = {{ arg.data._cl_type_zero }};
+  {{ arg.data.name }}_entry[idx_0][idx_1][i0][i1] = {{ arg.data._cl_type_zero }};
 {% endfor %}
 {{ parloop._kernel.name }}(
   {% filter trim|replace("\n", ",\n") -%}
@@ -326,6 +334,16 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
   {%- endfilter %}
   );
 
+{%- if(not parloop._requires_matrix_coloring) -%}
+{{ matrix_insert() }}
+{% endif %}
+
+{%- for it in parloop._it_space._extent_ranges %}
+}
+{%- endfor -%}
+{%- endmacro -%}
+
+{%- macro matrix_insert() -%}
 {% for arg in parloop._matrix_args -%}
 {% for dim in arg.data.sparsity.dims %}
 for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }})
@@ -343,12 +361,9 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
     {% set dim = arg.data.sparsity.dims[loop.index0] -%}
     {{ dim }}*{{ map.name }}[(i_1 + shared_memory_offset) * {{ ext }} + idx_{{ loop.index0 }}]+i{{ loop.index0 }},
     {%- endfor %}
-    {{ arg.data.name }}_entry[i0][i1]
+    {{ arg.data.name }}_entry[idx_0][idx_1][i0][i1]
   );
 {% endfor %}
-{%- for it in parloop._it_space._extent_ranges %}
-}
-{%- endfor -%}
 {%- endmacro -%}
 
 {%- macro kernel_call() -%}
@@ -380,7 +395,7 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
   {{ typecast("__global", arg.data._cl_type + "*", "__private") -}}
   ({{ arg.data.name }} + (i_1 + shared_memory_offset) * {{ arg.data.cdim }})
 {%- elif(arg._is_mat) -%}
-  {{ arg.data.name }}_entry
+  {{ arg.data.name }}_entry[idx_0][idx_1]
 {%- elif(arg._uses_itspace) -%}
   {{ arg._vec_name }}[idx_0]
 {%- elif(arg._is_vec_map) -%}

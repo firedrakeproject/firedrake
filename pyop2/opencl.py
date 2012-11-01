@@ -401,7 +401,7 @@ class Map(op2.Map):
             from warnings import warn
             warn("Copying Map data for %s again, do you really want to do this?" % \
                  self)
-            self._device_values.set(_queue, self._values)
+            self._device_values.set(self._values, _queue)
 
 class Plan(op2.Plan):
     @property
@@ -480,6 +480,11 @@ class ParLoop(op2.ParLoop):
             if not os.path.exists(path):
                 with open(path, "w") as f:
                     f.write(self._src)
+
+    @property
+    def _requires_matrix_coloring(self):
+        """Direct code generation to follow colored execution for global matrix insertion."""
+        return not _supports_64b_atomics and not not self._matrix_args
 
     def _i_partition_size(self):
         #TODO FIX: something weird here
@@ -605,7 +610,8 @@ class ParLoop(op2.ParLoop):
         if self._is_indirect:
             self._plan = Plan(self.kernel, self._it_space.iterset,
                               *self._unwound_args,
-                              partition_size=conf['partition_size'])
+                              partition_size=conf['partition_size'],
+                              matrix_coloring=self._requires_matrix_coloring)
             conf['local_memory_size'] = self._plan.nshared
             conf['ninds'] = self._plan.ninds
             conf['work_group_size'] = min(_max_work_group_size,
@@ -720,6 +726,7 @@ def _setup():
     global _warpsize
     global _AMD_fixes
     global _reduction_task_cache
+    global _supports_64b_atomics
 
     _ctx = cl.create_some_context()
     _queue = cl.CommandQueue(_ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
@@ -731,6 +738,9 @@ def _setup():
     if not _has_dpfloat:
         warnings.warn('device does not support double precision floating point computation, expect undefined behavior for double')
 
+    if 'cl_khr_int64_base_atomics' in _queue.device.extensions:
+        _supports_64b_atomics = True
+
     if _queue.device.type == cl.device_type.CPU:
         _warpsize = 1
     elif _queue.device.type == cl.device_type.GPU:
@@ -740,6 +750,7 @@ def _setup():
     _AMD_fixes = _queue.device.platform.vendor in ['Advanced Micro Devices, Inc.']
     _reduction_task_cache = dict()
 
+_supports_64b_atomics = False
 _debug = False
 _ctx = None
 _queue = None
