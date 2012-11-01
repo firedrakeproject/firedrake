@@ -269,7 +269,6 @@ void kernel_swap(unsigned int* x)
                                 y(iter2ind2[1], op2.INC))
         assert op2._plan_cache_size() == 2
 
-    @pytest.mark.xfail
     def test_same_with_mat(self, backend, iterset, x, iter2ind1, mat):
         k = op2.Kernel("""void dummy() {}""", "dummy")
         op2._empty_plan_cache()
