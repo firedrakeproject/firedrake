@@ -212,8 +212,8 @@ class Mat(DeviceDataMixin, op2.Mat):
             mod = SourceModule(src, options=compiler_opts)
             sfun = mod.get_function('__lma_to_csr')
             vfun = mod.get_function('__lma_to_csr_vector')
-            sfun.prepare('iPPPPPiPii')
-            vfun.prepare('iPPPPPiiPiii')
+            sfun.prepare('PPPPPiPii')
+            vfun.prepare('PPPPPiiPiii')
             Mat._lma2csr_cache[self.dtype] = mod, sfun, vfun
 
         assert rowmap.iterset is colmap.iterset
@@ -223,8 +223,8 @@ class Mat(DeviceDataMixin, op2.Mat):
 
         rowmap._to_device()
         colmap._to_device()
-        arglist = [np.int32(self._lmaoffset(rowmap.iterset)),
-                   self._lmadata.gpudata,
+        offset = self._lmaoffset(rowmap.iterset) * self.dtype.itemsize
+        arglist = [np.intp(self._lmadata.gpudata) + offset,
                    self._csrdata.gpudata,
                    self._rowptr.gpudata,
                    self._colidx.gpudata,

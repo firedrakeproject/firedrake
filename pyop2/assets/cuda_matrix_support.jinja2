@@ -24,8 +24,7 @@ __device__ inline void __atomic_add({{type}} *address, {{type}} val)
     {% endif %}
 }
 
-__global__ void __lma_to_csr(int lmaoffset,
-                             {{type}} *lmadata,
+__global__ void __lma_to_csr({{type}} *lmadata,
                              {{type}} *csrdata,
                              int *rowptr,
                              int *colidx,
@@ -47,12 +46,10 @@ __global__ void __lma_to_csr(int lmaoffset,
                      colmap[e * colmapdim + j],
                      rowptr, colidx);
 
-    lmadata += lmaoffset;
     __atomic_add(csrdata + offset, lmadata[n]);
 }
 
-__global__ void __lma_to_csr_vector(int lmaoffset,
-                                    {{type}} *lmadata,
+__global__ void __lma_to_csr_vector({{type}} *lmadata,
                                     {{type}} *csrdata,
                                     int *rowptr,
                                     int *colidx,
@@ -74,7 +71,6 @@ __global__ void __lma_to_csr_vector(int lmaoffset,
 
     int row = rmult * rowmap[e * rowmapdim + i];
     int col = cmult * colmap[e * colmapdim + j];
-    lmadata += lmaoffset;
     for ( int k = 0; k < rmult; ++k ) {
         for ( int l = 0; l < cmult; ++l ) {
             int offset = pos(row + k, col + l,
