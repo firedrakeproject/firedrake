@@ -33,6 +33,7 @@
 
 import pytest
 import numpy
+from numpy.testing import assert_allclose
 
 from pyop2 import op2
 
@@ -559,7 +560,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
 
         expected_matrix = numpy.asarray([[0.0]*nelems]*nelems, dtype=numpy.float64)
         eps = 1.e-12
-        assert (abs(mat.values-expected_matrix)<eps).all()
+        assert_allclose(mat.values, expected_matrix, eps)
 
     @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_assemble(self, backend, mass, mat, coords, elements, elem_node,
@@ -567,8 +568,8 @@ void zero_mat(double local_mat[1][1], int i, int j)
         op2.par_loop(mass, elements(3,3),
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
-        eps=1.e-6
-        assert (abs(mat.values-expected_matrix)<eps).all()
+        eps=1.e-5
+        assert_allclose(mat.values, expected_matrix, eps)
 
     def test_rhs(self, backend, rhs, elements, b, coords, f, elem_node,
                      expected_rhs):
@@ -578,13 +579,13 @@ void zero_mat(double local_mat[1][1], int i, int j)
                      f(elem_node, op2.READ))
 
         eps = 1.e-12
-        assert all(abs(b.data-expected_rhs)<eps)
+        assert_allclose(b.data, expected_rhs, eps)
 
     @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_solve(self, backend, mat, b, x, f):
         op2.solve(mat, b, x)
         eps = 1.e-12
-        assert all(abs(x.data-f.data)<eps)
+        assert_allclose(x.data, f.data, eps)
 
     @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_zero_matrix(self, backend, mat):
@@ -592,13 +593,13 @@ void zero_mat(double local_mat[1][1], int i, int j)
         mat.zero()
         expected_matrix = numpy.asarray([[0.0]*4]*4, dtype=valuetype)
         eps=1.e-14
-        assert (abs(mat.values-expected_matrix)<eps).all()
+        assert_allclose(mat.values, expected_matrix, eps)
 
     def test_zero_rhs(self, backend, b, zero_dat, nodes):
         """Test that the RHS is zeroed correctly."""
         op2.par_loop(zero_dat, nodes,
                      b(op2.IdentityMap, op2.WRITE))
-        assert all(map(lambda x: x==0.0, b.data))
+        assert all(b.data == numpy.zeros_like(b.data))
 
     @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_assemble_ffc(self, backend, mass_ffc, mat, coords, elements,
@@ -607,8 +608,8 @@ void zero_mat(double local_mat[1][1], int i, int j)
         op2.par_loop(mass_ffc, elements(3,3),
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
-        eps=1.e-6
-        assert (abs(mat.values-expected_matrix)<eps).all()
+        eps=1.e-5
+        assert_allclose(mat.values, expected_matrix, eps)
 
     @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_assemble_vec_mass(self, backend, mass_vector_ffc, vecmat, coords,
@@ -618,7 +619,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
                      vecmat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
         eps=1.e-6
-        assert (abs(vecmat.values-expected_vector_matrix)<eps).all()
+        assert_allclose(vecmat.values, expected_vector_matrix, eps)
 
     def test_rhs_ffc(self, backend, rhs_ffc, elements, b, coords, f,
                      elem_node, expected_rhs):
@@ -628,7 +629,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
                      f(elem_node, op2.READ))
 
         eps = 1.e-6
-        assert all(abs(b.data-expected_rhs)<eps)
+        assert_allclose(b.data, expected_rhs, eps)
 
     def test_rhs_ffc_itspace(self, backend, rhs_ffc_itspace, elements, b, coords, f,
                      elem_node, expected_rhs, zero_dat, nodes):
@@ -640,7 +641,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
                      coords(elem_node, op2.READ),
                      f(elem_node, op2.READ))
         eps = 1.e-6
-        assert all(abs(b.data-expected_rhs)<eps)
+        assert_allclose(b.data, expected_rhs, eps)
 
     def test_rhs_vector_ffc(self, backend, rhs_ffc_vector, elements, b_vec, coords, f_vec,
                             elem_node, expected_vec_rhs, nodes):
@@ -649,8 +650,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
                      coords(elem_node, op2.READ),
                      f_vec(elem_node, op2.READ))
         eps = 1.e-6
-        diff = abs((b_vec.data-expected_vec_rhs)<eps)
-        assert diff.all()
+        assert_allclose(b_vec.data, expected_vec_rhs, eps)
 
     def test_rhs_vector_ffc_itspace(self, backend, rhs_ffc_vector_itspace, elements, b_vec,
                                     coords, f_vec, elem_node, expected_vec_rhs, nodes, zero_vec_dat):
@@ -662,22 +662,20 @@ void zero_mat(double local_mat[1][1], int i, int j)
                      coords(elem_node, op2.READ),
                      f_vec(elem_node, op2.READ))
         eps = 1.e-6
-        diff = abs((b_vec.data-expected_vec_rhs)<eps)
-        assert diff.all()
+        assert_allclose(b_vec.data, expected_vec_rhs, eps)
 
     @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_zero_rows(self, backend, mat, expected_matrix):
         expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
         mat.zero_rows([0], 12.0)
-        eps=1.e-6
-        assert (abs(mat.values-expected_matrix)<eps).all()
+        eps=1.e-5
+        assert_allclose(mat.values, expected_matrix, eps)
 
     @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_vector_solve(self, backend, vecmat, b_vec, x_vec, f_vec):
         op2.solve(vecmat, b_vec, x_vec)
         eps = 1.e-12
-        diff = abs(x_vec.data-f_vec.data)<eps
-        assert diff.all()
+        assert_allclose(x_vec.data, f_vec.data, eps)
 
     @pytest.mark.xfail("'cuda' in config.option.__dict__['backend']")
     def test_zero_vector_matrix(self, backend, vecmat):
@@ -685,7 +683,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
         vecmat.zero()
         expected_matrix = numpy.asarray([[0.0]*8]*8, dtype=valuetype)
         eps=1.e-14
-        assert (abs(vecmat.values-expected_matrix)<eps).all()
+        assert_allclose(vecmat.values, expected_matrix, eps)
 
 if __name__ == '__main__':
     import os
