@@ -571,7 +571,7 @@ class TestSparsityCache:
         sp1 = op2.Sparsity((m1, m1), 1)
         sp2 = op2.Sparsity((m2, m2), 1)
 
-        assert sp1._c_handle is not sp2._c_handle
+        assert sp1 is not sp2
 
     def test_sparsities_differing_dims_share_no_data(self, backend, m1):
         """Sparsities with the same maps but different dims should not
@@ -579,7 +579,7 @@ class TestSparsityCache:
         sp1 = op2.Sparsity((m1, m1), 1)
         sp2 = op2.Sparsity((m1, m1), 2)
 
-        assert sp1._c_handle is not sp2._c_handle
+        assert sp1 is not sp2
 
     def test_sparsities_differing_maps_and_dims_share_no_data(self, backend, m1, m2):
         """Sparsities with different maps and dims should not share a
@@ -587,14 +587,14 @@ class TestSparsityCache:
         sp1 = op2.Sparsity((m1, m1), 2)
         sp2 = op2.Sparsity((m2, m2), 1)
 
-        assert sp1._c_handle is not sp2._c_handle
+        assert sp1 is not sp2
 
     def test_sparsities_same_map_and_dim_share_data(self, backend, m1):
         """Sparsities with the same map and dim should share a C handle."""
         sp1 = op2.Sparsity((m1, m1), (1,1))
         sp2 = op2.Sparsity((m1, m1), (1,1))
 
-        assert sp1._c_handle is sp2._c_handle
+        assert sp1 is sp2
 
     def test_sparsities_same_map_and_dim_share_data_longhand(self, backend, m1):
         """Sparsities with the same map and dim should share a C handle
@@ -603,7 +603,18 @@ Even if we spell the dimension with a shorthand and longhand form."""
         sp1 = op2.Sparsity((m1, m1), (1,1))
         sp2 = op2.Sparsity((m1, m1), 1)
 
-        assert sp1._c_handle is sp2._c_handle
+        assert sp1 is sp2
+
+    @pytest.mark.skipif("'sequential' in config.option.__dict__['backend']")
+    def test_two_mats_on_same_sparsity_share_data(self, backend, m1):
+        """Sparsity data should be shared between Mat objects.
+        Even on the device."""
+        sp = op2.Sparsity((m1, m1), (1, 1))
+        mat1 = op2.Mat(sp, 'float64')
+        mat2 = op2.Mat(sp, 'float64')
+
+        assert mat1._colidx is mat2._colidx
+        assert mat1._rowptr is mat2._rowptr
 
 if __name__ == '__main__':
     import os

@@ -143,6 +143,21 @@ class Dat(DeviceDataMixin, op2.Dat):
         """The L2-norm on the flattened vector."""
         return np.sqrt(gpuarray.dot(self.array, self.array).get())
 
+class Sparsity(op2.Sparsity):
+    @property
+    def rowptr(self):
+        if not hasattr(self, '__rowptr'):
+            setattr(self, '__rowptr',
+                    gpuarray.to_gpu(self._c_handle.rowptr))
+        return getattr(self, '__rowptr')
+
+    @property
+    def colidx(self):
+        if not hasattr(self, '__colidx'):
+            setattr(self, '__colidx',
+                    gpuarray.to_gpu(self._c_handle.colidx))
+        return getattr(self, '__colidx')
+
 class Mat(DeviceDataMixin, op2.Mat):
     _arg_type = Arg
     _lma2csr_cache = dict()
@@ -181,17 +196,11 @@ class Mat(DeviceDataMixin, op2.Mat):
 
     @property
     def _rowptr(self):
-        if not hasattr(self, '__rowptr'):
-            setattr(self, '__rowptr',
-                    gpuarray.to_gpu(self._sparsity._c_handle.rowptr))
-        return getattr(self, '__rowptr')
+        return self._sparsity.rowptr
 
     @property
     def _colidx(self):
-        if not hasattr(self, '__colidx'):
-            setattr(self, '__colidx',
-                    gpuarray.to_gpu(self._sparsity._c_handle.colidx))
-        return getattr(self, '__colidx')
+        return self._sparsity.colidx
 
     @property
     def _csrdata(self):
