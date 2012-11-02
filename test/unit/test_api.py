@@ -43,6 +43,7 @@ from pyop2 import op2
 from pyop2 import exceptions
 from pyop2 import sequential
 from pyop2 import base
+from pyop2 import configuration as cfg
 
 def pytest_funcarg__set(request):
     return op2.Set(5, 'foo')
@@ -107,9 +108,15 @@ class TestInitAPI:
         assert op2.backends.get_backend() == 'pyop2.'+backend
 
     def test_double_init(self, backend):
-        "init should only be callable once."
+        "Calling init again with the same backend should update the configuration."
+        op2.init(backend=backend, foo='bar')
+        assert op2.backends.get_backend() == 'pyop2.'+backend
+        assert cfg.foo == 'bar'
+
+    def test_change_backend_fails(self, backend):
+        "Calling init again with a different backend should fail."
         with pytest.raises(RuntimeError):
-            op2.init(backend=backend)
+            op2.init(backend='other')
 
 class TestAccessAPI:
     """
