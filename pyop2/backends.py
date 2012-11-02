@@ -37,7 +37,8 @@
 """
 
 import void
-backends = {'void' : void}
+import finalised
+backends = {'void' : void, 'finalised' : finalised}
 
 class _BackendSelector(type):
     """Metaclass creating the backend class corresponding to the requested
@@ -117,4 +118,4 @@ def set_backend(backend):
 
 def unset_backend():
     """Unset the OP2 backend"""
-    _BackendSelector._backend = void
+    _BackendSelector._backend = finalised

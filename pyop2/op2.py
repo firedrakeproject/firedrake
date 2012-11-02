@@ -53,10 +53,14 @@ def init(**kwargs):
        Calling ``init`` again with a different backend raises an exception.
        Changing the backend is not possible. Calling ``init`` again with the
        same backend or not specifying a backend will update the configuration.
+       Calling ``init`` after ``exit`` has been called is an error and will
+       raise an exception.
     """
     backend = backends.get_backend()
+    if backend == 'pyop2.finalised':
+        raise RuntimeError("Calling init() after exit() is illegal.")
     if 'backend' in kwargs and backend not in ('pyop2.void', 'pyop2.'+kwargs['backend']):
-        raise RuntimeError("Changing the backend is not possible once set")
+        raise RuntimeError("Changing the backend is not possible once set.")
     cfg.configure(**kwargs)
     if backend == 'pyop2.void':
         backends.set_backend(cfg.backend)
