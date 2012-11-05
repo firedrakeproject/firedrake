@@ -436,7 +436,7 @@ def _cusp_solver(M):
 
     import codepy.jit
     import codepy.toolchain
-    from codepy.cgen import FunctionBody, FunctionDeclaration, If
+    from codepy.cgen import FunctionBody, FunctionDeclaration, If, make_multiple_ifs
     from codepy.cgen import Block, Statement, Include, Value
     from codepy.bpl import BoostPythonModule
     from codepy.cuda import CudaModule
@@ -497,18 +497,22 @@ def _cusp_solver(M):
             Statement('thrust::fill(x.begin(), x.end(), (ValueType)0)'),
             Statement('matrix A(nrows, ncols, nnz, row_offsets, column_indices, matrix_values)'),
             Statement('cusp::default_monitor< ValueType > monitor(b, max_it, rtol, atol)'),
-            If('pc_type == "diagonal"',
-               Block([Statement('cusp::precond::diagonal< ValueType, cusp::device_memory >M(A)'),
-                      solve_block])),
-            If('pc_type == "ainv"',
-               Block([Statement('cusp::precond::scaled_bridson_ainv< ValueType, cusp::device_memory >M(A)'),
-                      solve_block])),
-            If('pc_type == "amg"',
-               Block([Statement('cusp::precond::smoothed_aggregation< IndexType, ValueType, cusp::device_memory >M(A)'),
-                      solve_block])),
-            If('pc_type == "None"',
-               Block([Statement('cusp::identity_operator< ValueType, cusp::device_memory >M(nrows, ncols)'),
-                      solve_block]))
+            # We're translating PETSc preconditioner types to CUSP
+            # FIXME: Solve will not be called if the PC type is not recognized
+            make_multiple_ifs([
+                ('pc_type == "diagonal" || pc_type == "jacobi"',
+                 Block([Statement('cusp::precond::diagonal< ValueType, cusp::device_memory >M(A)'),
+                        solve_block])),
+                ('pc_type == "ainv" || pc_type == "ainvcusp"',
+                 Block([Statement('cusp::precond::scaled_bridson_ainv< ValueType, cusp::device_memory >M(A)'),
+                        solve_block])),
+                ('pc_type == "amg" || pc_type == "hypre"',
+                 Block([Statement('cusp::precond::smoothed_aggregation< IndexType, ValueType, cusp::device_memory >M(A)'),
+                        solve_block])),
+                ('pc_type == "none"',
+                 Block([Statement('cusp::identity_operator< ValueType, cusp::device_memory >M(nrows, ncols)'),
+                        solve_block]))
+               ])
             ]))
 
     host_mod.add_to_preamble([Include('boost/python/extract.hpp'), Include('string')])
@@ -544,7 +548,7 @@ def _cusp_solver(M):
                 Statement('double atol = extract<double>(parms.get("absolute_tolerance", 1.0e-50))'),
                 Statement('int max_it = extract<int>(parms.get("maximum_iterations", 1000))'),
                 Statement('int restart = extract<int>(parms.get("restart_length", 30))'),
-                Statement('string pc_type = extract<string>(parms.get("preconditioner", "None"))'),
+                Statement('string pc_type = extract<string>(parms.get("preconditioner", "none"))'),
                 Statement('__cusp_solve(rowptr, colidx, csrdata, b, x, nrows, ncols, nnz, ksp_type, pc_type, rtol, atol, max_it, restart)')])))
 
     nvcc_toolchain.cflags.append('-arch')
