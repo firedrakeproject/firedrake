@@ -33,6 +33,7 @@
 
 """OP2 sequential backend."""
 
+import os
 import numpy as np
 import petsc
 
@@ -369,6 +370,9 @@ class ParLoop(rt.ParLoop):
                                        'addtos_scalar_field' : _addtos_scalar_field,
                                        'assembles' : _assembles}
 
+        # We need to build with mpicc since that's required by PETSc
+        cc = os.environ.get('CC')
+        os.environ['CC'] = 'mpicc'
         _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
                                  additional_definitions = _const_decs + kernel_code,
                                  include_dirs=[OP2_INC, petsc.get_petsc_dir()+'/include'],
@@ -377,6 +381,10 @@ class ParLoop(rt.ParLoop):
                                  library_dirs=[OP2_LIB, petsc.get_petsc_dir()+'/lib'],
                                  libraries=['op2_seq', 'petsc'],
                                  sources=["mat_utils.cxx"])
+        if cc:
+            os.environ['CC'] = cc
+        else:
+            os.environ.pop('CC')
 
         rt._parloop_cache[key] = _fun
         return _fun
