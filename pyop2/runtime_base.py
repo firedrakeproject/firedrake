@@ -225,6 +225,9 @@ class Mat(base.Mat):
         self._handle = None
 
     def _init(self):
+        if not self.dtype == PETSc.ScalarType:
+            raise RuntimeError("Can only create a matrix of type %s, %s is not supported" \
+                    % (PETSc.ScalarType, self.dtype))
         mat = PETSc.Mat()
         rdim, cdim = self.sparsity.dims
         self._array = np.zeros(self.sparsity.total_nz, dtype=PETSc.RealType)
