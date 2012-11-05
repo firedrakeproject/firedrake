@@ -104,6 +104,11 @@ class TestMatrices:
                                    dtype=valuetype)
         return op2.Dat(nodes, 2, coord_vals, valuetype, "coords")
 
+    def pytest_funcarg__g(cls, request):
+        return request.cached_setup(
+                setup = lambda: op2.Global(1, 1.0, numpy.float64, "g"),
+                scope='module')
+
     def pytest_funcarg__f(cls, request):
         nodes = request.getfuncargvalue('nodes')
         f_vals = numpy.asarray([ 1.0, 2.0, 3.0, 4.0 ], dtype=valuetype)
@@ -529,6 +534,52 @@ void zero_vec_dat(double *dat)
 
         return op2.Kernel(kernel_code, "zero_vec_dat")
 
+    def pytest_funcarg__kernel_inc(cls, request):
+
+        kernel_code = """
+void kernel_inc(double entry[1][1], double* g, int i, int j)
+{
+  entry[0][0] += *g;
+}
+"""
+        return op2.Kernel(kernel_code, "kernel_inc")
+
+    def pytest_funcarg__kernel_set(cls, request):
+
+        kernel_code = """
+void kernel_set(double entry[1][1], double* g, int i, int j)
+{
+  entry[0][0] = *g;
+}
+"""
+        return op2.Kernel(kernel_code, "kernel_set")
+
+    def pytest_funcarg__kernel_inc_vec(cls, request):
+
+        kernel_code = """
+void kernel_inc_vec(double entry[2][2], double* g, int i, int j)
+{
+  entry[0][0] += *g;
+  entry[0][1] += *g;
+  entry[1][0] += *g;
+  entry[1][1] += *g;
+}
+"""
+        return op2.Kernel(kernel_code, "kernel_inc_vec")
+
+    def pytest_funcarg__kernel_set_vec(cls, request):
+
+        kernel_code = """
+void kernel_set_vec(double entry[2][2], double* g, int i, int j)
+{
+  entry[0][0] = *g;
+  entry[0][1] = *g;
+  entry[1][0] = *g;
+  entry[1][1] = *g;
+}
+"""
+        return op2.Kernel(kernel_code, "kernel_set_vec")
+
     def pytest_funcarg__expected_matrix(cls, request):
         expected_vals = [(0.25, 0.125, 0.0, 0.125),
                          (0.125, 0.291667, 0.0208333, 0.145833),
@@ -607,6 +658,42 @@ void zero_mat(double local_mat[1][1], int i, int j)
         expected_matrix = numpy.zeros((4,4), dtype=valuetype)
         eps=1.e-14
         assert_allclose(mat.values, expected_matrix, eps)
+
+    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
+    def test_set_matrix(self, backend, mat, elements, elem_node,
+                        kernel_inc, kernel_set, g):
+        """Test accessing a scalar matrix with the WRITE access by adding some
+        non-zero values into the matrix, then setting them back to zero with a
+        kernel using op2.WRITE"""
+        op2.par_loop(kernel_inc, elements(3,3),
+                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                     g(op2.READ))
+        # Check we have ones in the matrix
+        assert mat.array.sum() == 3*3*elements.size
+        op2.par_loop(kernel_set, elements(3,3),
+                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.WRITE),
+                     g(op2.READ))
+        # Check we have set all values in the matrix to 1
+        assert_allclose(mat.array, numpy.ones_like(mat.array))
+        mat.zero()
+
+    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
+    def test_set_matrix_vec(self, backend, vecmat, elements, elem_node,
+                        kernel_inc_vec, kernel_set_vec, g):
+        """Test accessing a vector matrix with the WRITE access by adding some
+        non-zero values into the matrix, then setting them back to zero with a
+        kernel using op2.WRITE"""
+        op2.par_loop(kernel_inc_vec, elements(3,3),
+                     vecmat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                     g(op2.READ))
+        # Check we have ones in the matrix
+        assert vecmat.array.sum() == 2*2*3*3*elements.size
+        op2.par_loop(kernel_set_vec, elements(3,3),
+                     vecmat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.WRITE),
+                     g(op2.READ))
+        # Check we have set all values in the matrix to 1
+        assert_allclose(vecmat.array, numpy.ones_like(vecmat.array))
+        vecmat.zero()
 
     def test_zero_rhs(self, backend, b, zero_dat, nodes):
         """Test that the RHS is zeroed correctly."""

@@ -207,13 +207,14 @@ class ParLoop(rt.ParLoop):
             nrows = maps[0].dim
             ncols = maps[1].dim
 
-            return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s)' % \
+            return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
                 {'mat' : name,
                  'vals' : p_data,
                  'nrows' : nrows,
                  'ncols' : ncols,
                  'rows' : "%s + i * %s" % (c_map_name(arg), nrows),
-                 'cols' : "%s2 + i * %s" % (c_map_name(arg), ncols)}
+                 'cols' : "%s2 + i * %s" % (c_map_name(arg), ncols),
+                 'insert' : arg.access == rt.WRITE }
 
         def c_addto_vector_field(arg):
             name = c_arg_name(arg)
@@ -240,7 +241,8 @@ class ParLoop(rt.ParLoop):
                            'dim' : ncols,
                            'j' : j }
 
-                    s.append('addto_scalar(%s, %s, %s, %s)' % (name, val, row, col))
+                    s.append('addto_scalar(%s, %s, %s, %s, %d)' \
+                            % (name, val, row, col, arg.access == rt.WRITE))
             return ';\n'.join(s)
 
         def c_assemble(arg):
