@@ -33,32 +33,23 @@
 
 from petsc4py import PETSc
 
-class KspSolver(object):
+class KspSolver(PETSc.KSP):
 
-    def __init__(self):
-        self._ksp = PETSc.KSP()
-        self._ksp.create(PETSc.COMM_WORLD)
-        self._pc = self._ksp.getPC()
+    def __init__(self, parameters=None):
+        self.create(PETSc.COMM_WORLD)
+        if parameters:
+            self.set_parameters(parameters)
 
     def set_parameters(self, parameters):
-        self._ksp.setType(parameters['linear_solver'])
-        self._pc.setType(parameters['preconditioner'])
-        self._ksp.rtol = parameters['relative_tolerance']
-        self._ksp.atol = parameters['absolute_tolerance']
-        self._ksp.divtol = parameters['divergence_tolerance']
-        self._ksp.max_it = parameters['maximum_iterations']
+        self.setType(parameters['linear_solver'])
+        self.getPC().setType(parameters['preconditioner'])
+        self.rtol = parameters['relative_tolerance']
+        self.atol = parameters['absolute_tolerance']
+        self.divtol = parameters['divergence_tolerance']
+        self.max_it = parameters['maximum_iterations']
 
     def solve(self, A, x, b):
-        m = A._handle
-        px = PETSc.Vec()
-        px.createWithArray(x.data)
-        pb = PETSc.Vec()
-        pb.createWithArray(b.data)
-        self._ksp.setOperators(m)
-        self._ksp.solve(pb, px)
-
-    def get_converged_reason(self):
-        return self._ksp.getConvergedReason()
-
-    def get_iteration_number(self):
-        return self._ksp.getIterationNumber()
+        px = PETSc.Vec().createWithArray(x.data)
+        pb = PETSc.Vec().createWithArray(b.data)
+        self.setOperators(A.handle)
+        super(KspSolver, self).solve(pb, px)

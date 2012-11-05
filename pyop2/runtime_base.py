@@ -275,10 +275,9 @@ class Solver(base.Solver):
 
     def __init__(self, parameters=None):
         super(Solver, self).__init__(parameters)
-        self._ksp_solver = KspSolver()
-        self._ksp_solver.set_parameters(self.parameters)
+        self._ksp_solver = KspSolver(self.parameters)
 
     def solve(self, A, x, b):
         self._ksp_solver.solve(A, x, b)
-        print "Converged reason", self._ksp_solver.get_converged_reason()
-        print "Iterations", self._ksp_solver.get_iteration_number()
+        print "Converged reason", self._ksp_solver.getConvergedReason()
+        print "Iterations", self._ksp_solver.getIterationNumber()
