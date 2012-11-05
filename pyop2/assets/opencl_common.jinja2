@@ -116,7 +116,7 @@ void matrix_atomic_set(__global double* dst, double value)
   {{ union_decl() }}
   do
   {
-    old.val = 0.0;
+    old.val = *dst;
     new.val = value;
   } while (atom_cmpxchg((volatile __global unsigned long int*) dst, old.dummy, new.dummy) != old.dummy);
 #else
