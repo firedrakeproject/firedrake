@@ -191,7 +191,7 @@ class Sparsity(base.Sparsity):
         rowptr[1:] = np.cumsum(d_nnz)
         colidx = np.zeros(rowptr[-1], np.int32)
         for row in xrange(lsize):
-            colidx[rowptr[row]:rowptr[row+1]] = list(s[row])
+            colidx[rowptr[row]:rowptr[row+1]] = list(sorted(s[row]))
 
         self._total_nz = rowptr[-1]
         self._rowptr = rowptr
