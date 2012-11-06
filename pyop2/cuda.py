@@ -548,7 +548,10 @@ def _cusp_solver(M):
                 Statement('double atol = extract<double>(parms.get("absolute_tolerance", 1.0e-50))'),
                 Statement('int max_it = extract<int>(parms.get("maximum_iterations", 1000))'),
                 Statement('int restart = extract<int>(parms.get("restart_length", 30))'),
-                Statement('string pc_type = extract<string>(parms.get("preconditioner", "none"))'),
+                Statement('object tmp = parms.get("preconditioner")'),
+                Statement('string pc_type = "none"'),
+                If('!tmp.is_none()',
+                   Statement('string pc_type = extract<string>(tmp)')),
                 Statement('__cusp_solve(rowptr, colidx, csrdata, b, x, nrows, ncols, nnz, ksp_type, pc_type, rtol, atol, max_it, restart)')])))
 
     nvcc_toolchain.cflags.append('-arch')
