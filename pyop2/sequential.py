@@ -33,7 +33,9 @@
 
 """OP2 sequential backend."""
 
+import os
 import numpy as np
+import petsc
 
 from exceptions import *
 from utils import *
@@ -87,7 +89,7 @@ class ParLoop(rt.ParLoop):
         _args = [self._it_space.size]
         for arg in self.args:
             if arg._is_mat:
-                _args.append(arg.data._c_handle.cptr)
+                _args.append(arg.data.handle.handle)
             else:
                 _args.append(arg.data.data)
 
@@ -137,7 +139,7 @@ class ParLoop(rt.ParLoop):
 
         def c_wrapper_dec(arg):
             if arg._is_mat:
-                val = "op_mat %(name)s = (op_mat)((uintptr_t)PyLong_AsUnsignedLong(_%(name)s))" % \
+                val = "Mat %(name)s = (Mat)((uintptr_t)PyLong_AsUnsignedLong(_%(name)s))" % \
                      { "name": c_arg_name(arg) }
             else:
                 val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
@@ -206,13 +208,14 @@ class ParLoop(rt.ParLoop):
             nrows = maps[0].dim
             ncols = maps[1].dim
 
-            return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s)' % \
+            return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
                 {'mat' : name,
                  'vals' : p_data,
                  'nrows' : nrows,
                  'ncols' : ncols,
                  'rows' : "%s + i * %s" % (c_map_name(arg), nrows),
-                 'cols' : "%s2 + i * %s" % (c_map_name(arg), ncols)}
+                 'cols' : "%s2 + i * %s" % (c_map_name(arg), ncols),
+                 'insert' : arg.access == rt.WRITE }
 
         def c_addto_vector_field(arg):
             name = c_arg_name(arg)
@@ -239,7 +242,8 @@ class ParLoop(rt.ParLoop):
                            'dim' : ncols,
                            'j' : j }
 
-                    s.append('addto_scalar(%s, %s, %s, %s)' % (name, val, row, col))
+                    s.append('addto_scalar(%s, %s, %s, %s, %d)' \
+                            % (name, val, row, col, arg.access == rt.WRITE))
             return ';\n'.join(s)
 
         def c_assemble(arg):
@@ -366,24 +370,24 @@ class ParLoop(rt.ParLoop):
                                        'addtos_scalar_field' : _addtos_scalar_field,
                                        'assembles' : _assembles}
 
+        # We need to build with mpicc since that's required by PETSc
+        cc = os.environ.get('CC')
+        os.environ['CC'] = 'mpicc'
         _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
                                  additional_definitions = _const_decs + kernel_code,
-                                 include_dirs=[OP2_INC],
+                                 include_dirs=[OP2_INC, petsc.get_petsc_dir()+'/include'],
                                  source_directory=os.path.dirname(os.path.abspath(__file__)),
                                  wrap_headers=["mat_utils.h"],
-                                 library_dirs=[OP2_LIB],
-                                 libraries=['op2_seq'],
+                                 library_dirs=[OP2_LIB, petsc.get_petsc_dir()+'/lib'],
+                                 libraries=['op2_seq', 'petsc'],
                                  sources=["mat_utils.cxx"])
+        if cc:
+            os.environ['CC'] = cc
+        else:
+            os.environ.pop('CC')
 
         rt._parloop_cache[key] = _fun
         return _fun
-
-
-@validate_type(('mat', Mat, MatTypeError),
-               ('x', Dat, DatTypeError),
-               ('b', Dat, DatTypeError))
-def solve(M, b, x):
-    core.solve(M, b, x)
 
 def _setup():
     pass

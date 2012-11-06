@@ -47,33 +47,6 @@ cdef extern from "op_lib_core.h":
         pass
     ctypedef op_map_core * op_map
 
-    ctypedef struct op_sparsity_core:
-        op_map * rowmaps
-        op_map * colmaps
-        int nmaps
-        int dim[2]
-        size_t nrows
-        size_t ncols
-        int * nnz
-        int total_nz
-        int * rowptr
-        int * colidx
-        size_t max_nonzeros
-        char * name
-    ctypedef op_sparsity_core * op_sparsity
-
-    ctypedef struct op_mat_core:
-        int index
-        int dim[2]
-        int size
-        void * mat
-        void * mat_array
-        char * type
-        op_sparsity sparsity
-        char * data
-        char * lma_data
-    ctypedef op_mat_core * op_mat
-
     ctypedef struct op_dat_core:
         pass
     ctypedef op_dat_core * op_dat
@@ -91,33 +64,11 @@ cdef extern from "op_lib_core.h":
 
     op_map op_decl_map_core(op_set, op_set, int, int *, char *)
 
-    op_sparsity op_decl_sparsity_core(op_map *, op_map *, int, int *, int,
-                                      char *)
-
     op_dat op_decl_dat_core(op_set, int, char *, int, char *, char *)
 
     op_arg op_arg_dat_core(op_dat, int, op_map, int, char *, op_access)
 
     op_arg op_arg_gbl_core(char *, int, char *, int, op_access)
-
-cdef extern from "op_lib_mat.h":
-    void op_solve(op_mat mat, op_dat b, op_dat x)
-
-    void op_mat_zero ( op_mat mat )
-
-    op_mat op_decl_mat(op_sparsity, int *, int, char *, int, char *)
-
-    void op_mat_destroy(op_mat)
-
-    void op_mat_get_values ( op_mat mat, double **v, int *m, int *n)
-
-    void op_mat_zero_rows ( op_mat mat, int n, int *rows, double val)
-
-    void op_mat_assemble ( op_mat mat )
-
-    void op_mat_get_array ( op_mat mat )
-
-    void op_mat_put_array ( op_mat mat )
 
 cdef extern from "op_lib_c.h":
     void op_init(int, char **, int)

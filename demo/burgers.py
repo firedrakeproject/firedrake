@@ -152,6 +152,7 @@ l2norm_diff_sq = op2.Kernel(l2norm_diff_sq_code, "l2norm_diff_sq")
 # Tol = 1.e-8
 tolsq = 1.e-16
 normsq = op2.Global(1, data=10000.0, name="norm")
+solver = op2.Solver()
 
 while normsq.data[0] > tolsq:
 
@@ -188,7 +189,7 @@ while normsq.data[0] > tolsq:
 
     # Solve
 
-    op2.solve(mat, b, tracer)
+    solver.solve(mat, tracer, b)
 
     # Calculate L2-norm^2
 

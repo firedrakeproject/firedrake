@@ -47,6 +47,21 @@ NUM_ELE   = 2
 NUM_NODES = 4
 NUM_DIMS  = 2
 
+class TestSparsity:
+    """
+    Sparsity tests
+    """
+
+    def test_build_sparsity(self, backend):
+        elements = op2.Set(4)
+        nodes = op2.Set(5)
+        elem_node = op2.Map(elements, nodes, 3, [0, 4, 3, 0, 1, 4, \
+                                                 1, 2, 4, 2, 3, 4])
+        sparsity = op2.Sparsity((elem_node, elem_node), 1)
+        assert all(sparsity._rowptr == [0, 4, 8, 12, 16, 21])
+        assert all(sparsity._colidx == [ 0, 1, 3, 4, 0, 1, 2, 4, 1, 2, \
+                                         3, 4, 0, 2, 3, 4, 0, 1, 2, 3, 4 ])
+
 class TestMatrices:
     """
     Matrix tests
@@ -69,18 +84,18 @@ class TestMatrices:
         return op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 
     def pytest_funcarg__mat(cls, request):
-        elem_node = request.getfuncargvalue('elem_node')
-        sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
-        return request.cached_setup(
-                setup=lambda: op2.Mat(sparsity, valuetype, "mat"),
-                scope='module')
+        def setup():
+            elem_node = request.getfuncargvalue('elem_node')
+            sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
+            return op2.Mat(sparsity, valuetype, "mat")
+        return request.cached_setup(setup=setup, scope='module')
 
     def pytest_funcarg__vecmat(cls, request):
-        elem_node = request.getfuncargvalue('elem_node')
-        sparsity = op2.Sparsity((elem_node, elem_node), 2, "sparsity")
-        return request.cached_setup(
-                setup=lambda: op2.Mat(sparsity, valuetype, "mat"),
-                scope='module')
+        def setup():
+            elem_node = request.getfuncargvalue('elem_node')
+            sparsity = op2.Sparsity((elem_node, elem_node), 2, "sparsity")
+            return op2.Mat(sparsity, valuetype, "mat")
+        return request.cached_setup(setup=setup, scope='module')
 
     def pytest_funcarg__coords(cls, request):
         nodes = request.getfuncargvalue('nodes')
@@ -88,6 +103,11 @@ class TestMatrices:
                                      (1.0, 1.0), (0.0, 1.5) ],
                                    dtype=valuetype)
         return op2.Dat(nodes, 2, coord_vals, valuetype, "coords")
+
+    def pytest_funcarg__g(cls, request):
+        return request.cached_setup(
+                setup = lambda: op2.Global(1, 1.0, numpy.float64, "g"),
+                scope='module')
 
     def pytest_funcarg__f(cls, request):
         nodes = request.getfuncargvalue('nodes')
@@ -100,27 +120,27 @@ class TestMatrices:
         return op2.Dat(nodes, 2, f_vals, valuetype, "f")
 
     def pytest_funcarg__b(cls, request):
-        nodes = request.getfuncargvalue('nodes')
-        b_vals = numpy.asarray([0.0]*NUM_NODES, dtype=valuetype)
-        return request.cached_setup(
-                setup=lambda: op2.Dat(nodes, 1, b_vals, valuetype, "b"),
-                scope='module')
+        def setup():
+            nodes = request.getfuncargvalue('nodes')
+            b_vals = numpy.zeros(NUM_NODES, dtype=valuetype)
+            return op2.Dat(nodes, 1, b_vals, valuetype, "b")
+        return request.cached_setup(setup=setup, scope='module')
 
     def pytest_funcarg__b_vec(cls, request):
-        nodes = request.getfuncargvalue('nodes')
-        b_vals = numpy.asarray([0.0]*NUM_NODES*2, dtype=valuetype)
-        return request.cached_setup(
-                setup=lambda: op2.Dat(nodes, 2, b_vals, valuetype, "b"),
-                scope='module')
+        def setup():
+            nodes = request.getfuncargvalue('nodes')
+            b_vals = numpy.zeros(NUM_NODES*2, dtype=valuetype)
+            return op2.Dat(nodes, 2, b_vals, valuetype, "b")
+        return request.cached_setup(setup=setup, scope='module')
 
     def pytest_funcarg__x(cls, request):
         nodes = request.getfuncargvalue('nodes')
-        x_vals = numpy.asarray([0.0]*NUM_NODES, dtype=valuetype)
+        x_vals = numpy.zeros(NUM_NODES, dtype=valuetype)
         return op2.Dat(nodes, 1, x_vals, valuetype, "x")
 
     def pytest_funcarg__x_vec(cls, request):
         nodes = request.getfuncargvalue('nodes')
-        x_vals = numpy.asarray([0.0]*NUM_NODES*2, dtype=valuetype)
+        x_vals = numpy.zeros(NUM_NODES*2, dtype=valuetype)
         return op2.Dat(nodes, 2, x_vals, valuetype, "x")
 
     def pytest_funcarg__mass(cls, request):
@@ -514,6 +534,52 @@ void zero_vec_dat(double *dat)
 
         return op2.Kernel(kernel_code, "zero_vec_dat")
 
+    def pytest_funcarg__kernel_inc(cls, request):
+
+        kernel_code = """
+void kernel_inc(double entry[1][1], double* g, int i, int j)
+{
+  entry[0][0] += *g;
+}
+"""
+        return op2.Kernel(kernel_code, "kernel_inc")
+
+    def pytest_funcarg__kernel_set(cls, request):
+
+        kernel_code = """
+void kernel_set(double entry[1][1], double* g, int i, int j)
+{
+  entry[0][0] = *g;
+}
+"""
+        return op2.Kernel(kernel_code, "kernel_set")
+
+    def pytest_funcarg__kernel_inc_vec(cls, request):
+
+        kernel_code = """
+void kernel_inc_vec(double entry[2][2], double* g, int i, int j)
+{
+  entry[0][0] += *g;
+  entry[0][1] += *g;
+  entry[1][0] += *g;
+  entry[1][1] += *g;
+}
+"""
+        return op2.Kernel(kernel_code, "kernel_inc_vec")
+
+    def pytest_funcarg__kernel_set_vec(cls, request):
+
+        kernel_code = """
+void kernel_set_vec(double entry[2][2], double* g, int i, int j)
+{
+  entry[0][0] = *g;
+  entry[0][1] = *g;
+  entry[1][0] = *g;
+  entry[1][1] = *g;
+}
+"""
+        return op2.Kernel(kernel_code, "kernel_set_vec")
+
     def pytest_funcarg__expected_matrix(cls, request):
         expected_vals = [(0.25, 0.125, 0.0, 0.125),
                          (0.125, 0.291667, 0.0208333, 0.145833),
@@ -559,20 +625,20 @@ void zero_mat(double local_mat[1][1], int i, int j)
         kernel = op2.Kernel(zero_mat_code, "zero_mat")
         op2.par_loop(kernel, set(1,1), mat((map[op2.i[0]], map[op2.i[1]]), op2.WRITE))
 
-        expected_matrix = numpy.asarray([[0.0]*nelems]*nelems, dtype=numpy.float64)
+        expected_matrix = numpy.zeros((nelems,nelems), dtype=numpy.float64)
         eps = 1.e-12
         assert_allclose(mat.values, expected_matrix, eps)
 
-    def test_assemble(self, backend, mass, mat, coords, elements, elem_node,
-                      expected_matrix):
+    def test_assemble_mat(self, backend, mass, mat, coords, elements, elem_node,
+                          expected_matrix):
         op2.par_loop(mass, elements(3,3),
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
         eps=1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
-    def test_rhs(self, backend, rhs, elements, b, coords, f, elem_node,
-                     expected_rhs):
+    def test_assemble_rhs(self, backend, rhs, elements, b, coords, f, elem_node,
+                          expected_rhs):
         op2.par_loop(rhs, elements,
                      b(elem_node, op2.INC),
                      coords(elem_node, op2.READ),
@@ -582,16 +648,52 @@ void zero_mat(double local_mat[1][1], int i, int j)
         assert_allclose(b.data, expected_rhs, eps)
 
     def test_solve(self, backend, mat, b, x, f):
-        op2.solve(mat, b, x)
-        eps = 1.e-12
+        op2.solve(mat, x, b)
+        eps = 1.e-8
         assert_allclose(x.data, f.data, eps)
 
     def test_zero_matrix(self, backend, mat):
         """Test that the matrix is zeroed correctly."""
         mat.zero()
-        expected_matrix = numpy.asarray([[0.0]*4]*4, dtype=valuetype)
+        expected_matrix = numpy.zeros((4,4), dtype=valuetype)
         eps=1.e-14
         assert_allclose(mat.values, expected_matrix, eps)
+
+    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
+    def test_set_matrix(self, backend, mat, elements, elem_node,
+                        kernel_inc, kernel_set, g):
+        """Test accessing a scalar matrix with the WRITE access by adding some
+        non-zero values into the matrix, then setting them back to zero with a
+        kernel using op2.WRITE"""
+        op2.par_loop(kernel_inc, elements(3,3),
+                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                     g(op2.READ))
+        # Check we have ones in the matrix
+        assert mat.array.sum() == 3*3*elements.size
+        op2.par_loop(kernel_set, elements(3,3),
+                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.WRITE),
+                     g(op2.READ))
+        # Check we have set all values in the matrix to 1
+        assert_allclose(mat.array, numpy.ones_like(mat.array))
+        mat.zero()
+
+    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
+    def test_set_matrix_vec(self, backend, vecmat, elements, elem_node,
+                        kernel_inc_vec, kernel_set_vec, g):
+        """Test accessing a vector matrix with the WRITE access by adding some
+        non-zero values into the matrix, then setting them back to zero with a
+        kernel using op2.WRITE"""
+        op2.par_loop(kernel_inc_vec, elements(3,3),
+                     vecmat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                     g(op2.READ))
+        # Check we have ones in the matrix
+        assert vecmat.array.sum() == 2*2*3*3*elements.size
+        op2.par_loop(kernel_set_vec, elements(3,3),
+                     vecmat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.WRITE),
+                     g(op2.READ))
+        # Check we have set all values in the matrix to 1
+        assert_allclose(vecmat.array, numpy.ones_like(vecmat.array))
+        vecmat.zero()
 
     def test_zero_rhs(self, backend, b, zero_dat, nodes):
         """Test that the RHS is zeroed correctly."""
@@ -676,14 +778,14 @@ void zero_mat(double local_mat[1][1], int i, int j)
         assert_allclose(mat.values, expected_matrix, eps)
 
     def test_vector_solve(self, backend, vecmat, b_vec, x_vec, f_vec):
-        op2.solve(vecmat, b_vec, x_vec)
+        op2.solve(vecmat, x_vec, b_vec)
         eps = 1.e-12
         assert_allclose(x_vec.data, f_vec.data, eps)
 
     def test_zero_vector_matrix(self, backend, vecmat):
         """Test that the matrix is zeroed correctly."""
         vecmat.zero()
-        expected_matrix = numpy.asarray([[0.0]*8]*8, dtype=valuetype)
+        expected_matrix = numpy.zeros((8,8), dtype=valuetype)
         eps=1.e-14
         assert_allclose(vecmat.values, expected_matrix, eps)
 

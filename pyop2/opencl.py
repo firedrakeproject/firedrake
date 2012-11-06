@@ -216,19 +216,13 @@ class Dat(op2.Dat, DeviceDataMixin):
         """The L2-norm on the flattened vector."""
         return np.sqrt(array.dot(self.array, self.array).get())
 
-def solve(M, b, x):
-    x._from_device()
-    b._from_device()
-    core.solve(M, b, x)
-    x._to_device()
-
 class Sparsity(op2.Sparsity):
     @property
     def colidx(self):
         if not hasattr(self, '__dev_colidx'):
             setattr(self, '__dev_colidx',
                     array.to_device(_queue,
-                                    self._c_handle.colidx))
+                                    self._colidx))
         return getattr(self, '__dev_colidx')
 
     @property
@@ -236,7 +230,7 @@ class Sparsity(op2.Sparsity):
         if not hasattr(self, '__dev_rowptr'):
             setattr(self, '__dev_rowptr',
                     array.to_device(_queue,
-                                    self._c_handle.rowptr))
+                                    self._rowptr))
         return getattr(self, '__dev_rowptr')
 
 class Mat(op2.Mat, DeviceDataMixin):
@@ -258,7 +252,7 @@ class Mat(op2.Mat, DeviceDataMixin):
         if not hasattr(self, '__dev_array'):
             setattr(self, '__dev_array',
                     array.empty(_queue,
-                                self._sparsity._c_handle.total_nz,
+                                self.sparsity.total_nz,
                                 self.dtype))
         return getattr(self, '__dev_array')
 
@@ -271,15 +265,14 @@ class Mat(op2.Mat, DeviceDataMixin):
         return self._sparsity.rowptr
 
     def _upload_array(self):
-        self._dev_array.set(self._c_handle.array, queue=_queue)
+        self._dev_array.set(self.array, queue=_queue)
         self.state = DeviceDataMixin.BOTH
 
     def assemble(self):
         if self.state is DeviceDataMixin.DEVICE:
-            self._dev_array.get(queue=_queue, ary=self._c_handle.array)
-            self._c_handle.restore_array()
+            self._dev_array.get(queue=_queue, ary=self.array)
             self.state = DeviceDataMixin.BOTH
-        self._c_handle.assemble()
+        self.handle.assemble()
 
     @property
     def cdim(self):
@@ -466,6 +459,14 @@ class Plan(op2.Plan):
         if not hasattr(self, '_thrcol'):
             self._thrcol = array.to_device(_queue, super(Plan, self).thrcol)
         return self._thrcol
+
+class Solver(op2.Solver):
+
+    def solve(self, A, x, b):
+        x._from_device()
+        b._from_device()
+        super(Solver, self).solve(A, x, b)
+        x._to_device()
 
 class ParLoop(op2.ParLoop):
     @property

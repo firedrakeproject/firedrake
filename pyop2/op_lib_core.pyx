@@ -222,112 +222,6 @@ cdef class op_map:
             self._handle = core.op_decl_map_core(frm._handle, to._handle, dim,
                                                  <int *>np.PyArray_DATA(values), name)
 
-cdef class op_sparsity:
-    cdef core.op_sparsity _handle
-    def __cinit__(self, sparsity):
-        """Instantiate a C-level op_sparsity from SPARSITY"""
-        cdef core.op_map *rmaps
-        cdef core.op_map *cmaps
-        cdef op_map rmap, cmap
-        cdef int nmaps = sparsity._nmaps
-        cdef int dim[2]
-        cdef char * name = sparsity.name
-
-        rmaps = <core.op_map *>malloc(nmaps * sizeof(core.op_map))
-        if rmaps is NULL:
-            raise MemoryError("Unable to allocate space for rmaps")
-        cmaps = <core.op_map *>malloc(nmaps * sizeof(core.op_map))
-        if cmaps is NULL:
-            raise MemoryError("Unable to allocate space for cmaps")
-
-        for i in range(nmaps):
-            rmap = sparsity._rmaps[i]._c_handle
-            cmap = sparsity._cmaps[i]._c_handle
-            rmaps[i] = rmap._handle
-            cmaps[i] = cmap._handle
-
-        dim[0] = sparsity.dims[0]
-        dim[1] = sparsity.dims[1]
-        self._handle = core.op_decl_sparsity_core(rmaps, cmaps, nmaps,
-                                                  dim, 2, name)
-
-    @property
-    def total_nz(self):
-        return self._handle.total_nz
-
-    @property
-    def rowptr(self):
-        size = self._handle.nrows + 1
-        return data_to_numpy_array_with_spec(self._handle.rowptr, size, np.NPY_INT32)
-
-    @property
-    def colidx(self):
-        size = self._handle.total_nz
-        return data_to_numpy_array_with_spec(self._handle.colidx, size, np.NPY_INT32)
-
-cdef class op_mat:
-    cdef core.op_mat _handle
-    cdef int _nnzeros
-
-    def __cinit__(self, mat):
-        """Instantiate a C-level op_mat from MAT"""
-        cdef op_sparsity sparsity = mat.sparsity._c_handle
-        cdef int dim[2]
-        cdef char * type = mat.ctype
-        cdef int size = mat.dtype.itemsize
-        cdef char * name = mat.name
-        self._nnzeros = mat._sparsity._c_handle.total_nz
-        dim[0] = mat.dims[0]
-        dim[1] = mat.dims[1]
-        self._handle = core.op_decl_mat(sparsity._handle, dim, 2, type, size, name)
-
-    def zero(self):
-        core.op_mat_zero(self._handle)
-
-    def zero_rows(self, rows, v):
-        n = len(rows)
-        cdef int *r = <int *>malloc(sizeof(int)*n)
-        for i in xrange(n):
-            r[i] = <int> (rows[i])
-        core.op_mat_zero_rows(self._handle, <int> n, r, <double> v)
-        free(r)
-
-    def assemble(self):
-        core.op_mat_assemble(self._handle)
-
-    @property
-    def array(self):
-        cdef np.ndarray[double, ndim=1, mode="c"] arr
-        cdef np.npy_intp* dims = [self._nnzeros]
-        core.op_mat_get_array(self._handle)
-        arr = np.PyArray_SimpleNewFromData(1, dims, np.NPY_DOUBLE, <double*> self._handle.mat_array)
-        return arr
-
-    def restore_array(self):
-        core.op_mat_put_array(self._handle)
-
-    def __dealloc__(self):
-        core.op_mat_destroy(self._handle)
-        self._handle = NULL
-
-    @property
-    def cptr(self):
-        cdef uintptr_t val
-        val = <uintptr_t>self._handle
-        return val
-
-    @property
-    def values(self):
-        cdef int m, n
-        cdef double *v
-        cdef np.ndarray[double, ndim=2, mode="c"] vals
-        core.op_mat_get_values(self._handle, &v, &m, &n)
-        cdef np.npy_intp *d2 = [m,n]
-
-        vals = np.PyArray_SimpleNew(2, d2, np.NPY_DOUBLE)
-        vals.data = <char *>v
-        return vals
-
 cdef class op_arg:
     cdef core.op_arg _handle
     def __cinit__(self, arg):
@@ -370,14 +264,6 @@ cdef class op_arg:
             data = arg.data.data
             self._handle = core.op_arg_gbl_core(<char *>np.PyArray_DATA(data), dim,
                                                 type, size, acc)
-
-def solve(A, b, x):
-    cdef op_mat cA
-    cdef op_dat cb, cx
-    cA = A._c_handle
-    cb = b._c_handle
-    cx = x._c_handle
-    core.op_solve(cA._handle, cb._handle, cx._handle)
 
 cdef class op_plan:
     cdef int idx

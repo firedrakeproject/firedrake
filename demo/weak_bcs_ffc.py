@@ -159,7 +159,8 @@ op2.par_loop(strongbc_rhs, bdry_nodes,
              bdry(op2.IdentityMap, op2.READ),
              b(bdry_node_node[0], op2.WRITE))
 
-op2.solve(mat, b, x)
+solver = op2.Solver()
+solver.solve(mat, x, b)
 
 # Print solution
 print "Computed solution: %s" % x_vals

@@ -107,7 +107,8 @@ op2.par_loop(rhs, elements(3),
                      coords(elem_node, op2.READ),
                      f(elem_node, op2.READ))
 
-op2.solve(mat, b, x)
+solver = op2.Solver()
+solver.solve(mat, x, b)
 
 # Print solution
 

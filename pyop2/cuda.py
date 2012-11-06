@@ -148,14 +148,14 @@ class Sparsity(op2.Sparsity):
     def rowptr(self):
         if not hasattr(self, '__rowptr'):
             setattr(self, '__rowptr',
-                    gpuarray.to_gpu(self._c_handle.rowptr))
+                    gpuarray.to_gpu(self._rowptr))
         return getattr(self, '__rowptr')
 
     @property
     def colidx(self):
         if not hasattr(self, '__colidx'):
             setattr(self, '__colidx',
-                    gpuarray.to_gpu(self._c_handle.colidx))
+                    gpuarray.to_gpu(self._colidx))
         return getattr(self, '__colidx')
 
 class Mat(DeviceDataMixin, op2.Mat):
@@ -206,7 +206,7 @@ class Mat(DeviceDataMixin, op2.Mat):
     def _csrdata(self):
         if not hasattr(self, '__csrdata'):
             setattr(self, '__csrdata',
-                    gpuarray.zeros(shape=self._sparsity._c_handle.total_nz,
+                    gpuarray.zeros(shape=self._sparsity.total_nz,
                                    dtype=self.dtype))
         return getattr(self, '__csrdata')
 
@@ -259,8 +259,8 @@ class Mat(DeviceDataMixin, op2.Mat):
         shape = (shape, shape)
         ret = np.zeros(shape=shape, dtype=self.dtype)
         csrdata = self._csrdata.get()
-        rowptr = self.sparsity._c_handle.rowptr
-        colidx = self.sparsity._c_handle.colidx
+        rowptr = self.sparsity._rowptr
+        colidx = self.sparsity._colidx
         for r, (rs, re) in enumerate(zip(rowptr[:-1], rowptr[1:])):
             cols = colidx[rs:re]
             ret[r, cols] = csrdata[rs:re]
@@ -268,9 +268,9 @@ class Mat(DeviceDataMixin, op2.Mat):
 
     def zero_rows(self, rows, diag_val):
         for row in rows:
-            s = self.sparsity._c_handle.rowptr[row]
-            e = self.sparsity._c_handle.rowptr[row+1]
-            diag = np.where(self.sparsity._c_handle.colidx[s:e] == row)[0]
+            s = self.sparsity._rowptr[row]
+            e = self.sparsity._rowptr[row+1]
+            diag = np.where(self.sparsity._colidx[s:e] == row)[0]
             self._csrdata[s:e].fill(0)
             if len(diag) == 1:
                 diag += s       # offset from row start
@@ -436,7 +436,7 @@ def _cusp_solver(M):
 
     import codepy.jit
     import codepy.toolchain
-    from codepy.cgen import FunctionBody, FunctionDeclaration, If
+    from codepy.cgen import FunctionBody, FunctionDeclaration, If, make_multiple_ifs
     from codepy.cgen import Block, Statement, Include, Value
     from codepy.bpl import BoostPythonModule
     from codepy.cuda import CudaModule
@@ -497,18 +497,22 @@ def _cusp_solver(M):
             Statement('thrust::fill(x.begin(), x.end(), (ValueType)0)'),
             Statement('matrix A(nrows, ncols, nnz, row_offsets, column_indices, matrix_values)'),
             Statement('cusp::default_monitor< ValueType > monitor(b, max_it, rtol, atol)'),
-            If('pc_type == "diagonal"',
-               Block([Statement('cusp::precond::diagonal< ValueType, cusp::device_memory >M(A)'),
-                      solve_block])),
-            If('pc_type == "ainv"',
-               Block([Statement('cusp::precond::scaled_bridson_ainv< ValueType, cusp::device_memory >M(A)'),
-                      solve_block])),
-            If('pc_type == "amg"',
-               Block([Statement('cusp::precond::smoothed_aggregation< IndexType, ValueType, cusp::device_memory >M(A)'),
-                      solve_block])),
-            If('pc_type == "None"',
-               Block([Statement('cusp::identity_operator< ValueType, cusp::device_memory >M(nrows, ncols)'),
-                      solve_block]))
+            # We're translating PETSc preconditioner types to CUSP
+            # FIXME: Solve will not be called if the PC type is not recognized
+            make_multiple_ifs([
+                ('pc_type == "diagonal" || pc_type == "jacobi"',
+                 Block([Statement('cusp::precond::diagonal< ValueType, cusp::device_memory >M(A)'),
+                        solve_block])),
+                ('pc_type == "ainv" || pc_type == "ainvcusp"',
+                 Block([Statement('cusp::precond::scaled_bridson_ainv< ValueType, cusp::device_memory >M(A)'),
+                        solve_block])),
+                ('pc_type == "amg" || pc_type == "hypre"',
+                 Block([Statement('cusp::precond::smoothed_aggregation< IndexType, ValueType, cusp::device_memory >M(A)'),
+                        solve_block])),
+                ('pc_type == "none"',
+                 Block([Statement('cusp::identity_operator< ValueType, cusp::device_memory >M(nrows, ncols)'),
+                        solve_block]))
+               ])
             ]))
 
     host_mod.add_to_preamble([Include('boost/python/extract.hpp'), Include('string')])
@@ -519,7 +523,7 @@ def _cusp_solver(M):
 
     host_mod.add_function(
         FunctionBody(
-            FunctionDeclaration(Value('void', '__solve'),
+            FunctionDeclaration(Value('void', 'solve'),
                                 [Value('object', '_rowptr'),
                                  Value('object', '_colidx'),
                                  Value('object', '_csrdata'),
@@ -544,7 +548,10 @@ def _cusp_solver(M):
                 Statement('double atol = extract<double>(parms.get("absolute_tolerance", 1.0e-50))'),
                 Statement('int max_it = extract<int>(parms.get("maximum_iterations", 1000))'),
                 Statement('int restart = extract<int>(parms.get("restart_length", 30))'),
-                Statement('string pc_type = extract<string>(parms.get("preconditioner", "None"))'),
+                Statement('object tmp = parms.get("preconditioner")'),
+                Statement('string pc_type = "none"'),
+                If('!tmp.is_none()',
+                   Statement('string pc_type = extract<string>(tmp)')),
                 Statement('__cusp_solve(rowptr, colidx, csrdata, b, x, nrows, ncols, nnz, ksp_type, pc_type, rtol, atol, max_it, restart)')])))
 
     nvcc_toolchain.cflags.append('-arch')
@@ -555,22 +562,22 @@ def _cusp_solver(M):
     _cusp_cache[M.dtype] = module
     return module
 
-def solve(M, b, x):
-    b._to_device()
-    x._to_device()
-    solver_parameters = {'linear_solver': 'cg',
-                         'relative_tolerance': 1e-10}
-    module = _cusp_solver(M)
-    module.__solve(M._rowptr,
-                   M._colidx,
-                   M._csrdata,
-                   b._device_data,
-                   x._device_data,
-                   b.dataset.size * b.cdim,
-                   x.dataset.size * x.cdim,
-                   M._csrdata.size,
-                   solver_parameters)
-    x.state = DeviceDataMixin.DEVICE
+class Solver(op2.Solver):
+
+    def solve(self, M, x, b):
+        b._to_device()
+        x._to_device()
+        module = _cusp_solver(M)
+        module.solve(M._rowptr,
+                     M._colidx,
+                     M._csrdata,
+                     b._device_data,
+                     x._device_data,
+                     b.dataset.size * b.cdim,
+                     x.dataset.size * x.cdim,
+                     M._csrdata.size,
+                     self.parameters)
+        x.state = DeviceDataMixin.DEVICE
 
 def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()

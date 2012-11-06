@@ -37,12 +37,13 @@ import numpy as np
 
 from exceptions import *
 from utils import *
+import configuration as cfg
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IterationSpace
 from base import DataCarrier, IterationIndex, i, IdentityMap, Kernel
 from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 import op_lib_core as core
-from pyop2.utils import OP2_INC, OP2_LIB
+from la_petsc import PETSc, KspSolver
 
 # Data API
 
@@ -162,16 +163,56 @@ class Sparsity(base.Sparsity):
     def __init__(self, maps, dims, name=None):
         if getattr(self, '_cached', False):
             return
-        base.Sparsity.__init__(self, maps, dims, name)
+        super(Sparsity, self).__init__(maps, dims, name)
         key = (maps, as_tuple(dims, int, 2))
         self._cached = True
+        self._build_sparsity_pattern()
         _sparsity_cache[key] = self
 
+    # FIXME: this will not work with MPI
+    def _build_sparsity_pattern(self):
+        rmult, cmult = self._dims
+        lsize = self._nrows*rmult
+        s  = [ set() for i in xrange(lsize) ]
+
+        for rowmap, colmap in zip(self._rmaps, self._cmaps):
+            #FIXME: exec_size will need adding for MPI support
+            rsize = rowmap.iterset.size
+            for e in xrange(rsize):
+                for i in xrange(rowmap.dim):
+                    for r in xrange(rmult):
+                        row = rmult * rowmap.values[e][i] + r
+                        for c in xrange(cmult):
+                            for d in xrange(colmap.dim):
+                                s[row].add(cmult * colmap.values[e][d] + c)
+
+        d_nnz = np.array([len(r) for r in s], dtype=np.int32)
+        rowptr = np.zeros(lsize+1, dtype=np.int32)
+        rowptr[1:] = np.cumsum(d_nnz)
+        colidx = np.zeros(rowptr[-1], np.int32)
+        for row in xrange(lsize):
+            colidx[rowptr[row]:rowptr[row+1]] = list(sorted(s[row]))
+
+        self._total_nz = rowptr[-1]
+        self._rowptr = rowptr
+        self._colidx = colidx
+        self._d_nnz = d_nnz
+
     @property
-    def _c_handle(self):
-        if self._lib_handle is None:
-            self._lib_handle = core.op_sparsity(self)
-        return self._lib_handle
+    def rowptr(self):
+        return self._rowptr
+
+    @property
+    def colidx(self):
+        return self._colidx
+
+    @property
+    def d_nnz(self):
+        return self._d_nnz
+
+    @property
+    def total_nz(self):
+        return int(self._total_nz)
 
 class Mat(base.Mat):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
@@ -179,25 +220,65 @@ class Mat(base.Mat):
 
     _arg_type = Arg
 
+    def __init__(self, *args, **kwargs):
+        super(Mat, self).__init__(*args, **kwargs)
+        self._handle = None
+
+    def _init(self):
+        if not self.dtype == PETSc.ScalarType:
+            raise RuntimeError("Can only create a matrix of type %s, %s is not supported" \
+                    % (PETSc.ScalarType, self.dtype))
+        mat = PETSc.Mat()
+        rdim, cdim = self.sparsity.dims
+        self._array = np.zeros(self.sparsity.total_nz, dtype=PETSc.RealType)
+        # We're not currently building a blocked matrix, so need to scale the
+        # number of rows and columns by the sparsity dimensions
+        # FIXME: This needs to change if we want to do blocked sparse
+        mat.createAIJWithArrays((self.sparsity.nrows*rdim, self.sparsity.ncols*cdim),
+                (self.sparsity._rowptr, self.sparsity._colidx, self._array))
+        self._handle = mat
+
     def zero(self):
         """Zero the matrix."""
-        self._c_handle.zero()
+        self.handle.zeroEntries()
 
     def zero_rows(self, rows, diag_val):
         """Zeroes the specified rows of the matrix, with the exception of the
         diagonal entry, which is set to diag_val. May be used for applying
         strong boundary conditions."""
-        self._c_handle.zero_rows(rows, diag_val)
+        self.handle.zeroRows(rows, diag_val)
 
     def _assemble(self):
-        self._c_handle.assemble()
+        self.handle.assemble()
 
     @property
-    def _c_handle(self):
-        if self._lib_handle is None:
-            self._lib_handle = core.op_mat(self)
-        return self._lib_handle
+    def array(self):
+        if not hasattr(self, '_array'):
+            self._init()
+        return self._array
+
+    @property
+    def values(self):
+        return self.handle[:,:]
+
+    @property
+    def handle(self):
+        if self._handle is None:
+            self._init()
+        return self._handle
 
 class ParLoop(base.ParLoop):
     def compute(self):
         raise RuntimeError('Must select a backend')
+
+class Solver(base.Solver):
+
+    def __init__(self, parameters=None):
+        super(Solver, self).__init__(parameters)
+        self._ksp_solver = KspSolver(self.parameters)
+
+    def solve(self, A, x, b):
+        self._ksp_solver.solve(A, x, b)
+        if cfg.debug:
+            print "Converged reason", self._ksp_solver.getConvergedReason()
+            print "Iterations", self._ksp_solver.getIterationNumber()

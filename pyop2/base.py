@@ -648,6 +648,10 @@ class Sparsity(object):
         if not all(m.dataset is self._cmaps[0].dataset for m in self._cmaps):
             raise RuntimeError("Dataset of all column maps must be the same")
 
+        # All rmaps and cmaps have the same dataset - just use the first.
+        self._nrows = self._rmaps[0].dataset.size
+        self._ncols = self._cmaps[0].dataset.size
+
         self._dims = as_tuple(dims, int, 2)
         self._name = name or "global_%d" % Sparsity._globalcount
         self._lib_handle = None
@@ -675,6 +679,16 @@ class Sparsity(object):
         :class:`Set` and the number of columns per entry of the column
         :class:`Set` of the ``Sparsity``."""
         return self._dims
+
+    @property
+    def nrows(self):
+        """The number of rows in the ``Sparsity``."""
+        return self._nrows
+
+    @property
+    def ncols(self):
+        """The number of columns in the ``Sparsity``."""
+        return self._ncols
 
     @property
     def name(self):
@@ -754,7 +768,7 @@ class Mat(DataCarrier):
             matrix has more than around 10000 degrees of freedom.
 
         """
-        return self._c_handle.values
+        raise NotImplementedError("Abstract base Mat does not implement values()")
 
     @property
     def dtype(self):
@@ -867,3 +881,27 @@ class ParLoop(object):
             key += (c.name, c.dtype, c.cdim)
 
         return key
+
+_DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
+                              'preconditioner':     'jacobi',
+                              'relative_tolerance': 1.0e-7,
+                              'absolute_tolerance': 1.0e-50,
+                              'divergence_tolerance': 1.0e+4,
+                              'maximum_iterations': 1000 }
+
+class Solver(object):
+    """OP2 Solver object. The :class:`Solver` holds a set of parameters that are
+    passed to the underlying linear algebra library when the ``solve`` method
+    is called."""
+
+    def __init__(self, parameters=None):
+        self.parameters = parameters or _DEFAULT_SOLVER_PARAMETERS.copy()
+
+    def solve(self, A, x, b):
+        """Solve a matrix equation.
+
+        :arg A: The :class:`Mat` containing the matrix.
+        :arg x: The :class:`Dat` to receive the solution.
+        :arg b: The :class:`Dat` containing the RHS.
+        """
+        raise NotImplementedError("solve must be implemented by backend")
