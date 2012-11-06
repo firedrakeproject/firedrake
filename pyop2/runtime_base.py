@@ -37,12 +37,12 @@ import numpy as np
 
 from exceptions import *
 from utils import *
+import configuration as cfg
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IterationSpace
 from base import DataCarrier, IterationIndex, i, IdentityMap, Kernel
 from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 import op_lib_core as core
-from pyop2.utils import OP2_INC, OP2_LIB
 from la_petsc import PETSc, KspSolver
 
 # Data API
@@ -279,5 +279,6 @@ class Solver(base.Solver):
 
     def solve(self, A, x, b):
         self._ksp_solver.solve(A, x, b)
-        print "Converged reason", self._ksp_solver.getConvergedReason()
-        print "Iterations", self._ksp_solver.getIterationNumber()
+        if cfg.debug:
+            print "Converged reason", self._ksp_solver.getConvergedReason()
+            print "Iterations", self._ksp_solver.getIterationNumber()
