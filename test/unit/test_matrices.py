@@ -649,7 +649,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
 
     def test_solve(self, backend, mat, b, x, f):
         op2.solve(mat, x, b)
-        eps = 1.e-12
+        eps = 1.e-8
         assert_allclose(x.data, f.data, eps)
 
     def test_zero_matrix(self, backend, mat):
