@@ -75,9 +75,9 @@ g = Coefficient(E)
 a = dot(grad(v,),grad(u))*dx
 L = v*f*dx
 
-# Generate code for mass and rhs assembly.
+# Generate code for Laplacian and rhs assembly.
 
-mass, _, _ = compile_form(a, "mass")
+laplacian, _, _ = compile_form(a, "laplacian")
 rhs, _, _  = compile_form(L, "rhs")
 
 # Set up simulation data structures
@@ -120,7 +120,7 @@ bdry = op2.Dat(bdry_nodes, 1, bdry_vals, valuetype, "bdry")
 
 # Assemble matrix and rhs
 
-op2.par_loop(mass, elements(3,3),
+op2.par_loop(laplacian, elements(3,3),
              mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
              coords(elem_node, op2.READ))
 
