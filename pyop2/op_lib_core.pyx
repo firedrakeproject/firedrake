@@ -523,3 +523,29 @@ device's "block" address plus an offset which is
     def count(self):
         """Number of times this plan has been used"""
         return self._handle().count
+
+# FIXME: this will not work with MPI
+def build_sparsity_pattern(dims, nrows, rmaps, cmaps):
+    rmult, cmult = dims
+    lsize = nrows*rmult
+    s  = [ set() for i in xrange(lsize) ]
+
+    for rowmap, colmap in zip(rmaps, cmaps):
+        #FIXME: exec_size will need adding for MPI support
+        rsize = rowmap.iterset.size
+        for e in xrange(rsize):
+            for i in xrange(rowmap.dim):
+                for r in xrange(rmult):
+                    row = rmult * rowmap.values[e][i] + r
+                    for c in xrange(cmult):
+                        for d in xrange(colmap.dim):
+                            s[row].add(cmult * colmap.values[e][d] + c)
+
+    d_nnz = np.array([len(r) for r in s], dtype=np.int32)
+    rowptr = np.zeros(lsize+1, dtype=np.int32)
+    rowptr[1:] = np.cumsum(d_nnz)
+    colidx = np.zeros(rowptr[-1], np.int32)
+    for row in xrange(lsize):
+        colidx[rowptr[row]:rowptr[row+1]] = list(sorted(s[row]))
+
+    return rowptr, colidx, d_nnz
