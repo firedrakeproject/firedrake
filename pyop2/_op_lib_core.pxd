@@ -128,3 +128,7 @@ cdef extern from "dlfcn.h":
 cdef extern from "mpi.h":
     cdef void emit_ifdef '#if defined(OPEN_MPI) //' ()
     cdef void emit_endif '#endif //' ()
+
+cdef extern from "sparsity_utils.h":
+    void build_sparsity_pattern ( int, int, int, int, op_map *, op_map *,
+                                  int **, int **, int **, int ** )

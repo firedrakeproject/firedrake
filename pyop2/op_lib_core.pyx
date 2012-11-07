@@ -524,28 +524,31 @@ device's "block" address plus an offset which is
         """Number of times this plan has been used"""
         return self._handle().count
 
-# FIXME: this will not work with MPI
-def build_sparsity_pattern(dims, nrows, rmaps, cmaps):
-    rmult, cmult = dims
-    lsize = nrows*rmult
-    s  = [ set() for i in xrange(lsize) ]
+def build_sparsity(object sparsity):
+    cdef int rmult, cmult
+    rmult, cmult = sparsity._dims
+    cdef int nrows = sparsity._nrows
+    cdef int lsize = nrows*rmult
+    cdef op_map rmap, cmap
+    cdef int nmaps = len(sparsity._rmaps)
+    cdef int *d_nnz, *o_nnz, *rowptr, *colidx
 
-    for rowmap, colmap in zip(rmaps, cmaps):
-        #FIXME: exec_size will need adding for MPI support
-        rsize = rowmap.iterset.size
-        for e in xrange(rsize):
-            for i in xrange(rowmap.dim):
-                for r in xrange(rmult):
-                    row = rmult * rowmap.values[e][i] + r
-                    for c in xrange(cmult):
-                        for d in xrange(colmap.dim):
-                            s[row].add(cmult * colmap.values[e][d] + c)
+    cdef core.op_map *rmaps = <core.op_map *>malloc(nmaps * sizeof(core.op_map))
+    if rmaps is NULL:
+        raise MemoryError("Unable to allocate space for rmaps")
+    cdef core.op_map *cmaps = <core.op_map *>malloc(nmaps * sizeof(core.op_map))
+    if cmaps is NULL:
+        raise MemoryError("Unable to allocate space for cmaps")
 
-    d_nnz = np.array([len(r) for r in s], dtype=np.int32)
-    rowptr = np.zeros(lsize+1, dtype=np.int32)
-    rowptr[1:] = np.cumsum(d_nnz)
-    colidx = np.zeros(rowptr[-1], np.int32)
-    for row in xrange(lsize):
-        colidx[rowptr[row]:rowptr[row+1]] = list(sorted(s[row]))
+    for i in range(nmaps):
+        rmap = sparsity._rmaps[i]._c_handle
+        cmap = sparsity._cmaps[i]._c_handle
+        rmaps[i] = rmap._handle
+        cmaps[i] = cmap._handle
 
-    return rowptr, colidx, d_nnz
+    core.build_sparsity_pattern(rmult, cmult, nrows, nmaps, rmaps, cmaps,
+                                &d_nnz, &o_nnz, &rowptr, &colidx)
+    sparsity._d_nnz = data_to_numpy_array_with_spec(d_nnz, lsize, np.NPY_INT32)
+    sparsity._o_nnz = data_to_numpy_array_with_spec(o_nnz, lsize, np.NPY_INT32)
+    sparsity._rowptr = data_to_numpy_array_with_spec(rowptr, lsize+1, np.NPY_INT32)
+    sparsity._colidx = data_to_numpy_array_with_spec(colidx, rowptr[lsize], np.NPY_INT32)

@@ -166,8 +166,7 @@ class Sparsity(base.Sparsity):
         super(Sparsity, self).__init__(maps, dims, name)
         key = (maps, as_tuple(dims, int, 2))
         self._cached = True
-        self._rowptr, self._colidx, self._d_nnz = \
-                core.build_sparsity_pattern(self._dims, self._nrows, self._rmaps, self._cmaps)
+        core.build_sparsity(self)
         self._total_nz = self._rowptr[-1]
         _sparsity_cache[key] = self
 
