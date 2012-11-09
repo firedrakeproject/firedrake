@@ -72,7 +72,7 @@ sed -ie 's:/opt:/usr/local:g'
 
 ### HDF5
 ```
-wajig install libhdf5-mpi-dev python-h5py
+sudo apt-get install libhdf5-mpi-dev python-h5py
 ```
 
 ### FFC Interface
