@@ -11,7 +11,9 @@ sudo pip install argparse # python < 2.7 only
 ```
 petsc4py:
 ```
-PETSC_CONFIGURE_OPTIONS='--with-fortran-interfaces=1' sudo -E pip install petsc
+PETSC_CONFIGURE_OPTIONS='--with-fortran-interfaces=1 --with-c++-support' sudo -E pip install petsc
+export PETSC_DIR=/path/to/petsc/install
+unset PETSC_ARCH
 sudo pip install hg+https://bitbucket.org/fr710/petsc4py#egg=petsc4py
 ```
 **Note:** When using PyOP2 with Fluidity it's crucial that both are built against the same PETSc!
