@@ -61,15 +61,16 @@ $ fakeroot alien *.rpm
 $ sudo dpkg -i *.deb
 ```
 
-Installing the AMD OpenCL toolkit (32bit and 64bit systems)
+Installing the [AMD OpenCL toolkit](http://developer.amd.com/tools/heterogeneous-computing/amd-accelerated-parallel-processing-app-sdk/) (32bit and 64bit systems)
 
 ```
 $ wget http://developer.amd.com/Downloads/AMD-APP-SDK-v2.7-lnx64.tgz
-# on a 32bit system
+# on a 32bit system, instead
 # wget http://developer.amd.com/Downloads/AMD-APP-SDK-v2.7-lnx32.tgz
-$ tar xzf AMD-APP-SDK-v2.7-lnx64.tgz
+$ tar xzf AMD-APP-SDK-v2.7-lnx*.tgz
 # Install to /usr/local instead of /opt
-$ sed -ie 's:/opt:/usr/local:g'
+$ sed -ie 's:/opt:/usr/local:g' default-install_lnx.pl
+$ sudo ./Install-AMD-APP.sh
 ```
 
 ### HDF5
