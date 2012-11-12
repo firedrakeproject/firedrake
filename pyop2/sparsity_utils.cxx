@@ -45,14 +45,14 @@ void build_sparsity_pattern ( int rmult, int cmult, int nrows, int nmaps,
   int * o_nnz = (int *)malloc(lsize * sizeof(int));
   int * rowptr = (int*)malloc((lsize+1) * sizeof(int));
   rowptr[0] = 0;
-  for ( size_t row = 0; row < lsize; ++row ) {
+  for ( int row = 0; row < lsize; ++row ) {
     d_nnz[row] = s_diag[row].size();
     o_nnz[row] = s_odiag[row].size();
     rowptr[row+1] = rowptr[row] + d_nnz[row] + o_nnz[row];
   }
   int * colidx = (int*)malloc(rowptr[lsize] * sizeof(int));
   // Note: elements in a set are always sorted, so no need to sort colidx
-  for ( size_t row = 0; row < lsize; ++row ) {
+  for ( int row = 0; row < lsize; ++row ) {
     std::copy(s_diag[row].begin(), s_diag[row].end(), colidx + rowptr[row]);
     std::copy(s_odiag[row].begin(), s_odiag[row].end(),
               colidx + rowptr[row] + d_nnz[row]);
