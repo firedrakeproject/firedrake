@@ -66,25 +66,24 @@ def pytest_collection_modifyitems(items):
         return 0
     items.sort(cmp=cmp)
 
-def pytest_funcarg__skip_cuda(request):
+@pytest.fixture
+def skip_cuda():
     return None
 
-def pytest_funcarg__skip_opencl(request):
+@pytest.fixture
+def skip_opencl():
     return None
 
-def pytest_funcarg__skip_sequential(request):
+@pytest.fixture
+def skip_sequential():
     return None
 
 def pytest_generate_tests(metafunc):
     """Parametrize tests to run on all backends."""
 
-    if 'backend' in metafunc.funcargnames:
+    if 'backend' in metafunc.fixturenames:
 
-        # Allow skipping individual backends by passing skip_<backend> as a parameter
         skip_backends = set()
-        for b in backends.keys():
-            if 'skip_'+b in metafunc.funcargnames:
-                skip_backends.add(b)
         # Skip backends specified on the module level
         if hasattr(metafunc.module, 'skip_backends'):
             skip_backends = skip_backends.union(set(metafunc.module.skip_backends))
@@ -94,8 +93,10 @@ def pytest_generate_tests(metafunc):
 
         # Use only backends specified on the command line if any
         if metafunc.config.option.backend:
-            backend = set(map(lambda x: x.lower(), metafunc.config.option.backend))
+            backend = set([x.lower() for x in metafunc.config.option.backend])
         # Otherwise use all available backends
+        # FIXME: This doesn't really work since the list of backends is
+        # dynamically populated as backends are imported
         else:
             backend = set(backends.keys())
         # Restrict to set of backends specified on the module level
@@ -104,17 +105,13 @@ def pytest_generate_tests(metafunc):
         # Restrict to set of backends specified on the class level
         if hasattr(metafunc.cls, 'backends'):
             backend = backend.intersection(set(metafunc.cls.backends))
-        # If there are no selected backends left, skip the test
-        if not backend.difference(skip_backends):
-            pytest.skip()
-        metafunc.parametrize("backend", (b for b in backend if not b in skip_backends), indirect=True)
+        # Allow skipping individual backends by passing skip_<backend> as a parameter
+        backend = [b for b in backend.difference(skip_backends) \
+                if not 'skip_'+b in metafunc.fixturenames]
+        metafunc.parametrize("backend", backend, indirect=True)
 
 @pytest.fixture(scope='session')
 def backend(request):
-    # If a testcase has the backend parameter but the parametrization leaves
-    # it with no backends the request won't have a param, so return None
-    if not hasattr(request, 'param'):
-        return None
     # Initialise the backend
     try:
         op2.init(backend=request.param)
