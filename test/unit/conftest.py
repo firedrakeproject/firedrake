@@ -109,19 +109,17 @@ def pytest_generate_tests(metafunc):
             pytest.skip()
         metafunc.parametrize("backend", (b for b in backend if not b in skip_backends), indirect=True)
 
-def op2_init(backend):
-    # We need to clean up the previous backend first, because the teardown
-    # hook is only run at the end of the session
-    op2.exit()
-    op2.init(backend=backend)
-
-def pytest_funcarg__backend(request):
+@pytest.fixture(scope='session')
+def backend(request):
     # If a testcase has the backend parameter but the parametrization leaves
-    # i with no backends the request won't have a param, so return None
+    # it with no backends the request won't have a param, so return None
     if not hasattr(request, 'param'):
         return None
-    # Call init/exit only once per session
-    request.cached_setup(scope='session', setup=lambda: op2_init(request.param),
-                         teardown=lambda backend: op2.exit(),
-                         extrakey=request.param)
+    # Initialise the backend
+    try:
+        op2.init(backend=request.param)
+    # Skip test if initialisation failed
+    except:
+        pytest.skip('Backend %s is not available' % request.param)
+    request.addfinalizer(op2.exit)
     return request.param
