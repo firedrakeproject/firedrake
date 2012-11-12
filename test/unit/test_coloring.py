@@ -54,29 +54,30 @@ class TestColoring:
 
     """
 
-    def pytest_funcarg__nodes(cls, request):
+    @pytest.fixture
+    def nodes(cls):
         return op2.Set(NUM_NODES, "nodes")
 
-    def pytest_funcarg__elements(cls, request):
+    @pytest.fixture
+    def elements(cls):
         return op2.Set(NUM_ELE, "elements")
 
-    def pytest_funcarg__elem_node_map(cls, request):
+    @pytest.fixture
+    def elem_node_map(cls):
         v = [randrange(NUM_ENTRIES) for i in range(NUM_ELE * 3)]
         return numpy.asarray(v, dtype=numpy.uint32)
 
-    def pytest_funcarg__elem_node(cls, request):
-        elements = request.getfuncargvalue('elements')
-        nodes = request.getfuncargvalue('nodes')
-        elem_node_map = request.getfuncargvalue('elem_node_map')
+    @pytest.fixture
+    def elem_node(cls, elements, nodes, elem_node_map):
         return op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 
-    def pytest_funcarg__mat(cls, request):
-        elem_node = request.getfuncargvalue('elem_node')
+    @pytest.fixture
+    def mat(cls, elem_node):
         sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
         return op2.Mat(sparsity, valuetype, "mat")
 
-    def pytest_funcarg__x(cls, request):
-        nodes = request.getfuncargvalue('nodes')
+    @pytest.fixture
+    def x(cls, nodes):
         return op2.Dat(nodes, 1, numpy.zeros(NUM_NODES, dtype=numpy.uint32), numpy.uint32, "x")
 
     def test_thread_coloring(self, backend, elements, elem_node_map, elem_node, mat, x):

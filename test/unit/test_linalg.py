@@ -39,43 +39,29 @@ from pyop2 import op2
 backends = ['sequential', 'opencl', 'cuda']
 nelems = 8
 
-def pytest_funcarg__set(request):
+@pytest.fixture
+def set():
     return op2.Set(nelems)
 
-def pytest_funcarg__x(request):
-    return op2.Dat(request.getfuncargvalue('set'),
-                   1,
-                   None,
-                   np.float64,
-                   "x")
+@pytest.fixture
+def x(set):
+    return op2.Dat(set, 1, None, np.float64, "x")
 
-def pytest_funcarg__y(request):
-    return op2.Dat(request.getfuncargvalue('set'),
-                   1,
-                   np.arange(1,nelems+1),
-                   np.float64,
-                   "y")
+@pytest.fixture
+def y(set):
+    return op2.Dat(set, 1, np.arange(1,nelems+1), np.float64, "y")
 
-def pytest_funcarg__yi(request):
-    return op2.Dat(request.getfuncargvalue('set'),
-                   1,
-                   np.arange(1,nelems+1),
-                   np.int64,
-                   "y")
+@pytest.fixture
+def yi(set):
+    return op2.Dat(set, 1, np.arange(1,nelems+1), np.int64, "y")
 
-def pytest_funcarg__x2(request):
-    return op2.Dat(request.getfuncargvalue('set'),
-                   (1,2),
-                   np.zeros(2*nelems),
-                   np.float64,
-                   "x")
+@pytest.fixture
+def x2(set):
+    return op2.Dat(set, (1,2), np.zeros(2*nelems), np.float64, "x")
 
-def pytest_funcarg__y2(request):
-    return op2.Dat(request.getfuncargvalue('set'),
-                   (2,1),
-                   np.zeros(2*nelems),
-                   np.float64,
-                   "y")
+@pytest.fixture
+def y2(set):
+    return op2.Dat(set, (2,1), np.zeros(2*nelems), np.float64, "y")
 
 class TestLinAlg:
     """

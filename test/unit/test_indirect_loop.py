@@ -51,19 +51,23 @@ class TestIndirectLoop:
     Indirect Loop Tests
     """
 
-    def pytest_funcarg__iterset(cls, request):
+    @pytest.fixture
+    def iterset(cls):
         return op2.Set(nelems, "iterset")
 
-    def pytest_funcarg__indset(cls, request):
+    @pytest.fixture
+    def indset(cls):
         return op2.Set(nelems, "indset")
 
-    def pytest_funcarg__x(cls, request):
-        return op2.Dat(request.getfuncargvalue('indset'), 1, range(nelems), numpy.uint32, "x")
+    @pytest.fixture
+    def x(cls, indset):
+        return op2.Dat(indset, 1, range(nelems), numpy.uint32, "x")
 
-    def pytest_funcarg__iterset2indset(cls, request):
+    @pytest.fixture
+    def iterset2indset(cls, iterset, indset):
         u_map = numpy.array(range(nelems), dtype=numpy.uint32)
         random.shuffle(u_map, _seed)
-        return op2.Map(request.getfuncargvalue('iterset'), request.getfuncargvalue('indset'), 1, u_map, "iterset2indset")
+        return op2.Map(iterset, indset, 1, u_map, "iterset2indset")
 
     def test_onecolor_wo(self, backend, iterset, x, iterset2indset):
         kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"

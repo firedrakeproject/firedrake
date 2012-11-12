@@ -52,39 +52,34 @@ class TestIterationSpaceDats:
     Test IterationSpace access to Dat objects
     """
 
-    def pytest_funcarg__node_set(cls, request):
-        return request.cached_setup(
-            setup=lambda: op2.Set(nnodes, 'node_set'), scope='module')
+    @pytest.fixture(scope='module')
+    def node_set(cls):
+        return op2.Set(nnodes, 'node_set')
 
-    def pytest_funcarg__ele_set(cls, request):
-        return request.cached_setup(
-            setup=lambda: op2.Set(nele, 'ele_set'), scope='module')
+    @pytest.fixture(scope='module')
+    def ele_set(cls):
+        return op2.Set(nele, 'ele_set')
 
-    def pytest_funcarg__d1(cls, request):
-        return op2.Dat(request.getfuncargvalue('node_set'),
-                       1, numpy.zeros(nnodes), dtype=numpy.int32)
+    @pytest.fixture
+    def d1(cls, node_set):
+        return op2.Dat(node_set, 1, numpy.zeros(nnodes), dtype=numpy.int32)
 
-    def pytest_funcarg__d2(cls, request):
-        return op2.Dat(request.getfuncargvalue('node_set'),
-                       2, numpy.zeros(2 * nnodes), dtype=numpy.int32)
+    @pytest.fixture
+    def d2(cls, node_set):
+        return op2.Dat(node_set, 2, numpy.zeros(2 * nnodes), dtype=numpy.int32)
 
-    def pytest_funcarg__vd1(cls, request):
-        return op2.Dat(request.getfuncargvalue('ele_set'),
-                       1, numpy.zeros(nele), dtype=numpy.int32)
+    @pytest.fixture
+    def vd1(cls, ele_set):
+        return op2.Dat(ele_set, 1, numpy.zeros(nele), dtype=numpy.int32)
 
-    def pytest_funcarg__vd2(cls, request):
-        return op2.Dat(request.getfuncargvalue('ele_set'),
-                       2, numpy.zeros(2 * nele), dtype=numpy.int32)
+    @pytest.fixture
+    def vd2(cls, ele_set):
+        return op2.Dat(ele_set, 2, numpy.zeros(2 * nele), dtype=numpy.int32)
 
-    def pytest_funcarg__node2ele(cls, request):
-        def setup():
-            vals = numpy.arange(nnodes)
-            vals /= 2
-            return op2.Map(request.getfuncargvalue('node_set'),
-                           request.getfuncargvalue('ele_set'),
-                           1,
-                           vals, 'node2ele')
-        return request.cached_setup(setup=setup, scope='module')
+    @pytest.fixture(scope='module')
+    def node2ele(cls, node_set, ele_set):
+        vals = numpy.arange(nnodes)/2
+        return op2.Map(node_set, ele_set, 1, vals, 'node2ele')
 
     def test_sum_nodes_to_edges(self, backend):
         """Creates a 1D grid with edge values numbered consecutively.

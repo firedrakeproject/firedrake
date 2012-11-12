@@ -68,82 +68,73 @@ class TestMatrices:
 
     """
 
-    def pytest_funcarg__nodes(cls, request):
-        # FIXME: Cached setup can be removed when __eq__ methods implemented.
-        return request.cached_setup(
-                setup=lambda: op2.Set(NUM_NODES, "nodes"), scope='module')
+    # FIXME: Cached setup can be removed when __eq__ methods implemented.
+    @pytest.fixture(scope='module')
+    def nodes(cls):
+        return op2.Set(NUM_NODES, "nodes")
 
-    def pytest_funcarg__elements(cls, request):
-        return request.cached_setup(
-                setup=lambda: op2.Set(NUM_ELE, "elements"), scope='module')
+    @pytest.fixture(scope='module')
+    def elements(cls):
+        return op2.Set(NUM_ELE, "elements")
 
-    def pytest_funcarg__elem_node(cls, request):
-        elements = request.getfuncargvalue('elements')
-        nodes = request.getfuncargvalue('nodes')
+    @pytest.fixture(scope='module')
+    def elem_node(cls, elements, nodes):
         elem_node_map = numpy.asarray([ 0, 1, 3, 2, 3, 1 ], dtype=numpy.uint32)
         return op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 
-    def pytest_funcarg__mat(cls, request):
-        def setup():
-            elem_node = request.getfuncargvalue('elem_node')
-            sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
-            return op2.Mat(sparsity, valuetype, "mat")
-        return request.cached_setup(setup=setup, scope='module')
+    @pytest.fixture(scope='module')
+    def mat(cls, elem_node):
+        sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
+        return op2.Mat(sparsity, valuetype, "mat")
 
-    def pytest_funcarg__vecmat(cls, request):
-        def setup():
-            elem_node = request.getfuncargvalue('elem_node')
-            sparsity = op2.Sparsity((elem_node, elem_node), 2, "sparsity")
-            return op2.Mat(sparsity, valuetype, "mat")
-        return request.cached_setup(setup=setup, scope='module')
+    @pytest.fixture(scope='module')
+    def vecmat(cls, elem_node):
+        sparsity = op2.Sparsity((elem_node, elem_node), 2, "sparsity")
+        return op2.Mat(sparsity, valuetype, "vecmat")
 
-    def pytest_funcarg__coords(cls, request):
-        nodes = request.getfuncargvalue('nodes')
+    @pytest.fixture
+    def coords(cls, nodes):
         coord_vals = numpy.asarray([ (0.0, 0.0), (2.0, 0.0),
                                      (1.0, 1.0), (0.0, 1.5) ],
                                    dtype=valuetype)
         return op2.Dat(nodes, 2, coord_vals, valuetype, "coords")
 
-    def pytest_funcarg__g(cls, request):
-        return request.cached_setup(
-                setup = lambda: op2.Global(1, 1.0, numpy.float64, "g"),
-                scope='module')
+    @pytest.fixture(scope='module')
+    def g(cls, request):
+        return op2.Global(1, 1.0, numpy.float64, "g")
 
-    def pytest_funcarg__f(cls, request):
-        nodes = request.getfuncargvalue('nodes')
+    @pytest.fixture
+    def f(cls, nodes):
         f_vals = numpy.asarray([ 1.0, 2.0, 3.0, 4.0 ], dtype=valuetype)
         return op2.Dat(nodes, 1, f_vals, valuetype, "f")
 
-    def pytest_funcarg__f_vec(cls, request):
-        nodes = request.getfuncargvalue('nodes')
+    @pytest.fixture
+    def f_vec(cls, nodes):
         f_vals = numpy.asarray([(1.0, 2.0)]*4, dtype=valuetype)
         return op2.Dat(nodes, 2, f_vals, valuetype, "f")
 
-    def pytest_funcarg__b(cls, request):
-        def setup():
-            nodes = request.getfuncargvalue('nodes')
-            b_vals = numpy.zeros(NUM_NODES, dtype=valuetype)
-            return op2.Dat(nodes, 1, b_vals, valuetype, "b")
-        return request.cached_setup(setup=setup, scope='module')
+    @pytest.fixture(scope='module')
+    def b(cls, nodes):
+        b_vals = numpy.zeros(NUM_NODES, dtype=valuetype)
+        return op2.Dat(nodes, 1, b_vals, valuetype, "b")
 
-    def pytest_funcarg__b_vec(cls, request):
-        def setup():
-            nodes = request.getfuncargvalue('nodes')
-            b_vals = numpy.zeros(NUM_NODES*2, dtype=valuetype)
-            return op2.Dat(nodes, 2, b_vals, valuetype, "b")
-        return request.cached_setup(setup=setup, scope='module')
+    @pytest.fixture(scope='module')
+    def b_vec(cls, nodes):
+        b_vals = numpy.zeros(NUM_NODES*2, dtype=valuetype)
+        return op2.Dat(nodes, 2, b_vals, valuetype, "b")
 
-    def pytest_funcarg__x(cls, request):
-        nodes = request.getfuncargvalue('nodes')
+    @pytest.fixture
+    def x(cls, nodes):
         x_vals = numpy.zeros(NUM_NODES, dtype=valuetype)
         return op2.Dat(nodes, 1, x_vals, valuetype, "x")
 
-    def pytest_funcarg__x_vec(cls, request):
-        nodes = request.getfuncargvalue('nodes')
+    @pytest.fixture
+    def x_vec(cls, nodes):
         x_vals = numpy.zeros(NUM_NODES*2, dtype=valuetype)
         return op2.Dat(nodes, 2, x_vals, valuetype, "x")
 
-    def pytest_funcarg__mass(cls, request):
+    @pytest.fixture
+    def mass(cls):
         kernel_code = """
 void mass(double localTensor[1][1], double* c0[2], int i_r_0, int i_r_1)
 {
@@ -199,8 +190,8 @@ void mass(double localTensor[1][1], double* c0[2], int i_r_0, int i_r_1)
 }"""
         return op2.Kernel(kernel_code, "mass")
 
-    def pytest_funcarg__rhs(cls, request):
-
+    @pytest.fixture
+    def rhs(cls):
         kernel_code = """
 void rhs(double** localTensor, double* c0[2], double* c1[1])
 {
@@ -265,7 +256,8 @@ void rhs(double** localTensor, double* c0[2], double* c1[1])
 }"""
         return op2.Kernel(kernel_code, "rhs")
 
-    def pytest_funcarg__mass_ffc(cls, request):
+    @pytest.fixture
+    def mass_ffc(cls):
         kernel_code = """
 void mass_ffc(double A[1][1], double *x[2], int j, int k)
 {
@@ -289,11 +281,10 @@ void mass_ffc(double A[1][1], double *x[2], int j, int k)
     }
 }
 """
-
         return op2.Kernel(kernel_code, "mass_ffc")
 
-    def pytest_funcarg__rhs_ffc(cls, request):
-
+    @pytest.fixture
+    def rhs_ffc(cls):
         kernel_code="""
 void rhs_ffc(double **A, double *x[2], double **w0)
 {
@@ -331,11 +322,10 @@ void rhs_ffc(double **A, double *x[2], double **w0)
     }
 }
 """
-
         return op2.Kernel(kernel_code, "rhs_ffc")
 
-    def pytest_funcarg__rhs_ffc_itspace(cls, request):
-
+    @pytest.fixture
+    def rhs_ffc_itspace(cls):
         kernel_code="""
 void rhs_ffc_itspace(double A[1], double *x[2], double **w0, int j)
 {
@@ -370,12 +360,10 @@ void rhs_ffc_itspace(double A[1], double *x[2], double **w0, int j)
     }
 }
 """
-
         return op2.Kernel(kernel_code, "rhs_ffc_itspace")
 
-
-    def pytest_funcarg__mass_vector_ffc(cls, request):
-
+    @pytest.fixture
+    def mass_vector_ffc(cls):
         kernel_code="""
 void mass_vector_ffc(double A[2][2], double *x[2], int j, int k)
 {
@@ -410,11 +398,10 @@ void mass_vector_ffc(double A[2][2], double *x[2], int j, int k)
     }
 }
 """
-
         return op2.Kernel(kernel_code, "mass_vector_ffc")
 
-    def pytest_funcarg__rhs_ffc_vector(cls, request):
-
+    @pytest.fixture
+    def rhs_ffc_vector(cls):
         kernel_code="""
 void rhs_vector_ffc(double **A, double *x[2], double **w0)
 {
@@ -460,11 +447,10 @@ void rhs_vector_ffc(double **A, double *x[2], double **w0)
       }
     }
 }"""
-
         return op2.Kernel(kernel_code, "rhs_vector_ffc")
 
-    def pytest_funcarg__rhs_ffc_vector_itspace(cls, request):
-
+    @pytest.fixture
+    def rhs_ffc_vector_itspace(cls):
         kernel_code="""
 void rhs_vector_ffc_itspace(double A[2], double *x[2], double **w0, int j)
 {
@@ -507,35 +493,30 @@ void rhs_vector_ffc_itspace(double A[2], double *x[2], double **w0, int j)
       }
     }
 }"""
-
         return op2.Kernel(kernel_code, "rhs_vector_ffc_itspace")
 
-
-
-    def pytest_funcarg__zero_dat(cls, request):
-
+    @pytest.fixture
+    def zero_dat(cls):
         kernel_code="""
 void zero_dat(double *dat)
 {
   *dat = 0.0;
 }
 """
-
         return op2.Kernel(kernel_code, "zero_dat")
 
-    def pytest_funcarg__zero_vec_dat(cls, request):
-
+    @pytest.fixture
+    def zero_vec_dat(cls):
         kernel_code="""
 void zero_vec_dat(double *dat)
 {
   dat[0] = 0.0; dat[1] = 0.0;
 }
 """
-
         return op2.Kernel(kernel_code, "zero_vec_dat")
 
-    def pytest_funcarg__kernel_inc(cls, request):
-
+    @pytest.fixture
+    def kernel_inc(cls):
         kernel_code = """
 void kernel_inc(double entry[1][1], double* g, int i, int j)
 {
@@ -544,8 +525,8 @@ void kernel_inc(double entry[1][1], double* g, int i, int j)
 """
         return op2.Kernel(kernel_code, "kernel_inc")
 
-    def pytest_funcarg__kernel_set(cls, request):
-
+    @pytest.fixture
+    def kernel_set(cls):
         kernel_code = """
 void kernel_set(double entry[1][1], double* g, int i, int j)
 {
@@ -554,8 +535,8 @@ void kernel_set(double entry[1][1], double* g, int i, int j)
 """
         return op2.Kernel(kernel_code, "kernel_set")
 
-    def pytest_funcarg__kernel_inc_vec(cls, request):
-
+    @pytest.fixture
+    def kernel_inc_vec(cls):
         kernel_code = """
 void kernel_inc_vec(double entry[2][2], double* g, int i, int j)
 {
@@ -567,8 +548,8 @@ void kernel_inc_vec(double entry[2][2], double* g, int i, int j)
 """
         return op2.Kernel(kernel_code, "kernel_inc_vec")
 
-    def pytest_funcarg__kernel_set_vec(cls, request):
-
+    @pytest.fixture
+    def kernel_set_vec(cls):
         kernel_code = """
 void kernel_set_vec(double entry[2][2], double* g, int i, int j)
 {
@@ -580,14 +561,16 @@ void kernel_set_vec(double entry[2][2], double* g, int i, int j)
 """
         return op2.Kernel(kernel_code, "kernel_set_vec")
 
-    def pytest_funcarg__expected_matrix(cls, request):
+    @pytest.fixture
+    def expected_matrix(cls):
         expected_vals = [(0.25, 0.125, 0.0, 0.125),
                          (0.125, 0.291667, 0.0208333, 0.145833),
                          (0.0, 0.0208333, 0.0416667, 0.0208333),
                          (0.125, 0.145833, 0.0208333, 0.291667) ]
         return numpy.asarray(expected_vals, dtype=valuetype)
 
-    def pytest_funcarg__expected_vector_matrix(cls, request):
+    @pytest.fixture
+    def expected_vector_matrix(cls):
         expected_vals = [(0.25, 0., 0.125, 0., 0., 0., 0.125, 0.),
                          (0., 0.25, 0., 0.125, 0., 0., 0., 0.125),
                          (0.125, 0., 0.29166667, 0., 0.02083333, 0., 0.14583333, 0.),
@@ -598,13 +581,14 @@ void kernel_set_vec(double entry[2][2], double* g, int i, int j)
                          (0., 0.125, 0., 0.14583333, 0., 0.02083333, 0., 0.29166667)]
         return numpy.asarray(expected_vals, dtype=valuetype)
 
-
-    def pytest_funcarg__expected_rhs(cls, request):
+    @pytest.fixture
+    def expected_rhs(cls):
         return numpy.asarray([[0.9999999523522115], [1.3541666031724144],
                               [0.2499999883507239], [1.6458332580869566]],
                               dtype=valuetype)
 
-    def pytest_funcarg__expected_vec_rhs(cls, request):
+    @pytest.fixture
+    def expected_vec_rhs(cls):
         return numpy.asarray([[0.5, 1.0], [0.58333333, 1.16666667],
                               [0.08333333, 0.16666667], [0.58333333, 1.16666667]],
                               dtype=valuetype)

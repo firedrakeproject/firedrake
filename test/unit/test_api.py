@@ -44,26 +44,32 @@ from pyop2 import sequential
 from pyop2 import base
 from pyop2 import configuration as cfg
 
-def pytest_funcarg__set(request):
+@pytest.fixture
+def set():
     return op2.Set(5, 'foo')
 
-def pytest_funcarg__iterset(request):
+@pytest.fixture
+def iterset():
     return op2.Set(2, 'iterset')
 
-def pytest_funcarg__dataset(request):
+@pytest.fixture
+def dataset():
     return op2.Set(3, 'dataset')
 
-def pytest_funcarg__smap(request):
+@pytest.fixture
+def smap():
     iterset = op2.Set(2, 'iterset')
     dataset = op2.Set(2, 'dataset')
     return op2.Map(iterset, dataset, 1, [0, 1])
 
-def pytest_funcarg__const(request):
-    return request.cached_setup(scope='function',
-            setup=lambda: op2.Const(1, 1, 'test_const_nonunique_name'),
-            teardown=lambda c: c.remove_from_namespace())
+@pytest.fixture
+def const(request):
+    c = op2.Const(1, 1, 'test_const_nonunique_name')
+    request.addfinalizer(c.remove_from_namespace)
+    return c
 
-def pytest_funcarg__sparsity(request):
+@pytest.fixture
+def sparsity():
     s = op2.Set(2)
     m = op2.Map(s, s, 1, [0, 1])
     return op2.Sparsity((m, m), 1)

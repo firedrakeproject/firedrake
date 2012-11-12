@@ -42,34 +42,34 @@ from pyop2 import op2
 try:
     import h5py
 
-    def pytest_funcarg__h5file(request):
-        tmpdir = request.getfuncargvalue('tmpdir')
-        def make_hdf5_file():
-            f = h5py.File(str(tmpdir.join('tmp_hdf5.h5')), 'w')
-            f.create_dataset('dat', data=np.arange(10).reshape(5,2),
-                             dtype=np.float64)
-            f['dat'].attrs['type'] = 'double'
-            f.create_dataset('soadat', data=np.arange(10).reshape(5,2),
-                             dtype=np.float64)
-            f['soadat'].attrs['type'] = 'double:soa'
-            f.create_dataset('set', data=np.array((5,)))
-            f.create_dataset('myconstant', data=np.arange(3))
-            f.create_dataset('map', data=np.array((1,2,2,3)).reshape(2,2))
-            return f
+    @pytest.fixture(scope='module')
+    def h5file(request, tmpdir):
+        f = h5py.File(str(tmpdir.join('tmp_hdf5.h5')), 'w')
+        f.create_dataset('dat', data=np.arange(10).reshape(5,2),
+                         dtype=np.float64)
+        f['dat'].attrs['type'] = 'double'
+        f.create_dataset('soadat', data=np.arange(10).reshape(5,2),
+                         dtype=np.float64)
+        f['soadat'].attrs['type'] = 'double:soa'
+        f.create_dataset('set', data=np.array((5,)))
+        f.create_dataset('myconstant', data=np.arange(3))
+        f.create_dataset('map', data=np.array((1,2,2,3)).reshape(2,2))
+        request.addfinalizer(f.close)
+        return f
 
-        return request.cached_setup(scope='module',
-                                    setup=lambda: make_hdf5_file(),
-                                    teardown=lambda f: f.close())
 except:
     print "h5py is not available, skipping HDF5 tests..."
 
-def pytest_funcarg__set(request):
+@pytest.fixture
+def set():
     return op2.Set(5, 'foo')
 
-def pytest_funcarg__iterset(request):
+@pytest.fixture
+def iterset():
     return op2.Set(2, 'iterset')
 
-def pytest_funcarg__dataset(request):
+@pytest.fixture
+def dataset():
     return op2.Set(3, 'dataset')
 
 @pytest.mark.skipif("'h5py' not in globals()")
