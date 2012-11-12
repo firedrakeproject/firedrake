@@ -1,0 +1,109 @@
+# This file is part of PyOP2
+#
+# PyOP2 is Copyright (c) 2012, Imperial College London and
+# others. Please see the AUTHORS file in the main source directory for
+# a full list of copyright holders.  All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+#
+#     * Redistributions of source code must retain the above copyright
+#       notice, this list of conditions and the following disclaimer.
+#     * Redistributions in binary form must reproduce the above copyright
+#       notice, this list of conditions and the following disclaimer in the
+#       documentation and/or other materials provided with the distribution.
+#     * The name of Imperial College London or that of other
+#       contributors may not be used to endorse or promote products
+#       derived from this software without specific prior written
+#       permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTERS
+# ''AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+# COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+# INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+# STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+# OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""
+HDF5 API Unit Tests
+"""
+
+import pytest
+
+from pyop2 import op2
+
+try:
+    import h5py
+
+    def pytest_funcarg__h5file(request):
+        tmpdir = request.getfuncargvalue('tmpdir')
+        def make_hdf5_file():
+            f = h5py.File(str(tmpdir.join('tmp_hdf5.h5')), 'w')
+            f.create_dataset('dat', data=np.arange(10).reshape(5,2),
+                             dtype=np.float64)
+            f['dat'].attrs['type'] = 'double'
+            f.create_dataset('soadat', data=np.arange(10).reshape(5,2),
+                             dtype=np.float64)
+            f['soadat'].attrs['type'] = 'double:soa'
+            f.create_dataset('set', data=np.array((5,)))
+            f.create_dataset('myconstant', data=np.arange(3))
+            f.create_dataset('map', data=np.array((1,2,2,3)).reshape(2,2))
+            return f
+
+        return request.cached_setup(scope='module',
+                                    setup=lambda: make_hdf5_file(),
+                                    teardown=lambda f: f.close())
+except:
+    print "h5py is not available, skipping HDF5 tests..."
+
+def pytest_funcarg__set(request):
+    return op2.Set(5, 'foo')
+
+def pytest_funcarg__iterset(request):
+    return op2.Set(2, 'iterset')
+
+def pytest_funcarg__dataset(request):
+    return op2.Set(3, 'dataset')
+
+@pytest.mark.skipif("'h5py' not in globals()")
+class TestHDF5:
+
+    def test_set_hdf5(self, backend, h5file):
+        "Set should get correct size from HDF5 file."
+        s = op2.Set.fromhdf5(h5file, name='set')
+        assert s.size == 5
+
+    def test_dat_hdf5(self, backend, h5file, set):
+        "Creating a dat from h5file should work"
+        d = op2.Dat.fromhdf5(set, h5file, 'dat')
+        assert d.dtype == np.float64
+        assert d.data.shape == (5,2) and d.data.sum() == 9 * 10 / 2
+
+    def test_data_hdf5_soa(self, backend, h5file, set):
+        "Creating an SoA dat from h5file should work"
+        d = op2.Dat.fromhdf5(set, h5file, 'soadat')
+        assert d.soa
+        assert d.data.shape == (5,2) and d.data.sum() == 9 * 10 / 2
+
+    def test_const_hdf5(self, backend, h5file):
+        "Constant should be correctly populated from hdf5 file."
+        c = op2.Const.fromhdf5(h5file, 'myconstant')
+        c.remove_from_namespace()
+        assert c.data.sum() == 3
+        assert c.dim == (3,)
+
+    def test_map_hdf5(self, backend, iterset, dataset, h5file):
+        "Should be able to create Map from hdf5 file."
+        m = op2.Map.fromhdf5(iterset, dataset, h5file, name="map")
+        assert m.iterset == iterset
+        assert m.dataset == dataset
+        assert m.dim == 2
+        assert m.values.sum() == sum((1, 2, 2, 3))
+        assert m.name == 'map'

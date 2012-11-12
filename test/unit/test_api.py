@@ -37,7 +37,6 @@ User API Unit Tests
 
 import pytest
 import numpy as np
-import h5py
 
 from pyop2 import op2
 from pyop2 import exceptions
@@ -63,25 +62,6 @@ def pytest_funcarg__const(request):
     return request.cached_setup(scope='function',
             setup=lambda: op2.Const(1, 1, 'test_const_nonunique_name'),
             teardown=lambda c: c.remove_from_namespace())
-
-def pytest_funcarg__h5file(request):
-    tmpdir = request.getfuncargvalue('tmpdir')
-    def make_hdf5_file():
-        f = h5py.File(str(tmpdir.join('tmp_hdf5.h5')), 'w')
-        f.create_dataset('dat', data=np.arange(10).reshape(5,2),
-                         dtype=np.float64)
-        f['dat'].attrs['type'] = 'double'
-        f.create_dataset('soadat', data=np.arange(10).reshape(5,2),
-                         dtype=np.float64)
-        f['soadat'].attrs['type'] = 'double:soa'
-        f.create_dataset('set', data=np.array((5,)))
-        f.create_dataset('myconstant', data=np.arange(3))
-        f.create_dataset('map', data=np.array((1,2,2,3)).reshape(2,2))
-        return f
-
-    return request.cached_setup(scope='module',
-                                setup=lambda: make_hdf5_file(),
-                                teardown=lambda f: f.close())
 
 def pytest_funcarg__sparsity(request):
     s = op2.Set(2)
@@ -161,10 +141,6 @@ class TestSetAPI:
         "Set string representation should have the expected format."
         assert str(set) == "OP2 Set: foo with size 5"
 
-    def test_set_hdf5(self, backend, h5file):
-        "Set should get correct size from HDF5 file."
-        s = op2.Set.fromhdf5(h5file, name='set')
-        assert s.size == 5
     # FIXME: test Set._lib_handle
 
 class TestDatAPI:
@@ -256,18 +232,6 @@ class TestDatAPI:
         assert d.dataset == set and d.dim == (2,2) and \
                 d.dtype == np.float64 and d.name == 'bar' and \
                 d.data.sum() == set.size*4
-
-    def test_dat_hdf5(self, backend, h5file, set):
-        "Creating a dat from h5file should work"
-        d = op2.Dat.fromhdf5(set, h5file, 'dat')
-        assert d.dtype == np.float64
-        assert d.data.shape == (5,2) and d.data.sum() == 9 * 10 / 2
-
-    def test_data_hdf5_soa(self, backend, h5file, set):
-        "Creating an SoA dat from h5file should work"
-        d = op2.Dat.fromhdf5(set, h5file, 'soadat')
-        assert d.soa
-        assert d.data.shape == (5,2) and d.data.sum() == 9 * 10 / 2
 
     def test_dat_ro_accessor(self, backend, set):
         "Attempting to set values through the RO accessor should raise an error."
@@ -467,13 +431,6 @@ class TestConstAPI:
         assert c.dim == (2,2) and c.dtype == np.float64 and c.name == 'baz' \
                 and c.data.sum() == 4
 
-    def test_const_hdf5(self, backend, h5file):
-        "Constant should be correctly populated from hdf5 file."
-        c = op2.Const.fromhdf5(h5file, 'myconstant')
-        c.remove_from_namespace()
-        assert c.data.sum() == 3
-        assert c.dim == (3,)
-
     def test_const_setter(self, backend):
         "Setter attribute on data should correct set data value."
         c = op2.Const(1, 1, 'c')
@@ -642,15 +599,6 @@ class TestMapAPI:
 
         with pytest.raises(NotImplementedError):
             arg = m[:]
-
-    def test_map_hdf5(self, backend, iterset, dataset, h5file):
-        "Should be able to create Map from hdf5 file."
-        m = op2.Map.fromhdf5(iterset, dataset, h5file, name="map")
-        assert m.iterset == iterset
-        assert m.dataset == dataset
-        assert m.dim == 2
-        assert m.values.sum() == sum((1, 2, 2, 3))
-        assert m.name == 'map'
 
 class TestIterationSpaceAPI:
     """
