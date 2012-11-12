@@ -540,15 +540,25 @@ def build_sparsity(object sparsity):
     if cmaps is NULL:
         raise MemoryError("Unable to allocate space for cmaps")
 
-    for i in range(nmaps):
-        rmap = sparsity._rmaps[i]._c_handle
-        cmap = sparsity._cmaps[i]._c_handle
-        rmaps[i] = rmap._handle
-        cmaps[i] = cmap._handle
+    try:
+        for i in range(nmaps):
+            rmap = sparsity._rmaps[i]._c_handle
+            cmap = sparsity._cmaps[i]._c_handle
+            rmaps[i] = rmap._handle
+            cmaps[i] = cmap._handle
 
-    core.build_sparsity_pattern(rmult, cmult, nrows, nmaps, rmaps, cmaps,
-                                &d_nnz, &o_nnz, &rowptr, &colidx)
-    sparsity._d_nnz = data_to_numpy_array_with_spec(d_nnz, lsize, np.NPY_INT32)
-    sparsity._o_nnz = data_to_numpy_array_with_spec(o_nnz, lsize, np.NPY_INT32)
-    sparsity._rowptr = data_to_numpy_array_with_spec(rowptr, lsize+1, np.NPY_INT32)
-    sparsity._colidx = data_to_numpy_array_with_spec(colidx, rowptr[lsize], np.NPY_INT32)
+            core.build_sparsity_pattern(rmult, cmult, nrows, nmaps,
+                                        rmaps, cmaps,
+                                        &d_nnz, &o_nnz, &rowptr, &colidx)
+            sparsity._d_nnz = data_to_numpy_array_with_spec(d_nnz, lsize,
+                                                            np.NPY_INT32)
+            sparsity._o_nnz = data_to_numpy_array_with_spec(o_nnz, lsize,
+                                                            np.NPY_INT32)
+            sparsity._rowptr = data_to_numpy_array_with_spec(rowptr, lsize+1,
+                                                             np.NPY_INT32)
+            sparsity._colidx = data_to_numpy_array_with_spec(colidx,
+                                                             rowptr[lsize],
+                                                             np.NPY_INT32)
+    finally:
+        free(rmaps)
+        free(cmaps)
