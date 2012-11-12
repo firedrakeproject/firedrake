@@ -524,6 +524,15 @@ device's "block" address plus an offset which is
         """Number of times this plan has been used"""
         return self._handle().count
 
+def free_sparsity(object sparsity):
+    cdef np.ndarray tmp
+    for attr in ['_rowptr', '_colidx', '_d_nnz', '_o_nnz']:
+        try:
+            tmp = getattr(sparsity, attr)
+            free(<void *>np.PyArray_DATA(tmp))
+        except:
+            pass
+
 def build_sparsity(object sparsity):
     cdef int rmult, cmult
     rmult, cmult = sparsity._dims
