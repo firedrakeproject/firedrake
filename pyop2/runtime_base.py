@@ -170,6 +170,9 @@ class Sparsity(base.Sparsity):
         self._total_nz = self._rowptr[-1]
         _sparsity_cache[key] = self
 
+    def __del__(self):
+        core.free_sparsity(self)
+
     @property
     def rowptr(self):
         return self._rowptr
