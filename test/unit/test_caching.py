@@ -585,8 +585,7 @@ Even if we spell the dimension with a shorthand and longhand form."""
 
         assert sp1 is sp2
 
-    @pytest.mark.skipif("'sequential' in config.option.__dict__['backend']")
-    def test_two_mats_on_same_sparsity_share_data(self, backend, m1):
+    def test_two_mats_on_same_sparsity_share_data(self, backend, m1, skip_sequential):
         """Sparsity data should be shared between Mat objects.
         Even on the device."""
         sp = op2.Sparsity((m1, m1), (1, 1))

@@ -593,8 +593,7 @@ void kernel_set_vec(double entry[2][2], double* g, int i, int j)
                               [0.08333333, 0.16666667], [0.58333333, 1.16666667]],
                               dtype=valuetype)
 
-    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
-    def test_minimal_zero_mat(self, backend):
+    def test_minimal_zero_mat(self, backend, skip_cuda):
         zero_mat_code = """
 void zero_mat(double local_mat[1][1], int i, int j)
 {
@@ -643,9 +642,8 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps=1.e-14
         assert_allclose(mat.values, expected_matrix, eps)
 
-    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
     def test_set_matrix(self, backend, mat, elements, elem_node,
-                        kernel_inc, kernel_set, g):
+                        kernel_inc, kernel_set, g, skip_cuda):
         """Test accessing a scalar matrix with the WRITE access by adding some
         non-zero values into the matrix, then setting them back to zero with a
         kernel using op2.WRITE"""
@@ -661,9 +659,8 @@ void zero_mat(double local_mat[1][1], int i, int j)
         assert_allclose(mat.array, numpy.ones_like(mat.array))
         mat.zero()
 
-    @pytest.mark.skipif("'cuda' in config.option.__dict__['backend']")
     def test_set_matrix_vec(self, backend, vecmat, elements, elem_node,
-                        kernel_inc_vec, kernel_set_vec, g):
+                        kernel_inc_vec, kernel_set_vec, g, skip_cuda):
         """Test accessing a vector matrix with the WRITE access by adding some
         non-zero values into the matrix, then setting them back to zero with a
         kernel using op2.WRITE"""
