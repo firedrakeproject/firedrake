@@ -35,6 +35,7 @@
 HDF5 API Unit Tests
 """
 
+import numpy as np
 import pytest
 
 from pyop2 import op2
@@ -45,7 +46,10 @@ h5py = pytest.importorskip("h5py")
 class TestHDF5:
 
     @pytest.fixture(scope='module')
-    def h5file(cls, request, tmpdir):
+    def h5file(cls, request):
+        # FIXME pytest 2.3 doesn't adapt scope of built-in fixtures, so cannot
+        # use tmpdir for now but have to create it manually
+        tmpdir = request.config._tmpdirhandler.mktemp('test_hdf5', numbered=True)
         f = h5py.File(str(tmpdir.join('tmp_hdf5.h5')), 'w')
         f.create_dataset('dat', data=np.arange(10).reshape(5,2),
                          dtype=np.float64)
