@@ -39,11 +39,13 @@ import pytest
 
 from pyop2 import op2
 
-try:
-    import h5py
+# If h5py is not available this test module is skipped
+h5py = pytest.importorskip("h5py")
+
+class TestHDF5:
 
     @pytest.fixture(scope='module')
-    def h5file(request, tmpdir):
+    def h5file(cls, request, tmpdir):
         f = h5py.File(str(tmpdir.join('tmp_hdf5.h5')), 'w')
         f.create_dataset('dat', data=np.arange(10).reshape(5,2),
                          dtype=np.float64)
@@ -57,23 +59,17 @@ try:
         request.addfinalizer(f.close)
         return f
 
-except:
-    print "h5py is not available, skipping HDF5 tests..."
+    @pytest.fixture
+    def set(cls):
+        return op2.Set(5, 'foo')
 
-@pytest.fixture
-def set():
-    return op2.Set(5, 'foo')
+    @pytest.fixture
+    def iterset(cls):
+        return op2.Set(2, 'iterset')
 
-@pytest.fixture
-def iterset():
-    return op2.Set(2, 'iterset')
-
-@pytest.fixture
-def dataset():
-    return op2.Set(3, 'dataset')
-
-@pytest.mark.skipif("'h5py' not in globals()")
-class TestHDF5:
+    @pytest.fixture
+    def dataset(cls):
+        return op2.Set(3, 'dataset')
 
     def test_set_hdf5(self, backend, h5file):
         "Set should get correct size from HDF5 file."
