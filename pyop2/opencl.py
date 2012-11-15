@@ -208,7 +208,6 @@ class DeviceDataMixin(op2.DeviceDataMixin):
 class Dat(op2.Dat, DeviceDataMixin):
     """OP2 OpenCL vector data type."""
 
-
     @property
     def norm(self):
         """The L2-norm on the flattened vector."""
