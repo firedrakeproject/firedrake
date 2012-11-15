@@ -799,18 +799,21 @@ _AVAILABLE_SHARED_MEMORY = 0
 _direct_loop_template = None
 _indirect_loop_template = None
 _matrix_support_template = None
+_stream = None
 
 def _setup():
     global _device
     global _context
     global _WARPSIZE
     global _AVAILABLE_SHARED_MEMORY
+    global _stream
     if _device is None or _context is None:
         import pycuda.autoinit
         _device = pycuda.autoinit.device
         _context = pycuda.autoinit.context
         _WARPSIZE=_device.get_attribute(driver.device_attribute.WARP_SIZE)
         _AVAILABLE_SHARED_MEMORY = _device.get_attribute(driver.device_attribute.MAX_SHARED_MEMORY_PER_BLOCK)
+        _stream = driver.Stream()
     global _direct_loop_template
     global _indirect_loop_template
     global _matrix_support_template
