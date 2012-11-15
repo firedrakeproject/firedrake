@@ -197,6 +197,18 @@ void kernel_soa(unsigned int * x) { OP2_STRIDE(x, 0) = 42; OP2_STRIDE(x, 1) = 43
         op2.par_loop(op2.Kernel(kernel, 'k'), elems(), x(op2.IdentityMap, op2.READ), g(op2.INC))
         assert g.data[0] == 2*nelems
 
+    def test_zero_1d_dat_works(self, backend, x):
+        x.data[:] = 10
+        assert (x.data == 10).all()
+        x.zero()
+        assert (x.data == 0).all()
+
+    def test_zero_2d_dat_works(self, backend, y):
+        y.data[:] = 10
+        assert (y.data == 10).all()
+        y.zero()
+        assert (y.data == 0).all()
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
