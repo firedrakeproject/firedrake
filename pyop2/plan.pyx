@@ -234,10 +234,14 @@ cdef class Plan:
         # type constraining a few variables
         cdef int tidx
         cdef int p
-        cdef int base_color
+        cdef unsigned int base_color
         cdef int t
-        cdef int mask
-        cdef int c
+        cdef unsigned int mask
+        cdef unsigned int c
+
+        # create direct reference to numpy array storage
+        cdef int * thrcol
+        thrcol = <int *> numpy.PyArray_DATA(self._thrcol)
 
         tidx = 0
         for p in range(self._nblocks):
@@ -252,20 +256,20 @@ cdef class Plan:
 
                 # color threads
                 for t in range(tidx, tidx + self._nelems[p]):
-                    if self._thrcol[t] == -1:
+                    if thrcol[t] == -1:
                         mask = 0
                         for cd in cds.iterkeys():
                             for m, i in cds[cd]:
                                 mask |= cds_work[cd][m.values[t][i]]
 
-                        if mask == 0xffffffff:
+                        if mask == 0xffffffffu:
                             terminated = False
                         else:
                             c = 0
                             while mask & 0x1:
                                 mask = mask >> 1
                                 c += 1
-                            self._thrcol[t] = base_color + c
+                            thrcol[t] = base_color + c
                             mask = 1 << c
                             for cd in cds.iterkeys():
                                 for m, i in cds[cd]:
