@@ -242,6 +242,8 @@ cdef class Plan:
         # create direct reference to numpy array storage
         cdef int * thrcol
         thrcol = <int *> numpy.PyArray_DATA(self._thrcol)
+        cdef int * nelems
+        nelems = <int *> numpy.PyArray_DATA(self._nelems)
 
         tidx = 0
         for p in range(self._nblocks):
@@ -255,7 +257,7 @@ cdef class Plan:
                     w.fill(0)
 
                 # color threads
-                for t in range(tidx, tidx + self._nelems[p]):
+                for t in range(tidx, tidx + nelems[p]):
                     if thrcol[t] == -1:
                         mask = 0
                         for cd in cds.iterkeys():
@@ -275,13 +277,13 @@ cdef class Plan:
                                 for m, i in cds[cd]:
                                     cds_work[cd][m.values[t][i]] |= mask
                 base_color += 32
-            tidx += self._nelems[p]
+            tidx += nelems[p]
 
         self._nthrcol = numpy.zeros(self._nblocks,dtype=numpy.int32)
         tidx = 0
         for p in range(self._nblocks):
-            self._nthrcol[p] = max(self._thrcol[tidx:(tidx + self._nelems[p])]) + 1
-            tidx += self._nelems[p]
+            self._nthrcol[p] = max(self._thrcol[tidx:(tidx + nelems[p])]) + 1
+            tidx += nelems[p]
 
         # partition coloring
         pcolors = numpy.empty(self._nblocks, dtype=numpy.int32)
@@ -299,7 +301,7 @@ cdef class Plan:
             for p in range(self._nblocks):
                 if pcolors[p] == -1:
                     mask = 0
-                    for t in range(tidx, tidx + self._nelems[p]):
+                    for t in range(tidx, tidx + nelems[p]):
                         for cd in cds.iterkeys():
                             for m, i in cds[cd]:
                                 mask |= cds_work[cd][m.values[t][i]]
@@ -314,11 +316,11 @@ cdef class Plan:
                         pcolors[p] = base_color + c
 
                         mask = 1 << c
-                        for t in range(tidx, tidx + self._nelems[p]):
+                        for t in range(tidx, tidx + nelems[p]):
                             for cd in cds.iterkeys():
                                 for m, i in cds[cd]:
                                     cds_work[cd][m.values[t][i]] |= mask
-                tidx += self._nelems[p]
+                tidx += nelems[p]
 
             base_color += 32
 
