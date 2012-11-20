@@ -218,13 +218,29 @@ cdef class Plan:
                     l.append((rowmap, i))
                 cds[k] = l
 
-        cds_work = dict()
-        for cd in cds.iterkeys():
+        # convert cds into a flat array for performant access in cython
+        cdef flat_cds_t* fcds
+
+        nfcds = len(cds)
+        fcds = <flat_cds_t*> malloc(nfcds * sizeof(flat_cds_t))
+        pcds = [None] * nfcds
+        for i, cd in enumerate(cds.iterkeys()):
             if isinstance(cd, op2.Dat):
                 s = cd.dataset.size
             elif isinstance(cd, op2.Mat):
                 s = cd.sparsity.maps[0][0].dataset.size
-            cds_work[cd] = numpy.empty((s,), dtype=numpy.uint32)
+
+            pcds[i] = numpy.empty((s,), dtype=numpy.uint32)
+            fcds[i].size = s
+            fcds[i].tmp = <unsigned int *> numpy.PyArray_DATA(pcds[i])
+
+            fcds[i].count = len(cds[cd])
+            fcds[i].mip = <map_idx_t*> malloc(fcds[i].count * sizeof(map_idx_t))
+            for j, mi in enumerate(cds[cd]):
+                map, idx = mi
+                fcds[i].mip[j].map_base = <int *> numpy.PyArray_DATA(map.values)
+                fcds[i].mip[j].dim = map.dim
+                fcds[i].mip[j].idx = idx
 
         # intra partition coloring
         self._thrcol = numpy.empty((iset.size, ),
@@ -253,16 +269,18 @@ cdef class Plan:
                 terminated = True
 
                 # zero out working array:
-                for w in cds_work.itervalues():
-                    w.fill(0)
+                for cd in range(nfcds):
+                    for i in range(fcds[cd].size):
+                        fcds[cd].tmp[i] = 0
 
                 # color threads
                 for t in range(tidx, tidx + nelems[p]):
                     if thrcol[t] == -1:
                         mask = 0
-                        for cd in cds.iterkeys():
-                            for m, i in cds[cd]:
-                                mask |= cds_work[cd][m.values[t][i]]
+
+                        for cd in range(nfcds):
+                            for mi in range(fcds[cd].count):
+                                mask |= fcds[cd].tmp[fcds[cd].mip[mi].map_base[t * fcds[cd].mip[mi].dim + fcds[cd].mip[mi].idx]]
 
                         if mask == 0xffffffffu:
                             terminated = False
@@ -273,9 +291,10 @@ cdef class Plan:
                                 c += 1
                             thrcol[t] = base_color + c
                             mask = 1 << c
-                            for cd in cds.iterkeys():
-                                for m, i in cds[cd]:
-                                    cds_work[cd][m.values[t][i]] |= mask
+                            for cd in range(nfcds):
+                                for mi in range(fcds[cd].count):
+                                    fcds[cd].tmp[fcds[cd].mip[mi].map_base[t * fcds[cd].mip[mi].dim + fcds[cd].mip[mi].idx]] |= mask
+
                 base_color += 32
             tidx += nelems[p]
 
@@ -294,17 +313,18 @@ cdef class Plan:
             terminated = True
 
             # zero out working array:
-            for w in cds_work.itervalues():
-                w.fill(0)
+            for cd in range(nfcds):
+                for i in range(fcds[cd].size):
+                    fcds[cd].tmp[i] = 0
 
             tidx = 0
             for p in range(self._nblocks):
                 if pcolors[p] == -1:
                     mask = 0
                     for t in range(tidx, tidx + nelems[p]):
-                        for cd in cds.iterkeys():
-                            for m, i in cds[cd]:
-                                mask |= cds_work[cd][m.values[t][i]]
+                        for cd in range(nfcds):
+                            for mi in range(fcds[cd].count):
+                                mask |= fcds[cd].tmp[fcds[cd].mip[mi].map_base[t * fcds[cd].mip[mi].dim + fcds[cd].mip[mi].idx]]
 
                     if mask == 0xffffffff:
                         terminated = False
@@ -317,9 +337,9 @@ cdef class Plan:
 
                         mask = 1 << c
                         for t in range(tidx, tidx + nelems[p]):
-                            for cd in cds.iterkeys():
-                                for m, i in cds[cd]:
-                                    cds_work[cd][m.values[t][i]] |= mask
+                            for cd in range(nfcds):
+                                for mi in range(fcds[cd].count):
+                                    fcds[cd].tmp[fcds[cd].mip[mi].map_base[t * fcds[cd].mip[mi].dim + fcds[cd].mip[mi].idx]] |= mask
                 tidx += nelems[p]
 
             base_color += 32
