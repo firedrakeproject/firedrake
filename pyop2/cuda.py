@@ -251,7 +251,8 @@ class Mat(DeviceDataMixin, op2.Mat):
                             np.int32(self.dims[1]),
                             np.int32(nelems)])
             fun = vfun
-        fun.prepared_call((nblock, 1, 1), (nthread, 1, 1), *arglist)
+        _stream.synchronize()
+        fun.prepared_async_call((nblock, 1, 1), (nthread, 1, 1), _stream, *arglist)
 
     @property
     def values(self):
@@ -334,6 +335,8 @@ class Global(DeviceDataMixin, op2.Global):
 
     def _finalise_reduction_begin(self, grid_size, op):
         self._stream = driver.Stream()
+        # Need to make sure the kernel launch finished
+        _stream.synchronize()
         self._reduction_buffer.get_async(ary=self._host_reduction_buffer,
                                          stream=self._stream)
 
@@ -581,6 +584,7 @@ class Solver(op2.Solver):
 
 def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()
+    _stream.synchronize()
 
 class ParLoop(op2.ParLoop):
     def device_function(self):
@@ -713,8 +717,9 @@ class ParLoop(op2.ParLoop):
                 arglist.append(np.intp(karg.gpudata))
 
         if self._is_direct:
-            self._fun.prepared_call(max_grid_size, block_size, *arglist,
-                                    shared_size=shared_size)
+            _stream.synchronize()
+            self._fun.prepared_async_call(max_grid_size, block_size, _stream, *arglist,
+                                          shared_size=shared_size)
             for arg in self.args:
                 if arg._is_global_reduction:
                     arg.data._finalise_reduction_begin(max_grid_size, arg.access)
@@ -763,8 +768,9 @@ class ParLoop(op2.ParLoop):
                 block_size = (128, 1, 1)
                 shared_size = np.asscalar(self._plan.nsharedCol[col])
 
-                self._fun.prepared_call(grid_size, block_size, *arglist,
-                                        shared_size=shared_size)
+                _stream.synchronize()
+                self._fun.prepared_async_call(grid_size, block_size, _stream, *arglist,
+                                              shared_size=shared_size)
 
                 # We've reached the end of elements that should
                 # contribute to a reduction (this is only different
@@ -799,18 +805,21 @@ _AVAILABLE_SHARED_MEMORY = 0
 _direct_loop_template = None
 _indirect_loop_template = None
 _matrix_support_template = None
+_stream = None
 
 def _setup():
     global _device
     global _context
     global _WARPSIZE
     global _AVAILABLE_SHARED_MEMORY
+    global _stream
     if _device is None or _context is None:
         import pycuda.autoinit
         _device = pycuda.autoinit.device
         _context = pycuda.autoinit.context
         _WARPSIZE=_device.get_attribute(driver.device_attribute.WARP_SIZE)
         _AVAILABLE_SHARED_MEMORY = _device.get_attribute(driver.device_attribute.MAX_SHARED_MEMORY_PER_BLOCK)
+        _stream = driver.Stream()
     global _direct_loop_template
     global _indirect_loop_template
     global _matrix_support_template
