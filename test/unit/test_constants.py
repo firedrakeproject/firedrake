@@ -45,13 +45,13 @@ class TestConstant:
     Tests of OP2 Constants
     """
 
-    def pytest_funcarg__set(cls, request):
-        return request.cached_setup(
-            setup=lambda: op2.Set(size), scope='module')
+    @pytest.fixture(scope='module')
+    def set(cls):
+        return op2.Set(size)
 
-    def pytest_funcarg__dat(cls, request):
-        return op2.Dat(request.getfuncargvalue('set'), 1,
-                       numpy.zeros(size, dtype=numpy.int32))
+    @pytest.fixture
+    def dat(cls, set):
+        return op2.Dat(set, 1, numpy.zeros(size, dtype=numpy.int32))
 
     def test_1d_read(self, backend, set, dat):
         kernel = """

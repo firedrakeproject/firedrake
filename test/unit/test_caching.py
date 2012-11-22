@@ -44,60 +44,45 @@ def _seed():
 
 nelems = 8
 
-def pytest_funcarg__iterset(request):
+@pytest.fixture
+def iterset():
     return op2.Set(nelems, "iterset")
 
-def pytest_funcarg__indset(request):
+@pytest.fixture
+def indset():
     return op2.Set(nelems, "indset")
 
-def pytest_funcarg__g(request):
+@pytest.fixture
+def g():
     return op2.Global(1, 0, numpy.uint32, "g")
 
-def pytest_funcarg__x(request):
-    return op2.Dat(request.getfuncargvalue('indset'),
-                   1,
-                   range(nelems),
-                   numpy.uint32,
-                   "x")
+@pytest.fixture
+def x(indset):
+    return op2.Dat(indset, 1, range(nelems), numpy.uint32, "x")
 
-def pytest_funcarg__x2(request):
-    return op2.Dat(request.getfuncargvalue('indset'),
-                   2,
-                   range(nelems) * 2,
-                   numpy.uint32,
-                   "x2")
+@pytest.fixture
+def x2(indset):
+    return op2.Dat(indset, 2, range(nelems) * 2, numpy.uint32, "x2")
 
-def pytest_funcarg__xl(request):
-    return op2.Dat(request.getfuncargvalue('indset'),
-                   1,
-                   range(nelems),
-                   numpy.uint64,
-                   "xl")
+@pytest.fixture
+def xl(indset):
+    return op2.Dat(indset, 1, range(nelems), numpy.uint64, "xl")
 
-def pytest_funcarg__y(request):
-    return op2.Dat(request.getfuncargvalue('indset'),
-                   1,
-                   [0] * nelems,
-                   numpy.uint32,
-                   "y")
+@pytest.fixture
+def y(indset):
+    return op2.Dat(indset, 1, [0] * nelems, numpy.uint32, "y")
 
-def pytest_funcarg__iter2ind1(request):
+@pytest.fixture
+def iter2ind1(iterset, indset):
     u_map = numpy.array(range(nelems), dtype=numpy.uint32)
     random.shuffle(u_map, _seed)
-    return op2.Map(request.getfuncargvalue('iterset'),
-                   request.getfuncargvalue('indset'),
-                   1,
-                   u_map,
-                   "iter2ind1")
+    return op2.Map(iterset, indset, 1, u_map, "iter2ind1")
 
-def pytest_funcarg__iter2ind2(request):
+@pytest.fixture
+def iter2ind2(iterset, indset):
     u_map = numpy.array(range(nelems) * 2, dtype=numpy.uint32)
     random.shuffle(u_map, _seed)
-    return op2.Map(request.getfuncargvalue('iterset'),
-                   request.getfuncargvalue('indset'),
-                   2,
-                   u_map,
-                   "iter2ind2")
+    return op2.Map(iterset, indset, 2, u_map, "iter2ind2")
 
 class TestPlanCache:
     """
@@ -106,17 +91,14 @@ class TestPlanCache:
     # No plan for sequential backend
     skip_backends = ['sequential']
 
-    def pytest_funcarg__mat(cls, request):
-        iter2ind1 = request.getfuncargvalue('iter2ind1')
+    @pytest.fixture
+    def mat(cls, iter2ind1):
         sparsity = op2.Sparsity((iter2ind1, iter2ind1), 1, "sparsity")
         return op2.Mat(sparsity, 'float64', "mat")
 
-    def pytest_funcarg__a64(cls, request):
-        return op2.Dat(request.getfuncargvalue('iterset'),
-                       1,
-                       range(nelems),
-                       numpy.uint64,
-                       "a")
+    @pytest.fixture
+    def a64(cls, iterset):
+        return op2.Dat(iterset, 1, range(nelems), numpy.uint64, "a")
 
     def test_same_arg(self, backend, iterset, iter2ind1, x):
         op2._empty_plan_cache()
@@ -317,19 +299,13 @@ class TestGeneratedCodeCache:
     Generated Code Cache Tests.
     """
 
-    def pytest_funcarg__a(cls, request):
-        return op2.Dat(request.getfuncargvalue('iterset'),
-                       1,
-                       range(nelems),
-                       numpy.uint32,
-                       "a")
+    @pytest.fixture
+    def a(cls, iterset):
+        return op2.Dat(iterset, 1, range(nelems), numpy.uint32, "a")
 
-    def pytest_funcarg__b(cls, request):
-        return op2.Dat(request.getfuncargvalue('iterset'),
-                       1,
-                       range(nelems),
-                       numpy.uint32,
-                       "b")
+    @pytest.fixture
+    def b(cls, iterset):
+        return op2.Dat(iterset, 1, range(nelems), numpy.uint32, "b")
 
     def test_same_args(self, backend, iterset, iter2ind1, x, a):
         op2._empty_parloop_cache()
@@ -554,17 +530,21 @@ void kernel_swap(unsigned int* x[2])
 
 class TestSparsityCache:
 
-    def pytest_funcarg__s1(cls, request):
+    @pytest.fixture
+    def s1(cls):
         return op2.Set(5)
 
-    def pytest_funcarg__s2(cls, request):
+    @pytest.fixture
+    def s2(cls):
         return op2.Set(5)
 
-    def pytest_funcarg__m1(cls, request):
-        return op2.Map(request.getfuncargvalue('s1'), request.getfuncargvalue('s2'), 1, [0,1,2,3,4])
+    @pytest.fixture
+    def m1(cls, s1, s2):
+        return op2.Map(s1, s2, 1, [0,1,2,3,4])
 
-    def pytest_funcarg__m2(cls, request):
-        return op2.Map(request.getfuncargvalue('s1'), request.getfuncargvalue('s2'), 1, [1,2,3,4,0])
+    @pytest.fixture
+    def m2(cls, s1, s2):
+        return op2.Map(s1, s2, 1, [1,2,3,4,0])
 
     def test_sparsities_differing_maps_share_no_data(self, backend, m1, m2):
         """Sparsities with different maps should not share a C handle."""
@@ -605,8 +585,7 @@ Even if we spell the dimension with a shorthand and longhand form."""
 
         assert sp1 is sp2
 
-    @pytest.mark.skipif("'sequential' in config.option.__dict__['backend']")
-    def test_two_mats_on_same_sparsity_share_data(self, backend, m1):
+    def test_two_mats_on_same_sparsity_share_data(self, backend, m1, skip_sequential):
         """Sparsity data should be shared between Mat objects.
         Even on the device."""
         sp = op2.Sparsity((m1, m1), (1, 1))

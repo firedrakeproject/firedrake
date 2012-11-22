@@ -53,19 +53,24 @@ class TestDirectLoop:
     Direct Loop Tests
     """
 
-    def pytest_funcarg__x(cls, request):
+    @pytest.fixture
+    def x(cls):
         return op2.Dat(elems(),  1, xarray(), numpy.uint32, "x")
 
-    def pytest_funcarg__y(cls, request):
+    @pytest.fixture
+    def y(cls):
         return op2.Dat(elems(),  2, [xarray(), xarray()], numpy.uint32, "x")
 
-    def pytest_funcarg__g(cls, request):
+    @pytest.fixture
+    def g(cls):
         return op2.Global(1, 0, numpy.uint32, "g")
 
-    def pytest_funcarg__h(cls, request):
+    @pytest.fixture
+    def h(cls):
         return op2.Global(1, 1, numpy.uint32, "h")
 
-    def pytest_funcarg__soa(cls, request):
+    @pytest.fixture
+    def soa(cls):
         return op2.Dat(elems(), 2, [xarray(), xarray()], numpy.uint32, "x", soa=True)
 
     def test_wo(self, backend, x):

@@ -41,25 +41,29 @@ backends = ['opencl', 'sequential', 'cuda']
 class TestFFCCache:
     """FFC code generation cache tests."""
 
-    def pytest_funcarg__mass(cls, request):
+    @pytest.fixture
+    def mass(cls):
         e = FiniteElement('CG', triangle, 1)
         u = TestFunction(e)
         v = TrialFunction(e)
         return u*v*dx
 
-    def pytest_funcarg__mass2(cls, request):
+    @pytest.fixture
+    def mass2(cls):
         e = FiniteElement('CG', triangle, 2)
         u = TestFunction(e)
         v = TrialFunction(e)
         return u*v*dx
 
-    def pytest_funcarg__rhs(cls, request):
+    @pytest.fixture
+    def rhs(cls):
         e = FiniteElement('CG', triangle, 1)
         v = TrialFunction(e)
         g = Coefficient(e)
         return g*v*ds
 
-    def pytest_funcarg__rhs2(cls, request):
+    @pytest.fixture
+    def rhs2(cls):
         e = FiniteElement('CG', triangle, 1)
         v = TrialFunction(e)
         f = Coefficient(e)
