@@ -136,7 +136,6 @@ class DeviceDataMixin(op2.DeviceDataMixin):
             self.state = DeviceDataMixin.BOTH
 
 class Dat(DeviceDataMixin, op2.Dat):
-    _arg_type = Arg
 
     @property
     def norm(self):
@@ -159,7 +158,6 @@ class Sparsity(op2.Sparsity):
         return getattr(self, '__colidx')
 
 class Mat(DeviceDataMixin, op2.Mat):
-    _arg_type = Arg
     _lma2csr_cache = dict()
 
     @property
@@ -282,7 +280,6 @@ class Mat(DeviceDataMixin, op2.Mat):
         self._lmadata.fill(0)
 
 class Const(DeviceDataMixin, op2.Const):
-    _arg_type = Arg
 
     def _format_declaration(self):
         d = {'dim' : self.cdim,
@@ -305,7 +302,6 @@ class Const(DeviceDataMixin, op2.Const):
         raise RuntimeError("Copying Const %s from device makes no sense" % self)
 
 class Global(DeviceDataMixin, op2.Global):
-    _arg_type = Arg
 
     def _allocate_reduction_buffer(self, grid_size, op):
         if not hasattr(self, '_reduction_buffer') or \
@@ -360,7 +356,6 @@ class Global(DeviceDataMixin, op2.Global):
                 self._data[i] = fn(self._data[i], tmp[i])
 
 class Map(op2.Map):
-    _arg_type = Arg
 
     def _to_device(self):
         if not hasattr(self, '_device_values'):

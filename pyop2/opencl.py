@@ -208,8 +208,6 @@ class DeviceDataMixin(op2.DeviceDataMixin):
 class Dat(op2.Dat, DeviceDataMixin):
     """OP2 OpenCL vector data type."""
 
-    _arg_type = Arg
-
 
     @property
     def norm(self):
@@ -235,8 +233,6 @@ class Sparsity(op2.Sparsity):
 
 class Mat(op2.Mat, DeviceDataMixin):
     """OP2 OpenCL matrix data type."""
-
-    _arg_type = Arg
 
     def _allocate_device(self):
         pass
@@ -289,8 +285,6 @@ class Const(op2.Const, DeviceDataMixin):
 
 class Global(op2.Global, DeviceDataMixin):
     """OP2 OpenCL global value."""
-
-    _arg_type = Arg
 
     @property
     def _array(self):
@@ -393,8 +387,6 @@ void global_%(type)s_%(dim)s_post_reduction (
 
 class Map(op2.Map):
     """OP2 OpenCL map, a relation between two Sets."""
-
-    _arg_type = Arg
 
     def _to_device(self):
         if not hasattr(self, '_device_values'):
