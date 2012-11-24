@@ -85,10 +85,13 @@ class _BackendSelector(type):
         # Invoke the constructor with the arguments given
         return t(*args, **kwargs)
 
-class _BackendSelectorWithH5(_BackendSelector):
-    """Metaclass to create a class that will have a fromhdf5 classmethod"""
     def fromhdf5(cls, *args, **kwargs):
-        return cls._backend.__dict__[cls.__name__].fromhdf5(*args, **kwargs)
+        try:
+            return cls._backend.__dict__[cls.__name__].fromhdf5(*args, **kwargs)
+        except AttributeError as e:
+            from warnings import warn
+            warn("op2 object %s does not implement fromhdf5 method" % cls.__name__)
+            raise e
 
 def get_backend():
     """Get the OP2 backend"""
