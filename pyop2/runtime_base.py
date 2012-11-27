@@ -40,7 +40,7 @@ from utils import *
 import configuration as cfg
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IterationSpace
-from base import DataCarrier, IterationIndex, i, IdentityMap, Kernel
+from base import DataCarrier, IterationIndex, i, IdentityMap, Kernel, Global
 from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 import op_lib_core as core
 from la_petsc import PETSc, KspSolver
@@ -87,8 +87,6 @@ class Set(base.Set):
 class Dat(base.Dat):
     """OP2 vector data. A ``Dat`` holds a value for every member of a :class:`Set`."""
 
-    _arg_type = Arg
-
     @classmethod
     def fromhdf5(cls, dataset, f, name):
         slot = f[name]
@@ -118,14 +116,8 @@ class Const(base.Const):
             raise DimTypeError("Invalid dimension value %s" % dim)
         return cls(dim, data, name)
 
-class Global(base.Global):
-    """OP2 Global object."""
-    _arg_type = Arg
-
 class Map(base.Map):
     """OP2 map, a relation between two :class:`Set` objects."""
-
-    _arg_type = Arg
 
     @property
     def _c_handle(self):
@@ -192,8 +184,6 @@ class Sparsity(base.Sparsity):
 class Mat(base.Mat):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`."""
-
-    _arg_type = Arg
 
     def __init__(self, *args, **kwargs):
         super(Mat, self).__init__(*args, **kwargs)

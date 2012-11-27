@@ -40,6 +40,34 @@ import void
 import finalised
 backends = {'void' : void, 'finalised' : finalised}
 
+def _make_object(obj, *args, **kwargs):
+    """Instantiate `obj` with `*args` and `**kwargs`.
+    This will instantiate an object of the correct type for the
+    currently selected backend.  Use this over simple object
+    instantiation if you want a generic superclass method to
+    instantiate objects that at runtime should be of the correct
+    backend type.
+
+    As an example, let's say we want a method to zero a :class:`Dat`.
+    This will look the same on all backends::
+
+      def zero(self):
+          ParLoop(self._zero_kernel, self.dataset,
+                  self(IdentityMap, WRITE)).compute()
+
+    but if we place this in a base class, then the :class:`ParLoop`
+    object we instantiate is a base `ParLoop`, rather than (if we're
+    on the sequential backend) a sequential `ParLoop`.  Instead, you
+    should do this::
+
+      def zero(self):
+          _make_object('ParLoop', self._zero_kernel, self.dataset,
+                       self(IdentityMap, WRITE)).compute()
+
+    That way, the correct type of `ParLoop` will be instantiated at
+    runtime."""
+    return _BackendSelector(obj, (object,), {})(*args, **kwargs)
+
 class _BackendSelector(type):
     """Metaclass creating the backend class corresponding to the requested
     class."""
@@ -85,10 +113,13 @@ class _BackendSelector(type):
         # Invoke the constructor with the arguments given
         return t(*args, **kwargs)
 
-class _BackendSelectorWithH5(_BackendSelector):
-    """Metaclass to create a class that will have a fromhdf5 classmethod"""
     def fromhdf5(cls, *args, **kwargs):
-        return cls._backend.__dict__[cls.__name__].fromhdf5(*args, **kwargs)
+        try:
+            return cls._backend.__dict__[cls.__name__].fromhdf5(*args, **kwargs)
+        except AttributeError as e:
+            from warnings import warn
+            warn("op2 object %s does not implement fromhdf5 method" % cls.__name__)
+            raise e
 
 def get_backend():
     """Get the OP2 backend"""

@@ -138,15 +138,6 @@ op2.par_loop(i_cond, nodes,
              coords(op2.IdentityMap, op2.READ),
              tracer(op2.IdentityMap, op2.WRITE))
 
-zero_dat_code="""
-void zero_dat(double *dat)
-{
-  *dat = 0.0;
-}
-"""
-
-zero_dat = op2.Kernel(zero_dat_code, "zero_dat")
-
 # Assemble and solve
 
 def viper_shape(array):
@@ -171,14 +162,11 @@ while T < 0.2:
 
     if have_advection:
         mat.zero()
-
         op2.par_loop(mass, elements(3,3),
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
 
-        op2.par_loop(zero_dat, nodes,
-                     b(op2.IdentityMap, op2.WRITE))
-
+        b.zero()
         op2.par_loop(adv_rhs, elements(3),
                      b(elem_node[op2.i[0]], op2.INC),
                      coords(elem_node, op2.READ),
@@ -191,14 +179,11 @@ while T < 0.2:
 
     if have_diffusion:
         mat.zero()
-
         op2.par_loop(diff_matrix, elements(3,3),
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
 
-        op2.par_loop(zero_dat, nodes,
-                     b(op2.IdentityMap, op2.WRITE))
-
+        b.zero()
         op2.par_loop(diff_rhs, elements(3),
                      b(elem_node[op2.i[0]], op2.INC),
                      coords(elem_node, op2.READ),

@@ -120,15 +120,6 @@ strongbc_rhs = op2.Kernel("void strongbc_rhs(double *v, double *t) { *t = *v; }"
 
 # Some other useful kernels
 
-zero_dat_code="""
-void zero_dat(double *dat)
-{
-  *dat = 0.0;
-}
-"""
-
-zero_dat = op2.Kernel(zero_dat_code, "zero_dat")
-
 assign_dat_code="""
 void assign_dat(double *dest, double *src)
 {
@@ -175,8 +166,7 @@ while normsq.data[0] > tolsq:
 
     # RHS Assembly
 
-    op2.par_loop(zero_dat, nodes,
-                 tracer(op2.IdentityMap, op2.WRITE))
+    rhs.zero()
 
     op2.par_loop(rhs, elements(3),
                  b(elem_node[op2.i[0]], op2.INC),

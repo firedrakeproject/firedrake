@@ -180,7 +180,6 @@ class DeviceDataMixin(object):
         raise RuntimeError("Abstract device class can't do this")
 
 class Dat(DeviceDataMixin, op2.Dat):
-    _arg_type = Arg
 
     def __init__(self, dataset, dim, data=None, dtype=None, name=None, soa=None):
         op2.Dat.__init__(self, dataset, dim, data, dtype, name, soa)
@@ -254,13 +253,11 @@ class Const(DeviceDataMixin, op2.Const):
         raise RuntimeError("Copying Const %s from device not allowed" % self)
 
 class Global(DeviceDataMixin, op2.Global):
-    _arg_type = Arg
     def __init__(self, dim, data, dtype=None, name=None):
         op2.Global.__init__(self, dim, data, dtype, name)
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
 class Map(op2.Map):
-    _arg_type = Arg
     def __init__(self, iterset, dataset, dim, values, name=None):
         op2.Map.__init__(self, iterset, dataset, dim, values, name)
 
@@ -271,7 +268,6 @@ class Map(op2.Map):
         raise RuntimeError("Abstract device class can't do this")
 
 class Mat(op2.Mat):
-    _arg_type = Arg
     def __init__(self, datasets, dtype=None, name=None):
         op2.Mat.__init__(self, datasets, dtype, name)
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
