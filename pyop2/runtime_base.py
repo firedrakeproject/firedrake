@@ -243,6 +243,7 @@ class Solver(base.Solver):
         self._ksp_solver = KspSolver(self.parameters)
 
     def solve(self, A, x, b):
+        self._ksp_solver.update_parameters(self.parameters)
         self._ksp_solver.solve(A, x, b)
         if cfg.debug:
             print "Converged reason", self._ksp_solver.getConvergedReason()

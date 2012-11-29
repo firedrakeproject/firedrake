@@ -37,18 +37,42 @@ class KspSolver(PETSc.KSP):
 
     def __init__(self, parameters=None):
         self.create(PETSc.COMM_WORLD)
-        if parameters:
-            self.set_parameters(parameters)
+        self._parameters = parameters or {}
+        self._param_actions = { 'linear_solver'       : self.setType,
+                                'preconditioner'      : self._setPC,
+                                'relative_tolerance'  : self._setRtol,
+                                'absolute_tolerance'  : self._setAtol,
+                                'divergence_tolerance': self._setDivtol,
+                                'maximum_iterations'  : self._setMaxIt }
 
-    def set_parameters(self, parameters):
-        self.setType(parameters['linear_solver'])
-        self.getPC().setType(parameters['preconditioner'])
-        self.rtol = parameters['relative_tolerance']
-        self.atol = parameters['absolute_tolerance']
-        self.divtol = parameters['divergence_tolerance']
-        self.max_it = parameters['maximum_iterations']
+    def _setPC(self, v):
+        self.getPC().setType(v)
+
+    def _setRtol(self, v):
+        self.rtol = v
+
+    def _setAtol(self, v):
+        self.atol = v
+
+    def _setDivtol(self, v):
+        self.divtol = v
+
+    def _setMaxIt(self, v):
+        self.max_it = v
+
+    def _set_parameters(self):
+        for k, v in self._parameters.iteritems():
+            try:
+                f = self._param_actions[k]
+                f(v)
+            except KeyError:
+                print "Warning: unknown solver parameter %s" % k
+
+    def update_parameters(self, parameters):
+        self._parameters.update(parameters)
 
     def solve(self, A, x, b):
+        self._set_parameters()
         px = PETSc.Vec().createWithArray(x.data)
         pb = PETSc.Vec().createWithArray(b.data)
         self.setOperators(A.handle)
