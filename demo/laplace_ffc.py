@@ -31,7 +31,9 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""This demo uses ffc-generated kernels to solve the Laplace equation on a unit
+"""PyOP2 laplace equation demo
+
+This demo uses ffc-generated kernels to solve the Laplace equation on a unit
 square with boundary conditions:
 
   u = 1 on y = 0
@@ -45,9 +47,9 @@ The domain is meshed as follows:
   |/|/|
   *-*-*
 
-This demo requires the fluidity-pyop2 branch of ffc, which can be obtained with:
+This demo requires the pyop2 branch of ffc, which can be obtained with:
 
-bzr branch lp:~grm08/ffc/fluidity-pyop2
+bzr branch lp:~mapdes/ffc/pyop2
 
 This may also depend on development trunk versions of other FEniCS programs.
 """
@@ -59,7 +61,7 @@ import ffc
 
 import numpy as np
 
-op2.init(**utils.parse_args(description="PyOP2 laplace equation demo"))
+op2.init(**utils.parse_args(description=__doc__))
 
 # Set up finite element problem
 
@@ -73,13 +75,10 @@ g = Coefficient(E)
 a = dot(grad(v,),grad(u))*dx
 L = v*f*dx
 
-# Generate code for mass and rhs assembly.
+# Generate code for Laplacian and rhs assembly.
 
-mass_code = compile_form(a, "mass")
-rhs_code  = compile_form(L, "rhs")
-
-mass = op2.Kernel(mass_code, "mass_cell_integral_0_0")
-rhs  = op2.Kernel(rhs_code,  "rhs_cell_integral_0_0" )
+laplacian, _, _ = compile_form(a, "laplacian")
+rhs, _, _  = compile_form(L, "rhs")
 
 # Set up simulation data structures
 
@@ -121,7 +120,7 @@ bdry = op2.Dat(bdry_nodes, 1, bdry_vals, valuetype, "bdry")
 
 # Assemble matrix and rhs
 
-op2.par_loop(mass, elements(3,3),
+op2.par_loop(laplacian, elements(3,3),
              mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
              coords(elem_node, op2.READ))
 

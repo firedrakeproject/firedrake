@@ -59,12 +59,17 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
 
+"""PyOP2 Jacobi demo
+
+Port of the Jacobi demo from OP2-Common.
+"""
+
 from __future__ import print_function
 from pyop2 import op2, utils
 import numpy as np
 from math import sqrt
 
-parser = utils.parser(group=True, description="Simple PyOP2 Jacobi demo")
+parser = utils.parser(group=True, description=__doc__)
 parser.add_argument('-s', '--single',
                     action='store_true',
                     help='single precision floating point mode')

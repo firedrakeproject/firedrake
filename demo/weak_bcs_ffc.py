@@ -31,7 +31,9 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""This demo uses ffc-generated kernels to solve the Laplace equation on a unit
+"""PyOP2 laplace equation demo (weak BCs)
+
+This demo uses ffc-generated kernels to solve the Laplace equation on a unit
 square with boundary conditions:
 
   u     = 1 on y = 0
@@ -45,9 +47,9 @@ The domain is meshed as follows:
   |/|/|
   *-*-*
 
-This demo requires the fluidity-pyop2 branch of ffc, which can be obtained with:
+This demo requires the pyop2 branch of ffc, which can be obtained with:
 
-bzr branch lp:~grm08/ffc/fluidity-pyop2
+bzr branch lp:~mapdes/ffc/pyop2
 
 This may also depend on development trunk versions of other FEniCS programs.
 """
@@ -58,7 +60,7 @@ from ufl import *
 
 import numpy as np
 
-op2.init(**utils.parse_args(description="PyOP2 laplace equation demo (weak BCs)"))
+op2.init(**utils.parse_args(description=__doc__))
 
 # Set up finite element problem
 
@@ -72,9 +74,9 @@ g = Coefficient(E)
 a = dot(grad(v,),grad(u))*dx
 L = v*f*dx + v*g*ds
 
-# Generate code for mass and rhs assembly.
+# Generate code for Laplacian and rhs assembly.
 
-mass, _, _ = compile_form(a, "mass")
+laplacian, _, _ = compile_form(a, "laplacian")
 rhs, _, weak  = compile_form(L, "rhs")
 
 # Set up simulation data structures
@@ -128,9 +130,16 @@ bdry_grad_vals = np.asarray([2.0]*9, dtype=valuetype)
 bdry_grad = op2.Dat(nodes, 1, bdry_grad_vals, valuetype, "gradient")
 facet = op2.Global(1, 2, np.uint32, "facet")
 
+# If a form contains multiple integrals with differing coefficients, FFC
+# generates kernels that take all the coefficients of the entire form (not
+# only the respective integral) as arguments. Arguments that correspond to
+# forms that are not used in that integral are simply not referenced.
+# We therefore need a dummy argument in place of the coefficient that is not
+# used in the par_loop for OP2 to generate the correct kernel call.
+
 # Assemble matrix and rhs
 
-op2.par_loop(mass, elements(3,3),
+op2.par_loop(laplacian, elements(3,3),
              mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
              coords(elem_node, op2.READ))
 
@@ -138,14 +147,14 @@ op2.par_loop(rhs, elements(3),
              b(elem_node[op2.i[0]], op2.INC),
              coords(elem_node, op2.READ),
              f(elem_node, op2.READ),
-             bdry_grad(top_bdry_elem_node, op2.READ))
+             bdry_grad(elem_node, op2.READ)) # argument ignored
 
 # Apply weak BC
 
 op2.par_loop(weak, top_bdry_elements(3),
              b(top_bdry_elem_node[op2.i[0]], op2.INC),
              coords(top_bdry_elem_node, op2.READ),
-             f(elem_node, op2.READ),
+             f(top_bdry_elem_node, op2.READ), # argument ignored
              bdry_grad(top_bdry_elem_node, op2.READ),
              facet(op2.READ))
 

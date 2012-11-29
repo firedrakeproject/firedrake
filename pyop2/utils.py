@@ -197,7 +197,8 @@ def parser(description=None, group=False):
     """Create default argparse.ArgumentParser parser for pyop2 programs."""
     parser = argparse.ArgumentParser(description=description,
                                      add_help=True,
-                                     prefix_chars="-")
+                                     prefix_chars="-",
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
 
     g = parser.add_argument_group('pyop2', 'backend configuration options') if group else parser
 

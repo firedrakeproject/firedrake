@@ -38,11 +38,18 @@ from pyop2 import op2, utils
 
 import h5py
 
-op2.init(**utils.parse_args(description="PyOP2 airfoil demo"))
+parser = utils.parser(group=True, description="PyOP2 airfoil demo")
+parser.add_argument('-m', '--mesh',
+                    action='store',
+                    type=str,
+                    default='new_grid.h5',
+                    help='HDF5 mesh file to use (default: new_grid.h5)')
+opt = vars(parser.parse_args())
+op2.init(**opt)
 
 from airfoil_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 
-with h5py.File('new_grid.h5', 'r') as file:
+with h5py.File(opt['mesh'], 'r') as file:
 
     # Declare sets, maps, datasets and global constants
 

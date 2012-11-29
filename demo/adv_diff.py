@@ -31,12 +31,12 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""
-This demo solves the identity equation on a domain read in from a triangle
-file. It requires the fluidity-pyop2 branch of ffc, which can be obtained
-with:
+"""PyOP2 P1 advection-diffusion demo
 
-bzr branch lp:~grm08/ffc/fluidity-pyop2
+This demo solves the identity equation on a domain read in from a triangle
+file. It requires the pyop2 branch of ffc, which can be obtained with:
+
+bzr branch lp:~mapdes/ffc/pyop2
 
 This may also depend on development trunk versions of other FEniCS programs.
 
@@ -52,7 +52,7 @@ import sys
 
 import numpy as np
 
-parser = utils.parser(group=True, description="PyOP2 P1 advection-diffusion demo")
+parser = utils.parser(group=True, description=__doc__)
 parser.add_argument('-m', '--mesh',
                     action='store',
                     type=str,
@@ -63,7 +63,6 @@ parser.add_argument('-v', '--visualize',
                     help='Visualize the result using viper')
 opt = vars(parser.parse_args())
 op2.init(**opt)
-mesh_name = opt['mesh']
 
 # Set up finite element problem
 
@@ -99,7 +98,7 @@ diff_rhs, _, _    = compile_form(diff_rhs,    "diff_rhs")
 
 valuetype=np.float64
 
-nodes, coords, elements, elem_node = read_triangle(mesh_name)
+nodes, coords, elements, elem_node = read_triangle(opt['mesh'])
 num_nodes = nodes.size
 
 sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
@@ -129,6 +128,8 @@ void i_cond(double *c, double *t)
 
   if (r<0.25)
     *t = A*(exp((-(r*r))/(4*D*i_t))/(4*pi*D*i_t));
+  else
+    *t = 0.0;
 }
 """
 
@@ -147,9 +148,9 @@ def viper_shape(array):
 
 T = 0.1
 
-vis_coords = np.asarray([ [x, y, 0.0] for x, y in coords.data ],dtype=np.float64)
+vis_coords = np.asarray([ [x, y, 0.0] for x, y in coords.data_ro ],dtype=np.float64)
 if opt['visualize']:
-    v = viper.Viper(x=viper_shape(tracer.data), coordinates=vis_coords, cells=elem_node.values)
+    v = viper.Viper(x=viper_shape(tracer.data_ro), coordinates=vis_coords, cells=elem_node.values)
     v.interactive()
 
 have_advection = True
@@ -192,7 +193,7 @@ while T < 0.2:
         solver.solve(mat, tracer, b)
 
     if opt['visualize']:
-        v.update(viper_shape(tracer.data))
+        v.update(viper_shape(tracer.data_ro))
 
     T = T + dt
 
