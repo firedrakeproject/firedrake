@@ -43,7 +43,7 @@ from base import READ, WRITE, RW, INC, MIN, MAX, IterationSpace
 from base import DataCarrier, IterationIndex, i, IdentityMap, Kernel, Global
 from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 import op_lib_core as core
-from la_petsc import PETSc, KspSolver
+from petsc4py import PETSc
 
 # Data API
 
@@ -236,15 +236,29 @@ class ParLoop(base.ParLoop):
     def compute(self):
         raise RuntimeError('Must select a backend')
 
-class Solver(base.Solver):
+# FIXME: Eventually (when we have a proper OpenCL solver) this wants to go in
+# sequential
+class Solver(base.Solver, PETSc.KSP):
 
     def __init__(self, parameters=None):
         super(Solver, self).__init__(parameters)
-        self._ksp_solver = KspSolver(self.parameters)
+        self.create(PETSc.COMM_WORLD)
+
+    def _set_parameters(self):
+        self.setType(self.parameters['linear_solver'])
+        self.getPC().setType(self.parameters['preconditioner'])
+        self.rtol = self.parameters['relative_tolerance']
+        self.atol = self.parameters['absolute_tolerance']
+        self.divtol = self.parameters['divergence_tolerance']
+        self.max_it = self.parameters['maximum_iterations']
 
     def solve(self, A, x, b):
-        self._ksp_solver.update_parameters(self.parameters)
-        self._ksp_solver.solve(A, x, b)
+        self._set_parameters()
+        px = PETSc.Vec().createWithArray(x.data)
+        pb = PETSc.Vec().createWithArray(b.data)
+        self.setOperators(A.handle)
+        # Not using super here since the MRO would call base.Solver.solve
+        PETSc.KSP.solve(self, pb, px)
         if cfg.debug:
-            print "Converged reason", self._ksp_solver.getConvergedReason()
-            print "Iterations", self._ksp_solver.getIterationNumber()
+            print "Converged reason", self.getConvergedReason()
+            print "Iterations", self.getIterationNumber()
