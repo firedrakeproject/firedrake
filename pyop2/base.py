@@ -891,12 +891,12 @@ class ParLoop(object):
 
         return key
 
-_DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
-                              'preconditioner':     'jacobi',
-                              'relative_tolerance': 1.0e-7,
-                              'absolute_tolerance': 1.0e-50,
-                              'divergence_tolerance': 1.0e+4,
-                              'maximum_iterations': 1000 }
+DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
+                             'preconditioner':     'jacobi',
+                             'relative_tolerance': 1.0e-7,
+                             'absolute_tolerance': 1.0e-50,
+                             'divergence_tolerance': 1.0e+4,
+                             'maximum_iterations': 1000 }
 
 class Solver(object):
     """OP2 Solver object. The :class:`Solver` holds a set of parameters that are
@@ -904,7 +904,12 @@ class Solver(object):
     is called."""
 
     def __init__(self, parameters=None):
-        self.parameters = parameters or _DEFAULT_SOLVER_PARAMETERS.copy()
+        self.parameters = DEFAULT_SOLVER_PARAMETERS.copy()
+        if parameters:
+            self.parameters.update(parameters)
+
+    def update_parameters(self, parameters):
+        self.parameters.update(parameters)
 
     def solve(self, A, x, b):
         """Solve a matrix equation.
