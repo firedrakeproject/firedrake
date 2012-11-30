@@ -33,6 +33,7 @@
 
 import base
 from device import *
+import configuration as cfg
 import device as op2
 import numpy as np
 from utils import verify_reshape, maybe_setflags
@@ -441,12 +442,19 @@ class Plan(op2.Plan):
 
 _cusp_cache = dict()
 
-def _cusp_solver(M):
-    module = _cusp_cache.get(M.dtype)
+def _cusp_solver(M, parameters):
+    cache_key = lambda t, p: (t,
+            p['linear_solver'],
+            p['preconditioner'],
+            p['relative_tolerance'],
+            p['absolute_tolerance'],
+            p['maximum_iterations'],
+            p['gmres_restart'],
+            p['monitor_convergence'])
+    module = _cusp_cache.get(cache_key(M.ctype, parameters))
     if module:
         return module
 
-    import codepy.jit
     import codepy.toolchain
     from codepy.cgen import FunctionBody, FunctionDeclaration, If, make_multiple_ifs
     from codepy.cgen import Block, Statement, Include, Value
@@ -456,7 +464,6 @@ def _cusp_solver(M):
     nvcc_toolchain = codepy.toolchain.guess_nvcc_toolchain()
     host_mod = BoostPythonModule()
     nvcc_mod = CudaModule(host_mod)
-    d = {'t' : M.ctype}
     nvcc_includes = ['thrust/device_vector.h',
                      'thrust/fill.h',
                      'cusp/csr_matrix.h',
@@ -470,9 +477,27 @@ def _cusp_solver(M):
     nvcc_mod.add_to_preamble([Include(s) for s in nvcc_includes])
     nvcc_mod.add_to_preamble([Statement('using namespace std')])
 
-    solve_block = Block([If('ksp_type == "cg"', Statement('cusp::krylov::cg(A, x, b, monitor, M)')),
-                         If('ksp_type == "bicgstab"', Statement('cusp::krylov::bicgstab(A, x, b, monitor, M)')),
-                         If('ksp_type == "gmres"', Statement('cusp::krylov::gmres(A, x, b, restart, monitor, M)'))])
+    # We're translating PETSc preconditioner types to CUSP
+    diag = Statement('cusp::precond::diagonal< ValueType, cusp::device_memory >M(A)')
+    ainv = Statement('cusp::precond::scaled_bridson_ainv< ValueType, cusp::device_memory >M(A)')
+    amg = Statement('cusp::precond::smoothed_aggregation< IndexType, ValueType, cusp::device_memory >M(A)')
+    none = Statement('cusp::identity_operator< ValueType, cusp::device_memory >M(nrows, ncols)')
+    precond_block = {
+            'diagonal': diag,
+            'jacobi': diag,
+            'ainv': ainv,
+            'ainvcusp': ainv,
+            'amg': amg,
+            'hypre': amg,
+            'none': none,
+            None: none
+            }
+    solve_block = {
+            'cg': Statement('cusp::krylov::cg(A, x, b, monitor, M)'),
+            'bicgstab': Statement('cusp::krylov::bicgstab(A, x, b, monitor, M)'),
+            'gmres': Statement('cusp::krylov::gmres(A, x, b, %(gmres_restart)d, monitor, M)' % parameters)
+            }
+    monitor = 'monitor(b, %(maximum_iterations)d, %(relative_tolerance)g, %(absolute_tolerance)g)' % parameters
 
     nvcc_function = FunctionBody(
         FunctionDeclaration(Value('void', '__cusp_solve'),
@@ -483,16 +508,10 @@ def _cusp_solver(M):
                              Value('CUdeviceptr', '_x'),
                              Value('int', 'nrows'),
                              Value('int', 'ncols'),
-                             Value('int', 'nnz'),
-                             Value('string', 'ksp_type'),
-                             Value('string', 'pc_type'),
-                             Value('double', 'rtol'),
-                             Value('double', 'atol'),
-                             Value('int', 'max_it'),
-                             Value('int', 'restart')]),
+                             Value('int', 'nnz')]),
         Block([
             Statement('typedef int IndexType'),
-            Statement('typedef %(t)s ValueType' % d),
+            Statement('typedef %s ValueType' % M.ctype),
             Statement('typedef typename cusp::array1d_view< thrust::device_ptr<IndexType> > indices'),
             Statement('typedef typename cusp::array1d_view< thrust::device_ptr<ValueType> > values'),
             Statement('typedef cusp::csr_matrix_view< indices, indices, values, IndexType, ValueType, cusp::device_memory > matrix'),
@@ -508,23 +527,9 @@ def _cusp_solver(M):
             Statement('values x(d_x, d_x + ncols)'),
             Statement('thrust::fill(x.begin(), x.end(), (ValueType)0)'),
             Statement('matrix A(nrows, ncols, nnz, row_offsets, column_indices, matrix_values)'),
-            Statement('cusp::default_monitor< ValueType > monitor(b, max_it, rtol, atol)'),
-            # We're translating PETSc preconditioner types to CUSP
-            # FIXME: Solve will not be called if the PC type is not recognized
-            make_multiple_ifs([
-                ('pc_type == "diagonal" || pc_type == "jacobi"',
-                 Block([Statement('cusp::precond::diagonal< ValueType, cusp::device_memory >M(A)'),
-                        solve_block])),
-                ('pc_type == "ainv" || pc_type == "ainvcusp"',
-                 Block([Statement('cusp::precond::scaled_bridson_ainv< ValueType, cusp::device_memory >M(A)'),
-                        solve_block])),
-                ('pc_type == "amg" || pc_type == "hypre"',
-                 Block([Statement('cusp::precond::smoothed_aggregation< IndexType, ValueType, cusp::device_memory >M(A)'),
-                        solve_block])),
-                ('pc_type == "none"',
-                 Block([Statement('cusp::identity_operator< ValueType, cusp::device_memory >M(nrows, ncols)'),
-                        solve_block]))
-               ])
+            Statement('cusp::%s_monitor< ValueType > %s' % ('verbose' if parameters['monitor_convergence'] else 'default', monitor)),
+            precond_block[parameters['preconditioner']],
+            solve_block[parameters['linear_solver']]
             ]))
 
     host_mod.add_to_preamble([Include('boost/python/extract.hpp'), Include('string')])
@@ -543,8 +548,7 @@ def _cusp_solver(M):
                                  Value('object', '_x'),
                                  Value('object', '_nrows'),
                                  Value('object', '_ncols'),
-                                 Value('object', '_nnz'),
-                                 Value('object', '_parms')]),
+                                 Value('object', '_nnz')]),
             Block([
                 Statement('CUdeviceptr rowptr = extract<CUdeviceptr>(_rowptr.attr("gpudata"))'),
                 Statement('CUdeviceptr colidx = extract<CUdeviceptr>(_colidx.attr("gpudata"))'),
@@ -554,24 +558,14 @@ def _cusp_solver(M):
                 Statement('int nrows = extract<int>(_nrows)'),
                 Statement('int ncols = extract<int>(_ncols)'),
                 Statement('int nnz = extract<int>(_nnz)'),
-                Statement('dict parms = extract<dict>(_parms)'),
-                Statement('string ksp_type = extract<string>(parms.get("linear_solver", "cg"))'),
-                Statement('double rtol = extract<double>(parms.get("relative_tolerance", 1.0e-7))'),
-                Statement('double atol = extract<double>(parms.get("absolute_tolerance", 1.0e-50))'),
-                Statement('int max_it = extract<int>(parms.get("maximum_iterations", 1000))'),
-                Statement('int restart = extract<int>(parms.get("restart_length", 30))'),
-                Statement('object tmp = parms.get("preconditioner")'),
-                Statement('string pc_type = "none"'),
-                If('!tmp.is_none()',
-                   Statement('string pc_type = extract<string>(tmp)')),
-                Statement('__cusp_solve(rowptr, colidx, csrdata, b, x, nrows, ncols, nnz, ksp_type, pc_type, rtol, atol, max_it, restart)')])))
+                Statement('__cusp_solve(rowptr, colidx, csrdata, b, x, nrows, ncols, nnz)')])))
 
     nvcc_toolchain.cflags.append('-arch')
     nvcc_toolchain.cflags.append('sm_20')
     nvcc_toolchain.cflags.append('-O3')
-    module = nvcc_mod.compile(gcc_toolchain, nvcc_toolchain, debug=False)
+    module = nvcc_mod.compile(gcc_toolchain, nvcc_toolchain, debug=cfg.debug)
 
-    _cusp_cache[M.dtype] = module
+    _cusp_cache[cache_key(M.ctype, parameters)] = module
     return module
 
 # FIXME: inherit from base while device gives us the PETSc solver
@@ -580,7 +574,7 @@ class Solver(base.Solver):
     def solve(self, M, x, b):
         b._to_device()
         x._to_device()
-        module = _cusp_solver(M)
+        module = _cusp_solver(M, self.parameters)
         module.solve(M._rowptr,
                      M._colidx,
                      M._csrdata,
@@ -588,8 +582,7 @@ class Solver(base.Solver):
                      x._device_data,
                      b.dataset.size * b.cdim,
                      x.dataset.size * x.cdim,
-                     M._csrdata.size,
-                     self.parameters)
+                     M._csrdata.size)
         x.state = DeviceDataMixin.DEVICE
 
 def par_loop(kernel, it_space, *args):
