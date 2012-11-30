@@ -31,6 +31,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import base
 from device import *
 import device as op2
 import numpy as np
@@ -560,7 +561,8 @@ def _cusp_solver(M):
     _cusp_cache[M.dtype] = module
     return module
 
-class Solver(op2.Solver):
+# FIXME: inherit from base while device gives us the PETSc solver
+class Solver(base.Solver):
 
     def solve(self, M, x, b):
         b._to_device()
