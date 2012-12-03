@@ -482,7 +482,7 @@ def _cusp_solver(M, parameters):
     ainv = Statement('cusp::precond::scaled_bridson_ainv< ValueType, cusp::device_memory >M(A)')
     amg = Statement('cusp::precond::smoothed_aggregation< IndexType, ValueType, cusp::device_memory >M(A)')
     none = Statement('cusp::identity_operator< ValueType, cusp::device_memory >M(nrows, ncols)')
-    precond_block = {
+    preconditioners = {
             'diagonal': diag,
             'jacobi': diag,
             'ainv': ainv,
@@ -492,11 +492,21 @@ def _cusp_solver(M, parameters):
             'none': none,
             None: none
             }
-    solve_block = {
+    try:
+        precond_call = preconditioners[parameters['preconditioner']]
+    except KeyError:
+        raise RuntimeError("Cusp does not support preconditioner type %s" % \
+                parameters['preconditioner'])
+    solvers = {
             'cg': Statement('cusp::krylov::cg(A, x, b, monitor, M)'),
             'bicgstab': Statement('cusp::krylov::bicgstab(A, x, b, monitor, M)'),
             'gmres': Statement('cusp::krylov::gmres(A, x, b, %(gmres_restart)d, monitor, M)' % parameters)
             }
+    try:
+        solve_call = solvers[parameters['linear_solver']]
+    except KeyError:
+        raise RuntimeError("Cusp does not support solver type %s" % \
+                parameters['linear_solver'])
     monitor = 'monitor(b, %(maximum_iterations)d, %(relative_tolerance)g, %(absolute_tolerance)g)' % parameters
 
     nvcc_function = FunctionBody(
@@ -528,8 +538,8 @@ def _cusp_solver(M, parameters):
             Statement('thrust::fill(x.begin(), x.end(), (ValueType)0)'),
             Statement('matrix A(nrows, ncols, nnz, row_offsets, column_indices, matrix_values)'),
             Statement('cusp::%s_monitor< ValueType > %s' % ('verbose' if parameters['monitor_convergence'] else 'default', monitor)),
-            precond_block[parameters['preconditioner']],
-            solve_block[parameters['linear_solver']]
+            precond_call,
+            solve_call
             ]))
 
     host_mod.add_to_preamble([Include('boost/python/extract.hpp'), Include('string')])
