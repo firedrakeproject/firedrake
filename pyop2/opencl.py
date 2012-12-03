@@ -616,14 +616,14 @@ class ParLoop(op2.ParLoop):
             conf['work_group_count'] = self._plan.nblocks
         conf['warpsize'] = _warpsize
 
-        self._src, self._prg = op2._parloop_cache.get(self._cache_key, (None, None))
+        self._src, self._fun = op2._parloop_cache.get(self._cache_key, (None, None))
         if self._src is None:
             self.codegen(conf)
-            self._prg = compile_kernel()
-            op2._parloop_cache[self._cache_key] = (self._src, self._prg)
+            self._fun = compile_kernel()
+            op2._parloop_cache[self._cache_key] = (self._src, self._fun)
 
         # reset parameters in case we got that built kernel from cache
-        self._prg._karg = 0
+        self._fun._karg = 0
 
         for arg in self._unique_args:
             arg.data._allocate_device()
@@ -631,43 +631,43 @@ class ParLoop(op2.ParLoop):
                 arg.data._to_device()
 
         for a in self._unique_dat_args:
-            self._prg.append_arg(a.data.array.data)
+            self._fun.append_arg(a.data.array.data)
 
         for a in self._all_global_non_reduction_args:
-            self._prg.append_arg(a.data._array.data)
+            self._fun.append_arg(a.data._array.data)
 
         for a in self._all_global_reduction_args:
             a.data._allocate_reduction_array(conf['work_group_count'])
-            self._prg.append_arg(a.data._d_reduc_buffer)
+            self._fun.append_arg(a.data._d_reduc_buffer)
 
         for cst in Const._definitions():
-            self._prg.append_arg(cst._array.data)
+            self._fun.append_arg(cst._array.data)
 
         for m in self._unique_matrix:
-            self._prg.append_arg(m._dev_array.data)
+            self._fun.append_arg(m._dev_array.data)
             m._upload_array()
-            self._prg.append_arg(m._rowptr.data)
-            self._prg.append_arg(m._colidx.data)
+            self._fun.append_arg(m._rowptr.data)
+            self._fun.append_arg(m._colidx.data)
 
         for m in self._matrix_entry_maps:
             m._to_device()
-            self._prg.append_arg(m._device_values.data)
+            self._fun.append_arg(m._device_values.data)
 
         if self._is_direct:
-            self._prg.append_arg(np.int32(self._it_space.size))
+            self._fun.append_arg(np.int32(self._it_space.size))
 
-            cl.enqueue_nd_range_kernel(_queue, self._prg, (conf['thread_count'],), (conf['work_group_size'],), g_times_l=False).wait()
+            cl.enqueue_nd_range_kernel(_queue, self._fun, (conf['thread_count'],), (conf['work_group_size'],), g_times_l=False).wait()
         else:
-            self._prg.append_arg(np.int32(self._it_space.size))
-            self._prg.append_arg(self._plan.ind_map.data)
-            self._prg.append_arg(self._plan.loc_map.data)
-            self._prg.append_arg(self._plan.ind_sizes.data)
-            self._prg.append_arg(self._plan.ind_offs.data)
-            self._prg.append_arg(self._plan.blkmap.data)
-            self._prg.append_arg(self._plan.offset.data)
-            self._prg.append_arg(self._plan.nelems.data)
-            self._prg.append_arg(self._plan.nthrcol.data)
-            self._prg.append_arg(self._plan.thrcol.data)
+            self._fun.append_arg(np.int32(self._it_space.size))
+            self._fun.append_arg(self._plan.ind_map.data)
+            self._fun.append_arg(self._plan.loc_map.data)
+            self._fun.append_arg(self._plan.ind_sizes.data)
+            self._fun.append_arg(self._plan.ind_offs.data)
+            self._fun.append_arg(self._plan.blkmap.data)
+            self._fun.append_arg(self._plan.offset.data)
+            self._fun.append_arg(self._plan.nelems.data)
+            self._fun.append_arg(self._plan.nthrcol.data)
+            self._fun.append_arg(self._plan.thrcol.data)
 
             block_offset = 0
             for i in range(self._plan.ncolors):
@@ -675,8 +675,8 @@ class ParLoop(op2.ParLoop):
                 threads_per_block = min(_max_work_group_size, conf['partition_size'])
                 thread_count = threads_per_block * blocks_per_grid
 
-                self._prg.set_last_arg(np.int32(block_offset))
-                cl.enqueue_nd_range_kernel(_queue, self._prg, (int(thread_count),), (int(threads_per_block),), g_times_l=False).wait()
+                self._fun.set_last_arg(np.int32(block_offset))
+                cl.enqueue_nd_range_kernel(_queue, self._fun, (int(thread_count),), (int(threads_per_block),), g_times_l=False).wait()
                 block_offset += blocks_per_grid
 
         # mark !READ data as dirty
