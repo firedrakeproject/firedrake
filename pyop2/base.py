@@ -342,6 +342,8 @@ class Dat(DataCarrier):
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, path, access):
         if isinstance(path, Map):
+            if path._dataset != self._dataset and path != IdentityMap:
+                raise MapValueError("Dataset of Map does not match Dataset of Dat.")
             return _make_object('Arg', data=self, map=path, access=access)
         else:
             path._dat = self
@@ -629,6 +631,16 @@ class Map(object):
         return "Map(%r, %r, %s, None, '%s')" \
                % (self._iterset, self._dataset, self._dim, self._name)
 
+    def __eq__(self, o):
+        try:
+            return (self._iterset == o._iterset and self._dataset == o._dataset and \
+               self._dim == o.dim and self._name == o.name)
+        except AttributeError:
+            return False
+
+    def __ne__(self, o):
+        return not self.__eq__(o)
+
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 """The identity map.  Used to indicate direct access to a :class:`Dat`."""
 
@@ -746,7 +758,8 @@ class Mat(DataCarrier):
         path = as_tuple(path, Arg, 2)
         path_maps = [arg.map for arg in path]
         path_idxs = [arg.idx for arg in path]
-        # FIXME: do argument checking
+        if tuple(path_maps) not in self.sparsity.maps:
+            raise MapValueError("Path maps not in sparsity maps")
         return _make_object('Arg', data=self, map=path_maps, access=access, idx=path_idxs)
 
     @property
@@ -845,6 +858,24 @@ class ParLoop(object):
         else:
             self._it_space = IterationSpace(itspace)
         self._actual_args = list(args)
+
+        self.check_args()
+
+    def check_args(self):
+        iterset = self._it_space._iterset
+        for i, arg in enumerate(self._actual_args):
+            if arg._is_global or arg._map == IdentityMap:
+                continue
+            for j, m in enumerate(arg._map):
+                if m._iterset != iterset:
+                    raise MapValueError( \
+                        "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
+                else:
+                    if arg._is_mat:
+                        continue
+                    if m._dataset != arg.data._dataset:
+                        raise MapValueError( \
+                            "Dataset of arg %s map %sdoesn't match the set of its Dat." % (i, j))
 
     def generate_code(self):
         raise RuntimeError('Must select a backend')

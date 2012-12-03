@@ -74,3 +74,6 @@ class ModeValueError(ValueError):
 
 class SetValueError(ValueError):
     """Illegal value for Set."""
+
+class MapValueError(ValueError):
+    """Illegal value for Map."""

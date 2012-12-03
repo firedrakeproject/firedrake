@@ -181,6 +181,16 @@ class TestDatAPI:
         with pytest.raises(RuntimeError):
             d.data
 
+    def test_dat_illegal_map(self, backend, set):
+        """Dat __call__ should not allow a map with a dataset other than this
+        Dat's set."""
+        d = op2.Dat(set, 1)
+        set1 = op2.Set(3)
+        set2 = op2.Set(2)
+        to_set2 = op2.Map(set1, set2, 1, [0, 0, 0])
+        with pytest.raises(exceptions.MapValueError):
+            d(to_set2, op2.READ)
+
     def test_dat_dim(self, backend, set):
         "Dat constructor should create a dim tuple."
         d = op2.Dat(set, 1)
@@ -343,6 +353,15 @@ class TestMatAPI:
         m = op2.Mat(sparsity, 'double', 'bar')
         assert m.sparsity == sparsity and  \
                 m.dtype == np.float64 and m.name == 'bar'
+
+    def test_mat_illegal_maps(self, backend, sparsity):
+        m = op2.Mat(sparsity)
+        set1 = op2.Set(2)
+        set2 = op2.Set(3)
+        wrongmap = op2.Map(set1, set2, 2, [0, 0, 0, 0])
+        with pytest.raises(exceptions.MapValueError):
+            m((wrongmap[0], wrongmap[1]), op2.INC)
+
 
 class TestConstAPI:
     """
@@ -655,6 +674,28 @@ class TestKernelAPI:
         "Kernel constructor should correctly set attributes."
         k = op2.Kernel("", 'foo')
         assert k.name == 'foo'
+
+class TestIllegalItersetMaps:
+    """
+    Pass args with the wrong iterset maps to ParLoops, and check that they are trapped.
+    """
+
+    def test_illegal_dat_iterset(self, backend):
+        set1 = op2.Set(2)
+        set2 = op2.Set(3)
+        dat = op2.Dat(set1, 1)
+        map = op2.Map(set2, set1, 1, [0, 0, 0])
+        kernel = op2.Kernel("void k() { }", "k")
+        with pytest.raises(exceptions.MapValueError):
+            base.ParLoop(kernel, set1, dat(map, op2.READ))
+
+    def test_illegal_mat_iterset(self, backend, sparsity):
+        set1 = op2.Set(2)
+        m = op2.Mat(sparsity)
+        rmap, cmap = sparsity.maps[0]
+        kernel = op2.Kernel("void k() { }", "k")
+        with pytest.raises(exceptions.MapValueError):
+            base.ParLoop(kernel, set1(3,3), m((rmap[op2.i[0]], cmap[op2.i[1]]), op2.INC))
 
 if __name__ == '__main__':
     import os
