@@ -57,6 +57,12 @@ def dataset():
     return op2.Set(3, 'dataset')
 
 @pytest.fixture
+def m():
+    iterset = op2.Set(2, 'iterset')
+    dataset = op2.Set(3, 'dataset')
+    return op2.Map(iterset,  dataset, 2, [1] * 2 * iterset.size, 'm')
+
+@pytest.fixture
 def smap():
     iterset = op2.Set(2, 'iterset')
     dataset = op2.Set(2, 'dataset')
@@ -146,6 +152,11 @@ class TestSetAPI:
     def test_set_str(self, backend, set):
         "Set string representation should have the expected format."
         assert str(set) == "OP2 Set: foo with size 5"
+
+    def test_set_equality(self, backend, set):
+        "The equality test for sets is identity, not attribute equality"
+        setcopy = op2.Set(set.size, set.name)
+        assert set == set and set != setcopy
 
     # FIXME: test Set._lib_handle
 
@@ -610,7 +621,6 @@ class TestMapAPI:
         assert m.iterset == iterset and m.dataset == dataset and m.dim == 2 \
                 and m.values.sum() == 2*iterset.size and m.name == 'bar'
 
-
     def test_map_indexing(self, backend, iterset, dataset):
         "Indexing a map should create an appropriate Arg"
         m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size, 'm')
@@ -624,6 +634,28 @@ class TestMapAPI:
 
         with pytest.raises(NotImplementedError):
             arg = m[:]
+
+    def test_map_equality(self, backend, m):
+        """A map is equal if all its attributes are equal, bearing in mind that
+        equality is identity for sets."""
+        m2 = op2.Map(m.iterset, m.dataset, m.dim, m.values, m.name)
+        assert m == m2
+
+    def test_map_copied_set_inequality(self, backend, m):
+        """Maps that have copied but not equal iteration sets are not equal"""
+        itercopy = op2.Set(m.iterset.size, m.iterset.name)
+        m2 = op2.Map(itercopy, m.dataset, m.dim, m.values, m.name)
+        assert m != m2
+
+    def test_map_dimension_inequality(self, backend, m):
+        """Maps that have different dimensions are not equal"""
+        m2 = op2.Map(m.iterset, m.dataset, m.dim*2, list(m.values)*2, m.name)
+        assert m != m2
+
+    def test_map_name_inequality(self, backend, m):
+        """Maps with different names are not equal"""
+        n = op2.Map(m.iterset, m.dataset, m.dim, m.values, 'n')
+        assert m != n
 
 class TestIterationSpaceAPI:
     """
