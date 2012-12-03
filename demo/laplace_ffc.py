@@ -77,8 +77,8 @@ L = v*f*dx
 
 # Generate code for Laplacian and rhs assembly.
 
-laplacian, _, _ = compile_form(a, "laplacian")
-rhs, _, _  = compile_form(L, "rhs")
+laplacian, = compile_form(a, "laplacian")
+rhs,  = compile_form(L, "rhs")
 
 # Set up simulation data structures
 
@@ -140,6 +140,7 @@ op2.par_loop(strongbc_rhs, bdry_nodes,
              b(bdry_node_node[0], op2.WRITE))
 
 solver = op2.Solver()
+solver.parameters['linear_solver'] = 'gmres'
 solver.solve(mat, x, b)
 
 # Print solution

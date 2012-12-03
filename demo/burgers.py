@@ -96,8 +96,8 @@ v = TestFunction(V)
 a = (dot(u,grad(u_next))*v + nu*grad(u_next)*grad(v))*dx
 L = v*u*dx
 
-burgers, _, _ = compile_form(a, "burgers")
-rhs, _, _ = compile_form(L, "rhs")
+burgers, = compile_form(a, "burgers")
+rhs, = compile_form(L, "rhs")
 
 # Initial condition
 

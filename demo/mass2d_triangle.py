@@ -72,8 +72,8 @@ L = v*f*dx
 
 # Generate code for mass and rhs assembly.
 
-mass, _, _ = compile_form(a, "mass")
-rhs, _, _  = compile_form(L, "rhs")
+mass, = compile_form(a, "mass")
+rhs,  = compile_form(L, "rhs")
 
 # Set up simulation data structures
 

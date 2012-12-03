@@ -89,10 +89,10 @@ diff_rhs=action(M+0.5*d,t)
 
 # Generate code for mass and rhs assembly.
 
-mass, _, _        = compile_form(M,           "mass")
-adv_rhs, _, _     = compile_form(adv_rhs,     "adv_rhs")
-diff_matrix, _, _ = compile_form(diff_matrix, "diff_matrix")
-diff_rhs, _, _    = compile_form(diff_rhs,    "diff_rhs")
+mass,        = compile_form(M,           "mass")
+adv_rhs,     = compile_form(adv_rhs,     "adv_rhs")
+diff_matrix, = compile_form(diff_matrix, "diff_matrix")
+diff_rhs,    = compile_form(diff_rhs,    "diff_rhs")
 
 # Set up simulation data structures
 
