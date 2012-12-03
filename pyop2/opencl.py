@@ -370,16 +370,19 @@ void global_%(type)s_%(dim)s_post_reduction (
 """ % {'headers': headers(), 'dim': self.cdim, 'type': self._cl_type, 'op': op()}
 
 
-        if not _reduction_task_cache.has_key((self.dtype, self.cdim, reduction_operator)):
-            _reduction_task_cache[(self.dtype, self.cdim, reduction_operator)] = generate_code()
+        src, kernel = _reduction_task_cache.get((self.dtype, self.cdim, reduction_operator), (None, None))
+        if src is None :
+            src = generate_code()
+            prg = cl.Program(_ctx, src).build(options="-Werror")
+            name = "global_%s_%s_post_reduction" % (self._cl_type, self.cdim)
+            kernel = prg.__getattr__(name)
+            _reduction_task_cache[(self.dtype, self.cdim, reduction_operator)] = (src, kernel)
 
-        src = _reduction_task_cache[(self.dtype, self.cdim, reduction_operator)]
-        name = "global_%s_%s_post_reduction" % (self._cl_type, self.cdim)
-        prg = cl.Program(_ctx, src).build(options="-Werror")
-        kernel = prg.__getattr__(name)
-        kernel.append_arg(self._array.data)
-        kernel.append_arg(self._d_reduc_buffer)
-        kernel.append_arg(np.int32(nelems))
+        src, kernel = _reduction_task_cache[(self.dtype, self.cdim, reduction_operator)]
+
+        kernel.set_arg(0, self._array.data)
+        kernel.set_arg(1, self._d_reduc_buffer)
+        kernel.set_arg(2, np.int32(nelems))
         cl.enqueue_task(_queue, kernel).wait()
 
         del self._d_reduc_buffer
