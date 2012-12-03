@@ -61,7 +61,12 @@ import ffc
 
 import numpy as np
 
-op2.init(**utils.parse_args(description=__doc__))
+parser = utils.parser(group=True, description=__doc__)
+parser.add_argument('-s', '--save-output',
+                    action='store_true',
+                    help='Save the output of the run (used for testing)')
+opt = vars(parser.parse_args())
+op2.init(**opt)
 
 # Set up finite element problem
 
@@ -78,7 +83,7 @@ L = v*f*dx
 # Generate code for Laplacian and rhs assembly.
 
 laplacian, = compile_form(a, "laplacian")
-rhs,  = compile_form(L, "rhs")
+rhs,       = compile_form(L, "rhs")
 
 # Set up simulation data structures
 
@@ -111,9 +116,11 @@ coords = op2.Dat(nodes, 2, coord_vals, valuetype, "coords")
 f_vals = np.asarray([ 0.0 ]*9, dtype=valuetype)
 b_vals = np.asarray([0.0]*NUM_NODES, dtype=valuetype)
 x_vals = np.asarray([0.0]*NUM_NODES, dtype=valuetype)
+u_vals = np.asarray([1.0, 1.0, 1.0, 1.5, 1.5, 1.5, 2.0, 2.0, 2.0])
 f = op2.Dat(nodes, 1, f_vals, valuetype, "f")
 b = op2.Dat(nodes, 1, b_vals, valuetype, "b")
 x = op2.Dat(nodes, 1, x_vals, valuetype, "x")
+u = op2.Dat(nodes, 1, u_vals, valuetype, "u")
 
 bdry_vals = np.asarray([1.0, 1.0, 1.0, 2.0, 2.0, 2.0 ], dtype=valuetype)
 bdry = op2.Dat(bdry_nodes, 1, bdry_vals, valuetype, "bdry")
@@ -144,4 +151,11 @@ solver.parameters['linear_solver'] = 'gmres'
 solver.solve(mat, x, b)
 
 # Print solution
-print "Computed solution: %s" % x_vals
+print "Expected solution: %s" % u.data
+print "Computed solution: %s" % x.data
+
+# Save output (if necessary)
+if opt['save_output']:
+    import pickle
+    with open("laplace.out","w") as out:
+        pickle.dump((u.data, x.data), out)
