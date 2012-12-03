@@ -21,7 +21,8 @@ def generate_meshfile(name,layers):
                  ).replace('<layers>',str(layers)))
 
     os.system("gmsh -2 "+name+".geo")
-    os.system("./gmsh2triangle --2d "+name+".msh")
+    path = os.path.dirname(os.path.abspath(__file__))
+    os.system("%s/gmsh2triangle --2d %s.msh" % (path, name))
 
 #####################################################################
 # Script starts here.
