@@ -36,6 +36,7 @@
 from __future__ import division
 
 import os
+import re
 import sys
 import numpy as np
 from decorator import decorator
@@ -235,6 +236,19 @@ def parse_args(*args, **kwargs):
     ARGS and KWARGS are passed into the parser instantiation.
     The only recognised options are `group` and `description`."""
     return vars(parser(*args, **kwargs).parse_args())
+
+def comment_remover(text):
+    """Remove all C- and C++-style comments from a string."""
+    # Reference: http://stackoverflow.com/questions/241327/python-snippet-to-remove-c-and-c-comments
+    def replacer(match):
+        s = match.group(0)
+        if s.startswith('/'):
+            return ""
+        else:
+            return s
+    pattern = re.compile(r'//.*?$|/\*.*?\*/|\'(?:\\.|[^\\\'])*\'|"(?:\\.|[^\\"])*"',
+                         re.DOTALL | re.MULTILINE)
+    return re.sub(pattern, replacer, text)
 
 try:
     OP2_DIR = os.environ['OP2_DIR']
