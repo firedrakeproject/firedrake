@@ -294,7 +294,7 @@ def _empty_plan_cache():
 def _plan_cache_size():
     return len(_plan_cache)
 
-class Plan(core.Plan):
+class GenericPlan(object):
     def __new__(cls, kernel, iset, *args, **kwargs):
         ps = kwargs.get('partition_size', 0)
         mc = kwargs.get('matrix_coloring', False)
@@ -303,8 +303,7 @@ class Plan(core.Plan):
         if cached is not None:
             return cached
         else:
-            return super(Plan, cls).__new__(cls, kernel, iset, *args,
-                                            **kwargs)
+            return super(GenericPlan, cls).__new__(cls, kernel, iset, *args, **kwargs)
 
     def __init__(self, kernel, iset, *args, **kwargs):
         # This is actually a cached instance, everything's in place,
@@ -361,6 +360,14 @@ class Plan(core.Plan):
         key += subkey
 
         return key
+
+class CPlan(GenericPlan, core.op_plan):
+    pass
+
+class PPlan(GenericPlan, core.Plan):
+    pass
+
+Plan = PPlan
 
 class ParLoop(op2.ParLoop):
     def __init__(self, kernel, itspace, *args):

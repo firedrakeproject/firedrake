@@ -34,6 +34,7 @@
 """The PyOP2 API specification."""
 
 import backends
+import device
 import configuration as cfg
 import op_lib_core as core
 import base
@@ -64,6 +65,10 @@ def init(**kwargs):
     if 'backend' in kwargs and backend not in ('pyop2.void', 'pyop2.'+kwargs['backend']):
         raise RuntimeError("Changing the backend is not possible once set.")
     cfg.configure(**kwargs)
+    if cfg['python-plan']:
+        device.Plan = device.PPlan
+    else:
+        device.Plan = device.CPlan
     if backend == 'pyop2.void':
         backends.set_backend(cfg.backend)
         backends._BackendSelector._backend._setup()
