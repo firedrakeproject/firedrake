@@ -378,8 +378,6 @@ void global_%(type)s_%(dim)s_post_reduction (
             kernel = prg.__getattr__(name)
             _reduction_task_cache[(self.dtype, self.cdim, reduction_operator)] = (src, kernel)
 
-        src, kernel = _reduction_task_cache[(self.dtype, self.cdim, reduction_operator)]
-
         kernel.set_arg(0, self._array.data)
         kernel.set_arg(1, self._d_reduc_buffer)
         kernel.set_arg(2, np.int32(nelems))
