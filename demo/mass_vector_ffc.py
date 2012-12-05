@@ -49,7 +49,12 @@ from pyop2.ffc_interface import compile_form
 
 import numpy as np
 
-op2.init(**utils.parse_args(description=__doc__))
+parser = utils.parser(group=True, description=__doc__)
+parser.add_argument('-s', '--save-output',
+                    action='store_true',
+                    help='Save the output of the run (used for testing)')
+opt = vars(parser.parse_args())
+op2.init(**opt)
 
 # Set up finite element identity problem
 
@@ -109,5 +114,11 @@ solver.solve(mat, x, b)
 
 # Print solution
 
-print "Expected solution: %s" % f_vals
-print "Computed solution: %s" % x_vals
+print "Expected solution: %s" % f.data
+print "Computed solution: %s" % x.data
+
+# Save output (if necessary)
+if opt['save_output']:
+    import pickle
+    with open("mass_vector.out","w") as out:
+        pickle.dump((f.data, x.data), out)

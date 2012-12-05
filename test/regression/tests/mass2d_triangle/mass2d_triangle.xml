@@ -1,0 +1,33 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>mass2d_triangle</name>
+  <owner userid="grm08"/>
+  <tags>pyop2</tags>
+  <problem_definition length="short" nprocs="1">
+    <command_line>python demo/mass2d_triangle.py --save-output --mesh square</command_line>
+  </problem_definition>
+  <variables>
+    <variable name="error" language="python">import pickle
+import numpy as np
+with open("mass2d_triangle.out", "r") as f:
+    _, x_vals, b_vals, mat_array = pickle.load(f)
+with open("mass2d_triangle.expected", "r") as f:
+    f_vals, _, b_expected, mat_expected = pickle.load(f)
+mat = np.asarray(mat_expected, np.float64)
+mat_out = np.asarray(mat_array, np.float64)
+b = np.asarray(b_expected, np.float64)
+b_out = np.asarray(b_vals, np.float64)
+diffnorm = np.linalg.norm(f_vals-x_vals)
+nodenorm = np.linalg.norm(f_vals)
+maxmaterror = max(abs(mat-mat_out))
+maxvecerror = max(abs(b-b_out))[0]
+# Relative error, max diff in matrix, max diff in vector
+error =( (diffnorm/nodenorm), maxmaterror, maxvecerror)
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="Relative error norm." language="python">assert error[0] &lt; 1.0e-6</test>
+    <test name="Relative error norm." language="python">assert error[2] &lt; 1.0e-18</test>
+  </pass_tests>
+  <warn_tests/>
+</testproblem>

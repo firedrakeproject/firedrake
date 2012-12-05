@@ -57,6 +57,12 @@ def dataset():
     return op2.Set(3, 'dataset')
 
 @pytest.fixture
+def m():
+    iterset = op2.Set(2, 'iterset')
+    dataset = op2.Set(3, 'dataset')
+    return op2.Map(iterset,  dataset, 2, [1] * 2 * iterset.size, 'm')
+
+@pytest.fixture
 def smap():
     iterset = op2.Set(2, 'iterset')
     dataset = op2.Set(2, 'dataset')
@@ -147,6 +153,11 @@ class TestSetAPI:
         "Set string representation should have the expected format."
         assert str(set) == "OP2 Set: foo with size 5"
 
+    def test_set_equality(self, backend, set):
+        "The equality test for sets is identity, not attribute equality"
+        setcopy = op2.Set(set.size, set.name)
+        assert set == set and set != setcopy
+
     # FIXME: test Set._lib_handle
 
 class TestDatAPI:
@@ -180,6 +191,16 @@ class TestDatAPI:
         d = op2.Dat(set, 1)
         with pytest.raises(RuntimeError):
             d.data
+
+    def test_dat_illegal_map(self, backend, set):
+        """Dat __call__ should not allow a map with a dataset other than this
+        Dat's set."""
+        d = op2.Dat(set, 1)
+        set1 = op2.Set(3)
+        set2 = op2.Set(2)
+        to_set2 = op2.Map(set1, set2, 1, [0, 0, 0])
+        with pytest.raises(exceptions.MapValueError):
+            d(to_set2, op2.READ)
 
     def test_dat_dim(self, backend, set):
         "Dat constructor should create a dim tuple."
@@ -343,6 +364,15 @@ class TestMatAPI:
         m = op2.Mat(sparsity, 'double', 'bar')
         assert m.sparsity == sparsity and  \
                 m.dtype == np.float64 and m.name == 'bar'
+
+    def test_mat_illegal_maps(self, backend, sparsity):
+        m = op2.Mat(sparsity)
+        set1 = op2.Set(2)
+        set2 = op2.Set(3)
+        wrongmap = op2.Map(set1, set2, 2, [0, 0, 0, 0])
+        with pytest.raises(exceptions.MapValueError):
+            m((wrongmap[0], wrongmap[1]), op2.INC)
+
 
 class TestConstAPI:
     """
@@ -591,7 +621,6 @@ class TestMapAPI:
         assert m.iterset == iterset and m.dataset == dataset and m.dim == 2 \
                 and m.values.sum() == 2*iterset.size and m.name == 'bar'
 
-
     def test_map_indexing(self, backend, iterset, dataset):
         "Indexing a map should create an appropriate Arg"
         m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size, 'm')
@@ -605,6 +634,28 @@ class TestMapAPI:
 
         with pytest.raises(NotImplementedError):
             arg = m[:]
+
+    def test_map_equality(self, backend, m):
+        """A map is equal if all its attributes are equal, bearing in mind that
+        equality is identity for sets."""
+        m2 = op2.Map(m.iterset, m.dataset, m.dim, m.values, m.name)
+        assert m == m2
+
+    def test_map_copied_set_inequality(self, backend, m):
+        """Maps that have copied but not equal iteration sets are not equal"""
+        itercopy = op2.Set(m.iterset.size, m.iterset.name)
+        m2 = op2.Map(itercopy, m.dataset, m.dim, m.values, m.name)
+        assert m != m2
+
+    def test_map_dimension_inequality(self, backend, m):
+        """Maps that have different dimensions are not equal"""
+        m2 = op2.Map(m.iterset, m.dataset, m.dim*2, list(m.values)*2, m.name)
+        assert m != m2
+
+    def test_map_name_inequality(self, backend, m):
+        """Maps with different names are not equal"""
+        n = op2.Map(m.iterset, m.dataset, m.dim, m.values, 'n')
+        assert m != n
 
 class TestIterationSpaceAPI:
     """
@@ -655,6 +706,28 @@ class TestKernelAPI:
         "Kernel constructor should correctly set attributes."
         k = op2.Kernel("", 'foo')
         assert k.name == 'foo'
+
+class TestIllegalItersetMaps:
+    """
+    Pass args with the wrong iterset maps to ParLoops, and check that they are trapped.
+    """
+
+    def test_illegal_dat_iterset(self, backend):
+        set1 = op2.Set(2)
+        set2 = op2.Set(3)
+        dat = op2.Dat(set1, 1)
+        map = op2.Map(set2, set1, 1, [0, 0, 0])
+        kernel = op2.Kernel("void k() { }", "k")
+        with pytest.raises(exceptions.MapValueError):
+            base.ParLoop(kernel, set1, dat(map, op2.READ))
+
+    def test_illegal_mat_iterset(self, backend, sparsity):
+        set1 = op2.Set(2)
+        m = op2.Mat(sparsity)
+        rmap, cmap = sparsity.maps[0]
+        kernel = op2.Kernel("void k() { }", "k")
+        with pytest.raises(exceptions.MapValueError):
+            base.ParLoop(kernel, set1(3,3), m((rmap[op2.i[0]], cmap[op2.i[1]]), op2.INC))
 
 if __name__ == '__main__':
     import os

@@ -74,6 +74,16 @@ class TestHarness:
             ret = self.backend is not None
             return ret and 'pyop2' in get_xml_file_tags(f)
 
+        def get_xml_file_tags(xml_file):
+          p = etree.parse(xml_file)
+          p_tags = p.findall("tags")
+          if len(p_tags) > 0 and not p_tags[0].text is None:
+            xml_tags = p_tags[0].text.split()
+          else:
+            xml_tags = []
+
+          return xml_tags
+
         if file != "":
           for (subdir, xml_file) in [os.path.split(x) for x in xml_files]:
             if xml_file == file:
@@ -101,16 +111,6 @@ class TestHarness:
             else:
               if prob_nprocs == 1:
                 working_set.append(xml_file)
-
-        def get_xml_file_tags(xml_file):
-          p = etree.parse(xml_file)
-          p_tags = p.findall("tags")
-          if len(p_tags) > 0 and not p_tags[0].text is None:
-            xml_tags = p_tags[0].text.split()
-          else:
-            xml_tags = []
-
-          return xml_tags
 
         # step 4. if there are any excluded tags, let's exclude tests that have
         # them

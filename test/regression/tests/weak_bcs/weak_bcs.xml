@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>weak_bcs</name>
+  <owner userid="grm08"/>
+  <tags>pyop2</tags>
+  <problem_definition length="short" nprocs="1">
+    <command_line>python demo/weak_bcs_ffc.py --save-output</command_line>
+  </problem_definition>
+  <variables>
+    <variable name="diffsum" language="python">import pickle
+with open("weak_bcs.out", "r") as f:
+    f_vals, x_vals = pickle.load(f)
+diffsum = sum(abs(f_vals-x_vals))
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="Error sum." language="python">assert diffsum &lt; 1.0e-12</test>
+  </pass_tests>
+  <warn_tests/>
+</testproblem>

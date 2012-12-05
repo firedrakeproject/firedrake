@@ -55,6 +55,12 @@ parser.add_argument('-m', '--mesh',
                     type=str,
                     required=True,
                     help='Base name of triangle mesh (excluding the .ele or .node extension)')
+parser.add_argument('-s', '--save-output',
+                    action='store_true',
+                    help='Save the output of the run (used for testing)')
+parser.add_argument('-p', '--print-output',
+                    action='store_true',
+                    help='Print the output of the run to stdout')
 opt = vars(parser.parse_args())
 op2.init(**opt)
 mesh_name = opt['mesh']
@@ -85,12 +91,15 @@ num_nodes = nodes.size
 sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
-f_vals = np.asarray([ float(i) for i in xrange(num_nodes) ], dtype=valuetype)
 b_vals = np.asarray([0.0]*num_nodes, dtype=valuetype)
 x_vals = np.asarray([0.0]*num_nodes, dtype=valuetype)
-f = op2.Dat(nodes, 1, f_vals, valuetype, "f")
 b = op2.Dat(nodes, 1, b_vals, valuetype, "b")
 x = op2.Dat(nodes, 1, x_vals, valuetype, "x")
+
+# Set up initial condition
+
+f_vals = np.asarray([2*X+4*Y for X, Y in coords.data], dtype=valuetype)
+f = op2.Dat(nodes, 1, f_vals, valuetype, "f")
 
 # Assemble and solve
 
@@ -106,7 +115,13 @@ op2.par_loop(rhs, elements(3),
 solver = op2.Solver()
 solver.solve(mat, x, b)
 
-# Print solution
+# Print solution (if necessary)
+if opt['print_output']:
+    print "Expected solution: %s" % f.data
+    print "Computed solution: %s" % x.data
 
-print "Expected solution: %s" % f_vals
-print "Computed solution: %s" % x_vals
+# Save output (if necessary)
+if opt['save_output']:
+    import pickle
+    with open("mass2d_triangle.out","w") as out:
+        pickle.dump((f.data, x.data, b.data, mat.array), out)
