@@ -36,7 +36,7 @@ import numpy
 import random
 
 from pyop2 import op2
-from pyop2 import op_lib_core as core
+from pyop2 import device
 
 backends = ['sequential', 'openmp', 'opencl', 'cuda']
 
@@ -76,34 +76,11 @@ class TestPlan:
 
         kernel = op2.Kernel(kernel_wo, "kernel_wo")
 
-        pyplan = core.Plan(kernel,
+        device.compare_plans(kernel,
                              iterset,
                              x(iterset2indset[0], op2.WRITE),
                              partition_size=128,
                              matrix_coloring=False)
-        cplan = core.op_plan(kernel,
-                             iterset,
-                             x(iterset2indset[0], op2.WRITE),
-                             partition_size=128,
-                             matrix_coloring=False)
-
-        assert pyplan.ninds == cplan.ninds
-        assert pyplan.nblocks == cplan.nblocks
-        assert pyplan.ncolors == cplan.ncolors
-        assert pyplan.nshared == cplan.nshared
-        assert (pyplan.nelems == cplan.nelems).all()
-        # slice is ok cause op2 plan function seems to allocate an
-        # arbitrarily longer array here
-        assert (pyplan.ncolblk == cplan.ncolblk[:len(pyplan.ncolblk)]).all()
-        assert (pyplan.blkmap == cplan.blkmap).all()
-        assert (pyplan.nthrcol == cplan.nthrcol).all()
-        assert (pyplan.thrcol == cplan.thrcol).all()
-        assert (pyplan.offset == cplan.offset).all()
-        assert (pyplan.nindirect == cplan.nindirect).all()
-        assert ( (pyplan.ind_map == cplan.ind_map) | (pyplan.ind_map==-1) ).all()
-        assert (pyplan.ind_offs == cplan.ind_offs).all()
-        assert (pyplan.ind_sizes == cplan.ind_sizes).all()
-        assert (pyplan.loc_map == cplan.loc_map).all()
 
     def test_2d_map(self, backend):
         # copy/adapted from test_indirect_loop
@@ -123,39 +100,13 @@ class TestPlan:
 
         kernel = op2.Kernel(kernel_sum, "kernel_sum")
 
-        pyplan = core.Plan(kernel,
+        device.compare_plans(kernel,
                              edges,
                              node_vals(edge2node[0], op2.READ),
                              node_vals(edge2node[1], op2.READ),
                              edge_vals(op2.IdentityMap, op2.WRITE),
                              matrix_coloring=False,
                              partition_size=96)
-        cplan = core.op_plan(kernel,
-                             edges,
-                             node_vals(edge2node[0], op2.READ),
-                             node_vals(edge2node[1], op2.READ),
-                             edge_vals(op2.IdentityMap, op2.WRITE),
-                             matrix_coloring=False,
-                             partition_size=96)
-
-        assert pyplan.ninds == cplan.ninds
-        assert pyplan.nblocks == cplan.nblocks
-        assert pyplan.ncolors == cplan.ncolors
-        assert pyplan.nshared == cplan.nshared
-        assert (pyplan.nelems == cplan.nelems).all()
-        # slice is ok cause op2 plan function seems to allocate an
-        # arbitrarily longer array here
-        assert (pyplan.ncolblk == cplan.ncolblk[:len(pyplan.ncolblk)]).all()
-        assert (pyplan.blkmap == cplan.blkmap).all()
-        assert (pyplan.nthrcol == cplan.nthrcol).all()
-        assert (pyplan.thrcol == cplan.thrcol).all()
-        assert (pyplan.offset == cplan.offset).all()
-        assert (pyplan.nindirect == cplan.nindirect).all()
-        sninds = numpy.sum(pyplan.nindirect)
-        assert ( (pyplan.ind_map == cplan.ind_map) | (pyplan.ind_map==-1) ).all()
-        assert (pyplan.ind_offs == cplan.ind_offs).all()
-        assert (pyplan.ind_sizes == cplan.ind_sizes).all()
-        assert (pyplan.loc_map == cplan.loc_map).all()
 
     def test_rhs(self, backend):
         kernel = op2.Kernel("", "dummy")
@@ -179,7 +130,7 @@ class TestPlan:
         f = op2.Dat(nodes, 1,
                     numpy.asarray([ 1.0, 2.0, 3.0, 4.0 ], dtype=numpy.float64),
                     numpy.float64, "f")
-        pyplan = core.Plan(kernel,
+        device.compare_plans(kernel,
                              elements,
                              b(elem_node[0], op2.INC),
                              b(elem_node[1], op2.INC),
@@ -193,37 +144,6 @@ class TestPlan:
                              matrix_coloring=False,
                              partition_size=2)
 
-        cplan = core.op_plan(kernel,
-                             elements,
-                             b(elem_node[0], op2.INC),
-                             b(elem_node[1], op2.INC),
-                             b(elem_node[2], op2.INC),
-                             coords(elem_node[0], op2.READ),
-                             coords(elem_node[1], op2.READ),
-                             coords(elem_node[2], op2.READ),
-                             f(elem_node[0], op2.READ),
-                             f(elem_node[1], op2.READ),
-                             f(elem_node[2], op2.READ),
-                             matrix_coloring=False,
-                             partition_size=2)
-
-        assert pyplan.ninds == cplan.ninds
-        assert pyplan.nblocks == cplan.nblocks
-        assert pyplan.ncolors == cplan.ncolors
-        assert pyplan.nshared == cplan.nshared
-        assert (pyplan.nelems == cplan.nelems).all()
-        # slice is ok cause op2 plan function seems to allocate an
-        # arbitrarily longer array here
-        assert (pyplan.ncolblk == cplan.ncolblk[:len(pyplan.ncolblk)]).all()
-        assert (pyplan.blkmap == cplan.blkmap).all()
-        assert (pyplan.nthrcol == cplan.nthrcol).all()
-        assert (pyplan.thrcol == cplan.thrcol).all()
-        assert (pyplan.offset == cplan.offset).all()
-        assert (pyplan.nindirect == cplan.nindirect).all()
-        assert ( (pyplan.ind_map == cplan.ind_map) | (pyplan.ind_map==-1) ).all()
-        assert (pyplan.ind_offs == cplan.ind_offs).all()
-        assert (pyplan.ind_sizes == cplan.ind_sizes).all()
-        assert (pyplan.loc_map == cplan.loc_map).all()
 
 if __name__ == '__main__':
     import os
