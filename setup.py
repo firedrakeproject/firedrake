@@ -33,9 +33,9 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from distutils.core import setup
+from setuptools import setup
 from Cython.Distutils import build_ext, Extension
-import numpy as np
+import numpy
 import os, sys
 
 try:
@@ -77,12 +77,12 @@ setup(name='PyOP2',
       install_requires=install_requires,
       packages=['pyop2','pyop2_utils'],
       package_dir={'pyop2':'pyop2','pyop2_utils':'pyop2_utils'},
-      package_data={'pyop2': ['assets/*', 'mat_utils.*', 'sparsity_utils.*']},
+      package_data={'pyop2': ['assets/*', 'mat_utils.*', 'sparsity_utils.*', '*.pyx', '*.pxd']},
       cmdclass = {'build_ext' : build_ext},
       ext_modules=[Extension('pyop2.op_lib_core',
                              ['pyop2/op_lib_core.pyx', 'pyop2/_op_lib_core.pxd', 'pyop2/sparsity_utils.cxx'],
                              pyrex_include_dirs=['pyop2'],
-                             include_dirs=['pyop2', OP2_INC, np.get_include()],
+                             include_dirs=['pyop2', OP2_INC, numpy.get_include()],
                              library_dirs=[OP2_LIB],
                              runtime_library_dirs=[OP2_LIB],
                              libraries=["op2_seq"])])
