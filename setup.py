@@ -49,6 +49,10 @@ of your OP2 source tree""")
 OP2_INC = OP2_DIR + '/c/include'
 OP2_LIB = OP2_DIR + '/c/lib'
 
+version = sys.version_info[:2]
+install_requires = []
+if version < (2, 7) or (3, 0) <= version <= (3, 1):
+    install_requires += ['argparse', 'ordereddict']
 
 os.environ['CC'] = 'mpicc'
 os.environ['CXX'] = 'mpicxx'
@@ -56,6 +60,7 @@ setup(name='PyOP2',
       version='0.1',
       description='Python interface to OP2',
       author='...',
+      install_requires=install_requires,
       packages=['pyop2','pyop2_utils'],
       package_dir={'pyop2':'pyop2','pyop2_utils':'pyop2_utils'},
       package_data={'pyop2': ['assets/*', 'mat_utils.*', 'sparsity_utils.*']},
