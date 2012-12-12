@@ -287,17 +287,17 @@ class TestSparsityAPI:
     def test_sparsity_illegal_rmap(self, backend, smap):
         "Sparsity rmap should be a Map"
         with pytest.raises(TypeError):
-            op2.Sparsity('illegalrmap', smap, 1)
+            op2.Sparsity(('illegalrmap', smap), 1)
 
     def test_sparsity_illegal_cmap(self, backend, smap):
         "Sparsity cmap should be a Map"
         with pytest.raises(TypeError):
-            op2.Sparsity(smap, 'illegalcmap', 1)
+            op2.Sparsity((smap, 'illegalcmap'), 1)
 
     def test_sparsity_illegal_dim(self, backend, smap):
         "Sparsity dim should be an int"
         with pytest.raises(TypeError):
-            op2.Sparsity(smap, smap, 'illegaldim')
+            op2.Sparsity((smap, smap), 'illegaldim')
 
     def test_sparsity_properties(self, backend, smap):
         "Sparsity constructor should correctly set attributes"
