@@ -654,6 +654,7 @@ class Sparsity(object):
     def __init__(self, maps, dims, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
 
+        maps = (maps,maps) if isinstance(maps, Map) else maps
         lmaps = (maps,) if isinstance(maps[0], Map) else maps
         self._rmaps, self._cmaps = map (lambda x : as_tuple(x, Map), zip(*lmaps))
 

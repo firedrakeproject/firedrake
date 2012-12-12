@@ -299,6 +299,13 @@ class TestSparsityAPI:
         with pytest.raises(TypeError):
             op2.Sparsity((smap, smap), 'illegaldim')
 
+    def test_sparsity_single_map(self, backend, smap):
+        "Sparsity constructor should accept single Map and turn it into tuple"
+        s = op2.Sparsity(smap, 2, "foo")
+        assert s.maps[0] == (smap, smap)
+        assert s.dims == (2,2)
+        assert s.name == "foo"
+
     def test_sparsity_properties(self, backend, smap):
         "Sparsity constructor should correctly set attributes"
         s = op2.Sparsity((smap, smap), 2, "foo")
