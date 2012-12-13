@@ -645,7 +645,15 @@ IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 """The identity map.  Used to indicate direct access to a :class:`Dat`."""
 
 class Sparsity(object):
-    """OP2 Sparsity, a matrix structure derived from the union of the outer product of pairs of :class:`Map` objects."""
+    """OP2 Sparsity, a matrix structure derived from the union of the outer product of pairs of :class:`Map` objects.
+
+    :param maps: :class:`Maps` to build the :class:`Sparsity` from
+    :type maps: :class:`Map` (used for rows and columns), tuple of
+        :class:`Maps` or list of tuples of :class:`Maps`
+    :param dims: row and column dimensions of a single :class:`Sparsity` entry
+    :type dims: integer or tuple of integers
+    :param string name: user-defined label
+    """
 
     _globalcount = 0
 
