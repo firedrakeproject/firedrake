@@ -309,6 +309,11 @@ class TestSparsityAPI:
         s = op2.Sparsity((m, m), 2, "foo")
         assert s.maps[0] == (m, m) and s.dims == (2,2) and s.name == "foo"
 
+    def test_sparsity_map_pair_different_dataset(self, backend, m, md):
+        "Sparsity constructor should accept a pair of maps"
+        s = op2.Sparsity((m, md), 2, "foo")
+        assert s.maps[0] == (m, md) and s.dims == (2,2) and s.name == "foo"
+
     def test_sparsity_multiple_map_pairs(self, backend, m):
         "Sparsity constructor should accept tuple of pairs of maps"
         s = op2.Sparsity(((m, m), (m, m)),
