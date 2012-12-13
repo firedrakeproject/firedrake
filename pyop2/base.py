@@ -684,7 +684,7 @@ class Sparsity(object):
         self._ncols = self._cmaps[0].dataset.size
 
         self._dims = as_tuple(dims, int, 2)
-        self._name = name or "global_%d" % Sparsity._globalcount
+        self._name = name or "sparsity_%d" % Sparsity._globalcount
         self._lib_handle = None
         Sparsity._globalcount += 1
 
