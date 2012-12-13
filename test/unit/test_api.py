@@ -302,23 +302,18 @@ class TestSparsityAPI:
     def test_sparsity_single_map(self, backend, m):
         "Sparsity constructor should accept single Map and turn it into tuple"
         s = op2.Sparsity(m, 2, "foo")
-        assert s.maps[0] == (m, m)
-        assert s.dims == (2,2)
-        assert s.name == "foo"
+        assert s.maps[0] == (m, m) and s.dims == (2,2) and s.name == "foo"
 
     def test_sparsity_map_pair(self, backend, m):
         "Sparsity constructor should accept a pair of maps"
         s = op2.Sparsity((m, m), 2, "foo")
-        assert s.maps[0] == (m, m)
-        assert s.dims == (2,2)
-        assert s.name == "foo"
+        assert s.maps[0] == (m, m) and s.dims == (2,2) and s.name == "foo"
 
     def test_sparsity_multiple_map_pairs(self, backend, m):
         "Sparsity constructor should accept tuple of pairs of maps"
         s = op2.Sparsity(((m, m), (m, m)),
                          1, "foo")
-        assert s.maps == [(m, m), (m, m)]
-        assert s.dims == (1,1)
+        assert s.maps == [(m, m), (m, m)] and s.dims == (1,1)
 
     def test_sparsity_illegal_itersets(self, m, mi, backend):
         "Both maps in a (rmap,cmap) tuple must have same iteration set"
