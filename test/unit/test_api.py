@@ -306,14 +306,14 @@ class TestSparsityAPI:
         assert s.dims == (2,2)
         assert s.name == "foo"
 
-    def test_sparsity_properties(self, backend, smap):
-        "Sparsity constructor should correctly set attributes"
+    def test_sparsity_map_pair(self, backend, smap):
+        "Sparsity constructor should accept a pair of maps"
         s = op2.Sparsity((smap, smap), 2, "foo")
         assert s.maps[0] == (smap, smap)
         assert s.dims == (2,2)
         assert s.name == "foo"
 
-    def test_sparsity_multiple_maps(self, backend, smap):
+    def test_sparsity_multiple_map_pairs(self, backend, smap):
         "Sparsity constructor should accept tuple of pairs of maps"
         s = op2.Sparsity(((smap, smap), (smap, smap)),
                          1, "foo")
@@ -321,6 +321,7 @@ class TestSparsityAPI:
         assert s.dims == (1,1)
 
     def test_sparsity_illegal_itersets(self, backend):
+        "Both maps in a (rmap,cmap) tuple must have same iteration set"
         s = op2.Set(1)
         s2 = op2.Set(2)
         m = op2.Map(s, s2, 1, 0)
@@ -329,6 +330,7 @@ class TestSparsityAPI:
             op2.Sparsity((m, m2), 1)
 
     def test_sparsity_illegal_row_datasets(self, backend):
+        "All row maps must share the same data set"
         s = op2.Set(1)
         s2 = op2.Set(2)
         m = op2.Map(s, s2, 1, 0)
@@ -337,6 +339,7 @@ class TestSparsityAPI:
             op2.Sparsity(((m, m), (m2, m2)), 1)
 
     def test_sparsity_illegal_col_datasets(self, backend):
+        "All column maps must share the same data set"
         s = op2.Set(1)
         s2 = op2.Set(2)
         m = op2.Map(s, s, 1, 0)
