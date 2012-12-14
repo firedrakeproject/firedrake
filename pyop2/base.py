@@ -649,11 +649,12 @@ class Sparsity(object):
     product of pairs of :class:`Map` objects.
 
     :param maps: :class:`Maps` to build the :class:`Sparsity` from
-    :type maps: :class:`Map` - when a single :class:`Map` is given it is used
-        for rows and columns, pair of :class:`Maps` or tuple of pairs of
-        :class:`Maps`
+    :type maps: a pair of :class:`Maps` specifying a row map and a column map,
+        or a tuple of pairs of :class:`Maps` specifying multiple row and
+        column maps - if a single :class:`Map` is passed, it is used as both a
+        row map and a column map
     :param dims: row and column dimensions of a single :class:`Sparsity` entry
-    :type dims: integer (used for rows and columns) or pair of integers
+    :type dims: pair of integers or integer used for rows and columns
     :param string name: user-defined label (optional)
 
     Examples of constructing a Sparsity: ::
