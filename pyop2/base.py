@@ -645,7 +645,24 @@ IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 """The identity map.  Used to indicate direct access to a :class:`Dat`."""
 
 class Sparsity(object):
-    """OP2 Sparsity, a matrix structure derived from the union of the outer product of pairs of :class:`Map` objects."""
+    """OP2 Sparsity, a matrix structure derived from the union of the outer
+    product of pairs of :class:`Map` objects.
+
+    :param maps: :class:`Maps` to build the :class:`Sparsity` from
+    :type maps: a pair of :class:`Maps` specifying a row map and a column map,
+        or a tuple of pairs of :class:`Maps` specifying multiple row and
+        column maps - if a single :class:`Map` is passed, it is used as both a
+        row map and a column map
+    :param dims: row and column dimensions of a single :class:`Sparsity` entry
+    :type dims: pair of integers or integer used for rows and columns
+    :param string name: user-defined label (optional)
+
+    Examples of constructing a Sparsity: ::
+
+        Sparsity(single_map, 1, 'mass')
+        Sparsity((single_rowmap, single_colmap), (2,1))
+        Sparsity(((first_rowmap, first_colmap), (second_rowmap, second_colmap)), 2)
+    """
 
     _globalcount = 0
 
@@ -654,6 +671,7 @@ class Sparsity(object):
     def __init__(self, maps, dims, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
 
+        maps = (maps,maps) if isinstance(maps, Map) else maps
         lmaps = (maps,) if isinstance(maps[0], Map) else maps
         self._rmaps, self._cmaps = map (lambda x : as_tuple(x, Map), zip(*lmaps))
 
@@ -675,7 +693,7 @@ class Sparsity(object):
         self._ncols = self._cmaps[0].dataset.size
 
         self._dims = as_tuple(dims, int, 2)
-        self._name = name or "global_%d" % Sparsity._globalcount
+        self._name = name or "sparsity_%d" % Sparsity._globalcount
         self._lib_handle = None
         Sparsity._globalcount += 1
 

@@ -57,16 +57,8 @@ def dataset():
     return op2.Set(3, 'dataset')
 
 @pytest.fixture
-def m():
-    iterset = op2.Set(2, 'iterset')
-    dataset = op2.Set(3, 'dataset')
+def m(iterset, dataset):
     return op2.Map(iterset,  dataset, 2, [1] * 2 * iterset.size, 'm')
-
-@pytest.fixture
-def smap():
-    iterset = op2.Set(2, 'iterset')
-    dataset = op2.Set(2, 'dataset')
-    return op2.Map(iterset, dataset, 1, [0, 1])
 
 @pytest.fixture
 def const(request):
@@ -75,9 +67,7 @@ def const(request):
     return c
 
 @pytest.fixture
-def sparsity():
-    s = op2.Set(2)
-    m = op2.Map(s, s, 1, [0, 1])
+def sparsity(m):
     return op2.Sparsity((m, m), 1)
 
 class TestInitAPI:
@@ -284,58 +274,72 @@ class TestSparsityAPI:
 
     backends = ['sequential', 'opencl', 'cuda']
 
-    def test_sparsity_illegal_rmap(self, backend, smap):
+    @pytest.fixture
+    def mi(cls, dataset):
+        iterset = op2.Set(3, 'iterset2')
+        return op2.Map(iterset,  dataset, 1, [1] * iterset.size, 'mi')
+
+    @pytest.fixture
+    def md(cls, iterset):
+        dataset = op2.Set(1, 'dataset2')
+        return op2.Map(iterset,  dataset, 1, [1] * iterset.size, 'md')
+
+    def test_sparsity_illegal_rmap(self, backend, m):
         "Sparsity rmap should be a Map"
         with pytest.raises(TypeError):
-            op2.Sparsity('illegalrmap', smap, 1)
+            op2.Sparsity(('illegalrmap', m), 1)
 
-    def test_sparsity_illegal_cmap(self, backend, smap):
+    def test_sparsity_illegal_cmap(self, backend, m):
         "Sparsity cmap should be a Map"
         with pytest.raises(TypeError):
-            op2.Sparsity(smap, 'illegalcmap', 1)
+            op2.Sparsity((m, 'illegalcmap'), 1)
 
-    def test_sparsity_illegal_dim(self, backend, smap):
+    def test_sparsity_illegal_dim(self, backend, m):
         "Sparsity dim should be an int"
         with pytest.raises(TypeError):
-            op2.Sparsity(smap, smap, 'illegaldim')
+            op2.Sparsity((m, m), 'illegaldim')
 
-    def test_sparsity_properties(self, backend, smap):
-        "Sparsity constructor should correctly set attributes"
-        s = op2.Sparsity((smap, smap), 2, "foo")
-        assert s.maps[0] == (smap, smap)
-        assert s.dims == (2,2)
-        assert s.name == "foo"
+    def test_sparsity_single_map(self, backend, m):
+        "Sparsity constructor should accept single Map and turn it into tuple"
+        s = op2.Sparsity(m, 2, "foo")
+        assert s.maps[0] == (m, m) and s.dims == (2,2) and s.name == "foo"
 
-    def test_sparsity_multiple_maps(self, backend, smap):
+    def test_sparsity_map_pair(self, backend, m):
+        "Sparsity constructor should accept a pair of maps"
+        s = op2.Sparsity((m, m), 2, "foo")
+        assert s.maps[0] == (m, m) and s.dims == (2,2) and s.name == "foo"
+
+    def test_sparsity_map_pair_different_dataset(self, backend, m, md):
+        "Sparsity constructor should accept a pair of maps"
+        s = op2.Sparsity((m, md), 2, "foo")
+        assert s.maps[0] == (m, md) and s.dims == (2,2) and s.name == "foo"
+
+    def test_sparsity_multiple_map_pairs(self, backend, m):
         "Sparsity constructor should accept tuple of pairs of maps"
-        s = op2.Sparsity(((smap, smap), (smap, smap)),
+        s = op2.Sparsity(((m, m), (m, m)),
                          1, "foo")
-        assert s.maps == [(smap, smap), (smap, smap)]
-        assert s.dims == (1,1)
+        assert s.maps == [(m, m), (m, m)] and s.dims == (1,1)
 
-    def test_sparsity_illegal_itersets(self, backend):
-        s = op2.Set(1)
-        s2 = op2.Set(2)
-        m = op2.Map(s, s2, 1, 0)
-        m2 = op2.Map(s2, s, 1, [0, 0])
-        with pytest.raises(RuntimeError):
-            op2.Sparsity((m, m2), 1)
+    def test_sparsity_map_pairs_different_itset(self, backend, m, mi):
+        "Sparsity constructor should accept maps with different iteration sets"
+        s = op2.Sparsity(((m, m), (mi, mi)),
+                         1, "foo")
+        assert s.maps == [(m, m), (mi, mi)] and s.dims == (1,1)
 
-    def test_sparsity_illegal_row_datasets(self, backend):
-        s = op2.Set(1)
-        s2 = op2.Set(2)
-        m = op2.Map(s, s2, 1, 0)
-        m2 = op2.Map(s2, s, 1, [0, 0])
+    def test_sparsity_illegal_itersets(self, m, mi, backend):
+        "Both maps in a (rmap,cmap) tuple must have same iteration set"
         with pytest.raises(RuntimeError):
-            op2.Sparsity(((m, m), (m2, m2)), 1)
+            op2.Sparsity((m, mi), 1)
 
-    def test_sparsity_illegal_col_datasets(self, backend):
-        s = op2.Set(1)
-        s2 = op2.Set(2)
-        m = op2.Map(s, s, 1, 0)
-        m2 = op2.Map(s, s2, 1, 0)
+    def test_sparsity_illegal_row_datasets(self, m, md, backend):
+        "All row maps must share the same data set"
         with pytest.raises(RuntimeError):
-            op2.Sparsity(((m, m), (m, m2)), 1)
+            op2.Sparsity(((m, m), (md, m)), 1)
+
+    def test_sparsity_illegal_col_datasets(self, m, md, backend):
+        "All column maps must share the same data set"
+        with pytest.raises(RuntimeError):
+            op2.Sparsity(((m, m), (m, md)), 1)
 
 class TestMatAPI:
     """
