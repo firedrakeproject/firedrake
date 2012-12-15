@@ -8,6 +8,7 @@ REGRESSION_TEST_DIR = $(TEST_BASE_DIR)/regression
 
 TESTHARNESS = $(REGRESSION_TEST_DIR)/testharness.py
 BACKENDS ?= sequential opencl cuda
+OPENCL_CTXS ?= ''
 
 .PHONY : help test unit regression doc update_docs
 
@@ -28,10 +29,20 @@ unit: $(foreach backend,$(BACKENDS), unit_$(backend))
 unit_%:
 	$(PYTEST) $(UNIT_TEST_DIR) --backend=$*
 
+unit_opencl: $(foreach ctx,$(OPENCL_CTXS), opencl_unit_$(ctx))
+
+opencl_unit_%:
+	PYOPENCL_CTX=$* $(PYTEST) $(UNIT_TEST_DIR) --backend=opencl
+
 regression: $(foreach backend,$(BACKENDS), regression_$(backend))
 
 regression_%:
 	$(TESTHARNESS) --backend=$*
+
+regression_opencl: $(foreach ctx,$(OPENCL_CTXS), opencl_regression_$(ctx))
+
+opencl_regression_%:
+	PYOPENCL_CTX=$* $(TESTHARNESS) --backend=opencl
 
 doc:
 	make -C doc/sphinx html
