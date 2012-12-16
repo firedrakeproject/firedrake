@@ -107,12 +107,12 @@ sudo dpkg -i *.deb
 Installing the [AMD OpenCL toolkit][2] (32bit and 64bit systems):
 
 ```
-wget http://developer.amd.com/Downloads/AMD-APP-SDK-v2.7-lnx64.tgz
+wget http://developer.amd.com/wordpress/media/2012/11/AMD-APP-SDK-v2.8-lnx64.tgz
 # on a 32bit system, instead
-# wget http://developer.amd.com/Downloads/AMD-APP-SDK-v2.7-lnx32.tgz
-tar xzf AMD-APP-SDK-v2.7-lnx*.tgz
+# wget http://developer.amd.com/wordpress/media/2012/11/AMD-APP-SDK-v2.8-lnx32.tgz
+tar xzf AMD-APP-SDK-v2.8-lnx*.tgz
 # Install to /usr/local instead of /opt
-sed -ie 's:/opt:/usr/local:g' default-install_lnx.pl
+sed -ie 's:/opt:/usr/local:g' default-install_lnx*.pl
 sudo ./Install-AMD-APP.sh
 ```
 
