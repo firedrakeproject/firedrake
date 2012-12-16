@@ -4,30 +4,54 @@ The main testing platform for PyOP2 is Ubuntu 12.04 64-bit with Python 2.7.3. Ot
 
 ## Dependencies
 
+To install dependencies system-wide use `sudo -E pip install ...`, to install to a user site use `pip install --user ...`. In the following we will use `pip install ...` to mean either.
+
 ### Common
+Common dependencies:
+  * Cython >= 0.17
+  * decorator
+  * instant >= 1.0
+  * numpy >= 1.6
+  * [PETSc](https://bitbucket.org/fr710/petsc-3.3-omp) >= 3.2 with Fortran interface, C++ and OpenMP support
+  * [PETSc4py](https://bitbucket.org/fr710/petsc4py) >= 3.3
+  * PyYAML
+
+Additional Python 2.6 dependencies:
+  * argparse
+  * ordereddict
+
+Install dependencies via `pip`:
 ```
-$ sudo pip install cython decorator pyyaml pytest
-$ sudo pip install argparse # python < 2.7 only
+$ pip install Cython decorator instant numpy pyyaml
+$ pip install argparse ordereddict # python < 2.7 only
 ```
-petsc4py:
+PETSc and petsc4py require environment variables to be set:
 ```
-$ PETSC_CONFIGURE_OPTIONS='--with-fortran-interfaces=1 --with-c++-support' sudo -E pip install petsc
-$ export PETSC_DIR=/path/to/petsc/install
+PETSC_CONFIGURE_OPTIONS="--with-fortran-interfaces=1 --with-c++-support --with-openmp" pip install hg+https://bitbucket.org/fr710/petsc-3.3-omp
+$ unset PETSC_DIR
 $ unset PETSC_ARCH
-$ sudo pip install hg+https://bitbucket.org/fr710/petsc4py#egg=petsc4py
+$ pip install hg+https://bitbucket.org/fr710/petsc4py#egg=petsc4py
 ```
 **Note:** When using PyOP2 with Fluidity it's crucial that both are built against the same PETSc!
 
 ### CUDA backend:
+Dependencies:
+  * codepy >= 2012.1.2
+  * Jinja2
+  * mako
+  * pycparser == 2.08 with [patch](http://code.google.com/p/pycparser/issues/detail?id=79) applied
+  * pycuda revision a6c9b40 or newer
+
 The [cusp library](https://code.google.com/p/cusp-library/) headers need to be in your (CUDA) include path.
 
+Install via `pip`:
 ```
-$ sudo pip install codepy
+$ pip install codepy Jinja2 mako hg+https://bitbucket.org/fr710/pycparser#egg=pycparser-2.08
 ```
 
-You need a version of `pycuda` revision a6c9b40 or newer:
+[pycparser](https://bitbucket.org/fr710/pycparser) includes a [patch](http://code.google.com/p/pycparser/issues/detail?id=79) to be able to use `switch`/`case` statements in your kernels.
 
-Make sure `nvcc` is in your `$PATH` and `libcuda.so` in your `$LIBRARY_PATH` if in a non-standard location.
+pycuda: Make sure `nvcc` is in your `$PATH` and `libcuda.so` in your `$LIBRARY_PATH` if in a non-standard location.
 ```
 $ cd /tmp
 $ git clone http://git.tiker.net/trees/pycuda.git
@@ -43,11 +67,18 @@ $ sudo cp siteconf.py /etc/aksetup-defaults.py
 ```
 
 ### OpenCL backend:
+Dependencies:
+  * Jinja2
+  * mako
+  * pycparser == 2.08 with [patch](http://code.google.com/p/pycparser/issues/detail?id=79) applied
+  * pyopencl >= 2012.1
+
+Install via `pip`:
 ```
-$ sudo pip install pyopencl pycparser ply jinja2 mako
+$ pip install Jinja2 mako hg+https://bitbucket.org/fr710/pycparser#egg=pycparser-2.08 pyopencl>=2012.1
 ```
 
-If you want to be able to use `switch`/`case` statements in your kernels, you need to [apply a patch to your pycparser](http://code.google.com/p/pycparser/issues/detail?id=79).
+[pycparser](https://bitbucket.org/fr710/pycparser) includes a [patch](http://code.google.com/p/pycparser/issues/detail?id=79) to be able to use `switch`/`case` statements in your kernels.
 
 Installing the Intel OpenCL toolkit (64bit systems only):
 
@@ -93,9 +124,19 @@ $ bzr branch lp:~mapdes/ffc/pyop2 $FFC_DIR
 $ export PYTHONPATH=$FFC_DIR:$PYTHONPATH
 ```
 
-This branch of FFC also requires the trunk version of UFL, also added to $PYTHONPATH:
+This branch of FFC also requires the trunk version of UFL, also added to `$PYTHONPATH`:
 
 ```
 $ bzr branch lp:ufl $UFL_DIR
 $ export PYTHONPATH=$UFL_DIR:$PYTHONPATH
+```
+
+Alternatively, install FFC and all dependencies via pip:
+```
+pip install \
+        bzr+ssh://bazaar.launchpad.net/~mapdes/ffc/pyop2#egg=ffc \
+        bzr+ssh://bazaar.launchpad.net/~florian-rathgeber/ufc/python-setup#egg=ufc_utils \
+        bzr+ssh://bazaar.launchpad.net/%2Bbranch/ufl#egg=ufl \
+        bzr+ssh://bazaar.launchpad.net/%2Bbranch/fiat#egg=fiat \
+        https://sourcesup.renater.fr/frs/download.php/2309/ScientificPython-2.8.tar.gz
 ```
