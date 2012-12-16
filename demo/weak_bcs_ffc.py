@@ -175,8 +175,7 @@ op2.par_loop(strongbc_rhs, bdry_nodes,
              bdry(op2.IdentityMap, op2.READ),
              b(bdry_node_node[0], op2.WRITE))
 
-solver = op2.Solver()
-solver.parameters['linear_solver'] = 'gmres'
+solver = op2.Solver(linear_solver='gmres')
 solver.solve(mat, x, b)
 
 # Print solution

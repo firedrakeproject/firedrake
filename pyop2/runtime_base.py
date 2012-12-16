@@ -240,8 +240,8 @@ class ParLoop(base.ParLoop):
 # sequential
 class Solver(base.Solver, PETSc.KSP):
 
-    def __init__(self, parameters=None):
-        super(Solver, self).__init__(parameters)
+    def __init__(self, parameters=None, **kwargs):
+        super(Solver, self).__init__(parameters, **kwargs)
         self.create(PETSc.COMM_WORLD)
 
     def _set_parameters(self):
