@@ -954,6 +954,8 @@ class Solver(object):
 
     def __init__(self, parameters=None, **kwargs):
         self.parameters = DEFAULT_SOLVER_PARAMETERS.copy()
+        if parameters and kwargs:
+            raise RuntimeError("Solver options are set either by parameters or kwargs")
         if parameters:
             self.parameters.update(parameters)
         else:
