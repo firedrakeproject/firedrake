@@ -49,8 +49,18 @@ of your OP2 source tree""")
 OP2_INC = OP2_DIR + '/c/include'
 OP2_LIB = OP2_DIR + '/c/lib'
 
+setup_requires = [
+        'Cython>=0.17',
+        'numpy>=1.6',
+        ]
+install_requires = [
+        'Cython>=0.17',
+        'decorator',
+        'instant>=1.0',
+        'numpy>=1.6',
+        'PyYAML',
+        ]
 version = sys.version_info[:2]
-install_requires = []
 if version < (2, 7) or (3, 0) <= version <= (3, 1):
     install_requires += ['argparse', 'ordereddict']
 
@@ -74,6 +84,7 @@ setup(name='PyOP2',
             'Programming Language :: Python :: 2.6',
             'Programming Language :: Python :: 2.7',
             ],
+      setup_requires=setup_requires,
       install_requires=install_requires,
       packages=['pyop2','pyop2_utils'],
       package_dir={'pyop2':'pyop2','pyop2_utils':'pyop2_utils'},
