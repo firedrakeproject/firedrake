@@ -34,7 +34,6 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from setuptools import setup
-from Cython.Distutils import build_ext, Extension
 import numpy
 import os, sys
 
@@ -49,12 +48,32 @@ of your OP2 source tree""")
 OP2_INC = OP2_DIR + '/c/include'
 OP2_LIB = OP2_DIR + '/c/lib'
 
+# If Cython is available, built the extension module from the Cython source
+try:
+    from Cython.Distutils import build_ext, Extension
+    cmdclass = {'build_ext' : build_ext}
+    ext_modules = [Extension('pyop2.op_lib_core',
+                             ['pyop2/op_lib_core.pyx', 'pyop2/_op_lib_core.pxd', 'pyop2/sparsity_utils.cxx'],
+                             pyrex_include_dirs=['pyop2'],
+                             include_dirs=['pyop2', OP2_INC, numpy.get_include()],
+                             library_dirs=[OP2_LIB],
+                             runtime_library_dirs=[OP2_LIB],
+                             libraries=["op2_seq"])]
+# Else we require the Cython-compiled .c file to be present and use that
+except ImportError:
+    from setuptools import Extension
+    cmdclass = {}
+    ext_modules = [Extension('pyop2.op_lib_core',
+                             ['pyop2/op_lib_core.c', 'pyop2/sparsity_utils.cxx'],
+                             include_dirs=['pyop2', OP2_INC, numpy.get_include()],
+                             library_dirs=[OP2_LIB],
+                             runtime_library_dirs=[OP2_LIB],
+                             libraries=["op2_seq"])]
+
 setup_requires = [
-        'Cython>=0.17',
         'numpy>=1.6',
         ]
 install_requires = [
-        'Cython>=0.17',
         'decorator',
         'instant>=1.0',
         'numpy>=1.6',
@@ -89,11 +108,5 @@ setup(name='PyOP2',
       packages=['pyop2','pyop2_utils'],
       package_dir={'pyop2':'pyop2','pyop2_utils':'pyop2_utils'},
       package_data={'pyop2': ['assets/*', 'mat_utils.*', 'sparsity_utils.*', '*.pyx', '*.pxd']},
-      cmdclass = {'build_ext' : build_ext},
-      ext_modules=[Extension('pyop2.op_lib_core',
-                             ['pyop2/op_lib_core.pyx', 'pyop2/_op_lib_core.pxd', 'pyop2/sparsity_utils.cxx'],
-                             pyrex_include_dirs=['pyop2'],
-                             include_dirs=['pyop2', OP2_INC, numpy.get_include()],
-                             library_dirs=[OP2_LIB],
-                             runtime_library_dirs=[OP2_LIB],
-                             libraries=["op2_seq"])])
+      cmdclass=cmdclass,
+      ext_modules=ext_modules)
