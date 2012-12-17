@@ -4,6 +4,25 @@ The main testing platform for PyOP2 is Ubuntu 12.04 64-bit with Python 2.7.3.
 Other UNIX-like systems may or may not work. Microsoft Windows is not
 supported.
 
+## OP2-Common
+
+PyOP2 depends on the [OP2-Common](https://github.com/OP2/OP2-Common) library
+(only sequential is needed), which is built as follows:
+
+```
+git clone git://github.com/OP2/OP2-Common.git
+cd OP2-Common/op2/c
+./cmake.local -DOP2_WITH_CUDA=0 -DOP2_WITH_HDF5=0 -DOP2_WITH_MPI=0 -DOP2_WITH_OPENMP=0
+cd ..
+export OP2_DIR=`pwd`
+```
+
+For further instructions refer to the [OP2-Common README]
+(https://github.com/OP2/OP2-Common/blob/master/op2/c/README).
+
+If you already have OP2-Common installed, make sure `OP2_DIR` is exported or
+the PyOP2 setup will fail.
+
 ## Dependencies
 
 To install dependencies system-wide use `sudo -E pip install ...`, to install
