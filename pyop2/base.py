@@ -952,10 +952,14 @@ class Solver(object):
     passed to the underlying linear algebra library when the ``solve`` method
     is called."""
 
-    def __init__(self, parameters=None):
+    def __init__(self, parameters=None, **kwargs):
         self.parameters = DEFAULT_SOLVER_PARAMETERS.copy()
+        if parameters and kwargs:
+            raise RuntimeError("Solver options are set either by parameters or kwargs")
         if parameters:
             self.parameters.update(parameters)
+        else:
+            self.parameters.update(kwargs)
 
     def update_parameters(self, parameters):
         self.parameters.update(parameters)

@@ -733,6 +733,41 @@ class TestIllegalItersetMaps:
         with pytest.raises(exceptions.MapValueError):
             base.ParLoop(kernel, set1(3,3), m((rmap[op2.i[0]], cmap[op2.i[1]]), op2.INC))
 
+class TestSolverAPI:
+    """
+    Test the Solver API.
+    """
+
+    def test_solver_defaults(self, backend):
+        s = op2.Solver()
+        assert s.parameters == base.DEFAULT_SOLVER_PARAMETERS
+
+    def test_set_options_with_params(self, backend):
+        params = {'linear_solver': 'gmres',
+                  'maximum_iterations': 25 }
+        s = op2.Solver(params)
+        assert s.parameters['linear_solver'] == 'gmres' \
+           and s.parameters['maximum_iterations'] == 25
+
+    def test_set_options_with_kwargs(self, backend):
+        s = op2.Solver(linear_solver='gmres', maximum_iterations=25)
+        assert s.parameters['linear_solver'] == 'gmres' \
+           and s.parameters['maximum_iterations'] == 25
+
+    def test_update_parameters(self, backend):
+        s = op2.Solver()
+        params = {'linear_solver': 'gmres',
+                  'maximum_iterations': 25 }
+        s.update_parameters(params)
+        assert s.parameters['linear_solver'] == 'gmres' \
+           and s.parameters['maximum_iterations'] == 25
+
+    def test_set_params_and_kwargs_illegal(self, backend):
+        params = {'linear_solver': 'gmres',
+                  'maximum_iterations': 25 }
+        with pytest.raises(RuntimeError):
+            op2.Solver(params, linear_solver='cgs')
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
