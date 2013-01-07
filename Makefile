@@ -8,7 +8,8 @@ REGRESSION_TEST_DIR = $(TEST_BASE_DIR)/regression
 
 TESTHARNESS = $(REGRESSION_TEST_DIR)/testharness.py
 BACKENDS ?= sequential opencl cuda
-OPENCL_CTXS ?= $(shell python detect_opencl_devices.py)
+OPENCL_ALL_CTXS := $(shell python detect_opencl_devices.py)
+OPENCL_CTXS ?= $(OPENCL_ALL_CTXS)
 
 .PHONY : help test unit regression doc update_docs
 
