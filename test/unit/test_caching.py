@@ -37,8 +37,6 @@ import random
 from pyop2 import device
 from pyop2 import op2
 
-backends = ['opencl', 'sequential', 'cuda']
-
 def _seed():
     return 0.02041724
 

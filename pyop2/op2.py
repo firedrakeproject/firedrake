@@ -48,7 +48,7 @@ def init(**kwargs):
     """Initialise OP2: select the backend and potentially other configuration options.
 
     :arg backend: Set the hardware-specific backend. Current choices
-     are ``"sequential"``, ``"opencl"`` and ``"cuda"``.
+     are ``"sequential"``, ``"openmp"``, ``"opencl"`` and ``"cuda"``.
     :arg debug: The level of debugging output.
 
     .. note::

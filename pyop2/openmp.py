@@ -31,11 +31,12 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""OP2 sequential backend."""
+"""OP2 OpenMP backend."""
 
 import os
 import numpy as np
 import petsc
+import math
 
 from exceptions import *
 from utils import *
@@ -43,6 +44,21 @@ import op_lib_core as core
 from pyop2.utils import OP2_INC, OP2_LIB
 import runtime_base as rt
 from runtime_base import *
+import device
+
+# hard coded value to max openmp threads
+_max_threads = 32
+
+class Mat(rt.Mat):
+    # This is needed for the test harness to check that two Mats on
+    # the same Sparsity share data.
+    @property
+    def _colidx(self):
+        return self._sparsity._colidx
+
+    @property
+    def _rowptr(self):
+        return self._sparsity._rowptr
 
 # Parallel loop API
 
@@ -50,7 +66,7 @@ def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
     ParLoop(kernel, it_space, *args).compute()
 
-class ParLoop(rt.ParLoop):
+class ParLoop(device.ParLoop):
     def compute(self):
         _fun = self.generate_code()
         _args = [self._it_space.size]
@@ -71,12 +87,42 @@ class ParLoop(rt.ParLoop):
         for c in Const._definitions():
             _args.append(c.data)
 
+        part_size = 1024  #TODO: compute partition size
+
+        # Create a plan, for colored execution
+        if [arg for arg in self.args if arg._is_indirect or arg._is_mat]:
+            plan = device.Plan(self._kernel, self._it_space.iterset,
+                               *self._unwound_args,
+                               partition_size=part_size,
+                               matrix_coloring=True)
+
+        else:
+            # Create a fake plan for direct loops.
+            # Make the fake plan according to the number of cores available
+            # to OpenMP
+            class FakePlan:
+                def __init__(self, iset, part_size):
+                    nblocks = int(math.ceil(iset.size / float(part_size)))
+                    self.ncolors = 1
+                    self.ncolblk = np.array([nblocks], dtype=np.int32)
+                    self.blkmap = np.arange(nblocks, dtype=np.int32)
+                    self.nelems = np.array([min(part_size, iset.size - i * part_size) for i in range(nblocks)],
+                                           dtype=np.int32)
+
+            plan = FakePlan(self._it_space.iterset, part_size)
+
+        _args.append(part_size)
+        _args.append(plan.ncolors)
+        _args.append(plan.blkmap)
+        _args.append(plan.ncolblk)
+        _args.append(plan.nelems)
+
         _fun(*_args)
 
     def generate_code(self):
 
         key = self._cache_key
-        _fun = rt._parloop_cache.get(key)
+        _fun = device._parloop_cache.get(key)
 
         if _fun is not None:
             return _fun
@@ -117,11 +163,6 @@ class ParLoop(rt.ParLoop):
             if arg._is_mat:
                 val += ";\nint *%(name)s2 = (int *)(((PyArrayObject *)_%(name)s2)->data)" % \
                            {'name' : c_map_name(arg)}
-            if arg._is_vec_map:
-                val += ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
-                       {'type' : arg.ctype,
-                        'vec_name' : c_vec_name(arg),
-                        'dim' : arg.map.dim}
             return val
 
         def c_ind_data(arg, idx):
@@ -135,7 +176,7 @@ class ParLoop(rt.ParLoop):
         def c_kernel_arg(arg):
             if arg._uses_itspace:
                 if arg._is_mat:
-                    name = "p_%s" % c_arg_name(arg)
+                    name = "p_%s[tid]" % c_arg_name(arg)
                     if arg.data._is_vector_field:
                         return name
                     elif arg.data._is_scalar_field:
@@ -150,8 +191,11 @@ class ParLoop(rt.ParLoop):
                     return c_ind_data(arg, "i_%d" % arg.idx.index)
             elif arg._is_indirect:
                 if arg._is_vec_map:
-                    return c_vec_name(arg)
+                    return "%s[tid]" % c_vec_name(arg)
                 return c_ind_data(arg, arg.idx)
+            elif arg._is_global_reduction:
+                return "%(name)s_l[tid]" % {
+                  'name' : c_arg_name(arg)}
             elif isinstance(arg.data, Global):
                 return c_arg_name(arg)
             else:
@@ -159,10 +203,20 @@ class ParLoop(rt.ParLoop):
                     {'name' : c_arg_name(arg),
                      'dim' : arg.data.cdim}
 
+        def c_vec_dec(arg):
+            val = []
+            if arg._is_vec_map:
+                val.append(";\n%(type)s *%(vec_name)s[%(max_threads)s][%(dim)s]" % \
+                       {'type' : arg.ctype,
+                        'vec_name' : c_vec_name(arg),
+                        'dim' : arg.map.dim,
+                        'max_threads': _max_threads})
+            return ";\n".join(val)
+
         def c_vec_init(arg):
             val = []
             for i in range(arg.map._dim):
-                val.append("%(vec_name)s[%(idx)s] = %(data)s" %
+                val.append("%(vec_name)s[tid][%(idx)s] = %(data)s" %
                            {'vec_name' : c_vec_name(arg),
                             'idx' : i,
                             'data' : c_ind_data(arg, i)} )
@@ -170,7 +224,7 @@ class ParLoop(rt.ParLoop):
 
         def c_addto_scalar_field(arg):
             name = c_arg_name(arg)
-            p_data = 'p_%s' % name
+            p_data = 'p_%s[tid]' % name
             maps = as_tuple(arg.map, Map)
             nrows = maps[0].dim
             ncols = maps[1].dim
@@ -186,7 +240,7 @@ class ParLoop(rt.ParLoop):
 
         def c_addto_vector_field(arg):
             name = c_arg_name(arg)
-            p_data = 'p_%s' % name
+            p_data = 'p_%s[tid]' % name
             maps = as_tuple(arg.map, Map)
             nrows = maps[0].dim
             ncols = maps[1].dim
@@ -228,18 +282,18 @@ class ParLoop(rt.ParLoop):
                 dims = ''.join(["[%d]" % d for d in arg.data.dims])
             else:
                 raise RuntimeError("Don't know how to declare temp array for %s" % arg)
-            return "%s p_%s%s" % (t, c_arg_name(arg), dims)
+            return "%s p_%s[%s]%s" % (t, c_arg_name(arg), _max_threads, dims)
 
         def c_zero_tmp(arg):
             name = "p_" + c_arg_name(arg)
             t = arg.ctype
             if arg.data._is_scalar_field:
                 idx = ''.join(["[i_%d]" % i for i,_ in enumerate(arg.data.dims)])
-                return "%(name)s%(idx)s = (%(t)s)0" % \
+                return "%(name)s[tid]%(idx)s = (%(t)s)0" % \
                     {'name' : name, 't' : t, 'idx' : idx}
             elif arg.data._is_vector_field:
                 size = np.prod(arg.data.dims)
-                return "memset(%(name)s, 0, sizeof(%(t)s) * %(size)s)" % \
+                return "memset(%(name)s[tid], 0, sizeof(%(t)s) * %(size)s)" % \
                     {'name' : name, 't' : t, 'size' : size}
             else:
                 raise RuntimeError("Don't know how to zero temp array for %s" % arg)
@@ -255,6 +309,39 @@ class ParLoop(rt.ParLoop):
             tmp = '%(name)s[%%(i)s] = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[%%(i)s]' % d
             return ';\n'.join([tmp % {'i' : i} for i in range(c.cdim)])
 
+        def c_reduction_dec(arg):
+            return "%(type)s %(name)s_l[%(max_threads)s][%(dim)s]" % \
+              {'type' : arg.ctype,
+               'name' : c_arg_name(arg),
+               'dim' : arg.data.cdim,
+               # Ensure different threads are on different cache lines
+               'max_threads' : _max_threads}
+
+        def c_reduction_init(arg):
+            if arg.access == INC:
+                init = "(%(type)s)0" % {'type' : arg.ctype}
+            else:
+                init = "%(name)s[i]" % {'name' : c_arg_name(arg)}
+            return "for ( int i = 0; i < %(dim)s; i++ ) %(name)s_l[tid][i] = %(init)s" % \
+              {'dim' : arg.data.cdim,
+               'name' : c_arg_name(arg),
+               'init' : init}
+
+        def c_reduction_finalisation(arg):
+            d = {'gbl': c_arg_name(arg),
+                 'local': "%s_l[thread][i]" % c_arg_name(arg)}
+            if arg.access == INC:
+                combine = "%(gbl)s[i] += %(local)s" % d
+            elif arg.access == MIN:
+                combine = "%(gbl)s[i] = %(gbl)s[i] < %(local)s ? %(gbl)s[i] : %(local)s" % d
+            elif arg.access == MAX:
+                combine = "%(gbl)s[i] = %(gbl)s[i] > %(local)s ? %(gbl)s[i] : %(local)s" % d
+            return """
+            for ( int thread = 0; thread < nthread; thread++ ) {
+                for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
+            }""" % {'combine' : combine,
+                    'dim' : arg.data.cdim}
+
         args = self.args
         _wrapper_args = ', '.join([c_wrapper_arg(arg) for arg in args])
 
@@ -266,6 +353,8 @@ class ParLoop(rt.ParLoop):
         _kernel_user_args = [c_kernel_arg(arg) for arg in args]
         _kernel_it_args   = ["i_%d" % d for d in range(len(self._it_space.extents))]
         _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
+        _vec_decs = ';\n'.join([c_vec_dec(arg) for arg in args \
+                                 if not arg._is_mat and arg._is_vec_map])
         _vec_inits = ';\n'.join([c_vec_init(arg) for arg in args \
                                  if not arg._is_mat and arg._is_vec_map])
 
@@ -285,6 +374,10 @@ class ParLoop(rt.ParLoop):
         _set_size_dec = 'int %(set)s_size = (int)PyInt_AsLong(_%(set)s_size);' % {'set' : self._it_space.name}
         _set_size = '%(set)s_size' % {'set' : self._it_space.name}
 
+        _reduction_decs = ';\n'.join([c_reduction_dec(arg) for arg in args if arg._is_global_reduction])
+        _reduction_inits = ';\n'.join([c_reduction_init(arg) for arg in args if arg._is_global_reduction])
+        _reduction_finalisations = '\n'.join([c_reduction_finalisation(arg) for arg in args if arg._is_global_reduction])
+
         if len(Const._defs) > 0:
             _const_args = ', '
             _const_args += ', '.join([c_const_arg(c) for c in Const._definitions()])
@@ -292,22 +385,63 @@ class ParLoop(rt.ParLoop):
             _const_args = ''
         _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
         wrapper = """
-            void wrap_%(kernel_name)s__(%(set_size_wrapper)s, %(wrapper_args)s %(const_args)s) {
+            void wrap_%(kernel_name)s__(%(set_size_wrapper)s, %(wrapper_args)s %(const_args)s, PyObject* _part_size, PyObject* _ncolors, PyObject* _blkmap, PyObject* _ncolblk, PyObject* _nelems) {
+
+            int part_size = (int)PyInt_AsLong(_part_size);
+            int ncolors = (int)PyInt_AsLong(_ncolors);
+            int* blkmap = (int *)(((PyArrayObject *)_blkmap)->data);
+            int* ncolblk = (int *)(((PyArrayObject *)_ncolblk)->data);
+            int* nelems = (int *)(((PyArrayObject *)_nelems)->data);
+
             %(set_size_dec)s;
             %(wrapper_decs)s;
-            %(tmp_decs)s;
             %(const_inits)s;
-            for ( int i = 0; i < %(set_size)s; i++ ) {
-            %(vec_inits)s;
-            %(itspace_loops)s
-            %(zero_tmps)s;
-            %(kernel_name)s(%(kernel_args)s);
-            %(addtos_vector_field)s;
-            %(itspace_loop_close)s
-            %(addtos_scalar_field)s;
+            %(vec_decs)s;
+            %(tmp_decs)s;
+
+            #ifdef _OPENMP
+            int nthread = omp_get_max_threads();
+            #else
+            int nthread = 1;
+            #endif
+
+            %(reduction_decs)s;
+
+            #pragma omp parallel default(shared)
+            {
+              int tid = omp_get_thread_num();
+              %(reduction_inits)s;
             }
-        %(assembles)s;
-            }"""
+
+            int boffset = 0;
+            for ( int __col  = 0; __col < ncolors; __col++ ) {
+              int nblocks = ncolblk[__col];
+
+              #pragma omp parallel default(shared)
+              {
+                int tid = omp_get_thread_num();
+
+                #pragma omp for schedule(static)
+                for ( int __b = boffset; __b < (boffset + nblocks); __b++ ) {
+                  int bid = blkmap[__b];
+                  int nelem = nelems[bid];
+                  int efirst = bid * part_size;
+                  for (int i = efirst; i < (efirst + nelem); i++ ) {
+                    %(vec_inits)s;
+                    %(itspace_loops)s
+                    %(zero_tmps)s;
+                    %(kernel_name)s(%(kernel_args)s);
+                    %(addtos_vector_field)s;
+                    %(itspace_loop_close)s
+                    %(addtos_scalar_field)s;
+                  }
+                }
+              }
+              %(reduction_finalisations)s
+              boffset += nblocks;
+            }
+            %(assembles)s;
+          }"""
 
         if any(arg._is_soa for arg in args):
             kernel_code = """
@@ -331,11 +465,15 @@ class ParLoop(rt.ParLoop):
                                        'itspace_loops' : _itspace_loops,
                                        'itspace_loop_close' : _itspace_loop_close,
                                        'vec_inits' : _vec_inits,
+                                       'vec_decs' : _vec_decs,
                                        'zero_tmps' : _zero_tmps,
                                        'kernel_args' : _kernel_args,
                                        'addtos_vector_field' : _addtos_vector_field,
                                        'addtos_scalar_field' : _addtos_scalar_field,
-                                       'assembles' : _assembles}
+                                       'assembles' : _assembles,
+                                       'reduction_decs' : _reduction_decs,
+                                       'reduction_inits' : _reduction_inits,
+                                       'reduction_finalisations' : _reduction_finalisations}
 
         # We need to build with mpicc since that's required by PETSc
         cc = os.environ.get('CC')
@@ -347,13 +485,16 @@ class ParLoop(rt.ParLoop):
                                  wrap_headers=["mat_utils.h"],
                                  library_dirs=[OP2_LIB, petsc.get_petsc_dir()+'/lib'],
                                  libraries=['op2_seq', 'petsc'],
-                                 sources=["mat_utils.cxx"])
+                                 sources=["mat_utils.cxx"],
+                                 cppargs=['-fopenmp'],
+                                 system_headers=['omp.h'],
+                                 lddargs=['-fopenmp'])
         if cc:
             os.environ['CC'] = cc
         else:
             os.environ.pop('CC')
 
-        rt._parloop_cache[key] = _fun
+        device._parloop_cache[key] = _fun
         return _fun
 
 def _setup():

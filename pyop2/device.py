@@ -40,6 +40,7 @@ except ImportError:
 import numpy
 import op_lib_core as core
 import runtime_base as op2
+import base
 from runtime_base import *
 from runtime_base import _parloop_cache, _empty_parloop_cache
 from runtime_base import _parloop_cache_size
@@ -303,7 +304,10 @@ class Plan(core.op_plan):
         # so just return.
         if getattr(self, '_cached', False):
             return
-        core.op_plan.__init__(self, kernel, iset, *args, **kwargs)
+        # The C plan function does not handle mat arguments but we still need
+        # them later for the matrix coloring fix
+        non_mat_args = [arg for arg in args if not arg._is_mat]
+        core.op_plan.__init__(self, kernel, iset, *non_mat_args, **kwargs)
         ps = kwargs.get('partition_size', 0)
         mc = kwargs.get('matrix_coloring', False)
         key = Plan._cache_key(iset,
@@ -381,9 +385,9 @@ class Plan(core.op_plan):
 
         cds_work = dict()
         for cd in cds.iterkeys():
-            if isinstance(cd, Dat):
+            if isinstance(cd, base.Dat):
                 s = cd.dataset.size
-            elif isinstance(cd, Mat):
+            elif isinstance(cd, base.Mat):
                 s = cd.sparsity.maps[0][0].dataset.size
             cds_work[cd] = numpy.empty((s,), dtype=numpy.uint32)
 
@@ -472,7 +476,7 @@ class Plan(core.op_plan):
             base_color += 32
 
         self._fixed_ncolors = max(pcolors) + 1
-        self._fixed_ncolblk = numpy.bincount(pcolors)
+        self._fixed_ncolblk = numpy.bincount(pcolors).astype(numpy.int32)
         self._fixed_blkmap = numpy.argsort(pcolors, kind='mergesort').astype(numpy.int32)
 
     @property
