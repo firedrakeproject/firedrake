@@ -243,6 +243,10 @@ class Solver(base.Solver, PETSc.KSP):
     def __init__(self, parameters=None, **kwargs):
         super(Solver, self).__init__(parameters, **kwargs)
         self.create(PETSc.COMM_WORLD)
+        converged_reason = self.ConvergedReason()
+        self._reasons = dict([(getattr(converged_reason,r), r) \
+                              for r in dir(converged_reason) \
+                              if not r.startswith('_')])
 
     def _set_parameters(self):
         self.setType(self.parameters['linear_solver'])
@@ -259,6 +263,9 @@ class Solver(base.Solver, PETSc.KSP):
         self.setOperators(A.handle)
         # Not using super here since the MRO would call base.Solver.solve
         PETSc.KSP.solve(self, pb, px)
+        r = self.getConvergedReason()
         if cfg.debug:
-            print "Converged reason", self.getConvergedReason()
-            print "Iterations", self.getIterationNumber()
+            print "Converged reason: %s" % self._reasons[r]
+            print "Iterations: %s" % self.getIterationNumber()
+        if r < 0:
+            raise RuntimeError("KSP Solver failed to converge: %s" % self._reasons[r])
