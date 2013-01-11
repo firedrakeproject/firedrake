@@ -268,4 +268,8 @@ class Solver(base.Solver, PETSc.KSP):
             print "Converged reason: %s" % self._reasons[r]
             print "Iterations: %s" % self.getIterationNumber()
         if r < 0:
-            raise RuntimeError("KSP Solver failed to converge: %s" % self._reasons[r])
+            if self.parameters['error_on_nonconvergence']:
+                raise RuntimeError("KSP Solver failed to converge: %s" % self._reasons[r])
+            else:
+                from warnings import warn
+                warn("KSP Solver failed to converge: %s" % self._reasons[r])
