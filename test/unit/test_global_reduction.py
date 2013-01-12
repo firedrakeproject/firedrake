@@ -37,8 +37,6 @@ from numpy.testing import assert_allclose
 
 from pyop2 import op2
 
-backends = ['sequential', 'opencl', 'cuda']
-
 # Large enough that there is more than one block and more than one
 # thread per element in device backends
 nelems = 4096

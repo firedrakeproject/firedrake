@@ -38,7 +38,7 @@ from random import randrange
 from pyop2 import device
 from pyop2 import op2
 
-backends = ['opencl']
+backends = ['opencl', 'openmp']
 
 # Data type
 valuetype = numpy.float64

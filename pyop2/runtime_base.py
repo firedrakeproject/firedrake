@@ -87,6 +87,37 @@ class Set(base.Set):
 class Dat(base.Dat):
     """OP2 vector data. A ``Dat`` holds a value for every member of a :class:`Set`."""
 
+    def __iadd__(self, other):
+        """Pointwise addition of fields."""
+        self._data += as_type(other.data, self.dtype)
+        return self
+
+    def __isub__(self, other):
+        """Pointwise subtraction of fields."""
+        self._data -= as_type(other.data, self.dtype)
+        return self
+
+    def __imul__(self, other):
+        """Pointwise multiplication or scaling of fields."""
+        if np.isscalar(other):
+            self._data *= as_type(other, self.dtype)
+        else:
+            self._data *= as_type(other.data, self.dtype)
+        return self
+
+    def __idiv__(self, other):
+        """Pointwise division or scaling of fields."""
+        if np.isscalar(other):
+            self._data /= as_type(other, self.dtype)
+        else:
+            self._data /= as_type(other.data, self.dtype)
+        return self
+
+    @property
+    def norm(self):
+        """The L2-norm on the flattened vector."""
+        return np.linalg.norm(self._data)
+
     @classmethod
     def fromhdf5(cls, dataset, f, name):
         slot = f[name]

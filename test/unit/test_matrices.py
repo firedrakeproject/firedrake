@@ -37,8 +37,6 @@ from numpy.testing import assert_allclose
 
 from pyop2 import op2
 
-backends = ['sequential', 'opencl', 'cuda']
-
 # Data type
 valuetype = numpy.float64
 

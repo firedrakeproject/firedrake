@@ -38,8 +38,6 @@ from pyop2 import op2
 
 size = 8
 
-backends = ['sequential', 'opencl', 'cuda']
-
 class TestConstant:
     """
     Tests of OP2 Constants
