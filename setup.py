@@ -34,6 +34,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from setuptools import setup
+from distutils.extension import Extension
 import numpy
 import os, sys
 
@@ -50,18 +51,16 @@ OP2_LIB = OP2_DIR + '/c/lib'
 
 # If Cython is available, built the extension module from the Cython source
 try:
-    from Cython.Distutils import build_ext, Extension
+    from Cython.Distutils import build_ext
     cmdclass = {'build_ext' : build_ext}
     ext_modules = [Extension('pyop2.op_lib_core',
                              ['pyop2/op_lib_core.pyx', 'pyop2/_op_lib_core.pxd', 'pyop2/sparsity_utils.cxx'],
-                             pyrex_include_dirs=['pyop2'],
                              include_dirs=['pyop2', OP2_INC, numpy.get_include()],
                              library_dirs=[OP2_LIB],
                              runtime_library_dirs=[OP2_LIB],
                              libraries=["op2_seq"])]
 # Else we require the Cython-compiled .c file to be present and use that
 except ImportError:
-    from setuptools import Extension
     cmdclass = {}
     ext_modules = [Extension('pyop2.op_lib_core',
                              ['pyop2/op_lib_core.c', 'pyop2/sparsity_utils.cxx'],
