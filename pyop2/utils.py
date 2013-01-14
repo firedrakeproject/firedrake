@@ -250,6 +250,19 @@ def comment_remover(text):
                          re.DOTALL | re.MULTILINE)
     return re.sub(pattern, replacer, text)
 
+def get_petsc_dir():
+    try:
+        return os.environ['PETSC_DIR']
+    except KeyError:
+        try:
+            import petsc
+            return petsc.get_petsc_dir()
+        except ImportError:
+            sys.exit("""Error: Could not find PETSc library.
+
+Set the environment variable PETSC_DIR to your local PETSc base
+directory or install PETSc from PyPI: pip install petsc""")
+
 try:
     OP2_DIR = os.environ['OP2_DIR']
 except KeyError:
