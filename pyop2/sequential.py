@@ -35,12 +35,10 @@
 
 import os
 import numpy as np
-import petsc
 
 from exceptions import *
 from utils import *
 import op_lib_core as core
-from pyop2.utils import OP2_INC, OP2_LIB
 import runtime_base as rt
 from runtime_base import *
 
@@ -342,10 +340,10 @@ class ParLoop(rt.ParLoop):
         os.environ['CC'] = 'mpicc'
         _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
                                  additional_definitions = _const_decs + kernel_code,
-                                 include_dirs=[OP2_INC, petsc.get_petsc_dir()+'/include'],
+                                 include_dirs=[OP2_INC, get_petsc_dir()+'/include'],
                                  source_directory=os.path.dirname(os.path.abspath(__file__)),
                                  wrap_headers=["mat_utils.h"],
-                                 library_dirs=[OP2_LIB, petsc.get_petsc_dir()+'/lib'],
+                                 library_dirs=[OP2_LIB, get_petsc_dir()+'/lib'],
                                  libraries=['op2_seq', 'petsc'],
                                  sources=["mat_utils.cxx"])
         if cc:
