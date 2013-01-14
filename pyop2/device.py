@@ -264,7 +264,9 @@ class Global(DeviceDataMixin, op2.Global):
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
 class Map(op2.Map):
-    def __init__(self, iterset, dataset, dim, values, name=None):
+    def __init__(self, iterset, dataset, dim, values=None, name=None):
+        if values is None:
+            raise MapValueError("Map values must be populated.")
         op2.Map.__init__(self, iterset, dataset, dim, values, name)
 
     def _to_device(self):
