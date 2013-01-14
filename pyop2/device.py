@@ -265,6 +265,11 @@ class Global(DeviceDataMixin, op2.Global):
 
 class Map(op2.Map):
     def __init__(self, iterset, dataset, dim, values=None, name=None):
+        # The op2.Map base class allows not passing values. We do not allow
+        # that on the device, but want to keep the API consistent. So if the
+        # user doesn't pass values, we fail with MapValueError rather than
+        # a (confusing) error telling the user the function requires
+        # additional parameters
         if values is None:
             raise MapValueError("Map values must be populated.")
         op2.Map.__init__(self, iterset, dataset, dim, values, name)
