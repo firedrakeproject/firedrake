@@ -186,6 +186,10 @@ class Sparsity(base.Sparsity):
     def __init__(self, maps, dims, name=None):
         if getattr(self, '_cached', False):
             return
+        for m in maps:
+            for n in as_tuple(m, Map):
+                if len(n.values) == 0:
+                    raise MapValueError("Unpopulated map values when trying to build sparsity.")
         super(Sparsity, self).__init__(maps, dims, name)
         key = (maps, as_tuple(dims, int, 2))
         self._cached = True

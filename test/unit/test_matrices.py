@@ -36,6 +36,7 @@ import numpy
 from numpy.testing import assert_allclose
 
 from pyop2 import op2
+from pyop2.exceptions import MapValueError
 
 # Data type
 valuetype = numpy.float64
@@ -59,6 +60,12 @@ class TestSparsity:
         assert all(sparsity._rowptr == [0, 4, 8, 12, 16, 21])
         assert all(sparsity._colidx == [ 0, 1, 3, 4, 0, 1, 2, 4, 1, 2, \
                                          3, 4, 0, 2, 3, 4, 0, 1, 2, 3, 4 ])
+
+    def test_sparsity_null_maps(self, backend):
+        s=op2.Set(5)
+        with pytest.raises(MapValueError):
+            m=op2.Map(s,s,1)
+            sp=op2.Sparsity((m,m), 1)
 
 class TestMatrices:
     """
