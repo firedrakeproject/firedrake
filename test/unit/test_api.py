@@ -254,14 +254,14 @@ class TestDatAPI:
         "Attempting to set values through the RO accessor should raise an error."
         d = op2.Dat(set, 2, range(2 * set.size), dtype=np.int32)
         x = d.data_ro
-        with pytest.raises(RuntimeError):
+        with pytest.raises((RuntimeError, ValueError)):
             x[0] = 1
 
     def test_dat_ro_write_accessor(self, backend, set):
         "Re-accessing the data in writeable form should be allowed."
         d = op2.Dat(set, 1, range(set.size), dtype=np.int32)
         x = d.data_ro
-        with pytest.raises(RuntimeError):
+        with pytest.raises((RuntimeError, ValueError)):
             x[0] = 1
         x = d.data
         x[0] = -100
