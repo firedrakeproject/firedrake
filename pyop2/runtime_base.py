@@ -302,9 +302,12 @@ class Solver(base.Solver, PETSc.KSP):
         if cfg.debug:
             print "Converged reason: %s" % self._reasons[r]
             print "Iterations: %s" % self.getIterationNumber()
+            print "Residual norm: %s" % self.getResidualNorm()
         if r < 0:
+            msg = "KSP Solver failed to converge in %d iterations: %s (Residual norm: %e)" \
+                    % (self.getIterationNumber(), self._reasons[r], self.getResidualNorm())
             if self.parameters['error_on_nonconvergence']:
-                raise RuntimeError("KSP Solver failed to converge: %s" % self._reasons[r])
+                raise RuntimeError(msg)
             else:
                 from warnings import warn
-                warn("KSP Solver failed to converge: %s" % self._reasons[r])
+                warn(msg)
