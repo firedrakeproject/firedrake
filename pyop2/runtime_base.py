@@ -275,6 +275,8 @@ class ParLoop(base.ParLoop):
 # sequential
 class Solver(base.Solver, PETSc.KSP):
 
+    _cnt = 0
+
     def __init__(self, parameters=None, **kwargs):
         super(Solver, self).__init__(parameters, **kwargs)
         self.create(PETSc.COMM_WORLD)
@@ -307,6 +309,18 @@ class Solver(base.Solver, PETSc.KSP):
         PETSc.KSP.solve(self, pb, px)
         if self.parameters['monitor_convergence']:
             self.cancelMonitor()
+            if self.parameters['plot_convergence']:
+                try:
+                    import pylab
+                    pylab.semilogy(self.reshist)
+                    pylab.title('Convergence history')
+                    pylab.xlabel('Iteration')
+                    pylab.ylabel('Residual norm')
+                    pylab.savefig('%sreshist_%04d.png' % (self.parameters['plot_prefix'], Solver._cnt))
+                    Solver._cnt += 1
+                except ImportError:
+                    from warnings import warn
+                    warn("pylab not available, not plotting convergence history.")
         r = self.getConvergedReason()
         if cfg.debug:
             print "Converged reason: %s" % self._reasons[r]

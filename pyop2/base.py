@@ -947,6 +947,8 @@ DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
                              'divergence_tolerance': 1.0e+4,
                              'maximum_iterations': 1000,
                              'monitor_convergence': False,
+                             'plot_convergence': False,
+                             'plot_prefix': '',
                              'error_on_nonconvergence': True}
 
 class Solver(object):
