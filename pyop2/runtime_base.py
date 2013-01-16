@@ -296,6 +296,7 @@ class Solver(base.Solver, PETSc.KSP):
         px = PETSc.Vec().createWithArray(x.data)
         pb = PETSc.Vec().createWithArray(b.data)
         self.setOperators(A.handle)
+        self.setFromOptions()
         # Not using super here since the MRO would call base.Solver.solve
         PETSc.KSP.solve(self, pb, px)
         r = self.getConvergedReason()
