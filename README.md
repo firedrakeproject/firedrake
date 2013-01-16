@@ -65,7 +65,7 @@ Dependencies:
   * codepy >= 2012.1.2
   * Jinja2
   * mako
-  * pycparser == 2.08 with [patch][1] applied
+  * pycparser
   * pycuda revision a6c9b40 or newer
 
 The [cusp library](https://code.google.com/p/cusp-library/) headers need to be
@@ -73,11 +73,8 @@ in your (CUDA) include path.
 
 Install via `pip`:
 ```
-pip install codepy Jinja2 mako hg+https://bitbucket.org/fr710/pycparser#egg=pycparser-2.08
+pip install codepy Jinja2 mako pycparser
 ```
-
-Above version of [pycparser](https://bitbucket.org/fr710/pycparser) includes a
-[patch][1] to be able to use `switch`/`case` statements in your kernels.
 
 pycuda: Make sure `nvcc` is in your `$PATH` and `libcuda.so` in your
 `$LIBRARY_PATH` if in a non-standard location.
@@ -99,17 +96,13 @@ sudo cp siteconf.py /etc/aksetup-defaults.py
 Dependencies:
   * Jinja2
   * mako
-  * pycparser == 2.08 with [patch][1] applied
+  * pycparser
   * pyopencl >= 2012.1
 
 Install via `pip`:
 ```
-pip install Jinja2 mako pyopencl>=2012.1 \
-  hg+https://bitbucket.org/fr710/pycparser#egg=pycparser-2.08
+pip install Jinja2 mako pyopencl>=2012.1 pycparser
 ```
-
-Above version of [pycparser](https://bitbucket.org/fr710/pycparser) includes a
-[patch][1] to be able to use `switch`/`case` statements in your kernels.
 
 Installing the Intel OpenCL toolkit (64bit systems only):
 
@@ -123,7 +116,7 @@ fakeroot alien *.rpm
 sudo dpkg -i *.deb
 ```
 
-Installing the [AMD OpenCL toolkit][2] (32bit and 64bit systems):
+Installing the [AMD OpenCL toolkit][1] (32bit and 64bit systems):
 
 ```
 wget http://developer.amd.com/wordpress/media/2012/11/AMD-APP-SDK-v2.8-lnx64.tgz
@@ -173,5 +166,4 @@ pip install \
   https://sourcesup.renater.fr/frs/download.php/2309/ScientificPython-2.8.tar.gz
 ```
 
-[1]: http://code.google.com/p/pycparser/issues/detail?id=79
-[2]: http://developer.amd.com/tools/heterogeneous-computing/amd-accelerated-parallel-processing-app-sdk/
+[1]: http://developer.amd.com/tools/heterogeneous-computing/amd-accelerated-parallel-processing-app-sdk/
