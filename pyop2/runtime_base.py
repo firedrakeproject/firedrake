@@ -297,8 +297,16 @@ class Solver(base.Solver, PETSc.KSP):
         pb = PETSc.Vec().createWithArray(b.data)
         self.setOperators(A.handle)
         self.setFromOptions()
+        if self.parameters['monitor_convergence']:
+            self.reshist = []
+            def monitor(ksp, its, norm):
+                self.reshist.append(norm)
+                print "%3d KSP Residual norm %14.12e" % (its, norm)
+            self.setMonitor(monitor)
         # Not using super here since the MRO would call base.Solver.solve
         PETSc.KSP.solve(self, pb, px)
+        if self.parameters['monitor_convergence']:
+            self.cancelMonitor()
         r = self.getConvergedReason()
         if cfg.debug:
             print "Converged reason: %s" % self._reasons[r]
