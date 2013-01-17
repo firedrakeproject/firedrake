@@ -188,14 +188,48 @@ class Arg(object):
 class Set(object):
     """OP2 set.
 
-    When the set is employed as an iteration space in a :func:`par_loop`, the extent of any local iteration space within each set entry is indicated in brackets. See the example in :func:`pyop2.op2.par_loop` for more details.
+    When the set is employed as an iteration space in a
+    :func:`par_loop`, the extent of any local iteration space within
+    each set entry is indicated in brackets. See the example in
+    :func:`pyop2.op2.par_loop` for more details.
+
+    The size of the set can either be an integer, or a list of four
+    integers.  The latter case is used for running in parallel where
+    we distinguish between:
+
+      - CORE (owned and not touching halo)
+      - OWNED (owned, touching halo)
+      - EXECUTE HALO (not owned, but executed over redundantly)
+      - NON EXECUTE HALO (not owned, read when executing in the
+                          execute halo)
+
+    If a single integer is passed, we assume that we're running in
+    serial and there is no distinction.
+
+    The division of set elements is:
+
+    [0, CORE)
+    [CORE, OWNED)
+    [OWNED, EXECUTE HALO)
+    [EXECUTE HALO, NON EXECUTE HALO).
+
     """
 
     _globalcount = 0
 
+    CORE_SIZE = 0
+    OWNED_SIZE = 1
+    IMPORT_EXEC_SIZE = 2
+    IMPORT_NON_EXEC_SIZE = 3
     @validate_type(('name', str, NameTypeError))
     def __init__(self, size=None, name=None):
-        self._size = size
+        if type(size) is int:
+            size = [size]*4
+        size = as_tuple(size, int, 4)
+        self._core_size = size[Set.CORE_SIZE]
+        self._size = size[Set.OWNED_SIZE]
+        self._ieh_size = size[Set.IMPORT_EXEC_SIZE]
+        self._inh_size = size[Set.IMPORT_NON_EXEC_SIZE]
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = None
         Set._globalcount += 1
@@ -204,9 +238,28 @@ class Set(object):
         return IterationSpace(self, dims)
 
     @property
+    def core_size(self):
+        """Core set size.  Owned elements not touching halo elements."""
+        return self._core_size
+
+    @property
     def size(self):
-        """Set size"""
+        """Set size, owned elements."""
         return self._size
+
+    @property
+    def exec_size(self):
+        """Set size including execute halo elements.
+
+        If a :class:`ParLoop` is indirect, we do redundant computation
+        by executing over these set elements as well as owned ones.
+        """
+        return self._ieh_size
+
+    @property
+    def total_size(self):
+        """Total set size, including halo elements."""
+        return self._inh_size
 
     @property
     def name(self):
@@ -246,9 +299,27 @@ class IterationSpace(object):
         return self._iterset.name
 
     @property
+    def core_size(self):
+        """The number of :class:`Set` elements which don't touch halo elements in the set over which this IterationSpace is defined"""
+        return self._iterset.core_size
+
+    @property
     def size(self):
         """The size of the :class:`Set` over which this IterationSpace is defined."""
         return self._iterset.size
+
+    @property
+    def exec_size(self):
+        """The size of the :class:`Set` over which this IterationSpace
+    is defined, including halo elements to be executed over"""
+        return self._iterset.exec_size
+
+    @property
+    def total_size(self):
+        """The total size of :class:`Set` over which this IterationSpace is defined.
+
+        This includes all halo set elements."""
+        return self._iterset.total_size
 
     @property
     def _extent_ranges(self):
