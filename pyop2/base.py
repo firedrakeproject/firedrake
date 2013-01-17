@@ -899,6 +899,18 @@ class ParLoop(object):
         raise RuntimeError('Must select a backend')
 
     @property
+    def it_space(self):
+        return self._it_space
+
+    @property
+    def is_direct(self):
+        return all(a.map in [None, IdentityMap] for a in self.args)
+
+    @property
+    def is_indirect(self):
+        return not self.is_direct
+
+    @property
     def kernel(self):
         return self._kernel
 
