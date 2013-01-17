@@ -275,6 +275,8 @@ class ParLoop(base.ParLoop):
 # sequential
 class Solver(base.Solver, PETSc.KSP):
 
+    _cnt = 0
+
     def __init__(self, parameters=None, **kwargs):
         super(Solver, self).__init__(parameters, **kwargs)
         self.create(PETSc.COMM_WORLD)
@@ -290,21 +292,47 @@ class Solver(base.Solver, PETSc.KSP):
         self.atol = self.parameters['absolute_tolerance']
         self.divtol = self.parameters['divergence_tolerance']
         self.max_it = self.parameters['maximum_iterations']
+        if self.parameters['plot_convergence']:
+            self.parameters['monitor_convergence'] = True
 
     def solve(self, A, x, b):
         self._set_parameters()
         px = PETSc.Vec().createWithArray(x.data)
         pb = PETSc.Vec().createWithArray(b.data)
         self.setOperators(A.handle)
+        self.setFromOptions()
+        if self.parameters['monitor_convergence']:
+            self.reshist = []
+            def monitor(ksp, its, norm):
+                self.reshist.append(norm)
+                print "%3d KSP Residual norm %14.12e" % (its, norm)
+            self.setMonitor(monitor)
         # Not using super here since the MRO would call base.Solver.solve
         PETSc.KSP.solve(self, pb, px)
+        if self.parameters['monitor_convergence']:
+            self.cancelMonitor()
+            if self.parameters['plot_convergence']:
+                try:
+                    import pylab
+                    pylab.semilogy(self.reshist)
+                    pylab.title('Convergence history')
+                    pylab.xlabel('Iteration')
+                    pylab.ylabel('Residual norm')
+                    pylab.savefig('%sreshist_%04d.png' % (self.parameters['plot_prefix'], Solver._cnt))
+                    Solver._cnt += 1
+                except ImportError:
+                    from warnings import warn
+                    warn("pylab not available, not plotting convergence history.")
         r = self.getConvergedReason()
         if cfg.debug:
             print "Converged reason: %s" % self._reasons[r]
             print "Iterations: %s" % self.getIterationNumber()
+            print "Residual norm: %s" % self.getResidualNorm()
         if r < 0:
+            msg = "KSP Solver failed to converge in %d iterations: %s (Residual norm: %e)" \
+                    % (self.getIterationNumber(), self._reasons[r], self.getResidualNorm())
             if self.parameters['error_on_nonconvergence']:
-                raise RuntimeError("KSP Solver failed to converge: %s" % self._reasons[r])
+                raise RuntimeError(msg)
             else:
                 from warnings import warn
-                warn("KSP Solver failed to converge: %s" % self._reasons[r])
+                warn(msg)

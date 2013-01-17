@@ -946,12 +946,36 @@ DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
                              'absolute_tolerance': 1.0e-50,
                              'divergence_tolerance': 1.0e+4,
                              'maximum_iterations': 1000,
+                             'monitor_convergence': False,
+                             'plot_convergence': False,
+                             'plot_prefix': '',
                              'error_on_nonconvergence': True}
 
 class Solver(object):
     """OP2 Solver object. The :class:`Solver` holds a set of parameters that are
     passed to the underlying linear algebra library when the ``solve`` method
-    is called."""
+    is called. These can either be passed as a dictionary ``parameters`` *or*
+    as individual keyword arguments (combining both will cause an exception).
+
+    Recognized parameters either as dictionary keys or keyword arguments are:
+
+    :arg linear_solver: the solver type ('cg')
+    :arg preconditioner: the preconditioner type ('jacobi')
+    :arg relative_tolerance: relative solver tolerance (1e-7)
+    :arg absolute_tolerance: absolute solver tolerance (1e-50)
+    :arg divergence_tolerance: factor by which the residual norm may exceed
+        the right-hand-side norm before the solve is considered to have
+        diverged: ``norm(r) >= dtol*norm(b)`` (1e4)
+    :arg maximum_iterations: maximum number of solver iterations (1000)
+    :arg error_on_nonconvergence: abort if the solve does not converge in the
+      maximum number of iterations (True, if False only a warning is printed)
+    :arg monitor_convergence: print the residual norm after each iteration
+        (False)
+    :arg plot_convergence: plot a graph of the convergence history after the
+        solve has finished and save it to file (False, implies monitor_convergence)
+    :arg plot_prefix: filename prefix for plot files ('')
+
+    """
 
     def __init__(self, parameters=None, **kwargs):
         self.parameters = DEFAULT_SOLVER_PARAMETERS.copy()
@@ -963,6 +987,10 @@ class Solver(object):
             self.parameters.update(kwargs)
 
     def update_parameters(self, parameters):
+        """Update solver parameters
+
+        :arg parameters: Dictionary containing the parameters to update.
+        """
         self.parameters.update(parameters)
 
     def solve(self, A, x, b):
