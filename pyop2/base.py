@@ -403,7 +403,7 @@ class Dat(DataCarrier):
     def __init__(self, dataset, dim, data=None, dtype=None, name=None, soa=None):
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
-        self._data = verify_reshape(data, dtype, (dataset.size,)+self._dim, allow_none=True)
+        self._data = verify_reshape(data, dtype, (dataset.total_size,)+self._dim, allow_none=True)
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
         self._name = name or "dat_%d" % Dat._globalcount
@@ -645,7 +645,7 @@ class Map(object):
         self._iterset = iterset
         self._dataset = dataset
         self._dim = dim
-        self._values = verify_reshape(values, np.int32, (iterset.size, dim), \
+        self._values = verify_reshape(values, np.int32, (iterset.total_size, dim), \
                                       allow_none=True)
         self._name = name or "map_%d" % Map._globalcount
         self._lib_handle = None
