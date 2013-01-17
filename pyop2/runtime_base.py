@@ -292,6 +292,8 @@ class Solver(base.Solver, PETSc.KSP):
         self.atol = self.parameters['absolute_tolerance']
         self.divtol = self.parameters['divergence_tolerance']
         self.max_it = self.parameters['maximum_iterations']
+        if self.parameters['plot_convergence']:
+            self.parameters['monitor_convergence'] = True
 
     def solve(self, A, x, b):
         self._set_parameters()
