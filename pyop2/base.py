@@ -950,6 +950,20 @@ class ParLoop(object):
 
         self.check_args()
 
+    def halo_exchange_begin(self):
+        """Start halo exchanges.
+
+        Return the number of set elements this :class:`ParLoop` should
+        iterate over.  If it's direct, this is just the local set
+        size.  If it's indirect, one must include the execute halo."""
+        if self.is_direct:
+            return self.it_space.size
+        return self.it_space.exec_size
+
+    def halo_exchange_end(self):
+        """Finish halo exchanges (wait on irecvs)"""
+        pass
+
     def check_args(self):
         iterset = self._it_space._iterset
         for i, arg in enumerate(self._actual_args):

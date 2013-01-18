@@ -52,7 +52,7 @@ def par_loop(kernel, it_space, *args):
 class ParLoop(rt.ParLoop):
     def compute(self):
         _fun = self.generate_code()
-        _args = [self._it_space.size]
+        _args = [0, 0]          # start, stop
         for arg in self.args:
             if arg._is_mat:
                 _args.append(arg.data.handle.handle)
@@ -70,6 +70,17 @@ class ParLoop(rt.ParLoop):
         for c in Const._definitions():
             _args.append(c.data)
 
+        # kick off halo exchanges
+        end = self.halo_exchange_begin()
+        # compute over core set elements
+        _args[0] = 0
+        _args[1] = self.it_space.core_size
+        _fun(*_args)
+        # wait for halo exchanges to complete
+        self.halo_exchange_end()
+        _args[0] = self.it_space.core_size
+        _args[1] = end
+        # compute over remain owned set elements and exec halo elements
         _fun(*_args)
 
     def generate_code(self):
@@ -280,10 +291,6 @@ class ParLoop(rt.ParLoop):
 
         _zero_tmps = ';\n'.join([c_zero_tmp(arg) for arg in args if arg._is_mat])
 
-        _set_size_wrapper = 'PyObject *_%(set)s_size' % {'set' : self._it_space.name}
-        _set_size_dec = 'int %(set)s_size = (int)PyInt_AsLong(_%(set)s_size);' % {'set' : self._it_space.name}
-        _set_size = '%(set)s_size' % {'set' : self._it_space.name}
-
         if len(Const._defs) > 0:
             _const_args = ', '
             _const_args += ', '.join([c_const_arg(c) for c in Const._definitions()])
@@ -291,12 +298,13 @@ class ParLoop(rt.ParLoop):
             _const_args = ''
         _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
         wrapper = """
-            void wrap_%(kernel_name)s__(%(set_size_wrapper)s, %(wrapper_args)s %(const_args)s) {
-            %(set_size_dec)s;
+            void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %(const_args)s) {
+            int start = (int)PyInt_AsLong(_start);
+            int end = (int)PyInt_AsLong(_end);
             %(wrapper_decs)s;
             %(tmp_decs)s;
             %(const_inits)s;
-            for ( int i = 0; i < %(set_size)s; i++ ) {
+            for ( int i = start; i < end; i++ ) {
             %(vec_inits)s;
             %(itspace_loops)s
             %(zero_tmps)s;
@@ -324,9 +332,6 @@ class ParLoop(rt.ParLoop):
                                        'const_args' : _const_args,
                                        'const_inits' : _const_inits,
                                        'tmp_decs' : _tmp_decs,
-                                       'set_size' : _set_size,
-                                       'set_size_dec' : _set_size_dec,
-                                       'set_size_wrapper' : _set_size_wrapper,
                                        'itspace_loops' : _itspace_loops,
                                        'itspace_loop_close' : _itspace_loop_close,
                                        'vec_inits' : _vec_inits,
