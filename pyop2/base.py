@@ -272,6 +272,55 @@ class Set(object):
     def __repr__(self):
         return "Set(%s, '%s')" % (self._size, self._name)
 
+class Halo(object):
+    """A description of a halo associated with a :class:`Set`.
+
+    The halo object describes which :class:`Set` elements are sent
+    where, and which :class:`Set` elements are received from where."""
+    def __init__(self, sends, receives, comm=MPI.COMM_WORLD):
+        self._sends = sends
+        self._receives = receives
+        self._comm = comm
+        rank = self._comm.rank
+        size = self._comm.size
+
+        assert len(self._sends) == size
+        assert len(self._receives) == size
+
+        assert self._sends[rank].size == 0
+        assert self._receives[rank].size == 0
+
+    @property
+    def sends(self):
+        """Return the sends associated with this :class:`Halo`.
+
+        A tuple of numpy arrays, one entry for each rank, with each
+        array indicating the :class:`Set` elements to send.
+
+        For example, to send no elements to rank 0, elements 1 and 2
+        to rank 1 and no elements to rank 2 (with comm.size == 3) we
+        would have:
+
+        (np.empty(0, dtype=np.int32), np.array([1,2], dtype=np.int32),
+         np.empty(0, dtype=np.int32)."""
+        return self._sends
+
+    @property
+    def receives(self):
+        """Return the receives associated with this :class:`Halo`.
+
+        A tuple of numpy arrays, one entry for each rank, with each
+        array indicating the :class:`Set` elements to receive.
+
+        See `Halo.sends` for an example"""
+        return self._receives
+
+    @property
+    def comm(self):
+        """The MPI communicator this :class:`Halo`'s communications
+    should take place over"""
+        return self._comm
+
 class IterationSpace(object):
     """OP2 iteration space type.
 
