@@ -71,17 +71,28 @@ class ParLoop(rt.ParLoop):
             _args.append(c.data)
 
         # kick off halo exchanges
-        end = self.halo_exchange_begin()
+        self.halo_exchange_begin()
         # compute over core set elements
         _args[0] = 0
         _args[1] = self.it_space.core_size
         _fun(*_args)
         # wait for halo exchanges to complete
         self.halo_exchange_end()
+        # compute over remaining owned set elements
         _args[0] = self.it_space.core_size
-        _args[1] = end
-        # compute over remain owned set elements and exec halo elements
+        _args[1] = self.it_space.size
         _fun(*_args)
+        # By splitting the reduction here we get two advantages:
+        # - we don't double count contributions in halo elements
+        # - once our MPI supports the asynchronous collectives in
+        #   MPI-3, we can do more comp/comms overlap
+        self.reduction_begin()
+        if self.needs_exec_halo:
+            _args[0] = self.it_space.size
+            _args[1] = self.it_space.exec_size
+            _fun(*_args)
+        self.reduction_end()
+        self.maybe_set_halo_update_needed()
 
     def generate_code(self):
 

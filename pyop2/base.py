@@ -38,6 +38,7 @@ import numpy as np
 from exceptions import *
 from utils import *
 from backends import _make_object
+from mpi4py import MPI
 
 # Data API
 
@@ -90,6 +91,7 @@ class Arg(object):
         self._idx = idx
         self._access = access
         self._lib_handle = None
+        self._in_flight = False # some kind of comms in flight for this arg
 
     def __str__(self):
         return "OP2 Arg: dat %s, map %s, index %s, access %s" % \
@@ -184,6 +186,51 @@ class Arg(object):
     @property
     def _uses_itspace(self):
         return self._is_mat or isinstance(self.idx, IterationIndex)
+
+    def halo_exchange_begin(self):
+        assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
+        assert not self._in_flight, \
+            "Halo exchange already in flight for Arg %s" % self
+        if self.access in [READ, RW] and self.data.needs_halo_update:
+            self.data.needs_halo_update = False
+            self._in_flight = True
+            self.data.halo_exchange_begin()
+
+    def halo_exchange_end(self):
+        assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
+        if self.access in [READ, RW] and self._in_flight:
+            self._in_flight = False
+            self.data.halo_exchange_end()
+
+    def reduction_begin(self):
+        assert self._is_global, \
+            "Doing global reduction only makes sense for Globals"
+        assert not self._in_flight, \
+            "Reduction already in flight for Arg %s" % self
+        if self.access is not READ:
+            self._in_flight = True
+            if self.access is INC:
+                op = MPI.SUM
+            elif self.access is MIN:
+                op = MPI.MIN
+            elif self.access is MAX:
+                op = MPI.MAX
+            # If the MPI supports MPI-3, this could be MPI_Iallreduce
+            # instead, to allow overlapping comp and comms.
+            # We must reduce into a temporary buffer so that when
+            # executing over the halo region, which occurs after we've
+            # called this reduction, we don't subsequently overwrite
+            # the result.
+            MPI.COMM_WORLD.Allreduce(self.data._data, self.data._buf, op=op)
+
+    def reduction_end(self):
+        assert self._is_global, \
+            "Doing global reduction only makes sense for Globals"
+        if self.access is not READ and self._in_flight:
+            self._in_flight = False
+            # Must have a copy here, because otherwise we just grab a
+            # pointer.
+            self.data._data = np.copy(self.data._buf)
 
 class Set(object):
     """OP2 set.
@@ -464,6 +511,9 @@ class Dat(DataCarrier):
         self._soa = bool(soa)
         self._name = name or "dat_%d" % Dat._globalcount
         self._lib_handle = None
+        self._needs_halo_update = False
+        self._send_reqs = [None]*MPI.COMM_WORLD.size
+        self._recv_reqs = [None]*MPI.COMM_WORLD.size
         Dat._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
@@ -493,6 +543,7 @@ class Dat(DataCarrier):
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
         maybe_setflags(self._data, write=True)
+        self.needs_halo_update = True
         return self._data
 
     @property
@@ -509,9 +560,48 @@ class Dat(DataCarrier):
         return self._dim
 
     @property
+    def needs_halo_update(self):
+        '''Has this Dat been written to since the last halo exchange?'''
+        return self._needs_halo_update
+
+    @needs_halo_update.setter
+    def needs_halo_update(self, val):
+        self._needs_halo_update = val
+
+    @property
     def norm(self):
         """The L2-norm on the flattened vector."""
         raise NotImplementedError("Norm is not implemented.")
+
+    def halo_exchange_begin(self):
+        halo = self.dataset.halo
+        if halo is None:
+            return
+        for dest,ele in enumerate(halo.sends):
+            if ele.size == 0:
+                # Don't send to self (we've asserted that ele.size ==
+                # 0 previously) or if there are no elements to send
+                self._send_reqs[dest] = MPI.REQUEST_NULL
+                continue
+            assert (ele < self.dataset.size).all()
+            self._send_reqs[dest] = halo.comm.Isend(self._data[ele],
+                                                    dest=dest, tag=0)
+        for source,ele in enumerate(halo.receives):
+            if ele.size == 0:
+                # Don't receive from self or if there are no elements
+                # to receive
+                self._recv_reqs[source] = MPI.REQUEST_NULL
+                continue
+            assert (ele >= self.dataset.size).all() and \
+                (ele < self.dataset.total_size).all()
+            self._recv_reqs[source] = halo.comm.Irecv(self._data[ele],
+                                                      source=source, tag=0)
+
+    def halo_exchange_end(self):
+        if self.dataset.halo is None:
+            return
+        MPI.Request.Waitall(self._recv_reqs)
+        MPI.Request.Waitall(self._send_reqs)
 
     def zero(self):
         """Zero the data associated with this :class:`Dat`"""
@@ -611,6 +701,7 @@ class Global(DataCarrier):
     def __init__(self, dim, data=None, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
         self._data = verify_reshape(data, dtype, self._dim, allow_none=True)
+        self._buf = np.empty_like(self._data)
         self._name = name or "global_%d" % Global._globalcount
         Global._globalcount += 1
 
@@ -1007,18 +1098,37 @@ class ParLoop(object):
         self.check_args()
 
     def halo_exchange_begin(self):
-        """Start halo exchanges.
-
-        Return the number of set elements this :class:`ParLoop` should
-        iterate over.  If it's direct, this is just the local set
-        size.  If it's indirect, one must include the execute halo."""
+        """Start halo exchanges."""
         if self.is_direct:
-            return self.it_space.size
-        return self.it_space.exec_size
+            # No need for halo exchanges for a direct loop
+            return
+        for arg in self.args:
+            if arg._is_dat:
+                arg.halo_exchange_begin()
 
     def halo_exchange_end(self):
         """Finish halo exchanges (wait on irecvs)"""
-        pass
+        if self.is_direct:
+            return
+        for arg in self.args:
+            if arg._is_dat:
+                arg.halo_exchange_end()
+
+    def reduction_begin(self):
+        """Start reductions"""
+        for arg in self.args:
+            if arg._is_global_reduction:
+                arg.reduction_begin()
+
+    def reduction_end(self):
+        for arg in self.args:
+            if arg._is_global_reduction:
+                arg.reduction_end()
+
+    def maybe_set_halo_update_needed(self):
+        for arg in self.args:
+            if arg._is_dat and arg.access in [INC, WRITE, RW]:
+                arg.data.needs_halo_update = True
 
     def check_args(self):
         iterset = self._it_space._iterset
@@ -1050,6 +1160,10 @@ class ParLoop(object):
     @property
     def is_indirect(self):
         return not self.is_direct
+
+    @property
+    def needs_exec_halo(self):
+        return any(arg._is_indirect_and_not_read for arg in self.args)
 
     @property
     def kernel(self):
