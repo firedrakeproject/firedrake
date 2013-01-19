@@ -41,6 +41,7 @@ import configuration as cfg
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IterationSpace
 from base import DataCarrier, IterationIndex, i, IdentityMap, Kernel, Global
+from base import Halo
 from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 import op_lib_core as core
 from petsc4py import PETSc
@@ -62,9 +63,9 @@ class Arg(base.Arg):
 class Set(base.Set):
     """OP2 set."""
 
-    @validate_type(('size', int, SizeTypeError))
-    def __init__(self, size, name=None):
-        base.Set.__init__(self, size, name)
+    @validate_type(('size', (int, tuple), SizeTypeError))
+    def __init__(self, size, name=None, halo=None):
+        base.Set.__init__(self, size, name, halo)
 
     @classmethod
     def fromhdf5(cls, f, name):

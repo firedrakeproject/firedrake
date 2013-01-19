@@ -213,6 +213,7 @@ class Set(object):
     [OWNED, EXECUTE HALO)
     [EXECUTE HALO, NON EXECUTE HALO).
 
+    Halo send/receive data is stored on sets in a :class:`Halo`.
     """
 
     _globalcount = 0
@@ -222,7 +223,7 @@ class Set(object):
     IMPORT_EXEC_SIZE = 2
     IMPORT_NON_EXEC_SIZE = 3
     @validate_type(('name', str, NameTypeError))
-    def __init__(self, size=None, name=None):
+    def __init__(self, size=None, name=None, halo=None):
         if type(size) is int:
             size = [size]*4
         size = as_tuple(size, int, 4)
@@ -232,6 +233,7 @@ class Set(object):
         self._inh_size = size[Set.IMPORT_NON_EXEC_SIZE]
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = None
+        self._halo = halo
         Set._globalcount += 1
 
     def __call__(self, *dims):
@@ -265,6 +267,11 @@ class Set(object):
     def name(self):
         """User-defined label"""
         return self._name
+
+    @property
+    def halo(self):
+        """:class:`Halo` associated with this Set"""
+        return self._halo
 
     def __str__(self):
         return "OP2 Set: %s with size %s" % (self._name, self._size)
