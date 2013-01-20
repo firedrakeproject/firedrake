@@ -542,8 +542,14 @@ class Dat(DataCarrier):
         self._name = name or "dat_%d" % Dat._globalcount
         self._lib_handle = None
         self._needs_halo_update = False
+        # FIXME: Use correct communicator
         self._send_reqs = [None]*MPI.COMM_WORLD.size
         self._recv_reqs = [None]*MPI.COMM_WORLD.size
+        # so that we can tag halo exchanges for each Dat uniquely
+        # FIXME: This requires that Dats are declared /in the same
+        # order/ on all MPI processes and hence have the same id, we
+        # should check for this
+        self._id = Dat._globalcount
         Dat._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
@@ -614,7 +620,7 @@ class Dat(DataCarrier):
                 self._send_reqs[dest] = MPI.REQUEST_NULL
                 continue
             self._send_reqs[dest] = halo.comm.Isend(self._data[ele],
-                                                    dest=dest, tag=0)
+                                                    dest=dest, tag=self._id)
         for source,ele in enumerate(halo.receives):
             if ele.size == 0:
                 # Don't receive from self or if there are no elements
@@ -622,7 +628,7 @@ class Dat(DataCarrier):
                 self._recv_reqs[source] = MPI.REQUEST_NULL
                 continue
             self._recv_reqs[source] = halo.comm.Irecv(self._data[ele],
-                                                      source=source, tag=0)
+                                                      source=source, tag=self._id)
 
     def halo_exchange_end(self):
         if self.dataset.halo is None:
