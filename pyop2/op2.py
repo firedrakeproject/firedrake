@@ -90,6 +90,9 @@ class Kernel(base.Kernel):
 class Set(base.Set):
     __metaclass__ = backends._BackendSelector
 
+class Halo(base.Halo):
+    __metaclass__ = backends._BackendSelector
+
 class Dat(base.Dat):
     __metaclass__ = backends._BackendSelector
 

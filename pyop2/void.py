@@ -45,6 +45,10 @@ class Set(object):
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
 
+class Halo(object):
+    def __init__(self, *args, **kwargs):
+        raise RuntimeError("Please call op2.init to select a backend")
+
 class Kernel(object):
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
