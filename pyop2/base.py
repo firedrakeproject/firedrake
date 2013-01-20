@@ -347,11 +347,17 @@ class Halo(object):
         rank = self._comm.rank
         size = self._comm.size
 
-        assert len(self._sends) == size
-        assert len(self._receives) == size
+        assert len(self._sends) == size, \
+            "Invalid number of sends for Halo, got %d, wanted %d" % \
+            (len(self._sends), size)
+        assert len(self._receives) == size, \
+            "Invalid number of receives for Halo, got %d, wanted %d" % \
+            (len(self._receives), size)
 
-        assert self._sends[rank].size == 0
-        assert self._receives[rank].size == 0
+        assert self._sends[rank].size == 0, \
+            "Halo was specified with self-sends on rank %d" % rank
+        assert self._receives[rank].size == 0, \
+            "Halo was specified with self-receives on rank %d" % rank
 
     @property
     def sends(self):
