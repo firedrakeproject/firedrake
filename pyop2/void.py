@@ -69,5 +69,16 @@ class Map(object):
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
 
+class Sparsity(object):
+    def __init__(self, *args, **kwargs):
+        raise RuntimeError("Please call op2.init to select a backend")
+
+class Solver(object):
+    def __init__(self, *args, **kwargs):
+        raise RuntimeError("Please call op2.init to select a backend")
+
 def par_loop(*args, **kwargs):
+    raise RuntimeError("Please call op2.init to select a backend")
+
+def solve(*args, **kwargs):
     raise RuntimeError("Please call op2.init to select a backend")
