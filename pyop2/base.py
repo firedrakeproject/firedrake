@@ -330,10 +330,19 @@ class Halo(object):
     """A description of a halo associated with a :class:`Set`.
 
     The halo object describes which :class:`Set` elements are sent
-    where, and which :class:`Set` elements are received from where."""
+    where, and which :class:`Set` elements are received from where.
+
+    For each process to send to, `sends[process]` should be a numpy
+    arraylike (tuple, list, iterable, numpy array) of the set elements
+    to send to `process`.  Similarly `receives[process]` should be the
+    set elements that will be received from `process`.
+
+    To send/receive no set elements to/from a process, pass an empty
+    list in that position.
+    """
     def __init__(self, sends, receives, comm=MPI.COMM_WORLD):
-        self._sends = sends
-        self._receives = receives
+        self._sends = tuple(np.asarray(x, dtype=np.int32) for x in sends)
+        self._receives = tuple(np.asarray(x, dtype=np.int32) for x in receives)
         self._comm = comm
         rank = self._comm.rank
         size = self._comm.size
