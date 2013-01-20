@@ -281,6 +281,8 @@ class Set(object):
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = None
         self._halo = halo
+        if self.halo:
+            self.halo.verify(self)
         Set._globalcount += 1
 
     def __call__(self, *dims):
@@ -389,6 +391,19 @@ class Halo(object):
         """The MPI communicator this :class:`Halo`'s communications
     should take place over"""
         return self._comm
+
+    def verify(self, s):
+        """Verify that this :class:`Halo` is valid for a given
+:class:`Set`."""
+        for dest, sends in enumerate(self.sends):
+            assert (sends >= 0).all() and (sends < s.size).all(), \
+                "Halo send to %d is invalid (outside owned elements)" % dest
+
+        for source, receives in enumerate(self.receives):
+            assert (receives >= s.size).all() and \
+                (receives < s.total_size).all(), \
+                "Halo receive from %d is invalid (not in halo elements)" % \
+                source
 
 class IterationSpace(object):
     """OP2 iteration space type.
@@ -598,7 +613,6 @@ class Dat(DataCarrier):
                 # 0 previously) or if there are no elements to send
                 self._send_reqs[dest] = MPI.REQUEST_NULL
                 continue
-            assert (ele < self.dataset.size).all()
             self._send_reqs[dest] = halo.comm.Isend(self._data[ele],
                                                     dest=dest, tag=0)
         for source,ele in enumerate(halo.receives):
@@ -607,8 +621,6 @@ class Dat(DataCarrier):
                 # to receive
                 self._recv_reqs[source] = MPI.REQUEST_NULL
                 continue
-            assert (ele >= self.dataset.size).all() and \
-                (ele < self.dataset.total_size).all()
             self._recv_reqs[source] = halo.comm.Irecv(self._data[ele],
                                                       source=source, tag=0)
 
