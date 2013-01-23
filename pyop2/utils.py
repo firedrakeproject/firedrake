@@ -262,14 +262,3 @@ def get_petsc_dir():
 
 Set the environment variable PETSC_DIR to your local PETSc base
 directory or install PETSc from PyPI: pip install petsc""")
-
-try:
-    OP2_DIR = os.environ['OP2_DIR']
-except KeyError:
-    sys.exit("""Error: Could not find OP2 library.
-
-Set the environment variable OP2_DIR to point to the op2 subdirectory
-of your OP2 source tree""")
-
-OP2_INC = OP2_DIR + '/c/include'
-OP2_LIB = OP2_DIR + '/c/lib'

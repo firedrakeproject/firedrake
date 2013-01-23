@@ -38,16 +38,8 @@ from distutils.extension import Extension
 import numpy
 import os, sys
 
-try:
-    OP2_DIR = os.environ['OP2_DIR']
-except KeyError:
-    sys.exit("""Error: Could not find OP2 library.
-
-Set the environment variable OP2_DIR to point to the op2 subdirectory
-of your OP2 source tree""")
-
-OP2_INC = OP2_DIR + '/c/include'
-OP2_LIB = OP2_DIR + '/c/lib'
+# Find OP2 include and library directories
+execfile('pyop2/find_op2.py')
 
 # If Cython is available, built the extension module from the Cython source
 try:
