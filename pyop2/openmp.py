@@ -510,5 +510,10 @@ class ParLoop(device.ParLoop):
         device._parloop_cache[key] = _fun
         return _fun
 
+    @property
+    def _requires_matrix_coloring(self):
+        """Direct code generation to follow colored execution for global matrix insertion."""
+        return True
+
 def _setup():
     pass
