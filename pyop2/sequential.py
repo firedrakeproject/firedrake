@@ -37,6 +37,7 @@ import os
 import numpy as np
 
 from exceptions import *
+from find_op2 import *
 from utils import *
 import op_lib_core as core
 import runtime_base as rt
