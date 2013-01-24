@@ -33,42 +33,56 @@
 
 from math import atan, sqrt
 import numpy as np
-from pyop2 import op2, utils
 import h5py
 
-op2.init(**utils.parse_args(description="PyOP2 airfoil demo (vector map version)"))
+from pyop2 import op2, utils
+
+parser = utils.parser(group=True, description="PyOP2 airfoil demo (vector map version)")
+parser.add_argument('-m', '--mesh',
+                    action='store',
+                    type=str,
+                    default='new_grid.h5',
+                    help='HDF5 mesh file to use (default: new_grid.h5)')
+opt = vars(parser.parse_args())
+op2.init(**opt)
 
 from airfoil_vector_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 
-with h5py.File('new_grid.h5', 'r') as file:
+try:
+    with h5py.File('new_grid.h5', 'r') as f:
 
-    # Declare sets, maps, datasets and global constants
+        # Declare sets, maps, datasets and global constants
 
-    nodes  = op2.Set.fromhdf5(file, "nodes")
-    edges  = op2.Set.fromhdf5(file, "edges")
-    bedges = op2.Set.fromhdf5(file, "bedges")
-    cells  = op2.Set.fromhdf5(file, "cells")
+        nodes  = op2.Set.fromhdf5(f, "nodes")
+        edges  = op2.Set.fromhdf5(f, "edges")
+        bedges = op2.Set.fromhdf5(f, "bedges")
+        cells  = op2.Set.fromhdf5(f, "cells")
 
-    pedge   = op2.Map.fromhdf5(edges,  nodes, file, "pedge")
-    pecell  = op2.Map.fromhdf5(edges,  cells, file, "pecell")
-    pbedge  = op2.Map.fromhdf5(bedges, nodes, file, "pbedge")
-    pbecell = op2.Map.fromhdf5(bedges, cells, file, "pbecell")
-    pcell   = op2.Map.fromhdf5(cells,  nodes, file, "pcell")
+        pedge   = op2.Map.fromhdf5(edges,  nodes, f, "pedge")
+        pecell  = op2.Map.fromhdf5(edges,  cells, f, "pecell")
+        pbedge  = op2.Map.fromhdf5(bedges, nodes, f, "pbedge")
+        pbecell = op2.Map.fromhdf5(bedges, cells, f, "pbecell")
+        pcell   = op2.Map.fromhdf5(cells,  nodes, f, "pcell")
 
-    p_bound = op2.Dat.fromhdf5(bedges, file, "p_bound")
-    p_x     = op2.Dat.fromhdf5(nodes,  file, "p_x")
-    p_q     = op2.Dat.fromhdf5(cells,  file, "p_q")
-    p_qold  = op2.Dat.fromhdf5(cells,  file, "p_qold")
-    p_adt   = op2.Dat.fromhdf5(cells,  file, "p_adt")
-    p_res   = op2.Dat.fromhdf5(cells,  file, "p_res")
+        p_bound = op2.Dat.fromhdf5(bedges, f, "p_bound")
+        p_x     = op2.Dat.fromhdf5(nodes,  f, "p_x")
+        p_q     = op2.Dat.fromhdf5(cells,  f, "p_q")
+        p_qold  = op2.Dat.fromhdf5(cells,  f, "p_qold")
+        p_adt   = op2.Dat.fromhdf5(cells,  f, "p_adt")
+        p_res   = op2.Dat.fromhdf5(cells,  f, "p_res")
 
-    gam   = op2.Const.fromhdf5(file, "gam")
-    gm1   = op2.Const.fromhdf5(file, "gm1")
-    cfl   = op2.Const.fromhdf5(file, "cfl")
-    eps   = op2.Const.fromhdf5(file, "eps")
-    mach  = op2.Const.fromhdf5(file, "mach")
-    alpha = op2.Const.fromhdf5(file, "alpha")
-    qinf  = op2.Const.fromhdf5(file, "qinf")
+        gam   = op2.Const.fromhdf5(f, "gam")
+        gm1   = op2.Const.fromhdf5(f, "gm1")
+        cfl   = op2.Const.fromhdf5(f, "cfl")
+        eps   = op2.Const.fromhdf5(f, "eps")
+        mach  = op2.Const.fromhdf5(f, "mach")
+        alpha = op2.Const.fromhdf5(f, "alpha")
+        qinf  = op2.Const.fromhdf5(f, "qinf")
+except IOError:
+    import sys
+    print "Could not read from %s\n" % opt['mesh']
+    parser.print_help()
+    sys.exit(1)
 
 # Main time-marching loop
 

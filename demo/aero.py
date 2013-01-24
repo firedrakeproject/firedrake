@@ -36,10 +36,11 @@
 Port of the aero demo from OP2-Common. Requires an HDF5 mesh file.
 """
 
-from pyop2 import op2, utils
 import numpy as np
 import h5py
 from math import sqrt
+
+from pyop2 import op2, utils
 
 parser = utils.parser(group=True, description=__doc__)
 parser.add_argument('-m', '--mesh',
@@ -52,6 +53,31 @@ op2.init(**opt)
 
 from aero_kernels import dirichlet, dotPV, dotR, init_cg, res_calc, spMV, \
     update, updateP, updateUR
+
+try:
+    with h5py.File(opt['mesh'], 'r') as f:
+        # sets
+        nodes  = op2.Set.fromhdf5(f, 'nodes')
+        bnodes = op2.Set.fromhdf5(f, 'bedges')
+        cells  = op2.Set.fromhdf5(f, 'cells')
+
+        # maps
+        pbnodes = op2.Map.fromhdf5(bnodes, nodes, f, 'pbedge')
+        pcell   = op2.Map.fromhdf5(cells,  nodes, f, 'pcell')
+
+        # dats
+        p_xm   = op2.Dat.fromhdf5(nodes, f, 'p_x')
+        p_phim = op2.Dat.fromhdf5(nodes, f, 'p_phim')
+        p_resm = op2.Dat.fromhdf5(nodes, f, 'p_resm')
+        p_K    = op2.Dat.fromhdf5(cells, f, 'p_K')
+        p_V    = op2.Dat.fromhdf5(nodes, f, 'p_V')
+        p_P    = op2.Dat.fromhdf5(nodes, f, 'p_P')
+        p_U    = op2.Dat.fromhdf5(nodes, f, 'p_U')
+except IOError:
+    import sys
+    print "Could not read from %s\n" % opt['mesh']
+    parser.print_help()
+    sys.exit(1)
 
 # Constants
 
@@ -97,25 +123,6 @@ freq = op2.Const(1, 1, 'freq', dtype=np.double)
 kappa = op2.Const(1, 1, 'kappa', dtype=np.double)
 nmode = op2.Const(1, 0, 'nmode', dtype=np.double)
 mfan = op2.Const(1, 1.0, 'mfan', dtype=np.double)
-
-with h5py.File(opt['mesh'], 'r') as file:
-    # sets
-    nodes  = op2.Set.fromhdf5(file, 'nodes')
-    bnodes = op2.Set.fromhdf5(file, 'bedges')
-    cells  = op2.Set.fromhdf5(file, 'cells')
-
-    # maps
-    pbnodes = op2.Map.fromhdf5(bnodes, nodes, file, 'pbedge')
-    pcell   = op2.Map.fromhdf5(cells,  nodes, file, 'pcell')
-
-    # dats
-    p_xm   = op2.Dat.fromhdf5(nodes, file, 'p_x')
-    p_phim = op2.Dat.fromhdf5(nodes, file, 'p_phim')
-    p_resm = op2.Dat.fromhdf5(nodes, file, 'p_resm')
-    p_K    = op2.Dat.fromhdf5(cells, file, 'p_K')
-    p_V    = op2.Dat.fromhdf5(nodes, file, 'p_V')
-    p_P    = op2.Dat.fromhdf5(nodes, file, 'p_P')
-    p_U    = op2.Dat.fromhdf5(nodes, file, 'p_U')
 
 niter = 20
 
