@@ -222,6 +222,7 @@ cdef class Plan:
 
         # convert cds into a flat array for performant access in cython
         cdef flat_cds_t* fcds
+        cdef int nfcds
 
         nfcds = len(cds)
         fcds = <flat_cds_t*> malloc(nfcds * sizeof(flat_cds_t))
@@ -250,12 +251,15 @@ cdef class Plan:
         self._thrcol.fill(-1)
 
         # type constraining a few variables
-        cdef int tidx
-        cdef int p
-        cdef unsigned int base_color
-        cdef int t
-        cdef unsigned int mask
-        cdef unsigned int c
+        cdef int _tidx
+        cdef int _p
+        cdef unsigned int _base_color
+        cdef int _t
+        cdef unsigned int _mask
+        cdef unsigned int _c
+        cdef int _cd
+        cdef int _mi
+        cdef int _i
 
         # create direct reference to numpy array storage
         cdef int * thrcol
@@ -263,88 +267,91 @@ cdef class Plan:
         cdef int * nelems
         nelems = <int *> numpy.PyArray_DATA(self._nelems)
 
-        tidx = 0
-        for p in range(self._nblocks):
-            base_color = 0
+        _tidx = 0
+        for _p in range(self._nblocks):
+            _base_color = 0
             terminated = False
             while not terminated:
                 terminated = True
 
                 # zero out working array:
-                for cd in range(nfcds):
-                    for i in range(fcds[cd].size):
-                        fcds[cd].tmp[i] = 0
+                for _cd in range(nfcds):
+                    for _i in range(fcds[_cd].size):
+                        fcds[_cd].tmp[_i] = 0
 
                 # color threads
-                for t in range(tidx, tidx + nelems[p]):
-                    if thrcol[t] == -1:
-                        mask = 0
+                for _t in range(_tidx, _tidx + nelems[_p]):
+                    if thrcol[_t] == -1:
+                        _mask = 0
 
-                        for cd in range(nfcds):
-                            for mi in range(fcds[cd].count):
-                                mask |= fcds[cd].tmp[fcds[cd].mip[mi].map_base[t * fcds[cd].mip[mi].dim + fcds[cd].mip[mi].idx]]
+                        for _cd in range(nfcds):
+                            for _mi in range(fcds[_cd].count):
+                                _mask |= fcds[_cd].tmp[fcds[_cd].mip[_mi].map_base[_t * fcds[_cd].mip[_mi].dim + fcds[_cd].mip[_mi].idx]]
 
-                        if mask == 0xffffffffu:
+                        if _mask == 0xffffffffu:
                             terminated = False
                         else:
-                            c = 0
-                            while mask & 0x1:
-                                mask = mask >> 1
-                                c += 1
-                            thrcol[t] = base_color + c
-                            mask = 1 << c
-                            for cd in range(nfcds):
-                                for mi in range(fcds[cd].count):
-                                    fcds[cd].tmp[fcds[cd].mip[mi].map_base[t * fcds[cd].mip[mi].dim + fcds[cd].mip[mi].idx]] |= mask
+                            _c = 0
+                            while _mask & 0x1:
+                                _mask = _mask >> 1
+                                _c += 1
+                            thrcol[_t] = _base_color + _c
+                            _mask = 1 << _c
+                            for _cd in range(nfcds):
+                                for _mi in range(fcds[_cd].count):
+                                    fcds[_cd].tmp[fcds[_cd].mip[_mi].map_base[_t * fcds[_cd].mip[_mi].dim + fcds[_cd].mip[_mi].idx]] |= _mask
 
-                base_color += 32
-            tidx += nelems[p]
+                _base_color += 32
+            _tidx += nelems[_p]
 
         self._nthrcol = numpy.zeros(self._nblocks,dtype=numpy.int32)
-        tidx = 0
-        for p in range(self._nblocks):
-            self._nthrcol[p] = max(self._thrcol[tidx:(tidx + nelems[p])]) + 1
-            tidx += nelems[p]
+        _tidx = 0
+        for _p in range(self._nblocks):
+            self._nthrcol[_p] = max(self._thrcol[_tidx:(_tidx + nelems[_p])]) + 1
+            _tidx += nelems[_p]
 
         # partition coloring
         pcolors = numpy.empty(self._nblocks, dtype=numpy.int32)
         pcolors.fill(-1)
-        base_color = 0
+
+        cdef int * _pcolors = <int *> numpy.PyArray_DATA(pcolors)
+
+        _base_color = 0
         terminated = False
         while not terminated:
             terminated = True
 
             # zero out working array:
-            for cd in range(nfcds):
-                for i in range(fcds[cd].size):
-                    fcds[cd].tmp[i] = 0
+            for _cd in range(nfcds):
+                for _i in range(fcds[_cd].size):
+                    fcds[_cd].tmp[_i] = 0
 
-            tidx = 0
-            for p in range(self._nblocks):
-                if pcolors[p] == -1:
-                    mask = 0
-                    for t in range(tidx, tidx + nelems[p]):
-                        for cd in range(nfcds):
-                            for mi in range(fcds[cd].count):
-                                mask |= fcds[cd].tmp[fcds[cd].mip[mi].map_base[t * fcds[cd].mip[mi].dim + fcds[cd].mip[mi].idx]]
+            _tidx = 0
+            for _p in range(self._nblocks):
+                if _pcolors[_p] == -1:
+                    _mask = 0
+                    for _t in range(_tidx, _tidx + nelems[_p]):
+                        for _cd in range(nfcds):
+                            for _mi in range(fcds[_cd].count):
+                                _mask |= fcds[_cd].tmp[fcds[_cd].mip[_mi].map_base[_t * fcds[_cd].mip[_mi].dim + fcds[_cd].mip[_mi].idx]]
 
-                    if mask == 0xffffffff:
+                    if _mask == 0xffffffffu:
                         terminated = False
                     else:
-                        c = 0
-                        while mask & 0x1:
-                            mask = mask >> 1
-                            c += 1
-                        pcolors[p] = base_color + c
+                        _c = 0
+                        while _mask & 0x1:
+                            _mask = _mask >> 1
+                            _c += 1
+                        _pcolors[_p] = _base_color + _c
 
-                        mask = 1 << c
-                        for t in range(tidx, tidx + nelems[p]):
-                            for cd in range(nfcds):
-                                for mi in range(fcds[cd].count):
-                                    fcds[cd].tmp[fcds[cd].mip[mi].map_base[t * fcds[cd].mip[mi].dim + fcds[cd].mip[mi].idx]] |= mask
-                tidx += nelems[p]
+                        _mask = 1 << _c
+                        for _t in range(_tidx, _tidx + nelems[_p]):
+                            for _cd in range(nfcds):
+                                for _mi in range(fcds[_cd].count):
+                                    fcds[_cd].tmp[fcds[_cd].mip[_mi].map_base[_t * fcds[_cd].mip[_mi].dim + fcds[_cd].mip[_mi].idx]] |= _mask
+                _tidx += nelems[_p]
 
-            base_color += 32
+            _base_color += 32
 
         # memory free
         for i in range(nfcds):
