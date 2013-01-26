@@ -11,6 +11,11 @@ BACKENDS ?= sequential opencl openmp cuda
 OPENCL_ALL_CTXS := $(shell python detect_opencl_devices.py)
 OPENCL_CTXS ?= $(OPENCL_ALL_CTXS)
 
+SPHINX_DIR = doc/sphinx
+SPHINX_BUILD_DIR = $(SPHINX_DIR)/build
+SPHINX_TARGET = html
+SPHINX_TARGET_DIR = $(SPHINX_BUILD_DIR)/$(SPHINX_TARGET)
+
 .PHONY : help test unit regression doc update_docs
 
 help:
@@ -44,10 +49,13 @@ regression_opencl:
 	for c in $(OPENCL_CTXS); do PYOPENCL_CTX=$$c $(TESTHARNESS) --backend=opencl; done
 
 doc:
-	make -C doc/sphinx html
+	make -C $(SPHINX_DIR) $(SPHINX_TARGET)
 
 update_docs:
-	git submodule update --init -f
-	git submodule foreach 'git checkout -f gh-pages; git fetch; git reset --hard origin/gh-pages'
-	make -C doc/sphinx html
-	git submodule foreach 'git commit -am "Update documentation"; git push origin gh-pages'
+	if [ ! -d $(SPHINX_TARGET_DIR)/.git ]; then \
+	mkdir -p $(SPHINX_BUILD_DIR); \
+	cd $(SPHINX_BUILD_DIR); git clone `git config --get remote.origin.url` $(SPHINX_TARGET); \
+fi
+	cd $(SPHINX_TARGET_DIR); git fetch -p; git checkout -f gh-pages; git reset --hard origin/gh-pages
+	make -C $(SPHINX_DIR) $(SPHINX_TARGET)
+	cd $(SPHINX_TARGET_DIR); git commit -am "Update documentation"; git push origin gh-pages
