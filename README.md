@@ -4,6 +4,19 @@ The main testing platform for PyOP2 is Ubuntu 12.04 64-bit with Python 2.7.3.
 Other UNIX-like systems may or may not work. Microsoft Windows is not
 supported.
 
+## Preparing the system
+
+OP2 and PyOP2 require a number of tools to be available:
+  * Git
+  * Mercurial
+  * CMake
+  * pip
+
+On a Debian-based system (Ubuntu, Mint, etc.) install them by running
+```
+sudo apt-get install git-core mercurial cmake cmake-curses-gui python-pip
+```
+
 ## OP2-Common
 
 PyOP2 depends on the [OP2-Common](https://github.com/OP2/OP2-Common) library
@@ -26,8 +39,13 @@ the PyOP2 setup will fail.
 ## Dependencies
 
 To install dependencies system-wide use `sudo -E pip install ...`, to install
-to a user site use `pip install --user ...`. In the following we will use `pip
-install ...` to mean either.
+to a user site use `pip install --user ...`. If you don't want PyOP2 or its
+dependencies interfering with your exisiting Pyhton environment, consider
+creating a [virtualenv](http://virtualenv.org/). In the following we will use
+`pip install ...` to mean any of these options.
+
+**Note:** Installing to the user site does not always give packages priority
+over system installed packages on your `sys.path`.
 
 ### Common
 Common dependencies:
@@ -35,9 +53,8 @@ Common dependencies:
   * decorator
   * instant >= 1.0
   * numpy >= 1.6
-  * [PETSc](https://bitbucket.org/fr710/petsc-3.3-omp) >= 3.2 with Fortran
-    interface, C++ and OpenMP support
-  * [PETSc4py](https://bitbucket.org/fr710/petsc4py) >= 3.3
+  * [PETSc][petsc_repo] >= 3.2 with Fortran interface, C++ and OpenMP support
+  * [PETSc4py][petsc4py_repo] >= 3.3
   * PyYAML
 
 Additional Python 2.6 dependencies:
@@ -49,14 +66,34 @@ Install dependencies via `pip`:
 pip install Cython decorator instant numpy pyyaml
 pip install argparse ordereddict # python < 2.7 only
 ```
-PETSc and petsc4py require environment variables to be set:
+
+### PETSc
+
+PyOP2 uses [petsc4py](http://packages.python.org/petsc4py/), the Python
+bindings for the [PETSc](http://www.mcs.anl.gov/petsc/) linear algebra library.
+
+We maintain [a fork of petsc4py][petsc4py_repo] with extensions that are
+required by PyOP2 and requires:
+  * an MPI implementation built with *shared libraries*
+  * PETSc 3.2 or 3.3 built with *shared libraries*
+
+If you have a suitable PETSc installed on your system, `PETSC_DIR` and
+`PETSC_ARCH` need to be set for the petsc4py installer to find it.
+
+If you want OpenMP support or don't have a suitable PETSc installed on your
+system, build the [PETSc OMP branch][petsc_repo]:
 ```
 PETSC_CONFIGURE_OPTIONS="--with-fortran-interfaces=1 --with-c++-support --with-openmp" \
-  pip install hg+https://bitbucket.org/fr710/petsc-3.3-omp
+  pip install hg+https://bitbucket.org/ggorman/petsc-3.3-omp
 unset PETSC_DIR
 unset PETSC_ARCH
+```
+
+Install [petsc4py][petsc4py_repo]:
+```
 pip install hg+https://bitbucket.org/fr710/petsc4py#egg=petsc4py
 ```
+
 **Note:** When using PyOP2 with Fluidity it's crucial that both are built
 against the same PETSc!
 
@@ -123,7 +160,7 @@ fakeroot alien *.rpm
 sudo dpkg -i *.deb
 ```
 
-Installing the [AMD OpenCL toolkit][2] (32bit and 64bit systems):
+Installing the [AMD OpenCL toolkit][AMD_opencl] (32bit and 64bit systems):
 
 ```
 wget http://developer.amd.com/wordpress/media/2012/11/AMD-APP-SDK-v2.8-lnx64.tgz
@@ -140,28 +177,47 @@ sudo ./Install-AMD-APP.sh
 sudo apt-get install libhdf5-mpi-dev python-h5py
 ```
 
-### FFC Interface
+## Building PyOP2
+
+PyOP2 uses [Cython](http://cython.org) extension modules, which need to be
+built when using PyOP2 from the source tree:
+```
+python setup.py build_ext -i
+```
+When installing PyOP2 via `python setup.py install` the extension modules will
+be built automatically.
+
+## FFC Interface
+
+Solving [UFL](https://launchpad.net/ufl) finite element equations requires a
+[fork of FFC][ffc_repo] and dependencies:
+  * [UFL](https://launchpad.net/ufl)
+  * [UFC](https://launchpad.net/ufc)
+  * [FIAT](https://launchpad.net/fiat)
+
+### Install via the package manager
 
 The easiest way to get all the dependencies for FFC is to install the FEniCS
-toolchain from packages:
-
+toolchain from [packages](http://fenicsproject.org/download/) on supported
+platforms:
 ```
 sudo apt-get install fenics
 ```
 
-A branch of FFC is required, and it must be added to your `$PYTHONPATH`:
-
+Our [FFC fork][ffc_repo] is required, and must be added to your `$PYTHONPATH`:
 ```
 bzr branch lp:~mapdes/ffc/pyop2 $FFC_DIR
 export PYTHONPATH=$FFC_DIR:$PYTHONPATH
 ```
 
-This branch of FFC also requires the trunk version of UFL, also added to `$PYTHONPATH`:
-
+This branch of FFC also requires the trunk version of
+[UFL](https://launchpad.net/ufl), also added to `$PYTHONPATH`:
 ```
 bzr branch lp:ufl $UFL_DIR
 export PYTHONPATH=$UFL_DIR:$PYTHONPATH
 ```
+
+### Install via pip
 
 Alternatively, install FFC and all dependencies via pip:
 ```
@@ -173,5 +229,8 @@ pip install \
   https://sourcesup.renater.fr/frs/download.php/2309/ScientificPython-2.8.tar.gz
 ```
 
+[petsc_repo]: https://bitbucket.org/ggorman/petsc-3.3-omp
+[petsc4py_repo]: https://bitbucket.org/fr710/petsc4py
+[ffc_repo]: https://code.launchpad.net/~mapdes/ffc/pyop2
 [1]: https://bitbucket.org/eliben/pycparser/pull-request/1/fix-nested-initialiser-lists/diff
-[2]: http://developer.amd.com/tools/heterogeneous-computing/amd-accelerated-parallel-processing-app-sdk/
+[AMD_opencl]: http://developer.amd.com/tools/heterogeneous-computing/amd-accelerated-parallel-processing-app-sdk/
