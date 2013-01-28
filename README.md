@@ -89,7 +89,7 @@ unset PETSC_DIR
 unset PETSC_ARCH
 ```
 
-Install [petsc4py][petsc4py_repo]:
+Install [petsc4py][petsc4py_repo] via `pip`:
 ```
 pip install hg+https://bitbucket.org/fr710/petsc4py#egg=petsc4py
 ```
@@ -102,7 +102,7 @@ Dependencies:
   * codepy >= 2012.1.2
   * Jinja2
   * mako
-  * pycparser == 2.09.1 with [patch][1] applied
+  * pycparser >= 2.09.1 (revision a460398 or newer)
   * pycuda revision a6c9b40 or newer
 
 The [cusp library](https://code.google.com/p/cusp-library/) headers need to be
@@ -110,11 +110,8 @@ in your (CUDA) include path.
 
 Install via `pip`:
 ```
-pip install codepy Jinja2 mako hg+https://bitbucket.org/gmarkall/pycparser#egg=pycparser-2.09.1
+pip install codepy Jinja2 mako pycparser
 ```
-
-Above version of [pycparser](https://bitbucket.org/gmarkall/pycparser) includes a
-[patch][1] to be able to use `switch`/`case` statements in your kernels.
 
 pycuda: Make sure `nvcc` is in your `$PATH` and `libcuda.so` in your
 `$LIBRARY_PATH` if in a non-standard location.
@@ -136,17 +133,13 @@ sudo cp siteconf.py /etc/aksetup-defaults.py
 Dependencies:
   * Jinja2
   * mako
-  * pycparser == 2.09.1 with [patch][1] applied
+  * pycparser >= 2.09.1 (revision a460398 or newer)
   * pyopencl >= 2012.1
 
 Install via `pip`:
 ```
-pip install Jinja2 mako pyopencl>=2012.1 \
-  hg+https://bitbucket.org/gmarkall/pycparser#egg=pycparser-2.09.1
+pip install Jinja2 mako pyopencl>=2012.1 pycparser
 ```
-
-Above version of [pycparser](https://bitbucket.org/gmarkall/pycparser) includes a
-[patch][1] to be able to use `switch`/`case` statements in your kernels.
 
 Installing the Intel OpenCL toolkit (64bit systems only):
 
@@ -232,5 +225,4 @@ pip install \
 [petsc_repo]: https://bitbucket.org/ggorman/petsc-3.3-omp
 [petsc4py_repo]: https://bitbucket.org/fr710/petsc4py
 [ffc_repo]: https://code.launchpad.net/~mapdes/ffc/pyop2
-[1]: https://bitbucket.org/eliben/pycparser/pull-request/1/fix-nested-initialiser-lists/diff
 [AMD_opencl]: http://developer.amd.com/tools/heterogeneous-computing/amd-accelerated-parallel-processing-app-sdk/
