@@ -1196,7 +1196,8 @@ class ParLoop(object):
 
     @property
     def needs_exec_halo(self):
-        return any(arg._is_indirect_and_not_read for arg in self.args)
+        return any(arg._is_indirect_and_not_read or arg._is_mat
+                   for arg in self.args)
 
     @property
     def kernel(self):
