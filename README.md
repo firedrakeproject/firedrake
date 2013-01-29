@@ -21,7 +21,6 @@ sudo apt-get install git-core mercurial cmake cmake-curses-gui python-pip
 
 PyOP2 depends on the [OP2-Common](https://github.com/OP2/OP2-Common) library
 (only sequential is needed), which is built as follows:
-
 ```
 git clone git://github.com/OP2/OP2-Common.git
 cd OP2-Common/op2/c
@@ -116,6 +115,7 @@ pip install codepy Jinja2 mako pycparser
 pycuda: Make sure `nvcc` is in your `$PATH` and `libcuda.so` in your
 `$LIBRARY_PATH` if in a non-standard location.
 ```
+export CUDA_ROOT=/usr/local/cuda # change as appropriate
 cd /tmp
 git clone http://git.tiker.net/trees/pycuda.git
 cd pycuda
@@ -142,7 +142,6 @@ pip install Jinja2 mako pyopencl>=2012.1 pycparser
 ```
 
 Installing the Intel OpenCL toolkit (64bit systems only):
-
 ```
 cd /tmp
 # install alien to convert the rpm to a deb package
@@ -154,7 +153,6 @@ sudo dpkg -i *.deb
 ```
 
 Installing the [AMD OpenCL toolkit][AMD_opencl] (32bit and 64bit systems):
-
 ```
 wget http://developer.amd.com/wordpress/media/2012/11/AMD-APP-SDK-v2.8-lnx64.tgz
 # on a 32bit system, instead
@@ -166,17 +164,25 @@ sudo ./Install-AMD-APP.sh
 ```
 
 ### HDF5
+
+PyOP2 allows initializing data structures using data stored in HDF5 files.
+To use this feature you need the optional dependency [h5py](http://h5py.org).
+
+On a Debian-based system, run:
 ```
 sudo apt-get install libhdf5-mpi-dev python-h5py
 ```
 
+Alternatively, if the HDF5 library is available, `pip install h5py`.
+
 ## Building PyOP2
 
 PyOP2 uses [Cython](http://cython.org) extension modules, which need to be
-built when using PyOP2 from the source tree:
+built in-place when using PyOP2 from the source tree:
 ```
-python setup.py build_ext -i
+python setup.py build_ext --inplace
 ```
+
 When installing PyOP2 via `python setup.py install` the extension modules will
 be built automatically.
 
@@ -190,9 +196,8 @@ Solving [UFL](https://launchpad.net/ufl) finite element equations requires a
 
 ### Install via the package manager
 
-The easiest way to get all the dependencies for FFC is to install the FEniCS
-toolchain from [packages](http://fenicsproject.org/download/) on supported
-platforms:
+On a supported platform, get all the dependencies for FFC by installing the
+FEniCS toolchain from [packages](http://fenicsproject.org/download/):
 ```
 sudo apt-get install fenics
 ```
@@ -220,6 +225,57 @@ pip install \
   bzr+ssh://bazaar.launchpad.net/%2Bbranch/ufl#egg=ufl \
   bzr+ssh://bazaar.launchpad.net/%2Bbranch/fiat#egg=fiat \
   https://sourcesup.renater.fr/frs/download.php/2309/ScientificPython-2.8.tar.gz
+```
+
+## Setting up the environment
+
+To make sure PyOP2 finds all its dependencies, create a file `.env` e.g. in
+your PyOP2 root directory and source it via `. .env` when using PyOP2. Use the
+template below, adjusting paths and removing definitions as necessary:
+```
+# Root directory of your OP2 installation, always needed
+export OP2_DIR=/path/to/OP2-Common/op2
+# If you have installed the OP2 library define e.g.
+export OP2_PREFIX=/usr/local
+
+# PETSc installation, not necessary when PETSc was installed via pip
+export PETSC_DIR=/path/to/petsc
+export PETSC_ARCH=linux-gnu-c-opt
+
+# Add UFL and FFC to PYTHONPATH if in non-standard location
+export UFL_DIR=/path/to/ufl
+export FFC_DIR=/path/to/ffc
+export PYTHONPATH=$UFL_DIR:$FFC_DIR:$PYTHONPATH
+# Add any other Python module in non-standard locations
+
+# Add PyOP2 to PYTHONPATH
+export PYTHONPATH=/path/to/PyOP2:$PYTHONPATH
+```
+
+Alternatively, package the configuration in an
+[environment module](http://modules.sourceforge.net/).
+
+## Testing your installation
+
+If all tests in our test suite pass, you should be good to go:
+```
+make test
+```
+
+This will attempt to run tests for all backends and skip those for not
+available backends. If the [FFC fork][ffc_repo] is not found, tests for the
+FFC interface are xfailed.
+
+## Troubleshooting
+
+Start by verifying that PyOP2 picks up the "correct" dependencies, in
+particular if you have several versions of a Python package installed in
+different places on the system.
+
+Run `pydoc <module>` to find out where a module/package is loaded from. To
+print the module search path, run:
+```
+python -c 'from pprint import pprint; import sys; pprint(sys.path)'
 ```
 
 [petsc_repo]: https://bitbucket.org/ggorman/petsc-3.3-omp
