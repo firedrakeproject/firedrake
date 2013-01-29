@@ -41,7 +41,7 @@ import configuration as cfg
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IterationSpace
 from base import DataCarrier, IterationIndex, i, IdentityMap, Kernel, Global
-from base import Halo
+from base import Halo, PYOP2_COMM
 from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 import op_lib_core as core
 from petsc4py import PETSc
