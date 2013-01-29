@@ -405,6 +405,10 @@ class Halo(object):
     should take place over"""
         return self._comm
 
+    @property
+    def global_to_petsc_numbering(self):
+        return self._global_to_petsc_numbering
+
     def verify(self, s):
         """Verify that this :class:`Halo` is valid for a given
 :class:`Set`."""
