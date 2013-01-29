@@ -229,14 +229,35 @@ class Mat(base.Mat):
         if not self.dtype == PETSc.ScalarType:
             raise RuntimeError("Can only create a matrix of type %s, %s is not supported" \
                     % (PETSc.ScalarType, self.dtype))
-        mat = PETSc.Mat()
-        rdim, cdim = self.sparsity.dims
-        self._array = np.zeros(self.sparsity.total_nz, dtype=PETSc.RealType)
-        # We're not currently building a blocked matrix, so need to scale the
-        # number of rows and columns by the sparsity dimensions
-        # FIXME: This needs to change if we want to do blocked sparse
-        mat.createAIJWithArrays((self.sparsity.nrows*rdim, self.sparsity.ncols*cdim),
-                (self.sparsity._rowptr, self.sparsity._colidx, self._array))
+        if PYOP2_COMM.size == 1:
+            mat = PETSc.Mat()
+            row_lg = PETSc.LGMap()
+            col_lg = PETSc.LGMap()
+            rdim, cdim = self.sparsity.dims
+            row_lg.create(indices=np.arange(self.sparsity.nrows * rdim, dtype=PETSc.IntType))
+            col_lg.create(indices=np.arange(self.sparsity.ncols * cdim, dtype=PETSc.IntType))
+            self._array = np.zeros(self.sparsity.total_nz, dtype=PETSc.RealType)
+            # We're not currently building a blocked matrix, so need to scale the
+            # number of rows and columns by the sparsity dimensions
+            # FIXME: This needs to change if we want to do blocked sparse
+            mat.createAIJWithArrays((self.sparsity.nrows*rdim, self.sparsity.ncols*cdim),
+                                    (self.sparsity._rowptr, self.sparsity._colidx, self._array))
+            mat.setLGMap(rmap=row_lg, cmap=col_lg)
+        else:
+            # FIXME: fixup sparsity creation and do createwitharrays instead.
+            mat = PETSc.Mat()
+            row_lg = PETSc.LGMap()
+            col_lg = PETSc.LGMap()
+            row_lg.create(indices=self.sparsity.maps[0][0].dataset.halo.global_to_petsc_numbering)
+            col_lg.create(indices=self.sparsity.maps[0][1].dataset.halo.global_to_petsc_numbering)
+            rdim, cdim = self.sparsity.dims
+            mat.createAIJ(size=((self.sparsity.nrows*rdim, None),
+                                (self.sparsity.ncols*cdim, None)),
+                          # FIXME: this is wrong
+                          nnz=(100, 100))
+            mat.setLGMap(rmap=row_lg, cmap=col_lg)
+            mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, True)
+            mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
         self._handle = mat
 
     def zero(self):
@@ -247,7 +268,7 @@ class Mat(base.Mat):
         """Zeroes the specified rows of the matrix, with the exception of the
         diagonal entry, which is set to diag_val. May be used for applying
         strong boundary conditions."""
-        self.handle.zeroRows(rows, diag_val)
+        self.handle.zeroRowsLocal(rows, diag_val)
 
     def _assemble(self):
         self.handle.assemble()
