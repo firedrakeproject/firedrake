@@ -63,7 +63,7 @@ class Arg(base.Arg):
 class Set(base.Set):
     """OP2 set."""
 
-    @validate_type(('size', (int, tuple), SizeTypeError))
+    @validate_type(('size', (int, tuple, list), SizeTypeError))
     def __init__(self, size, name=None, halo=None):
         base.Set.__init__(self, size, name, halo)
 
