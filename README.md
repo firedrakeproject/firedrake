@@ -109,7 +109,7 @@ in your (CUDA) include path.
 
 Install via `pip`:
 ```
-pip install codepy Jinja2 mako pycparser
+pip install codepy Jinja2 mako hg+https://bitbucket.org/eliben/pycparser#egg=pycparser-2.09.1
 ```
 
 pycuda: Make sure `nvcc` is in your `$PATH` and `libcuda.so` in your
@@ -138,7 +138,7 @@ Dependencies:
 
 Install via `pip`:
 ```
-pip install Jinja2 mako pyopencl>=2012.1 pycparser
+pip install Jinja2 mako pyopencl>=2012.1 hg+https://bitbucket.org/eliben/pycparser#egg=pycparser-2.09.1
 ```
 
 Installing the Intel OpenCL toolkit (64bit systems only):
