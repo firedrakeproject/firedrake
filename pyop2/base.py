@@ -561,7 +561,9 @@ class Dat(DataCarrier):
         self._needs_halo_update = False
         # FIXME: Use correct communicator
         self._send_reqs = [None]*PYOP2_COMM.size
+        self._send_buf = [None]*PYOP2_COMM.size
         self._recv_reqs = [None]*PYOP2_COMM.size
+        self._recv_buf = [None]*PYOP2_COMM.size
         # so that we can tag halo exchanges for each Dat uniquely
         # FIXME: This requires that Dats are declared /in the same
         # order/ on all MPI processes and hence have the same id, we
@@ -636,7 +638,8 @@ class Dat(DataCarrier):
                 # 0 previously) or if there are no elements to send
                 self._send_reqs[dest] = MPI.REQUEST_NULL
                 continue
-            self._send_reqs[dest] = halo.comm.Isend(self._data[ele],
+            self._send_buf[dest] = self._data[ele]
+            self._send_reqs[dest] = halo.comm.Isend(self._send_buf[dest],
                                                     dest=dest, tag=self._id)
         for source,ele in enumerate(halo.receives):
             if ele.size == 0:
@@ -644,7 +647,8 @@ class Dat(DataCarrier):
                 # to receive
                 self._recv_reqs[source] = MPI.REQUEST_NULL
                 continue
-            self._recv_reqs[source] = halo.comm.Irecv(self._data[ele],
+            self._recv_buf[source] = self._data[ele]
+            self._recv_reqs[source] = halo.comm.Irecv(self._recv_buf[source],
                                                       source=source, tag=self._id)
 
     def halo_exchange_end(self):
@@ -652,6 +656,11 @@ class Dat(DataCarrier):
             return
         MPI.Request.Waitall(self._recv_reqs)
         MPI.Request.Waitall(self._send_reqs)
+        self._send_buf = [None]*PYOP2_COMM.size
+        for source, buf in enumerate(self._recv_buf):
+            if buf is not None:
+                self._data[self.dataset.halo.receives[source]] = buf
+        self._recv_buf = [None]*PYOP2_COMM.size
 
     def zero(self):
         """Zero the data associated with this :class:`Dat`"""
