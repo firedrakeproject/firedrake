@@ -187,8 +187,9 @@ class DeviceDataMixin(object):
 
 class Dat(DeviceDataMixin, op2.Dat):
 
-    def __init__(self, dataset, dim, data=None, dtype=None, name=None, soa=None):
-        op2.Dat.__init__(self, dataset, dim, data, dtype, name, soa)
+    def __init__(self, dataset, dim, data=None, dtype=None, name=None,
+                 soa=None, uid=None):
+        op2.Dat.__init__(self, dataset, dim, data, dtype, name, soa, uid)
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
     @property

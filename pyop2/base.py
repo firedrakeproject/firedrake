@@ -550,13 +550,13 @@ class Dat(DataCarrier):
     _modes = [READ, WRITE, RW, INC]
 
     @validate_type(('dataset', Set, SetTypeError), ('name', str, NameTypeError))
-    def __init__(self, dataset, dim, data=None, dtype=None, name=None, soa=None):
+    def __init__(self, dataset, dim, data=None, dtype=None, name=None,
+                 soa=None, uid=None):
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
         self._data = verify_reshape(data, dtype, (dataset.total_size,)+self._dim, allow_none=True)
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
-        self._name = name or "dat_%d" % Dat._globalcount
         self._lib_handle = None
         self._needs_halo_update = False
         # FIXME: Use correct communicator
@@ -564,12 +564,14 @@ class Dat(DataCarrier):
         self._send_buf = [None]*PYOP2_COMM.size
         self._recv_reqs = [None]*PYOP2_COMM.size
         self._recv_buf = [None]*PYOP2_COMM.size
-        # so that we can tag halo exchanges for each Dat uniquely
-        # FIXME: This requires that Dats are declared /in the same
-        # order/ on all MPI processes and hence have the same id, we
-        # should check for this
-        self._id = Dat._globalcount
-        Dat._globalcount += 1
+        # If the uid is not passed in from outside, assume that Dats
+        # have been declared in the same order everywhere.
+        if uid is None:
+            self._id = Dat._globalcount
+            Dat._globalcount += 1
+        else:
+            self._id = uid
+        self._name = name or "dat_%d" % self._id
 
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, path, access):
