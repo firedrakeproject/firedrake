@@ -319,7 +319,7 @@ class Solver(base.Solver, PETSc.KSP):
 
     def solve(self, A, x, b):
         self._set_parameters()
-        px = PETSc.Vec().createWithArray(x.data_ro, size=(x.dataset.size * x.cdim, None))
+        px = PETSc.Vec().createWithArray(x.data, size=(x.dataset.size * x.cdim, None))
         pb = PETSc.Vec().createWithArray(b.data_ro, size=(b.dataset.size * b.cdim, None))
         self.setOperators(A.handle)
         self.setFromOptions()
