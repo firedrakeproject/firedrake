@@ -307,6 +307,15 @@ class Halo(object):
 
     To send/receive no set elements to/from a process, pass an empty
     list in that position.
+
+    The gnn2unn array is a map from process-local set element
+    numbering to cross-process set element numbering.  It must
+    correctly number all the set elements in the halo region as well
+    as owned elements.  Providing this array is only necessary if you
+    will access :class:`Mat` objects on the :class:`Set` this `Halo`
+    lives on.  Insertion into :class:`Dat`s always uses process-local
+    numbering, however insertion into :class:`Mat`s uses cross-process
+    numbering under the hood.
     """
     def __init__(self, sends, receives, gnn2unn=None):
         self._sends = tuple(np.asarray(x, dtype=np.int32) for x in sends)
