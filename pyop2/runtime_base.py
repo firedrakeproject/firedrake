@@ -46,8 +46,21 @@ import op_lib_core as core
 from mpi4py import MPI
 from petsc4py import PETSc
 
-PYOP2_COMM = MPI.COMM_WORLD
-_halo_comm_seen = False
+PYOP2_COMM = None
+
+def set_mpi_communicator(comm):
+    """Set the MPI communicator for parallel communication."""
+    global PYOP2_COMM
+    if comm is None:
+        PYOP2_COMM = MPI.COMM_WORLD
+    elif type(comm) is int:
+        # If it's come from Fluidity where an MPI_Comm is just an
+        # integer.
+        PYOP2_COMM = MPI.Comm.f2py(comm)
+    else:
+        PYOP2_COMM = comm
+    # PETSc objects also need to be built on the same communicator.
+    PETSc.Sys.setDefaultComm(PYOP2_COMM)
 
 # Data API
 
@@ -140,13 +153,8 @@ class Halo(base.Halo):
             self._comm = MPI.Comm.f2py(comm)
         else:
             self._comm = comm
-        global _halo_comm_seen
-        global PYOP2_COMM
-        if _halo_comm_seen:
-            assert self._comm == PYOP2_COMM, "Halo communicator not PYOP2_COMM"
-        else:
-            _halo_comm_seen = True
-            PYOP2_COMM = self._comm
+        # FIXME: is this a necessity?
+        assert self._comm == PYOP2_COMM, "Halo communicator not PYOP2_COMM"
         rank = self._comm.rank
         size = self._comm.size
 

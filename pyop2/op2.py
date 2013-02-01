@@ -40,7 +40,7 @@ import op_lib_core as core
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
 from base import _empty_parloop_cache, _parloop_cache_size
-from runtime_base import _empty_sparsity_cache
+from runtime_base import _empty_sparsity_cache, set_mpi_communicator
 from device import _empty_plan_cache, _plan_cache_size
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
@@ -51,6 +51,7 @@ def init(**kwargs):
     :arg backend: Set the hardware-specific backend. Current choices
      are ``"sequential"``, ``"openmp"``, ``"opencl"`` and ``"cuda"``.
     :arg debug: The level of debugging output.
+    :arg comm: The MPI communicator to use for parallel communication, defaults to `MPI_COMM_WORLD`
 
     .. note::
        Calling ``init`` again with a different backend raises an exception.
@@ -72,6 +73,7 @@ def init(**kwargs):
     if backend == 'pyop2.void':
         backends.set_backend(cfg.backend)
         backends._BackendSelector._backend._setup()
+        set_mpi_communicator(kwargs.get('comm'))
         core.op_init(args=None, diags=0)
 
 def exit():

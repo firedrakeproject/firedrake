@@ -39,6 +39,9 @@ from exceptions import *
 from utils import *
 from backends import _make_object
 
+def set_mpi_communicator(comm):
+    pass
+
 # Data API
 
 class Access(object):
