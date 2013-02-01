@@ -41,10 +41,13 @@ import configuration as cfg
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IterationSpace
 from base import DataCarrier, IterationIndex, i, IdentityMap, Kernel, Global
-from base import Halo, PYOP2_COMM
 from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 import op_lib_core as core
+from mpi4py import MPI
 from petsc4py import PETSc
+
+PYOP2_COMM = MPI.COMM_WORLD
+_halo_comm_seen = False
 
 # Data API
 
@@ -53,6 +56,51 @@ class Arg(base.Arg):
 
     .. warning:: User code should not directly instantiate :class:`Arg`. Instead, use the call syntax on the :class:`DataCarrier`.
     """
+
+    def halo_exchange_begin(self):
+        assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
+        assert not self._in_flight, \
+            "Halo exchange already in flight for Arg %s" % self
+        if self.access in [READ, RW] and self.data.needs_halo_update:
+            self.data.needs_halo_update = False
+            self._in_flight = True
+            self.data.halo_exchange_begin()
+
+    def halo_exchange_end(self):
+        assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
+        if self.access in [READ, RW] and self._in_flight:
+            self._in_flight = False
+            self.data.halo_exchange_end()
+
+    def reduction_begin(self):
+        assert self._is_global, \
+            "Doing global reduction only makes sense for Globals"
+        assert not self._in_flight, \
+            "Reduction already in flight for Arg %s" % self
+        if self.access is not READ:
+            self._in_flight = True
+            if self.access is INC:
+                op = MPI.SUM
+            elif self.access is MIN:
+                op = MPI.MIN
+            elif self.access is MAX:
+                op = MPI.MAX
+            # If the MPI supports MPI-3, this could be MPI_Iallreduce
+            # instead, to allow overlapping comp and comms.
+            # We must reduce into a temporary buffer so that when
+            # executing over the halo region, which occurs after we've
+            # called this reduction, we don't subsequently overwrite
+            # the result.
+            PYOP2_COMM.Allreduce(self.data._data, self.data._buf, op=op)
+
+    def reduction_end(self):
+        assert self._is_global, \
+            "Doing global reduction only makes sense for Globals"
+        if self.access is not READ and self._in_flight:
+            self._in_flight = False
+            # Must have a copy here, because otherwise we just grab a
+            # pointer.
+            self.data._data = np.copy(self.data._buf)
 
     @property
     def _c_handle(self):
@@ -85,8 +133,64 @@ class Set(base.Set):
             self._lib_handle = core.op_set(self)
         return self._lib_handle
 
+class Halo(base.Halo):
+    def __init__(self, sends, receives, comm=PYOP2_COMM, gnn2unn=None):
+        base.Halo.__init__(self, sends, receives, gnn2unn)
+        if type(comm) is int:
+            self._comm = MPI.Comm.f2py(comm)
+        else:
+            self._comm = comm
+        global _halo_comm_seen
+        global PYOP2_COMM
+        if _halo_comm_seen:
+            assert self._comm == PYOP2_COMM, "Halo communicator not PYOP2_COMM"
+        else:
+            _halo_comm_seen = True
+            PYOP2_COMM = self._comm
+        rank = self._comm.rank
+        size = self._comm.size
+
+        assert len(self._sends) == size, \
+            "Invalid number of sends for Halo, got %d, wanted %d" % \
+            (len(self._sends), size)
+        assert len(self._receives) == size, \
+            "Invalid number of receives for Halo, got %d, wanted %d" % \
+            (len(self._receives), size)
+
+        assert self._sends[rank].size == 0, \
+            "Halo was specified with self-sends on rank %d" % rank
+        assert self._receives[rank].size == 0, \
+            "Halo was specified with self-receives on rank %d" % rank
+
+    @property
+    def comm(self):
+        """The MPI communicator this :class:`Halo`'s communications
+    should take place over"""
+        return self._comm
+
+    def verify(self, s):
+        """Verify that this :class:`Halo` is valid for a given
+:class:`Set`."""
+        for dest, sends in enumerate(self.sends):
+            assert (sends >= 0).all() and (sends < s.size).all(), \
+                "Halo send to %d is invalid (outside owned elements)" % dest
+
+        for source, receives in enumerate(self.receives):
+            assert (receives >= s.size).all() and \
+                (receives < s.total_size).all(), \
+                "Halo receive from %d is invalid (not in halo elements)" % \
+                source
+
 class Dat(base.Dat):
     """OP2 vector data. A ``Dat`` holds a value for every member of a :class:`Set`."""
+
+    def __init__(self, dataset, dim, data=None, dtype=None, name=None,
+                 soa=None, uid=None):
+        base.Dat.__init__(self, dataset, dim, data, dtype, name, soa, uid)
+        self._send_reqs = [None]*PYOP2_COMM.size
+        self._send_buf = [None]*PYOP2_COMM.size
+        self._recv_reqs = [None]*PYOP2_COMM.size
+        self._recv_buf = [None]*PYOP2_COMM.size
 
     def __iadd__(self, other):
         """Pointwise addition of fields."""
@@ -113,6 +217,41 @@ class Dat(base.Dat):
         else:
             self._data /= as_type(other.data, self.dtype)
         return self
+
+    def halo_exchange_begin(self):
+        halo = self.dataset.halo
+        if halo is None:
+            return
+        for dest,ele in enumerate(halo.sends):
+            if ele.size == 0:
+                # Don't send to self (we've asserted that ele.size ==
+                # 0 previously) or if there are no elements to send
+                self._send_reqs[dest] = MPI.REQUEST_NULL
+                continue
+            self._send_buf[dest] = self._data[ele]
+            self._send_reqs[dest] = halo.comm.Isend(self._send_buf[dest],
+                                                    dest=dest, tag=self._id)
+        for source,ele in enumerate(halo.receives):
+            if ele.size == 0:
+                # Don't receive from self or if there are no elements
+                # to receive
+                self._recv_reqs[source] = MPI.REQUEST_NULL
+                continue
+            self._recv_buf[source] = self._data[ele]
+            self._recv_reqs[source] = halo.comm.Irecv(self._recv_buf[source],
+                                                      source=source, tag=self._id)
+
+    def halo_exchange_end(self):
+        halo = self.dataset.halo
+        if halo is None:
+            return
+        MPI.Request.Waitall(self._recv_reqs)
+        MPI.Request.Waitall(self._send_reqs)
+        self._send_buf = [None]*PYOP2_COMM.size
+        for source, buf in enumerate(self._recv_buf):
+            if buf is not None:
+                self._data[halo.receives[source]] = buf
+        self._recv_buf = [None]*PYOP2_COMM.size
 
     @property
     def norm(self):
@@ -248,6 +387,7 @@ class Mat(base.Mat):
             mat = PETSc.Mat()
             row_lg = PETSc.LGMap()
             col_lg = PETSc.LGMap()
+            # FIXME: probably not right for vector fields
             row_lg.create(indices=self.sparsity.maps[0][0].dataset.halo.global_to_petsc_numbering)
             col_lg.create(indices=self.sparsity.maps[0][1].dataset.halo.global_to_petsc_numbering)
             rdim, cdim = self.sparsity.dims
