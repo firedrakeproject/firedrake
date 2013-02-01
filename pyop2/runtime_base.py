@@ -195,10 +195,12 @@ class Dat(base.Dat):
     def __init__(self, dataset, dim, data=None, dtype=None, name=None,
                  soa=None, uid=None):
         base.Dat.__init__(self, dataset, dim, data, dtype, name, soa, uid)
-        self._send_reqs = [None]*PYOP2_COMM.size
-        self._send_buf = [None]*PYOP2_COMM.size
-        self._recv_reqs = [None]*PYOP2_COMM.size
-        self._recv_buf = [None]*PYOP2_COMM.size
+        halo = dataset.halo
+        if halo is not None:
+            self._send_reqs = [None]*halo.comm.size
+            self._send_buf = [None]*halo.comm.size
+            self._recv_reqs = [None]*halo.comm.size
+            self._recv_buf = [None]*halo.comm.size
 
     def __iadd__(self, other):
         """Pointwise addition of fields."""
@@ -255,11 +257,11 @@ class Dat(base.Dat):
             return
         MPI.Request.Waitall(self._recv_reqs)
         MPI.Request.Waitall(self._send_reqs)
-        self._send_buf = [None]*PYOP2_COMM.size
+        self._send_buf = [None]*len(self._send_buf)
         for source, buf in enumerate(self._recv_buf):
             if buf is not None:
                 self._data[halo.receives[source]] = buf
-        self._recv_buf = [None]*PYOP2_COMM.size
+        self._recv_buf = [None]*len(self._recv_buf)
 
     @property
     def norm(self):
