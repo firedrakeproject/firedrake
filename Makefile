@@ -16,7 +16,9 @@ SPHINX_BUILD_DIR = $(SPHINX_DIR)/build
 SPHINX_TARGET = html
 SPHINX_TARGET_DIR = $(SPHINX_BUILD_DIR)/$(SPHINX_TARGET)
 
-.PHONY : help test unit regression doc update_docs
+all: ext
+
+.PHONY : help test unit regression doc update_docs ext ext_clean
 
 help:
 	@echo "make COMMAND with COMMAND one of:"
@@ -27,6 +29,8 @@ help:
 	@echo "  regression_BACKEND : run regression tests for BACKEND"
 	@echo "  doc                : build sphinx documentation"
 	@echo "  update_docs        : build sphinx documentation and push to GitHub"
+	@echo "  ext                : rebuild Cython extension"
+	@echo "  ext_clean          : delete generated extension"
 	@echo
 	@echo "Available OpenCL contexts: $(OPENCL_CTXS)"
 
@@ -59,3 +63,9 @@ fi
 	cd $(SPHINX_TARGET_DIR); git fetch -p; git checkout -f gh-pages; git reset --hard origin/gh-pages
 	make -C $(SPHINX_DIR) $(SPHINX_TARGET)
 	cd $(SPHINX_TARGET_DIR); git commit -am "Update documentation"; git push origin gh-pages
+
+ext: ext_clean
+	python setup.py build_ext -i
+
+ext_clean:
+	rm -rf build pyop2/op_lib_core.c pyop2/op_lib_core.so
