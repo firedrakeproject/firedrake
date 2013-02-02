@@ -37,8 +37,6 @@ import numpy as np
 from time import time
 from decorator import decorator
 
-_timers = {}
-
 
 class Timer(object):
     """Generic timer class.
@@ -48,21 +46,23 @@ class Timer(object):
         the current time. Defaults to time.time.
     """
 
+    _timers = {}
+
     def __new__(cls, name=None, timer=time):
-        n = name or 'timer' + len(_timers)
-        if n in _timers:
-            return _timers[n]
+        n = name or 'timer' + len(cls._timers)
+        if n in cls._timers:
+            return cls._timers[n]
         return super(Timer, cls).__new__(cls, name, timer)
 
     def __init__(self, name=None, timer=time):
-        n = name or 'timer' + len(_timers)
-        if n in _timers:
+        n = name or 'timer' + len(self._timers)
+        if n in self._timers:
             return
         self._name = n
         self._timer = timer
         self._start = None
         self._timings = []
-        _timers[n] = self
+        self._timers[n] = self
 
     def start(self):
         """Start the timer."""
@@ -100,6 +100,22 @@ class Timer(object):
         """Average time spent per recorded event."""
         return np.average(self._timings)
 
+    @classmethod
+    def summary(cls, filename=None):
+        """Print a summary table for all timers or write CSV to filename."""
+        if not cls._timers:
+            return
+        if isinstance(filename, str):
+            import csv
+            with open(filename, 'wb') as f:
+                f.write("Timer,Total time,Calls,Average time\n")
+                w = csv.writer(f)
+                w.writerows([(t.name, t.total, t.ncalls, t.average) for t in cls._timers.values()])
+        else:
+            print "Timer | Total time | Calls | Average time"
+            for t in cls._timers.values():
+                print "%s | %g | %d | %g" % (t.name, t.total, t.ncalls, t.average)
+
 
 class profile(Timer):
     """Decorator to profile function calls."""
@@ -125,10 +141,6 @@ def toc(name):
     Timer(name).stop()
 
 
-def summary():
-    """Print a summary table for all timers."""
-    if not _timers:
-        return
-    print "Timer | total time | calls | average time"
-    for t in _timers.values():
-        print "%s | %g | %d | %g" % (t.name, t.total, t.ncalls, t.average)
+def summary(filename=None):
+    """Print a summary table for all timers or write CSV to filename."""
+    Timer.summary(filename)
