@@ -109,7 +109,9 @@ class Timer(object):
             import csv
             with open(filename, 'wb') as f:
                 f.write("Timer,Total time,Calls,Average time\n")
-                w = csv.writer(f)
+                dialect = csv.excel
+                dialect.lineterminator = '\n'
+                w = csv.writer(f, dialect=dialect)
                 w.writerows([(t.name, t.total, t.ncalls, t.average) for t in cls._timers.values()])
         else:
             print "Timer | Total time | Calls | Average time"
