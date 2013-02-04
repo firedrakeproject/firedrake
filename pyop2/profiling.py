@@ -116,6 +116,17 @@ class Timer(object):
             for t in cls._timers.values():
                 print "%s | %g | %d | %g" % (t.name, t.total, t.ncalls, t.average)
 
+    @classmethod
+    def get_timers(cls):
+        """Return a dict containing all Timers."""
+        return cls._timers
+
+    @classmethod
+    def reset(cls):
+        """Clear all timer information previously recorded."""
+        if not cls._timers:
+            return
+        cls._timers = {}
 
 class profile(Timer):
     """Decorator to profile function calls."""
@@ -144,3 +155,13 @@ def toc(name):
 def summary(filename=None):
     """Print a summary table for all timers or write CSV to filename."""
     Timer.summary(filename)
+
+
+def get_timers():
+    """Return a dict containing all Timers."""
+    return Timer.get_timers()
+
+
+def reset():
+    """Clear all timer information previously recorded."""
+    Timer.reset()
