@@ -220,10 +220,10 @@ export PYTHONPATH=$UFL_DIR:$PYTHONPATH
 Alternatively, install FFC and all dependencies via pip:
 ```
 pip install \
-  bzr+ssh://bazaar.launchpad.net/~mapdes/ffc/pyop2#egg=ffc \
-  bzr+ssh://bazaar.launchpad.net/~florian-rathgeber/ufc/python-setup#egg=ufc_utils \
-  bzr+ssh://bazaar.launchpad.net/%2Bbranch/ufl#egg=ufl \
-  bzr+ssh://bazaar.launchpad.net/%2Bbranch/fiat#egg=fiat \
+  bzr+http://bazaar.launchpad.net/~mapdes/ffc/pyop2#egg=ffc \
+  bzr+http://bazaar.launchpad.net/~florian-rathgeber/ufc/python-setup#egg=ufc_utils \
+  bzr+http://bazaar.launchpad.net/~ufl-core/ufl/main#egg=ufl \
+  bzr+http://bazaar.launchpad.net/~fiat-core/fiat/main#egg=fiat \
   https://sourcesup.renater.fr/frs/download.php/2309/ScientificPython-2.8.tar.gz
 ```
 
