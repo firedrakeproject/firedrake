@@ -452,6 +452,7 @@ class ParLoop(device.ParLoop):
             kernel_code = """
             inline %(code)s
             """ % {'code' : self._kernel.code }
+
         code_to_compile =  wrapper % { 'kernel_name' : self._kernel.name,
                                        'wrapper_args' : _wrapper_args,
                                        'wrapper_decs' : _wrapper_decs,
@@ -475,6 +476,23 @@ class ParLoop(device.ParLoop):
                                        'reduction_finalisations' : _reduction_finalisations}
 
         # We need to build with mpicc since that's required by PETSc
+        _GCC = 0
+        _ICC = 1
+        def _detect_openmp_implementation():
+            import subprocess
+            try:
+                _version = subprocess.check_output(['mpicc', '--version'], shell=False)
+                if _version.find('Free Software Foundation') != -1:
+                    return _GCC
+                elif _version.find('Intel Corporation') != -1:
+                    return _ICC
+                else:
+                    assert False, 'Unknown mpicc version:\n%s' % _version
+            except OSError:
+                assert False, 'Something went wrong.'
+
+        _lddargs = [{_GCC: '-fopenmp', _ICC: '-openmp'}[_detect_openmp_implementation()]]
+
         cc = os.environ.get('CC')
         os.environ['CC'] = 'mpicc'
         _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
@@ -487,7 +505,7 @@ class ParLoop(device.ParLoop):
                                  sources=["mat_utils.cxx"],
                                  cppargs=['-fopenmp'],
                                  system_headers=['omp.h'],
-                                 lddargs=['-fopenmp'])
+                                 lddargs=_lddargs)
         if cc:
             os.environ['CC'] = cc
         else:
