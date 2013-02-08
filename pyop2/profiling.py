@@ -105,18 +105,25 @@ class Timer(object):
         """Print a summary table for all timers or write CSV to filename."""
         if not cls._timers:
             return
+        column_heads = ("Timer", "Total time", "Calls", "Average time")
         if isinstance(filename, str):
             import csv
             with open(filename, 'wb') as f:
-                f.write("Timer,Total time,Calls,Average time\n")
+                f.write(','.join(column_heads) + "\n")
                 dialect = csv.excel
                 dialect.lineterminator = '\n'
                 w = csv.writer(f, dialect=dialect)
                 w.writerows([(t.name, t.total, t.ncalls, t.average) for t in cls._timers.values()])
         else:
-            print "Timer | Total time | Calls | Average time"
+            namecol = max([len(column_heads[0])] + [len(t.name) for t in cls._timers.values()])
+            totalcol = max([len(column_heads[1])] + [len('%g' % t.total) for t in cls._timers.values()])
+            ncallscol = max([len(column_heads[2])] + [len('%d' % t.ncalls) for t in cls._timers.values()])
+            averagecol = max([len(column_heads[3])] + [len('%g' % t.average) for t in cls._timers.values()])
+            fmt = "%%%ds | %%%ds | %%%ds | %%%ds" % (namecol, totalcol, ncallscol, averagecol)
+            print fmt % column_heads
+            fmt = "%%%ds | %%%dg | %%%dd | %%%dg" % (namecol, totalcol, ncallscol, averagecol)
             for t in cls._timers.values():
-                print "%s | %g | %d | %g" % (t.name, t.total, t.ncalls, t.average)
+                print fmt % (t.name, t.total, t.ncalls, t.average)
 
     @classmethod
     def get_timers(cls):
@@ -129,6 +136,7 @@ class Timer(object):
         if not cls._timers:
             return
         cls._timers = {}
+
 
 class profile(Timer):
     """Decorator to profile function calls."""
