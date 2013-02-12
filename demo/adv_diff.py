@@ -47,7 +47,6 @@ from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from triangle_reader import read_triangle
 from ufl import *
-import viper
 import sys
 
 import numpy as np
@@ -150,6 +149,7 @@ T = 0.1
 
 vis_coords = np.asarray([ [x, y, 0.0] for x, y in coords.data_ro ],dtype=np.float64)
 if opt['visualize']:
+    import viper
     v = viper.Viper(x=viper_shape(tracer.data_ro), coordinates=vis_coords, cells=elem_node.values)
     v.interactive()
 
