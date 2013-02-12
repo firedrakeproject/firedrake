@@ -48,6 +48,20 @@ import device
 # hard coded value to max openmp threads
 _max_threads = 32
 
+def _detect_openmp_flags():
+    import subprocess
+    _version = subprocess.check_output(['mpicc', '--version'], shell=False)
+    if _version.find('Free Software Foundation') != -1:
+        return '-fopenmp'
+    elif _version.find('Intel Corporation') != -1:
+        return '-openmp'
+    else:
+        from warnings import warn
+        warn('Unknown mpicc version:\n%s' % _version)
+        return ''
+
+_cppargs = os.environ.get('OMP_CXX_FLAGS') or _detect_openmp_flags()
+
 class Mat(rt.Mat):
     # This is needed for the test harness to check that two Mats on
     # the same Sparsity share data.
@@ -476,23 +490,6 @@ class ParLoop(device.ParLoop):
                                        'reduction_finalisations' : _reduction_finalisations}
 
         # We need to build with mpicc since that's required by PETSc
-        _GCC = 0
-        _ICC = 1
-        def _detect_openmp_implementation():
-            import subprocess
-            try:
-                _version = subprocess.check_output(['mpicc', '--version'], shell=False)
-                if _version.find('Free Software Foundation') != -1:
-                    return _GCC
-                elif _version.find('Intel Corporation') != -1:
-                    return _ICC
-                else:
-                    assert False, 'Unknown mpicc version:\n%s' % _version
-            except OSError:
-                assert False, 'Something went wrong.'
-
-        _lddargs = [{_GCC: '-fopenmp', _ICC: '-openmp'}[_detect_openmp_implementation()]]
-
         cc = os.environ.get('CC')
         os.environ['CC'] = 'mpicc'
         _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
@@ -503,9 +500,8 @@ class ParLoop(device.ParLoop):
                                  library_dirs=[OP2_LIB, get_petsc_dir()+'/lib'],
                                  libraries=['op2_seq', 'petsc'],
                                  sources=["mat_utils.cxx"],
-                                 cppargs=['-fopenmp'],
-                                 system_headers=['omp.h'],
-                                 lddargs=_lddargs)
+                                 cppargs=_cppargs,
+                                 system_headers=['omp.h'])
         if cc:
             os.environ['CC'] = cc
         else:
