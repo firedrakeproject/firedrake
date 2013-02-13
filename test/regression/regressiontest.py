@@ -12,7 +12,7 @@ import traceback
 
 class TestProblem:
     """A test records input information as well as tests for the output."""
-    def __init__(self, filename, verbose=False, replace=None):
+    def __init__(self, filename, verbose=False, replace=None, pbs=False):
         """Read a regression test from filename and record its details."""
         self.name = ""
         self.command = replace
@@ -26,6 +26,7 @@ class TestProblem:
         self.pass_status = []
         self.warn_status = []
         self.filename = filename.split('/')[-1]
+        self.pbs = pbs
         # add dir to import path
         sys.path.insert(0, os.path.dirname(filename))
 
@@ -97,7 +98,7 @@ class TestProblem:
             raise Exception
 
     def is_finished(self):
-        if self.nprocs > 1 or self.length == "long":
+        if self.pbs and self.nprocs > 1 or self.length == "long":
             file = os.environ["HOME"] + "/lock/" + self.random
             try:
                 os.remove(file)
@@ -132,7 +133,7 @@ class TestProblem:
         except OSError:
           self.log("No Makefile, not calling make")
 
-        if self.nprocs > 1 or self.length == "long":
+        if (self.pbs) and self.nprocs > 1 or self.length == "long":
             ret = self.call_genpbs(dir)
             self.log("cd "+dir+"; qsub " + self.filename[:-4] + ".pbs: " + self.command_line)
             os.system("cd "+dir+"; qsub " + self.filename[:-4] + ".pbs")

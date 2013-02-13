@@ -9,7 +9,7 @@ import regressiontest
 import traceback
 import threading
 import xml.parsers.expat
-
+import string
 
 sys.path.insert(0, os.path.join(os.getcwd(), os.path.dirname(sys.argv[0]), os.pardir, "python"))
 try:
@@ -20,7 +20,7 @@ except ImportError:
 class TestHarness:
     def __init__(self, length="any", parallel=False, exclude_tags=None,
                  tags=None, file="", verbose=True, justtest=False,
-                 valgrind=False, backend=None):
+                 valgrind=False, backend=None, pbs=False):
         self.tests = []
         self.verbose = verbose
         self.length = length
@@ -30,9 +30,11 @@ class TestHarness:
         self.warncount = 0
         self.teststatus = []
         self.completed_tests = []
+        print "just test init", justtest
         self.justtest = justtest
         self.valgrind = valgrind
         self.backend = backend
+        self.pbs = pbs
         if file == "":
           print "Test criteria:"
           print "-" * 80
@@ -87,8 +89,12 @@ class TestHarness:
         if file != "":
           for (subdir, xml_file) in [os.path.split(x) for x in xml_files]:
             if xml_file == file:
+              p = etree.parse(os.path.join(subdir,xml_file))
+              prob_defn = p.findall("problem_definition")[0]
+              prob_nprocs = int(prob_defn.attrib["nprocs"])
               testprob = regressiontest.TestProblem(filename=os.path.join(subdir, xml_file),
-                           verbose=self.verbose, replace=self.modify_command_line())
+                           verbose=self.verbose, replace=self.modify_command_line(prob_nprocs),
+                           pbs=self.pbs)
 
               if should_add_backend_to_commandline(subdir, xml_file):
                   testprob.command_line += " --backend=%s" % self.backend
@@ -145,8 +151,12 @@ class TestHarness:
           tagged_set = working_set
 
         for (subdir, xml_file) in [os.path.split(x) for x in tagged_set]:
+          # need to grab nprocs here to pass through to modify_command_line
+          p = etree.parse(os.path.join(subdir,xml_file))
+          prob_defn = p.findall("problem_definition")[0]
+          prob_nprocs = int(prob_defn.attrib["nprocs"])
           testprob = regressiontest.TestProblem(filename=os.path.join(subdir, xml_file),
-                       verbose=self.verbose, replace=self.modify_command_line())
+                       verbose=self.verbose, replace=self.modify_command_line(prob_nprocs))
           if should_add_backend_to_commandline(subdir, xml_file):
               testprob.command_line += " --backend=%s" % self.backend
           self.tests.append((subdir, testprob))
@@ -159,12 +169,24 @@ class TestHarness:
         if self.length == "medium" and filelength == "short": return True
         return False
 
-    def modify_command_line(self):
+    def modify_command_line(self, nprocs):
       def f(s):
         if self.valgrind:
           s = "valgrind --tool=memcheck --leak-check=full -v" + \
               " --show-reachable=yes --num-callers=8 --error-limit=no " + \
               "--log-file=test.log " + s
+        print s
+
+        if (not self.pbs):
+            # check for mpiexec and the correct number of cores
+            if (string.find(s, 'mpiexec') == -1):
+                s = "mpiexec "+s
+                print s
+
+            if (string.find(s, '-n') == -1):
+                s = s.replace('mpiexec ', 'mpiexec -n '+str(nprocs)+' ')
+                print s
+
         return s
 
       return f
@@ -183,6 +205,7 @@ class TestHarness:
 
     def run(self):
         self.log(" ")
+        print "just test",  self.justtest
         if not self.justtest:
             threadlist=[]
             self.threadtests=regressiontest.ThreadIterator(self.tests)
@@ -218,6 +241,7 @@ class TestHarness:
                       count -= 1
 
                 if count == 0: break
+                print "Count: %d" % count
                 time.sleep(60)
         else:
           for t in self.tests:
@@ -297,6 +321,7 @@ if __name__ == "__main__":
     parser.add_option("-c", "--clean", action="store_true", dest="clean", default = False)
     parser.add_option("--just-test", action="store_true", dest="justtest")
     parser.add_option("--just-list", action="store_true", dest="justlist")
+    parser.add_option("--pbs", action="store_false", dest="pbs")
     (options, args) = parser.parse_args()
 
     if len(args) > 0: parser.error("Too many arguments.")
@@ -335,7 +360,8 @@ if __name__ == "__main__":
                               file=options.file, verbose=True,
                               justtest=options.justtest,
                               valgrind=options.valgrind,
-                              backend=options.backend)
+                              backend=options.backend,
+                              pbs=options.pbs)
 
     if options.justlist:
       testharness.list()
