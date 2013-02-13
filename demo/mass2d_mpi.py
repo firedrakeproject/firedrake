@@ -51,7 +51,10 @@ import numpy as np
 parser = utils.parser(group=True, description=__doc__)
 parser.add_argument('-s', '--save-output',
                     action='store_true',
-                    help='Save the output of the run (used for testing)')
+                    help='Save the output of the run')
+parser.add_argument('-t', '--test-output',
+                    action='store_true',
+                    help='Save output for testing')
 opt = vars(parser.parse_args())
 op2.init(**opt)
 
@@ -149,14 +152,19 @@ op2.par_loop(rhs, elements(3),
 solver = op2.Solver()
 solver.solve(mat, x, b)
 
-# Print solution
 
+# Compute error in solution
+error = (f.data[:f.dataset.size] - x.data[:x.dataset.size])
+
+# Print error solution
 print "Rank: %d Expected - computed  solution: %s" % \
-    (c.rank, (f.data[:f.dataset.size] - x.data[:x.dataset.size]))
+    (c.rank, error)
 
 # Save output (if necessary)
 if opt['save_output']:
     raise RuntimeException('Writing distributed Dats not yet supported')
+
+if opt['test_output']:
     import pickle
-    with open("mass2d.out","w") as out:
-        pickle.dump((f.data, x.data), out)
+    with open("mass2d_mpi_%d.out" % c.rank,"w") as out:
+        pickle.dump(error, out)
