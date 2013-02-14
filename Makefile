@@ -7,7 +7,7 @@ UNIT_TEST_DIR = $(TEST_BASE_DIR)/unit
 REGRESSION_TEST_DIR = $(TEST_BASE_DIR)/regression
 
 TESTHARNESS = $(REGRESSION_TEST_DIR)/testharness.py
-BACKENDS ?= sequential opencl openmp cuda
+BACKENDS ?= sequential opencl openmp cuda mpi_sequential
 OPENCL_ALL_CTXS := $(shell python detect_opencl_devices.py)
 OPENCL_CTXS ?= $(OPENCL_ALL_CTXS)
 
@@ -38,6 +38,9 @@ test: unit regression
 
 unit: $(foreach backend,$(BACKENDS), unit_$(backend))
 
+unit_mpi_%:
+	@echo Not implemented
+
 unit_%:
 	$(PYTEST) $(UNIT_TEST_DIR) --backend=$*
 
@@ -45,6 +48,9 @@ unit_opencl:
 	for c in $(OPENCL_CTXS); do PYOPENCL_CTX=$$c $(PYTEST) $(UNIT_TEST_DIR) --backend=opencl; done
 
 regression: $(foreach backend,$(BACKENDS), regression_$(backend))
+
+regression_mpi_%:
+	$(TESTHARNESS) -p parallel --backend=$*
 
 regression_%:
 	$(TESTHARNESS) --backend=$*
