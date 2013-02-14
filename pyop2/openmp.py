@@ -48,6 +48,20 @@ import device
 # hard coded value to max openmp threads
 _max_threads = 32
 
+def _detect_openmp_flags():
+    import subprocess
+    _version = subprocess.check_output(['mpicc', '--version'], shell=False)
+    if _version.find('Free Software Foundation') != -1:
+        return '-fopenmp'
+    elif _version.find('Intel Corporation') != -1:
+        return '-openmp'
+    else:
+        from warnings import warn
+        warn('Unknown mpicc version:\n%s' % _version)
+        return ''
+
+_cppargs = os.environ.get('OMP_CXX_FLAGS') or _detect_openmp_flags()
+
 class Mat(rt.Mat):
     # This is needed for the test harness to check that two Mats on
     # the same Sparsity share data.
@@ -452,6 +466,7 @@ class ParLoop(device.ParLoop):
             kernel_code = """
             inline %(code)s
             """ % {'code' : self._kernel.code }
+
         code_to_compile =  wrapper % { 'kernel_name' : self._kernel.name,
                                        'wrapper_args' : _wrapper_args,
                                        'wrapper_decs' : _wrapper_decs,
@@ -485,9 +500,8 @@ class ParLoop(device.ParLoop):
                                  library_dirs=[OP2_LIB, get_petsc_dir()+'/lib'],
                                  libraries=['op2_seq', 'petsc'],
                                  sources=["mat_utils.cxx"],
-                                 cppargs=['-fopenmp'],
-                                 system_headers=['omp.h'],
-                                 lddargs=['-fopenmp'])
+                                 cppargs=_cppargs,
+                                 system_headers=['omp.h'])
         if cc:
             os.environ['CC'] = cc
         else:
