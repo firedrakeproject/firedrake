@@ -107,7 +107,9 @@ class ParLoop(device.ParLoop):
             plan = device.Plan(self._kernel, self._it_space.iterset,
                                *self._unwound_args,
                                partition_size=part_size,
-                               matrix_coloring=True)
+                               matrix_coloring=True,
+                               staging=False,
+                               thread_coloring=False)
 
         else:
             # Create a fake plan for direct loops.

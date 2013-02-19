@@ -83,19 +83,24 @@ cdef class Plan:
     def __cinit__(self, kernel, iset, *args, **kwargs):
         ps = kwargs.get('partition_size', 1)
         mc = kwargs.get('matrix_coloring', False)
+        st = kwargs.get('staging', True)
+        tc = kwargs.get('thread_coloring', True)
 
         assert ps > 0, "partition size must be strictly positive"
 
+        self._compute_partition_info(iset, ps, mc, args)
+        if st:
+            self._compute_staging_info(iset, ps, mc, args)
+
+        self._compute_coloring(iset, ps, mc, tc, args)
+
+    def _compute_partition_info(self, iset, ps, mc, args):
         self._nblocks = int(math.ceil(iset.size / float(ps)))
         self._nelems = numpy.array([min(ps, iset.size - i * ps) for i in range(self._nblocks)],
                                   dtype=numpy.int32)
 
-        self._compute_staging_info(iset, ps, mc, args)
-        self._compute_coloring(iset, ps, mc, args)
-
     def _compute_staging_info(self, iset, ps, mc, args):
         """Constructs:
-            - nelems
             - nindirect
             - ind_map
             - loc_map
@@ -104,7 +109,7 @@ cdef class Plan:
             - offset
             - nshared
         """
-        # (indices referenced for this dat-map pair, inverse)
+        # indices referenced for this dat-map pair
         def indices(dat, map):
             return [arg.idx for arg in args if arg.data == dat and arg.map == map]
 
@@ -196,7 +201,7 @@ cdef class Plan:
                 nshareds[pi] += align(sizes[(dat,map,pi)] * dat.dtype.itemsize * dat.cdim)
         self._nshared = max(nshareds)
 
-    def _compute_coloring(self, iset, ps, mc, args):
+    def _compute_coloring(self, iset, ps, mc, tc, args):
         """Constructs:
             - thrcol
             - nthrcol
@@ -221,11 +226,8 @@ cdef class Plan:
                 cds[k] = l
 
         # convert cds into a flat array for performant access in cython
-        cdef flat_cds_t* fcds
-        cdef int nfcds
-
-        nfcds = len(cds)
-        fcds = <flat_cds_t*> malloc(nfcds * sizeof(flat_cds_t))
+        cdef int nfcds = len(cds)
+        cdef flat_cds_t* fcds = <flat_cds_t*> malloc(nfcds * sizeof(flat_cds_t))
         pcds = [None] * nfcds
         for i, cd in enumerate(cds.iterkeys()):
             if isinstance(cd, op2.Dat):
@@ -245,11 +247,6 @@ cdef class Plan:
                 fcds[i].mip[j].dim = map.dim
                 fcds[i].mip[j].idx = idx
 
-        # intra partition coloring
-        self._thrcol = numpy.empty((iset.size, ),
-                                         dtype=numpy.int32)
-        self._thrcol.fill(-1)
-
         # type constraining a few variables
         cdef int _tidx
         cdef int _p
@@ -261,54 +258,58 @@ cdef class Plan:
         cdef int _mi
         cdef int _i
 
+        # intra partition coloring
+        self._thrcol = numpy.empty((iset.size, ), dtype=numpy.int32)
+        self._thrcol.fill(-1)
+
         # create direct reference to numpy array storage
-        cdef int * thrcol
-        thrcol = <int *> numpy.PyArray_DATA(self._thrcol)
-        cdef int * nelems
-        nelems = <int *> numpy.PyArray_DATA(self._nelems)
+        cdef int * thrcol = <int *> numpy.PyArray_DATA(self._thrcol)
+        cdef int * nelems = <int *> numpy.PyArray_DATA(self._nelems)
 
-        _tidx = 0
-        for _p in range(self._nblocks):
-            _base_color = 0
-            terminated = False
-            while not terminated:
-                terminated = True
 
-                # zero out working array:
-                for _cd in range(nfcds):
-                    for _i in range(fcds[_cd].size):
-                        fcds[_cd].tmp[_i] = 0
+        if tc:
+            _tidx = 0
+            for _p in range(self._nblocks):
+                _base_color = 0
+                terminated = False
+                while not terminated:
+                    terminated = True
 
-                # color threads
-                for _t in range(_tidx, _tidx + nelems[_p]):
-                    if thrcol[_t] == -1:
-                        _mask = 0
+                    # zero out working array:
+                    for _cd in range(nfcds):
+                        for _i in range(fcds[_cd].size):
+                            fcds[_cd].tmp[_i] = 0
 
-                        for _cd in range(nfcds):
-                            for _mi in range(fcds[_cd].count):
-                                _mask |= fcds[_cd].tmp[fcds[_cd].mip[_mi].map_base[_t * fcds[_cd].mip[_mi].dim + fcds[_cd].mip[_mi].idx]]
+                    # color threads
+                    for _t in range(_tidx, _tidx + nelems[_p]):
+                        if thrcol[_t] == -1:
+                            _mask = 0
 
-                        if _mask == 0xffffffffu:
-                            terminated = False
-                        else:
-                            _c = 0
-                            while _mask & 0x1:
-                                _mask = _mask >> 1
-                                _c += 1
-                            thrcol[_t] = _base_color + _c
-                            _mask = 1 << _c
                             for _cd in range(nfcds):
                                 for _mi in range(fcds[_cd].count):
-                                    fcds[_cd].tmp[fcds[_cd].mip[_mi].map_base[_t * fcds[_cd].mip[_mi].dim + fcds[_cd].mip[_mi].idx]] |= _mask
+                                    _mask |= fcds[_cd].tmp[fcds[_cd].mip[_mi].map_base[_t * fcds[_cd].mip[_mi].dim + fcds[_cd].mip[_mi].idx]]
 
-                _base_color += 32
-            _tidx += nelems[_p]
+                            if _mask == 0xffffffffu:
+                                terminated = False
+                            else:
+                                _c = 0
+                                while _mask & 0x1:
+                                    _mask = _mask >> 1
+                                    _c += 1
+                                thrcol[_t] = _base_color + _c
+                                _mask = 1 << _c
+                                for _cd in range(nfcds):
+                                    for _mi in range(fcds[_cd].count):
+                                        fcds[_cd].tmp[fcds[_cd].mip[_mi].map_base[_t * fcds[_cd].mip[_mi].dim + fcds[_cd].mip[_mi].idx]] |= _mask
 
-        self._nthrcol = numpy.zeros(self._nblocks,dtype=numpy.int32)
-        _tidx = 0
-        for _p in range(self._nblocks):
-            self._nthrcol[_p] = max(self._thrcol[_tidx:(_tidx + nelems[_p])]) + 1
-            _tidx += nelems[_p]
+                    _base_color += 32
+                _tidx += nelems[_p]
+
+            self._nthrcol = numpy.zeros(self._nblocks,dtype=numpy.int32)
+            _tidx = 0
+            for _p in range(self._nblocks):
+                self._nthrcol[_p] = max(self._thrcol[_tidx:(_tidx + nelems[_p])]) + 1
+                _tidx += nelems[_p]
 
         # partition coloring
         pcolors = numpy.empty(self._nblocks, dtype=numpy.int32)
