@@ -218,7 +218,7 @@ class Mat(DeviceDataMixin, op2.Mat):
     def _csrdata(self):
         if not hasattr(self, '__csrdata'):
             setattr(self, '__csrdata',
-                    gpuarray.zeros(shape=self._sparsity.total_nz,
+                    gpuarray.zeros(shape=self._sparsity.nz,
                                    dtype=self.dtype))
         return getattr(self, '__csrdata')
 

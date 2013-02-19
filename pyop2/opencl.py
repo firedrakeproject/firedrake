@@ -233,7 +233,7 @@ class Mat(op2.Mat, DeviceDataMixin):
         if not hasattr(self, '__dev_array'):
             setattr(self, '__dev_array',
                     array.empty(_queue,
-                                self.sparsity.total_nz,
+                                self.sparsity.nz,
                                 self.dtype))
         return getattr(self, '__dev_array')
 

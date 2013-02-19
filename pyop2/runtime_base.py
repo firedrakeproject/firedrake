@@ -343,8 +343,7 @@ class Sparsity(base.Sparsity):
         super(Sparsity, self).__init__(maps, dims, name)
         key = (maps, as_tuple(dims, int, 2))
         self._cached = True
-        core.build_sparsity(self)
-        self._total_nz = self._rowptr[-1]
+        core.build_sparsity(self, parallel=PYOP2_COMM.size > 1)
         _sparsity_cache[key] = self
 
     def __del__(self):
@@ -359,12 +358,20 @@ class Sparsity(base.Sparsity):
         return self._colidx
 
     @property
-    def d_nnz(self):
+    def nnz(self):
         return self._d_nnz
 
     @property
-    def total_nz(self):
-        return int(self._total_nz)
+    def onnz(self):
+        return self._o_nnz
+
+    @property
+    def nz(self):
+        return int(self._d_nz)
+
+    @property
+    def onz(self):
+        return int(self._o_nz)
 
 class Mat(base.Mat):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
@@ -385,15 +392,15 @@ class Mat(base.Mat):
             rdim, cdim = self.sparsity.dims
             row_lg.create(indices=np.arange(self.sparsity.nrows * rdim, dtype=PETSc.IntType))
             col_lg.create(indices=np.arange(self.sparsity.ncols * cdim, dtype=PETSc.IntType))
-            self._array = np.zeros(self.sparsity.total_nz, dtype=PETSc.RealType)
+            self._array = np.zeros(self.sparsity.nz, dtype=PETSc.RealType)
             # We're not currently building a blocked matrix, so need to scale the
             # number of rows and columns by the sparsity dimensions
             # FIXME: This needs to change if we want to do blocked sparse
+            # NOTE: using _rowptr and _colidx since we always want the host values
             mat.createAIJWithArrays((self.sparsity.nrows*rdim, self.sparsity.ncols*cdim),
                                     (self.sparsity._rowptr, self.sparsity._colidx, self._array))
             mat.setLGMap(rmap=row_lg, cmap=col_lg)
         else:
-            # FIXME: fixup sparsity creation and do createwitharrays instead.
             mat = PETSc.Mat()
             row_lg = PETSc.LGMap()
             col_lg = PETSc.LGMap()
@@ -403,11 +410,11 @@ class Mat(base.Mat):
             rdim, cdim = self.sparsity.dims
             mat.createAIJ(size=((self.sparsity.nrows*rdim, None),
                                 (self.sparsity.ncols*cdim, None)),
-                          # FIXME: this is wrong
-                          nnz=(100, 100))
+                          nnz=(self.sparsity.nnz, self.sparsity.onnz))
             mat.setLGMap(rmap=row_lg, cmap=col_lg)
             mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, True)
             mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
+            mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
         self._handle = mat
 
     def zero(self):
