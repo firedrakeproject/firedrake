@@ -243,6 +243,9 @@ class Set(object):
         if type(size) is int:
             size = [size]*4
         size = as_tuple(size, int, 4)
+        assert size[Set.CORE_SIZE] <= size[Set.OWNED_SIZE] <= \
+                size[Set.IMPORT_EXEC_SIZE] <= size[Set.IMPORT_NON_EXEC_SIZE], \
+                "Set received invalid sizes: %s" % size
         self._core_size = size[Set.CORE_SIZE]
         self._size = size[Set.OWNED_SIZE]
         self._ieh_size = size[Set.IMPORT_EXEC_SIZE]
