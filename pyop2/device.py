@@ -294,7 +294,7 @@ def _empty_plan_cache():
 def _plan_cache_size():
     return len(_plan_cache)
 
-class GenericPlan(object):
+class _GenericPlan(object):
     def __new__(cls, kernel, iset, *args, **kwargs):
         ps = kwargs.get('partition_size', 0)
         mc = kwargs.get('matrix_coloring', False)
@@ -304,7 +304,7 @@ class GenericPlan(object):
         if cached is not None and not refresh_cache:
             return cached
         else:
-            return super(GenericPlan, cls).__new__(cls, kernel, iset, *args, **kwargs)
+            return super(_GenericPlan, cls).__new__(cls, kernel, iset, *args, **kwargs)
 
     def __init__(self, kernel, iset, *args, **kwargs):
         # This is actually a cached instance, everything's in place,
@@ -362,12 +362,23 @@ class GenericPlan(object):
 
         return key
 
-class CPlan(GenericPlan, core.op_plan):
+class CPlan(_GenericPlan, core.op_plan):
+    """
+    Legacy plan function.
+        Does not support matrix coloring.
+    """
     pass
 
-class PPlan(GenericPlan, core.Plan):
+class PPlan(_GenericPlan, core.Plan):
+    """
+    PyOP2's cython plan function.
+        Support matrix coloring, selective staging and thread color computation.
+    """
     pass
 
+# _GenericPlan, CPlan, and PPlan are not meant to be instantiated directly.
+# one should instead use Plan. The actual class that is instanciated is defined
+# at configuration time see (op2.py::init())
 Plan = PPlan
 
 def compare_plans(kernel, iset, *args, **kwargs):

@@ -45,13 +45,18 @@ from libc.stdlib cimport malloc, free
 
 # C type declarations
 ctypedef struct map_idx_t:
+    # pointer to the raw numpy array containing the map values
     int * map_base
+    # dimension of the map
     int dim
     int idx
 
-ctypedef struct flat_cds_t:
+ctypedef struct flat_race_args_t:
+    # Dat size
     int size
+    # Temporary array for coloring purpose
     unsigned int* tmp
+    # lenght of mip (ie, number of occurences of Dat in the access descriptors)
     int count
     map_idx_t * mip
 
@@ -209,52 +214,54 @@ cdef class Plan:
             - blkmap
             - ncolblk
         """
-        # list of indirect reductions args
-        cds = OrderedDict()
+        # args requiring coloring (ie, indirect reduction and matrix args)
+        #  key: Dat
+        #  value: [(map, idx)] (sorted as they appear in the access descriptors)
+        race_args = OrderedDict()
         for arg in args:
             if arg._is_indirect_reduction:
                 k = arg.data
-                l = cds.get(k, [])
+                l = race_args.get(k, [])
                 l.append((arg.map, arg.idx))
-                cds[k] = l
+                race_args[k] = l
             elif mc and arg._is_mat:
                 k = arg.data
                 rowmap = k.sparsity.maps[0][0]
-                l = cds.get(k, [])
+                l = race_args.get(k, [])
                 for i in range(rowmap.dim):
                     l.append((rowmap, i))
-                cds[k] = l
+                race_args[k] = l
 
-        # convert cds into a flat array for performant access in cython
-        cdef int nfcds = len(cds)
-        cdef flat_cds_t* fcds = <flat_cds_t*> malloc(nfcds * sizeof(flat_cds_t))
-        pcds = [None] * nfcds
-        for i, cd in enumerate(cds.iterkeys()):
-            if isinstance(cd, op2.Dat):
-                s = cd.dataset.size
-            elif isinstance(cd, op2.Mat):
-                s = cd.sparsity.maps[0][0].dataset.size
+        # convert 'OrderedDict race_args' into a flat array for performant access in cython
+        cdef int n_race_args = len(race_args)
+        cdef flat_race_args_t* flat_race_args = <flat_race_args_t*> malloc(n_race_args * sizeof(flat_race_args_t))
+        pcds = [None] * n_race_args
+        for i, ra in enumerate(race_args.iterkeys()):
+            if isinstance(ra, op2.Dat):
+                s = ra.dataset.size
+            elif isinstance(ra, op2.Mat):
+                s = ra.sparsity.maps[0][0].dataset.size
 
             pcds[i] = numpy.empty((s,), dtype=numpy.uint32)
-            fcds[i].size = s
-            fcds[i].tmp = <unsigned int *> numpy.PyArray_DATA(pcds[i])
+            flat_race_args[i].size = s
+            flat_race_args[i].tmp = <unsigned int *> numpy.PyArray_DATA(pcds[i])
 
-            fcds[i].count = len(cds[cd])
-            fcds[i].mip = <map_idx_t*> malloc(fcds[i].count * sizeof(map_idx_t))
-            for j, mi in enumerate(cds[cd]):
+            flat_race_args[i].count = len(race_args[ra])
+            flat_race_args[i].mip = <map_idx_t*> malloc(flat_race_args[i].count * sizeof(map_idx_t))
+            for j, mi in enumerate(race_args[ra]):
                 map, idx = mi
-                fcds[i].mip[j].map_base = <int *> numpy.PyArray_DATA(map.values)
-                fcds[i].mip[j].dim = map.dim
-                fcds[i].mip[j].idx = idx
+                flat_race_args[i].mip[j].map_base = <int *> numpy.PyArray_DATA(map.values)
+                flat_race_args[i].mip[j].dim = map.dim
+                flat_race_args[i].mip[j].idx = idx
 
         # type constraining a few variables
-        cdef int _tidx
+        cdef int _tid
         cdef int _p
         cdef unsigned int _base_color
         cdef int _t
         cdef unsigned int _mask
-        cdef unsigned int _c
-        cdef int _cd
+        cdef unsigned int _color
+        cdef int _rai
         cdef int _mi
         cdef int _i
 
@@ -268,7 +275,7 @@ cdef class Plan:
 
 
         if tc:
-            _tidx = 0
+            _tid = 0
             for _p in range(self._nblocks):
                 _base_color = 0
                 terminated = False
@@ -276,40 +283,40 @@ cdef class Plan:
                     terminated = True
 
                     # zero out working array:
-                    for _cd in range(nfcds):
-                        for _i in range(fcds[_cd].size):
-                            fcds[_cd].tmp[_i] = 0
+                    for _rai in range(n_race_args):
+                        for _i in range(flat_race_args[_rai].size):
+                            flat_race_args[_rai].tmp[_i] = 0
 
                     # color threads
-                    for _t in range(_tidx, _tidx + nelems[_p]):
+                    for _t in range(_tid, _tid + nelems[_p]):
                         if thrcol[_t] == -1:
                             _mask = 0
 
-                            for _cd in range(nfcds):
-                                for _mi in range(fcds[_cd].count):
-                                    _mask |= fcds[_cd].tmp[fcds[_cd].mip[_mi].map_base[_t * fcds[_cd].mip[_mi].dim + fcds[_cd].mip[_mi].idx]]
+                            for _rai in range(n_race_args):
+                                for _mi in range(flat_race_args[_rai].count):
+                                    _mask |= flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].dim + flat_race_args[_rai].mip[_mi].idx]]
 
                             if _mask == 0xffffffffu:
                                 terminated = False
                             else:
-                                _c = 0
+                                _color = 0
                                 while _mask & 0x1:
                                     _mask = _mask >> 1
-                                    _c += 1
-                                thrcol[_t] = _base_color + _c
-                                _mask = 1 << _c
-                                for _cd in range(nfcds):
-                                    for _mi in range(fcds[_cd].count):
-                                        fcds[_cd].tmp[fcds[_cd].mip[_mi].map_base[_t * fcds[_cd].mip[_mi].dim + fcds[_cd].mip[_mi].idx]] |= _mask
+                                    _color += 1
+                                thrcol[_t] = _base_color + _color
+                                _mask = 1 << _color
+                                for _rai in range(n_race_args):
+                                    for _mi in range(flat_race_args[_rai].count):
+                                        flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].dim + flat_race_args[_rai].mip[_mi].idx]] |= _mask
 
                     _base_color += 32
-                _tidx += nelems[_p]
+                _tid += nelems[_p]
 
             self._nthrcol = numpy.zeros(self._nblocks,dtype=numpy.int32)
-            _tidx = 0
+            _tid = 0
             for _p in range(self._nblocks):
-                self._nthrcol[_p] = max(self._thrcol[_tidx:(_tidx + nelems[_p])]) + 1
-                _tidx += nelems[_p]
+                self._nthrcol[_p] = max(self._thrcol[_tid:(_tid + nelems[_p])]) + 1
+                _tid += nelems[_p]
 
         # partition coloring
         pcolors = numpy.empty(self._nblocks, dtype=numpy.int32)
@@ -323,41 +330,41 @@ cdef class Plan:
             terminated = True
 
             # zero out working array:
-            for _cd in range(nfcds):
-                for _i in range(fcds[_cd].size):
-                    fcds[_cd].tmp[_i] = 0
+            for _rai in range(n_race_args):
+                for _i in range(flat_race_args[_rai].size):
+                    flat_race_args[_rai].tmp[_i] = 0
 
-            _tidx = 0
+            _tid = 0
             for _p in range(self._nblocks):
                 if _pcolors[_p] == -1:
                     _mask = 0
-                    for _t in range(_tidx, _tidx + nelems[_p]):
-                        for _cd in range(nfcds):
-                            for _mi in range(fcds[_cd].count):
-                                _mask |= fcds[_cd].tmp[fcds[_cd].mip[_mi].map_base[_t * fcds[_cd].mip[_mi].dim + fcds[_cd].mip[_mi].idx]]
+                    for _t in range(_tid, _tid + nelems[_p]):
+                        for _rai in range(n_race_args):
+                            for _mi in range(flat_race_args[_rai].count):
+                                _mask |= flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].dim + flat_race_args[_rai].mip[_mi].idx]]
 
                     if _mask == 0xffffffffu:
                         terminated = False
                     else:
-                        _c = 0
+                        _color = 0
                         while _mask & 0x1:
                             _mask = _mask >> 1
-                            _c += 1
-                        _pcolors[_p] = _base_color + _c
+                            _color += 1
+                        _pcolors[_p] = _base_color + _color
 
-                        _mask = 1 << _c
-                        for _t in range(_tidx, _tidx + nelems[_p]):
-                            for _cd in range(nfcds):
-                                for _mi in range(fcds[_cd].count):
-                                    fcds[_cd].tmp[fcds[_cd].mip[_mi].map_base[_t * fcds[_cd].mip[_mi].dim + fcds[_cd].mip[_mi].idx]] |= _mask
-                _tidx += nelems[_p]
+                        _mask = 1 << _color
+                        for _t in range(_tid, _tid + nelems[_p]):
+                            for _rai in range(n_race_args):
+                                for _mi in range(flat_race_args[_rai].count):
+                                    flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].dim + flat_race_args[_rai].mip[_mi].idx]] |= _mask
+                _tid += nelems[_p]
 
             _base_color += 32
 
         # memory free
-        for i in range(nfcds):
-            free(fcds[i].mip)
-        free(fcds)
+        for i in range(n_race_args):
+            free(flat_race_args[i].mip)
+        free(flat_race_args)
 
         self._ncolors = max(pcolors) + 1
         self._ncolblk = numpy.bincount(pcolors).astype(numpy.int32)
