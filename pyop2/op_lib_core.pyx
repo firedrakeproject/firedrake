@@ -164,6 +164,13 @@ cdef class op_set:
         cdef int size = set.size
         cdef char * name = set.name
         self._handle = core.op_decl_set_core(size, name)
+        # The C constructor does not set the other size attributes (this is
+        # only done when using libop2_mpi, which we're not using)
+        # Note the exclusive semantics for exec_size and nonexec_size used in
+        # the core library, which are different from the PyOP2 semantics
+        self._handle.core_size = set.core_size
+        self._handle.exec_size = set.exec_size - set.size
+        self._handle.nonexec_size = set.total_size - set.exec_size
 
     @property
     def size(self):
