@@ -65,7 +65,7 @@ def init(**kwargs):
     if 'backend' in kwargs and backend not in ('pyop2.void', 'pyop2.'+kwargs['backend']):
         raise RuntimeError("Changing the backend is not possible once set.")
     cfg.configure(**kwargs)
-    if cfg['python-plan']:
+    if cfg['python_plan']:
         device.Plan = device.PPlan
     else:
         device.Plan = device.CPlan

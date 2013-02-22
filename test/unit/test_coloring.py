@@ -84,7 +84,7 @@ class TestColoring:
     def test_thread_coloring(self, backend, elements, elem_node_map, elem_node, mat, x):
         # skip test:
         #   - legacy plan objects do not support matrix coloring
-        if not cfg['python-plan']:
+        if not cfg['python_plan']:
             pytest.skip()
 
         assert NUM_ELE % 2 == 0, "NUM_ELE must be even."
