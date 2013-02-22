@@ -258,6 +258,7 @@ void kernel_swap(unsigned int* x)
                             mat((iter2ind1[op2.i[0]],
                                  iter2ind1[op2.i[1]]), op2.INC),
                             x(iter2ind1[0], op2.READ),
+                            partition_size=10,
                             matrix_coloring=True)
         assert op2._plan_cache_size() == 1
         plan2 = device.Plan(k,
@@ -265,6 +266,7 @@ void kernel_swap(unsigned int* x)
                             mat((iter2ind1[op2.i[0]],
                                  iter2ind1[op2.i[1]]), op2.INC),
                             x(iter2ind1[0], op2.READ),
+                            partition_size=10,
                             matrix_coloring=True)
 
         assert op2._plan_cache_size() == 1
@@ -280,6 +282,7 @@ void kernel_swap(unsigned int* x)
                             mat((iter2ind1[op2.i[0]],
                                  iter2ind1[op2.i[1]]), op2.INC),
                             x(iter2ind1[0], op2.READ),
+                            partition_size=10,
                             matrix_coloring=True)
         assert op2._plan_cache_size() == 1
         plan2 = device.Plan(k,
@@ -287,6 +290,7 @@ void kernel_swap(unsigned int* x)
                             mat((iter2ind1[op2.i[1]],
                                  iter2ind1[op2.i[0]]), op2.INC),
                             x(iter2ind1[0], op2.READ),
+                            partition_size=10,
                             matrix_coloring=True)
 
         assert op2._plan_cache_size() == 2

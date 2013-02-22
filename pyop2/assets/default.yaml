@@ -1,5 +1,7 @@
 # pyop2 default configuration
 
+python_plan: true
+
 backend: sequential
 debug: 0
 

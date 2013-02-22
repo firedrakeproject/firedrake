@@ -294,39 +294,28 @@ def _empty_plan_cache():
 def _plan_cache_size():
     return len(_plan_cache)
 
-class Plan(core.op_plan):
+class _GenericPlan(object):
     def __new__(cls, kernel, iset, *args, **kwargs):
         ps = kwargs.get('partition_size', 0)
         mc = kwargs.get('matrix_coloring', False)
+        refresh_cache = kwargs.pop('refresh_cache', False)
         key = Plan._cache_key(iset, ps, mc, *args)
         cached = _plan_cache.get(key, None)
-        if cached is not None:
+        if cached is not None and not refresh_cache:
             return cached
         else:
-            return super(Plan, cls).__new__(cls, kernel, iset, *args,
-                                            **kwargs)
+            return super(_GenericPlan, cls).__new__(cls, kernel, iset, *args, **kwargs)
 
     def __init__(self, kernel, iset, *args, **kwargs):
         # This is actually a cached instance, everything's in place,
         # so just return.
         if getattr(self, '_cached', False):
             return
-        # The C plan function does not handle mat arguments but we still need
-        # them later for the matrix coloring fix
-        non_mat_args = [arg for arg in args if not arg._is_mat]
-        core.op_plan.__init__(self, kernel, iset, *non_mat_args, **kwargs)
+
         ps = kwargs.get('partition_size', 0)
         mc = kwargs.get('matrix_coloring', False)
-        key = Plan._cache_key(iset,
-                              ps,
-                              mc,
-                              *args)
 
-        self._fixed_coloring = False
-        if mc and any(arg._is_mat for arg in args):
-            self._fix_coloring(iset, ps, *args)
-            self._fixed_coloring = True
-
+        key = Plan._cache_key(iset, ps, mc, *args)
         _plan_cache[key] = self
         self._cached = True
 
@@ -373,138 +362,75 @@ class Plan(core.op_plan):
 
         return key
 
-    def _fix_coloring(self, iset, ps, *args):
-        # list of indirect reductions args
-        cds = OrderedDict()
-        for arg in args:
-            if arg._is_indirect_reduction:
-                k = arg.data
-                l = cds.get(k, [])
-                l.append((arg.map, arg.idx))
-                cds[k] = l
-            elif arg._is_mat:
-                k = arg.data
-                rowmap = k.sparsity.maps[0][0]
-                l = cds.get(k, [])
-                for i in range(rowmap.dim):
-                    l.append((rowmap, i))
-                cds[k] = l
+class CPlan(_GenericPlan, core.op_plan):
+    """
+    Legacy plan function.
+        Does not support matrix coloring.
+    """
+    pass
 
-        cds_work = dict()
-        for cd in cds.iterkeys():
-            if isinstance(cd, base.Dat):
-                s = cd.dataset.size
-            elif isinstance(cd, base.Mat):
-                s = cd.sparsity.maps[0][0].dataset.size
-            cds_work[cd] = numpy.empty((s,), dtype=numpy.uint32)
+class PPlan(_GenericPlan, core.Plan):
+    """
+    PyOP2's cython plan function.
+        Support matrix coloring, selective staging and thread color computation.
+    """
+    pass
 
-        # intra partition coloring
-        self._fixed_thrcol = numpy.empty((iset.size, ),
-                                         dtype=numpy.int32)
-        self._fixed_thrcol.fill(-1)
+# _GenericPlan, CPlan, and PPlan are not meant to be instantiated directly.
+# one should instead use Plan. The actual class that is instanciated is defined
+# at configuration time see (op2.py::init())
+Plan = PPlan
 
-        tidx = 0
-        for p in range(self.nblocks):
-            base_color = 0
-            terminated = False
-            while not terminated:
-                terminated = True
+def compare_plans(kernel, iset, *args, **kwargs):
+    """This can only be used if caching is disabled."""
 
-                # zero out working array:
-                for w in cds_work.itervalues():
-                    w.fill(0)
+    ps = kwargs.get('partition_size', 0)
+    mc = kwargs.get('matrix_coloring', False)
 
-                # color threads
-                for t in range(tidx, tidx + super(Plan, self).nelems[p]):
-                    if self._fixed_thrcol[t] == -1:
-                        mask = 0
-                        for cd in cds.iterkeys():
-                            for m, i in cds[cd]:
-                                mask |= cds_work[cd][m.values[t][i]]
+    assert not mc, "CPlan does not support matrix coloring, can not compare"
+    assert ps > 0, "need partition size"
 
-                        if mask == 0xffffffff:
-                            terminated = False
-                        else:
-                            c = 0
-                            while mask & 0x1:
-                                mask = mask >> 1
-                                c += 1
-                            self._fixed_thrcol[t] = base_color + c
-                            mask = 1 << c
-                            for cd in cds.iterkeys():
-                                for m, i in cds[cd]:
-                                    cds_work[cd][m.values[t][i]] |= mask
-                base_color += 32
-            tidx += super(Plan, self).nelems[p]
+    # filter the list of access descriptor arguments:
+    #  - drop mat arguments (not supported by the C plan
+    #  - expand vec arguments
+    fargs = list()
+    for arg in args:
+        if arg._is_vec_map:
+            for i in range(arg.map.dim):
+                fargs.append(arg.data(arg.map[i], arg.access))
+        elif arg._is_mat:
+            fargs.append(arg)
+        elif arg._uses_itspace:
+            for i in range(self._it_space.extents[arg.idx.index]):
+                fargs.append(arg.data(arg.map[i], arg.access))
+        else:
+            fargs.append(arg)
 
-        self._fixed_nthrcol = numpy.zeros(self.nblocks,dtype=numpy.int32)
-        tidx = 0
-        for p in range(self.nblocks):
-            self._fixed_nthrcol[p] = max(self._fixed_thrcol[tidx:(tidx + super(Plan, self).nelems[p])]) + 1
-            tidx += super(Plan, self).nelems[p]
+    s = iset._iterset if isinstance(iset, IterationSpace) else iset
 
-        # partition coloring
-        pcolors = numpy.empty(self.nblocks, dtype=numpy.int32)
-        pcolors.fill(-1)
-        base_color = 0
-        terminated = False
-        while not terminated:
-            terminated = True
+    kwargs['refresh_cache'] = True
 
-            # zero out working array:
-            for w in cds_work.itervalues():
-                w.fill(0)
+    cplan = CPlan(kernel, s, *fargs, **kwargs)
+    pplan = PPlan(kernel, s, *fargs, **kwargs)
 
-            tidx = 0
-            for p in range(self.nblocks):
-                if pcolors[p] == -1:
-                    mask = 0
-                    for t in range(tidx, tidx + super(Plan, self).nelems[p]):
-                        for cd in cds.iterkeys():
-                            for m, i in cds[cd]:
-                                mask |= cds_work[cd][m.values[t][i]]
-
-                    if mask == 0xffffffff:
-                        terminated = False
-                    else:
-                        c = 0
-                        while mask & 0x1:
-                            mask = mask >> 1
-                            c += 1
-                        pcolors[p] = base_color + c
-
-                        mask = 1 << c
-                        for t in range(tidx, tidx + super(Plan, self).nelems[p]):
-                            for cd in cds.iterkeys():
-                                for m, i in cds[cd]:
-                                    cds_work[cd][m.values[t][i]] |= mask
-                tidx += super(Plan, self).nelems[p]
-
-            base_color += 32
-
-        self._fixed_ncolors = max(pcolors) + 1
-        self._fixed_ncolblk = numpy.bincount(pcolors).astype(numpy.int32)
-        self._fixed_blkmap = numpy.argsort(pcolors, kind='mergesort').astype(numpy.int32)
-
-    @property
-    def blkmap(self):
-        return self._fixed_blkmap if self._fixed_coloring else super(Plan, self).blkmap
-
-    @property
-    def ncolors(self):
-        return self._fixed_ncolors if self._fixed_coloring else super(Plan, self).ncolors
-
-    @property
-    def ncolblk(self):
-        return self._fixed_ncolblk if self._fixed_coloring else super(Plan, self).ncolblk
-
-    @property
-    def thrcol(self):
-        return self._fixed_thrcol if self._fixed_coloring else super(Plan, self).thrcol
-
-    @property
-    def nthrcol(self):
-        return self._fixed_nthrcol if self._fixed_coloring else super(Plan, self).nthrcol
+    assert cplan is not pplan
+    assert pplan.ninds == cplan.ninds
+    assert pplan.nblocks == cplan.nblocks
+    assert pplan.ncolors == cplan.ncolors
+    assert pplan.nshared == cplan.nshared
+    assert (pplan.nelems == cplan.nelems).all()
+    # slice is ok cause op2 plan function seems to allocate an
+    # arbitrarily longer array
+    assert (pplan.ncolblk == cplan.ncolblk[:len(pplan.ncolblk)]).all()
+    assert (pplan.blkmap == cplan.blkmap).all()
+    assert (pplan.nthrcol == cplan.nthrcol).all()
+    assert (pplan.thrcol == cplan.thrcol).all()
+    assert (pplan.offset == cplan.offset).all()
+    assert (pplan.nindirect == cplan.nindirect).all()
+    assert ( (pplan.ind_map == cplan.ind_map) | (pplan.ind_map==-1) ).all()
+    assert (pplan.ind_offs == cplan.ind_offs).all()
+    assert (pplan.ind_sizes == cplan.ind_sizes).all()
+    assert (pplan.loc_map == cplan.loc_map).all()
 
 class ParLoop(op2.ParLoop):
     def __init__(self, kernel, itspace, *args):

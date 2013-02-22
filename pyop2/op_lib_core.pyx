@@ -269,7 +269,7 @@ cdef class op_plan:
     cdef int idx
     cdef int set_size
     cdef int nind_ele
-    def __cinit__(self, kernel, iset, *args, partition_size=0, matrix_coloring=False):
+    def __cinit__(self, kernel, iset, *args, **kwargs):
         """Instantiate a C-level op_plan for a parallel loop.
 
 Arguments to this constructor should be the arguments of the parallel
@@ -277,7 +277,7 @@ loop, i.e. the KERNEL, the ISET (iteration set) and any
 further ARGS."""
         cdef op_set _set = iset._c_handle
         cdef char * name = kernel.name
-        cdef int part_size = partition_size
+        cdef int part_size = kwargs.get('partition_size', 1)
         cdef int nargs = len(args)
         cdef op_arg _arg
         cdef core.op_arg *_args
@@ -571,3 +571,5 @@ def build_sparsity(object sparsity):
     finally:
         free(rmaps)
         free(cmaps)
+
+include "plan.pyx"

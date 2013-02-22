@@ -37,6 +37,7 @@ from random import randrange
 
 from pyop2 import device
 from pyop2 import op2
+from pyop2 import configuration as cfg
 
 backends = ['opencl', 'openmp']
 
@@ -81,6 +82,11 @@ class TestColoring:
         return op2.Dat(nodes, 1, numpy.zeros(NUM_NODES, dtype=numpy.uint32), numpy.uint32, "x")
 
     def test_thread_coloring(self, backend, elements, elem_node_map, elem_node, mat, x):
+        # skip test:
+        #   - legacy plan objects do not support matrix coloring
+        if not cfg['python_plan']:
+            pytest.skip()
+
         assert NUM_ELE % 2 == 0, "NUM_ELE must be even."
 
         kernel = op2.Kernel("""

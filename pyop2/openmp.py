@@ -107,7 +107,9 @@ class ParLoop(device.ParLoop):
             plan = device.Plan(self._kernel, self._it_space.iterset,
                                *self._unwound_args,
                                partition_size=part_size,
-                               matrix_coloring=True)
+                               matrix_coloring=True,
+                               staging=False,
+                               thread_coloring=False)
 
         else:
             # Create a fake plan for direct loops.
@@ -509,6 +511,11 @@ class ParLoop(device.ParLoop):
 
         device._parloop_cache[key] = _fun
         return _fun
+
+    @property
+    def _requires_matrix_coloring(self):
+        """Direct code generation to follow colored execution for global matrix insertion."""
+        return True
 
 def _setup():
     pass
