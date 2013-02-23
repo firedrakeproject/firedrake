@@ -324,17 +324,17 @@ class TestSparsityAPI:
                          1, "foo")
         assert s.maps == [(m, m), (mi, mi)] and s.dims == (1,1)
 
-    def test_sparsity_illegal_itersets(self, m, mi, backend):
+    def test_sparsity_illegal_itersets(self, backend, m, mi):
         "Both maps in a (rmap,cmap) tuple must have same iteration set"
         with pytest.raises(RuntimeError):
             op2.Sparsity((m, mi), 1)
 
-    def test_sparsity_illegal_row_datasets(self, m, md, backend):
+    def test_sparsity_illegal_row_datasets(self, backend, m, md):
         "All row maps must share the same data set"
         with pytest.raises(RuntimeError):
             op2.Sparsity(((m, m), (md, m)), 1)
 
-    def test_sparsity_illegal_col_datasets(self, m, md, backend):
+    def test_sparsity_illegal_col_datasets(self, backend, m, md):
         "All column maps must share the same data set"
         with pytest.raises(RuntimeError):
             op2.Sparsity(((m, m), (m, md)), 1)
