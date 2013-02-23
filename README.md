@@ -7,14 +7,15 @@ supported.
 ## Preparing the system
 
 OP2 and PyOP2 require a number of tools to be available:
-  * Git
-  * Mercurial
-  * CMake
-  * pip
+  * gcc, make, CMake
+  * bzr, Git, Mercurial
+  * pip and the Python headers
+  * SWIG
 
 On a Debian-based system (Ubuntu, Mint, etc.) install them by running
 ```
-sudo apt-get install git-core mercurial cmake cmake-curses-gui python-pip
+sudo apt-get install -y build-essential python-dev bzr git-core mercurial \
+       cmake cmake-curses-gui python-pip swig
 ```
 
 ## OP2-Common
@@ -79,6 +80,11 @@ required by PyOP2 and requires:
 If you have a suitable PETSc installed on your system, `PETSC_DIR` and
 `PETSC_ARCH` need to be set for the petsc4py installer to find it.
 
+If not, make sure all PETSc dependencies (BLAS/LAPACK, MPI and a fortran
+compiler) are installed. On a Debian based system, run:
+```
+sudo apt-get install -y libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran
+```
 If you want OpenMP support or don't have a suitable PETSc installed on your
 system, build the [PETSc OMP branch][petsc_repo]:
 ```
@@ -94,7 +100,7 @@ pip install hg+https://bitbucket.org/fr710/petsc4py#egg=petsc4py
 ```
 
 **Note:** When using PyOP2 with Fluidity it's crucial that both are built
-against the same PETSc!
+against the same PETSc, which must be build with Fortran support!
 
 ### CUDA backend:
 Dependencies:
