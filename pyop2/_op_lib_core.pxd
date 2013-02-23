@@ -125,7 +125,7 @@ cdef extern from "dlfcn.h":
     int RTLD_NOLOAD
 
 
-cdef extern from "mpi.h":
+cdef extern from *:
     cdef void emit_ifdef '#if defined(OPEN_MPI) //' ()
     cdef void emit_endif '#endif //' ()
 

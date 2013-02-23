@@ -74,8 +74,6 @@ version = sys.version_info[:2]
 if version < (2, 7) or (3, 0) <= version <= (3, 1):
     install_requires += ['argparse', 'ordereddict']
 
-os.environ['CC'] = 'mpicc'
-os.environ['CXX'] = 'mpicxx'
 setup(name='PyOP2',
       version='0.1',
       description = 'OP2 runtime library and python bindings',
