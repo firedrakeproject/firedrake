@@ -273,10 +273,20 @@ Alternatively, package the configuration in an
 
 ## Testing your installation
 
+PyOP2 unit tests use [pytest](http://pytest.org). Install via package manager
+```
+sudo apt-get install python-pytest
+```
+or pip
+```
+pip install pytest
+```
+
 If all tests in our test suite pass, you should be good to go:
 ```
 make test
 ```
+This will run both unit and regression tests, the latter require UFL and FFC.
 
 This will attempt to run tests for all backends and skip those for not
 available backends. If the [FFC fork][ffc_repo] is not found, tests for the
