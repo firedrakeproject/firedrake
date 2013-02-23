@@ -96,6 +96,7 @@ Cleanup of C level datastructures is currently not handled.
 
 from libc.stdlib cimport malloc, free
 from libc.stdint cimport uintptr_t
+from cpython cimport bool
 import base
 import numpy as np
 cimport numpy as np
@@ -164,6 +165,13 @@ cdef class op_set:
         cdef int size = set.size
         cdef char * name = set.name
         self._handle = core.op_decl_set_core(size, name)
+        # The C constructor does not set the other size attributes (this is
+        # only done when using libop2_mpi, which we're not using)
+        # Note the exclusive semantics for exec_size and nonexec_size used in
+        # the core library, which are different from the PyOP2 semantics
+        self._handle.core_size = set.core_size
+        self._handle.exec_size = set.exec_size - set.size
+        self._handle.nonexec_size = set.total_size - set.exec_size
 
     @property
     def size(self):
@@ -533,7 +541,7 @@ def free_sparsity(object sparsity):
         except:
             pass
 
-def build_sparsity(object sparsity):
+def build_sparsity(object sparsity, bool parallel):
     cdef int rmult, cmult
     rmult, cmult = sparsity._dims
     cdef int nrows = sparsity._nrows
@@ -541,6 +549,7 @@ def build_sparsity(object sparsity):
     cdef op_map rmap, cmap
     cdef int nmaps = len(sparsity._rmaps)
     cdef int *d_nnz, *o_nnz, *rowptr, *colidx
+    cdef int d_nz, o_nz
 
     cdef core.op_map *rmaps = <core.op_map *>malloc(nmaps * sizeof(core.op_map))
     if rmaps is NULL:
@@ -556,18 +565,32 @@ def build_sparsity(object sparsity):
             rmaps[i] = rmap._handle
             cmaps[i] = cmap._handle
 
-        core.build_sparsity_pattern(rmult, cmult, nrows, nmaps,
-                                    rmaps, cmaps,
-                                    &d_nnz, &o_nnz, &rowptr, &colidx)
-        sparsity._d_nnz = data_to_numpy_array_with_spec(d_nnz, lsize,
-                                                        np.NPY_INT32)
-        sparsity._o_nnz = data_to_numpy_array_with_spec(o_nnz, lsize,
-                                                        np.NPY_INT32)
-        sparsity._rowptr = data_to_numpy_array_with_spec(rowptr, lsize+1,
-                                                         np.NPY_INT32)
-        sparsity._colidx = data_to_numpy_array_with_spec(colidx,
-                                                         rowptr[lsize],
-                                                         np.NPY_INT32)
+        if parallel:
+            core.build_sparsity_pattern_mpi(rmult, cmult, nrows, nmaps,
+                                            rmaps, cmaps, &d_nnz, &o_nnz,
+                                            &d_nz, &o_nz)
+            sparsity._d_nnz = data_to_numpy_array_with_spec(d_nnz, lsize,
+                                                            np.NPY_INT32)
+            sparsity._o_nnz = data_to_numpy_array_with_spec(o_nnz, lsize,
+                                                            np.NPY_INT32)
+            sparsity._rowptr = []
+            sparsity._colidx = []
+            sparsity._d_nz = d_nz
+            sparsity._o_nz = o_nz
+        else:
+            core.build_sparsity_pattern_seq(rmult, cmult, nrows, nmaps,
+                                            rmaps, cmaps,
+                                            &d_nnz, &rowptr, &colidx, &d_nz)
+            sparsity._d_nnz = data_to_numpy_array_with_spec(d_nnz, lsize,
+                                                            np.NPY_INT32)
+            sparsity._o_nnz = []
+            sparsity._rowptr = data_to_numpy_array_with_spec(rowptr, lsize+1,
+                                                            np.NPY_INT32)
+            sparsity._colidx = data_to_numpy_array_with_spec(colidx,
+                                                            rowptr[lsize],
+                                                            np.NPY_INT32)
+            sparsity._d_nz = d_nz
+            sparsity._o_nz = 0
     finally:
         free(rmaps)
         free(cmaps)

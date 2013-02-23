@@ -87,7 +87,7 @@ class ParLoop(device.ParLoop):
             if arg._is_mat:
                 _args.append(arg.data.handle.handle)
             else:
-                _args.append(arg.data.data)
+                _args.append(arg.data._data)
 
             if arg._is_dat:
                 maybe_setflags(arg.data._data, write=False)

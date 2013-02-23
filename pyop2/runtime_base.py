@@ -43,7 +43,24 @@ from base import READ, WRITE, RW, INC, MIN, MAX, IterationSpace
 from base import DataCarrier, IterationIndex, i, IdentityMap, Kernel, Global
 from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 import op_lib_core as core
+from mpi4py import MPI
 from petsc4py import PETSc
+
+PYOP2_COMM = None
+
+def set_mpi_communicator(comm):
+    """Set the MPI communicator for parallel communication."""
+    global PYOP2_COMM
+    if comm is None:
+        PYOP2_COMM = MPI.COMM_WORLD
+    elif type(comm) is int:
+        # If it's come from Fluidity where an MPI_Comm is just an
+        # integer.
+        PYOP2_COMM = MPI.Comm.f2py(comm)
+    else:
+        PYOP2_COMM = comm
+    # PETSc objects also need to be built on the same communicator.
+    PETSc.Sys.setDefaultComm(PYOP2_COMM)
 
 # Data API
 
@@ -52,6 +69,51 @@ class Arg(base.Arg):
 
     .. warning:: User code should not directly instantiate :class:`Arg`. Instead, use the call syntax on the :class:`DataCarrier`.
     """
+
+    def halo_exchange_begin(self):
+        assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
+        assert not self._in_flight, \
+            "Halo exchange already in flight for Arg %s" % self
+        if self.access in [READ, RW] and self.data.needs_halo_update:
+            self.data.needs_halo_update = False
+            self._in_flight = True
+            self.data.halo_exchange_begin()
+
+    def halo_exchange_end(self):
+        assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
+        if self.access in [READ, RW] and self._in_flight:
+            self._in_flight = False
+            self.data.halo_exchange_end()
+
+    def reduction_begin(self):
+        assert self._is_global, \
+            "Doing global reduction only makes sense for Globals"
+        assert not self._in_flight, \
+            "Reduction already in flight for Arg %s" % self
+        if self.access is not READ:
+            self._in_flight = True
+            if self.access is INC:
+                op = MPI.SUM
+            elif self.access is MIN:
+                op = MPI.MIN
+            elif self.access is MAX:
+                op = MPI.MAX
+            # If the MPI supports MPI-3, this could be MPI_Iallreduce
+            # instead, to allow overlapping comp and comms.
+            # We must reduce into a temporary buffer so that when
+            # executing over the halo region, which occurs after we've
+            # called this reduction, we don't subsequently overwrite
+            # the result.
+            PYOP2_COMM.Allreduce(self.data._data, self.data._buf, op=op)
+
+    def reduction_end(self):
+        assert self._is_global, \
+            "Doing global reduction only makes sense for Globals"
+        if self.access is not READ and self._in_flight:
+            self._in_flight = False
+            # Must have a copy here, because otherwise we just grab a
+            # pointer.
+            self.data._data = np.copy(self.data._buf)
 
     @property
     def _c_handle(self):
@@ -62,9 +124,9 @@ class Arg(base.Arg):
 class Set(base.Set):
     """OP2 set."""
 
-    @validate_type(('size', int, SizeTypeError))
-    def __init__(self, size, name=None):
-        base.Set.__init__(self, size, name)
+    @validate_type(('size', (int, tuple, list), SizeTypeError))
+    def __init__(self, size, name=None, halo=None):
+        base.Set.__init__(self, size, name, halo)
 
     @classmethod
     def fromhdf5(cls, f, name):
@@ -84,8 +146,61 @@ class Set(base.Set):
             self._lib_handle = core.op_set(self)
         return self._lib_handle
 
+class Halo(base.Halo):
+    def __init__(self, sends, receives, comm=PYOP2_COMM, gnn2unn=None):
+        base.Halo.__init__(self, sends, receives, gnn2unn)
+        if type(comm) is int:
+            self._comm = MPI.Comm.f2py(comm)
+        else:
+            self._comm = comm
+        # FIXME: is this a necessity?
+        assert self._comm == PYOP2_COMM, "Halo communicator not PYOP2_COMM"
+        rank = self._comm.rank
+        size = self._comm.size
+
+        assert len(self._sends) == size, \
+            "Invalid number of sends for Halo, got %d, wanted %d" % \
+            (len(self._sends), size)
+        assert len(self._receives) == size, \
+            "Invalid number of receives for Halo, got %d, wanted %d" % \
+            (len(self._receives), size)
+
+        assert self._sends[rank].size == 0, \
+            "Halo was specified with self-sends on rank %d" % rank
+        assert self._receives[rank].size == 0, \
+            "Halo was specified with self-receives on rank %d" % rank
+
+    @property
+    def comm(self):
+        """The MPI communicator this :class:`Halo`'s communications
+    should take place over"""
+        return self._comm
+
+    def verify(self, s):
+        """Verify that this :class:`Halo` is valid for a given
+:class:`Set`."""
+        for dest, sends in enumerate(self.sends):
+            assert (sends >= 0).all() and (sends < s.size).all(), \
+                "Halo send to %d is invalid (outside owned elements)" % dest
+
+        for source, receives in enumerate(self.receives):
+            assert (receives >= s.size).all() and \
+                (receives < s.total_size).all(), \
+                "Halo receive from %d is invalid (not in halo elements)" % \
+                source
+
 class Dat(base.Dat):
     """OP2 vector data. A ``Dat`` holds a value for every member of a :class:`Set`."""
+
+    def __init__(self, dataset, dim, data=None, dtype=None, name=None,
+                 soa=None, uid=None):
+        base.Dat.__init__(self, dataset, dim, data, dtype, name, soa, uid)
+        halo = dataset.halo
+        if halo is not None:
+            self._send_reqs = [None]*halo.comm.size
+            self._send_buf = [None]*halo.comm.size
+            self._recv_reqs = [None]*halo.comm.size
+            self._recv_buf = [None]*halo.comm.size
 
     def __iadd__(self, other):
         """Pointwise addition of fields."""
@@ -112,6 +227,41 @@ class Dat(base.Dat):
         else:
             self._data /= as_type(other.data, self.dtype)
         return self
+
+    def halo_exchange_begin(self):
+        halo = self.dataset.halo
+        if halo is None:
+            return
+        for dest,ele in enumerate(halo.sends):
+            if ele.size == 0:
+                # Don't send to self (we've asserted that ele.size ==
+                # 0 previously) or if there are no elements to send
+                self._send_reqs[dest] = MPI.REQUEST_NULL
+                continue
+            self._send_buf[dest] = self._data[ele]
+            self._send_reqs[dest] = halo.comm.Isend(self._send_buf[dest],
+                                                    dest=dest, tag=self._id)
+        for source,ele in enumerate(halo.receives):
+            if ele.size == 0:
+                # Don't receive from self or if there are no elements
+                # to receive
+                self._recv_reqs[source] = MPI.REQUEST_NULL
+                continue
+            self._recv_buf[source] = self._data[ele]
+            self._recv_reqs[source] = halo.comm.Irecv(self._recv_buf[source],
+                                                      source=source, tag=self._id)
+
+    def halo_exchange_end(self):
+        halo = self.dataset.halo
+        if halo is None:
+            return
+        MPI.Request.Waitall(self._recv_reqs)
+        MPI.Request.Waitall(self._send_reqs)
+        self._send_buf = [None]*len(self._send_buf)
+        for source, buf in enumerate(self._recv_buf):
+            if buf is not None:
+                self._data[halo.receives[source]] = buf
+        self._recv_buf = [None]*len(self._recv_buf)
 
     @property
     def norm(self):
@@ -193,8 +343,7 @@ class Sparsity(base.Sparsity):
         super(Sparsity, self).__init__(maps, dims, name)
         key = (maps, as_tuple(dims, int, 2))
         self._cached = True
-        core.build_sparsity(self)
-        self._total_nz = self._rowptr[-1]
+        core.build_sparsity(self, parallel=PYOP2_COMM.size > 1)
         _sparsity_cache[key] = self
 
     def __del__(self):
@@ -209,12 +358,20 @@ class Sparsity(base.Sparsity):
         return self._colidx
 
     @property
-    def d_nnz(self):
+    def nnz(self):
         return self._d_nnz
 
     @property
-    def total_nz(self):
-        return int(self._total_nz)
+    def onnz(self):
+        return self._o_nnz
+
+    @property
+    def nz(self):
+        return int(self._d_nz)
+
+    @property
+    def onz(self):
+        return int(self._o_nz)
 
 class Mat(base.Mat):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
@@ -228,14 +385,36 @@ class Mat(base.Mat):
         if not self.dtype == PETSc.ScalarType:
             raise RuntimeError("Can only create a matrix of type %s, %s is not supported" \
                     % (PETSc.ScalarType, self.dtype))
-        mat = PETSc.Mat()
-        rdim, cdim = self.sparsity.dims
-        self._array = np.zeros(self.sparsity.total_nz, dtype=PETSc.RealType)
-        # We're not currently building a blocked matrix, so need to scale the
-        # number of rows and columns by the sparsity dimensions
-        # FIXME: This needs to change if we want to do blocked sparse
-        mat.createAIJWithArrays((self.sparsity.nrows*rdim, self.sparsity.ncols*cdim),
-                (self.sparsity._rowptr, self.sparsity._colidx, self._array))
+        if PYOP2_COMM.size == 1:
+            mat = PETSc.Mat()
+            row_lg = PETSc.LGMap()
+            col_lg = PETSc.LGMap()
+            rdim, cdim = self.sparsity.dims
+            row_lg.create(indices=np.arange(self.sparsity.nrows * rdim, dtype=PETSc.IntType))
+            col_lg.create(indices=np.arange(self.sparsity.ncols * cdim, dtype=PETSc.IntType))
+            self._array = np.zeros(self.sparsity.nz, dtype=PETSc.RealType)
+            # We're not currently building a blocked matrix, so need to scale the
+            # number of rows and columns by the sparsity dimensions
+            # FIXME: This needs to change if we want to do blocked sparse
+            # NOTE: using _rowptr and _colidx since we always want the host values
+            mat.createAIJWithArrays((self.sparsity.nrows*rdim, self.sparsity.ncols*cdim),
+                                    (self.sparsity._rowptr, self.sparsity._colidx, self._array))
+            mat.setLGMap(rmap=row_lg, cmap=col_lg)
+        else:
+            mat = PETSc.Mat()
+            row_lg = PETSc.LGMap()
+            col_lg = PETSc.LGMap()
+            # FIXME: probably not right for vector fields
+            row_lg.create(indices=self.sparsity.maps[0][0].dataset.halo.global_to_petsc_numbering)
+            col_lg.create(indices=self.sparsity.maps[0][1].dataset.halo.global_to_petsc_numbering)
+            rdim, cdim = self.sparsity.dims
+            mat.createAIJ(size=((self.sparsity.nrows*rdim, None),
+                                (self.sparsity.ncols*cdim, None)),
+                          nnz=(self.sparsity.nnz, self.sparsity.onnz))
+            mat.setLGMap(rmap=row_lg, cmap=col_lg)
+            mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, True)
+            mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
+            mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
         self._handle = mat
 
     def zero(self):
@@ -246,7 +425,7 @@ class Mat(base.Mat):
         """Zeroes the specified rows of the matrix, with the exception of the
         diagonal entry, which is set to diag_val. May be used for applying
         strong boundary conditions."""
-        self.handle.zeroRows(rows, diag_val)
+        self.handle.zeroRowsLocal(rows, diag_val)
 
     def _assemble(self):
         self.handle.assemble()
@@ -297,8 +476,8 @@ class Solver(base.Solver, PETSc.KSP):
 
     def solve(self, A, x, b):
         self._set_parameters()
-        px = PETSc.Vec().createWithArray(x.data)
-        pb = PETSc.Vec().createWithArray(b.data)
+        px = PETSc.Vec().createWithArray(x.data, size=(x.dataset.size * x.cdim, None))
+        pb = PETSc.Vec().createWithArray(b.data_ro, size=(b.dataset.size * b.cdim, None))
         self.setOperators(A.handle)
         self.setFromOptions()
         if self.parameters['monitor_convergence']:

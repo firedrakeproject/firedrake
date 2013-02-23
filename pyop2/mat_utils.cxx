@@ -8,7 +8,7 @@ void addto_scalar(Mat mat, const void *value, int row, int col, int insert)
   const PetscScalar * v = (const PetscScalar *)value;
 
   if ( v[0] == 0.0 && !insert ) return;
-  MatSetValues( mat,
+  MatSetValuesLocal( mat,
                 1, (const PetscInt *)&row,
                 1, (const PetscInt *)&col,
                 v, insert ? INSERT_VALUES : ADD_VALUES );
@@ -20,7 +20,7 @@ void addto_vector(Mat mat, const void *values,
 {
   assert( mat && values && irows && icols );
   // FIMXE: this assumes we're getting a PetscScalar
-  MatSetValues( mat,
+  MatSetValuesLocal( mat,
                 nrows, (const PetscInt *)irows,
                 ncols, (const PetscInt *)icols,
                 (const PetscScalar *)values,

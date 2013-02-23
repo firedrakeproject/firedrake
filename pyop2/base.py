@@ -39,6 +39,9 @@ from exceptions import *
 from utils import *
 from backends import _make_object
 
+def set_mpi_communicator(comm):
+    pass
+
 # Data API
 
 class Access(object):
@@ -90,6 +93,7 @@ class Arg(object):
         self._idx = idx
         self._access = access
         self._lib_handle = None
+        self._in_flight = False # some kind of comms in flight for this arg
 
     def __str__(self):
         return "OP2 Arg: dat %s, map %s, index %s, access %s" % \
@@ -185,39 +189,175 @@ class Arg(object):
     def _uses_itspace(self):
         return self._is_mat or isinstance(self.idx, IterationIndex)
 
+    def halo_exchange_begin(self):
+        pass
+
+    def halo_exchange_end(self):
+        pass
+
+    def reduction_begin(self):
+        pass
+
+    def reduction_end(self):
+        pass
+
 class Set(object):
     """OP2 set.
 
-    When the set is employed as an iteration space in a :func:`par_loop`, the extent of any local iteration space within each set entry is indicated in brackets. See the example in :func:`pyop2.op2.par_loop` for more details.
+    When the set is employed as an iteration space in a
+    :func:`par_loop`, the extent of any local iteration space within
+    each set entry is indicated in brackets. See the example in
+    :func:`pyop2.op2.par_loop` for more details.
+
+    The size of the set can either be an integer, or a list of four
+    integers.  The latter case is used for running in parallel where
+    we distinguish between:
+
+      - CORE (owned and not touching halo)
+      - OWNED (owned, touching halo)
+      - EXECUTE HALO (not owned, but executed over redundantly)
+      - NON EXECUTE HALO (not owned, read when executing in the
+                          execute halo)
+
+    If a single integer is passed, we assume that we're running in
+    serial and there is no distinction.
+
+    The division of set elements is:
+
+    [0, CORE)
+    [CORE, OWNED)
+    [OWNED, EXECUTE HALO)
+    [EXECUTE HALO, NON EXECUTE HALO).
+
+    Halo send/receive data is stored on sets in a :class:`Halo`.
     """
 
     _globalcount = 0
 
+    CORE_SIZE = 0
+    OWNED_SIZE = 1
+    IMPORT_EXEC_SIZE = 2
+    IMPORT_NON_EXEC_SIZE = 3
     @validate_type(('name', str, NameTypeError))
-    def __init__(self, size=None, name=None):
-        self._size = size
+    def __init__(self, size=None, name=None, halo=None):
+        if type(size) is int:
+            size = [size]*4
+        size = as_tuple(size, int, 4)
+        assert size[Set.CORE_SIZE] <= size[Set.OWNED_SIZE] <= \
+                size[Set.IMPORT_EXEC_SIZE] <= size[Set.IMPORT_NON_EXEC_SIZE], \
+                "Set received invalid sizes: %s" % size
+        self._core_size = size[Set.CORE_SIZE]
+        self._size = size[Set.OWNED_SIZE]
+        self._ieh_size = size[Set.IMPORT_EXEC_SIZE]
+        self._inh_size = size[Set.IMPORT_NON_EXEC_SIZE]
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = None
+        self._halo = halo
+        if self.halo:
+            self.halo.verify(self)
         Set._globalcount += 1
 
     def __call__(self, *dims):
         return IterationSpace(self, dims)
 
     @property
+    def core_size(self):
+        """Core set size.  Owned elements not touching halo elements."""
+        return self._core_size
+
+    @property
     def size(self):
-        """Set size"""
+        """Set size, owned elements."""
         return self._size
+
+    @property
+    def exec_size(self):
+        """Set size including execute halo elements.
+
+        If a :class:`ParLoop` is indirect, we do redundant computation
+        by executing over these set elements as well as owned ones.
+        """
+        return self._ieh_size
+
+    @property
+    def total_size(self):
+        """Total set size, including halo elements."""
+        return self._inh_size
 
     @property
     def name(self):
         """User-defined label"""
         return self._name
 
+    @property
+    def halo(self):
+        """:class:`Halo` associated with this Set"""
+        return self._halo
+
     def __str__(self):
         return "OP2 Set: %s with size %s" % (self._name, self._size)
 
     def __repr__(self):
         return "Set(%s, '%s')" % (self._size, self._name)
+
+class Halo(object):
+    """A description of a halo associated with a :class:`Set`.
+
+    The halo object describes which :class:`Set` elements are sent
+    where, and which :class:`Set` elements are received from where.
+
+    For each process to send to, `sends[process]` should be a numpy
+    arraylike (tuple, list, iterable, numpy array) of the set elements
+    to send to `process`.  Similarly `receives[process]` should be the
+    set elements that will be received from `process`.
+
+    To send/receive no set elements to/from a process, pass an empty
+    list in that position.
+
+    The gnn2unn array is a map from process-local set element
+    numbering to cross-process set element numbering.  It must
+    correctly number all the set elements in the halo region as well
+    as owned elements.  Providing this array is only necessary if you
+    will access :class:`Mat` objects on the :class:`Set` this `Halo`
+    lives on.  Insertion into :class:`Dat`s always uses process-local
+    numbering, however insertion into :class:`Mat`s uses cross-process
+    numbering under the hood.
+    """
+    def __init__(self, sends, receives, gnn2unn=None):
+        self._sends = tuple(np.asarray(x, dtype=np.int32) for x in sends)
+        self._receives = tuple(np.asarray(x, dtype=np.int32) for x in receives)
+        self._global_to_petsc_numbering = gnn2unn
+
+    @property
+    def sends(self):
+        """Return the sends associated with this :class:`Halo`.
+
+        A tuple of numpy arrays, one entry for each rank, with each
+        array indicating the :class:`Set` elements to send.
+
+        For example, to send no elements to rank 0, elements 1 and 2
+        to rank 1 and no elements to rank 2 (with comm.size == 3) we
+        would have:
+
+        (np.empty(0, dtype=np.int32), np.array([1,2], dtype=np.int32),
+         np.empty(0, dtype=np.int32)."""
+        return self._sends
+
+    @property
+    def receives(self):
+        """Return the receives associated with this :class:`Halo`.
+
+        A tuple of numpy arrays, one entry for each rank, with each
+        array indicating the :class:`Set` elements to receive.
+
+        See `Halo.sends` for an example"""
+        return self._receives
+
+    @property
+    def global_to_petsc_numbering(self):
+        """The mapping from global (per-process) dof numbering to
+    petsc (cross-process) dof numbering."""
+        return self._global_to_petsc_numbering
 
 class IterationSpace(object):
     """OP2 iteration space type.
@@ -246,9 +386,27 @@ class IterationSpace(object):
         return self._iterset.name
 
     @property
+    def core_size(self):
+        """The number of :class:`Set` elements which don't touch halo elements in the set over which this IterationSpace is defined"""
+        return self._iterset.core_size
+
+    @property
     def size(self):
         """The size of the :class:`Set` over which this IterationSpace is defined."""
         return self._iterset.size
+
+    @property
+    def exec_size(self):
+        """The size of the :class:`Set` over which this IterationSpace
+    is defined, including halo elements to be executed over"""
+        return self._iterset.exec_size
+
+    @property
+    def total_size(self):
+        """The total size of :class:`Set` over which this IterationSpace is defined.
+
+        This includes all halo set elements."""
+        return self._iterset.total_size
 
     @property
     def _extent_ranges(self):
@@ -329,15 +487,23 @@ class Dat(DataCarrier):
     _modes = [READ, WRITE, RW, INC]
 
     @validate_type(('dataset', Set, SetTypeError), ('name', str, NameTypeError))
-    def __init__(self, dataset, dim, data=None, dtype=None, name=None, soa=None):
+    def __init__(self, dataset, dim, data=None, dtype=None, name=None,
+                 soa=None, uid=None):
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
-        self._data = verify_reshape(data, dtype, (dataset.size,)+self._dim, allow_none=True)
+        self._data = verify_reshape(data, dtype, (dataset.total_size,)+self._dim, allow_none=True)
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
-        self._name = name or "dat_%d" % Dat._globalcount
         self._lib_handle = None
-        Dat._globalcount += 1
+        self._needs_halo_update = False
+        # If the uid is not passed in from outside, assume that Dats
+        # have been declared in the same order everywhere.
+        if uid is None:
+            self._id = Dat._globalcount
+            Dat._globalcount += 1
+        else:
+            self._id = uid
+        self._name = name or "dat_%d" % self._id
 
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, path, access):
@@ -363,16 +529,17 @@ class Dat(DataCarrier):
     @property
     def data(self):
         """Numpy array containing the data values."""
-        if len(self._data) is 0:
-            raise RuntimeError("Illegal access: No data associated with this Dat!")
+        if self.dataset.total_size > 0 and self._data.size == 0:
+            raise RuntimeError("Illegal access: no data associated with this Dat!")
         maybe_setflags(self._data, write=True)
+        self.needs_halo_update = True
         return self._data
 
     @property
     def data_ro(self):
         """Numpy array containing the data values.  Read-only"""
-        if len(self._data) is 0:
-            raise RuntimeError("Illegal access: No data associated with this Dat!")
+        if self.dataset.total_size > 0 and self._data.size == 0:
+            raise RuntimeError("Illegal access: no data associated with this Dat!")
         maybe_setflags(self._data, write=False)
         return self._data
 
@@ -382,9 +549,24 @@ class Dat(DataCarrier):
         return self._dim
 
     @property
+    def needs_halo_update(self):
+        '''Has this Dat been written to since the last halo exchange?'''
+        return self._needs_halo_update
+
+    @needs_halo_update.setter
+    def needs_halo_update(self, val):
+        self._needs_halo_update = val
+
+    @property
     def norm(self):
         """The L2-norm on the flattened vector."""
         raise NotImplementedError("Norm is not implemented.")
+
+    def halo_exchange_begin(self):
+        pass
+
+    def halo_exchange_end(self):
+        pass
 
     def zero(self):
         """Zero the data associated with this :class:`Dat`"""
@@ -484,6 +666,7 @@ class Global(DataCarrier):
     def __init__(self, dim, data=None, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
         self._data = verify_reshape(data, dtype, self._dim, allow_none=True)
+        self._buf = np.empty_like(self._data)
         self._name = name or "global_%d" % Global._globalcount
         Global._globalcount += 1
 
@@ -574,7 +757,7 @@ class Map(object):
         self._iterset = iterset
         self._dataset = dataset
         self._dim = dim
-        self._values = verify_reshape(values, np.int32, (iterset.size, dim), \
+        self._values = verify_reshape(values, np.int32, (iterset.total_size, dim), \
                                       allow_none=True)
         self._name = name or "map_%d" % Map._globalcount
         self._lib_handle = None
@@ -879,6 +1062,39 @@ class ParLoop(object):
 
         self.check_args()
 
+    def halo_exchange_begin(self):
+        """Start halo exchanges."""
+        if self.is_direct:
+            # No need for halo exchanges for a direct loop
+            return
+        for arg in self.args:
+            if arg._is_dat:
+                arg.halo_exchange_begin()
+
+    def halo_exchange_end(self):
+        """Finish halo exchanges (wait on irecvs)"""
+        if self.is_direct:
+            return
+        for arg in self.args:
+            if arg._is_dat:
+                arg.halo_exchange_end()
+
+    def reduction_begin(self):
+        """Start reductions"""
+        for arg in self.args:
+            if arg._is_global_reduction:
+                arg.reduction_begin()
+
+    def reduction_end(self):
+        for arg in self.args:
+            if arg._is_global_reduction:
+                arg.reduction_end()
+
+    def maybe_set_halo_update_needed(self):
+        for arg in self.args:
+            if arg._is_dat and arg.access in [INC, WRITE, RW]:
+                arg.data.needs_halo_update = True
+
     def check_args(self):
         iterset = self._it_space._iterset
         for i, arg in enumerate(self._actual_args):
@@ -897,6 +1113,23 @@ class ParLoop(object):
 
     def generate_code(self):
         raise RuntimeError('Must select a backend')
+
+    @property
+    def it_space(self):
+        return self._it_space
+
+    @property
+    def is_direct(self):
+        return all(a.map in [None, IdentityMap] for a in self.args)
+
+    @property
+    def is_indirect(self):
+        return not self.is_direct
+
+    @property
+    def needs_exec_halo(self):
+        return any(arg._is_indirect_and_not_read or arg._is_mat
+                   for arg in self.args)
 
     @property
     def kernel(self):
