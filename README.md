@@ -183,14 +183,24 @@ Alternatively, if the HDF5 library is available, `pip install h5py`.
 
 ## Building PyOP2
 
+Clone the PyOP2 repository:
+```
+git clone git://github.com/OP2/PyOP2.git
+```
+
 PyOP2 uses [Cython](http://cython.org) extension modules, which need to be
 built in-place when using PyOP2 from the source tree:
 ```
 python setup.py build_ext --inplace
 ```
 
+When running PyOP2 from the source tree, make sure it is on your `$PYTHONPATH`:
+```
+export PYTHONPATH=/path/to/PyOP2:$PYTHONPATH
+```
+
 When installing PyOP2 via `python setup.py install` the extension modules will
-be built automatically.
+be built automatically and amending `$PYTHONPATH` is not necessary.
 
 ## FFC Interface
 
