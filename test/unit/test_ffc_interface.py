@@ -32,7 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-from pyop2 import op2, ffc_interface
+ffc_interface = pytest.importorskip('pyop2.ffc_interface')
 from ufl import *
 
 @pytest.mark.xfail("not hasattr(ffc_interface.constants, 'PYOP2_VERSION')")
