@@ -7,14 +7,15 @@ supported.
 ## Preparing the system
 
 OP2 and PyOP2 require a number of tools to be available:
-  * Git
-  * Mercurial
-  * CMake
-  * pip
+  * gcc, make, CMake
+  * bzr, Git, Mercurial
+  * pip and the Python headers
+  * SWIG
 
 On a Debian-based system (Ubuntu, Mint, etc.) install them by running
 ```
-sudo apt-get install git-core mercurial cmake cmake-curses-gui python-pip
+sudo apt-get install -y build-essential python-dev bzr git-core mercurial \
+       cmake cmake-curses-gui python-pip swig
 ```
 
 ## OP2-Common
@@ -79,6 +80,11 @@ required by PyOP2 and requires:
 If you have a suitable PETSc installed on your system, `PETSC_DIR` and
 `PETSC_ARCH` need to be set for the petsc4py installer to find it.
 
+If not, make sure all PETSc dependencies (BLAS/LAPACK, MPI and a fortran
+compiler) are installed. On a Debian based system, run:
+```
+sudo apt-get install -y libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran
+```
 If you want OpenMP support or don't have a suitable PETSc installed on your
 system, build the [PETSc OMP branch][petsc_repo]:
 ```
@@ -94,7 +100,7 @@ pip install hg+https://bitbucket.org/fr710/petsc4py#egg=petsc4py
 ```
 
 **Note:** When using PyOP2 with Fluidity it's crucial that both are built
-against the same PETSc!
+against the same PETSc, which must be build with Fortran support!
 
 ### CUDA backend:
 Dependencies:
@@ -177,14 +183,24 @@ Alternatively, if the HDF5 library is available, `pip install h5py`.
 
 ## Building PyOP2
 
+Clone the PyOP2 repository:
+```
+git clone git://github.com/OP2/PyOP2.git
+```
+
 PyOP2 uses [Cython](http://cython.org) extension modules, which need to be
 built in-place when using PyOP2 from the source tree:
 ```
 python setup.py build_ext --inplace
 ```
 
+When running PyOP2 from the source tree, make sure it is on your `$PYTHONPATH`:
+```
+export PYTHONPATH=/path/to/PyOP2:$PYTHONPATH
+```
+
 When installing PyOP2 via `python setup.py install` the extension modules will
-be built automatically.
+be built automatically and amending `$PYTHONPATH` is not necessary.
 
 ## FFC Interface
 
@@ -257,10 +273,20 @@ Alternatively, package the configuration in an
 
 ## Testing your installation
 
+PyOP2 unit tests use [pytest](http://pytest.org). Install via package manager
+```
+sudo apt-get install python-pytest
+```
+or pip
+```
+pip install pytest
+```
+
 If all tests in our test suite pass, you should be good to go:
 ```
 make test
 ```
+This will run both unit and regression tests, the latter require UFL and FFC.
 
 This will attempt to run tests for all backends and skip those for not
 available backends. If the [FFC fork][ffc_repo] is not found, tests for the
