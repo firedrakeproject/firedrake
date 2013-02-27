@@ -36,6 +36,7 @@ generated code in order to make it suitable for passing to the backends."""
 
 from ufl import Form
 from ufl.algorithms import as_form
+from ufl.algorithms.signature import compute_form_signature
 from ffc import default_parameters, compile_form as ffc_compile_form
 from ffc import constants
 from ffc.log import set_level, ERROR
@@ -62,7 +63,7 @@ def compile_form(form, name):
 
     # As of UFL 1.0.0-2 a form signature is stable w.r.t. to Coefficient/Index
     # counts
-    key = form.signature()
+    key = compute_form_signature(form)
     # Check the cache first: this saves recompiling the form for every time
     # step in time-varying problems
     kernels, form_data = _form_cache.get(key, (None, None))
@@ -70,9 +71,9 @@ def compile_form(form, name):
         code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
         form_data = form.form_data()
 
-        kernels = [ Kernel(code, '%s_%s_integral_0_%s' % (name, m.domain_type(), \
-                                                          m.domain_id().subdomain_ids()[0])) \
-                    for m in map(lambda x: x.measure(), form.integrals()) ]
+        kernels = [ Kernel(code, '%s_%s_integral_0_%s' % \
+                    (name, ida.domain_type, ida.domain_id)) \
+                    for ida in form_data.integral_data ]
         kernels = tuple(kernels)
         _form_cache[key] = kernels, form_data
 
