@@ -1182,7 +1182,8 @@ DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
                              'monitor_convergence': False,
                              'plot_convergence': False,
                              'plot_prefix': '',
-                             'error_on_nonconvergence': True}
+                             'error_on_nonconvergence': True,
+                             'gmres_restart': 30}
 
 class Solver(object):
     """OP2 Solver object. The :class:`Solver` holds a set of parameters that are
