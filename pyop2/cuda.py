@@ -765,25 +765,24 @@ class ParLoop(op2.ParLoop):
                     pass
 
                 blocks = self._plan.ncolblk[col]
-                if blocks <= 0:
-                    continue
+                if blocks > 0:
+                    arglist[-1] = np.int32(blocks)
+                    arglist[-7] = np.int32(block_offset)
+                    blocks = np.asscalar(blocks)
+                    # Compute capability < 3 can handle at most 2**16  - 1
+                    # blocks in any one dimension of the grid.
+                    if blocks >= 2**16:
+                        grid_size = (2**16 - 1, (blocks - 1)/(2**16-1) + 1, 1)
+                    else:
+                        grid_size = (blocks, 1, 1)
 
-                arglist[-1] = np.int32(blocks)
-                arglist[-7] = np.int32(block_offset)
-                blocks = np.asscalar(blocks)
-                # Compute capability < 3 can handle at most 2**16  - 1
-                # blocks in any one dimension of the grid.
-                if blocks >= 2**16:
-                    grid_size = (2**16 - 1, (blocks - 1)/(2**16-1) + 1, 1)
-                else:
-                    grid_size = (blocks, 1, 1)
+                    block_size = (128, 1, 1)
+                    shared_size = np.asscalar(self._plan.nsharedCol[col])
 
-                block_size = (128, 1, 1)
-                shared_size = np.asscalar(self._plan.nsharedCol[col])
-
-                _stream.synchronize()
-                self._fun.prepared_async_call(grid_size, block_size, _stream, *arglist,
-                                              shared_size=shared_size)
+                    _stream.synchronize()
+                    self._fun.prepared_async_call(grid_size, block_size,
+                                                  _stream, *arglist,
+                                                  shared_size=shared_size)
 
                 # We've reached the end of elements that should
                 # contribute to a reduction (this is only different
