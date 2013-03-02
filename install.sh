@@ -35,6 +35,17 @@ PETSC_CONFIGURE_OPTIONS="--with-fortran --with-fortran-interfaces --with-c++-sup
 ${PIP} hg+https://bitbucket.org/mapdes/petsc4py#egg=petsc4py
 
 echo
+echo "*** Installing FEniCS dependencies ***"
+echo
+
+${PIP} \
+  git+https://bitbucket.org/mapdes/ffc@pyop2#egg=ffc \
+  bzr+http://bazaar.launchpad.net/~florian-rathgeber/ufc/python-setup#egg=ufc_utils \
+  git+https://bitbucket.org/fenics-project/ufl#egg=ufl \
+  git+https://bitbucket.org/fenics-project/fiat#egg=fiat \
+  hg+https://bitbucket.org/khinsen/scientificpython
+
+echo
 echo "*** Installing PyOP2 ***"
 echo
 
