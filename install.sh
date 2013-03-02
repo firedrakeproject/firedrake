@@ -4,10 +4,18 @@ PIP="pip install --user"
 BASE_DIR=`pwd`
 PATH=$HOME/.local/bin:$PATH
 
+echo
+echo "*** Preparing system ***"
+echo
+
 sudo apt-get update
 sudo apt-get install -y build-essential python-dev bzr git-core mercurial \
   cmake cmake-curses-gui python-pip swig \
   libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran
+
+echo
+echo "*** Installing OP2-Common ***"
+echo
 
 git clone git://github.com/OP2/OP2-Common.git
 cd OP2-Common/op2/c
@@ -17,10 +25,18 @@ export OP2_DIR=`pwd`
 
 cd $BASE_DIR
 
+echo
+echo "*** Installing dependencies ***"
+echo
+
 ${PIP} Cython decorator instant numpy pyyaml
 PETSC_CONFIGURE_OPTIONS="--with-fortran --with-fortran-interfaces --with-c++-support --with-openmp" \
   ${PIP} hg+https://bitbucket.org/ggorman/petsc-3.3-omp#egg=petsc-3.3
 ${PIP} hg+https://bitbucket.org/mapdes/petsc4py#egg=petsc4py
+
+echo
+echo "*** Installing PyOP2 ***"
+echo
 
 cd $BASE_DIR
 
@@ -30,7 +46,10 @@ make ext
 export PYOP2_DIR=`pwd`
 export PYTHONPATH=`pwd`:$PYTHONPATH
 
-# Testing
+echo
+echo "*** Installing PyOP2 testing dependencies ***"
+echo
+
 ${PIP} pytest
 sudo apt-get install -y gmsh unzip
 
@@ -42,6 +61,10 @@ if [ ! -x triangle ]; then
   make triangle
   cp triangle $HOME/.local/bin
 fi
+
+echo
+echo "*** Testing PyOP2 ***"
+echo
 
 cd $PYOP2_DIR
 
