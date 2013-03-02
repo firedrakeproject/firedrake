@@ -46,6 +46,25 @@ make ext
 export PYOP2_DIR=`pwd`
 export PYTHONPATH=`pwd`:$PYTHONPATH
 
+if [ ! -f .env ]; then
+  cat > .env <<EOF
+export PYOP2_DIR=${PYOP2_DIR}
+export OP2_DIR=${OP2_DIR}
+export PYTHONPATH=`pwd`:\$PYTHONPATH
+EOF
+fi
+
+echo "
+Congratulations! PyOP2 installed successfully!
+
+To use PyOP2, make sure the following environment variables are set:
+export PYOP2_DIR=${PYOP2_DIR}
+export OP2_DIR=${OP2_DIR}
+export PYTHONPATH=`pwd`:\$PYTHONPATH
+
+or source the '.env' script with '. .env'
+"
+
 echo
 echo "*** Installing PyOP2 testing dependencies ***"
 echo
@@ -75,11 +94,5 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "
-Congratulations! PyOP2 installed and tested successfully!
-
-To use PyOP2, make sure the following environment variables are set:
-export OP2_DIR=${OP2_DIR}
-export PYOP2_DIR=${PYOP2_DIR}
-export PYTHONPATH=`pwd`:\$PYTHONPATH
-"
+echo
+echo "Congratulations! PyOP2 tests finished successfully!"
