@@ -82,6 +82,12 @@ export PYTHONPATH=`pwd`:\$PYTHONPATH
 EOF
 fi
 
+python -c 'from pyop2 import op2'
+if [ $? != 0 ]; then
+  echo "PyOP2 installation failed" 1>&2
+  exit 1
+fi
+
 echo "
 Congratulations! PyOP2 installed successfully!
 
