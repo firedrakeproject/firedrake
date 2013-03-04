@@ -1,17 +1,34 @@
 #! /bin/bash
 
-PIP="pip install --user"
+if (( EUID != 0 )); then
+  echo "*** Unprivileged installation ***"
+  echo
+  PIP="pip install --user"
+  PREFIX=$HOME/.local
+  PATH=$PREFIX/bin:$PATH
+else
+  echo "*** Privileged installation ***"
+  echo
+  PIP="pip install"
+  PREFIX=/usr/local
+fi
 BASE_DIR=`pwd`
-PATH=$HOME/.local/bin:$PATH
 
 echo
 echo "*** Preparing system ***"
 echo
 
-sudo apt-get update
-sudo apt-get install -y build-essential python-dev bzr git-core mercurial \
-  cmake cmake-curses-gui python-pip swig \
-  libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran
+if (( EUID != 0 )); then
+  echo "PyOP2 requires the following packages to be installed:"
+  echo "  build-essential python-dev bzr git-core mercurial
+  cmake cmake-curses-gui python-pip swig
+  libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran"
+else
+  apt-get update
+  apt-get install -y build-essential python-dev bzr git-core mercurial \
+    cmake cmake-curses-gui python-pip swig \
+    libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran
+fi
 
 echo
 echo "*** Installing OP2-Common ***"
@@ -73,7 +90,7 @@ export PYOP2_DIR=${PYOP2_DIR}
 export OP2_DIR=${OP2_DIR}
 export PYTHONPATH=`pwd`:\$PYTHONPATH
 
-or source the '.env' script with '. .env'
+or source the '.env' script with '. ${PYOP2_DIR}/.env'
 "
 
 echo
@@ -81,7 +98,12 @@ echo "*** Installing PyOP2 testing dependencies ***"
 echo
 
 ${PIP} pytest
-sudo apt-get install -y gmsh unzip
+if (( EUID != 0 )); then
+  echo "PyOP2 tests require the following packages to be installed:"
+  echo "  gmsh unzip"
+else
+  apt-get install -y gmsh unzip
+fi
 
 if [ ! -x triangle ]; then
   mkdir -p /tmp/triangle
@@ -89,7 +111,7 @@ if [ ! -x triangle ]; then
   wget http://www.netlib.org/voronoi/triangle.zip
   unzip triangle.zip
   make triangle
-  cp triangle $HOME/.local/bin
+  cp triangle $PREFIX/bin
 fi
 
 echo
