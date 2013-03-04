@@ -13,6 +13,7 @@ else
   PREFIX=/usr/local
 fi
 BASE_DIR=`pwd`
+TEMP_DIR=/tmp
 
 echo
 echo "*** Preparing system ***"
@@ -127,10 +128,10 @@ else
   apt-get install -y gmsh unzip
 fi
 
-if [ ! -x triangle ]; then
-  mkdir -p /tmp/triangle
-  cd /tmp/triangle
-  wget http://www.netlib.org/voronoi/triangle.zip
+if [ ! `which triangle` ]; then
+  mkdir -p $TMPDIR/triangle
+  cd $TMPDIR/triangle
+  wget -q http://www.netlib.org/voronoi/triangle.zip
   unzip triangle.zip
   make triangle
   cp triangle $PREFIX/bin
