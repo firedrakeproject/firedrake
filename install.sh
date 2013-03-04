@@ -14,6 +14,11 @@ else
 fi
 BASE_DIR=`pwd`
 TEMP_DIR=/tmp
+LOGFILE=$BASE_DIR/pyop2_install.log
+
+if [ -f $LOGFILE ]; then
+  mv $LOGFILE $LOGFILE.old
+fi
 
 echo
 echo "*** Preparing system ***"
@@ -25,10 +30,10 @@ if (( EUID != 0 )); then
   cmake cmake-curses-gui python-pip swig
   libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran"
 else
-  apt-get update
+  apt-get update >> $LOGFILE 2>&1
   apt-get install -y build-essential python-dev bzr git-core mercurial \
     cmake cmake-curses-gui python-pip swig \
-    libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran
+    libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran >> $LOGFILE 2>&1
 fi
 
 echo
@@ -38,14 +43,14 @@ echo
 if [ -d OP2-Common/.git ]; then
   (
   cd OP2-Common
-  git checkout master
-  git pull origin master
+  git checkout master >> $LOGFILE 2>&1
+  git pull origin master >> $LOGFILE 2>&1
   )
 else
-  git clone git://github.com/OP2/OP2-Common.git
+  git clone git://github.com/OP2/OP2-Common.git >> $LOGFILE 2>&1
 fi
 cd OP2-Common/op2/c
-./cmake.local -DOP2_WITH_CUDA=0 -DOP2_WITH_HDF5=0 -DOP2_WITH_MPI=0 -DOP2_WITH_OPENMP=0
+./cmake.local -DOP2_WITH_CUDA=0 -DOP2_WITH_HDF5=0 -DOP2_WITH_MPI=0 -DOP2_WITH_OPENMP=0 >> $LOGFILE 2>&1
 cd ..
 export OP2_DIR=`pwd`
 
@@ -55,10 +60,10 @@ echo
 echo "*** Installing dependencies ***"
 echo
 
-${PIP} Cython decorator instant numpy pyyaml
+${PIP} Cython decorator instant numpy pyyaml >> $LOGFILE 2>&1
 PETSC_CONFIGURE_OPTIONS="--with-fortran --with-fortran-interfaces --with-c++-support --with-openmp" \
-  ${PIP} hg+https://bitbucket.org/ggorman/petsc-3.3-omp#egg=petsc-3.3
-${PIP} hg+https://bitbucket.org/mapdes/petsc4py#egg=petsc4py
+  ${PIP} hg+https://bitbucket.org/ggorman/petsc-3.3-omp#egg=petsc-3.3 >> $LOGFILE 2>&1
+${PIP} hg+https://bitbucket.org/mapdes/petsc4py#egg=petsc4py >> $LOGFILE 2>&1
 
 echo
 echo "*** Installing FEniCS dependencies ***"
@@ -69,7 +74,7 @@ ${PIP} \
   bzr+http://bazaar.launchpad.net/~florian-rathgeber/ufc/python-setup#egg=ufc_utils \
   git+https://bitbucket.org/fenics-project/ufl#egg=ufl \
   git+https://bitbucket.org/fenics-project/fiat#egg=fiat \
-  hg+https://bitbucket.org/khinsen/scientificpython
+  hg+https://bitbucket.org/khinsen/scientificpython >> $LOGFILE 2>&1
 
 echo
 echo "*** Installing PyOP2 ***"
@@ -80,14 +85,14 @@ cd $BASE_DIR
 if [ -d PyOP2/.git ]; then
   (
   cd PyOP2
-  git checkout master
-  git pull origin master
+  git checkout master >> $LOGFILE 2>&1
+  git pull origin master >> $LOGFILE 2>&1
   )
 else
-  git clone git://github.com/OP2/PyOP2.git
+  git clone git://github.com/OP2/PyOP2.git >> $LOGFILE 2>&1
 fi
 cd PyOP2
-make ext
+make ext >> $LOGFILE 2>&1
 export PYOP2_DIR=`pwd`
 export PYTHONPATH=`pwd`:$PYTHONPATH
 
@@ -102,6 +107,7 @@ fi
 python -c 'from pyop2 import op2'
 if [ $? != 0 ]; then
   echo "PyOP2 installation failed" 1>&2
+  echo "  See ${LOGFILE} for details" 1>&2
   exit 1
 fi
 
@@ -120,20 +126,20 @@ echo
 echo "*** Installing PyOP2 testing dependencies ***"
 echo
 
-${PIP} pytest
+${PIP} pytest >> $LOGFILE 2>&1
 if (( EUID != 0 )); then
   echo "PyOP2 tests require the following packages to be installed:"
   echo "  gmsh unzip"
 else
-  apt-get install -y gmsh unzip
+  apt-get install -y gmsh unzip >> $LOGFILE 2>&1
 fi
 
 if [ ! `which triangle` ]; then
   mkdir -p $TMPDIR/triangle
   cd $TMPDIR/triangle
-  wget -q http://www.netlib.org/voronoi/triangle.zip
-  unzip triangle.zip
-  make triangle
+  wget -q http://www.netlib.org/voronoi/triangle.zip >> $LOGFILE 2>&1
+  unzip triangle.zip >> $LOGFILE 2>&1
+  make triangle >> $LOGFILE 2>&1
   cp triangle $PREFIX/bin
 fi
 
@@ -143,10 +149,11 @@ echo
 
 cd $PYOP2_DIR
 
-make test BACKENDS="sequential openmp mpi_sequential"
+make test BACKENDS="sequential openmp mpi_sequential" >> $LOGFILE 2>&1
 
 if [ $? -ne 0 ]; then
   echo "PyOP2 testing failed" 1>&2
+  echo "  See ${LOGFILE} for details" 1>&2
   exit 1
 fi
 
