@@ -48,6 +48,10 @@ from petsc4py import PETSc
 
 PYOP2_COMM = None
 
+def get_mpi_communicator():
+    global PYOP2_COMM
+    return PYOP2_COMM
+
 def set_mpi_communicator(comm):
     """Set the MPI communicator for parallel communication."""
     global PYOP2_COMM
