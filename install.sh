@@ -34,7 +34,15 @@ echo
 echo "*** Installing OP2-Common ***"
 echo
 
-git clone git://github.com/OP2/OP2-Common.git
+if [ -d OP2-Common/.git ]; then
+  (
+  cd OP2-Common
+  git checkout master
+  git pull origin master
+  )
+else
+  git clone git://github.com/OP2/OP2-Common.git
+fi
 cd OP2-Common/op2/c
 ./cmake.local -DOP2_WITH_CUDA=0 -DOP2_WITH_HDF5=0 -DOP2_WITH_MPI=0 -DOP2_WITH_OPENMP=0
 cd ..
@@ -68,7 +76,15 @@ echo
 
 cd $BASE_DIR
 
-git clone git://github.com/OP2/PyOP2.git
+if [ -d PyOP2/.git ]; then
+  (
+  cd PyOP2
+  git checkout master
+  git pull origin master
+  )
+else
+  git clone git://github.com/OP2/PyOP2.git
+fi
 cd PyOP2
 make ext
 export PYOP2_DIR=`pwd`
