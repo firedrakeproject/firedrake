@@ -240,7 +240,7 @@ pip install \
   bzr+http://bazaar.launchpad.net/~florian-rathgeber/ufc/python-setup#egg=ufc_utils \
   bzr+http://bazaar.launchpad.net/~ufl-core/ufl/main#egg=ufl \
   bzr+http://bazaar.launchpad.net/~fiat-core/fiat/main#egg=fiat \
-  https://sourcesup.renater.fr/frs/download.php/2309/ScientificPython-2.8.tar.gz
+  hg+https://bitbucket.org/khinsen/scientificpython#egg=ScientificPython
 ```
 
 ## Setting up the environment
