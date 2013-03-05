@@ -193,6 +193,16 @@ class Halo(base.Halo):
                 "Halo receive from %d is invalid (not in halo elements)" % \
                 source
 
+    def __getstate__(self):
+        odict = self.__dict__.copy()
+        del odict['_comm']
+        return odict
+
+    def __setstate__(self, dict):
+        self.__dict__.update(dict)
+        # FIXME: This will break for custom halo communicators
+        self._comm = PYOP2_COMM
+
 class Dat(base.Dat):
     """OP2 vector data. A ``Dat`` holds a value for every member of a :class:`Set`."""
 
