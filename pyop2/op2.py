@@ -40,7 +40,7 @@ import op_lib_core as core
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
 from base import _empty_parloop_cache, _parloop_cache_size
-from runtime_base import _empty_sparsity_cache, set_mpi_communicator
+from runtime_base import _empty_sparsity_cache, get_mpi_communicator, set_mpi_communicator
 from device import _empty_plan_cache, _plan_cache_size
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
