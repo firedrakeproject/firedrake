@@ -1,0 +1,31 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>adv_diff_mpi</name>
+  <owner userid="fr710"/>
+  <tags>pyop2</tags>
+  <problem_definition length="medium" nprocs="3">
+    <command_line>bash cmd.sh</command_line>
+  </problem_definition>
+  <variables>
+    <variable name="ab_convergence" language="python">
+from errnorm import convergence
+ab_convergence = convergence("adv_diff_mpi.MMS_A.out", "adv_diff_mpi.MMS_B.out")
+    </variable>
+    <variable name="bc_convergence" language="python">
+from errnorm import convergence
+bc_convergence = convergence("adv_diff_mpi.MMS_B.out", "adv_diff_mpi.MMS_C.out")
+    </variable>
+    <variable name="cd_convergence" language="python">
+from errnorm import convergence
+cd_convergence = convergence("adv_diff_mpi.MMS_C.out", "adv_diff_mpi.MMS_D.out")
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="Error norm." language="python">
+assert ab_convergence > 1.5
+assert bc_convergence > 1.85
+assert cd_convergence > 1.95
+    </test>
+  </pass_tests>
+  <warn_tests/>
+</testproblem>

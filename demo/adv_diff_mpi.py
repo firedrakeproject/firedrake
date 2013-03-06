@@ -49,6 +49,8 @@ This may also depend on development trunk versions of other FEniCS programs.
 
 import os
 import numpy as np
+from cPickle import load
+import gzip
 
 from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
@@ -90,8 +92,7 @@ def main(opt):
 
     valuetype = np.float64
 
-    from cPickle import load
-    with open(opt['mesh'] + '.' + str(op2.MPI.comm.rank) + '.pickle') as f:
+    with gzip.open(opt['mesh'] + '.' + str(op2.MPI.comm.rank) + '.pickle.gz') as f:
         elements, nodes, vnodes, elem_node, elem_vnode, coords = load(f)
     num_nodes = nodes.total_size
 
@@ -194,8 +195,9 @@ def main(opt):
                      tracer(elem_node,op2.READ),
                      analytical(elem_node,op2.READ)
                      )
-        with open("adv_diff.%s.%d.out" % (os.path.split(opt['mesh'])[-1], op2.MPI.comm.rank), "w") as out:
-            out.write(str(result.data[0]) + "\n")
+        if op2.MPI.comm.rank == 0:
+            with open("adv_diff_mpi.%s.out" % os.path.split(opt['mesh'])[-1], "w") as out:
+                out.write(str(result.data[0]))
 
 if __name__ == '__main__':
     parser = utils.parser(group=True, description=__doc__)
