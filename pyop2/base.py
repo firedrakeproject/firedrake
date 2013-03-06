@@ -905,9 +905,12 @@ class Dat(DataCarrier):
         _MPI.Request.Waitall(self._recv_reqs)
         _MPI.Request.Waitall(self._send_reqs)
         self._send_buf = [None]*len(self._send_buf)
+        # data is read-only in a ParLoop, make it temporarily writable
+        maybe_setflags(self._data, write=True)
         for source, buf in enumerate(self._recv_buf):
             if buf is not None:
                 self._data[halo.receives[source]] = buf
+        maybe_setflags(self._data, write=False)
         self._recv_buf = [None]*len(self._recv_buf)
 
     @property
