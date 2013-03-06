@@ -208,6 +208,8 @@ if __name__ == '__main__':
     parser.add_argument('--print-output', action='store_true', help='Print output')
     parser.add_argument('-t', '--test-output', action='store_true',
                         help='Save output for testing')
+    parser.add_argument('-p', '--profile', action='store_true',
+                        help='Create a cProfile for the run')
 
     opt = vars(parser.parse_args())
     op2.init(**opt)
@@ -215,5 +217,10 @@ if __name__ == '__main__':
     if op2.MPI.comm.size != 3:
         print "MPI advection-diffusion demo only works on 3 processes"
         op2.MPI.comm.Abort(1)
+
+    if opt['profile']:
+        import cProfile
+        filename = 'adv_diff.%s.%d.cprofile' % (os.path.split(opt['mesh'])[-1], op2.MPI.comm.rank)
+        cProfile.run('main(opt)', filename=filename)
     else:
         main(opt)
