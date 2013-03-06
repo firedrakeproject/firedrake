@@ -49,12 +49,13 @@ This may also depend on development trunk versions of other FEniCS programs.
 FEniCS Viper is also required and is used to visualise the solution.
 """
 
+import os
+import numpy as np
+
 from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from triangle_reader import read_triangle
 from ufl import *
-
-import numpy as np
 
 
 def viper_shape(array):
@@ -62,141 +63,169 @@ def viper_shape(array):
     passing to Viper."""
     return array.reshape((array.shape[0]))
 
-parser = utils.parser(group=True, description=__doc__)
-parser.add_argument('-m', '--mesh', required=True,
-                    help='Base name of triangle mesh (excluding the .ele or .node extension)')
-parser.add_argument('-v', '--visualize', action='store_true',
-                    help='Visualize the result using viper')
-parser.add_argument('--no-advection', action='store_false',
-                    dest='advection', help='Disable advection')
-parser.add_argument('--no-diffusion', action='store_false',
-                    dest='diffusion', help='Disable diffusion')
+def main(opt):
+    # Set up finite element problem
 
-opt = vars(parser.parse_args())
-op2.init(**opt)
+    dt = 0.0001
 
-# Set up finite element problem
+    T = FiniteElement("Lagrange", "triangle", 1)
+    V = VectorElement("Lagrange", "triangle", 1)
 
-dt = 0.0001
+    p = TrialFunction(T)
+    q = TestFunction(T)
+    t = Coefficient(T)
+    u = Coefficient(V)
 
-T = FiniteElement("Lagrange", "triangle", 1)
-V = VectorElement("Lagrange", "triangle", 1)
+    diffusivity = 0.1
 
-p = TrialFunction(T)
-q = TestFunction(T)
-t = Coefficient(T)
-u = Coefficient(V)
+    M = p * q * dx
 
-diffusivity = 0.1
+    adv_rhs = (q * t + dt * dot(grad(q), u) * t) * dx
 
-M = p * q * dx
+    d = -dt * diffusivity * dot(grad(q), grad(p)) * dx
 
-adv_rhs = (q * t + dt * dot(grad(q), u) * t) * dx
+    diff_matrix = M - 0.5 * d
+    diff_rhs = action(M + 0.5 * d, t)
 
-d = -dt * diffusivity * dot(grad(q), grad(p)) * dx
+    # Generate code for mass and rhs assembly.
 
-diff_matrix = M - 0.5 * d
-diff_rhs = action(M + 0.5 * d, t)
+    mass, = compile_form(M, "mass")
+    adv_rhs, = compile_form(adv_rhs, "adv_rhs")
+    diff_matrix, = compile_form(diff_matrix, "diff_matrix")
+    diff_rhs, = compile_form(diff_rhs, "diff_rhs")
 
-# Generate code for mass and rhs assembly.
+    # Set up simulation data structures
 
-mass, = compile_form(M, "mass")
-adv_rhs, = compile_form(adv_rhs, "adv_rhs")
-diff_matrix, = compile_form(diff_matrix, "diff_matrix")
-diff_rhs, = compile_form(diff_rhs, "diff_rhs")
+    valuetype = np.float64
 
-# Set up simulation data structures
+    nodes, vnodes, coords, elements, elem_node, elem_vnode = read_triangle(opt['mesh'])
+    num_nodes = nodes.size
 
-valuetype = np.float64
+    sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
+    mat = op2.Mat(sparsity, valuetype, "mat")
 
-nodes, vnodes, coords, elements, elem_node, elem_vnode = read_triangle(opt['mesh'])
-num_nodes = nodes.size
+    tracer_vals = np.zeros(num_nodes, dtype=valuetype)
+    tracer = op2.Dat(nodes, tracer_vals, valuetype, "tracer")
 
-sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
-mat = op2.Mat(sparsity, valuetype, "mat")
+    b_vals = np.zeros(num_nodes, dtype=valuetype)
+    b = op2.Dat(nodes, b_vals, valuetype, "b")
 
-tracer_vals = np.zeros(num_nodes, dtype=valuetype)
-tracer = op2.Dat(nodes, tracer_vals, valuetype, "tracer")
+    velocity_vals = np.asarray([1.0, 0.0] * num_nodes, dtype=valuetype)
+    velocity = op2.Dat(vnodes, velocity_vals, valuetype, "velocity")
 
-b_vals = np.zeros(num_nodes, dtype=valuetype)
-b = op2.Dat(nodes, b_vals, valuetype, "b")
+    # Set initial condition
 
-velocity_vals = np.asarray([1.0, 0.0] * num_nodes, dtype=valuetype)
-velocity = op2.Dat(vnodes, velocity_vals, valuetype, "velocity")
-
-# Set initial condition
-
-i_cond_code = """
-void i_cond(double *c, double *t)
+    i_cond_code = """void i_cond(double *c, double *t)
 {
-  double i_t = 0.1; // Initial time
   double A   = 0.1; // Normalisation
   double D   = 0.1; // Diffusivity
   double pi  = 3.141459265358979;
-  double x   = c[0]-0.5;
+  double x   = c[0]-(0.49+%(T)f);
   double y   = c[1]-0.5;
-  double r   = sqrt(x*x+y*y);
+  double r2  = x*x+y*y;
 
-  if (r<0.25)
-    *t = A*(exp((-(r*r))/(4*D*i_t))/(4*pi*D*i_t));
-  else
-    *t = 0.0;
+  *t = A*(exp(-r2/(4*D*%(T)f))/(4*pi*D*%(T)f));
 }
 """
 
-i_cond = op2.Kernel(i_cond_code, "i_cond")
+    T = 0.01
 
-op2.par_loop(i_cond, nodes,
-             coords(op2.IdentityMap, op2.READ),
-             tracer(op2.IdentityMap, op2.WRITE))
+    i_cond = op2.Kernel(i_cond_code % {'T': T}, "i_cond")
 
-# Assemble and solve
+    op2.par_loop(i_cond, nodes,
+                 coords(op2.IdentityMap, op2.READ),
+                 tracer(op2.IdentityMap, op2.WRITE))
 
-T = 0.1
-
-if opt['visualize']:
-    vis_coords = np.asarray([[x, y, 0.0] for x, y in coords.data_ro], dtype=np.float64)
-    import viper
-    v = viper.Viper(x=viper_shape(tracer.data_ro), coordinates=vis_coords, cells=elem_node.values)
-
-solver = op2.Solver()
-
-while T < 0.2:
-
-    # Advection
-
-    if opt['advection']:
-        mat.zero()
-        op2.par_loop(mass, elements(3, 3),
-                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                     coords(elem_vnode, op2.READ))
-
-        b.zero()
-        op2.par_loop(adv_rhs, elements(3),
-                     b(elem_node[op2.i[0]], op2.INC),
-                     coords(elem_vnode, op2.READ),
-                     tracer(elem_node, op2.READ),
-                     velocity(elem_vnode, op2.READ))
-
-        solver.solve(mat, tracer, b)
-
-    # Diffusion
-
-    if opt['diffusion']:
-        mat.zero()
-        op2.par_loop(diff_matrix, elements(3, 3),
-                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                     coords(elem_vnode, op2.READ))
-
-        b.zero()
-        op2.par_loop(diff_rhs, elements(3),
-                     b(elem_node[op2.i[0]], op2.INC),
-                     coords(elem_vnode, op2.READ),
-                     tracer(elem_node, op2.READ))
-
-        solver.solve(mat, tracer, b)
+    # Assemble and solve
 
     if opt['visualize']:
-        v.update(viper_shape(tracer.data_ro))
+        vis_coords = np.asarray([[x, y, 0.0] for x, y in coords.data_ro], dtype=np.float64)
+        import viper
+        v = viper.Viper(x=viper_shape(tracer.data_ro), coordinates=vis_coords, cells=elem_node.values)
 
-    T = T + dt
+    solver = op2.Solver()
+
+    while T < 0.02:
+
+        # Advection
+
+        if opt['advection']:
+            mat.zero()
+            op2.par_loop(mass, elements(3, 3),
+                         mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                         coords(elem_vnode, op2.READ))
+
+            b.zero()
+            op2.par_loop(adv_rhs, elements(3),
+                         b(elem_node[op2.i[0]], op2.INC),
+                         coords(elem_vnode, op2.READ),
+                         tracer(elem_node, op2.READ),
+                         velocity(elem_vnode, op2.READ))
+
+            solver.solve(mat, tracer, b)
+
+        # Diffusion
+
+        if opt['diffusion']:
+            mat.zero()
+            op2.par_loop(diff_matrix, elements(3, 3),
+                         mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                         coords(elem_vnode, op2.READ))
+
+            b.zero()
+            op2.par_loop(diff_rhs, elements(3),
+                         b(elem_node[op2.i[0]], op2.INC),
+                         coords(elem_vnode, op2.READ),
+                         tracer(elem_node, op2.READ))
+
+            solver.solve(mat, tracer, b)
+
+        if opt['visualize']:
+            v.update(viper_shape(tracer.data_ro))
+
+        T = T + dt
+
+    analytical_vals = np.zeros(num_nodes, dtype=valuetype)
+    analytical = op2.Dat(nodes, analytical_vals, valuetype, "analytical")
+
+    i_cond = op2.Kernel(i_cond_code % {'T': T}, "i_cond")
+
+    op2.par_loop(i_cond, nodes,
+                 coords(op2.IdentityMap, op2.READ),
+                 analytical(op2.IdentityMap, op2.WRITE))
+
+    # Compute error in solution
+    error = tracer.data - analytical.data
+
+    # Print error solution
+    print "Expected - computed  solution: %s" % error
+
+    if opt['test_output']:
+        import pickle
+        with open("adv_diff.%s.out" % os.path.split(opt['mesh'])[-1], "w") as out:
+            pickle.dump(error, out)
+
+if __name__ == '__main__':
+    parser = utils.parser(group=True, description=__doc__)
+    parser.add_argument('-m', '--mesh', required=True,
+                        help='Base name of triangle mesh (excluding the .ele or .node extension)')
+    parser.add_argument('-v', '--visualize', action='store_true',
+                        help='Visualize the result using viper')
+    parser.add_argument('--no-advection', action='store_false',
+                        dest='advection', help='Disable advection')
+    parser.add_argument('--no-diffusion', action='store_false',
+                        dest='diffusion', help='Disable diffusion')
+    parser.add_argument('-t', '--test-output', action='store_true',
+                        help='Save output for testing')
+    parser.add_argument('-p', '--profile', action='store_true',
+                        help='Create a cProfile for the run')
+
+    opt = vars(parser.parse_args())
+    op2.init(**opt)
+
+    if opt['profile']:
+        import cProfile
+        filename = 'adv_diff.%s.cprofile' % os.path.split(opt['mesh'])[-1]
+        cProfile.run('main(opt)', filename=filename)
+    else:
+        main(opt)
