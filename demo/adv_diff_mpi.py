@@ -47,6 +47,7 @@ bzr branch lp:~mapdes/ffc/pyop2
 This may also depend on development trunk versions of other FEniCS programs.
 """
 
+import os
 import numpy as np
 
 from pyop2 import op2, utils
@@ -65,6 +66,7 @@ def main(opt):
     q = TestFunction(T)
     t = Coefficient(T)
     u = Coefficient(V)
+    a = Coefficient(T)
 
     diffusivity = 0.1
 
@@ -168,6 +170,33 @@ def main(opt):
 
         T = T + dt
 
+    if opt['print_output'] or opt['test_output']:
+        analytical_vals = np.zeros(num_nodes, dtype=valuetype)
+        analytical = op2.Dat(nodes, analytical_vals, valuetype, "analytical")
+
+        i_cond = op2.Kernel(i_cond_code % {'T': T}, "i_cond")
+
+        op2.par_loop(i_cond, nodes,
+                     coords(op2.IdentityMap, op2.READ),
+                     analytical(op2.IdentityMap, op2.WRITE))
+
+    # Print error w.r.t. analytical solution
+    if opt['print_output']:
+        print "Rank: %d Expected - computed  solution: %s" % (op2.MPI.comm.rank, tracer.data - analytical.data)
+
+    if opt['test_output']:
+        l2norm = dot(t - a, t - a) * dx
+        l2_kernel, = compile_form(l2norm, "error_norm")
+        result = op2.Global(1, [0.0])
+        op2.par_loop(l2_kernel, elements,
+                     result(op2.INC),
+                     coords(elem_vnode,op2.READ),
+                     tracer(elem_node,op2.READ),
+                     analytical(elem_node,op2.READ)
+                     )
+        with open("adv_diff.%s.%d.out" % (os.path.split(opt['mesh'])[-1], op2.MPI.comm.rank), "w") as out:
+            out.write(str(result.data[0]) + "\n")
+
 if __name__ == '__main__':
     parser = utils.parser(group=True, description=__doc__)
     parser.add_argument('-m', '--mesh', required=True,
@@ -176,6 +205,9 @@ if __name__ == '__main__':
                         dest='advection', help='Disable advection')
     parser.add_argument('--no-diffusion', action='store_false',
                         dest='diffusion', help='Disable diffusion')
+    parser.add_argument('--print-output', action='store_true', help='Print output')
+    parser.add_argument('-t', '--test-output', action='store_true',
+                        help='Save output for testing')
 
     opt = vars(parser.parse_args())
     op2.init(**opt)
