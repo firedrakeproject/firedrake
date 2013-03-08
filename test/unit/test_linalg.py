@@ -186,7 +186,7 @@ class TestLinAlgIop:
 
     def test_idiv_shape_mismatch(self, backend, x2, y2):
         with pytest.raises(ValueError):
-            x2 -= y2
+            x2 /= y2
 
     def test_iadd_scalar(self, backend, x, y):
         x._data = y.data + 1.0
