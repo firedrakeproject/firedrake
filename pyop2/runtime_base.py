@@ -34,6 +34,7 @@
 """ Base classes for OP2 objects. The versions here extend those from the :mod:`base` module to include runtime data information which is backend independent. Individual runtime backends should subclass these as required to implement backend-specific features."""
 
 import numpy as np
+import operator
 
 from exceptions import *
 from utils import *
@@ -216,31 +217,32 @@ class Dat(base.Dat):
             self._recv_reqs = [None]*halo.comm.size
             self._recv_buf = [None]*halo.comm.size
 
+    def _check_shape(self, other):
+        pass
+
+    def _iop(self, other, op):
+        if np.isscalar(other):
+            op(self._data, as_type(other, self.dtype))
+        else:
+            self._check_shape(other)
+            op(self._data, as_type(other.data, self.dtype))
+        return self
+
     def __iadd__(self, other):
         """Pointwise addition of fields."""
-        self._data += as_type(other.data, self.dtype)
-        return self
+        return self._iop(other, operator.iadd)
 
     def __isub__(self, other):
         """Pointwise subtraction of fields."""
-        self._data -= as_type(other.data, self.dtype)
-        return self
+        return self._iop(other, operator.isub)
 
     def __imul__(self, other):
         """Pointwise multiplication or scaling of fields."""
-        if np.isscalar(other):
-            self._data *= as_type(other, self.dtype)
-        else:
-            self._data *= as_type(other.data, self.dtype)
-        return self
+        return self._iop(other, operator.imul)
 
     def __idiv__(self, other):
         """Pointwise division or scaling of fields."""
-        if np.isscalar(other):
-            self._data /= as_type(other, self.dtype)
-        else:
-            self._data /= as_type(other.data, self.dtype)
-        return self
+        return self._iop(other, operator.idiv)
 
     def halo_exchange_begin(self):
         halo = self.dataset.halo

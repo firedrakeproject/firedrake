@@ -103,6 +103,16 @@ class TestLinAlg:
         with pytest.raises(ValueError):
             x2 -= y2
 
+    def test_iadd_scalar(self, backend, x, y):
+        x._data = y.data + 1.0
+        y += 1.0
+        assert all(x.data == y.data)
+
+    def test_isub_scalar(self, backend, x, y):
+        x._data = y.data - 1.0
+        y -= 1.0
+        assert all(x.data == y.data)
+
     def test_imul_scalar(self, backend, x, y):
         x._data = 2*y.data
         y *= 2.0
