@@ -220,6 +220,14 @@ class Dat(base.Dat):
     def _check_shape(self, other):
         pass
 
+    def _op(self, other, op):
+        if np.isscalar(other):
+            return Dat(self.dataset, self.dim,
+                       op(self._data, as_type(other, self.dtype)), self.dtype)
+        self._check_shape(other)
+        return Dat(self.dataset, self.dim,
+                   op(self._data, as_type(other.data, self.dtype)), self.dtype)
+
     def _iop(self, other, op):
         if np.isscalar(other):
             op(self._data, as_type(other, self.dtype))
@@ -227,6 +235,22 @@ class Dat(base.Dat):
             self._check_shape(other)
             op(self._data, as_type(other.data, self.dtype))
         return self
+
+    def __add__(self, other):
+        """Pointwise addition of fields."""
+        return self._op(other, operator.add)
+
+    def __sub__(self, other):
+        """Pointwise subtraction of fields."""
+        return self._op(other, operator.sub)
+
+    def __mul__(self, other):
+        """Pointwise multiplication or scaling of fields."""
+        return self._op(other, operator.mul)
+
+    def __div__(self, other):
+        """Pointwise division or scaling of fields."""
+        return self._op(other, operator.div)
 
     def __iadd__(self, other):
         """Pointwise addition of fields."""

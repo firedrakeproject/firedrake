@@ -62,9 +62,94 @@ def x2(set):
 def y2(set):
     return op2.Dat(set, (2,1), np.zeros(2*nelems), np.float64, "y")
 
-class TestLinAlg:
+class TestLinAlgOp:
     """
-    Tests of linear algebra operators.
+    Tests of linear algebra operators returning a new Dat.
+    """
+
+    def test_add(self, backend, x, y):
+        x._data = 2*y.data
+        assert all((x+y).data == 3*y.data)
+
+    def test_sub(self, backend, x, y):
+        x._data = 2*y.data
+        assert all((x-y).data == y.data)
+
+    def test_mul(self, backend, x, y):
+        x._data = 2*y.data
+        assert all((x*y).data == 2*y.data*y.data)
+
+    def test_div(self, backend, x, y):
+        x._data = 2*y.data
+        assert all((x/y).data == 2.0)
+
+    def test_add_shape_mismatch(self, backend, x2, y2):
+        with pytest.raises(ValueError):
+            x2 + y2
+
+    def test_sub_shape_mismatch(self, backend, x2, y2):
+        with pytest.raises(ValueError):
+            x2 - y2
+
+    def test_mul_shape_mismatch(self, backend, x2, y2):
+        with pytest.raises(ValueError):
+            x2 * y2
+
+    def test_div_shape_mismatch(self, backend, x2, y2):
+        with pytest.raises(ValueError):
+            x2 / y2
+
+    def test_add_scalar(self, backend, x, y):
+        x._data = y.data + 1.0
+        assert all(x.data == (y+1.0).data)
+
+    def test_sub_scalar(self, backend, x, y):
+        x._data = y.data - 1.0
+        assert all(x.data == (y-1.0).data)
+
+    def test_mul_scalar(self, backend, x, y):
+        x._data = 2*y.data
+        assert all(x.data == (y*2.0).data)
+
+    def test_div_scalar(self, backend, x, y):
+        x._data = 2*y.data
+        assert all((x/2.0).data == y.data)
+
+    def test_add_ftype(self, backend, y, yi):
+        x = y + yi
+        assert x.data.dtype == np.float64
+
+    def test_sub_ftype(self, backend, y, yi):
+        x = y - yi
+        assert x.data.dtype == np.float64
+
+    def test_mul_ftype(self, backend, y, yi):
+        x = y * yi
+        assert x.data.dtype == np.float64
+
+    def test_div_ftype(self, backend, y, yi):
+        x = y / yi
+        assert x.data.dtype == np.float64
+
+    def test_add_itype(self, backend, y, yi):
+        xi = yi + y
+        assert xi.data.dtype == np.int64
+
+    def test_sub_itype(self, backend, y, yi):
+        xi = yi - y
+        assert xi.data.dtype == np.int64
+
+    def test_mul_itype(self, backend, y, yi):
+        xi = yi * y
+        assert xi.data.dtype == np.int64
+
+    def test_div_itype(self, backend, y, yi):
+        xi = yi / y
+        assert xi.data.dtype == np.int64
+
+class TestLinAlgIop:
+    """
+    Tests of linear algebra operators modifying a Dat in place.
     """
 
     def test_iadd(self, backend, x, y):
@@ -154,6 +239,11 @@ class TestLinAlg:
     def test_idiv_itype(self, backend, y, yi):
         yi /= y
         assert yi.data.dtype == np.int64
+
+class TestLinAlgScalar:
+    """
+    Tests of linear algebra operators return a scalar.
+    """
 
     def test_norm(self, backend):
         n = op2.Dat(op2.Set(2), 1, [3,4], np.float64, "n")
