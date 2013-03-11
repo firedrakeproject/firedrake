@@ -1374,7 +1374,7 @@ class Kernel(object):
     @validate_type(('name', str, NameTypeError))
     def __init__(self, code, name):
         self._name = name or "kernel_%d" % Kernel._globalcount
-        self._code = code
+        self._code = preprocess(code)
         Kernel._globalcount += 1
 
     @property

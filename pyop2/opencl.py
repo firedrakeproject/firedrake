@@ -94,7 +94,7 @@ class Kernel(op2.Kernel):
                 node.params.append(decl)
 
     def instrument(self, instrument, constants):
-        ast = c_parser.CParser().parse(comment_remover(self._code).replace("\\\n", "\n"))
+        ast = c_parser.CParser().parse(self._code)
         Kernel.Instrument().instrument(ast, self._name, instrument, constants)
         return c_generator.CGenerator().visit(ast)
 

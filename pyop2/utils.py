@@ -41,6 +41,7 @@ import sys
 import numpy as np
 from decorator import decorator
 import argparse
+from subprocess import Popen, PIPE
 
 from exceptions import DataTypeError, DataValueError
 
@@ -253,6 +254,12 @@ def comment_remover(text):
     pattern = re.compile(r'//.*?$|/\*.*?\*/|\'(?:\\.|[^\\\'])*\'|"(?:\\.|[^\\"])*"',
                          re.DOTALL | re.MULTILINE)
     return re.sub(pattern, replacer, text)
+
+def preprocess(text):
+    p = Popen(['cpp', '-E'], stdin=PIPE, stdout=PIPE, cwd=os.path.dirname(__file__),
+              universal_newlines=True)
+    processed = '\n'.join(l for l in p.communicate(text)[0].split('\n') if not l.startswith('#'))
+    return processed
 
 def get_petsc_dir():
     try:
