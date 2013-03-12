@@ -256,8 +256,8 @@ def comment_remover(text):
     return re.sub(pattern, replacer, text)
 
 def preprocess(text):
-    p = Popen(['cpp', '-E'], stdin=PIPE, stdout=PIPE, cwd=os.path.dirname(__file__),
-              universal_newlines=True)
+    p = Popen(['cpp', '-E', '-I' + os.path.dirname(__file__)], stdin=PIPE,
+              stdout=PIPE, universal_newlines=True)
     processed = '\n'.join(l for l in p.communicate(text)[0].split('\n') if not l.startswith('#'))
     return processed
 
