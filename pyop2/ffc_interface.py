@@ -84,7 +84,8 @@ class FFCKernel(DiskCached):
         if self._initialized:
             return
 
-        code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
+        code = '#include "pyop2_geometry.h"\n'
+        code += ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
         form_data = form.form_data()
 
         self.kernels = tuple([Kernel(code, '%s_%s_integral_0_%s' %
