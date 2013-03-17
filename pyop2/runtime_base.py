@@ -323,7 +323,7 @@ class Dat(base.Dat):
     def vec(self):
         if not hasattr(self, '_vec'):
             size = (self.dataset.size * self.cdim, None)
-            self._vec = PETSc.Vec().createWithArray(self.data, size=size)
+            self._vec = PETSc.Vec().createWithArray(self._data, size=size)
         return self._vec
 
     @property
@@ -533,6 +533,7 @@ class Solver(base.Solver, PETSc.KSP):
             self.setMonitor(monitor)
         # Not using super here since the MRO would call base.Solver.solve
         PETSc.KSP.solve(self, b.vec, x.vec)
+        x.needs_halo_update = True
         if self.parameters['monitor_convergence']:
             self.cancelMonitor()
             if self.parameters['plot_convergence']:
