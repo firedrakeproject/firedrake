@@ -50,6 +50,7 @@ from petsc4py import PETSc
 PYOP2_COMM = None
 
 def get_mpi_communicator():
+    """The MPI Communicator used by PyOP2."""
     global PYOP2_COMM
     return PYOP2_COMM
 
@@ -76,6 +77,8 @@ class Arg(base.Arg):
     """
 
     def halo_exchange_begin(self):
+        """Begin halo exchange for the argument if a halo update is required.
+        Doing halo exchanges only makes sense for :class:`Dat` objects."""
         assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
         assert not self._in_flight, \
             "Halo exchange already in flight for Arg %s" % self
@@ -85,12 +88,16 @@ class Arg(base.Arg):
             self.data.halo_exchange_begin()
 
     def halo_exchange_end(self):
+        """End halo exchange if it is in flight.
+        Doing halo exchanges only makes sense for :class:`Dat` objects."""
         assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
         if self.access in [READ, RW] and self._in_flight:
             self._in_flight = False
             self.data.halo_exchange_end()
 
     def reduction_begin(self):
+        """Begin reduction for the argument if its access is INC, MIN, or MAX.
+        Doing a reduction only makes sense for :class:`Global` objects."""
         assert self._is_global, \
             "Doing global reduction only makes sense for Globals"
         assert not self._in_flight, \
@@ -112,6 +119,8 @@ class Arg(base.Arg):
             PYOP2_COMM.Allreduce(self.data._data, self.data._buf, op=op)
 
     def reduction_end(self):
+        """End reduction for the argument if it is in flight.
+        Doing a reduction only makes sense for :class:`Global` objects."""
         assert self._is_global, \
             "Doing global reduction only makes sense for Globals"
         if self.access is not READ and self._in_flight:
@@ -135,6 +144,7 @@ class Set(base.Set):
 
     @classmethod
     def fromhdf5(cls, f, name):
+        """Construct a :class:`Set` from set named ``name`` in HDF5 data ``f``"""
         slot = f[name]
         size = slot.value.astype(np.int)
         shape = slot.shape
@@ -269,6 +279,7 @@ class Dat(base.Dat):
         return self._iop(other, operator.idiv)
 
     def halo_exchange_begin(self):
+        """Begin halo exchange."""
         halo = self.dataset.halo
         if halo is None:
             return
@@ -292,6 +303,7 @@ class Dat(base.Dat):
                                                       source=source, tag=self._id)
 
     def halo_exchange_end(self):
+        """End halo exchange. Waits on MPI recv."""
         halo = self.dataset.halo
         if halo is None:
             return
@@ -310,6 +322,7 @@ class Dat(base.Dat):
 
     @classmethod
     def fromhdf5(cls, dataset, f, name):
+        """Construct a :class:`Dat` from a Dat named ``name`` in HDF5 data ``f``"""
         slot = f[name]
         data = slot.value
         dim = slot.shape[1:]
@@ -321,6 +334,7 @@ class Dat(base.Dat):
 
     @property
     def vec(self):
+        """PETSc Vec appropriate for this Dat."""
         if not hasattr(self, '_vec'):
             size = (self.dataset.size * self.cdim, None)
             self._vec = PETSc.Vec().createWithArray(self._data, size=size)
@@ -337,6 +351,7 @@ class Const(base.Const):
 
     @classmethod
     def fromhdf5(cls, f, name):
+        """Construct a :class:`Const` from const named ``name`` in HDF5 data ``f``"""
         slot = f[name]
         dim = slot.shape
         data = slot.value
@@ -355,6 +370,7 @@ class Map(base.Map):
 
     @classmethod
     def fromhdf5(cls, iterset, dataset, f, name):
+        """Construct a :class:`Map` from set named ``name`` in HDF5 data ``f``"""
         slot = f[name]
         values = slot.value
         dim = slot.shape[1:]
@@ -398,26 +414,52 @@ class Sparsity(base.Sparsity):
 
     @property
     def rowptr(self):
+        """Row pointer array of CSR data structure."""
         return self._rowptr
 
     @property
     def colidx(self):
+        """Column indices array of CSR data structure."""
         return self._colidx
 
     @property
     def nnz(self):
+        """Array containing the number of non-zeroes in the various rows of the
+        diagonal portion of the local submatrix.
+
+        This is the same as the parameter `d_nnz` used for preallocation in PETSc's MatMPIAIJSetPreallocation_.
+
+        .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html"""
         return self._d_nnz
 
     @property
     def onnz(self):
+        """Array containing the number of non-zeroes in the various rows of the
+        off-diagonal portion of the local submatrix.
+
+        This is the same as the parameter `o_nnz` used for preallocation in PETSc's MatMPIAIJSetPreallocation_.
+
+        .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html"""
         return self._o_nnz
 
     @property
     def nz(self):
+        """Number of non-zeroes per row in diagonal portion of the local
+        submatrix.
+
+        This is the same as the parameter `d_nz` used for preallocation in PETSc's MatMPIAIJSetPreallocation_.
+
+        .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html"""
         return int(self._d_nz)
 
     @property
     def onz(self):
+        """Number of non-zeroes per row in off-diagonal portion of the local
+        submatrix.
+
+        This is the same as the parameter o_nz used for preallocation in PETSc's MatMPIAIJSetPreallocation_.
+
+        .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html"""
         return int(self._o_nz)
 
 class Mat(base.Mat):
@@ -479,6 +521,7 @@ class Mat(base.Mat):
 
     @property
     def array(self):
+        """Array of non-zero values."""
         if not hasattr(self, '_array'):
             self._init()
         return self._array
@@ -489,12 +532,14 @@ class Mat(base.Mat):
 
     @property
     def handle(self):
+        """Petsc4py Mat holding matrix data."""
         if self._handle is None:
             self._init()
         return self._handle
 
 class ParLoop(base.ParLoop):
     def compute(self):
+        """Executes the kernel over all members of the iteration space."""
         raise RuntimeError('Must select a backend')
 
 # FIXME: Eventually (when we have a proper OpenCL solver) this wants to go in
