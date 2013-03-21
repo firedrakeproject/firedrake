@@ -31,7 +31,13 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-""" Base classes for OP2 objects. The versions here extend those from the :mod:`base` module to include runtime data information which is backend independent. Individual runtime backends should subclass these as required to implement backend-specific features."""
+"""Base classes for OP2 objects. The versions here extend those from the
+:mod:`base` module to include runtime data information which is backend
+independent. Individual runtime backends should subclass these as
+required to implement backend-specific features.
+
+.. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
+"""
 
 import numpy as np
 import operator
@@ -427,9 +433,8 @@ class Sparsity(base.Sparsity):
         """Array containing the number of non-zeroes in the various rows of the
         diagonal portion of the local submatrix.
 
-        This is the same as the parameter `d_nnz` used for preallocation in PETSc's MatMPIAIJSetPreallocation_.
-
-        .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html"""
+        This is the same as the parameter `d_nnz` used for preallocation in
+        PETSc's MatMPIAIJSetPreallocation_."""
         return self._d_nnz
 
     @property
@@ -437,9 +442,8 @@ class Sparsity(base.Sparsity):
         """Array containing the number of non-zeroes in the various rows of the
         off-diagonal portion of the local submatrix.
 
-        This is the same as the parameter `o_nnz` used for preallocation in PETSc's MatMPIAIJSetPreallocation_.
-
-        .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html"""
+        This is the same as the parameter `o_nnz` used for preallocation in
+        PETSc's MatMPIAIJSetPreallocation_."""
         return self._o_nnz
 
     @property
@@ -447,9 +451,8 @@ class Sparsity(base.Sparsity):
         """Number of non-zeroes per row in diagonal portion of the local
         submatrix.
 
-        This is the same as the parameter `d_nz` used for preallocation in PETSc's MatMPIAIJSetPreallocation_.
-
-        .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html"""
+        This is the same as the parameter `d_nz` used for preallocation in
+        PETSc's MatMPIAIJSetPreallocation_."""
         return int(self._d_nz)
 
     @property
@@ -457,9 +460,8 @@ class Sparsity(base.Sparsity):
         """Number of non-zeroes per row in off-diagonal portion of the local
         submatrix.
 
-        This is the same as the parameter o_nz used for preallocation in PETSc's MatMPIAIJSetPreallocation_.
-
-        .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html"""
+        This is the same as the parameter o_nz used for preallocation in
+        PETSc's MatMPIAIJSetPreallocation_."""
         return int(self._o_nz)
 
 class Mat(base.Mat):
