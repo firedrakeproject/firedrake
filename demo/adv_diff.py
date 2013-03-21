@@ -47,9 +47,14 @@ from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from triangle_reader import read_triangle
 from ufl import *
-import sys
 
 import numpy as np
+
+
+def viper_shape(array):
+    """Flatten a numpy array into one dimension to make it suitable for
+    passing to Viper."""
+    return array.reshape((array.shape[0]))
 
 parser = utils.parser(group=True, description=__doc__)
 parser.add_argument('-m', '--mesh',
@@ -70,32 +75,32 @@ dt = 0.0001
 T = FiniteElement("Lagrange", "triangle", 1)
 V = VectorElement("Lagrange", "triangle", 1)
 
-p=TrialFunction(T)
-q=TestFunction(T)
-t=Coefficient(T)
-u=Coefficient(V)
+p = TrialFunction(T)
+q = TestFunction(T)
+t = Coefficient(T)
+u = Coefficient(V)
 
 diffusivity = 0.1
 
-M=p*q*dx
+M = p * q * dx
 
-adv_rhs = (q*t+dt*dot(grad(q),u)*t)*dx
+adv_rhs = (q * t + dt * dot(grad(q), u) * t) * dx
 
-d=-dt*diffusivity*dot(grad(q),grad(p))*dx
+d = -dt * diffusivity * dot(grad(q), grad(p)) * dx
 
-diff_matrix=M-0.5*d
-diff_rhs=action(M+0.5*d,t)
+diff_matrix = M - 0.5 * d
+diff_rhs = action(M + 0.5 * d, t)
 
 # Generate code for mass and rhs assembly.
 
-mass,        = compile_form(M,           "mass")
-adv_rhs,     = compile_form(adv_rhs,     "adv_rhs")
+mass, = compile_form(M, "mass")
+adv_rhs, = compile_form(adv_rhs, "adv_rhs")
 diff_matrix, = compile_form(diff_matrix, "diff_matrix")
-diff_rhs,    = compile_form(diff_rhs,    "diff_rhs")
+diff_rhs, = compile_form(diff_rhs, "diff_rhs")
 
 # Set up simulation data structures
 
-valuetype=np.float64
+valuetype = np.float64
 
 nodes, coords, elements, elem_node = read_triangle(opt['mesh'])
 num_nodes = nodes.size
@@ -103,18 +108,18 @@ num_nodes = nodes.size
 sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
-tracer_vals = np.asarray([0.0]*num_nodes, dtype=valuetype)
+tracer_vals = np.zeros(num_nodes, dtype=valuetype)
 tracer = op2.Dat(nodes, 1, tracer_vals, valuetype, "tracer")
 
-b_vals = np.asarray([0.0]*num_nodes, dtype=valuetype)
+b_vals = np.zeros(num_nodes, dtype=valuetype)
 b = op2.Dat(nodes, 1, b_vals, valuetype, "b")
 
-velocity_vals = np.asarray([1.0, 0.0]*num_nodes, dtype=valuetype)
+velocity_vals = np.asarray([1.0, 0.0] * num_nodes, dtype=valuetype)
 velocity = op2.Dat(nodes, 2, velocity_vals, valuetype, "velocity")
 
 # Set initial condition
 
-i_cond_code="""
+i_cond_code = """
 void i_cond(double *c, double *t)
 {
   double i_t = 0.1; // Initial time
@@ -140,18 +145,12 @@ op2.par_loop(i_cond, nodes,
 
 # Assemble and solve
 
-def viper_shape(array):
-    """Flatten a numpy array into one dimension to make it suitable for
-    passing to Viper."""
-    return array.reshape((array.shape[0]))
-
 T = 0.1
 
-vis_coords = np.asarray([ [x, y, 0.0] for x, y in coords.data_ro ],dtype=np.float64)
 if opt['visualize']:
+    vis_coords = np.asarray([[x, y, 0.0] for x, y in coords.data_ro], dtype=np.float64)
     import viper
     v = viper.Viper(x=viper_shape(tracer.data_ro), coordinates=vis_coords, cells=elem_node.values)
-    v.interactive()
 
 have_advection = True
 have_diffusion = True
@@ -163,7 +162,7 @@ while T < 0.2:
 
     if have_advection:
         mat.zero()
-        op2.par_loop(mass, elements(3,3),
+        op2.par_loop(mass, elements(3, 3),
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
 
@@ -180,7 +179,7 @@ while T < 0.2:
 
     if have_diffusion:
         mat.zero()
-        op2.par_loop(diff_matrix, elements(3,3),
+        op2.par_loop(diff_matrix, elements(3, 3),
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
 
@@ -196,7 +195,3 @@ while T < 0.2:
         v.update(viper_shape(tracer.data_ro))
 
     T = T + dt
-
-# Interactive visulatisation
-if opt['visualize']:
-    v.interactive()
