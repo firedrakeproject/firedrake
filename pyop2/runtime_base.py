@@ -320,6 +320,13 @@ class Dat(base.Dat):
         return ret
 
     @property
+    def vec(self):
+        if not hasattr(self, '_vec'):
+            size = (self.dataset.size * self.cdim, None)
+            self._vec = PETSc.Vec().createWithArray(self._data, size=size)
+        return self._vec
+
+    @property
     def _c_handle(self):
         if self._lib_handle is None:
             self._lib_handle = core.op_dat(self)
@@ -516,8 +523,6 @@ class Solver(base.Solver, PETSc.KSP):
 
     def solve(self, A, x, b):
         self._set_parameters()
-        px = PETSc.Vec().createWithArray(x.data, size=(x.dataset.size * x.cdim, None))
-        pb = PETSc.Vec().createWithArray(b.data_ro, size=(b.dataset.size * b.cdim, None))
         self.setOperators(A.handle)
         self.setFromOptions()
         if self.parameters['monitor_convergence']:
@@ -527,7 +532,8 @@ class Solver(base.Solver, PETSc.KSP):
                 print "%3d KSP Residual norm %14.12e" % (its, norm)
             self.setMonitor(monitor)
         # Not using super here since the MRO would call base.Solver.solve
-        PETSc.KSP.solve(self, pb, px)
+        PETSc.KSP.solve(self, b.vec, x.vec)
+        x.needs_halo_update = True
         if self.parameters['monitor_convergence']:
             self.cancelMonitor()
             if self.parameters['plot_convergence']:
