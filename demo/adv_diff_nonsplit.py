@@ -33,8 +33,12 @@
 
 """PyOP2 P1 advection-diffusion demo
 
-This demo solves the identity equation on a domain read in from a triangle
-file. It requires the pyop2 branch of ffc, which can be obtained with:
+This demo solves the advection-diffusion equation and is advanced in time using
+a theta scheme with theta = 0.5.
+
+The domain read in from a triangle file.
+
+This demo requires the pyop2 branch of ffc, which can be obtained with:
 
 bzr branch lp:~mapdes/ffc/pyop2
 

@@ -31,10 +31,16 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""PyOP2 P1 advection-diffusion demo
+"""PyOP2 P1 advection-diffusion with operator splitting demo
 
-This demo solves the identity equation on a domain read in from a triangle
-file. It requires the pyop2 branch of ffc, which can be obtained with:
+This demo solves the advection-diffusion equation by splitting the advection and
+diffusion terms. The advection term is advanced in time using an Euler method
+and the diffusion term is advanced in time using a theta scheme with theta =
+0.5.
+
+The domain read in from a triangle file.
+
+This demo requires the pyop2 branch of ffc, which can be obtained with:
 
 bzr branch lp:~mapdes/ffc/pyop2
 
