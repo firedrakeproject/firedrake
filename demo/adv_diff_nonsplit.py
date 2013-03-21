@@ -31,12 +31,10 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""PyOP2 P1 advection-diffusion with operator splitting demo
+"""PyOP2 P1 advection-diffusion demo
 
-This demo solves the advection-diffusion equation by splitting the advection and
-diffusion terms. The advection term is advanced in time using an Euler method
-and the diffusion term is advanced in time using a theta scheme with theta =
-0.5.
+This demo solves the advection-diffusion equation and is advanced in time using
+a theta scheme with theta = 0.5.
 
 The domain read in from a triangle file.
 
@@ -67,11 +65,6 @@ parser.add_argument('-m', '--mesh', required=True,
                     help='Base name of triangle mesh (excluding the .ele or .node extension)')
 parser.add_argument('-v', '--visualize', action='store_true',
                     help='Visualize the result using viper')
-parser.add_argument('--no-advection', action='store_false',
-                    dest='advection', help='Disable advection')
-parser.add_argument('--no-diffusion', action='store_false',
-                    dest='diffusion', help='Disable diffusion')
-
 opt = vars(parser.parse_args())
 op2.init(**opt)
 
@@ -91,19 +84,15 @@ diffusivity = 0.1
 
 M = p * q * dx
 
-adv_rhs = (q * t + dt * dot(grad(q), u) * t) * dx
+d = dt * (diffusivity * dot(grad(q), grad(p)) - dot(grad(q), u) * p) * dx
 
-d = -dt * diffusivity * dot(grad(q), grad(p)) * dx
-
-diff_matrix = M - 0.5 * d
-diff_rhs = action(M + 0.5 * d, t)
+a = M + 0.5 * d
+L = action(M - 0.5 * d, t)
 
 # Generate code for mass and rhs assembly.
 
-mass, = compile_form(M, "mass")
-adv_rhs, = compile_form(adv_rhs, "adv_rhs")
-diff_matrix, = compile_form(diff_matrix, "diff_matrix")
-diff_rhs, = compile_form(diff_rhs, "diff_rhs")
+lhs, = compile_form(a, "lhs")
+rhs, = compile_form(L, "rhs")
 
 # Set up simulation data structures
 
@@ -163,38 +152,20 @@ solver = op2.Solver()
 
 while T < 0.2:
 
-    # Advection
+    mat.zero()
+    op2.par_loop(lhs, elements(3, 3),
+                 mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                 coords(elem_node, op2.READ),
+                 velocity(elem_node, op2.READ))
 
-    if opt['advection']:
-        mat.zero()
-        op2.par_loop(mass, elements(3, 3),
-                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                     coords(elem_node, op2.READ))
+    b.zero()
+    op2.par_loop(rhs, elements(3),
+                 b(elem_node[op2.i[0]], op2.INC),
+                 coords(elem_node, op2.READ),
+                 tracer(elem_node, op2.READ),
+                 velocity(elem_node, op2.READ))
 
-        b.zero()
-        op2.par_loop(adv_rhs, elements(3),
-                     b(elem_node[op2.i[0]], op2.INC),
-                     coords(elem_node, op2.READ),
-                     tracer(elem_node, op2.READ),
-                     velocity(elem_node, op2.READ))
-
-        solver.solve(mat, tracer, b)
-
-    # Diffusion
-
-    if opt['diffusion']:
-        mat.zero()
-        op2.par_loop(diff_matrix, elements(3, 3),
-                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                     coords(elem_node, op2.READ))
-
-        b.zero()
-        op2.par_loop(diff_rhs, elements(3),
-                     b(elem_node[op2.i[0]], op2.INC),
-                     coords(elem_node, op2.READ),
-                     tracer(elem_node, op2.READ))
-
-        solver.solve(mat, tracer, b)
+    solver.solve(mat, tracer, b)
 
     if opt['visualize']:
         v.update(viper_shape(tracer.data_ro))
