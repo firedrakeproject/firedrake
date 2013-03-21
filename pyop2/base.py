@@ -694,12 +694,17 @@ class Global(DataCarrier):
 
     @property
     def soa(self):
+        """Are the data in SoA format? This is always false for :class:`Global`
+        objects."""
         return False
 
 #FIXME: Part of kernel API, but must be declared before Map for the validation.
 
 class IterationIndex(object):
-    """OP2 iteration space index"""
+    """OP2 iteration space index
+
+    Users should not directly instantiate :class:`IterationIndex` objects. Use
+    ``op2.i`` instead."""
 
     def __init__(self, index=None):
         assert index is None or isinstance(index, int), "i must be an int"
@@ -713,6 +718,7 @@ class IterationIndex(object):
 
     @property
     def index(self):
+        """Return the integer value of this index."""
         return self._index
 
     def __getitem__(self, idx):
@@ -1032,6 +1038,7 @@ class Kernel(object):
 
     @property
     def md5(self):
+        """MD5 digest of kernel code and name."""
         if not hasattr(self, '_md5'):
             import md5
             self._md5 = md5.new(self._code + self._name).hexdigest()
@@ -1052,6 +1059,11 @@ def _parloop_cache_size():
     return len(_parloop_cache)
 
 class ParLoop(object):
+    """Represents the kernel, iteration space and arguments of a parallel loop
+    invocation.
+
+    Users should not directly construct :class:`ParLoop` objects, but use
+    ``op2.par_loop()`` instead."""
     def __init__(self, kernel, itspace, *args):
         self._kernel = kernel
         if isinstance(itspace, IterationSpace):
@@ -1086,16 +1098,27 @@ class ParLoop(object):
                 arg.reduction_begin()
 
     def reduction_end(self):
+        """End reductions"""
         for arg in self.args:
             if arg._is_global_reduction:
                 arg.reduction_end()
 
     def maybe_set_halo_update_needed(self):
+        """Set halo update needed for :class:`Dat` arguments that are written to
+        in this parallel loop."""
         for arg in self.args:
             if arg._is_dat and arg.access in [INC, WRITE, RW]:
                 arg.data.needs_halo_update = True
 
     def check_args(self):
+        """Checks the following:
+
+        1. That the iteration set of the :class:`ParLoop` matches the iteration
+           set of all its arguments.
+        2. For each argument, check that the dataset of the map used to access
+           it matches the dataset it is defined on.
+
+        A :class:`MapValueError` is raised if these conditions are not met."""
         iterset = self._it_space._iterset
         for i, arg in enumerate(self._actual_args):
             if arg._is_global or arg._map == IdentityMap:
@@ -1116,27 +1139,34 @@ class ParLoop(object):
 
     @property
     def it_space(self):
+        """Iteration space of the parallel loop."""
         return self._it_space
 
     @property
     def is_direct(self):
+        """Is this parallel loop direct? I.e. are all the arguments either
+        :class:Dats accessed through the identity map, or :class:Global?"""
         return all(a.map in [None, IdentityMap] for a in self.args)
 
     @property
     def is_indirect(self):
+        """Is the parallel loop indirect?"""
         return not self.is_direct
 
     @property
     def needs_exec_halo(self):
+        """Does the parallel loop need an exec halo?"""
         return any(arg._is_indirect_and_not_read or arg._is_mat
                    for arg in self.args)
 
     @property
     def kernel(self):
+        """Kernel executed by this parallel loop."""
         return self._kernel
 
     @property
     def args(self):
+        """Arguments to this parallel loop."""
         return self._actual_args
 
     @property
@@ -1184,6 +1214,9 @@ DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
                              'plot_prefix': '',
                              'error_on_nonconvergence': True,
                              'gmres_restart': 30}
+"""The default parameters for the solver are the same as those used in PETSc
+3.3. Note that the parameters accepted by :class:`op2.Solver` are only a subset
+of all PETSc parameters."""
 
 class Solver(object):
     """OP2 Solver object. The :class:`Solver` holds a set of parameters that are
@@ -1208,6 +1241,7 @@ class Solver(object):
     :arg plot_convergence: plot a graph of the convergence history after the
         solve has finished and save it to file (False, implies monitor_convergence)
     :arg plot_prefix: filename prefix for plot files ('')
+    :arg gmres_restart: restart period when using GMRES
 
     """
 
