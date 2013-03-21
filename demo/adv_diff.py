@@ -57,14 +57,15 @@ def viper_shape(array):
     return array.reshape((array.shape[0]))
 
 parser = utils.parser(group=True, description=__doc__)
-parser.add_argument('-m', '--mesh',
-                    action='store',
-                    type=str,
-                    required=True,
+parser.add_argument('-m', '--mesh', required=True,
                     help='Base name of triangle mesh (excluding the .ele or .node extension)')
-parser.add_argument('-v', '--visualize',
-                    action='store_true',
+parser.add_argument('-v', '--visualize', action='store_true',
                     help='Visualize the result using viper')
+parser.add_argument('--no-advection', action='store_false',
+                    dest='advection', help='Disable advection')
+parser.add_argument('--no-diffusion', action='store_false',
+                    dest='diffusion', help='Disable diffusion')
+
 opt = vars(parser.parse_args())
 op2.init(**opt)
 
@@ -152,15 +153,13 @@ if opt['visualize']:
     import viper
     v = viper.Viper(x=viper_shape(tracer.data_ro), coordinates=vis_coords, cells=elem_node.values)
 
-have_advection = True
-have_diffusion = True
 solver = op2.Solver()
 
 while T < 0.2:
 
     # Advection
 
-    if have_advection:
+    if opt['advection']:
         mat.zero()
         op2.par_loop(mass, elements(3, 3),
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
@@ -177,7 +176,7 @@ while T < 0.2:
 
     # Diffusion
 
-    if have_diffusion:
+    if opt['diffusion']:
         mat.zero()
         op2.par_loop(diff_matrix, elements(3, 3),
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
