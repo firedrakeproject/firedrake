@@ -43,9 +43,10 @@ from petsc4py import PETSc
 import base
 from base import *
 from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
+from base import set_mpi_communicator as set_base_mpi_communicator
 
 def set_mpi_communicator(comm):
-    base.set_mpi_communicator(comm)
+    set_base_mpi_communicator(comm)
     # PETSc objects also need to be built on the same communicator.
     PETSc.Sys.setDefaultComm(base.PYOP2_COMM)
 

@@ -73,7 +73,7 @@ def init(**kwargs):
     if backend == 'pyop2.void':
         backends.set_backend(cfg.backend)
         backends._BackendSelector._backend._setup()
-        set_mpi_communicator(kwargs.get('comm'))
+        backends._BackendSelector._backend.set_mpi_communicator(kwargs.get('comm'))
         core.op_init(args=None, diags=0)
 
 def exit():
