@@ -223,8 +223,15 @@ class Halo(base.Halo):
 class Dat(base.Dat):
     """OP2 vector data. A ``Dat`` holds a value for every member of a :class:`Set`."""
 
+    @validate_type(('dataset', Set, SetTypeError))
     def __init__(self, dataset, dim, data=None, dtype=None, name=None,
                  soa=None, uid=None):
+        try:
+            dim = tuple(dim)
+        except TypeError:
+            dim = (dim,)
+        if data is None:
+            data = np.zeros(dataset.total_size*np.prod(dim))
         base.Dat.__init__(self, dataset, dim, data, dtype, name, soa, uid)
         halo = dataset.halo
         if halo is not None:

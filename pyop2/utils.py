@@ -163,15 +163,15 @@ class validate_range(validate_base):
 def verify_reshape(data, dtype, shape, allow_none=False):
     """Verify data is of type dtype and try to reshaped to shape."""
 
+    try:
+        t = np.dtype(dtype) if dtype is not None else None
+    except TypeError:
+        raise DataTypeError("Invalid data type: %s" % dtype)
     if data is None and allow_none:
-        try:
-            return np.asarray([], dtype=np.dtype(dtype))
-        except TypeError:
-            raise DataTypeError("Invalid data type: %s" % dtype)
+        return np.asarray([], dtype=t)
     elif data is None:
         raise DataValueError("Invalid data: None is not allowed!")
     else:
-        t = np.dtype(dtype) if dtype is not None else None
         try:
             a = np.asarray(data, dtype=t)
         except ValueError:

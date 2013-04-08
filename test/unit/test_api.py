@@ -175,12 +175,29 @@ class TestDatAPI:
         with pytest.raises(exceptions.NameTypeError):
             op2.Dat(set, 1, name=2)
 
-    def test_dat_illegal_data_access(self, backend, set):
-        """Dat initialised without data should raise an exception when
-        accessing the data."""
+    def test_dat_initialise_data(self, backend, set):
+        """Dat initilialised without the data should initialise data with the
+        correct size and type."""
         d = op2.Dat(set, 1)
-        with pytest.raises(RuntimeError):
-            d.data
+        assert d.data.size == 5 and d.data.dtype == np.float64
+
+    def test_dat_initialise_vector_data(self, backend, set):
+        """Dat initilialised without the data should initialise data with the
+        correct size and type - vector data case."""
+        d = op2.Dat(set, 2)
+        assert d.data.size == 10 and d.data.dtype == np.float64
+
+    def test_dat_initialise_dimlist_data(self, backend, set):
+        """Dat initilialised without the data should initialise data with the
+        correct size and type - list of dims case."""
+        d = op2.Dat(set, [2, 3])
+        assert d.data.size == 30 and d.data.dtype == np.float64
+
+    def test_dat_initialise_data_type(self, backend, set):
+        """Dat intiialised without the data but with specified type should
+        initialise its data with the correct type."""
+        d = op2.Dat(set, 1, dtype=np.int32)
+        assert d.data.size == 5 and d.data.dtype == np.int32
 
     def test_dat_illegal_map(self, backend, set):
         """Dat __call__ should not allow a map with a dataset other than this
