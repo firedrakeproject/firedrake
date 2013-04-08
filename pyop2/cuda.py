@@ -280,6 +280,10 @@ class Mat(DeviceDataMixin, op2.Mat):
             ret[r, cols] = csrdata[rs:re]
         return ret
 
+    @property
+    def array(self):
+        return self._csrdata.get()
+
     def zero_rows(self, rows, diag_val):
         for row in rows:
             s = self.sparsity._rowptr[row]
