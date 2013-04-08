@@ -35,7 +35,7 @@
 Cython implementation of the Plan construction.
 """
 
-import runtime_base as op2
+import base as op2
 from utils import align
 import math
 from collections import OrderedDict

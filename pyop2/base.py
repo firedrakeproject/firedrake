@@ -31,16 +31,42 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-""" Base classes for OP2 objects. The versions here deal only with metadata and perform no processing of the data itself. This enables these objects to be used in static analysis mode where no runtime information is available. """
+"""Base classes for OP2 objects, containing metadata and runtime data
+information which is backend independent. Individual runtime backends should
+subclass these as required to implement backend-specific features.
+
+.. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
+"""
 
 import numpy as np
+import operator
 
 from exceptions import *
 from utils import *
 from backends import _make_object
+import configuration as cfg
+import op_lib_core as core
+from mpi4py import MPI
+
+# MPI Communicator
+PYOP2_COMM = None
+
+def get_mpi_communicator():
+    """The MPI Communicator used by PyOP2."""
+    global PYOP2_COMM
+    return PYOP2_COMM
 
 def set_mpi_communicator(comm):
-    pass
+    """Set the MPI communicator for parallel communication."""
+    global PYOP2_COMM
+    if comm is None:
+        PYOP2_COMM = MPI.COMM_WORLD
+    elif type(comm) is int:
+        # If it's come from Fluidity where an MPI_Comm is just an
+        # integer.
+        PYOP2_COMM = MPI.Comm.f2py(comm)
+    else:
+        PYOP2_COMM = comm
 
 # Data API
 
@@ -87,6 +113,7 @@ class Arg(object):
 
     .. warning:: User code should not directly instantiate :class:`Arg`. Instead, use the call syntax on the :class:`DataCarrier`.
     """
+
     def __init__(self, data=None, map=None, idx=None, access=None):
         self._dat = data
         self._map = map
@@ -102,11 +129,6 @@ class Arg(object):
     def __repr__(self):
         return "Arg(%r, %r, %r, %r)" % \
                    (self._dat, self._map, self._idx, self._access)
-
-    @property
-    def data(self):
-        """Data carrier: :class:`Dat`, :class:`Mat`, :class:`Const` or :class:`Global`."""
-        return self._dat
 
     @property
     def ctype(self):
@@ -190,16 +212,68 @@ class Arg(object):
         return self._is_mat or isinstance(self.idx, IterationIndex)
 
     def halo_exchange_begin(self):
-        pass
+        """Begin halo exchange for the argument if a halo update is required.
+        Doing halo exchanges only makes sense for :class:`Dat` objects."""
+        assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
+        assert not self._in_flight, \
+            "Halo exchange already in flight for Arg %s" % self
+        if self.access in [READ, RW] and self.data.needs_halo_update:
+            self.data.needs_halo_update = False
+            self._in_flight = True
+            self.data.halo_exchange_begin()
 
     def halo_exchange_end(self):
-        pass
+        """End halo exchange if it is in flight.
+        Doing halo exchanges only makes sense for :class:`Dat` objects."""
+        assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
+        if self.access in [READ, RW] and self._in_flight:
+            self._in_flight = False
+            self.data.halo_exchange_end()
 
     def reduction_begin(self):
-        pass
+        """Begin reduction for the argument if its access is INC, MIN, or MAX.
+        Doing a reduction only makes sense for :class:`Global` objects."""
+        assert self._is_global, \
+            "Doing global reduction only makes sense for Globals"
+        assert not self._in_flight, \
+            "Reduction already in flight for Arg %s" % self
+        if self.access is not READ:
+            self._in_flight = True
+            if self.access is INC:
+                op = MPI.SUM
+            elif self.access is MIN:
+                op = MPI.MIN
+            elif self.access is MAX:
+                op = MPI.MAX
+            # If the MPI supports MPI-3, this could be MPI_Iallreduce
+            # instead, to allow overlapping comp and comms.
+            # We must reduce into a temporary buffer so that when
+            # executing over the halo region, which occurs after we've
+            # called this reduction, we don't subsequently overwrite
+            # the result.
+            PYOP2_COMM.Allreduce(self.data._data, self.data._buf, op=op)
 
     def reduction_end(self):
-        pass
+        """End reduction for the argument if it is in flight.
+        Doing a reduction only makes sense for :class:`Global` objects."""
+        assert self._is_global, \
+            "Doing global reduction only makes sense for Globals"
+        if self.access is not READ and self._in_flight:
+            self._in_flight = False
+            # Must have a copy here, because otherwise we just grab a
+            # pointer.
+            self.data._data = np.copy(self.data._buf)
+
+    @property
+    def _c_handle(self):
+        if self._lib_handle is None:
+            self._lib_handle = core.op_arg(self)
+        return self._lib_handle
+
+    @property
+    def data(self):
+        """Data carrier: :class:`Dat`, :class:`Mat`, :class:`Const` or :class:`Global`."""
+        return self._dat
 
 class Set(object):
     """OP2 set.
@@ -238,7 +312,8 @@ class Set(object):
     OWNED_SIZE = 1
     IMPORT_EXEC_SIZE = 2
     IMPORT_NON_EXEC_SIZE = 3
-    @validate_type(('name', str, NameTypeError))
+    @validate_type(('size', (int, tuple, list), SizeTypeError),
+                   ('name', str, NameTypeError))
     def __init__(self, size=None, name=None, halo=None):
         if type(size) is int:
             size = [size]*4
@@ -300,6 +375,22 @@ class Set(object):
     def __repr__(self):
         return "Set(%s, '%s')" % (self._size, self._name)
 
+    @classmethod
+    def fromhdf5(cls, f, name):
+        """Construct a :class:`Set` from set named ``name`` in HDF5 data ``f``"""
+        slot = f[name]
+        size = slot.value.astype(np.int)
+        shape = slot.shape
+        if shape != (1,):
+            raise SizeTypeError("Shape of %s is incorrect" % name)
+        return cls(size[0], name)
+
+    @property
+    def _c_handle(self):
+        if self._lib_handle is None:
+            self._lib_handle = core.op_set(self)
+        return self._lib_handle
+
 class Halo(object):
     """A description of a halo associated with a :class:`Set`.
 
@@ -323,10 +414,30 @@ class Halo(object):
     numbering, however insertion into :class:`Mat`s uses cross-process
     numbering under the hood.
     """
-    def __init__(self, sends, receives, gnn2unn=None):
+    def __init__(self, sends, receives, comm=PYOP2_COMM, gnn2unn=None):
         self._sends = tuple(np.asarray(x, dtype=np.int32) for x in sends)
         self._receives = tuple(np.asarray(x, dtype=np.int32) for x in receives)
         self._global_to_petsc_numbering = gnn2unn
+        if type(comm) is int:
+            self._comm = MPI.Comm.f2py(comm)
+        else:
+            self._comm = comm
+        # FIXME: is this a necessity?
+        assert self._comm == PYOP2_COMM, "Halo communicator not PYOP2_COMM"
+        rank = self._comm.rank
+        size = self._comm.size
+
+        assert len(self._sends) == size, \
+            "Invalid number of sends for Halo, got %d, wanted %d" % \
+            (len(self._sends), size)
+        assert len(self._receives) == size, \
+            "Invalid number of receives for Halo, got %d, wanted %d" % \
+            (len(self._receives), size)
+
+        assert self._sends[rank].size == 0, \
+            "Halo was specified with self-sends on rank %d" % rank
+        assert self._receives[rank].size == 0, \
+            "Halo was specified with self-receives on rank %d" % rank
 
     @property
     def sends(self):
@@ -358,6 +469,35 @@ class Halo(object):
         """The mapping from global (per-process) dof numbering to
     petsc (cross-process) dof numbering."""
         return self._global_to_petsc_numbering
+
+    @property
+    def comm(self):
+        """The MPI communicator this :class:`Halo`'s communications
+    should take place over"""
+        return self._comm
+
+    def verify(self, s):
+        """Verify that this :class:`Halo` is valid for a given
+:class:`Set`."""
+        for dest, sends in enumerate(self.sends):
+            assert (sends >= 0).all() and (sends < s.size).all(), \
+                "Halo send to %d is invalid (outside owned elements)" % dest
+
+        for source, receives in enumerate(self.receives):
+            assert (receives >= s.size).all() and \
+                (receives < s.total_size).all(), \
+                "Halo receive from %d is invalid (not in halo elements)" % \
+                source
+
+    def __getstate__(self):
+        odict = self.__dict__.copy()
+        del odict['_comm']
+        return odict
+
+    def __setstate__(self, dict):
+        self.__dict__.update(dict)
+        # FIXME: This will break for custom halo communicators
+        self._comm = PYOP2_COMM
 
 class IterationSpace(object):
     """OP2 iteration space type.
@@ -489,6 +629,8 @@ class Dat(DataCarrier):
     @validate_type(('dataset', Set, SetTypeError), ('name', str, NameTypeError))
     def __init__(self, dataset, dim, data=None, dtype=None, name=None,
                  soa=None, uid=None):
+        if data is None:
+            data = np.zeros(dataset.total_size*np.prod(dim))
         self._dataset = dataset
         self._dim = as_tuple(dim, int)
         self._data = verify_reshape(data, dtype, (dataset.total_size,)+self._dim, allow_none=True)
@@ -504,6 +646,12 @@ class Dat(DataCarrier):
         else:
             self._id = uid
         self._name = name or "dat_%d" % self._id
+        halo = dataset.halo
+        if halo is not None:
+            self._send_reqs = [None]*halo.comm.size
+            self._send_buf = [None]*halo.comm.size
+            self._recv_reqs = [None]*halo.comm.size
+            self._recv_buf = [None]*halo.comm.size
 
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, path, access):
@@ -562,12 +710,6 @@ class Dat(DataCarrier):
         """The L2-norm on the flattened vector."""
         raise NotImplementedError("Norm is not implemented.")
 
-    def halo_exchange_begin(self):
-        pass
-
-    def halo_exchange_end(self):
-        pass
-
     def zero(self):
         """Zero the data associated with this :class:`Dat`"""
         if not hasattr(self, '_zero_kernel'):
@@ -587,6 +729,117 @@ class Dat(DataCarrier):
     def __repr__(self):
         return "Dat(%r, %s, '%s', None, '%s')" \
                % (self._dataset, self._dim, self._data.dtype, self._name)
+
+    def _check_shape(self, other):
+        pass
+
+    def _op(self, other, op):
+        if np.isscalar(other):
+            return Dat(self.dataset, self.dim,
+                       op(self._data, as_type(other, self.dtype)), self.dtype)
+        self._check_shape(other)
+        return Dat(self.dataset, self.dim,
+                   op(self._data, as_type(other.data, self.dtype)), self.dtype)
+
+    def _iop(self, other, op):
+        if np.isscalar(other):
+            op(self._data, as_type(other, self.dtype))
+        else:
+            self._check_shape(other)
+            op(self._data, as_type(other.data, self.dtype))
+        return self
+
+    def __add__(self, other):
+        """Pointwise addition of fields."""
+        return self._op(other, operator.add)
+
+    def __sub__(self, other):
+        """Pointwise subtraction of fields."""
+        return self._op(other, operator.sub)
+
+    def __mul__(self, other):
+        """Pointwise multiplication or scaling of fields."""
+        return self._op(other, operator.mul)
+
+    def __div__(self, other):
+        """Pointwise division or scaling of fields."""
+        return self._op(other, operator.div)
+
+    def __iadd__(self, other):
+        """Pointwise addition of fields."""
+        return self._iop(other, operator.iadd)
+
+    def __isub__(self, other):
+        """Pointwise subtraction of fields."""
+        return self._iop(other, operator.isub)
+
+    def __imul__(self, other):
+        """Pointwise multiplication or scaling of fields."""
+        return self._iop(other, operator.imul)
+
+    def __idiv__(self, other):
+        """Pointwise division or scaling of fields."""
+        return self._iop(other, operator.idiv)
+
+    def halo_exchange_begin(self):
+        """Begin halo exchange."""
+        halo = self.dataset.halo
+        if halo is None:
+            return
+        for dest,ele in enumerate(halo.sends):
+            if ele.size == 0:
+                # Don't send to self (we've asserted that ele.size ==
+                # 0 previously) or if there are no elements to send
+                self._send_reqs[dest] = MPI.REQUEST_NULL
+                continue
+            self._send_buf[dest] = self._data[ele]
+            self._send_reqs[dest] = halo.comm.Isend(self._send_buf[dest],
+                                                    dest=dest, tag=self._id)
+        for source,ele in enumerate(halo.receives):
+            if ele.size == 0:
+                # Don't receive from self or if there are no elements
+                # to receive
+                self._recv_reqs[source] = MPI.REQUEST_NULL
+                continue
+            self._recv_buf[source] = self._data[ele]
+            self._recv_reqs[source] = halo.comm.Irecv(self._recv_buf[source],
+                                                      source=source, tag=self._id)
+
+    def halo_exchange_end(self):
+        """End halo exchange. Waits on MPI recv."""
+        halo = self.dataset.halo
+        if halo is None:
+            return
+        MPI.Request.Waitall(self._recv_reqs)
+        MPI.Request.Waitall(self._send_reqs)
+        self._send_buf = [None]*len(self._send_buf)
+        for source, buf in enumerate(self._recv_buf):
+            if buf is not None:
+                self._data[halo.receives[source]] = buf
+        self._recv_buf = [None]*len(self._recv_buf)
+
+    @property
+    def norm(self):
+        """The L2-norm on the flattened vector."""
+        return np.linalg.norm(self._data)
+
+    @classmethod
+    def fromhdf5(cls, dataset, f, name):
+        """Construct a :class:`Dat` from a Dat named ``name`` in HDF5 data ``f``"""
+        slot = f[name]
+        data = slot.value
+        dim = slot.shape[1:]
+        soa = slot.attrs['type'].find(':soa') > 0
+        if len(dim) < 1:
+            raise DimTypeError("Invalid dimension value %s" % dim)
+        ret = cls(dataset, dim, data, name=name, soa=soa)
+        return ret
+
+    @property
+    def _c_handle(self):
+        if self._lib_handle is None:
+            self._lib_handle = core.op_dat(self)
+        return self._lib_handle
 
 class Const(DataCarrier):
     """Data that is constant for any element of any set."""
@@ -647,6 +900,16 @@ class Const(DataCarrier):
             return "static %(type)s %(name)s;" % d
 
         return "static %(type)s %(name)s[%(dim)s];" % d
+
+    @classmethod
+    def fromhdf5(cls, f, name):
+        """Construct a :class:`Const` from const named ``name`` in HDF5 data ``f``"""
+        slot = f[name]
+        dim = slot.shape
+        data = slot.value
+        if len(dim) < 1:
+            raise DimTypeError("Invalid dimension value %s" % dim)
+        return cls(dim, data, name)
 
 class Global(DataCarrier):
     """OP2 global value.
@@ -830,8 +1093,28 @@ class Map(object):
     def __ne__(self, o):
         return not self.__eq__(o)
 
+    @property
+    def _c_handle(self):
+        if self._lib_handle is None:
+            self._lib_handle = core.op_map(self)
+        return self._lib_handle
+
+    @classmethod
+    def fromhdf5(cls, iterset, dataset, f, name):
+        """Construct a :class:`Map` from set named ``name`` in HDF5 data ``f``"""
+        slot = f[name]
+        values = slot.value
+        dim = slot.shape[1:]
+        if len(dim) != 1:
+            raise DimTypeError("Unrecognised dimension value %s" % dim)
+        return cls(iterset, dataset, dim[0], values, name)
+
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 """The identity map.  Used to indicate direct access to a :class:`Dat`."""
+
+_sparsity_cache = dict()
+def _empty_sparsity_cache():
+    _sparsity_cache.clear()
 
 class Sparsity(object):
     """OP2 Sparsity, a matrix structure derived from the union of the outer
@@ -857,8 +1140,24 @@ class Sparsity(object):
 
     @validate_type(('maps', (Map, tuple), MapTypeError), \
                    ('dims', (int, tuple), TypeError))
+    def __new__(cls, maps, dims, name=None):
+        key = (maps, as_tuple(dims, int, 2))
+        cached = _sparsity_cache.get(key)
+        if cached is not None:
+            return cached
+        return super(Sparsity, cls).__new__(cls, maps, dims, name)
+
+    @validate_type(('maps', (Map, tuple), MapTypeError), \
+                   ('dims', (int, tuple), TypeError))
     def __init__(self, maps, dims, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
+
+        if getattr(self, '_cached', False):
+            return
+        for m in maps:
+            for n in as_tuple(m, Map):
+                if len(n.values) == 0:
+                    raise MapValueError("Unpopulated map values when trying to build sparsity.")
 
         maps = (maps,maps) if isinstance(maps, Map) else maps
         lmaps = (maps,) if isinstance(maps[0], Map) else maps
@@ -885,6 +1184,10 @@ class Sparsity(object):
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         self._lib_handle = None
         Sparsity._globalcount += 1
+        key = (maps, as_tuple(dims, int, 2))
+        self._cached = True
+        core.build_sparsity(self, parallel=PYOP2_COMM.size > 1)
+        _sparsity_cache[key] = self
 
     @property
     def _nmaps(self):
@@ -931,6 +1234,55 @@ class Sparsity(object):
     def __repr__(self):
         return "Sparsity(%s,%s,%s,%s)" % \
                (self._rmaps, self._cmaps, self._dims, self._name)
+
+    def __del__(self):
+        core.free_sparsity(self)
+
+    @property
+    def rowptr(self):
+        """Row pointer array of CSR data structure."""
+        return self._rowptr
+
+    @property
+    def colidx(self):
+        """Column indices array of CSR data structure."""
+        return self._colidx
+
+    @property
+    def nnz(self):
+        """Array containing the number of non-zeroes in the various rows of the
+        diagonal portion of the local submatrix.
+
+        This is the same as the parameter `d_nnz` used for preallocation in
+        PETSc's MatMPIAIJSetPreallocation_."""
+        return self._d_nnz
+
+    @property
+    def onnz(self):
+        """Array containing the number of non-zeroes in the various rows of the
+        off-diagonal portion of the local submatrix.
+
+        This is the same as the parameter `o_nnz` used for preallocation in
+        PETSc's MatMPIAIJSetPreallocation_."""
+        return self._o_nnz
+
+    @property
+    def nz(self):
+        """Number of non-zeroes per row in diagonal portion of the local
+        submatrix.
+
+        This is the same as the parameter `d_nz` used for preallocation in
+        PETSc's MatMPIAIJSetPreallocation_."""
+        return int(self._d_nz)
+
+    @property
+    def onz(self):
+        """Number of non-zeroes per row in off-diagonal portion of the local
+        submatrix.
+
+        This is the same as the parameter o_nz used for preallocation in
+        PETSc's MatMPIAIJSetPreallocation_."""
+        return int(self._o_nz)
 
 class Mat(DataCarrier):
     """OP2 matrix data. A ``Mat`` is defined on a sparsity pattern and holds a value
@@ -1074,6 +1426,10 @@ class ParLoop(object):
 
         self.check_args()
 
+    def compute(self):
+        """Executes the kernel over all members of the iteration space."""
+        raise RuntimeError('Must select a backend')
+
     def halo_exchange_begin(self):
         """Start halo exchanges."""
         if self.is_direct:
@@ -1214,6 +1570,7 @@ DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
                              'plot_prefix': '',
                              'error_on_nonconvergence': True,
                              'gmres_restart': 30}
+
 """The default parameters for the solver are the same as those used in PETSc
 3.3. Note that the parameters accepted by :class:`op2.Solver` are only a subset
 of all PETSc parameters."""

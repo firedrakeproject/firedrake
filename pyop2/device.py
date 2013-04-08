@@ -39,11 +39,9 @@ except ImportError:
     from ordereddict import OrderedDict
 import numpy
 import op_lib_core as core
-import runtime_base as op2
-import base
-from runtime_base import *
-from runtime_base import _parloop_cache, _empty_parloop_cache
-from runtime_base import _parloop_cache_size
+import base as op2
+from base import *
+from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 
 class Arg(op2.Arg):
 
