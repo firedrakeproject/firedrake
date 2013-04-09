@@ -39,11 +39,11 @@ except ImportError:
     from ordereddict import OrderedDict
 import numpy
 import op_lib_core as core
-import base as op2
+import base
 from base import *
 from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 
-class Arg(op2.Arg):
+class Arg(base.Arg):
 
     @property
     def _name(self):
@@ -183,11 +183,11 @@ class DeviceDataMixin(object):
     def _from_device(self):
         raise RuntimeError("Abstract device class can't do this")
 
-class Dat(DeviceDataMixin, op2.Dat):
+class Dat(DeviceDataMixin, base.Dat):
 
     def __init__(self, dataset, dim, data=None, dtype=None, name=None,
                  soa=None, uid=None):
-        op2.Dat.__init__(self, dataset, dim, data, dtype, name, soa, uid)
+        base.Dat.__init__(self, dataset, dim, data, dtype, name, soa, uid)
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
     @property
@@ -206,9 +206,9 @@ class Dat(DeviceDataMixin, op2.Dat):
             raise ValueError("operands could not be broadcast together with shapes %s, %s" \
                     % (self.array.shape, other.array.shape))
 
-class Const(DeviceDataMixin, op2.Const):
+class Const(DeviceDataMixin, base.Const):
     def __init__(self, dim, data, name, dtype=None):
-        op2.Const.__init__(self, dim, data, name, dtype)
+        base.Const.__init__(self, dim, data, name, dtype)
         self.state = DeviceDataMixin.HOST
 
     @property
@@ -227,21 +227,21 @@ class Const(DeviceDataMixin, op2.Const):
     def _from_device(self):
         raise RuntimeError("Copying Const %s from device not allowed" % self)
 
-class Global(DeviceDataMixin, op2.Global):
+class Global(DeviceDataMixin, base.Global):
     def __init__(self, dim, data, dtype=None, name=None):
-        op2.Global.__init__(self, dim, data, dtype, name)
+        base.Global.__init__(self, dim, data, dtype, name)
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
-class Map(op2.Map):
+class Map(base.Map):
     def __init__(self, iterset, dataset, dim, values=None, name=None):
-        # The op2.Map base class allows not passing values. We do not allow
+        # The base.Map base class allows not passing values. We do not allow
         # that on the device, but want to keep the API consistent. So if the
         # user doesn't pass values, we fail with MapValueError rather than
         # a (confusing) error telling the user the function requires
         # additional parameters
         if values is None:
             raise MapValueError("Map values must be populated.")
-        op2.Map.__init__(self, iterset, dataset, dim, values, name)
+        base.Map.__init__(self, iterset, dataset, dim, values, name)
 
     def _to_device(self):
         raise RuntimeError("Abstract device class can't do this")
@@ -249,9 +249,9 @@ class Map(op2.Map):
     def _from_device(self):
         raise RuntimeError("Abstract device class can't do this")
 
-class Mat(op2.Mat):
+class Mat(base.Mat):
     def __init__(self, datasets, dtype=None, name=None):
-        op2.Mat.__init__(self, datasets, dtype, name)
+        base.Mat.__init__(self, datasets, dtype, name)
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
 
@@ -306,7 +306,7 @@ class _GenericPlan(object):
                 map = arg.map
                 acc = arg.access
                 # Identify unique dat-map-acc tuples
-                k = (dat, map, acc is op2.INC)
+                k = (dat, map, acc is base.INC)
                 l = inds.get(k, [])
                 l.append(arg.idx)
                 inds[k] = l
@@ -401,9 +401,9 @@ def compare_plans(kernel, iset, *args, **kwargs):
     assert (pplan.ind_sizes == cplan.ind_sizes).all()
     assert (pplan.loc_map == cplan.loc_map).all()
 
-class ParLoop(op2.ParLoop):
+class ParLoop(base.ParLoop):
     def __init__(self, kernel, itspace, *args):
-        op2.ParLoop.__init__(self, kernel, itspace, *args)
+        base.ParLoop.__init__(self, kernel, itspace, *args)
         self._src = None
         # List of arguments with vector-map/iteration-space indexes
         # flattened out

@@ -35,7 +35,7 @@
 Cython implementation of the Plan construction.
 """
 
-import base as op2
+import base
 from utils import align
 import math
 from collections import OrderedDict
@@ -237,9 +237,9 @@ cdef class Plan:
         cdef flat_race_args_t* flat_race_args = <flat_race_args_t*> malloc(n_race_args * sizeof(flat_race_args_t))
         pcds = [None] * n_race_args
         for i, ra in enumerate(race_args.iterkeys()):
-            if isinstance(ra, op2.Dat):
+            if isinstance(ra, base.Dat):
                 s = ra.dataset.size
-            elif isinstance(ra, op2.Mat):
+            elif isinstance(ra, base.Mat):
                 s = ra.sparsity.maps[0][0].dataset.size
 
             pcds[i] = numpy.empty((s,), dtype=numpy.uint32)
