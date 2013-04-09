@@ -39,8 +39,7 @@ import configuration as cfg
 import op_lib_core as core
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
-from base import _empty_parloop_cache, _parloop_cache_size
-from runtime_base import _empty_sparsity_cache, get_mpi_communicator, set_mpi_communicator
+from base import _empty_parloop_cache, _parloop_cache_size, _empty_sparsity_cache
 from device import _empty_plan_cache, _plan_cache_size
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
@@ -73,7 +72,7 @@ def init(**kwargs):
     if backend == 'pyop2.void':
         backends.set_backend(cfg.backend)
         backends._BackendSelector._backend._setup()
-        set_mpi_communicator(kwargs.get('comm'))
+        backends._BackendSelector._backend.set_mpi_communicator(kwargs.get('comm'))
         core.op_init(args=None, diags=0)
 
 def exit():

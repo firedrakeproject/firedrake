@@ -41,8 +41,8 @@ from exceptions import *
 from find_op2 import *
 from utils import *
 import op_lib_core as core
-import runtime_base as rt
-from runtime_base import *
+import petsc_base
+from petsc_base import *
 import device
 
 # hard coded value to max openmp threads
@@ -62,7 +62,7 @@ def _detect_openmp_flags():
 
 _cppargs = os.environ.get('OMP_CXX_FLAGS') or _detect_openmp_flags()
 
-class Mat(rt.Mat):
+class Mat(petsc_base.Mat):
     # This is needed for the test harness to check that two Mats on
     # the same Sparsity share data.
     @property
@@ -251,7 +251,7 @@ class ParLoop(device.ParLoop):
                  'ncols' : ncols,
                  'rows' : "%s + i * %s" % (c_map_name(arg), nrows),
                  'cols' : "%s2 + i * %s" % (c_map_name(arg), ncols),
-                 'insert' : arg.access == rt.WRITE }
+                 'insert' : arg.access == WRITE }
 
         def c_addto_vector_field(arg):
             name = c_arg_name(arg)
@@ -279,7 +279,7 @@ class ParLoop(device.ParLoop):
                            'j' : j }
 
                     s.append('addto_scalar(%s, %s, %s, %s, %d)' \
-                            % (name, val, row, col, arg.access == rt.WRITE))
+                            % (name, val, row, col, arg.access == WRITE))
             return ';\n'.join(s)
 
         def c_assemble(arg):

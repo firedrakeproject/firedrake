@@ -40,8 +40,8 @@ from exceptions import *
 from find_op2 import *
 from utils import *
 import op_lib_core as core
-import runtime_base as rt
-from runtime_base import *
+import petsc_base
+from petsc_base import *
 
 # Parallel loop API
 
@@ -49,7 +49,7 @@ def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
     ParLoop(kernel, it_space, *args).compute()
 
-class ParLoop(rt.ParLoop):
+class ParLoop(petsc_base.ParLoop):
     def compute(self):
         _fun = self.generate_code()
         _args = [0, 0]          # start, stop
@@ -100,7 +100,7 @@ class ParLoop(rt.ParLoop):
     def generate_code(self):
 
         key = self._cache_key
-        _fun = rt._parloop_cache.get(key)
+        _fun = petsc_base._parloop_cache.get(key)
 
         if _fun is not None:
             return _fun
@@ -206,7 +206,7 @@ class ParLoop(rt.ParLoop):
                  'ncols' : ncols,
                  'rows' : "%s + i * %s" % (c_map_name(arg), nrows),
                  'cols' : "%s2 + i * %s" % (c_map_name(arg), ncols),
-                 'insert' : arg.access == rt.WRITE }
+                 'insert' : arg.access == WRITE }
 
         def c_addto_vector_field(arg):
             name = c_arg_name(arg)
@@ -234,7 +234,7 @@ class ParLoop(rt.ParLoop):
                            'j' : j }
 
                     s.append('addto_scalar(%s, %s, %s, %s, %d)' \
-                            % (name, val, row, col, arg.access == rt.WRITE))
+                            % (name, val, row, col, arg.access == WRITE))
             return ';\n'.join(s)
 
         def itspace_loop(i, d):
@@ -363,7 +363,7 @@ class ParLoop(rt.ParLoop):
         else:
             os.environ.pop('CC')
 
-        rt._parloop_cache[key] = _fun
+        petsc_base._parloop_cache[key] = _fun
         return _fun
 
 def _setup():

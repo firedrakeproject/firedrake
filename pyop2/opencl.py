@@ -35,6 +35,7 @@
 
 from device import *
 import device as op2
+import petsc_base
 from utils import verify_reshape, uniquify, maybe_setflags, comment_remover
 import configuration as cfg
 import pyopencl as cl
@@ -191,7 +192,7 @@ class DeviceDataMixin(op2.DeviceDataMixin):
     def _cl_type_max(self):
         return DeviceDataMixin.CL_TYPES[self.dtype].max
 
-class Dat(op2.Dat, DeviceDataMixin):
+class Dat(op2.Dat, petsc_base.Dat, DeviceDataMixin):
     """OP2 OpenCL vector data type."""
 
     @property
@@ -216,7 +217,7 @@ class Sparsity(op2.Sparsity):
                                     self._rowptr))
         return getattr(self, '__dev_rowptr')
 
-class Mat(op2.Mat, DeviceDataMixin):
+class Mat(op2.Mat, petsc_base.Mat, DeviceDataMixin):
     """OP2 OpenCL matrix data type."""
 
     def _allocate_device(self):
@@ -439,7 +440,7 @@ class Plan(op2.Plan):
         return self._thrcol_array
 
 
-class Solver(op2.Solver):
+class Solver(petsc_base.Solver):
 
     def solve(self, A, x, b):
         x._from_device()
