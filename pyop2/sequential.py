@@ -35,6 +35,7 @@
 
 import os
 import numpy as np
+from textwrap import dedent
 
 import configuration as cfg
 from exceptions import *
@@ -239,7 +240,7 @@ class ParLoop(petsc_base.ParLoop):
             return ';\n'.join(s)
 
         def itspace_loop(i, d):
-            return "for (int i_%d=0; i_%d<%d; ++i_%d){" % (i, i, d, i)
+            return "for (int i_%d=0; i_%d<%d; ++i_%d) {" % (i, i, d, i)
 
         def tmp_decl(arg, extents):
             t = arg.data.ctype
@@ -290,8 +291,9 @@ class ParLoop(petsc_base.ParLoop):
         _vec_inits = ';\n'.join([c_vec_init(arg) for arg in args \
                                  if not arg._is_mat and arg._is_vec_map])
 
-        _itspace_loops = '\n'.join([itspace_loop(i,e) for i, e in zip(range(len(self._it_space.extents)), self._it_space.extents)])
-        _itspace_loop_close = '}'*len(self._it_space.extents)
+        nloops = len(self._it_space.extents)
+        _itspace_loops = '\n'.join(['  ' * i + itspace_loop(i,e) for i, e in enumerate(self._it_space.extents)])
+        _itspace_loop_close = '\n'.join('  ' * i + '}' for i in range(nloops - 1, -1, -1))
 
         _addtos_vector_field = ';\n'.join([c_addto_vector_field(arg) for arg in args \
                                            if arg._is_mat and arg.data._is_vector_field])
@@ -307,22 +309,23 @@ class ParLoop(petsc_base.ParLoop):
             _const_args = ''
         _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
         wrapper = """
-            void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %(const_args)s) {
-            int start = (int)PyInt_AsLong(_start);
-            int end = (int)PyInt_AsLong(_end);
-            %(wrapper_decs)s;
-            %(tmp_decs)s;
-            %(const_inits)s;
-            for ( int i = start; i < end; i++ ) {
-            %(vec_inits)s;
-            %(itspace_loops)s
-            %(zero_tmps)s;
-            %(kernel_name)s(%(kernel_args)s);
-            %(addtos_vector_field)s;
-            %(itspace_loop_close)s
-            %(addtos_scalar_field)s;
-            }
-            }"""
+                  void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %(const_args)s) {
+                    int start = (int)PyInt_AsLong(_start);
+                    int end = (int)PyInt_AsLong(_end);
+                    %(wrapper_decs)s;
+                    %(tmp_decs)s;
+                    %(const_inits)s;
+                    for ( int i = start; i < end; i++ ) {
+                      %(vec_inits)s;
+                      %(itspace_loops)s
+                      %(ind)s%(zero_tmps)s;
+                      %(ind)s%(kernel_name)s(%(kernel_args)s);
+                      %(ind)s%(addtos_vector_field)s;
+                      %(itspace_loop_close)s
+                      %(addtos_scalar_field)s;
+                    }
+                  }
+                  """
 
         if any(arg._is_soa for arg in args):
             kernel_code = """
@@ -334,19 +337,22 @@ class ParLoop(petsc_base.ParLoop):
             kernel_code = """
             inline %(code)s
             """ % {'code' : self._kernel.code }
-        code_to_compile =  wrapper % { 'kernel_name' : self._kernel.name,
-                                       'wrapper_args' : _wrapper_args,
-                                       'wrapper_decs' : _wrapper_decs,
-                                       'const_args' : _const_args,
-                                       'const_inits' : _const_inits,
-                                       'tmp_decs' : _tmp_decs,
-                                       'itspace_loops' : _itspace_loops,
-                                       'itspace_loop_close' : _itspace_loop_close,
-                                       'vec_inits' : _vec_inits,
-                                       'zero_tmps' : _zero_tmps,
-                                       'kernel_args' : _kernel_args,
-                                       'addtos_vector_field' : _addtos_vector_field,
-                                       'addtos_scalar_field' : _addtos_scalar_field}
+        indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
+        code_to_compile = dedent(wrapper) % {
+            'ind': '  ' * nloops,
+            'kernel_name': self._kernel.name,
+            'wrapper_args': _wrapper_args,
+            'wrapper_decs': indent(_wrapper_decs, 1),
+            'const_args': _const_args,
+            'const_inits': indent(_const_inits, 1),
+            'tmp_decs': indent(_tmp_decs, 1),
+            'itspace_loops': indent(_itspace_loops, 2),
+            'itspace_loop_close': indent(_itspace_loop_close, 2),
+            'vec_inits': indent(_vec_inits, 2),
+            'zero_tmps': indent(_zero_tmps, 2 + nloops),
+            'kernel_args': _kernel_args,
+            'addtos_vector_field': indent(_addtos_vector_field, 2 + nloops),
+            'addtos_scalar_field': indent(_addtos_scalar_field, 2)}
 
         # We need to build with mpicc since that's required by PETSc
         cc = os.environ.get('CC')
