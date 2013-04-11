@@ -136,14 +136,13 @@ class Arg(base.Arg):
         return ";\n".join(val)
 
     def c_addto_scalar_field(self):
-        p_data = 'p_%s' % self.c_arg_name()
         maps = as_tuple(self.map, Map)
         nrows = maps[0].dim
         ncols = maps[1].dim
 
         return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
             {'mat' : self.c_arg_name(),
-             'vals' : p_data,
+             'vals' : self.c_kernel_arg_name(),
              'nrows' : nrows,
              'ncols' : ncols,
              'rows' : "%s + i * %s" % (self.c_map_name(), nrows),
@@ -151,7 +150,6 @@ class Arg(base.Arg):
              'insert' : self.access == WRITE }
 
     def c_addto_vector_field(self):
-        p_data = 'p_%s' % self.c_arg_name()
         maps = as_tuple(self.map, Map)
         nrows = maps[0].dim
         ncols = maps[1].dim
@@ -162,7 +160,7 @@ class Arg(base.Arg):
         for i in xrange(rmult):
             for j in xrange(cmult):
                 idx = '[%d][%d]' % (i, j)
-                val = "&%s%s" % (p_data, idx)
+                val = "&%s%s" % (self.c_kernel_arg_name(), idx)
                 row = "%(m)s * %(map)s[i * %(dim)s + i_0] + %(i)s" % \
                       {'m' : rmult,
                        'map' : self.c_map_name(),

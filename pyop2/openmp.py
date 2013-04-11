@@ -80,51 +80,6 @@ class Arg(host.Arg):
                     'vec_name' : self.c_vec_name(str(_max_threads)),
                     'dim' : self.map.dim}
 
-    def c_addto_scalar_field(self):
-        name = self.c_arg_name()
-        p_data = 'p_%s[tid]' % name
-        maps = as_tuple(self.map, Map)
-        nrows = maps[0].dim
-        ncols = maps[1].dim
-
-        return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
-            {'mat' : name,
-             'vals' : p_data,
-             'nrows' : nrows,
-             'ncols' : ncols,
-             'rows' : "%s + i * %s" % (self.c_map_name(), nrows),
-             'cols' : "%s2 + i * %s" % (self.c_map_name(), ncols),
-             'insert' : self.access == WRITE }
-
-    def c_addto_vector_field(self):
-        name = self.c_arg_name()
-        p_data = 'p_%s[tid]' % name
-        maps = as_tuple(self.map, Map)
-        nrows = maps[0].dim
-        ncols = maps[1].dim
-        dims = self.data.sparsity.dims
-        rmult = dims[0]
-        cmult = dims[1]
-        s = []
-        for i in xrange(rmult):
-            for j in xrange(cmult):
-                idx = '[%d][%d]' % (i, j)
-                val = "&%s%s" % (p_data, idx)
-                row = "%(m)s * %(map)s[i * %(dim)s + i_0] + %(i)s" % \
-                      {'m' : rmult,
-                       'map' : self.c_map_name(),
-                       'dim' : nrows,
-                       'i' : i }
-                col = "%(m)s * %(map)s2[i * %(dim)s + i_1] + %(j)s" % \
-                      {'m' : cmult,
-                       'map' : self.c_map_name(),
-                       'dim' : ncols,
-                       'j' : j }
-
-                s.append('addto_scalar(%s, %s, %s, %s, %d)' \
-                        % (name, val, row, col, self.access == WRITE))
-        return ';\n'.join(s)
-
     def c_assemble(self):
         name = self.c_arg_name()
         return "assemble_mat(%s)" % name
