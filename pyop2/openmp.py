@@ -68,11 +68,14 @@ class Arg(host.Arg):
     def c_vec_name(self, idx=None):
         return self.c_arg_name() + "_vec[%s]" % (idx or 'tid')
 
-    def c_kernel_arg_name(self):
-        return "p_%s[tid]" % self.c_arg_name()
+    def c_kernel_arg_name(self, idx=None):
+        return "p_%s[%s]" % (self.c_arg_name(), idx or 'tid')
 
     def c_global_reduction_name(self):
         return "%s_l[tid]" % self.c_arg_name()
+
+    def c_tmp_name(self):
+        return self.c_kernel_arg_name(str(_max_threads))
 
     def c_vec_dec(self):
         return ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
@@ -83,30 +86,6 @@ class Arg(host.Arg):
     def c_assemble(self):
         name = self.c_arg_name()
         return "assemble_mat(%s)" % name
-
-    def tmp_decl(self, extents):
-        t = self.data.ctype
-        if self.data._is_scalar_field:
-            dims = ''.join(["[%d]" % d for d in extents])
-        elif self.data._is_vector_field:
-            dims = ''.join(["[%d]" % d for d in self.data.dims])
-        else:
-            raise RuntimeError("Don't know how to declare temp array for %s" % self)
-        return "%s p_%s[%s]%s" % (t, self.c_arg_name(), _max_threads, dims)
-
-    def c_zero_tmp(self):
-        name = "p_" + self.c_arg_name()
-        t = self.ctype
-        if self.data._is_scalar_field:
-            idx = ''.join(["[i_%d]" % i for i,_ in enumerate(self.data.dims)])
-            return "%(name)s[tid]%(idx)s = (%(t)s)0" % \
-                {'name' : name, 't' : t, 'idx' : idx}
-        elif self.data._is_vector_field:
-            size = np.prod(self.data.dims)
-            return "memset(%(name)s[tid], 0, sizeof(%(t)s) * %(size)s)" % \
-                {'name' : name, 't' : t, 'size' : size}
-        else:
-            raise RuntimeError("Don't know how to zero temp array for %s" % self)
 
     def c_reduction_dec(self):
         return "%(type)s %(name)s_l[%(max_threads)s][%(dim)s]" % \

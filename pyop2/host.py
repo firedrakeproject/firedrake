@@ -98,6 +98,9 @@ class Arg(base.Arg):
     def c_global_reduction_name(self):
         return self.c_arg_name()
 
+    def c_tmp_name(self):
+        return self.c_kernel_arg_name()
+
     def c_kernel_arg(self):
         if self._uses_itspace:
             if self._is_mat:
@@ -184,18 +187,17 @@ class Arg(base.Arg):
             dims = ''.join(["[%d]" % d for d in self.data.dims])
         else:
             raise RuntimeError("Don't know how to declare temp array for %s" % self)
-        return "%s p_%s%s" % (t, self.c_arg_name(), dims)
+        return "%s %s%s" % (t, self.c_tmp_name(), dims)
 
     def c_zero_tmp(self):
-        name = "p_" + self.c_arg_name()
         t = self.ctype
         if self.data._is_scalar_field:
             idx = ''.join(["[i_%d]" % i for i,_ in enumerate(self.data.dims)])
             return "%(name)s%(idx)s = (%(t)s)0" % \
-                {'name' : name, 't' : t, 'idx' : idx}
+                {'name' : self.c_kernel_arg_name(), 't' : t, 'idx' : idx}
         elif self.data._is_vector_field:
             size = np.prod(self.data.dims)
             return "memset(%(name)s, 0, sizeof(%(t)s) * %(size)s)" % \
-                {'name' : name, 't' : t, 'size' : size}
+                {'name' : self.c_kernel_arg_name(), 't' : t, 'size' : size}
         else:
             raise RuntimeError("Don't know how to zero temp array for %s" % self)
