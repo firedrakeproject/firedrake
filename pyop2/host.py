@@ -34,9 +34,14 @@
 """Base classes extending those from the :mod:`base` module with functionality
 common to backends executing on the host."""
 
+from textwrap import dedent
+
 import base
 from base import *
+from base import _parloop_cache
 from utils import as_tuple
+import configuration as cfg
+from find_op2 import *
 
 class Arg(base.Arg):
 
@@ -201,3 +206,53 @@ class Arg(base.Arg):
                 {'name' : self.c_kernel_arg_name(), 't' : t, 'size' : size}
         else:
             raise RuntimeError("Don't know how to zero temp array for %s" % self)
+
+class ParLoop(base.ParLoop):
+
+    _cppargs = []
+    _system_headers = []
+
+    def build(self):
+
+        key = self._cache_key
+        _fun = _parloop_cache.get(key)
+
+        if _fun is not None:
+            return _fun
+
+        from instant import inline_with_numpy
+
+        if any(arg._is_soa for arg in self.args):
+            kernel_code = """
+            #define OP2_STRIDE(a, idx) a[idx]
+            inline %(code)s
+            #undef OP2_STRIDE
+            """ % {'code' : self._kernel.code}
+        else:
+            kernel_code = """
+            inline %(code)s
+            """ % {'code' : self._kernel.code }
+        code_to_compile = dedent(self.wrapper) % self.generate_code()
+
+        _const_decs = '\n'.join([const._format_declaration() for const in Const._definitions()]) + '\n'
+
+        # We need to build with mpicc since that's required by PETSc
+        cc = os.environ.get('CC')
+        os.environ['CC'] = 'mpicc'
+        _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
+                                 additional_definitions = _const_decs + kernel_code,
+                                 cppargs=self._cppargs + ['-O0', '-g'] if cfg.debug else [],
+                                 include_dirs=[OP2_INC, get_petsc_dir()+'/include'],
+                                 source_directory=os.path.dirname(os.path.abspath(__file__)),
+                                 wrap_headers=["mat_utils.h"],
+                                 system_headers=self._system_headers,
+                                 library_dirs=[OP2_LIB, get_petsc_dir()+'/lib'],
+                                 libraries=['op2_seq', 'petsc'],
+                                 sources=["mat_utils.cxx"])
+        if cc:
+            os.environ['CC'] = cc
+        else:
+            os.environ.pop('CC')
+
+        _parloop_cache[key] = _fun
+        return _fun

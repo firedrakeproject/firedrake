@@ -35,15 +35,13 @@
 
 import os
 import numpy as np
-from textwrap import dedent
 
-import configuration as cfg
 from exceptions import *
-from find_op2 import *
 from utils import as_tuple
 import op_lib_core as core
 import petsc_base
 from petsc_base import *
+import host
 from host import Arg
 
 # Parallel loop API
@@ -52,7 +50,7 @@ def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
     ParLoop(kernel, it_space, *args).compute()
 
-class ParLoop(petsc_base.ParLoop):
+class ParLoop(host.ParLoop):
 
     wrapper = """
               void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %(const_args)s) {
@@ -119,50 +117,6 @@ class ParLoop(petsc_base.ParLoop):
         for arg in self.args:
             if arg._is_mat:
                 arg.data._assemble()
-
-    def build(self):
-
-        key = self._cache_key
-        _fun = petsc_base._parloop_cache.get(key)
-
-        if _fun is not None:
-            return _fun
-
-        from instant import inline_with_numpy
-
-        if any(arg._is_soa for arg in self.args):
-            kernel_code = """
-            #define OP2_STRIDE(a, idx) a[idx]
-            inline %(code)s
-            #undef OP2_STRIDE
-            """ % {'code' : self._kernel.code}
-        else:
-            kernel_code = """
-            inline %(code)s
-            """ % {'code' : self._kernel.code }
-        code_to_compile = dedent(self.wrapper) % self.generate_code()
-
-        _const_decs = '\n'.join([const._format_declaration() for const in Const._definitions()]) + '\n'
-
-        # We need to build with mpicc since that's required by PETSc
-        cc = os.environ.get('CC')
-        os.environ['CC'] = 'mpicc'
-        _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
-                                 additional_definitions = _const_decs + kernel_code,
-                                 cppargs = ['-O0', '-g'] if cfg.debug else [],
-                                 include_dirs=[OP2_INC, get_petsc_dir()+'/include'],
-                                 source_directory=os.path.dirname(os.path.abspath(__file__)),
-                                 wrap_headers=["mat_utils.h"],
-                                 library_dirs=[OP2_LIB, get_petsc_dir()+'/lib'],
-                                 libraries=['op2_seq', 'petsc'],
-                                 sources=["mat_utils.cxx"])
-        if cc:
-            os.environ['CC'] = cc
-        else:
-            os.environ.pop('CC')
-
-        petsc_base._parloop_cache[key] = _fun
-        return _fun
 
     def generate_code(self):
 
