@@ -26,10 +26,3 @@ void addto_vector(Mat mat, const void *values,
                 (const PetscScalar *)values,
                 insert ? INSERT_VALUES : ADD_VALUES );
 }
-
-void assemble_mat(Mat mat)
-{
-  assert( mat );
-  MatAssemblyBegin(mat, MAT_FINAL_ASSEMBLY);
-  MatAssemblyEnd(mat, MAT_FINAL_ASSEMBLY);
-}
