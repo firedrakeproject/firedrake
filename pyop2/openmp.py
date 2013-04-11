@@ -254,40 +254,8 @@ class ParLoop(device.ParLoop, host.ParLoop):
 
     def generate_code(self):
 
-        def itspace_loop(i, d):
-            return "for (int i_%d=0; i_%d<%d; ++i_%d){" % (i, i, d, i)
-
-        def c_const_arg(c):
-            return 'PyObject *_%s' % c.name
-
-        def c_const_init(c):
-            d = {'name' : c.name,
-                 'type' : c.ctype}
-            if c.cdim == 1:
-                return '%(name)s = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[0]' % d
-            tmp = '%(name)s[%%(i)s] = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[%%(i)s]' % d
-            return ';\n'.join([tmp % {'i' : i} for i in range(c.cdim)])
-
-        _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self.args])
-
-        _tmp_decs = ';\n'.join([arg.tmp_decl(self._it_space.extents) for arg in self.args if arg._is_mat])
-        _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self.args])
-
-        _kernel_user_args = [arg.c_kernel_arg() for arg in self.args]
-        _kernel_it_args   = ["i_%d" % d for d in range(len(self._it_space.extents))]
-        _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
-        _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self.args \
-                                 if not arg._is_mat and arg._is_vec_map])
-
-        _itspace_loops = '\n'.join([itspace_loop(i,e) for i, e in zip(range(len(self._it_space.extents)), self._it_space.extents)])
-        _itspace_loop_close = '}'*len(self._it_space.extents)
-
-        _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field() for arg in self.args \
-                                           if arg._is_mat and arg.data._is_vector_field])
-        _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field() for arg in self.args \
-                                           if arg._is_mat and arg.data._is_scalar_field])
-
-        _zero_tmps = ';\n'.join([arg.c_zero_tmp() for arg in self.args if arg._is_mat])
+        # Most of the code to generate is the same as that for sequential
+        code_dict = super(ParLoop, self).generate_code()
 
         _set_size_wrapper = 'PyObject *_%(set)s_size' % {'set' : self._it_space.name}
         _set_size_dec = 'int %(set)s_size = (int)PyInt_AsLong(_%(set)s_size);' % {'set' : self._it_space.name}
@@ -297,32 +265,13 @@ class ParLoop(device.ParLoop, host.ParLoop):
         _reduction_inits = ';\n'.join([arg.c_reduction_init() for arg in self.args if arg._is_global_reduction])
         _reduction_finalisations = '\n'.join([arg.c_reduction_finalisation() for arg in self.args if arg._is_global_reduction])
 
-        if len(Const._defs) > 0:
-            _const_args = ', '
-            _const_args += ', '.join([c_const_arg(c) for c in Const._definitions()])
-        else:
-            _const_args = ''
-        _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
-
-        return {'kernel_name' : self._kernel.name,
-                'wrapper_args' : _wrapper_args,
-                'wrapper_decs' : _wrapper_decs,
-                'const_args' : _const_args,
-                'const_inits' : _const_inits,
-                'tmp_decs' : _tmp_decs,
-                'set_size' : _set_size,
-                'set_size_dec' : _set_size_dec,
-                'set_size_wrapper' : _set_size_wrapper,
-                'itspace_loops' : _itspace_loops,
-                'itspace_loop_close' : _itspace_loop_close,
-                'vec_inits' : _vec_inits,
-                'zero_tmps' : _zero_tmps,
-                'kernel_args' : _kernel_args,
-                'addtos_vector_field' : _addtos_vector_field,
-                'addtos_scalar_field' : _addtos_scalar_field,
-                'reduction_decs' : _reduction_decs,
-                'reduction_inits' : _reduction_inits,
-                'reduction_finalisations' : _reduction_finalisations}
+        code_dict.update({'set_size' : _set_size,
+                          'set_size_dec' : _set_size_dec,
+                          'set_size_wrapper' : _set_size_wrapper,
+                          'reduction_decs' : _reduction_decs,
+                          'reduction_inits' : _reduction_inits,
+                          'reduction_finalisations' : _reduction_finalisations})
+        return code_dict
 
     @property
     def _requires_matrix_coloring(self):
