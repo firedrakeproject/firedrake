@@ -61,6 +61,12 @@ class Arg(base.Arg):
                 val += ", PyObject *_%(name)s" % {'name' : self.c_map_name()+'2'}
         return val
 
+    def c_vec_dec(self):
+        return ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
+               {'type' : self.ctype,
+                'vec_name' : self.c_vec_name(),
+                'dim' : self.map.dim}
+
     def c_wrapper_dec(self):
         if self._is_mat:
             val = "Mat %(name)s = (Mat)((uintptr_t)PyLong_AsUnsignedLong(_%(name)s))" % \
@@ -75,10 +81,7 @@ class Arg(base.Arg):
             val += ";\nint *%(name)s2 = (int *)(((PyArrayObject *)_%(name)s2)->data)" % \
                        {'name' : self.c_map_name()}
         if self._is_vec_map:
-            val += ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
-                   {'type' : self.ctype,
-                    'vec_name' : self.c_vec_name(),
-                    'dim' : self.map.dim}
+            val += self.c_vec_dec()
         return val
 
     def c_ind_data(self, idx):
