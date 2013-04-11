@@ -83,10 +83,6 @@ class Arg(host.Arg):
                     'vec_name' : self.c_vec_name(str(_max_threads)),
                     'dim' : self.map.dim}
 
-    def c_assemble(self):
-        name = self.c_arg_name()
-        return "assemble_mat(%s)" % name
-
     def c_reduction_dec(self):
         return "%(type)s %(name)s_l[%(max_threads)s][%(dim)s]" % \
           {'type' : self.ctype,
@@ -192,6 +188,10 @@ class ParLoop(device.ParLoop):
 
         _fun(*_args)
 
+        for arg in self.args:
+            if arg._is_mat:
+                arg.data._assemble()
+
     def generate_code(self):
 
         key = self._cache_key
@@ -237,8 +237,6 @@ class ParLoop(device.ParLoop):
                                            if arg._is_mat and arg.data._is_vector_field])
         _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field() for arg in args \
                                            if arg._is_mat and arg.data._is_scalar_field])
-
-        _assembles = ';\n'.join([arg.c_assemble() for arg in args if arg._is_mat])
 
         _zero_tmps = ';\n'.join([arg.c_zero_tmp() for arg in args if arg._is_mat])
 
@@ -311,7 +309,6 @@ class ParLoop(device.ParLoop):
               %(reduction_finalisations)s
               boffset += nblocks;
             }
-            %(assembles)s;
           }"""
 
         if any(arg._is_soa for arg in args):
@@ -341,7 +338,6 @@ class ParLoop(device.ParLoop):
                                        'kernel_args' : _kernel_args,
                                        'addtos_vector_field' : _addtos_vector_field,
                                        'addtos_scalar_field' : _addtos_scalar_field,
-                                       'assembles' : _assembles,
                                        'reduction_decs' : _reduction_decs,
                                        'reduction_inits' : _reduction_inits,
                                        'reduction_finalisations' : _reduction_finalisations}
