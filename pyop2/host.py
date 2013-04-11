@@ -92,17 +92,22 @@ class Arg(base.Arg):
                  'idx' : idx,
                  'dim' : self.data.cdim}
 
+    def c_kernel_arg_name(self):
+        return "p_%s" % self.c_arg_name()
+
+    def c_global_reduction_name(self):
+        return self.c_arg_name()
+
     def c_kernel_arg(self):
         if self._uses_itspace:
             if self._is_mat:
-                name = "p_%s" % self.c_arg_name()
                 if self.data._is_vector_field:
-                    return name
+                    return self.c_kernel_arg_name()
                 elif self.data._is_scalar_field:
                     idx = ''.join(["[i_%d]" % i for i, _ in enumerate(self.data.dims)])
                     return "(%(t)s (*)[1])&%(name)s%(idx)s" % \
                         {'t' : self.ctype,
-                         'name' : name,
+                         'name' : self.c_kernel_arg_name(),
                          'idx' : idx}
                 else:
                     raise RuntimeError("Don't know how to pass kernel arg %s" % self)
@@ -112,6 +117,8 @@ class Arg(base.Arg):
             if self._is_vec_map:
                 return self.c_vec_name()
             return self.c_ind_data(self.idx)
+        elif self._is_global_reduction:
+            return self.c_global_reduction_name()
         elif isinstance(self.data, Global):
             return self.c_arg_name()
         else:
