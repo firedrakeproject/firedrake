@@ -36,6 +36,7 @@
 import os
 import numpy as np
 import math
+from textwrap import dedent
 
 from exceptions import *
 from find_op2 import *
@@ -134,8 +135,68 @@ def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()
 
 class ParLoop(device.ParLoop):
+
+    wrapper = """
+              void wrap_%(kernel_name)s__(%(set_size_wrapper)s, %(wrapper_args)s %(const_args)s,
+                                          PyObject* _part_size, PyObject* _ncolors, PyObject* _blkmap,
+                                          PyObject* _ncolblk, PyObject* _nelems) {
+                int part_size = (int)PyInt_AsLong(_part_size);
+                int ncolors = (int)PyInt_AsLong(_ncolors);
+                int* blkmap = (int *)(((PyArrayObject *)_blkmap)->data);
+                int* ncolblk = (int *)(((PyArrayObject *)_ncolblk)->data);
+                int* nelems = (int *)(((PyArrayObject *)_nelems)->data);
+
+                %(set_size_dec)s;
+                %(wrapper_decs)s;
+                %(const_inits)s;
+                %(tmp_decs)s;
+
+                #ifdef _OPENMP
+                int nthread = omp_get_max_threads();
+                #else
+                int nthread = 1;
+                #endif
+
+                %(reduction_decs)s;
+
+                #pragma omp parallel default(shared)
+                {
+                  int tid = omp_get_thread_num();
+                  %(reduction_inits)s;
+                }
+
+                int boffset = 0;
+                for ( int __col  = 0; __col < ncolors; __col++ ) {
+                  int nblocks = ncolblk[__col];
+
+                  #pragma omp parallel default(shared)
+                  {
+                    int tid = omp_get_thread_num();
+
+                    #pragma omp for schedule(static)
+                    for ( int __b = boffset; __b < (boffset + nblocks); __b++ ) {
+                      int bid = blkmap[__b];
+                      int nelem = nelems[bid];
+                      int efirst = bid * part_size;
+                      for (int i = efirst; i < (efirst + nelem); i++ ) {
+                        %(vec_inits)s;
+                        %(itspace_loops)s
+                        %(zero_tmps)s;
+                        %(kernel_name)s(%(kernel_args)s);
+                        %(addtos_vector_field)s;
+                        %(itspace_loop_close)s
+                        %(addtos_scalar_field)s;
+                      }
+                    }
+                  }
+                  %(reduction_finalisations)s
+                  boffset += nblocks;
+                }
+              }
+              """
+
     def compute(self):
-        _fun = self.generate_code()
+        _fun = self.build()
         _args = [self._it_space.size]
         for arg in self.args:
             if arg._is_mat:
@@ -192,7 +253,7 @@ class ParLoop(device.ParLoop):
             if arg._is_mat:
                 arg.data._assemble()
 
-    def generate_code(self):
+    def build(self):
 
         key = self._cache_key
         _fun = petsc_base._parloop_cache.get(key)
@@ -202,116 +263,7 @@ class ParLoop(device.ParLoop):
 
         from instant import inline_with_numpy
 
-        def itspace_loop(i, d):
-            return "for (int i_%d=0; i_%d<%d; ++i_%d){" % (i, i, d, i)
-
-        def c_const_arg(c):
-            return 'PyObject *_%s' % c.name
-
-        def c_const_init(c):
-            d = {'name' : c.name,
-                 'type' : c.ctype}
-            if c.cdim == 1:
-                return '%(name)s = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[0]' % d
-            tmp = '%(name)s[%%(i)s] = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[%%(i)s]' % d
-            return ';\n'.join([tmp % {'i' : i} for i in range(c.cdim)])
-
-        args = self.args
-        _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in args])
-
-        _tmp_decs = ';\n'.join([arg.tmp_decl(self._it_space.extents) for arg in args if arg._is_mat])
-        _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in args])
-
-        _const_decs = '\n'.join([const._format_declaration() for const in Const._definitions()]) + '\n'
-
-        _kernel_user_args = [arg.c_kernel_arg() for arg in args]
-        _kernel_it_args   = ["i_%d" % d for d in range(len(self._it_space.extents))]
-        _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
-        _vec_inits = ';\n'.join([arg.c_vec_init() for arg in args \
-                                 if not arg._is_mat and arg._is_vec_map])
-
-        _itspace_loops = '\n'.join([itspace_loop(i,e) for i, e in zip(range(len(self._it_space.extents)), self._it_space.extents)])
-        _itspace_loop_close = '}'*len(self._it_space.extents)
-
-        _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field() for arg in args \
-                                           if arg._is_mat and arg.data._is_vector_field])
-        _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field() for arg in args \
-                                           if arg._is_mat and arg.data._is_scalar_field])
-
-        _zero_tmps = ';\n'.join([arg.c_zero_tmp() for arg in args if arg._is_mat])
-
-        _set_size_wrapper = 'PyObject *_%(set)s_size' % {'set' : self._it_space.name}
-        _set_size_dec = 'int %(set)s_size = (int)PyInt_AsLong(_%(set)s_size);' % {'set' : self._it_space.name}
-        _set_size = '%(set)s_size' % {'set' : self._it_space.name}
-
-        _reduction_decs = ';\n'.join([arg.c_reduction_dec() for arg in args if arg._is_global_reduction])
-        _reduction_inits = ';\n'.join([arg.c_reduction_init() for arg in args if arg._is_global_reduction])
-        _reduction_finalisations = '\n'.join([arg.c_reduction_finalisation() for arg in args if arg._is_global_reduction])
-
-        if len(Const._defs) > 0:
-            _const_args = ', '
-            _const_args += ', '.join([c_const_arg(c) for c in Const._definitions()])
-        else:
-            _const_args = ''
-        _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
-        wrapper = """
-            void wrap_%(kernel_name)s__(%(set_size_wrapper)s, %(wrapper_args)s %(const_args)s, PyObject* _part_size, PyObject* _ncolors, PyObject* _blkmap, PyObject* _ncolblk, PyObject* _nelems) {
-
-            int part_size = (int)PyInt_AsLong(_part_size);
-            int ncolors = (int)PyInt_AsLong(_ncolors);
-            int* blkmap = (int *)(((PyArrayObject *)_blkmap)->data);
-            int* ncolblk = (int *)(((PyArrayObject *)_ncolblk)->data);
-            int* nelems = (int *)(((PyArrayObject *)_nelems)->data);
-
-            %(set_size_dec)s;
-            %(wrapper_decs)s;
-            %(const_inits)s;
-            %(tmp_decs)s;
-
-            #ifdef _OPENMP
-            int nthread = omp_get_max_threads();
-            #else
-            int nthread = 1;
-            #endif
-
-            %(reduction_decs)s;
-
-            #pragma omp parallel default(shared)
-            {
-              int tid = omp_get_thread_num();
-              %(reduction_inits)s;
-            }
-
-            int boffset = 0;
-            for ( int __col  = 0; __col < ncolors; __col++ ) {
-              int nblocks = ncolblk[__col];
-
-              #pragma omp parallel default(shared)
-              {
-                int tid = omp_get_thread_num();
-
-                #pragma omp for schedule(static)
-                for ( int __b = boffset; __b < (boffset + nblocks); __b++ ) {
-                  int bid = blkmap[__b];
-                  int nelem = nelems[bid];
-                  int efirst = bid * part_size;
-                  for (int i = efirst; i < (efirst + nelem); i++ ) {
-                    %(vec_inits)s;
-                    %(itspace_loops)s
-                    %(zero_tmps)s;
-                    %(kernel_name)s(%(kernel_args)s);
-                    %(addtos_vector_field)s;
-                    %(itspace_loop_close)s
-                    %(addtos_scalar_field)s;
-                  }
-                }
-              }
-              %(reduction_finalisations)s
-              boffset += nblocks;
-            }
-          }"""
-
-        if any(arg._is_soa for arg in args):
+        if any(arg._is_soa for arg in self.args):
             kernel_code = """
             #define OP2_STRIDE(a, idx) a[idx]
             inline %(code)s
@@ -322,25 +274,9 @@ class ParLoop(device.ParLoop):
             inline %(code)s
             """ % {'code' : self._kernel.code }
 
-        code_to_compile =  wrapper % { 'kernel_name' : self._kernel.name,
-                                       'wrapper_args' : _wrapper_args,
-                                       'wrapper_decs' : _wrapper_decs,
-                                       'const_args' : _const_args,
-                                       'const_inits' : _const_inits,
-                                       'tmp_decs' : _tmp_decs,
-                                       'set_size' : _set_size,
-                                       'set_size_dec' : _set_size_dec,
-                                       'set_size_wrapper' : _set_size_wrapper,
-                                       'itspace_loops' : _itspace_loops,
-                                       'itspace_loop_close' : _itspace_loop_close,
-                                       'vec_inits' : _vec_inits,
-                                       'zero_tmps' : _zero_tmps,
-                                       'kernel_args' : _kernel_args,
-                                       'addtos_vector_field' : _addtos_vector_field,
-                                       'addtos_scalar_field' : _addtos_scalar_field,
-                                       'reduction_decs' : _reduction_decs,
-                                       'reduction_inits' : _reduction_inits,
-                                       'reduction_finalisations' : _reduction_finalisations}
+        code_to_compile = dedent(self.wrapper) % self.generate_code()
+
+        _const_decs = '\n'.join([const._format_declaration() for const in Const._definitions()]) + '\n'
 
         # We need to build with mpicc since that's required by PETSc
         cc = os.environ.get('CC')
@@ -362,6 +298,78 @@ class ParLoop(device.ParLoop):
 
         petsc_base._parloop_cache[key] = _fun
         return _fun
+
+    def generate_code(self):
+
+        def itspace_loop(i, d):
+            return "for (int i_%d=0; i_%d<%d; ++i_%d){" % (i, i, d, i)
+
+        def c_const_arg(c):
+            return 'PyObject *_%s' % c.name
+
+        def c_const_init(c):
+            d = {'name' : c.name,
+                 'type' : c.ctype}
+            if c.cdim == 1:
+                return '%(name)s = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[0]' % d
+            tmp = '%(name)s[%%(i)s] = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[%%(i)s]' % d
+            return ';\n'.join([tmp % {'i' : i} for i in range(c.cdim)])
+
+        _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self.args])
+
+        _tmp_decs = ';\n'.join([arg.tmp_decl(self._it_space.extents) for arg in self.args if arg._is_mat])
+        _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self.args])
+
+        _kernel_user_args = [arg.c_kernel_arg() for arg in self.args]
+        _kernel_it_args   = ["i_%d" % d for d in range(len(self._it_space.extents))]
+        _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
+        _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self.args \
+                                 if not arg._is_mat and arg._is_vec_map])
+
+        _itspace_loops = '\n'.join([itspace_loop(i,e) for i, e in zip(range(len(self._it_space.extents)), self._it_space.extents)])
+        _itspace_loop_close = '}'*len(self._it_space.extents)
+
+        _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field() for arg in self.args \
+                                           if arg._is_mat and arg.data._is_vector_field])
+        _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field() for arg in self.args \
+                                           if arg._is_mat and arg.data._is_scalar_field])
+
+        _zero_tmps = ';\n'.join([arg.c_zero_tmp() for arg in self.args if arg._is_mat])
+
+        _set_size_wrapper = 'PyObject *_%(set)s_size' % {'set' : self._it_space.name}
+        _set_size_dec = 'int %(set)s_size = (int)PyInt_AsLong(_%(set)s_size);' % {'set' : self._it_space.name}
+        _set_size = '%(set)s_size' % {'set' : self._it_space.name}
+
+        _reduction_decs = ';\n'.join([arg.c_reduction_dec() for arg in self.args if arg._is_global_reduction])
+        _reduction_inits = ';\n'.join([arg.c_reduction_init() for arg in self.args if arg._is_global_reduction])
+        _reduction_finalisations = '\n'.join([arg.c_reduction_finalisation() for arg in self.args if arg._is_global_reduction])
+
+        if len(Const._defs) > 0:
+            _const_args = ', '
+            _const_args += ', '.join([c_const_arg(c) for c in Const._definitions()])
+        else:
+            _const_args = ''
+        _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
+
+        return {'kernel_name' : self._kernel.name,
+                'wrapper_args' : _wrapper_args,
+                'wrapper_decs' : _wrapper_decs,
+                'const_args' : _const_args,
+                'const_inits' : _const_inits,
+                'tmp_decs' : _tmp_decs,
+                'set_size' : _set_size,
+                'set_size_dec' : _set_size_dec,
+                'set_size_wrapper' : _set_size_wrapper,
+                'itspace_loops' : _itspace_loops,
+                'itspace_loop_close' : _itspace_loop_close,
+                'vec_inits' : _vec_inits,
+                'zero_tmps' : _zero_tmps,
+                'kernel_args' : _kernel_args,
+                'addtos_vector_field' : _addtos_vector_field,
+                'addtos_scalar_field' : _addtos_scalar_field,
+                'reduction_decs' : _reduction_decs,
+                'reduction_inits' : _reduction_inits,
+                'reduction_finalisations' : _reduction_finalisations}
 
     @property
     def _requires_matrix_coloring(self):
