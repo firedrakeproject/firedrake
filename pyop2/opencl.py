@@ -36,7 +36,7 @@
 from device import *
 import device as op2
 import petsc_base
-from utils import verify_reshape, uniquify, maybe_setflags, comment_remover
+from utils import verify_reshape, uniquify, maybe_setflags
 import configuration as cfg
 import pyopencl as cl
 from pyopencl import array

@@ -242,19 +242,6 @@ def parse_args(*args, **kwargs):
     The only recognised options are `group` and `description`."""
     return vars(parser(*args, **kwargs).parse_args())
 
-def comment_remover(text):
-    """Remove all C- and C++-style comments from a string."""
-    # Reference: http://stackoverflow.com/questions/241327/python-snippet-to-remove-c-and-c-comments
-    def replacer(match):
-        s = match.group(0)
-        if s.startswith('/'):
-            return ""
-        else:
-            return s
-    pattern = re.compile(r'//.*?$|/\*.*?\*/|\'(?:\\.|[^\\\'])*\'|"(?:\\.|[^\\"])*"',
-                         re.DOTALL | re.MULTILINE)
-    return re.sub(pattern, replacer, text)
-
 def preprocess(text):
     p = Popen(['cpp', '-E', '-I' + os.path.dirname(__file__)], stdin=PIPE,
               stdout=PIPE, universal_newlines=True)
