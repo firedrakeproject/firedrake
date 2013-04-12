@@ -36,7 +36,7 @@
 from device import *
 import device as op2
 import petsc_base
-from utils import verify_reshape, uniquify, maybe_setflags, comment_remover
+from utils import verify_reshape, uniquify, maybe_setflags
 import configuration as cfg
 import pyopencl as cl
 from pyopencl import array
@@ -94,7 +94,7 @@ class Kernel(op2.Kernel):
                 node.params.append(decl)
 
     def instrument(self, instrument, constants):
-        ast = c_parser.CParser().parse(comment_remover(self._code).replace("\\\n", "\n"))
+        ast = c_parser.CParser().parse(self._code)
         Kernel.Instrument().instrument(ast, self._name, instrument, constants)
         return c_generator.CGenerator().visit(ast)
 

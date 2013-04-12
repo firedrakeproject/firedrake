@@ -56,7 +56,7 @@ class Kernel(op2.Kernel):
             node.decl.funcspec.insert(0,'__device__')
 
     def instrument(self, constants):
-        ast = c_parser.CParser().parse(comment_remover(self._code).replace("\\\n", "\n"))
+        ast = c_parser.CParser().parse(self._code)
         Kernel.Instrument().generic_visit(ast)
         return c_generator.CGenerator().visit(ast)
 
