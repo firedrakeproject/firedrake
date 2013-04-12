@@ -581,13 +581,13 @@ class TestSparsityCache:
     def test_sparsities_same_map_and_dim_share_data_longhand(self, backend, m1):
         """Sparsities with the same map and dim should share a C handle
 
-Even if we spell the dimension with a shorthand and longhand form."""
+        Even if we spell the dimension with a shorthand and longhand form."""
         sp1 = op2.Sparsity((m1, m1), (1,1))
         sp2 = op2.Sparsity((m1, m1), 1)
 
         assert sp1 is sp2
 
-    def test_two_mats_on_same_sparsity_share_data(self, backend, m1, skip_sequential):
+    def test_two_mats_on_same_sparsity_share_data(self, backend, m1, skip_sequential, skip_openmp):
         """Sparsity data should be shared between Mat objects.
         Even on the device."""
         sp = op2.Sparsity((m1, m1), (1, 1))

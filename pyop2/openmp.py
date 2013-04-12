@@ -113,17 +113,6 @@ class Arg(host.Arg):
         }""" % {'combine' : combine,
                 'dim' : self.data.cdim}
 
-class Mat(petsc_base.Mat):
-    # This is needed for the test harness to check that two Mats on
-    # the same Sparsity share data.
-    @property
-    def _colidx(self):
-        return self._sparsity._colidx
-
-    @property
-    def _rowptr(self):
-        return self._sparsity._rowptr
-
 # Parallel loop API
 
 def par_loop(kernel, it_space, *args):
