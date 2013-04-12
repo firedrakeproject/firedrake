@@ -57,7 +57,7 @@ class ParLoop(host.ParLoop):
                 int start = (int)PyInt_AsLong(_start);
                 int end = (int)PyInt_AsLong(_end);
                 %(wrapper_decs)s;
-                %(tmp_decs)s;
+                %(local_tensor_decs)s;
                 %(const_inits)s;
                 for ( int i = start; i < end; i++ ) {
                   %(vec_inits)s;

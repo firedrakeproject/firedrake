@@ -103,7 +103,7 @@ class Arg(base.Arg):
     def c_global_reduction_name(self):
         return self.c_arg_name()
 
-    def c_tmp_name(self):
+    def c_local_tensor_name(self):
         return self.c_kernel_arg_name()
 
     def c_kernel_arg(self):
@@ -184,7 +184,7 @@ class Arg(base.Arg):
                         % (self.c_arg_name(), val, row, col, self.access == WRITE))
         return ';\n'.join(s)
 
-    def tmp_decl(self, extents):
+    def c_local_tensor_dec(self, extents):
         t = self.data.ctype
         if self.data._is_scalar_field:
             dims = ''.join(["[%d]" % d for d in extents])
@@ -192,7 +192,7 @@ class Arg(base.Arg):
             dims = ''.join(["[%d]" % d for d in self.data.dims])
         else:
             raise RuntimeError("Don't know how to declare temp array for %s" % self)
-        return "%s %s%s" % (t, self.c_tmp_name(), dims)
+        return "%s %s%s" % (t, self.c_local_tensor_name(), dims)
 
     def c_zero_tmp(self):
         t = self.ctype
@@ -275,7 +275,7 @@ class ParLoop(base.ParLoop):
 
         _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self.args])
 
-        _tmp_decs = ';\n'.join([arg.tmp_decl(self._it_space.extents) for arg in self.args if arg._is_mat])
+        _local_tensor_decs = ';\n'.join([arg.c_local_tensor_dec(self._it_space.extents) for arg in self.args if arg._is_mat])
         _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self.args])
 
         _kernel_user_args = [arg.c_kernel_arg() for arg in self.args]
@@ -309,7 +309,7 @@ class ParLoop(base.ParLoop):
                 'wrapper_decs': indent(_wrapper_decs, 1),
                 'const_args': _const_args,
                 'const_inits': indent(_const_inits, 1),
-                'tmp_decs': indent(_tmp_decs, 1),
+                'local_tensor_decs': indent(_local_tensor_decs, 1),
                 'itspace_loops': indent(_itspace_loops, 2),
                 'itspace_loop_close': indent(_itspace_loop_close, 2),
                 'vec_inits': indent(_vec_inits, 2),

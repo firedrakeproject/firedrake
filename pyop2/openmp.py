@@ -71,7 +71,7 @@ class Arg(host.Arg):
     def c_global_reduction_name(self):
         return "%s_l[tid]" % self.c_arg_name()
 
-    def c_tmp_name(self):
+    def c_local_tensor_name(self):
         return self.c_kernel_arg_name(str(_max_threads))
 
     def c_vec_dec(self):
@@ -134,7 +134,7 @@ class ParLoop(device.ParLoop, host.ParLoop):
                 %(set_size_dec)s;
                 %(wrapper_decs)s;
                 %(const_inits)s;
-                %(tmp_decs)s;
+                %(local_tensor_decs)s;
 
                 #ifdef _OPENMP
                 int nthread = omp_get_max_threads();
