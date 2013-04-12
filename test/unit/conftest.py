@@ -78,6 +78,10 @@ def skip_opencl():
 def skip_sequential():
     return None
 
+@pytest.fixture
+def skip_openmp():
+    return None
+
 def pytest_generate_tests(metafunc):
     """Parametrize tests to run on all backends."""
 

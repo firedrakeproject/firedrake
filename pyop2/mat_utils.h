@@ -8,6 +8,5 @@
 void addto_scalar(Mat mat, const void *value, int row, int col, int insert);
 void addto_vector(Mat mat, const void* values, int nrows,
                   const int *irows, int ncols, const int *icols, int insert);
-void assemble_mat(Mat mat);
 
 #endif // _MAT_UTILS_H

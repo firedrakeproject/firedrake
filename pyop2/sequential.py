@@ -35,15 +35,14 @@
 
 import os
 import numpy as np
-from textwrap import dedent
 
-import configuration as cfg
 from exceptions import *
-from find_op2 import *
-from utils import *
+from utils import as_tuple
 import op_lib_core as core
 import petsc_base
 from petsc_base import *
+import host
+from host import Arg
 
 # Parallel loop API
 
@@ -51,9 +50,29 @@ def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
     ParLoop(kernel, it_space, *args).compute()
 
-class ParLoop(petsc_base.ParLoop):
+class ParLoop(host.ParLoop):
+
+    wrapper = """
+              void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %(const_args)s) {
+                int start = (int)PyInt_AsLong(_start);
+                int end = (int)PyInt_AsLong(_end);
+                %(wrapper_decs)s;
+                %(local_tensor_decs)s;
+                %(const_inits)s;
+                for ( int i = start; i < end; i++ ) {
+                  %(vec_inits)s;
+                  %(itspace_loops)s
+                  %(ind)s%(zero_tmps)s;
+                  %(ind)s%(kernel_name)s(%(kernel_args)s);
+                  %(ind)s%(addtos_vector_field)s;
+                  %(itspace_loop_close)s
+                  %(addtos_scalar_field)s;
+                }
+              }
+              """
+
     def compute(self):
-        _fun = self.generate_code()
+        _fun = self.build()
         _args = [0, 0]          # start, stop
         for arg in self.args:
             if arg._is_mat:
@@ -98,281 +117,6 @@ class ParLoop(petsc_base.ParLoop):
         for arg in self.args:
             if arg._is_mat:
                 arg.data._assemble()
-
-    def generate_code(self):
-
-        key = self._cache_key
-        _fun = petsc_base._parloop_cache.get(key)
-
-        if _fun is not None:
-            return _fun
-
-        from instant import inline_with_numpy
-
-        def c_arg_name(arg):
-            name = arg.data.name
-            if arg._is_indirect and not (arg._is_vec_map or arg._uses_itspace):
-                name += str(arg.idx)
-            return name
-
-        def c_vec_name(arg):
-            return c_arg_name(arg) + "_vec"
-
-        def c_map_name(arg):
-            return c_arg_name(arg) + "_map"
-
-        def c_wrapper_arg(arg):
-            val = "PyObject *_%(name)s" % {'name' : c_arg_name(arg) }
-            if arg._is_indirect or arg._is_mat:
-                val += ", PyObject *_%(name)s" % {'name' : c_map_name(arg)}
-                maps = as_tuple(arg.map, Map)
-                if len(maps) is 2:
-                    val += ", PyObject *_%(name)s" % {'name' : c_map_name(arg)+'2'}
-            return val
-
-        def c_wrapper_dec(arg):
-            if arg._is_mat:
-                val = "Mat %(name)s = (Mat)((uintptr_t)PyLong_AsUnsignedLong(_%(name)s))" % \
-                     { "name": c_arg_name(arg) }
-            else:
-                val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
-                  {'name' : c_arg_name(arg), 'type' : arg.ctype}
-            if arg._is_indirect or arg._is_mat:
-                val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" % \
-                       {'name' : c_map_name(arg)}
-            if arg._is_mat:
-                val += ";\nint *%(name)s2 = (int *)(((PyArrayObject *)_%(name)s2)->data)" % \
-                           {'name' : c_map_name(arg)}
-            if arg._is_vec_map:
-                val += ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
-                       {'type' : arg.ctype,
-                        'vec_name' : c_vec_name(arg),
-                        'dim' : arg.map.dim}
-            return val
-
-        def c_ind_data(arg, idx):
-            return "%(name)s + %(map_name)s[i * %(map_dim)s + %(idx)s] * %(dim)s" % \
-                    {'name' : c_arg_name(arg),
-                     'map_name' : c_map_name(arg),
-                     'map_dim' : arg.map.dim,
-                     'idx' : idx,
-                     'dim' : arg.data.cdim}
-
-        def c_kernel_arg(arg):
-            if arg._uses_itspace:
-                if arg._is_mat:
-                    name = "p_%s" % c_arg_name(arg)
-                    if arg.data._is_vector_field:
-                        return name
-                    elif arg.data._is_scalar_field:
-                        idx = ''.join(["[i_%d]" % i for i, _ in enumerate(arg.data.dims)])
-                        return "(%(t)s (*)[1])&%(name)s%(idx)s" % \
-                            {'t' : arg.ctype,
-                             'name' : name,
-                             'idx' : idx}
-                    else:
-                        raise RuntimeError("Don't know how to pass kernel arg %s" % arg)
-                else:
-                    return c_ind_data(arg, "i_%d" % arg.idx.index)
-            elif arg._is_indirect:
-                if arg._is_vec_map:
-                    return c_vec_name(arg)
-                return c_ind_data(arg, arg.idx)
-            elif isinstance(arg.data, Global):
-                return c_arg_name(arg)
-            else:
-                return "%(name)s + i * %(dim)s" % \
-                    {'name' : c_arg_name(arg),
-                     'dim' : arg.data.cdim}
-
-        def c_vec_init(arg):
-            val = []
-            for i in range(arg.map._dim):
-                val.append("%(vec_name)s[%(idx)s] = %(data)s" %
-                           {'vec_name' : c_vec_name(arg),
-                            'idx' : i,
-                            'data' : c_ind_data(arg, i)} )
-            return ";\n".join(val)
-
-        def c_addto_scalar_field(arg):
-            name = c_arg_name(arg)
-            p_data = 'p_%s' % name
-            maps = as_tuple(arg.map, Map)
-            nrows = maps[0].dim
-            ncols = maps[1].dim
-
-            return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
-                {'mat' : name,
-                 'vals' : p_data,
-                 'nrows' : nrows,
-                 'ncols' : ncols,
-                 'rows' : "%s + i * %s" % (c_map_name(arg), nrows),
-                 'cols' : "%s2 + i * %s" % (c_map_name(arg), ncols),
-                 'insert' : arg.access == WRITE }
-
-        def c_addto_vector_field(arg):
-            name = c_arg_name(arg)
-            p_data = 'p_%s' % name
-            maps = as_tuple(arg.map, Map)
-            nrows = maps[0].dim
-            ncols = maps[1].dim
-            dims = arg.data.sparsity.dims
-            rmult = dims[0]
-            cmult = dims[1]
-            s = []
-            for i in xrange(rmult):
-                for j in xrange(cmult):
-                    idx = '[%d][%d]' % (i, j)
-                    val = "&%s%s" % (p_data, idx)
-                    row = "%(m)s * %(map)s[i * %(dim)s + i_0] + %(i)s" % \
-                          {'m' : rmult,
-                           'map' : c_map_name(arg),
-                           'dim' : nrows,
-                           'i' : i }
-                    col = "%(m)s * %(map)s2[i * %(dim)s + i_1] + %(j)s" % \
-                          {'m' : cmult,
-                           'map' : c_map_name(arg),
-                           'dim' : ncols,
-                           'j' : j }
-
-                    s.append('addto_scalar(%s, %s, %s, %s, %d)' \
-                            % (name, val, row, col, arg.access == WRITE))
-            return ';\n'.join(s)
-
-        def itspace_loop(i, d):
-            return "for (int i_%d=0; i_%d<%d; ++i_%d) {" % (i, i, d, i)
-
-        def tmp_decl(arg, extents):
-            t = arg.data.ctype
-            if arg.data._is_scalar_field:
-                dims = ''.join(["[%d]" % d for d in extents])
-            elif arg.data._is_vector_field:
-                dims = ''.join(["[%d]" % d for d in arg.data.dims])
-            else:
-                raise RuntimeError("Don't know how to declare temp array for %s" % arg)
-            return "%s p_%s%s" % (t, c_arg_name(arg), dims)
-
-        def c_zero_tmp(arg):
-            name = "p_" + c_arg_name(arg)
-            t = arg.ctype
-            if arg.data._is_scalar_field:
-                idx = ''.join(["[i_%d]" % i for i,_ in enumerate(arg.data.dims)])
-                return "%(name)s%(idx)s = (%(t)s)0" % \
-                    {'name' : name, 't' : t, 'idx' : idx}
-            elif arg.data._is_vector_field:
-                size = np.prod(arg.data.dims)
-                return "memset(%(name)s, 0, sizeof(%(t)s) * %(size)s)" % \
-                    {'name' : name, 't' : t, 'size' : size}
-            else:
-                raise RuntimeError("Don't know how to zero temp array for %s" % arg)
-
-        def c_const_arg(c):
-            return 'PyObject *_%s' % c.name
-
-        def c_const_init(c):
-            d = {'name' : c.name,
-                 'type' : c.ctype}
-            if c.cdim == 1:
-                return '%(name)s = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[0]' % d
-            tmp = '%(name)s[%%(i)s] = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[%%(i)s]' % d
-            return ';\n'.join([tmp % {'i' : i} for i in range(c.cdim)])
-
-        args = self.args
-        _wrapper_args = ', '.join([c_wrapper_arg(arg) for arg in args])
-
-        _tmp_decs = ';\n'.join([tmp_decl(arg, self._it_space.extents) for arg in args if arg._is_mat])
-        _wrapper_decs = ';\n'.join([c_wrapper_dec(arg) for arg in args])
-
-        _const_decs = '\n'.join([const._format_declaration() for const in Const._definitions()]) + '\n'
-
-        _kernel_user_args = [c_kernel_arg(arg) for arg in args]
-        _kernel_it_args   = ["i_%d" % d for d in range(len(self._it_space.extents))]
-        _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
-        _vec_inits = ';\n'.join([c_vec_init(arg) for arg in args \
-                                 if not arg._is_mat and arg._is_vec_map])
-
-        nloops = len(self._it_space.extents)
-        _itspace_loops = '\n'.join(['  ' * i + itspace_loop(i,e) for i, e in enumerate(self._it_space.extents)])
-        _itspace_loop_close = '\n'.join('  ' * i + '}' for i in range(nloops - 1, -1, -1))
-
-        _addtos_vector_field = ';\n'.join([c_addto_vector_field(arg) for arg in args \
-                                           if arg._is_mat and arg.data._is_vector_field])
-        _addtos_scalar_field = ';\n'.join([c_addto_scalar_field(arg) for arg in args \
-                                           if arg._is_mat and arg.data._is_scalar_field])
-
-        _zero_tmps = ';\n'.join([c_zero_tmp(arg) for arg in args if arg._is_mat])
-
-        if len(Const._defs) > 0:
-            _const_args = ', '
-            _const_args += ', '.join([c_const_arg(c) for c in Const._definitions()])
-        else:
-            _const_args = ''
-        _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
-        wrapper = """
-                  void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %(const_args)s) {
-                    int start = (int)PyInt_AsLong(_start);
-                    int end = (int)PyInt_AsLong(_end);
-                    %(wrapper_decs)s;
-                    %(tmp_decs)s;
-                    %(const_inits)s;
-                    for ( int i = start; i < end; i++ ) {
-                      %(vec_inits)s;
-                      %(itspace_loops)s
-                      %(ind)s%(zero_tmps)s;
-                      %(ind)s%(kernel_name)s(%(kernel_args)s);
-                      %(ind)s%(addtos_vector_field)s;
-                      %(itspace_loop_close)s
-                      %(addtos_scalar_field)s;
-                    }
-                  }
-                  """
-
-        if any(arg._is_soa for arg in args):
-            kernel_code = """
-            #define OP2_STRIDE(a, idx) a[idx]
-            inline %(code)s
-            #undef OP2_STRIDE
-            """ % {'code' : self._kernel.code}
-        else:
-            kernel_code = """
-            inline %(code)s
-            """ % {'code' : self._kernel.code }
-        indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
-        code_to_compile = dedent(wrapper) % {
-            'ind': '  ' * nloops,
-            'kernel_name': self._kernel.name,
-            'wrapper_args': _wrapper_args,
-            'wrapper_decs': indent(_wrapper_decs, 1),
-            'const_args': _const_args,
-            'const_inits': indent(_const_inits, 1),
-            'tmp_decs': indent(_tmp_decs, 1),
-            'itspace_loops': indent(_itspace_loops, 2),
-            'itspace_loop_close': indent(_itspace_loop_close, 2),
-            'vec_inits': indent(_vec_inits, 2),
-            'zero_tmps': indent(_zero_tmps, 2 + nloops),
-            'kernel_args': _kernel_args,
-            'addtos_vector_field': indent(_addtos_vector_field, 2 + nloops),
-            'addtos_scalar_field': indent(_addtos_scalar_field, 2)}
-
-        # We need to build with mpicc since that's required by PETSc
-        cc = os.environ.get('CC')
-        os.environ['CC'] = 'mpicc'
-        _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
-                                 additional_definitions = _const_decs + kernel_code,
-                                 cppargs = ['-O0', '-g'] if cfg.debug else [],
-                                 include_dirs=[OP2_INC, get_petsc_dir()+'/include'],
-                                 source_directory=os.path.dirname(os.path.abspath(__file__)),
-                                 wrap_headers=["mat_utils.h"],
-                                 library_dirs=[OP2_LIB, get_petsc_dir()+'/lib'],
-                                 libraries=['op2_seq', 'petsc'],
-                                 sources=["mat_utils.cxx"])
-        if cc:
-            os.environ['CC'] = cc
-        else:
-            os.environ.pop('CC')
-
-        petsc_base._parloop_cache[key] = _fun
-        return _fun
 
 def _setup():
     pass
