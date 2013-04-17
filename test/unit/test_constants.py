@@ -38,18 +38,18 @@ from pyop2 import op2
 
 size = 8
 
+@pytest.fixture(scope='module')
+def set():
+    return op2.Set(size)
+
+@pytest.fixture
+def dat(set):
+    return op2.Dat(set, numpy.zeros(size, dtype=numpy.int32))
+
 class TestConstant:
     """
     Tests of OP2 Constants
     """
-
-    @pytest.fixture(scope='module')
-    def set(cls):
-        return op2.Set(size)
-
-    @pytest.fixture
-    def dat(cls, set):
-        return op2.Dat(set, 1, numpy.zeros(size, dtype=numpy.int32))
 
     def test_1d_read(self, backend, set, dat):
         kernel = """

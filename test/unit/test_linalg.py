@@ -44,23 +44,23 @@ def set():
 
 @pytest.fixture
 def x(set):
-    return op2.Dat(set, 1, None, np.float64, "x")
+    return op2.Dat(set, None, np.float64, "x")
 
 @pytest.fixture
 def y(set):
-    return op2.Dat(set, 1, np.arange(1,nelems+1), np.float64, "y")
+    return op2.Dat(set, np.arange(1,nelems+1), np.float64, "y")
 
 @pytest.fixture
 def yi(set):
-    return op2.Dat(set, 1, np.arange(1,nelems+1), np.int64, "y")
+    return op2.Dat(set, np.arange(1,nelems+1), np.int64, "y")
 
 @pytest.fixture
-def x2(set):
-    return op2.Dat(set, (1,2), np.zeros(2*nelems), np.float64, "x")
+def x2():
+    return op2.Dat(op2.Set(nelems, (1,2)), np.zeros(2*nelems), np.float64, "x")
 
 @pytest.fixture
-def y2(set):
-    return op2.Dat(set, (2,1), np.zeros(2*nelems), np.float64, "y")
+def y2():
+    return op2.Dat(op2.Set(nelems, (2,1)), np.zeros(2*nelems), np.float64, "y")
 
 class TestLinAlgOp:
     """
@@ -246,5 +246,5 @@ class TestLinAlgScalar:
     """
 
     def test_norm(self, backend):
-        n = op2.Dat(op2.Set(2), 1, [3,4], np.float64, "n")
+        n = op2.Dat(op2.Set(2), [3,4], np.float64, "n")
         assert abs(n.norm - 5) < 1e-12

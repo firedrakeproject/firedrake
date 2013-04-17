@@ -57,11 +57,11 @@ class TestColoring:
 
     @pytest.fixture
     def nodes(cls):
-        return op2.Set(NUM_NODES, "nodes")
+        return op2.Set(NUM_NODES, 1, "nodes")
 
     @pytest.fixture
     def elements(cls):
-        return op2.Set(NUM_ELE, "elements")
+        return op2.Set(NUM_ELE, 1, "elements")
 
     @pytest.fixture
     def elem_node_map(cls):
@@ -79,7 +79,7 @@ class TestColoring:
 
     @pytest.fixture
     def x(cls, nodes):
-        return op2.Dat(nodes, 1, numpy.zeros(NUM_NODES, dtype=numpy.uint32), numpy.uint32, "x")
+        return op2.Dat(nodes, numpy.zeros(NUM_NODES, dtype=numpy.uint32), numpy.uint32, "x")
 
     def test_thread_coloring(self, backend, elements, elem_node_map, elem_node, mat, x):
         # skip test:
