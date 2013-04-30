@@ -382,13 +382,13 @@ class Set(object):
         return "Set(%r, %r, %r)" % (self._size, self._dim, self._name)
 
     @classmethod
-    def fromhdf5(cls, f, name):
+    def fromhdf5(cls, f, name, dim=1):
         """Construct a :class:`Set` from set named ``name`` in HDF5 data ``f``"""
         slot = f[name]
         if slot.shape != (1,):
             raise SizeTypeError("Shape of %s is incorrect" % name)
         size = slot.value.astype(np.int)
-        dim = slot.attrs.get('dim', 1)
+        dim = slot.attrs.get('dim', dim)
         return cls(size[0], dim, name)
 
     @property
