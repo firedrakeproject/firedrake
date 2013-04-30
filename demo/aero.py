@@ -58,15 +58,17 @@ try:
     with h5py.File(opt['mesh'], 'r') as f:
         # sets
         nodes  = op2.Set.fromhdf5(f, 'nodes')
+        vnodes  = op2.Set.fromhdf5(f, 'nodes', dim=2)
         bnodes = op2.Set.fromhdf5(f, 'bedges')
-        cells  = op2.Set.fromhdf5(f, 'cells')
+        cells  = op2.Set.fromhdf5(f, 'cells', dim=16)
 
         # maps
         pbnodes = op2.Map.fromhdf5(bnodes, nodes, f, 'pbedge')
         pcell   = op2.Map.fromhdf5(cells,  nodes, f, 'pcell')
+        pvcell  = op2.Map.fromhdf5(cells, vnodes, f, 'pcell')
 
         # dats
-        p_xm   = op2.Dat.fromhdf5(nodes, f, 'p_x')
+        p_xm   = op2.Dat.fromhdf5(vnodes, f, 'p_x')
         p_phim = op2.Dat.fromhdf5(nodes, f, 'p_phim')
         p_resm = op2.Dat.fromhdf5(nodes, f, 'p_resm')
         p_K    = op2.Dat.fromhdf5(cells, f, 'p_K')
@@ -129,7 +131,7 @@ niter = 20
 for i in xrange(1, niter+1):
 
     op2.par_loop(res_calc, cells,
-                 p_xm(pcell, op2.READ),
+                 p_xm(pvcell, op2.READ),
                  p_phim(pcell, op2.READ),
                  p_K(op2.IdentityMap, op2.WRITE),
                  p_resm(pcell, op2.INC))
