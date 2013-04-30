@@ -84,7 +84,7 @@ elements = op2.Set(NUM_ELE, 1, "elements")
 elem_node_map = np.asarray([ 0, 1, 3, 2, 3, 1 ], dtype=np.uint32)
 elem_vnode = op2.Map(elements, vnodes, 3, elem_node_map, "elem_vnode")
 
-sparsity = op2.Sparsity((elem_vnode, elem_vnode), 2, "sparsity")
+sparsity = op2.Sparsity((elem_vnode, elem_vnode), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 coord_vals = np.asarray([ (0.0, 0.0), (2.0, 0.0), (1.0, 1.0), (0.0, 1.5) ],

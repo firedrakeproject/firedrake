@@ -112,7 +112,7 @@ valuetype = np.float64
 nodes, vnodes, coords, elements, elem_node, elem_vnode = read_triangle(opt['mesh'])
 num_nodes = nodes.size
 
-sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
+sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 tracer_vals = np.zeros(num_nodes, dtype=valuetype)

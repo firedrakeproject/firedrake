@@ -115,7 +115,7 @@ else:
 elem_node = op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 elem_vnode = op2.Map(elements, vnodes, 3, elem_node_map, "elem_vnode")
 
-sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
+sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 if c.rank == 0:

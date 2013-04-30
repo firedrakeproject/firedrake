@@ -114,7 +114,7 @@ top_bdry_elem_vnode = op2.Map(top_bdry_elements, vnodes, 3,
 bdry_node_node_map = np.asarray([0, 1, 2 ], dtype=valuetype)
 bdry_node_node = op2.Map(bdry_nodes, nodes, 1, bdry_node_node_map, "bdry_node_node")
 
-sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
+sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 coord_vals = np.asarray([ (0.0, 0.0), (0.5, 0.0), (1.0, 0.0),
