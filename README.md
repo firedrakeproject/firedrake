@@ -21,7 +21,7 @@ sudo apt-get install -y build-essential python-dev bzr git-core mercurial \
 ## OP2-Common
 
 PyOP2 depends on the [OP2-Common](https://github.com/OP2/OP2-Common) library
-(only sequential is needed), which is built as follows:
+(only sequential is needed), which is built in-place as follows:
 ```
 git clone git://github.com/OP2/OP2-Common.git
 cd OP2-Common/op2/c
@@ -33,8 +33,8 @@ export OP2_DIR=`pwd`
 For further instructions refer to the [OP2-Common README]
 (https://github.com/OP2/OP2-Common/blob/master/op2/c/README).
 
-If you already have OP2-Common installed, make sure `OP2_DIR` is exported or
-the PyOP2 setup will fail.
+If you have already built OP2-Common, make sure `OP2_DIR` is exported or the
+PyOP2 setup will fail.
 
 ## Dependencies
 
@@ -75,12 +75,18 @@ bindings for the [PETSc](http://www.mcs.anl.gov/petsc/) linear algebra library.
 We maintain [a fork of petsc4py][petsc4py_repo] with extensions that are
 required by PyOP2 and requires:
   * an MPI implementation built with *shared libraries*
-  * PETSc 3.2 or 3.3 built with *shared libraries*
+  * PETSc 3.3 built with *shared libraries*
 
 If you have a suitable PETSc installed on your system, `PETSC_DIR` and
-`PETSC_ARCH` need to be set for the petsc4py installer to find it.
+`PETSC_ARCH` need to be set for the petsc4py installer to find it. On a
+Debian/Ubuntu system with PETSc 3.3 installed, this can be achieved via:
+```
+export PETSC_DIR=/usr/lib/petscdir/3.3
+export PETSC_ARCH=linux-gnu-c-opt
+```
 
-If not, make sure all PETSc dependencies (BLAS/LAPACK, MPI and a fortran
+
+If not, make sure all PETSc dependencies (BLAS/LAPACK, MPI and a Fortran
 compiler) are installed. On a Debian based system, run:
 ```
 sudo apt-get install -y libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran
@@ -93,6 +99,9 @@ PETSC_CONFIGURE_OPTIONS="--with-fortran-interfaces=1 --with-c++-support --with-o
 unset PETSC_DIR
 unset PETSC_ARCH
 ```
+
+If you built PETSc using `pip`, `PETSC_DIR` and `PETSC_ARCH` should be
+left unset when building petsc4py.
 
 Install [petsc4py][petsc4py_repo] via `pip`:
 ```
@@ -118,8 +127,14 @@ Install via `pip`:
 pip install codepy Jinja2 mako hg+https://bitbucket.org/eliben/pycparser#egg=pycparser-2.09.1
 ```
 
-pycuda: Make sure `nvcc` is in your `$PATH` and `libcuda.so` in your
-`$LIBRARY_PATH` if in a non-standard location.
+PyCuda can be installed on recent versions of Debian/Ubuntu by executing:
+```
+sudo apt-get install python-pycuda
+```
+
+If a PyCuda package is not available, it will be necessary to install it manually.
+Make sure `nvcc` is in your `$PATH` and `libcuda.so` in your
+`$LIBRARY_PATH` if in a non-standard location:
 ```
 export CUDA_ROOT=/usr/local/cuda # change as appropriate
 cd /tmp
@@ -155,8 +170,11 @@ sudo apt-get install alien fakeroot
 wget http://registrationcenter.intel.com/irc_nas/2563/intel_sdk_for_ocl_applications_2012_x64.tgz
 tar xzf intel_sdk_for_ocl_applications_2012_x64.tgz
 fakeroot alien *.rpm
-sudo dpkg -i *.deb
+sudo dpkg -i --force-overwrite *.deb
 ```
+
+The `--force-overwrite` option is necessary in order to resolve conflicts with
+the opencl-headers package (if installed).
 
 Installing the [AMD OpenCL toolkit][AMD_opencl] (32bit and 64bit systems):
 ```
@@ -188,8 +206,9 @@ Clone the PyOP2 repository:
 git clone git://github.com/OP2/PyOP2.git
 ```
 
-PyOP2 uses [Cython](http://cython.org) extension modules, which need to be
-built in-place when using PyOP2 from the source tree:
+If not set, `OP2_DIR` should be set to the location of the 'op2' folder within
+the OP2-Common build. PyOP2 uses [Cython](http://cython.org) extension modules,
+which need to be built in-place when using PyOP2 from the source tree:
 ```
 python setup.py build_ext --inplace
 ```
@@ -280,6 +299,14 @@ sudo apt-get install python-pytest
 or pip
 ```
 pip install pytest
+```
+
+If you install pytest using `pip --user`, you should include the pip binary
+folder in you path by adding the following to `.env`.
+
+```
+# Add pytest binaries to the path
+export PATH=${PATH}:${HOME}/.local/bin
 ```
 
 If all tests in our test suite pass, you should be good to go:
