@@ -1129,8 +1129,6 @@ class Sparsity(object):
         or a tuple of pairs of :class:`Maps` specifying multiple row and
         column maps - if a single :class:`Map` is passed, it is used as both a
         row map and a column map
-    :param dims: row and column dimensions of a single :class:`Sparsity` entry
-    :type dims: pair of integers or integer used for rows and columns
     :param string name: user-defined label (optional)
 
     Examples of constructing a Sparsity: ::
@@ -1142,18 +1140,15 @@ class Sparsity(object):
 
     _globalcount = 0
 
-    @validate_type(('maps', (Map, tuple), MapTypeError), \
-                   ('dims', (int, tuple), TypeError))
-    def __new__(cls, maps, dims, name=None):
-        key = (maps, as_tuple(dims, int, 2))
-        cached = _sparsity_cache.get(key)
+    @validate_type(('maps', (Map, tuple), MapTypeError),)
+    def __new__(cls, maps, name=None):
+        cached = _sparsity_cache.get(maps)
         if cached is not None:
             return cached
-        return super(Sparsity, cls).__new__(cls, maps, dims, name)
+        return super(Sparsity, cls).__new__(cls, maps, name)
 
-    @validate_type(('maps', (Map, tuple), MapTypeError), \
-                   ('dims', (int, tuple), TypeError))
-    def __init__(self, maps, dims, name=None):
+    @validate_type(('maps', (Map, tuple), MapTypeError),)
+    def __init__(self, maps, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
 
         if getattr(self, '_cached', False):
@@ -1184,14 +1179,14 @@ class Sparsity(object):
         self._nrows = self._rmaps[0].dataset.size
         self._ncols = self._cmaps[0].dataset.size
 
-        self._dims = as_tuple(dims, int, 2)
+        self._dims = (np.prod(self._rmaps[0].dataset.dim),
+                      np.prod(self._cmaps[0].dataset.dim))
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         self._lib_handle = None
         Sparsity._globalcount += 1
-        key = (maps, as_tuple(dims, int, 2))
         self._cached = True
         core.build_sparsity(self, parallel=PYOP2_COMM.size > 1)
-        _sparsity_cache[key] = self
+        _sparsity_cache[maps] = self
 
     @property
     def _nmaps(self):
@@ -1232,11 +1227,11 @@ class Sparsity(object):
         return self._name
 
     def __str__(self):
-        return "OP2 Sparsity: rmaps %s, cmaps %s, dims %s, name %s" % \
-               (self._rmaps, self._cmaps, self._dims, self._name)
+        return "OP2 Sparsity: rmaps %s, cmaps %s, name %s" % \
+               (self._rmaps, self._cmaps, self._name)
 
     def __repr__(self):
-        return "Sparsity(%s,%s,%s,%s)" % \
+        return "Sparsity((%r, %r), %r, %r)" % \
                (self._rmaps, self._cmaps, self._dims, self._name)
 
     def __del__(self):
