@@ -101,7 +101,7 @@ class TestPlanCache:
 
     @pytest.fixture
     def mat(cls, iter2ind1):
-        sparsity = op2.Sparsity((iter2ind1, iter2ind1), 1, "sparsity")
+        sparsity = op2.Sparsity((iter2ind1, iter2ind1), "sparsity")
         return op2.Mat(sparsity, 'float64', "mat")
 
     @pytest.fixture
@@ -556,47 +556,22 @@ class TestSparsityCache:
 
     def test_sparsities_differing_maps_share_no_data(self, backend, m1, m2):
         """Sparsities with different maps should not share a C handle."""
-        sp1 = op2.Sparsity((m1, m1), 1)
-        sp2 = op2.Sparsity((m2, m2), 1)
+        sp1 = op2.Sparsity((m1, m1))
+        sp2 = op2.Sparsity((m2, m2))
 
         assert sp1 is not sp2
 
-    def test_sparsities_differing_dims_share_no_data(self, backend, m1):
-        """Sparsities with the same maps but different dims should not
-        share a C handle."""
-        sp1 = op2.Sparsity((m1, m1), 1)
-        sp2 = op2.Sparsity((m1, m1), 2)
-
-        assert sp1 is not sp2
-
-    def test_sparsities_differing_maps_and_dims_share_no_data(self, backend, m1, m2):
-        """Sparsities with different maps and dims should not share a
-        C handle."""
-        sp1 = op2.Sparsity((m1, m1), 2)
-        sp2 = op2.Sparsity((m2, m2), 1)
-
-        assert sp1 is not sp2
-
-    def test_sparsities_same_map_and_dim_share_data(self, backend, m1):
+    def test_sparsities_same_map_share_data(self, backend, m1):
         """Sparsities with the same map and dim should share a C handle."""
-        sp1 = op2.Sparsity((m1, m1), (1,1))
-        sp2 = op2.Sparsity((m1, m1), (1,1))
-
-        assert sp1 is sp2
-
-    def test_sparsities_same_map_and_dim_share_data_longhand(self, backend, m1):
-        """Sparsities with the same map and dim should share a C handle
-
-        Even if we spell the dimension with a shorthand and longhand form."""
-        sp1 = op2.Sparsity((m1, m1), (1,1))
-        sp2 = op2.Sparsity((m1, m1), 1)
+        sp1 = op2.Sparsity((m1, m1))
+        sp2 = op2.Sparsity((m1, m1))
 
         assert sp1 is sp2
 
     def test_two_mats_on_same_sparsity_share_data(self, backend, m1, skip_sequential, skip_openmp):
         """Sparsity data should be shared between Mat objects.
         Even on the device."""
-        sp = op2.Sparsity((m1, m1), (1, 1))
+        sp = op2.Sparsity((m1, m1))
         mat1 = op2.Mat(sp, 'float64')
         mat2 = op2.Mat(sp, 'float64')
 

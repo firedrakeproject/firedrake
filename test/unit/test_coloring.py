@@ -74,7 +74,7 @@ class TestColoring:
 
     @pytest.fixture
     def mat(cls, elem_node):
-        sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
+        sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
         return op2.Mat(sparsity, valuetype, "mat")
 
     @pytest.fixture

@@ -56,7 +56,7 @@ class TestSparsity:
         nodes = op2.Set(5)
         elem_node = op2.Map(elements, nodes, 3, [0, 4, 3, 0, 1, 4, \
                                                  1, 2, 4, 2, 3, 4])
-        sparsity = op2.Sparsity((elem_node, elem_node), 1)
+        sparsity = op2.Sparsity((elem_node, elem_node))
         assert all(sparsity._rowptr == [0, 4, 8, 12, 16, 21])
         assert all(sparsity._colidx == [ 0, 1, 3, 4, 0, 1, 2, 4, 1, 2, \
                                          3, 4, 0, 2, 3, 4, 0, 1, 2, 3, 4 ])
@@ -65,7 +65,7 @@ class TestSparsity:
         s=op2.Set(5)
         with pytest.raises(MapValueError):
             m=op2.Map(s,s,1)
-            sp=op2.Sparsity((m,m), 1)
+            sp=op2.Sparsity((m,m))
 
 class TestMatrices:
     """
@@ -98,12 +98,12 @@ class TestMatrices:
 
     @pytest.fixture(scope='module')
     def mat(cls, elem_node):
-        sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
+        sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
         return op2.Mat(sparsity, valuetype, "mat")
 
     @pytest.fixture(scope='module')
-    def vecmat(cls, elem_node):
-        sparsity = op2.Sparsity((elem_node, elem_node), 2, "sparsity")
+    def vecmat(cls, elem_vnode):
+        sparsity = op2.Sparsity((elem_vnode, elem_vnode), "sparsity")
         return op2.Mat(sparsity, valuetype, "vecmat")
 
     @pytest.fixture
@@ -617,7 +617,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
         nelems = 128
         set = op2.Set(nelems)
         map = op2.Map(set, set, 1, numpy.array(range(nelems), numpy.uint32))
-        sparsity = op2.Sparsity((map,map), (1,1))
+        sparsity = op2.Sparsity((map,map))
         mat = op2.Mat(sparsity, numpy.float64)
         kernel = op2.Kernel(zero_mat_code, "zero_mat")
         op2.par_loop(kernel, set(1,1), mat((map[op2.i[0]], map[op2.i[1]]), op2.WRITE))
@@ -673,18 +673,18 @@ void zero_mat(double local_mat[1][1], int i, int j)
         assert_allclose(mat.array, numpy.ones_like(mat.array))
         mat.zero()
 
-    def test_set_matrix_vec(self, backend, vecmat, elements, elem_node,
+    def test_set_matrix_vec(self, backend, vecmat, elements, elem_vnode,
                         kernel_inc_vec, kernel_set_vec, g, skip_cuda):
         """Test accessing a vector matrix with the WRITE access by adding some
         non-zero values into the matrix, then setting them back to zero with a
         kernel using op2.WRITE"""
         op2.par_loop(kernel_inc_vec, elements(3,3),
-                     vecmat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                     vecmat((elem_vnode[op2.i[0]], elem_vnode[op2.i[1]]), op2.INC),
                      g(op2.READ))
         # Check we have ones in the matrix
         assert vecmat.array.sum() == 2*2*3*3*elements.size
         op2.par_loop(kernel_set_vec, elements(3,3),
-                     vecmat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.WRITE),
+                     vecmat((elem_vnode[op2.i[0]], elem_vnode[op2.i[1]]), op2.WRITE),
                      g(op2.READ))
         # Check we have set all values in the matrix to 1
         assert_allclose(vecmat.array, numpy.ones_like(vecmat.array))
@@ -706,11 +706,11 @@ void zero_mat(double local_mat[1][1], int i, int j)
         assert_allclose(mat.values, expected_matrix, eps)
 
     def test_assemble_vec_mass(self, backend, mass_vector_ffc, vecmat, coords,
-                               elements, elem_node, elem_vnode,
+                               elements, elem_vnode,
                                expected_vector_matrix):
         """Test that the FFC vector mass assembly assembles the correct values."""
         op2.par_loop(mass_vector_ffc, elements(3,3),
-                     vecmat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                     vecmat((elem_vnode[op2.i[0]], elem_vnode[op2.i[1]]), op2.INC),
                      coords(elem_vnode, op2.READ))
         eps=1.e-6
         assert_allclose(vecmat.values, expected_vector_matrix, eps)
