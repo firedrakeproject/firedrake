@@ -278,6 +278,13 @@ class Arg(object):
 class Set(object):
     """OP2 set.
 
+    :param size: The size of the set.
+    :type size: integer or list of four integers.
+    :param dim: The shape of the data associated with each element of this ``Set``.
+    :type dim: integer or tuple of integers
+    :param string name: The name of the set (optional).
+    :param halo: An exisiting halo to use (optional).
+
     When the set is employed as an iteration space in a
     :func:`par_loop`, the extent of any local iteration space within
     each set entry is indicated in brackets. See the example in
