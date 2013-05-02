@@ -1127,6 +1127,13 @@ _sparsity_cache = dict()
 def _empty_sparsity_cache():
     _sparsity_cache.clear()
 
+def _maps_tuple(maps):
+    "Turn maps sparsity constructor argument into a canonical tuple of pairs."
+    # A single map becomes a pair of identical maps
+    maps = (maps, maps) if isinstance(maps, Map) else maps
+    # A single pair becomes a tuple of one pair
+    return (maps,) if isinstance(maps[0], Map) else maps
+
 class Sparsity(object):
     """OP2 Sparsity, a matrix structure derived from the union of the outer
     product of pairs of :class:`Map` objects.
@@ -1149,10 +1156,9 @@ class Sparsity(object):
 
     @validate_type(('maps', (Map, tuple), MapTypeError),)
     def __new__(cls, maps, name=None):
+        maps = _maps_tuple(maps)
         cached = _sparsity_cache.get(maps)
-        if cached is not None:
-            return cached
-        return super(Sparsity, cls).__new__(cls, maps, name)
+        return cached or super(Sparsity, cls).__new__(cls, maps, name)
 
     @validate_type(('maps', (Map, tuple), MapTypeError),)
     def __init__(self, maps, name=None):
@@ -1160,23 +1166,22 @@ class Sparsity(object):
 
         if getattr(self, '_cached', False):
             return
-        for m in maps:
-            for n in as_tuple(m, Map):
-                if len(n.values) == 0:
+        maps = _maps_tuple(maps)
+        for pair in maps:
+            for m in pair:
+                if not isinstance(m, Map):
+                    raise MapTypeError("All maps must be of type map, not type %r" % type(m))
+                if len(m.values) == 0:
                     raise MapValueError("Unpopulated map values when trying to build sparsity.")
 
-        # A single map becomes a pair of identical maps
-        maps = (maps,maps) if isinstance(maps, Map) else maps
-        # A single pair becomes a tuple of one pair
-        lmaps = (maps,) if isinstance(maps[0], Map) else maps
         # Split into a list of row maps and a list of column maps
-        self._rmaps, self._cmaps = zip(*lmaps)
+        self._rmaps, self._cmaps = zip(*maps)
 
         assert len(self._rmaps) == len(self._cmaps), \
             "Must pass equal number of row and column maps"
 
         # Each pair of maps must have the same from-set (iteration set)
-        for pair in lmaps:
+        for pair in maps:
             if pair[0].iterset is not pair[1].iterset:
                 raise RuntimeError("Iterset of both maps in a pair must be the same")
 
