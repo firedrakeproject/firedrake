@@ -9,15 +9,21 @@
   <variables>
     <variable name="ab_convergence" language="python">
 from errnorm import errnorm
-ab_convergence = errnorm("adv_diff.104.out")/errnorm("adv_diff.376.out")
+from math import log
+ab_convergence = log(errnorm("adv_diff.104.out")/errnorm("adv_diff.376.out"), 2)
+print "ab_convergence,", ab_convergence
     </variable>
     <variable name="bc_convergence" language="python">
 from errnorm import errnorm
-bc_convergence = errnorm("adv_diff.376.out")/errnorm("adv_diff.1552.out")
+from math import log
+bc_convergence = log(errnorm("adv_diff.376.out")/errnorm("adv_diff.1552.out"), 2)
+print "bc_convergence,", bc_convergence
     </variable>
     <variable name="cd_convergence" language="python">
 from errnorm import errnorm
-cd_convergence = errnorm("adv_diff.1552.out")/errnorm("adv_diff.6660.out")
+from math import log
+cd_convergence = log(errnorm("adv_diff.1552.out")/errnorm("adv_diff.6660.out"), 2)
+print "cd_convergence,", cd_convergence
     </variable>
   </variables>
   <pass_tests>

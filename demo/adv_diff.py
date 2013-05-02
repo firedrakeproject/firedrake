@@ -75,6 +75,7 @@ def main(opt):
     q = TestFunction(T)
     t = Coefficient(T)
     u = Coefficient(V)
+    a = Coefficient(T)
 
     diffusivity = 0.1
 
@@ -201,9 +202,17 @@ def main(opt):
     print "Expected - computed  solution: %s" % error
 
     if opt['test_output']:
-        import pickle
+        l2norm = dot(t - a, t - a) * dx
+        l2_kernel, = compile_form(l2norm, "error_norm")
+        result = op2.Global(1, [0.0])
+        op2.par_loop(l2_kernel, elements,
+                     result(op2.INC),
+                     coords(elem_vnode,op2.READ),
+                     tracer(elem_node,op2.READ),
+                     analytical(elem_node,op2.READ)
+                     )
         with open("adv_diff.%s.out" % os.path.split(opt['mesh'])[-1], "w") as out:
-            pickle.dump(error, out)
+            out.write(str(result.data[0]) + "\n")
 
 if __name__ == '__main__':
     parser = utils.parser(group=True, description=__doc__)
