@@ -1140,9 +1140,9 @@ class Sparsity(object):
 
     Examples of constructing a Sparsity: ::
 
-        Sparsity(single_map, 1, 'mass')
-        Sparsity((single_rowmap, single_colmap), (2,1))
-        Sparsity(((first_rowmap, first_colmap), (second_rowmap, second_colmap)), 2)
+        Sparsity(single_map, 'mass')
+        Sparsity((single_rowmap, single_colmap))
+        Sparsity(((first_rowmap, first_colmap), (second_rowmap, second_colmap)))
     """
 
     _globalcount = 0
@@ -1165,29 +1165,35 @@ class Sparsity(object):
                 if len(n.values) == 0:
                     raise MapValueError("Unpopulated map values when trying to build sparsity.")
 
+        # A single map becomes a pair of identical maps
         maps = (maps,maps) if isinstance(maps, Map) else maps
+        # A single pair becomes a tuple of one pair
         lmaps = (maps,) if isinstance(maps[0], Map) else maps
-        self._rmaps, self._cmaps = map (lambda x : as_tuple(x, Map), zip(*lmaps))
+        # Split into a list of row maps and a list of column maps
+        self._rmaps, self._cmaps = zip(*lmaps)
 
         assert len(self._rmaps) == len(self._cmaps), \
             "Must pass equal number of row and column maps"
 
+        # Each pair of maps must have the same from-set (iteration set)
         for pair in lmaps:
             if pair[0].iterset is not pair[1].iterset:
                 raise RuntimeError("Iterset of both maps in a pair must be the same")
 
+        # Each row map must have the same to-set (data set)
         if not all(m.dataset is self._rmaps[0].dataset for m in self._rmaps):
             raise RuntimeError("Dataset of all row maps must be the same")
 
+        # Each column map must have the same to-set (data set)
         if not all(m.dataset is self._cmaps[0].dataset for m in self._cmaps):
             raise RuntimeError("Dataset of all column maps must be the same")
 
-        # All rmaps and cmaps have the same dataset - just use the first.
+        # All rmaps and cmaps have the same data set - just use the first.
         self._nrows = self._rmaps[0].dataset.size
         self._ncols = self._cmaps[0].dataset.size
-
         self._dims = (np.prod(self._rmaps[0].dataset.dim),
                       np.prod(self._cmaps[0].dataset.dim))
+
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         self._lib_handle = None
         Sparsity._globalcount += 1
