@@ -278,6 +278,13 @@ class Arg(object):
 class Set(object):
     """OP2 set.
 
+    :param size: The size of the set.
+    :type size: integer or list of four integers.
+    :param dim: The shape of the data associated with each element of this ``Set``.
+    :type dim: integer or tuple of integers
+    :param string name: The name of the set (optional).
+    :param halo: An exisiting halo to use (optional).
+
     When the set is employed as an iteration space in a
     :func:`par_loop`, the extent of any local iteration space within
     each set entry is indicated in brackets. See the example in
@@ -314,7 +321,7 @@ class Set(object):
     IMPORT_NON_EXEC_SIZE = 3
     @validate_type(('size', (int, tuple, list), SizeTypeError),
                    ('name', str, NameTypeError))
-    def __init__(self, size=None, name=None, halo=None):
+    def __init__(self, size=None, dim=1, name=None, halo=None):
         if type(size) is int:
             size = [size]*4
         size = as_tuple(size, int, 4)
@@ -325,6 +332,7 @@ class Set(object):
         self._size = size[Set.OWNED_SIZE]
         self._ieh_size = size[Set.IMPORT_EXEC_SIZE]
         self._inh_size = size[Set.IMPORT_NON_EXEC_SIZE]
+        self._dim = as_tuple(dim, int)
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = None
         self._halo = halo
@@ -360,6 +368,11 @@ class Set(object):
         return self._inh_size
 
     @property
+    def dim(self):
+        """The number of values at each member of the set."""
+        return self._dim
+
+    @property
     def name(self):
         """User-defined label"""
         return self._name
@@ -370,20 +383,20 @@ class Set(object):
         return self._halo
 
     def __str__(self):
-        return "OP2 Set: %s with size %s" % (self._name, self._size)
+        return "OP2 Set: %s with size %s, dim %s" % (self._name, self._size, self._dim)
 
     def __repr__(self):
-        return "Set(%s, '%s')" % (self._size, self._name)
+        return "Set(%r, %r, %r)" % (self._size, self._dim, self._name)
 
     @classmethod
-    def fromhdf5(cls, f, name):
+    def fromhdf5(cls, f, name, dim=1):
         """Construct a :class:`Set` from set named ``name`` in HDF5 data ``f``"""
         slot = f[name]
-        size = slot.value.astype(np.int)
-        shape = slot.shape
-        if shape != (1,):
+        if slot.shape != (1,):
             raise SizeTypeError("Shape of %s is incorrect" % name)
-        return cls(size[0], name)
+        size = slot.value.astype(np.int)
+        dim = slot.attrs.get('dim', dim)
+        return cls(size[0], dim, name)
 
     @property
     def _c_handle(self):
@@ -627,13 +640,14 @@ class Dat(DataCarrier):
     _modes = [READ, WRITE, RW, INC]
 
     @validate_type(('dataset', Set, SetTypeError), ('name', str, NameTypeError))
-    def __init__(self, dataset, dim, data=None, dtype=None, name=None,
+    def __init__(self, dataset, data=None, dtype=None, name=None,
                  soa=None, uid=None):
         if data is None:
-            data = np.zeros(dataset.total_size*np.prod(dim))
+            data = np.zeros(dataset.total_size*np.prod(dataset.dim))
         self._dataset = dataset
-        self._dim = as_tuple(dim, int)
-        self._data = verify_reshape(data, dtype, (dataset.total_size,)+self._dim, allow_none=True)
+        self._data = verify_reshape(data, dtype,
+                                    (dataset.total_size,) + dataset.dim,
+                                    allow_none=True)
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
         self._lib_handle = None
@@ -670,6 +684,11 @@ class Dat(DataCarrier):
         return self._dataset
 
     @property
+    def dim(self):
+        """The shape of the values for each element of the object."""
+        return self.dataset.dim
+
+    @property
     def soa(self):
         """Are the data in SoA format?"""
         return self._soa
@@ -690,11 +709,6 @@ class Dat(DataCarrier):
             raise RuntimeError("Illegal access: no data associated with this Dat!")
         maybe_setflags(self._data, write=False)
         return self._data
-
-    @property
-    def dim(self):
-        '''The number of values at each member of the dataset.'''
-        return self._dim
 
     @property
     def needs_halo_update(self):
@@ -723,22 +737,22 @@ class Dat(DataCarrier):
                      self(IdentityMap, WRITE)).compute()
 
     def __str__(self):
-        return "OP2 Dat: %s on (%s) with dim %s and datatype %s" \
-               % (self._name, self._dataset, self._dim, self._data.dtype.name)
+        return "OP2 Dat: %s on (%s) with datatype %s" \
+               % (self._name, self._dataset, self._data.dtype.name)
 
     def __repr__(self):
-        return "Dat(%r, %s, '%s', None, '%s')" \
-               % (self._dataset, self._dim, self._data.dtype, self._name)
+        return "Dat(%r, '%s', None, '%s')" \
+               % (self._dataset, self._data.dtype, self._name)
 
     def _check_shape(self, other):
         pass
 
     def _op(self, other, op):
         if np.isscalar(other):
-            return Dat(self.dataset, self.dim,
+            return Dat(self.dataset,
                        op(self._data, as_type(other, self.dtype)), self.dtype)
         self._check_shape(other)
-        return Dat(self.dataset, self.dim,
+        return Dat(self.dataset,
                    op(self._data, as_type(other.data, self.dtype)), self.dtype)
 
     def _iop(self, other, op):
@@ -828,11 +842,8 @@ class Dat(DataCarrier):
         """Construct a :class:`Dat` from a Dat named ``name`` in HDF5 data ``f``"""
         slot = f[name]
         data = slot.value
-        dim = slot.shape[1:]
         soa = slot.attrs['type'].find(':soa') > 0
-        if len(dim) < 1:
-            raise DimTypeError("Invalid dimension value %s" % dim)
-        ret = cls(dataset, dim, data, name=name, soa=soa)
+        ret = cls(dataset, data, name=name, soa=soa)
         return ret
 
     @property
@@ -1125,8 +1136,6 @@ class Sparsity(object):
         or a tuple of pairs of :class:`Maps` specifying multiple row and
         column maps - if a single :class:`Map` is passed, it is used as both a
         row map and a column map
-    :param dims: row and column dimensions of a single :class:`Sparsity` entry
-    :type dims: pair of integers or integer used for rows and columns
     :param string name: user-defined label (optional)
 
     Examples of constructing a Sparsity: ::
@@ -1138,18 +1147,15 @@ class Sparsity(object):
 
     _globalcount = 0
 
-    @validate_type(('maps', (Map, tuple), MapTypeError), \
-                   ('dims', (int, tuple), TypeError))
-    def __new__(cls, maps, dims, name=None):
-        key = (maps, as_tuple(dims, int, 2))
-        cached = _sparsity_cache.get(key)
+    @validate_type(('maps', (Map, tuple), MapTypeError),)
+    def __new__(cls, maps, name=None):
+        cached = _sparsity_cache.get(maps)
         if cached is not None:
             return cached
-        return super(Sparsity, cls).__new__(cls, maps, dims, name)
+        return super(Sparsity, cls).__new__(cls, maps, name)
 
-    @validate_type(('maps', (Map, tuple), MapTypeError), \
-                   ('dims', (int, tuple), TypeError))
-    def __init__(self, maps, dims, name=None):
+    @validate_type(('maps', (Map, tuple), MapTypeError),)
+    def __init__(self, maps, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
 
         if getattr(self, '_cached', False):
@@ -1180,14 +1186,14 @@ class Sparsity(object):
         self._nrows = self._rmaps[0].dataset.size
         self._ncols = self._cmaps[0].dataset.size
 
-        self._dims = as_tuple(dims, int, 2)
+        self._dims = (np.prod(self._rmaps[0].dataset.dim),
+                      np.prod(self._cmaps[0].dataset.dim))
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         self._lib_handle = None
         Sparsity._globalcount += 1
-        key = (maps, as_tuple(dims, int, 2))
         self._cached = True
         core.build_sparsity(self, parallel=PYOP2_COMM.size > 1)
-        _sparsity_cache[key] = self
+        _sparsity_cache[maps] = self
 
     @property
     def _nmaps(self):
@@ -1228,11 +1234,11 @@ class Sparsity(object):
         return self._name
 
     def __str__(self):
-        return "OP2 Sparsity: rmaps %s, cmaps %s, dims %s, name %s" % \
-               (self._rmaps, self._cmaps, self._dims, self._name)
+        return "OP2 Sparsity: rmaps %s, cmaps %s, name %s" % \
+               (self._rmaps, self._cmaps, self._name)
 
     def __repr__(self):
-        return "Sparsity(%s,%s,%s,%s)" % \
+        return "Sparsity((%r, %r), %r, %r)" % \
                (self._rmaps, self._cmaps, self._dims, self._name)
 
     def __del__(self):

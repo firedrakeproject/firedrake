@@ -109,20 +109,20 @@ diff_rhs, = compile_form(diff_rhs, "diff_rhs")
 
 valuetype = np.float64
 
-nodes, coords, elements, elem_node = read_triangle(opt['mesh'])
+nodes, vnodes, coords, elements, elem_node, elem_vnode = read_triangle(opt['mesh'])
 num_nodes = nodes.size
 
-sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
+sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 tracer_vals = np.zeros(num_nodes, dtype=valuetype)
-tracer = op2.Dat(nodes, 1, tracer_vals, valuetype, "tracer")
+tracer = op2.Dat(nodes, tracer_vals, valuetype, "tracer")
 
 b_vals = np.zeros(num_nodes, dtype=valuetype)
-b = op2.Dat(nodes, 1, b_vals, valuetype, "b")
+b = op2.Dat(nodes, b_vals, valuetype, "b")
 
 velocity_vals = np.asarray([1.0, 0.0] * num_nodes, dtype=valuetype)
-velocity = op2.Dat(nodes, 2, velocity_vals, valuetype, "velocity")
+velocity = op2.Dat(vnodes, velocity_vals, valuetype, "velocity")
 
 # Set initial condition
 
@@ -169,14 +169,14 @@ while T < 0.2:
         mat.zero()
         op2.par_loop(mass, elements(3, 3),
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                     coords(elem_node, op2.READ))
+                     coords(elem_vnode, op2.READ))
 
         b.zero()
         op2.par_loop(adv_rhs, elements(3),
                      b(elem_node[op2.i[0]], op2.INC),
-                     coords(elem_node, op2.READ),
+                     coords(elem_vnode, op2.READ),
                      tracer(elem_node, op2.READ),
-                     velocity(elem_node, op2.READ))
+                     velocity(elem_vnode, op2.READ))
 
         solver.solve(mat, tracer, b)
 
@@ -186,12 +186,12 @@ while T < 0.2:
         mat.zero()
         op2.par_loop(diff_matrix, elements(3, 3),
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                     coords(elem_node, op2.READ))
+                     coords(elem_vnode, op2.READ))
 
         b.zero()
         op2.par_loop(diff_rhs, elements(3),
                      b(elem_node[op2.i[0]], op2.INC),
-                     coords(elem_node, op2.READ),
+                     coords(elem_vnode, op2.READ),
                      tracer(elem_node, op2.READ))
 
         solver.solve(mat, tracer, b)

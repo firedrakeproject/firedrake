@@ -83,7 +83,7 @@ b = op2.Dat(nodes, 1, b_vals, np.float64, "b")
 bdry_vals = [ 0.0, 1.0 ]
 bdry = op2.Dat(b_nodes, 1, bdry_vals, np.float64, "bdry")
 
-sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
+sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, np.float64, "mat")
 
 # Set up finite element problem

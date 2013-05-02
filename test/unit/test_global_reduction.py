@@ -48,15 +48,19 @@ class TestGlobalReductions:
 
     @pytest.fixture(scope='module')
     def set(cls):
-        return op2.Set(nelems, 'set')
+        return op2.Set(nelems, 1, 'set')
+
+    @pytest.fixture(scope='module')
+    def set2(cls):
+        return op2.Set(nelems, 2, 'set')
 
     @pytest.fixture
     def d1(cls, set):
-        return op2.Dat(set, 1, numpy.arange(nelems)+1, dtype=numpy.uint32)
+        return op2.Dat(set, numpy.arange(nelems)+1, dtype=numpy.uint32)
 
     @pytest.fixture
-    def d2(cls, set):
-        return op2.Dat(set, 2, numpy.arange(2*nelems)+1, dtype=numpy.uint32)
+    def d2(cls, set2):
+        return op2.Dat(set2, numpy.arange(2*nelems)+1, dtype=numpy.uint32)
 
     @pytest.fixture(scope='module')
     def k1_write_to_dat(cls):
@@ -124,19 +128,19 @@ class TestGlobalReductions:
 
     @pytest.fixture
     def duint32(cls, set):
-        return op2.Dat(set, 1, [12]*nelems, numpy.uint32, "duint32")
+        return op2.Dat(set, [12]*nelems, numpy.uint32, "duint32")
 
     @pytest.fixture
     def dint32(cls, set):
-        return op2.Dat(set, 1, [-12]*nelems, numpy.int32, "dint32")
+        return op2.Dat(set, [-12]*nelems, numpy.int32, "dint32")
 
     @pytest.fixture
     def dfloat32(cls, set):
-        return op2.Dat(set, 1, [-12.0]*nelems, numpy.float32, "dfloat32")
+        return op2.Dat(set, [-12.0]*nelems, numpy.float32, "dfloat32")
 
     @pytest.fixture
     def dfloat64(cls, set):
-        return op2.Dat(set, 1, [-12.0]*nelems, numpy.float64, "dfloat64")
+        return op2.Dat(set, [-12.0]*nelems, numpy.float64, "dfloat64")
 
 
     def test_direct_min_uint32(self, backend, set, duint32):

@@ -92,49 +92,53 @@ NUM_BDRY_ELE = 2
 NUM_BDRY_NODE = 3
 valuetype = np.float64
 
-nodes = op2.Set(NUM_NODES, "nodes")
-elements = op2.Set(NUM_ELE, "elements")
+nodes = op2.Set(NUM_NODES, 1, "nodes")
+vnodes = op2.Set(NUM_NODES, 2, "vnodes")
+elements = op2.Set(NUM_ELE, 1, "elements")
 # Elements that Weak BC will be assembled over
-top_bdry_elements = op2.Set(NUM_BDRY_ELE, "top_boundary_elements")
+top_bdry_elements = op2.Set(NUM_BDRY_ELE, 1, "top_boundary_elements")
 # Nodes that Strong BC will be applied over
-bdry_nodes = op2.Set(NUM_BDRY_NODE, "boundary_nodes")
+bdry_nodes = op2.Set(NUM_BDRY_NODE, 1, "boundary_nodes")
 
 elem_node_map = np.asarray([ 0, 1, 4, 4, 3, 0, 1, 2, 5, 5, 4, 1, 3, 4, 7, 7, 6,
                              3, 4, 5, 8, 8, 7, 4], dtype=np.uint32)
 elem_node = op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
+elem_vnode = op2.Map(elements, vnodes, 3, elem_node_map, "elem_vnode")
 
 top_bdry_elem_node_map = np.asarray([ 7, 6, 3, 8, 7, 4 ], dtype=valuetype)
 top_bdry_elem_node = op2.Map(top_bdry_elements, nodes, 3,
                              top_bdry_elem_node_map, "top_bdry_elem_node")
+top_bdry_elem_vnode = op2.Map(top_bdry_elements, vnodes, 3,
+                             top_bdry_elem_node_map, "top_bdry_elem_vnode")
 
 bdry_node_node_map = np.asarray([0, 1, 2 ], dtype=valuetype)
 bdry_node_node = op2.Map(bdry_nodes, nodes, 1, bdry_node_node_map, "bdry_node_node")
 
-sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
+sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 coord_vals = np.asarray([ (0.0, 0.0), (0.5, 0.0), (1.0, 0.0),
                           (0.0, 0.5), (0.5, 0.5), (1.0, 0.5),
                           (0.0, 1.0), (0.5, 1.0), (1.0, 1.0) ],
                           dtype=valuetype)
-coords = op2.Dat(nodes, 2, coord_vals, valuetype, "coords")
+coords = op2.Dat(vnodes, coord_vals, valuetype, "coords")
 
 f_vals = np.asarray([ 0.0 ]*9, dtype=valuetype)
 b_vals = np.asarray([0.0]*NUM_NODES, dtype=valuetype)
 x_vals = np.asarray([0.0]*NUM_NODES, dtype=valuetype)
 u_vals = np.asarray([1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0])
-f = op2.Dat(nodes, 1, f_vals, valuetype, "f")
-b = op2.Dat(nodes, 1, b_vals, valuetype, "b")
-x = op2.Dat(nodes, 1, x_vals, valuetype, "x")
-u = op2.Dat(nodes, 1, u_vals, valuetype, "u")
+f = op2.Dat(nodes, f_vals, valuetype, "f")
+b = op2.Dat(nodes, b_vals, valuetype, "b")
+x = op2.Dat(nodes, x_vals, valuetype, "x")
+u = op2.Dat(nodes, u_vals, valuetype, "u")
 
 bdry_vals = np.asarray([1.0, 1.0, 1.0 ], dtype=valuetype)
-bdry = op2.Dat(bdry_nodes, 1, bdry_vals, valuetype, "bdry")
+bdry = op2.Dat(bdry_nodes, bdry_vals, valuetype, "bdry")
 
 # This isn't perfect, defining the boundary gradient on more nodes than are on
 # the boundary is couter-intuitive
 bdry_grad_vals = np.asarray([2.0]*9, dtype=valuetype)
-bdry_grad = op2.Dat(nodes, 1, bdry_grad_vals, valuetype, "gradient")
+bdry_grad = op2.Dat(nodes, bdry_grad_vals, valuetype, "gradient")
 facet = op2.Global(1, 2, np.uint32, "facet")
 
 # If a form contains multiple integrals with differing coefficients, FFC
@@ -148,11 +152,11 @@ facet = op2.Global(1, 2, np.uint32, "facet")
 
 op2.par_loop(laplacian, elements(3,3),
              mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-             coords(elem_node, op2.READ))
+             coords(elem_vnode, op2.READ))
 
 op2.par_loop(rhs, elements(3),
              b(elem_node[op2.i[0]], op2.INC),
-             coords(elem_node, op2.READ),
+             coords(elem_vnode, op2.READ),
              f(elem_node, op2.READ),
              bdry_grad(elem_node, op2.READ)) # argument ignored
 
@@ -160,7 +164,7 @@ op2.par_loop(rhs, elements(3),
 
 op2.par_loop(weak, top_bdry_elements(3),
              b(top_bdry_elem_node[op2.i[0]], op2.INC),
-             coords(top_bdry_elem_node, op2.READ),
+             coords(top_bdry_elem_vnode, op2.READ),
              f(top_bdry_elem_node, op2.READ), # argument ignored
              bdry_grad(top_bdry_elem_node, op2.READ),
              facet(op2.READ))

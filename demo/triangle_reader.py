@@ -59,8 +59,9 @@ def read_triangle(f):
             x, y = [ float(x) for x in vals[1:3] ]
             node_values[node] = (x,y)
 
-    nodes = op2.Set(num_nodes,"nodes")
-    coords = op2.Dat(nodes, 2, np.asarray(node_values,dtype=np.float64), np.float64, "coords")
+    nodes = op2.Set(num_nodes, 1, "nodes")
+    vnodes = op2.Set(num_nodes, 2, "vnodes")
+    coords = op2.Dat(vnodes, np.asarray(node_values,dtype=np.float64), np.float64, "coords")
 
     # Read elements
     with open(f+'.ele') as h:
@@ -77,7 +78,8 @@ def read_triangle(f):
     # Ref: http://stackoverflow.com/questions/952914/making-a-flat-list-out-of-list-of-lists-in-python
     flat_map = [ item for sublist in map_values for item in sublist ]
 
-    elements = op2.Set(num_tri, "elements")
+    elements = op2.Set(num_tri, 1, "elements")
     elem_node = op2.Map(elements, nodes, 3, flat_map, "elem_node")
+    elem_vnode = op2.Map(elements, vnodes, 3, flat_map, "elem_vnode")
 
-    return nodes, coords, elements, elem_node
+    return nodes, vnodes, coords, elements, elem_node, elem_vnode

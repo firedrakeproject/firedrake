@@ -58,6 +58,7 @@ class TestHDF5:
                          dtype=np.float64)
         f['soadat'].attrs['type'] = 'double:soa'
         f.create_dataset('set', data=np.array((5,)))
+        f['set'].attrs['dim'] = 2
         f.create_dataset('myconstant', data=np.arange(3))
         f.create_dataset('map', data=np.array((1,2,2,3)).reshape(2,2))
         request.addfinalizer(f.close)
@@ -65,15 +66,15 @@ class TestHDF5:
 
     @pytest.fixture
     def set(cls):
-        return op2.Set(5, 'foo')
+        return op2.Set(5, 2, 'foo')
 
     @pytest.fixture
     def iterset(cls):
-        return op2.Set(2, 'iterset')
+        return op2.Set(2, 1, 'iterset')
 
     @pytest.fixture
     def dataset(cls):
-        return op2.Set(3, 'dataset')
+        return op2.Set(3, 1, 'dataset')
 
     def test_set_hdf5(self, backend, h5file):
         "Set should get correct size from HDF5 file."

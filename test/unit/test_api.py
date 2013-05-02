@@ -44,17 +44,17 @@ from pyop2 import sequential
 from pyop2 import base
 from pyop2 import configuration as cfg
 
-@pytest.fixture
-def set():
-    return op2.Set(5, 'foo')
+@pytest.fixture(params=[1, 2, (2, 3)])
+def set(request):
+    return op2.Set(5, request.param, 'foo')
 
 @pytest.fixture
 def iterset():
-    return op2.Set(2, 'iterset')
+    return op2.Set(2, 1, 'iterset')
 
 @pytest.fixture
 def dataset():
-    return op2.Set(3, 'dataset')
+    return op2.Set(3, 1, 'dataset')
 
 @pytest.fixture
 def m(iterset, dataset):
@@ -68,7 +68,7 @@ def const(request):
 
 @pytest.fixture
 def sparsity(m):
-    return op2.Sparsity((m, m), 1)
+    return op2.Sparsity((m, m))
 
 class TestInitAPI:
     """
@@ -126,26 +126,42 @@ class TestSetAPI:
         with pytest.raises(exceptions.SizeTypeError):
             op2.Set('illegalsize')
 
+    def test_set_illegal_dim(self, backend):
+        "Set dim should be int or int tuple."
+        with pytest.raises(TypeError):
+            op2.Set(1, 'illegaldim')
+
+    def test_set_illegal_dim_tuple(self, backend):
+        "Set dim should be int or int tuple."
+        with pytest.raises(TypeError):
+            op2.Set(1, (1,'illegaldim'))
+
     def test_set_illegal_name(self, backend):
         "Set name should be string."
         with pytest.raises(exceptions.NameTypeError):
-            op2.Set(1,2)
+            op2.Set(1, 1, 2)
 
-    def test_set_properties(self, backend, set):
-        "Set constructor should correctly initialise attributes."
-        assert set.size == 5 and set.name == 'foo'
+    def test_set_dim(self, backend):
+        "Set constructor should create a dim tuple."
+        s = op2.Set(1, 1)
+        assert s.dim == (1,)
 
-    def test_set_repr(self, backend, set):
-        "Set repr should have the expected format."
-        assert repr(set) == "Set(5, 'foo')"
+    def test_set_dim_list(self, backend):
+        "Set constructor should create a dim tuple from a list."
+        s = op2.Set(1, [2,3])
+        assert s.dim == (2,3)
 
-    def test_set_str(self, backend, set):
-        "Set string representation should have the expected format."
-        assert str(set) == "OP2 Set: foo with size 5"
+    def test_set_has_repr(self, backend, set):
+        "Set should have a repr."
+        assert repr(set)
+
+    def test_set_has_str(self, backend, set):
+        "Set should have a string representation."
+        assert str(set)
 
     def test_set_equality(self, backend, set):
         "The equality test for sets is identity, not attribute equality"
-        setcopy = op2.Set(set.size, set.name)
+        setcopy = op2.Set(set.size, set.dim, set.name)
         assert set == set and set != setcopy
 
     # FIXME: test Set._lib_handle
@@ -160,129 +176,95 @@ class TestDatAPI:
         with pytest.raises(exceptions.SetTypeError):
             op2.Dat('illegalset', 1)
 
-    def test_dat_illegal_dim(self, backend, set):
-        "Dat dim should be int or int tuple."
-        with pytest.raises(TypeError):
-            op2.Dat(set, 'illegaldim')
-
-    def test_dat_illegal_dim_tuple(self, backend, set):
-        "Dat dim should be int or int tuple."
-        with pytest.raises(TypeError):
-            op2.Dat(set, (1,'illegaldim'))
-
     def test_dat_illegal_name(self, backend, set):
         "Dat name should be string."
         with pytest.raises(exceptions.NameTypeError):
-            op2.Dat(set, 1, name=2)
+            op2.Dat(set, name=2)
 
     def test_dat_initialise_data(self, backend, set):
         """Dat initilialised without the data should initialise data with the
         correct size and type."""
-        d = op2.Dat(set, 1)
-        assert d.data.size == 5 and d.data.dtype == np.float64
-
-    def test_dat_initialise_vector_data(self, backend, set):
-        """Dat initilialised without the data should initialise data with the
-        correct size and type - vector data case."""
-        d = op2.Dat(set, 2)
-        assert d.data.size == 10 and d.data.dtype == np.float64
-
-    def test_dat_initialise_dimlist_data(self, backend, set):
-        """Dat initilialised without the data should initialise data with the
-        correct size and type - list of dims case."""
-        d = op2.Dat(set, [2, 3])
-        assert d.data.size == 30 and d.data.dtype == np.float64
+        d = op2.Dat(set)
+        assert d.data.size == set.size * np.prod(set.dim) and d.data.dtype == np.float64
 
     def test_dat_initialise_data_type(self, backend, set):
         """Dat intiialised without the data but with specified type should
         initialise its data with the correct type."""
-        d = op2.Dat(set, 1, dtype=np.int32)
-        assert d.data.size == 5 and d.data.dtype == np.int32
+        d = op2.Dat(set, dtype=np.int32)
+        assert d.data.dtype == np.int32
 
     def test_dat_illegal_map(self, backend, set):
         """Dat __call__ should not allow a map with a dataset other than this
         Dat's set."""
-        d = op2.Dat(set, 1)
+        d = op2.Dat(set)
         set1 = op2.Set(3)
         set2 = op2.Set(2)
         to_set2 = op2.Map(set1, set2, 1, [0, 0, 0])
         with pytest.raises(exceptions.MapValueError):
             d(to_set2, op2.READ)
 
-    def test_dat_dim(self, backend, set):
-        "Dat constructor should create a dim tuple."
-        d = op2.Dat(set, 1)
-        assert d.dim == (1,)
-
-    def test_dat_dim_list(self, backend, set):
-        "Dat constructor should create a dim tuple from a list."
-        d = op2.Dat(set, [2,3])
-        assert d.dim == (2,3)
-
     def test_dat_dtype(self, backend, set):
         "Default data type should be numpy.float64."
-        d = op2.Dat(set, 1)
+        d = op2.Dat(set)
         assert d.dtype == np.double
 
     def test_dat_float(self, backend, set):
         "Data type for float data should be numpy.float64."
-        d = op2.Dat(set, 1, [1.0]*set.size)
+        d = op2.Dat(set, [1.0] * set.size * np.prod(set.dim))
         assert d.dtype == np.double
 
     def test_dat_int(self, backend, set):
         "Data type for int data should be numpy.int."
-        d = op2.Dat(set, 1, [1]*set.size)
+        d = op2.Dat(set, [1]*set.size * np.prod(set.dim))
         assert d.dtype == np.int
 
     def test_dat_convert_int_float(self, backend, set):
         "Explicit float type should override NumPy's default choice of int."
-        d = op2.Dat(set, 1, [1]*set.size, np.double)
+        d = op2.Dat(set, [1]*set.size * np.prod(set.dim), np.double)
         assert d.dtype == np.float64
 
     def test_dat_convert_float_int(self, backend, set):
         "Explicit int type should override NumPy's default choice of float."
-        d = op2.Dat(set, 1, [1.5]*set.size, np.int32)
+        d = op2.Dat(set, [1.5]*set.size * np.prod(set.dim), np.int32)
         assert d.dtype == np.int32
 
     def test_dat_illegal_dtype(self, backend, set):
         "Illegal data type should raise DataTypeError."
         with pytest.raises(exceptions.DataTypeError):
-            op2.Dat(set, 1, dtype='illegal_type')
+            op2.Dat(set, dtype='illegal_type')
 
-    @pytest.mark.parametrize("dim", [1, (2,2)])
-    def test_dat_illegal_length(self, backend, set, dim):
+    def test_dat_illegal_length(self, backend, set):
         "Mismatching data length should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
-            op2.Dat(set, dim, [1]*(set.size*np.prod(dim)+1))
+            op2.Dat(set, [1]*(set.size*np.prod(set.dim)+1))
 
     def test_dat_reshape(self, backend, set):
-        "Data should be reshaped according to dim."
-        d = op2.Dat(set, (2,2), [1.0]*set.size*4)
-        assert d.dim == (2,2) and d.data.shape == (set.size,2,2)
+        "Data should be reshaped according to the set's dim."
+        d = op2.Dat(set, [1.0]*set.size*np.prod(set.dim))
+        assert d.data.shape == (set.size,) + set.dim
 
     def test_dat_properties(self, backend, set):
         "Dat constructor should correctly set attributes."
-        d = op2.Dat(set, (2,2), [1]*set.size*4, 'double', 'bar')
-        assert d.dataset == set and d.dim == (2,2) and \
-                d.dtype == np.float64 and d.name == 'bar' and \
-                d.data.sum() == set.size*4
+        d = op2.Dat(set, [1]*set.size*np.prod(set.dim), 'double', 'bar')
+        assert d.dataset == set and d.dtype == np.float64 and \
+                d.name == 'bar' and d.data.sum() == set.size*np.prod(set.dim)
 
     def test_dat_ro_accessor(self, backend, set):
         "Attempting to set values through the RO accessor should raise an error."
-        d = op2.Dat(set, 2, range(2 * set.size), dtype=np.int32)
+        d = op2.Dat(set, range(np.prod(set.dim) * set.size), dtype=np.int32)
         x = d.data_ro
         with pytest.raises((RuntimeError, ValueError)):
             x[0] = 1
 
     def test_dat_ro_write_accessor(self, backend, set):
         "Re-accessing the data in writeable form should be allowed."
-        d = op2.Dat(set, 1, range(set.size), dtype=np.int32)
+        d = op2.Dat(set, range(np.prod(set.dim) * set.size), dtype=np.int32)
         x = d.data_ro
         with pytest.raises((RuntimeError, ValueError)):
             x[0] = 1
         x = d.data
         x[0] = -100
-        assert d.data_ro[0] == -100
+        assert (d.data_ro[0] == -100).all()
 
 class TestSparsityAPI:
     """
@@ -291,70 +273,63 @@ class TestSparsityAPI:
 
     @pytest.fixture
     def mi(cls, dataset):
-        iterset = op2.Set(3, 'iterset2')
+        iterset = op2.Set(3, 1, 'iterset2')
         return op2.Map(iterset,  dataset, 1, [1] * iterset.size, 'mi')
 
     @pytest.fixture
     def md(cls, iterset):
-        dataset = op2.Set(1, 'dataset2')
+        dataset = op2.Set(1, 1, 'dataset2')
         return op2.Map(iterset,  dataset, 1, [1] * iterset.size, 'md')
 
     def test_sparsity_illegal_rmap(self, backend, m):
         "Sparsity rmap should be a Map"
         with pytest.raises(TypeError):
-            op2.Sparsity(('illegalrmap', m), 1)
+            op2.Sparsity(('illegalrmap', m))
 
     def test_sparsity_illegal_cmap(self, backend, m):
         "Sparsity cmap should be a Map"
         with pytest.raises(TypeError):
-            op2.Sparsity((m, 'illegalcmap'), 1)
-
-    def test_sparsity_illegal_dim(self, backend, m):
-        "Sparsity dim should be an int"
-        with pytest.raises(TypeError):
-            op2.Sparsity((m, m), 'illegaldim')
+            op2.Sparsity((m, 'illegalcmap'))
 
     def test_sparsity_single_map(self, backend, m):
         "Sparsity constructor should accept single Map and turn it into tuple"
-        s = op2.Sparsity(m, 2, "foo")
-        assert s.maps[0] == (m, m) and s.dims == (2,2) and s.name == "foo"
+        s = op2.Sparsity(m, "foo")
+        assert s.maps[0] == (m, m) and s.dims == (1, 1) and s.name == "foo"
 
     def test_sparsity_map_pair(self, backend, m):
         "Sparsity constructor should accept a pair of maps"
-        s = op2.Sparsity((m, m), 2, "foo")
-        assert s.maps[0] == (m, m) and s.dims == (2,2) and s.name == "foo"
+        s = op2.Sparsity((m, m), "foo")
+        assert s.maps[0] == (m, m) and s.dims == (1, 1) and s.name == "foo"
 
     def test_sparsity_map_pair_different_dataset(self, backend, m, md):
         "Sparsity constructor should accept a pair of maps"
-        s = op2.Sparsity((m, md), 2, "foo")
-        assert s.maps[0] == (m, md) and s.dims == (2,2) and s.name == "foo"
+        s = op2.Sparsity((m, md), "foo")
+        assert s.maps[0] == (m, md) and s.dims == (1, 1) and s.name == "foo"
 
     def test_sparsity_multiple_map_pairs(self, backend, m):
         "Sparsity constructor should accept tuple of pairs of maps"
-        s = op2.Sparsity(((m, m), (m, m)),
-                         1, "foo")
+        s = op2.Sparsity(((m, m), (m, m)), "foo")
         assert s.maps == [(m, m), (m, m)] and s.dims == (1,1)
 
     def test_sparsity_map_pairs_different_itset(self, backend, m, mi):
         "Sparsity constructor should accept maps with different iteration sets"
-        s = op2.Sparsity(((m, m), (mi, mi)),
-                         1, "foo")
+        s = op2.Sparsity(((m, m), (mi, mi)), "foo")
         assert s.maps == [(m, m), (mi, mi)] and s.dims == (1,1)
 
     def test_sparsity_illegal_itersets(self, backend, m, mi):
         "Both maps in a (rmap,cmap) tuple must have same iteration set"
         with pytest.raises(RuntimeError):
-            op2.Sparsity((m, mi), 1)
+            op2.Sparsity((m, mi))
 
     def test_sparsity_illegal_row_datasets(self, backend, m, md):
         "All row maps must share the same data set"
         with pytest.raises(RuntimeError):
-            op2.Sparsity(((m, m), (md, m)), 1)
+            op2.Sparsity(((m, m), (md, m)))
 
     def test_sparsity_illegal_col_datasets(self, backend, m, md):
         "All column maps must share the same data set"
         with pytest.raises(RuntimeError):
-            op2.Sparsity(((m, m), (m, md)), 1)
+            op2.Sparsity(((m, m), (m, md)))
 
 class TestMatAPI:
     """
@@ -660,7 +635,7 @@ class TestMapAPI:
 
     def test_map_copied_set_inequality(self, backend, m):
         """Maps that have copied but not equal iteration sets are not equal"""
-        itercopy = op2.Set(m.iterset.size, m.iterset.name)
+        itercopy = op2.Set(m.iterset.size, m.iterset.dim, m.iterset.name)
         m2 = op2.Map(itercopy, m.dataset, m.dim, m.values, m.name)
         assert m != m2
 
@@ -732,7 +707,7 @@ class TestIllegalItersetMaps:
     def test_illegal_dat_iterset(self, backend):
         set1 = op2.Set(2)
         set2 = op2.Set(3)
-        dat = op2.Dat(set1, 1)
+        dat = op2.Dat(set1)
         map = op2.Map(set2, set1, 1, [0, 0, 0])
         kernel = op2.Kernel("void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):

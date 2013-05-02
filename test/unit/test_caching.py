@@ -44,11 +44,15 @@ nelems = 8
 
 @pytest.fixture
 def iterset():
-    return op2.Set(nelems, "iterset")
+    return op2.Set(nelems, 1, "iterset")
 
 @pytest.fixture
 def indset():
-    return op2.Set(nelems, "indset")
+    return op2.Set(nelems, 1, "indset")
+
+@pytest.fixture
+def indset2():
+    return op2.Set(nelems, 2, "indset2")
 
 @pytest.fixture
 def g():
@@ -56,19 +60,19 @@ def g():
 
 @pytest.fixture
 def x(indset):
-    return op2.Dat(indset, 1, range(nelems), numpy.uint32, "x")
+    return op2.Dat(indset, range(nelems), numpy.uint32, "x")
 
 @pytest.fixture
-def x2(indset):
-    return op2.Dat(indset, 2, range(nelems) * 2, numpy.uint32, "x2")
+def x2(indset2):
+    return op2.Dat(indset2, range(nelems) * 2, numpy.uint32, "x2")
 
 @pytest.fixture
 def xl(indset):
-    return op2.Dat(indset, 1, range(nelems), numpy.uint64, "xl")
+    return op2.Dat(indset, range(nelems), numpy.uint64, "xl")
 
 @pytest.fixture
 def y(indset):
-    return op2.Dat(indset, 1, [0] * nelems, numpy.uint32, "y")
+    return op2.Dat(indset, [0] * nelems, numpy.uint32, "y")
 
 @pytest.fixture
 def iter2ind1(iterset, indset):
@@ -82,6 +86,12 @@ def iter2ind2(iterset, indset):
     random.shuffle(u_map, _seed)
     return op2.Map(iterset, indset, 2, u_map, "iter2ind2")
 
+@pytest.fixture
+def iter2ind22(iterset, indset2):
+    u_map = numpy.array(range(nelems) * 2, dtype=numpy.uint32)
+    random.shuffle(u_map, _seed)
+    return op2.Map(iterset, indset2, 2, u_map, "iter2ind22")
+
 class TestPlanCache:
     """
     Plan Object Cache Tests.
@@ -91,12 +101,12 @@ class TestPlanCache:
 
     @pytest.fixture
     def mat(cls, iter2ind1):
-        sparsity = op2.Sparsity((iter2ind1, iter2ind1), 1, "sparsity")
+        sparsity = op2.Sparsity((iter2ind1, iter2ind1), "sparsity")
         return op2.Mat(sparsity, 'float64', "mat")
 
     @pytest.fixture
     def a64(cls, iterset):
-        return op2.Dat(iterset, 1, range(nelems), numpy.uint64, "a")
+        return op2.Dat(iterset, range(nelems), numpy.uint64, "a")
 
     def test_same_arg(self, backend, iterset, iter2ind1, x):
         op2._empty_plan_cache()
@@ -169,7 +179,7 @@ void kernel_swap(unsigned int* x, unsigned int* y)
 
         assert op2._plan_cache_size() == 1
 
-    def test_dat_same_size_times_dim(self, backend, iterset, iter2ind1, x2, xl):
+    def test_dat_same_size_times_dim(self, backend, iterset, iter2ind1, iter2ind22, x2, xl):
         op2._empty_plan_cache()
         assert op2._plan_cache_size() == 0
 
@@ -184,7 +194,7 @@ void kernel_swap(unsigned int* x)
 """
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     x2(iter2ind1[0], op2.RW))
+                     x2(iter2ind22[0], op2.RW))
 
         assert op2._plan_cache_size() == 1
 
@@ -303,11 +313,11 @@ class TestGeneratedCodeCache:
 
     @pytest.fixture
     def a(cls, iterset):
-        return op2.Dat(iterset, 1, range(nelems), numpy.uint32, "a")
+        return op2.Dat(iterset, range(nelems), numpy.uint32, "a")
 
     @pytest.fixture
     def b(cls, iterset):
-        return op2.Dat(iterset, 1, range(nelems), numpy.uint32, "b")
+        return op2.Dat(iterset, range(nelems), numpy.uint32, "b")
 
     def test_same_args(self, backend, iterset, iter2ind1, x, a):
         op2._empty_parloop_cache()
@@ -403,7 +413,7 @@ void kernel_swap(unsigned int* x, unsigned int* y)
                      a(op2.IdentityMap, op2.RW))
         assert op2._parloop_cache_size() == 1
 
-    def test_vector_map(self, backend, iterset, indset, iter2ind1):
+    def test_vector_map(self, backend, iterset, x2, iter2ind22):
         op2._empty_parloop_cache()
         assert op2._parloop_cache_size() == 0
 
@@ -416,57 +426,53 @@ void kernel_swap(unsigned int* x[2])
   x[0][1] = t;
 }
 """
-        d1 = op2.Dat(indset, 2, range(nelems) * 2, numpy.uint32, "d1")
-        d2 = op2.Dat(indset, 2, range(nelems) * 2, numpy.uint32, "d2")
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     d1(iter2ind1, op2.RW))
+                     x2(iter2ind22, op2.RW))
         assert op2._parloop_cache_size() == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     d2(iter2ind1, op2.RW))
+                     x2(iter2ind22, op2.RW))
 
         assert op2._parloop_cache_size() == 1
 
-    def test_map_index_order_matters(self, backend, iterset, indset, iter2ind2):
-        d1 = op2.Dat(indset, 1, range(nelems), numpy.uint32)
+    def test_map_index_order_matters(self, backend, iterset, x2, iter2ind22):
         op2._empty_parloop_cache()
         assert op2._parloop_cache_size() == 0
         k = op2.Kernel("""void k(unsigned int *x, unsigned int *y) {}""", 'k')
 
         op2.par_loop(k, iterset,
-                     d1(iter2ind2[0], op2.INC),
-                     d1(iter2ind2[1], op2.INC))
+                     x2(iter2ind22[0], op2.INC),
+                     x2(iter2ind22[1], op2.INC))
 
         assert op2._parloop_cache_size() == 1
 
         op2.par_loop(k, iterset,
-                     d1(iter2ind2[1], op2.INC),
-                     d1(iter2ind2[0], op2.INC))
+                     x2(iter2ind22[1], op2.INC),
+                     x2(iter2ind22[0], op2.INC))
 
         assert op2._parloop_cache_size() == 2
 
-    def test_same_iteration_space_works(self, backend, iterset, indset, iter2ind2):
-        d1 = op2.Dat(indset, 1, range(nelems), numpy.uint32)
+    def test_same_iteration_space_works(self, backend, iterset, x2, iter2ind22):
         op2._empty_parloop_cache()
         assert op2._parloop_cache_size() == 0
         k = op2.Kernel("""void k(unsigned int *x, int i) {}""", 'k')
 
         op2.par_loop(k, iterset(2),
-                     d1(iter2ind2[op2.i[0]], op2.INC))
+                     x2(iter2ind22[op2.i[0]], op2.INC))
 
         assert op2._parloop_cache_size() == 1
 
         op2.par_loop(k, iterset(2),
-                     d1(iter2ind2[op2.i[0]], op2.INC))
+                     x2(iter2ind22[op2.i[0]], op2.INC))
 
         assert op2._parloop_cache_size() == 1
 
 
     def test_change_const_dim_matters(self, backend, iterset):
-        d = op2.Dat(iterset, 1, range(nelems), numpy.uint32)
+        d = op2.Dat(iterset, range(nelems), numpy.uint32)
         op2._empty_parloop_cache()
         assert op2._parloop_cache_size() == 0
 
@@ -486,7 +492,7 @@ void kernel_swap(unsigned int* x[2])
         c.remove_from_namespace()
 
     def test_change_const_data_doesnt_matter(self, backend, iterset):
-        d = op2.Dat(iterset, 1, range(nelems), numpy.uint32)
+        d = op2.Dat(iterset, range(nelems), numpy.uint32)
         op2._empty_parloop_cache()
         assert op2._parloop_cache_size() == 0
 
@@ -503,7 +509,7 @@ void kernel_swap(unsigned int* x[2])
         c.remove_from_namespace()
 
     def test_change_dat_dtype_matters(self, backend, iterset):
-        d = op2.Dat(iterset, 1, range(nelems), numpy.uint32)
+        d = op2.Dat(iterset, range(nelems), numpy.uint32)
         op2._empty_parloop_cache()
         assert op2._parloop_cache_size() == 0
 
@@ -512,7 +518,7 @@ void kernel_swap(unsigned int* x[2])
         op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
         assert op2._parloop_cache_size() == 1
 
-        d = op2.Dat(iterset, 1, range(nelems), numpy.int32)
+        d = op2.Dat(iterset, range(nelems), numpy.int32)
         op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
         assert op2._parloop_cache_size() == 2
 
@@ -550,47 +556,22 @@ class TestSparsityCache:
 
     def test_sparsities_differing_maps_share_no_data(self, backend, m1, m2):
         """Sparsities with different maps should not share a C handle."""
-        sp1 = op2.Sparsity((m1, m1), 1)
-        sp2 = op2.Sparsity((m2, m2), 1)
+        sp1 = op2.Sparsity((m1, m1))
+        sp2 = op2.Sparsity((m2, m2))
 
         assert sp1 is not sp2
 
-    def test_sparsities_differing_dims_share_no_data(self, backend, m1):
-        """Sparsities with the same maps but different dims should not
-        share a C handle."""
-        sp1 = op2.Sparsity((m1, m1), 1)
-        sp2 = op2.Sparsity((m1, m1), 2)
-
-        assert sp1 is not sp2
-
-    def test_sparsities_differing_maps_and_dims_share_no_data(self, backend, m1, m2):
-        """Sparsities with different maps and dims should not share a
-        C handle."""
-        sp1 = op2.Sparsity((m1, m1), 2)
-        sp2 = op2.Sparsity((m2, m2), 1)
-
-        assert sp1 is not sp2
-
-    def test_sparsities_same_map_and_dim_share_data(self, backend, m1):
+    def test_sparsities_same_map_share_data(self, backend, m1):
         """Sparsities with the same map and dim should share a C handle."""
-        sp1 = op2.Sparsity((m1, m1), (1,1))
-        sp2 = op2.Sparsity((m1, m1), (1,1))
-
-        assert sp1 is sp2
-
-    def test_sparsities_same_map_and_dim_share_data_longhand(self, backend, m1):
-        """Sparsities with the same map and dim should share a C handle
-
-        Even if we spell the dimension with a shorthand and longhand form."""
-        sp1 = op2.Sparsity((m1, m1), (1,1))
-        sp2 = op2.Sparsity((m1, m1), 1)
+        sp1 = op2.Sparsity((m1, m1))
+        sp2 = op2.Sparsity((m1, m1))
 
         assert sp1 is sp2
 
     def test_two_mats_on_same_sparsity_share_data(self, backend, m1, skip_sequential, skip_openmp):
         """Sparsity data should be shared between Mat objects.
         Even on the device."""
-        sp = op2.Sparsity((m1, m1), (1, 1))
+        sp = op2.Sparsity((m1, m1))
         mat1 = op2.Mat(sp, 'float64')
         mat2 = op2.Mat(sp, 'float64')
 

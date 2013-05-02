@@ -100,8 +100,9 @@ elif c.rank == 1:
     element_halo = op2.Halo(sends=([0], []), receives=([1], []), comm=c)
 else:
     c.Abort(1)
-nodes = op2.Set(NUM_NODES, "nodes", halo=node_halo)
-elements = op2.Set(NUM_ELE, "elements", halo=element_halo)
+nodes = op2.Set(NUM_NODES, 1, "nodes", halo=node_halo)
+vnodes = op2.Set(NUM_NODES, 2, "vnodes", halo=node_halo)
+elements = op2.Set(NUM_ELE, 1, "elements", halo=element_halo)
 
 
 if c.rank == 0:
@@ -112,8 +113,9 @@ else:
     c.Abort(1)
 
 elem_node = op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
+elem_vnode = op2.Map(elements, vnodes, 3, elem_node_map, "elem_vnode")
 
-sparsity = op2.Sparsity((elem_node, elem_node), 1, "sparsity")
+sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 if c.rank == 0:
@@ -124,7 +126,7 @@ elif c.rank == 1:
                             dtype=valuetype)
 else:
     c.Abort(1)
-coords = op2.Dat(nodes, 2, coord_vals, valuetype, "coords")
+coords = op2.Dat(vnodes, coord_vals, valuetype, "coords")
 
 if c.rank == 0:
     f_vals = np.asarray([ 1.0, 2.0, 3.0, 4.0 ], dtype=valuetype)
@@ -134,20 +136,20 @@ else:
     c.Abort(1)
 b_vals = np.asarray([0.0]*NUM_NODES[3], dtype=valuetype)
 x_vals = np.asarray([0.0]*NUM_NODES[3], dtype=valuetype)
-f = op2.Dat(nodes, 1, f_vals, valuetype, "f")
-b = op2.Dat(nodes, 1, b_vals, valuetype, "b")
-x = op2.Dat(nodes, 1, x_vals, valuetype, "x")
+f = op2.Dat(nodes, f_vals, valuetype, "f")
+b = op2.Dat(nodes, b_vals, valuetype, "b")
+x = op2.Dat(nodes, x_vals, valuetype, "x")
 
 # Assemble and solve
 
 op2.par_loop(mass, elements(3,3),
              mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-             coords(elem_node, op2.READ))
+             coords(elem_vnode, op2.READ))
 
 op2.par_loop(rhs, elements(3),
-                     b(elem_node[op2.i[0]], op2.INC),
-                     coords(elem_node, op2.READ),
-                     f(elem_node, op2.READ))
+             b(elem_node[op2.i[0]], op2.INC),
+             coords(elem_vnode, op2.READ),
+             f(elem_node, op2.READ))
 
 solver = op2.Solver()
 solver.solve(mat, x, b)
