@@ -554,18 +554,46 @@ class TestSparsityCache:
     def m2(cls, s1, s2):
         return op2.Map(s1, s2, 1, [1,2,3,4,0])
 
-    def test_sparsities_differing_maps_share_no_data(self, backend, m1, m2):
+    def test_sparsities_differing_maps_not_cached(self, backend, m1, m2):
         """Sparsities with different maps should not share a C handle."""
-        sp1 = op2.Sparsity((m1, m1))
-        sp2 = op2.Sparsity((m2, m2))
-
+        sp1 = op2.Sparsity(m1)
+        sp2 = op2.Sparsity(m2)
         assert sp1 is not sp2
 
-    def test_sparsities_same_map_share_data(self, backend, m1):
-        """Sparsities with the same map and dim should share a C handle."""
+    def test_sparsities_differing_map_pairs_not_cached(self, backend, m1, m2):
+        """Sparsities with different maps should not share a C handle."""
+        sp1 = op2.Sparsity((m1, m2))
+        sp2 = op2.Sparsity((m2, m1))
+        assert sp1 is not sp2
+
+    def test_sparsities_differing_map_tuples_not_cached(self, backend, m1, m2):
+        """Sparsities with different maps should not share a C handle."""
+        sp1 = op2.Sparsity(((m1, m1), (m2, m2)))
+        sp2 = op2.Sparsity(((m2, m2), (m2, m2)))
+        assert sp1 is not sp2
+
+    def test_sparsities_same_map_cached(self, backend, m1):
+        """Sparsities with the same map should share a C handle."""
+        sp1 = op2.Sparsity(m1)
+        sp2 = op2.Sparsity(m1)
+        assert sp1 is sp2
+
+    def test_sparsities_same_map_pair_cached(self, backend, m1):
+        """Sparsities with the same map pair should share a C handle."""
         sp1 = op2.Sparsity((m1, m1))
         sp2 = op2.Sparsity((m1, m1))
+        assert sp1 is sp2
 
+    def test_sparsities_same_map_tuple_cached(self, backend, m1, m2):
+        "Sparsities with the same tuple of map pairs should share a C handle."
+        sp1 = op2.Sparsity(((m1, m1), (m2, m2)))
+        sp2 = op2.Sparsity(((m1, m1), (m2, m2)))
+        assert sp1 is sp2
+
+    def test_sparsities_different_ordered_map_tuple_cached(self, backend, m1, m2):
+        "Sparsities with the same tuple of map pairs should share a C handle."
+        sp1 = op2.Sparsity(((m1, m1), (m2, m2)))
+        sp2 = op2.Sparsity(((m2, m2), (m1, m1)))
         assert sp1 is sp2
 
     def test_two_mats_on_same_sparsity_share_data(self, backend, m1, skip_sequential, skip_openmp):
