@@ -579,6 +579,12 @@ class TestSparsityCache:
         sp2 = op2.Sparsity(((m1, m1), (m2, m2)))
         assert sp1 is sp2
 
+    def test_sparsities_different_ordered_map_tuple_cached(self, backend, m1, m2):
+        "Sparsities with the same tuple of map pairs should share a C handle."
+        sp1 = op2.Sparsity(((m1, m1), (m2, m2)))
+        sp2 = op2.Sparsity(((m2, m2), (m1, m1)))
+        assert sp1 is sp2
+
     def test_two_mats_on_same_sparsity_share_data(self, backend, m1, skip_sequential, skip_openmp):
         """Sparsity data should be shared between Mat objects.
         Even on the device."""
