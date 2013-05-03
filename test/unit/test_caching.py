@@ -556,9 +556,20 @@ class TestSparsityCache:
 
     def test_sparsities_differing_maps_not_cached(self, backend, m1, m2):
         """Sparsities with different maps should not share a C handle."""
-        sp1 = op2.Sparsity((m1, m1))
-        sp2 = op2.Sparsity((m2, m2))
+        sp1 = op2.Sparsity(m1)
+        sp2 = op2.Sparsity(m2)
+        assert sp1 is not sp2
 
+    def test_sparsities_differing_map_pairs_not_cached(self, backend, m1, m2):
+        """Sparsities with different maps should not share a C handle."""
+        sp1 = op2.Sparsity((m1, m2))
+        sp2 = op2.Sparsity((m2, m1))
+        assert sp1 is not sp2
+
+    def test_sparsities_differing_map_tuples_not_cached(self, backend, m1, m2):
+        """Sparsities with different maps should not share a C handle."""
+        sp1 = op2.Sparsity(((m1, m1), (m2, m2)))
+        sp2 = op2.Sparsity(((m2, m2), (m2, m2)))
         assert sp1 is not sp2
 
     def test_sparsities_same_map_cached(self, backend, m1):
