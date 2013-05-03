@@ -1127,12 +1127,20 @@ _sparsity_cache = dict()
 def _empty_sparsity_cache():
     _sparsity_cache.clear()
 
-def _maps_tuple(maps):
+def _validate_and_canonicalize_maps(maps):
     "Turn maps sparsity constructor argument into a canonical tuple of pairs."
     # A single map becomes a pair of identical maps
     maps = (maps, maps) if isinstance(maps, Map) else maps
     # A single pair becomes a tuple of one pair
-    return (maps,) if isinstance(maps[0], Map) else maps
+    maps = (maps,) if isinstance(maps[0], Map) else maps
+    # Check maps are sane
+    for pair in maps:
+        for m in pair:
+            if not isinstance(m, Map):
+                raise MapTypeError("All maps must be of type map, not type %r" % type(m))
+            if len(m.values) == 0:
+                raise MapValueError("Unpopulated map values when trying to build sparsity.")
+    return tuple(sorted(maps))
 
 class Sparsity(object):
     """OP2 Sparsity, a matrix structure derived from the union of the outer
@@ -1156,7 +1164,7 @@ class Sparsity(object):
 
     @validate_type(('maps', (Map, tuple), MapTypeError),)
     def __new__(cls, maps, name=None):
-        maps = _maps_tuple(maps)
+        maps = _validate_and_canonicalize_maps(maps)
         cached = _sparsity_cache.get(maps)
         return cached or super(Sparsity, cls).__new__(cls, maps, name)
 
@@ -1166,13 +1174,7 @@ class Sparsity(object):
 
         if getattr(self, '_cached', False):
             return
-        maps = _maps_tuple(maps)
-        for pair in maps:
-            for m in pair:
-                if not isinstance(m, Map):
-                    raise MapTypeError("All maps must be of type map, not type %r" % type(m))
-                if len(m.values) == 0:
-                    raise MapValueError("Unpopulated map values when trying to build sparsity.")
+        maps = _validate_and_canonicalize_maps(maps)
 
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
