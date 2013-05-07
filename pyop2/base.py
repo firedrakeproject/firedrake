@@ -369,8 +369,14 @@ class Set(object):
 
     @property
     def dim(self):
-        """The number of values at each member of the set."""
+        """The shape tuple of the values for each element of the set."""
         return self._dim
+
+    @property
+    def cdim(self):
+        """The scalar number of values for each member of the set. This is
+        the product of the dim tuple."""
+        return np.asscalar(np.prod(self.dim))
 
     @property
     def name(self):
@@ -608,12 +614,13 @@ class DataCarrier(object):
 
     @property
     def dim(self):
-        """The shape of the values for each element of the object."""
+        """The shape tuple of the values for each element of the object."""
         return self._dim
 
     @property
     def cdim(self):
-        """The number of values for each member of the object. This is the product of the dims."""
+        """The scalar number of values for each member of the object. This is
+        the product of the dim tuple."""
         return np.asscalar(np.prod(self.dim))
 
 class Dat(DataCarrier):
@@ -643,7 +650,7 @@ class Dat(DataCarrier):
     def __init__(self, dataset, data=None, dtype=None, name=None,
                  soa=None, uid=None):
         if data is None:
-            data = np.zeros(dataset.total_size*np.prod(dataset.dim))
+            data = np.zeros(dataset.total_size*dataset.cdim)
         self._dataset = dataset
         self._data = verify_reshape(data, dtype,
                                     (dataset.total_size,) + dataset.dim,
@@ -1198,8 +1205,7 @@ class Sparsity(object):
         # All rmaps and cmaps have the same data set - just use the first.
         self._nrows = self._rmaps[0].dataset.size
         self._ncols = self._cmaps[0].dataset.size
-        self._dims = (np.prod(self._rmaps[0].dataset.dim),
-                      np.prod(self._cmaps[0].dataset.dim))
+        self._dims = (self._rmaps[0].dataset.cdim, self._cmaps[0].dataset.cdim)
 
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         self._lib_handle = None
@@ -1251,8 +1257,8 @@ class Sparsity(object):
                (self._rmaps, self._cmaps, self._name)
 
     def __repr__(self):
-        return "Sparsity((%r, %r), %r, %r)" % \
-               (self._rmaps, self._cmaps, self._dims, self._name)
+        return "Sparsity((%r, %r), %r)" % \
+               (self._rmaps, self._cmaps, self._name)
 
     def __del__(self):
         core.free_sparsity(self)
@@ -1342,7 +1348,10 @@ class Mat(DataCarrier):
 
     @property
     def dims(self):
-        """A pair of integers giving the number of matrix rows and columns for each member of the row :class:`Set`  and column :class:`Set` respectively. This corresponds to the ``dim`` member of a :class:`Dat`. Note that ``dims`` is actually specified at the :class:`Sparsity` level and inherited by the ``Mat``."""
+        """A pair of integers giving the number of matrix rows and columns for
+        each member of the row :class:`Set` and column :class:`Set`
+        respectively. This corresponds to the ``cdim`` member of a
+        :class:`Set`."""
         return self._sparsity._dims
 
     @property
