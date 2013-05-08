@@ -38,6 +38,7 @@ subclass these as required to implement backend-specific features.
 .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
 """
 
+from __future__ import print_function
 import numpy as np
 import operator
 
@@ -50,6 +51,13 @@ from mpi4py import MPI
 
 # MPI Communicator
 PYOP2_COMM = None
+
+def running_in_parallel():
+    return PYOP2_COMM.size > 1
+
+def debug(*msg):
+    if cfg.debug:
+        print('[%d]' % PYOP2_COMM.rank if running_in_parallel() else '', *msg)
 
 def get_mpi_communicator():
     """The MPI Communicator used by PyOP2."""
