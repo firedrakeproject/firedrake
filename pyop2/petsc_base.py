@@ -69,11 +69,12 @@ class Mat(base.Mat):
         if not self.dtype == PETSc.ScalarType:
             raise RuntimeError("Can only create a matrix of type %s, %s is not supported" \
                     % (PETSc.ScalarType, self.dtype))
+        mat = PETSc.Mat()
+        row_lg = PETSc.LGMap()
+        col_lg = PETSc.LGMap()
+        rdim, cdim = self.sparsity.dims
         if base.PYOP2_COMM.size == 1:
-            mat = PETSc.Mat()
-            row_lg = PETSc.LGMap()
-            col_lg = PETSc.LGMap()
-            rdim, cdim = self.sparsity.dims
+            # The PETSc local to global mapping is the identity in the sequential case
             row_lg.create(indices=np.arange(self.sparsity.nrows * rdim, dtype=PETSc.IntType))
             col_lg.create(indices=np.arange(self.sparsity.ncols * cdim, dtype=PETSc.IntType))
             self._array = np.zeros(self.sparsity.nz, dtype=PETSc.RealType)
@@ -83,22 +84,27 @@ class Mat(base.Mat):
             # NOTE: using _rowptr and _colidx since we always want the host values
             mat.createAIJWithArrays((self.sparsity.nrows*rdim, self.sparsity.ncols*cdim),
                                     (self.sparsity._rowptr, self.sparsity._colidx, self._array))
-            mat.setLGMap(rmap=row_lg, cmap=col_lg)
         else:
-            mat = PETSc.Mat()
-            row_lg = PETSc.LGMap()
-            col_lg = PETSc.LGMap()
             # FIXME: probably not right for vector fields
-            row_lg.create(indices=self.sparsity.maps[0][0].dataset.halo.global_to_petsc_numbering)
-            col_lg.create(indices=self.sparsity.maps[0][1].dataset.halo.global_to_petsc_numbering)
-            rdim, cdim = self.sparsity.dims
+            # We get the PETSc local to global mapping from the halo
+            row_lg.create(indices=self.sparsity.rmaps[0].dataset.halo.global_to_petsc_numbering)
+            col_lg.create(indices=self.sparsity.cmaps[0].dataset.halo.global_to_petsc_numbering)
             mat.createAIJ(size=((self.sparsity.nrows*rdim, None),
                                 (self.sparsity.ncols*cdim, None)),
                           nnz=(self.sparsity.nnz, self.sparsity.onnz))
-            mat.setLGMap(rmap=row_lg, cmap=col_lg)
-            mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, True)
-            mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
-            mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+        mat.setLGMap(rmap=row_lg, cmap=col_lg)
+        # Do not stash entries destined for other processors, just drop them
+        # (we take care of those in the halo)
+        mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, True)
+        # Do not create a zero location when adding a zero value
+        mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
+        # Any add or insertion that would generate a new entry that has not
+        # been preallocated will raise an error
+        mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+        # When zeroing rows (e.g. for enforcing Dirichlet bcs), keep those in
+        # the nonzero structure of the matrix. Otherwise PETSc would compact
+        # the sparsity and render our sparsity caching useless.
+        mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
         self._handle = mat
 
     def zero(self):
