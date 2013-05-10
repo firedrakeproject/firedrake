@@ -1239,6 +1239,16 @@ class Sparsity(object):
         return zip(self._rmaps, self._cmaps)
 
     @property
+    def cmaps(self):
+        """The list of column maps this sparsity is assembled from."""
+        return self._cmaps
+
+    @property
+    def rmaps(self):
+        """The list of row maps this sparsity is assembled from."""
+        return self._rmaps
+
+    @property
     def dims(self):
         """A pair giving the number of rows per entry of the row
         :class:`Set` and the number of columns per entry of the column
@@ -1265,8 +1275,7 @@ class Sparsity(object):
                (self._rmaps, self._cmaps, self._name)
 
     def __repr__(self):
-        return "Sparsity((%r, %r), %r)" % \
-               (self._rmaps, self._cmaps, self._name)
+        return "Sparsity(%r, %r)" % (tuple(self.maps), self.name)
 
     def __del__(self):
         core.free_sparsity(self)
