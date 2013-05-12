@@ -49,11 +49,12 @@ over system installed packages on your `sys.path`.
 
 ### Common
 Common dependencies:
+  * distribute >= 0.6.35
   * Cython >= 0.17
   * decorator
   * instant >= 1.0
   * numpy >= 1.6
-  * [PETSc][petsc_repo] >= 3.2 with Fortran interface, C++ and OpenMP support
+  * [PETSc][petsc_repo] >= 3.3 with Fortran interface, C++ and OpenMP support
   * [PETSc4py][petsc4py_repo] >= 3.3
   * PyYAML
 
@@ -113,7 +114,7 @@ against the same PETSc, which must be build with Fortran support!
 
 ### CUDA backend:
 Dependencies:
-  * codepy >= 2012.1.2
+  * codepy >= 2013.1
   * Jinja2
   * mako
   * pycparser >= 2.09.1 (revision a460398 or newer)
