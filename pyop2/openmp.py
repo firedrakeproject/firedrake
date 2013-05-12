@@ -44,13 +44,14 @@ import petsc_base
 from petsc_base import *
 import host
 import device
+from subprocess import Popen, PIPE
 
 # hard coded value to max openmp threads
 _max_threads = 32
 
 def _detect_openmp_flags():
-    import subprocess
-    _version = subprocess.check_output(['mpicc', '--version'], shell=False)
+    p = Popen(['mpicc', '--version'], stdout=PIPE, shell=False)
+    _version, _ = p.communicate()
     if _version.find('Free Software Foundation') != -1:
         return '-fopenmp'
     elif _version.find('Intel Corporation') != -1:
