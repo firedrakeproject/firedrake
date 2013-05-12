@@ -53,13 +53,13 @@ def _detect_openmp_flags():
     p = Popen(['mpicc', '--version'], stdout=PIPE, shell=False)
     _version, _ = p.communicate()
     if _version.find('Free Software Foundation') != -1:
-        return '-fopenmp'
+        return '-fopenmp', 'gomp'
     elif _version.find('Intel Corporation') != -1:
-        return '-openmp'
+        return '-openmp', 'iomp5'
     else:
         from warnings import warn
         warn('Unknown mpicc version:\n%s' % _version)
-        return ''
+        return '', ''
 
 class Arg(host.Arg):
 
@@ -181,7 +181,9 @@ class ParLoop(device.ParLoop, host.ParLoop):
               }
               """
 
-    _cppargs = [os.environ.get('OMP_CXX_FLAGS') or _detect_openmp_flags()]
+    ompflag, omplib = _detect_openmp_flags()
+    _cppargs = [os.environ.get('OMP_CXX_FLAGS') or ompflag]
+    _libraries = [os.environ.get('OMP_LIBS') or omplib]
     _system_headers = ['omp.h']
 
     def compute(self):

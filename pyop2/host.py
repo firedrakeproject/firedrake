@@ -211,6 +211,7 @@ class ParLoop(base.ParLoop):
 
     _cppargs = []
     _system_headers = []
+    _libraries = []
 
     def build(self):
 
@@ -247,7 +248,7 @@ class ParLoop(base.ParLoop):
                                  wrap_headers=["mat_utils.h"],
                                  system_headers=self._system_headers,
                                  library_dirs=[OP2_LIB, get_petsc_dir()+'/lib'],
-                                 libraries=['op2_seq', 'petsc'],
+                                 libraries=['op2_seq', 'petsc'] + self._libraries,
                                  sources=["mat_utils.cxx"])
         if cc:
             os.environ['CC'] = cc
