@@ -38,10 +38,15 @@ Cython implementation of the Plan construction.
 import base
 from utils import align
 import math
-from collections import OrderedDict
 import numpy
 cimport numpy
 from libc.stdlib cimport malloc, free
+try:
+    from collections import OrderedDict
+# OrderedDict was added in Python 2.7. Earlier versions can use ordereddict
+# from PyPI
+except ImportError:
+    from ordereddict import OrderedDict
 
 # C type declarations
 ctypedef struct map_idx_t:
