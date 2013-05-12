@@ -42,10 +42,10 @@ unit_mpi_%:
 	@echo Not implemented
 
 unit_%:
-	$(PYTEST) $(UNIT_TEST_DIR) --backend=$*
+	cd $(UNIT_TEST_DIR); $(PYTEST) --backend=$*
 
 unit_opencl:
-	for c in $(OPENCL_CTXS); do PYOPENCL_CTX=$$c $(PYTEST) $(UNIT_TEST_DIR) --backend=opencl; done
+	cd $(UNIT_TEST_DIR); for c in $(OPENCL_CTXS); do PYOPENCL_CTX=$$c $(PYTEST) --backend=opencl; done
 
 regression: $(foreach backend,$(BACKENDS), regression_$(backend))
 
