@@ -1,17 +1,4 @@
 #! /bin/bash
-
-if (( EUID != 0 )); then
-  echo "*** Unprivileged installation ***"
-  echo
-  PIP="pip install --user"
-  PREFIX=$HOME/.local
-  PATH=$PREFIX/bin:$PATH
-else
-  echo "*** Privileged installation ***"
-  echo
-  PIP="pip install"
-  PREFIX=/usr/local
-fi
 BASE_DIR=`pwd`
 TEMP_DIR=/tmp
 LOGFILE=$BASE_DIR/pyop2_install.log
@@ -20,13 +7,25 @@ if [ -f $LOGFILE ]; then
   mv $LOGFILE $LOGFILE.old
 fi
 
-echo
-echo "*** Preparing system ***"
-echo
+if (( EUID != 0 )); then
+  echo "*** Unprivileged installation ***" | tee -a $LOGFILE
+  echo | tee -a $LOGFILE
+  PIP="pip install --user"
+  PREFIX=$HOME/.local
+  PATH=$PREFIX/bin:$PATH
+else
+  echo "*** Privileged installation ***" | tee -a $LOGFILE
+  echo | tee -a $LOGFILE
+  PIP="pip install"
+  PREFIX=/usr/local
+fi
+
+echo "*** Preparing system ***" | tee -a $LOGFILE
+echo | tee -a $LOGFILE
 
 if (( EUID != 0 )); then
-  echo "PyOP2 requires the following packages to be installed:"
-  echo "  build-essential python-dev bzr git-core mercurial
+  echo "PyOP2 requires the following packages to be installed:
+  build-essential python-dev bzr git-core mercurial
   cmake cmake-curses-gui python-pip swig
   libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran"
 else
@@ -36,9 +35,8 @@ else
     libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran >> $LOGFILE 2>&1
 fi
 
-echo
-echo "*** Installing OP2-Common ***"
-echo
+echo "*** Installing OP2-Common ***" | tee -a $LOGFILE
+echo | tee -a $LOGFILE
 
 if [ -d OP2-Common/.git ]; then
   (
@@ -56,18 +54,16 @@ export OP2_DIR=`pwd`
 
 cd $BASE_DIR
 
-echo
-echo "*** Installing dependencies ***"
-echo
+echo "*** Installing dependencies ***" | tee -a $LOGFILE
+echo | tee -a $LOGFILE
 
 ${PIP} Cython decorator instant numpy pyyaml >> $LOGFILE 2>&1
 PETSC_CONFIGURE_OPTIONS="--with-fortran --with-fortran-interfaces --with-c++-support --with-openmp" \
   ${PIP} hg+https://bitbucket.org/ggorman/petsc-3.3-omp#egg=petsc-3.3 >> $LOGFILE 2>&1
 ${PIP} hg+https://bitbucket.org/mapdes/petsc4py#egg=petsc4py >> $LOGFILE 2>&1
 
-echo
-echo "*** Installing FEniCS dependencies ***"
-echo
+echo "*** Installing FEniCS dependencies ***" | tee -a $LOGFILE
+echo | tee -a $LOGFILE
 
 ${PIP} \
   git+https://bitbucket.org/mapdes/ffc@pyop2#egg=ffc \
@@ -76,9 +72,8 @@ ${PIP} \
   git+https://bitbucket.org/fenics-project/fiat#egg=fiat \
   hg+https://bitbucket.org/khinsen/scientificpython >> $LOGFILE 2>&1
 
-echo
-echo "*** Installing PyOP2 ***"
-echo
+echo "*** Installing PyOP2 ***" | tee -a $LOGFILE
+echo | tee -a $LOGFILE
 
 cd $BASE_DIR
 
@@ -122,9 +117,8 @@ export PYTHONPATH=`pwd`:\$PYTHONPATH
 or source the '.env' script with '. ${PYOP2_DIR}/.env'
 "
 
-echo
-echo "*** Installing PyOP2 testing dependencies ***"
-echo
+echo "*** Installing PyOP2 testing dependencies ***" | tee -a $LOGFILE
+echo | tee -a $LOGFILE
 
 ${PIP} pytest >> $LOGFILE 2>&1
 if (( EUID != 0 )); then
@@ -143,9 +137,8 @@ if [ ! `which triangle` ]; then
   cp triangle $PREFIX/bin
 fi
 
-echo
-echo "*** Testing PyOP2 ***"
-echo
+echo "*** Testing PyOP2 ***" | tee -a $LOGFILE
+echo | tee -a $LOGFILE
 
 cd $PYOP2_DIR
 
@@ -157,5 +150,4 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo
 echo "Congratulations! PyOP2 tests finished successfully!"
