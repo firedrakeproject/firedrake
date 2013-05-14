@@ -7,6 +7,10 @@ if [ -f $LOGFILE ]; then
   mv $LOGFILE $LOGFILE.old
 fi
 
+echo "PyOP2 installation started at `date`" | tee -a $LOGFILE
+echo "  on `uname -a`" | tee -a $LOGFILE
+echo | tee -a $LOGFILE
+
 if (( EUID != 0 )); then
   echo "*** Unprivileged installation ***" | tee -a $LOGFILE
   echo | tee -a $LOGFILE
@@ -151,3 +155,6 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "Congratulations! PyOP2 tests finished successfully!"
+
+echo | tee -a $LOGFILE
+echo "PyOP2 installation finished at `date`" | tee -a $LOGFILE
