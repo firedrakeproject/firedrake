@@ -86,7 +86,6 @@ export PETSC_DIR=/usr/lib/petscdir/3.3
 export PETSC_ARCH=linux-gnu-c-opt
 ```
 
-
 If not, make sure all PETSc dependencies (BLAS/LAPACK, MPI and a Fortran
 compiler) are installed. On a Debian based system, run:
 ```
@@ -106,7 +105,7 @@ left unset when building petsc4py.
 
 Install [petsc4py][petsc4py_repo] via `pip`:
 ```
-pip install hg+https://bitbucket.org/fr710/petsc4py#egg=petsc4py
+pip install hg+https://bitbucket.org/mapdes/petsc4py#egg=petsc4py
 ```
 
 **Note:** When using PyOP2 with Fluidity it's crucial that both are built
@@ -224,11 +223,11 @@ be built automatically and amending `$PYTHONPATH` is not necessary.
 
 ## FFC Interface
 
-Solving [UFL](https://launchpad.net/ufl) finite element equations requires a
+Solving [UFL][ufl_repo] finite element equations requires a
 [fork of FFC][ffc_repo] and dependencies:
-  * [UFL](https://launchpad.net/ufl)
-  * [UFC](https://launchpad.net/ufc)
-  * [FIAT](https://launchpad.net/fiat)
+  * [UFL][ufl_repo]
+  * [UFC][ufc_repo]
+  * [FIAT][fiat_repo]
 
 ### Install via the package manager
 
@@ -240,14 +239,14 @@ sudo apt-get install fenics
 
 Our [FFC fork][ffc_repo] is required, and must be added to your `$PYTHONPATH`:
 ```
-bzr branch lp:~mapdes/ffc/pyop2 $FFC_DIR
+git clone -b pyop2 https://bitbucket.org/mapdes/ffc.git $FFC_DIR
 export PYTHONPATH=$FFC_DIR:$PYTHONPATH
 ```
 
-This branch of FFC also requires the trunk version of
-[UFL](https://launchpad.net/ufl), also added to `$PYTHONPATH`:
+This branch of FFC also requires the latest version of [UFL][ufl_repo], also
+added to `$PYTHONPATH`:
 ```
-bzr branch lp:ufl $UFL_DIR
+git clone https://bitbucket.org/fenics-project/ufl.git $UFL_DIR
 export PYTHONPATH=$UFL_DIR:$PYTHONPATH
 ```
 
@@ -256,11 +255,11 @@ export PYTHONPATH=$UFL_DIR:$PYTHONPATH
 Alternatively, install FFC and all dependencies via pip:
 ```
 pip install \
-  bzr+http://bazaar.launchpad.net/~mapdes/ffc/pyop2#egg=ffc \
-  bzr+http://bazaar.launchpad.net/~florian-rathgeber/ufc/python-setup#egg=ufc_utils \
-  bzr+http://bazaar.launchpad.net/~ufl-core/ufl/main#egg=ufl \
-  bzr+http://bazaar.launchpad.net/~fiat-core/fiat/main#egg=fiat \
-  hg+https://bitbucket.org/khinsen/scientificpython#egg=ScientificPython
+  git+https://bitbucket.org/mapdes/ffc.git@pyop2#egg=ffc
+  bzr+http://bazaar.launchpad.net/~florian-rathgeber/ufc/python-setup#egg=ufc_utils
+  git+https://bitbucket.org/fenics-project/ufl.git#egg=ufl
+  git+https://bitbucket.org/fenics-project/fiat.git#egg=fiat
+  hg+https://bitbucket.org/khinsen/scientificpython
 ```
 
 ## Setting up the environment
@@ -333,6 +332,9 @@ python -c 'from pprint import pprint; import sys; pprint(sys.path)'
 ```
 
 [petsc_repo]: https://bitbucket.org/ggorman/petsc-3.3-omp
-[petsc4py_repo]: https://bitbucket.org/fr710/petsc4py
-[ffc_repo]: https://code.launchpad.net/~mapdes/ffc/pyop2
+[petsc4py_repo]: https://bitbucket.org/mapdes/petsc4py
+[ffc_repo]: https://bitbucket.org/mapdes/ffc
+[ufc_repo]: https://bitbucket.org/fenics-project/ufc
+[ufl_repo]: https://bitbucket.org/fenics-project/ufl
+[fiat_repo]: https://bitbucket.org/fenics-project/fiat
 [AMD_opencl]: http://developer.amd.com/tools/heterogeneous-computing/amd-accelerated-parallel-processing-app-sdk/
