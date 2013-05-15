@@ -76,6 +76,24 @@ def set_mpi_communicator(comm):
     else:
         PYOP2_COMM = comm
 
+# Common base classes
+
+class Cached(object):
+    """Base class providing global caching of objects. Derived classes need to
+    implement a classmethod :py:meth:`_cache_key`."""
+
+    _cache = {}
+
+    def __new__(cls, *args, **kwargs):
+        key = cls._cache_key(*args, **kwargs)
+        try:
+            return cls._cache[key]
+        except KeyError:
+            obj = super(Cached, cls).__new__(cls, *args, **kwargs)
+            obj.__init__(*args, **kwargs)
+            cls._cache[key] = obj
+            return obj
+
 # Data API
 
 class Access(object):
