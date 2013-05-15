@@ -4,6 +4,34 @@ The main testing platform for PyOP2 is Ubuntu 12.04 64-bit with Python 2.7.3.
 Other UNIX-like systems may or may not work. Microsoft Windows is not
 supported.
 
+## Quick start
+
+For the impatient there is a script for the unattended installation of PyOP2
+and its dependencies on a Ubuntu 12.04 or compatible platform. Only the
+sequential and OpenMP backends are covered at the moment.
+
+Running with superuser privileges will install missing packages and Python
+dependencies will be installed system wide.
+```
+wget -O - https://github.com/OP2/PyOP2/raw/master/install.sh | sudo bash
+```
+
+Running without superuser privileges will instruct you which packages need to
+be installed. Python depencenies will be installed to the user site
+`~/.local`.
+```
+wget -O - https://github.com/OP2/PyOP2/raw/master/install.sh | bash
+```
+
+After installation has completed and a rudimentary functionality check, the
+test suite is run. The script indicates whether all these steps have completed
+successfully and only in this case will exit with return code 0.
+
+Only high-level progress updates are printed to screen. Most of the output is
+redirected to a log file `pyop2_install.log`. Please consult this log file in
+the case of errors. If you can't figure out the cause of discover a bug in the
+installation script, please [report it](https://github.com/OP2/PyOP2/issues).
+
 ## Preparing the system
 
 OP2 and PyOP2 require a number of tools to be available:
