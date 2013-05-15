@@ -80,9 +80,11 @@ def set_mpi_communicator(comm):
 
 class Cached(object):
     """Base class providing global caching of objects. Derived classes need to
-    implement a classmethod :py:meth:`_cache_key`."""
+    implement classmethods :py:meth:`_process_args` and :py:meth:`_cache_key`.
+    """
 
     def __new__(cls, *args, **kwargs):
+        args, kwargs = cls._process_args(*args, **kwargs)
         key = cls._cache_key(*args, **kwargs)
         try:
             return cls._cache[key]
@@ -91,6 +93,22 @@ class Cached(object):
             obj.__init__(*args, **kwargs)
             cls._cache[key] = obj
             return obj
+
+    @classmethod
+    def _process_args(cls, *args, **kwargs):
+        """Pre-processes the arguments before they are being passed to
+        :py:meth:`_cache_key` and the constructor.
+
+        :rtype: *must* return a :py:class:`list` of *args* and a
+            :py:class:`dict` of *kwargs*"""
+        return args, kwargs
+
+    @classmethod
+    def _cache_key(cls, *args, **kwargs):
+        """Compute the cache key given the preprocessed constructor arguments.
+
+        .. note:: The cache key must be hashable."""
+        return tuple(args) + tuple([(k, v) for k, v in kwargs.items()])
 
 # Data API
 
@@ -1163,21 +1181,6 @@ class Map(object):
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 """The identity map.  Used to indicate direct access to a :class:`Dat`."""
 
-def _validate_and_canonicalize_maps(maps):
-    "Turn maps sparsity constructor argument into a canonical tuple of pairs."
-    # A single map becomes a pair of identical maps
-    maps = (maps, maps) if isinstance(maps, Map) else maps
-    # A single pair becomes a tuple of one pair
-    maps = (maps,) if isinstance(maps[0], Map) else maps
-    # Check maps are sane
-    for pair in maps:
-        for m in pair:
-            if not isinstance(m, Map):
-                raise MapTypeError("All maps must be of type map, not type %r" % type(m))
-            if len(m.values) == 0:
-                raise MapValueError("Unpopulated map values when trying to build sparsity.")
-    return tuple(sorted(maps))
-
 class Sparsity(Cached):
     """OP2 Sparsity, a matrix structure derived from the union of the outer
     product of pairs of :class:`Map` objects.
@@ -1200,15 +1203,31 @@ class Sparsity(Cached):
     _globalcount = 0
 
     @classmethod
-    def _cache_key(cls, *args, **kwargs):
-        return _validate_and_canonicalize_maps(args[0])
-
     @validate_type(('maps', (Map, tuple), MapTypeError),)
-    def __init__(self, maps, name=None):
+    def _process_args(cls, maps, name=None, *args, **kwargs):
+        "Turn maps argument into a canonical tuple of pairs."
+
         assert not name or isinstance(name, str), "Name must be of type str"
 
-        maps = _validate_and_canonicalize_maps(maps)
+        # A single map becomes a pair of identical maps
+        maps = (maps, maps) if isinstance(maps, Map) else maps
+        # A single pair becomes a tuple of one pair
+        maps = (maps,) if isinstance(maps[0], Map) else maps
+        # Check maps are sane
+        for pair in maps:
+            for m in pair:
+                if not isinstance(m, Map):
+                    raise MapTypeError("All maps must be of type map, not type %r" % type(m))
+                if len(m.values) == 0:
+                    raise MapValueError("Unpopulated map values when trying to build sparsity.")
+        # Need to return a list of args and dict of kwargs (empty in this case)
+        return [tuple(sorted(maps)), name], {}
 
+    @classmethod
+    def _cache_key(cls, maps, *args, **kwargs):
+        return maps
+
+    def __init__(self, maps, name=None):
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
 
