@@ -82,8 +82,6 @@ class Cached(object):
     """Base class providing global caching of objects. Derived classes need to
     implement a classmethod :py:meth:`_cache_key`."""
 
-    _cache = {}
-
     def __new__(cls, *args, **kwargs):
         key = cls._cache_key(*args, **kwargs)
         try:
@@ -1165,10 +1163,6 @@ class Map(object):
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 """The identity map.  Used to indicate direct access to a :class:`Dat`."""
 
-_sparsity_cache = dict()
-def _empty_sparsity_cache():
-    _sparsity_cache.clear()
-
 def _validate_and_canonicalize_maps(maps):
     "Turn maps sparsity constructor argument into a canonical tuple of pairs."
     # A single map becomes a pair of identical maps
@@ -1184,7 +1178,7 @@ def _validate_and_canonicalize_maps(maps):
                 raise MapValueError("Unpopulated map values when trying to build sparsity.")
     return tuple(sorted(maps))
 
-class Sparsity(object):
+class Sparsity(Cached):
     """OP2 Sparsity, a matrix structure derived from the union of the outer
     product of pairs of :class:`Map` objects.
 
@@ -1202,20 +1196,17 @@ class Sparsity(object):
         Sparsity(((first_rowmap, first_colmap), (second_rowmap, second_colmap)))
     """
 
+    _cache = {}
     _globalcount = 0
 
-    @validate_type(('maps', (Map, tuple), MapTypeError),)
-    def __new__(cls, maps, name=None):
-        maps = _validate_and_canonicalize_maps(maps)
-        cached = _sparsity_cache.get(maps)
-        return cached or super(Sparsity, cls).__new__(cls, maps, name)
+    @classmethod
+    def _cache_key(cls, *args, **kwargs):
+        return _validate_and_canonicalize_maps(args[0])
 
     @validate_type(('maps', (Map, tuple), MapTypeError),)
     def __init__(self, maps, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
 
-        if getattr(self, '_cached', False):
-            return
         maps = _validate_and_canonicalize_maps(maps)
 
         # Split into a list of row maps and a list of column maps
@@ -1245,9 +1236,7 @@ class Sparsity(object):
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         self._lib_handle = None
         Sparsity._globalcount += 1
-        self._cached = True
         core.build_sparsity(self, parallel=PYOP2_COMM.size > 1)
-        _sparsity_cache[maps] = self
 
     @property
     def _nmaps(self):
