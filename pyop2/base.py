@@ -81,7 +81,11 @@ def set_mpi_communicator(comm):
 class Cached(object):
     """Base class providing global caching of objects. Derived classes need to
     implement classmethods :py:meth:`_process_args` and :py:meth:`_cache_key`.
-    """
+
+    .. warning:: Derived classes need to set a flag indicating whether the
+    constructor has already been called and immediately return from
+    :py:meth:`__init__` if the flag is set. Not doing this causes the object
+    to be re-initialized even if it was returned from cache!"""
 
     def __new__(cls, *args, **kwargs):
         args, kwargs = cls._process_args(*args, **kwargs)
@@ -90,6 +94,7 @@ class Cached(object):
             return cls._cache[key]
         except KeyError:
             obj = super(Cached, cls).__new__(cls, *args, **kwargs)
+            obj._initialized = False
             obj.__init__(*args, **kwargs)
             cls._cache[key] = obj
             return obj
@@ -1228,6 +1233,8 @@ class Sparsity(Cached):
         return maps
 
     def __init__(self, maps, name=None):
+        if self._initialized:
+            return
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
 
@@ -1256,6 +1263,7 @@ class Sparsity(Cached):
         self._lib_handle = None
         Sparsity._globalcount += 1
         core.build_sparsity(self, parallel=PYOP2_COMM.size > 1)
+        self._initialized = True
 
     @property
     def _nmaps(self):
