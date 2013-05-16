@@ -97,13 +97,14 @@ class TestConstant:
         void k(int *x) { *x = myconstant; }
         """
 
-        op2._empty_parloop_cache()
+        cache = op2.base.ParLoop._cache
+        cache.clear()
         constant = op2.Const(1, 10, dtype=numpy.int32, name="myconstant")
 
         op2.par_loop(op2.Kernel(k, 'k'),
                      set, dat(op2.IdentityMap, op2.WRITE))
 
-        assert op2._parloop_cache_size() == 1
+        assert len(cache) == 1
         assert all(dat.data == constant.data)
 
         constant.data == 11
@@ -112,7 +113,7 @@ class TestConstant:
                      set, dat(op2.IdentityMap, op2.WRITE))
 
         constant.remove_from_namespace()
-        assert op2._parloop_cache_size() == 1
+        assert len(cache) == 1
         assert all(dat.data == constant.data)
 
 if __name__ == '__main__':

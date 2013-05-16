@@ -1490,12 +1490,6 @@ class Kernel(object):
     def __repr__(self):
         return 'Kernel("""%s""", "%s")' % (self._code, self._name)
 
-def _empty_parloop_cache():
-    ParLoop._cache.clear()
-
-def _parloop_cache_size():
-    return len(ParLoop._cache)
-
 class ParLoop(Cached):
     """Represents the kernel, iteration space and arguments of a parallel loop
     invocation.

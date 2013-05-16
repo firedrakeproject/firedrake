@@ -41,7 +41,6 @@ import numpy
 import op_lib_core as core
 import base
 from base import *
-from base import _empty_parloop_cache, _parloop_cache_size
 
 class Arg(base.Arg):
 
