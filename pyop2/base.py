@@ -96,7 +96,9 @@ class Cached(object):
             obj = super(Cached, cls).__new__(cls, *args, **kwargs)
             obj._initialized = False
             obj.__init__(*args, **kwargs)
-            cls._cache[key] = obj
+            # If key is None we're not supposed to store the object in cache
+            if key:
+                cls._cache[key] = obj
             return obj
 
     @classmethod
@@ -111,6 +113,8 @@ class Cached(object):
     @classmethod
     def _cache_key(cls, *args, **kwargs):
         """Compute the cache key given the preprocessed constructor arguments.
+
+        :rtype: Cache key to use or ``None`` if the object is not to be cached
 
         .. note:: The cache key must be hashable."""
         return tuple(args) + tuple([(k, v) for k, v in kwargs.items()])
