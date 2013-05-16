@@ -187,7 +187,7 @@ class ParLoop(device.ParLoop, host.ParLoop):
     _system_headers = ['omp.h']
 
     def compute(self):
-        _fun = self.build()
+        self.build()
         _args = [self._it_space.size]
         for arg in self.args:
             if arg._is_mat:
@@ -238,7 +238,7 @@ class ParLoop(device.ParLoop, host.ParLoop):
         _args.append(plan.ncolblk)
         _args.append(plan.nelems)
 
-        _fun(*_args)
+        self._fun(*_args)
 
         for arg in self.args:
             if arg._is_mat:

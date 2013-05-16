@@ -602,11 +602,9 @@ class ParLoop(op2.ParLoop):
             conf['work_group_count'] = self._plan.nblocks
         conf['warpsize'] = _warpsize
 
-        self._src, self._fun = op2._parloop_cache.get(self._cache_key, (None, None))
-        if self._src is None:
+        if not hasattr(self, '_src'):
             self.codegen(conf)
             self._fun = compile_kernel()
-            op2._parloop_cache[self._cache_key] = (self._src, self._fun)
 
         # reset parameters in case we got that built kernel from cache
         self._fun._karg = 0

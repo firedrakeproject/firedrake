@@ -38,7 +38,6 @@ from textwrap import dedent
 
 import base
 from base import *
-from base import _parloop_cache
 from utils import as_tuple
 import configuration as cfg
 from find_op2 import *
@@ -214,13 +213,8 @@ class ParLoop(base.ParLoop):
     _libraries = []
 
     def build(self):
-
-        key = self._cache_key
-        _fun = _parloop_cache.get(key)
-
-        if _fun is not None:
-            return _fun
-
+        if hasattr(self, '_fun'):
+            return
         from instant import inline_with_numpy
 
         if any(arg._is_soa for arg in self.args):
@@ -240,7 +234,7 @@ class ParLoop(base.ParLoop):
         # We need to build with mpicc since that's required by PETSc
         cc = os.environ.get('CC')
         os.environ['CC'] = 'mpicc'
-        _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
+        self._fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
                                  additional_definitions = _const_decs + kernel_code,
                                  cppargs=self._cppargs + ['-O0', '-g'] if cfg.debug else [],
                                  include_dirs=[OP2_INC, get_petsc_dir()+'/include'],
@@ -254,9 +248,6 @@ class ParLoop(base.ParLoop):
             os.environ['CC'] = cc
         else:
             os.environ.pop('CC')
-
-        _parloop_cache[key] = _fun
-        return _fun
 
     def generate_code(self):
 

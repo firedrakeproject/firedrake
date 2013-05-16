@@ -608,10 +608,7 @@ class ParLoop(op2.ParLoop):
         return self._module.get_function(self._stub_name)
 
     def compile(self, config=None):
-
-        key = self._cache_key
-        self._module, self._fun = op2._parloop_cache.get(key, (None, None))
-        if self._module is not None:
+        if hasattr(self, '_module'):
             return
 
         compiler_opts = ['-m64', '-Xptxas', '-dlcm=ca',
@@ -641,7 +638,6 @@ class ParLoop(op2.ParLoop):
         self._module = SourceModule(self._src, options=compiler_opts)
         self._fun = self.device_function()
         self._fun.prepare(argtypes)
-        op2._parloop_cache[key] = self._module, self._fun
 
     def launch_configuration(self):
         if self._is_direct:
@@ -668,7 +664,7 @@ class ParLoop(op2.ParLoop):
                     'grid_size' : grid_size}
 
     def generate_direct_loop(self, config):
-        if self._src is not None:
+        if hasattr(self, '_src'):
             return
         d = {'parloop' : self,
              'launch' : config,
@@ -676,7 +672,7 @@ class ParLoop(op2.ParLoop):
         self._src = _direct_loop_template.render(d).encode('ascii')
 
     def generate_indirect_loop(self):
-        if self._src is not None:
+        if hasattr(self, '_src'):
             return
         config = {'WARPSIZE': 32}
         d = {'parloop' : self,

@@ -1490,29 +1490,64 @@ class Kernel(object):
     def __repr__(self):
         return 'Kernel("""%s""", "%s")' % (self._code, self._name)
 
-_parloop_cache = dict()
-
 def _empty_parloop_cache():
-    _parloop_cache.clear()
+    ParLoop._cache.clear()
 
 def _parloop_cache_size():
-    return len(_parloop_cache)
+    return len(ParLoop._cache)
 
-class ParLoop(object):
+class ParLoop(Cached):
     """Represents the kernel, iteration space and arguments of a parallel loop
     invocation.
 
-    Users should not directly construct :class:`ParLoop` objects, but use
-    ``op2.par_loop()`` instead."""
+    .. note:: Users should not directly construct :class:`ParLoop` objects, but
+    use ``op2.par_loop()`` instead."""
+
+    @classmethod
+    def _process_args(cls, *args, **kwargs):
+        args = list(args)
+        if not isinstance(args[1], IterationSpace):
+            args[1] = IterationSpace(args[1])
+        return args, kwargs
+
+    @classmethod
+    def _cache_key(cls, kernel, itspace, *args):
+        key = (kernel.md5, itspace.extents)
+        for arg in args:
+            if arg._is_global:
+                key += (arg.data.dim, arg.data.dtype, arg.access)
+            elif arg._is_dat:
+                if isinstance(arg.idx, IterationIndex):
+                    idx = (arg.idx.__class__, arg.idx.index)
+                else:
+                    idx = arg.idx
+                if arg.map is IdentityMap:
+                    map_dim = None
+                else:
+                    map_dim = arg.map.dim
+                key += (arg.data.dim, arg.data.dtype, map_dim, idx, arg.access)
+            elif arg._is_mat:
+                idxs = (arg.idx[0].__class__, arg.idx[0].index,
+                        arg.idx[1].index)
+                map_dims = (arg.map[0].dim, arg.map[1].dim)
+                key += (arg.data.dims, arg.data.dtype, idxs,
+                      map_dims, arg.access)
+
+        for c in Const._definitions():
+            key += (c.name, c.dtype, c.cdim)
+
+        return key
+
     def __init__(self, kernel, itspace, *args):
+        # Always use the current arguments, also when we hit cache
+        self._actual_args = args
+        if self._initialized:
+            return
         self._kernel = kernel
-        if isinstance(itspace, IterationSpace):
-            self._it_space = itspace
-        else:
-            self._it_space = IterationSpace(itspace)
-        self._actual_args = list(args)
+        self._it_space = itspace
 
         self.check_args()
+        self._initialized = True
 
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
@@ -1616,36 +1651,6 @@ class ParLoop(object):
     @property
     def _has_soa(self):
         return any(a._is_soa for a in self._actual_args)
-
-    @property
-    def _cache_key(self):
-        key = (self._kernel.md5, )
-
-        key += (self._it_space.extents, )
-        for arg in self.args:
-            if arg._is_global:
-                key += (arg.data.dim, arg.data.dtype, arg.access)
-            elif arg._is_dat:
-                if isinstance(arg.idx, IterationIndex):
-                    idx = (arg.idx.__class__, arg.idx.index)
-                else:
-                    idx = arg.idx
-                if arg.map is IdentityMap:
-                    map_dim = None
-                else:
-                    map_dim = arg.map.dim
-                key += (arg.data.dim, arg.data.dtype, map_dim, idx, arg.access)
-            elif arg._is_mat:
-                idxs = (arg.idx[0].__class__, arg.idx[0].index,
-                        arg.idx[1].index)
-                map_dims = (arg.map[0].dim, arg.map[1].dim)
-                key += (arg.data.dims, arg.data.dtype, idxs,
-                      map_dims, arg.access)
-
-        for c in Const._definitions():
-            key += (c.name, c.dtype, c.cdim)
-
-        return key
 
 DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
                              'preconditioner':     'jacobi',

@@ -72,7 +72,7 @@ class ParLoop(host.ParLoop):
               """
 
     def compute(self):
-        _fun = self.build()
+        self.build()
         _args = [0, 0]          # start, stop
         for arg in self.args:
             if arg._is_mat:
@@ -96,13 +96,13 @@ class ParLoop(host.ParLoop):
         # compute over core set elements
         _args[0] = 0
         _args[1] = self.it_space.core_size
-        _fun(*_args)
+        self._fun(*_args)
         # wait for halo exchanges to complete
         self.halo_exchange_end()
         # compute over remaining owned set elements
         _args[0] = self.it_space.core_size
         _args[1] = self.it_space.size
-        _fun(*_args)
+        self._fun(*_args)
         # By splitting the reduction here we get two advantages:
         # - we don't double count contributions in halo elements
         # - once our MPI supports the asynchronous collectives in
@@ -111,7 +111,7 @@ class ParLoop(host.ParLoop):
         if self.needs_exec_halo:
             _args[0] = self.it_space.size
             _args[1] = self.it_space.exec_size
-            _fun(*_args)
+            self._fun(*_args)
         self.reduction_end()
         self.maybe_set_halo_update_needed()
         for arg in self.args:

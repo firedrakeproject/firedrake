@@ -42,7 +42,7 @@ required to implement backend-specific features.
 from petsc4py import PETSc
 import base
 from base import *
-from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
+from base import _empty_parloop_cache, _parloop_cache_size
 from base import set_mpi_communicator as set_base_mpi_communicator
 
 def set_mpi_communicator(comm):

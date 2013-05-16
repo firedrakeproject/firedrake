@@ -41,7 +41,7 @@ import numpy
 import op_lib_core as core
 import base
 from base import *
-from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
+from base import _empty_parloop_cache, _parloop_cache_size
 
 class Arg(base.Arg):
 
@@ -404,7 +404,6 @@ def compare_plans(kernel, iset, *args, **kwargs):
 class ParLoop(base.ParLoop):
     def __init__(self, kernel, itspace, *args):
         base.ParLoop.__init__(self, kernel, itspace, *args)
-        self._src = None
         # List of arguments with vector-map/iteration-space indexes
         # flattened out
         # Does contain Mat arguments (cause of coloring)
@@ -413,6 +412,8 @@ class ParLoop(base.ParLoop):
         #  - indirect dats with the same dat/map pairing only appear once
         # Does contain Mat arguments
         self.__unique_args = []
+        # Argument lists filtered by various criteria
+        self._arg_dict = {}
         seen = set()
         c = 0
         for arg in self._actual_args:
@@ -446,17 +447,12 @@ class ParLoop(base.ParLoop):
             else:
                 self.__unique_args.append(arg)
 
-    def _get_arg_list(self, propname, arglist_name, keep=None):
-        attr = getattr(self, propname, None)
+    def _get_arg_list(self, propname, arglist_name, keep=lambda x: True):
+        attr = self._arg_dict.get(propname)
         if attr:
             return attr
-        attr = []
-        if not keep:
-            keep = lambda x: True
-        for arg in getattr(self, arglist_name):
-            if keep(arg):
-                attr.append(arg)
-        setattr(self, propname, attr)
+        attr = filter(keep, getattr(self, arglist_name))
+        self._arg_dict[propname] = attr
         return attr
 
     @property
