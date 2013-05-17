@@ -29,8 +29,8 @@ print "cd_convergence,", cd_convergence
   <pass_tests>
     <test name="Error norm." language="python">
 assert ab_convergence > 1.5
-assert bc_convergence > 1.95
-assert cd_convergence > 1.95
+assert bc_convergence > 1.80
+assert cd_convergence > 1.85
     </test>
   </pass_tests>
   <warn_tests/>

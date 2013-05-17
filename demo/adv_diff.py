@@ -48,7 +48,6 @@ This may also depend on development trunk versions of other FEniCS programs.
 
 FEniCS Viper is also required and is used to visualise the solution.
 """
-
 import os
 import numpy as np
 
@@ -120,8 +119,8 @@ def main(opt):
 {
   double A   = 0.1; // Normalisation
   double D   = 0.1; // Diffusivity
-  double pi  = 3.141459265358979;
-  double x   = c[0]-(0.49+%(T)f);
+  double pi  = 3.14159265358979;
+  double x   = c[0]-(0.45+%(T)f);
   double y   = c[1]-0.5;
   double r2  = x*x+y*y;
 
@@ -138,7 +137,6 @@ def main(opt):
                  tracer(op2.IdentityMap, op2.WRITE))
 
     # Assemble and solve
-
     if opt['visualize']:
         vis_coords = np.asarray([[x, y, 0.0] for x, y in coords.data_ro], dtype=np.float64)
         import viper
@@ -146,7 +144,7 @@ def main(opt):
 
     solver = op2.Solver()
 
-    while T < 0.02:
+    while T < 0.01999:
 
         # Advection
 
