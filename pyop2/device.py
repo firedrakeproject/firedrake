@@ -254,47 +254,25 @@ class Mat(base.Mat):
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
 
-_plan_cache = dict()
-
 def _empty_plan_cache():
-    _plan_cache.clear()
+    _GenericPlan._cache.clear()
 
 def _plan_cache_size():
-    return len(_plan_cache)
+    return len(_GenericPlan._cache)
 
-class _GenericPlan(object):
-    def __new__(cls, kernel, iset, *args, **kwargs):
-        ps = kwargs.get('partition_size', 0)
-        mc = kwargs.get('matrix_coloring', False)
-        refresh_cache = kwargs.pop('refresh_cache', False)
-        key = Plan._cache_key(iset, ps, mc, *args)
-        cached = _plan_cache.get(key, None)
-        if cached is not None and not refresh_cache:
-            return cached
-        else:
-            return super(_GenericPlan, cls).__new__(cls, kernel, iset, *args, **kwargs)
+class _GenericPlan(base.Cached):
 
-    def __init__(self, kernel, iset, *args, **kwargs):
-        # This is actually a cached instance, everything's in place,
-        # so just return.
-        if getattr(self, '_cached', False):
-            return
-
-        ps = kwargs.get('partition_size', 0)
-        mc = kwargs.get('matrix_coloring', False)
-
-        key = Plan._cache_key(iset, ps, mc, *args)
-        _plan_cache[key] = self
-        self._cached = True
+    _cache = {}
 
     @classmethod
-    def _cache_key(cls, iset, partition_size, matrix_coloring, *args):
-        # Set size
-        key = (iset.size, )
-        # Size of partitions (amount of smem)
-        key += (partition_size, )
-        # do use matrix cooring ?
-        key += (matrix_coloring, )
+    def _cache_key(cls, kernel, iset, *args, **kwargs):
+        # Disable caching if requested
+        if kwargs.pop('refresh_cache', False):
+            return
+        partition_size = kwargs.get('partition_size', 0)
+        matrix_coloring = kwargs.get('matrix_coloring', False)
+
+        key = (iset.size, partition_size, matrix_coloring)
 
         # For each indirect arg, the map, the access type, and the
         # indices into the map are important
