@@ -539,6 +539,46 @@ void kernel_swap(unsigned int* x[2])
         op2.par_loop(k, iterset, g(op2.INC))
         assert len(self.cache) == 2
 
+class TestKernelCache:
+    """
+    Kernel caching tests.
+    """
+
+    cache = op2.base.Kernel._cache
+
+    def test_kernels_same_code_same_name(self, backend):
+        """Kernels with same code and name should be retrieved from cache."""
+        code = "void k(void *x) {}"
+        self.cache.clear()
+        k1 = op2.Kernel(code, 'k')
+        k2 = op2.Kernel(code, 'k')
+        assert k1 is k2 and len(self.cache) == 1
+
+    def test_kernels_same_code_differing_name(self, backend):
+        """Kernels with same code and different name should not be retrieved
+        from cache."""
+        self.cache.clear()
+        code = "void k(void *x) {}"
+        k1 = op2.Kernel(code, 'k')
+        k2 = op2.Kernel(code, 'l')
+        assert k1 is not k2 and len(self.cache) == 2
+
+    def test_kernels_differing_code_same_name(self, backend):
+        """Kernels with different code and same name should not be retrieved
+        from cache."""
+        self.cache.clear()
+        k1 = op2.Kernel("void k(void *x) {}", 'k')
+        k2 = op2.Kernel("void l(void *x) {}", 'k')
+        assert k1 is not k2 and len(self.cache) == 2
+
+    def test_kernels_differing_code_differing_name(self, backend):
+        """Kernels with different code and different name should not be
+        retrieved from cache."""
+        self.cache.clear()
+        k1 = op2.Kernel("void k(void *x) {}", 'k')
+        k2 = op2.Kernel("void l(void *x) {}", 'l')
+        assert k1 is not k2 and len(self.cache) == 2
+
 class TestSparsityCache:
 
     @pytest.fixture
