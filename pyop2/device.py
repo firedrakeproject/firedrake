@@ -254,12 +254,6 @@ class Mat(base.Mat):
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
 
-def _empty_plan_cache():
-    _GenericPlan._cache.clear()
-
-def _plan_cache_size():
-    return len(_GenericPlan._cache)
-
 class _GenericPlan(base.Cached):
 
     _cache = {}
