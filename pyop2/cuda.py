@@ -45,19 +45,21 @@ from pycparser import c_parser, c_ast, c_generator
 
 class Kernel(op2.Kernel):
     def __init__(self, code, name):
+        if self._initialized:
+            return
         op2.Kernel.__init__(self, code, name)
-        self._code = self.instrument(code)
+        self._code = self.instrument()
 
-    class Instrument(c_ast.NodeVisitor):
-        """C AST visitor for instrumenting user kernels.
-             - adds __device__ declaration to function definitions
-        """
-        def visit_FuncDef(self, node):
-            node.decl.funcspec.insert(0,'__device__')
+    def instrument(self):
+        class Instrument(c_ast.NodeVisitor):
+            """C AST visitor for instrumenting user kernels.
+                 - adds __device__ declaration to function definitions
+            """
+            def visit_FuncDef(self, node):
+                node.decl.funcspec.insert(0,'__device__')
 
-    def instrument(self, constants):
         ast = c_parser.CParser().parse(self._code)
-        Kernel.Instrument().generic_visit(ast)
+        Instrument().generic_visit(ast)
         return c_generator.CGenerator().visit(ast)
 
 class Arg(op2.Arg):

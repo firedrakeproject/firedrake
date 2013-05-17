@@ -41,6 +41,7 @@ subclass these as required to implement backend-specific features.
 from __future__ import print_function
 import numpy as np
 import operator
+import md5
 
 from exceptions import *
 from utils import *
@@ -1458,16 +1459,26 @@ class Mat(DataCarrier):
 
 # Kernel API
 
-class Kernel(object):
+class Kernel(Cached):
     """OP2 kernel type."""
 
     _globalcount = 0
+    _cache = {}
 
+    @classmethod
     @validate_type(('name', str, NameTypeError))
+    def _cache_key(cls, code, name):
+        # Both code and name are relevant since there might be multiple kernels
+        # extracting different functions from the same code
+        return md5.new(code + name).hexdigest()
+
     def __init__(self, code, name):
+        if self._initialized:
+            return
         self._name = name or "kernel_%d" % Kernel._globalcount
         self._code = preprocess(code)
         Kernel._globalcount += 1
+        self._initialized = True
 
     @property
     def name(self):
@@ -1484,7 +1495,6 @@ class Kernel(object):
     def md5(self):
         """MD5 digest of kernel code and name."""
         if not hasattr(self, '_md5'):
-            import md5
             self._md5 = md5.new(self._code + self._name).hexdigest()
         return self._md5
 
