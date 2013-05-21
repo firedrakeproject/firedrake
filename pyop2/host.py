@@ -107,7 +107,7 @@ class Arg(base.Arg):
     def c_local_tensor_name(self):
         return self.c_kernel_arg_name()
 
-    def c_kernel_arg(self):
+    def c_kernel_arg(self, layers, sequential):
         if self._uses_itspace:
             if self._is_mat:
                 if self.data._is_vector_field:
@@ -127,8 +127,13 @@ class Arg(base.Arg):
                 return self.c_vec_name()
             return self.c_ind_data(self.idx)
         elif self._is_global_reduction:
-            return "%(name)s_l1[0]" % {
+            if sequential:
+                return self.c_global_reduction_name()
+            elif layers > 1:
+                return "%(name)s_l1[0]" % {
                   'name' : self.c_arg_name()}
+            else:
+                return self.c_global_reduction_name()
         elif isinstance(self.data, Global):
             return self.c_arg_name()
         else:
@@ -320,8 +325,8 @@ class JITModule(base.JITModule):
         _local_tensor_decs = ';\n'.join([arg.c_local_tensor_dec(self._extents) for arg in self._args if arg._is_mat])
         _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self._args])
 
-        _kernel_user_args = [arg.c_kernel_arg() for arg in self._args]
-        _kernel_it_args   = ["i_%d" % d for d in range(len(self._extents))]
+        _kernel_user_args = [arg.c_kernel_arg(self._it_space.layers, self.it_space.sequential) for arg in self.args]
+        _kernel_it_args   = ["i_%d" % d for d in range(len(self._it_space.extents))]
         _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
         _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self._args \
                                  if not arg._is_mat and arg._is_vec_map])
@@ -389,19 +394,19 @@ class JITModule(base.JITModule):
                 'local_tensor_decs': indent(_local_tensor_decs, 1),
                 'itspace_loops': indent(_itspace_loops, 2),
                 'itspace_loop_close': indent(_itspace_loop_close, 2),
-                'vec_inits': indent(_vec_inits, 2),
+                'vec_inits': indent(_vec_inits, 5),
                 'zero_tmps': indent(_zero_tmps, 2 + nloops),
                 'kernel_args': _kernel_args,
                 'addtos_vector_field': indent(_addtos_vector_field, 2 + nloops),
                 'addtos_scalar_field': indent(_addtos_scalar_field, 2),
-                'apply_offset' : _apply_offset,
+                'apply_offset' : indent(_apply_offset, 3),
                 'off_args' : _off_args,
                 'off_inits' : _off_inits,
-                'extr_loop' : _extr_loop,
-                'extr_loop_close' : _extr_loop_close,
-                'interm_globals_decl' : _interm_globals_decl,
-                'interm_globals_init' : _interm_globals_init,
-                'interm_globals_writeback' : _interm_globals_writeback,
+                'extr_loop' : indent(_extr_loop,5),
+                'extr_loop_close' : indent(_extr_loop_close,2),
+                'interm_globals_decl' : indent(_interm_globals_decl,3),
+                'interm_globals_init' : indent(_interm_globals_init,3),
+                'interm_globals_writeback' : indent(_interm_globals_writeback,3),
                 'dd' : _dd,
                 'ff' : _ff,
-                'vec_decs' : _vec_decs}
+                'vec_decs' : indent(_vec_decs,4)}
