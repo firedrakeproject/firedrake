@@ -609,7 +609,7 @@ class ParLoop(device.ParLoop):
             conf['work_group_count'] = self._plan.nblocks
         conf['warpsize'] = _warpsize
 
-        fun = JITModule(self.kernel, self.it_space.extents, *self.args, parloop=self, conf=conf)
+        fun = JITModule(self.kernel, self.it_space, *self.args, parloop=self, conf=conf)
 
         args = []
         for arg in self._unique_args:

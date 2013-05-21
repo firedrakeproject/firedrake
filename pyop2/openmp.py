@@ -138,9 +138,11 @@ void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
   int* ncolblk = (int *)(((PyArrayObject *)_ncolblk)->data);
   int* nelems = (int *)(((PyArrayObject *)_nelems)->data);
 
+  %(set_size_dec)s;
   %(wrapper_decs)s;
   %(const_inits)s;
   %(local_tensor_decs)s;
+  %(off_inits)s;
 
   #ifdef _OPENMP
   int nthread = omp_get_max_threads();
@@ -157,28 +159,40 @@ void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
   }
 
   int boffset = 0;
+  int __b,tid;
+  int lim;
   for ( int __col  = 0; __col < ncolors; __col++ ) {
     int nblocks = ncolblk[__col];
 
-    #pragma omp parallel default(shared)
+    #pragma omp parallel private(__b,tid, lim) shared(boffset, nblocks, nelems, blkmap, part_size)
     {
       int tid = omp_get_thread_num();
+      tid = omp_get_thread_num();
+      %(interm_globals_decl)s;
+      %(interm_globals_init)s;
+      lim = boffset + nblocks;
 
       #pragma omp for schedule(static)
-      for ( int __b = boffset; __b < (boffset + nblocks); __b++ ) {
+      for ( int __b = boffset; __b < lim; __b++ ) {
+        %(vec_decs)s;
         int bid = blkmap[__b];
         int nelem = nelems[bid];
         int efirst = bid * part_size;
-        for (int i = efirst; i < (efirst + nelem); i++ ) {
+        int lim2 = nelem + efirst;
+        for (int i = efirst; i < lim2; i++ ) {
           %(vec_inits)s;
           %(itspace_loops)s
+          %(extr_loop)s
           %(zero_tmps)s;
           %(kernel_name)s(%(kernel_args)s);
           %(addtos_vector_field)s;
+          %(apply_offset)s
+          %(extr_loop_close)s
           %(itspace_loop_close)s
           %(addtos_scalar_field)s;
         }
       }
+      %(interm_globals_writeback)s;
     }
     %(reduction_finalisations)s
     boffset += nblocks;
@@ -222,7 +236,7 @@ class ParLoop(device.ParLoop, host.ParLoop):
         for c in Const._definitions():
             _args.append(c.data)
 
-        part_size = 1024  #TODO: compute partition size
+        part_size = self._it_space.partsize
 
         # Create a plan, for colored execution
         if [arg for arg in self.args if arg._is_indirect or arg._is_mat]:
@@ -253,6 +267,14 @@ class ParLoop(device.ParLoop, host.ParLoop):
         _args.append(plan.blkmap)
         _args.append(plan.ncolblk)
         _args.append(plan.nelems)
+
+        for arg in self.args:
+            if  self._it_space.layers > 1:
+              if arg._is_indirect or arg._is_mat:
+                maps = as_tuple(arg.map, Map)
+                for map in maps:
+                   if map.off != None:
+                       _args.append(map.off)
 
         fun(*_args)
 

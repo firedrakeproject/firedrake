@@ -320,6 +320,8 @@ class Set(object):
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = None
         self._halo = halo
+        self._layers = 0
+        self._partsize = 1000
         if self.halo:
             self.halo.verify(self)
         Set._globalcount += 1
@@ -376,6 +378,24 @@ class Set(object):
     def halo(self):
         """:class:`Halo` associated with this Set"""
         return self._halo
+
+    @property
+    def layers(self):
+        """User-defined label"""
+        return self._layers
+
+    @property
+    def partsize(self):
+        """User-defined label"""
+        return self._partsize
+
+    def setLayers(self,layers):
+        """User-defined label"""
+        self._layers = layers
+
+    def setPartitionSize(self,partsize):
+        """User-defined label"""
+        self._partsize = partsize
 
     def __str__(self):
         return "OP2 Set: %s with size %s, dim %s" % (self._name, self._size, self._dim)
@@ -514,6 +534,8 @@ class IterationSpace(object):
     def __init__(self, iterset, extents=()):
         self._iterset = iterset
         self._extents = as_tuple(extents, int)
+        self._layers = iterset.layers
+        self._partsize = iterset.partsize
 
     @property
     def iterset(self):
@@ -545,6 +567,14 @@ class IterationSpace(object):
         """The size of the :class:`Set` over which this IterationSpace
     is defined, including halo elements to be executed over"""
         return self._iterset.exec_size
+
+    @property
+    def layers(self):
+        return self._layers
+
+    @property
+    def partsize(self):
+        return self._partsize
 
     @property
     def total_size(self):
@@ -1044,6 +1074,10 @@ class Map(object):
         self._values = verify_reshape(values, np.int32, (iterset.total_size, dim), \
                                       allow_none=True)
         self._name = name or "map_%d" % Map._globalcount
+        self._dimChange = dimChange
+        self._elem_offsets = elem_offsets
+        self._elem_sizes = elem_sizes
+        self._stagein = stagein
         self._lib_handle = None
         Map._globalcount += 1
 
@@ -1089,6 +1123,31 @@ class Map(object):
     def name(self):
         """User-defined label"""
         return self._name
+
+    @property
+    def off(self):
+        """Return None as this is not an ExtrudedMap"""
+        return None
+
+    @property
+    def dimChange(self):
+        """Mapping array."""
+        return self._dimChange
+
+    @property
+    def elem_offsets(self):
+        """Mapping array."""
+        return self._elem_offsets
+
+    @property
+    def elem_sizes(self):
+        """Mapping array."""
+        return self._elem_sizes
+
+    @property
+    def stagein(self):
+        """Mapping array."""
+        return self._stagein
 
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with dim %s" \

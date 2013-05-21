@@ -689,7 +689,7 @@ class ParLoop(op2.ParLoop):
                               dtype='int32')
         arglist = [np.int32(self._it_space.size)]
         config = self.launch_configuration()
-        fun = JITModule(self.kernel, self.it_space.extents, *self.args, parloop=self, config=config)
+        fun = JITModule(self.kernel, self.it_space, *self.args, parloop=self, config=config)
 
         if self._is_direct:
             _args = self.args

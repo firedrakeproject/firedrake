@@ -42,6 +42,8 @@ from utils import as_tuple
 import configuration as cfg
 from find_op2 import *
 
+_max_threads = 32
+
 class Arg(base.Arg):
 
     def c_arg_name(self):
@@ -125,7 +127,8 @@ class Arg(base.Arg):
                 return self.c_vec_name()
             return self.c_ind_data(self.idx)
         elif self._is_global_reduction:
-            return self.c_global_reduction_name()
+            return "%(name)s_l1[0]" % {
+                  'name' : self.c_arg_name()}
         elif isinstance(self.data, Global):
             return self.c_arg_name()
         else:
@@ -206,6 +209,33 @@ class Arg(base.Arg):
         else:
             raise RuntimeError("Don't know how to zero temp array for %s" % self)
 
+    def c_add_off(self,layers,count):
+        return """for(int j=0; j<%(layers)s;j++){
+  %(name)s[j] += _off%(num)s[j];
+}""" % {'name' : self.c_vec_name(),
+        'layers' : layers,
+        'num' : count}
+
+    def c_interm_globals_decl(self):
+        return "%(type)s %(name)s_l1[1][1]" % {'type' : self.ctype,
+                                               'name' : self.c_arg_name()}
+
+    def c_interm_globals_init(self):
+        return "%s_l1[0][0] = (double)0" % self.c_arg_name()
+
+    def c_interm_globals_writeback(self):
+        return "%s_l[tid][0] = %(name)s_l1[0][0]" % self.c_arg_name()
+
+    def c_vec_dec(self):
+        val = []
+        if self._is_vec_map:
+            val.append(";\n%(type)s *%(vec_name)s[%(dim)s]" %
+                   {'type' : self.ctype,
+                    'vec_name' : self.c_vec_name(),
+                    'dim' : self.map.dim,
+                    'max_threads': _max_threads})
+        return ";\n".join(val)
+
 class JITModule(base.JITModule):
 
     _cppargs = []
@@ -276,7 +306,16 @@ class JITModule(base.JITModule):
             tmp = '%(name)s[%%(i)s] = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[%%(i)s]' % d
             return ';\n'.join([tmp % {'i' : i} for i in range(c.cdim)])
 
-        _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self._args])
+        def c_off_init(c):
+            return "PyObject *off%(name)s" % {'name' : c }
+
+        def c_off_decl(count):
+            return 'int * _off%(cnt)s = (int *)(((PyArrayObject *)off%(cnt)s)->data)' % { 'cnt' : count }
+
+        def extrusion_loop(d):
+            return "for (int j_0=0; j_0<%d; ++j_0){" % d
+
+        _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self.args])
 
         _local_tensor_decs = ';\n'.join([arg.c_local_tensor_dec(self._extents) for arg in self._args if arg._is_mat])
         _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self._args])
@@ -305,7 +344,42 @@ class JITModule(base.JITModule):
             _const_args = ''
         _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
 
+        _interm_globals_decl = ';\n'.join([arg.c_interm_globals_decl() for arg in self.args if arg._is_global_reduction])
+        _interm_globals_init = ';\n'.join([arg.c_interm_globals_init() for arg in self.args if arg._is_global_reduction])
+        _interm_globals_writeback = ';\n'.join([arg.c_interm_globals_writeback() for arg in self.args if arg._is_global_reduction])
+
+        _vec_decs = ';\n'.join([arg.c_vec_dec() for arg in self.args if not arg._is_mat and arg._is_vec_map])
+
+        count = 0
+        _dd = "%d"
+        _ff = "%f"
+        off_i = []
+        off_d = []
+        off_a = []
+        _off_args = ""
+        _off_inits = ""
+        _apply_offset = ""
+        _extr_loop = ""
+        _extr_loop_close = ""
+        if self._it_space.layers > 1:
+            for arg in self.args:
+                if not arg._is_mat and arg._is_vec_map:
+                    count += 1
+                    off_i.append(c_off_init(count))
+                    off_d.append(c_off_decl(count))
+                    off_a.append(arg.c_add_off(arg.map.off.size,count))
+            if off_i != []:
+              _off_args = ', '
+              _off_args +=', '.join(off_i)
+              _off_inits = ';\n'.join(off_d)
+              _apply_offset = ' \n'.join(off_a)
+              _extr_loop = '\n'
+              _extr_loop += extrusion_loop(self._it_space.layers-1)
+              _extr_loop_close = '}'
+              _kernel_args += ', j_0'
+
         indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
+
         return {'ind': '  ' * nloops,
                 'kernel_name': self._kernel.name,
                 'wrapper_args': _wrapper_args,
@@ -319,4 +393,15 @@ class JITModule(base.JITModule):
                 'zero_tmps': indent(_zero_tmps, 2 + nloops),
                 'kernel_args': _kernel_args,
                 'addtos_vector_field': indent(_addtos_vector_field, 2 + nloops),
-                'addtos_scalar_field': indent(_addtos_scalar_field, 2)}
+                'addtos_scalar_field': indent(_addtos_scalar_field, 2),
+                'apply_offset' : _apply_offset,
+                'off_args' : _off_args,
+                'off_inits' : _off_inits,
+                'extr_loop' : _extr_loop,
+                'extr_loop_close' : _extr_loop_close,
+                'interm_globals_decl' : _interm_globals_decl,
+                'interm_globals_init' : _interm_globals_init,
+                'interm_globals_writeback' : _interm_globals_writeback,
+                'dd' : _dd,
+                'ff' : _ff,
+                'vec_decs' : _vec_decs}

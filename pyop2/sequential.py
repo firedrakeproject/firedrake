@@ -53,18 +53,22 @@ def par_loop(kernel, it_space, *args):
 class JITModule(host.JITModule):
 
     wrapper = """
-void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %(const_args)s) {
+void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %(const_args)s %(off_args)s) {
   int start = (int)PyInt_AsLong(_start);
   int end = (int)PyInt_AsLong(_end);
   %(wrapper_decs)s;
   %(local_tensor_decs)s;
   %(const_inits)s;
+  %(off_inits)s;
   for ( int i = start; i < end; i++ ) {
     %(vec_inits)s;
     %(itspace_loops)s
+    %(extr_loop)s
     %(ind)s%(zero_tmps)s;
     %(ind)s%(kernel_name)s(%(kernel_args)s);
     %(ind)s%(addtos_vector_field)s;
+    %(apply_offset)s
+    %(extr_loop_close)s
     %(itspace_loop_close)s
     %(addtos_scalar_field)s;
   }
@@ -92,6 +96,14 @@ class ParLoop(host.ParLoop):
 
         for c in Const._definitions():
             _args.append(c.data)
+
+        for arg in self.args:
+            if arg._is_indirect or arg._is_mat:
+                maps = as_tuple(arg.map, Map)
+                for map in maps:
+                   if map.off != None:
+                       _args.append(map.off)
+
 
         # kick off halo exchanges
         self.halo_exchange_begin()
