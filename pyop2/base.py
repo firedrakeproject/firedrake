@@ -341,6 +341,7 @@ class Set(object):
         self._ieh_size = size[Set.IMPORT_EXEC_SIZE]
         self._inh_size = size[Set.IMPORT_NON_EXEC_SIZE]
         self._dim = as_tuple(dim, int)
+        self._cdim = np.asscalar(np.prod(self._dim))
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = None
         self._halo = halo
@@ -384,7 +385,7 @@ class Set(object):
     def cdim(self):
         """The scalar number of values for each member of the set. This is
         the product of the dim tuple."""
-        return np.asscalar(np.prod(self.dim))
+        return self._cdim
 
     @property
     def name(self):
@@ -629,7 +630,7 @@ class DataCarrier(object):
     def cdim(self):
         """The scalar number of values for each member of the object. This is
         the product of the dim tuple."""
-        return np.asscalar(np.prod(self.dim))
+        return self._cdim
 
 class Dat(DataCarrier):
     """OP2 vector data. A ``Dat`` holds ``dim`` values for every member of a :class:`Set`.
@@ -702,6 +703,12 @@ class Dat(DataCarrier):
     def dim(self):
         """The shape of the values for each element of the object."""
         return self.dataset.dim
+
+    @property
+    def cdim(self):
+        """The scalar number of values for each member of the object. This is
+        the product of the dim tuple."""
+        return self.dataset.cdim
 
     @property
     def soa(self):
@@ -879,6 +886,7 @@ class Const(DataCarrier):
     @validate_type(('name', str, NameTypeError))
     def __init__(self, dim, data=None, name=None, dtype=None):
         self._dim = as_tuple(dim, int)
+        self._cdim = np.asscalar(np.prod(self._dim))
         self._data = verify_reshape(data, dtype, self._dim, allow_none=True)
         self._name = name or "const_%d" % Const._globalcount
         if any(self._name is const._name for const in Const._defs):
@@ -954,6 +962,7 @@ class Global(DataCarrier):
     @validate_type(('name', str, NameTypeError))
     def __init__(self, dim, data=None, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
+        self._cdim = np.asscalar(np.prod(self._dim))
         self._data = verify_reshape(data, dtype, self._dim, allow_none=True)
         self._buf = np.empty_like(self._data)
         self._name = name or "global_%d" % Global._globalcount
