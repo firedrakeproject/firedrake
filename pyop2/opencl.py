@@ -448,6 +448,73 @@ class Solver(petsc_base.Solver):
         super(Solver, self).solve(A, x, b)
         x._to_device()
 
+class JITModule(base.JITModule):
+
+    def __init__(self, kernel, itspace_extents, *args, **kwargs):
+        self._parloop = kwargs.get('parloop')
+        self._conf = kwargs.get('conf')
+
+    def compile(self):
+        if hasattr(self, '_fun'):
+            return self._fun
+        def instrument_user_kernel():
+            inst = []
+
+            for arg in self._parloop.args:
+                i = None
+                if self._parloop._is_direct:
+                    if (arg._is_direct and (arg.data._is_scalar or arg.data.soa)) or\
+                       (arg._is_global and not arg._is_global_reduction):
+                        i = ("__global", None)
+                    else:
+                        i = ("__private", None)
+                else: # indirect loop
+                    if arg._is_direct or (arg._is_global and not arg._is_global_reduction):
+                        i = ("__global", None)
+                    elif (arg._is_indirect or arg._is_vec_map) and not arg._is_indirect_reduction:
+                        i = ("__local", None)
+                    else:
+                        i = ("__private", None)
+
+                inst.append(i)
+
+            for i in self._parloop._it_space.extents:
+                inst.append(("__private", None))
+
+            return self._parloop._kernel.instrument(inst, Const._definitions())
+
+        #do codegen
+        user_kernel = instrument_user_kernel()
+        template = _jinja2_direct_loop if self._parloop._is_direct \
+                                       else _jinja2_indirect_loop
+
+        src = template.render({'parloop': self._parloop,
+                               'user_kernel': user_kernel,
+                               'launch': self._conf,
+                               'codegen': {'amd': _AMD_fixes},
+                               'op2const': Const._definitions()
+                              }).encode("ascii")
+        self.dump_gen_code(src)
+        prg = cl.Program(_ctx, src).build(options="-Werror")
+        self._fun = prg.__getattr__(self._parloop._stub_name)
+        return self._fun
+
+    def dump_gen_code(self, src):
+        if cfg['dump-gencode']:
+            path = cfg['dump-gencode-path'] % {"kernel": self.kernel.name,
+                                               "time": time.strftime('%Y-%m-%d@%H:%M:%S')}
+
+            if not os.path.exists(path):
+                with open(path, "w") as f:
+                    f.write(src)
+
+    def __call__(self, thread_count, work_group_size, *args):
+        fun = self.compile()
+        for i, arg in enumerate(args):
+            fun.set_arg(i, arg)
+        cl.enqueue_nd_range_kernel(_queue, fun, (thread_count,),
+                                   (work_group_size,), g_times_l=False).wait()
+
 class ParLoop(op2.ParLoop):
     @property
     def _matrix_args(self):
@@ -461,15 +528,6 @@ class ParLoop(op2.ParLoop):
     def _matrix_entry_maps(self):
         """Set of all mappings used in matrix arguments."""
         return uniquify(m for arg in self.args  if arg._is_mat for m in arg.map)
-
-    def dump_gen_code(self):
-        if cfg['dump-gencode']:
-            path = cfg['dump-gencode-path'] % {"kernel": self.kernel.name,
-                                               "time": time.strftime('%Y-%m-%d@%H:%M:%S')}
-
-            if not os.path.exists(path):
-                with open(path, "w") as f:
-                    f.write(self._src)
 
     @property
     def _requires_matrix_coloring(self):
@@ -540,53 +598,10 @@ class ParLoop(op2.ParLoop):
         else:
             return {'partition_size': self._i_partition_size()}
 
-    def codegen(self, conf):
-        def instrument_user_kernel():
-            inst = []
-
-            for arg in self.args:
-                i = None
-                if self._is_direct:
-                    if (arg._is_direct and (arg.data._is_scalar or arg.data.soa)) or\
-                       (arg._is_global and not arg._is_global_reduction):
-                        i = ("__global", None)
-                    else:
-                        i = ("__private", None)
-                else: # indirect loop
-                    if arg._is_direct or (arg._is_global and not arg._is_global_reduction):
-                        i = ("__global", None)
-                    elif (arg._is_indirect or arg._is_vec_map) and not arg._is_indirect_reduction:
-                        i = ("__local", None)
-                    else:
-                        i = ("__private", None)
-
-                inst.append(i)
-
-            for i in self._it_space.extents:
-                inst.append(("__private", None))
-
-            return self._kernel.instrument(inst, Const._definitions())
-
-        #do codegen
-        user_kernel = instrument_user_kernel()
-        template = _jinja2_direct_loop if self._is_direct \
-                                       else _jinja2_indirect_loop
-
-        self._src = template.render({'parloop': self,
-                                     'user_kernel': user_kernel,
-                                     'launch': conf,
-                                     'codegen': {'amd': _AMD_fixes},
-                                     'op2const': Const._definitions()
-                                 }).encode("ascii")
-        self.dump_gen_code()
-
     def compute(self):
         if self._has_soa:
             op2stride = Const(1, self._it_space.size, name='op2stride',
                               dtype='int32')
-        def compile_kernel():
-            prg = cl.Program(_ctx, self._src).build(options="-Werror")
-            return prg.__getattr__(self._stub_name)
 
         conf = self.launch_configuration()
 
@@ -602,65 +617,61 @@ class ParLoop(op2.ParLoop):
             conf['work_group_count'] = self._plan.nblocks
         conf['warpsize'] = _warpsize
 
-        if not hasattr(self, '_src'):
-            self.codegen(conf)
-            self._fun = compile_kernel()
+        fun = JITModule(self.kernel, self.it_space.extents, *self.args, parloop=self, conf=conf)
 
-        # reset parameters in case we got that built kernel from cache
-        self._fun._karg = 0
-
+        args = []
         for arg in self._unique_args:
             arg.data._allocate_device()
             if arg.access is not op2.WRITE:
                 arg.data._to_device()
 
         for a in self._unique_dat_args:
-            self._fun.append_arg(a.data.array.data)
+            args.append(a.data.array.data)
 
         for a in self._all_global_non_reduction_args:
-            self._fun.append_arg(a.data._array.data)
+            args.append(a.data._array.data)
 
         for a in self._all_global_reduction_args:
             a.data._allocate_reduction_array(conf['work_group_count'])
-            self._fun.append_arg(a.data._d_reduc_buffer)
+            args.append(a.data._d_reduc_buffer)
 
         for cst in Const._definitions():
-            self._fun.append_arg(cst._array.data)
+            args.append(cst._array.data)
 
         for m in self._unique_matrix:
-            self._fun.append_arg(m._dev_array.data)
+            args.append(m._dev_array.data)
             m._upload_array()
-            self._fun.append_arg(m._rowptr.data)
-            self._fun.append_arg(m._colidx.data)
+            args.append(m._rowptr.data)
+            args.append(m._colidx.data)
 
         for m in self._matrix_entry_maps:
             m._to_device()
-            self._fun.append_arg(m._device_values.data)
+            args.append(m._device_values.data)
 
         if self._is_direct:
-            self._fun.append_arg(np.int32(self._it_space.size))
-
-            cl.enqueue_nd_range_kernel(_queue, self._fun, (conf['thread_count'],), (conf['work_group_size'],), g_times_l=False).wait()
+            args.append(np.int32(self._it_space.size))
+            fun(conf['thread_count'], conf['work_group_size'], *args)
         else:
-            self._fun.append_arg(np.int32(self._it_space.size))
-            self._fun.append_arg(self._plan.ind_map.data)
-            self._fun.append_arg(self._plan.loc_map.data)
-            self._fun.append_arg(self._plan.ind_sizes.data)
-            self._fun.append_arg(self._plan.ind_offs.data)
-            self._fun.append_arg(self._plan.blkmap.data)
-            self._fun.append_arg(self._plan.offset.data)
-            self._fun.append_arg(self._plan.nelems.data)
-            self._fun.append_arg(self._plan.nthrcol.data)
-            self._fun.append_arg(self._plan.thrcol.data)
+            args.append(np.int32(self._it_space.size))
+            args.append(self._plan.ind_map.data)
+            args.append(self._plan.loc_map.data)
+            args.append(self._plan.ind_sizes.data)
+            args.append(self._plan.ind_offs.data)
+            args.append(self._plan.blkmap.data)
+            args.append(self._plan.offset.data)
+            args.append(self._plan.nelems.data)
+            args.append(self._plan.nthrcol.data)
+            args.append(self._plan.thrcol.data)
 
             block_offset = 0
+            args.append(0)
             for i in range(self._plan.ncolors):
                 blocks_per_grid = int(self._plan.ncolblk[i])
                 threads_per_block = min(_max_work_group_size, conf['partition_size'])
                 thread_count = threads_per_block * blocks_per_grid
 
-                self._fun.set_last_arg(np.int32(block_offset))
-                cl.enqueue_nd_range_kernel(_queue, self._fun, (int(thread_count),), (int(threads_per_block),), g_times_l=False).wait()
+                args[-1] = np.int32(block_offset)
+                fun(int(thread_count), int(threads_per_block), *args)
                 block_offset += blocks_per_grid
 
         # mark !READ data as dirty
@@ -678,26 +689,6 @@ class ParLoop(op2.ParLoop):
 
         if self._has_soa:
             op2stride.remove_from_namespace()
-
-#Monkey patch pyopencl.Kernel for convenience
-_original_clKernel = cl.Kernel
-
-class CLKernel (_original_clKernel):
-    def __init__(self, *args, **kargs):
-        super(CLKernel, self).__init__(*args, **kargs)
-        self._karg = 0
-
-    def reset_args(self):
-        self._karg = 0;
-
-    def append_arg(self, arg):
-        self.set_arg(self._karg, arg)
-        self._karg += 1
-
-    def set_last_arg(self, arg):
-        self.set_arg(self._karg, arg)
-
-cl.Kernel = CLKernel
 
 def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()

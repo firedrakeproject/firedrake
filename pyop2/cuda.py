@@ -599,29 +599,32 @@ class Solver(base.Solver):
                      M._csrdata.size)
         x.state = DeviceDataMixin.DEVICE
 
-def par_loop(kernel, it_space, *args):
-    ParLoop(kernel, it_space, *args).compute()
-    _stream.synchronize()
+class JITModule(base.JITModule):
 
-class ParLoop(op2.ParLoop):
-    def device_function(self):
-        return self._module.get_function(self._stub_name)
+    def __init__(self, kernel, itspace_extents, *args, **kwargs):
+        self._parloop = kwargs.get('parloop')
+        self._config = kwargs.get('config')
 
-    def compile(self, config=None):
-        if hasattr(self, '_module'):
-            return
-
+    def compile(self):
+        if hasattr(self, '_fun'):
+            return self._fun
         compiler_opts = ['-m64', '-Xptxas', '-dlcm=ca',
                          '-Xptxas=-v', '-O3', '-use_fast_math', '-DNVCC']
         inttype = np.dtype('int32').char
         argtypes = inttype      # set size
-        if self._is_direct:
-            self.generate_direct_loop(config)
-            for arg in self.args:
+        if self._parloop._is_direct:
+            d = {'parloop' : self._parloop,
+                 'launch' : self._config,
+                 'constants' : Const._definitions()}
+            src = _direct_loop_template.render(d).encode('ascii')
+            for arg in self._parloop.args:
                 argtypes += "P" # pointer to each Dat's data
         else:
-            self.generate_indirect_loop()
-            for arg in self._unique_args:
+            d = {'parloop' : self._parloop,
+                 'launch' : {'WARPSIZE': 32},
+                 'constants' : Const._definitions()}
+            src = _indirect_loop_template.render(d).encode('ascii')
+            for arg in self._parloop._unique_args:
                 if arg._is_mat:
                     # pointer to lma data, offset into lma data
                     # for case of multiple map pairs.
@@ -635,9 +638,24 @@ class ParLoop(op2.ParLoop):
             argtypes += "PPPPP" # blkmap, offset, nelems, nthrcol, thrcol
             argtypes += inttype # number of colours in the block
 
-        self._module = SourceModule(self._src, options=compiler_opts)
-        self._fun = self.device_function()
+        self._module = SourceModule(src, options=compiler_opts)
+
+        # Upload Const data.
+        for c in Const._definitions():
+            c._to_device(self._module)
+
+        self._fun = self._module.get_function(self._parloop._stub_name)
         self._fun.prepare(argtypes)
+        return self._fun
+
+    def __call__(self, *args, **kwargs):
+        self.compile().prepared_async_call(*args, **kwargs)
+
+def par_loop(kernel, it_space, *args):
+    ParLoop(kernel, it_space, *args).compute()
+    _stream.synchronize()
+
+class ParLoop(op2.ParLoop):
 
     def launch_configuration(self):
         if self._is_direct:
@@ -663,30 +681,13 @@ class ParLoop(op2.ParLoop):
                     'block_size' : block_size,
                     'grid_size' : grid_size}
 
-    def generate_direct_loop(self, config):
-        if hasattr(self, '_src'):
-            return
-        d = {'parloop' : self,
-             'launch' : config,
-             'constants' : Const._definitions()}
-        self._src = _direct_loop_template.render(d).encode('ascii')
-
-    def generate_indirect_loop(self):
-        if hasattr(self, '_src'):
-            return
-        config = {'WARPSIZE': 32}
-        d = {'parloop' : self,
-             'launch' : config,
-             'constants' : Const._definitions()}
-        self._src = _indirect_loop_template.render(d).encode('ascii')
-
     def compute(self):
         if self._has_soa:
             op2stride = Const(1, self._it_space.size, name='op2stride',
                               dtype='int32')
         arglist = [np.int32(self._it_space.size)]
         config = self.launch_configuration()
-        self.compile(config=config)
+        fun = JITModule(self.kernel, self.it_space.extents, *self.args, parloop=self, config=config)
 
         if self._is_direct:
             _args = self.args
@@ -708,10 +709,6 @@ class ParLoop(op2.ParLoop):
                               partition_size=part_size)
             max_grid_size = self._plan.ncolblk.max()
 
-        # Upload Const data.
-        for c in Const._definitions():
-            c._to_device(self._module)
-
         for arg in _args:
             if arg._is_mat:
                 d = arg.data._lmadata.gpudata
@@ -731,8 +728,8 @@ class ParLoop(op2.ParLoop):
 
         if self._is_direct:
             _stream.synchronize()
-            self._fun.prepared_async_call(max_grid_size, block_size, _stream, *arglist,
-                                          shared_size=shared_size)
+            fun(max_grid_size, block_size, _stream, *arglist,
+                shared_size=shared_size)
             for arg in self.args:
                 if arg._is_global_reduction:
                     arg.data._finalise_reduction_begin(max_grid_size, arg.access)
@@ -780,9 +777,8 @@ class ParLoop(op2.ParLoop):
                     shared_size = np.asscalar(self._plan.nsharedCol[col])
 
                     _stream.synchronize()
-                    self._fun.prepared_async_call(grid_size, block_size,
-                                                  _stream, *arglist,
-                                                  shared_size=shared_size)
+                    fun(grid_size, block_size, _stream, *arglist,
+                        shared_size=shared_size)
 
                 # We've reached the end of elements that should
                 # contribute to a reduction (this is only different

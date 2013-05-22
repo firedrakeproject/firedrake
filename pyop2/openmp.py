@@ -120,66 +120,82 @@ def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
     ParLoop(kernel, it_space, *args).compute()
 
-class ParLoop(device.ParLoop, host.ParLoop):
+class JITModule(host.JITModule):
 
     wrapper = """
-              void wrap_%(kernel_name)s__(%(set_size_wrapper)s, %(wrapper_args)s %(const_args)s,
-                                          PyObject* _part_size, PyObject* _ncolors, PyObject* _blkmap,
-                                          PyObject* _ncolblk, PyObject* _nelems) {
-                int part_size = (int)PyInt_AsLong(_part_size);
-                int ncolors = (int)PyInt_AsLong(_ncolors);
-                int* blkmap = (int *)(((PyArrayObject *)_blkmap)->data);
-                int* ncolblk = (int *)(((PyArrayObject *)_ncolblk)->data);
-                int* nelems = (int *)(((PyArrayObject *)_nelems)->data);
+void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
+                            PyObject* _part_size, PyObject* _ncolors, PyObject* _blkmap,
+                            PyObject* _ncolblk, PyObject* _nelems) {
+  int end = (int)PyInt_AsLong(_end);
+  int part_size = (int)PyInt_AsLong(_part_size);
+  int ncolors = (int)PyInt_AsLong(_ncolors);
+  int* blkmap = (int *)(((PyArrayObject *)_blkmap)->data);
+  int* ncolblk = (int *)(((PyArrayObject *)_ncolblk)->data);
+  int* nelems = (int *)(((PyArrayObject *)_nelems)->data);
 
-                %(set_size_dec)s;
-                %(wrapper_decs)s;
-                %(const_inits)s;
-                %(local_tensor_decs)s;
+  %(wrapper_decs)s;
+  %(const_inits)s;
+  %(local_tensor_decs)s;
 
-                #ifdef _OPENMP
-                int nthread = omp_get_max_threads();
-                #else
-                int nthread = 1;
-                #endif
+  #ifdef _OPENMP
+  int nthread = omp_get_max_threads();
+  #else
+  int nthread = 1;
+  #endif
 
-                %(reduction_decs)s;
+  %(reduction_decs)s;
 
-                #pragma omp parallel default(shared)
-                {
-                  int tid = omp_get_thread_num();
-                  %(reduction_inits)s;
-                }
+  #pragma omp parallel default(shared)
+  {
+    int tid = omp_get_thread_num();
+    %(reduction_inits)s;
+  }
 
-                int boffset = 0;
-                for ( int __col  = 0; __col < ncolors; __col++ ) {
-                  int nblocks = ncolblk[__col];
+  int boffset = 0;
+  for ( int __col  = 0; __col < ncolors; __col++ ) {
+    int nblocks = ncolblk[__col];
 
-                  #pragma omp parallel default(shared)
-                  {
-                    int tid = omp_get_thread_num();
+    #pragma omp parallel default(shared)
+    {
+      int tid = omp_get_thread_num();
 
-                    #pragma omp for schedule(static)
-                    for ( int __b = boffset; __b < (boffset + nblocks); __b++ ) {
-                      int bid = blkmap[__b];
-                      int nelem = nelems[bid];
-                      int efirst = bid * part_size;
-                      for (int i = efirst; i < (efirst + nelem); i++ ) {
-                        %(vec_inits)s;
-                        %(itspace_loops)s
-                        %(zero_tmps)s;
-                        %(kernel_name)s(%(kernel_args)s);
-                        %(addtos_vector_field)s;
-                        %(itspace_loop_close)s
-                        %(addtos_scalar_field)s;
-                      }
-                    }
-                  }
-                  %(reduction_finalisations)s
-                  boffset += nblocks;
-                }
-              }
-              """
+      #pragma omp for schedule(static)
+      for ( int __b = boffset; __b < (boffset + nblocks); __b++ ) {
+        int bid = blkmap[__b];
+        int nelem = nelems[bid];
+        int efirst = bid * part_size;
+        for (int i = efirst; i < (efirst + nelem); i++ ) {
+          %(vec_inits)s;
+          %(itspace_loops)s
+          %(zero_tmps)s;
+          %(kernel_name)s(%(kernel_args)s);
+          %(addtos_vector_field)s;
+          %(itspace_loop_close)s
+          %(addtos_scalar_field)s;
+        }
+      }
+    }
+    %(reduction_finalisations)s
+    boffset += nblocks;
+  }
+}
+"""
+
+    def generate_code(self):
+
+        # Most of the code to generate is the same as that for sequential
+        code_dict = super(JITModule, self).generate_code()
+
+        _reduction_decs = ';\n'.join([arg.c_reduction_dec() for arg in self._args if arg._is_global_reduction])
+        _reduction_inits = ';\n'.join([arg.c_reduction_init() for arg in self._args if arg._is_global_reduction])
+        _reduction_finalisations = '\n'.join([arg.c_reduction_finalisation() for arg in self._args if arg._is_global_reduction])
+
+        code_dict.update({'reduction_decs' : _reduction_decs,
+                          'reduction_inits' : _reduction_inits,
+                          'reduction_finalisations' : _reduction_finalisations})
+        return code_dict
+
+class ParLoop(device.ParLoop, host.ParLoop):
 
     ompflag, omplib = _detect_openmp_flags()
     _cppargs = [os.environ.get('OMP_CXX_FLAGS') or ompflag]
@@ -187,7 +203,7 @@ class ParLoop(device.ParLoop, host.ParLoop):
     _system_headers = ['omp.h']
 
     def compute(self):
-        self.build()
+        fun = JITModule(self.kernel, self.it_space.extents, *self.args)
         _args = [self._it_space.size]
         for arg in self.args:
             if arg._is_mat:
@@ -238,32 +254,11 @@ class ParLoop(device.ParLoop, host.ParLoop):
         _args.append(plan.ncolblk)
         _args.append(plan.nelems)
 
-        self._fun(*_args)
+        fun(*_args)
 
         for arg in self.args:
             if arg._is_mat:
                 arg.data._assemble()
-
-    def generate_code(self):
-
-        # Most of the code to generate is the same as that for sequential
-        code_dict = super(ParLoop, self).generate_code()
-
-        _set_size_wrapper = 'PyObject *_%(set)s_size' % {'set' : self._it_space.name}
-        _set_size_dec = 'int %(set)s_size = (int)PyInt_AsLong(_%(set)s_size);' % {'set' : self._it_space.name}
-        _set_size = '%(set)s_size' % {'set' : self._it_space.name}
-
-        _reduction_decs = ';\n'.join([arg.c_reduction_dec() for arg in self.args if arg._is_global_reduction])
-        _reduction_inits = ';\n'.join([arg.c_reduction_init() for arg in self.args if arg._is_global_reduction])
-        _reduction_finalisations = '\n'.join([arg.c_reduction_finalisation() for arg in self.args if arg._is_global_reduction])
-
-        code_dict.update({'set_size' : _set_size,
-                          'set_size_dec' : _set_size_dec,
-                          'set_size_wrapper' : _set_size_wrapper,
-                          'reduction_decs' : _reduction_decs,
-                          'reduction_inits' : _reduction_inits,
-                          'reduction_finalisations' : _reduction_finalisations})
-        return code_dict
 
     @property
     def _requires_matrix_coloring(self):

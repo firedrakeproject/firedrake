@@ -97,7 +97,7 @@ class TestConstant:
         void k(int *x) { *x = myconstant; }
         """
 
-        cache = op2.base.ParLoop._cache
+        cache = op2.base.JITModule._cache
         cache.clear()
         constant = op2.Const(1, 10, dtype=numpy.int32, name="myconstant")
 

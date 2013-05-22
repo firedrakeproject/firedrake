@@ -311,7 +311,7 @@ class TestGeneratedCodeCache:
     Generated Code Cache Tests.
     """
 
-    cache = op2.base.ParLoop._cache
+    cache = op2.base.JITModule._cache
 
     @pytest.fixture
     def a(cls, iterset):

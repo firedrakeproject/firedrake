@@ -1490,23 +1490,14 @@ class Kernel(object):
     def __repr__(self):
         return 'Kernel("""%s""", "%s")' % (self._code, self._name)
 
-class ParLoop(Cached):
-    """Represents the kernel, iteration space and arguments of a parallel loop
-    invocation.
+class JITModule(Cached):
+    """Cached module encapsulating the generated :class:`ParLoop` stub."""
 
-    .. note:: Users should not directly construct :class:`ParLoop` objects, but
-    use ``op2.par_loop()`` instead."""
+    _cache = {}
 
     @classmethod
-    def _process_args(cls, *args, **kwargs):
-        args = list(args)
-        if not isinstance(args[1], IterationSpace):
-            args[1] = IterationSpace(args[1])
-        return args, kwargs
-
-    @classmethod
-    def _cache_key(cls, kernel, itspace, *args):
-        key = (kernel.md5, itspace.extents)
+    def _cache_key(cls, kernel, itspace_extents, *args, **kwargs):
+        key = (kernel.md5, itspace_extents)
         for arg in args:
             if arg._is_global:
                 key += (arg.data.dim, arg.data.dtype, arg.access)
@@ -1532,16 +1523,20 @@ class ParLoop(Cached):
 
         return key
 
+class ParLoop(object):
+    """Represents the kernel, iteration space and arguments of a parallel loop
+    invocation.
+
+    .. note:: Users should not directly construct :class:`ParLoop` objects, but
+    use ``op2.par_loop()`` instead."""
+
     def __init__(self, kernel, itspace, *args):
         # Always use the current arguments, also when we hit cache
         self._actual_args = args
-        if self._initialized:
-            return
         self._kernel = kernel
-        self._it_space = itspace
+        self._it_space = itspace if isinstance(itspace, IterationSpace) else IterationSpace(itspace)
 
         self.check_args()
-        self._initialized = True
 
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
