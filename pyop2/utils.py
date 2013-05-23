@@ -206,7 +206,7 @@ def parser(description=None, group=False):
 
     g.add_argument('-b', '--backend',
                    action='store',
-                   default=argparse.SUPPRESS,
+                   default='sequential',
                    choices=['sequential', 'openmp', 'opencl', 'cuda'],
                    help='select backend' if group else 'select pyop2 backend')
     g.add_argument('-d', '--debug',
