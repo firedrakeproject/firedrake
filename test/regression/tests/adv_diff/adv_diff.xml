@@ -10,27 +10,24 @@
     <variable name="ab_convergence" language="python">
 from errnorm import errnorm
 from math import log
-ab_convergence = log(errnorm("adv_diff.104.out")/errnorm("adv_diff.376.out"), 2)
-print "ab_convergence,", ab_convergence
+ab_convergence = log(errnorm("adv_diff.a.out")/errnorm("adv_diff.b.out"), 2)
     </variable>
     <variable name="bc_convergence" language="python">
 from errnorm import errnorm
 from math import log
-bc_convergence = log(errnorm("adv_diff.376.out")/errnorm("adv_diff.1552.out"), 2)
-print "bc_convergence,", bc_convergence
+bc_convergence = log(errnorm("adv_diff.b.out")/errnorm("adv_diff.c.out"), 2)
     </variable>
     <variable name="cd_convergence" language="python">
 from errnorm import errnorm
 from math import log
-cd_convergence = log(errnorm("adv_diff.1552.out")/errnorm("adv_diff.6660.out"), 2)
-print "cd_convergence,", cd_convergence
+cd_convergence = log(errnorm("adv_diff.c.out")/errnorm("adv_diff.d.out"), 2)
     </variable>
   </variables>
   <pass_tests>
     <test name="Error norm." language="python">
-assert ab_convergence > 1.5
-assert bc_convergence > 1.80
-assert cd_convergence > 1.85
+assert ab_convergence > 1.55
+assert bc_convergence > 1.85
+assert cd_convergence > 1.95
     </test>
   </pass_tests>
   <warn_tests/>
