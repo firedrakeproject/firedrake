@@ -41,7 +41,6 @@ import numpy
 import op_lib_core as core
 import base
 from base import *
-from base import _parloop_cache, _empty_parloop_cache, _parloop_cache_size
 
 class Arg(base.Arg):
 
@@ -255,47 +254,19 @@ class Mat(base.Mat):
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
 
-_plan_cache = dict()
+class _GenericPlan(base.Cached):
 
-def _empty_plan_cache():
-    _plan_cache.clear()
-
-def _plan_cache_size():
-    return len(_plan_cache)
-
-class _GenericPlan(object):
-    def __new__(cls, kernel, iset, *args, **kwargs):
-        ps = kwargs.get('partition_size', 0)
-        mc = kwargs.get('matrix_coloring', False)
-        refresh_cache = kwargs.pop('refresh_cache', False)
-        key = Plan._cache_key(iset, ps, mc, *args)
-        cached = _plan_cache.get(key, None)
-        if cached is not None and not refresh_cache:
-            return cached
-        else:
-            return super(_GenericPlan, cls).__new__(cls, kernel, iset, *args, **kwargs)
-
-    def __init__(self, kernel, iset, *args, **kwargs):
-        # This is actually a cached instance, everything's in place,
-        # so just return.
-        if getattr(self, '_cached', False):
-            return
-
-        ps = kwargs.get('partition_size', 0)
-        mc = kwargs.get('matrix_coloring', False)
-
-        key = Plan._cache_key(iset, ps, mc, *args)
-        _plan_cache[key] = self
-        self._cached = True
+    _cache = {}
 
     @classmethod
-    def _cache_key(cls, iset, partition_size, matrix_coloring, *args):
-        # Set size
-        key = (iset.size, )
-        # Size of partitions (amount of smem)
-        key += (partition_size, )
-        # do use matrix cooring ?
-        key += (matrix_coloring, )
+    def _cache_key(cls, kernel, iset, *args, **kwargs):
+        # Disable caching if requested
+        if kwargs.pop('refresh_cache', False):
+            return
+        partition_size = kwargs.get('partition_size', 0)
+        matrix_coloring = kwargs.get('matrix_coloring', False)
+
+        key = (iset.size, partition_size, matrix_coloring)
 
         # For each indirect arg, the map, the access type, and the
         # indices into the map are important
@@ -404,7 +375,6 @@ def compare_plans(kernel, iset, *args, **kwargs):
 class ParLoop(base.ParLoop):
     def __init__(self, kernel, itspace, *args):
         base.ParLoop.__init__(self, kernel, itspace, *args)
-        self._src = None
         # List of arguments with vector-map/iteration-space indexes
         # flattened out
         # Does contain Mat arguments (cause of coloring)
@@ -413,6 +383,8 @@ class ParLoop(base.ParLoop):
         #  - indirect dats with the same dat/map pairing only appear once
         # Does contain Mat arguments
         self.__unique_args = []
+        # Argument lists filtered by various criteria
+        self._arg_dict = {}
         seen = set()
         c = 0
         for arg in self._actual_args:
@@ -446,17 +418,12 @@ class ParLoop(base.ParLoop):
             else:
                 self.__unique_args.append(arg)
 
-    def _get_arg_list(self, propname, arglist_name, keep=None):
-        attr = getattr(self, propname, None)
+    def _get_arg_list(self, propname, arglist_name, keep=lambda x: True):
+        attr = self._arg_dict.get(propname)
         if attr:
             return attr
-        attr = []
-        if not keep:
-            keep = lambda x: True
-        for arg in getattr(self, arglist_name):
-            if keep(arg):
-                attr.append(arg)
-        setattr(self, propname, attr)
+        attr = filter(keep, getattr(self, arglist_name))
+        self._arg_dict[propname] = attr
         return attr
 
     @property

@@ -41,6 +41,7 @@ subclass these as required to implement backend-specific features.
 from __future__ import print_function
 import numpy as np
 import operator
+import md5
 
 from exceptions import *
 from utils import *
@@ -75,6 +76,51 @@ def set_mpi_communicator(comm):
         PYOP2_COMM = MPI.Comm.f2py(comm)
     else:
         PYOP2_COMM = comm
+
+# Common base classes
+
+class Cached(object):
+    """Base class providing global caching of objects. Derived classes need to
+    implement classmethods :py:meth:`_process_args` and :py:meth:`_cache_key`
+    and define a class attribute :py:attribute:`_cache` of type :py:class:`dict`.
+
+    .. warning:: The derived class' :py:meth:`__init__` is still called if the
+    object is retrieved from cache. If that is not desired, derived classes can
+    set a flag indicating whether the constructor has already been called and
+    immediately return from :py:meth:`__init__` if the flag is set. Otherwise
+    the object will be re-initialized even if it was returned from cache!"""
+
+    def __new__(cls, *args, **kwargs):
+        args, kwargs = cls._process_args(*args, **kwargs)
+        key = cls._cache_key(*args, **kwargs)
+        try:
+            return cls._cache[key]
+        except KeyError:
+            obj = super(Cached, cls).__new__(cls, *args, **kwargs)
+            obj._initialized = False
+            obj.__init__(*args, **kwargs)
+            # If key is None we're not supposed to store the object in cache
+            if key:
+                cls._cache[key] = obj
+            return obj
+
+    @classmethod
+    def _process_args(cls, *args, **kwargs):
+        """Pre-processes the arguments before they are being passed to
+        :py:meth:`_cache_key` and the constructor.
+
+        :rtype: *must* return a :py:class:`list` of *args* and a
+            :py:class:`dict` of *kwargs*"""
+        return args, kwargs
+
+    @classmethod
+    def _cache_key(cls, *args, **kwargs):
+        """Compute the cache key given the preprocessed constructor arguments.
+
+        :rtype: Cache key to use or ``None`` if the object is not to be cached
+
+        .. note:: The cache key must be hashable."""
+        return tuple(args) + tuple([(k, v) for k, v in kwargs.items()])
 
 # Data API
 
@@ -1147,26 +1193,7 @@ class Map(object):
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 """The identity map.  Used to indicate direct access to a :class:`Dat`."""
 
-_sparsity_cache = dict()
-def _empty_sparsity_cache():
-    _sparsity_cache.clear()
-
-def _validate_and_canonicalize_maps(maps):
-    "Turn maps sparsity constructor argument into a canonical tuple of pairs."
-    # A single map becomes a pair of identical maps
-    maps = (maps, maps) if isinstance(maps, Map) else maps
-    # A single pair becomes a tuple of one pair
-    maps = (maps,) if isinstance(maps[0], Map) else maps
-    # Check maps are sane
-    for pair in maps:
-        for m in pair:
-            if not isinstance(m, Map):
-                raise MapTypeError("All maps must be of type map, not type %r" % type(m))
-            if len(m.values) == 0:
-                raise MapValueError("Unpopulated map values when trying to build sparsity.")
-    return tuple(sorted(maps))
-
-class Sparsity(object):
+class Sparsity(Cached):
     """OP2 Sparsity, a matrix structure derived from the union of the outer
     product of pairs of :class:`Map` objects.
 
@@ -1184,22 +1211,38 @@ class Sparsity(object):
         Sparsity(((first_rowmap, first_colmap), (second_rowmap, second_colmap)))
     """
 
+    _cache = {}
     _globalcount = 0
 
+    @classmethod
     @validate_type(('maps', (Map, tuple), MapTypeError),)
-    def __new__(cls, maps, name=None):
-        maps = _validate_and_canonicalize_maps(maps)
-        cached = _sparsity_cache.get(maps)
-        return cached or super(Sparsity, cls).__new__(cls, maps, name)
+    def _process_args(cls, maps, name=None, *args, **kwargs):
+        "Turn maps argument into a canonical tuple of pairs."
 
-    @validate_type(('maps', (Map, tuple), MapTypeError),)
-    def __init__(self, maps, name=None):
         assert not name or isinstance(name, str), "Name must be of type str"
 
-        if getattr(self, '_cached', False):
-            return
-        maps = _validate_and_canonicalize_maps(maps)
+        # A single map becomes a pair of identical maps
+        maps = (maps, maps) if isinstance(maps, Map) else maps
+        # A single pair becomes a tuple of one pair
+        maps = (maps,) if isinstance(maps[0], Map) else maps
+        # Check maps are sane
+        for pair in maps:
+            for m in pair:
+                if not isinstance(m, Map):
+                    raise MapTypeError("All maps must be of type map, not type %r" % type(m))
+                if len(m.values) == 0:
+                    raise MapValueError("Unpopulated map values when trying to build sparsity.")
+        # Need to return a list of args and dict of kwargs (empty in this case)
+        return [tuple(sorted(maps)), name], {}
 
+    @classmethod
+    def _cache_key(cls, maps, *args, **kwargs):
+        return maps
+
+    def __init__(self, maps, name=None):
+        # Protect against re-initialization when retrieved from cache
+        if self._initialized:
+            return
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
 
@@ -1227,9 +1270,8 @@ class Sparsity(object):
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         self._lib_handle = None
         Sparsity._globalcount += 1
-        self._cached = True
         core.build_sparsity(self, parallel=PYOP2_COMM.size > 1)
-        _sparsity_cache[maps] = self
+        self._initialized = True
 
     @property
     def _nmaps(self):
@@ -1420,16 +1462,27 @@ class Mat(DataCarrier):
 
 # Kernel API
 
-class Kernel(object):
+class Kernel(Cached):
     """OP2 kernel type."""
 
     _globalcount = 0
+    _cache = {}
 
+    @classmethod
     @validate_type(('name', str, NameTypeError))
+    def _cache_key(cls, code, name):
+        # Both code and name are relevant since there might be multiple kernels
+        # extracting different functions from the same code
+        return md5.new(code + name).hexdigest()
+
     def __init__(self, code, name):
+        # Protect against re-initialization when retrieved from cache
+        if self._initialized:
+            return
         self._name = name or "kernel_%d" % Kernel._globalcount
         self._code = preprocess(code)
         Kernel._globalcount += 1
+        self._initialized = True
 
     @property
     def name(self):
@@ -1446,7 +1499,6 @@ class Kernel(object):
     def md5(self):
         """MD5 digest of kernel code and name."""
         if not hasattr(self, '_md5'):
-            import md5
             self._md5 = md5.new(self._code + self._name).hexdigest()
         return self._md5
 
@@ -1456,27 +1508,53 @@ class Kernel(object):
     def __repr__(self):
         return 'Kernel("""%s""", "%s")' % (self._code, self._name)
 
-_parloop_cache = dict()
+class JITModule(Cached):
+    """Cached module encapsulating the generated :class:`ParLoop` stub."""
 
-def _empty_parloop_cache():
-    _parloop_cache.clear()
+    _cache = {}
 
-def _parloop_cache_size():
-    return len(_parloop_cache)
+    @classmethod
+    def _cache_key(cls, kernel, itspace_extents, *args, **kwargs):
+        key = (kernel.md5, itspace_extents)
+        for arg in args:
+            if arg._is_global:
+                key += (arg.data.dim, arg.data.dtype, arg.access)
+            elif arg._is_dat:
+                if isinstance(arg.idx, IterationIndex):
+                    idx = (arg.idx.__class__, arg.idx.index)
+                else:
+                    idx = arg.idx
+                if arg.map is IdentityMap:
+                    map_dim = None
+                else:
+                    map_dim = arg.map.dim
+                key += (arg.data.dim, arg.data.dtype, map_dim, idx, arg.access)
+            elif arg._is_mat:
+                idxs = (arg.idx[0].__class__, arg.idx[0].index,
+                        arg.idx[1].index)
+                map_dims = (arg.map[0].dim, arg.map[1].dim)
+                key += (arg.data.dims, arg.data.dtype, idxs,
+                      map_dims, arg.access)
+
+        # The currently defined Consts need to be part of the cache key, since
+        # these need to be uploaded to the device before launching the kernel
+        for c in Const._definitions():
+            key += (c.name, c.dtype, c.cdim)
+
+        return key
 
 class ParLoop(object):
     """Represents the kernel, iteration space and arguments of a parallel loop
     invocation.
 
-    Users should not directly construct :class:`ParLoop` objects, but use
-    ``op2.par_loop()`` instead."""
+    .. note:: Users should not directly construct :class:`ParLoop` objects, but
+    use ``op2.par_loop()`` instead."""
+
     def __init__(self, kernel, itspace, *args):
+        # Always use the current arguments, also when we hit cache
+        self._actual_args = args
         self._kernel = kernel
-        if isinstance(itspace, IterationSpace):
-            self._it_space = itspace
-        else:
-            self._it_space = IterationSpace(itspace)
-        self._actual_args = list(args)
+        self._it_space = itspace if isinstance(itspace, IterationSpace) else IterationSpace(itspace)
 
         self.check_args()
 
@@ -1582,36 +1660,6 @@ class ParLoop(object):
     @property
     def _has_soa(self):
         return any(a._is_soa for a in self._actual_args)
-
-    @property
-    def _cache_key(self):
-        key = (self._kernel.md5, )
-
-        key += (self._it_space.extents, )
-        for arg in self.args:
-            if arg._is_global:
-                key += (arg.data.dim, arg.data.dtype, arg.access)
-            elif arg._is_dat:
-                if isinstance(arg.idx, IterationIndex):
-                    idx = (arg.idx.__class__, arg.idx.index)
-                else:
-                    idx = arg.idx
-                if arg.map is IdentityMap:
-                    map_dim = None
-                else:
-                    map_dim = arg.map.dim
-                key += (arg.data.dim, arg.data.dtype, map_dim, idx, arg.access)
-            elif arg._is_mat:
-                idxs = (arg.idx[0].__class__, arg.idx[0].index,
-                        arg.idx[1].index)
-                map_dims = (arg.map[0].dim, arg.map[1].dim)
-                key += (arg.data.dims, arg.data.dtype, idxs,
-                      map_dims, arg.access)
-
-        for c in Const._definitions():
-            key += (c.name, c.dtype, c.cdim)
-
-        return key
 
 DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
                              'preconditioner':     'jacobi',

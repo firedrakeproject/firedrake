@@ -50,29 +50,31 @@ def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
     ParLoop(kernel, it_space, *args).compute()
 
-class ParLoop(host.ParLoop):
+class JITModule(host.JITModule):
 
     wrapper = """
-              void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %(const_args)s) {
-                int start = (int)PyInt_AsLong(_start);
-                int end = (int)PyInt_AsLong(_end);
-                %(wrapper_decs)s;
-                %(local_tensor_decs)s;
-                %(const_inits)s;
-                for ( int i = start; i < end; i++ ) {
-                  %(vec_inits)s;
-                  %(itspace_loops)s
-                  %(ind)s%(zero_tmps)s;
-                  %(ind)s%(kernel_name)s(%(kernel_args)s);
-                  %(ind)s%(addtos_vector_field)s;
-                  %(itspace_loop_close)s
-                  %(addtos_scalar_field)s;
-                }
-              }
-              """
+void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %(const_args)s) {
+  int start = (int)PyInt_AsLong(_start);
+  int end = (int)PyInt_AsLong(_end);
+  %(wrapper_decs)s;
+  %(local_tensor_decs)s;
+  %(const_inits)s;
+  for ( int i = start; i < end; i++ ) {
+    %(vec_inits)s;
+    %(itspace_loops)s
+    %(ind)s%(zero_tmps)s;
+    %(ind)s%(kernel_name)s(%(kernel_args)s);
+    %(ind)s%(addtos_vector_field)s;
+    %(itspace_loop_close)s
+    %(addtos_scalar_field)s;
+  }
+}
+"""
+
+class ParLoop(host.ParLoop):
 
     def compute(self):
-        _fun = self.build()
+        fun = JITModule(self.kernel, self.it_space.extents, *self.args)
         _args = [0, 0]          # start, stop
         for arg in self.args:
             if arg._is_mat:
@@ -96,13 +98,13 @@ class ParLoop(host.ParLoop):
         # compute over core set elements
         _args[0] = 0
         _args[1] = self.it_space.core_size
-        _fun(*_args)
+        fun(*_args)
         # wait for halo exchanges to complete
         self.halo_exchange_end()
         # compute over remaining owned set elements
         _args[0] = self.it_space.core_size
         _args[1] = self.it_space.size
-        _fun(*_args)
+        fun(*_args)
         # By splitting the reduction here we get two advantages:
         # - we don't double count contributions in halo elements
         # - once our MPI supports the asynchronous collectives in
@@ -111,7 +113,7 @@ class ParLoop(host.ParLoop):
         if self.needs_exec_halo:
             _args[0] = self.it_space.size
             _args[1] = self.it_space.exec_size
-            _fun(*_args)
+            fun(*_args)
         self.reduction_end()
         self.maybe_set_halo_update_needed()
         for arg in self.args:

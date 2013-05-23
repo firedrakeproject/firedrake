@@ -38,7 +38,6 @@ from textwrap import dedent
 
 import base
 from base import *
-from base import _parloop_cache
 from utils import as_tuple
 import configuration as cfg
 from find_op2 import *
@@ -207,23 +206,28 @@ class Arg(base.Arg):
         else:
             raise RuntimeError("Don't know how to zero temp array for %s" % self)
 
-class ParLoop(base.ParLoop):
+class JITModule(base.JITModule):
 
     _cppargs = []
     _system_headers = []
     _libraries = []
 
-    def build(self):
+    def __init__(self, kernel, itspace_extents, *args):
+        # No need to protect against re-initialization since these attributes
+        # are not expensive to set and won't be used if we hit cache
+        self._kernel = kernel
+        self._extents = itspace_extents
+        self._args = args
 
-        key = self._cache_key
-        _fun = _parloop_cache.get(key)
+    def __call__(self, *args):
+        self.compile()(*args)
 
-        if _fun is not None:
-            return _fun
-
+    def compile(self):
+        if hasattr(self, '_fun'):
+            return self._fun
         from instant import inline_with_numpy
 
-        if any(arg._is_soa for arg in self.args):
+        if any(arg._is_soa for arg in self._args):
             kernel_code = """
             #define OP2_STRIDE(a, idx) a[idx]
             inline %(code)s
@@ -240,7 +244,7 @@ class ParLoop(base.ParLoop):
         # We need to build with mpicc since that's required by PETSc
         cc = os.environ.get('CC')
         os.environ['CC'] = 'mpicc'
-        _fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
+        self._fun = inline_with_numpy(code_to_compile, additional_declarations = kernel_code,
                                  additional_definitions = _const_decs + kernel_code,
                                  cppargs=self._cppargs + ['-O0', '-g'] if cfg.debug else [],
                                  include_dirs=[OP2_INC, get_petsc_dir()+'/include'],
@@ -254,9 +258,7 @@ class ParLoop(base.ParLoop):
             os.environ['CC'] = cc
         else:
             os.environ.pop('CC')
-
-        _parloop_cache[key] = _fun
-        return _fun
+        return self._fun
 
     def generate_code(self):
 
@@ -274,27 +276,27 @@ class ParLoop(base.ParLoop):
             tmp = '%(name)s[%%(i)s] = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[%%(i)s]' % d
             return ';\n'.join([tmp % {'i' : i} for i in range(c.cdim)])
 
-        _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self.args])
+        _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self._args])
 
-        _local_tensor_decs = ';\n'.join([arg.c_local_tensor_dec(self._it_space.extents) for arg in self.args if arg._is_mat])
-        _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self.args])
+        _local_tensor_decs = ';\n'.join([arg.c_local_tensor_dec(self._extents) for arg in self._args if arg._is_mat])
+        _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self._args])
 
-        _kernel_user_args = [arg.c_kernel_arg() for arg in self.args]
-        _kernel_it_args   = ["i_%d" % d for d in range(len(self._it_space.extents))]
+        _kernel_user_args = [arg.c_kernel_arg() for arg in self._args]
+        _kernel_it_args   = ["i_%d" % d for d in range(len(self._extents))]
         _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
-        _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self.args \
+        _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self._args \
                                  if not arg._is_mat and arg._is_vec_map])
 
-        nloops = len(self._it_space.extents)
-        _itspace_loops = '\n'.join(['  ' * i + itspace_loop(i,e) for i, e in enumerate(self._it_space.extents)])
+        nloops = len(self._extents)
+        _itspace_loops = '\n'.join(['  ' * i + itspace_loop(i,e) for i, e in enumerate(self._extents)])
         _itspace_loop_close = '\n'.join('  ' * i + '}' for i in range(nloops - 1, -1, -1))
 
-        _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field() for arg in self.args \
+        _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field() for arg in self._args \
                                            if arg._is_mat and arg.data._is_vector_field])
-        _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field() for arg in self.args \
+        _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field() for arg in self._args \
                                            if arg._is_mat and arg.data._is_scalar_field])
 
-        _zero_tmps = ';\n'.join([arg.c_zero_tmp() for arg in self.args if arg._is_mat])
+        _zero_tmps = ';\n'.join([arg.c_zero_tmp() for arg in self._args if arg._is_mat])
 
         if len(Const._defs) > 0:
             _const_args = ', '
