@@ -604,6 +604,8 @@ class Solver(base.Solver):
 class JITModule(base.JITModule):
 
     def __init__(self, kernel, itspace_extents, *args, **kwargs):
+        # No need to protect against re-initialization since these attributes
+        # are not expensive to set and won't be used if we hit cache
         self._parloop = kwargs.get('parloop')
         self._config = kwargs.get('config')
 

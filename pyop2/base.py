@@ -81,12 +81,14 @@ def set_mpi_communicator(comm):
 
 class Cached(object):
     """Base class providing global caching of objects. Derived classes need to
-    implement classmethods :py:meth:`_process_args` and :py:meth:`_cache_key`.
+    implement classmethods :py:meth:`_process_args` and :py:meth:`_cache_key`
+    and define a class attribute :py:attribute:`_cache` of type :py:class:`dict`.
 
-    .. warning:: Derived classes need to set a flag indicating whether the
-    constructor has already been called and immediately return from
-    :py:meth:`__init__` if the flag is set. Not doing this causes the object
-    to be re-initialized even if it was returned from cache!"""
+    .. warning:: The derived class' :py:meth:`__init__` is still called if the
+    object is retrieved from cache. If that is not desired, derived classes can
+    set a flag indicating whether the constructor has already been called and
+    immediately return from :py:meth:`__init__` if the flag is set. Otherwise
+    the object will be re-initialized even if it was returned from cache!"""
 
     def __new__(cls, *args, **kwargs):
         args, kwargs = cls._process_args(*args, **kwargs)
@@ -1238,6 +1240,7 @@ class Sparsity(Cached):
         return maps
 
     def __init__(self, maps, name=None):
+        # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
         # Split into a list of row maps and a list of column maps
@@ -1473,6 +1476,7 @@ class Kernel(Cached):
         return md5.new(code + name).hexdigest()
 
     def __init__(self, code, name):
+        # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
         self._name = name or "kernel_%d" % Kernel._globalcount
@@ -1532,6 +1536,8 @@ class JITModule(Cached):
                 key += (arg.data.dims, arg.data.dtype, idxs,
                       map_dims, arg.access)
 
+        # The currently defined Consts need to be part of the cache key, since
+        # these need to be uploaded to the device before launching the kernel
         for c in Const._definitions():
             key += (c.name, c.dtype, c.cdim)
 

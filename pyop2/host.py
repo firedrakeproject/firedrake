@@ -213,6 +213,8 @@ class JITModule(base.JITModule):
     _libraries = []
 
     def __init__(self, kernel, itspace_extents, *args):
+        # No need to protect against re-initialization since these attributes
+        # are not expensive to set and won't be used if we hit cache
         self._kernel = kernel
         self._extents = itspace_extents
         self._args = args
