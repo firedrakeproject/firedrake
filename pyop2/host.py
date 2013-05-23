@@ -218,9 +218,11 @@ class JITModule(base.JITModule):
         self._args = args
 
     def __call__(self, *args):
+        self.compile()(*args)
+
+    def compile(self):
         if hasattr(self, '_fun'):
-            self._fun(*args)
-            return
+            return self._fun
         from instant import inline_with_numpy
 
         if any(arg._is_soa for arg in self._args):
@@ -254,7 +256,7 @@ class JITModule(base.JITModule):
             os.environ['CC'] = cc
         else:
             os.environ.pop('CC')
-        self._fun(*args)
+        return self._fun
 
     def generate_code(self):
 
