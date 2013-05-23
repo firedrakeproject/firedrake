@@ -196,8 +196,9 @@ def main(opt):
     # Compute error in solution
     error = tracer.data - analytical.data
 
-    # Print error solution
-    print "Expected - computed  solution: %s" % error
+    # Print error w.r.t. analytical solution
+    if opt['print_output']:
+        print "Expected - computed  solution: %s" % error
 
     if opt['test_output']:
         l2norm = dot(t - a, t - a) * dx
@@ -222,6 +223,7 @@ if __name__ == '__main__':
                         dest='advection', help='Disable advection')
     parser.add_argument('--no-diffusion', action='store_false',
                         dest='diffusion', help='Disable diffusion')
+    parser.add_argument('--print-output', action='store_true', help='Print output')
     parser.add_argument('-t', '--test-output', action='store_true',
                         help='Save output for testing')
     parser.add_argument('-p', '--profile', action='store_true',
