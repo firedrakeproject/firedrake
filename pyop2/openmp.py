@@ -122,6 +122,11 @@ def par_loop(kernel, it_space, *args):
 
 class JITModule(host.JITModule):
 
+    ompflag, omplib = _detect_openmp_flags()
+    _cppargs = [os.environ.get('OMP_CXX_FLAGS') or ompflag]
+    _libraries = [os.environ.get('OMP_LIBS') or omplib]
+    _system_headers = ['omp.h']
+
     wrapper = """
 void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
                             PyObject* _part_size, PyObject* _ncolors, PyObject* _blkmap,
@@ -196,11 +201,6 @@ void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
         return code_dict
 
 class ParLoop(device.ParLoop, host.ParLoop):
-
-    ompflag, omplib = _detect_openmp_flags()
-    _cppargs = [os.environ.get('OMP_CXX_FLAGS') or ompflag]
-    _libraries = [os.environ.get('OMP_LIBS') or omplib]
-    _system_headers = ['omp.h']
 
     def compute(self):
         fun = JITModule(self.kernel, self.it_space.extents, *self.args)
