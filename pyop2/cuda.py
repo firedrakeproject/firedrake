@@ -351,16 +351,12 @@ class Global(DeviceDataMixin, op2.Global):
             self.state = DeviceDataMixin.HOST
 
     def _finalise_reduction_begin(self, grid_size, op):
-        self._stream = driver.Stream()
         # Need to make sure the kernel launch finished
         _stream.synchronize()
-        self._reduction_buffer.get_async(ary=self._host_reduction_buffer,
-                                         stream=self._stream)
+        self._reduction_buffer.get(ary=self._host_reduction_buffer)
 
     def _finalise_reduction_end(self, grid_size, op):
         self.state = DeviceDataMixin.HOST
-        self._stream.synchronize()
-        del self._stream
         tmp = self._host_reduction_buffer
         if op is op2.MIN:
             tmp = np.min(tmp, axis=0)
