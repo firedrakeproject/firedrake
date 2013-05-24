@@ -279,9 +279,7 @@ class Global(op2.Global, DeviceDataMixin):
         return self._device_data
 
     def _allocate_reduction_array(self, nelems):
-        self._h_reduc_array = np.zeros (nelems * self.cdim, dtype=self.dtype)
-        self._d_reduc_buffer = cl.Buffer(_ctx, cl.mem_flags.READ_WRITE, size=self._h_reduc_array.nbytes)
-        cl.enqueue_copy(_queue, self._d_reduc_buffer, self._h_reduc_array, is_blocking=True).wait()
+        self._d_reduc_array = array.zeros (_queue, nelems * self.cdim, dtype=self.dtype)
 
     @property
     def data(self):
@@ -318,14 +316,7 @@ class Global(op2.Global, DeviceDataMixin):
                 else:
                     return ""
 
-            def op():
-                if reduction_operator is INC:
-                    return "INC"
-                elif reduction_operator is MIN:
-                    return "min"
-                elif reduction_operator is MAX:
-                        return "max"
-                assert False
+            op = {INC: 'INC', MIN: 'min', MAX: 'max'}
 
             return """
 %(headers)s
@@ -354,7 +345,7 @@ void global_%(type)s_%(dim)s_post_reduction (
     dat[j] = accumulator[j];
   }
 }
-""" % {'headers': headers(), 'dim': self.cdim, 'type': self._cl_type, 'op': op()}
+""" % {'headers': headers(), 'dim': self.cdim, 'type': self._cl_type, 'op': op[reduction_operator]}
 
 
         src, kernel = _reduction_task_cache.get((self.dtype, self.cdim, reduction_operator), (None, None))
@@ -366,11 +357,11 @@ void global_%(type)s_%(dim)s_post_reduction (
             _reduction_task_cache[(self.dtype, self.cdim, reduction_operator)] = (src, kernel)
 
         kernel.set_arg(0, self._array.data)
-        kernel.set_arg(1, self._d_reduc_buffer)
+        kernel.set_arg(1, self._d_reduc_array.data)
         kernel.set_arg(2, np.int32(nelems))
         cl.enqueue_task(_queue, kernel).wait()
 
-        del self._d_reduc_buffer
+        del self._d_reduc_array
 
 class Map(op2.Map):
     """OP2 OpenCL map, a relation between two Sets."""
@@ -635,7 +626,7 @@ class ParLoop(op2.ParLoop):
 
         for a in self._all_global_reduction_args:
             a.data._allocate_reduction_array(conf['work_group_count'])
-            args.append(a.data._d_reduc_buffer)
+            args.append(a.data._d_reduc_array.data)
 
         for cst in Const._definitions():
             args.append(cst._array.data)
