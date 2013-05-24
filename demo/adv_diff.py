@@ -84,14 +84,14 @@ def main(opt):
 
     d = -dt * diffusivity * dot(grad(q), grad(p)) * dx
 
-    diff_matrix = M - 0.5 * d
+    diff = M - 0.5 * d
     diff_rhs = action(M + 0.5 * d, t)
 
     # Generate code for mass and rhs assembly.
 
-    mass, = compile_form(M, "mass")
+    adv, = compile_form(M, "adv")
     adv_rhs, = compile_form(adv_rhs, "adv_rhs")
-    diff_matrix, = compile_form(diff_matrix, "diff_matrix")
+    diff, = compile_form(diff, "diff")
     diff_rhs, = compile_form(diff_rhs, "diff_rhs")
 
     # Set up simulation data structures
@@ -102,7 +102,16 @@ def main(opt):
     num_nodes = nodes.size
 
     sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
-    mat = op2.Mat(sparsity, valuetype, "mat")
+    if opt['advection']:
+        adv_mat = op2.Mat(sparsity, valuetype, "adv_mat")
+        op2.par_loop(adv, elements(3, 3),
+                     adv_mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                     coords(elem_vnode, op2.READ))
+    if opt['diffusion']:
+        diff_mat = op2.Mat(sparsity, valuetype, "diff_mat")
+        op2.par_loop(diff, elements(3, 3),
+                     diff_mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                     coords(elem_vnode, op2.READ))
 
     tracer_vals = np.zeros(num_nodes, dtype=valuetype)
     tracer = op2.Dat(nodes, tracer_vals, valuetype, "tracer")
@@ -149,11 +158,6 @@ def main(opt):
         # Advection
 
         if opt['advection']:
-            mat.zero()
-            op2.par_loop(mass, elements(3, 3),
-                         mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                         coords(elem_vnode, op2.READ))
-
             b.zero()
             op2.par_loop(adv_rhs, elements(3),
                          b(elem_node[op2.i[0]], op2.INC),
@@ -161,23 +165,18 @@ def main(opt):
                          tracer(elem_node, op2.READ),
                          velocity(elem_vnode, op2.READ))
 
-            solver.solve(mat, tracer, b)
+            solver.solve(adv_mat, tracer, b)
 
         # Diffusion
 
         if opt['diffusion']:
-            mat.zero()
-            op2.par_loop(diff_matrix, elements(3, 3),
-                         mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                         coords(elem_vnode, op2.READ))
-
             b.zero()
             op2.par_loop(diff_rhs, elements(3),
                          b(elem_node[op2.i[0]], op2.INC),
                          coords(elem_vnode, op2.READ),
                          tracer(elem_node, op2.READ))
 
-            solver.solve(mat, tracer, b)
+            solver.solve(diff_mat, tracer, b)
 
         if opt['visualize']:
             v.update(viper_shape(tracer.data_ro))
@@ -193,12 +192,9 @@ def main(opt):
                  coords(op2.IdentityMap, op2.READ),
                  analytical(op2.IdentityMap, op2.WRITE))
 
-    # Compute error in solution
-    error = tracer.data - analytical.data
-
     # Print error w.r.t. analytical solution
     if opt['print_output']:
-        print "Expected - computed  solution: %s" % error
+        print "Expected - computed  solution: %s" % tracer.data - analytical.data
 
     if opt['test_output']:
         l2norm = dot(t - a, t - a) * dx
