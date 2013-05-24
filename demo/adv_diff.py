@@ -183,14 +183,15 @@ def main(opt):
 
         T = T + dt
 
-    analytical_vals = np.zeros(num_nodes, dtype=valuetype)
-    analytical = op2.Dat(nodes, analytical_vals, valuetype, "analytical")
+    if opt['print_output'] or opt['test_output']:
+        analytical_vals = np.zeros(num_nodes, dtype=valuetype)
+        analytical = op2.Dat(nodes, analytical_vals, valuetype, "analytical")
 
-    i_cond = op2.Kernel(i_cond_code % {'T': T}, "i_cond")
+        i_cond = op2.Kernel(i_cond_code % {'T': T}, "i_cond")
 
-    op2.par_loop(i_cond, nodes,
-                 coords(op2.IdentityMap, op2.READ),
-                 analytical(op2.IdentityMap, op2.WRITE))
+        op2.par_loop(i_cond, nodes,
+                     coords(op2.IdentityMap, op2.READ),
+                     analytical(op2.IdentityMap, op2.WRITE))
 
     # Print error w.r.t. analytical solution
     if opt['print_output']:
