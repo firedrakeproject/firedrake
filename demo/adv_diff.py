@@ -144,7 +144,7 @@ def main(opt):
 
     solver = op2.Solver()
 
-    while T < 0.01999:
+    while T < 0.015:
 
         # Advection
 

@@ -25,7 +25,7 @@ cd_convergence = log(errnorm("adv_diff.c.out")/errnorm("adv_diff.d.out"), 2)
   </variables>
   <pass_tests>
     <test name="Error norm." language="python">
-assert ab_convergence > 1.55
+assert ab_convergence > 1.5
 assert bc_convergence > 1.85
 assert cd_convergence > 1.95
     </test>
