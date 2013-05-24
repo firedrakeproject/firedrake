@@ -10,4 +10,5 @@ pyop2.log
 *.msh
 *.node
 *.geo
+!cdisk.geo
 /test/regression/tests/**/*.out

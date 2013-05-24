@@ -1,0 +1,34 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>adv_diff</name>
+  <owner userid="fr710"/>
+  <tags>pyop2</tags>
+  <problem_definition length="medium" nprocs="1">
+    <command_line>bash cmd.sh</command_line>
+  </problem_definition>
+  <variables>
+    <variable name="ab_convergence" language="python">
+from errnorm import errnorm
+from math import log
+ab_convergence = log(errnorm("adv_diff.a.out")/errnorm("adv_diff.b.out"), 2)
+    </variable>
+    <variable name="bc_convergence" language="python">
+from errnorm import errnorm
+from math import log
+bc_convergence = log(errnorm("adv_diff.b.out")/errnorm("adv_diff.c.out"), 2)
+    </variable>
+    <variable name="cd_convergence" language="python">
+from errnorm import errnorm
+from math import log
+cd_convergence = log(errnorm("adv_diff.c.out")/errnorm("adv_diff.d.out"), 2)
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="Error norm." language="python">
+assert ab_convergence > 1.5
+assert bc_convergence > 1.85
+assert cd_convergence > 1.95
+    </test>
+  </pass_tests>
+  <warn_tests/>
+</testproblem>
