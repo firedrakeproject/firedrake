@@ -437,6 +437,9 @@ class Solver(petsc_base.Solver):
         x._from_device()
         b._from_device()
         super(Solver, self).solve(A, x, b)
+        # Explicitly mark solution as dirty so a copy back to device occurs
+        if x.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
+            x.state = DeviceDataMixin.HOST
         x._to_device()
 
 class JITModule(base.JITModule):
