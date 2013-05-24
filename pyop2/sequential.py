@@ -78,7 +78,7 @@ void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %
 class ParLoop(host.ParLoop):
 
     def compute(self):
-        fun = JITModule(self.kernel, self.it_space.extents, *self.args)
+        fun = JITModule(self.kernel, self.it_space, *self.args)
         _args = [0, 0]          # start, stop
         for arg in self.args:
             if arg._is_mat:

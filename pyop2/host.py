@@ -247,11 +247,13 @@ class JITModule(base.JITModule):
     _system_headers = []
     _libraries = []
 
-    def __init__(self, kernel, itspace_extents, *args):
+    def __init__(self, kernel, itspace, *args):
         # No need to protect against re-initialization since these attributes
         # are not expensive to set and won't be used if we hit cache
         self._kernel = kernel
-        self._extents = itspace_extents
+        self._extents = itspace.extents
+        self._layers = itspace.layers
+        self._sequential = itspace.sequential
         self._args = args
 
     def __call__(self, *args):
@@ -320,13 +322,13 @@ class JITModule(base.JITModule):
         def extrusion_loop(d):
             return "for (int j_0=0; j_0<%d; ++j_0){" % d
 
-        _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self.args])
+        _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self._args])
 
         _local_tensor_decs = ';\n'.join([arg.c_local_tensor_dec(self._extents) for arg in self._args if arg._is_mat])
         _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self._args])
 
-        _kernel_user_args = [arg.c_kernel_arg(self._it_space.layers, self.it_space.sequential) for arg in self.args]
-        _kernel_it_args   = ["i_%d" % d for d in range(len(self._it_space.extents))]
+        _kernel_user_args = [arg.c_kernel_arg(self._layers, self._sequential) for arg in self._args]
+        _kernel_it_args   = ["i_%d" % d for d in range(len(self._extents))]
         _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
         _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self._args \
                                  if not arg._is_mat and arg._is_vec_map])
@@ -349,11 +351,11 @@ class JITModule(base.JITModule):
             _const_args = ''
         _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
 
-        _interm_globals_decl = ';\n'.join([arg.c_interm_globals_decl() for arg in self.args if arg._is_global_reduction])
-        _interm_globals_init = ';\n'.join([arg.c_interm_globals_init() for arg in self.args if arg._is_global_reduction])
-        _interm_globals_writeback = ';\n'.join([arg.c_interm_globals_writeback() for arg in self.args if arg._is_global_reduction])
+        _interm_globals_decl = ';\n'.join([arg.c_interm_globals_decl() for arg in self._args if arg._is_global_reduction])
+        _interm_globals_init = ';\n'.join([arg.c_interm_globals_init() for arg in self._args if arg._is_global_reduction])
+        _interm_globals_writeback = ';\n'.join([arg.c_interm_globals_writeback() for arg in self._args if arg._is_global_reduction])
 
-        _vec_decs = ';\n'.join([arg.c_vec_dec() for arg in self.args if not arg._is_mat and arg._is_vec_map])
+        _vec_decs = ';\n'.join([arg.c_vec_dec() for arg in self._args if not arg._is_mat and arg._is_vec_map])
 
         count = 0
         _dd = "%d"
@@ -366,8 +368,8 @@ class JITModule(base.JITModule):
         _apply_offset = ""
         _extr_loop = ""
         _extr_loop_close = ""
-        if self._it_space.layers > 1:
-            for arg in self.args:
+        if self._layers > 1:
+            for arg in self._args:
                 if not arg._is_mat and arg._is_vec_map:
                     count += 1
                     off_i.append(c_off_init(count))
@@ -379,7 +381,7 @@ class JITModule(base.JITModule):
               _off_inits = ';\n'.join(off_d)
               _apply_offset = ' \n'.join(off_a)
               _extr_loop = '\n'
-              _extr_loop += extrusion_loop(self._it_space.layers-1)
+              _extr_loop += extrusion_loop(self._layers-1)
               _extr_loop_close = '}'
               _kernel_args += ', j_0'
 
