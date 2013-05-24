@@ -775,6 +775,10 @@ class ParLoop(op2.ParLoop):
 
                     block_size = (128, 1, 1)
                     shared_size = np.asscalar(self._plan.nsharedCol[col])
+                    # Global reductions require shared memory of at least block
+                    # size * sizeof(double) for the reduction buffer
+                    if any(arg._is_global_reduction for arg in self.args):
+                        shared_size = max(128 * 8, shared_size)
 
                     _stream.synchronize()
                     fun(grid_size, block_size, _stream, *arglist,
