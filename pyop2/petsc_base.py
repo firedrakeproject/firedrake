@@ -52,7 +52,7 @@ class MPIConfig(base.MPIConfig):
     @base.MPIConfig.comm.setter
     def comm(self, comm):
         """Set the MPI communicator for parallel communication."""
-        self._set_comm(comm)
+        self.COMM = base._check_comm(comm)
         # PETSc objects also need to be built on the same communicator.
         PETSc.Sys.setDefaultComm(self.comm)
 

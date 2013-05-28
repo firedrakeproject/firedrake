@@ -52,6 +52,15 @@ from mpi4py import MPI as _MPI
 
 # MPI Communicator
 
+def _check_comm(comm):
+    if isinstance(comm, int):
+        # If it's come from Fluidity where an MPI_Comm is just an integer.
+        return _MPI.Comm.f2py(comm)
+    try:
+        return comm if isinstance(comm, _MPI.Comm) else comm.tompi4py()
+    except AttributeError:
+        raise TypeError("MPI communicator must be of type mpi4py.MPI.Comm")
+
 class MPIConfig(object):
 
     def __init__(self):
@@ -73,16 +82,7 @@ class MPIConfig(object):
 
         .. note:: The communicator must be of type :py:class:`mpi4py.MPI.Comm`
         or implement a method :py:meth:`tompi4py` to be converted to one."""
-        self._set_comm(comm)
-
-    def _set_comm(self, comm):
-        if isinstance(comm, int):
-            # If it's come from Fluidity where an MPI_Comm is just an integer.
-            comm = _MPI.Comm.f2py(comm)
-        try:
-            self.COMM = comm if isinstance(comm, _MPI.Comm) else comm.tompi4py()
-        except AttributeError:
-            raise TypeError("MPI communicator must be of type mpi4py.MPI.Comm")
+        self.COMM = _check_comm(comm)
 
 MPI = MPIConfig()
 
@@ -505,10 +505,7 @@ class Halo(object):
         self._sends = tuple(np.asarray(x, dtype=np.int32) for x in sends)
         self._receives = tuple(np.asarray(x, dtype=np.int32) for x in receives)
         self._global_to_petsc_numbering = gnn2unn
-        if type(comm) is int:
-            self._comm = MPI.Comm.f2py(comm)
-        else:
-            self._comm = comm or MPI.comm
+        self._comm = _check_comm(comm) if comm is not None else MPI.comm
         # FIXME: is this a necessity?
         assert self._comm == MPI.comm, "Halo communicator not COMM"
         rank = self._comm.rank
