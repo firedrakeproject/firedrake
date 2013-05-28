@@ -47,6 +47,7 @@ from pyop2.ffc_interface import compile_form
 from ufl import *
 import ffc
 import numpy as np
+from petsc4py import PETSc
 
 parser = utils.parser(group=True, description=__doc__)
 parser.add_argument('-s', '--save-output',
@@ -80,37 +81,33 @@ NUM_ELE   = (0, 1, 2, 2)
 NUM_NODES = (0, 2, 4, 4)
 valuetype = np.float64
 
-from mpi4py import MPI
-c = MPI.COMM_WORLD
-
-if c.size != 2:
+if op2.MPI.comm.size != 2:
     print "MPI mass2d demo only works on two processes"
-    c.Abort(1)
+    op2.MPI.comm.Abort(1)
 
-from petsc4py import PETSc
-if c.rank == 0:
+if op2.MPI.comm.rank == 0:
     node_global_to_universal = np.asarray([0, 1, 2, 3], dtype=PETSc.IntType)
-    node_halo = op2.Halo(sends=([], [0,1]), receives=([], [2,3]), comm=c,
+    node_halo = op2.Halo(sends=([], [0,1]), receives=([], [2,3]),
                          gnn2unn=node_global_to_universal)
-    element_halo = op2.Halo(sends=([], [0]), receives=([], [1]), comm=c)
-elif c.rank == 1:
+    element_halo = op2.Halo(sends=([], [0]), receives=([], [1]))
+elif op2.MPI.comm.rank == 1:
     node_global_to_universal = np.asarray([2, 3, 1, 0], dtype=PETSc.IntType)
-    node_halo = op2.Halo(sends=([0,1], []), receives=([3,2], []), comm=c,
+    node_halo = op2.Halo(sends=([0,1], []), receives=([3,2], []),
                          gnn2unn=node_global_to_universal)
-    element_halo = op2.Halo(sends=([0], []), receives=([1], []), comm=c)
+    element_halo = op2.Halo(sends=([0], []), receives=([1], []))
 else:
-    c.Abort(1)
+    op2.MPI.comm.Abort(1)
 nodes = op2.Set(NUM_NODES, 1, "nodes", halo=node_halo)
 vnodes = op2.Set(NUM_NODES, 2, "vnodes", halo=node_halo)
 elements = op2.Set(NUM_ELE, 1, "elements", halo=element_halo)
 
 
-if c.rank == 0:
+if op2.MPI.comm.rank == 0:
     elem_node_map = np.asarray([ 0, 1, 3, 2, 3, 1 ], dtype=np.uint32)
-elif c.rank == 1:
+elif op2.MPI.comm.rank == 1:
     elem_node_map = np.asarray([ 0, 1, 2, 2, 3, 1 ], dtype=np.uint32)
 else:
-    c.Abort(1)
+    op2.MPI.comm.Abort(1)
 
 elem_node = op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 elem_vnode = op2.Map(elements, vnodes, 3, elem_node_map, "elem_vnode")
@@ -118,22 +115,22 @@ elem_vnode = op2.Map(elements, vnodes, 3, elem_node_map, "elem_vnode")
 sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
-if c.rank == 0:
+if op2.MPI.comm.rank == 0:
     coord_vals = np.asarray([ (0.0, 0.0), (2.0, 0.0), (1.0, 1.0), (0.0, 1.5) ],
                             dtype=valuetype)
-elif c.rank == 1:
+elif op2.MPI.comm.rank == 1:
     coord_vals = np.asarray([(1,1), (0,1.5), (2,0), (0,0)],
                             dtype=valuetype)
 else:
-    c.Abort(1)
+    op2.MPI.comm.Abort(1)
 coords = op2.Dat(vnodes, coord_vals, valuetype, "coords")
 
-if c.rank == 0:
+if op2.MPI.comm.rank == 0:
     f_vals = np.asarray([ 1.0, 2.0, 3.0, 4.0 ], dtype=valuetype)
-elif c.rank == 1:
+elif op2.MPI.comm.rank == 1:
     f_vals = np.asarray([ 3.0, 4.0, 2.0, 1.0 ], dtype=valuetype)
 else:
-    c.Abort(1)
+    op2.MPI.comm.Abort(1)
 b_vals = np.asarray([0.0]*NUM_NODES[3], dtype=valuetype)
 x_vals = np.asarray([0.0]*NUM_NODES[3], dtype=valuetype)
 f = op2.Dat(nodes, f_vals, valuetype, "f")
@@ -160,7 +157,7 @@ error = (f.data[:f.dataset.size] - x.data[:x.dataset.size])
 
 # Print error solution
 print "Rank: %d Expected - computed  solution: %s" % \
-    (c.rank, error)
+    (op2.MPI.comm.rank, error)
 
 # Save output (if necessary)
 if opt['save_output']:
@@ -168,5 +165,5 @@ if opt['save_output']:
 
 if opt['test_output']:
     import pickle
-    with open("mass2d_mpi_%d.out" % c.rank,"w") as out:
+    with open("mass2d_mpi_%d.out" % op2.MPI.comm.rank,"w") as out:
         pickle.dump(error, out)
