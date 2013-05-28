@@ -70,7 +70,8 @@ def init(**kwargs):
     if backend == 'pyop2.void':
         backends.set_backend(cfg.backend)
         backends._BackendSelector._backend._setup()
-        backends._BackendSelector._backend.MPI.comm = kwargs.get('comm')
+        if 'comm' in kwargs:
+            backends._BackendSelector._backend.MPI.comm = kwargs['comm']
         global MPI
         MPI = backends._BackendSelector._backend.MPI
         core.op_init(args=None, diags=0)

@@ -69,16 +69,20 @@ class MPIConfig(object):
 
     @comm.setter
     def comm(self, comm):
-        """Set the MPI communicator for parallel communication."""
+        """Set the MPI communicator for parallel communication.
+
+        .. note:: The communicator must be of type :py:class:`mpi4py.MPI.Comm`
+        or implement a method :py:meth:`tompi4py` to be converted to one."""
         self._set_comm(comm)
 
     def _set_comm(self, comm):
-        if type(comm) is int:
-            # If it's come from Fluidity where an MPI_Comm is just an
-            # integer.
-            self.COMM = _MPI.Comm.f2py(comm)
-        elif comm is not None:
-            self.COMM = comm
+        if isinstance(comm, int):
+            # If it's come from Fluidity where an MPI_Comm is just an integer.
+            comm = _MPI.Comm.f2py(comm)
+        try:
+            self.COMM = comm if isinstance(comm, _MPI.Comm) else comm.tompi4py()
+        except AttributeError:
+            raise TypeError("MPI communicator must be of type mpi4py.MPI.Comm")
 
 MPI = MPIConfig()
 
