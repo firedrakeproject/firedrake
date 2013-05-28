@@ -42,12 +42,23 @@ required to implement backend-specific features.
 from petsc4py import PETSc
 import base
 from base import *
-from base import set_mpi_communicator as set_base_mpi_communicator
 
-def set_mpi_communicator(comm):
-    set_base_mpi_communicator(comm)
-    # PETSc objects also need to be built on the same communicator.
-    PETSc.Sys.setDefaultComm(base.PYOP2_COMM)
+class MPIConfig(base.MPIConfig):
+
+    def __init__(self):
+        super(MPIConfig, self).__init__()
+        PETSc.Sys.setDefaultComm(self.comm)
+
+    @base.MPIConfig.comm.setter
+    def comm(self, comm):
+        """Set the MPI communicator for parallel communication."""
+        self._set_comm(comm)
+        # PETSc objects also need to be built on the same communicator.
+        PETSc.Sys.setDefaultComm(self.comm)
+
+MPI = MPIConfig()
+# Override base configuration
+base.MPI = MPI
 
 class Dat(base.Dat):
 
@@ -72,7 +83,7 @@ class Mat(base.Mat):
         row_lg = PETSc.LGMap()
         col_lg = PETSc.LGMap()
         rdim, cdim = self.sparsity.dims
-        if base.PYOP2_COMM.size == 1:
+        if MPI.comm.size == 1:
             # The PETSc local to global mapping is the identity in the sequential case
             row_lg.create(indices=np.arange(self.sparsity.nrows * rdim, dtype=PETSc.IntType))
             col_lg.create(indices=np.arange(self.sparsity.ncols * cdim, dtype=PETSc.IntType))
