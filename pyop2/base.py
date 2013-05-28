@@ -80,19 +80,11 @@ class MPIConfig(object):
         elif comm is not None:
             self.COMM = comm
 
-    @property
-    def rank(self):
-        return self.comm.rank
-
-    @property
-    def size(self):
-        return self.comm.size
-
 MPI = MPIConfig()
 
 def debug(*msg):
     if cfg.debug:
-        print('[%d]' % MPI.rank if MPI.parallel else '', *msg)
+        print('[%d]' % MPI.comm.rank if MPI.parallel else '', *msg)
 
 # Common base classes
 
