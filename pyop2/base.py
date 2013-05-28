@@ -882,7 +882,7 @@ class Dat(DataCarrier):
             if ele.size == 0:
                 # Don't send to self (we've asserted that ele.size ==
                 # 0 previously) or if there are no elements to send
-                self._send_reqs[dest] = MPI.REQUEST_NULL
+                self._send_reqs[dest] = _MPI.REQUEST_NULL
                 continue
             self._send_buf[dest] = self._data[ele]
             self._send_reqs[dest] = halo.comm.Isend(self._send_buf[dest],
@@ -891,7 +891,7 @@ class Dat(DataCarrier):
             if ele.size == 0:
                 # Don't receive from self or if there are no elements
                 # to receive
-                self._recv_reqs[source] = MPI.REQUEST_NULL
+                self._recv_reqs[source] = _MPI.REQUEST_NULL
                 continue
             self._recv_buf[source] = self._data[ele]
             self._recv_reqs[source] = halo.comm.Irecv(self._recv_buf[source],
@@ -902,8 +902,8 @@ class Dat(DataCarrier):
         halo = self.dataset.halo
         if halo is None:
             return
-        MPI.Request.Waitall(self._recv_reqs)
-        MPI.Request.Waitall(self._send_reqs)
+        _MPI.Request.Waitall(self._recv_reqs)
+        _MPI.Request.Waitall(self._send_reqs)
         self._send_buf = [None]*len(self._send_buf)
         for source, buf in enumerate(self._recv_buf):
             if buf is not None:
