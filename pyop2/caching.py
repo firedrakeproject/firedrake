@@ -33,6 +33,10 @@
 
 """Provides common base classes for cached objects."""
 
+import cPickle
+import gzip
+import os
+
 
 class Cached(object):
     """Base class providing global caching of objects. Derived classes need to
@@ -90,3 +94,34 @@ class Cached(object):
     def cache_key(self):
         """Cache key."""
         return self._key
+
+
+class DiskCached(Cached):
+    """Base class providing global caching of objects on disk. The same notes
+    as in :py:class:`Cached` apply. In addition, derived classes need to
+    define a class attribute :py:attribute:`_cachedir` specifying the path
+    where to cache objects on disk.
+
+    .. warning:: The key returned by :py:meth:`_cache_key` *must* be a
+    :py:class:`str` safe to use as a filename, such as an md5 hex digest."""
+
+    @classmethod
+    def _cache_lookup(cls, key):
+        return cls._cache.get(key) or cls._read_from_disk(key)
+
+    @classmethod
+    def _read_from_disk(cls, key):
+        filepath = os.path.join(cls._cachedir, key)
+        if os.path.exists(filepath):
+            with gzip.open(filepath, "rb") as f:
+                val = cPickle.load(f)
+            # Store in memory so we can save ourselves a disk lookup next time
+            cls._cache[key] = val
+            return val
+        raise KeyError("Object with key %s not found in %s" % (key, filepath))
+
+    @classmethod
+    def _cache_store(cls, key, val):
+        cls._cache[key] = val
+        with gzip.open(os.path.join(cls._cachedir, key), "wb") as f:
+            return cPickle.dump(val, f)
