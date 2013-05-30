@@ -34,14 +34,12 @@
 """OP2 OpenCL backend."""
 
 from device import *
-import device as op2
+import device
 import petsc_base
 from utils import verify_reshape, uniquify, maybe_setflags
 import configuration as cfg
 import pyopencl as cl
 from pyopencl import array
-import pkg_resources
-import pycparser
 import numpy as np
 import collections
 import warnings
@@ -50,13 +48,12 @@ from jinja2 import Environment, PackageLoader
 from pycparser import c_parser, c_ast, c_generator
 import os
 import time
-import md5
 
-class Kernel(op2.Kernel):
+class Kernel(device.Kernel):
     """OP2 OpenCL kernel type."""
 
     def __init__(self, code, name):
-        op2.Kernel.__init__(self, code, name)
+        device.Kernel.__init__(self, code, name)
 
     class Instrument(c_ast.NodeVisitor):
         """C AST visitor for instrumenting user kernels.
@@ -89,7 +86,8 @@ class Kernel(op2.Kernel):
                 if cst._is_scalar:
                     t = c_ast.TypeDecl(cst._name, [], c_ast.IdentifierType([cst._cl_type]))
                 else:
-                    t = c_ast.PtrDecl([], c_ast.TypeDecl(cst._name, ["__constant"], c_ast.IdentifierType([cst._cl_type])))
+                    t = c_ast.PtrDecl([], c_ast.TypeDecl(cst._name, ["__constant"],
+                                      c_ast.IdentifierType([cst._cl_type])))
                 decl = c_ast.Decl(cst._name, [], [], [], t, None, 0)
                 node.params.append(decl)
 
@@ -98,7 +96,7 @@ class Kernel(op2.Kernel):
         Kernel.Instrument().instrument(ast, self._name, instrument, constants)
         return c_generator.CGenerator().visit(ast)
 
-class Arg(op2.Arg):
+class Arg(device.Arg):
     """OP2 OpenCL argument type."""
 
     # FIXME actually use this in the template
@@ -116,7 +114,7 @@ class Arg(op2.Arg):
         if self._is_indirect:
             if self._is_vec_map:
                 return self._vec_name
-            if self.access is op2.INC:
+            if self.access is device.INC:
                 return self._local_name()
             else:
                 return "%s + loc_map[%s * set_size + %s + offset_b]*%s" \
@@ -135,7 +133,7 @@ class Arg(op2.Arg):
         else:
             return "%s + %s" % (self._name, idx)
 
-class DeviceDataMixin(op2.DeviceDataMixin):
+class DeviceDataMixin(device.DeviceDataMixin):
     """Codegen mixin for datatype and literal translation."""
 
     ClTypeInfo = collections.namedtuple('ClTypeInfo', ['clstring', 'zero', 'min', 'max'])
@@ -192,7 +190,7 @@ class DeviceDataMixin(op2.DeviceDataMixin):
     def _cl_type_max(self):
         return DeviceDataMixin.CL_TYPES[self.dtype].max
 
-class Dat(op2.Dat, petsc_base.Dat, DeviceDataMixin):
+class Dat(device.Dat, petsc_base.Dat, DeviceDataMixin):
     """OP2 OpenCL vector data type."""
 
     @property
@@ -200,7 +198,7 @@ class Dat(op2.Dat, petsc_base.Dat, DeviceDataMixin):
         """The L2-norm on the flattened vector."""
         return np.sqrt(array.dot(self.array, self.array).get())
 
-class Sparsity(op2.Sparsity):
+class Sparsity(device.Sparsity):
     @property
     def colidx(self):
         if not hasattr(self, '__dev_colidx'):
@@ -217,7 +215,7 @@ class Sparsity(op2.Sparsity):
                                     self._rowptr))
         return getattr(self, '__dev_rowptr')
 
-class Mat(op2.Mat, petsc_base.Mat, DeviceDataMixin):
+class Mat(device.Mat, petsc_base.Mat, DeviceDataMixin):
     """OP2 OpenCL matrix data type."""
 
     def _allocate_device(self):
@@ -260,7 +258,7 @@ class Mat(op2.Mat, petsc_base.Mat, DeviceDataMixin):
     def cdim(self):
         return np.prod(self.dims)
 
-class Const(op2.Const, DeviceDataMixin):
+class Const(device.Const, DeviceDataMixin):
     """OP2 OpenCL data that is constant for any element of any set."""
 
     @property
@@ -269,7 +267,7 @@ class Const(op2.Const, DeviceDataMixin):
             setattr(self, '__array', array.to_device(_queue, self._data))
         return getattr(self, '__array')
 
-class Global(op2.Global, DeviceDataMixin):
+class Global(device.Global, DeviceDataMixin):
     """OP2 OpenCL global value."""
 
     @property
@@ -363,19 +361,17 @@ void global_%(type)s_%(dim)s_post_reduction (
 
         del self._d_reduc_array
 
-class Map(op2.Map):
+class Map(device.Map):
     """OP2 OpenCL map, a relation between two Sets."""
 
     def _to_device(self):
         if not hasattr(self, '_device_values'):
             self._device_values = array.to_device(_queue, self._values)
         else:
-            from warnings import warn
-            warn("Copying Map data for %s again, do you really want to do this?" % \
-                 self)
+            warnings.warn("Copying Map data for %s again, do you really want to do this?" % self)
             self._device_values.set(self._values, _queue)
 
-class Plan(op2.Plan):
+class Plan(device.Plan):
     @property
     def ind_map(self):
         if not hasattr(self, '_ind_map_array'):
@@ -511,7 +507,7 @@ class JITModule(base.JITModule):
         cl.enqueue_nd_range_kernel(_queue, fun, (thread_count,),
                                    (work_group_size,), g_times_l=False).wait()
 
-class ParLoop(op2.ParLoop):
+class ParLoop(device.ParLoop):
     @property
     def _matrix_args(self):
         return [a for a in self.args if a._is_mat]
@@ -618,7 +614,7 @@ class ParLoop(op2.ParLoop):
         args = []
         for arg in self._unique_args:
             arg.data._allocate_device()
-            if arg.access is not op2.WRITE:
+            if arg.access is not device.WRITE:
                 arg.data._to_device()
 
         for a in self._unique_dat_args:
