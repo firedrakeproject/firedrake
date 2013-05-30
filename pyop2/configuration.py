@@ -79,8 +79,6 @@ class ConfigModule(types.ModuleType):
     DEFAULT_USER_CONFIG = 'pyop2.yaml'
 
     def configure(self, **kargs):
-        self._config = UserDict.UserDict()
-
         entries = list()
         entries += yaml.load(pkg_resources.resource_stream('pyop2', ConfigModule.DEFAULT_CONFIG)).items()
 
@@ -102,6 +100,10 @@ class ConfigModule(types.ModuleType):
 
         entries += kargs.items()
         self._config = UserDict.UserDict(entries)
+
+        if self._config['debug'] > 0:
+            # Cause all warnings to always be triggered.
+            warnings.simplefilter("always")
 
     def reset(self):
         """Reset all configuration entries."""
