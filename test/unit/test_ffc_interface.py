@@ -33,6 +33,7 @@
 
 import pytest
 ffc_interface = pytest.importorskip('pyop2.ffc_interface')
+import os
 from ufl import *
 
 @pytest.mark.xfail("not hasattr(ffc_interface.constants, 'PYOP2_VERSION')")
@@ -68,6 +69,22 @@ class TestFFCCache:
         g = Coefficient(e)
         return f*v*dx + g*v*ds
 
+    @pytest.fixture
+    def cache_key(cls, mass):
+        return ffc_interface.FFCKernel(mass, 'mass').cache_key
+
+    def test_ffc_cache_dir_exists(self, backend):
+        """Importing ffc_interface should create FFC Kernel cache dir."""
+        assert os.path.exists(ffc_interface.FFCKernel._cachedir)
+
+    def test_ffc_cache_persist_on_disk(self, backend, cache_key):
+        """FFCKernel should be persisted on disk."""
+        assert os.path.exists(os.path.join(ffc_interface.FFCKernel._cachedir, cache_key))
+
+    def test_ffc_cache_read_from_disk(self, backend, cache_key):
+        """Loading an FFCKernel from disk should yield the right object."""
+        assert ffc_interface.FFCKernel._read_from_disk(cache_key).cache_key == cache_key
+
     def test_ffc_compute_form_data(self, backend, mass):
         """Compiling a form attaches form data."""
         ffc_interface.compile_form(mass, 'mass')
@@ -85,6 +102,13 @@ class TestFFCCache:
         """Compiling different forms should not load kernels from cache."""
         k1 = ffc_interface.compile_form(mass, 'mass')
         k2 = ffc_interface.compile_form(mass2, 'mass')
+
+        assert k1 is not k2
+
+    def test_ffc_different_names(self, backend, mass):
+        """Compiling different forms should not load kernels from cache."""
+        k1 = ffc_interface.compile_form(mass, 'mass')
+        k2 = ffc_interface.compile_form(mass, 'mass2')
 
         assert k1 is not k2
 

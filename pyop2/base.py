@@ -41,8 +41,9 @@ subclass these as required to implement backend-specific features.
 from __future__ import print_function
 import numpy as np
 import operator
-import md5
+from hashlib import md5
 
+from caching import Cached
 from exceptions import *
 from utils import *
 from backends import _make_object
@@ -89,51 +90,6 @@ MPI = MPIConfig()
 def debug(*msg):
     if cfg.debug:
         print('[%d]' % MPI.comm.rank if MPI.parallel else '', *msg)
-
-# Common base classes
-
-class Cached(object):
-    """Base class providing global caching of objects. Derived classes need to
-    implement classmethods :py:meth:`_process_args` and :py:meth:`_cache_key`
-    and define a class attribute :py:attribute:`_cache` of type :py:class:`dict`.
-
-    .. warning:: The derived class' :py:meth:`__init__` is still called if the
-    object is retrieved from cache. If that is not desired, derived classes can
-    set a flag indicating whether the constructor has already been called and
-    immediately return from :py:meth:`__init__` if the flag is set. Otherwise
-    the object will be re-initialized even if it was returned from cache!"""
-
-    def __new__(cls, *args, **kwargs):
-        args, kwargs = cls._process_args(*args, **kwargs)
-        key = cls._cache_key(*args, **kwargs)
-        try:
-            return cls._cache[key]
-        except KeyError:
-            obj = super(Cached, cls).__new__(cls, *args, **kwargs)
-            obj._initialized = False
-            obj.__init__(*args, **kwargs)
-            # If key is None we're not supposed to store the object in cache
-            if key:
-                cls._cache[key] = obj
-            return obj
-
-    @classmethod
-    def _process_args(cls, *args, **kwargs):
-        """Pre-processes the arguments before they are being passed to
-        :py:meth:`_cache_key` and the constructor.
-
-        :rtype: *must* return a :py:class:`list` of *args* and a
-            :py:class:`dict` of *kwargs*"""
-        return args, kwargs
-
-    @classmethod
-    def _cache_key(cls, *args, **kwargs):
-        """Compute the cache key given the preprocessed constructor arguments.
-
-        :rtype: Cache key to use or ``None`` if the object is not to be cached
-
-        .. note:: The cache key must be hashable."""
-        return tuple(args) + tuple([(k, v) for k, v in kwargs.items()])
 
 # Data API
 
@@ -1486,7 +1442,7 @@ class Kernel(Cached):
     def _cache_key(cls, code, name):
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
-        return md5.new(code + name).hexdigest()
+        return md5(code + name).hexdigest()
 
     def __init__(self, code, name):
         # Protect against re-initialization when retrieved from cache
@@ -1508,13 +1464,6 @@ class Kernel(Cached):
         code must conform to the OP2 user kernel API."""
         return self._code
 
-    @property
-    def md5(self):
-        """MD5 digest of kernel code and name."""
-        if not hasattr(self, '_md5'):
-            self._md5 = md5.new(self._code + self._name).hexdigest()
-        return self._md5
-
     def __str__(self):
         return "OP2 Kernel: %s" % self._name
 
@@ -1528,7 +1477,7 @@ class JITModule(Cached):
 
     @classmethod
     def _cache_key(cls, kernel, itspace_extents, *args, **kwargs):
-        key = (kernel.md5, itspace_extents)
+        key = (kernel.cache_key, itspace_extents)
         for arg in args:
             if arg._is_global:
                 key += (arg.data.dim, arg.data.dtype, arg.access)
