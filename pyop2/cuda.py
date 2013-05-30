@@ -458,8 +458,8 @@ def _cusp_solver(M, parameters):
         return module
 
     import codepy.toolchain
-    from codepy.cgen import FunctionBody, FunctionDeclaration, If, make_multiple_ifs
-    from codepy.cgen import Block, Statement, Include, Value
+    from cgen import FunctionBody, FunctionDeclaration, If, make_multiple_ifs
+    from cgen import Block, Statement, Include, Value
     from codepy.bpl import BoostPythonModule
     from codepy.cuda import CudaModule
     gcc_toolchain = codepy.toolchain.guess_toolchain()
