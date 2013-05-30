@@ -34,18 +34,52 @@
 """Provides the interface to FFC for compiling a form, and transforms the FFC-
 generated code in order to make it suitable for passing to the backends."""
 
+from hashlib import md5
+import os
+import re
+import tempfile
+
 from ufl import Form
 from ufl.algorithms import as_form
 from ufl.algorithms.signature import compute_form_signature
 from ffc import default_parameters, compile_form as ffc_compile_form
 from ffc import constants
 from ffc.log import set_level, ERROR
-from ffc.jitobject import JITObject
-import re
 
+from caching import DiskCached
 from op2 import Kernel
 
 _form_cache = {}
+
+# Silence FFC
+set_level(ERROR)
+
+ffc_parameters = default_parameters()
+ffc_parameters['write_file'] = False
+ffc_parameters['format'] = 'pyop2'
+
+class FFCKernel(DiskCached):
+
+    _cache = {}
+    _cachedir = os.path.join(tempfile.gettempdir(),
+                             'pyop2-ffc-kernel-cache-uid%d' % os.getuid())
+
+    @classmethod
+    def _cache_key(cls, form, name):
+        form_data = form.compute_form_data()
+        return md5(form_data.signature + name + Kernel._backend.__name__).hexdigest()
+
+    def __init__(self, form, name):
+        if self._initialized:
+            return
+
+        code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
+        form_data = form.form_data()
+
+        self.kernels = tuple([Kernel(code, '%s_%s_integral_0_%s' % \
+                               (name, ida.domain_type, ida.domain_id)) \
+                               for ida in form_data.integral_data])
+        self._initialized = True
 
 def compile_form(form, name):
     """Compile a form using FFC and return an OP2 kernel"""
@@ -54,30 +88,7 @@ def compile_form(form, name):
     if not isinstance(form, Form):
         form = as_form(form)
 
-    ffc_parameters = default_parameters()
-    ffc_parameters['write_file'] = False
-    ffc_parameters['format'] = 'pyop2'
+    return FFCKernel(form, name).kernels
 
-    # Silence FFC
-    set_level(ERROR)
-
-    # As of UFL 1.0.0-2 a form signature is stable w.r.t. to Coefficient/Index
-    # counts
-    key = compute_form_signature(form)
-    # Check the cache first: this saves recompiling the form for every time
-    # step in time-varying problems
-    kernels, form_data = _form_cache.get(key, (None, None))
-    if form_data is None:
-        code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
-        form_data = form.form_data()
-
-        kernels = [ Kernel(code, '%s_%s_integral_0_%s' % \
-                    (name, ida.domain_type, ida.domain_id)) \
-                    for ida in form_data.integral_data ]
-        kernels = tuple(kernels)
-        _form_cache[key] = kernels, form_data
-
-    # Attach the form data FFC has computed for our form (saves preprocessing
-    # the form later on)
-    form._form_data = form_data
-    return kernels
+if not os.path.exists(FFCKernel._cachedir):
+    os.makedirs(FFCKernel._cachedir)
