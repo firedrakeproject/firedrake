@@ -92,8 +92,9 @@ def main(opt):
 
     valuetype = np.float64
 
-    with gzip.open(opt['mesh'] + '.' + str(op2.MPI.comm.rank) + '.pickle.gz') as f:
-        elements, nodes, vnodes, elem_node, elem_vnode, coords = load(f)
+    f = gzip.open(opt['mesh'] + '.' + str(op2.MPI.comm.rank) + '.pickle.gz')
+    elements, nodes, vnodes, elem_node, elem_vnode, coords = load(f)
+    f.close()
     num_nodes = nodes.total_size
 
     sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")

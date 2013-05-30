@@ -113,8 +113,9 @@ class DiskCached(Cached):
     def _read_from_disk(cls, key):
         filepath = os.path.join(cls._cachedir, key)
         if os.path.exists(filepath):
-            with gzip.open(filepath, "rb") as f:
-                val = cPickle.load(f)
+            f = gzip.open(filepath, "rb")
+            val = cPickle.load(f)
+            f.close()
             # Store in memory so we can save ourselves a disk lookup next time
             cls._cache[key] = val
             return val
@@ -123,5 +124,6 @@ class DiskCached(Cached):
     @classmethod
     def _cache_store(cls, key, val):
         cls._cache[key] = val
-        with gzip.open(os.path.join(cls._cachedir, key), "wb") as f:
-            return cPickle.dump(val, f)
+        f = gzip.open(os.path.join(cls._cachedir, key), "wb")
+        cPickle.dump(val, f)
+        f.close()
