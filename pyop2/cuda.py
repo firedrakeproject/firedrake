@@ -464,6 +464,8 @@ def _cusp_solver(M, parameters):
     from codepy.cuda import CudaModule
     gcc_toolchain = codepy.toolchain.guess_toolchain()
     nvcc_toolchain = codepy.toolchain.guess_nvcc_toolchain()
+    if 'CUSP_HOME' in os.environ:
+        nvcc_toolchain.add_library('cusp',[os.environ['CUSP_HOME']],[],[])
     host_mod = BoostPythonModule()
     nvcc_mod = CudaModule(host_mod)
     nvcc_includes = ['thrust/device_vector.h',
