@@ -41,15 +41,15 @@ parser = utils.parser(group=True, description="PyOP2 airfoil demo (vector map ve
 parser.add_argument('-m', '--mesh',
                     action='store',
                     type=str,
-                    default='new_grid.h5',
-                    help='HDF5 mesh file to use (default: new_grid.h5)')
+                    default='meshes/new_grid.h5',
+                    help='HDF5 mesh file to use (default: meshes/new_grid.h5)')
 opt = vars(parser.parse_args())
 op2.init(**opt)
 
 from airfoil_vector_kernels import save_soln, adt_calc, res_calc, bres_calc, update
 
 try:
-    with h5py.File('new_grid.h5', 'r') as f:
+    with h5py.File(opt['mesh'], 'r') as f:
 
         # Declare sets, maps, datasets and global constants
 

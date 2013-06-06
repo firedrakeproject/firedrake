@@ -41,8 +41,8 @@ parser = utils.parser(group=True, description="PyOP2 airfoil demo")
 parser.add_argument('-m', '--mesh',
                     action='store',
                     type=str,
-                    default='new_grid.h5',
-                    help='HDF5 mesh file to use (default: new_grid.h5)')
+                    default='meshes/new_grid.h5',
+                    help='HDF5 mesh file to use (default: meshes/new_grid.h5)')
 opt = vars(parser.parse_args())
 op2.init(**opt)
 
