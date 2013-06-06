@@ -16,9 +16,11 @@ SPHINX_BUILD_DIR = $(SPHINX_DIR)/build
 SPHINX_TARGET = html
 SPHINX_TARGET_DIR = $(SPHINX_BUILD_DIR)/$(SPHINX_TARGET)
 
+MESHES_DIR = demo/meshes
+
 all: ext
 
-.PHONY : help test unit regression doc update_docs ext ext_clean
+.PHONY : help test unit regression doc update_docs ext ext_clean meshes
 
 help:
 	@echo "make COMMAND with COMMAND one of:"
@@ -31,6 +33,7 @@ help:
 	@echo "  update_docs        : build sphinx documentation and push to GitHub"
 	@echo "  ext                : rebuild Cython extension"
 	@echo "  ext_clean          : delete generated extension"
+	@echo "  meshes             : download demo meshes"
 	@echo
 	@echo "Available OpenCL contexts: $(OPENCL_CTXS)"
 
@@ -75,3 +78,6 @@ ext: ext_clean
 
 ext_clean:
 	rm -rf build pyop2/op_lib_core.c pyop2/op_lib_core.so
+
+meshes:
+	make -C $(MESHES_DIR) meshes
