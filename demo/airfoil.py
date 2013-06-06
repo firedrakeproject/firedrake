@@ -34,6 +34,7 @@
 import h5py
 from math import atan, sqrt
 import numpy as np
+import os
 
 from pyop2 import op2, utils
 
@@ -137,7 +138,14 @@ if __name__ == '__main__':
     parser = utils.parser(group=True, description="PyOP2 airfoil demo")
     parser.add_argument('-m', '--mesh', default='meshes/new_grid.h5',
                         help='HDF5 mesh file to use (default: meshes/new_grid.h5)')
+    parser.add_argument('-p', '--profile', action='store_true',
+                        help='Create a cProfile for the run')
     opt = vars(parser.parse_args())
     op2.init(**opt)
 
-    main(opt)
+    if opt['profile']:
+        import cProfile
+        filename = 'airfoil.%s.cprofile' % os.path.split(opt['mesh'])[-1]
+        cProfile.run('main(opt)', filename=filename)
+    else:
+        main(opt)
