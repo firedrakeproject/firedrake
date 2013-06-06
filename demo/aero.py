@@ -39,6 +39,7 @@ Port of the aero demo from OP2-Common. Requires an HDF5 mesh file.
 import numpy as np
 import h5py
 from math import sqrt
+import os
 
 from pyop2 import op2, utils
 
@@ -209,7 +210,14 @@ if __name__ == '__main__':
     parser = utils.parser(group=True, description=__doc__)
     parser.add_argument('-m', '--mesh', default='meshes/FE_grid.h5',
                         help='HDF5 mesh file to use (default: meshes/FE_grid.h5)')
+    parser.add_argument('-p', '--profile', action='store_true',
+                        help='Create a cProfile for the run')
     opt = vars(parser.parse_args())
     op2.init(**opt)
 
-    main(opt)
+    if opt['profile']:
+        import cProfile
+        filename = 'aero.%s.cprofile' % os.path.split(opt['mesh'])[-1]
+        cProfile.run('main(opt)', filename=filename)
+    else:
+        main(opt)
