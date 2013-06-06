@@ -33,6 +33,8 @@
 
 """The PyOP2 API specification."""
 
+import atexit
+
 import backends
 import device
 import configuration as cfg
@@ -76,6 +78,7 @@ def init(**kwargs):
         MPI = backends._BackendSelector._backend.MPI
         core.op_init(args=None, diags=0)
 
+@atexit.register
 def exit():
     """Exit OP2 and clean up"""
     cfg.reset()
