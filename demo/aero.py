@@ -43,10 +43,7 @@ from math import sqrt
 from pyop2 import op2, utils
 
 parser = utils.parser(group=True, description=__doc__)
-parser.add_argument('-m', '--mesh',
-                    action='store',
-                    type=str,
-                    default='meshes/FE_grid.h5',
+parser.add_argument('-m', '--mesh', default='meshes/FE_grid.h5',
                     help='HDF5 mesh file to use (default: meshes/FE_grid.h5)')
 opt = vars(parser.parse_args())
 op2.init(**opt)
