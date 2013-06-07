@@ -42,6 +42,7 @@ from __future__ import print_function
 import numpy as np
 import operator
 from hashlib import md5
+from decorator import decorator
 
 from caching import Cached
 from exceptions import *
@@ -84,6 +85,13 @@ class MPIConfig(object):
         .. note:: The communicator must be of type :py:class:`mpi4py.MPI.Comm`
         or implement a method :py:meth:`tompi4py` to be converted to one."""
         self.COMM = _check_comm(comm)
+
+    def rank_zero(self, f):
+        """Decorator for executing a function only on MPI rank zero."""
+        def wrapper(f, *args, **kwargs):
+            if self.comm.rank == 0:
+                return f(*args, **kwargs)
+        return decorator(wrapper, f)
 
 MPI = MPIConfig()
 
