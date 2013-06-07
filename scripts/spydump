@@ -1,0 +1,94 @@
+#!/usr/bin/env python
+#
+# This file is part of PyOP2
+#
+# PyOP2 is Copyright (c) 2012, Imperial College London and
+# others. Please see the AUTHORS file in the main source directory for
+# a full list of copyright holders.  All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+#
+#     * Redistributions of source code must retain the above copyright
+#       notice, this list of conditions and the following disclaimer.
+#     * Redistributions in binary form must reproduce the above copyright
+#       notice, this list of conditions and the following disclaimer in the
+#       documentation and/or other materials provided with the distribution.
+#     * The name of Imperial College London or that of other
+#       contributors may not be used to endorse or promote products
+#       derived from this software without specific prior written
+#       permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTERS
+# ''AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+# COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+# INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+# STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+# OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""Compare two binary PETSc matrix dumps as spy plots.
+
+  Usage: spydump FILE1 FILE2"""
+
+import numpy as np
+import pylab
+from scipy.sparse import csr_matrix
+
+COOKIE     = 1211216 # from petscmat.h
+IntType    = '>i4'   # big-endian, 4 byte integer
+ScalarType = '>f8'   # big-endian, 8 byte real floating
+
+# after http://lists.mcs.anl.gov/pipermail/petsc-users/2010-February/005935.html
+def readmat(filename):
+    with open(filename, 'rb') as fh:
+        header = np.fromfile(fh, dtype=IntType, count=4)
+        assert header[0] == COOKIE 
+        M, N, nz = header[1:]
+        #
+        I = np.empty(M+1, dtype=IntType)
+        I[0] = 0 
+        rownz = np.fromfile(fh, dtype=IntType, count=M)
+        np.cumsum(rownz, out=I[1:])
+        assert I[-1] == nz
+        #
+        J = np.fromfile(fh, dtype=IntType,    count=nz)
+        V = np.fromfile(fh, dtype=ScalarType, count=nz)
+    return (M, N), (I, J, V)
+
+def dump2csr(filename):
+    (M, N), (I, J, V) = readmat(filename)
+    return csr_matrix((V, J, I))
+
+def compare_dump(file1, file2):
+    """Compare two binary PETSc matrix dumps as spy plots."""
+
+    csr1 = dump2csr(file1)
+    csr2 = dump2csr(file2)
+
+    pylab.subplot(131)
+    pylab.spy(csr1, marker='.')
+    pylab.title(file1)
+
+    pylab.subplot(132)
+    pylab.spy(csr2, marker='.')
+    pylab.title(file2)
+
+    pylab.subplot(133)
+    pylab.spy(csr1 - csr2, marker='.')
+    pylab.title(file1 + ' - ' + file2)
+
+    pylab.show()
+
+if __name__ == '__main__':
+    import sys
+    if len(sys.argv) != 3:
+        print >> sys.stderr, __doc__
+        sys.exit(1)
+    compare_dump(sys.argv[1], sys.argv[2])
