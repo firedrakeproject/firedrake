@@ -34,10 +34,9 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """Show a spy plot from a binary PETSc matrix dump or compare two dumps as spy
-plots if two input file names are given.
+plots if two input file names are given."""
 
-  Usage: spydump FILE1 [FILE2]"""
-
+import matplotlib
 import numpy as np
 import pylab
 from scipy.sparse import csr_matrix
@@ -67,34 +66,41 @@ def dump2csr(filename):
     (M, N), (I, J, V) = readmat(filename)
     return csr_matrix((V, J, I))
 
-def compare_dump(file1, file2=None):
+def compare_dump(files, outfile=None):
     """Compare two binary PETSc matrix dumps as spy plots."""
 
-    csr1 = dump2csr(file1)
+    csr1 = dump2csr(files[0])
 
-    if file2:
+    if len(files) > 1:
+        matplotlib.rc('font', size=4)
+        pylab.figure(figsize=(12, 5), dpi=300)
         pylab.subplot(131)
-    pylab.spy(csr1, marker='.')
-    pylab.title(file1)
+    else:
+        matplotlib.rc('font', size=10)
+        pylab.figure(figsize=(5, 5), dpi=300)
+    pylab.spy(csr1, marker='.', markersize=.5)
+    pylab.title(files[0])
 
-    if file2:
-        csr2 = dump2csr(file2)
+    if len(files) > 1:
+        csr2 = dump2csr(files[1])
         pylab.subplot(132)
-        pylab.spy(csr2, marker='.')
-        pylab.title(file2)
+        pylab.spy(csr2, marker='.', markersize=.5)
+        pylab.title(files[1])
 
         pylab.subplot(133)
-        pylab.spy(csr1 - csr2, marker='.')
-        pylab.title(file1 + ' - ' + file2)
+        pylab.spy(csr1 - csr2, marker='.', markersize=.5)
+        pylab.title(files[0] + ' - ' + files[1])
 
-    pylab.show()
+    if outfile:
+        pylab.savefig(outfile)
+    else:
+        pylab.show()
 
 if __name__ == '__main__':
-    import sys
-    if len(sys.argv) < 2:
-        print >> sys.stderr, __doc__
-        sys.exit(1)
-    try:
-        compare_dump(sys.argv[1], sys.argv[2])
-    except IndexError:
-        compare_dump(sys.argv[1])
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__, add_help=True)
+    parser.add_argument('files', nargs='+', help='Matrix dump files')
+    parser.add_argument('--output', '-o', help='Output plot to file instead of showing interactively')
+    args = parser.parse_args()
+
+    compare_dump(args.files, args.output)
