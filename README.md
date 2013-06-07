@@ -82,15 +82,16 @@ PyOP2 setup will fail.
 To install dependencies system-wide use `sudo -E pip install ...`, to install
 to a user site use `pip install --user ...`. If you don't want PyOP2 or its
 dependencies interfering with your exisiting Pyhton environment, consider
-creating a [virtualenv](http://virtualenv.org/). In the following we will use
-`pip install ...` to mean any of these options.
+creating a [virtualenv](http://virtualenv.org/).
+
+**Note:** In the following we will use `pip install ...` to mean any of the
+above options.
 
 **Note:** Installing to the user site does not always give packages priority
 over system installed packages on your `sys.path`.
 
 ### Common
 Common dependencies:
-  * distribute >= 0.6.35
   * Cython >= 0.17
   * decorator
   * instant >= 1.0
@@ -99,14 +100,26 @@ Common dependencies:
   * [PETSc4py][petsc4py_repo] >= 3.3
   * PyYAML
 
+Install dependencies via the package manager (Debian based systems):
+```
+sudo apt-get install cython python-decorator python-instant python-numpy python-yaml
+```
+**Note:** This may not give you recent enough versions of those packages (in
+particular the Cython version shipped with 12.04 is too old). You can
+selectively upgrade packages via `pip`, see below.
+
+Install dependencies via `pip`:
+```
+pip install Cython=>0.17 decorator instant numpy pyyaml
+```
+
 Additional Python 2.6 dependencies:
   * argparse
   * ordereddict
 
-Install dependencies via `pip`:
+Install these via `pip`:
 ```
-pip install Cython decorator instant numpy pyyaml
-pip install argparse ordereddict # python < 2.7 only
+pip install argparse ordereddict
 ```
 
 ### PETSc
