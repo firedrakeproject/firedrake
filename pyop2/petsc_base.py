@@ -117,6 +117,11 @@ class Mat(base.Mat):
         mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
         self._handle = mat
 
+    def dump(self, filename):
+        """Dump the matrix to file ``filename`` in PETSc binary format."""
+        vwr = PETSc.Viewer().createBinary(filename, PETSc.Viewer.Mode.WRITE)
+        self.handle.view(vwr)
+
     def zero(self):
         """Zero the matrix."""
         self.handle.zeroEntries()
