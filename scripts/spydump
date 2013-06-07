@@ -33,9 +33,10 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Compare two binary PETSc matrix dumps as spy plots.
+"""Show a spy plot from a binary PETSc matrix dump or compare two dumps as spy
+plots if two input file names are given.
 
-  Usage: spydump FILE1 FILE2"""
+  Usage: spydump FILE1 [FILE2]"""
 
 import numpy as np
 import pylab
@@ -66,29 +67,34 @@ def dump2csr(filename):
     (M, N), (I, J, V) = readmat(filename)
     return csr_matrix((V, J, I))
 
-def compare_dump(file1, file2):
+def compare_dump(file1, file2=None):
     """Compare two binary PETSc matrix dumps as spy plots."""
 
     csr1 = dump2csr(file1)
-    csr2 = dump2csr(file2)
 
-    pylab.subplot(131)
+    if file2:
+        pylab.subplot(131)
     pylab.spy(csr1, marker='.')
     pylab.title(file1)
 
-    pylab.subplot(132)
-    pylab.spy(csr2, marker='.')
-    pylab.title(file2)
+    if file2:
+        csr2 = dump2csr(file2)
+        pylab.subplot(132)
+        pylab.spy(csr2, marker='.')
+        pylab.title(file2)
 
-    pylab.subplot(133)
-    pylab.spy(csr1 - csr2, marker='.')
-    pylab.title(file1 + ' - ' + file2)
+        pylab.subplot(133)
+        pylab.spy(csr1 - csr2, marker='.')
+        pylab.title(file1 + ' - ' + file2)
 
     pylab.show()
 
 if __name__ == '__main__':
     import sys
-    if len(sys.argv) != 3:
+    if len(sys.argv) < 2:
         print >> sys.stderr, __doc__
         sys.exit(1)
-    compare_dump(sys.argv[1], sys.argv[2])
+    try:
+        compare_dump(sys.argv[1], sys.argv[2])
+    except IndexError:
+        compare_dump(sys.argv[1])
