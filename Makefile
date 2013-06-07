@@ -8,7 +8,7 @@ REGRESSION_TEST_DIR = $(TEST_BASE_DIR)/regression
 
 TESTHARNESS = $(REGRESSION_TEST_DIR)/testharness.py
 BACKENDS ?= sequential opencl openmp cuda mpi_sequential
-OPENCL_ALL_CTXS := $(shell python detect_opencl_devices.py)
+OPENCL_ALL_CTXS := $(shell scripts/detect_opencl_devices)
 OPENCL_CTXS ?= $(OPENCL_ALL_CTXS)
 
 SPHINX_DIR = doc/sphinx

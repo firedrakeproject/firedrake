@@ -35,6 +35,7 @@
 
 from setuptools import setup
 from distutils.extension import Extension
+from glob import glob
 import numpy
 import os, sys
 
@@ -97,5 +98,6 @@ setup(name='PyOP2',
       packages=['pyop2','pyop2_utils'],
       package_dir={'pyop2':'pyop2','pyop2_utils':'pyop2_utils'},
       package_data={'pyop2': ['assets/*', 'mat_utils.*', 'sparsity_utils.*', '*.pyx', '*.pxd']},
+      scripts=glob('scripts/*'),
       cmdclass=cmdclass,
       ext_modules=ext_modules)
