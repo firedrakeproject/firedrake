@@ -40,7 +40,7 @@ import device
 import configuration as cfg
 import op_lib_core as core
 import base
-from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i, MPI, debug
+from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i, MPI, debug, info
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
 
