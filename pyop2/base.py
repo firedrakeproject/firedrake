@@ -400,6 +400,11 @@ class Set(object):
         return self._inh_size
 
     @property
+    def sizes(self):
+        """Set sizes: core, owned, execute halo, total."""
+        return self._core_size, self._size, self._ieh_size, self._inh_size
+
+    @property
     def dim(self):
         """The shape tuple of the values for each element of the set."""
         return self._dim
