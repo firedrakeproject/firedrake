@@ -608,6 +608,10 @@ class IterationSpace(object):
     def __repr__(self):
         return "IterationSpace(%r, %r)" % (self._iterset, self._extents)
 
+    @property
+    def cache_key(self):
+        return self._extents, self._layers
+
 class DataCarrier(object):
     """Abstract base class for OP2 data. Actual objects will be
     ``DataCarrier`` objects of rank 0 (:class:`Const` and
@@ -1515,8 +1519,8 @@ class JITModule(Cached):
     _cache = {}
 
     @classmethod
-    def _cache_key(cls, kernel, itspace_extents, *args, **kwargs):
-        key = (kernel.cache_key, itspace_extents)
+    def _cache_key(cls, kernel, itspace, *args, **kwargs):
+        key = (kernel.cache_key, itspace.cache_key)
         for arg in args:
             if arg._is_global:
                 key += (arg.data.dim, arg.data.dtype, arg.access)
