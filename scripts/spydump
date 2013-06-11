@@ -66,9 +66,10 @@ def dump2csr(filename):
     (M, N), (I, J, V) = readmat(filename)
     return csr_matrix((V, J, I))
 
-def compare_dump(files, outfile=None):
+def compare_dump(files, outfile=None, marker='.', markersize=.5):
     """Compare two binary PETSc matrix dumps as spy plots."""
 
+    opts = {'marker': marker, 'markersize': markersize}
     csr1 = dump2csr(files[0])
 
     if len(files) > 1:
@@ -78,17 +79,17 @@ def compare_dump(files, outfile=None):
     else:
         matplotlib.rc('font', size=10)
         pylab.figure(figsize=(5, 5), dpi=300)
-    pylab.spy(csr1, marker='.', markersize=.5)
+    pylab.spy(csr1, **opts)
     pylab.title(files[0])
 
     if len(files) > 1:
         csr2 = dump2csr(files[1])
         pylab.subplot(132)
-        pylab.spy(csr2, marker='.', markersize=.5)
+        pylab.spy(csr2, **opts)
         pylab.title(files[1])
 
         pylab.subplot(133)
-        pylab.spy(csr1 - csr2, marker='.', markersize=.5)
+        pylab.spy(csr1 - csr2, **opts)
         pylab.title(files[0] + ' - ' + files[1])
 
     if outfile:
@@ -100,7 +101,12 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description=__doc__, add_help=True)
     parser.add_argument('files', nargs='+', help='Matrix dump files')
-    parser.add_argument('--output', '-o', help='Output plot to file instead of showing interactively')
+    parser.add_argument('--output', '-o',
+                        help='Output plot to file instead of showing interactively')
+    parser.add_argument('--marker', default='.', choices=['s', 'o', '.', ','],
+                        help='Specify marker to use for spyplot')
+    parser.add_argument('--markersize', type=float, default=.5,
+                        help='Specify marker size to use for spyplot')
     args = parser.parse_args()
 
-    compare_dump(args.files, args.output)
+    compare_dump(args.files, args.output, marker=args.marker, markersize=args.markersize)
