@@ -107,7 +107,7 @@ class Arg(base.Arg):
     def c_local_tensor_name(self):
         return self.c_kernel_arg_name()
 
-    def c_kernel_arg(self, layers, sequential):
+    def c_kernel_arg(self, layers, sequential, count):
         if self._uses_itspace:
             if self._is_mat:
                 if self.data._is_vector_field:
@@ -129,11 +129,10 @@ class Arg(base.Arg):
         elif self._is_global_reduction:
             if sequential:
                 return self.c_global_reduction_name()
-            elif layers > 1:
-                return "%(name)s_l1[0]" % {
-                  'name' : self.c_arg_name()}
             else:
-                return self.c_global_reduction_name()
+               return "%(name)s_l%(count)s[0]" % {
+                  'name' : self.c_arg_name(),
+                  'count' : str(count)}
         elif isinstance(self.data, Global):
             return self.c_arg_name()
         else:
@@ -221,15 +220,29 @@ class Arg(base.Arg):
         'layers' : layers,
         'num' : count}
 
-    def c_interm_globals_decl(self):
-        return "%(type)s %(name)s_l1[1][1]" % {'type' : self.ctype,
-                                               'name' : self.c_arg_name()}
+    def c_interm_globals_decl(self, count):
+        return "%(type)s %(name)s_l%(count)s[1][%(dim)s]" % {
+                'type' : self.ctype,
+                'name' : self.c_arg_name(),
+                'count': str(count),
+                'dim' : self.data.cdim}
 
-    def c_interm_globals_init(self):
-        return "%s_l1[0][0] = (double)0" % self.c_arg_name()
+    def c_interm_globals_init(self,count):
+        if self.access == INC:
+            init = "(%(type)s)0" % {'type' : self.ctype}
+        else:
+            init = "%(name)s_l[tid][i]" % {'name' : self.c_arg_name()}
+        return "for ( int i = 0; i < %(dim)s; i++ ) %(name)s_l%(count)s[0][i] = %(init)s" % \
+            {'dim' : self.data.cdim,
+             'name' : self.c_arg_name(),
+             'count' : str(count),
+             'init' : init}
 
-    def c_interm_globals_writeback(self):
-        return "%s_l[tid][0] = %(name)s_l1[0][0]" % self.c_arg_name()
+    def c_interm_globals_writeback(self,count):
+        return "for ( int i = 0; i < %(dim)s; i++ ) %(name)s_l[tid][i] = %(name)s_l%(count)s[0][i]" % \
+          {'dim' : self.data.cdim,
+           'name' : self.c_arg_name(),
+           'count': str(count)}
 
     def c_vec_dec(self):
         val = []
@@ -327,7 +340,7 @@ class JITModule(base.JITModule):
         _local_tensor_decs = ';\n'.join([arg.c_local_tensor_dec(self._extents) for arg in self._args if arg._is_mat])
         _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self._args])
 
-        _kernel_user_args = [arg.c_kernel_arg(self._layers, self._sequential) for arg in self._args]
+        _kernel_user_args = [arg.c_kernel_arg(self._layers, self._sequential, count) for count, arg in enumerate(self._args)]
         _kernel_it_args   = ["i_%d" % d for d in range(len(self._extents))]
         _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
         _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self._args \
@@ -351,9 +364,9 @@ class JITModule(base.JITModule):
             _const_args = ''
         _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
 
-        _interm_globals_decl = ';\n'.join([arg.c_interm_globals_decl() for arg in self._args if arg._is_global_reduction])
-        _interm_globals_init = ';\n'.join([arg.c_interm_globals_init() for arg in self._args if arg._is_global_reduction])
-        _interm_globals_writeback = ';\n'.join([arg.c_interm_globals_writeback() for arg in self._args if arg._is_global_reduction])
+        _interm_globals_decl = ';\n'.join([arg.c_interm_globals_decl(count) for count, arg in enumerate(self._args) if arg._is_global_reduction])
+        _interm_globals_init = ';\n'.join([arg.c_interm_globals_init(count) for count, arg in enumerate(self._args) if arg._is_global_reduction])
+        _interm_globals_writeback = ';\n'.join([arg.c_interm_globals_writeback(count) for count, arg in enumerate(self._args) if arg._is_global_reduction])
 
         _vec_decs = ';\n'.join([arg.c_vec_dec() for arg in self._args if not arg._is_mat and arg._is_vec_map])
 
