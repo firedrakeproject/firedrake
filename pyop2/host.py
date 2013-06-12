@@ -101,13 +101,13 @@ class Arg(base.Arg):
     def c_kernel_arg_name(self):
         return "p_%s" % self.c_arg_name()
 
-    def c_global_reduction_name(self):
+    def c_global_reduction_name(self, count=None):
         return self.c_arg_name()
 
     def c_local_tensor_name(self):
         return self.c_kernel_arg_name()
 
-    def c_kernel_arg(self, layers, sequential, count):
+    def c_kernel_arg(self, layers, count):
         if self._uses_itspace:
             if self._is_mat:
                 if self.data._is_vector_field:
@@ -127,12 +127,7 @@ class Arg(base.Arg):
                 return self.c_vec_name()
             return self.c_ind_data(self.idx)
         elif self._is_global_reduction:
-            if sequential:
-                return self.c_global_reduction_name()
-            else:
-               return "%(name)s_l%(count)s[0]" % {
-                  'name' : self.c_arg_name(),
-                  'count' : str(count)}
+            return self.c_global_reduction_name(count)
         elif isinstance(self.data, Global):
             return self.c_arg_name()
         else:
@@ -231,7 +226,7 @@ class Arg(base.Arg):
         if self.access == INC:
             init = "(%(type)s)0" % {'type' : self.ctype}
         else:
-            init = "%(name)s_l[tid][i]" % {'name' : self.c_arg_name()}
+            init = "%(name)s[i]" % {'name' : self.c_arg_name()}
         return "for ( int i = 0; i < %(dim)s; i++ ) %(name)s_l%(count)s[0][i] = %(init)s" % \
             {'dim' : self.data.cdim,
              'name' : self.c_arg_name(),
@@ -239,10 +234,19 @@ class Arg(base.Arg):
              'init' : init}
 
     def c_interm_globals_writeback(self,count):
-        return "for ( int i = 0; i < %(dim)s; i++ ) %(name)s_l[tid][i] = %(name)s_l%(count)s[0][i]" % \
-          {'dim' : self.data.cdim,
-           'name' : self.c_arg_name(),
-           'count': str(count)}
+        d = {'gbl': self.c_arg_name(),
+             'local': "%(name)s_l%(count)s[0][i]" % {'name' : self.c_arg_name(), 'count' : str(count)}}
+        if self.access == INC:
+            combine = "%(gbl)s[i] += %(local)s" % d
+        elif self.access == MIN:
+            combine = "%(gbl)s[i] = %(gbl)s[i] < %(local)s ? %(gbl)s[i] : %(local)s" % d
+        elif self.access == MAX:
+            combine = "%(gbl)s[i] = %(gbl)s[i] > %(local)s ? %(gbl)s[i] : %(local)s" % d
+        return """
+#pragma omp critical
+for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
+""" % {'combine' : combine,
+       'dim' : self.data.cdim}
 
     def c_vec_dec(self):
         val = []
@@ -266,7 +270,6 @@ class JITModule(base.JITModule):
         self._kernel = kernel
         self._extents = itspace.extents
         self._layers = itspace.layers
-        self._sequential = itspace.sequential
         self._args = args
 
     def __call__(self, *args):
@@ -340,7 +343,7 @@ class JITModule(base.JITModule):
         _local_tensor_decs = ';\n'.join([arg.c_local_tensor_dec(self._extents) for arg in self._args if arg._is_mat])
         _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self._args])
 
-        _kernel_user_args = [arg.c_kernel_arg(self._layers, self._sequential, count) for count, arg in enumerate(self._args)]
+        _kernel_user_args = [arg.c_kernel_arg(self._layers, count) for count, arg in enumerate(self._args)]
         _kernel_it_args   = ["i_%d" % d for d in range(len(self._extents))]
         _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
         _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self._args \
@@ -370,33 +373,19 @@ class JITModule(base.JITModule):
 
         _vec_decs = ';\n'.join([arg.c_vec_dec() for arg in self._args if not arg._is_mat and arg._is_vec_map])
 
-        count = 0
-        _dd = "%d"
-        _ff = "%f"
-        off_i = []
-        off_d = []
-        off_a = []
-        _off_args = ""
-        _off_inits = ""
-        _apply_offset = ""
-        _extr_loop = ""
-        _extr_loop_close = ""
         if self._layers > 1:
-            for arg in self._args:
-                if not arg._is_mat and arg._is_vec_map:
-                    count += 1
-                    off_i.append(c_off_init(count))
-                    off_d.append(c_off_decl(count))
-                    off_a.append(arg.c_add_off(arg.map.off.size,count))
-            if off_i != []:
-              _off_args = ', '
-              _off_args +=', '.join(off_i)
-              _off_inits = ';\n'.join(off_d)
-              _apply_offset = ' \n'.join(off_a)
-              _extr_loop = '\n'
-              _extr_loop += extrusion_loop(self._layers-1)
-              _extr_loop_close = '}'
-              _kernel_args += ', j_0'
+            _off_args = ', ' + ', '.join([c_off_init(count) for count, arg in enumerate(self._args) if not arg._is_mat and arg._is_vec_map])
+            _off_inits = ';\n'.join([c_off_decl(count) for count, arg in enumerate(self._args) if not arg._is_mat and arg._is_vec_map])
+            _apply_offset = ' \n'.join([arg.c_add_off(arg.map.off.size,count) for count, arg in enumerate(self._args) if not arg._is_mat and arg._is_vec_map])
+            _extr_loop = '\n' + extrusion_loop(self._layers-1)
+            _extr_loop_close = '}\n'
+            _kernel_args += ', j_0'
+        else:
+            _apply_offset = ""
+            _off_args = ""
+            _off_inits = ""
+            _extr_loop = ""
+            _extr_loop_close = ""
 
         indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
 
@@ -422,6 +411,4 @@ class JITModule(base.JITModule):
                 'interm_globals_decl' : indent(_interm_globals_decl,3),
                 'interm_globals_init' : indent(_interm_globals_init,3),
                 'interm_globals_writeback' : indent(_interm_globals_writeback,3),
-                'dd' : _dd,
-                'ff' : _ff,
                 'vec_decs' : indent(_vec_decs,4)}

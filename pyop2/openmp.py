@@ -114,6 +114,11 @@ class Arg(host.Arg):
         }""" % {'combine' : combine,
                 'dim' : self.data.cdim}
 
+    def c_global_reduction_name(self, count):
+        return "%(name)s_l%(count)s[0]" % {
+                  'name' : self.c_arg_name(),
+                  'count' : str(count)}
+
 # Parallel loop API
 
 def par_loop(kernel, it_space, *args):
@@ -148,14 +153,6 @@ void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
   #else
   int nthread = 1;
   #endif
-
-  %(reduction_decs)s;
-
-  #pragma omp parallel default(shared)
-  {
-    int tid = omp_get_thread_num();
-    %(reduction_inits)s;
-  }
 
   int boffset = 0;
   int __b,tid;
@@ -193,7 +190,6 @@ void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
       }
       %(interm_globals_writeback)s;
     }
-    %(reduction_finalisations)s
     boffset += nblocks;
   }
 }

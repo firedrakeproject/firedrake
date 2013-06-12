@@ -322,7 +322,6 @@ class Set(object):
         self._halo = halo
         self._layers = 0
         self._partsize = 1000
-        self._seq = None
         if self.halo:
             self.halo.verify(self)
         Set._globalcount += 1
@@ -386,11 +385,6 @@ class Set(object):
         return self._layers
 
     @property
-    def sequential(self):
-        """User-defined label"""
-        return self._seq
-
-    @property
     def partsize(self):
         """User-defined label"""
         return self._partsize
@@ -402,10 +396,6 @@ class Set(object):
     def setPartitionSize(self,partsize):
         """User-defined label"""
         self._partsize = partsize
-
-    def setSequential(self,seq):
-        """User-defined label"""
-        self._seq = seq
 
     def __str__(self):
         return "OP2 Set: %s with size %s, dim %s" % (self._name, self._size, self._dim)
@@ -546,7 +536,6 @@ class IterationSpace(object):
         self._extents = as_tuple(extents, int)
         self._layers = iterset.layers
         self._partsize = iterset.partsize
-        self._seq = iterset.sequential
 
     @property
     def iterset(self):
@@ -586,10 +575,6 @@ class IterationSpace(object):
     @property
     def partsize(self):
         return self._partsize
-
-    @property
-    def sequential(self):
-        return self._seq
 
     @property
     def total_size(self):

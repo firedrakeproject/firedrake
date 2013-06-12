@@ -70,12 +70,6 @@ mesh_name = opt['mesh']
 layers = int(opt['layers'])
 partition_size = int(opt['partsize'])
 
-sequential = True
-try:
-    sequential=(opt["backend"] == "sequential")
-except KeyError:
-    pass
-
 # Generate code for kernel
 
 mass = op2.Kernel("""
@@ -350,7 +344,6 @@ duration1 = time.clock() - t0ind
 # the elements set must also contain the layers
 elements.setLayers(layers)
 elements.setPartitionSize(partition_size)
-elements.setSequential(sequential)
 
 # CALL PAR LOOP
 # Compute volume
