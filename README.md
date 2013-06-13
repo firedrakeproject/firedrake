@@ -178,7 +178,7 @@ in your (CUDA) include path.
 
 Install via `pip`:
 ```
-pip install codepy Jinja2 mako hg+https://bitbucket.org/eliben/pycparser#egg=pycparser-2.09.1
+pip install codepy Jinja2 mako git+https://github.com/eliben/pycparser.git#egg=pycparser-2.09.1
 ```
 
 PyCuda can be installed on recent versions of Debian/Ubuntu by executing:
@@ -213,7 +213,7 @@ Dependencies:
 
 Install via `pip`:
 ```
-pip install Jinja2 mako pyopencl>=2012.1 hg+https://bitbucket.org/eliben/pycparser#egg=pycparser-2.09.1
+pip install Jinja2 mako pyopencl>=2012.1 git+https://github.com/eliben/pycparser.git#egg=pycparser-2.09.1
 ```
 
 Installing the Intel OpenCL toolkit (64bit systems only):
