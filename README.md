@@ -167,28 +167,31 @@ against the same PETSc, which must be build with Fortran support!
 
 ### CUDA backend:
 Dependencies:
+  * boost-python
   * codepy >= 2013.1
   * Jinja2
   * mako
   * pycparser >= 2.09.1 (revision a460398 or newer)
   * pycuda revision a6c9b40 or newer
 
-The [cusp library](https://code.google.com/p/cusp-library/) headers need to be
-in your (CUDA) include path.
+The [cusp library](http://cusplibrary.github.io) headers need to be in your
+(CUDA) include path.
 
-Install via `pip`:
+Install dependencies via the package manager (Debian based systems):
+```
+sudo apt-get install libboost-python-dev python-jinja2 python-mako python-pycuda
+```
+**Note:** The version of pycparser available in the package repositories is too
+old, you will need to install it via `pip`, see below.
+
+Install dependencies via `pip`:
 ```
 pip install codepy Jinja2 mako git+https://github.com/eliben/pycparser.git#egg=pycparser-2.09.1
 ```
 
-PyCuda can be installed on recent versions of Debian/Ubuntu by executing:
-```
-sudo apt-get install python-pycuda
-```
-
-If a PyCuda package is not available, it will be necessary to install it manually.
-Make sure `nvcc` is in your `$PATH` and `libcuda.so` in your
-`$LIBRARY_PATH` if in a non-standard location:
+If a pycuda package is not available, it will be necessary to install it manually.
+Make sure `nvcc` is in your `$PATH` and `libcuda.so` in your `$LIBRARY_PATH` if
+in a non-standard location:
 ```
 export CUDA_ROOT=/usr/local/cuda # change as appropriate
 cd /tmp
