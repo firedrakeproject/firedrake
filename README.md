@@ -168,14 +168,18 @@ against the same PETSc, which must be build with Fortran support!
 ### CUDA backend:
 Dependencies:
   * boost-python
+  * Cusp 0.3.1
   * codepy >= 2013.1
   * Jinja2
   * mako
   * pycparser >= 2.09.1 (revision a460398 or newer)
   * pycuda revision a6c9b40 or newer
 
-The [cusp library](http://cusplibrary.github.io) headers need to be in your
-(CUDA) include path.
+The [cusp library](http://cusplibrary.github.io) version 0.3.1 headers need to
+be in your (CUDA) include path.
+
+**Note:** Using the trunk version of Cusp will *not* work, since revision
+f525d61 introduces a change that break backwards compatibility with CUDA 4.x.
 
 Install dependencies via the package manager (Debian based systems):
 ```
