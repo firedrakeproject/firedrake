@@ -204,24 +204,20 @@ def parser(description=None, group=False):
 
     g = parser.add_argument_group('pyop2', 'backend configuration options') if group else parser
 
-    g.add_argument('-b', '--backend',
-                   action='store',
-                   default='sequential',
+    g.add_argument('-b', '--backend', default='sequential',
                    choices=['sequential', 'openmp', 'opencl', 'cuda'],
                    help='select backend' if group else 'select pyop2 backend')
-    g.add_argument('-d', '--debug',
-                   action='store',
-                   default=argparse.SUPPRESS,
-                   type=int,
-                   choices=range(8),
+    g.add_argument('-d', '--debug', default=argparse.SUPPRESS,
+                   type=int, choices=range(8),
                    help='set debug level' if group else 'set pyop2 debug level')
-    g.add_argument('-c', '--config',
-                   action='store',
-                   default=argparse.SUPPRESS,
+    g.add_argument('-l', '--log-level', default='WARN',
+                   choices=['CRITICAL', 'ERROR', 'WARN', 'INFO', 'DEBUG'],
+                   help='set logging level (default=WARN)' if group else
+                   'set pyop2 logging level (default=WARN)')
+    g.add_argument('-c', '--config', default=argparse.SUPPRESS,
                    type=argparse.FileType('r'),
                    help='specify alternate configuration' if group else 'specify alternate pyop2 configuration')
-    g.add_argument('--legacy-plan', dest='python_plan',
-                   action='store_false',
+    g.add_argument('--legacy-plan', dest='python_plan', action='store_false',
                    default=argparse.SUPPRESS,
                    help='use the legacy plan' if group else 'set pyop2 to use the legacy plan')
 
