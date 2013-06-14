@@ -475,7 +475,7 @@ def _cusp_solver(M, parameters):
                      'cusp/krylov/bicgstab.h',
                      'cusp/krylov/gmres.h',
                      'cusp/precond/diagonal.h',
-                     'cusp/precond/aggregation/smoothed_aggregation.h',
+                     'cusp/precond/smoothed_aggregation.h',
                      'cusp/precond/ainv.h',
                      'string']
     nvcc_mod.add_to_preamble([Include(s) for s in nvcc_includes])
