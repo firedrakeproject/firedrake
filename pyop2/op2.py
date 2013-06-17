@@ -41,7 +41,7 @@ import configuration as cfg
 import op_lib_core as core
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
-from base import debug, info, warning, error, critical, set_log_level
+from logger import debug, info, warning, error, critical, set_log_level
 from mpi import MPI
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError

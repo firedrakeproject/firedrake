@@ -38,8 +38,6 @@ subclass these as required to implement backend-specific features.
 .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
 """
 
-from __future__ import print_function
-import logging
 import numpy as np
 import operator
 from hashlib import md5
@@ -52,24 +50,6 @@ from backends import _make_object
 from mpi import MPI, _MPI
 import configuration as cfg
 import op_lib_core as core
-
-# Logging
-
-logger = logging.getLogger('pyop2')
-ch = logging.StreamHandler()
-ch.setFormatter(logging.Formatter(('[%d] ' % MPI.comm.rank if MPI.parallel else '') +
-                                  '%(name)s:%(levelname)s %(message)s'))
-logger.addHandler(ch)
-
-def set_log_level(level):
-    """Set the log level of the PyOP2 logger."""
-    logger.setLevel(level)
-
-debug = logger.debug
-info = logger.info
-warning = logger.warning
-error = logger.error
-critical = logger.critical
 
 # Data API
 
