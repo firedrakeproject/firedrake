@@ -39,6 +39,7 @@ subclass these as required to implement backend-specific features.
 """
 
 from __future__ import print_function
+import logging
 import numpy as np
 import operator
 from hashlib import md5
@@ -95,12 +96,17 @@ class MPIConfig(object):
 
 MPI = MPIConfig()
 
-def info(*msg):
-    print('[%d]' % MPI.comm.rank if MPI.parallel else '', *msg)
+# Logging
 
-def debug(*msg):
-    if cfg.debug:
-        debug(*msg)
+logger = logging.getLogger('pyop2')
+ch = logging.StreamHandler()
+ch.setFormatter(logging.Formatter(('[%d] ' % MPI.comm.rank if MPI.parallel else '') +
+                                  '%(name)s:%(levelname)s %(message)s'))
+logger.addHandler(ch)
+
+def set_log_level(level):
+    """Set the log level of the PyOP2 logger."""
+    logger.setLevel(level)
 
 # Data API
 
