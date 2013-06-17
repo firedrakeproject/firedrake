@@ -108,6 +108,12 @@ def set_log_level(level):
     """Set the log level of the PyOP2 logger."""
     logger.setLevel(level)
 
+debug = logger.debug
+info = logger.info
+warning = logger.warning
+error = logger.error
+critical = logger.critical
+
 # Data API
 
 class Access(object):
