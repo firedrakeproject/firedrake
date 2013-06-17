@@ -38,7 +38,6 @@ subclass these as required to implement backend-specific features.
 .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
 """
 
-from __future__ import print_function
 import numpy as np
 import operator
 from hashlib import md5
@@ -48,59 +47,9 @@ from caching import Cached
 from exceptions import *
 from utils import *
 from backends import _make_object
+from mpi import MPI, _MPI
 import configuration as cfg
 import op_lib_core as core
-from mpi4py import MPI as _MPI
-
-# MPI Communicator
-
-def _check_comm(comm):
-    if isinstance(comm, int):
-        # If it's come from Fluidity where an MPI_Comm is just an integer.
-        return _MPI.Comm.f2py(comm)
-    try:
-        return comm if isinstance(comm, _MPI.Comm) else comm.tompi4py()
-    except AttributeError:
-        raise TypeError("MPI communicator must be of type mpi4py.MPI.Comm")
-
-class MPIConfig(object):
-
-    def __init__(self):
-        self.COMM = _MPI.COMM_WORLD
-
-    @property
-    def parallel(self):
-        """Are we running in parallel?"""
-        return self.comm.size > 1
-
-    @property
-    def comm(self):
-        """The MPI Communicator used by PyOP2."""
-        return self.COMM
-
-    @comm.setter
-    def comm(self, comm):
-        """Set the MPI communicator for parallel communication.
-
-        .. note:: The communicator must be of type :py:class:`mpi4py.MPI.Comm`
-        or implement a method :py:meth:`tompi4py` to be converted to one."""
-        self.COMM = _check_comm(comm)
-
-    def rank_zero(self, f):
-        """Decorator for executing a function only on MPI rank zero."""
-        def wrapper(f, *args, **kwargs):
-            if self.comm.rank == 0:
-                return f(*args, **kwargs)
-        return decorator(wrapper, f)
-
-MPI = MPIConfig()
-
-def info(*msg):
-    print('[%d]' % MPI.comm.rank if MPI.parallel else '', *msg)
-
-def debug(*msg):
-    if cfg.debug:
-        debug(*msg)
 
 # Data API
 

@@ -40,7 +40,9 @@ import device
 import configuration as cfg
 import op_lib_core as core
 import base
-from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i, MPI, debug, info
+from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
+from logger import debug, info, warning, error, critical, set_log_level
+from mpi import MPI
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
 
@@ -69,6 +71,7 @@ def init(**kwargs):
         device.Plan = device.PPlan
     else:
         device.Plan = device.CPlan
+    set_log_level(cfg['log_level'])
     if backend == 'pyop2.void':
         backends.set_backend(cfg.backend)
         backends._BackendSelector._backend._setup()

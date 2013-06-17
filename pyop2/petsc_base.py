@@ -42,23 +42,25 @@ required to implement backend-specific features.
 from petsc4py import PETSc
 import base
 from base import *
+from logger import debug
+import mpi
 
-class MPIConfig(base.MPIConfig):
+class MPIConfig(mpi.MPIConfig):
 
     def __init__(self):
         super(MPIConfig, self).__init__()
         PETSc.Sys.setDefaultComm(self.comm)
 
-    @base.MPIConfig.comm.setter
+    @mpi.MPIConfig.comm.setter
     def comm(self, comm):
         """Set the MPI communicator for parallel communication."""
-        self.COMM = base._check_comm(comm)
+        self.COMM = mpi._check_comm(comm)
         # PETSc objects also need to be built on the same communicator.
         PETSc.Sys.setDefaultComm(self.comm)
 
 MPI = MPIConfig()
-# Override base configuration
-base.MPI = MPI
+# Override MPI configuration
+mpi.MPI = MPI
 
 class Dat(base.Dat):
 
@@ -185,7 +187,7 @@ class Solver(base.Solver, PETSc.KSP):
             self.reshist = []
             def monitor(ksp, its, norm):
                 self.reshist.append(norm)
-                print "%3d KSP Residual norm %14.12e" % (its, norm)
+                debug("%3d KSP Residual norm %14.12e" % (its, norm))
             self.setMonitor(monitor)
         # Not using super here since the MRO would call base.Solver.solve
         PETSc.KSP.solve(self, b.vec, x.vec)
@@ -205,10 +207,9 @@ class Solver(base.Solver, PETSc.KSP):
                     from warnings import warn
                     warn("pylab not available, not plotting convergence history.")
         r = self.getConvergedReason()
-        if cfg.debug:
-            print "Converged reason: %s" % self._reasons[r]
-            print "Iterations: %s" % self.getIterationNumber()
-            print "Residual norm: %s" % self.getResidualNorm()
+        debug("Converged reason: %s" % self._reasons[r])
+        debug("Iterations: %s" % self.getIterationNumber())
+        debug("Residual norm: %s" % self.getResidualNorm())
         if r < 0:
             msg = "KSP Solver failed to converge in %d iterations: %s (Residual norm: %e)" \
                     % (self.getIterationNumber(), self._reasons[r], self.getResidualNorm())
