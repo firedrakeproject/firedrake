@@ -42,23 +42,24 @@ required to implement backend-specific features.
 from petsc4py import PETSc
 import base
 from base import *
+import mpi
 
-class MPIConfig(base.MPIConfig):
+class MPIConfig(mpi.MPIConfig):
 
     def __init__(self):
         super(MPIConfig, self).__init__()
         PETSc.Sys.setDefaultComm(self.comm)
 
-    @base.MPIConfig.comm.setter
+    @mpi.MPIConfig.comm.setter
     def comm(self, comm):
         """Set the MPI communicator for parallel communication."""
-        self.COMM = base._check_comm(comm)
+        self.COMM = mpi._check_comm(comm)
         # PETSc objects also need to be built on the same communicator.
         PETSc.Sys.setDefaultComm(self.comm)
 
 MPI = MPIConfig()
-# Override base configuration
-base.MPI = MPI
+# Override MPI configuration
+mpi.MPI = MPI
 
 class Dat(base.Dat):
 
