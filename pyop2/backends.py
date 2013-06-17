@@ -38,6 +38,7 @@
 
 import void
 import finalised
+from logger import warning
 backends = {'void' : void, 'finalised' : finalised}
 
 def _make_object(obj, *args, **kwargs):
@@ -106,9 +107,8 @@ class _BackendSelector(type):
         try:
             t = cls._backend.__dict__[cls.__name__]
         except KeyError as e:
-            from warnings import warn
-            warn('Backend %s does not appear to implement class %s'
-                 % (cls._backend.__name__, cls.__name__))
+            warning('Backend %s does not appear to implement class %s'
+                    % (cls._backend.__name__, cls.__name__))
             raise e
         # Invoke the constructor with the arguments given
         return t(*args, **kwargs)
@@ -117,8 +117,7 @@ class _BackendSelector(type):
         try:
             return cls._backend.__dict__[cls.__name__].fromhdf5(*args, **kwargs)
         except AttributeError as e:
-            from warnings import warn
-            warn("op2 object %s does not implement fromhdf5 method" % cls.__name__)
+            warning("op2 object %s does not implement fromhdf5 method" % cls.__name__)
             raise e
 
 def get_backend():
@@ -141,8 +140,7 @@ def set_backend(backend):
             # package.
             mod = __import__('pyop2.%s' % backend, fromlist=[None])
         except ImportError as e:
-            from warnings import warn
-            warn('Unable to import backend %s' % backend)
+            warning('Unable to import backend %s' % backend)
             raise e
     backends[backend] = mod
     _BackendSelector._backend = mod
