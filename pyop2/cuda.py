@@ -693,8 +693,7 @@ class JITModule(base.JITModule):
 
 @collective
 def par_loop(kernel, it_space, *args):
-    ParLoop(kernel, it_space, *args).compute()
-    _stream.synchronize()
+    ParLoop(kernel, it_space, *args)
 
 
 class ParLoop(op2.ParLoop):
@@ -852,6 +851,7 @@ class ParLoop(op2.ParLoop):
                     arg.data._assemble(rowmap=arg.map[0], colmap=arg.map[1])
         if self._has_soa:
             op2stride.remove_from_namespace()
+        _stream.synchronize()
 
 _device = None
 _context = None

@@ -130,7 +130,7 @@ class Arg(host.Arg):
 @collective
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
-    ParLoop(kernel, it_space, *args).compute()
+    ParLoop(kernel, it_space, *args)
 
 
 class JITModule(host.JITModule):

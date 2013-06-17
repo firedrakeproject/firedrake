@@ -47,6 +47,48 @@ from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
 from sparsity import build_sparsity
 
+# Lazy evaluation support code
+class LazyComputation(object):
+
+    def __init__(self, reads, writes):
+        self.reads = reads
+        self.writes = writes
+        self._scheduled = False
+
+        global _trace
+        _trace.append(self)
+
+    def _run(self):
+        assert False, "Not implemented"
+
+def _force(reads, writes):
+    """Forces the evaluation of delayed computation on which reads and writes
+    depend.
+    """
+    def _depends_on(reads, writes, cont):
+        return not not (reads & cont.writes | writes & cont.reads | writes & cont.writes)
+
+    global _trace
+
+    for cont in reversed(_trace):
+        if _depends_on(reads, writes, cont):
+            cont._scheduled = True
+            reads = reads | cont.reads - cont.writes
+            writes = writes | cont.writes
+        else:
+            cont._scheduled = False
+
+    nt = list()
+    for cont in _trace:
+        if cont._scheduled:
+            cont._run()
+        else:
+            nt.append(cont)
+    _trace = nt
+
+"""List maintaining delayed computation until they are executed."""
+_trace = list()
+
 # Data API
 
 
@@ -919,6 +961,7 @@ class Dat(DataCarrier):
     @collective
     def data(self):
         """Numpy array containing the data values."""
+        _force(set([self]), set([self]))
         if self.dataset.total_size > 0 and self._data.size == 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
         maybe_setflags(self._data, write=True)
@@ -928,6 +971,7 @@ class Dat(DataCarrier):
     @property
     def data_ro(self):
         """Numpy array containing the data values.  Read-only"""
+        _force(set([self]), set())
         if self.dataset.total_size > 0 and self._data.size == 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
         maybe_setflags(self._data, write=False)
@@ -1130,6 +1174,7 @@ class Const(DataCarrier):
         """Remove this Const object from the namespace
 
         This allows the same name to be redeclared with a different shape."""
+        _force(set(), set([self]))
         Const._defs.discard(self)
 
     def _format_declaration(self):
@@ -1206,12 +1251,14 @@ class Global(DataCarrier):
     @property
     def data(self):
         """Data array."""
+        _force(set([self]), set())
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
 
     @data.setter
     def data(self, value):
+        _force(set(), set([self]))
         self._data = verify_reshape(value, self.dtype, self.dim)
 
     @property
@@ -1755,9 +1802,7 @@ class JITModule(Cached):
 
         return key
 
-
-class ParLoop(object):
-
+class ParLoop(LazyComputation):
     """Represents the kernel, iteration space and arguments of a parallel loop
     invocation.
 
@@ -1770,6 +1815,10 @@ class ParLoop(object):
     @validate_type(('kernel', Kernel, KernelTypeError),
                    ('iterset', Set, SetTypeError))
     def __init__(self, kernel, iterset, *args):
+        LazyComputation.__init__(self,
+                                 set([a.data for a in args if a.access in [READ, RW]]) | Const._defs,
+                                 set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]))
+
         # Always use the current arguments, also when we hit cache
         self._actual_args = args
         self._kernel = kernel
@@ -1788,6 +1837,9 @@ class ParLoop(object):
                         arg2.indirect_position = arg1.indirect_position
 
         self._it_space = IterationSpace(iterset, self.check_args(iterset))
+
+    def _run(self):
+        return self.compute()
 
     @collective
     def compute(self):
@@ -1981,4 +2033,8 @@ class Solver(object):
         :arg x: The :class:`Dat` to receive the solution.
         :arg b: The :class:`Dat` containing the RHS.
         """
+        _force(set([A,b]), set([x]))
+        self._solve(A, x, b)
+
+    def _solve(self, A, x, b):
         raise NotImplementedError("solve must be implemented by backend")
