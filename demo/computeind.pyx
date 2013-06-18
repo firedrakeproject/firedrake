@@ -94,7 +94,7 @@ def compute_ind_extr(np.ndarray[DTYPE_t, ndim=1] nums,
           for j in range(0, mesh2d[i]):
             m = mapp[mm][c]
             for k in range(0, len2):
-              ind[count] = m*a4*(layers - d) + <DTYPE_t>A[d][k]*a4 + offset
+              ind[count] = m*(layers - d) + <DTYPE_t>A[d][k] + offset
               count+=1
             c+=1
         elif dofs[i, 1-d] != 0:

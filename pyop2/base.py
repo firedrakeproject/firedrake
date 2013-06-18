@@ -320,8 +320,6 @@ class Set(object):
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = None
         self._halo = halo
-        self._layers = 0
-        self._partsize = 1000
         if self.halo:
             self.halo.verify(self)
         Set._globalcount += 1
@@ -379,24 +377,6 @@ class Set(object):
         """:class:`Halo` associated with this Set"""
         return self._halo
 
-    @property
-    def layers(self):
-        """User-defined label"""
-        return self._layers
-
-    @property
-    def partsize(self):
-        """User-defined label"""
-        return self._partsize
-
-    def setLayers(self,layers):
-        """User-defined label"""
-        self._layers = layers
-
-    def setPartitionSize(self,partsize):
-        """User-defined label"""
-        self._partsize = partsize
-
     def __str__(self):
         return "OP2 Set: %s with size %s, dim %s" % (self._name, self._size, self._dim)
 
@@ -418,6 +398,40 @@ class Set(object):
         if self._lib_handle is None:
             self._lib_handle = core.op_set(self)
         return self._lib_handle
+
+
+class ExtrudedSet(Set):
+    """
+    OP2 Extruded Set.
+
+    Set which has an extra parameter that specifies the number of
+    layers in the extrusion.
+    """
+    @validate_type(('size', (int, tuple, list), SizeTypeError),
+                   ('name', str, NameTypeError))
+    def __init__(self, size=None, dim=2, layers=1, name=None, halo=None):
+        super(ExtrudedSet, self).__init__(size, dim, name, halo)
+        assert layers > 1
+        self._layers = layers
+        self._partsize = 1000
+
+    @property
+    def layers(self):
+        """Number of layers in the extrusion"""
+        return self._layers
+
+    @property
+    def partsize(self):
+        """Partition size of the base-mesh"""
+        return self._partsize
+
+    def setLayers(self,layers):
+        """Set the number of mesh layers"""
+        self._layers = layers
+
+    def setPartitionSize(self,partsize):
+        """Set the partition size in the base mesh."""
+        self._partsize = partsize
 
 class Halo(object):
     """A description of a halo associated with a :class:`Set`.
@@ -534,8 +548,12 @@ class IterationSpace(object):
     def __init__(self, iterset, extents=()):
         self._iterset = iterset
         self._extents = as_tuple(extents, int)
-        self._layers = iterset.layers
-        self._partsize = iterset.partsize
+        if isinstance(iterset, ExtrudedSet):
+            self._layers = iterset.layers
+            self._partsize = iterset.partsize
+        else:
+            self._layers = 1
+            self._partsize = 1000
 
     @property
     def iterset(self):
@@ -1078,10 +1096,6 @@ class Map(object):
         self._values = verify_reshape(values, np.int32, (iterset.total_size, dim), \
                                       allow_none=True)
         self._name = name or "map_%d" % Map._globalcount
-        self._dimChange = dimChange
-        self._elem_offsets = elem_offsets
-        self._elem_sizes = elem_sizes
-        self._stagein = stagein
         self._lib_handle = None
         Map._globalcount += 1
 
@@ -1133,26 +1147,6 @@ class Map(object):
         """Return None as this is not an ExtrudedMap"""
         return None
 
-    @property
-    def dimChange(self):
-        """Mapping array."""
-        return self._dimChange
-
-    @property
-    def elem_offsets(self):
-        """Mapping array."""
-        return self._elem_offsets
-
-    @property
-    def elem_sizes(self):
-        """Mapping array."""
-        return self._elem_sizes
-
-    @property
-    def stagein(self):
-        """Mapping array."""
-        return self._stagein
-
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with dim %s" \
                % (self._name, self._iterset, self._dataset, self._dim)
@@ -1189,6 +1183,25 @@ class Map(object):
 
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 """The identity map.  Used to indicate direct access to a :class:`Dat`."""
+
+class ExtrudedMap(Map):
+    """
+    Extruded Map type to be used in extruded meshes.
+
+    The extruded map takes an extra offset parameter which
+    represents the offsets that need to be added to the base layer DOFs
+    when iterating over the elements of the column.
+    """
+    @validate_type(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError), \
+            ('dim', int, DimTypeError), ('name', str, NameTypeError))
+    def __init__(self, iterset, dataset, dim, off, values=None, name=None):
+        super(ExtrudedMap, self).__init__(iterset, dataset, dim, values, name)
+        self._off = off
+
+    @property
+    def off(self):
+        """Return the vertical offset."""
+        return self._off
 
 class Sparsity(Cached):
     """OP2 Sparsity, a matrix structure derived from the union of the outer

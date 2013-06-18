@@ -36,7 +36,7 @@
 from pyop2 import op2
 import numpy as np
 
-def read_triangle(f):
+def read_triangle(f, layers):
     """Read the triangle file with prefix f into OP2 data strctures. Presently
     only .node and .ele files are read, attributes are ignored, and there may
     be bugs. The dat structures are returned as:
@@ -84,7 +84,7 @@ def read_triangle(f):
     # Ref: http://stackoverflow.com/questions/952914/making-a-flat-list-out-of-list-of-lists-in-python
     flat_map = [ item for sublist in map_values for item in sublist ]
 
-    elements = op2.Set(num_tri, 1, "elements")
+    elements = op2.ExtrudedSet(num_tri, 1, layers, "elements")
     elem_node = op2.Map(elements, nodes, 3, flat_map, "elem_node")
     elem_vnode = op2.Map(elements, vnodes, 3, flat_map, "elem_vnode")
 

@@ -104,7 +104,7 @@ void comp_dat(double *x[], double *y[], int j)
 # Set up simulation data structures
 valuetype = np.float64
 
-nodes, vnodes, coords, elements, elem_node, elem_vnode = read_triangle(mesh_name)
+nodes, vnodes, coords, elements, elem_node, elem_vnode = read_triangle(mesh_name, layers)
 
 # mesh data
 mesh2d = np.array([3, 3, 1])
@@ -324,14 +324,14 @@ lsize = nums[2] * map_dofs_res
 ind_res = compute_ind_extr(nums, map_dofs_res, lins, layers, mesh2d, dofs_res,
                            A, wedges, mapp_res, lsize)
 
-elem_dofs = op2.Map(elements, coords_dofsSet,
-                    map_dofs_coords, ind_coords, "elem_dofs", off_coords)
+elem_dofs = op2.Map(elements, coords_dofsSet, map_dofs_coords, off_coords,
+                    ind_coords, "elem_dofs")
 
-elem_elem = op2.Map(elements, wedges_dofsSet,
-                    map_dofs_field, ind_field, "elem_elem", off_field)
+elem_elem = op2.Map(elements, wedges_dofsSet, map_dofs_field, off_field,
+                    ind_field, "elem_elem")
 
-elem_p1_dofs = op2.Map(elements, p1_dofsSet, map_dofs_res, ind_res,
-                       "elem_p1_dofs", off_res)
+elem_p1_dofs = op2.Map(elements, p1_dofsSet, map_dofs_res, off_res, ind_res,
+                       "elem_p1_dofs")
 
 print ind_res[0:6]
 
