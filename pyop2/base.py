@@ -47,7 +47,7 @@ from caching import Cached
 from exceptions import *
 from utils import *
 from backends import _make_object
-from mpi import MPI, _MPI
+from mpi import MPI, _MPI, _check_comm
 import configuration as cfg
 import op_lib_core as core
 
