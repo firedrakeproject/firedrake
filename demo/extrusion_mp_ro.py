@@ -41,7 +41,7 @@ from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from triangle_reader_extr import read_triangle
 from ufl import *
-from computeind import compute_ind_extr
+from pyop2.computeind import compute_ind_extr
 import sys
 
 import numpy as np

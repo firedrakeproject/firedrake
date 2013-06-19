@@ -48,11 +48,14 @@ try:
     cmdclass = {'build_ext' : build_ext}
     op_lib_core_sources = ['pyop2/op_lib_core.pyx', 'pyop2/_op_lib_core.pxd',
                            'pyop2/sparsity_utils.cxx']
+    computeind_sources = ['pyop2/computeind.pyx']
+
 # Else we require the Cython-compiled .c file to be present and use that
 # Note: file is not in revision control but needs to be included in distributions
 except ImportError:
     cmdclass = {}
     op_lib_core_sources = ['pyop2/op_lib_core.c', 'pyop2/sparsity_utils.cxx']
+    computeind_sources = ['pyop2/computeind.c']
 
 setup_requires = [
         'numpy>=1.6',
@@ -96,4 +99,6 @@ setup(name='PyOP2',
                              include_dirs=['pyop2', OP2_INC, numpy.get_include()],
                              library_dirs=[OP2_LIB],
                              runtime_library_dirs=[OP2_LIB],
-                             libraries=["op2_seq"])])
+                             libraries=["op2_seq"]),
+                   Extension('pyop2.computeind', computeind_sources,
+                             include_dirs=[numpy.get_include()])])
