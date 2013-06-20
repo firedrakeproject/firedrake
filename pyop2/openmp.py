@@ -48,6 +48,8 @@ from subprocess import Popen, PIPE
 
 # hard coded value to max openmp threads
 _max_threads = 32
+# cache line padding
+_padding = 8
 
 def _detect_openmp_flags():
     p = Popen(['mpicc', '--version'], stdout=PIPE, shell=False)
@@ -69,9 +71,6 @@ class Arg(host.Arg):
     def c_kernel_arg_name(self, idx=None):
         return "p_%s[%s]" % (self.c_arg_name(), idx or 'tid')
 
-    def c_global_reduction_name(self):
-        return "%s_l[tid]" % self.c_arg_name()
-
     def c_local_tensor_name(self):
         return self.c_kernel_arg_name(str(_max_threads))
 
@@ -81,11 +80,14 @@ class Arg(host.Arg):
                     'vec_name' : self.c_vec_name(str(_max_threads)),
                     'dim' : self.map.dim}
 
+    def padding(self, dim):
+        return int(_padding * (dim / _padding + 1))
+
     def c_reduction_dec(self):
         return "%(type)s %(name)s_l[%(max_threads)s][%(dim)s]" % \
           {'type' : self.ctype,
            'name' : self.c_arg_name(),
-           'dim' : self.data.cdim+8,
+           'dim' : self.padding(self.data.cdim),
            # Ensure different threads are on different cache lines
            'max_threads' : _max_threads}
 
@@ -95,7 +97,7 @@ class Arg(host.Arg):
         else:
             init = "%(name)s[i]" % {'name' : self.c_arg_name()}
         return "for ( int i = 0; i < %(dim)s; i++ ) %(name)s_l[tid][i] = %(init)s" % \
-          {'dim' : self.data.cdim+8,
+          {'dim' : self.padding(self.data.cdim),
            'name' : self.c_arg_name(),
            'init' : init}
 
@@ -114,10 +116,10 @@ class Arg(host.Arg):
         }""" % {'combine' : combine,
                 'dim' : self.data.cdim}
 
-    def c_global_reduction_name(self, count):
-        return "%(name)s_l%(count)s[0]" % {
+    def c_global_reduction_name(self, count=None):
+        return "%(name)s_l%(count)d[0]" % {
                   'name' : self.c_arg_name(),
-                  'count' : str(count)}
+                  'count' : count}
 
 # Parallel loop API
 
@@ -231,7 +233,7 @@ class ParLoop(device.ParLoop, host.ParLoop):
         for c in Const._definitions():
             _args.append(c.data)
 
-        part_size = self._it_space.partsize
+        part_size = self._it_space.partition_size
 
         # Create a plan, for colored execution
         if [arg for arg in self.args if arg._is_indirect or arg._is_mat]:
@@ -263,13 +265,13 @@ class ParLoop(device.ParLoop, host.ParLoop):
         _args.append(plan.ncolblk)
         _args.append(plan.nelems)
 
-        for arg in self.args:
-            if  self._it_space.layers > 1:
-              if arg._is_indirect or arg._is_mat:
+        if self.is_layered:
+          for arg in self.args:
+             if arg._is_indirect or arg._is_mat:
                 maps = as_tuple(arg.map, Map)
                 for map in maps:
-                   if map.off != None:
-                       _args.append(map.off)
+                   if isinstance(map, ExtrudedMap):
+                       _args.append(map.offset)
 
         fun(*_args)
 

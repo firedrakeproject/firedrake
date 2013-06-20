@@ -377,6 +377,16 @@ class Set(object):
         """:class:`Halo` associated with this Set"""
         return self._halo
 
+    @property
+    def layers(self):
+        """Default number of layers"""
+        return 1
+
+    @property
+    def partition_size(self):
+        """Default partition size"""
+        return 1024
+
     def __str__(self):
         return "OP2 Set: %s with size %s, dim %s" % (self._name, self._size, self._dim)
 
@@ -413,7 +423,7 @@ class ExtrudedSet(Set):
         super(ExtrudedSet, self).__init__(size, dim, name, halo)
         assert layers > 1
         self._layers = layers
-        self._partsize = 1000
+        self._partition_size = 1024
 
     @property
     def layers(self):
@@ -421,17 +431,19 @@ class ExtrudedSet(Set):
         return self._layers
 
     @property
-    def partsize(self):
+    def partition_size(self):
         """Partition size of the base-mesh"""
-        return self._partsize
+        return self._partition_size
 
-    def setLayers(self,layers):
+    @layers.setter
+    def layers(self, val):
         """Set the number of mesh layers"""
-        self._layers = layers
+        self._layers = val
 
-    def setPartitionSize(self,partsize):
+    @partition_size.setter
+    def partition_size(self, val):
         """Set the partition size in the base mesh."""
-        self._partsize = partsize
+        self._partition_size = val
 
 class Halo(object):
     """A description of a halo associated with a :class:`Set`.
@@ -548,12 +560,6 @@ class IterationSpace(object):
     def __init__(self, iterset, extents=()):
         self._iterset = iterset
         self._extents = as_tuple(extents, int)
-        if isinstance(iterset, ExtrudedSet):
-            self._layers = iterset.layers
-            self._partsize = iterset.partsize
-        else:
-            self._layers = 1
-            self._partsize = 1000
 
     @property
     def iterset(self):
@@ -588,11 +594,11 @@ class IterationSpace(object):
 
     @property
     def layers(self):
-        return self._layers
+        return self.iterset.layers
 
     @property
-    def partsize(self):
-        return self._partsize
+    def partition_size(self):
+        return self.iterset.partition_size
 
     @property
     def total_size(self):
@@ -613,7 +619,7 @@ class IterationSpace(object):
 
     @property
     def cache_key(self):
-        return self._extents, self._layers
+        return self._extents, self.iterset.layers
 
 class DataCarrier(object):
     """Abstract base class for OP2 data. Actual objects will be
@@ -1143,7 +1149,7 @@ class Map(object):
         return self._name
 
     @property
-    def off(self):
+    def offset(self):
         """Return None as this is not an ExtrudedMap"""
         return None
 
@@ -1194,14 +1200,14 @@ class ExtrudedMap(Map):
     """
     @validate_type(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError), \
             ('dim', int, DimTypeError), ('name', str, NameTypeError))
-    def __init__(self, iterset, dataset, dim, off, values=None, name=None):
+    def __init__(self, iterset, dataset, dim, offset, values=None, name=None):
         super(ExtrudedMap, self).__init__(iterset, dataset, dim, values, name)
-        self._off = off
+        self._offset = offset
 
     @property
-    def off(self):
+    def offset(self):
         """Return the vertical offset."""
-        return self._off
+        return self._offset
 
 class Sparsity(Cached):
     """OP2 Sparsity, a matrix structure derived from the union of the outer
@@ -1558,6 +1564,7 @@ class ParLoop(object):
         self._actual_args = args
         self._kernel = kernel
         self._it_space = itspace if isinstance(itspace, IterationSpace) else IterationSpace(itspace)
+        self._is_layered = itspace.layers > 1
 
         self.check_args()
 
@@ -1663,6 +1670,11 @@ class ParLoop(object):
     @property
     def _has_soa(self):
         return any(a._is_soa for a in self._actual_args)
+
+    @property
+    def is_layered(self):
+        """Flag which triggers extrusion"""
+        return self._is_layered
 
 DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
                              'preconditioner':     'jacobi',

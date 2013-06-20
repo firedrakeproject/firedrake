@@ -9,15 +9,15 @@ ctypedef np.int_t DTYPE_t
 ctypedef unsigned int ITYPE_t
 cimport cython
 @cython.boundscheck(False)
-def compute_ind(np.ndarray[DTYPE_t, ndim=1] nums,
+def compute_ind(DTYPE_t[:] nums,
                 ITYPE_t map_dofs1,
                 ITYPE_t lins1,
                 DTYPE_t layers1,
-                np.ndarray[DTYPE_t, ndim=1] mesh2d,
-                np.ndarray[DTYPE_t, ndim=2] dofs not None,
-                A not None,
+                DTYPE_t[:] mesh2d,
+                DTYPE_t[:,:] dofs not None,
+                DTYPE_t[:,:] A not None,
                 ITYPE_t wedges1,
-                mapp,
+                DTYPE_t[:,:] map,
                 ITYPE_t lsize):
   cdef unsigned int count = 0
   cdef DTYPE_t m
@@ -27,14 +27,11 @@ def compute_ind(np.ndarray[DTYPE_t, ndim=1] nums,
   cdef unsigned int wedges = <unsigned int>wedges1
   cdef unsigned int lins = <unsigned int>lins1
   cdef unsigned int mm,d,i,j,k,l
-  cdef np.ndarray[DTYPE_t, ndim=1] ind = np.zeros(lsize, dtype=DTYPE)
+  cdef DTYPE_t[:,:] ind = np.zeros(lsize, dtype=DTYPE)
   cdef DTYPE_t a1,a2,a3
   cdef int a4
   cdef int len1 = len(mesh2d)
   cdef int len2
-
-
-
   for mm in range(0,lins):
     offset = 0
     for d in range(0,2):
@@ -44,9 +41,9 @@ def compute_ind(np.ndarray[DTYPE_t, ndim=1] nums,
         if a4 != 0:
           len2 = len(A[d])
           for j in range(0, mesh2d[i]):
-            m = mapp[mm][c]
+            m = map[mm, c]
             for k in range(0, len2):
-              a3 = <DTYPE_t>A[d][k]*a4
+              a3 = <DTYPE_t>A[d, k]*a4
               for l in range(0,wedges):
                     ind[count + l * nums[2]*a4*mesh2d[i]] = l + m*a4*(layers - d) + a3 + offset
               count+=1
@@ -66,7 +63,7 @@ def compute_ind_extr(np.ndarray[DTYPE_t, ndim=1] nums,
                 np.ndarray[DTYPE_t, ndim=2] dofs not None,
                 A not None,
                 ITYPE_t wedges1,
-                mapp,
+                map,
                 ITYPE_t lsize):
   cdef unsigned int count = 0
   cdef DTYPE_t m
@@ -81,8 +78,6 @@ def compute_ind_extr(np.ndarray[DTYPE_t, ndim=1] nums,
   cdef int a4
   cdef int len1 = len(mesh2d)
   cdef int len2
-
-
   for mm in range(0,lins):
     offset = 0
     for d in range(0,2):
@@ -92,7 +87,7 @@ def compute_ind_extr(np.ndarray[DTYPE_t, ndim=1] nums,
         if a4 != 0:
           len2 = len(A[d])
           for j in range(0, mesh2d[i]):
-            m = mapp[mm][c]
+            m = map[mm][c]
             for k in range(0, len2):
               ind[count] = m*(layers - d) + <DTYPE_t>A[d][k] + offset
               count+=1
@@ -102,20 +97,24 @@ def compute_ind_extr(np.ndarray[DTYPE_t, ndim=1] nums,
         offset += a4*nums[i]*(layers - d)
   return ind
 
+
 @cython.boundscheck(False)
-def swap_ind_entries(np.ndarray[DTYPE_t, ndim=1] ind,
+def swap_ind_entries(DTYPE_t[:] ind,
                     ITYPE_t k,
                     ITYPE_t map_dofs,
                     ITYPE_t lsize,
                     ITYPE_t ahead,
-                    np.ndarray[int, ndim=1] my_cache,
+                    DTYPE_t[:] my_cache,
                     ITYPE_t same):
   cdef unsigned int change = 0
+  cdef unsigned int lim
   cdef unsigned int found = 0
   cdef unsigned int i,j,m,l,n
   cdef unsigned int pos = 0
   cdef unsigned int swaps = 0
-  for i in range(k*map_dofs,lsize,map_dofs):
+  cdef unsigned int look_for
+  cdef unsigned int aux
+  for i from k*map_dofs <= i < lsize by map_dofs:
     lim = 0
     for j in range(i,lsize,map_dofs):
         if lim < ahead:
@@ -154,23 +153,26 @@ def swap_ind_entries(np.ndarray[DTYPE_t, ndim=1] ind,
         lim += 1
   return ind
 
+
 @cython.boundscheck(False)
-def swap_ind_entries_batch(np.ndarray[DTYPE_t, ndim=1] ind,
+def swap_ind_entries_batch(DTYPE_t[:] ind,
                     ITYPE_t k,
                     ITYPE_t map_dofs,
                     ITYPE_t lsize,
                     ITYPE_t ahead,
-                    np.ndarray[int, ndim=1] my_cache,
+                    DTYPE_t[:] my_cache,
                     ITYPE_t same):
   cdef unsigned int sw = 0 + map_dofs
   cdef unsigned int found = 0
   cdef unsigned int i,j,m,l,n
   cdef unsigned int pos = 0
   cdef unsigned int swaps = 0
-  for i in range(0, lsize, map_dofs):
+  cdef unsigned int look_for
+  cdef unsigned int aux
+  for i from 0 <= i < lsize by map_dofs:
     sw = i + map_dofs
     pos = 0
-    for j in range(i+map_dofs, lsize, map_dofs):
+    for j from i+map_dofs <= j < lsize by map_dofs:
             found = 0
             for m in range(0,map_dofs):
                 look_for = ind[j + m]
