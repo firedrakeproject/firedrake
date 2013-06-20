@@ -419,7 +419,7 @@ class ExtrudedSet(Set):
     """
     @validate_type(('size', (int, tuple, list), SizeTypeError),
                    ('name', str, NameTypeError))
-    def __init__(self, size=None, dim=2, layers=1, name=None, halo=None):
+    def __init__(self, size=None, dim=1, layers=2, name=None, halo=None):
         super(ExtrudedSet, self).__init__(size, dim, name, halo)
         assert layers > 1
         self._layers = layers
@@ -1147,11 +1147,6 @@ class Map(object):
     def name(self):
         """User-defined label"""
         return self._name
-
-    @property
-    def offset(self):
-        """Return None as this is not an ExtrudedMap"""
-        return None
 
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with dim %s" \
