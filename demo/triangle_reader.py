@@ -36,7 +36,7 @@
 from pyop2 import op2
 import numpy as np
 
-def read_triangle(f):
+def read_triangle(f, layers=None):
     """Read the triangle file with prefix f into OP2 data strctures. Presently
     only .node and .ele files are read, attributes are ignored, and there may
     be bugs. The dat structures are returned as:
@@ -54,10 +54,16 @@ def read_triangle(f):
         for line in h:
             if line[0] == '#':
                 continue
-            vals = line.split()
-            node = int(vals[0])-1
-            x, y = [ float(x) for x in vals[1:3] ]
-            node_values[node] = (x,y)
+            if layers == None:
+                vals = line.split()
+                node = int(vals[0])-1
+                x, y = [ float(x) for x in vals[1:3] ]
+                node_values[node] = (x,y)
+            else:
+                vals = line.strip(" \n").split()
+                node = int(vals[0])-1
+                x, y = [ float(x) for x in [vals[1], vals[2]] ]
+                node_values[node] = (x,y)
 
     nodes = op2.Set(num_nodes, 1, "nodes")
     vnodes = op2.Set(num_nodes, 2, "vnodes")
@@ -65,20 +71,39 @@ def read_triangle(f):
 
     # Read elements
     with open(f+'.ele') as h:
-        num_tri, nodes_per_tri, num_attrs = \
-            map(lambda x: int(x), h.readline().split())
-        map_values = [0]*num_tri
-        for line in h:
-            if line[0] == '#':
-                continue
-            vals = line.split()
-            tri = int(vals[0])
-            ele_nodes = [ int(x)-1 for x in vals[1:nodes_per_tri+1] ]
-            map_values[tri-1] = ele_nodes
+        if layers == None:
+            num_tri, nodes_per_tri, num_attrs = \
+                map(lambda x: int(x), h.readline().split())
+            map_values = [0]*num_tri
+            for line in h:
+                if line[0] == '#':
+                    continue
+                vals = line.split()
+                tri = int(vals[0])
+                ele_nodes = [ int(x)-1 for x in vals[1:nodes_per_tri+1] ]
+                map_values[tri-1] = ele_nodes
+        else:
+            ll = h.readline().strip('\n').split(' ')
+            fin_ll = [x  for x in ll if x != '']
+
+            num_tri, nodes_per_tri, num_attrs = \
+                map(lambda x: int(x), fin_ll)
+            map_values = [0]*num_tri
+            for line in h:
+                if line[0] == '#':
+                    continue
+                vals = [ x for x in line.strip('\n').split(' ') if x !='']
+                tri = int(vals[0])
+                ele_nodes = [ int(x)-1 for x in vals[1:nodes_per_tri+1] ]
+                map_values[tri-1] = ele_nodes
+
     # Ref: http://stackoverflow.com/questions/952914/making-a-flat-list-out-of-list-of-lists-in-python
     flat_map = [ item for sublist in map_values for item in sublist ]
 
-    elements = op2.Set(num_tri, 1, "elements")
+    if layers ==None:
+        elements = op2.Set(num_tri, 1, "elements")
+    else:
+        elements = op2.ExtrudedSet(num_tri, 1, layers, "elements")
     elem_node = op2.Map(elements, nodes, 3, flat_map, "elem_node")
     elem_vnode = op2.Map(elements, vnodes, 3, flat_map, "elem_vnode")
 
