@@ -265,13 +265,8 @@ class ParLoop(device.ParLoop, host.ParLoop):
         _args.append(plan.ncolblk)
         _args.append(plan.nelems)
 
-        if self.is_layered:
-          for arg in self.args:
-             if arg._is_indirect or arg._is_mat:
-                maps = as_tuple(arg.map, Map)
-                for map in maps:
-                   if isinstance(map, ExtrudedMap):
-                       _args.append(map.offset)
+        # offset_args returns an empty list if there are none
+        _args.extend(self.offset_args())
 
         fun(*_args)
 

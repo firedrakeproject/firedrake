@@ -97,13 +97,8 @@ class ParLoop(host.ParLoop):
         for c in Const._definitions():
             _args.append(c.data)
 
-        for arg in self.args:
-            if arg._is_indirect or arg._is_mat:
-                maps = as_tuple(arg.map, Map)
-                for map in maps:
-                   if isinstance(map, ExtrudedMap):
-                       _args.append(map.offset)
-
+        # offset_args returns an empty list if there are none
+        _args.extend(self.offset_args())
 
         # kick off halo exchanges
         self.halo_exchange_begin()
