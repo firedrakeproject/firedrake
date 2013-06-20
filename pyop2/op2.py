@@ -119,7 +119,7 @@ class Global(base.Global):
 class Map(base.Map):
     __metaclass__ = backends._BackendSelector
 
-class ExtrudedMap(base.Map):
+class ExtrudedMap(base.ExtrudedMap):
     __metaclass__ = backends._BackendSelector
 
 class Sparsity(base.Sparsity):

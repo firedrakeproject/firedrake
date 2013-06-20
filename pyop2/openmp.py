@@ -80,14 +80,14 @@ class Arg(host.Arg):
                     'vec_name' : self.c_vec_name(str(_max_threads)),
                     'dim' : self.map.dim}
 
-    def padding(self, dim):
-        return int(_padding * (dim / _padding + 1))
+    def padding(self):
+        return int(_padding * (self.data.cdim / _padding + 1)) * (_padding / self.data.dtype.itemsize)
 
     def c_reduction_dec(self):
         return "%(type)s %(name)s_l[%(max_threads)s][%(dim)s]" % \
           {'type' : self.ctype,
            'name' : self.c_arg_name(),
-           'dim' : self.padding(self.data.cdim),
+           'dim' : self.padding(),
            # Ensure different threads are on different cache lines
            'max_threads' : _max_threads}
 
@@ -97,7 +97,7 @@ class Arg(host.Arg):
         else:
             init = "%(name)s[i]" % {'name' : self.c_arg_name()}
         return "for ( int i = 0; i < %(dim)s; i++ ) %(name)s_l[tid][i] = %(init)s" % \
-          {'dim' : self.padding(self.data.cdim),
+          {'dim' : self.padding(),
            'name' : self.c_arg_name(),
            'init' : init}
 
