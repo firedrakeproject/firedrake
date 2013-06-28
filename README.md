@@ -162,8 +162,16 @@ Install [petsc4py][petsc4py_repo] via `pip`:
 pip install hg+https://bitbucket.org/mapdes/petsc4py#egg=petsc4py
 ```
 
-**Note:** When using PyOP2 with Fluidity it's crucial that both are built
-against the same PETSc, which must be build with Fortran support!
+#### PETSc and Fluidity
+
+When using PyOP2 with Fluidity it's crucial that both are built against the
+same PETSc, which must be build with Fortran support!
+
+Fluidity does presently not support PETSc >= 3.4, therefore you will need a
+version of petsc4py compatible with PETSc 3.3, available as the `3.3` bookmark:
+```
+pip install hg+https://bitbucket.org/mapdes/petsc4py@3.3#egg=petsc4py
+```
 
 ### CUDA backend:
 Dependencies:
