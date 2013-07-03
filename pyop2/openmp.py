@@ -141,13 +141,19 @@ class JITModule(host.JITModule):
     _system_headers = ['omp.h']
 
     _wrapper = """
-void wrap_%(kernel_name)s__(%(wrapper_args)s %(const_args)s,
-                            PyObject* _part_size, PyObject* _ncolors, PyObject* _blkmap
-                            %(off_args)s) {
-  int part_size = (int)PyInt_AsLong(_part_size);
-  int ncolors = (int)PyInt_AsLong(_ncolors);
+void wrap_%(kernel_name)s__(PyObject* _boffset,
+                            PyObject* _nblocks,
+                            %(wrapper_args)s
+                            %(const_args)s
+                            %(off_args)s
+                            PyObject* _blkmap,
+                            PyObject* _offset,
+                            PyObject* _nelems) {
+
+  int boffset = (int)PyInt_AsLong(_boffset);
+  int nblocks = (int)PyInt_AsLong(_nblocks);
   int* blkmap = (int *)(((PyArrayObject *)_blkmap)->data);
-  int* ncolblk = (int *)(((PyArrayObject *)_ncolblk)->data);
+  int* offset = (int *)(((PyArrayObject *)_offset)->data);
   int* nelems = (int *)(((PyArrayObject *)_nelems)->data);
 
   %(wrapper_decs)s;
@@ -161,43 +167,34 @@ void wrap_%(kernel_name)s__(%(wrapper_args)s %(const_args)s,
   int nthread = 1;
   #endif
 
-  int boffset = 0;
-  int __b,tid;
-  int lim;
-  for ( int __col  = 0; __col < ncolors; __col++ ) {
-    int nblocks = ncolblk[__col];
+  #pragma omp parallel shared(boffset, nblocks, nelems, blkmap)
+  {
+    int tid = omp_get_thread_num();
+    %(interm_globals_decl)s;
+    %(interm_globals_init)s;
 
-    #pragma omp parallel private(__b,tid, lim) shared(boffset, nblocks, nelems, blkmap, part_size)
+    #pragma omp for schedule(static)
+    for ( int __b = boffset; __b < boffset + nblocks; __b++ )
     {
-      int tid = omp_get_thread_num();
-      tid = omp_get_thread_num();
-      %(interm_globals_decl)s;
-      %(interm_globals_init)s;
-      lim = boffset + nblocks;
-
-      #pragma omp for schedule(static)
-      for ( int __b = boffset; __b < lim; __b++ ) {
-        %(vec_decs)s;
-        int bid = blkmap[__b];
-        int nelem = nelems[bid];
-        int efirst = bid * part_size;
-        int lim2 = nelem + efirst;
-        for (int i = efirst; i < lim2; i++ ) {
-          %(vec_inits)s;
-          %(itspace_loops)s
-          %(extr_loop)s
-          %(zero_tmps)s;
-          %(kernel_name)s(%(kernel_args)s);
-          %(addtos_vector_field)s;
-          %(apply_offset)s
-          %(extr_loop_close)s
-          %(itspace_loop_close)s
-          %(addtos_scalar_field)s;
-        }
+      %(vec_decs)s;
+      int bid = blkmap[__b];
+      int nelem = nelems[bid];
+      int efirst = offset[bid];
+      for (int i = efirst; i < efirst+ nelem; i++ )
+      {
+        %(vec_inits)s;
+        %(itspace_loops)s
+        %(extr_loop)s
+        %(zero_tmps)s;
+        %(kernel_name)s(%(kernel_args)s);
+        %(addtos_vector_field)s;
+        %(apply_offset)s
+        %(extr_loop_close)s
+        %(itspace_loop_close)s
+        %(addtos_scalar_field)s;
       }
-      %(interm_globals_writeback)s;
     }
-    boffset += nblocks;
+    %(interm_globals_writeback)s;
   }
 }
 """
@@ -226,7 +223,7 @@ class ParLoop(device.ParLoop, host.ParLoop):
     @collective
     def compute(self):
         fun = JITModule(self.kernel, self.it_space, *self.args)
-        _args = list()
+        _args = [None, None]
         for arg in self.args:
             if arg._is_mat:
                 _args.append(arg.data.handle.handle)
@@ -244,8 +241,28 @@ class ParLoop(device.ParLoop, host.ParLoop):
         for c in Const._definitions():
             _args.append(c.data)
 
-        part_size = self._it_space.partition_size
+        # offset_args returns an empty list if there are none
+        _args.extend(self.offset_args())
 
+        #TODO: compute partition size
+        plan = self._get_plan(1024)
+        _args.append(plan.blkmap)
+        _args.append(plan.offset)
+        _args.append(plan.nelems)
+
+        boffset = 0
+        for c in range(plan.ncolors):
+            nblocks = plan.ncolblk[c]
+            _args[0] = boffset
+            _args[1] = nblocks
+            fun(*args)
+            boffset += nblocks
+
+        for arg in self.args:
+            if arg._is_mat:
+                arg.data._assemble()
+                    
+    def _get_plan(self, part_size):
         # Create a plan, for colored execution
         if [arg for arg in self.args if arg._is_indirect or arg._is_mat]:
             plan = _plan.Plan(self._it_space.iterset,
@@ -256,9 +273,8 @@ class ParLoop(device.ParLoop, host.ParLoop):
                               thread_coloring=False)
 
         else:
-            # Create a fake plan for direct loops.
-            # Make the fake plan according to the number of cores available
-            # to OpenMP
+            # TODO:
+            # Create the fake plan according to the number of cores available
             class FakePlan:
 
                 def __init__(self, iset, part_size):
@@ -266,26 +282,12 @@ class ParLoop(device.ParLoop, host.ParLoop):
                     self.ncolors = 1
                     self.ncolblk = np.array([nblocks], dtype=np.int32)
                     self.blkmap = np.arange(nblocks, dtype=np.int32)
-                    self.nelems = np.array(
-                        [min(part_size, iset.size - i * part_size) for i in range(nblocks)],
-                        dtype=np.int32)
+                    self.nelems = np.array([min(part_size, iset.size - i * part_size) for i in range(nblocks)],
+                                           dtype=np.int32)
+                    self.offset = np.arange(0, iset.size, part_size, dtype=np.int32)
 
             plan = FakePlan(self._it_space.iterset, part_size)
-
-        _args.append(part_size)
-        _args.append(plan.ncolors)
-        _args.append(plan.blkmap)
-        _args.append(plan.ncolblk)
-        _args.append(plan.nelems)
-
-        # offset_args returns an empty list if there are none
-        _args.extend(self.offset_args())
-
-        fun(*_args)
-
-        for arg in self.args:
-            if arg._is_mat:
-                arg.data._assemble()
+        return plan
 
     @property
     def _requires_matrix_coloring(self):
