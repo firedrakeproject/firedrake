@@ -141,10 +141,9 @@ class JITModule(host.JITModule):
     _system_headers = ['omp.h']
 
     _wrapper = """
-void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
-                            PyObject* _part_size, PyObject* _ncolors, PyObject* _blkmap,
-                            PyObject* _ncolblk, PyObject* _nelems  %(off_args)s) {
-  int end = (int)PyInt_AsLong(_end);
+void wrap_%(kernel_name)s__(%(wrapper_args)s %(const_args)s,
+                            PyObject* _part_size, PyObject* _ncolors, PyObject* _blkmap
+                            %(off_args)s) {
   int part_size = (int)PyInt_AsLong(_part_size);
   int ncolors = (int)PyInt_AsLong(_ncolors);
   int* blkmap = (int *)(((PyArrayObject *)_blkmap)->data);
@@ -227,7 +226,7 @@ class ParLoop(device.ParLoop, host.ParLoop):
     @collective
     def compute(self):
         fun = JITModule(self.kernel, self.it_space, *self.args)
-        _args = [self._it_space.size]
+        _args = list()
         for arg in self.args:
             if arg._is_mat:
                 _args.append(arg.data.handle.handle)
