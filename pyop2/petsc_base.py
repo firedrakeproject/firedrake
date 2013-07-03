@@ -166,7 +166,7 @@ class Mat(base.Mat):
     @property
     def values(self):
         base._force(set([self]), set())
-        return self.handle[:,:]
+        return self.handle[:, :]
 
     @property
     def handle(self):

@@ -47,8 +47,11 @@ from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
 from sparsity import build_sparsity
 
-# Lazy evaluation support code
+
 class LazyComputation(object):
+
+    """Helper class holding computation to be carried later on.
+    """
 
     def __init__(self, reads, writes):
         self.reads = reads
@@ -60,6 +63,7 @@ class LazyComputation(object):
 
     def _run(self):
         assert False, "Not implemented"
+
 
 def _force(reads, writes):
     """Forces the evaluation of delayed computation on which reads and writes
@@ -517,6 +521,29 @@ class Set(object):
             raise SizeTypeError("Shape of %s is incorrect" % name)
         size = slot.value.astype(np.int)
         return cls(size[0], name)
+
+    @property
+    def core_part(self):
+        return SetPartition(self, 0, self.core_size)
+
+    @property
+    def owned_part(self):
+        return SetPartition(self, self.core_size, self.size - self.core_size)
+
+    @property
+    def exec_part(self):
+        return SetPartition(self, self.size, self.exec_size - self.size)
+
+    @property
+    def all_part(self):
+        return SetPartition(self, 0, self.exec_size)
+
+
+class SetPartition(object):
+    def __init__(self, set, offset, size):
+        self.set = set
+        self.offset = offset
+        self.size = size
 
 
 class DataSet(object):
@@ -1802,6 +1829,7 @@ class JITModule(Cached):
 
         return key
 
+
 class ParLoop(LazyComputation):
     """Represents the kernel, iteration space and arguments of a parallel loop
     invocation.
@@ -1844,7 +1872,30 @@ class ParLoop(LazyComputation):
     @collective
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
-        raise RuntimeError('Must select a backend')
+        self.halo_exchange_begin()
+        self.maybe_set_dat_dirty()
+        self._compute_if_not_empty(self.it_space.iterset.core_part)
+        self.halo_exchange_end()
+        self._compute_if_not_empty(self.it_space.iterset.owned_part)
+        self.reduction_begin()
+        if self.needs_exec_halo:
+            self._compute_if_not_empty(self.it_space.iterset.exec_part)
+        self.reduction_end()
+        self.maybe_set_halo_update_needed()
+        self.assemble()
+
+    def _compute_if_not_empty(self, part):
+        if part.size > 0:
+            self._compute(part)
+
+    def _compute(self, part):
+        """Executes the kernel over all members of a MPI-part of the iteration space."""
+        raise RuntimeError("Must select a backend")
+
+    def maybe_set_dat_dirty(self):
+        for arg in self.args:
+            if arg._is_dat:
+                maybe_setflags(arg.data._data, write=False)
 
     @collective
     def halo_exchange_begin(self):
@@ -1886,6 +1937,11 @@ class ParLoop(LazyComputation):
         for arg in self.args:
             if arg._is_dat and arg.access in [INC, WRITE, RW]:
                 arg.data.needs_halo_update = True
+
+    def assemble(self):
+        for arg in self.args:
+            if arg._is_mat:
+                arg.data._assemble()
 
     def check_args(self, iterset):
         """Checks that the iteration set of the :class:`ParLoop` matches the
@@ -2033,7 +2089,7 @@ class Solver(object):
         :arg x: The :class:`Dat` to receive the solution.
         :arg b: The :class:`Dat` containing the RHS.
         """
-        _force(set([A,b]), set([x]))
+        _force(set([A, b]), set([x]))
         self._solve(A, x, b)
 
     def _solve(self, A, x, b):
