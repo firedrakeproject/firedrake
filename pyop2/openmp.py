@@ -263,24 +263,17 @@ class ParLoop(device.ParLoop, host.ParLoop):
                 arg.data._assemble()
                     
     def _get_plan(self, part_size):
-        # Create a plan, for colored execution
-        if [arg for arg in self.args if arg._is_indirect or arg._is_mat]:
+        if self._is_indirect:
             plan = _plan.Plan(self._it_space.iterset,
                               *self._unwound_args,
                               partition_size=part_size,
                               matrix_coloring=True,
                               staging=False,
                               thread_coloring=False)
-
         else:
             # TODO:
             # Create the fake plan according to the number of cores available
-            class FakePlan(device._GenericPlan):
-
-                @classmethod
-                def _cache_key(cls, *args, **kwargs):
-                    """Do not cache."""
-                    pass
+            class FakePlan(object):
 
                 def __init__(self, iset, part_size):
                     self.nblocks = int(math.ceil(iset.size / float(part_size)))
