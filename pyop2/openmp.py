@@ -275,14 +275,19 @@ class ParLoop(device.ParLoop, host.ParLoop):
         else:
             # TODO:
             # Create the fake plan according to the number of cores available
-            class FakePlan:
+            class FakePlan(device._GenericPlan):
+
+                @classmethod
+                def _cache_key(cls, *args, **kwargs):
+                    """Do not cache."""
+                    pass
 
                 def __init__(self, iset, part_size):
-                    nblocks = int(math.ceil(iset.size / float(part_size)))
+                    self.nblocks = int(math.ceil(iset.size / float(part_size)))
                     self.ncolors = 1
-                    self.ncolblk = np.array([nblocks], dtype=np.int32)
-                    self.blkmap = np.arange(nblocks, dtype=np.int32)
-                    self.nelems = np.array([min(part_size, iset.size - i * part_size) for i in range(nblocks)],
+                    self.ncolblk = np.array([self.nblocks], dtype=np.int32)
+                    self.blkmap = np.arange(self.nblocks, dtype=np.int32)
+                    self.nelems = np.array([min(part_size, iset.size - i * part_size) for i in range(self.nblocks)],
                                            dtype=np.int32)
                     self.offset = np.arange(0, iset.size, part_size, dtype=np.int32)
 
