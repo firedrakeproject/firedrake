@@ -143,12 +143,12 @@ class JITModule(host.JITModule):
     _wrapper = """
 void wrap_%(kernel_name)s__(PyObject* _boffset,
                             PyObject* _nblocks,
-                            %(wrapper_args)s
-                            %(const_args)s
-                            %(off_args)s
                             PyObject* _blkmap,
                             PyObject* _offset,
-                            PyObject* _nelems) {
+                            PyObject* _nelems,
+                            %(wrapper_args)s
+                            %(const_args)s
+                            %(off_args)s) {
 
   int boffset = (int)PyInt_AsLong(_boffset);
   int nblocks = (int)PyInt_AsLong(_nblocks);
@@ -220,51 +220,45 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
 
 class ParLoop(device.ParLoop, host.ParLoop):
 
-    @collective
-    def compute(self):
+    def _compute(self, part):
         fun = JITModule(self.kernel, self.it_space, *self.args)
-        _args = [None, None]
-        for arg in self.args:
-            if arg._is_mat:
-                _args.append(arg.data.handle.handle)
-            else:
-                _args.append(arg.data._data)
+        if not hasattr(self, '_jit_args'):
+            self._jit_args = [None, None, None, None, None]
+            for arg in self.args:
+                if arg._is_mat:
+                    self._jit_args.append(arg.data.handle.handle)
+                else:
+                    self._jit_args.append(arg.data._data)
 
-            if arg._is_dat:
-                maybe_setflags(arg.data._data, write=False)
+                if arg._is_indirect or arg._is_mat:
+                    maps = as_tuple(arg.map, Map)
+                    for map in maps:
+                        self._jit_args.append(map.values)
 
-            if arg._is_indirect or arg._is_mat:
-                maps = as_tuple(arg.map, Map)
-                for map in maps:
-                    _args.append(map.values)
+            for c in Const._definitions():
+                self._jit_args.append(c.data)
 
-        for c in Const._definitions():
-            _args.append(c.data)
+            # offset_args returns an empty list if there are none
+            self._jit_args.extend(self.offset_args())
 
-        # offset_args returns an empty list if there are none
-        _args.extend(self.offset_args())
+        if part.size > 0:
+            #TODO: compute partition size
+            plan = self._get_plan(part, 1024)
+            self._jit_args[2] = plan.blkmap
+            self._jit_args[3] = plan.offset
+            self._jit_args[4] = plan.nelems
 
-        #TODO: compute partition size
-        plan = self._get_plan(1024)
-        _args.append(plan.blkmap)
-        _args.append(plan.offset)
-        _args.append(plan.nelems)
+            boffset = 0
+            for c in range(plan.ncolors):
+                nblocks = plan.ncolblk[c]
+                self._jit_args[0] = boffset
+                self._jit_args[1] = nblocks
+                fun(*self._jit_args)
+                boffset += nblocks
 
-        boffset = 0
-        for c in range(plan.ncolors):
-            nblocks = plan.ncolblk[c]
-            _args[0] = boffset
-            _args[1] = nblocks
-            fun(*args)
-            boffset += nblocks
-
-        for arg in self.args:
-            if arg._is_mat:
-                arg.data._assemble()
-                    
-    def _get_plan(self, part_size):
+    def _get_plan(self, part, part_size):
         if self._is_indirect:
-            plan = _plan.Plan(self._it_space.iterset,
+            plan = _plan.Plan(part,
                               *self._unwound_args,
                               partition_size=part_size,
                               matrix_coloring=True,
@@ -275,16 +269,16 @@ class ParLoop(device.ParLoop, host.ParLoop):
             # Create the fake plan according to the number of cores available
             class FakePlan(object):
 
-                def __init__(self, iset, part_size):
-                    self.nblocks = int(math.ceil(iset.size / float(part_size)))
+                def __init__(self, part, partition_size):
+                    self.nblocks = int(math.ceil(part.size / float(partition_size)))
                     self.ncolors = 1
                     self.ncolblk = np.array([self.nblocks], dtype=np.int32)
                     self.blkmap = np.arange(self.nblocks, dtype=np.int32)
-                    self.nelems = np.array([min(part_size, iset.size - i * part_size) for i in range(self.nblocks)],
+                    self.nelems = np.array([min(partition_size, part.size - i * partition_size) for i in range(self.nblocks)],
                                            dtype=np.int32)
-                    self.offset = np.arange(0, iset.size, part_size, dtype=np.int32)
+                    self.offset = np.arange(part.offset, part.offset + part.size, partition_size, dtype=np.int32)
 
-            plan = FakePlan(self._it_space.iterset, part_size)
+            plan = FakePlan(part, part_size)
         return plan
 
     @property

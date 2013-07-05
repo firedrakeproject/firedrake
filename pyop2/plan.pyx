@@ -443,14 +443,15 @@ class Plan(base.Cached, _Plan):
     _cache = {}
 
     @classmethod
-    def _cache_key(cls, iset, *args, **kwargs):
+    def _cache_key(cls, part, *args, **kwargs):
         # Disable caching if requested
         if kwargs.pop('refresh_cache', False):
             return
         partition_size = kwargs.get('partition_size', 0)
         matrix_coloring = kwargs.get('matrix_coloring', False)
 
-        key = (iset.size, partition_size, matrix_coloring)
+        key = (part.set.size, part.offset, part.size,
+               partition_size, matrix_coloring)
 
         # For each indirect arg, the map, the access type, and the
         # indices into the map are important
