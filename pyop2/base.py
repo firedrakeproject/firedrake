@@ -69,7 +69,7 @@ class Access(object):
         return "OP2 Access: %s" % self._mode
 
     def __repr__(self):
-        return "Access('%s')" % self._mode
+        return "Access(%r)" % self._mode
 
 READ  = Access("READ")
 """The :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed read-only."""
@@ -740,7 +740,7 @@ class Dat(DataCarrier):
                % (self._name, self._dataset, self._data.dtype.name)
 
     def __repr__(self):
-        return "Dat(%r, '%s', None, '%s')" \
+        return "Dat(%r, %r, None, %r)" \
                % (self._dataset, self._data.dtype, self._name)
 
     def _check_shape(self, other):
@@ -892,7 +892,7 @@ class Const(DataCarrier):
                % (self._name, self._dim, self._data.dtype.name, self._data)
 
     def __repr__(self):
-        return "Const(%s, %s, '%s')" \
+        return "Const(%r, %r, %r)" \
                % (self._dim, self._data, self._name)
 
     @classmethod
@@ -957,7 +957,7 @@ class Global(DataCarrier):
                 % (self._name, self._dim, self._data)
 
     def __repr__(self):
-        return "Global('%s', %r, %r)" % (self._name, self._dim, self._data)
+        return "Global(%r, %r, %r)" % (self._name, self._dim, self._data)
 
     @property
     def data(self):
@@ -989,10 +989,10 @@ class IterationIndex(object):
         self._index = index
 
     def __str__(self):
-        return "OP2 IterationIndex: %d" % self._index
+        return "OP2 IterationIndex: %s" % self._index
 
     def __repr__(self):
-        return "IterationIndex(%d)" % self._index
+        return "IterationIndex(%r)" % self._index
 
     @property
     def index(self):
@@ -1095,7 +1095,7 @@ class Map(object):
                % (self._name, self._iterset, self._dataset, self._dim)
 
     def __repr__(self):
-        return "Map(%r, %r, %s, None, '%s')" \
+        return "Map(%r, %r, %r, None, %r)" \
                % (self._iterset, self._dataset, self._dim, self._name)
 
     def __eq__(self, o):
@@ -1391,7 +1391,7 @@ class Mat(DataCarrier):
                % (self._name, self._sparsity, self._datatype.name)
 
     def __repr__(self):
-        return "Mat(%r, '%s', '%s')" \
+        return "Mat(%r, %r, %r)" \
                % (self._sparsity, self._datatype, self._name)
 
 # Kernel API
@@ -1433,7 +1433,7 @@ class Kernel(Cached):
         return "OP2 Kernel: %s" % self._name
 
     def __repr__(self):
-        return 'Kernel("""%s""", "%s")' % (self._code, self._name)
+        return 'Kernel("""%s""", %r)' % (self._code, self._name)
 
 class JITModule(Cached):
     """Cached module encapsulating the generated :class:`ParLoop` stub."""
