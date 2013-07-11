@@ -205,6 +205,9 @@ def main(opt):
             with open("adv_diff_mpi.%s.out" % os.path.split(opt['mesh'])[-1],
                       "w") as out:
                 out.write(str(result.data[0]))
+        else:
+            # hack to prevent mpi communication dangling
+            result.data
 
 if __name__ == '__main__':
     parser = utils.parser(group=True, description=__doc__)
