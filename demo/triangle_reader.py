@@ -46,6 +46,9 @@ def read_triangle(f, layers=None):
     These items have type:
 
         (Set, Dat, Set, Map)
+
+    The Layers argument allows the reading of data for extruded meshes.
+    It is to be used when dealing with extruded meshes.
     """
     # Read nodes
     with open(f+'.node') as h:
@@ -83,24 +86,24 @@ def read_triangle(f, layers=None):
                 ele_nodes = [ int(x)-1 for x in vals[1:nodes_per_tri+1] ]
                 map_values[tri-1] = ele_nodes
         else:
-            ll = h.readline().strip('\n').split(' ')
-            fin_ll = [x  for x in ll if x != '']
+            lline = h.readline().strip('\n').split(' ')
+            final_line = [x  for x in lline if x != '']
 
             num_tri, nodes_per_tri, num_attrs = \
-                map(lambda x: int(x), fin_ll)
+                map(lambda x: int(x), final_line)
             map_values = [0]*num_tri
             for line in h:
                 if line[0] == '#':
                     continue
                 vals = [ x for x in line.strip('\n').split(' ') if x !='']
                 tri = int(vals[0])
-                ele_nodes = [ int(x)-1 for x in vals[1:nodes_per_tri+1] ]
-                map_values[tri-1] = ele_nodes
+                ele_nodes = [ int(x) - 1 for x in vals[1:nodes_per_tri + 1] ]
+                map_values[tri - 1] = ele_nodes
 
     # Ref: http://stackoverflow.com/questions/952914/making-a-flat-list-out-of-list-of-lists-in-python
     flat_map = [ item for sublist in map_values for item in sublist ]
 
-    if layers ==None:
+    if layers == None:
         elements = op2.Set(num_tri, 1, "elements")
     else:
         elements = op2.ExtrudedSet(num_tri, 1, layers, "elements")

@@ -216,6 +216,7 @@ for(int j=0; j<%(layers)s;j++){
         'layers': layers,
         'num': count}
 
+    # New globals generation which avoids false sharing.
     def c_intermediate_globals_decl(self, count):
         return "%(type)s %(name)s_l%(count)s[1][%(dim)s]" % \
             {'type' : self.ctype,
