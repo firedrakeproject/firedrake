@@ -304,7 +304,7 @@ class Set(object):
     IMPORT_NON_EXEC_SIZE = 3
     @validate_type(('size', (int, tuple, list), SizeTypeError),
                    ('name', str, NameTypeError))
-    def __init__(self, size=None, dim=1, name=None, halo=None):
+    def __init__(self, size=None, dim=1, name=None, halo=None, layers=None):
         if type(size) is int:
             size = [size]*4
         size = as_tuple(size, int, 4)
@@ -320,6 +320,8 @@ class Set(object):
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = None
         self._halo = halo
+        self._layers = layers if layers is not None else 1
+        self._partition_size = 1024
         if self.halo:
             self.halo.verify(self)
         Set._globalcount += 1
@@ -379,13 +381,18 @@ class Set(object):
 
     @property
     def layers(self):
-        """Default number of layers"""
-        return 1
+        """Number of layers in the extruded mesh"""
+        return self._layers
 
     @property
     def partition_size(self):
         """Default partition size"""
-        return 1024
+        return self._partition_size
+
+    @partition_size.setter
+    def partition_size(self, partition_value):
+        """Set the partition size"""
+        self._partition_size = partition_value
 
     def __str__(self):
         return "OP2 Set: %s with size %s, dim %s" % (self._name, self._size, self._dim)
@@ -408,42 +415,6 @@ class Set(object):
         if self._lib_handle is None:
             self._lib_handle = core.op_set(self)
         return self._lib_handle
-
-
-class ExtrudedSet(Set):
-    """
-    OP2 Extruded Set.
-
-    Set which has an extra parameter that specifies the number of
-    layers in the extrusion.
-    """
-    @validate_type(('size', (int, tuple, list), SizeTypeError),
-                   ('name', str, NameTypeError))
-    def __init__(self, size=None, dim=1, layers=2, name=None, halo=None):
-        super(ExtrudedSet, self).__init__(size, dim, name, halo)
-        assert layers > 1
-        self._layers = layers
-        self._partition_size = 1024
-
-    @property
-    def layers(self):
-        """Number of layers in the extrusion"""
-        return self._layers
-
-    @property
-    def partition_size(self):
-        """Partition size of the base-mesh"""
-        return self._partition_size
-
-    @layers.setter
-    def layers(self, val):
-        """Set the number of mesh layers"""
-        self._layers = val
-
-    @partition_size.setter
-    def partition_size(self, val):
-        """Set the partition size in the base mesh."""
-        self._partition_size = val
 
 class Halo(object):
     """A description of a halo associated with a :class:`Set`.
@@ -1095,7 +1066,7 @@ class Map(object):
 
     @validate_type(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError), \
             ('dim', int, DimTypeError), ('name', str, NameTypeError))
-    def __init__(self, iterset, dataset, dim, values=None, name=None):
+    def __init__(self, iterset, dataset, dim, values=None, name=None, offset=None):
         self._iterset = iterset
         self._dataset = dataset
         self._dim = dim
@@ -1103,6 +1074,7 @@ class Map(object):
                                       allow_none=True)
         self._name = name or "map_%d" % Map._globalcount
         self._lib_handle = None
+        self._offset = offset
         Map._globalcount += 1
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
@@ -1148,6 +1120,11 @@ class Map(object):
         """User-defined label"""
         return self._name
 
+    @property
+    def offset(self):
+        """Return the vertical offset."""
+        return self._offset
+
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with dim %s" \
                % (self._name, self._iterset, self._dataset, self._dim)
@@ -1184,25 +1161,6 @@ class Map(object):
 
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 """The identity map.  Used to indicate direct access to a :class:`Dat`."""
-
-class ExtrudedMap(Map):
-    """
-    Extruded Map type to be used in extruded meshes.
-
-    The extruded map takes an extra offset parameter which
-    represents the offsets that need to be added to the base layer DOFs
-    when iterating over the elements of the column.
-    """
-    @validate_type(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError), \
-            ('dim', int, DimTypeError), ('name', str, NameTypeError))
-    def __init__(self, iterset, dataset, dim, offset, values=None, name=None):
-        super(ExtrudedMap, self).__init__(iterset, dataset, dim, values, name)
-        self._offset = offset
-
-    @property
-    def offset(self):
-        """Return the vertical offset."""
-        return self._offset
 
 class Sparsity(Cached):
     """OP2 Sparsity, a matrix structure derived from the union of the outer
@@ -1637,7 +1595,7 @@ class ParLoop(object):
             if arg._is_indirect or arg._is_mat:
                 maps = as_tuple(arg.map, Map)
                 for map in maps:
-                   if isinstance(map, ExtrudedMap):
+                    if map.iterset.layers is not None and map.iterset.layers > 1:
                        _args.append(map.offset)
         return _args
 

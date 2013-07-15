@@ -106,7 +106,7 @@ def read_triangle(f, layers=None):
     if layers == None:
         elements = op2.Set(num_tri, 1, "elements")
     else:
-        elements = op2.ExtrudedSet(num_tri, 1, layers, "elements")
+        elements = op2.Set(num_tri, 1, "elements", layers=layers)
     elem_node = op2.Map(elements, nodes, 3, flat_map, "elem_node")
     elem_vnode = op2.Map(elements, vnodes, 3, flat_map, "elem_vnode")
 

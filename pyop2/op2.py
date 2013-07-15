@@ -98,9 +98,6 @@ class Kernel(base.Kernel):
 class Set(base.Set):
     __metaclass__ = backends._BackendSelector
 
-class ExtrudedSet(base.ExtrudedSet):
-    __metaclass__ = backends._BackendSelector
-
 class Halo(base.Halo):
     __metaclass__ = backends._BackendSelector
 
@@ -117,9 +114,6 @@ class Global(base.Global):
     __metaclass__ = backends._BackendSelector
 
 class Map(base.Map):
-    __metaclass__ = backends._BackendSelector
-
-class ExtrudedMap(base.ExtrudedMap):
     __metaclass__ = backends._BackendSelector
 
 class Sparsity(base.Sparsity):

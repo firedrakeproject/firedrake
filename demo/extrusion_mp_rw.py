@@ -54,7 +54,7 @@ parser.add_argument('-m', '--mesh',
                     required=True,
                     help='Base name of triangle mesh (excluding the .ele or .node extension)')
 
-parser.add_argument('-l', '--layers',
+parser.add_argument('-ll', '--layers',
                     action='store',
                     type=str,
                     required=True,
@@ -312,16 +312,14 @@ lsize = nums[2] * map_dofs_res
 ind_res = compute_ind_extr(nums, map_dofs_res, lins, layers, mesh2d, dofs_res,
                            A, wedges, mapp_res, lsize)
 
-elem_dofs = op2.Map(elements, coords_dofsSet, map_dofs_coords, off_coords,
-                    ind_coords, "elem_dofs")
+elem_dofs = op2.Map(elements, coords_dofsSet, map_dofs_coords, ind_coords,
+                    "elem_dofs", off_coords)
 
-elem_elem = op2.Map(elements, wedges_dofsSet, map_dofs_field, off_field,
-                    ind_field, "elem_elem")
+elem_elem = op2.Map(elements, wedges_dofsSet, map_dofs_field, ind_field,
+                    "elem_elem", off_field)
 
-elem_p1_dofs = op2.Map(elements, p1_dofsSet, map_dofs_res, off_res, ind_res,
-                       "elem_p1_dofs")
-
-print ind_res[0:6]
+elem_p1_dofs = op2.Map(elements, p1_dofsSet, map_dofs_res, ind_res,
+                       "elem_p1_dofs", off_res)
 
 # THE RESULT ARRAY
 g = op2.Global(1, data=0.0, name='g')
@@ -334,7 +332,6 @@ elements.partition_size = partition_size
 
 # CALL PAR LOOP
 # Compute volume
-print res_dat[0:6]
 tloop = 0
 t0loop = time.clock()
 t0loop2 = time.time()

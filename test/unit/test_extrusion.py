@@ -112,7 +112,7 @@ def iterset2indset(iterset, indset):
 
 @pytest.fixture
 def elements():
-    return op2.ExtrudedSet(nelems, 1, layers, "elems")
+    return op2.Set(nelems, 1, "elems", layers=layers)
 
 @pytest.fixture
 def node_set1():
@@ -172,13 +172,13 @@ def dat_f(elem_set1):
 def coords_map(elements, node_set2):
     lsize = nums[2]*map_dofs_coords
     ind_coords = compute_ind_extr(nums, map_dofs_coords, nelems, layers, mesh2d, dofs_coords, A, wedges, elems2nodes, lsize)
-    return op2.ExtrudedMap(elements, node_set2, map_dofs_coords, off1, ind_coords, "elem_dofs")
+    return op2.Map(elements, node_set2, map_dofs_coords, ind_coords, "elem_dofs", off1)
 
 @pytest.fixture
 def field_map(elements, elem_set1):
     lsize = nums[2]*map_dofs_field
     ind_field = compute_ind_extr(nums, map_dofs_field, nelems, layers, mesh2d, dofs_field, A, wedges, elems2elems, lsize)
-    return op2.ExtrudedMap(elements, elem_set1, map_dofs_field, off2, ind_field, "elem_elem")
+    return op2.Map(elements, elem_set1, map_dofs_field, ind_field, "elem_elem", off2)
 
 class TestExtrusion:
     """
