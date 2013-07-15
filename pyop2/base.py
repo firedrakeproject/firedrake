@@ -565,7 +565,7 @@ class IterationSpace(object):
 
     @property
     def layers(self):
-        return self.iterset.layers
+        return self._iterset.layers
 
     @property
     def partition_size(self):
