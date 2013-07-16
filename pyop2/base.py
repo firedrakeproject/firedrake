@@ -740,7 +740,7 @@ class Dat(DataCarrier):
                % (self._name, self._dataset, self._data.dtype.name)
 
     def __repr__(self):
-        return "Dat(%r, %r, None, %r)" \
+        return "Dat(%r, None, %r, %r)" \
                % (self._dataset, self._data.dtype, self._name)
 
     def _check_shape(self, other):
