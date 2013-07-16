@@ -36,12 +36,13 @@ information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
 """
 
+import weakref
 import numpy as np
 import operator
 from hashlib import md5
 
-from caching import Cached, KernelCached
 from configuration import configuration
+from caching import Cached, Versioned, modifies, CopyOnWrite, KernelCached
 from exceptions import *
 from utils import *
 from backends import _make_object
@@ -1396,13 +1397,32 @@ class IterationSpace(object):
             isinstance(self._iterset, Subset), ext_key
 
 
-class DataCarrier(object):
+class DataCarrier(Versioned):
 
     """Abstract base class for OP2 data.
 
     Actual objects will be :class:`DataCarrier` objects of rank 0
     (:class:`Const` and :class:`Global`), rank 1 (:class:`Dat`), or rank 2
     (:class:`Mat`)"""
+
+    class Snapshot(object):
+        """A snapshot of the current state of the DataCarrier object. If
+        is_valid() returns True, then the object hasn't changed since this
+        snapshot was taken (and still exists)."""
+        def __init__(self, obj):
+            self._duplicate = obj.duplicate()
+            self._original = weakref.ref(obj)
+
+        def is_valid(self):
+            objref = self._original()
+            if objref is not None:
+                return self._duplicate == objref
+            return False
+
+    def create_snapshot(self):
+        """Returns a snapshot of the current object. If not overriden, this
+        method will return a full duplicate object."""
+        return type(self).Snapshot(self)
 
     @property
     def dtype(self):
@@ -1490,8 +1510,26 @@ class _EmptyDataMixin(object):
         return hasattr(self, '_numpy_data')
 
 
-class Dat(DataCarrier, _EmptyDataMixin):
+class SetAssociated(DataCarrier):
+    """Intermediate class between DataCarrier and subtypes associated with a
+    Set (vectors and matrices)."""
 
+    class Snapshot(object):
+        """A snapshot for SetAssociated objects is valid if the snapshot
+        version is the same as the current version of the object"""
+
+        def __init__(self, obj):
+            self._original = weakref.ref(obj)
+            self._snapshot_version = obj.vcache_get_version()
+
+        def is_valid(self):
+            objref = self._original()
+            if objref is not None:
+                return self._snapshot_version == objref.vcache_get_version()
+            return False
+
+
+class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
     """OP2 vector data. A :class:`Dat` holds values on every element of a
     :class:`DataSet`.
 
@@ -1531,10 +1569,12 @@ class Dat(DataCarrier, _EmptyDataMixin):
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
 
-    @validate_type(('dataset', (DataCarrier, DataSet, Set), DataSetTypeError), ('name', str, NameTypeError))
+    @validate_type(('dataset', (DataCarrier, DataSet, Set), DataSetTypeError),
+                   ('name', str, NameTypeError))
     @validate_dtype(('dtype', None, DataTypeError))
     def __init__(self, dataset, data=None, dtype=None, name=None,
                  soa=None, uid=None):
+
         if isinstance(dataset, Dat):
             self.__init__(dataset.dataset, None, dtype=dataset.dtype,
                           name="copy_of_%s" % dataset.name, soa=dataset.soa)
@@ -1546,6 +1586,8 @@ class Dat(DataCarrier, _EmptyDataMixin):
             dataset = dataset ** 1
         self._shape = (dataset.total_size,) + (() if dataset.cdim == 1 else dataset.dim)
         _EmptyDataMixin.__init__(self, data, dtype, self._shape)
+        self.vcache_version_set_zero()
+
         self._dataset = dataset
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
@@ -1759,6 +1801,12 @@ class Dat(DataCarrier, _EmptyDataMixin):
         :class:`DataSet` and containing the same data."""
         return not self == other
 
+        self.vcache_version_set_zero()
+
+    def _cow_actual_copy(self, src):
+        # Naive copy() method
+        self._data = src._data.copy()
+
     def __str__(self):
         return "OP2 Dat: %s on (%s) with datatype %s" \
                % (self._name, self._dataset, self.dtype.name)
@@ -1801,6 +1849,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
         par_loop(k, self.dataset.set, self(READ), other(READ), ret(WRITE))
         return ret
 
+    @modifies
     def _iop(self, other, op):
         ops = {operator.iadd: '+=',
                operator.isub: '-=',
@@ -2085,6 +2134,18 @@ class Const(DataCarrier):
 
     """Data that is constant for any element of any set."""
 
+    class Snapshot(object):
+        """Overridden from DataCarrier; a snapshot is always valid as long as
+        the Const object still exists"""
+        def __init__(self, obj):
+            self._original = weakref.ref(obj)
+
+        def is_valid(self):
+            objref = self._original()
+            if objref is not None:
+                return True
+            return False
+
     class NonUniqueNameError(ValueError):
 
         """The Names of const variables are required to be globally unique.
@@ -2104,6 +2165,11 @@ class Const(DataCarrier):
                 "OP2 Constants are globally scoped, %s is already in use" % self._name)
         Const._defs.add(self)
         Const._globalcount += 1
+
+    def duplicate(self):
+        """A Const duplicate can always refer to the same data vector, since
+        it's read-only"""
+        return type(self)(self.dim, data=self._data, dtype=self.dtype, name=self.name)
 
     @property
     def data(self):
@@ -2255,6 +2321,7 @@ class Global(DataCarrier, _EmptyDataMixin):
         return self.data
 
     @data.setter
+    @modifies
     def data(self, value):
         _trace.evaluate(set(), set([self]))
         self._data = verify_reshape(value, self.dtype, self.dim)
@@ -2855,8 +2922,7 @@ class Sparsity(Cached):
         return False
 
 
-class Mat(DataCarrier):
-
+class Mat(SetAssociated):
     """OP2 matrix data. A ``Mat`` is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`.
 
