@@ -135,10 +135,15 @@ class TestAccessAPI:
     """
 
     @pytest.mark.parametrize("mode", base.Access._modes)
-    def test_access(self, backend, mode):
-        "Access repr should have the expected format."
-        a = base.Access(mode)
-        assert repr(a) == "Access('%s')" % mode
+    def test_access_repr(self, backend, mode):
+        "Access repr should produce an Access object when eval'd."
+        from pyop2.base import Access
+        assert isinstance(eval(repr(Access(mode))), Access)
+
+    @pytest.mark.parametrize("mode", base.Access._modes)
+    def test_access_str(self, backend, mode):
+        "Access should have the expected string representation."
+        assert str(base.Access(mode)) == "OP2 Access: %s" % mode
 
     def test_illegal_access(self, backend):
         "Illegal access modes should raise an exception."
@@ -180,13 +185,15 @@ class TestSetAPI:
         s = op2.Set(1, [2,3])
         assert s.dim == (2,3)
 
-    def test_set_has_repr(self, backend, set):
-        "Set should have a repr."
-        assert repr(set)
+    def test_set_repr(self, backend, set):
+        "Set repr should produce a Set object when eval'd."
+        from pyop2.op2 import Set
+        assert isinstance(eval(repr(set)), base.Set)
 
-    def test_set_has_str(self, backend, set):
-        "Set should have a string representation."
-        assert str(set)
+    def test_set_str(self, backend, set):
+        "Set should have the expected string representation."
+        assert str(set) == "OP2 Set: %s with size %s, dim %s" \
+                % (set.name, set.size, set.dim)
 
     def test_set_equality(self, backend, set):
         "The equality test for sets is identity, not attribute equality"
@@ -278,6 +285,20 @@ class TestDatAPI:
         assert d.dataset == set and d.dtype == np.float64 and \
                 d.name == 'bar' and d.data.sum() == set.size*np.prod(set.dim)
 
+    def test_dat_repr(self, backend, set):
+        "Dat repr should produce a Dat object when eval'd."
+        from pyop2.op2 import Dat, Set
+        from numpy import dtype
+        d = op2.Dat(set, dtype='double', name='bar')
+        assert isinstance(eval(repr(d)), base.Dat)
+
+    def test_dat_str(self, backend, set):
+        "Dat should have the expected string representation."
+        d = op2.Dat(set, dtype='double', name='bar')
+        s = "OP2 Dat: %s on (%s) with datatype %s" \
+               % (d.name, d.dataset, d.data.dtype.name)
+        assert str(d) == s
+
     def test_dat_ro_accessor(self, backend, set):
         "Attempting to set values through the RO accessor should raise an error."
         d = op2.Dat(set, range(np.prod(set.dim) * set.size), dtype=np.int32)
@@ -361,6 +382,20 @@ class TestSparsityAPI:
         with pytest.raises(RuntimeError):
             op2.Sparsity(((m, m), (m, md)))
 
+    def test_sparsity_repr(self, backend, sparsity):
+        "Sparsity should have the expected repr."
+
+        # Note: We can't actually reproduce a Sparsity from its repr because
+        # the Sparsity constructor checks that the maps are populated
+        r = "Sparsity(%r, %r)" % (tuple(sparsity.maps), sparsity.name)
+        assert repr(sparsity) == r
+
+    def test_sparsity_str(self, backend, sparsity):
+        "Sparsity should have the expected string representation."
+        s = "OP2 Sparsity: rmaps %s, cmaps %s, name %s" % \
+               (sparsity.rmaps, sparsity.cmaps, sparsity.name)
+        assert str(sparsity) == s
+
 class TestMatAPI:
     """
     Mat API unit tests
@@ -394,6 +429,22 @@ class TestMatAPI:
         wrongmap = op2.Map(set1, set2, 2, [0, 0, 0, 0])
         with pytest.raises(exceptions.MapValueError):
             m((wrongmap[0], wrongmap[1]), op2.INC)
+
+    def test_mat_repr(self, backend, sparsity):
+        "Mat should have the expected repr."
+
+        # Note: We can't actually reproduce a Sparsity from its repr because
+        # the Sparsity constructor checks that the maps are populated
+        m = op2.Mat(sparsity)
+        r = "Mat(%r, %r, %r)" % (m.sparsity, m.dtype, m.name)
+        assert repr(m) == r
+
+    def test_mat_str(self, backend, sparsity):
+        "Mat should have the expected string representation."
+        m = op2.Mat(sparsity)
+        s = "OP2 Mat: %s, sparsity (%s), datatype %s" \
+               % (m.name, m.sparsity, m.dtype.name)
+        assert str(m) == s
 
 
 class TestConstAPI:
@@ -503,6 +554,21 @@ class TestConstAPI:
         with pytest.raises(exceptions.DataValueError):
             c.data = [1, 2]
 
+    def test_const_repr(self, backend, const):
+        "Const repr should produce a Const object when eval'd."
+        from pyop2.op2 import Const
+        from numpy import array
+        const.remove_from_namespace()
+        c = eval(repr(const))
+        assert isinstance(c, base.Const)
+        c.remove_from_namespace()
+
+    def test_const_str(self, backend, const):
+        "Const should have the expected string representation."
+        s = "OP2 Const: %s of dim %s and type %s with value %s" \
+               % (const.name, const.dim, const.data.dtype.name, const.data)
+        assert str(const) == s
+
 class TestGlobalAPI:
     """
     Global API unit tests
@@ -586,6 +652,20 @@ class TestGlobalAPI:
         c = op2.Global(1, 1)
         with pytest.raises(exceptions.DataValueError):
             c.data = [1, 2]
+
+    def test_global_repr(self, backend):
+        "Global repr should produce a Global object when eval'd."
+        from pyop2.op2 import Global
+        from numpy import array, dtype
+        g = op2.Global(1, 1, 'double')
+        assert isinstance(eval(repr(g)), base.Global)
+
+    def test_global_str(self, backend):
+        "Global should have the expected string representation."
+        g = op2.Global(1, 1, 'double')
+        s = "OP2 Global Argument: %s with dim %s and value %s" \
+                % (g.name, g.dim, g.data)
+        assert str(g) == s
 
 class TestMapAPI:
     """
@@ -679,6 +759,17 @@ class TestMapAPI:
         n = op2.Map(m.iterset, m.dataset, m.dim, m.values, 'n')
         assert m != n
 
+    def test_map_repr(self, backend, m):
+        "Map repr should produce a Map object when eval'd."
+        from pyop2.op2 import Set, Map
+        assert isinstance(eval(repr(m)), base.Map)
+
+    def test_map_str(self, backend, m):
+        "Map should have the expected string representation."
+        s = "OP2 Map: %s from (%s) to (%s) with dim %s" \
+               % (m.name, m.iterset, m.dataset, m.dim)
+        assert str(m) == s
+
 class TestIterationSpaceAPI:
     """
     IterationSpace API unit tests
@@ -714,6 +805,19 @@ class TestIterationSpaceAPI:
         i = op2.IterationSpace(set, (2,3))
         assert i.iterset == set and i.extents == (2,3)
 
+    def test_iteration_space_repr(self, backend, set):
+        """IterationSpace repr should produce a IterationSpace object when
+        eval'd."""
+        from pyop2.op2 import Set, IterationSpace
+        m = op2.IterationSpace(set, 1)
+        assert isinstance(eval(repr(m)), base.IterationSpace)
+
+    def test_iteration_space_str(self, backend, set):
+        "IterationSpace should have the expected string representation."
+        m = op2.IterationSpace(set, 1)
+        s = "OP2 Iteration Space: %s with extents %s" % (m.iterset, m.extents)
+        assert str(m) == s
+
 class TestKernelAPI:
     """
     Kernel API unit tests
@@ -728,6 +832,17 @@ class TestKernelAPI:
         "Kernel constructor should correctly set attributes."
         k = op2.Kernel("", 'foo')
         assert k.name == 'foo'
+
+    def test_kernel_repr(self, backend, set):
+        "Kernel repr should produce a Kernel object when eval'd."
+        k = op2.Kernel("int foo() { return 0; }", 'foo')
+        from pyop2.op2 import Kernel
+        assert isinstance(eval(repr(k)), base.Kernel)
+
+    def test_kernel_str(self, backend, set):
+        "Kernel should have the expected string representation."
+        k = op2.Kernel("int foo() { return 0; }", 'foo')
+        assert str(k) == "OP2 Kernel: %s" % k.name
 
 class TestIllegalItersetMaps:
     """
