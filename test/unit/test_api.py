@@ -760,9 +760,9 @@ class TestMapAPI:
         assert m != n
 
     def test_map_repr(self, backend, m):
-        "Map repr should produce a Map object when eval'd."
-        from pyop2.op2 import Set, Map
-        assert isinstance(eval(repr(m)), base.Map)
+        "Map should have the expected repr."
+        r = "Map(%r, %r, %r, None, %r)" % (m.iterset, m.dataset, m.dim, m.name)
+        assert repr(m) == r
 
     def test_map_str(self, backend, m):
         "Map should have the expected string representation."
