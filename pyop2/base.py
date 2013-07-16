@@ -957,7 +957,7 @@ class Global(DataCarrier):
                 % (self._name, self._dim, self._data)
 
     def __repr__(self):
-        return "Global(%r, %r, %r)" % (self._name, self._dim, self._data)
+        return "Global(%r, %r, %r, %r)" % (self._dim, self._data, self._data.dtype, self._name)
 
     @property
     def data(self):
