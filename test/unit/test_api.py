@@ -834,10 +834,9 @@ class TestKernelAPI:
         assert k.name == 'foo'
 
     def test_kernel_repr(self, backend, set):
-        "Kernel repr should produce a Kernel object when eval'd."
+        "Kernel should have the expected repr."
         k = op2.Kernel("int foo() { return 0; }", 'foo')
-        from pyop2.op2 import Kernel
-        assert isinstance(eval(repr(k)), base.Kernel)
+        assert repr(k) == 'Kernel("""%s""", %r)' % (k.code, k.name)
 
     def test_kernel_str(self, backend, set):
         "Kernel should have the expected string representation."
