@@ -48,6 +48,8 @@ from subprocess import Popen, PIPE
 
 # hard coded value to max openmp threads
 _max_threads = 32
+# cache line padding
+_padding = 8
 
 def _detect_openmp_flags():
     p = Popen(['mpicc', '--version'], stdout=PIPE, shell=False)
@@ -69,9 +71,6 @@ class Arg(host.Arg):
     def c_kernel_arg_name(self, idx=None):
         return "p_%s[%s]" % (self.c_arg_name(), idx or 'tid')
 
-    def c_global_reduction_name(self):
-        return "%s_l[tid]" % self.c_arg_name()
-
     def c_local_tensor_name(self):
         return self.c_kernel_arg_name(str(_max_threads))
 
@@ -81,11 +80,14 @@ class Arg(host.Arg):
                     'vec_name' : self.c_vec_name(str(_max_threads)),
                     'dim' : self.map.dim}
 
+    def padding(self):
+        return int(_padding * (self.data.cdim / _padding + 1)) * (_padding / self.data.dtype.itemsize)
+
     def c_reduction_dec(self):
         return "%(type)s %(name)s_l[%(max_threads)s][%(dim)s]" % \
           {'type' : self.ctype,
            'name' : self.c_arg_name(),
-           'dim' : self.data.cdim,
+           'dim' : self.padding(),
            # Ensure different threads are on different cache lines
            'max_threads' : _max_threads}
 
@@ -95,7 +97,7 @@ class Arg(host.Arg):
         else:
             init = "%(name)s[i]" % {'name' : self.c_arg_name()}
         return "for ( int i = 0; i < %(dim)s; i++ ) %(name)s_l[tid][i] = %(init)s" % \
-          {'dim' : self.data.cdim,
+          {'dim' : self.padding(),
            'name' : self.c_arg_name(),
            'init' : init}
 
@@ -114,6 +116,11 @@ class Arg(host.Arg):
         }""" % {'combine' : combine,
                 'dim' : self.data.cdim}
 
+    def c_global_reduction_name(self, count=None):
+        return "%(name)s_l%(count)d[0]" % {
+                  'name' : self.c_arg_name(),
+                  'count' : count}
+
 # Parallel loop API
 
 def par_loop(kernel, it_space, *args):
@@ -130,7 +137,7 @@ class JITModule(host.JITModule):
     wrapper = """
 void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
                             PyObject* _part_size, PyObject* _ncolors, PyObject* _blkmap,
-                            PyObject* _ncolblk, PyObject* _nelems) {
+                            PyObject* _ncolblk, PyObject* _nelems  %(off_args)s) {
   int end = (int)PyInt_AsLong(_end);
   int part_size = (int)PyInt_AsLong(_part_size);
   int ncolors = (int)PyInt_AsLong(_ncolors);
@@ -141,6 +148,7 @@ void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
   %(wrapper_decs)s;
   %(const_inits)s;
   %(local_tensor_decs)s;
+  %(off_inits)s;
 
   #ifdef _OPENMP
   int nthread = omp_get_max_threads();
@@ -148,39 +156,42 @@ void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
   int nthread = 1;
   #endif
 
-  %(reduction_decs)s;
-
-  #pragma omp parallel default(shared)
-  {
-    int tid = omp_get_thread_num();
-    %(reduction_inits)s;
-  }
-
   int boffset = 0;
+  int __b,tid;
+  int lim;
   for ( int __col  = 0; __col < ncolors; __col++ ) {
     int nblocks = ncolblk[__col];
 
-    #pragma omp parallel default(shared)
+    #pragma omp parallel private(__b,tid, lim) shared(boffset, nblocks, nelems, blkmap, part_size)
     {
       int tid = omp_get_thread_num();
+      tid = omp_get_thread_num();
+      %(interm_globals_decl)s;
+      %(interm_globals_init)s;
+      lim = boffset + nblocks;
 
       #pragma omp for schedule(static)
-      for ( int __b = boffset; __b < (boffset + nblocks); __b++ ) {
+      for ( int __b = boffset; __b < lim; __b++ ) {
+        %(vec_decs)s;
         int bid = blkmap[__b];
         int nelem = nelems[bid];
         int efirst = bid * part_size;
-        for (int i = efirst; i < (efirst + nelem); i++ ) {
+        int lim2 = nelem + efirst;
+        for (int i = efirst; i < lim2; i++ ) {
           %(vec_inits)s;
           %(itspace_loops)s
+          %(extr_loop)s
           %(zero_tmps)s;
           %(kernel_name)s(%(kernel_args)s);
           %(addtos_vector_field)s;
+          %(apply_offset)s
+          %(extr_loop_close)s
           %(itspace_loop_close)s
           %(addtos_scalar_field)s;
         }
       }
+      %(interm_globals_writeback)s;
     }
-    %(reduction_finalisations)s
     boffset += nblocks;
   }
 }
@@ -203,7 +214,7 @@ void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
 class ParLoop(device.ParLoop, host.ParLoop):
 
     def compute(self):
-        fun = JITModule(self.kernel, self.it_space.extents, *self.args)
+        fun = JITModule(self.kernel, self.it_space, *self.args)
         _args = [self._it_space.size]
         for arg in self.args:
             if arg._is_mat:
@@ -222,7 +233,7 @@ class ParLoop(device.ParLoop, host.ParLoop):
         for c in Const._definitions():
             _args.append(c.data)
 
-        part_size = 1024  #TODO: compute partition size
+        part_size = self._it_space.partition_size
 
         # Create a plan, for colored execution
         if [arg for arg in self.args if arg._is_indirect or arg._is_mat]:
@@ -253,6 +264,9 @@ class ParLoop(device.ParLoop, host.ParLoop):
         _args.append(plan.blkmap)
         _args.append(plan.ncolblk)
         _args.append(plan.nelems)
+
+        # offset_args returns an empty list if there are none
+        _args.extend(self.offset_args())
 
         fun(*_args)
 

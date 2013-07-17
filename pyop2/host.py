@@ -42,6 +42,8 @@ from utils import as_tuple
 import configuration as cfg
 from find_op2 import *
 
+_max_threads = 32
+
 class Arg(base.Arg):
 
     def c_arg_name(self):
@@ -99,13 +101,13 @@ class Arg(base.Arg):
     def c_kernel_arg_name(self):
         return "p_%s" % self.c_arg_name()
 
-    def c_global_reduction_name(self):
+    def c_global_reduction_name(self, count=None):
         return self.c_arg_name()
 
     def c_local_tensor_name(self):
         return self.c_kernel_arg_name()
 
-    def c_kernel_arg(self):
+    def c_kernel_arg(self, count):
         if self._uses_itspace:
             if self._is_mat:
                 if self.data._is_vector_field:
@@ -125,7 +127,7 @@ class Arg(base.Arg):
                 return self.c_vec_name()
             return self.c_ind_data(self.idx)
         elif self._is_global_reduction:
-            return self.c_global_reduction_name()
+            return self.c_global_reduction_name(count)
         elif isinstance(self.data, Global):
             return self.c_arg_name()
         else:
@@ -206,17 +208,70 @@ class Arg(base.Arg):
         else:
             raise RuntimeError("Don't know how to zero temp array for %s" % self)
 
+    def c_add_offset(self,layers,count):
+        return """
+for(int j=0; j<%(layers)s;j++){
+  %(name)s[j] += _off%(num)s[j];
+}""" % {'name': self.c_vec_name(),
+        'layers': layers,
+        'num': count}
+
+    # New globals generation which avoids false sharing.
+    def c_intermediate_globals_decl(self, count):
+        return "%(type)s %(name)s_l%(count)s[1][%(dim)s]" % \
+            {'type' : self.ctype,
+             'name' : self.c_arg_name(),
+             'count': str(count),
+             'dim' : self.data.cdim}
+
+    def c_intermediate_globals_init(self,count):
+        if self.access == INC:
+            init = "(%(type)s)0" % {'type' : self.ctype}
+        else:
+            init = "%(name)s[i]" % {'name' : self.c_arg_name()}
+        return "for ( int i = 0; i < %(dim)s; i++ ) %(name)s_l%(count)s[0][i] = %(init)s" % \
+            {'dim': self.data.cdim,
+             'name': self.c_arg_name(),
+             'count': str(count),
+             'init': init}
+
+    def c_intermediate_globals_writeback(self,count):
+        d = {'gbl': self.c_arg_name(),
+             'local': "%(name)s_l%(count)s[0][i]" % {'name' : self.c_arg_name(), 'count' : str(count)}}
+        if self.access == INC:
+            combine = "%(gbl)s[i] += %(local)s" % d
+        elif self.access == MIN:
+            combine = "%(gbl)s[i] = %(gbl)s[i] < %(local)s ? %(gbl)s[i] : %(local)s" % d
+        elif self.access == MAX:
+            combine = "%(gbl)s[i] = %(gbl)s[i] > %(local)s ? %(gbl)s[i] : %(local)s" % d
+        return """
+#pragma omp critical
+for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
+""" % {'combine' : combine,
+       'dim' : self.data.cdim}
+
+    def c_vec_dec(self):
+        val = []
+        if self._is_vec_map:
+            val.append(";\n%(type)s *%(vec_name)s[%(dim)s]" %
+                   {'type' : self.ctype,
+                    'vec_name' : self.c_vec_name(),
+                    'dim' : self.map.dim,
+                    'max_threads': _max_threads})
+        return ";\n".join(val)
+
 class JITModule(base.JITModule):
 
     _cppargs = []
     _system_headers = []
     _libraries = []
 
-    def __init__(self, kernel, itspace_extents, *args):
+    def __init__(self, kernel, itspace, *args):
         # No need to protect against re-initialization since these attributes
         # are not expensive to set and won't be used if we hit cache
         self._kernel = kernel
-        self._extents = itspace_extents
+        self._extents = itspace.extents
+        self._layers = itspace.layers
         self._args = args
 
     def __call__(self, *args):
@@ -276,12 +331,21 @@ class JITModule(base.JITModule):
             tmp = '%(name)s[%%(i)s] = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[%%(i)s]' % d
             return ';\n'.join([tmp % {'i' : i} for i in range(c.cdim)])
 
+        def c_offset_init(c):
+            return "PyObject *off%(name)s" % {'name' : c }
+
+        def c_offset_decl(count):
+            return 'int * _off%(cnt)s = (int *)(((PyArrayObject *)off%(cnt)s)->data)' % { 'cnt' : count }
+
+        def extrusion_loop(d):
+            return "for (int j_0=0; j_0<%d; ++j_0){" % d
+
         _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self._args])
 
         _local_tensor_decs = ';\n'.join([arg.c_local_tensor_dec(self._extents) for arg in self._args if arg._is_mat])
         _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self._args])
 
-        _kernel_user_args = [arg.c_kernel_arg() for arg in self._args]
+        _kernel_user_args = [arg.c_kernel_arg(count) for count, arg in enumerate(self._args)]
         _kernel_it_args   = ["i_%d" % d for d in range(len(self._extents))]
         _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
         _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self._args \
@@ -305,7 +369,28 @@ class JITModule(base.JITModule):
             _const_args = ''
         _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
 
+        _intermediate_globals_decl = ';\n'.join([arg.c_intermediate_globals_decl(count) for count, arg in enumerate(self._args) if arg._is_global_reduction])
+        _intermediate_globals_init = ';\n'.join([arg.c_intermediate_globals_init(count) for count, arg in enumerate(self._args) if arg._is_global_reduction])
+        _intermediate_globals_writeback = ';\n'.join([arg.c_intermediate_globals_writeback(count) for count, arg in enumerate(self._args) if arg._is_global_reduction])
+
+        _vec_decs = ';\n'.join([arg.c_vec_dec() for arg in self._args if not arg._is_mat and arg._is_vec_map])
+
+        if self._layers > 1:
+            _off_args = ', ' + ', '.join([c_offset_init(count) for count, arg in enumerate(self._args) if not arg._is_mat and arg._is_vec_map])
+            _off_inits = ';\n'.join([c_offset_decl(count) for count, arg in enumerate(self._args) if not arg._is_mat and arg._is_vec_map])
+            _apply_offset = ' \n'.join([arg.c_add_offset(arg.map.offset.size,count) for count, arg in enumerate(self._args) if not arg._is_mat and arg._is_vec_map])
+            _extr_loop = '\n' + extrusion_loop(self._layers-1)
+            _extr_loop_close = '}\n'
+            _kernel_args += ', j_0'
+        else:
+            _apply_offset = ""
+            _off_args = ""
+            _off_inits = ""
+            _extr_loop = ""
+            _extr_loop_close = ""
+
         indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
+
         return {'ind': '  ' * nloops,
                 'kernel_name': self._kernel.name,
                 'wrapper_args': _wrapper_args,
@@ -315,8 +400,17 @@ class JITModule(base.JITModule):
                 'local_tensor_decs': indent(_local_tensor_decs, 1),
                 'itspace_loops': indent(_itspace_loops, 2),
                 'itspace_loop_close': indent(_itspace_loop_close, 2),
-                'vec_inits': indent(_vec_inits, 2),
+                'vec_inits': indent(_vec_inits, 5),
                 'zero_tmps': indent(_zero_tmps, 2 + nloops),
                 'kernel_args': _kernel_args,
                 'addtos_vector_field': indent(_addtos_vector_field, 2 + nloops),
-                'addtos_scalar_field': indent(_addtos_scalar_field, 2)}
+                'addtos_scalar_field': indent(_addtos_scalar_field, 2),
+                'apply_offset' : indent(_apply_offset, 3),
+                'off_args' : _off_args,
+                'off_inits' : _off_inits,
+                'extr_loop' : indent(_extr_loop,5),
+                'extr_loop_close' : indent(_extr_loop_close,2),
+                'interm_globals_decl' : indent(_intermediate_globals_decl,3),
+                'interm_globals_init' : indent(_intermediate_globals_init,3),
+                'interm_globals_writeback' : indent(_intermediate_globals_writeback,3),
+                'vec_decs' : indent(_vec_decs,4)}

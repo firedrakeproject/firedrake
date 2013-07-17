@@ -304,7 +304,7 @@ class Set(object):
     IMPORT_NON_EXEC_SIZE = 3
     @validate_type(('size', (int, tuple, list), SizeTypeError),
                    ('name', str, NameTypeError))
-    def __init__(self, size=None, dim=1, name=None, halo=None):
+    def __init__(self, size=None, dim=1, name=None, halo=None, layers=None):
         if type(size) is int:
             size = [size]*4
         size = as_tuple(size, int, 4)
@@ -320,6 +320,8 @@ class Set(object):
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = None
         self._halo = halo
+        self._layers = layers if layers is not None else 1
+        self._partition_size = 1024
         if self.halo:
             self.halo.verify(self)
         Set._globalcount += 1
@@ -376,6 +378,21 @@ class Set(object):
     def halo(self):
         """:class:`Halo` associated with this Set"""
         return self._halo
+
+    @property
+    def layers(self):
+        """Number of layers in the extruded mesh"""
+        return self._layers
+
+    @property
+    def partition_size(self):
+        """Default partition size"""
+        return self._partition_size
+
+    @partition_size.setter
+    def partition_size(self, partition_value):
+        """Set the partition size"""
+        self._partition_size = partition_value
 
     def __str__(self):
         return "OP2 Set: %s with size %s, dim %s" % (self._name, self._size, self._dim)
@@ -547,6 +564,14 @@ class IterationSpace(object):
         return self._iterset.exec_size
 
     @property
+    def layers(self):
+        return self._iterset.layers
+
+    @property
+    def partition_size(self):
+        return self.iterset.partition_size
+
+    @property
     def total_size(self):
         """The total size of :class:`Set` over which this IterationSpace is defined.
 
@@ -562,6 +587,10 @@ class IterationSpace(object):
 
     def __repr__(self):
         return "IterationSpace(%r, %r)" % (self._iterset, self._extents)
+
+    @property
+    def cache_key(self):
+        return self._extents, self.iterset.layers
 
 class DataCarrier(object):
     """Abstract base class for OP2 data. Actual objects will be
@@ -1037,7 +1066,7 @@ class Map(object):
 
     @validate_type(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError), \
             ('dim', int, DimTypeError), ('name', str, NameTypeError))
-    def __init__(self, iterset, dataset, dim, values=None, name=None):
+    def __init__(self, iterset, dataset, dim, values=None, name=None, offset=None):
         self._iterset = iterset
         self._dataset = dataset
         self._dim = dim
@@ -1045,6 +1074,7 @@ class Map(object):
                                       allow_none=True)
         self._name = name or "map_%d" % Map._globalcount
         self._lib_handle = None
+        self._offset = offset
         Map._globalcount += 1
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
@@ -1089,6 +1119,11 @@ class Map(object):
     def name(self):
         """User-defined label"""
         return self._name
+
+    @property
+    def offset(self):
+        """Return the vertical offset."""
+        return self._offset
 
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with dim %s" \
@@ -1441,8 +1476,8 @@ class JITModule(Cached):
     _cache = {}
 
     @classmethod
-    def _cache_key(cls, kernel, itspace_extents, *args, **kwargs):
-        key = (kernel.cache_key, itspace_extents)
+    def _cache_key(cls, kernel, itspace, *args, **kwargs):
+        key = (kernel.cache_key, itspace.cache_key)
         for arg in args:
             if arg._is_global:
                 key += (arg.data.dim, arg.data.dtype, arg.access)
@@ -1482,6 +1517,7 @@ class ParLoop(object):
         self._actual_args = args
         self._kernel = kernel
         self._it_space = itspace if isinstance(itspace, IterationSpace) else IterationSpace(itspace)
+        self._is_layered = itspace.layers > 1
 
         self.check_args()
 
@@ -1552,6 +1588,17 @@ class ParLoop(object):
     def generate_code(self):
         raise RuntimeError('Must select a backend')
 
+    def offset_args(self):
+        """The offset args that need to be added to the argument list."""
+        _args = []
+        for arg in self.args:
+            if arg._is_indirect or arg._is_mat:
+                maps = as_tuple(arg.map, Map)
+                for map in maps:
+                    if map.iterset.layers is not None and map.iterset.layers > 1:
+                       _args.append(map.offset)
+        return _args
+
     @property
     def it_space(self):
         """Iteration space of the parallel loop."""
@@ -1587,6 +1634,11 @@ class ParLoop(object):
     @property
     def _has_soa(self):
         return any(a._is_soa for a in self._actual_args)
+
+    @property
+    def is_layered(self):
+        """Flag which triggers extrusion"""
+        return self._is_layered
 
 DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
                              'preconditioner':     'jacobi',
