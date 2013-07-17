@@ -45,21 +45,26 @@ from pyop2 import sequential
 from pyop2 import base
 from pyop2 import configuration as cfg
 
+
 @pytest.fixture(params=[1, 2, (2, 3)])
 def set(request):
     return op2.Set(5, request.param, 'foo')
+
 
 @pytest.fixture
 def iterset():
     return op2.Set(2, 1, 'iterset')
 
+
 @pytest.fixture
 def dataset():
     return op2.Set(3, 1, 'dataset')
 
+
 @pytest.fixture
 def m(iterset, dataset):
     return op2.Map(iterset,  dataset, 2, [1] * 2 * iterset.size, 'm')
+
 
 @pytest.fixture
 def const(request):
@@ -67,11 +72,14 @@ def const(request):
     request.addfinalizer(c.remove_from_namespace)
     return c
 
+
 @pytest.fixture
 def sparsity(m):
     return op2.Sparsity((m, m))
 
+
 class TestInitAPI:
+
     """
     Init API unit tests
     """
@@ -88,12 +96,12 @@ class TestInitAPI:
 
     def test_init(self, backend):
         "init should correctly set the backend."
-        assert op2.backends.get_backend() == 'pyop2.'+backend
+        assert op2.backends.get_backend() == 'pyop2.' + backend
 
     def test_double_init(self, backend):
         "Calling init again with the same backend should update the configuration."
         op2.init(backend=backend, foo='bar')
-        assert op2.backends.get_backend() == 'pyop2.'+backend
+        assert op2.backends.get_backend() == 'pyop2.' + backend
         assert cfg.foo == 'bar'
 
     def test_change_backend_fails(self, backend):
@@ -101,7 +109,9 @@ class TestInitAPI:
         with pytest.raises(RuntimeError):
             op2.init(backend='other')
 
+
 class TestMPIAPI:
+
     """
     Init API unit tests
     """
@@ -129,7 +139,9 @@ class TestMPIAPI:
         with pytest.raises(TypeError):
             op2.MPI.comm = None
 
+
 class TestAccessAPI:
+
     """
     Access API unit tests
     """
@@ -150,7 +162,9 @@ class TestAccessAPI:
         with pytest.raises(exceptions.ModeValueError):
             base.Access('ILLEGAL_ACCESS')
 
+
 class TestSetAPI:
+
     """
     Set API unit tests
     """
@@ -168,7 +182,7 @@ class TestSetAPI:
     def test_set_illegal_dim_tuple(self, backend):
         "Set dim should be int or int tuple."
         with pytest.raises(TypeError):
-            op2.Set(1, (1,'illegaldim'))
+            op2.Set(1, (1, 'illegaldim'))
 
     def test_set_illegal_name(self, backend):
         "Set name should be string."
@@ -182,8 +196,8 @@ class TestSetAPI:
 
     def test_set_dim_list(self, backend):
         "Set constructor should create a dim tuple from a list."
-        s = op2.Set(1, [2,3])
-        assert s.dim == (2,3)
+        s = op2.Set(1, [2, 3])
+        assert s.dim == (2, 3)
 
     def test_set_repr(self, backend, set):
         "Set repr should produce a Set object when eval'd."
@@ -193,7 +207,7 @@ class TestSetAPI:
     def test_set_str(self, backend, set):
         "Set should have the expected string representation."
         assert str(set) == "OP2 Set: %s with size %s, dim %s" \
-                % (set.name, set.size, set.dim)
+            % (set.name, set.size, set.dim)
 
     def test_set_equality(self, backend, set):
         "The equality test for sets is identity, not attribute equality"
@@ -202,7 +216,9 @@ class TestSetAPI:
 
     # FIXME: test Set._lib_handle
 
+
 class TestDatAPI:
+
     """
     Dat API unit tests
     """
@@ -251,17 +267,17 @@ class TestDatAPI:
 
     def test_dat_int(self, backend, set):
         "Data type for int data should be numpy.int."
-        d = op2.Dat(set, [1]*set.size * np.prod(set.dim))
+        d = op2.Dat(set, [1] * set.size * np.prod(set.dim))
         assert d.dtype == np.int
 
     def test_dat_convert_int_float(self, backend, set):
         "Explicit float type should override NumPy's default choice of int."
-        d = op2.Dat(set, [1]*set.size * np.prod(set.dim), np.double)
+        d = op2.Dat(set, [1] * set.size * np.prod(set.dim), np.double)
         assert d.dtype == np.float64
 
     def test_dat_convert_float_int(self, backend, set):
         "Explicit int type should override NumPy's default choice of float."
-        d = op2.Dat(set, [1.5]*set.size * np.prod(set.dim), np.int32)
+        d = op2.Dat(set, [1.5] * set.size * np.prod(set.dim), np.int32)
         assert d.dtype == np.int32
 
     def test_dat_illegal_dtype(self, backend, set):
@@ -272,18 +288,18 @@ class TestDatAPI:
     def test_dat_illegal_length(self, backend, set):
         "Mismatching data length should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
-            op2.Dat(set, [1]*(set.size*np.prod(set.dim)+1))
+            op2.Dat(set, [1] * (set.size * np.prod(set.dim) + 1))
 
     def test_dat_reshape(self, backend, set):
         "Data should be reshaped according to the set's dim."
-        d = op2.Dat(set, [1.0]*set.size*np.prod(set.dim))
+        d = op2.Dat(set, [1.0] * set.size * np.prod(set.dim))
         assert d.data.shape == (set.size,) + set.dim
 
     def test_dat_properties(self, backend, set):
         "Dat constructor should correctly set attributes."
-        d = op2.Dat(set, [1]*set.size*np.prod(set.dim), 'double', 'bar')
+        d = op2.Dat(set, [1] * set.size * np.prod(set.dim), 'double', 'bar')
         assert d.dataset == set and d.dtype == np.float64 and \
-                d.name == 'bar' and d.data.sum() == set.size*np.prod(set.dim)
+            d.name == 'bar' and d.data.sum() == set.size * np.prod(set.dim)
 
     def test_dat_repr(self, backend, set):
         "Dat repr should produce a Dat object when eval'd."
@@ -296,7 +312,7 @@ class TestDatAPI:
         "Dat should have the expected string representation."
         d = op2.Dat(set, dtype='double', name='bar')
         s = "OP2 Dat: %s on (%s) with datatype %s" \
-               % (d.name, d.dataset, d.data.dtype.name)
+            % (d.name, d.dataset, d.data.dtype.name)
         assert str(d) == s
 
     def test_dat_ro_accessor(self, backend, set):
@@ -316,7 +332,9 @@ class TestDatAPI:
         x[0] = -100
         assert (d.data_ro[0] == -100).all()
 
+
 class TestSparsityAPI:
+
     """
     Sparsity API unit tests
     """
@@ -359,13 +377,13 @@ class TestSparsityAPI:
     def test_sparsity_multiple_map_pairs(self, backend, m):
         "Sparsity constructor should accept tuple of pairs of maps"
         s = op2.Sparsity(((m, m), (m, m)), "foo")
-        assert s.maps == [(m, m), (m, m)] and s.dims == (1,1)
+        assert s.maps == [(m, m), (m, m)] and s.dims == (1, 1)
 
     def test_sparsity_map_pairs_different_itset(self, backend, m, mi):
         "Sparsity constructor should accept maps with different iteration sets"
         s = op2.Sparsity(((m, m), (mi, mi)), "foo")
         # Note the order of the map pairs is not guaranteed
-        assert len(s.maps) == 2 and s.dims == (1,1)
+        assert len(s.maps) == 2 and s.dims == (1, 1)
 
     def test_sparsity_illegal_itersets(self, backend, m, mi):
         "Both maps in a (rmap,cmap) tuple must have same iteration set"
@@ -393,10 +411,12 @@ class TestSparsityAPI:
     def test_sparsity_str(self, backend, sparsity):
         "Sparsity should have the expected string representation."
         s = "OP2 Sparsity: rmaps %s, cmaps %s, name %s" % \
-               (sparsity.rmaps, sparsity.cmaps, sparsity.name)
+            (sparsity.rmaps, sparsity.cmaps, sparsity.name)
         assert str(sparsity) == s
 
+
 class TestMatAPI:
+
     """
     Mat API unit tests
     """
@@ -420,7 +440,7 @@ class TestMatAPI:
         "Mat constructor should correctly set attributes."
         m = op2.Mat(sparsity, 'double', 'bar')
         assert m.sparsity == sparsity and  \
-                m.dtype == np.float64 and m.name == 'bar'
+            m.dtype == np.float64 and m.name == 'bar'
 
     def test_mat_illegal_maps(self, backend, sparsity):
         m = op2.Mat(sparsity)
@@ -443,11 +463,12 @@ class TestMatAPI:
         "Mat should have the expected string representation."
         m = op2.Mat(sparsity)
         s = "OP2 Mat: %s, sparsity (%s), datatype %s" \
-               % (m.name, m.sparsity, m.dtype.name)
+            % (m.name, m.sparsity, m.dtype.name)
         assert str(m) == s
 
 
 class TestConstAPI:
+
     """
     Const API unit tests
     """
@@ -460,7 +481,7 @@ class TestConstAPI:
     def test_const_illegal_dim_tuple(self, backend):
         "Const dim should be int or int tuple."
         with pytest.raises(TypeError):
-            op2.Const((1,'illegaldim'), 1, 'test_const_illegal_dim_tuple')
+            op2.Const((1, 'illegaldim'), 1, 'test_const_illegal_dim_tuple')
 
     def test_const_nonunique_name(self, backend, const):
         "Const names should be unique."
@@ -488,9 +509,9 @@ class TestConstAPI:
 
     def test_const_dim_list(self, backend):
         "Const constructor should create a dim tuple from a list."
-        c = op2.Const([2,3], [1]*6, 'test_const_dim_list')
+        c = op2.Const([2, 3], [1] * 6, 'test_const_dim_list')
         c.remove_from_namespace()
-        assert c.dim == (2,3)
+        assert c.dim == (2, 3)
 
     def test_const_float(self, backend):
         "Data type for float data should be numpy.float64."
@@ -521,24 +542,25 @@ class TestConstAPI:
         with pytest.raises(exceptions.DataValueError):
             op2.Const(1, 'illegal_type', 'test_const_illegal_dtype', 'double')
 
-    @pytest.mark.parametrize("dim", [1, (2,2)])
+    @pytest.mark.parametrize("dim", [1, (2, 2)])
     def test_const_illegal_length(self, backend, dim):
         "Mismatching data length should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
-            op2.Const(dim, [1]*(np.prod(dim)+1), 'test_const_illegal_length_%r' % np.prod(dim))
+            op2.Const(
+                dim, [1] * (np.prod(dim) + 1), 'test_const_illegal_length_%r' % np.prod(dim))
 
     def test_const_reshape(self, backend):
         "Data should be reshaped according to dim."
-        c = op2.Const((2,2), [1.0]*4, 'test_const_reshape')
+        c = op2.Const((2, 2), [1.0] * 4, 'test_const_reshape')
         c.remove_from_namespace()
-        assert c.dim == (2,2) and c.data.shape == (2,2)
+        assert c.dim == (2, 2) and c.data.shape == (2, 2)
 
     def test_const_properties(self, backend):
         "Data constructor should correctly set attributes."
-        c = op2.Const((2,2), [1]*4, 'baz', 'double')
+        c = op2.Const((2, 2), [1] * 4, 'baz', 'double')
         c.remove_from_namespace()
-        assert c.dim == (2,2) and c.dtype == np.float64 and c.name == 'baz' \
-                and c.data.sum() == 4
+        assert c.dim == (2, 2) and c.dtype == np.float64 and c.name == 'baz' \
+            and c.data.sum() == 4
 
     def test_const_setter(self, backend):
         "Setter attribute on data should correct set data value."
@@ -566,10 +588,12 @@ class TestConstAPI:
     def test_const_str(self, backend, const):
         "Const should have the expected string representation."
         s = "OP2 Const: %s of dim %s and type %s with value %s" \
-               % (const.name, const.dim, const.data.dtype.name, const.data)
+            % (const.name, const.dim, const.data.dtype.name, const.data)
         assert str(const) == s
 
+
 class TestGlobalAPI:
+
     """
     Global API unit tests
     """
@@ -582,7 +606,7 @@ class TestGlobalAPI:
     def test_global_illegal_dim_tuple(self, backend):
         "Global dim should be int or int tuple."
         with pytest.raises(TypeError):
-            op2.Global((1,'illegaldim'))
+            op2.Global((1, 'illegaldim'))
 
     def test_global_illegal_name(self, backend):
         "Global name should be string."
@@ -596,8 +620,8 @@ class TestGlobalAPI:
 
     def test_global_dim_list(self, backend):
         "Global constructor should create a dim tuple from a list."
-        g = op2.Global([2,3], [1]*6)
-        assert g.dim == (2,3)
+        g = op2.Global([2, 3], [1] * 6)
+        assert g.dim == (2, 3)
 
     def test_global_float(self, backend):
         "Data type for float data should be numpy.float64."
@@ -624,22 +648,22 @@ class TestGlobalAPI:
         with pytest.raises(exceptions.DataValueError):
             op2.Global(1, 'illegal_type', 'double')
 
-    @pytest.mark.parametrize("dim", [1, (2,2)])
+    @pytest.mark.parametrize("dim", [1, (2, 2)])
     def test_global_illegal_length(self, backend, dim):
         "Mismatching data length should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
-            op2.Global(dim, [1]*(np.prod(dim)+1))
+            op2.Global(dim, [1] * (np.prod(dim) + 1))
 
     def test_global_reshape(self, backend):
         "Data should be reshaped according to dim."
-        g = op2.Global((2,2), [1.0]*4)
-        assert g.dim == (2,2) and g.data.shape == (2,2)
+        g = op2.Global((2, 2), [1.0] * 4)
+        assert g.dim == (2, 2) and g.data.shape == (2, 2)
 
     def test_global_properties(self, backend):
         "Data globalructor should correctly set attributes."
-        g = op2.Global((2,2), [1]*4, 'double', 'bar')
-        assert g.dim == (2,2) and g.dtype == np.float64 and g.name == 'bar' \
-                and g.data.sum() == 4
+        g = op2.Global((2, 2), [1] * 4, 'double', 'bar')
+        assert g.dim == (2, 2) and g.dtype == np.float64 and g.name == 'bar' \
+            and g.data.sum() == 4
 
     def test_global_setter(self, backend):
         "Setter attribute on data should correct set data value."
@@ -664,10 +688,12 @@ class TestGlobalAPI:
         "Global should have the expected string representation."
         g = op2.Global(1, 1, 'double')
         s = "OP2 Global Argument: %s with dim %s and value %s" \
-                % (g.name, g.dim, g.data)
+            % (g.name, g.dim, g.data)
         assert str(g) == s
 
+
 class TestMapAPI:
+
     """
     Map API unit tests
     """
@@ -690,7 +716,7 @@ class TestMapAPI:
     def test_map_illegal_dim_tuple(self, backend, set):
         "Map dim should not be a tuple."
         with pytest.raises(exceptions.DimTypeError):
-            op2.Map(set, set, (2,2), [])
+            op2.Map(set, set, (2, 2), [])
 
     def test_map_illegal_name(self, backend, set):
         "Map name should be string."
@@ -705,23 +731,23 @@ class TestMapAPI:
     def test_map_illegal_length(self, backend, iterset, dataset):
         "Mismatching data length should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
-            op2.Map(iterset, dataset, 1, [1]*(iterset.size+1))
+            op2.Map(iterset, dataset, 1, [1] * (iterset.size + 1))
 
     def test_map_convert_float_int(self, backend, iterset, dataset):
         "Float data should be implicitely converted to int."
-        m = op2.Map(iterset, dataset, 1, [1.5]*iterset.size)
+        m = op2.Map(iterset, dataset, 1, [1.5] * iterset.size)
         assert m.values.dtype == np.int32 and m.values.sum() == iterset.size
 
     def test_map_reshape(self, backend, iterset, dataset):
         "Data should be reshaped according to dim."
-        m = op2.Map(iterset, dataset, 2, [1]*2*iterset.size)
-        assert m.dim == 2 and m.values.shape == (iterset.size,2)
+        m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size)
+        assert m.dim == 2 and m.values.shape == (iterset.size, 2)
 
     def test_map_properties(self, backend, iterset, dataset):
         "Data constructor should correctly set attributes."
-        m = op2.Map(iterset, dataset, 2, [1]*2*iterset.size, 'bar')
+        m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size, 'bar')
         assert m.iterset == iterset and m.dataset == dataset and m.dim == 2 \
-                and m.values.sum() == 2*iterset.size and m.name == 'bar'
+            and m.values.sum() == 2 * iterset.size and m.name == 'bar'
 
     def test_map_indexing(self, backend, iterset, dataset):
         "Indexing a map should create an appropriate Arg"
@@ -751,7 +777,7 @@ class TestMapAPI:
 
     def test_map_dimension_inequality(self, backend, m):
         """Maps that have different dimensions are not equal"""
-        m2 = op2.Map(m.iterset, m.dataset, m.dim*2, list(m.values)*2, m.name)
+        m2 = op2.Map(m.iterset, m.dataset, m.dim * 2, list(m.values) * 2, m.name)
         assert m != m2
 
     def test_map_name_inequality(self, backend, m):
@@ -767,10 +793,12 @@ class TestMapAPI:
     def test_map_str(self, backend, m):
         "Map should have the expected string representation."
         s = "OP2 Map: %s from (%s) to (%s) with dim %s" \
-               % (m.name, m.iterset, m.dataset, m.dim)
+            % (m.name, m.iterset, m.dataset, m.dim)
         assert str(m) == s
 
+
 class TestIterationSpaceAPI:
+
     """
     IterationSpace API unit tests
     """
@@ -788,7 +816,7 @@ class TestIterationSpaceAPI:
     def test_iteration_space_illegal_extents_tuple(self, backend, set):
         "IterationSpace extents should be int or int tuple."
         with pytest.raises(TypeError):
-            op2.IterationSpace(set, (1,'illegalextents'))
+            op2.IterationSpace(set, (1, 'illegalextents'))
 
     def test_iteration_space_extents(self, backend, set):
         "IterationSpace constructor should create a extents tuple."
@@ -797,13 +825,13 @@ class TestIterationSpaceAPI:
 
     def test_iteration_space_extents_list(self, backend, set):
         "IterationSpace constructor should create a extents tuple from a list."
-        m = op2.IterationSpace(set, [2,3])
-        assert m.extents == (2,3)
+        m = op2.IterationSpace(set, [2, 3])
+        assert m.extents == (2, 3)
 
     def test_iteration_space_properties(self, backend, set):
         "IterationSpace constructor should correctly set attributes."
-        i = op2.IterationSpace(set, (2,3))
-        assert i.iterset == set and i.extents == (2,3)
+        i = op2.IterationSpace(set, (2, 3))
+        assert i.iterset == set and i.extents == (2, 3)
 
     def test_iteration_space_repr(self, backend, set):
         """IterationSpace repr should produce a IterationSpace object when
@@ -818,7 +846,9 @@ class TestIterationSpaceAPI:
         s = "OP2 Iteration Space: %s with extents %s" % (m.iterset, m.extents)
         assert str(m) == s
 
+
 class TestKernelAPI:
+
     """
     Kernel API unit tests
     """
@@ -843,7 +873,9 @@ class TestKernelAPI:
         k = op2.Kernel("int foo() { return 0; }", 'foo')
         assert str(k) == "OP2 Kernel: %s" % k.name
 
+
 class TestIllegalItersetMaps:
+
     """
     Pass args with the wrong iterset maps to ParLoops, and check that they are trapped.
     """
@@ -863,9 +895,11 @@ class TestIllegalItersetMaps:
         rmap, cmap = sparsity.maps[0]
         kernel = op2.Kernel("void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):
-            base.ParLoop(kernel, set1(3,3), m((rmap[op2.i[0]], cmap[op2.i[1]]), op2.INC))
+            base.ParLoop(kernel, set1(3, 3), m((rmap[op2.i[0]], cmap[op2.i[1]]), op2.INC))
+
 
 class TestSolverAPI:
+
     """
     Test the Solver API.
     """
@@ -876,27 +910,27 @@ class TestSolverAPI:
 
     def test_set_options_with_params(self, backend):
         params = {'linear_solver': 'gmres',
-                  'maximum_iterations': 25 }
+                  'maximum_iterations': 25}
         s = op2.Solver(params)
         assert s.parameters['linear_solver'] == 'gmres' \
-           and s.parameters['maximum_iterations'] == 25
+            and s.parameters['maximum_iterations'] == 25
 
     def test_set_options_with_kwargs(self, backend):
         s = op2.Solver(linear_solver='gmres', maximum_iterations=25)
         assert s.parameters['linear_solver'] == 'gmres' \
-           and s.parameters['maximum_iterations'] == 25
+            and s.parameters['maximum_iterations'] == 25
 
     def test_update_parameters(self, backend):
         s = op2.Solver()
         params = {'linear_solver': 'gmres',
-                  'maximum_iterations': 25 }
+                  'maximum_iterations': 25}
         s.update_parameters(params)
         assert s.parameters['linear_solver'] == 'gmres' \
-           and s.parameters['maximum_iterations'] == 25
+            and s.parameters['maximum_iterations'] == 25
 
     def test_set_params_and_kwargs_illegal(self, backend):
         params = {'linear_solver': 'gmres',
-                  'maximum_iterations': 25 }
+                  'maximum_iterations': 25}
         with pytest.raises(RuntimeError):
             op2.Solver(params, linear_solver='cgs')
 

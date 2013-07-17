@@ -44,6 +44,7 @@ from pyop2 import op2
 mpi4py = pytest.importorskip("mpi4py")
 petsc4py = pytest.importorskip("petsc4py")
 
+
 class TestPETSc:
 
     def test_set_petsc_mpi_comm(self, backend):

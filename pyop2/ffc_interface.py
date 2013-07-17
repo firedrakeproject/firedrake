@@ -58,6 +58,7 @@ ffc_parameters = default_parameters()
 ffc_parameters['write_file'] = False
 ffc_parameters['format'] = 'pyop2'
 
+
 class FFCKernel(DiskCached):
 
     _cache = {}
@@ -76,10 +77,11 @@ class FFCKernel(DiskCached):
         code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
         form_data = form.form_data()
 
-        self.kernels = tuple([Kernel(code, '%s_%s_integral_0_%s' % \
-                               (name, ida.domain_type, ida.domain_id)) \
-                               for ida in form_data.integral_data])
+        self.kernels = tuple([Kernel(code, '%s_%s_integral_0_%s' %
+                            (name, ida.domain_type, ida.domain_id))
+            for ida in form_data.integral_data])
         self._initialized = True
+
 
 def compile_form(form, name):
     """Compile a form using FFC and return an OP2 kernel"""

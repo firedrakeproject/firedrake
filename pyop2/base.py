@@ -53,7 +53,9 @@ import op_lib_core as core
 
 # Data API
 
+
 class Access(object):
+
     """OP2 access type. In an :py:class:`Arg`, this describes how the :py:class:`DataCarrier` will be accessed.
 
     .. warning :: Access should not be instantiated by user code. Instead, use the predefined values: :const:`READ`, :const:`WRITE`, :const:`RW`, :const:`INC`, :const:`MIN`, :const:`MAX`
@@ -71,27 +73,29 @@ class Access(object):
     def __repr__(self):
         return "Access(%r)" % self._mode
 
-READ  = Access("READ")
+READ = Access("READ")
 """The :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed read-only."""
 
 WRITE = Access("WRITE")
 """The  :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed write-only, and OP2 is not required to handle write conflicts."""
 
-RW    = Access("RW")
+RW = Access("RW")
 """The  :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed for reading and writing, and OP2 is not required to handle write conflicts."""
 
-INC   = Access("INC")
+INC = Access("INC")
 """The kernel computes increments to be summed onto a :class:`Global`, :class:`Dat`, or :class:`Mat`. OP2 is responsible for managing the write conflicts caused."""
 
-MIN   = Access("MIN")
+MIN = Access("MIN")
 """The kernel contributes to a reduction into a :class:`Global` using a ``min`` operation. OP2 is responsible for reducing over the different kernel invocations."""
 
-MAX   = Access("MAX")
+MAX = Access("MAX")
 """The kernel contributes to a reduction into a :class:`Global` using a ``max`` operation. OP2 is responsible for reducing over the different kernel invocations."""
 
 # Data API
 
+
 class Arg(object):
+
     """An argument to a :func:`par_loop`.
 
     .. warning:: User code should not directly instantiate :class:`Arg`. Instead, use the call syntax on the :class:`DataCarrier`.
@@ -103,15 +107,15 @@ class Arg(object):
         self._idx = idx
         self._access = access
         self._lib_handle = None
-        self._in_flight = False # some kind of comms in flight for this arg
+        self._in_flight = False  # some kind of comms in flight for this arg
 
     def __str__(self):
         return "OP2 Arg: dat %s, map %s, index %s, access %s" % \
-                   (self._dat, self._map, self._idx, self._access)
+            (self._dat, self._map, self._idx, self._access)
 
     def __repr__(self):
         return "Arg(%r, %r, %r, %r)" % \
-                   (self._dat, self._map, self._idx, self._access)
+            (self._dat, self._map, self._idx, self._access)
 
     @property
     def ctype(self):
@@ -258,7 +262,9 @@ class Arg(object):
         """Data carrier: :class:`Dat`, :class:`Mat`, :class:`Const` or :class:`Global`."""
         return self._dat
 
+
 class Set(object):
+
     """OP2 set.
 
     :param size: The size of the set.
@@ -302,15 +308,16 @@ class Set(object):
     OWNED_SIZE = 1
     IMPORT_EXEC_SIZE = 2
     IMPORT_NON_EXEC_SIZE = 3
+
     @validate_type(('size', (int, tuple, list), SizeTypeError),
                    ('name', str, NameTypeError))
     def __init__(self, size=None, dim=1, name=None, halo=None, layers=None):
         if type(size) is int:
-            size = [size]*4
+            size = [size] * 4
         size = as_tuple(size, int, 4)
         assert size[Set.CORE_SIZE] <= size[Set.OWNED_SIZE] <= \
-                size[Set.IMPORT_EXEC_SIZE] <= size[Set.IMPORT_NON_EXEC_SIZE], \
-                "Set received invalid sizes: %s" % size
+            size[Set.IMPORT_EXEC_SIZE] <= size[Set.IMPORT_NON_EXEC_SIZE], \
+            "Set received invalid sizes: %s" % size
         self._core_size = size[Set.CORE_SIZE]
         self._size = size[Set.OWNED_SIZE]
         self._ieh_size = size[Set.IMPORT_EXEC_SIZE]
@@ -416,7 +423,9 @@ class Set(object):
             self._lib_handle = core.op_set(self)
         return self._lib_handle
 
+
 class Halo(object):
+
     """A description of a halo associated with a :class:`Set`.
 
     The halo object describes which :class:`Set` elements are sent
@@ -439,6 +448,7 @@ class Halo(object):
     numbering, however insertion into :class:`Mat`s uses cross-process
     numbering under the hood.
     """
+
     def __init__(self, sends, receives, comm=None, gnn2unn=None):
         self._sends = tuple(np.asarray(x, dtype=np.int32) for x in sends)
         self._receives = tuple(np.asarray(x, dtype=np.int32) for x in receives)
@@ -521,7 +531,9 @@ class Halo(object):
         # FIXME: This will break for custom halo communicators
         self._comm = MPI.comm
 
+
 class IterationSpace(object):
+
     """OP2 iteration space type.
 
     .. Warning:: User code should not directly instantiate IterationSpace. Instead use the call syntax on the iteration set in the :func:`par_loop` call.
@@ -592,7 +604,9 @@ class IterationSpace(object):
     def cache_key(self):
         return self._extents, self.iterset.layers
 
+
 class DataCarrier(object):
+
     """Abstract base class for OP2 data. Actual objects will be
     ``DataCarrier`` objects of rank 0 (:class:`Const` and
     :class:`Global`), rank 1 (:class:`Dat`), or rank 2
@@ -607,19 +621,19 @@ class DataCarrier(object):
     def ctype(self):
         """The c type of the data."""
         # FIXME: Complex and float16 not supported
-        typemap = { "bool":    "unsigned char",
-                    "int":     "int",
-                    "int8":    "char",
-                    "int16":   "short",
-                    "int32":   "int",
-                    "int64":   "long long",
-                    "uint8":   "unsigned char",
-                    "uint16":  "unsigned short",
-                    "uint32":  "unsigned int",
-                    "uint64":  "unsigned long",
-                    "float":   "double",
-                    "float32": "float",
-                    "float64": "double" }
+        typemap = {"bool":    "unsigned char",
+                   "int":     "int",
+                   "int8":    "char",
+                   "int16":   "short",
+                   "int32":   "int",
+                   "int64":   "long long",
+                   "uint8":   "unsigned char",
+                   "uint16":  "unsigned short",
+                   "uint32":  "unsigned int",
+                   "uint64":  "unsigned long",
+                   "float":   "double",
+                   "float32": "float",
+                   "float64": "double"}
         return typemap[self.dtype.name]
 
     @property
@@ -638,7 +652,9 @@ class DataCarrier(object):
         the product of the dim tuple."""
         return self._cdim
 
+
 class Dat(DataCarrier):
+
     """OP2 vector data. A ``Dat`` holds ``dim`` values for every member of a :class:`Set`.
 
     When a ``Dat`` is passed to :func:`par_loop`, the map via which
@@ -665,7 +681,7 @@ class Dat(DataCarrier):
     def __init__(self, dataset, data=None, dtype=None, name=None,
                  soa=None, uid=None):
         if data is None:
-            data = np.zeros(dataset.total_size*dataset.cdim)
+            data = np.zeros(dataset.total_size * dataset.cdim)
         self._dataset = dataset
         self._data = verify_reshape(data, dtype,
                                     (dataset.total_size,) + dataset.dim,
@@ -684,10 +700,10 @@ class Dat(DataCarrier):
         self._name = name or "dat_%d" % self._id
         halo = dataset.halo
         if halo is not None:
-            self._send_reqs = [None]*halo.comm.size
-            self._send_buf = [None]*halo.comm.size
-            self._recv_reqs = [None]*halo.comm.size
-            self._recv_buf = [None]*halo.comm.size
+            self._send_reqs = [None] * halo.comm.size
+            self._send_buf = [None] * halo.comm.size
+            self._recv_reqs = [None] * halo.comm.size
+            self._recv_buf = [None] * halo.comm.size
 
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, path, access):
@@ -828,7 +844,7 @@ class Dat(DataCarrier):
         halo = self.dataset.halo
         if halo is None:
             return
-        for dest,ele in enumerate(halo.sends):
+        for dest, ele in enumerate(halo.sends):
             if ele.size == 0:
                 # Don't send to self (we've asserted that ele.size ==
                 # 0 previously) or if there are no elements to send
@@ -837,7 +853,7 @@ class Dat(DataCarrier):
             self._send_buf[dest] = self._data[ele]
             self._send_reqs[dest] = halo.comm.Isend(self._send_buf[dest],
                                                     dest=dest, tag=self._id)
-        for source,ele in enumerate(halo.receives):
+        for source, ele in enumerate(halo.receives):
             if ele.size == 0:
                 # Don't receive from self or if there are no elements
                 # to receive
@@ -854,14 +870,14 @@ class Dat(DataCarrier):
             return
         _MPI.Request.Waitall(self._recv_reqs)
         _MPI.Request.Waitall(self._send_reqs)
-        self._send_buf = [None]*len(self._send_buf)
+        self._send_buf = [None] * len(self._send_buf)
         # data is read-only in a ParLoop, make it temporarily writable
         maybe_setflags(self._data, write=True)
         for source, buf in enumerate(self._recv_buf):
             if buf is not None:
                 self._data[halo.receives[source]] = buf
         maybe_setflags(self._data, write=False)
-        self._recv_buf = [None]*len(self._recv_buf)
+        self._recv_buf = [None] * len(self._recv_buf)
 
     @property
     def norm(self):
@@ -883,10 +899,13 @@ class Dat(DataCarrier):
             self._lib_handle = core.op_dat(self)
         return self._lib_handle
 
+
 class Const(DataCarrier):
+
     """Data that is constant for any element of any set."""
 
     class NonUniqueNameError(ValueError):
+
         """The Names of const variables are required to be globally unique. This exception is raised if the name is already in use."""
 
     _defs = set()
@@ -903,7 +922,6 @@ class Const(DataCarrier):
                 "OP2 Constants are globally scoped, %s is already in use" % self._name)
         Const._defs.add(self)
         Const._globalcount += 1
-
 
     @property
     def data(self):
@@ -935,9 +953,9 @@ class Const(DataCarrier):
         Const._defs.discard(self)
 
     def _format_declaration(self):
-        d = {'type' : self.ctype,
-             'name' : self.name,
-             'dim' : self.cdim}
+        d = {'type': self.ctype,
+             'name': self.name,
+             'dim': self.cdim}
 
         if self.cdim == 1:
             return "static %(type)s %(name)s;" % d
@@ -954,7 +972,9 @@ class Const(DataCarrier):
             raise DimTypeError("Invalid dimension value %s" % dim)
         return cls(dim, data, name)
 
+
 class Global(DataCarrier):
+
     """OP2 global value.
 
     When a ``Global`` is passed to a :func:`par_loop`, the access
@@ -983,7 +1003,7 @@ class Global(DataCarrier):
 
     def __str__(self):
         return "OP2 Global Argument: %s with dim %s and value %s" \
-                % (self._name, self._dim, self._data)
+            % (self._name, self._dim, self._data)
 
     def __repr__(self):
         return "Global(%r, %r, %r, %r)" % (self._dim, self._data, self._data.dtype, self._name)
@@ -1005,9 +1025,11 @@ class Global(DataCarrier):
         objects."""
         return False
 
-#FIXME: Part of kernel API, but must be declared before Map for the validation.
+# FIXME: Part of kernel API, but must be declared before Map for the validation.
+
 
 class IterationIndex(object):
+
     """OP2 iteration space index
 
     Users should not directly instantiate :class:`IterationIndex` objects. Use
@@ -1044,7 +1066,9 @@ i = IterationIndex()
 property is `idx`.
 """
 
+
 class Map(object):
+
     """OP2 map, a relation between two :class:`Set` objects.
 
     Each entry in the ``iterset`` maps to ``dim`` entries in the
@@ -1064,13 +1088,13 @@ class Map(object):
 
     _globalcount = 0
 
-    @validate_type(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError), \
-            ('dim', int, DimTypeError), ('name', str, NameTypeError))
+    @validate_type(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError),
+                  ('dim', int, DimTypeError), ('name', str, NameTypeError))
     def __init__(self, iterset, dataset, dim, values=None, name=None, offset=None):
         self._iterset = iterset
         self._dataset = dataset
         self._dim = dim
-        self._values = verify_reshape(values, np.int32, (iterset.total_size, dim), \
+        self._values = verify_reshape(values, np.int32, (iterset.total_size, dim),
                                       allow_none=True)
         self._name = name or "map_%d" % Map._globalcount
         self._lib_handle = None
@@ -1080,7 +1104,7 @@ class Map(object):
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
     def __getitem__(self, index):
         if isinstance(index, int) and not (0 <= index < self._dim):
-            raise IndexValueError("Index must be in interval [0,%d]" % (self._dim-1))
+            raise IndexValueError("Index must be in interval [0,%d]" % (self._dim - 1))
         if isinstance(index, IterationIndex) and index.index not in [0, 1]:
             raise IndexValueError("IterationIndex must be in interval [0,1]")
         return _make_object('Arg', map=self, idx=index)
@@ -1135,8 +1159,8 @@ class Map(object):
 
     def __eq__(self, o):
         try:
-            return (self._iterset == o._iterset and self._dataset == o._dataset and \
-               self._dim == o.dim and self._name == o.name)
+            return (self._iterset == o._iterset and self._dataset == o._dataset and
+                    self._dim == o.dim and self._name == o.name)
         except AttributeError:
             return False
 
@@ -1162,7 +1186,9 @@ class Map(object):
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 """The identity map.  Used to indicate direct access to a :class:`Dat`."""
 
+
 class Sparsity(Cached):
+
     """OP2 Sparsity, a matrix structure derived from the union of the outer
     product of pairs of :class:`Map` objects.
 
@@ -1198,9 +1224,11 @@ class Sparsity(Cached):
         for pair in maps:
             for m in pair:
                 if not isinstance(m, Map):
-                    raise MapTypeError("All maps must be of type map, not type %r" % type(m))
+                    raise MapTypeError(
+                        "All maps must be of type map, not type %r" % type(m))
                 if len(m.values) == 0:
-                    raise MapValueError("Unpopulated map values when trying to build sparsity.")
+                    raise MapValueError(
+                        "Unpopulated map values when trying to build sparsity.")
         # Need to return a list of args and dict of kwargs (empty in this case)
         return [tuple(sorted(maps)), name], {}
 
@@ -1346,7 +1374,9 @@ class Sparsity(Cached):
         PETSc's MatMPIAIJSetPreallocation_."""
         return int(self._o_nz)
 
+
 class Mat(DataCarrier):
+
     """OP2 matrix data. A ``Mat`` is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`.
 
@@ -1365,7 +1395,7 @@ class Mat(DataCarrier):
     _globalcount = 0
     _modes = [WRITE, INC]
 
-    @validate_type(('sparsity', Sparsity, SparsityTypeError), \
+    @validate_type(('sparsity', Sparsity, SparsityTypeError),
                    ('name', str, NameTypeError))
     def __init__(self, sparsity, dtype=None, name=None):
         self._sparsity = sparsity
@@ -1431,7 +1461,9 @@ class Mat(DataCarrier):
 
 # Kernel API
 
+
 class Kernel(Cached):
+
     """OP2 kernel type."""
 
     _globalcount = 0
@@ -1470,7 +1502,9 @@ class Kernel(Cached):
     def __repr__(self):
         return 'Kernel("""%s""", %r)' % (self._code, self._name)
 
+
 class JITModule(Cached):
+
     """Cached module encapsulating the generated :class:`ParLoop` stub."""
 
     _cache = {}
@@ -1496,7 +1530,7 @@ class JITModule(Cached):
                         arg.idx[1].index)
                 map_dims = (arg.map[0].dim, arg.map[1].dim)
                 key += (arg.data.dims, arg.data.dtype, idxs,
-                      map_dims, arg.access)
+                        map_dims, arg.access)
 
         # The currently defined Consts need to be part of the cache key, since
         # these need to be uploaded to the device before launching the kernel
@@ -1505,7 +1539,9 @@ class JITModule(Cached):
 
         return key
 
+
 class ParLoop(object):
+
     """Represents the kernel, iteration space and arguments of a parallel loop
     invocation.
 
@@ -1516,7 +1552,8 @@ class ParLoop(object):
         # Always use the current arguments, also when we hit cache
         self._actual_args = args
         self._kernel = kernel
-        self._it_space = itspace if isinstance(itspace, IterationSpace) else IterationSpace(itspace)
+        self._it_space = itspace if isinstance(
+            itspace, IterationSpace) else IterationSpace(itspace)
         self._is_layered = itspace.layers > 1
 
         self.check_args()
@@ -1576,13 +1613,13 @@ class ParLoop(object):
                 continue
             for j, m in enumerate(arg._map):
                 if m._iterset != iterset:
-                    raise MapValueError( \
+                    raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
                 else:
                     if arg._is_mat:
                         continue
                     if m._dataset != arg.data._dataset:
-                        raise MapValueError( \
+                        raise MapValueError(
                             "Dataset of arg %s map %sdoesn't match the set of its Dat." % (i, j))
 
     def generate_code(self):
@@ -1596,7 +1633,7 @@ class ParLoop(object):
                 maps = as_tuple(arg.map, Map)
                 for map in maps:
                     if map.iterset.layers is not None and map.iterset.layers > 1:
-                       _args.append(map.offset)
+                        _args.append(map.offset)
         return _args
 
     @property
@@ -1656,7 +1693,9 @@ DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
 3.3. Note that the parameters accepted by :class:`op2.Solver` are only a subset
 of all PETSc parameters."""
 
+
 class Solver(object):
+
     """OP2 Solver object. The :class:`Solver` holds a set of parameters that are
     passed to the underlying linear algebra library when the ``solve`` method
     is called. These can either be passed as a dictionary ``parameters`` *or*

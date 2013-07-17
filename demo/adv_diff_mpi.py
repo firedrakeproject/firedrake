@@ -56,6 +56,7 @@ from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from ufl import *
 
+
 def main(opt):
     # Set up finite element problem
 
@@ -192,9 +193,9 @@ def main(opt):
         result = op2.Global(1, [0.0])
         op2.par_loop(l2_kernel, elements,
                      result(op2.INC),
-                     coords(elem_vnode,op2.READ),
-                     tracer(elem_node,op2.READ),
-                     analytical(elem_node,op2.READ)
+                     coords(elem_vnode, op2.READ),
+                     tracer(elem_node, op2.READ),
+                     analytical(elem_node, op2.READ)
                      )
         if op2.MPI.comm.rank == 0:
             with open("adv_diff_mpi.%s.out" % os.path.split(opt['mesh'])[-1], "w") as out:
@@ -223,7 +224,8 @@ if __name__ == '__main__':
 
     if opt['profile']:
         import cProfile
-        filename = 'adv_diff.%s.%d.cprofile' % (os.path.split(opt['mesh'])[-1], op2.MPI.comm.rank)
+        filename = 'adv_diff.%s.%d.cprofile' % (
+            os.path.split(opt['mesh'])[-1], op2.MPI.comm.rank)
         cProfile.run('main(opt)', filename=filename)
     else:
         main(opt)

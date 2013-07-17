@@ -34,7 +34,9 @@
 import pytest
 from pyop2.profiling import tic, toc, get_timers, reset, Timer
 
+
 class TestProfiling:
+
     """Profiling tests."""
 
     def test_create(self):

@@ -46,6 +46,7 @@ from mpi import MPI
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
 
+
 def init(**kwargs):
     """Initialise OP2: select the backend and potentially other configuration options.
 
@@ -64,7 +65,7 @@ def init(**kwargs):
     backend = backends.get_backend()
     if backend == 'pyop2.finalised':
         raise RuntimeError("Calling init() after exit() is illegal.")
-    if 'backend' in kwargs and backend not in ('pyop2.void', 'pyop2.'+kwargs['backend']):
+    if 'backend' in kwargs and backend not in ('pyop2.void', 'pyop2.' + kwargs['backend']):
         raise RuntimeError("Changing the backend is not possible once set.")
     cfg.configure(**kwargs)
     if cfg['python_plan']:
@@ -81,6 +82,7 @@ def init(**kwargs):
         MPI = backends._BackendSelector._backend.MPI
         core.op_init(args=None, diags=0)
 
+
 @atexit.register
 def exit():
     """Exit OP2 and clean up"""
@@ -89,38 +91,50 @@ def exit():
         core.op_exit()
         backends.unset_backend()
 
+
 class IterationSpace(base.IterationSpace):
     __metaclass__ = backends._BackendSelector
+
 
 class Kernel(base.Kernel):
     __metaclass__ = backends._BackendSelector
 
+
 class Set(base.Set):
     __metaclass__ = backends._BackendSelector
+
 
 class Halo(base.Halo):
     __metaclass__ = backends._BackendSelector
 
+
 class Dat(base.Dat):
     __metaclass__ = backends._BackendSelector
+
 
 class Mat(base.Mat):
     __metaclass__ = backends._BackendSelector
 
+
 class Const(base.Const):
     __metaclass__ = backends._BackendSelector
+
 
 class Global(base.Global):
     __metaclass__ = backends._BackendSelector
 
+
 class Map(base.Map):
     __metaclass__ = backends._BackendSelector
+
 
 class Sparsity(base.Sparsity):
     __metaclass__ = backends._BackendSelector
 
+
 class Solver(base.Solver):
     __metaclass__ = backends._BackendSelector
+
 
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel
@@ -156,6 +170,7 @@ def par_loop(kernel, it_space, *args):
     passed to the kernel as a vector.
     """
     return backends._BackendSelector._backend.par_loop(kernel, it_space, *args)
+
 
 @validate_type(('M', base.Mat, MatTypeError),
                ('x', base.Dat, DatTypeError),

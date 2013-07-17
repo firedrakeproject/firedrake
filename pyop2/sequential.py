@@ -46,9 +46,11 @@ from host import Arg
 
 # Parallel loop API
 
+
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
     ParLoop(kernel, it_space, *args).compute()
+
 
 class JITModule(host.JITModule):
 
@@ -74,6 +76,7 @@ void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %
   }
 }
 """
+
 
 class ParLoop(host.ParLoop):
 
@@ -126,6 +129,7 @@ class ParLoop(host.ParLoop):
         for arg in self.args:
             if arg._is_mat:
                 arg.data._assemble()
+
 
 def _setup():
     pass

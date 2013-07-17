@@ -43,30 +43,31 @@ import os
 
 from pyop2 import op2, utils
 
+
 def main(opt):
     from aero_kernels import dirichlet, dotPV, dotR, init_cg, res_calc, spMV, \
         update, updateP, updateUR
     try:
         with h5py.File(opt['mesh'], 'r') as f:
             # sets
-            nodes  = op2.Set.fromhdf5(f, 'nodes')
-            vnodes  = op2.Set.fromhdf5(f, 'nodes', dim=2)
+            nodes = op2.Set.fromhdf5(f, 'nodes')
+            vnodes = op2.Set.fromhdf5(f, 'nodes', dim=2)
             bnodes = op2.Set.fromhdf5(f, 'bedges')
-            cells  = op2.Set.fromhdf5(f, 'cells', dim=16)
+            cells = op2.Set.fromhdf5(f, 'cells', dim=16)
 
             # maps
             pbnodes = op2.Map.fromhdf5(bnodes, nodes, f, 'pbedge')
-            pcell   = op2.Map.fromhdf5(cells,  nodes, f, 'pcell')
-            pvcell  = op2.Map.fromhdf5(cells, vnodes, f, 'pcell')
+            pcell = op2.Map.fromhdf5(cells,  nodes, f, 'pcell')
+            pvcell = op2.Map.fromhdf5(cells, vnodes, f, 'pcell')
 
             # dats
-            p_xm   = op2.Dat.fromhdf5(vnodes, f, 'p_x')
+            p_xm = op2.Dat.fromhdf5(vnodes, f, 'p_x')
             p_phim = op2.Dat.fromhdf5(nodes, f, 'p_phim')
             p_resm = op2.Dat.fromhdf5(nodes, f, 'p_resm')
-            p_K    = op2.Dat.fromhdf5(cells, f, 'p_K')
-            p_V    = op2.Dat.fromhdf5(nodes, f, 'p_V')
-            p_P    = op2.Dat.fromhdf5(nodes, f, 'p_P')
-            p_U    = op2.Dat.fromhdf5(nodes, f, 'p_U')
+            p_K = op2.Dat.fromhdf5(cells, f, 'p_K')
+            p_V = op2.Dat.fromhdf5(nodes, f, 'p_V')
+            p_P = op2.Dat.fromhdf5(nodes, f, 'p_P')
+            p_U = op2.Dat.fromhdf5(nodes, f, 'p_U')
     except IOError:
         import sys
         print "Failed reading mesh: Could not read from %s\n" % opt['mesh']
@@ -76,7 +77,7 @@ def main(opt):
 
     gam = 1.4
     gm1 = op2.Const(1, gam - 1.0, 'gm1', dtype=np.double)
-    gm1i = op2.Const(1, 1.0/gm1.data, 'gm1i', dtype=np.double)
+    gm1i = op2.Const(1, 1.0 / gm1.data, 'gm1i', dtype=np.double)
     wtg1 = op2.Const(2, [0.5, 0.5], 'wtg1', dtype=np.double)
     xi1 = op2.Const(2, [0.211324865405187, 0.788675134594813], 'xi1', dtype=np.double)
     Ng1 = op2.Const(4, [0.788675134594813, 0.211324865405187,
@@ -111,7 +112,7 @@ def main(opt):
                             0.211324865405187, 0.788675134594813],
                        'Ng2_xi', dtype=np.double)
     minf = op2.Const(1, 0.1, 'minf', dtype=np.double)
-    m2 = op2.Const(1, minf.data**2, 'm2', dtype=np.double)
+    m2 = op2.Const(1, minf.data ** 2, 'm2', dtype=np.double)
     freq = op2.Const(1, 1, 'freq', dtype=np.double)
     kappa = op2.Const(1, 1, 'kappa', dtype=np.double)
     nmode = op2.Const(1, 0, 'nmode', dtype=np.double)
@@ -119,7 +120,7 @@ def main(opt):
 
     niter = 20
 
-    for i in xrange(1, niter+1):
+    for i in xrange(1, niter + 1):
 
         op2.par_loop(res_calc, cells,
                      p_xm(pvcell, op2.READ),
@@ -167,7 +168,7 @@ def main(opt):
                          p_V(op2.IdentityMap, op2.READ),
                          c2(op2.INC))
 
-            alpha = op2.Global(1, data=c1.data/c2.data, name='alpha')
+            alpha = op2.Global(1, data=c1.data / c2.data, name='alpha')
 
             # U = U + alpha * P
             # resm = resm - alpha * V
@@ -184,7 +185,7 @@ def main(opt):
                          p_resm(op2.IdentityMap, op2.READ),
                          c3(op2.INC))
 
-            beta = op2.Global(1, data=c3.data/c1.data, name="beta")
+            beta = op2.Global(1, data=c3.data / c1.data, name="beta")
             # P = beta * P + resm
             op2.par_loop(updateP, nodes,
                          p_resm(op2.IdentityMap, op2.READ),
@@ -204,7 +205,7 @@ def main(opt):
                      p_U(op2.IdentityMap, op2.READ),
                      rms(op2.INC))
 
-        print "rms = %10.5e iter: %d" % (sqrt(rms.data)/sqrt(nodes.size), it)
+        print "rms = %10.5e iter: %d" % (sqrt(rms.data) / sqrt(nodes.size), it)
 
 if __name__ == '__main__':
     parser = utils.parser(group=True, description=__doc__)

@@ -146,7 +146,8 @@ T = 0.1
 if opt['visualize']:
     vis_coords = np.asarray([[x, y, 0.0] for x, y in coords.data_ro], dtype=np.float64)
     import viper
-    v = viper.Viper(x=viper_shape(tracer.data_ro), coordinates=vis_coords, cells=elem_node.values)
+    v = viper.Viper(x=viper_shape(tracer.data_ro),
+                    coordinates=vis_coords, cells=elem_node.values)
 
 solver = op2.Solver()
 

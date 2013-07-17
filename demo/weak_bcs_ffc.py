@@ -76,18 +76,18 @@ u = TrialFunction(E)
 f = Coefficient(E)
 g = Coefficient(E)
 
-a = dot(grad(v,),grad(u))*dx
-L = v*f*dx + v*g*ds(2)
+a = dot(grad(v,), grad(u)) * dx
+L = v * f * dx + v * g * ds(2)
 
 # Generate code for Laplacian and rhs assembly.
 
 laplacian, = compile_form(a, "laplacian")
-rhs, weak  = compile_form(L, "rhs")
+rhs, weak = compile_form(L, "rhs")
 
 # Set up simulation data structures
 
-NUM_ELE      = 8
-NUM_NODES    = 9
+NUM_ELE = 8
+NUM_NODES = 9
 NUM_BDRY_ELE = 2
 NUM_BDRY_NODE = 3
 valuetype = np.float64
@@ -100,44 +100,44 @@ top_bdry_elements = op2.Set(NUM_BDRY_ELE, 1, "top_boundary_elements")
 # Nodes that Strong BC will be applied over
 bdry_nodes = op2.Set(NUM_BDRY_NODE, 1, "boundary_nodes")
 
-elem_node_map = np.asarray([ 0, 1, 4, 4, 3, 0, 1, 2, 5, 5, 4, 1, 3, 4, 7, 7, 6,
-                             3, 4, 5, 8, 8, 7, 4], dtype=np.uint32)
+elem_node_map = np.asarray([0, 1, 4, 4, 3, 0, 1, 2, 5, 5, 4, 1, 3, 4, 7, 7, 6,
+                            3, 4, 5, 8, 8, 7, 4], dtype=np.uint32)
 elem_node = op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 elem_vnode = op2.Map(elements, vnodes, 3, elem_node_map, "elem_vnode")
 
-top_bdry_elem_node_map = np.asarray([ 7, 6, 3, 8, 7, 4 ], dtype=valuetype)
+top_bdry_elem_node_map = np.asarray([7, 6, 3, 8, 7, 4], dtype=valuetype)
 top_bdry_elem_node = op2.Map(top_bdry_elements, nodes, 3,
                              top_bdry_elem_node_map, "top_bdry_elem_node")
 top_bdry_elem_vnode = op2.Map(top_bdry_elements, vnodes, 3,
-                             top_bdry_elem_node_map, "top_bdry_elem_vnode")
+                              top_bdry_elem_node_map, "top_bdry_elem_vnode")
 
-bdry_node_node_map = np.asarray([0, 1, 2 ], dtype=valuetype)
+bdry_node_node_map = np.asarray([0, 1, 2], dtype=valuetype)
 bdry_node_node = op2.Map(bdry_nodes, nodes, 1, bdry_node_node_map, "bdry_node_node")
 
 sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
-coord_vals = np.asarray([ (0.0, 0.0), (0.5, 0.0), (1.0, 0.0),
-                          (0.0, 0.5), (0.5, 0.5), (1.0, 0.5),
-                          (0.0, 1.0), (0.5, 1.0), (1.0, 1.0) ],
-                          dtype=valuetype)
+coord_vals = np.asarray([(0.0, 0.0), (0.5, 0.0), (1.0, 0.0),
+                       (0.0, 0.5), (0.5, 0.5), (1.0, 0.5),
+    (0.0, 1.0), (0.5, 1.0), (1.0, 1.0)],
+    dtype=valuetype)
 coords = op2.Dat(vnodes, coord_vals, valuetype, "coords")
 
-f_vals = np.asarray([ 0.0 ]*9, dtype=valuetype)
-b_vals = np.asarray([0.0]*NUM_NODES, dtype=valuetype)
-x_vals = np.asarray([0.0]*NUM_NODES, dtype=valuetype)
+f_vals = np.asarray([0.0] * 9, dtype=valuetype)
+b_vals = np.asarray([0.0] * NUM_NODES, dtype=valuetype)
+x_vals = np.asarray([0.0] * NUM_NODES, dtype=valuetype)
 u_vals = np.asarray([1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0])
 f = op2.Dat(nodes, f_vals, valuetype, "f")
 b = op2.Dat(nodes, b_vals, valuetype, "b")
 x = op2.Dat(nodes, x_vals, valuetype, "x")
 u = op2.Dat(nodes, u_vals, valuetype, "u")
 
-bdry_vals = np.asarray([1.0, 1.0, 1.0 ], dtype=valuetype)
+bdry_vals = np.asarray([1.0, 1.0, 1.0], dtype=valuetype)
 bdry = op2.Dat(bdry_nodes, bdry_vals, valuetype, "bdry")
 
 # This isn't perfect, defining the boundary gradient on more nodes than are on
 # the boundary is couter-intuitive
-bdry_grad_vals = np.asarray([2.0]*9, dtype=valuetype)
+bdry_grad_vals = np.asarray([2.0] * 9, dtype=valuetype)
 bdry_grad = op2.Dat(nodes, bdry_grad_vals, valuetype, "gradient")
 facet = op2.Global(1, 2, np.uint32, "facet")
 
@@ -150,7 +150,7 @@ facet = op2.Global(1, 2, np.uint32, "facet")
 
 # Assemble matrix and rhs
 
-op2.par_loop(laplacian, elements(3,3),
+op2.par_loop(laplacian, elements(3, 3),
              mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
              coords(elem_vnode, op2.READ))
 
@@ -158,20 +158,20 @@ op2.par_loop(rhs, elements(3),
              b(elem_node[op2.i[0]], op2.INC),
              coords(elem_vnode, op2.READ),
              f(elem_node, op2.READ),
-             bdry_grad(elem_node, op2.READ)) # argument ignored
+             bdry_grad(elem_node, op2.READ))  # argument ignored
 
 # Apply weak BC
 
 op2.par_loop(weak, top_bdry_elements(3),
              b(top_bdry_elem_node[op2.i[0]], op2.INC),
              coords(top_bdry_elem_vnode, op2.READ),
-             f(top_bdry_elem_node, op2.READ), # argument ignored
+             f(top_bdry_elem_node, op2.READ),  # argument ignored
              bdry_grad(top_bdry_elem_node, op2.READ),
              facet(op2.READ))
 
 # Apply strong BC
 
-mat.zero_rows([ 0, 1, 2 ], 1.0)
+mat.zero_rows([0, 1, 2], 1.0)
 strongbc_rhs = op2.Kernel("""
 void strongbc_rhs(double *val, double *target) { *target = *val; }
 """, "strongbc_rhs")
@@ -189,5 +189,5 @@ print "Computed solution: %s" % x.data
 # Save output (if necessary)
 if opt['save_output']:
     import pickle
-    with open("weak_bcs.out","w") as out:
+    with open("weak_bcs.out", "w") as out:
         pickle.dump((u.data, x.data), out)

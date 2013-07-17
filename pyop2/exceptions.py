@@ -33,47 +33,77 @@
 
 """OP2 exception types"""
 
+
 class DataTypeError(TypeError):
+
     """Invalid type for data."""
 
+
 class DimTypeError(TypeError):
+
     """Invalid type for dimension."""
 
+
 class IndexTypeError(TypeError):
+
     """Invalid type for index."""
 
+
 class NameTypeError(TypeError):
+
     """Invalid type for name."""
 
+
 class SetTypeError(TypeError):
+
     """Invalid type for Set."""
 
+
 class SizeTypeError(TypeError):
+
     """Invalid type for size."""
 
+
 class SparsityTypeError(TypeError):
+
     """Invalid type for sparsity."""
 
+
 class MapTypeError(TypeError):
+
     """Invalid type for map."""
 
+
 class MatTypeError(TypeError):
+
     """Invalid type for mat."""
 
+
 class DatTypeError(TypeError):
+
     """Invalid type for dat."""
 
+
 class DataValueError(ValueError):
+
     """Illegal value for data."""
 
+
 class IndexValueError(ValueError):
+
     """Illegal value for index."""
 
+
 class ModeValueError(ValueError):
+
     """Illegal value for mode."""
 
+
 class SetValueError(ValueError):
+
     """Illegal value for Set."""
 
+
 class MapValueError(ValueError):
+
     """Illegal value for Map."""

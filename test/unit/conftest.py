@@ -38,9 +38,11 @@ import pytest
 from pyop2 import op2
 from pyop2.backends import backends
 
+
 def pytest_addoption(parser):
     parser.addoption("--backend", action="append",
-        help="Selection the backend: one of %s" % backends.keys())
+                     help="Selection the backend: one of %s" % backends.keys())
+
 
 def pytest_collection_modifyitems(items):
     """Group test collection by backend instead of iterating through backends
@@ -66,21 +68,26 @@ def pytest_collection_modifyitems(items):
         return 0
     items.sort(cmp=cmp)
 
+
 @pytest.fixture
 def skip_cuda():
     return None
+
 
 @pytest.fixture
 def skip_opencl():
     return None
 
+
 @pytest.fixture
 def skip_sequential():
     return None
 
+
 @pytest.fixture
 def skip_openmp():
     return None
+
 
 def pytest_generate_tests(metafunc):
     """Parametrize tests to run on all backends."""
@@ -110,9 +117,10 @@ def pytest_generate_tests(metafunc):
         if hasattr(metafunc.cls, 'backends'):
             backend = backend.intersection(set(metafunc.cls.backends))
         # Allow skipping individual backends by passing skip_<backend> as a parameter
-        backend = [b for b in backend.difference(skip_backends) \
-                if not 'skip_'+b in metafunc.fixturenames]
+        backend = [b for b in backend.difference(skip_backends)
+                   if not 'skip_' + b in metafunc.fixturenames]
         metafunc.parametrize("backend", backend, indirect=True)
+
 
 @pytest.fixture(scope='session')
 def backend(request):

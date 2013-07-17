@@ -37,7 +37,8 @@ from setuptools import setup
 from distutils.extension import Extension
 from glob import glob
 import numpy
-import os, sys
+import os
+import sys
 
 # Find OP2 include and library directories
 execfile('pyop2/find_op2.py')
@@ -45,7 +46,7 @@ execfile('pyop2/find_op2.py')
 # If Cython is available, built the extension module from the Cython source
 try:
     from Cython.Distutils import build_ext
-    cmdclass = {'build_ext' : build_ext}
+    cmdclass = {'build_ext': build_ext}
     op_lib_core_sources = ['pyop2/op_lib_core.pyx', 'pyop2/_op_lib_core.pxd',
                            'pyop2/sparsity_utils.cxx']
     computeind_sources = ['pyop2/computeind.pyx']
@@ -58,41 +59,42 @@ except ImportError:
     computeind_sources = ['pyop2/computeind.c']
 
 setup_requires = [
-        'numpy>=1.6',
-        ]
+    'numpy>=1.6',
+]
 install_requires = [
-        'decorator',
-        'instant>=1.0',
-        'numpy>=1.6',
-        'PyYAML',
-        ]
+    'decorator',
+    'instant>=1.0',
+    'numpy>=1.6',
+    'PyYAML',
+]
 version = sys.version_info[:2]
 if version < (2, 7) or (3, 0) <= version <= (3, 1):
     install_requires += ['argparse', 'ordereddict']
 
 setup(name='PyOP2',
       version='0.1',
-      description = 'OP2 runtime library and python bindings',
-      author = 'Imperial College London and others',
-      author_email = 'mapdes@imperial.ac.uk',
-      url = 'https://github.com/OP2/PyOP2/',
-      classifiers = [
-            'Development Status :: 3 - Alpha',
-            'Intended Audience :: Developers',
-            'Intended Audience :: Science/Research',
-            'License :: OSI Approved :: BSD License',
-            'Operating System :: OS Independent',
-            'Programming Language :: C',
-            'Programming Language :: Cython',
-            'Programming Language :: Python :: 2',
-            'Programming Language :: Python :: 2.6',
-            'Programming Language :: Python :: 2.7',
-            ],
+      description='OP2 runtime library and python bindings',
+      author='Imperial College London and others',
+      author_email='mapdes@imperial.ac.uk',
+      url='https://github.com/OP2/PyOP2/',
+      classifiers=[
+          'Development Status :: 3 - Alpha',
+          'Intended Audience :: Developers',
+          'Intended Audience :: Science/Research',
+          'License :: OSI Approved :: BSD License',
+          'Operating System :: OS Independent',
+          'Programming Language :: C',
+          'Programming Language :: Cython',
+          'Programming Language :: Python :: 2',
+          'Programming Language :: Python :: 2.6',
+          'Programming Language :: Python :: 2.7',
+      ],
       setup_requires=setup_requires,
       install_requires=install_requires,
-      packages=['pyop2','pyop2_utils'],
-      package_dir={'pyop2':'pyop2','pyop2_utils':'pyop2_utils'},
-      package_data={'pyop2': ['assets/*', 'mat_utils.*', 'sparsity_utils.*', '*.pyx', '*.pxd']},
+      packages=['pyop2', 'pyop2_utils'],
+      package_dir={'pyop2': 'pyop2', 'pyop2_utils': 'pyop2_utils'},
+      package_data={
+          'pyop2': ['assets/*', 'mat_utils.*', 'sparsity_utils.*', '*.pyx', '*.pxd']},
       scripts=glob('scripts/*'),
       cmdclass=cmdclass,
       ext_modules=[Extension('pyop2.op_lib_core', op_lib_core_sources,

@@ -62,6 +62,7 @@ def viper_shape(array):
     passing to Viper."""
     return array.reshape((array.shape[0]))
 
+
 def main(opt):
     # Set up finite element problem
 
@@ -149,7 +150,8 @@ def main(opt):
     if opt['visualize']:
         vis_coords = np.asarray([[x, y, 0.0] for x, y in coords.data_ro], dtype=np.float64)
         import viper
-        v = viper.Viper(x=viper_shape(tracer.data_ro), coordinates=vis_coords, cells=elem_node.values)
+        v = viper.Viper(x=viper_shape(tracer.data_ro),
+                        coordinates=vis_coords, cells=elem_node.values)
 
     solver = op2.Solver()
 
@@ -203,9 +205,9 @@ def main(opt):
         result = op2.Global(1, [0.0])
         op2.par_loop(l2_kernel, elements,
                      result(op2.INC),
-                     coords(elem_vnode,op2.READ),
-                     tracer(elem_node,op2.READ),
-                     analytical(elem_node,op2.READ)
+                     coords(elem_vnode, op2.READ),
+                     tracer(elem_node, op2.READ),
+                     analytical(elem_node, op2.READ)
                      )
         with open("adv_diff.%s.out" % os.path.split(opt['mesh'])[-1], "w") as out:
             out.write(str(result.data[0]) + "\n")
