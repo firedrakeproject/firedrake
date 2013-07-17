@@ -48,21 +48,12 @@ import numpy as np
 import time
 
 parser = utils.parser(group=True, description="PyOP2 2D mass equation demo")
-parser.add_argument('-m', '--mesh',
-                    action='store',
-                    type=str,
-                    required=True,
+parser.add_argument('-m', '--mesh', action='store', type=str, required=True,
                     help='Base name of triangle mesh (excluding the .ele or .node extension)')
-
-parser.add_argument('-ll', '--layers',
-                    action='store',
-                    type=str,
-                    required=True,
+parser.add_argument('-ll', '--layers', action='store', type=str, required=True,
                     help='Number of extruded layers.')
-parser.add_argument('-p', '--partsize',
-                    action='store',
-                    type=str,
-                    required=False,
+parser.add_argument('-p', '--partsize', action='store', type=str,
+                    required=False, default=1024,
                     help='Partition size in the base mesh.')
 opt = vars(parser.parse_args())
 op2.init(**opt)
