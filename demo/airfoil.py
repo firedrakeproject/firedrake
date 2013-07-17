@@ -53,13 +53,13 @@ def main(opt):
             cells = op2.Set.fromhdf5(f, "cells")
             vcells = op2.Set.fromhdf5(f, "cells", dim=4)
 
-            pedge = op2.Map.fromhdf5(edges,  vnodes, f, "pedge")
-            pecell = op2.Map.fromhdf5(edges,   cells, f, "pecell")
-            pevcell = op2.Map.fromhdf5(edges,  vcells, f, "pecell")
+            pedge = op2.Map.fromhdf5(edges, vnodes, f, "pedge")
+            pecell = op2.Map.fromhdf5(edges, cells, f, "pecell")
+            pevcell = op2.Map.fromhdf5(edges, vcells, f, "pecell")
             pbedge = op2.Map.fromhdf5(bedges, vnodes, f, "pbedge")
-            pbecell = op2.Map.fromhdf5(bedges,  cells, f, "pbecell")
+            pbecell = op2.Map.fromhdf5(bedges, cells, f, "pbecell")
             pbevcell = op2.Map.fromhdf5(bedges, vcells, f, "pbecell")
-            pcell = op2.Map.fromhdf5(cells,  vnodes, f, "pcell")
+            pcell = op2.Map.fromhdf5(cells, vnodes, f, "pcell")
 
             p_bound = op2.Dat.fromhdf5(bedges, f, "p_bound")
             p_x = op2.Dat.fromhdf5(vnodes, f, "p_x")
@@ -96,30 +96,30 @@ def main(opt):
 
             # Calculate area/timestep
             op2.par_loop(adt_calc, cells,
-                         p_x(pcell[0],         op2.READ),
-                         p_x(pcell[1],         op2.READ),
-                         p_x(pcell[2],         op2.READ),
-                         p_x(pcell[3],         op2.READ),
-                         p_q(op2.IdentityMap,  op2.READ),
-                         p_adt(op2.IdentityMap,  op2.WRITE))
+                         p_x(pcell[0], op2.READ),
+                         p_x(pcell[1], op2.READ),
+                         p_x(pcell[2], op2.READ),
+                         p_x(pcell[3], op2.READ),
+                         p_q(op2.IdentityMap, op2.READ),
+                         p_adt(op2.IdentityMap, op2.WRITE))
 
             # Calculate flux residual
             op2.par_loop(res_calc, edges,
-                         p_x(pedge[0],   op2.READ),
-                         p_x(pedge[1],   op2.READ),
+                         p_x(pedge[0], op2.READ),
+                         p_x(pedge[1], op2.READ),
                          p_q(pevcell[0], op2.READ),
                          p_q(pevcell[1], op2.READ),
-                         p_adt(pecell[0],  op2.READ),
-                         p_adt(pecell[1],  op2.READ),
+                         p_adt(pecell[0], op2.READ),
+                         p_adt(pecell[1], op2.READ),
                          p_res(pevcell[0], op2.INC),
                          p_res(pevcell[1], op2.INC))
 
             op2.par_loop(bres_calc, bedges,
-                         p_x(pbedge[0],       op2.READ),
-                         p_x(pbedge[1],       op2.READ),
-                         p_q(pbevcell[0],     op2.READ),
-                         p_adt(pbecell[0],      op2.READ),
-                         p_res(pbevcell[0],     op2.INC),
+                         p_x(pbedge[0], op2.READ),
+                         p_x(pbedge[1], op2.READ),
+                         p_q(pbevcell[0], op2.READ),
+                         p_adt(pbecell[0], op2.READ),
+                         p_res(pbevcell[0], op2.INC),
                          p_bound(op2.IdentityMap, op2.READ))
 
             # Update flow field

@@ -181,7 +181,7 @@ void update(double *qold, double *q, double *res, double *adt, double *rms){
 """
 
 save_soln = Kernel(save_soln_code, "save_soln")
-adt_calc = Kernel(adt_calc_code,  "adt_calc")
-res_calc = Kernel(res_calc_code,  "res_calc")
+adt_calc = Kernel(adt_calc_code, "adt_calc")
+res_calc = Kernel(res_calc_code, "res_calc")
 bres_calc = Kernel(bres_calc_code, "bres_calc")
-update = Kernel(update_code,    "update")
+update = Kernel(update_code, "update")

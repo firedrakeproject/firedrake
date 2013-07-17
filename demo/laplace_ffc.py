@@ -104,15 +104,16 @@ elem_node = op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 elem_vnode = op2.Map(elements, vnodes, 3, elem_node_map, "elem_vnode")
 
 bdry_node_node_map = np.asarray([0, 1, 2, 6, 7, 8], dtype=valuetype)
-bdry_node_node = op2.Map(bdry_nodes, nodes, 1, bdry_node_node_map, "bdry_node_node")
+bdry_node_node = op2.Map(
+    bdry_nodes, nodes, 1, bdry_node_node_map, "bdry_node_node")
 
 sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 coord_vals = np.asarray([(0.0, 0.0), (0.5, 0.0), (1.0, 0.0),
-                       (0.0, 0.5), (0.5, 0.5), (1.0, 0.5),
-    (0.0, 1.0), (0.5, 1.0), (1.0, 1.0)],
-    dtype=valuetype)
+                         (0.0, 0.5), (0.5, 0.5), (1.0, 0.5),
+                         (0.0, 1.0), (0.5, 1.0), (1.0, 1.0)],
+                        dtype=valuetype)
 coords = op2.Dat(vnodes, coord_vals, valuetype, "coords")
 
 f_vals = np.asarray([0.0] * 9, dtype=valuetype)
