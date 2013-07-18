@@ -70,7 +70,8 @@ class TestConstant:
         kernel = """
         void kernel_2d_read(int *x) { *x = myconstant[0] + myconstant[1]; }
         """
-        constant = op2.Const(2, (100, 200), dtype=numpy.int32, name="myconstant")
+        constant = op2.Const(2, (100, 200), dtype=numpy.int32,
+                             name="myconstant")
         op2.par_loop(op2.Kernel(kernel, "kernel_2d_read"),
                      set, dat(op2.IdentityMap, op2.WRITE))
         constant.remove_from_namespace()

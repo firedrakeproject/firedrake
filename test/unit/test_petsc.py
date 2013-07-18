@@ -35,7 +35,6 @@
 PETSc specific unit tests
 """
 
-import numpy as np
 import pytest
 
 from pyop2 import op2

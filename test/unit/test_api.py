@@ -63,7 +63,7 @@ def dataset():
 
 @pytest.fixture
 def m(iterset, dataset):
-    return op2.Map(iterset,  dataset, 2, [1] * 2 * iterset.size, 'm')
+    return op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size, 'm')
 
 
 @pytest.fixture
@@ -201,7 +201,7 @@ class TestSetAPI:
 
     def test_set_repr(self, backend, set):
         "Set repr should produce a Set object when eval'd."
-        from pyop2.op2 import Set
+        from pyop2.op2 import Set  # noqa: needed by eval
         assert isinstance(eval(repr(set)), base.Set)
 
     def test_set_str(self, backend, set):
@@ -237,7 +237,8 @@ class TestDatAPI:
         """Dat initilialised without the data should initialise data with the
         correct size and type."""
         d = op2.Dat(set)
-        assert d.data.size == set.size * np.prod(set.dim) and d.data.dtype == np.float64
+        assert d.data.size == set.size * \
+            np.prod(set.dim) and d.data.dtype == np.float64
 
     def test_dat_initialise_data_type(self, backend, set):
         """Dat intiialised without the data but with specified type should
@@ -303,8 +304,8 @@ class TestDatAPI:
 
     def test_dat_repr(self, backend, set):
         "Dat repr should produce a Dat object when eval'd."
-        from pyop2.op2 import Dat, Set
-        from numpy import dtype
+        from pyop2.op2 import Dat, Set  # noqa: needed by eval
+        from numpy import dtype  # noqa: needed by eval
         d = op2.Dat(set, dtype='double', name='bar')
         assert isinstance(eval(repr(d)), base.Dat)
 
@@ -342,12 +343,12 @@ class TestSparsityAPI:
     @pytest.fixture
     def mi(cls, dataset):
         iterset = op2.Set(3, 1, 'iterset2')
-        return op2.Map(iterset,  dataset, 1, [1] * iterset.size, 'mi')
+        return op2.Map(iterset, dataset, 1, [1] * iterset.size, 'mi')
 
     @pytest.fixture
     def md(cls, iterset):
         dataset = op2.Set(1, 1, 'dataset2')
-        return op2.Map(iterset,  dataset, 1, [1] * iterset.size, 'md')
+        return op2.Map(iterset, dataset, 1, [1] * iterset.size, 'md')
 
     def test_sparsity_illegal_rmap(self, backend, m):
         "Sparsity rmap should be a Map"
@@ -578,8 +579,8 @@ class TestConstAPI:
 
     def test_const_repr(self, backend, const):
         "Const repr should produce a Const object when eval'd."
-        from pyop2.op2 import Const
-        from numpy import array
+        from pyop2.op2 import Const  # noqa: needed by eval
+        from numpy import array  # noqa: needed by eval
         const.remove_from_namespace()
         c = eval(repr(const))
         assert isinstance(c, base.Const)
@@ -679,8 +680,8 @@ class TestGlobalAPI:
 
     def test_global_repr(self, backend):
         "Global repr should produce a Global object when eval'd."
-        from pyop2.op2 import Global
-        from numpy import array, dtype
+        from pyop2.op2 import Global  # noqa: needed by eval
+        from numpy import array, dtype  # noqa: needed by eval
         g = op2.Global(1, 1, 'double')
         assert isinstance(eval(repr(g)), base.Global)
 
@@ -761,7 +762,7 @@ class TestMapAPI:
         m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size, 'm')
 
         with pytest.raises(NotImplementedError):
-            arg = m[:]
+            m[:]
 
     def test_map_equality(self, backend, m):
         """A map is equal if all its attributes are equal, bearing in mind that
@@ -777,7 +778,8 @@ class TestMapAPI:
 
     def test_map_dimension_inequality(self, backend, m):
         """Maps that have different dimensions are not equal"""
-        m2 = op2.Map(m.iterset, m.dataset, m.dim * 2, list(m.values) * 2, m.name)
+        m2 = op2.Map(m.iterset, m.dataset,
+                     m.dim * 2, list(m.values) * 2, m.name)
         assert m != m2
 
     def test_map_name_inequality(self, backend, m):
@@ -836,7 +838,7 @@ class TestIterationSpaceAPI:
     def test_iteration_space_repr(self, backend, set):
         """IterationSpace repr should produce a IterationSpace object when
         eval'd."""
-        from pyop2.op2 import Set, IterationSpace
+        from pyop2.op2 import Set, IterationSpace  # noqa: needed by eval
         m = op2.IterationSpace(set, 1)
         assert isinstance(eval(repr(m)), base.IterationSpace)
 
@@ -895,7 +897,8 @@ class TestIllegalItersetMaps:
         rmap, cmap = sparsity.maps[0]
         kernel = op2.Kernel("void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):
-            base.ParLoop(kernel, set1(3, 3), m((rmap[op2.i[0]], cmap[op2.i[1]]), op2.INC))
+            base.ParLoop(kernel, set1(3, 3),
+                         m((rmap[op2.i[0]], cmap[op2.i[1]]), op2.INC))
 
 
 class TestSolverAPI:

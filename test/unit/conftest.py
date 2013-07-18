@@ -97,10 +97,12 @@ def pytest_generate_tests(metafunc):
         skip_backends = set()
         # Skip backends specified on the module level
         if hasattr(metafunc.module, 'skip_backends'):
-            skip_backends = skip_backends.union(set(metafunc.module.skip_backends))
+            skip_backends = skip_backends.union(
+                set(metafunc.module.skip_backends))
         # Skip backends specified on the class level
         if hasattr(metafunc.cls, 'skip_backends'):
-            skip_backends = skip_backends.union(set(metafunc.cls.skip_backends))
+            skip_backends = skip_backends.union(
+                set(metafunc.cls.skip_backends))
 
         # Use only backends specified on the command line if any
         if metafunc.config.option.backend:
@@ -116,7 +118,8 @@ def pytest_generate_tests(metafunc):
         # Restrict to set of backends specified on the class level
         if hasattr(metafunc.cls, 'backends'):
             backend = backend.intersection(set(metafunc.cls.backends))
-        # Allow skipping individual backends by passing skip_<backend> as a parameter
+        # Allow skipping individual backends by passing skip_<backend> as a
+        # parameter
         backend = [b for b in backend.difference(skip_backends)
                    if not 'skip_' + b in metafunc.fixturenames]
         metafunc.parametrize("backend", backend, indirect=True)

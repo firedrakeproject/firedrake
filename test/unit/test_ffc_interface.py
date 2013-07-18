@@ -81,11 +81,13 @@ class TestFFCCache:
 
     def test_ffc_cache_persist_on_disk(self, backend, cache_key):
         """FFCKernel should be persisted on disk."""
-        assert os.path.exists(os.path.join(ffc_interface.FFCKernel._cachedir, cache_key))
+        assert os.path.exists(
+            os.path.join(ffc_interface.FFCKernel._cachedir, cache_key))
 
     def test_ffc_cache_read_from_disk(self, backend, cache_key):
         """Loading an FFCKernel from disk should yield the right object."""
-        assert ffc_interface.FFCKernel._read_from_disk(cache_key).cache_key == cache_key
+        assert ffc_interface.FFCKernel._read_from_disk(
+            cache_key).cache_key == cache_key
 
     def test_ffc_compute_form_data(self, backend, mass):
         """Compiling a form attaches form data."""
@@ -128,5 +130,4 @@ class TestFFCCache:
             0].code and 'exterior_facet_integral' in k[1].code and len(k) == 2
 
 if __name__ == '__main__':
-    import os
     pytest.main(os.path.abspath(__file__))

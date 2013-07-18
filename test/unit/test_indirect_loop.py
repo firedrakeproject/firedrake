@@ -91,7 +91,8 @@ class TestIndirectLoop:
     def test_indirect_inc(self, backend, iterset):
         unitset = op2.Set(1, 1, "unitset")
 
-        u = op2.Dat(unitset, numpy.array([0], dtype=numpy.uint32), numpy.uint32, "u")
+        u = op2.Dat(unitset, numpy.array([0], dtype=numpy.uint32),
+                    numpy.uint32, "u")
 
         u_map = numpy.zeros(nelems, dtype=numpy.uint32)
         iterset2unit = op2.Map(iterset, unitset, 1, u_map, "iterset2unitset")
@@ -107,7 +108,8 @@ class TestIndirectLoop:
 
         kernel_global_read = "void kernel_global_read(unsigned int* x, unsigned int* g) { (*x) /= (*g); }\n"
 
-        op2.par_loop(op2.Kernel(kernel_global_read, "kernel_global_read"), iterset,
+        op2.par_loop(op2.Kernel(kernel_global_read, "kernel_global_read"),
+                     iterset,
                      x(iterset2indset[0], op2.RW),
                      g(op2.READ))
         assert sum(x.data) == sum(map(lambda v: v / 2, range(nelems)))
@@ -117,9 +119,10 @@ class TestIndirectLoop:
 
         kernel_global_inc = "void kernel_global_inc(unsigned int *x, unsigned int *inc) { (*x) = (*x) + 1; (*inc) += (*x); }\n"
 
-        op2.par_loop(op2.Kernel(kernel_global_inc, "kernel_global_inc"), iterset,
-                     x(iterset2indset[0], op2.RW),
-                     g(op2.INC))
+        op2.par_loop(
+            op2.Kernel(kernel_global_inc, "kernel_global_inc"), iterset,
+            x(iterset2indset[0], op2.RW),
+            g(op2.INC))
         assert sum(x.data) == nelems * (nelems + 1) / 2
         assert g.data[0] == nelems * (nelems + 1) / 2
 
@@ -143,7 +146,8 @@ class TestIndirectLoop:
         edge_vals = op2.Dat(
             edges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
 
-        e_map = numpy.array([(i, i + 1) for i in range(nedges)], dtype=numpy.uint32)
+        e_map = numpy.array([(i, i + 1)
+                            for i in range(nedges)], dtype=numpy.uint32)
         edge2node = op2.Map(edges, nodes, 2, e_map, "edge2node")
 
         kernel_sum = """
@@ -155,7 +159,8 @@ class TestIndirectLoop:
                      node_vals(edge2node[1], op2.READ),
                      edge_vals(op2.IdentityMap, op2.WRITE))
 
-        expected = numpy.asarray(range(1, nedges * 2 + 1, 2)).reshape(nedges, 1)
+        expected = numpy.asarray(
+            range(1, nedges * 2 + 1, 2)).reshape(nedges, 1)
         assert all(expected == edge_vals.data)
 
 if __name__ == '__main__':

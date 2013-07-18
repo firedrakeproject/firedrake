@@ -93,7 +93,8 @@ void kernel_wo(unsigned int* x) { *x = 42; }
         kernel_rw = """
 void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }
 """
-        op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"), elems, x(op2.IdentityMap, op2.RW))
+        op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"),
+                     elems, x(op2.IdentityMap, op2.RW))
         assert sum(x.data) == nelems * (nelems + 1) / 2
 
     def test_global_inc(self, backend, elems, x, g):
@@ -186,15 +187,16 @@ void kernel_soa(unsigned int * x) { OP2_STRIDE(x, 0) = 42; OP2_STRIDE(x, 1) = 43
 
     def test_soa_should_stay_c_contigous(self, backend, elems, soa):
         k = "void dummy(unsigned int *x) {}"
-        assert soa.data.flags['C_CONTIGUOUS'] == True
+        assert soa.data.flags['C_CONTIGUOUS']
         op2.par_loop(op2.Kernel(k, "dummy"), elems,
                      soa(op2.IdentityMap, op2.WRITE))
-        assert soa.data.flags['C_CONTIGUOUS'] == True
+        assert soa.data.flags['C_CONTIGUOUS']
 
     def test_parloop_should_set_ro_flag(self, backend, elems, x):
         kernel = """void k(unsigned int *x) { *x = 1; }"""
         x_data = x.data
-        op2.par_loop(op2.Kernel(kernel, 'k'), elems, x(op2.IdentityMap, op2.WRITE))
+        op2.par_loop(op2.Kernel(kernel, 'k'),
+                     elems, x(op2.IdentityMap, op2.WRITE))
         with pytest.raises((RuntimeError, ValueError)):
             x_data[0] = 1
 

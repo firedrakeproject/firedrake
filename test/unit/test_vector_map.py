@@ -33,7 +33,6 @@
 
 import pytest
 import numpy
-import random
 
 from pyop2 import op2
 
@@ -118,7 +117,8 @@ class TestVectorMap:
         edge_vals = op2.Dat(
             edges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
 
-        e_map = numpy.array([(i, i + 1) for i in range(nedges)], dtype=numpy.uint32)
+        e_map = numpy.array([(i, i + 1)
+                            for i in range(nedges)], dtype=numpy.uint32)
         edge2node = op2.Map(edges, nodes, 2, e_map, "edge2node")
 
         kernel_sum = """
@@ -127,10 +127,11 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
 """
 
         op2.par_loop(op2.Kernel(kernel_sum, "kernel_sum"), edges,
-                     node_vals(edge2node,       op2.READ),
+                     node_vals(edge2node, op2.READ),
                      edge_vals(op2.IdentityMap, op2.WRITE))
 
-        expected = numpy.asarray(range(1, nedges * 2 + 1, 2)).reshape(nedges, 1)
+        expected = numpy.asarray(
+            range(1, nedges * 2 + 1, 2)).reshape(nedges, 1)
         assert all(expected == edge_vals.data)
 
     def test_read_1d_vector_map(self, backend, node, d1, vd1, node2ele):
@@ -169,8 +170,10 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
                      vd1(node2ele, op2.INC))
         expected = numpy.zeros_like(vd1.data)
         expected[:] = 3
-        expected += numpy.arange(start=0, stop=nnodes, step=2).reshape(expected.shape)
-        expected += numpy.arange(start=1, stop=nnodes, step=2).reshape(expected.shape)
+        expected += numpy.arange(
+            start=0, stop=nnodes, step=2).reshape(expected.shape)
+        expected += numpy.arange(
+            start=1, stop=nnodes, step=2).reshape(expected.shape)
         assert all(vd1.data == expected)
 
     def test_read_2d_vector_map(self, backend, node2, d2, vd2, node2ele2):

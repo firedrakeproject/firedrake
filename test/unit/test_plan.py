@@ -95,7 +95,8 @@ class TestPlan:
         edge_vals = op2.Dat(
             edges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
 
-        e_map = numpy.array([(i, i + 1) for i in range(nedges)], dtype=numpy.uint32)
+        e_map = numpy.array([(i, i + 1)
+                            for i in range(nedges)], dtype=numpy.uint32)
         edge2node = op2.Map(edges, nodes, 2, e_map, "edge2node")
 
         kernel_sum = """

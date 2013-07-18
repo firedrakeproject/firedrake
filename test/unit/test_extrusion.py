@@ -84,7 +84,8 @@ elems2nodes = elems2nodes.reshape(nelems, 3)
 elems2edges = numpy.zeros(mesh2d[1] * nelems, numpy.int32)
 c = 0
 for i in range(nelems):
-    elems2edges[mesh2d[1] * i:mesh2d[1] * (i + 1)] = [i + c, i + 1 + c, i + 2 + c]
+    elems2edges[mesh2d[1] * i:mesh2d[1] * (i + 1)] = [
+        i + c, i + 1 + c, i + 2 + c]
     c = 1
 elems2edges = elems2edges.reshape(nelems, 3)
 
@@ -152,7 +153,8 @@ def dat_coords(node_set2):
     coords_dat = numpy.zeros(coords_size)
     count = 0
     for k in range(0, nums[0]):
-        coords_dat[count:count + layers * dofs[0][0]] = numpy.tile([(k / 2), k % 2], layers)
+        coords_dat[count:count + layers * dofs[0][0]] = numpy.tile(
+            [(k / 2), k % 2], layers)
         count += layers * dofs[0][0]
     return op2.Dat(node_set2, coords_dat, numpy.float64, "coords")
 
@@ -171,7 +173,8 @@ def dat_c(node_set2):
     coords_dat = numpy.zeros(coords_size)
     count = 0
     for k in range(0, nums[0]):
-        coords_dat[count:count + layers * dofs[0][0]] = numpy.tile([0, 0], layers)
+        coords_dat[count:count + layers *
+                   dofs[0][0]] = numpy.tile([0, 0], layers)
         count += layers * dofs[0][0]
     return op2.Dat(node_set2, coords_dat, numpy.float64, "c")
 
@@ -262,8 +265,9 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
                      dat_f(field_map, op2.WRITE))
         assert all(map(lambda x: x[0] >= 0, dat_f.data))
 
-    def test_indirect_coords_inc(self, backend, elements, dat_coords, dat_field,
-                                 coords_map, field_map, dat_c, dat_f):
+    def test_indirect_coords_inc(self, backend, elements, dat_coords,
+                                 dat_field, coords_map, field_map, dat_c,
+                                 dat_f):
         kernel_inc = """void kernel_inc(double* x[], double* y[], int j) {
                                                                for (int i=0; i<6; i++){
                                                                  if (y[i][0] == 0){
