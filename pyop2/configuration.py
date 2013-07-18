@@ -98,7 +98,7 @@ class ConfigModule(types.ModuleType):
             try:
                 from_file = yaml.load(file(ConfigModule.DEFAULT_USER_CONFIG))
                 entries += from_file.items() if from_file else []
-            except IOError as e:
+            except IOError:
                 pass
 
         entries += kargs.items()

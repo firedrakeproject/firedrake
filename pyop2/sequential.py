@@ -33,13 +33,8 @@
 
 """OP2 sequential backend."""
 
-import os
-import numpy as np
-
 from exceptions import *
 from utils import as_tuple
-import op_lib_core as core
-import petsc_base
 from petsc_base import *
 import host
 from host import Arg

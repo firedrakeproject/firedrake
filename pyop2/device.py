@@ -37,7 +37,6 @@ try:
 # from PyPI
 except ImportError:
     from ordereddict import OrderedDict
-import numpy
 import op_lib_core as core
 import base
 from base import *

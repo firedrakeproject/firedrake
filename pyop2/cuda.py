@@ -477,7 +477,7 @@ def _cusp_solver(M, parameters):
         return module
 
     import codepy.toolchain
-    from cgen import FunctionBody, FunctionDeclaration, If, make_multiple_ifs
+    from cgen import FunctionBody, FunctionDeclaration
     from cgen import Block, Statement, Include, Value
     from codepy.bpl import BoostPythonModule
     from codepy.cuda import CudaModule

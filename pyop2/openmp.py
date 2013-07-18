@@ -39,8 +39,6 @@ import math
 
 from exceptions import *
 from utils import *
-import op_lib_core as core
-import petsc_base
 from petsc_base import *
 import host
 import device

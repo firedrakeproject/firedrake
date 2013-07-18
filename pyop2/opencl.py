@@ -71,7 +71,6 @@ class Kernel(device.Kernel):
             self._ast = ast
             self._constants = constants
             self.generic_visit(ast)
-            idx = ast.ext.index(self._func_node)
             ast.ext.insert(0, self._func_node.decl)
 
         def visit_FuncDef(self, node):

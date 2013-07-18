@@ -41,14 +41,12 @@ subclass these as required to implement backend-specific features.
 import numpy as np
 import operator
 from hashlib import md5
-from decorator import decorator
 
 from caching import Cached
 from exceptions import *
 from utils import *
 from backends import _make_object
 from mpi import MPI, _MPI, _check_comm
-import configuration as cfg
 import op_lib_core as core
 
 # Data API
