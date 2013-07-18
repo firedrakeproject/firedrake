@@ -112,6 +112,10 @@ class Set(base.Set):
     __metaclass__ = backends._BackendSelector
 
 
+class DataSet(base.DataSet):
+    __metaclass__ = backends._BackendSelector
+
+
 class Halo(base.Halo):
     __metaclass__ = backends._BackendSelector
 

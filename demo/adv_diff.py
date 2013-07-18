@@ -99,26 +99,28 @@ def main(opt):
 
     valuetype = np.float64
 
-    nodes, vnodes, coords, elements, elem_node, elem_vnode = read_triangle(opt['mesh'])
+    nodes, vnodes, coords, elements, elem_node = read_triangle(opt['mesh'])
+    dnodes1 = op2.DataSet(nodes, 1)
+
     num_nodes = nodes.size
 
-    sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
+    sparsity = op2.Sparsity((dnodes1, dnodes1), (elem_node, elem_node), "sparsity")
     if opt['advection']:
         adv_mat = op2.Mat(sparsity, valuetype, "adv_mat")
         op2.par_loop(adv, elements(3, 3),
                      adv_mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                     coords(elem_vnode, op2.READ))
+                     coords(elem_node, op2.READ))
     if opt['diffusion']:
         diff_mat = op2.Mat(sparsity, valuetype, "diff_mat")
         op2.par_loop(diff, elements(3, 3),
                      diff_mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                     coords(elem_vnode, op2.READ))
+                     coords(elem_node, op2.READ))
 
     tracer_vals = np.zeros(num_nodes, dtype=valuetype)
-    tracer = op2.Dat(nodes, tracer_vals, valuetype, "tracer")
+    tracer = op2.Dat(dnodes1, tracer_vals, valuetype, "tracer")
 
     b_vals = np.zeros(num_nodes, dtype=valuetype)
-    b = op2.Dat(nodes, b_vals, valuetype, "b")
+    b = op2.Dat(dnodes1, b_vals, valuetype, "b")
 
     velocity_vals = np.asarray([1.0, 0.0] * num_nodes, dtype=valuetype)
     velocity = op2.Dat(vnodes, velocity_vals, valuetype, "velocity")
@@ -164,9 +166,9 @@ def main(opt):
             b.zero()
             op2.par_loop(adv_rhs, elements(3),
                          b(elem_node[op2.i[0]], op2.INC),
-                         coords(elem_vnode, op2.READ),
+                         coords(elem_node, op2.READ),
                          tracer(elem_node, op2.READ),
-                         velocity(elem_vnode, op2.READ))
+                         velocity(elem_node, op2.READ))
 
             solver.solve(adv_mat, tracer, b)
 
@@ -176,7 +178,7 @@ def main(opt):
             b.zero()
             op2.par_loop(diff_rhs, elements(3),
                          b(elem_node[op2.i[0]], op2.INC),
-                         coords(elem_vnode, op2.READ),
+                         coords(elem_node, op2.READ),
                          tracer(elem_node, op2.READ))
 
             solver.solve(diff_mat, tracer, b)
@@ -188,7 +190,7 @@ def main(opt):
 
     if opt['print_output'] or opt['test_output']:
         analytical_vals = np.zeros(num_nodes, dtype=valuetype)
-        analytical = op2.Dat(nodes, analytical_vals, valuetype, "analytical")
+        analytical = op2.Dat(dnodes1, analytical_vals, valuetype, "analytical")
 
         i_cond = op2.Kernel(i_cond_code % {'T': T}, "i_cond")
 
@@ -198,7 +200,7 @@ def main(opt):
 
     # Print error w.r.t. analytical solution
     if opt['print_output']:
-        print "Expected - computed  solution: %s" % tracer.data - analytical.data
+        print "Expected - computed  solution: %s" % (tracer.data - analytical.data)
 
     if opt['test_output']:
         l2norm = dot(t - a, t - a) * dx
@@ -206,7 +208,7 @@ def main(opt):
         result = op2.Global(1, [0.0])
         op2.par_loop(l2_kernel, elements,
                      result(op2.INC),
-                     coords(elem_vnode, op2.READ),
+                     coords(elem_node, op2.READ),
                      tracer(elem_node, op2.READ),
                      analytical(elem_node, op2.READ)
                      )

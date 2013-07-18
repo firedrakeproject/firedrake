@@ -74,6 +74,10 @@ class MapTypeError(TypeError):
     """Invalid type for map."""
 
 
+class DataSetTypeError(TypeError):
+    """Invalid type for data set."""
+
+
 class MatTypeError(TypeError):
 
     """Invalid type for mat."""

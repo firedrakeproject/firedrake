@@ -322,7 +322,7 @@ class Set(object):
 
     @validate_type(('size', (int, tuple, list), SizeTypeError),
                    ('name', str, NameTypeError))
-    def __init__(self, size=None, dim=1, name=None, halo=None, layers=None):
+    def __init__(self, size=None, name=None, halo=None, layers=None):
         if type(size) is int:
             size = [size] * 4
         size = as_tuple(size, int, 4)
@@ -333,8 +333,6 @@ class Set(object):
         self._size = size[Set.OWNED_SIZE]
         self._ieh_size = size[Set.IMPORT_EXEC_SIZE]
         self._inh_size = size[Set.IMPORT_NON_EXEC_SIZE]
-        self._dim = as_tuple(dim, int)
-        self._cdim = np.asscalar(np.prod(self._dim))
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = None
         self._halo = halo
@@ -377,17 +375,6 @@ class Set(object):
         return self._core_size, self._size, self._ieh_size, self._inh_size
 
     @property
-    def dim(self):
-        """The shape tuple of the values for each element of the set."""
-        return self._dim
-
-    @property
-    def cdim(self):
-        """The scalar number of values for each member of the set. This is
-        the product of the dim tuple."""
-        return self._cdim
-
-    @property
     def name(self):
         """User-defined label"""
         return self._name
@@ -413,10 +400,10 @@ class Set(object):
         self._partition_size = partition_value
 
     def __str__(self):
-        return "OP2 Set: %s with size %s, dim %s" % (self._name, self._size, self._dim)
+        return "OP2 Set: %s with size %s" % (self._name, self._size)
 
     def __repr__(self):
-        return "Set(%r, %r, %r)" % (self._size, self._dim, self._name)
+        return "Set(%r, %r)" % (self._size, self._name)
 
     @classmethod
     def fromhdf5(cls, f, name, dim=1):
@@ -433,6 +420,57 @@ class Set(object):
         if self._lib_handle is None:
             self._lib_handle = core.op_set(self)
         return self._lib_handle
+
+
+class DataSet(object):
+    """PyOP2 Data Set
+
+    Set used in the op2.Dat structures to specify the dimension of the data.
+    """
+    _globalcount = 0
+
+    @validate_type(('iter_set', Set, SetTypeError),
+                   ('dim', (int, tuple, list), DimTypeError),
+                   ('name', str, NameTypeError))
+    def __init__(self, iter_set, dim, name=None):
+        self._set = iter_set
+        self._dim = as_tuple(dim, int)
+        self._cdim = np.asscalar(np.prod(self._dim))
+        self._name = name or "dset_%d" % DataSet._globalcount
+        DataSet._globalcount += 1
+
+    # Look up any unspecified attributes on the _set.
+    def __getattr__(self, name):
+        """Returns a Set specific attribute."""
+        return getattr(self._set, name)
+
+    @property
+    def dim(self):
+        """The shape tuple of the values for each element of the set."""
+        return self._dim
+
+    @property
+    def cdim(self):
+        """The scalar number of values for each member of the set. This is
+        the product of the dim tuple."""
+        return self._cdim
+
+    @property
+    def name(self):
+        """Returns the name of the data set."""
+        return self._name
+
+    @property
+    def set(self):
+        """Returns the parent set of the data set."""
+        return self._set
+
+    def __str__(self):
+        return "OP2 DataSet: %s on set %s, with dim %s" % \
+            (self._name, self._set, self._dim)
+
+    def __repr__(self):
+        return "DataSet(%r, %r, %r)" % (self._set, self._dim, self._name)
 
 
 class Halo(object):
@@ -691,7 +729,7 @@ class Dat(DataCarrier):
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
 
-    @validate_type(('dataset', Set, SetTypeError), ('name', str, NameTypeError))
+    @validate_type(('dataset', DataSet, DataSetTypeError), ('name', str, NameTypeError))
     def __init__(self, dataset, data=None, dtype=None, name=None,
                  soa=None, uid=None):
         if data is None:
@@ -722,7 +760,7 @@ class Dat(DataCarrier):
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, path, access):
         if isinstance(path, Map):
-            if path._dataset != self._dataset and path != IdentityMap:
+            if path._dataset != self._dataset.set and path != IdentityMap:
                 raise MapValueError("Dataset of Map does not match Dataset of Dat.")
             return _make_object('Arg', data=self, map=path, access=access)
         else:
@@ -732,7 +770,12 @@ class Dat(DataCarrier):
 
     @property
     def dataset(self):
-        """:class:`Set` on which the Dat is defined."""
+        """:class:`Set` on which the DataSet of the Dat is defined."""
+        return self._dataset.set
+
+    @property
+    def ddataset(self):
+        """DataSet of the Dat."""
         return self._dataset
 
     @property
@@ -1221,16 +1264,29 @@ class Sparsity(Cached):
     _globalcount = 0
 
     @classmethod
-    @validate_type(('maps', (Map, tuple), MapTypeError),)
-    def _process_args(cls, maps, name=None, *args, **kwargs):
+    @validate_type(('dsets', (DataSet, tuple), DataSetTypeError),
+                   ('maps', (Map, tuple), MapTypeError),)
+    def _process_args(cls, dsets, maps, name=None, *args, **kwargs):
         "Turn maps argument into a canonical tuple of pairs."
 
         assert not name or isinstance(name, str), "Name must be of type str"
+
+        # A single data set becomes a pair of identical data sets
+        dsets = (dsets, dsets) if isinstance(dsets, DataSet) else dsets
+        # A single pair becomes a tuple of one pair
+        dsets = (dsets,) if isinstance(dsets[0], DataSet) else dsets
+
+        # Check data sets are valid
+        for pair in dsets:
+            for m in pair:
+                if not isinstance(m, DataSet):
+                    raise DataSetTypeError("All data sets must be of type DataSet, not type %r" % type(m))
 
         # A single map becomes a pair of identical maps
         maps = (maps, maps) if isinstance(maps, Map) else maps
         # A single pair becomes a tuple of one pair
         maps = (maps,) if isinstance(maps[0], Map) else maps
+
         # Check maps are sane
         for pair in maps:
             for m in pair:
@@ -1241,21 +1297,32 @@ class Sparsity(Cached):
                     raise MapValueError(
                         "Unpopulated map values when trying to build sparsity.")
         # Need to return a list of args and dict of kwargs (empty in this case)
-        return [tuple(sorted(maps)), name], {}
+        return [tuple(dsets), tuple(sorted(maps)), name], {}
 
     @classmethod
     def _cache_key(cls, maps, *args, **kwargs):
         return maps
 
-    def __init__(self, maps, name=None):
+    def __init__(self, dsets, maps, name=None):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
 
+        # Split the dsets as well
+        self._rdset, self._cdset = dsets[0]
+
         assert len(self._rmaps) == len(self._cmaps), \
             "Must pass equal number of row and column maps"
+
+        # Make sure that the "to" Set of each map in a pair is the set of the
+        # corresponding DataSet set
+        for pair in maps:
+            for pdset in dsets:
+                if pair[0].dataset is not pdset[0].set or \
+                   pair[1].dataset is not pdset[1].set:
+                    raise RuntimeError("Map data set must be the same as corresponding DataSet set")
 
         # Each pair of maps must have the same from-set (iteration set)
         for pair in maps:
@@ -1273,7 +1340,7 @@ class Sparsity(Cached):
         # All rmaps and cmaps have the same data set - just use the first.
         self._nrows = self._rmaps[0].dataset.size
         self._ncols = self._cmaps[0].dataset.size
-        self._dims = (self._rmaps[0].dataset.cdim, self._cmaps[0].dataset.cdim)
+        self._dims = (self._rdset.cdim, self._cdset.cdim)
 
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         self._lib_handle = None
@@ -1284,6 +1351,21 @@ class Sparsity(Cached):
     @property
     def _nmaps(self):
         return len(self._rmaps)
+
+    @property
+    def dsets(self):
+        """A pair of DataSets."""
+        return zip([self._rdset], [self._cdset])
+
+    @property
+    def cdset(self):
+        """The data set associated with the column."""
+        return self._cdset
+
+    @property
+    def rdset(self):
+        """The data set associated with the row."""
+        return self._rdset
 
     @property
     def maps(self):
@@ -1330,11 +1412,11 @@ class Sparsity(Cached):
         return self._name
 
     def __str__(self):
-        return "OP2 Sparsity: rmaps %s, cmaps %s, name %s" % \
-               (self._rmaps, self._cmaps, self._name)
+        return "OP2 Sparsity: rdset %s, cdset %s, rmaps %s, cmaps %s, name %s" % \
+               (self._rdset, self._cdset, self._rmaps, self._cmaps, self._name)
 
     def __repr__(self):
-        return "Sparsity(%r, %r)" % (tuple(self.maps), self.name)
+        return "Sparsity(%r, %r, %r)" % (tuple(self.dsets), tuple(self.maps), self.name)
 
     def __del__(self):
         core.free_sparsity(self)
@@ -1629,7 +1711,7 @@ class ParLoop(object):
                 else:
                     if arg._is_mat:
                         continue
-                    if m._dataset != arg.data._dataset:
+                    if m._dataset != arg.data._dataset.set:
                         raise MapValueError(
                             "Dataset of arg %s map %s doesn't match the set of its Dat." %
                             (i, j))

@@ -69,8 +69,8 @@ def read_triangle(f, layers=None):
                 x, y = [float(x) for x in [vals[1], vals[2]]]
                 node_values[node] = (x, y)
 
-    nodes = op2.Set(num_nodes, 1, "nodes")
-    vnodes = op2.Set(num_nodes, 2, "vnodes")
+    nodes = op2.Set(num_nodes, "nodes")
+    vnodes = op2.DataSet(nodes, 2, "vnodes")
     coords = op2.Dat(vnodes, np.asarray(node_values, dtype=np.float64),
                      np.float64, "coords")
 
@@ -106,10 +106,9 @@ def read_triangle(f, layers=None):
     flat_map = [item for sublist in map_values for item in sublist]
 
     if layers is None:
-        elements = op2.Set(num_tri, 1, "elements")
+        elements = op2.Set(num_tri, "elements")
     else:
-        elements = op2.Set(num_tri, 1, "elements", layers=layers)
+        elements = op2.Set(num_tri, "elements", layers=layers)
     elem_node = op2.Map(elements, nodes, 3, flat_map, "elem_node")
-    elem_vnode = op2.Map(elements, vnodes, 3, flat_map, "elem_vnode")
 
-    return nodes, vnodes, coords, elements, elem_node, elem_vnode
+    return nodes, vnodes, coords, elements, elem_node
