@@ -41,7 +41,7 @@ import tempfile
 from ufl import Form
 from ufl.algorithms import as_form
 from ffc import default_parameters, compile_form as ffc_compile_form
-from ffc import constants
+from ffc import constants  # noqa: used in unit tests
 from ffc.log import set_level, ERROR
 
 from caching import DiskCached

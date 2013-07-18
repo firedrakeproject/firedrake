@@ -87,7 +87,7 @@ def init(**kwargs):
         if 'comm' in kwargs:
             backends._BackendSelector._backend.MPI.comm = kwargs['comm']
         global MPI
-        MPI = backends._BackendSelector._backend.MPI
+        MPI = backends._BackendSelector._backend.MPI  # noqa: backend override
         core.op_init(args=None, diags=0)
 
 
