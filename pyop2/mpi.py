@@ -33,6 +33,7 @@
 
 """PyOP2 MPI communicator."""
 
+from decorator import decorator
 from mpi4py import MPI as _MPI
 
 
