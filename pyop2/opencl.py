@@ -144,17 +144,27 @@ class DeviceDataMixin(device.DeviceDataMixin):
 
     """Codegen mixin for datatype and literal translation."""
 
-    ClTypeInfo = collections.namedtuple('ClTypeInfo', ['clstring', 'zero', 'min', 'max'])
+    ClTypeInfo = collections.namedtuple('ClTypeInfo',
+                                        ['clstring', 'zero', 'min', 'max'])
     CL_TYPES = {np.dtype('uint8'): ClTypeInfo('uchar', '0', '0', '255'),
                 np.dtype('int8'): ClTypeInfo('char', '0', '-127', '127'),
                 np.dtype('uint16'): ClTypeInfo('ushort', '0', '0', '65535'),
                 np.dtype('int16'): ClTypeInfo('short', '0', '-32767', '32767'),
-                np.dtype('uint32'): ClTypeInfo('uint', '0u', '0u', '4294967295u'),
-                np.dtype('int32'): ClTypeInfo('int', '0', '-2147483647', '2147483647'),
-                np.dtype('uint64'): ClTypeInfo('ulong', '0ul', '0ul', '18446744073709551615ul'),
-                np.dtype('int64'): ClTypeInfo('long', '0l', '-9223372036854775807l', '9223372036854775807l'),
-                np.dtype('float32'): ClTypeInfo('float', '0.0f', '-3.4028235e+38f', '3.4028235e+38f'),
-                np.dtype('float64'): ClTypeInfo('double', '0.0', '-1.7976931348623157e+308', '1.7976931348623157e+308')}
+                np.dtype('uint32'): ClTypeInfo('uint', '0u', '0u',
+                                               '4294967295u'),
+                np.dtype('int32'): ClTypeInfo('int', '0', '-2147483647',
+                                              '2147483647'),
+                np.dtype('uint64'): ClTypeInfo('ulong', '0ul', '0ul',
+                                               '18446744073709551615ul'),
+                np.dtype('int64'): ClTypeInfo('long', '0l',
+                                              '-9223372036854775807l',
+                                              '9223372036854775807l'),
+                np.dtype('float32'): ClTypeInfo('float', '0.0f',
+                                                '-3.4028235e+38f',
+                                                '3.4028235e+38f'),
+                np.dtype('float64'): ClTypeInfo('double', '0.0',
+                                                '-1.7976931348623157e+308',
+                                                '1.7976931348623157e+308')}
 
     def _allocate_device(self):
         if self.state is DeviceDataMixin.DEVICE_UNALLOCATED:
@@ -332,7 +342,7 @@ class Global(device.Global, DeviceDataMixin):
                 else:
                     return ""
 
-            op = {INC: 'INC', MIN: 'min', MAX: 'max'}
+            op = {INC: 'INC', MIN: 'min', MAX: 'max'}[reduction_operator]
 
             return """
 %(headers)s
@@ -361,7 +371,7 @@ void global_%(type)s_%(dim)s_post_reduction (
     dat[j] = accumulator[j];
   }
 }
-""" % {'headers': headers(), 'dim': self.cdim, 'type': self._cl_type, 'op': op[reduction_operator]}
+""" % {'headers': headers(), 'dim': self.cdim, 'type': self._cl_type, 'op': op}
 
         src, kernel = _reduction_task_cache.get(
             (self.dtype, self.cdim, reduction_operator), (None, None))
@@ -489,7 +499,8 @@ class JITModule(base.JITModule):
                 else:  # indirect loop
                     if arg._is_direct or (arg._is_global and not arg._is_global_reduction):
                         i = ("__global", None)
-                    elif (arg._is_indirect or arg._is_vec_map) and not arg._is_indirect_reduction:
+                    elif (arg._is_indirect or arg._is_vec_map) and not \
+                            arg._is_indirect_reduction:
                         i = ("__local", None)
                     else:
                         i = ("__private", None)
@@ -551,7 +562,8 @@ class ParLoop(device.ParLoop):
 
     @property
     def _requires_matrix_coloring(self):
-        """Direct code generation to follow colored execution for global matrix insertion."""
+        """Direct code generation to follow colored execution for global
+        matrix insertion."""
         return not _supports_64b_atomics and not not self._matrix_args
 
     def _i_partition_size(self):
@@ -576,7 +588,8 @@ class ParLoop(device.ParLoop):
         available_local_memory -= 4
         # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
         available_local_memory -= 7
-        # 12: shared_memory_offset, active_thread_count, active_thread_count_ceiling variables (could be 8 or 12 depending)
+        # 12: shared_memory_offset, active_thread_count,
+        #     active_thread_count_ceiling variables (could be 8 or 12 depending)
         #     and 3 for potential padding after shared mem buffer
         available_local_memory -= 12 + 3
         # 2 * (4/8)ptr size + 1uint32: DAT_via_MAP_indirection(./_size/_map) per
@@ -598,12 +611,15 @@ class ParLoop(device.ParLoop):
             else:
                 # 16bytes local mem used for global / local indices and sizes
                 # (4/8)ptr bytes for each dat buffer passed to the kernel
-                # (4/8)ptr bytes for each temporary global reduction buffer passed to the kernel
-                # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
+                # (4/8)ptr bytes for each temporary global reduction buffer
+                # passed to the kernel
+                # 7: 7bytes potentialy lost for aligning the shared memory
+                # buffer to 'long'
                 warnings.warn('temporary fix to available local memory computation (-512)')
                 available_local_memory = _max_local_memory - 512
                 available_local_memory -= 16
-                available_local_memory -= (len(self._unique_dat_args) + len(self._all_global_non_reduction_args))\
+                available_local_memory -= (len(self._unique_dat_args) +
+                                           len(self._all_global_non_reduction_args)) \
                     * (_address_bits / 8)
                 available_local_memory -= len(
                     self._all_global_reduction_args) * (_address_bits / 8)
@@ -739,10 +755,11 @@ def _setup():
     _max_local_memory = _queue.device.local_mem_size
     _address_bits = _queue.device.address_bits
     _max_work_group_size = _queue.device.max_work_group_size
-    _has_dpfloat = 'cl_khr_fp64' in _queue.device.extensions or 'cl_amd_fp64' in _queue.device.extensions
+    _has_dpfloat = 'cl_khr_fp64' in _queue.device.extensions or 'cl_amd_fp64' \
+        in _queue.device.extensions
     if not _has_dpfloat:
-        warnings.warn(
-            'device does not support double precision floating point computation, expect undefined behavior for double')
+        warnings.warn('device does not support double precision floating point \
+                computation, expect undefined behavior for double')
 
     if 'cl_khr_int64_base_atomics' in _queue.device.extensions:
         _supports_64b_atomics = True

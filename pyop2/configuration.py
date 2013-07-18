@@ -86,7 +86,7 @@ class ConfigModule(types.ModuleType):
             'pyop2', ConfigModule.DEFAULT_CONFIG)).items()
 
         alt_user_config = False
-        if kargs.has_key(ConfigModule.OP_CONFIG_KEY):
+        if ConfigModule.OP_CONFIG_KEY in kargs:
             alt_user_config = True
             try:
                 from_file = yaml.load(kargs[ConfigModule.OP_CONFIG_KEY])

@@ -238,7 +238,8 @@ for(int j=0; j<%(layers)s;j++){
 
     def c_intermediate_globals_writeback(self, count):
         d = {'gbl': self.c_arg_name(),
-             'local': "%(name)s_l%(count)s[0][i]" % {'name': self.c_arg_name(), 'count': str(count)}}
+             'local': "%(name)s_l%(count)s[0][i]" %
+             {'name': self.c_arg_name(), 'count': str(count)}}
         if self.access == INC:
             combine = "%(gbl)s[i] += %(local)s" % d
         elif self.access == MIN:
@@ -248,17 +249,16 @@ for(int j=0; j<%(layers)s;j++){
         return """
 #pragma omp critical
 for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
-""" % {'combine' : combine,
-       'dim': self.data.cdim}
+""" % {'combine': combine, 'dim': self.data.cdim}
 
     def c_vec_dec(self):
         val = []
         if self._is_vec_map:
             val.append(";\n%(type)s *%(vec_name)s[%(dim)s]" %
-                   {'type': self.ctype,
-                    'vec_name': self.c_vec_name(),
-                    'dim': self.map.dim,
-                    'max_threads': _max_threads})
+                       {'type': self.ctype,
+                        'vec_name': self.c_vec_name(),
+                        'dim': self.map.dim,
+                        'max_threads': _max_threads})
         return ";\n".join(val)
 
 
@@ -289,11 +289,11 @@ class JITModule(base.JITModule):
             #define OP2_STRIDE(a, idx) a[idx]
             inline %(code)s
             #undef OP2_STRIDE
-            """ % {'code' : self._kernel.code}
+            """ % {'code': self._kernel.code}
         else:
             kernel_code = """
             inline %(code)s
-            """ % {'code' : self._kernel.code }
+            """ % {'code': self._kernel.code}
         code_to_compile = dedent(self.wrapper) % self.generate_code()
 
         _const_decs = '\n'.join([const._format_declaration()
@@ -304,17 +304,15 @@ class JITModule(base.JITModule):
         os.environ['CC'] = 'mpicc'
         self._fun = inline_with_numpy(
             code_to_compile, additional_declarations=kernel_code,
-                                 additional_definitions=_const_decs + kernel_code,
-                                 cppargs=self._cppargs +
-                                     (['-O0', '-g'] if cfg.debug else []),
-                                 include_dirs=[OP2_INC, get_petsc_dir() + '/include'],
-                                 source_directory=os.path.dirname(
-                                     os.path.abspath(__file__)),
-                                 wrap_headers=["mat_utils.h"],
-                                 system_headers=self._system_headers,
-                                 library_dirs=[OP2_LIB, get_petsc_dir() + '/lib'],
-                                 libraries=['op2_seq', 'petsc'] + self._libraries,
-                                 sources=["mat_utils.cxx"])
+            additional_definitions=_const_decs + kernel_code,
+            cppargs=self._cppargs + (['-O0', '-g'] if cfg.debug else []),
+            include_dirs=[OP2_INC, get_petsc_dir() + '/include'],
+            source_directory=os.path.dirname(os.path.abspath(__file__)),
+            wrap_headers=["mat_utils.h"],
+            system_headers=self._system_headers,
+            library_dirs=[OP2_LIB, get_petsc_dir() + '/lib'],
+            libraries=['op2_seq', 'petsc'] + self._libraries,
+            sources=["mat_utils.cxx"])
         if cc:
             os.environ['CC'] = cc
         else:
@@ -341,7 +339,8 @@ class JITModule(base.JITModule):
             return "PyObject *off%(name)s" % {'name': c}
 
         def c_offset_decl(count):
-            return 'int * _off%(cnt)s = (int *)(((PyArrayObject *)off%(cnt)s)->data)' % {'cnt': count}
+            return 'int * _off%(cnt)s = (int *)(((PyArrayObject *)off%(cnt)s)->data)' % \
+                {'cnt': count}
 
         def extrusion_loop(d):
             return "for (int j_0=0; j_0<%d; ++j_0){" % d
@@ -353,7 +352,7 @@ class JITModule(base.JITModule):
         _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self._args])
 
         _kernel_user_args = [arg.c_kernel_arg(count)
-                                              for count, arg in enumerate(self._args)]
+                             for count, arg in enumerate(self._args)]
         _kernel_it_args = ["i_%d" % d for d in range(len(self._extents))]
         _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
         _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self._args
@@ -378,23 +377,33 @@ class JITModule(base.JITModule):
             _const_args = ''
         _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
 
-        _intermediate_globals_decl = ';\n'.join([arg.c_intermediate_globals_decl(count)
-                                                for count, arg in enumerate(self._args) if arg._is_global_reduction])
-        _intermediate_globals_init = ';\n'.join([arg.c_intermediate_globals_init(count)
-                                                for count, arg in enumerate(self._args) if arg._is_global_reduction])
-        _intermediate_globals_writeback = ';\n'.join([arg.c_intermediate_globals_writeback(count)
-                                                     for count, arg in enumerate(self._args) if arg._is_global_reduction])
+        _intermediate_globals_decl = ';\n'.join(
+            [arg.c_intermediate_globals_decl(count)
+             for count, arg in enumerate(self._args)
+             if arg._is_global_reduction])
+        _intermediate_globals_init = ';\n'.join(
+            [arg.c_intermediate_globals_init(count)
+             for count, arg in enumerate(self._args)
+             if arg._is_global_reduction])
+        _intermediate_globals_writeback = ';\n'.join(
+            [arg.c_intermediate_globals_writeback(count)
+             for count, arg in enumerate(self._args)
+             if arg._is_global_reduction])
 
         _vec_decs = ';\n'.join([arg.c_vec_dec()
-                               for arg in self._args if not arg._is_mat and arg._is_vec_map])
+                               for arg in self._args
+                               if not arg._is_mat and arg._is_vec_map])
 
         if self._layers > 1:
             _off_args = ', ' + ', '.join([c_offset_init(count)
-                                         for count, arg in enumerate(self._args) if not arg._is_mat and arg._is_vec_map])
+                                         for count, arg in enumerate(self._args)
+                                         if not arg._is_mat and arg._is_vec_map])
             _off_inits = ';\n'.join([c_offset_decl(count)
-                                    for count, arg in enumerate(self._args) if not arg._is_mat and arg._is_vec_map])
+                                    for count, arg in enumerate(self._args)
+                                    if not arg._is_mat and arg._is_vec_map])
             _apply_offset = ' \n'.join([arg.c_add_offset(arg.map.offset.size, count)
-                                       for count, arg in enumerate(self._args) if not arg._is_mat and arg._is_vec_map])
+                                       for count, arg in enumerate(self._args)
+                                       if not arg._is_mat and arg._is_vec_map])
             _extr_loop = '\n' + extrusion_loop(self._layers - 1)
             _extr_loop_close = '}\n'
             _kernel_args += ', j_0'

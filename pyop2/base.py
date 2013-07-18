@@ -56,10 +56,13 @@ import op_lib_core as core
 
 class Access(object):
 
-    """OP2 access type. In an :py:class:`Arg`, this describes how the :py:class:`DataCarrier` will be accessed.
+    """OP2 access type. In an :py:class:`Arg`, this describes how the
+    :py:class:`DataCarrier` will be accessed.
 
-    .. warning :: Access should not be instantiated by user code. Instead, use the predefined values: :const:`READ`, :const:`WRITE`, :const:`RW`, :const:`INC`, :const:`MIN`, :const:`MAX`
-"""
+    .. warning :: Access should not be instantiated by user code. Instead, use
+    the predefined values: :const:`READ`, :const:`WRITE`, :const:`RW`,
+    :const:`INC`, :const:`MIN`, :const:`MAX`
+    """
 
     _modes = ["READ", "WRITE", "RW", "INC", "MIN", "MAX"]
 
@@ -77,19 +80,27 @@ READ = Access("READ")
 """The :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed read-only."""
 
 WRITE = Access("WRITE")
-"""The  :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed write-only, and OP2 is not required to handle write conflicts."""
+"""The  :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed write-only,
+and OP2 is not required to handle write conflicts."""
 
 RW = Access("RW")
-"""The  :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed for reading and writing, and OP2 is not required to handle write conflicts."""
+"""The  :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed for reading
+and writing, and OP2 is not required to handle write conflicts."""
 
 INC = Access("INC")
-"""The kernel computes increments to be summed onto a :class:`Global`, :class:`Dat`, or :class:`Mat`. OP2 is responsible for managing the write conflicts caused."""
+"""The kernel computes increments to be summed onto a :class:`Global`,
+:class:`Dat`, or :class:`Mat`. OP2 is responsible for managing the write
+conflicts caused."""
 
 MIN = Access("MIN")
-"""The kernel contributes to a reduction into a :class:`Global` using a ``min`` operation. OP2 is responsible for reducing over the different kernel invocations."""
+"""The kernel contributes to a reduction into a :class:`Global` using a ``min``
+operation. OP2 is responsible for reducing over the different kernel
+invocations."""
 
 MAX = Access("MAX")
-"""The kernel contributes to a reduction into a :class:`Global` using a ``max`` operation. OP2 is responsible for reducing over the different kernel invocations."""
+"""The kernel contributes to a reduction into a :class:`Global` using a ``max``
+operation. OP2 is responsible for reducing over the different kernel
+invocations."""
 
 # Data API
 
@@ -98,7 +109,8 @@ class Arg(object):
 
     """An argument to a :func:`par_loop`.
 
-    .. warning:: User code should not directly instantiate :class:`Arg`. Instead, use the call syntax on the :class:`DataCarrier`.
+    .. warning:: User code should not directly instantiate :class:`Arg`.
+    Instead, use the call syntax on the :class:`DataCarrier`.
     """
 
     def __init__(self, data=None, map=None, idx=None, access=None):
@@ -259,7 +271,8 @@ class Arg(object):
 
     @property
     def data(self):
-        """Data carrier: :class:`Dat`, :class:`Mat`, :class:`Const` or :class:`Global`."""
+        """Data carrier: :class:`Dat`, :class:`Mat`, :class:`Const` or
+        :class:`Global`."""
         return self._dat
 
 
@@ -536,8 +549,9 @@ class IterationSpace(object):
 
     """OP2 iteration space type.
 
-    .. Warning:: User code should not directly instantiate IterationSpace. Instead use the call syntax on the iteration set in the :func:`par_loop` call.
-"""
+    .. Warning:: User code should not directly instantiate IterationSpace. Instead
+    use the call syntax on the iteration set in the :func:`par_loop` call.
+    """
 
     @validate_type(('iterset', Set, SetTypeError))
     def __init__(self, iterset, extents=()):
@@ -556,12 +570,14 @@ class IterationSpace(object):
 
     @property
     def name(self):
-        """The name of the :class:`Set` over which this IterationSpace is defined."""
+        """The name of the :class:`Set` over which this IterationSpace is
+        defined."""
         return self._iterset.name
 
     @property
     def core_size(self):
-        """The number of :class:`Set` elements which don't touch halo elements in the set over which this IterationSpace is defined"""
+        """The number of :class:`Set` elements which don't touch halo elements in the set
+        over which this IterationSpace is defined"""
         return self._iterset.core_size
 
     @property
@@ -572,7 +588,7 @@ class IterationSpace(object):
     @property
     def exec_size(self):
         """The size of the :class:`Set` over which this IterationSpace
-    is defined, including halo elements to be executed over"""
+        is defined, including halo elements to be executed over"""
         return self._iterset.exec_size
 
     @property
@@ -621,17 +637,17 @@ class DataCarrier(object):
     def ctype(self):
         """The c type of the data."""
         # FIXME: Complex and float16 not supported
-        typemap = {"bool":    "unsigned char",
-                   "int":     "int",
-                   "int8":    "char",
-                   "int16":   "short",
-                   "int32":   "int",
-                   "int64":   "long long",
-                   "uint8":   "unsigned char",
-                   "uint16":  "unsigned short",
-                   "uint32":  "unsigned int",
-                   "uint64":  "unsigned long",
-                   "float":   "double",
+        typemap = {"bool": "unsigned char",
+                   "int": "int",
+                   "int8": "char",
+                   "int16": "short",
+                   "int32": "int",
+                   "int64": "long long",
+                   "uint8": "unsigned char",
+                   "uint16": "unsigned short",
+                   "uint32": "unsigned int",
+                   "uint64": "unsigned long",
+                   "float": "double",
                    "float32": "float",
                    "float64": "double"}
         return typemap[self.dtype.name]
@@ -775,7 +791,7 @@ class Dat(DataCarrier):
                 for (int n = 0; n < %(dim)s; ++n) {
                     dat[n] = (%(t)s)0;
                 }
-            }""" % { 't': self.ctype, 'dim' : self.cdim }
+            }""" % {'t': self.ctype, 'dim': self.cdim}
             self._zero_kernel = _make_object('Kernel', k, 'zero')
         _make_object('ParLoop', self._zero_kernel, self.dataset,
                      self(IdentityMap, WRITE)).compute()
@@ -906,7 +922,8 @@ class Const(DataCarrier):
 
     class NonUniqueNameError(ValueError):
 
-        """The Names of const variables are required to be globally unique. This exception is raised if the name is already in use."""
+        """The Names of const variables are required to be globally unique.
+        This exception is raised if the name is already in use."""
 
     _defs = set()
     _globalcount = 0
@@ -1006,7 +1023,8 @@ class Global(DataCarrier):
             % (self._name, self._dim, self._data)
 
     def __repr__(self):
-        return "Global(%r, %r, %r, %r)" % (self._dim, self._data, self._data.dtype, self._name)
+        return "Global(%r, %r, %r, %r)" % (self._dim, self._data,
+                                           self._data.dtype, self._name)
 
     @property
     def data(self):
@@ -1620,7 +1638,8 @@ class ParLoop(object):
                         continue
                     if m._dataset != arg.data._dataset:
                         raise MapValueError(
-                            "Dataset of arg %s map %sdoesn't match the set of its Dat." % (i, j))
+                            "Dataset of arg %s map %s doesn't match the set of its Dat." %
+                            (i, j))
 
     def generate_code(self):
         raise RuntimeError('Must select a backend')
@@ -1677,8 +1696,8 @@ class ParLoop(object):
         """Flag which triggers extrusion"""
         return self._is_layered
 
-DEFAULT_SOLVER_PARAMETERS = {'linear_solver':      'cg',
-                             'preconditioner':     'jacobi',
+DEFAULT_SOLVER_PARAMETERS = {'linear_solver': 'cg',
+                             'preconditioner': 'jacobi',
                              'relative_tolerance': 1.0e-7,
                              'absolute_tolerance': 1.0e-50,
                              'divergence_tolerance': 1.0e+4,

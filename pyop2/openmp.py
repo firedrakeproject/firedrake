@@ -83,7 +83,8 @@ class Arg(host.Arg):
              'dim': self.map.dim}
 
     def padding(self):
-        return int(_padding * (self.data.cdim / _padding + 1)) * (_padding / self.data.dtype.itemsize)
+        return int(_padding * (self.data.cdim / _padding + 1)) * \
+            (_padding / self.data.dtype.itemsize)
 
     def c_reduction_dec(self):
         return "%(type)s %(name)s_l[%(max_threads)s][%(dim)s]" % \
@@ -115,7 +116,7 @@ class Arg(host.Arg):
         return """
         for ( int thread = 0; thread < nthread; thread++ ) {
             for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
-        }""" % {'combine' : combine,
+        }""" % {'combine': combine,
                 'dim': self.data.cdim}
 
     def c_global_reduction_name(self, count=None):
@@ -211,7 +212,8 @@ void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
         _reduction_inits = ';\n'.join([arg.c_reduction_init()
                                       for arg in self._args if arg._is_global_reduction])
         _reduction_finalisations = '\n'.join(
-            [arg.c_reduction_finalisation() for arg in self._args if arg._is_global_reduction])
+            [arg.c_reduction_finalisation() for arg in self._args
+             if arg._is_global_reduction])
 
         code_dict.update({'reduction_decs': _reduction_decs,
                           'reduction_inits': _reduction_inits,
@@ -286,7 +288,8 @@ class ParLoop(device.ParLoop, host.ParLoop):
 
     @property
     def _requires_matrix_coloring(self):
-        """Direct code generation to follow colored execution for global matrix insertion."""
+        """Direct code generation to follow colored execution for global
+        matrix insertion."""
         return True
 
 

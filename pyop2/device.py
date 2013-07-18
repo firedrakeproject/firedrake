@@ -495,7 +495,8 @@ class ParLoop(base.ParLoop):
 
     @property
     def _requires_matrix_coloring(self):
-        """Direct code generation to follow colored execution for global matrix insertion."""
+        """Direct code generation to follow colored execution for global
+        matrix insertion."""
         return False
 
     @property

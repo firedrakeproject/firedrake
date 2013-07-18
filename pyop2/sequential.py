@@ -55,7 +55,8 @@ def par_loop(kernel, it_space, *args):
 class JITModule(host.JITModule):
 
     wrapper = """
-void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %(const_args)s %(off_args)s) {
+void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end,
+                            %(wrapper_args)s %(const_args)s %(off_args)s) {
   int start = (int)PyInt_AsLong(_start);
   int end = (int)PyInt_AsLong(_end);
   %(wrapper_decs)s;

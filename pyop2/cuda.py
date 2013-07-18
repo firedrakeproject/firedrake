@@ -568,7 +568,8 @@ def _cusp_solver(M, parameters):
             Statement(
                 'matrix A(nrows, ncols, nnz, row_offsets, column_indices, matrix_values)'),
             Statement('cusp::%s_monitor< ValueType > %s' %
-                      ('verbose' if parameters['monitor_convergence'] else 'default', monitor)),
+                      ('verbose' if parameters['monitor_convergence'] else 'default',
+                       monitor)),
             precond_call,
             solve_call
         ]))
@@ -602,7 +603,8 @@ def _cusp_solver(M, parameters):
                 Statement('int nrows = extract<int>(_nrows)'),
                 Statement('int ncols = extract<int>(_ncols)'),
                 Statement('int nnz = extract<int>(_nnz)'),
-                Statement('__cusp_solve(rowptr, colidx, csrdata, b, x, nrows, ncols, nnz)')])))
+                Statement('__cusp_solve(rowptr, colidx, csrdata, b, x, nrows, ncols, nnz)')
+            ])))
 
     nvcc_toolchain.cflags.append('-arch')
     nvcc_toolchain.cflags.append('sm_20')
