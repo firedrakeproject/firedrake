@@ -11,8 +11,8 @@ import threading
 import xml.parsers.expat
 import string
 
-sys.path.insert(
-    0, os.path.join(os.getcwd(), os.path.dirname(sys.argv[0]), os.pardir, "python"))
+sys.path.insert(0, os.path.join(os.getcwd(), os.path.dirname(sys.argv[0]),
+                                os.pardir, "python"))
 try:
     import xml.etree.ElementTree as etree
 except ImportError:
@@ -59,7 +59,8 @@ class TestHarness:
                 dirnames.append(directory)
         testdirs = [os.path.join(rootdir, x) for x in dirnames]
         for directory in testdirs:
-            subdirs = [os.path.join(directory, x) for x in os.listdir(directory)]
+            subdirs = [os.path.join(directory, x)
+                       for x in os.listdir(directory)]
             for subdir in subdirs:
                 g = glob.glob1(subdir, "*.xml")
                 for xml_file in g:
@@ -116,7 +117,8 @@ class TestHarness:
             prob_defn = p.findall("problem_definition")[0]
             prob_length = prob_defn.attrib["length"]
             prob_nprocs = int(prob_defn.attrib["nprocs"])
-            if prob_length == length or (length == "any" and prob_length not in ["special", "long"]):
+            if prob_length == length or (length == "any" and prob_length not
+                                         in ["special", "long"]):
                 if self.parallel is True:
                     if prob_nprocs > 1:
                         working_set.append(xml_file)
@@ -161,8 +163,10 @@ class TestHarness:
             p = etree.parse(os.path.join(subdir, xml_file))
             prob_defn = p.findall("problem_definition")[0]
             prob_nprocs = int(prob_defn.attrib["nprocs"])
-            testprob = regressiontest.TestProblem(filename=os.path.join(subdir, xml_file),
-                                                  verbose=self.verbose, replace=self.modify_command_line(prob_nprocs))
+            testprob = regressiontest.TestProblem(
+                filename=os.path.join(subdir, xml_file),
+                verbose=self.verbose,
+                replace=self.modify_command_line(prob_nprocs))
             if should_add_backend_to_commandline(subdir, xml_file):
                 testprob.command_line += " --backend=%s" % self.backend
             self.tests.append((subdir, testprob))
@@ -192,7 +196,8 @@ class TestHarness:
                     print s
 
                 if (string.find(s, '-n') == -1):
-                    s = s.replace('mpiexec ', 'mpiexec -n ' + str(nprocs) + ' ')
+                    s = s.replace(
+                        'mpiexec ', 'mpiexec -n ' + str(nprocs) + ' ')
                     print s
 
             return s
@@ -200,7 +205,7 @@ class TestHarness:
         return f
 
     def log(self, str):
-        if self.verbose == True:
+        if self.verbose:
             print str
 
     def clean(self):
@@ -213,7 +218,7 @@ class TestHarness:
 
     def run(self):
         self.log(" ")
-        print "just test",  self.justtest
+        print "just test", self.justtest
         if not self.justtest:
             threadlist = []
             self.threadtests = regressiontest.ThreadIterator(self.tests)
@@ -239,10 +244,10 @@ class TestHarness:
                         try:
                             self.teststatus += test.test()
                         except:
-                            self.log(
-                                "Error: %s raised an exception while testing:" % test.filename)
-                            lines = traceback.format_exception(
-                                sys.exc_info()[0], sys.exc_info()[1], sys.exc_info()[2])
+                            self.log("Error: %s raised an exception while testing:" % test.filename)
+                            lines = traceback.format_exception(sys.exc_info()[0],
+                                                               sys.exc_info()[1],
+                                                               sys.exc_info()[2])
                             for line in lines:
                                 self.log(line)
                             self.teststatus += ['F']
@@ -301,7 +306,8 @@ class TestHarness:
                     test.pass_status = ['W']
 
             except:
-                self.log("Error: %s raised an exception while running:" % test.filename)
+                self.log("Error: %s raised an exception while running:" %
+                         test.filename)
                 lines = traceback.format_exception(
                     sys.exc_info()[0], sys.exc_info()[1], sys.exc_info()[2])
                 for line in lines:
@@ -322,14 +328,16 @@ if __name__ == "__main__":
     parser = optparse.OptionParser()
     parser.add_option("-l", "--length", dest="length",
                       help="length of problem (default=short)", default="any")
-    parser.add_option(
-        "-p", "--parallelism", dest="parallel", help="parallelism of problem (default=serial)",
-        default="serial")
-    parser.add_option(
-        "-b", "--backend", dest="backend", help="Which code generation backend to test (default=sequential)",
-        default=None)
+    parser.add_option("-p", "--parallelism", dest="parallel",
+                      help="parallelism of problem (default=serial)",
+                      default="serial")
+    parser.add_option("-b", "--backend", dest="backend",
+                      help="Which code generation backend to test (default=sequential)",
+                      default=None)
     parser.add_option("-e", "--exclude-tags", dest="exclude_tags",
-                      help="run only tests that do not have specific tags (takes precidence over -t)", default=[], action="append")
+                      help="run only tests that do not have specific tags \
+                            (takes precidence over -t)",
+                      default=[], action="append")
     parser.add_option("-t", "--tags", dest="tags",
                       help="run tests with specific tags", default=[], action="append")
     parser.add_option("-f", "--file", dest="file",
@@ -337,7 +345,8 @@ if __name__ == "__main__":
     parser.add_option("-n", "--threads", dest="thread_count", type="int",
                       help="number of tests to run at the same time", default=1)
     parser.add_option("-v", "--valgrind", action="store_true", dest="valgrind")
-    parser.add_option("-c", "--clean", action="store_true", dest="clean", default=False)
+    parser.add_option(
+        "-c", "--clean", action="store_true", dest="clean", default=False)
     parser.add_option("--just-test", action="store_true", dest="justtest")
     parser.add_option("--just-list", action="store_true", dest="justlist")
     parser.add_option("--pbs", action="store_false", dest="pbs")
@@ -354,16 +363,19 @@ if __name__ == "__main__":
         parser.error("Specify either serial or parallel.")
 
     os.environ["PATH"] = os.path.abspath(
-        os.path.join(os.path.dirname(sys.argv[0]), "..", "bin")) + ":" + os.environ["PATH"]
+        os.path.join(os.path.dirname(sys.argv[0]), "..", "bin")) + ":" \
+        + os.environ["PATH"]
     try:
         os.environ["PYTHONPATH"] = os.path.abspath(
-            os.path.join(os.path.dirname(sys.argv[0]), "..", "python")) + ":" + os.environ["PYTHONPATH"]
+            os.path.join(os.path.dirname(sys.argv[0]), "..", "python")) + ":" \
+            + os.environ["PYTHONPATH"]
     except KeyError:
         os.putenv("PYTHONPATH", os.path.abspath(
             os.path.join(os.path.dirname(sys.argv[0]), "..", "python")))
     try:
         os.environ["LD_LIBRARY_PATH"] = os.path.abspath(
-            os.path.join(os.path.dirname(sys.argv[0]), "..", "lib")) + ":" + os.environ["LD_LIBRARY_PATH"]
+            os.path.join(os.path.dirname(sys.argv[0]), "..", "lib")) + ":" \
+            + os.environ["LD_LIBRARY_PATH"]
     except KeyError:
         os.putenv("LD_LIBRARY_PATH", os.path.abspath(
             os.path.join(os.path.dirname(sys.argv[0]), "..", "lib")))
@@ -396,7 +408,7 @@ if __name__ == "__main__":
     elif options.clean:
         testharness.clean()
     else:
-        if options.valgrind is True:
+        if options.valgrind:
             print "-" * 80
             print "I see you are using valgrind!"
             print "A couple of points to remember."

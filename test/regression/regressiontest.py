@@ -8,7 +8,6 @@ import traceback
 import time
 import glob
 import threading
-import traceback
 
 
 class TestProblem:
@@ -57,34 +56,34 @@ class TestProblem:
                 for var in child.childNodes:
                     try:
                         self.variables.append(
-                            Variable(
-                                name=var.getAttribute("name"), language=var.getAttribute("language"),
-                                code=var.childNodes[0].nodeValue.strip()))
+                            Variable(name=var.getAttribute("name"),
+                                     language=var.getAttribute("language"),
+                                     code=var.childNodes[0].nodeValue.strip()))
                     except AttributeError:
                         continue
             elif tag == "pass_tests":
                 for test in child.childNodes:
                     try:
                         self.pass_tests.append(
-                            Test(
-                                name=test.getAttribute("name"), language=test.getAttribute("language"),
-                                code=test.childNodes[0].nodeValue.strip()))
+                            Test(name=test.getAttribute("name"),
+                                 language=test.getAttribute("language"),
+                                 code=test.childNodes[0].nodeValue.strip()))
                     except AttributeError:
                         continue
             elif tag == "warn_tests":
                 for test in child.childNodes:
                     try:
                         self.warn_tests.append(
-                            Test(
-                                name=test.getAttribute("name"), language=test.getAttribute("language"),
-                                code=test.childNodes[0].nodeValue.strip()))
+                            Test(name=test.getAttribute("name"),
+                                 language=test.getAttribute("language"),
+                                 code=test.childNodes[0].nodeValue.strip()))
                     except AttributeError:
                         continue
 
         self.random_string()
 
     def log(self, str):
-        if self.verbose == True:
+        if self.verbose:
             print self.filename[:-4] + ": " + str
 
     def random_string(self):
@@ -98,8 +97,9 @@ class TestProblem:
         self.random = str
 
     def call_genpbs(self, dir):
-        cmd = "genpbs \"" + self.filename[:-4] + "\" \"" + self.command_line + "\" \"" + str(
-            self.nprocs) + "\" \"" + self.random + "\""
+        cmd = 'genpbs "%s" "%s" "%s" "%s"' % (self.filename[:-4],
+                                              self.command_line,
+                                              self.nprocs, self.random)
         self.log("cd " + dir + "; " + cmd)
         ret = os.system("cd " + dir + "; " + cmd)
 
@@ -196,17 +196,18 @@ class TestProblem:
                 return self.pass_status
 
             varsdict[var.name] = tmpdict[var.name]
-            self.log("Assigning %s = %s" % (str(var.name), Trim(str(varsdict[var.name]))))
+            self.log("Assigning %s = %s" %
+                     (str(var.name), Trim(str(varsdict[var.name]))))
 
         if len(self.pass_tests) != 0:
             self.log("Running failure tests: ")
             for test in self.pass_tests:
                 self.log("Running %s:" % test.name)
                 status = test.run(varsdict)
-                if status == True:
+                if status is True:
                     self.log("success.")
                     self.pass_status.append('P')
-                elif status == False:
+                elif status is False:
                     self.log("failure.")
                     self.pass_status.append('F')
                 else:
@@ -218,10 +219,10 @@ class TestProblem:
             for test in self.warn_tests:
                 self.log("Running %s:" % test.name)
                 status = test.run(varsdict)
-                if status == True:
+                if status is True:
                     self.log("success.")
                     self.warn_status.append('P')
-                elif status == False:
+                elif status is False:
                     self.log("warning.")
                     self.warn_status.append('W')
                 else:
@@ -234,7 +235,8 @@ class TestProblem:
 
 class TestOrVariable:
 
-    """Tests and variables have a lot in common. This code unifies the commonalities."""
+    """Tests and variables have a lot in common. This code unifies the
+    commonalities."""
 
     def __init__(self, name, language, code):
         self.name = name
