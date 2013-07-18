@@ -779,11 +779,6 @@ class Dat(DataCarrier):
     def needs_halo_update(self, val):
         self._needs_halo_update = val
 
-    @property
-    def norm(self):
-        """The L2-norm on the flattened vector."""
-        raise NotImplementedError("Norm is not implemented.")
-
     def zero(self):
         """Zero the data associated with this :class:`Dat`"""
         if not hasattr(self, '_zero_kernel'):
