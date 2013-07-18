@@ -45,7 +45,6 @@ from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from triangle_reader import read_triangle
 from ufl import *
-import sys
 
 import numpy as np
 
@@ -54,7 +53,8 @@ parser.add_argument('-m', '--mesh',
                     action='store',
                     type=str,
                     required=True,
-                    help='Base name of triangle mesh (excluding the .ele or .node extension)')
+                    help='Base name of triangle mesh \
+                          (excluding the .ele or .node extension)')
 parser.add_argument('-s', '--save-output',
                     action='store_true',
                     help='Save the output of the run (used for testing)')
@@ -79,13 +79,14 @@ L = v * f * dx
 # Generate code for mass and rhs assembly.
 
 mass, = compile_form(a, "mass")
-rhs,  = compile_form(L, "rhs")
+rhs, = compile_form(L, "rhs")
 
 # Set up simulation data structures
 
 valuetype = np.float64
 
-nodes, vnodes, coords, elements, elem_node, elem_vnode = read_triangle(opt['mesh'])
+nodes, vnodes, coords, elements, elem_node, elem_vnode = \
+    read_triangle(opt['mesh'])
 num_nodes = nodes.size
 
 sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")

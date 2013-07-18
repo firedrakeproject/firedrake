@@ -38,18 +38,17 @@ The cube will be unstructured in the 2D plane and structured vertically.
 """
 
 from pyop2 import op2, utils
-from pyop2.ffc_interface import compile_form
 from triangle_reader import read_triangle
 from ufl import *
 from pyop2.computeind import compute_ind_extr
-import sys
 
 import numpy as np
 import time
 
 parser = utils.parser(group=True, description="PyOP2 2D mass equation demo")
 parser.add_argument('-m', '--mesh', action='store', type=str, required=True,
-                    help='Base name of triangle mesh (excluding the .ele or .node extension)')
+                    help='Base name of triangle mesh \
+                          (excluding the .ele or .node extension)')
 parser.add_argument('-ll', '--layers', action='store', type=str, required=True,
                     help='Number of extruded layers.')
 parser.add_argument('-p', '--partsize', action='store', type=str,
@@ -66,7 +65,8 @@ partition_size = int(opt['partsize'])
 mass = op2.Kernel("""
 void comp_vol(double A[1], double *x[], double *y[], int j)
 {
-  double abs = x[0][0]*(x[2][1]-x[4][1])+x[2][0]*(x[4][1]-x[0][1])+x[4][0]*(x[0][1]-x[2][1]);
+  double abs = x[0][0]*(x[2][1]-x[4][1]) + x[2][0]*(x[4][1]-x[0][1])
+               + x[4][0]*(x[0][1]-x[2][1]);
   if (abs < 0)
     abs = abs * (-1.0);
   A[0]+=0.5*abs*0.1 * y[0][0];
@@ -76,7 +76,8 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
 # Set up simulation data structures
 valuetype = np.float64
 
-nodes, vnodes, coords, elements, elem_node, elem_vnode = read_triangle(mesh_name, layers)
+nodes, vnodes, coords, elements, elem_node, elem_vnode = \
+    read_triangle(mesh_name, layers)
 
 # mesh data
 mesh2d = np.array([3, 3, 1])
@@ -116,9 +117,9 @@ wedges = layers - 1
 
 # NEW MAP
 # When building this map we need to make sure we leave space for the maps that
-# might be missing. This is because when we construct the ind array we need to know which
-# maps is associated with each dof. If the element to node is missing then
-# we will  have the cell to edges in the first position which is bad
+# might be missing. This is because when we construct the ind array we need to
+# know which maps is associated with each dof. If the element to node is
+# missing then we will have the cell to edges in the first position which is bad
 # RULE: if all the dofs in the line are ZERO then skip that mapping else add it
 
 mappp = elem_node.values

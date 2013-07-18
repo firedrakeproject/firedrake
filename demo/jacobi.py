@@ -145,7 +145,8 @@ res = op2.Kernel("""void res(%(t)s *A, %(t)s *u, %(t)s *du, const %(t)s *beta){
   *du += (*beta)*(*A)*(*u);
 }""" % {'t': "double" if fp_type == np.float64 else "float"}, "res")
 
-update = op2.Kernel("""void update(%(t)s *r, %(t)s *du, %(t)s *u, %(t)s *u_sum, %(t)s *u_max){
+update = op2.Kernel("""
+void update(%(t)s *r, %(t)s *du, %(t)s *u, %(t)s *u_sum, %(t)s *u_max) {
   *u += *du + alpha * (*r);
   *du = %(z)s;
   *u_sum += (*u)*(*u);

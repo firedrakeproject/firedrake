@@ -32,7 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import h5py
-from math import atan, sqrt
+from math import sqrt
 import numpy as np
 import os
 
@@ -65,16 +65,16 @@ def main(opt):
             p_x = op2.Dat.fromhdf5(vnodes, f, "p_x")
             p_q = op2.Dat.fromhdf5(vcells, f, "p_q")
             p_qold = op2.Dat.fromhdf5(vcells, f, "p_qold")
-            p_adt = op2.Dat.fromhdf5(cells,  f, "p_adt")
+            p_adt = op2.Dat.fromhdf5(cells, f, "p_adt")
             p_res = op2.Dat.fromhdf5(vcells, f, "p_res")
 
-            gam = op2.Const.fromhdf5(f, "gam")
-            gm1 = op2.Const.fromhdf5(f, "gm1")
-            cfl = op2.Const.fromhdf5(f, "cfl")
-            eps = op2.Const.fromhdf5(f, "eps")
-            mach = op2.Const.fromhdf5(f, "mach")
-            alpha = op2.Const.fromhdf5(f, "alpha")
-            qinf = op2.Const.fromhdf5(f, "qinf")
+            op2.Const.fromhdf5(f, "gam")
+            op2.Const.fromhdf5(f, "gm1")
+            op2.Const.fromhdf5(f, "cfl")
+            op2.Const.fromhdf5(f, "eps")
+            op2.Const.fromhdf5(f, "mach")
+            op2.Const.fromhdf5(f, "alpha")
+            op2.Const.fromhdf5(f, "qinf")
     except IOError:
         import sys
         print "Failed reading mesh: Could not read from %s\n" % opt['mesh']

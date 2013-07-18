@@ -70,7 +70,7 @@ L = inner(v, f) * dx
 # Generate code for mass and rhs assembly.
 
 mass, = compile_form(a, "mass")
-rhs,  = compile_form(L, "rhs")
+rhs, = compile_form(L, "rhs")
 
 # Set up simulation data structures
 

@@ -57,7 +57,6 @@ This may also depend on development trunk versions of other FEniCS programs.
 from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from ufl import *
-import ffc
 
 import numpy as np
 
@@ -83,7 +82,7 @@ L = v * f * dx
 # Generate code for Laplacian and rhs assembly.
 
 laplacian, = compile_form(a, "laplacian")
-rhs,       = compile_form(L, "rhs")
+rhs, = compile_form(L, "rhs")
 
 # Set up simulation data structures
 
