@@ -69,10 +69,14 @@ class Arg(base.Arg):
         return val
 
     def c_vec_dec(self):
-        return ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
-               {'type': self.ctype,
-                'vec_name': self.c_vec_name(),
-                'dim': self.map.dim}
+        val = []
+        if self._is_vec_map:
+            val.append(";\n%(type)s *%(vec_name)s[%(dim)s]" %
+                       {'type': self.ctype,
+                        'vec_name': self.c_vec_name(),
+                        'dim': self.map.dim,
+                        'max_threads': _max_threads})
+        return ";\n".join(val)
 
     def c_wrapper_dec(self):
         if self._is_mat:
@@ -250,16 +254,6 @@ for(int j=0; j<%(layers)s;j++){
 #pragma omp critical
 for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 """ % {'combine': combine, 'dim': self.data.cdim}
-
-    def c_vec_dec(self):
-        val = []
-        if self._is_vec_map:
-            val.append(";\n%(type)s *%(vec_name)s[%(dim)s]" %
-                       {'type': self.ctype,
-                        'vec_name': self.c_vec_name(),
-                        'dim': self.map.dim,
-                        'max_threads': _max_threads})
-        return ";\n".join(val)
 
 
 class JITModule(base.JITModule):
