@@ -20,11 +20,12 @@ MESHES_DIR = demo/meshes
 
 all: ext
 
-.PHONY : help test unit regression doc update_docs ext ext_clean meshes
+.PHONY : help test lint unit regression doc update_docs ext ext_clean meshes
 
 help:
 	@echo "make COMMAND with COMMAND one of:"
-	@echo "  test               : run unit and regression tests"
+	@echo "  test               : run lint, unit and regression tests"
+	@echo "  lint               : run flake8 code linter"
 	@echo "  unit               : run unit tests"
 	@echo "  unit_BACKEND       : run unit tests for BACKEND"
 	@echo "  regression         : run regression tests"
@@ -37,7 +38,10 @@ help:
 	@echo
 	@echo "Available OpenCL contexts: $(OPENCL_CTXS)"
 
-test: unit regression
+test: lint unit regression
+
+lint:
+	@flake8
 
 unit: $(foreach backend,$(BACKENDS), unit_$(backend))
 
