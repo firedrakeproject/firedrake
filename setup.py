@@ -37,10 +37,10 @@ from setuptools import setup
 from distutils.extension import Extension
 from glob import glob
 import numpy
-import os
 import sys
 
 # Find OP2 include and library directories
+OP2_INC, OP2_LIB = None, None
 execfile('pyop2/find_op2.py')
 
 # If Cython is available, built the extension module from the Cython source
