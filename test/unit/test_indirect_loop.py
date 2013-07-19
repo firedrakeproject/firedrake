@@ -48,17 +48,27 @@ nelems = 4096
 
 @pytest.fixture
 def iterset():
-    return op2.Set(nelems, 1, "iterset")
+    return op2.Set(nelems, "iterset")
 
 
 @pytest.fixture
 def indset():
-    return op2.Set(nelems, 1, "indset")
+    return op2.Set(nelems, "indset")
 
 
 @pytest.fixture
-def x(indset):
-    return op2.Dat(indset, range(nelems), numpy.uint32, "x")
+def diterset(iterset):
+    return op2.DataSet(iterset, 1, "diterset")
+
+
+@pytest.fixture
+def dindset(indset):
+    return op2.DataSet(indset, 1, "dindset")
+
+
+@pytest.fixture
+def x(dindset):
+    return op2.Dat(dindset, range(nelems), numpy.uint32, "x")
 
 
 @pytest.fixture
@@ -89,9 +99,10 @@ class TestIndirectLoop:
         assert sum(x.data) == nelems * (nelems + 1) / 2
 
     def test_indirect_inc(self, backend, iterset):
-        unitset = op2.Set(1, 1, "unitset")
+        unitset = op2.Set(1, "unitset")
+        dunitset = op2.DataSet(unitset, 1, "dunitest")
 
-        u = op2.Dat(unitset, numpy.array([0], dtype=numpy.uint32),
+        u = op2.Dat(dunitset, numpy.array([0], dtype=numpy.uint32),
                     numpy.uint32, "u")
 
         u_map = numpy.zeros(nelems, dtype=numpy.uint32)
@@ -127,9 +138,10 @@ class TestIndirectLoop:
         assert g.data[0] == nelems * (nelems + 1) / 2
 
     def test_2d_dat(self, backend, iterset):
-        indset = op2.Set(nelems, 2, "indset2")
+        indset = op2.Set(nelems, "indset2")
+        dindset = op2.DataSet(indset, 2, "dindset2")
         x = op2.Dat(
-            indset, numpy.array([range(nelems), range(nelems)], dtype=numpy.uint32), numpy.uint32, "x")
+            dindset, numpy.array([range(nelems), range(nelems)], dtype=numpy.uint32), numpy.uint32, "x")
 
         kernel_wo = "void kernel_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }\n"
 
@@ -139,12 +151,14 @@ class TestIndirectLoop:
 
     def test_2d_map(self, backend):
         nedges = nelems - 1
-        nodes = op2.Set(nelems, 1, "nodes")
-        edges = op2.Set(nedges, 1, "edges")
+        nodes = op2.Set(nelems, "nodes")
+        edges = op2.Set(nedges, "edges")
+        dnodes = op2.DataSet(nodes, 1, "dnodes")
+        dedges = op2.DataSet(edges, 1, "dedges")
         node_vals = op2.Dat(
-            nodes, numpy.array(range(nelems), dtype=numpy.uint32), numpy.uint32, "node_vals")
+            dnodes, numpy.array(range(nelems), dtype=numpy.uint32), numpy.uint32, "node_vals")
         edge_vals = op2.Dat(
-            edges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
+            dedges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
 
         e_map = numpy.array([(i, i + 1)
                             for i in range(nedges)], dtype=numpy.uint32)
