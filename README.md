@@ -370,8 +370,15 @@ or pip
 pip install pytest
 ```
 
-If you install pytest using `pip --user`, you should include the pip binary
-folder in you path by adding the following to `.env`.
+The code linting test uses [flake8](http://flake8.readthedocs.org). Install
+via pip:
+```
+pip install flake8
+```
+
+If you install *pytest* and *flake8* using `pip --user`, you should include
+the binary folder of your local site in your path by adding the following to
+`~/.bashrc` or `.env`.
 
 ```
 # Add pytest binaries to the path
