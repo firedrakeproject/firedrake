@@ -1300,8 +1300,8 @@ class Sparsity(Cached):
         return [tuple(dsets), tuple(sorted(maps)), name], {}
 
     @classmethod
-    def _cache_key(cls, maps, *args, **kwargs):
-        return maps
+    def _cache_key(cls, dsets, maps, *args, **kwargs):
+        return (dsets, maps)
 
     def __init__(self, dsets, maps, name=None):
         # Protect against re-initialization when retrieved from cache
