@@ -431,7 +431,7 @@ class DataSet(object):
     @validate_type(('iter_set', Set, SetTypeError),
                    ('dim', (int, tuple, list), DimTypeError),
                    ('name', str, NameTypeError))
-    def __init__(self, iter_set, dim, name=None):
+    def __init__(self, iter_set, dim=1, name=None):
         self._set = iter_set
         self._dim = as_tuple(dim, int)
         self._cdim = np.asscalar(np.prod(self._dim))
