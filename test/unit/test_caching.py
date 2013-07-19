@@ -334,12 +334,12 @@ class TestGeneratedCodeCache:
     cache = op2.base.JITModule._cache
 
     @pytest.fixture
-    def a(cls, iterset):
-        return op2.Dat(iterset, range(nelems), numpy.uint32, "a")
+    def a(cls, diterset):
+        return op2.Dat(diterset, range(nelems), numpy.uint32, "a")
 
     @pytest.fixture
-    def b(cls, iterset):
-        return op2.Dat(iterset, range(nelems), numpy.uint32, "b")
+    def b(cls, diterset):
+        return op2.Dat(diterset, range(nelems), numpy.uint32, "b")
 
     def test_same_args(self, backend, iterset, iter2ind1, x, a):
         self.cache.clear()
@@ -539,7 +539,7 @@ void kernel_swap(unsigned int* x[2])
         op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
         assert len(self.cache) == 1
 
-        d = op2.Dat(iterset, range(nelems), numpy.int32)
+        d = op2.Dat(diterset, range(nelems), numpy.int32)
         op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
         assert len(self.cache) == 2
 
