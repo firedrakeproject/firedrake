@@ -33,27 +33,25 @@
 
 """OP2 sequential backend."""
 
-import os
-import numpy as np
-
 from exceptions import *
 from utils import as_tuple
-import op_lib_core as core
-import petsc_base
 from petsc_base import *
 import host
-from host import Arg
+from host import Arg  # noqa: needed by BackendSelector
 
 # Parallel loop API
+
 
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
     ParLoop(kernel, it_space, *args).compute()
 
+
 class JITModule(host.JITModule):
 
     wrapper = """
-void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %(const_args)s %(off_args)s) {
+void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end,
+                            %(wrapper_args)s %(const_args)s %(off_args)s) {
   int start = (int)PyInt_AsLong(_start);
   int end = (int)PyInt_AsLong(_end);
   %(wrapper_decs)s;
@@ -74,6 +72,7 @@ void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end, %(wrapper_args)s %
   }
 }
 """
+
 
 class ParLoop(host.ParLoop):
 
@@ -126,6 +125,7 @@ class ParLoop(host.ParLoop):
         for arg in self.args:
             if arg._is_mat:
                 arg.data._assemble()
+
 
 def _setup():
     pass

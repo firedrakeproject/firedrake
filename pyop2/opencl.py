@@ -49,25 +49,28 @@ from pycparser import c_parser, c_ast, c_generator
 import os
 import time
 
+
 class Kernel(device.Kernel):
+
     """OP2 OpenCL kernel type."""
 
     def __init__(self, code, name):
         device.Kernel.__init__(self, code, name)
 
     class Instrument(c_ast.NodeVisitor):
+
         """C AST visitor for instrumenting user kernels.
              - adds memory space attribute to user kernel declaration
              - appends constant declaration to user kernel param list
              - adds a separate function declaration for user kernel
         """
+
         def instrument(self, ast, kernel_name, instrument, constants):
             self._kernel_name = kernel_name
             self._instrument = instrument
             self._ast = ast
             self._constants = constants
             self.generic_visit(ast)
-            idx = ast.ext.index(self._func_node)
             ast.ext.insert(0, self._func_node.decl)
 
         def visit_FuncDef(self, node):
@@ -96,7 +99,9 @@ class Kernel(device.Kernel):
         Kernel.Instrument().instrument(ast, self._name, instrument, constants)
         return c_generator.CGenerator().visit(ast)
 
+
 class Arg(device.Arg):
+
     """OP2 OpenCL argument type."""
 
     # FIXME actually use this in the template
@@ -133,20 +138,32 @@ class Arg(device.Arg):
         else:
             return "%s + %s" % (self._name, idx)
 
+
 class DeviceDataMixin(device.DeviceDataMixin):
+
     """Codegen mixin for datatype and literal translation."""
 
-    ClTypeInfo = collections.namedtuple('ClTypeInfo', ['clstring', 'zero', 'min', 'max'])
+    ClTypeInfo = collections.namedtuple('ClTypeInfo',
+                                        ['clstring', 'zero', 'min', 'max'])
     CL_TYPES = {np.dtype('uint8'): ClTypeInfo('uchar', '0', '0', '255'),
                 np.dtype('int8'): ClTypeInfo('char', '0', '-127', '127'),
                 np.dtype('uint16'): ClTypeInfo('ushort', '0', '0', '65535'),
                 np.dtype('int16'): ClTypeInfo('short', '0', '-32767', '32767'),
-                np.dtype('uint32'): ClTypeInfo('uint', '0u', '0u', '4294967295u'),
-                np.dtype('int32'): ClTypeInfo('int', '0', '-2147483647', '2147483647'),
-                np.dtype('uint64'): ClTypeInfo('ulong', '0ul', '0ul', '18446744073709551615ul'),
-                np.dtype('int64'): ClTypeInfo('long', '0l', '-9223372036854775807l', '9223372036854775807l'),
-                np.dtype('float32'): ClTypeInfo('float', '0.0f', '-3.4028235e+38f', '3.4028235e+38f'),
-                np.dtype('float64'): ClTypeInfo('double', '0.0', '-1.7976931348623157e+308', '1.7976931348623157e+308')}
+                np.dtype('uint32'): ClTypeInfo('uint', '0u', '0u',
+                                               '4294967295u'),
+                np.dtype('int32'): ClTypeInfo('int', '0', '-2147483647',
+                                              '2147483647'),
+                np.dtype('uint64'): ClTypeInfo('ulong', '0ul', '0ul',
+                                               '18446744073709551615ul'),
+                np.dtype('int64'): ClTypeInfo('long', '0l',
+                                              '-9223372036854775807l',
+                                              '9223372036854775807l'),
+                np.dtype('float32'): ClTypeInfo('float', '0.0f',
+                                                '-3.4028235e+38f',
+                                                '3.4028235e+38f'),
+                np.dtype('float64'): ClTypeInfo('double', '0.0',
+                                                '-1.7976931348623157e+308',
+                                                '1.7976931348623157e+308')}
 
     def _allocate_device(self):
         if self.state is DeviceDataMixin.DEVICE_UNALLOCATED:
@@ -190,7 +207,9 @@ class DeviceDataMixin(device.DeviceDataMixin):
     def _cl_type_max(self):
         return DeviceDataMixin.CL_TYPES[self.dtype].max
 
+
 class Dat(device.Dat, petsc_base.Dat, DeviceDataMixin):
+
     """OP2 OpenCL vector data type."""
 
     @property
@@ -198,7 +217,9 @@ class Dat(device.Dat, petsc_base.Dat, DeviceDataMixin):
         """The L2-norm on the flattened vector."""
         return np.sqrt(array.dot(self.array, self.array).get())
 
+
 class Sparsity(device.Sparsity):
+
     @property
     def colidx(self):
         if not hasattr(self, '__dev_colidx'):
@@ -215,7 +236,9 @@ class Sparsity(device.Sparsity):
                                     self._rowptr))
         return getattr(self, '__dev_rowptr')
 
+
 class Mat(device.Mat, petsc_base.Mat, DeviceDataMixin):
+
     """OP2 OpenCL matrix data type."""
 
     def _allocate_device(self):
@@ -258,7 +281,9 @@ class Mat(device.Mat, petsc_base.Mat, DeviceDataMixin):
     def cdim(self):
         return np.prod(self.dims)
 
+
 class Const(device.Const, DeviceDataMixin):
+
     """OP2 OpenCL data that is constant for any element of any set."""
 
     @property
@@ -267,7 +292,9 @@ class Const(device.Const, DeviceDataMixin):
             setattr(self, '__array', array.to_device(_queue, self._data))
         return getattr(self, '__array')
 
+
 class Global(device.Global, DeviceDataMixin):
+
     """OP2 OpenCL global value."""
 
     @property
@@ -277,7 +304,7 @@ class Global(device.Global, DeviceDataMixin):
         return self._device_data
 
     def _allocate_reduction_array(self, nelems):
-        self._d_reduc_array = array.zeros (_queue, nelems * self.cdim, dtype=self.dtype)
+        self._d_reduc_array = array.zeros(_queue, nelems * self.cdim, dtype=self.dtype)
 
     @property
     def data(self):
@@ -314,7 +341,7 @@ class Global(device.Global, DeviceDataMixin):
                 else:
                     return ""
 
-            op = {INC: 'INC', MIN: 'min', MAX: 'max'}
+            op = {INC: 'INC', MIN: 'min', MAX: 'max'}[reduction_operator]
 
             return """
 %(headers)s
@@ -343,16 +370,17 @@ void global_%(type)s_%(dim)s_post_reduction (
     dat[j] = accumulator[j];
   }
 }
-""" % {'headers': headers(), 'dim': self.cdim, 'type': self._cl_type, 'op': op[reduction_operator]}
+""" % {'headers': headers(), 'dim': self.cdim, 'type': self._cl_type, 'op': op}
 
-
-        src, kernel = _reduction_task_cache.get((self.dtype, self.cdim, reduction_operator), (None, None))
-        if src is None :
+        src, kernel = _reduction_task_cache.get(
+            (self.dtype, self.cdim, reduction_operator), (None, None))
+        if src is None:
             src = generate_code()
             prg = cl.Program(_ctx, src).build(options="-Werror")
             name = "global_%s_%s_post_reduction" % (self._cl_type, self.cdim)
             kernel = prg.__getattr__(name)
-            _reduction_task_cache[(self.dtype, self.cdim, reduction_operator)] = (src, kernel)
+            _reduction_task_cache[
+                (self.dtype, self.cdim, reduction_operator)] = (src, kernel)
 
         kernel.set_arg(0, self._array.data)
         kernel.set_arg(1, self._d_reduc_array.data)
@@ -361,69 +389,74 @@ void global_%(type)s_%(dim)s_post_reduction (
 
         del self._d_reduc_array
 
+
 class Map(device.Map):
+
     """OP2 OpenCL map, a relation between two Sets."""
 
     def _to_device(self):
         if not hasattr(self, '_device_values'):
             self._device_values = array.to_device(_queue, self._values)
         else:
-            warnings.warn("Copying Map data for %s again, do you really want to do this?" % self)
+            warnings.warn(
+                "Copying Map data for %s again, do you really want to do this?" % self)
             self._device_values.set(self._values, _queue)
 
+
 class Plan(device.Plan):
+
     @property
     def ind_map(self):
         if not hasattr(self, '_ind_map_array'):
-            self._ind_map_array = array.to_device(_queue, super(Plan,self).ind_map)
+            self._ind_map_array = array.to_device(_queue, super(Plan, self).ind_map)
         return self._ind_map_array
 
     @property
     def ind_sizes(self):
         if not hasattr(self, '_ind_sizes_array'):
-            self._ind_sizes_array = array.to_device(_queue, super(Plan,self).ind_sizes)
+            self._ind_sizes_array = array.to_device(_queue, super(Plan, self).ind_sizes)
         return self._ind_sizes_array
 
     @property
     def ind_offs(self):
         if not hasattr(self, '_ind_offs_array'):
-            self._ind_offs_array = array.to_device(_queue, super(Plan,self).ind_offs)
+            self._ind_offs_array = array.to_device(_queue, super(Plan, self).ind_offs)
         return self._ind_offs_array
 
     @property
     def loc_map(self):
         if not hasattr(self, '_loc_map_array'):
-            self._loc_map_array = array.to_device(_queue, super(Plan,self).loc_map)
+            self._loc_map_array = array.to_device(_queue, super(Plan, self).loc_map)
         return self._loc_map_array
 
     @property
     def blkmap(self):
         if not hasattr(self, '_blkmap_array'):
-            self._blkmap_array = array.to_device(_queue, super(Plan,self).blkmap)
+            self._blkmap_array = array.to_device(_queue, super(Plan, self).blkmap)
         return self._blkmap_array
 
     @property
     def offset(self):
         if not hasattr(self, '_offset_array'):
-            self._offset_array = array.to_device(_queue, super(Plan,self).offset)
+            self._offset_array = array.to_device(_queue, super(Plan, self).offset)
         return self._offset_array
 
     @property
     def nelems(self):
         if not hasattr(self, '_nelems_array'):
-            self._nelems_array = array.to_device(_queue, super(Plan,self).nelems)
+            self._nelems_array = array.to_device(_queue, super(Plan, self).nelems)
         return self._nelems_array
 
     @property
     def nthrcol(self):
         if not hasattr(self, '_nthrcol_array'):
-            self._nthrcol_array = array.to_device(_queue, super(Plan,self).nthrcol)
+            self._nthrcol_array = array.to_device(_queue, super(Plan, self).nthrcol)
         return self._nthrcol_array
 
     @property
     def thrcol(self):
         if not hasattr(self, '_thrcol_array'):
-            self._thrcol_array = array.to_device(_queue, super(Plan,self).thrcol)
+            self._thrcol_array = array.to_device(_queue, super(Plan, self).thrcol)
         return self._thrcol_array
 
 
@@ -438,6 +471,7 @@ class Solver(petsc_base.Solver):
             x.state = DeviceDataMixin.HOST
         x._to_device()
 
+
 class JITModule(base.JITModule):
 
     def __init__(self, kernel, itspace_extents, *args, **kwargs):
@@ -449,6 +483,7 @@ class JITModule(base.JITModule):
     def compile(self):
         if hasattr(self, '_fun'):
             return self._fun
+
         def instrument_user_kernel():
             inst = []
 
@@ -460,10 +495,11 @@ class JITModule(base.JITModule):
                         i = ("__global", None)
                     else:
                         i = ("__private", None)
-                else: # indirect loop
+                else:  # indirect loop
                     if arg._is_direct or (arg._is_global and not arg._is_global_reduction):
                         i = ("__global", None)
-                    elif (arg._is_indirect or arg._is_vec_map) and not arg._is_indirect_reduction:
+                    elif (arg._is_indirect or arg._is_vec_map) and not \
+                            arg._is_indirect_reduction:
                         i = ("__local", None)
                     else:
                         i = ("__private", None)
@@ -475,17 +511,17 @@ class JITModule(base.JITModule):
 
             return self._parloop._kernel.instrument(inst, Const._definitions())
 
-        #do codegen
+        # do codegen
         user_kernel = instrument_user_kernel()
         template = _jinja2_direct_loop if self._parloop._is_direct \
-                                       else _jinja2_indirect_loop
+            else _jinja2_indirect_loop
 
         src = template.render({'parloop': self._parloop,
                                'user_kernel': user_kernel,
                                'launch': self._conf,
                                'codegen': {'amd': _AMD_fixes},
                                'op2const': Const._definitions()
-                              }).encode("ascii")
+                               }).encode("ascii")
         self.dump_gen_code(src)
         prg = cl.Program(_ctx, src).build(options="-Werror")
         self._fun = prg.__getattr__(self._parloop._stub_name)
@@ -507,7 +543,9 @@ class JITModule(base.JITModule):
         cl.enqueue_nd_range_kernel(_queue, fun, (thread_count,),
                                    (work_group_size,), g_times_l=False).wait()
 
+
 class ParLoop(device.ParLoop):
+
     @property
     def _matrix_args(self):
         return [a for a in self.args if a._is_mat]
@@ -519,22 +557,24 @@ class ParLoop(device.ParLoop):
     @property
     def _matrix_entry_maps(self):
         """Set of all mappings used in matrix arguments."""
-        return uniquify(m for arg in self.args  if arg._is_mat for m in arg.map)
+        return uniquify(m for arg in self.args if arg._is_mat for m in arg.map)
 
     @property
     def _requires_matrix_coloring(self):
-        """Direct code generation to follow colored execution for global matrix insertion."""
+        """Direct code generation to follow colored execution for global
+        matrix insertion."""
         return not _supports_64b_atomics and not not self._matrix_args
 
     def _i_partition_size(self):
-        #TODO FIX: something weird here
-        #available_local_memory
+        # TODO FIX: something weird here
+        # available_local_memory
         warnings.warn('temporary fix to available local memory computation (-512)')
         available_local_memory = _max_local_memory - 512
         # 16bytes local mem used for global / local indices and sizes
         available_local_memory -= 16
         # (4/8)ptr size per dat passed as argument (dat)
-        available_local_memory -= (_address_bits / 8) * (len(self._unique_dat_args) + len(self._all_global_non_reduction_args))
+        available_local_memory -= (_address_bits / 8) * (len(
+            self._unique_dat_args) + len(self._all_global_non_reduction_args))
         # (4/8)ptr size per dat/map pair passed as argument (ind_map)
         available_local_memory -= (_address_bits / 8) * len(self._unique_indirect_dat_args)
         # (4/8)ptr size per global reduction temp array
@@ -547,11 +587,14 @@ class ParLoop(device.ParLoop):
         available_local_memory -= 4
         # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
         available_local_memory -= 7
-        # 12: shared_memory_offset, active_thread_count, active_thread_count_ceiling variables (could be 8 or 12 depending)
+        # 12: shared_memory_offset, active_thread_count,
+        #     active_thread_count_ceiling variables (could be 8 or 12 depending)
         #     and 3 for potential padding after shared mem buffer
         available_local_memory -= 12 + 3
-        # 2 * (4/8)ptr size + 1uint32: DAT_via_MAP_indirection(./_size/_map) per dat map pairs
-        available_local_memory -= 4 + (_address_bits / 8) * 2 * len(self._unique_indirect_dat_args)
+        # 2 * (4/8)ptr size + 1uint32: DAT_via_MAP_indirection(./_size/_map) per
+        # dat map pairs
+        available_local_memory -= 4 + \
+            (_address_bits / 8) * 2 * len(self._unique_indirect_dat_args)
         # inside shared memory padding
         available_local_memory -= 2 * (len(self._unique_indirect_dat_args) - 1)
 
@@ -567,18 +610,23 @@ class ParLoop(device.ParLoop):
             else:
                 # 16bytes local mem used for global / local indices and sizes
                 # (4/8)ptr bytes for each dat buffer passed to the kernel
-                # (4/8)ptr bytes for each temporary global reduction buffer passed to the kernel
-                # 7: 7bytes potentialy lost for aligning the shared memory buffer to 'long'
+                # (4/8)ptr bytes for each temporary global reduction buffer
+                # passed to the kernel
+                # 7: 7bytes potentialy lost for aligning the shared memory
+                # buffer to 'long'
                 warnings.warn('temporary fix to available local memory computation (-512)')
                 available_local_memory = _max_local_memory - 512
                 available_local_memory -= 16
-                available_local_memory -= (len(self._unique_dat_args) + len(self._all_global_non_reduction_args))\
-                                          * (_address_bits / 8)
-                available_local_memory -= len(self._all_global_reduction_args) * (_address_bits / 8)
+                available_local_memory -= (len(self._unique_dat_args) +
+                                           len(self._all_global_non_reduction_args)) \
+                    * (_address_bits / 8)
+                available_local_memory -= len(
+                    self._all_global_reduction_args) * (_address_bits / 8)
                 available_local_memory -= 7
                 ps = available_local_memory / per_elem_max_local_mem_req
                 wgs = min(_max_work_group_size, (ps / _warpsize) * _warpsize)
-            nwg = min(_pref_work_group_count, int(math.ceil(self._it_space.size / float(wgs))))
+            nwg = min(_pref_work_group_count, int(
+                math.ceil(self._it_space.size / float(wgs))))
             ttc = wgs * nwg
 
             local_memory_req = per_elem_max_local_mem_req * wgs
@@ -682,8 +730,10 @@ class ParLoop(device.ParLoop):
         if self._has_soa:
             op2stride.remove_from_namespace()
 
+
 def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()
+
 
 def _setup():
     global _ctx
@@ -704,9 +754,11 @@ def _setup():
     _max_local_memory = _queue.device.local_mem_size
     _address_bits = _queue.device.address_bits
     _max_work_group_size = _queue.device.max_work_group_size
-    _has_dpfloat = 'cl_khr_fp64' in _queue.device.extensions or 'cl_amd_fp64' in _queue.device.extensions
+    _has_dpfloat = 'cl_khr_fp64' in _queue.device.extensions or 'cl_amd_fp64' \
+        in _queue.device.extensions
     if not _has_dpfloat:
-        warnings.warn('device does not support double precision floating point computation, expect undefined behavior for double')
+        warnings.warn('device does not support double precision floating point \
+                computation, expect undefined behavior for double')
 
     if 'cl_khr_int64_base_atomics' in _queue.device.extensions:
         _supports_64b_atomics = True

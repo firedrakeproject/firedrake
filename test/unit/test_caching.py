@@ -37,42 +37,52 @@ import random
 from pyop2 import device
 from pyop2 import op2
 
+
 def _seed():
     return 0.02041724
 
 nelems = 8
 
+
 @pytest.fixture
 def iterset():
     return op2.Set(nelems, 1, "iterset")
+
 
 @pytest.fixture
 def indset():
     return op2.Set(nelems, 1, "indset")
 
+
 @pytest.fixture
 def indset2():
     return op2.Set(nelems, 2, "indset2")
+
 
 @pytest.fixture
 def g():
     return op2.Global(1, 0, numpy.uint32, "g")
 
+
 @pytest.fixture
 def x(indset):
     return op2.Dat(indset, range(nelems), numpy.uint32, "x")
+
 
 @pytest.fixture
 def x2(indset2):
     return op2.Dat(indset2, range(nelems) * 2, numpy.uint32, "x2")
 
+
 @pytest.fixture
 def xl(indset):
     return op2.Dat(indset, range(nelems), numpy.uint64, "xl")
 
+
 @pytest.fixture
 def y(indset):
     return op2.Dat(indset, [0] * nelems, numpy.uint32, "y")
+
 
 @pytest.fixture
 def iter2ind1(iterset, indset):
@@ -80,11 +90,13 @@ def iter2ind1(iterset, indset):
     random.shuffle(u_map, _seed)
     return op2.Map(iterset, indset, 1, u_map, "iter2ind1")
 
+
 @pytest.fixture
 def iter2ind2(iterset, indset):
     u_map = numpy.array(range(nelems) * 2, dtype=numpy.uint32)
     random.shuffle(u_map, _seed)
     return op2.Map(iterset, indset, 2, u_map, "iter2ind2")
+
 
 @pytest.fixture
 def iter2ind22(iterset, indset2):
@@ -92,7 +104,9 @@ def iter2ind22(iterset, indset2):
     random.shuffle(u_map, _seed)
     return op2.Map(iterset, indset2, 2, u_map, "iter2ind22")
 
+
 class TestPlanCache:
+
     """
     Plan Object Cache Tests.
     """
@@ -212,9 +226,9 @@ void kernel_swap(unsigned int* x)
 
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned long* a64) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
-                                iterset,
-                                x(iter2ind1[0], op2.INC),
-                                a64(op2.IdentityMap, op2.RW))
+                     iterset,
+                     x(iter2ind1[0], op2.INC),
+                     a64(op2.IdentityMap, op2.RW))
         assert len(self.cache) == 1
 
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* g) { }"
@@ -230,16 +244,16 @@ void kernel_swap(unsigned int* x)
 
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* y) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
-                                iterset,
-                                x(iter2ind2[0], op2.INC),
-                                x(iter2ind2[1], op2.INC))
+                     iterset,
+                     x(iter2ind2[0], op2.INC),
+                     x(iter2ind2[1], op2.INC))
         assert len(self.cache) == 1
 
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* y) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
-                                iterset,
-                                y(iter2ind2[0], op2.INC),
-                                y(iter2ind2[1], op2.INC))
+                     iterset,
+                     y(iter2ind2[0], op2.INC),
+                     y(iter2ind2[1], op2.INC))
         assert len(self.cache) == 1
 
     def test_diff_conflicts(self, backend, iterset, iter2ind2, x, y):
@@ -248,16 +262,16 @@ void kernel_swap(unsigned int* x)
 
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* y) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
-                                iterset,
-                                x(iter2ind2[0], op2.READ),
-                                x(iter2ind2[1], op2.READ))
+                     iterset,
+                     x(iter2ind2[0], op2.READ),
+                     x(iter2ind2[1], op2.READ))
         assert len(self.cache) == 1
 
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* y) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
-                                iterset,
-                                y(iter2ind2[0], op2.INC),
-                                y(iter2ind2[1], op2.INC))
+                     iterset,
+                     y(iter2ind2[0], op2.INC),
+                     y(iter2ind2[1], op2.INC))
         assert len(self.cache) == 2
 
     def test_same_with_mat(self, backend, iterset, x, iter2ind1, mat):
@@ -307,7 +321,9 @@ void kernel_swap(unsigned int* x)
         assert len(self.cache) == 2
         assert plan1 is not plan2
 
+
 class TestGeneratedCodeCache:
+
     """
     Generated Code Cache Tests.
     """
@@ -473,7 +489,6 @@ void kernel_swap(unsigned int* x[2])
 
         assert len(self.cache) == 1
 
-
     def test_change_const_dim_matters(self, backend, iterset):
         d = op2.Dat(iterset, range(nelems), numpy.uint32)
         self.cache.clear()
@@ -487,7 +502,7 @@ void kernel_swap(unsigned int* x[2])
 
         c.remove_from_namespace()
 
-        c = op2.Const(2, (1,1), name='c', dtype=numpy.uint32)
+        c = op2.Const(2, (1, 1), name='c', dtype=numpy.uint32)
 
         op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
         assert len(self.cache) == 2
@@ -539,7 +554,9 @@ void kernel_swap(unsigned int* x[2])
         op2.par_loop(k, iterset, g(op2.INC))
         assert len(self.cache) == 2
 
+
 class TestKernelCache:
+
     """
     Kernel caching tests.
     """
@@ -579,6 +596,7 @@ class TestKernelCache:
         k2 = op2.Kernel("void l(void *x) {}", 'l')
         assert k1 is not k2 and len(self.cache) == 2
 
+
 class TestSparsityCache:
 
     @pytest.fixture
@@ -591,11 +609,11 @@ class TestSparsityCache:
 
     @pytest.fixture
     def m1(cls, s1, s2):
-        return op2.Map(s1, s2, 1, [0,1,2,3,4])
+        return op2.Map(s1, s2, 1, [0, 1, 2, 3, 4])
 
     @pytest.fixture
     def m2(cls, s1, s2):
-        return op2.Map(s1, s2, 1, [1,2,3,4,0])
+        return op2.Map(s1, s2, 1, [1, 2, 3, 4, 0])
 
     def test_sparsities_differing_maps_not_cached(self, backend, m1, m2):
         """Sparsities with different maps should not share a C handle."""

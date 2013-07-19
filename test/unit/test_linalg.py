@@ -38,50 +38,58 @@ from pyop2 import op2
 
 nelems = 8
 
+
 @pytest.fixture
 def set():
     return op2.Set(nelems)
+
 
 @pytest.fixture
 def x(set):
     return op2.Dat(set, None, np.float64, "x")
 
+
 @pytest.fixture
 def y(set):
-    return op2.Dat(set, np.arange(1,nelems+1), np.float64, "y")
+    return op2.Dat(set, np.arange(1, nelems + 1), np.float64, "y")
+
 
 @pytest.fixture
 def yi(set):
-    return op2.Dat(set, np.arange(1,nelems+1), np.int64, "y")
+    return op2.Dat(set, np.arange(1, nelems + 1), np.int64, "y")
+
 
 @pytest.fixture
 def x2():
-    return op2.Dat(op2.Set(nelems, (1,2)), np.zeros(2*nelems), np.float64, "x")
+    return op2.Dat(op2.Set(nelems, (1, 2)), np.zeros(2 * nelems), np.float64, "x")
+
 
 @pytest.fixture
 def y2():
-    return op2.Dat(op2.Set(nelems, (2,1)), np.zeros(2*nelems), np.float64, "y")
+    return op2.Dat(op2.Set(nelems, (2, 1)), np.zeros(2 * nelems), np.float64, "y")
+
 
 class TestLinAlgOp:
+
     """
     Tests of linear algebra operators returning a new Dat.
     """
 
     def test_add(self, backend, x, y):
-        x._data = 2*y.data
-        assert all((x+y).data == 3*y.data)
+        x._data = 2 * y.data
+        assert all((x + y).data == 3 * y.data)
 
     def test_sub(self, backend, x, y):
-        x._data = 2*y.data
-        assert all((x-y).data == y.data)
+        x._data = 2 * y.data
+        assert all((x - y).data == y.data)
 
     def test_mul(self, backend, x, y):
-        x._data = 2*y.data
-        assert all((x*y).data == 2*y.data*y.data)
+        x._data = 2 * y.data
+        assert all((x * y).data == 2 * y.data * y.data)
 
     def test_div(self, backend, x, y):
-        x._data = 2*y.data
-        assert all((x/y).data == 2.0)
+        x._data = 2 * y.data
+        assert all((x / y).data == 2.0)
 
     def test_add_shape_mismatch(self, backend, x2, y2):
         with pytest.raises(ValueError):
@@ -101,19 +109,19 @@ class TestLinAlgOp:
 
     def test_add_scalar(self, backend, x, y):
         x._data = y.data + 1.0
-        assert all(x.data == (y+1.0).data)
+        assert all(x.data == (y + 1.0).data)
 
     def test_sub_scalar(self, backend, x, y):
         x._data = y.data - 1.0
-        assert all(x.data == (y-1.0).data)
+        assert all(x.data == (y - 1.0).data)
 
     def test_mul_scalar(self, backend, x, y):
-        x._data = 2*y.data
-        assert all(x.data == (y*2.0).data)
+        x._data = 2 * y.data
+        assert all(x.data == (y * 2.0).data)
 
     def test_div_scalar(self, backend, x, y):
-        x._data = 2*y.data
-        assert all((x/2.0).data == y.data)
+        x._data = 2 * y.data
+        assert all((x / 2.0).data == y.data)
 
     def test_add_ftype(self, backend, y, yi):
         x = y + yi
@@ -147,28 +155,30 @@ class TestLinAlgOp:
         xi = yi / y
         assert xi.data.dtype == np.int64
 
+
 class TestLinAlgIop:
+
     """
     Tests of linear algebra operators modifying a Dat in place.
     """
 
     def test_iadd(self, backend, x, y):
-        x._data = 2*y.data
+        x._data = 2 * y.data
         x += y
-        assert all(x.data == 3*y.data)
+        assert all(x.data == 3 * y.data)
 
     def test_isub(self, backend, x, y):
-        x._data = 2*y.data
+        x._data = 2 * y.data
         x -= y
         assert all(x.data == y.data)
 
     def test_imul(self, backend, x, y):
-        x._data = 2*y.data
+        x._data = 2 * y.data
         x *= y
-        assert all(x.data == 2*y.data*y.data)
+        assert all(x.data == 2 * y.data * y.data)
 
     def test_idiv(self, backend, x, y):
-        x._data = 2*y.data
+        x._data = 2 * y.data
         x /= y
         assert all(x.data == 2.0)
 
@@ -199,12 +209,12 @@ class TestLinAlgIop:
         assert all(x.data == y.data)
 
     def test_imul_scalar(self, backend, x, y):
-        x._data = 2*y.data
+        x._data = 2 * y.data
         y *= 2.0
         assert all(x.data == y.data)
 
     def test_idiv_scalar(self, backend, x, y):
-        x._data = 2*y.data
+        x._data = 2 * y.data
         x /= 2.0
         assert all(x.data == y.data)
 
@@ -240,11 +250,13 @@ class TestLinAlgIop:
         yi /= y
         assert yi.data.dtype == np.int64
 
+
 class TestLinAlgScalar:
+
     """
     Tests of linear algebra operators return a scalar.
     """
 
     def test_norm(self, backend):
-        n = op2.Dat(op2.Set(2), [3,4], np.float64, "n")
+        n = op2.Dat(op2.Set(2), [3, 4], np.float64, "n")
         assert abs(n.norm - 5) < 1e-12

@@ -33,7 +33,7 @@
 
 """Code-generation strings for FFC to generate PyOP2 code."""
 
-__date__    = "2012-08-06"
+__date__ = "2012-08-06"
 __version__ = "0.0.3"
 
 PYOP2_VERSION_MAJOR = 0
@@ -52,4 +52,4 @@ templates = {"cell_integral_combined": cell_integral_combined,
              "interior_facet_integral_combined": interior_facet_integral_combined,
              "finite_element_combined": finite_element_combined,
              "dofmap_combined": dofmap_combined,
-             "form_combined": form_combined }
+             "form_combined": form_combined}

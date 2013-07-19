@@ -39,6 +39,7 @@ from decorator import decorator
 
 
 class Timer(object):
+
     """Generic timer class.
 
     :param name: The name of the timer, used as unique identifier.
@@ -113,15 +114,22 @@ class Timer(object):
                 dialect = csv.excel
                 dialect.lineterminator = '\n'
                 w = csv.writer(f, dialect=dialect)
-                w.writerows([(t.name, t.total, t.ncalls, t.average) for t in cls._timers.values()])
+                w.writerows([(t.name, t.total, t.ncalls, t.average)
+                            for t in cls._timers.values()])
         else:
-            namecol = max([len(column_heads[0])] + [len(t.name) for t in cls._timers.values()])
-            totalcol = max([len(column_heads[1])] + [len('%g' % t.total) for t in cls._timers.values()])
-            ncallscol = max([len(column_heads[2])] + [len('%d' % t.ncalls) for t in cls._timers.values()])
-            averagecol = max([len(column_heads[3])] + [len('%g' % t.average) for t in cls._timers.values()])
-            fmt = "%%%ds | %%%ds | %%%ds | %%%ds" % (namecol, totalcol, ncallscol, averagecol)
+            namecol = max([len(column_heads[0])] + [len(t.name)
+                          for t in cls._timers.values()])
+            totalcol = max([len(column_heads[1])] + [len('%g' % t.total)
+                           for t in cls._timers.values()])
+            ncallscol = max([len(column_heads[2])] + [len('%d' % t.ncalls)
+                            for t in cls._timers.values()])
+            averagecol = max([len(column_heads[3])] + [len('%g' % t.average)
+                             for t in cls._timers.values()])
+            fmt = "%%%ds | %%%ds | %%%ds | %%%ds" % (
+                namecol, totalcol, ncallscol, averagecol)
             print fmt % column_heads
-            fmt = "%%%ds | %%%dg | %%%dd | %%%dg" % (namecol, totalcol, ncallscol, averagecol)
+            fmt = "%%%ds | %%%dg | %%%dd | %%%dg" % (
+                namecol, totalcol, ncallscol, averagecol)
             for t in cls._timers.values():
                 print fmt % (t.name, t.total, t.ncalls, t.average)
 
@@ -139,6 +147,7 @@ class Timer(object):
 
 
 class profile(Timer):
+
     """Decorator to profile function calls."""
 
     def __call__(self, f):

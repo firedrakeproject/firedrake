@@ -31,58 +31,86 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""This module contains stub implementations of core classes which are used to provide useful error messages if the user invokes them before calling :func:`pyop2.op2.init`"""
+"""This module contains stub implementations of core classes which are used to
+provide useful error messages if the user invokes them before calling
+:func:`pyop2.op2.init`"""
+
 
 class Access(object):
+
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
+
 
 class IterationSpace(object):
+
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
+
 
 class Set(object):
+
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
+
 
 class Halo(object):
+
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
+
 
 class Kernel(object):
+
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
+
 
 class Dat(object):
+
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
+
 
 class Mat(object):
+
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
+
 
 class Const(object):
+
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
+
 
 class Global(object):
+
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
+
 
 class Map(object):
+
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
+
 
 class Sparsity(object):
+
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
 
+
 class Solver(object):
+
     def __init__(self, *args, **kwargs):
         raise RuntimeError("Please call op2.init to select a backend")
+
 
 def par_loop(*args, **kwargs):
     raise RuntimeError("Please call op2.init to select a backend")
+
 
 def solve(*args, **kwargs):
     raise RuntimeError("Please call op2.init to select a backend")

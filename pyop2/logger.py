@@ -39,8 +39,9 @@ from mpi import MPI
 logger = logging.getLogger('pyop2')
 _ch = logging.StreamHandler()
 _ch.setFormatter(logging.Formatter(('[%d] ' % MPI.comm.rank if MPI.parallel else '') +
-                                  '%(name)s:%(levelname)s %(message)s'))
+                                   '%(name)s:%(levelname)s %(message)s'))
 logger.addHandler(_ch)
+
 
 def set_log_level(level):
     """Set the log level of the PyOP2 logger."""

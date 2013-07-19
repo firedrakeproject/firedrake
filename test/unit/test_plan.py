@@ -40,6 +40,7 @@ from pyop2 import device
 
 backends = ['sequential', 'openmp', 'opencl', 'cuda']
 
+
 def _seed():
     return 0.02041724
 
@@ -47,7 +48,9 @@ def _seed():
 # thread per element in device backends
 nelems = 4096
 
+
 class TestPlan:
+
     """
     Plan Construction Tests
     """
@@ -87,10 +90,13 @@ class TestPlan:
         nedges = nelems - 1
         nodes = op2.Set(nelems, 1, "nodes")
         edges = op2.Set(nedges, 1, "edges")
-        node_vals = op2.Dat(nodes, numpy.array(range(nelems), dtype=numpy.uint32), numpy.uint32, "node_vals")
-        edge_vals = op2.Dat(edges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
+        node_vals = op2.Dat(
+            nodes, numpy.array(range(nelems), dtype=numpy.uint32), numpy.uint32, "node_vals")
+        edge_vals = op2.Dat(
+            edges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
 
-        e_map = numpy.array([(i, i+1) for i in range(nedges)], dtype=numpy.uint32)
+        e_map = numpy.array([(i, i + 1)
+                            for i in range(nedges)], dtype=numpy.uint32)
         edge2node = op2.Map(edges, nodes, 2, e_map, "edge2node")
 
         kernel_sum = """
@@ -114,10 +120,10 @@ class TestPlan:
         nodes = op2.Set(4, 1, "nodes")
         vnodes = op2.Set(4, 2, "vnodes")
         elem_node = op2.Map(elements, nodes, 3,
-                            numpy.asarray([ 0, 1, 3, 2, 3, 1 ],
+                            numpy.asarray([0, 1, 3, 2, 3, 1],
                                           dtype=numpy.uint32),
                             "elem_node")
-        b = op2.Dat(nodes, numpy.asarray([0.0]*4, dtype=numpy.float64),
+        b = op2.Dat(nodes, numpy.asarray([0.0] * 4, dtype=numpy.float64),
                     numpy.float64, "b")
         coords = op2.Dat(vnodes,
                          numpy.asarray([(0.0, 0.0), (2.0, 0.0),
@@ -125,7 +131,7 @@ class TestPlan:
                                        dtype=numpy.float64),
                          numpy.float64, "coords")
         f = op2.Dat(nodes,
-                    numpy.asarray([ 1.0, 2.0, 3.0, 4.0 ], dtype=numpy.float64),
+                    numpy.asarray([1.0, 2.0, 3.0, 4.0], dtype=numpy.float64),
                     numpy.float64, "f")
         device.compare_plans(kernel,
                              elements,

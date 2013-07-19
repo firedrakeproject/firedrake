@@ -45,7 +45,6 @@ This may also depend on development trunk versions of other FEniCS programs.
 from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from ufl import *
-import ffc
 import numpy as np
 from petsc4py import PETSc
 
@@ -67,17 +66,17 @@ v = TestFunction(E)
 u = TrialFunction(E)
 f = Coefficient(E)
 
-a = v*u*dx
-L = v*f*dx
+a = v * u * dx
+L = v * f * dx
 
 # Generate code for mass and rhs assembly.
 
 mass, = compile_form(a, "mass")
-rhs,  = compile_form(L, "rhs")
+rhs, = compile_form(L, "rhs")
 
 # Set up simulation data structures
 
-NUM_ELE   = (0, 1, 2, 2)
+NUM_ELE = (0, 1, 2, 2)
 NUM_NODES = (0, 2, 4, 4)
 valuetype = np.float64
 
@@ -87,12 +86,12 @@ if op2.MPI.comm.size != 2:
 
 if op2.MPI.comm.rank == 0:
     node_global_to_universal = np.asarray([0, 1, 2, 3], dtype=PETSc.IntType)
-    node_halo = op2.Halo(sends=([], [0,1]), receives=([], [2,3]),
+    node_halo = op2.Halo(sends=([], [0, 1]), receives=([], [2, 3]),
                          gnn2unn=node_global_to_universal)
     element_halo = op2.Halo(sends=([], [0]), receives=([], [1]))
 elif op2.MPI.comm.rank == 1:
     node_global_to_universal = np.asarray([2, 3, 1, 0], dtype=PETSc.IntType)
-    node_halo = op2.Halo(sends=([0,1], []), receives=([3,2], []),
+    node_halo = op2.Halo(sends=([0, 1], []), receives=([3, 2], []),
                          gnn2unn=node_global_to_universal)
     element_halo = op2.Halo(sends=([0], []), receives=([1], []))
 else:
@@ -103,9 +102,9 @@ elements = op2.Set(NUM_ELE, 1, "elements", halo=element_halo)
 
 
 if op2.MPI.comm.rank == 0:
-    elem_node_map = np.asarray([ 0, 1, 3, 2, 3, 1 ], dtype=np.uint32)
+    elem_node_map = np.asarray([0, 1, 3, 2, 3, 1], dtype=np.uint32)
 elif op2.MPI.comm.rank == 1:
-    elem_node_map = np.asarray([ 0, 1, 2, 2, 3, 1 ], dtype=np.uint32)
+    elem_node_map = np.asarray([0, 1, 2, 2, 3, 1], dtype=np.uint32)
 else:
     op2.MPI.comm.Abort(1)
 
@@ -116,30 +115,30 @@ sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 if op2.MPI.comm.rank == 0:
-    coord_vals = np.asarray([ (0.0, 0.0), (2.0, 0.0), (1.0, 1.0), (0.0, 1.5) ],
+    coord_vals = np.asarray([(0.0, 0.0), (2.0, 0.0), (1.0, 1.0), (0.0, 1.5)],
                             dtype=valuetype)
 elif op2.MPI.comm.rank == 1:
-    coord_vals = np.asarray([(1,1), (0,1.5), (2,0), (0,0)],
+    coord_vals = np.asarray([(1, 1), (0, 1.5), (2, 0), (0, 0)],
                             dtype=valuetype)
 else:
     op2.MPI.comm.Abort(1)
 coords = op2.Dat(vnodes, coord_vals, valuetype, "coords")
 
 if op2.MPI.comm.rank == 0:
-    f_vals = np.asarray([ 1.0, 2.0, 3.0, 4.0 ], dtype=valuetype)
+    f_vals = np.asarray([1.0, 2.0, 3.0, 4.0], dtype=valuetype)
 elif op2.MPI.comm.rank == 1:
-    f_vals = np.asarray([ 3.0, 4.0, 2.0, 1.0 ], dtype=valuetype)
+    f_vals = np.asarray([3.0, 4.0, 2.0, 1.0], dtype=valuetype)
 else:
     op2.MPI.comm.Abort(1)
-b_vals = np.asarray([0.0]*NUM_NODES[3], dtype=valuetype)
-x_vals = np.asarray([0.0]*NUM_NODES[3], dtype=valuetype)
+b_vals = np.asarray([0.0] * NUM_NODES[3], dtype=valuetype)
+x_vals = np.asarray([0.0] * NUM_NODES[3], dtype=valuetype)
 f = op2.Dat(nodes, f_vals, valuetype, "f")
 b = op2.Dat(nodes, b_vals, valuetype, "b")
 x = op2.Dat(nodes, x_vals, valuetype, "x")
 
 # Assemble and solve
 
-op2.par_loop(mass, elements(3,3),
+op2.par_loop(mass, elements(3, 3),
              mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
              coords(elem_vnode, op2.READ))
 
@@ -165,5 +164,5 @@ if opt['save_output']:
 
 if opt['test_output']:
     import pickle
-    with open("mass2d_mpi_%d.out" % op2.MPI.comm.rank,"w") as out:
+    with open("mass2d_mpi_%d.out" % op2.MPI.comm.rank, "w") as out:
         pickle.dump(error, out)

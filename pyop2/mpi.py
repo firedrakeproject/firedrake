@@ -33,7 +33,9 @@
 
 """PyOP2 MPI communicator."""
 
+from decorator import decorator
 from mpi4py import MPI as _MPI
+
 
 def _check_comm(comm):
     if isinstance(comm, int):
@@ -43,6 +45,7 @@ def _check_comm(comm):
         return comm if isinstance(comm, _MPI.Comm) else comm.tompi4py()
     except AttributeError:
         raise TypeError("MPI communicator must be of type mpi4py.MPI.Comm")
+
 
 class MPIConfig(object):
 

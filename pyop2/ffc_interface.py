@@ -36,14 +36,12 @@ generated code in order to make it suitable for passing to the backends."""
 
 from hashlib import md5
 import os
-import re
 import tempfile
 
 from ufl import Form
 from ufl.algorithms import as_form
-from ufl.algorithms.signature import compute_form_signature
 from ffc import default_parameters, compile_form as ffc_compile_form
-from ffc import constants
+from ffc import constants  # noqa: used in unit tests
 from ffc.log import set_level, ERROR
 
 from caching import DiskCached
@@ -57,6 +55,7 @@ set_level(ERROR)
 ffc_parameters = default_parameters()
 ffc_parameters['write_file'] = False
 ffc_parameters['format'] = 'pyop2'
+
 
 class FFCKernel(DiskCached):
 
@@ -76,10 +75,11 @@ class FFCKernel(DiskCached):
         code = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
         form_data = form.form_data()
 
-        self.kernels = tuple([Kernel(code, '%s_%s_integral_0_%s' % \
-                               (name, ida.domain_type, ida.domain_id)) \
-                               for ida in form_data.integral_data])
+        self.kernels = tuple([Kernel(code, '%s_%s_integral_0_%s' %
+                            (name, ida.domain_type, ida.domain_id))
+            for ida in form_data.integral_data])
         self._initialized = True
+
 
 def compile_form(form, name):
     """Compile a form using FFC and return an OP2 kernel"""

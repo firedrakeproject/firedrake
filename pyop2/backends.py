@@ -39,7 +39,8 @@
 import void
 import finalised
 from logger import warning
-backends = {'void' : void, 'finalised' : finalised}
+backends = {'void': void, 'finalised': finalised}
+
 
 def _make_object(obj, *args, **kwargs):
     """Instantiate `obj` with `*args` and `**kwargs`.
@@ -69,7 +70,9 @@ def _make_object(obj, *args, **kwargs):
     runtime."""
     return _BackendSelector(obj, (object,), {})(*args, **kwargs)
 
+
 class _BackendSelector(type):
+
     """Metaclass creating the backend class corresponding to the requested
     class."""
 
@@ -85,18 +88,18 @@ class _BackendSelector(type):
         # Get the class docstring
         if not('__doc__' in dct and dct['__doc__']):
             for mro_cls in (cls for base in bases for cls in base.mro()):
-                doc=mro_cls.__doc__
+                doc = mro_cls.__doc__
                 if doc:
-                    dct['__doc__']=doc
+                    dct['__doc__'] = doc
                     break
         # Get the attribute docstrings
         for attr, attribute in dct.items():
             if not attribute.__doc__:
                 for mro_cls in (cls for base in bases for cls in base.mro()
                                 if hasattr(cls, attr)):
-                    doc=getattr(getattr(mro_cls,attr),'__doc__')
+                    doc = getattr(getattr(mro_cls, attr), '__doc__')
                     if doc:
-                        attribute.__doc__=doc
+                        attribute.__doc__ = doc
                         break
         return type.__new__(cls, name, bases, dct)
 
@@ -120,10 +123,12 @@ class _BackendSelector(type):
             warning("op2 object %s does not implement fromhdf5 method" % cls.__name__)
             raise e
 
+
 def get_backend():
     """Get the OP2 backend"""
 
     return _BackendSelector._backend.__name__
+
 
 def set_backend(backend):
     """Set the OP2 backend"""
@@ -144,6 +149,7 @@ def set_backend(backend):
             raise e
     backends[backend] = mod
     _BackendSelector._backend = mod
+
 
 def unset_backend():
     """Unset the OP2 backend"""

@@ -37,10 +37,10 @@ try:
 # from PyPI
 except ImportError:
     from ordereddict import OrderedDict
-import numpy
 import op_lib_core as core
 import base
 from base import *
+
 
 class Arg(base.Arg):
 
@@ -100,8 +100,9 @@ class Arg(base.Arg):
     def _is_staged_direct(self):
         return self._is_direct and not (self.data._is_scalar or self._is_soa)
 
+
 class DeviceDataMixin(object):
-    DEVICE_UNALLOCATED = 'DEVICE_UNALLOCATED' # device_data not allocated
+    DEVICE_UNALLOCATED = 'DEVICE_UNALLOCATED'  # device_data not allocated
     HOST_UNALLOCATED = 'HOST_UNALLOCATED'     # host data not allocated
     DEVICE = 'DEVICE'                         # device valid, host invalid
     HOST = 'HOST'                             # host valid, device invalid
@@ -182,6 +183,7 @@ class DeviceDataMixin(object):
     def _from_device(self):
         raise RuntimeError("Abstract device class can't do this")
 
+
 class Dat(DeviceDataMixin, base.Dat):
 
     def __init__(self, dataset, data=None, dtype=None, name=None,
@@ -202,10 +204,12 @@ class Dat(DeviceDataMixin, base.Dat):
 
     def _check_shape(self, other):
         if not self.array.shape == other.array.shape:
-            raise ValueError("operands could not be broadcast together with shapes %s, %s" \
-                    % (self.array.shape, other.array.shape))
+            raise ValueError("operands could not be broadcast together with shapes %s, %s"
+                             % (self.array.shape, other.array.shape))
+
 
 class Const(DeviceDataMixin, base.Const):
+
     def __init__(self, dim, data, name, dtype=None):
         base.Const.__init__(self, dim, data, name, dtype)
         self.state = DeviceDataMixin.HOST
@@ -226,12 +230,16 @@ class Const(DeviceDataMixin, base.Const):
     def _from_device(self):
         raise RuntimeError("Copying Const %s from device not allowed" % self)
 
+
 class Global(DeviceDataMixin, base.Global):
+
     def __init__(self, dim, data, dtype=None, name=None):
         base.Global.__init__(self, dim, data, dtype, name)
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
+
 class Map(base.Map):
+
     def __init__(self, iterset, dataset, dim, values=None, name=None):
         # The base.Map base class allows not passing values. We do not allow
         # that on the device, but want to keep the API consistent. So if the
@@ -248,7 +256,9 @@ class Map(base.Map):
     def _from_device(self):
         raise RuntimeError("Abstract device class can't do this")
 
+
 class Mat(base.Mat):
+
     def __init__(self, datasets, dtype=None, name=None):
         base.Mat.__init__(self, datasets, dtype, name)
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
@@ -284,7 +294,7 @@ class _GenericPlan(base.Cached):
 
         # order of indices doesn't matter
         subkey = ('dats', )
-        for k,v in inds.iteritems():
+        for k, v in inds.iteritems():
             # Only dimension of dat matters, but identity of map does
             subkey += (k[0].cdim, k[1:],) + tuple(sorted(v))
         key += subkey
@@ -302,14 +312,18 @@ class _GenericPlan(base.Cached):
 
         return key
 
+
 class CPlan(_GenericPlan, core.op_plan):
+
     """
     Legacy plan function.
         Does not support matrix coloring.
     """
     pass
 
+
 class PPlan(_GenericPlan, core.Plan):
+
     """
     PyOP2's cython plan function.
         Support matrix coloring, selective staging and thread color computation.
@@ -320,6 +334,7 @@ class PPlan(_GenericPlan, core.Plan):
 # one should instead use Plan. The actual class that is instanciated is defined
 # at configuration time see (op2.py::init())
 Plan = PPlan
+
 
 def compare_plans(kernel, iset, *args, **kwargs):
     """This can only be used if caching is disabled."""
@@ -367,12 +382,14 @@ def compare_plans(kernel, iset, *args, **kwargs):
     assert (pplan.thrcol == cplan.thrcol).all()
     assert (pplan.offset == cplan.offset).all()
     assert (pplan.nindirect == cplan.nindirect).all()
-    assert ( (pplan.ind_map == cplan.ind_map) | (pplan.ind_map==-1) ).all()
+    assert ((pplan.ind_map == cplan.ind_map) | (pplan.ind_map == -1)).all()
     assert (pplan.ind_offs == cplan.ind_offs).all()
     assert (pplan.ind_sizes == cplan.ind_sizes).all()
     assert (pplan.loc_map == cplan.loc_map).all()
 
+
 class ParLoop(base.ParLoop):
+
     def __init__(self, kernel, itspace, *args):
         base.ParLoop.__init__(self, kernel, itspace, *args)
         # List of arguments with vector-map/iteration-space indexes
@@ -477,7 +494,8 @@ class ParLoop(base.ParLoop):
 
     @property
     def _requires_matrix_coloring(self):
-        """Direct code generation to follow colored execution for global matrix insertion."""
+        """Direct code generation to follow colored execution for global
+        matrix insertion."""
         return False
 
     @property
@@ -539,7 +557,7 @@ class ParLoop(base.ParLoop):
     @property
     def _all_inc_non_vec_map_indirect_dat_args(self):
         keep = lambda x: x._is_indirect and x.access is INC and \
-               not (x._is_vec_map or x._uses_itspace)
+            not (x._is_vec_map or x._uses_itspace)
         return self._get_arg_list('__all_inc_non_vec_map_indirect_dat_args',
                                   '_actual_args', keep)
 
@@ -626,6 +644,7 @@ class ParLoop(base.ParLoop):
         keep = lambda x: x._is_global_reduction
         return self._get_arg_list('__all_global_reduction_args',
                                   '_actual_args', keep)
+
     @property
     def _all_global_non_reduction_args(self):
         keep = lambda x: x._is_global and not x._is_global_reduction

@@ -31,7 +31,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os, sys
+import os
+import sys
 
 try:
     OP2_DIR = os.environ['OP2_DIR']
@@ -48,4 +49,3 @@ except KeyError:
 Set the environment variable OP2_DIR to point to the op2 subdirectory
 of your OP2 source tree or OP2_PREFIX to point to the location of an
 OP2 installation.""")
-

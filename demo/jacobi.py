@@ -79,7 +79,7 @@ parser.add_argument('-n', '--niter',
                     type=int,
                     help='set the number of iteration')
 
-opt=vars(parser.parse_args())
+opt = vars(parser.parse_args())
 op2.init(**opt)
 
 fp_type = np.float32 if opt['single'] else np.float64
@@ -87,10 +87,10 @@ fp_type = np.float32 if opt['single'] else np.float64
 NN = 6
 NITER = opt['niter']
 
-nnode = (NN-1)**2
-nedge = nnode + 4*(NN-1)*(NN-2)
+nnode = (NN - 1) ** 2
+nedge = nnode + 4 * (NN - 1) * (NN - 2)
 
-pp = np.zeros((2*nedge,),dtype=np.int)
+pp = np.zeros((2 * nedge,), dtype=np.int)
 
 A = np.zeros((nedge,), dtype=fp_type)
 r = np.zeros((nnode,), dtype=fp_type)
@@ -101,8 +101,8 @@ e = 0
 
 for i in xrange(1, NN):
     for j in xrange(1, NN):
-        n = i-1 + (j-1)*(NN-1)
-        pp[2*e] = n
+        n = i - 1 + (j - 1) * (NN - 1)
+        pp[2 * e] = n
         pp[2 * e + 1] = n
         A[e] = -1
         e += 1
@@ -122,7 +122,7 @@ for i in xrange(1, NN):
                 r[n] += 0.25
             else:
                 pp[2 * e] = n
-                pp[2 * e + 1] = i2 - 1 + (j2 - 1)*(NN - 1)
+                pp[2 * e + 1] = i2 - 1 + (j2 - 1) * (NN - 1)
                 A[e] = 0.25
                 e += 1
 
@@ -145,7 +145,8 @@ res = op2.Kernel("""void res(%(t)s *A, %(t)s *u, %(t)s *du, const %(t)s *beta){
   *du += (*beta)*(*A)*(*u);
 }""" % {'t': "double" if fp_type == np.float64 else "float"}, "res")
 
-update = op2.Kernel("""void update(%(t)s *r, %(t)s *du, %(t)s *u, %(t)s *u_sum, %(t)s *u_max){
+update = op2.Kernel("""
+void update(%(t)s *r, %(t)s *du, %(t)s *u, %(t)s *u_sum, %(t)s *u_max) {
   *u += *du + alpha * (*r);
   *du = %(z)s;
   *u_sum += (*u)*(*u);
@@ -170,14 +171,13 @@ for iter in xrange(0, NITER):
                  u_sum(op2.INC),
                  u_max(op2.MAX))
 
-    print( " u max/rms = %f %f \n" % (u_max.data[0], sqrt(u_sum.data/nnode)))
-
+    print(" u max/rms = %f %f \n" % (u_max.data[0], sqrt(u_sum.data / nnode)))
 
 
 print("\nResults after %d iterations\n" % NITER)
-for j in range(NN-1, 0, -1):
+for j in range(NN - 1, 0, -1):
     for i in range(1, NN):
-        print(" %7.4f" % p_u.data[i-1 + (j-1)*(NN-1)], end='')
+        print(" %7.4f" % p_u.data[i - 1 + (j - 1) * (NN - 1)], end='')
     print("")
 print("")
 

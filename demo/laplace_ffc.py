@@ -57,7 +57,6 @@ This may also depend on development trunk versions of other FEniCS programs.
 from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from ufl import *
-import ffc
 
 import numpy as np
 
@@ -77,19 +76,19 @@ u = TrialFunction(E)
 f = Coefficient(E)
 g = Coefficient(E)
 
-a = dot(grad(v,),grad(u))*dx
-L = v*f*dx
+a = dot(grad(v,), grad(u)) * dx
+L = v * f * dx
 
 # Generate code for Laplacian and rhs assembly.
 
 laplacian, = compile_form(a, "laplacian")
-rhs,       = compile_form(L, "rhs")
+rhs, = compile_form(L, "rhs")
 
 # Set up simulation data structures
 
-NUM_ELE       = 8
-NUM_NODES     = 9
-NUM_BDRY_ELE  = 2
+NUM_ELE = 8
+NUM_NODES = 9
+NUM_BDRY_ELE = 2
 NUM_BDRY_NODE = 6
 valuetype = np.float64
 
@@ -98,38 +97,39 @@ vnodes = op2.Set(NUM_NODES, 2, "vnodes")
 elements = op2.Set(NUM_ELE, 1, "elements")
 bdry_nodes = op2.Set(NUM_BDRY_NODE, 1, "boundary_nodes")
 
-elem_node_map = np.asarray([ 0, 1, 4, 4, 3, 0, 1, 2, 5, 5, 4, 1, 3, 4, 7, 7, 6,
-                             3, 4, 5, 8, 8, 7, 4], dtype=np.uint32)
+elem_node_map = np.asarray([0, 1, 4, 4, 3, 0, 1, 2, 5, 5, 4, 1, 3, 4, 7, 7, 6,
+                            3, 4, 5, 8, 8, 7, 4], dtype=np.uint32)
 elem_node = op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 elem_vnode = op2.Map(elements, vnodes, 3, elem_node_map, "elem_vnode")
 
-bdry_node_node_map = np.asarray([0, 1, 2, 6, 7, 8 ], dtype=valuetype)
-bdry_node_node = op2.Map(bdry_nodes, nodes, 1, bdry_node_node_map, "bdry_node_node")
+bdry_node_node_map = np.asarray([0, 1, 2, 6, 7, 8], dtype=valuetype)
+bdry_node_node = op2.Map(
+    bdry_nodes, nodes, 1, bdry_node_node_map, "bdry_node_node")
 
 sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
-coord_vals = np.asarray([ (0.0, 0.0), (0.5, 0.0), (1.0, 0.0),
-                          (0.0, 0.5), (0.5, 0.5), (1.0, 0.5),
-                          (0.0, 1.0), (0.5, 1.0), (1.0, 1.0) ],
-                          dtype=valuetype)
+coord_vals = np.asarray([(0.0, 0.0), (0.5, 0.0), (1.0, 0.0),
+                         (0.0, 0.5), (0.5, 0.5), (1.0, 0.5),
+                         (0.0, 1.0), (0.5, 1.0), (1.0, 1.0)],
+                        dtype=valuetype)
 coords = op2.Dat(vnodes, coord_vals, valuetype, "coords")
 
-f_vals = np.asarray([ 0.0 ]*9, dtype=valuetype)
-b_vals = np.asarray([0.0]*NUM_NODES, dtype=valuetype)
-x_vals = np.asarray([0.0]*NUM_NODES, dtype=valuetype)
+f_vals = np.asarray([0.0] * 9, dtype=valuetype)
+b_vals = np.asarray([0.0] * NUM_NODES, dtype=valuetype)
+x_vals = np.asarray([0.0] * NUM_NODES, dtype=valuetype)
 u_vals = np.asarray([1.0, 1.0, 1.0, 1.5, 1.5, 1.5, 2.0, 2.0, 2.0])
 f = op2.Dat(nodes, f_vals, valuetype, "f")
 b = op2.Dat(nodes, b_vals, valuetype, "b")
 x = op2.Dat(nodes, x_vals, valuetype, "x")
 u = op2.Dat(nodes, u_vals, valuetype, "u")
 
-bdry_vals = np.asarray([1.0, 1.0, 1.0, 2.0, 2.0, 2.0 ], dtype=valuetype)
+bdry_vals = np.asarray([1.0, 1.0, 1.0, 2.0, 2.0, 2.0], dtype=valuetype)
 bdry = op2.Dat(bdry_nodes, bdry_vals, valuetype, "bdry")
 
 # Assemble matrix and rhs
 
-op2.par_loop(laplacian, elements(3,3),
+op2.par_loop(laplacian, elements(3, 3),
              mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
              coords(elem_vnode, op2.READ))
 
@@ -158,5 +158,5 @@ print "Computed solution: %s" % x.data
 # Save output (if necessary)
 if opt['save_output']:
     import pickle
-    with open("laplace.out","w") as out:
+    with open("laplace.out", "w") as out:
         pickle.dump((u.data, x.data), out)

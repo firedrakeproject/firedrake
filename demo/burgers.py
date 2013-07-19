@@ -54,33 +54,34 @@ op2.init(**opt)
 # Simulation parameters
 n = 100
 nu = 0.0001
-timestep = 1.0/n
+timestep = 1.0 / n
 
 # Create simulation data structures
 
 nodes = op2.Set(n, "nodes")
 b_nodes = op2.Set(2, "b_nodes")
-elements = op2.Set(n-1, "elements")
+elements = op2.Set(n - 1, "elements")
 
-elem_node_map = [ item for sublist in [(x, x+1) for x in xrange(n-1)] for item in sublist ]
+elem_node_map = [item for sublist in [(x, x + 1)
+                                      for x in xrange(n - 1)] for item in sublist]
 elem_node = op2.Map(elements, nodes, 2, elem_node_map, "elem_node")
 
-b_node_node_map = [ 0, n-1 ]
+b_node_node_map = [0, n - 1]
 b_node_node = op2.Map(b_nodes, nodes, 1, b_node_node_map, "b_node_node")
 
-coord_vals =  [ i*(1.0/(n-1)) for i in xrange(n) ]
+coord_vals = [i * (1.0 / (n - 1)) for i in xrange(n)]
 coords = op2.Dat(nodes, 1, coord_vals, np.float64, "coords")
 
-tracer_vals = np.asarray([0.0]*n, dtype=np.float64)
+tracer_vals = np.asarray([0.0] * n, dtype=np.float64)
 tracer = op2.Dat(nodes, 1, tracer_vals, np.float64, "tracer")
 
-tracer_old_vals = np.asarray([0.0]*n, dtype=np.float64)
+tracer_old_vals = np.asarray([0.0] * n, dtype=np.float64)
 tracer_old = op2.Dat(nodes, 1, tracer_old_vals, np.float64, "tracer_old")
 
-b_vals = np.asarray([0.0]*n, dtype=np.float64)
+b_vals = np.asarray([0.0] * n, dtype=np.float64)
 b = op2.Dat(nodes, 1, b_vals, np.float64, "b")
 
-bdry_vals = [ 0.0, 1.0 ]
+bdry_vals = [0.0, 1.0]
 bdry = op2.Dat(b_nodes, 1, bdry_vals, np.float64, "bdry")
 
 sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
@@ -93,15 +94,15 @@ u = Coefficient(V)
 u_next = TrialFunction(V)
 v = TestFunction(V)
 
-a = (dot(u,grad(u_next))*v + nu*grad(u_next)*grad(v))*dx
-L = v*u*dx
+a = (dot(u, grad(u_next)) * v + nu * grad(u_next) * grad(v)) * dx
+L = v * u * dx
 
 burgers, = compile_form(a, "burgers")
 rhs, = compile_form(L, "rhs")
 
 # Initial condition
 
-i_cond_code ="""
+i_cond_code = """
 void i_cond(double *c, double *t)
 {
   double pi = 3.14159265358979;
@@ -117,11 +118,12 @@ op2.par_loop(i_cond, nodes,
 
 # Boundary condition
 
-strongbc_rhs = op2.Kernel("void strongbc_rhs(double *v, double *t) { *t = *v; }", "strongbc_rhs")
+strongbc_rhs = op2.Kernel(
+    "void strongbc_rhs(double *v, double *t) { *t = *v; }", "strongbc_rhs")
 
 # Some other useful kernels
 
-assign_dat_code="""
+assign_dat_code = """
 void assign_dat(double *dest, double *src)
 {
   *dest = *src;
@@ -129,7 +131,7 @@ void assign_dat(double *dest, double *src)
 
 assign_dat = op2.Kernel(assign_dat_code, "assign_dat")
 
-l2norm_diff_sq_code="""
+l2norm_diff_sq_code = """
 void l2norm_diff_sq(double *f, double *g, double *norm)
 {
   double diff = abs(*f - *g);
@@ -158,12 +160,12 @@ while normsq.data[0] > tolsq:
 
     mat.zero()
 
-    op2.par_loop(burgers, elements(2,2),
+    op2.par_loop(burgers, elements(2, 2),
                  mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                  coords(elem_node, op2.READ),
                  tracer(elem_node, op2.READ))
 
-    mat.zero_rows([0,n-1], 1.0)
+    mat.zero_rows([0, n - 1], 1.0)
 
     # RHS Assembly
 

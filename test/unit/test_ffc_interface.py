@@ -36,8 +36,10 @@ ffc_interface = pytest.importorskip('pyop2.ffc_interface')
 import os
 from ufl import *
 
+
 @pytest.mark.xfail("not hasattr(ffc_interface.constants, 'PYOP2_VERSION')")
 class TestFFCCache:
+
     """FFC code generation cache tests."""
 
     @pytest.fixture
@@ -45,21 +47,21 @@ class TestFFCCache:
         e = FiniteElement('CG', triangle, 1)
         u = TestFunction(e)
         v = TrialFunction(e)
-        return u*v*dx
+        return u * v * dx
 
     @pytest.fixture
     def mass2(cls):
         e = FiniteElement('CG', triangle, 2)
         u = TestFunction(e)
         v = TrialFunction(e)
-        return u*v*dx
+        return u * v * dx
 
     @pytest.fixture
     def rhs(cls):
         e = FiniteElement('CG', triangle, 1)
         v = TrialFunction(e)
         g = Coefficient(e)
-        return g*v*ds
+        return g * v * ds
 
     @pytest.fixture
     def rhs2(cls):
@@ -67,7 +69,7 @@ class TestFFCCache:
         v = TrialFunction(e)
         f = Coefficient(e)
         g = Coefficient(e)
-        return f*v*dx + g*v*ds
+        return f * v * dx + g * v * ds
 
     @pytest.fixture
     def cache_key(cls, mass):
@@ -79,11 +81,13 @@ class TestFFCCache:
 
     def test_ffc_cache_persist_on_disk(self, backend, cache_key):
         """FFCKernel should be persisted on disk."""
-        assert os.path.exists(os.path.join(ffc_interface.FFCKernel._cachedir, cache_key))
+        assert os.path.exists(
+            os.path.join(ffc_interface.FFCKernel._cachedir, cache_key))
 
     def test_ffc_cache_read_from_disk(self, backend, cache_key):
         """Loading an FFCKernel from disk should yield the right object."""
-        assert ffc_interface.FFCKernel._read_from_disk(cache_key).cache_key == cache_key
+        assert ffc_interface.FFCKernel._read_from_disk(
+            cache_key).cache_key == cache_key
 
     def test_ffc_compute_form_data(self, backend, mass):
         """Compiling a form attaches form data."""
@@ -122,8 +126,8 @@ class TestFFCCache:
 
     def test_ffc_cell_exterior_facet_kernel(self, backend, rhs2):
         k = ffc_interface.compile_form(rhs2, 'rhs2')
-        assert 'cell_integral' in k[0].code and 'exterior_facet_integral' in k[1].code and len(k) == 2
+        assert 'cell_integral' in k[
+            0].code and 'exterior_facet_integral' in k[1].code and len(k) == 2
 
 if __name__ == '__main__':
-    import os
     pytest.main(os.path.abspath(__file__))

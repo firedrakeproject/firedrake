@@ -35,7 +35,6 @@
 PETSc specific unit tests
 """
 
-import numpy as np
 import pytest
 
 from pyop2 import op2
@@ -43,6 +42,7 @@ from pyop2 import op2
 # If mpi4py or petsc4py are not available this test module is skipped
 mpi4py = pytest.importorskip("mpi4py")
 petsc4py = pytest.importorskip("petsc4py")
+
 
 class TestPETSc:
 

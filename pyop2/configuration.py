@@ -71,7 +71,9 @@ import pkg_resources
 import warnings
 import UserDict
 
+
 class ConfigModule(types.ModuleType):
+
     """Dictionary impersonating a module allowing direct access to attributes."""
 
     OP_CONFIG_KEY = 'config'
@@ -80,10 +82,11 @@ class ConfigModule(types.ModuleType):
 
     def configure(self, **kargs):
         entries = list()
-        entries += yaml.load(pkg_resources.resource_stream('pyop2', ConfigModule.DEFAULT_CONFIG)).items()
+        entries += yaml.load(pkg_resources.resource_stream(
+            'pyop2', ConfigModule.DEFAULT_CONFIG)).items()
 
         alt_user_config = False
-        if kargs.has_key(ConfigModule.OP_CONFIG_KEY):
+        if ConfigModule.OP_CONFIG_KEY in kargs:
             alt_user_config = True
             try:
                 from_file = yaml.load(kargs[ConfigModule.OP_CONFIG_KEY])
@@ -95,7 +98,7 @@ class ConfigModule(types.ModuleType):
             try:
                 from_file = yaml.load(file(ConfigModule.DEFAULT_USER_CONFIG))
                 entries += from_file.items() if from_file else []
-            except IOError as e:
+            except IOError:
                 pass
 
         entries += kargs.items()
@@ -124,9 +127,9 @@ _fake = ConfigModule(__name__)
 _fake.__dict__.update({
     '__file__': __file__,
     '__package': 'pyop2',
-    #'__path__': __path__, #__path__ not defined ?
+    # '__path__': __path__, #__path__ not defined ?
     '__doc__': __doc__,
-    #'__version__': __version__, #__version__ not defined ?
+    # '__version__': __version__, #__version__ not defined ?
     '__all__': (),
     '__docformat__': 'restructuredtext en'
 })

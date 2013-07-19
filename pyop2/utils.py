@@ -36,7 +36,6 @@
 from __future__ import division
 
 import os
-import re
 import sys
 import numpy as np
 from decorator import decorator
@@ -44,6 +43,7 @@ import argparse
 from subprocess import Popen, PIPE
 
 from exceptions import DataTypeError, DataValueError
+
 
 def as_tuple(item, type=None, length=None):
     # Empty list if we get passed None
@@ -55,12 +55,13 @@ def as_tuple(item, type=None, length=None):
             t = tuple(item)
         # ... or create a list of a single item
         except TypeError:
-            t = (item,)*(length or 1)
+            t = (item,) * (length or 1)
     if length and not len(t) == length:
         raise ValueError("Tuple needs to be of length %d" % length)
     if type and not all(isinstance(i, type) for i in t):
         raise TypeError("Items need to be of type %s" % type)
     return t
+
 
 def as_type(obj, typ):
     """Return obj if it is of dtype typ, otherwise return a copy type-cast to
@@ -76,7 +77,9 @@ def as_type(obj, typ):
         else:
             raise TypeError("Invalid type %s" % type(obj))
 
+
 class validate_base:
+
     """Decorator to validate arguments
 
     Formal parameters that don't exist in the definition of the function
@@ -92,7 +95,7 @@ class validate_base:
             self.defaults = f.func_defaults or ()
             self.varnames = f.func_code.co_varnames
             self.file = f.func_code.co_filename
-            self.line = f.func_code.co_firstlineno+1
+            self.line = f.func_code.co_firstlineno + 1
             self.check_args(args, kwargs)
             return f(*args, **kwargs)
         return decorator(wrapper, f)
@@ -121,7 +124,9 @@ class validate_base:
                 continue
             self.check_arg(arg, argcond, exception)
 
+
 class validate_type(validate_base):
+
     """Decorator to validate argument types
 
     The decorator expects one or more arguments, which are 3-tuples of
@@ -131,10 +136,12 @@ class validate_type(validate_base):
 
     def check_arg(self, arg, argtype, exception):
         if not isinstance(arg, argtype):
-            raise exception("%s:%d Parameter %s must be of type %r" \
-                    % (self.file, self.line, arg, argtype))
+            raise exception("%s:%d Parameter %s must be of type %r"
+                            % (self.file, self.line, arg, argtype))
+
 
 class validate_in(validate_base):
+
     """Decorator to validate argument is in a set of valid argument values
 
     The decorator expects one or more arguments, which are 3-tuples of
@@ -144,10 +151,12 @@ class validate_in(validate_base):
 
     def check_arg(self, arg, values, exception):
         if not arg in values:
-            raise exception("%s:%d %s must be one of %s" \
-                    % (self.file, self.line, arg, values))
+            raise exception("%s:%d %s must be one of %s"
+                            % (self.file, self.line, arg, values))
+
 
 class validate_range(validate_base):
+
     """Decorator to validate argument value is in a given numeric range
 
     The decorator expects one or more arguments, which are 3-tuples of
@@ -158,8 +167,9 @@ class validate_range(validate_base):
 
     def check_arg(self, arg, range, exception):
         if not range[0] <= arg <= range[1]:
-            raise exception("%s:%d %s must be within range %s" \
-                    % (self.file, self.line, arg, range))
+            raise exception("%s:%d %s must be within range %s"
+                            % (self.file, self.line, arg, range))
+
 
 def verify_reshape(data, dtype, shape, allow_none=False):
     """Verify data is of type dtype and try to reshaped to shape."""
@@ -183,17 +193,20 @@ def verify_reshape(data, dtype, shape, allow_none=False):
             a.shape = shape
             return a
         except ValueError:
-            raise DataValueError("Invalid data: expected %d values, got %d!" % \
-                    (np.prod(shape), np.asarray(data).size))
+            raise DataValueError("Invalid data: expected %d values, got %d!" %
+                                (np.prod(shape), np.asarray(data).size))
+
 
 def align(bytes, alignment=16):
     """Align BYTES to a multiple of ALIGNMENT"""
     return ((bytes + alignment - 1) // alignment) * alignment
 
+
 def uniquify(iterable):
     """Remove duplicates in ITERABLE but preserve order."""
     uniq = set()
     return [x for x in iterable if x not in uniq and (uniq.add(x) or True)]
+
 
 def parser(description=None, group=False):
     """Create default argparse.ArgumentParser parser for pyop2 programs."""
@@ -202,7 +215,8 @@ def parser(description=None, group=False):
                                      prefix_chars="-",
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
 
-    g = parser.add_argument_group('pyop2', 'backend configuration options') if group else parser
+    g = parser.add_argument_group(
+        'pyop2', 'backend configuration options') if group else parser
 
     g.add_argument('-b', '--backend', default='sequential',
                    choices=['sequential', 'openmp', 'opencl', 'cuda'],
@@ -216,12 +230,15 @@ def parser(description=None, group=False):
                    'set pyop2 logging level (default=WARN)')
     g.add_argument('-c', '--config', default=argparse.SUPPRESS,
                    type=argparse.FileType('r'),
-                   help='specify alternate configuration' if group else 'specify alternate pyop2 configuration')
+                   help='specify alternate configuration' if group
+                   else 'specify alternate pyop2 configuration')
     g.add_argument('--legacy-plan', dest='python_plan', action='store_false',
                    default=argparse.SUPPRESS,
-                   help='use the legacy plan' if group else 'set pyop2 to use the legacy plan')
+                   help='use the legacy plan' if group
+                   else 'set pyop2 to use the legacy plan')
 
     return parser
+
 
 def maybe_setflags(array, write=None, align=None, uic=None):
     """Set flags on a numpy ary.
@@ -231,6 +248,7 @@ def maybe_setflags(array, write=None, align=None, uic=None):
     write = write if array.flags['OWNDATA'] else None
     array.setflags(write=write, align=align, uic=uic)
 
+
 def parse_args(*args, **kwargs):
     """Return parsed arguments as variables for later use.
 
@@ -238,11 +256,14 @@ def parse_args(*args, **kwargs):
     The only recognised options are `group` and `description`."""
     return vars(parser(*args, **kwargs).parse_args())
 
+
 def preprocess(text):
     p = Popen(['cpp', '-E', '-I' + os.path.dirname(__file__)], stdin=PIPE,
               stdout=PIPE, universal_newlines=True)
-    processed = '\n'.join(l for l in p.communicate(text)[0].split('\n') if not l.startswith('#'))
+    processed = '\n'.join(l for l in p.communicate(
+        text)[0].split('\n') if not l.startswith('#'))
     return processed
+
 
 def get_petsc_dir():
     try:

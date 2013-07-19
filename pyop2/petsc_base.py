@@ -45,6 +45,7 @@ from base import *
 from logger import debug
 import mpi
 
+
 class MPIConfig(mpi.MPIConfig):
 
     def __init__(self):
@@ -62,6 +63,7 @@ MPI = MPIConfig()
 # Override MPI configuration
 mpi.MPI = MPI
 
+
 class Dat(base.Dat):
 
     @property
@@ -74,35 +76,41 @@ class Dat(base.Dat):
 
 
 class Mat(base.Mat):
+
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`."""
 
     def _init(self):
         if not self.dtype == PETSc.ScalarType:
-            raise RuntimeError("Can only create a matrix of type %s, %s is not supported" \
-                    % (PETSc.ScalarType, self.dtype))
+            raise RuntimeError("Can only create a matrix of type %s, %s is not supported"
+                               % (PETSc.ScalarType, self.dtype))
         mat = PETSc.Mat()
         row_lg = PETSc.LGMap()
         col_lg = PETSc.LGMap()
         rdim, cdim = self.sparsity.dims
         if MPI.comm.size == 1:
             # The PETSc local to global mapping is the identity in the sequential case
-            row_lg.create(indices=np.arange(self.sparsity.nrows * rdim, dtype=PETSc.IntType))
-            col_lg.create(indices=np.arange(self.sparsity.ncols * cdim, dtype=PETSc.IntType))
+            row_lg.create(
+                indices=np.arange(self.sparsity.nrows * rdim, dtype=PETSc.IntType))
+            col_lg.create(
+                indices=np.arange(self.sparsity.ncols * cdim, dtype=PETSc.IntType))
             self._array = np.zeros(self.sparsity.nz, dtype=PETSc.RealType)
             # We're not currently building a blocked matrix, so need to scale the
             # number of rows and columns by the sparsity dimensions
             # FIXME: This needs to change if we want to do blocked sparse
             # NOTE: using _rowptr and _colidx since we always want the host values
-            mat.createAIJWithArrays((self.sparsity.nrows*rdim, self.sparsity.ncols*cdim),
-                                    (self.sparsity._rowptr, self.sparsity._colidx, self._array))
+            mat.createAIJWithArrays(
+                (self.sparsity.nrows * rdim, self.sparsity.ncols * cdim),
+                (self.sparsity._rowptr, self.sparsity._colidx, self._array))
         else:
             # FIXME: probably not right for vector fields
             # We get the PETSc local to global mapping from the halo
-            row_lg.create(indices=self.sparsity.rmaps[0].dataset.halo.global_to_petsc_numbering)
-            col_lg.create(indices=self.sparsity.cmaps[0].dataset.halo.global_to_petsc_numbering)
-            mat.createAIJ(size=((self.sparsity.nrows*rdim, None),
-                                (self.sparsity.ncols*cdim, None)),
+            row_lg.create(indices=self.sparsity.rmaps[
+                          0].dataset.halo.global_to_petsc_numbering)
+            col_lg.create(indices=self.sparsity.cmaps[
+                          0].dataset.halo.global_to_petsc_numbering)
+            mat.createAIJ(size=((self.sparsity.nrows * rdim, None),
+                                (self.sparsity.ncols * cdim, None)),
                           nnz=(self.sparsity.nnz, self.sparsity.onnz))
         mat.setLGMap(rmap=row_lg, cmap=col_lg)
         # Do not stash entries destined for other processors, just drop them
@@ -146,7 +154,7 @@ class Mat(base.Mat):
 
     @property
     def values(self):
-        return self.handle[:,:]
+        return self.handle[:, :]
 
     @property
     def handle(self):
@@ -157,6 +165,8 @@ class Mat(base.Mat):
 
 # FIXME: Eventually (when we have a proper OpenCL solver) this wants to go in
 # sequential
+
+
 class Solver(base.Solver, PETSc.KSP):
 
     _cnt = 0
@@ -165,8 +175,8 @@ class Solver(base.Solver, PETSc.KSP):
         super(Solver, self).__init__(parameters, **kwargs)
         self.create(PETSc.COMM_WORLD)
         converged_reason = self.ConvergedReason()
-        self._reasons = dict([(getattr(converged_reason,r), r) \
-                              for r in dir(converged_reason) \
+        self._reasons = dict([(getattr(converged_reason, r), r)
+                              for r in dir(converged_reason)
                               if not r.startswith('_')])
 
     def _set_parameters(self):
@@ -185,6 +195,7 @@ class Solver(base.Solver, PETSc.KSP):
         self.setFromOptions()
         if self.parameters['monitor_convergence']:
             self.reshist = []
+
             def monitor(ksp, its, norm):
                 self.reshist.append(norm)
                 debug("%3d KSP Residual norm %14.12e" % (its, norm))
@@ -201,7 +212,8 @@ class Solver(base.Solver, PETSc.KSP):
                     pylab.title('Convergence history')
                     pylab.xlabel('Iteration')
                     pylab.ylabel('Residual norm')
-                    pylab.savefig('%sreshist_%04d.png' % (self.parameters['plot_prefix'], Solver._cnt))
+                    pylab.savefig('%sreshist_%04d.png' %
+                                  (self.parameters['plot_prefix'], Solver._cnt))
                     Solver._cnt += 1
                 except ImportError:
                     from warnings import warn
@@ -212,7 +224,7 @@ class Solver(base.Solver, PETSc.KSP):
         debug("Residual norm: %s" % self.getResidualNorm())
         if r < 0:
             msg = "KSP Solver failed to converge in %d iterations: %s (Residual norm: %e)" \
-                    % (self.getIterationNumber(), self._reasons[r], self.getResidualNorm())
+                % (self.getIterationNumber(), self._reasons[r], self.getResidualNorm())
             if self.parameters['error_on_nonconvergence']:
                 raise RuntimeError(msg)
             else:

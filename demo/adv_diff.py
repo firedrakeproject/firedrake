@@ -33,10 +33,10 @@
 
 """PyOP2 P1 advection-diffusion with operator splitting demo
 
-This demo solves the advection-diffusion equation by splitting the advection and
-diffusion terms. The advection term is advanced in time using an Euler method
-and the diffusion term is advanced in time using a theta scheme with theta =
-0.5.
+This demo solves the advection-diffusion equation by splitting the advection
+and diffusion terms. The advection term is advanced in time using an Euler
+method and the diffusion term is advanced in time using a theta scheme with
+theta = 0.5.
 
 The domain read in from a triangle file.
 
@@ -61,6 +61,7 @@ def viper_shape(array):
     """Flatten a numpy array into one dimension to make it suitable for
     passing to Viper."""
     return array.reshape((array.shape[0]))
+
 
 def main(opt):
     # Set up finite element problem
@@ -147,9 +148,11 @@ def main(opt):
 
     # Assemble and solve
     if opt['visualize']:
-        vis_coords = np.asarray([[x, y, 0.0] for x, y in coords.data_ro], dtype=np.float64)
+        vis_coords = np.asarray([[x, y, 0.0] for x, y in coords.data_ro],
+                                dtype=np.float64)
         import viper
-        v = viper.Viper(x=viper_shape(tracer.data_ro), coordinates=vis_coords, cells=elem_node.values)
+        v = viper.Viper(x=viper_shape(tracer.data_ro),
+                        coordinates=vis_coords, cells=elem_node.values)
 
     solver = op2.Solver()
 
@@ -203,9 +206,9 @@ def main(opt):
         result = op2.Global(1, [0.0])
         op2.par_loop(l2_kernel, elements,
                      result(op2.INC),
-                     coords(elem_vnode,op2.READ),
-                     tracer(elem_node,op2.READ),
-                     analytical(elem_node,op2.READ)
+                     coords(elem_vnode, op2.READ),
+                     tracer(elem_node, op2.READ),
+                     analytical(elem_node, op2.READ)
                      )
         with open("adv_diff.%s.out" % os.path.split(opt['mesh'])[-1], "w") as out:
             out.write(str(result.data[0]) + "\n")
@@ -213,7 +216,8 @@ def main(opt):
 if __name__ == '__main__':
     parser = utils.parser(group=True, description=__doc__)
     parser.add_argument('-m', '--mesh', required=True,
-                        help='Base name of triangle mesh (excluding the .ele or .node extension)')
+                        help='Base name of triangle mesh \
+                              (excluding the .ele or .node extension)')
     parser.add_argument('-v', '--visualize', action='store_true',
                         help='Visualize the result using viper')
     parser.add_argument('--no-advection', action='store_false',

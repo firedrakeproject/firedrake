@@ -39,6 +39,7 @@ import os
 
 
 class Cached(object):
+
     """Base class providing global caching of objects. Derived classes need to
     implement classmethods :py:meth:`_process_args` and :py:meth:`_cache_key`
     and define a class attribute :py:attribute:`_cache` of type :py:class:`dict`.
@@ -97,6 +98,7 @@ class Cached(object):
 
 
 class DiskCached(Cached):
+
     """Base class providing global caching of objects on disk. The same notes
     as in :py:class:`Cached` apply. In addition, derived classes need to
     define a class attribute :py:attribute:`_cachedir` specifying the path

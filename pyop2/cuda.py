@@ -43,7 +43,9 @@ import pycuda.gpuarray as gpuarray
 from pycuda.compiler import SourceModule
 from pycparser import c_parser, c_ast, c_generator
 
+
 class Kernel(op2.Kernel):
+
     def __init__(self, code, name):
         if self._initialized:
             return
@@ -52,17 +54,21 @@ class Kernel(op2.Kernel):
 
     def instrument(self):
         class Instrument(c_ast.NodeVisitor):
+
             """C AST visitor for instrumenting user kernels.
                  - adds __device__ declaration to function definitions
             """
+
             def visit_FuncDef(self, node):
-                node.decl.funcspec.insert(0,'__device__')
+                node.decl.funcspec.insert(0, '__device__')
 
         ast = c_parser.CParser().parse(self._code)
         Instrument().generic_visit(ast)
         return c_generator.CGenerator().visit(ast)
 
+
 class Arg(op2.Arg):
+
     def _indirect_kernel_arg_name(self, idx):
         if self._is_mat:
             rmap = self.map[0]
@@ -71,16 +77,16 @@ class Arg(op2.Arg):
             cidx = self.idx[1]
             esize = np.prod(self.data.dims)
             size = esize * rmap.dim * cmap.dim
-            d = {'n' : self._name,
-                 'offset' : self._lmaoffset_name,
-                 'idx' : idx,
-                 't' : self.ctype,
-                 'size' : size,
-                 '0' : ridx.index,
-                 '1' : cidx.index,
-                 'lcdim' : self.data.dims[1],
-                 'roff' : cmap.dim * esize,
-                 'coff' : esize}
+            d = {'n': self._name,
+                 'offset': self._lmaoffset_name,
+                 'idx': idx,
+                 't': self.ctype,
+                 'size': size,
+                 '0': ridx.index,
+                 '1': cidx.index,
+                 'lcdim': self.data.dims[1],
+                 'roff': cmap.dim * esize,
+                 'coff': esize}
             # We walk through the lma-data in order of the
             # alphabet:
             #  A B C
@@ -130,7 +136,9 @@ class Arg(op2.Arg):
         else:
             return "%s + %s" % (self._name, idx)
 
+
 class DeviceDataMixin(op2.DeviceDataMixin):
+
     def _allocate_device(self):
         if self.state is DeviceDataMixin.DEVICE_UNALLOCATED:
             if self.soa:
@@ -152,6 +160,7 @@ class DeviceDataMixin(op2.DeviceDataMixin):
             self._data = self._maybe_to_aos(self._data)
             self.state = DeviceDataMixin.BOTH
 
+
 class Dat(DeviceDataMixin, op2.Dat):
 
     @property
@@ -159,7 +168,9 @@ class Dat(DeviceDataMixin, op2.Dat):
         """The L2-norm on the flattened vector."""
         return np.sqrt(gpuarray.dot(self.array, self.array).get())
 
+
 class Sparsity(op2.Sparsity):
+
     @property
     def rowptr(self):
         if not hasattr(self, '__rowptr'):
@@ -173,6 +184,7 @@ class Sparsity(op2.Sparsity):
             setattr(self, '__colidx',
                     gpuarray.to_gpu(self._colidx))
         return getattr(self, '__colidx')
+
 
 class Mat(DeviceDataMixin, op2.Mat):
     _lma2csr_cache = dict()
@@ -229,7 +241,7 @@ class Mat(DeviceDataMixin, op2.Mat):
         mod, sfun, vfun = Mat._lma2csr_cache.get(self.dtype,
                                                  (None, None, None))
         if mod is None:
-            d = {'type' : self.ctype}
+            d = {'type': self.ctype}
             src = _matrix_support_template.render(d).encode('ascii')
             compiler_opts = ['-m64', '-Xptxas', '-dlcm=ca',
                              '-Xptxas=-v', '-O3', '-use_fast_math', '-DNVCC']
@@ -289,23 +301,24 @@ class Mat(DeviceDataMixin, op2.Mat):
     def zero_rows(self, rows, diag_val):
         for row in rows:
             s = self.sparsity._rowptr[row]
-            e = self.sparsity._rowptr[row+1]
+            e = self.sparsity._rowptr[row + 1]
             diag = np.where(self.sparsity._colidx[s:e] == row)[0]
             self._csrdata[s:e].fill(0)
             if len(diag) == 1:
                 diag += s       # offset from row start
-                self._csrdata[diag:diag+1].fill(diag_val)
+                self._csrdata[diag:diag + 1].fill(diag_val)
 
     def zero(self):
         self._csrdata.fill(0)
         self._lmadata.fill(0)
 
+
 class Const(DeviceDataMixin, op2.Const):
 
     def _format_declaration(self):
-        d = {'dim' : self.cdim,
-             'type' : self.ctype,
-             'name' : self.name}
+        d = {'dim': self.cdim,
+             'type': self.ctype,
+             'name': self.name}
 
         if self.cdim == 1:
             return "__constant__ %(type)s %(name)s;" % d
@@ -314,7 +327,8 @@ class Const(DeviceDataMixin, op2.Const):
     def _to_device(self, module):
         ptr, size = module.get_global(self.name)
         if size != self.data.nbytes:
-            raise RuntimeError("Const %s needs %d bytes, but only space for %d" % (self, self.data.nbytes, size))
+            raise RuntimeError("Const %s needs %d bytes, but only space for %d" %
+                               (self, self.data.nbytes, size))
         if self.state is DeviceDataMixin.HOST:
             driver.memcpy_htod(ptr, self._data)
             self.state = DeviceDataMixin.BOTH
@@ -322,13 +336,14 @@ class Const(DeviceDataMixin, op2.Const):
     def _from_device(self):
         raise RuntimeError("Copying Const %s from device makes no sense" % self)
 
+
 class Global(DeviceDataMixin, op2.Global):
 
     def _allocate_reduction_buffer(self, grid_size, op):
         if not hasattr(self, '_reduction_buffer') or \
            self._reduction_buffer.size != grid_size:
             self._host_reduction_buffer = np.zeros(np.prod(grid_size) * self.cdim,
-                                                   dtype=self.dtype).reshape((-1,)+self._dim)
+                                                   dtype=self.dtype).reshape((-1,) + self._dim)
             if op is not op2.INC:
                 self._host_reduction_buffer[:] = self._data
             self._reduction_buffer = gpuarray.to_gpu(self._host_reduction_buffer)
@@ -372,6 +387,7 @@ class Global(DeviceDataMixin, op2.Global):
             else:
                 self._data[i] = fn(self._data[i], tmp[i])
 
+
 class Map(op2.Map):
 
     def _to_device(self):
@@ -387,7 +403,9 @@ class Map(op2.Map):
         self._state = DeviceDataMixin.HOST
         self._device_values.get(self._values)
 
+
 class Plan(op2.Plan):
+
     @property
     def nthrcol(self):
         if not hasattr(self, '_nthrcol_gpuarray'):
@@ -444,28 +462,29 @@ class Plan(op2.Plan):
 
 _cusp_cache = dict()
 
+
 def _cusp_solver(M, parameters):
     cache_key = lambda t, p: (t,
-            p['linear_solver'],
-            p['preconditioner'],
-            p['relative_tolerance'],
-            p['absolute_tolerance'],
-            p['maximum_iterations'],
-            p['gmres_restart'],
-            p['monitor_convergence'])
+                              p['linear_solver'],
+                              p['preconditioner'],
+                              p['relative_tolerance'],
+                              p['absolute_tolerance'],
+                              p['maximum_iterations'],
+                              p['gmres_restart'],
+                              p['monitor_convergence'])
     module = _cusp_cache.get(cache_key(M.ctype, parameters))
     if module:
         return module
 
     import codepy.toolchain
-    from cgen import FunctionBody, FunctionDeclaration, If, make_multiple_ifs
+    from cgen import FunctionBody, FunctionDeclaration
     from cgen import Block, Statement, Include, Value
     from codepy.bpl import BoostPythonModule
     from codepy.cuda import CudaModule
     gcc_toolchain = codepy.toolchain.guess_toolchain()
     nvcc_toolchain = codepy.toolchain.guess_nvcc_toolchain()
     if 'CUSP_HOME' in os.environ:
-        nvcc_toolchain.add_library('cusp',[os.environ['CUSP_HOME']],[],[])
+        nvcc_toolchain.add_library('cusp', [os.environ['CUSP_HOME']], [], [])
     host_mod = BoostPythonModule()
     nvcc_mod = CudaModule(host_mod)
     nvcc_includes = ['thrust/device_vector.h',
@@ -483,34 +502,37 @@ def _cusp_solver(M, parameters):
 
     # We're translating PETSc preconditioner types to CUSP
     diag = Statement('cusp::precond::diagonal< ValueType, cusp::device_memory >M(A)')
-    ainv = Statement('cusp::precond::scaled_bridson_ainv< ValueType, cusp::device_memory >M(A)')
-    amg = Statement('cusp::precond::smoothed_aggregation< IndexType, ValueType, cusp::device_memory >M(A)')
-    none = Statement('cusp::identity_operator< ValueType, cusp::device_memory >M(nrows, ncols)')
+    ainv = Statement(
+        'cusp::precond::scaled_bridson_ainv< ValueType, cusp::device_memory >M(A)')
+    amg = Statement(
+        'cusp::precond::smoothed_aggregation< IndexType, ValueType, cusp::device_memory >M(A)')
+    none = Statement(
+        'cusp::identity_operator< ValueType, cusp::device_memory >M(nrows, ncols)')
     preconditioners = {
-            'diagonal': diag,
-            'jacobi': diag,
-            'ainv': ainv,
-            'ainvcusp': ainv,
-            'amg': amg,
-            'hypre': amg,
-            'none': none,
-            None: none
-            }
+        'diagonal': diag,
+        'jacobi': diag,
+        'ainv': ainv,
+        'ainvcusp': ainv,
+        'amg': amg,
+        'hypre': amg,
+        'none': none,
+        None: none
+    }
     try:
         precond_call = preconditioners[parameters['preconditioner']]
     except KeyError:
-        raise RuntimeError("Cusp does not support preconditioner type %s" % \
-                parameters['preconditioner'])
+        raise RuntimeError("Cusp does not support preconditioner type %s" %
+                           parameters['preconditioner'])
     solvers = {
-            'cg': Statement('cusp::krylov::cg(A, x, b, monitor, M)'),
-            'bicgstab': Statement('cusp::krylov::bicgstab(A, x, b, monitor, M)'),
-            'gmres': Statement('cusp::krylov::gmres(A, x, b, %(gmres_restart)d, monitor, M)' % parameters)
-            }
+        'cg': Statement('cusp::krylov::cg(A, x, b, monitor, M)'),
+        'bicgstab': Statement('cusp::krylov::bicgstab(A, x, b, monitor, M)'),
+        'gmres': Statement('cusp::krylov::gmres(A, x, b, %(gmres_restart)d, monitor, M)' % parameters)
+    }
     try:
         solve_call = solvers[parameters['linear_solver']]
     except KeyError:
-        raise RuntimeError("Cusp does not support solver type %s" % \
-                parameters['linear_solver'])
+        raise RuntimeError("Cusp does not support solver type %s" %
+                           parameters['linear_solver'])
     monitor = 'monitor(b, %(maximum_iterations)d, %(relative_tolerance)g, %(absolute_tolerance)g)' % parameters
 
     nvcc_function = FunctionBody(
@@ -526,9 +548,12 @@ def _cusp_solver(M, parameters):
         Block([
             Statement('typedef int IndexType'),
             Statement('typedef %s ValueType' % M.ctype),
-            Statement('typedef typename cusp::array1d_view< thrust::device_ptr<IndexType> > indices'),
-            Statement('typedef typename cusp::array1d_view< thrust::device_ptr<ValueType> > values'),
-            Statement('typedef cusp::csr_matrix_view< indices, indices, values, IndexType, ValueType, cusp::device_memory > matrix'),
+            Statement(
+                'typedef typename cusp::array1d_view< thrust::device_ptr<IndexType> > indices'),
+            Statement(
+                'typedef typename cusp::array1d_view< thrust::device_ptr<ValueType> > values'),
+            Statement(
+                'typedef cusp::csr_matrix_view< indices, indices, values, IndexType, ValueType, cusp::device_memory > matrix'),
             Statement('thrust::device_ptr< IndexType > rowptr((IndexType *)_rowptr)'),
             Statement('thrust::device_ptr< IndexType > colidx((IndexType *)_colidx)'),
             Statement('thrust::device_ptr< ValueType > csrdata((ValueType *)_csrdata)'),
@@ -540,11 +565,14 @@ def _cusp_solver(M, parameters):
             Statement('values b(d_b, d_b + nrows)'),
             Statement('values x(d_x, d_x + ncols)'),
             Statement('thrust::fill(x.begin(), x.end(), (ValueType)0)'),
-            Statement('matrix A(nrows, ncols, nnz, row_offsets, column_indices, matrix_values)'),
-            Statement('cusp::%s_monitor< ValueType > %s' % ('verbose' if parameters['monitor_convergence'] else 'default', monitor)),
+            Statement(
+                'matrix A(nrows, ncols, nnz, row_offsets, column_indices, matrix_values)'),
+            Statement('cusp::%s_monitor< ValueType > %s' %
+                      ('verbose' if parameters['monitor_convergence'] else 'default',
+                       monitor)),
             precond_call,
             solve_call
-            ]))
+        ]))
 
     host_mod.add_to_preamble([Include('boost/python/extract.hpp'), Include('string')])
     host_mod.add_to_preamble([Statement('using namespace boost::python')])
@@ -564,15 +592,19 @@ def _cusp_solver(M, parameters):
                                  Value('object', '_ncols'),
                                  Value('object', '_nnz')]),
             Block([
-                Statement('CUdeviceptr rowptr = extract<CUdeviceptr>(_rowptr.attr("gpudata"))'),
-                Statement('CUdeviceptr colidx = extract<CUdeviceptr>(_colidx.attr("gpudata"))'),
-                Statement('CUdeviceptr csrdata = extract<CUdeviceptr>(_csrdata.attr("gpudata"))'),
+                Statement(
+                    'CUdeviceptr rowptr = extract<CUdeviceptr>(_rowptr.attr("gpudata"))'),
+                Statement(
+                    'CUdeviceptr colidx = extract<CUdeviceptr>(_colidx.attr("gpudata"))'),
+                Statement(
+                    'CUdeviceptr csrdata = extract<CUdeviceptr>(_csrdata.attr("gpudata"))'),
                 Statement('CUdeviceptr b = extract<CUdeviceptr>(_b.attr("gpudata"))'),
                 Statement('CUdeviceptr x = extract<CUdeviceptr>(_x.attr("gpudata"))'),
                 Statement('int nrows = extract<int>(_nrows)'),
                 Statement('int ncols = extract<int>(_ncols)'),
                 Statement('int nnz = extract<int>(_nnz)'),
-                Statement('__cusp_solve(rowptr, colidx, csrdata, b, x, nrows, ncols, nnz)')])))
+                Statement('__cusp_solve(rowptr, colidx, csrdata, b, x, nrows, ncols, nnz)')
+            ])))
 
     nvcc_toolchain.cflags.append('-arch')
     nvcc_toolchain.cflags.append('sm_20')
@@ -583,6 +615,8 @@ def _cusp_solver(M, parameters):
     return module
 
 # FIXME: inherit from base while device gives us the PETSc solver
+
+
 class Solver(base.Solver):
 
     def solve(self, M, x, b):
@@ -598,6 +632,7 @@ class Solver(base.Solver):
                      x.dataset.size * x.cdim,
                      M._csrdata.size)
         x.state = DeviceDataMixin.DEVICE
+
 
 class JITModule(base.JITModule):
 
@@ -615,16 +650,16 @@ class JITModule(base.JITModule):
         inttype = np.dtype('int32').char
         argtypes = inttype      # set size
         if self._parloop._is_direct:
-            d = {'parloop' : self._parloop,
-                 'launch' : self._config,
-                 'constants' : Const._definitions()}
+            d = {'parloop': self._parloop,
+                 'launch': self._config,
+                 'constants': Const._definitions()}
             src = _direct_loop_template.render(d).encode('ascii')
             for arg in self._parloop.args:
-                argtypes += "P" # pointer to each Dat's data
+                argtypes += "P"  # pointer to each Dat's data
         else:
-            d = {'parloop' : self._parloop,
-                 'launch' : {'WARPSIZE': 32},
-                 'constants' : Const._definitions()}
+            d = {'parloop': self._parloop,
+                 'launch': {'WARPSIZE': 32},
+                 'constants': Const._definitions()}
             src = _indirect_loop_template.render(d).encode('ascii')
             for arg in self._parloop._unique_args:
                 if arg._is_mat:
@@ -636,9 +671,9 @@ class JITModule(base.JITModule):
                     # pointer to each unique Dat's data
                     argtypes += "P"
             argtypes += "PPPP"  # ind_map, loc_map, ind_sizes, ind_offs
-            argtypes += inttype # block offset
-            argtypes += "PPPPP" # blkmap, offset, nelems, nthrcol, thrcol
-            argtypes += inttype # number of colours in the block
+            argtypes += inttype  # block offset
+            argtypes += "PPPPP"  # blkmap, offset, nelems, nthrcol, thrcol
+            argtypes += inttype  # number of colours in the block
 
         self._module = SourceModule(src, options=compiler_opts)
 
@@ -653,9 +688,11 @@ class JITModule(base.JITModule):
     def __call__(self, *args, **kwargs):
         self.compile().prepared_async_call(*args, **kwargs)
 
+
 def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()
     _stream.synchronize()
+
 
 class ParLoop(op2.ParLoop):
 
@@ -677,11 +714,11 @@ class ParLoop(op2.ParLoop):
             grid_size = (grid_size, 1, 1)
 
             required_smem = np.asscalar(max_smem * np.prod(block_size))
-            return {'smem_offset' : smem_offset,
-                    'WARPSIZE' : _WARPSIZE,
-                    'required_smem' : required_smem,
-                    'block_size' : block_size,
-                    'grid_size' : grid_size}
+            return {'smem_offset': smem_offset,
+                    'WARPSIZE': _WARPSIZE,
+                    'required_smem': required_smem,
+                    'block_size': block_size,
+                    'grid_size': grid_size}
 
     def compute(self):
         if self._has_soa:
@@ -698,7 +735,7 @@ class ParLoop(op2.ParLoop):
             shared_size = config['required_smem']
         else:
             _args = self._unique_args
-            maxbytes = sum([a.dtype.itemsize * a.data.cdim \
+            maxbytes = sum([a.dtype.itemsize * a.data.cdim
                             for a in self._unwound_args if a._is_indirect])
             # shared memory as reported by the device, divided by some
             # factor.  This is the same calculation as done inside
@@ -747,13 +784,13 @@ class ParLoop(op2.ParLoop):
             arglist.append(self._plan.loc_map.gpudata)
             arglist.append(self._plan.ind_sizes.gpudata)
             arglist.append(self._plan.ind_offs.gpudata)
-            arglist.append(None) # Block offset
+            arglist.append(None)  # Block offset
             arglist.append(self._plan.blkmap.gpudata)
             arglist.append(self._plan.offset.gpudata)
             arglist.append(self._plan.nelems.gpudata)
             arglist.append(self._plan.nthrcol.gpudata)
             arglist.append(self._plan.thrcol.gpudata)
-            arglist.append(None) # Number of colours in this block
+            arglist.append(None)  # Number of colours in this block
             block_offset = 0
             for col in xrange(self._plan.ncolors):
                 # At this point, before we can continue processing in
@@ -770,8 +807,8 @@ class ParLoop(op2.ParLoop):
                     blocks = np.asscalar(blocks)
                     # Compute capability < 3 can handle at most 2**16  - 1
                     # blocks in any one dimension of the grid.
-                    if blocks >= 2**16:
-                        grid_size = (2**16 - 1, (blocks - 1)/(2**16-1) + 1, 1)
+                    if blocks >= 2 ** 16:
+                        grid_size = (2 ** 16 - 1, (blocks - 1) / (2 ** 16 - 1) + 1, 1)
                     else:
                         grid_size = (blocks, 1, 1)
 
@@ -821,6 +858,7 @@ _indirect_loop_template = None
 _matrix_support_template = None
 _stream = None
 
+
 def _setup():
     global _device
     global _context
@@ -831,8 +869,9 @@ def _setup():
         import pycuda.autoinit
         _device = pycuda.autoinit.device
         _context = pycuda.autoinit.context
-        _WARPSIZE=_device.get_attribute(driver.device_attribute.WARP_SIZE)
-        _AVAILABLE_SHARED_MEMORY = _device.get_attribute(driver.device_attribute.MAX_SHARED_MEMORY_PER_BLOCK)
+        _WARPSIZE = _device.get_attribute(driver.device_attribute.WARP_SIZE)
+        _AVAILABLE_SHARED_MEMORY = _device.get_attribute(
+            driver.device_attribute.MAX_SHARED_MEMORY_PER_BLOCK)
         _stream = driver.Stream()
     global _direct_loop_template
     global _indirect_loop_template

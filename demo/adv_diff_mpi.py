@@ -33,10 +33,10 @@
 
 """PyOP2 P1 MPI advection-diffusion demo
 
-This demo solves the advection-diffusion equation by splitting the advection and
-diffusion terms. The advection term is advanced in time using an Euler method
-and the diffusion term is advanced in time using a theta scheme with theta =
-0.5.
+This demo solves the advection-diffusion equation by splitting the advection
+and diffusion terms. The advection term is advanced in time using an Euler
+method and the diffusion term is advanced in time using a theta scheme with
+theta = 0.5.
 
 The domain read in from a pickle dump.
 
@@ -55,6 +55,7 @@ import gzip
 from pyop2 import op2, utils
 from pyop2.ffc_interface import compile_form
 from ufl import *
+
 
 def main(opt):
     # Set up finite element problem
@@ -184,7 +185,8 @@ def main(opt):
 
     # Print error w.r.t. analytical solution
     if opt['print_output']:
-        print "Rank: %d Expected - computed  solution: %s" % (op2.MPI.comm.rank, tracer.data - analytical.data)
+        print "Rank: %d Expected - computed  solution: %s" % \
+            (op2.MPI.comm.rank, tracer.data - analytical.data)
 
     if opt['test_output']:
         l2norm = dot(t - a, t - a) * dx
@@ -192,18 +194,20 @@ def main(opt):
         result = op2.Global(1, [0.0])
         op2.par_loop(l2_kernel, elements,
                      result(op2.INC),
-                     coords(elem_vnode,op2.READ),
-                     tracer(elem_node,op2.READ),
-                     analytical(elem_node,op2.READ)
+                     coords(elem_vnode, op2.READ),
+                     tracer(elem_node, op2.READ),
+                     analytical(elem_node, op2.READ)
                      )
         if op2.MPI.comm.rank == 0:
-            with open("adv_diff_mpi.%s.out" % os.path.split(opt['mesh'])[-1], "w") as out:
+            with open("adv_diff_mpi.%s.out" % os.path.split(opt['mesh'])[-1],
+                      "w") as out:
                 out.write(str(result.data[0]))
 
 if __name__ == '__main__':
     parser = utils.parser(group=True, description=__doc__)
     parser.add_argument('-m', '--mesh', required=True,
-                        help='Base name of mesh pickle (excluding the process number and .pickle extension)')
+                        help='Base name of mesh pickle \
+                              (excluding the process number and .pickle extension)')
     parser.add_argument('--no-advection', action='store_false',
                         dest='advection', help='Disable advection')
     parser.add_argument('--no-diffusion', action='store_false',
@@ -223,7 +227,8 @@ if __name__ == '__main__':
 
     if opt['profile']:
         import cProfile
-        filename = 'adv_diff.%s.%d.cprofile' % (os.path.split(opt['mesh'])[-1], op2.MPI.comm.rank)
+        filename = 'adv_diff.%s.%d.cprofile' % (
+            os.path.split(opt['mesh'])[-1], op2.MPI.comm.rank)
         cProfile.run('main(opt)', filename=filename)
     else:
         main(opt)

@@ -45,11 +45,13 @@ backends = ['opencl', 'openmp']
 valuetype = numpy.float64
 
 # Constants
-NUM_ELE   = 12
+NUM_ELE = 12
 NUM_NODES = 36
 NUM_ENTRIES = 4
 
+
 class TestColoring:
+
     """
     Coloring tests
 

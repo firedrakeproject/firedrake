@@ -39,8 +39,6 @@ import math
 
 from exceptions import *
 from utils import *
-import op_lib_core as core
-import petsc_base
 from petsc_base import *
 import host
 import device
@@ -50,6 +48,7 @@ from subprocess import Popen, PIPE
 _max_threads = 32
 # cache line padding
 _padding = 8
+
 
 def _detect_openmp_flags():
     p = Popen(['mpicc', '--version'], stdout=PIPE, shell=False)
@@ -62,6 +61,7 @@ def _detect_openmp_flags():
         from warnings import warn
         warn('Unknown mpicc version:\n%s' % _version)
         return '', ''
+
 
 class Arg(host.Arg):
 
@@ -76,30 +76,31 @@ class Arg(host.Arg):
 
     def c_vec_dec(self):
         return ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
-                   {'type' : self.ctype,
-                    'vec_name' : self.c_vec_name(str(_max_threads)),
-                    'dim' : self.map.dim}
+            {'type': self.ctype,
+             'vec_name': self.c_vec_name(str(_max_threads)),
+             'dim': self.map.dim}
 
     def padding(self):
-        return int(_padding * (self.data.cdim / _padding + 1)) * (_padding / self.data.dtype.itemsize)
+        return int(_padding * (self.data.cdim / _padding + 1)) * \
+            (_padding / self.data.dtype.itemsize)
 
     def c_reduction_dec(self):
         return "%(type)s %(name)s_l[%(max_threads)s][%(dim)s]" % \
-          {'type' : self.ctype,
-           'name' : self.c_arg_name(),
-           'dim' : self.padding(),
-           # Ensure different threads are on different cache lines
-           'max_threads' : _max_threads}
+            {'type': self.ctype,
+             'name': self.c_arg_name(),
+             'dim': self.padding(),
+             # Ensure different threads are on different cache lines
+             'max_threads': _max_threads}
 
     def c_reduction_init(self):
         if self.access == INC:
-            init = "(%(type)s)0" % {'type' : self.ctype}
+            init = "(%(type)s)0" % {'type': self.ctype}
         else:
-            init = "%(name)s[i]" % {'name' : self.c_arg_name()}
+            init = "%(name)s[i]" % {'name': self.c_arg_name()}
         return "for ( int i = 0; i < %(dim)s; i++ ) %(name)s_l[tid][i] = %(init)s" % \
-          {'dim' : self.padding(),
-           'name' : self.c_arg_name(),
-           'init' : init}
+            {'dim': self.padding(),
+             'name': self.c_arg_name(),
+             'init': init}
 
     def c_reduction_finalisation(self):
         d = {'gbl': self.c_arg_name(),
@@ -113,19 +114,21 @@ class Arg(host.Arg):
         return """
         for ( int thread = 0; thread < nthread; thread++ ) {
             for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
-        }""" % {'combine' : combine,
-                'dim' : self.data.cdim}
+        }""" % {'combine': combine,
+                'dim': self.data.cdim}
 
     def c_global_reduction_name(self, count=None):
         return "%(name)s_l%(count)d[0]" % {
-                  'name' : self.c_arg_name(),
-                  'count' : count}
+            'name': self.c_arg_name(),
+            'count': count}
 
 # Parallel loop API
+
 
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
     ParLoop(kernel, it_space, *args).compute()
+
 
 class JITModule(host.JITModule):
 
@@ -202,14 +205,19 @@ void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
         # Most of the code to generate is the same as that for sequential
         code_dict = super(JITModule, self).generate_code()
 
-        _reduction_decs = ';\n'.join([arg.c_reduction_dec() for arg in self._args if arg._is_global_reduction])
-        _reduction_inits = ';\n'.join([arg.c_reduction_init() for arg in self._args if arg._is_global_reduction])
-        _reduction_finalisations = '\n'.join([arg.c_reduction_finalisation() for arg in self._args if arg._is_global_reduction])
+        _reduction_decs = ';\n'.join([arg.c_reduction_dec()
+                                     for arg in self._args if arg._is_global_reduction])
+        _reduction_inits = ';\n'.join([arg.c_reduction_init()
+                                      for arg in self._args if arg._is_global_reduction])
+        _reduction_finalisations = '\n'.join(
+            [arg.c_reduction_finalisation() for arg in self._args
+             if arg._is_global_reduction])
 
-        code_dict.update({'reduction_decs' : _reduction_decs,
-                          'reduction_inits' : _reduction_inits,
-                          'reduction_finalisations' : _reduction_finalisations})
+        code_dict.update({'reduction_decs': _reduction_decs,
+                          'reduction_inits': _reduction_inits,
+                          'reduction_finalisations': _reduction_finalisations})
         return code_dict
+
 
 class ParLoop(device.ParLoop, host.ParLoop):
 
@@ -249,13 +257,15 @@ class ParLoop(device.ParLoop, host.ParLoop):
             # Make the fake plan according to the number of cores available
             # to OpenMP
             class FakePlan:
+
                 def __init__(self, iset, part_size):
                     nblocks = int(math.ceil(iset.size / float(part_size)))
                     self.ncolors = 1
                     self.ncolblk = np.array([nblocks], dtype=np.int32)
                     self.blkmap = np.arange(nblocks, dtype=np.int32)
-                    self.nelems = np.array([min(part_size, iset.size - i * part_size) for i in range(nblocks)],
-                                           dtype=np.int32)
+                    self.nelems = np.array(
+                        [min(part_size, iset.size - i * part_size) for i in range(nblocks)],
+                        dtype=np.int32)
 
             plan = FakePlan(self._it_space.iterset, part_size)
 
@@ -276,8 +286,10 @@ class ParLoop(device.ParLoop, host.ParLoop):
 
     @property
     def _requires_matrix_coloring(self):
-        """Direct code generation to follow colored execution for global matrix insertion."""
+        """Direct code generation to follow colored execution for global
+        matrix insertion."""
         return True
+
 
 def _setup():
     pass

@@ -46,13 +46,22 @@ from mpi import MPI
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
 
+__all__ = ['cfg', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX', 'IdentityMap',
+           'i', 'debug', 'info', 'warning', 'error', 'critical',
+           'set_log_level', 'MPI', 'init', 'exit', 'IterationSpace', 'Kernel',
+           'Set', 'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map', 'Sparsity',
+           'Solver', 'par_loop', 'solve']
+
+
 def init(**kwargs):
-    """Initialise OP2: select the backend and potentially other configuration options.
+    """Initialise OP2: select the backend and potentially other configuration
+    options.
 
     :arg backend: Set the hardware-specific backend. Current choices
      are ``"sequential"``, ``"openmp"``, ``"opencl"`` and ``"cuda"``.
     :arg debug: The level of debugging output.
-    :arg comm: The MPI communicator to use for parallel communication, defaults to `MPI_COMM_WORLD`
+    :arg comm: The MPI communicator to use for parallel communication,
+               defaults to `MPI_COMM_WORLD`
 
     .. note::
        Calling ``init`` again with a different backend raises an exception.
@@ -64,7 +73,7 @@ def init(**kwargs):
     backend = backends.get_backend()
     if backend == 'pyop2.finalised':
         raise RuntimeError("Calling init() after exit() is illegal.")
-    if 'backend' in kwargs and backend not in ('pyop2.void', 'pyop2.'+kwargs['backend']):
+    if 'backend' in kwargs and backend not in ('pyop2.void', 'pyop2.' + kwargs['backend']):
         raise RuntimeError("Changing the backend is not possible once set.")
     cfg.configure(**kwargs)
     if cfg['python_plan']:
@@ -78,8 +87,9 @@ def init(**kwargs):
         if 'comm' in kwargs:
             backends._BackendSelector._backend.MPI.comm = kwargs['comm']
         global MPI
-        MPI = backends._BackendSelector._backend.MPI
+        MPI = backends._BackendSelector._backend.MPI  # noqa: backend override
         core.op_init(args=None, diags=0)
+
 
 @atexit.register
 def exit():
@@ -89,45 +99,68 @@ def exit():
         core.op_exit()
         backends.unset_backend()
 
+
 class IterationSpace(base.IterationSpace):
     __metaclass__ = backends._BackendSelector
+
 
 class Kernel(base.Kernel):
     __metaclass__ = backends._BackendSelector
 
+
 class Set(base.Set):
     __metaclass__ = backends._BackendSelector
+
 
 class Halo(base.Halo):
     __metaclass__ = backends._BackendSelector
 
+
 class Dat(base.Dat):
     __metaclass__ = backends._BackendSelector
+
 
 class Mat(base.Mat):
     __metaclass__ = backends._BackendSelector
 
+
 class Const(base.Const):
     __metaclass__ = backends._BackendSelector
+
 
 class Global(base.Global):
     __metaclass__ = backends._BackendSelector
 
+
 class Map(base.Map):
     __metaclass__ = backends._BackendSelector
+
 
 class Sparsity(base.Sparsity):
     __metaclass__ = backends._BackendSelector
 
+
 class Solver(base.Solver):
     __metaclass__ = backends._BackendSelector
+
 
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel
 
     :arg kernel: The :class:`Kernel` to be executed.
-    :arg it_space: The iteration space over which the kernel should be executed. The primary iteration space will be a :class:`Set`. If a local iteration space is required, then this can be provided in brackets. The local iteration space may be either rank-1 or rank-2. For example, to iterate over a :class:`Set` named ``elements`` assembling a 3x3 local matrix at each entry, the ``it_space`` argument should be ``elements(3,3)``. To iterate over ``elements`` assembling a dimension-3 local vector at each entry, the ``it_space`` argument should be ``elements(3)``.
-    :arg \*args: One or more objects of type :class:`Global`, :class:`Dat` or :class:`Mat` which are the global data structures from and to which the kernel will read and write.
+    :arg it_space: The iteration space over which the kernel should be
+                   executed. The primary iteration space will be a
+                   :class:`Set`. If a local iteration space is required, then
+                   this can be provided in brackets. The local iteration space
+                   may be either rank-1 or rank-2. For example, to iterate over
+                   a :class:`Set` named ``elements`` assembling a 3x3 local
+                   matrix at each entry, the ``it_space`` argument should be
+                   ``elements(3,3)``. To iterate over ``elements`` assembling
+                   a dimension-3 local vector at each entry, the ``it_space``
+                   argument should be ``elements(3)``.
+    :arg \*args: One or more objects of type :class:`Global`, :class:`Dat` or
+                 :class:`Mat` which are the global data structures from and to
+                 which the kernel will read and write.
 
     ``par_loop`` invocation is illustrated by the following example::
 
@@ -156,6 +189,7 @@ def par_loop(kernel, it_space, *args):
     passed to the kernel as a vector.
     """
     return backends._BackendSelector._backend.par_loop(kernel, it_space, *args)
+
 
 @validate_type(('M', base.Mat, MatTypeError),
                ('x', base.Dat, DatTypeError),

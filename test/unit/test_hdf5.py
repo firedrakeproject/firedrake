@@ -43,24 +43,26 @@ from pyop2 import op2
 # If h5py is not available this test module is skipped
 h5py = pytest.importorskip("h5py")
 
+
 class TestHDF5:
 
     @pytest.fixture(scope='module')
     def h5file(cls, request):
         # FIXME pytest 2.3 doesn't adapt scope of built-in fixtures, so cannot
         # use tmpdir for now but have to create it manually
-        tmpdir = request.config._tmpdirhandler.mktemp('test_hdf5', numbered=True)
+        tmpdir = request.config._tmpdirhandler.mktemp(
+            'test_hdf5', numbered=True)
         f = h5py.File(str(tmpdir.join('tmp_hdf5.h5')), 'w')
-        f.create_dataset('dat', data=np.arange(10).reshape(5,2),
+        f.create_dataset('dat', data=np.arange(10).reshape(5, 2),
                          dtype=np.float64)
         f['dat'].attrs['type'] = 'double'
-        f.create_dataset('soadat', data=np.arange(10).reshape(5,2),
+        f.create_dataset('soadat', data=np.arange(10).reshape(5, 2),
                          dtype=np.float64)
         f['soadat'].attrs['type'] = 'double:soa'
         f.create_dataset('set', data=np.array((5,)))
         f['set'].attrs['dim'] = 2
         f.create_dataset('myconstant', data=np.arange(3))
-        f.create_dataset('map', data=np.array((1,2,2,3)).reshape(2,2))
+        f.create_dataset('map', data=np.array((1, 2, 2, 3)).reshape(2, 2))
         request.addfinalizer(f.close)
         return f
 
@@ -85,13 +87,13 @@ class TestHDF5:
         "Creating a dat from h5file should work"
         d = op2.Dat.fromhdf5(set, h5file, 'dat')
         assert d.dtype == np.float64
-        assert d.data.shape == (5,2) and d.data.sum() == 9 * 10 / 2
+        assert d.data.shape == (5, 2) and d.data.sum() == 9 * 10 / 2
 
     def test_data_hdf5_soa(self, backend, h5file, set):
         "Creating an SoA dat from h5file should work"
         d = op2.Dat.fromhdf5(set, h5file, 'soadat')
         assert d.soa
-        assert d.data.shape == (5,2) and d.data.sum() == 9 * 10 / 2
+        assert d.data.shape == (5, 2) and d.data.sum() == 9 * 10 / 2
 
     def test_const_hdf5(self, backend, h5file):
         "Constant should be correctly populated from hdf5 file."

@@ -35,41 +35,60 @@
 provide useful error messages if the user invokes them after calling
 :func:`pyop2.op2.exit`"""
 
+
 class Access(object):
+
     def __init__(self, *args):
         raise RuntimeError("op2.exit has been called")
+
 
 class IterationSpace(object):
+
     def __init__(self, *args):
         raise RuntimeError("op2.exit has been called")
+
 
 class Set(object):
+
     def __init__(self, *args):
         raise RuntimeError("op2.exit has been called")
+
 
 class Kernel(object):
+
     def __init__(self, *args):
         raise RuntimeError("op2.exit has been called")
+
 
 class Dat(object):
+
     def __init__(self, *args):
         raise RuntimeError("op2.exit has been called")
+
 
 class Mat(object):
+
     def __init__(self, *args):
         raise RuntimeError("op2.exit has been called")
+
 
 class Const(object):
+
     def __init__(self, *args):
         raise RuntimeError("op2.exit has been called")
+
 
 class Global(object):
+
     def __init__(self, *args):
         raise RuntimeError("op2.exit has been called")
 
+
 class Map(object):
+
     def __init__(self, *args):
         raise RuntimeError("op2.exit has been called")
+
 
 def par_loop(*args):
     raise RuntimeError("op2.exit has been called")

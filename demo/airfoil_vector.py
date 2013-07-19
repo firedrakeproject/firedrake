@@ -31,12 +31,13 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from math import atan, sqrt
+from math import sqrt
 import numpy as np
 import h5py
 import os
 
 from pyop2 import op2, utils
+
 
 def main(opt):
     from airfoil_vector_kernels import save_soln, adt_calc, res_calc, bres_calc, update
@@ -47,33 +48,33 @@ def main(opt):
             # Declare sets, maps, datasets and global constants
 
             vnodes = op2.Set.fromhdf5(f, "nodes", dim=2)
-            edges  = op2.Set.fromhdf5(f, "edges")
+            edges = op2.Set.fromhdf5(f, "edges")
             bedges = op2.Set.fromhdf5(f, "bedges")
-            cells  = op2.Set.fromhdf5(f, "cells")
+            cells = op2.Set.fromhdf5(f, "cells")
             vcells = op2.Set.fromhdf5(f, "cells", dim=4)
 
-            pedge    = op2.Map.fromhdf5(edges,  vnodes, f, "pedge")
-            pecell   = op2.Map.fromhdf5(edges,   cells, f, "pecell")
-            pevcell  = op2.Map.fromhdf5(edges,  vcells, f, "pecell")
-            pbedge   = op2.Map.fromhdf5(bedges, vnodes, f, "pbedge")
-            pbecell  = op2.Map.fromhdf5(bedges,  cells, f, "pbecell")
+            pedge = op2.Map.fromhdf5(edges, vnodes, f, "pedge")
+            pecell = op2.Map.fromhdf5(edges, cells, f, "pecell")
+            pevcell = op2.Map.fromhdf5(edges, vcells, f, "pecell")
+            pbedge = op2.Map.fromhdf5(bedges, vnodes, f, "pbedge")
+            pbecell = op2.Map.fromhdf5(bedges, cells, f, "pbecell")
             pbevcell = op2.Map.fromhdf5(bedges, vcells, f, "pbecell")
-            pcell    = op2.Map.fromhdf5(cells,  vnodes, f, "pcell")
+            pcell = op2.Map.fromhdf5(cells, vnodes, f, "pcell")
 
             p_bound = op2.Dat.fromhdf5(bedges, f, "p_bound")
-            p_x     = op2.Dat.fromhdf5(vnodes, f, "p_x")
-            p_q     = op2.Dat.fromhdf5(vcells, f, "p_q")
-            p_qold  = op2.Dat.fromhdf5(vcells, f, "p_qold")
-            p_adt   = op2.Dat.fromhdf5(cells,  f, "p_adt")
-            p_res   = op2.Dat.fromhdf5(vcells, f, "p_res")
+            p_x = op2.Dat.fromhdf5(vnodes, f, "p_x")
+            p_q = op2.Dat.fromhdf5(vcells, f, "p_q")
+            p_qold = op2.Dat.fromhdf5(vcells, f, "p_qold")
+            p_adt = op2.Dat.fromhdf5(cells, f, "p_adt")
+            p_res = op2.Dat.fromhdf5(vcells, f, "p_res")
 
-            gam   = op2.Const.fromhdf5(f, "gam")
-            gm1   = op2.Const.fromhdf5(f, "gm1")
-            cfl   = op2.Const.fromhdf5(f, "cfl")
-            eps   = op2.Const.fromhdf5(f, "eps")
-            mach  = op2.Const.fromhdf5(f, "mach")
-            alpha = op2.Const.fromhdf5(f, "alpha")
-            qinf  = op2.Const.fromhdf5(f, "qinf")
+            op2.Const.fromhdf5(f, "gam")
+            op2.Const.fromhdf5(f, "gm1")
+            op2.Const.fromhdf5(f, "cfl")
+            op2.Const.fromhdf5(f, "eps")
+            op2.Const.fromhdf5(f, "mach")
+            op2.Const.fromhdf5(f, "alpha")
+            op2.Const.fromhdf5(f, "qinf")
     except IOError:
         import sys
         print "Failed reading mesh: Could not read from %s\n" % opt['mesh']
@@ -83,11 +84,11 @@ def main(opt):
 
     niter = 1000
 
-    for i in range(1, niter+1):
+    for i in range(1, niter + 1):
 
         # Save old flow solution
         op2.par_loop(save_soln, cells,
-                     p_q   (op2.IdentityMap, op2.READ),
+                     p_q(op2.IdentityMap, op2.READ),
                      p_qold(op2.IdentityMap, op2.WRITE))
 
         # Predictor/corrector update loop
@@ -95,39 +96,40 @@ def main(opt):
 
             # Calculate area/timestep
             op2.par_loop(adt_calc, cells,
-                         p_x  (pcell,         op2.READ),
-                         p_q  (op2.IdentityMap,  op2.READ),
-                         p_adt(op2.IdentityMap,  op2.WRITE))
+                         p_x(pcell, op2.READ),
+                         p_q(op2.IdentityMap, op2.READ),
+                         p_adt(op2.IdentityMap, op2.WRITE))
 
             # Calculate flux residual
             op2.par_loop(res_calc, edges,
-                         p_x  (pedge,   op2.READ),
-                         p_q  (pevcell, op2.READ),
-                         p_adt(pecell,  op2.READ),
+                         p_x(pedge, op2.READ),
+                         p_q(pevcell, op2.READ),
+                         p_adt(pecell, op2.READ),
                          p_res(pevcell, op2.INC))
 
             op2.par_loop(bres_calc, bedges,
-                         p_x    (pbedge,          op2.READ),
-                         p_q    (pbevcell[0],     op2.READ),
-                         p_adt  (pbecell[0],      op2.READ),
-                         p_res  (pbevcell[0],     op2.INC),
+                         p_x(pbedge, op2.READ),
+                         p_q(pbevcell[0], op2.READ),
+                         p_adt(pbecell[0], op2.READ),
+                         p_res(pbevcell[0], op2.INC),
                          p_bound(op2.IdentityMap, op2.READ))
 
             # Update flow field
             rms = op2.Global(1, 0.0, np.double, "rms")
             op2.par_loop(update, cells,
                          p_qold(op2.IdentityMap, op2.READ),
-                         p_q   (op2.IdentityMap, op2.WRITE),
-                         p_res (op2.IdentityMap, op2.RW),
-                         p_adt (op2.IdentityMap, op2.READ),
+                         p_q(op2.IdentityMap, op2.WRITE),
+                         p_res(op2.IdentityMap, op2.RW),
+                         p_adt(op2.IdentityMap, op2.READ),
                          rms(op2.INC))
         # Print iteration history
-        rms = sqrt(rms.data/cells.size)
-        if i%100 == 0:
+        rms = sqrt(rms.data / cells.size)
+        if i % 100 == 0:
             print " %d  %10.5e " % (i, rms)
 
 if __name__ == '__main__':
-    parser = utils.parser(group=True, description="PyOP2 airfoil demo (vector map version)")
+    parser = utils.parser(group=True,
+                          description="PyOP2 airfoil demo (vector map version)")
     parser.add_argument('-m', '--mesh', default='meshes/new_grid.h5',
                         help='HDF5 mesh file to use (default: meshes/new_grid.h5)')
     parser.add_argument('-p', '--profile', action='store_true',

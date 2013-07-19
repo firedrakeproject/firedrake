@@ -33,9 +33,9 @@
 
 import pytest
 import numpy
-import random
 
 from pyop2 import op2
+
 
 def _seed():
     return 0.02041724
@@ -45,49 +45,61 @@ def _seed():
 nnodes = 4096
 nele = nnodes / 2
 
+
 @pytest.fixture(scope='module')
 def node():
     return op2.Set(nnodes, 1, 'node')
+
 
 @pytest.fixture(scope='module')
 def node2():
     return op2.Set(nnodes, 2, 'node2')
 
+
 @pytest.fixture(scope='module')
 def ele():
     return op2.Set(nele, 1, 'ele')
+
 
 @pytest.fixture(scope='module')
 def ele2():
     return op2.Set(nele, 2, 'ele2')
 
+
 @pytest.fixture
 def d1(node):
     return op2.Dat(node, numpy.zeros(nnodes), dtype=numpy.int32)
+
 
 @pytest.fixture
 def d2(node2):
     return op2.Dat(node2, numpy.zeros(2 * nnodes), dtype=numpy.int32)
 
+
 @pytest.fixture
 def vd1(ele):
     return op2.Dat(ele, numpy.zeros(nele), dtype=numpy.int32)
+
 
 @pytest.fixture
 def vd2(ele2):
     return op2.Dat(ele2, numpy.zeros(2 * nele), dtype=numpy.int32)
 
+
 @pytest.fixture(scope='module')
 def node2ele(node, ele):
-    vals = numpy.arange(nnodes)/2
+    vals = numpy.arange(nnodes) / 2
     return op2.Map(node, ele, 1, vals, 'node2ele')
+
 
 @pytest.fixture(scope='module')
 def node2ele2(node2, ele2):
-    vals = numpy.arange(nnodes)/2
+    vals = numpy.arange(nnodes) / 2
     return op2.Map(node2, ele2, 1, vals, 'node2ele2')
 
+
 class TestIterationSpaceDats:
+
     """
     Test IterationSpace access to Dat objects
     """
@@ -96,14 +108,17 @@ class TestIterationSpaceDats:
         """Creates a 1D grid with edge values numbered consecutively.
         Iterates over edges, summing the node values."""
 
-        nedges = nnodes-1
+        nedges = nnodes - 1
         nodes = op2.Set(nnodes, 1, "nodes")
         edges = op2.Set(nedges, 1, "edges")
 
-        node_vals = op2.Dat(nodes, numpy.arange(nnodes, dtype=numpy.uint32), numpy.uint32, "node_vals")
-        edge_vals = op2.Dat(edges, numpy.zeros(nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
+        node_vals = op2.Dat(nodes, numpy.arange(
+            nnodes, dtype=numpy.uint32), numpy.uint32, "node_vals")
+        edge_vals = op2.Dat(
+            edges, numpy.zeros(nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
 
-        e_map = numpy.array([(i, i+1) for i in range(nedges)], dtype=numpy.uint32)
+        e_map = numpy.array([(i, i + 1)
+                            for i in range(nedges)], dtype=numpy.uint32)
         edge2node = op2.Map(edges, nodes, 2, e_map, "edge2node")
 
         kernel_sum = """
@@ -111,11 +126,12 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
 { *edge += nodes[0]; }
 """
 
-        op2.par_loop(op2.Kernel(kernel_sum, "kernel_sum"), edges(edge2node.dim),
-                       node_vals(edge2node[op2.i[0]],       op2.READ),
-                       edge_vals(op2.IdentityMap, op2.INC))
+        op2.par_loop(op2.Kernel(kernel_sum, "kernel_sum"),
+                     edges(edge2node.dim),
+                     node_vals(edge2node[op2.i[0]], op2.READ),
+                     edge_vals(op2.IdentityMap, op2.INC))
 
-        expected = numpy.arange(1, nedges*2+1, 2).reshape(nedges, 1)
+        expected = numpy.arange(1, nedges * 2 + 1, 2).reshape(nedges, 1)
         assert all(expected == edge_vals.data)
 
     def test_read_1d_itspace_map(self, backend, node, d1, vd1, node2ele):
@@ -154,12 +170,14 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
                      vd1(node2ele[op2.i[0]], op2.INC))
         expected = numpy.zeros_like(vd1.data)
         expected[:] = 3
-        expected += numpy.arange(start=0, stop=nnodes, step=2).reshape(expected.shape)
-        expected += numpy.arange(start=1, stop=nnodes, step=2).reshape(expected.shape)
+        expected += numpy.arange(
+            start=0, stop=nnodes, step=2).reshape(expected.shape)
+        expected += numpy.arange(
+            start=1, stop=nnodes, step=2).reshape(expected.shape)
         assert all(vd1.data == expected)
 
     def test_read_2d_itspace_map(self, backend, node2, d2, vd2, node2ele2):
-        vd2.data[:] = numpy.arange(nele*2).reshape(nele, 2)
+        vd2.data[:] = numpy.arange(nele * 2).reshape(nele, 2)
         k = """
         void k(int *d, int *vd, int i) {
         d[0] = vd[0];
@@ -168,10 +186,10 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
         op2.par_loop(op2.Kernel(k, 'k'), node2(node2ele2.dim),
                      d2(op2.IdentityMap, op2.WRITE),
                      vd2(node2ele2[op2.i[0]], op2.READ))
-        assert all(d2.data[::2,0] == vd2.data[:,0])
-        assert all(d2.data[::2,1] == vd2.data[:,1])
-        assert all(d2.data[1::2,0] == vd2.data[:,0])
-        assert all(d2.data[1::2,1] == vd2.data[:,1])
+        assert all(d2.data[::2, 0] == vd2.data[:, 0])
+        assert all(d2.data[::2, 1] == vd2.data[:, 1])
+        assert all(d2.data[1::2, 0] == vd2.data[:, 0])
+        assert all(d2.data[1::2, 1] == vd2.data[:, 1])
 
     def test_write_2d_itspace_map(self, backend, node2, vd2, node2ele2):
         k = """
@@ -183,8 +201,8 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
 
         op2.par_loop(op2.Kernel(k, 'k'), node2(node2ele2.dim),
                      vd2(node2ele2[op2.i[0]], op2.WRITE))
-        assert all(vd2.data[:,0] == 2)
-        assert all(vd2.data[:,1] == 3)
+        assert all(vd2.data[:, 0] == 2)
+        assert all(vd2.data[:, 1] == 3)
 
     def test_inc_2d_itspace_map(self, backend, node2, d2, vd2, node2ele2):
         vd2.data[:, 0] = 3
@@ -203,12 +221,12 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
         expected = numpy.zeros_like(vd2.data)
         expected[:, 0] = 3
         expected[:, 1] = 4
-        expected[:, 0] += numpy.arange(start=0, stop=2*nnodes, step=4)
-        expected[:, 0] += numpy.arange(start=2, stop=2*nnodes, step=4)
-        expected[:, 1] += numpy.arange(start=1, stop=2*nnodes, step=4)
-        expected[:, 1] += numpy.arange(start=3, stop=2*nnodes, step=4)
-        assert all(vd2.data[:,0] == expected[:,0])
-        assert all(vd2.data[:,1] == expected[:,1])
+        expected[:, 0] += numpy.arange(start=0, stop=2 * nnodes, step=4)
+        expected[:, 0] += numpy.arange(start=2, stop=2 * nnodes, step=4)
+        expected[:, 1] += numpy.arange(start=1, stop=2 * nnodes, step=4)
+        expected[:, 1] += numpy.arange(start=3, stop=2 * nnodes, step=4)
+        assert all(vd2.data[:, 0] == expected[:, 0])
+        assert all(vd2.data[:, 1] == expected[:, 1])
 
 if __name__ == '__main__':
     import os
