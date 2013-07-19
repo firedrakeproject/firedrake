@@ -14,7 +14,7 @@
 
 
 {%- macro kernel_stub() -%}
-__global__ void {{ parloop._stub_name }} (int set_size
+__global__ void {{ parloop._stub_name }} (int set_size, int offset
     {%- for arg in parloop.args -%}
     ,
     {{ arg.ctype }} *{{arg.name}}
@@ -50,11 +50,11 @@ __global__ void {{ parloop._stub_name }} (int set_size
     }
     {% endfor -%}
 
-    for ( int n = threadIdx.x + blockIdx.x * blockDim.x;
-          n < set_size; n+= blockDim.x * gridDim.x ) {
+    for ( int n = offset + threadIdx.x + blockIdx.x * blockDim.x;
+          n < (offset + set_size); n+= blockDim.x * gridDim.x ) {
         {% if (parloop._all_staged_direct_args) %}
         local_offset = n - thread_id;
-        active_threads_count = min({{ launch.WARPSIZE }}, set_size - local_offset);
+        active_threads_count = min({{ launch.WARPSIZE }}, (offset + set_size) - local_offset);
         {% endif %}
         {% for arg in parloop._all_staged_in_direct_args %}
         {{ common.stagein(arg)|indent(8) }}
@@ -78,7 +78,7 @@ __global__ void {{ parloop._stub_name }} (int set_size
 {% endfor %}
 
 {%- if parloop._has_soa %}
-#define OP2_STRIDE(array, idx) (array)[op2stride * (idx)]
+#define OP2_STRIDE(array, idx) (array)[ {{ launch.op2stride }} * (idx)]
 {% endif %}
 
 {{ parloop.kernel.code }}

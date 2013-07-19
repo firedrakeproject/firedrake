@@ -127,6 +127,7 @@ class DeviceDataMixin(object):
     @collective
     def data(self):
         """Numpy array containing the data values."""
+        base._force(set([self]), set())
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
         maybe_setflags(self._data, write=True)
@@ -139,6 +140,7 @@ class DeviceDataMixin(object):
     @data.setter
     @collective
     def data(self, value):
+        base._force(set(), set([self]))
         maybe_setflags(self._data, write=True)
         self.needs_halo_update = True
         self._data = verify_reshape(value, self.dtype, self._data.shape)

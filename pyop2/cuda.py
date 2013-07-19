@@ -170,6 +170,27 @@ class Dat(DeviceDataMixin, op2.Dat):
         """The L2-norm on the flattened vector."""
         return np.sqrt(gpuarray.dot(self.array, self.array).get())
 
+    def halo_exchange_begin(self):
+        if self.dataset.halo is None:
+            return
+        maybe_setflags(self._data, write=True)
+        self._from_device()
+        super(Dat, self).halo_exchange_begin()
+
+    def halo_exchange_end(self):
+        if self.dataset.halo is None:
+            return
+        maybe_setflags(self._data, write=True)
+        super(Dat, self).halo_exchange_end()
+        if self.state in [DeviceDataMixin.DEVICE,
+                          DeviceDataMixin.BOTH]:
+            self._halo_to_gpu()
+            self.state = DeviceDataMixin.DEVICE
+
+    def _halo_to_gpu(self):
+        _lim = self.dataset.size * self.dataset.cdim
+        self._device_data.ravel()[_lim:].set(self._data[self.dataset.size:])
+
 
 class Sparsity(op2.Sparsity):
 
@@ -284,6 +305,7 @@ class Mat(DeviceDataMixin, op2.Mat):
 
     @property
     def values(self):
+        base._force(set([self]), set([self]))
         shape = self.sparsity.maps[0][0].toset.size * self.dims[0]
         shape = (shape, shape)
         ret = np.zeros(shape=shape, dtype=self.dtype)
@@ -297,9 +319,11 @@ class Mat(DeviceDataMixin, op2.Mat):
 
     @property
     def array(self):
+        base._force(set([self]), set([self]))
         return self._csrdata.get()
 
     def zero_rows(self, rows, diag_val):
+        base._force(set(), set([self]))
         for row in rows:
             s = self.sparsity._rowptr[row]
             e = self.sparsity._rowptr[row + 1]
@@ -356,12 +380,14 @@ class Global(DeviceDataMixin, op2.Global):
 
     @property
     def data(self):
+        base._force(set([self]), set())
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.HOST
         return self._data
 
     @data.setter
     def data(self, value):
+        base._force(set(), set([self]))
         self._data = verify_reshape(value, self.dtype, self.dim)
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.HOST
@@ -620,8 +646,7 @@ def _cusp_solver(M, parameters):
 
 class Solver(base.Solver):
 
-    @collective
-    def solve(self, M, x, b):
+    def _solve(self, M, x, b):
         b._to_device()
         x._to_device()
         module = _cusp_solver(M, self.parameters)
@@ -648,20 +673,19 @@ class JITModule(base.JITModule):
         if hasattr(self, '_fun'):
             return self._fun
         compiler_opts = ['-m64', '-Xptxas', '-dlcm=ca',
-                         '-Xptxas=-v', '-O3', '-use_fast_math', '-DNVCC']
+                         '-Xptxas=-v', '-O3', '-use_fast_math', '-DNVCC', '-g']
         inttype = np.dtype('int32').char
         argtypes = inttype      # set size
+        argtypes += inttype  # offset
+        d = {'parloop': self._parloop,
+             'launch': self._config,
+             'constants': Const._definitions()}
+
         if self._parloop._is_direct:
-            d = {'parloop': self._parloop,
-                 'launch': self._config,
-                 'constants': Const._definitions()}
             src = _direct_loop_template.render(d).encode('ascii')
             for arg in self._parloop.args:
                 argtypes += "P"  # pointer to each Dat's data
         else:
-            d = {'parloop': self._parloop,
-                 'launch': {'WARPSIZE': 32},
-                 'constants': Const._definitions()}
             src = _indirect_loop_template.render(d).encode('ascii')
             for arg in self._parloop._unique_args:
                 if arg._is_mat:
@@ -698,7 +722,7 @@ def par_loop(kernel, it_space, *args):
 
 class ParLoop(op2.ParLoop):
 
-    def launch_configuration(self):
+    def launch_configuration(self, part):
         if self._is_direct:
             max_smem = self._max_shared_memory_needed_per_set_element
             smem_offset = max_smem * _WARPSIZE
@@ -709,26 +733,26 @@ class ParLoop(op2.ParLoop):
                 threads_per_sm = _AVAILABLE_SHARED_MEMORY / max_smem
                 block_size = min(max_block, (threads_per_sm / _WARPSIZE) * _WARPSIZE)
             max_grid = _device.get_attribute(driver.device_attribute.MAX_GRID_DIM_X)
-            grid_size = min(max_grid, (block_size + self._it_space.size) / block_size)
+            grid_size = min(max_grid, (block_size + part.size) / block_size)
 
             grid_size = np.asscalar(np.int64(grid_size))
             block_size = (block_size, 1, 1)
             grid_size = (grid_size, 1, 1)
 
             required_smem = np.asscalar(max_smem * np.prod(block_size))
-            return {'smem_offset': smem_offset,
+            return {'op2stride': self._it_space.size,
+                    'smem_offset': smem_offset,
                     'WARPSIZE': _WARPSIZE,
                     'required_smem': required_smem,
                     'block_size': block_size,
                     'grid_size': grid_size}
+        else:
+            return {'op2stride': self._it_space.size,
+                    'WARPSIZE': 32}
 
-    @collective
-    def compute(self):
-        if self._has_soa:
-            op2stride = Const(1, self._it_space.size, name='op2stride',
-                              dtype='int32')
-        arglist = [np.int32(self._it_space.size)]
-        config = self.launch_configuration()
+    def _compute(self, part):
+        arglist = [np.int32(part.size), np.int32(part.offset)]
+        config = self.launch_configuration(part)
         fun = JITModule(self.kernel, self.it_space, *self.args, parloop=self, config=config)
 
         if self._is_direct:
@@ -746,10 +770,10 @@ class ParLoop(op2.ParLoop):
             # It would be much nicer if we could tell op_plan_core "I
             # have X bytes shared memory"
             part_size = (_AVAILABLE_SHARED_MEMORY / (64 * maxbytes)) * 64
-            self._plan = Plan(self._it_space.iterset,
-                              *self._unwound_args,
-                              partition_size=part_size)
-            max_grid_size = self._plan.ncolblk.max()
+            _plan = Plan(part,
+                         *self._unwound_args,
+                         partition_size=part_size)
+            max_grid_size = _plan.ncolblk.max()
 
         for arg in _args:
             if arg._is_mat:
@@ -772,38 +796,22 @@ class ParLoop(op2.ParLoop):
             _stream.synchronize()
             fun(max_grid_size, block_size, _stream, *arglist,
                 shared_size=shared_size)
-            for arg in self.args:
-                if arg._is_global_reduction:
-                    arg.data._finalise_reduction_begin(max_grid_size, arg.access)
-                    arg.data._finalise_reduction_end(max_grid_size, arg.access)
-                else:
-                    # Set write state to False
-                    maybe_setflags(arg.data._data, write=False)
-                    # Data state is updated in finalise_reduction for Global
-                    if arg.access is not op2.READ:
-                        arg.data.state = DeviceDataMixin.DEVICE
         else:
-            arglist.append(self._plan.ind_map.gpudata)
-            arglist.append(self._plan.loc_map.gpudata)
-            arglist.append(self._plan.ind_sizes.gpudata)
-            arglist.append(self._plan.ind_offs.gpudata)
+            arglist.append(_plan.ind_map.gpudata)
+            arglist.append(_plan.loc_map.gpudata)
+            arglist.append(_plan.ind_sizes.gpudata)
+            arglist.append(_plan.ind_offs.gpudata)
             arglist.append(None)  # Block offset
-            arglist.append(self._plan.blkmap.gpudata)
-            arglist.append(self._plan.offset.gpudata)
-            arglist.append(self._plan.nelems.gpudata)
-            arglist.append(self._plan.nthrcol.gpudata)
-            arglist.append(self._plan.thrcol.gpudata)
+            arglist.append(_plan.blkmap.gpudata)
+            arglist.append(_plan.offset.gpudata)
+            arglist.append(_plan.nelems.gpudata)
+            arglist.append(_plan.nthrcol.gpudata)
+            arglist.append(_plan.thrcol.gpudata)
             arglist.append(None)  # Number of colours in this block
             block_offset = 0
-            for col in xrange(self._plan.ncolors):
-                # At this point, before we can continue processing in
-                # the MPI case, we'll need to wait for halo swaps to
-                # complete, but at the moment we don't support that
-                # use case, so we just pass through for now.
-                if col == self._plan.ncolors_core:
-                    pass
 
-                blocks = self._plan.ncolblk[col]
+            for col in xrange(_plan.ncolors):
+                blocks = _plan.ncolblk[col]
                 if blocks > 0:
                     arglist[-1] = np.int32(blocks)
                     arglist[-7] = np.int32(block_offset)
@@ -816,7 +824,7 @@ class ParLoop(op2.ParLoop):
                         grid_size = (blocks, 1, 1)
 
                     block_size = (128, 1, 1)
-                    shared_size = np.asscalar(self._plan.nsharedCol[col])
+                    shared_size = np.asscalar(_plan.nsharedCol[col])
                     # Global reductions require shared memory of at least block
                     # size * sizeof(double) for the reduction buffer
                     if any(arg._is_global_reduction for arg in self.args):
@@ -826,32 +834,24 @@ class ParLoop(op2.ParLoop):
                     fun(grid_size, block_size, _stream, *arglist,
                         shared_size=shared_size)
 
-                # We've reached the end of elements that should
-                # contribute to a reduction (this is only different
-                # from the total number of elements in the MPI case).
-                # So copy the reduction array back to the host now (so
-                # that we don't double count halo elements).  We'll
-                # finalise the reduction a little later.
-                if col == self._plan.ncolors_owned - 1:
-                    for arg in self.args:
-                        if arg._is_global_reduction:
-                            arg.data._finalise_reduction_begin(max_grid_size,
-                                                               arg.access)
                 block_offset += blocks
-            for arg in self.args:
-                if arg._is_global_reduction:
-                    arg.data._finalise_reduction_end(max_grid_size,
-                                                     arg.access)
-                elif not arg._is_mat:
-                    # Data state is updated in finalise_reduction for Global
-                    if arg.access is not op2.READ:
-                        arg.data.state = DeviceDataMixin.DEVICE
-                else:
-                    # Mat, assemble from lma->csr
-                    arg.data._assemble(rowmap=arg.map[0], colmap=arg.map[1])
-        if self._has_soa:
-            op2stride.remove_from_namespace()
+
         _stream.synchronize()
+        for arg in self.args:
+            if arg._is_global_reduction:
+                arg.data._finalise_reduction_begin(max_grid_size, arg.access)
+                arg.data._finalise_reduction_end(max_grid_size, arg.access)
+            elif not arg._is_mat:
+                # Set write state to False
+                maybe_setflags(arg.data._data, write=False)
+                # Data state is updated in finalise_reduction for Global
+                if arg.access is not op2.READ:
+                    arg.data.state = DeviceDataMixin.DEVICE
+
+    def assemble(self):
+        for arg in self.args:
+            if arg._is_mat:
+                arg.data._assemble(rowmap=arg.map[0], colmap=arg.map[1])
 
 _device = None
 _context = None
