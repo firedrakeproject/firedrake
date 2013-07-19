@@ -68,30 +68,42 @@ class TestHDF5:
 
     @pytest.fixture
     def set(cls):
-        return op2.Set(5, 2, 'foo')
+        return op2.Set(5, 'foo')
 
     @pytest.fixture
     def iterset(cls):
-        return op2.Set(2, 1, 'iterset')
+        return op2.Set(2, 'iterset')
 
     @pytest.fixture
     def dataset(cls):
-        return op2.Set(3, 1, 'dataset')
+        return op2.Set(3, 'dataset')
+
+    @pytest.fixture
+    def dset(cls, set):
+        return op2.DataSet(set, 2, 'dfoo')
+
+    @pytest.fixture
+    def diterset(cls, iterset):
+        return op2.DataSet(iterset, 1, 'diterset')
+
+    @pytest.fixture
+    def ddataset(cls, dataset):
+        return op2.DataSet(dataset, 1, 'ddataset')
 
     def test_set_hdf5(self, backend, h5file):
         "Set should get correct size from HDF5 file."
         s = op2.Set.fromhdf5(h5file, name='set')
         assert s.size == 5
 
-    def test_dat_hdf5(self, backend, h5file, set):
+    def test_dat_hdf5(self, backend, h5file, dset):
         "Creating a dat from h5file should work"
-        d = op2.Dat.fromhdf5(set, h5file, 'dat')
+        d = op2.Dat.fromhdf5(dset, h5file, 'dat')
         assert d.dtype == np.float64
         assert d.data.shape == (5, 2) and d.data.sum() == 9 * 10 / 2
 
-    def test_data_hdf5_soa(self, backend, h5file, set):
+    def test_data_hdf5_soa(self, backend, h5file, dset):
         "Creating an SoA dat from h5file should work"
-        d = op2.Dat.fromhdf5(set, h5file, 'soadat')
+        d = op2.Dat.fromhdf5(dset, h5file, 'soadat')
         assert d.soa
         assert d.data.shape == (5, 2) and d.data.sum() == 9 * 10 / 2
 
