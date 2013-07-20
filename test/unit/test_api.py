@@ -236,6 +236,10 @@ class TestDataSetAPI:
         with pytest.raises(exceptions.NameTypeError):
             op2.DataSet(iterset, 1, 2)
 
+    def test_dset_default_dim(self, iterset, backend):
+        "Set constructor should default dim to (1,)."
+        assert op2.DataSet(iterset).dim == (1,)
+
     def test_dset_dim(self, iterset, backend):
         "Set constructor should create a dim tuple."
         s = op2.DataSet(iterset, 1)
