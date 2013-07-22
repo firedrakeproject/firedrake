@@ -433,17 +433,17 @@ class TestSparsityAPI:
     def test_sparsity_single_dset(self, backend, di, mi):
         "Sparsity constructor should accept single Map and turn it into tuple"
         s = op2.Sparsity(di, mi, "foo")
-        assert s.maps[0] == (mi, mi) and s.dims == (1, 1) and s.name == "foo" and s.dsets[0] == (di, di)
+        assert s.maps[0] == (mi, mi) and s.dims == (1, 1) and s.name == "foo" and s.dsets == (di, di)
 
     def test_sparsity_map_pair(self, backend, di, mi):
         "Sparsity constructor should accept a pair of maps"
         s = op2.Sparsity((di, di), (mi, mi), "foo")
-        assert s.maps[0] == (mi, mi) and s.dims == (1, 1) and s.name == "foo" and s.dsets[0] == (di, di)
+        assert s.maps[0] == (mi, mi) and s.dims == (1, 1) and s.name == "foo" and s.dsets == (di, di)
 
     def test_sparsity_map_pair_different_dataset(self, backend, mi, md, di, dd, m):
         "Sparsity constructor should accept a pair of maps"
         s = op2.Sparsity((di, dd), (m, md), "foo")
-        assert s.maps[0] == (m, md) and s.dims == (1, 1) and s.name == "foo" and s.dsets[0] == (di, dd)
+        assert s.maps[0] == (m, md) and s.dims == (1, 1) and s.name == "foo" and s.dsets == (di, dd)
 
     def test_sparsity_multiple_map_pairs(self, backend, mi, di):
         "Sparsity constructor should accept tuple of pairs of maps"
@@ -476,14 +476,13 @@ class TestSparsityAPI:
 
         # Note: We can't actually reproduce a Sparsity from its repr because
         # the Sparsity constructor checks that the maps are populated
-        r = "Sparsity(%r, %r, %r)" % (tuple(sparsity.dsets), tuple(sparsity.maps), sparsity.name)
+        r = "Sparsity(%r, %r, %r)" % (sparsity.dsets, sparsity.maps, sparsity.name)
         assert repr(sparsity) == r
 
     def test_sparsity_str(self, backend, sparsity):
         "Sparsity should have the expected string representation."
-        s = "OP2 Sparsity: rdset %s, cdset %s, rmaps %s, cmaps %s, name %s" % \
-            (sparsity.rdset, sparsity.cdset, sparsity.rmaps,
-             sparsity.cmaps, sparsity.name)
+        s = "OP2 Sparsity: dsets %s, rmaps %s, cmaps %s, name %s" % \
+            (sparsity.dsets, sparsity.rmaps, sparsity.cmaps, sparsity.name)
         assert str(sparsity) == s
 
 

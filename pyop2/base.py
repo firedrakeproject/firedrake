@@ -1272,14 +1272,11 @@ class Sparsity(Cached):
 
         # A single data set becomes a pair of identical data sets
         dsets = (dsets, dsets) if isinstance(dsets, DataSet) else dsets
-        # A single pair becomes a tuple of one pair
-        dsets = (dsets,) if isinstance(dsets[0], DataSet) else dsets
 
         # Check data sets are valid
-        for pair in dsets:
-            for m in pair:
-                if not isinstance(m, DataSet):
-                    raise DataSetTypeError("All data sets must be of type DataSet, not type %r" % type(m))
+        for dset in dsets:
+            if not isinstance(dset, DataSet):
+                raise DataSetTypeError("All data sets must be of type DataSet, not type %r" % type(dset))
 
         # A single map becomes a pair of identical maps
         maps = (maps, maps) if isinstance(maps, Map) else maps
@@ -1309,8 +1306,7 @@ class Sparsity(Cached):
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
 
-        # Split the dsets as well
-        self._rdset, self._cdset = dsets[0]
+        self._dsets = dsets
 
         assert len(self._rmaps) == len(self._cmaps), \
             "Must pass equal number of row and column maps"
@@ -1318,10 +1314,9 @@ class Sparsity(Cached):
         # Make sure that the "to" Set of each map in a pair is the set of the
         # corresponding DataSet set
         for pair in maps:
-            for pdset in dsets:
-                if pair[0].dataset is not pdset[0].set or \
-                   pair[1].dataset is not pdset[1].set:
-                    raise RuntimeError("Map data set must be the same as corresponding DataSet set")
+            if pair[0].dataset is not dsets[0].set or \
+               pair[1].dataset is not dsets[1].set:
+                raise RuntimeError("Map data set must be the same as corresponding DataSet set")
 
         # Each pair of maps must have the same from-set (iteration set)
         for pair in maps:
@@ -1339,7 +1334,7 @@ class Sparsity(Cached):
         # All rmaps and cmaps have the same data set - just use the first.
         self._nrows = self._rmaps[0].dataset.size
         self._ncols = self._cmaps[0].dataset.size
-        self._dims = (self._rdset.cdim, self._cdset.cdim)
+        self._dims = (self._dsets[0].cdim, self._dsets[1].cdim)
 
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         self._lib_handle = None
@@ -1354,17 +1349,7 @@ class Sparsity(Cached):
     @property
     def dsets(self):
         """A pair of DataSets."""
-        return zip([self._rdset], [self._cdset])
-
-    @property
-    def cdset(self):
-        """The data set associated with the column."""
-        return self._cdset
-
-    @property
-    def rdset(self):
-        """The data set associated with the row."""
-        return self._rdset
+        return self._dsets
 
     @property
     def maps(self):
@@ -1411,11 +1396,11 @@ class Sparsity(Cached):
         return self._name
 
     def __str__(self):
-        return "OP2 Sparsity: rdset %s, cdset %s, rmaps %s, cmaps %s, name %s" % \
-               (self._rdset, self._cdset, self._rmaps, self._cmaps, self._name)
+        return "OP2 Sparsity: dsets %s, rmaps %s, cmaps %s, name %s" % \
+               (self._dsets, self._rmaps, self._cmaps, self._name)
 
     def __repr__(self):
-        return "Sparsity(%r, %r, %r)" % (tuple(self.dsets), tuple(self.maps), self.name)
+        return "Sparsity(%r, %r, %r)" % (self.dsets, self.maps, self.name)
 
     def __del__(self):
         core.free_sparsity(self)
