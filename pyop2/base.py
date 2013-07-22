@@ -405,6 +405,10 @@ class Set(object):
     def __repr__(self):
         return "Set(%r, %r)" % (self._size, self._name)
 
+    def __contains__(self, dset):
+        """Indicate whether a given DataSet is compatible with this Set."""
+        return dset.set is self
+
     @classmethod
     def fromhdf5(cls, f, name):
         """Construct a :class:`Set` from set named ``name`` in HDF5 data ``f``"""

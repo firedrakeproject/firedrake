@@ -208,7 +208,13 @@ class TestSetAPI:
         setcopy = op2.Set(set.size, set.name)
         assert set == set and set != setcopy
 
-    # FIXME: test Set._lib_handle
+    def test_dset_in_set(self, backend, set, dset):
+        "The in operator should indicate compatibility of DataSet and Set"
+        assert dset in set
+
+    def test_dset_not_in_set(self, backend, dset):
+        "The in operator should indicate incompatibility of DataSet and Set"
+        assert dset not in op2.Set(5, 'bar')
 
 
 class TestDataSetAPI:
