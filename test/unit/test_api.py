@@ -271,6 +271,14 @@ class TestDataSetAPI:
         setcopy = op2.DataSet(dset.set, dset.dim, dset.name)
         assert setcopy.set == dset.set and setcopy.dim == dset.dim
 
+    def test_dat_in_dset(self, backend, dset):
+        "The in operator should indicate compatibility of DataSet and Set"
+        assert op2.Dat(dset) in dset
+
+    def test_dat_not_in_dset(self, backend, dset):
+        "The in operator should indicate incompatibility of DataSet and Set"
+        assert op2.Dat(dset) not in op2.DataSet(op2.Set(5, 'bar'))
+
 
 class TestDatAPI:
 

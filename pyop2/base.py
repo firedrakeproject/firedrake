@@ -478,6 +478,10 @@ class DataSet(object):
     def __repr__(self):
         return "DataSet(%r, %r, %r)" % (self._set, self._dim, self._name)
 
+    def __contains__(self, dat):
+        """Indicate whether a given Dat is compatible with this DataSet."""
+        return dat.dataset == self
+
 
 class Halo(object):
 
