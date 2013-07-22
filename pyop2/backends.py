@@ -54,7 +54,7 @@ def _make_object(obj, *args, **kwargs):
     This will look the same on all backends::
 
       def zero(self):
-          ParLoop(self._zero_kernel, self.dataset,
+          ParLoop(self._zero_kernel, self.dataset.set,
                   self(IdentityMap, WRITE)).compute()
 
     but if we place this in a base class, then the :class:`ParLoop`
@@ -63,7 +63,7 @@ def _make_object(obj, *args, **kwargs):
     should do this::
 
       def zero(self):
-          _make_object('ParLoop', self._zero_kernel, self.dataset,
+          _make_object('ParLoop', self._zero_kernel, self.dataset.set,
                        self(IdentityMap, WRITE)).compute()
 
     That way, the correct type of `ParLoop` will be instantiated at

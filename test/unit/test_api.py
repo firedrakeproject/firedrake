@@ -348,7 +348,7 @@ class TestDatAPI:
     def test_dat_properties(self, backend, dset):
         "Dat constructor should correctly set attributes."
         d = op2.Dat(dset, [1] * dset.size * np.prod(dset.dim), 'double', 'bar')
-        assert d.dataset == dset.set and d.dtype == np.float64 and \
+        assert d.set == dset.set and d.dtype == np.float64 and \
             d.name == 'bar' and d.data.sum() == dset.size * np.prod(dset.dim)
 
     def test_dat_repr(self, backend, dset):
@@ -362,7 +362,7 @@ class TestDatAPI:
         "Dat should have the expected string representation."
         d = op2.Dat(dset, dtype='double', name='bar')
         s = "OP2 Dat: %s on (%s) with datatype %s" \
-            % (d.name, d.ddataset, d.data.dtype.name)
+            % (d.name, d.dataset, d.data.dtype.name)
         assert str(d) == s
 
     def test_dat_ro_accessor(self, backend, dset):
