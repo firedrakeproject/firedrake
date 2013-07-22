@@ -49,7 +49,7 @@ from exceptions import MatTypeError, DatTypeError
 __all__ = ['cfg', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX', 'IdentityMap',
            'i', 'debug', 'info', 'warning', 'error', 'critical',
            'set_log_level', 'MPI', 'init', 'exit', 'IterationSpace', 'Kernel',
-           'Set', 'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map', 'Sparsity',
+           'Set', 'DataSet', 'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map', 'Sparsity',
            'Solver', 'par_loop', 'solve']
 
 
