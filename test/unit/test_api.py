@@ -57,8 +57,8 @@ def iterset():
 
 
 @pytest.fixture
-def dataset():
-    return op2.Set(3, 'dataset')
+def toset():
+    return op2.Set(3, 'toset')
 
 
 @pytest.fixture(params=[1, 2, (2, 3)])
@@ -72,13 +72,13 @@ def diterset(iterset):
 
 
 @pytest.fixture
-def ddataset(dataset):
-    return op2.DataSet(dataset, 1, 'ddataset')
+def dtoset(toset):
+    return op2.DataSet(toset, 1, 'dtoset')
 
 
 @pytest.fixture
-def m(iterset, dataset):
-    return op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size, 'm')
+def m(iterset, toset):
+    return op2.Map(iterset, toset, 2, [1] * 2 * iterset.size, 'm')
 
 
 @pytest.fixture
@@ -89,8 +89,8 @@ def const(request):
 
 
 @pytest.fixture
-def sparsity(m, ddataset):
-    return op2.Sparsity((ddataset, ddataset), (m, m))
+def sparsity(m, dtoset):
+    return op2.Sparsity((dtoset, dtoset), (m, m))
 
 
 class TestInitAPI:
@@ -310,7 +310,7 @@ class TestDatAPI:
         assert d.data.dtype == np.int32
 
     def test_dat_illegal_map(self, backend, dset):
-        """Dat __call__ should not allow a map with a dataset other than this
+        """Dat __call__ should not allow a map with a toset other than this
         Dat's set."""
         d = op2.Dat(dset)
         set1 = op2.Set(3)
@@ -404,9 +404,9 @@ class TestSparsityAPI:
     """
 
     @pytest.fixture
-    def mi(cls, dataset):
+    def mi(cls, toset):
         iterset = op2.Set(3, 'iterset2')
-        return op2.Map(iterset, dataset, 1, [1] * iterset.size, 'mi')
+        return op2.Map(iterset, toset, 1, [1] * iterset.size, 'mi')
 
     @pytest.fixture
     def dataset2(cls):
@@ -417,8 +417,8 @@ class TestSparsityAPI:
         return op2.Map(iterset, dataset2, 1, [1] * iterset.size, 'md')
 
     @pytest.fixture
-    def di(cls, dataset):
-        return op2.DataSet(dataset, 1, 'di')
+    def di(cls, toset):
+        return op2.DataSet(toset, 1, 'di')
 
     @pytest.fixture
     def dd(cls, dataset2):
@@ -788,8 +788,8 @@ class TestMapAPI:
         with pytest.raises(exceptions.SetTypeError):
             op2.Map('illegalset', set, 1, [])
 
-    def test_map_illegal_dataset(self, backend, set):
-        "Map dataset should be Set."
+    def test_map_illegal_toset(self, backend, set):
+        "Map toset should be Set."
         with pytest.raises(exceptions.SetTypeError):
             op2.Map(set, 'illegalset', 1, [])
 
@@ -813,37 +813,37 @@ class TestMapAPI:
         with pytest.raises(exceptions.DataValueError):
             op2.Map(set, set, 1, 'abcdefg')
 
-    def test_map_illegal_length(self, backend, iterset, dataset):
+    def test_map_illegal_length(self, backend, iterset, toset):
         "Mismatching data length should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
-            op2.Map(iterset, dataset, 1, [1] * (iterset.size + 1))
+            op2.Map(iterset, toset, 1, [1] * (iterset.size + 1))
 
-    def test_map_convert_float_int(self, backend, iterset, dataset):
+    def test_map_convert_float_int(self, backend, iterset, toset):
         "Float data should be implicitely converted to int."
-        m = op2.Map(iterset, dataset, 1, [1.5] * iterset.size)
+        m = op2.Map(iterset, toset, 1, [1.5] * iterset.size)
         assert m.values.dtype == np.int32 and m.values.sum() == iterset.size
 
-    def test_map_reshape(self, backend, iterset, dataset):
+    def test_map_reshape(self, backend, iterset, toset):
         "Data should be reshaped according to arity."
-        m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size)
+        m = op2.Map(iterset, toset, 2, [1] * 2 * iterset.size)
         assert m.arity == 2 and m.values.shape == (iterset.size, 2)
 
-    def test_map_properties(self, backend, iterset, dataset):
+    def test_map_properties(self, backend, iterset, toset):
         "Data constructor should correctly set attributes."
-        m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size, 'bar')
-        assert m.iterset == iterset and m.dataset == dataset and m.arity == 2 \
+        m = op2.Map(iterset, toset, 2, [1] * 2 * iterset.size, 'bar')
+        assert m.iterset == iterset and m.toset == toset and m.arity == 2 \
             and m.values.sum() == 2 * iterset.size and m.name == 'bar'
 
-    def test_map_indexing(self, backend, iterset, dataset):
+    def test_map_indexing(self, backend, iterset, toset):
         "Indexing a map should create an appropriate Arg"
-        m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size, 'm')
+        m = op2.Map(iterset, toset, 2, [1] * 2 * iterset.size, 'm')
 
         arg = m[0]
         assert arg.idx == 0
 
-    def test_map_slicing(self, backend, iterset, dataset):
+    def test_map_slicing(self, backend, iterset, toset):
         "Slicing a map is not allowed"
-        m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size, 'm')
+        m = op2.Map(iterset, toset, 2, [1] * 2 * iterset.size, 'm')
 
         with pytest.raises(NotImplementedError):
             m[:]
@@ -851,35 +851,35 @@ class TestMapAPI:
     def test_map_equality(self, backend, m):
         """A map is equal if all its attributes are equal, bearing in mind that
         equality is identity for sets."""
-        m2 = op2.Map(m.iterset, m.dataset, m.arity, m.values, m.name)
+        m2 = op2.Map(m.iterset, m.toset, m.arity, m.values, m.name)
         assert m == m2
 
     def test_map_copied_set_inequality(self, backend, m):
         """Maps that have copied but not equal iteration sets are not equal"""
         itercopy = op2.Set(m.iterset.size, m.iterset.name)
-        m2 = op2.Map(itercopy, m.dataset, m.arity, m.values, m.name)
+        m2 = op2.Map(itercopy, m.toset, m.arity, m.values, m.name)
         assert m != m2
 
     def test_map_arity_inequality(self, backend, m):
         """Maps that have different arities are not equal"""
-        m2 = op2.Map(m.iterset, m.dataset,
+        m2 = op2.Map(m.iterset, m.toset,
                      m.arity * 2, list(m.values) * 2, m.name)
         assert m != m2
 
     def test_map_name_inequality(self, backend, m):
         """Maps with different names are not equal"""
-        n = op2.Map(m.iterset, m.dataset, m.arity, m.values, 'n')
+        n = op2.Map(m.iterset, m.toset, m.arity, m.values, 'n')
         assert m != n
 
     def test_map_repr(self, backend, m):
         "Map should have the expected repr."
-        r = "Map(%r, %r, %r, None, %r)" % (m.iterset, m.dataset, m.arity, m.name)
+        r = "Map(%r, %r, %r, None, %r)" % (m.iterset, m.toset, m.arity, m.name)
         assert repr(m) == r
 
     def test_map_str(self, backend, m):
         "Map should have the expected string representation."
         s = "OP2 Map: %s from (%s) to (%s) with arity %s" \
-            % (m.name, m.iterset, m.dataset, m.arity)
+            % (m.name, m.iterset, m.toset, m.arity)
         assert str(m) == s
 
 

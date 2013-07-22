@@ -75,8 +75,8 @@ class TestHDF5:
         return op2.Set(2, 'iterset')
 
     @pytest.fixture
-    def dataset(cls):
-        return op2.Set(3, 'dataset')
+    def toset(cls):
+        return op2.Set(3, 'toset')
 
     @pytest.fixture
     def dset(cls, set):
@@ -87,8 +87,8 @@ class TestHDF5:
         return op2.DataSet(iterset, 1, 'diterset')
 
     @pytest.fixture
-    def ddataset(cls, dataset):
-        return op2.DataSet(dataset, 1, 'ddataset')
+    def dtoset(cls, toset):
+        return op2.DataSet(toset, 1, 'dtoset')
 
     def test_set_hdf5(self, backend, h5file):
         "Set should get correct size from HDF5 file."
@@ -114,11 +114,11 @@ class TestHDF5:
         assert c.data.sum() == 3
         assert c.dim == (3,)
 
-    def test_map_hdf5(self, backend, iterset, dataset, h5file):
+    def test_map_hdf5(self, backend, iterset, toset, h5file):
         "Should be able to create Map from hdf5 file."
-        m = op2.Map.fromhdf5(iterset, dataset, h5file, name="map")
+        m = op2.Map.fromhdf5(iterset, toset, h5file, name="map")
         assert m.iterset == iterset
-        assert m.dataset == dataset
+        assert m.toset == toset
         assert m.arity == 2
         assert m.values.sum() == sum((1, 2, 2, 3))
         assert m.name == 'map'

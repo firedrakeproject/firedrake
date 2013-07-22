@@ -212,7 +212,7 @@ class Mat(DeviceDataMixin, op2.Mat):
 
     def _lmaoffset(self, iterset):
         offset = 0
-        size = self.sparsity.maps[0][0].dataset.size
+        size = self.sparsity.maps[0][0].toset.size
         size *= np.asscalar(np.prod(self.dims))
         for rmap, cmap in self.sparsity.maps:
             if rmap.iterset is iterset:
@@ -282,7 +282,7 @@ class Mat(DeviceDataMixin, op2.Mat):
 
     @property
     def values(self):
-        shape = self.sparsity.maps[0][0].dataset.size * self.dims[0]
+        shape = self.sparsity.maps[0][0].toset.size * self.dims[0]
         shape = (shape, shape)
         ret = np.zeros(shape=shape, dtype=self.dtype)
         csrdata = self._csrdata.get()
@@ -627,8 +627,8 @@ class Solver(base.Solver):
                      M._csrdata,
                      b._device_data,
                      x._device_data,
-                     b.dataset.size * b.cdim,
-                     x.dataset.size * x.cdim,
+                     b.set.size * b.cdim,
+                     x.set.size * x.cdim,
                      M._csrdata.size)
         x.state = DeviceDataMixin.DEVICE
 

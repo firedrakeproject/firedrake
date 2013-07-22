@@ -106,9 +106,9 @@ class Mat(base.Mat):
             # FIXME: probably not right for vector fields
             # We get the PETSc local to global mapping from the halo
             row_lg.create(indices=self.sparsity.rmaps[
-                          0].dataset.halo.global_to_petsc_numbering)
+                          0].toset.halo.global_to_petsc_numbering)
             col_lg.create(indices=self.sparsity.cmaps[
-                          0].dataset.halo.global_to_petsc_numbering)
+                          0].toset.halo.global_to_petsc_numbering)
             mat.createAIJ(size=((self.sparsity.nrows * rdim, None),
                                 (self.sparsity.ncols * cdim, None)),
                           nnz=(self.sparsity.nnz, self.sparsity.onnz))

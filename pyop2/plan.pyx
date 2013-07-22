@@ -245,7 +245,7 @@ cdef class Plan:
             if isinstance(ra, base.Dat):
                 s = ra.dataset.size
             elif isinstance(ra, base.Mat):
-                s = ra.sparsity.maps[0][0].dataset.size
+                s = ra.sparsity.maps[0][0].toset.size
 
             pcds[i] = numpy.empty((s,), dtype=numpy.uint32)
             flat_race_args[i].size = s

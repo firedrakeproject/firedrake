@@ -778,8 +778,8 @@ class Dat(DataCarrier):
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, path, access):
         if isinstance(path, Map):
-            if path._dataset != self._dataset.set and path != IdentityMap:
-                raise MapValueError("Dataset of Map does not match Dataset of Dat.")
+            if path._toset != self._dataset.set and path != IdentityMap:
+                raise MapValueError("To Set of Map does not match Set of Dat.")
             return _make_object('Arg', data=self, map=path, access=access)
         else:
             path._dat = self
@@ -1144,7 +1144,7 @@ class Map(object):
     """OP2 map, a relation between two :class:`Set` objects.
 
     Each entry in the ``iterset`` maps to ``arity`` entries in the
-    ``dataset``. When a map is used in a :func:`par_loop`, it is possible to
+    ``toset``. When a map is used in a :func:`par_loop`, it is possible to
     use Python index notation to select an individual entry on the right hand
     side of this map. There are three possibilities:
 
@@ -1160,11 +1160,11 @@ class Map(object):
 
     _globalcount = 0
 
-    @validate_type(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError),
+    @validate_type(('iterset', Set, SetTypeError), ('toset', Set, SetTypeError),
                   ('arity', int, ArityTypeError), ('name', str, NameTypeError))
-    def __init__(self, iterset, dataset, arity, values=None, name=None, offset=None):
+    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None):
         self._iterset = iterset
-        self._dataset = dataset
+        self._toset = toset
         self._arity = arity
         self._values = verify_reshape(values, np.int32, (iterset.total_size, arity),
                                       allow_none=True)
@@ -1196,13 +1196,13 @@ class Map(object):
         return self._iterset
 
     @property
-    def dataset(self):
+    def toset(self):
         """:class:`Set` mapped to."""
-        return self._dataset
+        return self._toset
 
     @property
     def arity(self):
-        """Arity of the mapping: number of dataset elements mapped to per
+        """Arity of the mapping: number of toset elements mapped to per
         iterset element."""
         return self._arity
 
@@ -1223,15 +1223,15 @@ class Map(object):
 
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with arity %s" \
-               % (self._name, self._iterset, self._dataset, self._arity)
+               % (self._name, self._iterset, self._toset, self._arity)
 
     def __repr__(self):
         return "Map(%r, %r, %r, None, %r)" \
-               % (self._iterset, self._dataset, self._arity, self._name)
+               % (self._iterset, self._toset, self._arity, self._name)
 
     def __eq__(self, o):
         try:
-            return (self._iterset == o._iterset and self._dataset == o._dataset and
+            return (self._iterset == o._iterset and self._toset == o._toset and
                     self._arity == o.arity and self._name == o.name)
         except AttributeError:
             return False
@@ -1246,14 +1246,14 @@ class Map(object):
         return self._lib_handle
 
     @classmethod
-    def fromhdf5(cls, iterset, dataset, f, name):
+    def fromhdf5(cls, iterset, toset, f, name):
         """Construct a :class:`Map` from set named ``name`` in HDF5 data ``f``"""
         slot = f[name]
         values = slot.value
         arity = slot.shape[1:]
         if len(arity) != 1:
             raise ArityTypeError("Unrecognised arity value %s" % arity)
-        return cls(iterset, dataset, arity[0], values, name)
+        return cls(iterset, toset, arity[0], values, name)
 
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 """The identity map.  Used to indicate direct access to a :class:`Dat`."""
@@ -1333,9 +1333,9 @@ class Sparsity(Cached):
         # Make sure that the "to" Set of each map in a pair is the set of the
         # corresponding DataSet set
         for pair in maps:
-            if pair[0].dataset is not dsets[0].set or \
-               pair[1].dataset is not dsets[1].set:
-                raise RuntimeError("Map data set must be the same as corresponding DataSet set")
+            if pair[0].toset is not dsets[0].set or \
+               pair[1].toset is not dsets[1].set:
+                raise RuntimeError("Map to set must be the same as corresponding DataSet set")
 
         # Each pair of maps must have the same from-set (iteration set)
         for pair in maps:
@@ -1343,16 +1343,16 @@ class Sparsity(Cached):
                 raise RuntimeError("Iterset of both maps in a pair must be the same")
 
         # Each row map must have the same to-set (data set)
-        if not all(m.dataset is self._rmaps[0].dataset for m in self._rmaps):
-            raise RuntimeError("Dataset of all row maps must be the same")
+        if not all(m.toset is self._rmaps[0].toset for m in self._rmaps):
+            raise RuntimeError("To set of all row maps must be the same")
 
         # Each column map must have the same to-set (data set)
-        if not all(m.dataset is self._cmaps[0].dataset for m in self._cmaps):
-            raise RuntimeError("Dataset of all column maps must be the same")
+        if not all(m.toset is self._cmaps[0].toset for m in self._cmaps):
+            raise RuntimeError("To set of all column maps must be the same")
 
         # All rmaps and cmaps have the same data set - just use the first.
-        self._nrows = self._rmaps[0].dataset.size
-        self._ncols = self._cmaps[0].dataset.size
+        self._nrows = self._rmaps[0].toset.size
+        self._ncols = self._cmaps[0].toset.size
         self._dims = (self._dsets[0].cdim, self._dsets[1].cdim)
 
         self._name = name or "sparsity_%d" % Sparsity._globalcount
@@ -1375,9 +1375,9 @@ class Sparsity(Cached):
         """A list of pairs (rmap, cmap) where each pair of
         :class:`Map` objects will later be used to assemble into this
         matrix. The iterset of each of the maps in a pair must be the
-        same, while the dataset of all the maps which appear first
+        same, while the toset of all the maps which appear first
         must be common, this will form the row :class:`Set` of the
-        sparsity. Similarly, the dataset of all the maps which appear
+        sparsity. Similarly, the toset of all the maps which appear
         second must be common and will form the column :class:`Set` of
         the ``Sparsity``."""
         return zip(self._rmaps, self._cmaps)
@@ -1699,8 +1699,8 @@ class ParLoop(object):
 
         1. That the iteration set of the :class:`ParLoop` matches the iteration
            set of all its arguments.
-        2. For each argument, check that the dataset of the map used to access
-           it matches the dataset it is defined on.
+        2. For each argument, check that the to Set of the map used to access
+           it matches the Set it is defined on.
 
         A :class:`MapValueError` is raised if these conditions are not met."""
         iterset = self._it_space._iterset
@@ -1714,9 +1714,9 @@ class ParLoop(object):
                 else:
                     if arg._is_mat:
                         continue
-                    if m._dataset != arg.data._dataset.set:
+                    if m._toset != arg.data._dataset.set:
                         raise MapValueError(
-                            "Dataset of arg %s map %s doesn't match the set of its Dat." %
+                            "To set of arg %s map %s doesn't match the set of its Dat." %
                             (i, j))
 
     def generate_code(self):

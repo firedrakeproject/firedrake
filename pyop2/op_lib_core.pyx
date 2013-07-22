@@ -219,7 +219,7 @@ cdef class op_map:
     def __cinit__(self, map):
         """Instantiate a C-level op_map from MAP"""
         cdef op_set frm = map.iterset._c_handle
-        cdef op_set to = map.dataset._c_handle
+        cdef op_set to = map.toset._c_handle
         cdef int arity = map.arity
         cdef np.ndarray values = map.values
         cdef char * name = map.name
