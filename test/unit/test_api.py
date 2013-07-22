@@ -793,14 +793,14 @@ class TestMapAPI:
         with pytest.raises(exceptions.SetTypeError):
             op2.Map(set, 'illegalset', 1, [])
 
-    def test_map_illegal_dim(self, backend, set):
-        "Map dim should be int."
-        with pytest.raises(exceptions.DimTypeError):
-            op2.Map(set, set, 'illegaldim', [])
+    def test_map_illegal_arity(self, backend, set):
+        "Map arity should be int."
+        with pytest.raises(exceptions.ArityTypeError):
+            op2.Map(set, set, 'illegalarity', [])
 
-    def test_map_illegal_dim_tuple(self, backend, set):
-        "Map dim should not be a tuple."
-        with pytest.raises(exceptions.DimTypeError):
+    def test_map_illegal_arity_tuple(self, backend, set):
+        "Map arity should not be a tuple."
+        with pytest.raises(exceptions.ArityTypeError):
             op2.Map(set, set, (2, 2), [])
 
     def test_map_illegal_name(self, backend, set):
@@ -824,14 +824,14 @@ class TestMapAPI:
         assert m.values.dtype == np.int32 and m.values.sum() == iterset.size
 
     def test_map_reshape(self, backend, iterset, dataset):
-        "Data should be reshaped according to dim."
+        "Data should be reshaped according to arity."
         m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size)
-        assert m.dim == 2 and m.values.shape == (iterset.size, 2)
+        assert m.arity == 2 and m.values.shape == (iterset.size, 2)
 
     def test_map_properties(self, backend, iterset, dataset):
         "Data constructor should correctly set attributes."
         m = op2.Map(iterset, dataset, 2, [1] * 2 * iterset.size, 'bar')
-        assert m.iterset == iterset and m.dataset == dataset and m.dim == 2 \
+        assert m.iterset == iterset and m.dataset == dataset and m.arity == 2 \
             and m.values.sum() == 2 * iterset.size and m.name == 'bar'
 
     def test_map_indexing(self, backend, iterset, dataset):
@@ -851,35 +851,35 @@ class TestMapAPI:
     def test_map_equality(self, backend, m):
         """A map is equal if all its attributes are equal, bearing in mind that
         equality is identity for sets."""
-        m2 = op2.Map(m.iterset, m.dataset, m.dim, m.values, m.name)
+        m2 = op2.Map(m.iterset, m.dataset, m.arity, m.values, m.name)
         assert m == m2
 
     def test_map_copied_set_inequality(self, backend, m):
         """Maps that have copied but not equal iteration sets are not equal"""
         itercopy = op2.Set(m.iterset.size, m.iterset.name)
-        m2 = op2.Map(itercopy, m.dataset, m.dim, m.values, m.name)
+        m2 = op2.Map(itercopy, m.dataset, m.arity, m.values, m.name)
         assert m != m2
 
-    def test_map_dimension_inequality(self, backend, m):
-        """Maps that have different dimensions are not equal"""
+    def test_map_arity_inequality(self, backend, m):
+        """Maps that have different arities are not equal"""
         m2 = op2.Map(m.iterset, m.dataset,
-                     m.dim * 2, list(m.values) * 2, m.name)
+                     m.arity * 2, list(m.values) * 2, m.name)
         assert m != m2
 
     def test_map_name_inequality(self, backend, m):
         """Maps with different names are not equal"""
-        n = op2.Map(m.iterset, m.dataset, m.dim, m.values, 'n')
+        n = op2.Map(m.iterset, m.dataset, m.arity, m.values, 'n')
         assert m != n
 
     def test_map_repr(self, backend, m):
         "Map should have the expected repr."
-        r = "Map(%r, %r, %r, None, %r)" % (m.iterset, m.dataset, m.dim, m.name)
+        r = "Map(%r, %r, %r, None, %r)" % (m.iterset, m.dataset, m.arity, m.name)
         assert repr(m) == r
 
     def test_map_str(self, backend, m):
         "Map should have the expected string representation."
-        s = "OP2 Map: %s from (%s) to (%s) with dim %s" \
-            % (m.name, m.iterset, m.dataset, m.dim)
+        s = "OP2 Map: %s from (%s) to (%s) with arity %s" \
+            % (m.name, m.iterset, m.dataset, m.arity)
         assert str(m) == s
 
 

@@ -220,14 +220,14 @@ cdef class op_map:
         """Instantiate a C-level op_map from MAP"""
         cdef op_set frm = map.iterset._c_handle
         cdef op_set to = map.dataset._c_handle
-        cdef int dim = map.dim
+        cdef int arity = map.arity
         cdef np.ndarray values = map.values
         cdef char * name = map.name
         if values.size == 0:
             self._handle = core.op_decl_map_core(frm._handle, to._handle,
-                                                 dim, NULL, name)
+                                                 arity, NULL, name)
         else:
-            self._handle = core.op_decl_map_core(frm._handle, to._handle, dim,
+            self._handle = core.op_decl_map_core(frm._handle, to._handle, arity,
                                                  <int *>np.PyArray_DATA(values), name)
 
 cdef class op_arg:

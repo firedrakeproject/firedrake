@@ -28,11 +28,11 @@
 {%- macro populate_vec_map(arg) -%}
 // populate vec map
 {%- if(arg._is_indirect_reduction) -%}
-{%- for i in range(arg.map.dim) %}
+{%- for i in range(arg.map.arity) %}
 {{ arg._vec_name }}[{{ i }}] = {{ arg._local_name(idx=i) }};
 {% endfor -%}
 {%- else -%}
-{%- for i in range(arg.map.dim) %}
+{%- for i in range(arg.map.arity) %}
 {{ arg._vec_name }}[{{ i }}] = &{{ arg._shared_name }}[p_loc_map[i_1 + {{arg._which_indirect + i}}*set_size + shared_memory_offset] * {{ arg.data.cdim }}];
 {%- endfor -%}
 {%- endif -%}
@@ -41,7 +41,7 @@
 {%- macro staged_arg_local_variable_zeroing(arg) -%}
 for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2) {
     {%- if (arg._is_vec_map or arg._uses_itspace) -%}
-    {% for i in range(arg.map.dim) %}
+    {% for i in range(arg.map.arity) %}
     {{ arg._local_name(idx=i) }}[i_2] = {{arg.data._cl_type_zero}};
     {% endfor %}
     {% else %}
@@ -64,7 +64,7 @@ for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2) {
 
 {%- macro color_reduction_vec_map(arg) -%}
 for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2) {
-    {% for i in range(arg.map.dim) %}
+    {% for i in range(arg.map.arity) %}
    {%- if(arg._is_INC) %}
    {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + shared_memory_offset + {{arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}] += {{ arg._local_name(idx=i) }}[i_2];
    {% elif(arg._is_MIN) %}
@@ -155,13 +155,13 @@ void {{ parloop._stub_name }}(
 {%- endfor %}
 
 {%- for arg in parloop._all_inc_vec_map_args %}
-{% for i in range(arg.map.dim) %}
+{% for i in range(arg.map.arity) %}
 {{arg.data._cl_type}} {{arg._local_name(idx=i)}}[{{arg.data.cdim}}];
 {%- endfor %}
 {%- endfor %}
 
 {%- for arg in parloop._all_inc_itspace_dat_args %}
-{% for i in range(arg.map.dim) %}
+{% for i in range(arg.map.arity) %}
 {{arg.data._cl_type}} {{arg._local_name(idx=i)}}[{{arg.data.cdim}}];
 {%- endfor %}
 {%- endfor %}
@@ -190,16 +190,16 @@ void {{ parloop._stub_name }}(
   __local {{ arg.data._cl_type }}* __local {{ arg._shared_name }};
 {%- endfor %}
 {% for arg  in parloop._all_non_inc_vec_map_args %}
-  __local {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.dim }}];
+  __local {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.arity }}];
 {%- endfor %}
 {% for arg in parloop._all_inc_vec_map_args %}
-  {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.dim }}];
+  {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.arity }}];
 {%- endfor %}
 {% for arg in parloop._all_non_inc_itspace_dat_args %}
-  __local {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.dim }}];
+  __local {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.arity }}];
 {%- endfor %}
 {% for arg in parloop._all_inc_itspace_dat_args %}
-  {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.dim }}];
+  {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.arity }}];
 {%- endfor %}
 
   if (get_local_id(0) == 0) {

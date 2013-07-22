@@ -1135,12 +1135,12 @@ class Map(object):
 
     """OP2 map, a relation between two :class:`Set` objects.
 
-    Each entry in the ``iterset`` maps to ``dim`` entries in the
-    ``dataset``. When a map is used in a :func:`par_loop`,
-    it is possible to use Python index notation to select an
-    individual entry on the right hand side of this map. There are three possibilities:
+    Each entry in the ``iterset`` maps to ``arity`` entries in the
+    ``dataset``. When a map is used in a :func:`par_loop`, it is possible to
+    use Python index notation to select an individual entry on the right hand
+    side of this map. There are three possibilities:
 
-    * No index. All ``dim`` :class:`Dat` entries will be passed to the
+    * No index. All ``arity`` :class:`Dat` entries will be passed to the
       kernel.
     * An integer: ``some_map[n]``. The ``n`` th entry of the
       map result will be passed to the kernel.
@@ -1153,12 +1153,12 @@ class Map(object):
     _globalcount = 0
 
     @validate_type(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError),
-                  ('dim', int, DimTypeError), ('name', str, NameTypeError))
-    def __init__(self, iterset, dataset, dim, values=None, name=None, offset=None):
+                  ('arity', int, ArityTypeError), ('name', str, NameTypeError))
+    def __init__(self, iterset, dataset, arity, values=None, name=None, offset=None):
         self._iterset = iterset
         self._dataset = dataset
-        self._dim = dim
-        self._values = verify_reshape(values, np.int32, (iterset.total_size, dim),
+        self._arity = arity
+        self._values = verify_reshape(values, np.int32, (iterset.total_size, arity),
                                       allow_none=True)
         self._name = name or "map_%d" % Map._globalcount
         self._lib_handle = None
@@ -1167,8 +1167,8 @@ class Map(object):
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
     def __getitem__(self, index):
-        if isinstance(index, int) and not (0 <= index < self._dim):
-            raise IndexValueError("Index must be in interval [0,%d]" % (self._dim - 1))
+        if isinstance(index, int) and not (0 <= index < self._arity):
+            raise IndexValueError("Index must be in interval [0,%d]" % (self._arity - 1))
         if isinstance(index, IterationIndex) and index.index not in [0, 1]:
             raise IndexValueError("IterationIndex must be in interval [0,1]")
         return _make_object('Arg', map=self, idx=index)
@@ -1193,10 +1193,10 @@ class Map(object):
         return self._dataset
 
     @property
-    def dim(self):
-        """Dimension of the mapping: number of dataset elements mapped to per
+    def arity(self):
+        """Arity of the mapping: number of dataset elements mapped to per
         iterset element."""
-        return self._dim
+        return self._arity
 
     @property
     def values(self):
@@ -1214,17 +1214,17 @@ class Map(object):
         return self._offset
 
     def __str__(self):
-        return "OP2 Map: %s from (%s) to (%s) with dim %s" \
-               % (self._name, self._iterset, self._dataset, self._dim)
+        return "OP2 Map: %s from (%s) to (%s) with arity %s" \
+               % (self._name, self._iterset, self._dataset, self._arity)
 
     def __repr__(self):
         return "Map(%r, %r, %r, None, %r)" \
-               % (self._iterset, self._dataset, self._dim, self._name)
+               % (self._iterset, self._dataset, self._arity, self._name)
 
     def __eq__(self, o):
         try:
             return (self._iterset == o._iterset and self._dataset == o._dataset and
-                    self._dim == o.dim and self._name == o.name)
+                    self._arity == o.arity and self._name == o.name)
         except AttributeError:
             return False
 
@@ -1242,10 +1242,10 @@ class Map(object):
         """Construct a :class:`Map` from set named ``name`` in HDF5 data ``f``"""
         slot = f[name]
         values = slot.value
-        dim = slot.shape[1:]
-        if len(dim) != 1:
-            raise DimTypeError("Unrecognised dimension value %s" % dim)
-        return cls(iterset, dataset, dim[0], values, name)
+        arity = slot.shape[1:]
+        if len(arity) != 1:
+            raise ArityTypeError("Unrecognised arity value %s" % arity)
+        return cls(iterset, dataset, arity[0], values, name)
 
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 """The identity map.  Used to indicate direct access to a :class:`Dat`."""
@@ -1609,16 +1609,16 @@ class JITModule(Cached):
                 else:
                     idx = arg.idx
                 if arg.map is IdentityMap:
-                    map_dim = None
+                    map_arity = None
                 else:
-                    map_dim = arg.map.dim
-                key += (arg.data.dim, arg.data.dtype, map_dim, idx, arg.access)
+                    map_arity = arg.map.arity
+                key += (arg.data.dim, arg.data.dtype, map_arity, idx, arg.access)
             elif arg._is_mat:
                 idxs = (arg.idx[0].__class__, arg.idx[0].index,
                         arg.idx[1].index)
-                map_dims = (arg.map[0].dim, arg.map[1].dim)
+                map_arities = (arg.map[0].arity, arg.map[1].arity)
                 key += (arg.data.dims, arg.data.dtype, idxs,
-                        map_dims, arg.access)
+                        map_arities, arg.access)
 
         # The currently defined Consts need to be part of the cache key, since
         # these need to be uploaded to the device before launching the kernel

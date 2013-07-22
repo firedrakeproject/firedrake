@@ -44,6 +44,11 @@ class DimTypeError(TypeError):
     """Invalid type for dimension."""
 
 
+class ArityTypeError(TypeError):
+
+    """Invalid type for arity."""
+
+
 class IndexTypeError(TypeError):
 
     """Invalid type for index."""

@@ -75,10 +75,10 @@ class Arg(host.Arg):
         return self.c_kernel_arg_name(str(_max_threads))
 
     def c_vec_dec(self):
-        return ";\n%(type)s *%(vec_name)s[%(dim)s]" % \
+        return ";\n%(type)s *%(vec_name)s[%(arity)s]" % \
             {'type': self.ctype,
              'vec_name': self.c_vec_name(str(_max_threads)),
-             'dim': self.map.dim}
+             'arity': self.map.arity}
 
     def padding(self):
         return int(_padding * (self.data.cdim / _padding + 1)) * \

@@ -119,6 +119,6 @@ class TestHDF5:
         m = op2.Map.fromhdf5(iterset, dataset, h5file, name="map")
         assert m.iterset == iterset
         assert m.dataset == dataset
-        assert m.dim == 2
+        assert m.arity == 2
         assert m.values.sum() == sum((1, 2, 2, 3))
         assert m.name == 'map'
