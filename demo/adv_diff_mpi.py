@@ -95,7 +95,7 @@ def main(opt):
 
     f = gzip.open(opt['mesh'] + '.' + str(op2.MPI.comm.rank) + '.pickle.gz')
 
-    elements, nodes, vnodes, elem_node, _, coords = load(f)
+    elements, nodes, elem_node, coords = load(f)
     f.close()
     dnodes1 = op2.DataSet(nodes, 1)
     vnodes = op2.DataSet(nodes, 2)
