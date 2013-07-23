@@ -180,7 +180,7 @@ Dependencies:
   * codepy >= 2013.1
   * Jinja2
   * mako
-  * pycparser >= 2.09.1 (revision a460398 or newer)
+  * pycparser >= 2.09.1 (revision 854e720 or newer)
   * pycuda revision a6c9b40 or newer
 
 The [cusp library](http://cusplibrary.github.io) version 0.3.1 headers need to
@@ -223,7 +223,7 @@ sudo cp siteconf.py /etc/aksetup-defaults.py
 Dependencies:
   * Jinja2
   * mako
-  * pycparser >= 2.09.1 (revision a460398 or newer)
+  * pycparser >= 2.09.1 (revision 854e720 or newer)
   * pyopencl >= 2012.1
 
 Install via `pip`:
