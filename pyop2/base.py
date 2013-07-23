@@ -464,6 +464,9 @@ class DataSet(object):
         """Returns the parent set of the data set."""
         return self._set
 
+    def __eq__(self, other):
+        return self.set == other.set and self.dim == other.dim
+
     def __str__(self):
         return "OP2 DataSet: %s on set %s, with dim %s" % \
             (self._name, self._set, self._dim)
