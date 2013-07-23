@@ -442,6 +442,14 @@ class DataSet(object):
         self._name = name or "dset_%d" % DataSet._globalcount
         DataSet._globalcount += 1
 
+    def __getstate__(self):
+        """Extract state to pickle."""
+        return self.__dict__
+
+    def __setstate__(self, d):
+        """Restore from pickled state."""
+        self.__dict__.update(d)
+
     # Look up any unspecified attributes on the _set.
     def __getattr__(self, name):
         """Returns a Set specific attribute."""
