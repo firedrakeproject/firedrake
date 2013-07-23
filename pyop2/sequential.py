@@ -62,14 +62,14 @@ void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end,
   %(off_inits)s;
   for ( int i = start; i < end; i++ ) {
     %(vec_inits)s;
-    %(itspace_loops)s
     %(extr_loop)s
+    %(itspace_loops)s
     %(ind)s%(zero_tmps)s;
     %(ind)s%(kernel_name)s(%(kernel_args)s);
     %(ind)s%(addtos_vector_field)s;
     %(apply_offset)s
-    %(extr_loop_close)s
     %(itspace_loop_close)s
+    %(extr_loop_close)s
     %(addtos_scalar_field)s;
   }
 }

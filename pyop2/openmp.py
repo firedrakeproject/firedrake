@@ -182,14 +182,14 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
       for (int i = efirst; i < efirst+ nelem; i++ )
       {
         %(vec_inits)s;
-        %(itspace_loops)s
         %(extr_loop)s
+        %(itspace_loops)s
         %(zero_tmps)s;
         %(kernel_name)s(%(kernel_args)s);
         %(addtos_vector_field)s;
         %(apply_offset)s
-        %(extr_loop_close)s
         %(itspace_loop_close)s
+        %(extr_loop_close)s
         %(addtos_scalar_field)s;
       }
     }
