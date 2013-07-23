@@ -787,11 +787,6 @@ class Dat(DataCarrier):
             return path
 
     @property
-    def set(self):
-        """:class:`Set` on which the DataSet of the Dat is defined."""
-        return self._dataset.set
-
-    @property
     def dataset(self):
         """:class:`DataSet` on which the Dat is defined."""
         return self._dataset
@@ -847,7 +842,7 @@ class Dat(DataCarrier):
                 }
             }""" % {'t': self.ctype, 'dim': self.cdim}
             self._zero_kernel = _make_object('Kernel', k, 'zero')
-        _make_object('ParLoop', self._zero_kernel, self.set,
+        _make_object('ParLoop', self._zero_kernel, self.dataset.set,
                      self(IdentityMap, WRITE)).compute()
 
     def __str__(self):

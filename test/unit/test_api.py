@@ -362,7 +362,7 @@ class TestDatAPI:
     def test_dat_properties(self, backend, dset):
         "Dat constructor should correctly set attributes."
         d = op2.Dat(dset, [1] * dset.size * np.prod(dset.dim), 'double', 'bar')
-        assert d.set == dset.set and d.dtype == np.float64 and \
+        assert d.dataset.set == dset.set and d.dtype == np.float64 and \
             d.name == 'bar' and d.data.sum() == dset.size * np.prod(dset.dim)
 
     def test_dat_repr(self, backend, dset):

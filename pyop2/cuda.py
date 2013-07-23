@@ -627,8 +627,8 @@ class Solver(base.Solver):
                      M._csrdata,
                      b._device_data,
                      x._device_data,
-                     b.set.size * b.cdim,
-                     x.set.size * x.cdim,
+                     b.dataset.size * b.cdim,
+                     x.dataset.size * x.cdim,
                      M._csrdata.size)
         x.state = DeviceDataMixin.DEVICE
 
