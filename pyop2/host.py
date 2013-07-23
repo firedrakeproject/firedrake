@@ -398,7 +398,6 @@ class JITModule(base.JITModule):
                                        if not arg._is_mat and arg._is_vec_map])
             _extr_loop = '\n' + extrusion_loop(self._layers - 1)
             _extr_loop_close = '}\n'
-            _kernel_args += ', j_0'
         else:
             _apply_offset = ""
             _off_args = ""
