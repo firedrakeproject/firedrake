@@ -237,7 +237,7 @@ class TestExtrusion:
     def test_extrusion(self, backend, elements, dat_coords, dat_field, coords_map, field_map):
         g = op2.Global(1, data=0.0, name='g')
         mass = op2.Kernel("""
-void comp_vol(double A[1], double *x[], double *y[], int j)
+void comp_vol(double A[1], double *x[], double *y[])
 {
     double abs = x[0][0]*(x[2][1]-x[4][1])+x[2][0]*(x[4][1]-x[0][1])+x[4][0]*(x[0][1]-x[2][1]);
     if (abs < 0)
@@ -253,7 +253,7 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
         assert int(g.data[0]) == int((layers - 1) * 0.1 * (nelems / 2))
 
     def test_write_data_field(self, backend, elements, dat_coords, dat_field, coords_map, field_map, dat_f):
-        kernel_wo = "void kernel_wo(double* x[], int j) { x[0][0] = double(42); }\n"
+        kernel_wo = "void kernel_wo(double* x[]) { x[0][0] = double(42); }\n"
 
         op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"),
                      elements, dat_f(op2.WRITE, field_map))
@@ -261,7 +261,7 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
         assert all(map(lambda x: x == 42, dat_f.data))
 
     def test_write_data_coords(self, backend, elements, dat_coords, dat_field, coords_map, field_map, dat_c):
-        kernel_wo_c = """void kernel_wo_c(double* x[], int j) {
+        kernel_wo_c = """void kernel_wo_c(double* x[]) {
                                                                x[0][0] = double(42); x[0][1] = double(42);
                                                                x[1][0] = double(42); x[1][1] = double(42);
                                                                x[2][0] = double(42); x[2][1] = double(42);
@@ -277,7 +277,7 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
     def test_read_coord_neighbours_write_to_field(
         self, backend, elements, dat_coords, dat_field,
             coords_map, field_map, dat_c, dat_f):
-        kernel_wtf = """void kernel_wtf(double* x[], double* y[], int j) {
+        kernel_wtf = """void kernel_wtf(double* x[], double* y[]) {
                                                                double sum = 0.0;
                                                                for (int i=0; i<6; i++){
                                                                     sum += x[i][0] + x[i][1];
@@ -292,7 +292,7 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
     def test_indirect_coords_inc(self, backend, elements, dat_coords,
                                  dat_field, coords_map, field_map, dat_c,
                                  dat_f):
-        kernel_inc = """void kernel_inc(double* x[], double* y[], int j) {
+        kernel_inc = """void kernel_inc(double* x[], double* y[]) {
                                                                for (int i=0; i<6; i++){
                                                                  if (y[i][0] == 0){
                                                                     y[i][0] += 1;
