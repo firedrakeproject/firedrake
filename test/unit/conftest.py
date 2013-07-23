@@ -33,10 +33,22 @@
 
 """Global test configuration."""
 
+import os
 import pytest
 
 from pyop2 import op2
 from pyop2.backends import backends
+
+
+def pytest_cmdline_preparse(config, args):
+    if 'PYTEST_VERBOSE' in os.environ and '-v' not in args:
+        args.insert(0, '-v')
+    if 'PYTEST_EXITFIRST' in os.environ and '-x' not in args:
+        args.insert(0, '-x')
+    if 'PYTEST_NOCAPTURE' in os.environ and '-s' not in args:
+        args.insert(0, '-s')
+    if 'PYTEST_TBNATIVE' in os.environ:
+        args.insert(0, '--tb=native')
 
 
 def pytest_addoption(parser):
