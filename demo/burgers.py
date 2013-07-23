@@ -64,27 +64,30 @@ elements = op2.Set(n - 1, "elements")
 
 elem_node_map = [item for sublist in [(x, x + 1)
                                       for x in xrange(n - 1)] for item in sublist]
+dnodes1 = op2.DataSet(nodes, 1)
+db_nodes1 = op2.DataSet(nodes, 1)
+
 elem_node = op2.Map(elements, nodes, 2, elem_node_map, "elem_node")
 
 b_node_node_map = [0, n - 1]
 b_node_node = op2.Map(b_nodes, nodes, 1, b_node_node_map, "b_node_node")
 
 coord_vals = [i * (1.0 / (n - 1)) for i in xrange(n)]
-coords = op2.Dat(nodes, 1, coord_vals, np.float64, "coords")
+coords = op2.Dat(dnodes1, coord_vals, np.float64, "coords")
 
 tracer_vals = np.asarray([0.0] * n, dtype=np.float64)
-tracer = op2.Dat(nodes, 1, tracer_vals, np.float64, "tracer")
+tracer = op2.Dat(dnodes1, tracer_vals, np.float64, "tracer")
 
 tracer_old_vals = np.asarray([0.0] * n, dtype=np.float64)
-tracer_old = op2.Dat(nodes, 1, tracer_old_vals, np.float64, "tracer_old")
+tracer_old = op2.Dat(dnodes1, tracer_old_vals, np.float64, "tracer_old")
 
 b_vals = np.asarray([0.0] * n, dtype=np.float64)
-b = op2.Dat(nodes, 1, b_vals, np.float64, "b")
+b = op2.Dat(dnodes1, b_vals, np.float64, "b")
 
 bdry_vals = [0.0, 1.0]
-bdry = op2.Dat(b_nodes, 1, bdry_vals, np.float64, "bdry")
+bdry = op2.Dat(db_nodes1, bdry_vals, np.float64, "bdry")
 
-sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
+sparsity = op2.Sparsity((dnodes1, dnodes1), (elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, np.float64, "mat")
 
 # Set up finite element problem

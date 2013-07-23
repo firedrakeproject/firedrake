@@ -56,18 +56,20 @@ class TestSparsity:
     def test_build_sparsity(self, backend):
         elements = op2.Set(4)
         nodes = op2.Set(5)
+        dnodes = op2.DataSet(nodes, 1)
         elem_node = op2.Map(elements, nodes, 3, [0, 4, 3, 0, 1, 4,
                                                  1, 2, 4, 2, 3, 4])
-        sparsity = op2.Sparsity((elem_node, elem_node))
+        sparsity = op2.Sparsity((dnodes, dnodes), (elem_node, elem_node))
         assert all(sparsity._rowptr == [0, 4, 8, 12, 16, 21])
         assert all(sparsity._colidx == [0, 1, 3, 4, 0, 1, 2, 4, 1, 2,
                                         3, 4, 0, 2, 3, 4, 0, 1, 2, 3, 4])
 
     def test_sparsity_null_maps(self, backend):
         s = op2.Set(5)
+        ds = op2.DataSet(s, 1)
         with pytest.raises(MapValueError):
             m = op2.Map(s, s, 1)
-            op2.Sparsity((m, m))
+            op2.Sparsity((ds, ds), (m, m))
 
 
 class TestMatrices:
@@ -82,74 +84,78 @@ class TestMatrices:
     # FIXME: Cached setup can be removed when __eq__ methods implemented.
     @pytest.fixture(scope='module')
     def nodes(cls):
-        return op2.Set(NUM_NODES, 1, "nodes")
-
-    @pytest.fixture(scope='module')
-    def vnodes(cls):
-        return op2.Set(NUM_NODES, 2, "vnodes")
+        return op2.Set(NUM_NODES, "nodes")
 
     @pytest.fixture(scope='module')
     def elements(cls):
-        return op2.Set(NUM_ELE, 1, "elements")
+        return op2.Set(NUM_ELE, "elements")
+
+    @pytest.fixture(scope='module')
+    def dnodes(cls, nodes):
+        return op2.DataSet(nodes, 1, "dnodes")
+
+    @pytest.fixture(scope='module')
+    def dvnodes(cls, nodes):
+        return op2.DataSet(nodes, 2, "dvnodes")
+
+    @pytest.fixture(scope='module')
+    def delements(cls, elements):
+        return op2.DataSet(elements, 1, "delements")
 
     @pytest.fixture(scope='module')
     def elem_node(cls, elements, nodes):
         return op2.Map(elements, nodes, 3, cls.elem_node_map, "elem_node")
 
     @pytest.fixture(scope='module')
-    def elem_vnode(cls, elements, vnodes):
-        return op2.Map(elements, vnodes, 3, cls.elem_node_map, "elem_vnode")
-
-    @pytest.fixture(scope='module')
-    def mat(cls, elem_node):
-        sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
+    def mat(cls, elem_node, dnodes):
+        sparsity = op2.Sparsity((dnodes, dnodes), (elem_node, elem_node), "sparsity")
         return op2.Mat(sparsity, valuetype, "mat")
 
     @pytest.fixture(scope='module')
-    def vecmat(cls, elem_vnode):
-        sparsity = op2.Sparsity((elem_vnode, elem_vnode), "sparsity")
+    def vecmat(cls, elem_node, dvnodes):
+        sparsity = op2.Sparsity((dvnodes, dvnodes), (elem_node, elem_node), "sparsity")
         return op2.Mat(sparsity, valuetype, "vecmat")
 
     @pytest.fixture
-    def coords(cls, vnodes):
+    def coords(cls, dvnodes):
         coord_vals = numpy.asarray([(0.0, 0.0), (2.0, 0.0),
                                   (1.0, 1.0), (0.0, 1.5)],
             dtype=valuetype)
-        return op2.Dat(vnodes, coord_vals, valuetype, "coords")
+        return op2.Dat(dvnodes, coord_vals, valuetype, "coords")
 
     @pytest.fixture(scope='module')
     def g(cls, request):
         return op2.Global(1, 1.0, numpy.float64, "g")
 
     @pytest.fixture
-    def f(cls, nodes):
+    def f(cls, dnodes):
         f_vals = numpy.asarray([1.0, 2.0, 3.0, 4.0], dtype=valuetype)
-        return op2.Dat(nodes, f_vals, valuetype, "f")
+        return op2.Dat(dnodes, f_vals, valuetype, "f")
 
     @pytest.fixture
-    def f_vec(cls, vnodes):
+    def f_vec(cls, dvnodes):
         f_vals = numpy.asarray([(1.0, 2.0)] * 4, dtype=valuetype)
-        return op2.Dat(vnodes, f_vals, valuetype, "f")
+        return op2.Dat(dvnodes, f_vals, valuetype, "f")
 
     @pytest.fixture(scope='module')
-    def b(cls, nodes):
+    def b(cls, dnodes):
         b_vals = numpy.zeros(NUM_NODES, dtype=valuetype)
-        return op2.Dat(nodes, b_vals, valuetype, "b")
+        return op2.Dat(dnodes, b_vals, valuetype, "b")
 
     @pytest.fixture(scope='module')
-    def b_vec(cls, vnodes):
+    def b_vec(cls, dvnodes):
         b_vals = numpy.zeros(NUM_NODES * 2, dtype=valuetype)
-        return op2.Dat(vnodes, b_vals, valuetype, "b")
+        return op2.Dat(dvnodes, b_vals, valuetype, "b")
 
     @pytest.fixture
-    def x(cls, nodes):
+    def x(cls, dnodes):
         x_vals = numpy.zeros(NUM_NODES, dtype=valuetype)
-        return op2.Dat(nodes, x_vals, valuetype, "x")
+        return op2.Dat(dnodes, x_vals, valuetype, "x")
 
     @pytest.fixture
-    def x_vec(cls, vnodes):
+    def x_vec(cls, dvnodes):
         x_vals = numpy.zeros(NUM_NODES * 2, dtype=valuetype)
-        return op2.Dat(vnodes, x_vals, valuetype, "x")
+        return op2.Dat(dvnodes, x_vals, valuetype, "x")
 
     @pytest.fixture
     def mass(cls):
@@ -625,8 +631,9 @@ void zero_mat(double local_mat[1][1], int i, int j)
 """
         nelems = 128
         set = op2.Set(nelems)
+        dset = op2.DataSet(set, 1)
         map = op2.Map(set, set, 1, numpy.array(range(nelems), numpy.uint32))
-        sparsity = op2.Sparsity((map, map))
+        sparsity = op2.Sparsity((dset, dset), (map, map))
         mat = op2.Mat(sparsity, numpy.float64)
         kernel = op2.Kernel(zero_mat_code, "zero_mat")
         op2.par_loop(kernel, set(1, 1), mat(
@@ -637,18 +644,18 @@ void zero_mat(double local_mat[1][1], int i, int j)
         assert_allclose(mat.values, expected_matrix, eps)
 
     def test_assemble_mat(self, backend, mass, mat, coords, elements,
-                          elem_node, elem_vnode, expected_matrix):
+                          elem_node, expected_matrix):
         op2.par_loop(mass, elements(3, 3),
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                     coords(elem_vnode, op2.READ))
+                     coords(elem_node, op2.READ))
         eps = 1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
     def test_assemble_rhs(self, backend, rhs, elements, b, coords, f,
-                          elem_node, elem_vnode, expected_rhs):
+                          elem_node, expected_rhs):
         op2.par_loop(rhs, elements,
                      b(elem_node, op2.INC),
-                     coords(elem_vnode, op2.READ),
+                     coords(elem_node, op2.READ),
                      f(elem_node, op2.READ))
 
         eps = 1.e-12
@@ -683,22 +690,22 @@ void zero_mat(double local_mat[1][1], int i, int j)
         assert_allclose(mat.array, numpy.ones_like(mat.array))
         mat.zero()
 
-    def test_set_matrix_vec(self, backend, vecmat, elements, elem_vnode,
+    def test_set_matrix_vec(self, backend, vecmat, elements, elem_node,
                             kernel_inc_vec, kernel_set_vec, g, skip_cuda):
         """Test accessing a vector matrix with the WRITE access by adding some
         non-zero values into the matrix, then setting them back to zero with a
         kernel using op2.WRITE"""
         op2.par_loop(kernel_inc_vec, elements(3, 3),
                      vecmat(
-                         (elem_vnode[
-                             op2.i[0]], elem_vnode[op2.i[1]]), op2.INC),
+                         (elem_node[
+                             op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      g(op2.READ))
         # Check we have ones in the matrix
         assert vecmat.array.sum() == 2 * 2 * 3 * 3 * elements.size
         op2.par_loop(kernel_set_vec, elements(3, 3),
                      vecmat(
-                         (elem_vnode[
-                             op2.i[0]], elem_vnode[op2.i[1]]), op2.WRITE),
+                         (elem_node[
+                             op2.i[0]], elem_node[op2.i[1]]), op2.WRITE),
                      g(op2.READ))
         # Check we have set all values in the matrix to 1
         assert_allclose(vecmat.array, numpy.ones_like(vecmat.array))
@@ -711,70 +718,68 @@ void zero_mat(double local_mat[1][1], int i, int j)
         assert all(b.data == numpy.zeros_like(b.data))
 
     def test_assemble_ffc(self, backend, mass_ffc, mat, coords, elements,
-                          elem_node, elem_vnode, expected_matrix):
+                          elem_node, expected_matrix):
         """Test that the FFC mass assembly assembles the correct values."""
         op2.par_loop(mass_ffc, elements(3, 3),
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                     coords(elem_vnode, op2.READ))
+                     coords(elem_node, op2.READ))
         eps = 1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
     def test_assemble_vec_mass(self, backend, mass_vector_ffc, vecmat, coords,
-                               elements, elem_vnode,
-                               expected_vector_matrix):
+                               elements, expected_vector_matrix, elem_node):
         """Test that the FFC vector mass assembly assembles the correct values."""
         op2.par_loop(mass_vector_ffc, elements(3, 3),
                      vecmat(
-                         (elem_vnode[
-                             op2.i[0]], elem_vnode[op2.i[1]]), op2.INC),
-                     coords(elem_vnode, op2.READ))
+                         (elem_node[
+                             op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                     coords(elem_node, op2.READ))
         eps = 1.e-6
         assert_allclose(vecmat.values, expected_vector_matrix, eps)
 
     def test_rhs_ffc(self, backend, rhs_ffc, elements, b, coords, f,
-                     elem_node, elem_vnode, expected_rhs):
+                     elem_node, expected_rhs):
         op2.par_loop(rhs_ffc, elements,
                      b(elem_node, op2.INC),
-                     coords(elem_vnode, op2.READ),
+                     coords(elem_node, op2.READ),
                      f(elem_node, op2.READ))
 
         eps = 1.e-6
         assert_allclose(b.data, expected_rhs, eps)
 
     def test_rhs_ffc_itspace(self, backend, rhs_ffc_itspace, elements, b,
-                             coords, f, elem_node, elem_vnode, expected_rhs,
+                             coords, f, elem_node, expected_rhs,
                              zero_dat, nodes):
         # Zero the RHS first
         op2.par_loop(zero_dat, nodes,
                      b(op2.IdentityMap, op2.WRITE))
         op2.par_loop(rhs_ffc_itspace, elements(3),
                      b(elem_node[op2.i[0]], op2.INC),
-                     coords(elem_vnode, op2.READ),
+                     coords(elem_node, op2.READ),
                      f(elem_node, op2.READ))
         eps = 1.e-6
         assert_allclose(b.data, expected_rhs, eps)
 
     def test_rhs_vector_ffc(self, backend, rhs_ffc_vector, elements, b_vec,
-                            coords, f_vec, elem_node, elem_vnode,
+                            coords, f_vec, elem_node,
                             expected_vec_rhs, nodes):
         op2.par_loop(rhs_ffc_vector, elements,
-                     b_vec(elem_vnode, op2.INC),
-                     coords(elem_vnode, op2.READ),
-                     f_vec(elem_vnode, op2.READ))
+                     b_vec(elem_node, op2.INC),
+                     coords(elem_node, op2.READ),
+                     f_vec(elem_node, op2.READ))
         eps = 1.e-6
         assert_allclose(b_vec.data, expected_vec_rhs, eps)
 
     def test_rhs_vector_ffc_itspace(self, backend, rhs_ffc_vector_itspace,
                                     elements, b_vec, coords, f_vec, elem_node,
-                                    elem_vnode, expected_vec_rhs, nodes,
-                                    zero_vec_dat):
+                                    expected_vec_rhs, nodes, zero_vec_dat):
         # Zero the RHS first
         op2.par_loop(zero_vec_dat, nodes,
                      b_vec(op2.IdentityMap, op2.WRITE))
         op2.par_loop(rhs_ffc_vector_itspace, elements(3),
-                     b_vec(elem_vnode[op2.i[0]], op2.INC),
-                     coords(elem_vnode, op2.READ),
-                     f_vec(elem_vnode, op2.READ))
+                     b_vec(elem_node[op2.i[0]], op2.INC),
+                     coords(elem_node, op2.READ),
+                     f_vec(elem_node, op2.READ))
         eps = 1.e-6
         assert_allclose(b_vec.data, expected_vec_rhs, eps)
 

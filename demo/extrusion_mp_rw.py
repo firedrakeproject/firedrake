@@ -83,8 +83,7 @@ void comp_vol(double A[1], double *x[], double *y[], double *z[], int j)
 # Set up simulation data structures
 valuetype = np.float64
 
-nodes, vnodes, coords, elements, elem_node, elem_vnode = \
-    read_triangle(mesh_name, layers)
+nodes, vnodes, coords, elements, elem_node = read_triangle(mesh_name, layers)
 
 # mesh data
 mesh2d = np.array([3, 3, 1])
@@ -283,14 +282,17 @@ tdat = time.clock() - t0dat
 
 # DECLARE OP2 STRUCTURES
 
-coords_dofsSet = op2.Set(nums[0] * layers * 2, 1, "coords_dofsSet")
-coords = op2.Dat(coords_dofsSet, coords_dat, np.float64, "coords")
+coords_dofsSet = op2.Set(nums[0] * layers, "coords_dofsSet")
+coords_dofsDataSet = op2.DataSet(coords_dofsSet, 2)
+coords = op2.Dat(coords_dofsDataSet, coords_dat, np.float64, "coords")
 
-wedges_dofsSet = op2.Set(nums[2] * wedges, 1, "wedges_dofsSet")
-field = op2.Dat(wedges_dofsSet, field_dat, np.float64, "field")
+wedges_dofsSet = op2.Set(nums[2] * wedges, "wedges_dofsSet")
+wedges_dofsDataSet = op2.DataSet(wedges_dofsSet, 1)
+field = op2.Dat(wedges_dofsDataSet, field_dat, np.float64, "field")
 
-p1_dofsSet = op2.Set(nums[0] * layers, 1, "p1_dofsSet")
-res = op2.Dat(p1_dofsSet, res_dat, np.float64, "res")
+p1_dofsSet = op2.Set(nums[0] * layers, "p1_dofsSet")
+p1_dofsDataSet = op2.DataSet(p1_dofsSet, 1)
+res = op2.Dat(p1_dofsDataSet, res_dat, np.float64, "res")
 
 # THE MAP from the ind
 # create the map from element to dofs for each element in the 2D mesh

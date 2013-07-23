@@ -78,13 +78,15 @@ NUM_ELE = 2
 NUM_NODES = 4
 valuetype = np.float64
 
-vnodes = op2.Set(NUM_NODES, 2, "vnodes")
-elements = op2.Set(NUM_ELE, 1, "elements")
+nodes = op2.Set(NUM_NODES, "vnodes")
+elements = op2.Set(NUM_ELE, "elements")
+
+vnodes = op2.DataSet(nodes, 2)
 
 elem_node_map = np.asarray([0, 1, 3, 2, 3, 1], dtype=np.uint32)
-elem_vnode = op2.Map(elements, vnodes, 3, elem_node_map, "elem_vnode")
+elem_vnode = op2.Map(elements, nodes, 3, elem_node_map, "elem_vnode")
 
-sparsity = op2.Sparsity((elem_vnode, elem_vnode), "sparsity")
+sparsity = op2.Sparsity((vnodes, vnodes), (elem_vnode, elem_vnode), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 coord_vals = np.asarray([(0.0, 0.0), (2.0, 0.0), (1.0, 1.0), (0.0, 1.5)],

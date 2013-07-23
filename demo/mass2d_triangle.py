@@ -85,32 +85,32 @@ rhs, = compile_form(L, "rhs")
 
 valuetype = np.float64
 
-nodes, vnodes, coords, elements, elem_node, elem_vnode = \
-    read_triangle(opt['mesh'])
+nodes, vnodes, coords, elements, elem_node = read_triangle(opt['mesh'])
+dnodes1 = op2.DataSet(nodes, 1)
 num_nodes = nodes.size
 
-sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
+sparsity = op2.Sparsity((dnodes1, dnodes1), (elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 b_vals = np.asarray([0.0] * num_nodes, dtype=valuetype)
 x_vals = np.asarray([0.0] * num_nodes, dtype=valuetype)
-b = op2.Dat(nodes, b_vals, valuetype, "b")
-x = op2.Dat(nodes, x_vals, valuetype, "x")
+b = op2.Dat(dnodes1, b_vals, valuetype, "b")
+x = op2.Dat(dnodes1, x_vals, valuetype, "x")
 
 # Set up initial condition
 
 f_vals = np.asarray([2 * X + 4 * Y for X, Y in coords.data], dtype=valuetype)
-f = op2.Dat(nodes, f_vals, valuetype, "f")
+f = op2.Dat(dnodes1, f_vals, valuetype, "f")
 
 # Assemble and solve
 
 op2.par_loop(mass, elements(3, 3),
              mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-             coords(elem_vnode, op2.READ))
+             coords(elem_node, op2.READ))
 
 op2.par_loop(rhs, elements(3),
              b(elem_node[op2.i[0]], op2.INC),
-             coords(elem_vnode, op2.READ),
+             coords(elem_node, op2.READ),
              f(elem_node, op2.READ))
 
 solver = op2.Solver()

@@ -52,8 +52,8 @@ except ImportError:
 ctypedef struct map_idx_t:
     # pointer to the raw numpy array containing the map values
     int * map_base
-    # dimension of the map
-    int dim
+    # arity of the map
+    int arity
     int idx
 
 ctypedef struct flat_race_args_t:
@@ -233,7 +233,7 @@ cdef class Plan:
                 k = arg.data
                 rowmap = k.sparsity.maps[0][0]
                 l = race_args.get(k, [])
-                for i in range(rowmap.dim):
+                for i in range(rowmap.arity):
                     l.append((rowmap, i))
                 race_args[k] = l
 
@@ -245,7 +245,7 @@ cdef class Plan:
             if isinstance(ra, base.Dat):
                 s = ra.dataset.size
             elif isinstance(ra, base.Mat):
-                s = ra.sparsity.maps[0][0].dataset.size
+                s = ra.sparsity.maps[0][0].toset.size
 
             pcds[i] = numpy.empty((s,), dtype=numpy.uint32)
             flat_race_args[i].size = s
@@ -256,7 +256,7 @@ cdef class Plan:
             for j, mi in enumerate(race_args[ra]):
                 map, idx = mi
                 flat_race_args[i].mip[j].map_base = <int *> numpy.PyArray_DATA(map.values)
-                flat_race_args[i].mip[j].dim = map.dim
+                flat_race_args[i].mip[j].arity = map.arity
                 flat_race_args[i].mip[j].idx = idx
 
         # type constraining a few variables
@@ -299,7 +299,7 @@ cdef class Plan:
 
                             for _rai in range(n_race_args):
                                 for _mi in range(flat_race_args[_rai].count):
-                                    _mask |= flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].dim + flat_race_args[_rai].mip[_mi].idx]]
+                                    _mask |= flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]]
 
                             if _mask == 0xffffffffu:
                                 terminated = False
@@ -312,7 +312,7 @@ cdef class Plan:
                                 _mask = 1 << _color
                                 for _rai in range(n_race_args):
                                     for _mi in range(flat_race_args[_rai].count):
-                                        flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].dim + flat_race_args[_rai].mip[_mi].idx]] |= _mask
+                                        flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]] |= _mask
 
                     _base_color += 32
                 _tid += nelems[_p]
@@ -346,7 +346,7 @@ cdef class Plan:
                     for _t in range(_tid, _tid + nelems[_p]):
                         for _rai in range(n_race_args):
                             for _mi in range(flat_race_args[_rai].count):
-                                _mask |= flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].dim + flat_race_args[_rai].mip[_mi].idx]]
+                                _mask |= flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]]
 
                     if _mask == 0xffffffffu:
                         terminated = False
@@ -361,7 +361,7 @@ cdef class Plan:
                         for _t in range(_tid, _tid + nelems[_p]):
                             for _rai in range(n_race_args):
                                 for _mi in range(flat_race_args[_rai].count):
-                                    flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].dim + flat_race_args[_rai].mip[_mi].idx]] |= _mask
+                                    flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]] |= _mask
                 _tid += nelems[_p]
 
             _base_color += 32

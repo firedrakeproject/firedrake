@@ -48,54 +48,58 @@ nele = nnodes / 2
 
 @pytest.fixture(scope='module')
 def node():
-    return op2.Set(nnodes, 1, 'node')
-
-
-@pytest.fixture(scope='module')
-def node2():
-    return op2.Set(nnodes, 2, 'node2')
+    return op2.Set(nnodes, 'node')
 
 
 @pytest.fixture(scope='module')
 def ele():
-    return op2.Set(nele, 1, 'ele')
+    return op2.Set(nele, 'ele')
 
 
 @pytest.fixture(scope='module')
-def ele2():
-    return op2.Set(nele, 2, 'ele2')
+def dnode(node):
+    return op2.DataSet(node, 1, 'dnode')
+
+
+@pytest.fixture(scope='module')
+def dnode2(node):
+    return op2.DataSet(node, 2, 'dnode2')
+
+
+@pytest.fixture(scope='module')
+def dele(ele):
+    return op2.DataSet(ele, 1, 'dele')
+
+
+@pytest.fixture(scope='module')
+def dele2(ele):
+    return op2.DataSet(ele, 2, 'dele2')
 
 
 @pytest.fixture
-def d1(node):
-    return op2.Dat(node, numpy.zeros(nnodes), dtype=numpy.int32)
+def d1(dnode):
+    return op2.Dat(dnode, numpy.zeros(nnodes), dtype=numpy.int32)
 
 
 @pytest.fixture
-def d2(node2):
-    return op2.Dat(node2, numpy.zeros(2 * nnodes), dtype=numpy.int32)
+def d2(dnode2):
+    return op2.Dat(dnode2, numpy.zeros(2 * nnodes), dtype=numpy.int32)
 
 
 @pytest.fixture
-def vd1(ele):
-    return op2.Dat(ele, numpy.zeros(nele), dtype=numpy.int32)
+def vd1(dele):
+    return op2.Dat(dele, numpy.zeros(nele), dtype=numpy.int32)
 
 
 @pytest.fixture
-def vd2(ele2):
-    return op2.Dat(ele2, numpy.zeros(2 * nele), dtype=numpy.int32)
+def vd2(dele2):
+    return op2.Dat(dele2, numpy.zeros(2 * nele), dtype=numpy.int32)
 
 
 @pytest.fixture(scope='module')
 def node2ele(node, ele):
     vals = numpy.arange(nnodes) / 2
     return op2.Map(node, ele, 1, vals, 'node2ele')
-
-
-@pytest.fixture(scope='module')
-def node2ele2(node2, ele2):
-    vals = numpy.arange(nnodes) / 2
-    return op2.Map(node2, ele2, 1, vals, 'node2ele')
 
 
 class TestVectorMap:
@@ -109,13 +113,16 @@ class TestVectorMap:
         Iterates over edges, summing the node values."""
 
         nedges = nnodes - 1
-        nodes = op2.Set(nnodes, 1, "nodes")
-        edges = op2.Set(nedges, 1, "edges")
+        nodes = op2.Set(nnodes, "nodes")
+        edges = op2.Set(nedges, "edges")
+
+        dnodes = op2.DataSet(nodes, 1, "dnodes")
+        dedges = op2.DataSet(edges, 1, "dedges")
 
         node_vals = op2.Dat(
-            nodes, numpy.array(range(nnodes), dtype=numpy.uint32), numpy.uint32, "node_vals")
+            dnodes, numpy.array(range(nnodes), dtype=numpy.uint32), numpy.uint32, "node_vals")
         edge_vals = op2.Dat(
-            edges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
+            dedges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
 
         e_map = numpy.array([(i, i + 1)
                             for i in range(nedges)], dtype=numpy.uint32)
@@ -176,22 +183,22 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
             start=1, stop=nnodes, step=2).reshape(expected.shape)
         assert all(vd1.data == expected)
 
-    def test_read_2d_vector_map(self, backend, node2, d2, vd2, node2ele2):
+    def test_read_2d_vector_map(self, backend, node, d2, vd2, node2ele):
         vd2.data[:] = numpy.arange(nele * 2).reshape(nele, 2)
         k = """
         void k(int *d, int *vd[2]) {
         d[0] = vd[0][0];
         d[1] = vd[0][1];
         }"""
-        op2.par_loop(op2.Kernel(k, 'k'), node2,
+        op2.par_loop(op2.Kernel(k, 'k'), node,
                      d2(op2.IdentityMap, op2.WRITE),
-                     vd2(node2ele2, op2.READ))
+                     vd2(node2ele, op2.READ))
         assert all(d2.data[::2, 0] == vd2.data[:, 0])
         assert all(d2.data[::2, 1] == vd2.data[:, 1])
         assert all(d2.data[1::2, 0] == vd2.data[:, 0])
         assert all(d2.data[1::2, 1] == vd2.data[:, 1])
 
-    def test_write_2d_vector_map(self, backend, node2, vd2, node2ele2):
+    def test_write_2d_vector_map(self, backend, node, vd2, node2ele):
         k = """
         void k(int *vd[2]) {
         vd[0][0] = 2;
@@ -199,12 +206,12 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
         }
         """
 
-        op2.par_loop(op2.Kernel(k, 'k'), node2,
-                     vd2(node2ele2, op2.WRITE))
+        op2.par_loop(op2.Kernel(k, 'k'), node,
+                     vd2(node2ele, op2.WRITE))
         assert all(vd2.data[:, 0] == 2)
         assert all(vd2.data[:, 1] == 3)
 
-    def test_inc_2d_vector_map(self, backend, node2, d2, vd2, node2ele2):
+    def test_inc_2d_vector_map(self, backend, node, d2, vd2, node2ele):
         vd2.data[:, 0] = 3
         vd2.data[:, 1] = 4
         d2.data[:] = numpy.arange(2 * nnodes).reshape(d2.data.shape)
@@ -214,9 +221,9 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
         vd[0][0] += d[0];
         vd[0][1] += d[1];
         }"""
-        op2.par_loop(op2.Kernel(k, 'k'), node2,
+        op2.par_loop(op2.Kernel(k, 'k'), node,
                      d2(op2.IdentityMap, op2.READ),
-                     vd2(node2ele2, op2.INC))
+                     vd2(node2ele, op2.INC))
 
         expected = numpy.zeros_like(vd2.data)
         expected[:, 0] = 3

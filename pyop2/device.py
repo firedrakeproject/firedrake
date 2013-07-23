@@ -240,7 +240,7 @@ class Global(DeviceDataMixin, base.Global):
 
 class Map(base.Map):
 
-    def __init__(self, iterset, dataset, dim, values=None, name=None):
+    def __init__(self, iterset, dataset, arity, values=None, name=None):
         # The base.Map base class allows not passing values. We do not allow
         # that on the device, but want to keep the API consistent. So if the
         # user doesn't pass values, we fail with MapValueError rather than
@@ -248,7 +248,7 @@ class Map(base.Map):
         # additional parameters
         if values is None:
             raise MapValueError("Map values must be populated.")
-        base.Map.__init__(self, iterset, dataset, dim, values, name)
+        base.Map.__init__(self, iterset, dataset, arity, values, name)
 
     def _to_device(self):
         raise RuntimeError("Abstract device class can't do this")
@@ -351,7 +351,7 @@ def compare_plans(kernel, iset, *args, **kwargs):
     fargs = list()
     for arg in args:
         if arg._is_vec_map:
-            for i in range(arg.map.dim):
+            for i in range(arg.map.arity):
                 fargs.append(arg.data(arg.map[i], arg.access))
         elif arg._is_mat:
             fargs.append(arg)
@@ -406,7 +406,7 @@ class ParLoop(base.ParLoop):
         c = 0
         for arg in self._actual_args:
             if arg._is_vec_map:
-                for i in range(arg.map.dim):
+                for i in range(arg.map.arity):
                     self.__unwound_args.append(arg.data(arg.map[i],
                                                         arg.access))
             elif arg._is_mat:
@@ -424,7 +424,7 @@ class ParLoop(base.ParLoop):
                     # Needed for indexing into ind_map/loc_map
                     arg._which_indirect = c
                     if arg._is_vec_map:
-                        c += arg.map.dim
+                        c += arg.map.arity
                     elif arg._uses_itspace:
                         c += self._it_space.extents[arg.idx.index]
                     else:

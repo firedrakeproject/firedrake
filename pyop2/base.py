@@ -322,7 +322,7 @@ class Set(object):
 
     @validate_type(('size', (int, tuple, list), SizeTypeError),
                    ('name', str, NameTypeError))
-    def __init__(self, size=None, dim=1, name=None, halo=None, layers=None):
+    def __init__(self, size=None, name=None, halo=None, layers=None):
         if type(size) is int:
             size = [size] * 4
         size = as_tuple(size, int, 4)
@@ -333,8 +333,6 @@ class Set(object):
         self._size = size[Set.OWNED_SIZE]
         self._ieh_size = size[Set.IMPORT_EXEC_SIZE]
         self._inh_size = size[Set.IMPORT_NON_EXEC_SIZE]
-        self._dim = as_tuple(dim, int)
-        self._cdim = np.asscalar(np.prod(self._dim))
         self._name = name or "set_%d" % Set._globalcount
         self._lib_handle = None
         self._halo = halo
@@ -377,17 +375,6 @@ class Set(object):
         return self._core_size, self._size, self._ieh_size, self._inh_size
 
     @property
-    def dim(self):
-        """The shape tuple of the values for each element of the set."""
-        return self._dim
-
-    @property
-    def cdim(self):
-        """The scalar number of values for each member of the set. This is
-        the product of the dim tuple."""
-        return self._cdim
-
-    @property
     def name(self):
         """User-defined label"""
         return self._name
@@ -413,26 +400,95 @@ class Set(object):
         self._partition_size = partition_value
 
     def __str__(self):
-        return "OP2 Set: %s with size %s, dim %s" % (self._name, self._size, self._dim)
+        return "OP2 Set: %s with size %s" % (self._name, self._size)
 
     def __repr__(self):
-        return "Set(%r, %r, %r)" % (self._size, self._dim, self._name)
+        return "Set(%r, %r)" % (self._size, self._name)
+
+    def __contains__(self, dset):
+        """Indicate whether a given DataSet is compatible with this Set."""
+        return dset.set is self
 
     @classmethod
-    def fromhdf5(cls, f, name, dim=1):
+    def fromhdf5(cls, f, name):
         """Construct a :class:`Set` from set named ``name`` in HDF5 data ``f``"""
         slot = f[name]
         if slot.shape != (1,):
             raise SizeTypeError("Shape of %s is incorrect" % name)
         size = slot.value.astype(np.int)
-        dim = slot.attrs.get('dim', dim)
-        return cls(size[0], dim, name)
+        return cls(size[0], name)
 
     @property
     def _c_handle(self):
         if self._lib_handle is None:
             self._lib_handle = core.op_set(self)
         return self._lib_handle
+
+
+class DataSet(object):
+    """PyOP2 Data Set
+
+    Set used in the op2.Dat structures to specify the dimension of the data.
+    """
+    _globalcount = 0
+
+    @validate_type(('iter_set', Set, SetTypeError),
+                   ('dim', (int, tuple, list), DimTypeError),
+                   ('name', str, NameTypeError))
+    def __init__(self, iter_set, dim=1, name=None):
+        self._set = iter_set
+        self._dim = as_tuple(dim, int)
+        self._cdim = np.asscalar(np.prod(self._dim))
+        self._name = name or "dset_%d" % DataSet._globalcount
+        DataSet._globalcount += 1
+
+    def __getstate__(self):
+        """Extract state to pickle."""
+        return self.__dict__
+
+    def __setstate__(self, d):
+        """Restore from pickled state."""
+        self.__dict__.update(d)
+
+    # Look up any unspecified attributes on the _set.
+    def __getattr__(self, name):
+        """Returns a Set specific attribute."""
+        return getattr(self._set, name)
+
+    @property
+    def dim(self):
+        """The shape tuple of the values for each element of the set."""
+        return self._dim
+
+    @property
+    def cdim(self):
+        """The scalar number of values for each member of the set. This is
+        the product of the dim tuple."""
+        return self._cdim
+
+    @property
+    def name(self):
+        """Returns the name of the data set."""
+        return self._name
+
+    @property
+    def set(self):
+        """Returns the parent set of the data set."""
+        return self._set
+
+    def __eq__(self, other):
+        return self.set == other.set and self.dim == other.dim
+
+    def __str__(self):
+        return "OP2 DataSet: %s on set %s, with dim %s" % \
+            (self._name, self._set, self._dim)
+
+    def __repr__(self):
+        return "DataSet(%r, %r, %r)" % (self._set, self._dim, self._name)
+
+    def __contains__(self, dat):
+        """Indicate whether a given Dat is compatible with this DataSet."""
+        return dat.dataset == self
 
 
 class Halo(object):
@@ -691,7 +747,7 @@ class Dat(DataCarrier):
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
 
-    @validate_type(('dataset', Set, SetTypeError), ('name', str, NameTypeError))
+    @validate_type(('dataset', DataSet, DataSetTypeError), ('name', str, NameTypeError))
     def __init__(self, dataset, data=None, dtype=None, name=None,
                  soa=None, uid=None):
         if data is None:
@@ -722,8 +778,8 @@ class Dat(DataCarrier):
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, path, access):
         if isinstance(path, Map):
-            if path._dataset != self._dataset and path != IdentityMap:
-                raise MapValueError("Dataset of Map does not match Dataset of Dat.")
+            if path._toset != self._dataset.set and path != IdentityMap:
+                raise MapValueError("To Set of Map does not match Set of Dat.")
             return _make_object('Arg', data=self, map=path, access=access)
         else:
             path._dat = self
@@ -732,7 +788,7 @@ class Dat(DataCarrier):
 
     @property
     def dataset(self):
-        """:class:`Set` on which the Dat is defined."""
+        """:class:`DataSet` on which the Dat is defined."""
         return self._dataset
 
     @property
@@ -786,7 +842,7 @@ class Dat(DataCarrier):
                 }
             }""" % {'t': self.ctype, 'dim': self.cdim}
             self._zero_kernel = _make_object('Kernel', k, 'zero')
-        _make_object('ParLoop', self._zero_kernel, self.dataset,
+        _make_object('ParLoop', self._zero_kernel, self.dataset.set,
                      self(IdentityMap, WRITE)).compute()
 
     def __str__(self):
@@ -1082,12 +1138,12 @@ class Map(object):
 
     """OP2 map, a relation between two :class:`Set` objects.
 
-    Each entry in the ``iterset`` maps to ``dim`` entries in the
-    ``dataset``. When a map is used in a :func:`par_loop`,
-    it is possible to use Python index notation to select an
-    individual entry on the right hand side of this map. There are three possibilities:
+    Each entry in the ``iterset`` maps to ``arity`` entries in the
+    ``toset``. When a map is used in a :func:`par_loop`, it is possible to
+    use Python index notation to select an individual entry on the right hand
+    side of this map. There are three possibilities:
 
-    * No index. All ``dim`` :class:`Dat` entries will be passed to the
+    * No index. All ``arity`` :class:`Dat` entries will be passed to the
       kernel.
     * An integer: ``some_map[n]``. The ``n`` th entry of the
       map result will be passed to the kernel.
@@ -1099,13 +1155,13 @@ class Map(object):
 
     _globalcount = 0
 
-    @validate_type(('iterset', Set, SetTypeError), ('dataset', Set, SetTypeError),
-                  ('dim', int, DimTypeError), ('name', str, NameTypeError))
-    def __init__(self, iterset, dataset, dim, values=None, name=None, offset=None):
+    @validate_type(('iterset', Set, SetTypeError), ('toset', Set, SetTypeError),
+                  ('arity', int, ArityTypeError), ('name', str, NameTypeError))
+    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None):
         self._iterset = iterset
-        self._dataset = dataset
-        self._dim = dim
-        self._values = verify_reshape(values, np.int32, (iterset.total_size, dim),
+        self._toset = toset
+        self._arity = arity
+        self._values = verify_reshape(values, np.int32, (iterset.total_size, arity),
                                       allow_none=True)
         self._name = name or "map_%d" % Map._globalcount
         self._lib_handle = None
@@ -1114,8 +1170,8 @@ class Map(object):
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
     def __getitem__(self, index):
-        if isinstance(index, int) and not (0 <= index < self._dim):
-            raise IndexValueError("Index must be in interval [0,%d]" % (self._dim - 1))
+        if isinstance(index, int) and not (0 <= index < self._arity):
+            raise IndexValueError("Index must be in interval [0,%d]" % (self._arity - 1))
         if isinstance(index, IterationIndex) and index.index not in [0, 1]:
             raise IndexValueError("IterationIndex must be in interval [0,1]")
         return _make_object('Arg', map=self, idx=index)
@@ -1135,15 +1191,15 @@ class Map(object):
         return self._iterset
 
     @property
-    def dataset(self):
+    def toset(self):
         """:class:`Set` mapped to."""
-        return self._dataset
+        return self._toset
 
     @property
-    def dim(self):
-        """Dimension of the mapping: number of dataset elements mapped to per
+    def arity(self):
+        """Arity of the mapping: number of toset elements mapped to per
         iterset element."""
-        return self._dim
+        return self._arity
 
     @property
     def values(self):
@@ -1161,17 +1217,17 @@ class Map(object):
         return self._offset
 
     def __str__(self):
-        return "OP2 Map: %s from (%s) to (%s) with dim %s" \
-               % (self._name, self._iterset, self._dataset, self._dim)
+        return "OP2 Map: %s from (%s) to (%s) with arity %s" \
+               % (self._name, self._iterset, self._toset, self._arity)
 
     def __repr__(self):
         return "Map(%r, %r, %r, None, %r)" \
-               % (self._iterset, self._dataset, self._dim, self._name)
+               % (self._iterset, self._toset, self._arity, self._name)
 
     def __eq__(self, o):
         try:
-            return (self._iterset == o._iterset and self._dataset == o._dataset and
-                    self._dim == o.dim and self._name == o.name)
+            return (self._iterset == o._iterset and self._toset == o._toset and
+                    self._arity == o.arity and self._name == o.name)
         except AttributeError:
             return False
 
@@ -1185,14 +1241,14 @@ class Map(object):
         return self._lib_handle
 
     @classmethod
-    def fromhdf5(cls, iterset, dataset, f, name):
+    def fromhdf5(cls, iterset, toset, f, name):
         """Construct a :class:`Map` from set named ``name`` in HDF5 data ``f``"""
         slot = f[name]
         values = slot.value
-        dim = slot.shape[1:]
-        if len(dim) != 1:
-            raise DimTypeError("Unrecognised dimension value %s" % dim)
-        return cls(iterset, dataset, dim[0], values, name)
+        arity = slot.shape[1:]
+        if len(arity) != 1:
+            raise ArityTypeError("Unrecognised arity value %s" % arity)
+        return cls(iterset, toset, arity[0], values, name)
 
 IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 """The identity map.  Used to indicate direct access to a :class:`Dat`."""
@@ -1221,16 +1277,26 @@ class Sparsity(Cached):
     _globalcount = 0
 
     @classmethod
-    @validate_type(('maps', (Map, tuple), MapTypeError),)
-    def _process_args(cls, maps, name=None, *args, **kwargs):
+    @validate_type(('dsets', (DataSet, tuple), DataSetTypeError),
+                   ('maps', (Map, tuple), MapTypeError),)
+    def _process_args(cls, dsets, maps, name=None, *args, **kwargs):
         "Turn maps argument into a canonical tuple of pairs."
 
         assert not name or isinstance(name, str), "Name must be of type str"
+
+        # A single data set becomes a pair of identical data sets
+        dsets = (dsets, dsets) if isinstance(dsets, DataSet) else dsets
+
+        # Check data sets are valid
+        for dset in dsets:
+            if not isinstance(dset, DataSet):
+                raise DataSetTypeError("All data sets must be of type DataSet, not type %r" % type(dset))
 
         # A single map becomes a pair of identical maps
         maps = (maps, maps) if isinstance(maps, Map) else maps
         # A single pair becomes a tuple of one pair
         maps = (maps,) if isinstance(maps[0], Map) else maps
+
         # Check maps are sane
         for pair in maps:
             for m in pair:
@@ -1241,21 +1307,30 @@ class Sparsity(Cached):
                     raise MapValueError(
                         "Unpopulated map values when trying to build sparsity.")
         # Need to return a list of args and dict of kwargs (empty in this case)
-        return [tuple(sorted(maps)), name], {}
+        return [tuple(dsets), tuple(sorted(maps)), name], {}
 
     @classmethod
-    def _cache_key(cls, maps, *args, **kwargs):
-        return maps
+    def _cache_key(cls, dsets, maps, *args, **kwargs):
+        return (dsets, maps)
 
-    def __init__(self, maps, name=None):
+    def __init__(self, dsets, maps, name=None):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
 
+        self._dsets = dsets
+
         assert len(self._rmaps) == len(self._cmaps), \
             "Must pass equal number of row and column maps"
+
+        # Make sure that the "to" Set of each map in a pair is the set of the
+        # corresponding DataSet set
+        for pair in maps:
+            if pair[0].toset is not dsets[0].set or \
+               pair[1].toset is not dsets[1].set:
+                raise RuntimeError("Map to set must be the same as corresponding DataSet set")
 
         # Each pair of maps must have the same from-set (iteration set)
         for pair in maps:
@@ -1263,17 +1338,17 @@ class Sparsity(Cached):
                 raise RuntimeError("Iterset of both maps in a pair must be the same")
 
         # Each row map must have the same to-set (data set)
-        if not all(m.dataset is self._rmaps[0].dataset for m in self._rmaps):
-            raise RuntimeError("Dataset of all row maps must be the same")
+        if not all(m.toset is self._rmaps[0].toset for m in self._rmaps):
+            raise RuntimeError("To set of all row maps must be the same")
 
         # Each column map must have the same to-set (data set)
-        if not all(m.dataset is self._cmaps[0].dataset for m in self._cmaps):
-            raise RuntimeError("Dataset of all column maps must be the same")
+        if not all(m.toset is self._cmaps[0].toset for m in self._cmaps):
+            raise RuntimeError("To set of all column maps must be the same")
 
         # All rmaps and cmaps have the same data set - just use the first.
-        self._nrows = self._rmaps[0].dataset.size
-        self._ncols = self._cmaps[0].dataset.size
-        self._dims = (self._rmaps[0].dataset.cdim, self._cmaps[0].dataset.cdim)
+        self._nrows = self._rmaps[0].toset.size
+        self._ncols = self._cmaps[0].toset.size
+        self._dims = (self._dsets[0].cdim, self._dsets[1].cdim)
 
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         self._lib_handle = None
@@ -1286,13 +1361,18 @@ class Sparsity(Cached):
         return len(self._rmaps)
 
     @property
+    def dsets(self):
+        """A pair of DataSets."""
+        return self._dsets
+
+    @property
     def maps(self):
         """A list of pairs (rmap, cmap) where each pair of
         :class:`Map` objects will later be used to assemble into this
         matrix. The iterset of each of the maps in a pair must be the
-        same, while the dataset of all the maps which appear first
+        same, while the toset of all the maps which appear first
         must be common, this will form the row :class:`Set` of the
-        sparsity. Similarly, the dataset of all the maps which appear
+        sparsity. Similarly, the toset of all the maps which appear
         second must be common and will form the column :class:`Set` of
         the ``Sparsity``."""
         return zip(self._rmaps, self._cmaps)
@@ -1330,11 +1410,11 @@ class Sparsity(Cached):
         return self._name
 
     def __str__(self):
-        return "OP2 Sparsity: rmaps %s, cmaps %s, name %s" % \
-               (self._rmaps, self._cmaps, self._name)
+        return "OP2 Sparsity: dsets %s, rmaps %s, cmaps %s, name %s" % \
+               (self._dsets, self._rmaps, self._cmaps, self._name)
 
     def __repr__(self):
-        return "Sparsity(%r, %r)" % (tuple(self.maps), self.name)
+        return "Sparsity(%r, %r, %r)" % (self.dsets, self.maps, self.name)
 
     def __del__(self):
         core.free_sparsity(self)
@@ -1532,16 +1612,16 @@ class JITModule(Cached):
                 else:
                     idx = arg.idx
                 if arg.map is IdentityMap:
-                    map_dim = None
+                    map_arity = None
                 else:
-                    map_dim = arg.map.dim
-                key += (arg.data.dim, arg.data.dtype, map_dim, idx, arg.access)
+                    map_arity = arg.map.arity
+                key += (arg.data.dim, arg.data.dtype, map_arity, idx, arg.access)
             elif arg._is_mat:
                 idxs = (arg.idx[0].__class__, arg.idx[0].index,
                         arg.idx[1].index)
-                map_dims = (arg.map[0].dim, arg.map[1].dim)
+                map_arities = (arg.map[0].arity, arg.map[1].arity)
                 key += (arg.data.dims, arg.data.dtype, idxs,
-                        map_dims, arg.access)
+                        map_arities, arg.access)
 
         # The currently defined Consts need to be part of the cache key, since
         # these need to be uploaded to the device before launching the kernel
@@ -1614,8 +1694,8 @@ class ParLoop(object):
 
         1. That the iteration set of the :class:`ParLoop` matches the iteration
            set of all its arguments.
-        2. For each argument, check that the dataset of the map used to access
-           it matches the dataset it is defined on.
+        2. For each argument, check that the to Set of the map used to access
+           it matches the Set it is defined on.
 
         A :class:`MapValueError` is raised if these conditions are not met."""
         iterset = self._it_space._iterset
@@ -1629,9 +1709,9 @@ class ParLoop(object):
                 else:
                     if arg._is_mat:
                         continue
-                    if m._dataset != arg.data._dataset:
+                    if m._toset != arg.data._dataset.set:
                         raise MapValueError(
-                            "Dataset of arg %s map %s doesn't match the set of its Dat." %
+                            "To set of arg %s map %s doesn't match the set of its Dat." %
                             (i, j))
 
     def generate_code(self):

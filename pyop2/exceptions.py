@@ -44,6 +44,11 @@ class DimTypeError(TypeError):
     """Invalid type for dimension."""
 
 
+class ArityTypeError(TypeError):
+
+    """Invalid type for arity."""
+
+
 class IndexTypeError(TypeError):
 
     """Invalid type for index."""
@@ -72,6 +77,10 @@ class SparsityTypeError(TypeError):
 class MapTypeError(TypeError):
 
     """Invalid type for map."""
+
+
+class DataSetTypeError(TypeError):
+    """Invalid type for data set."""
 
 
 class MatTypeError(TypeError):

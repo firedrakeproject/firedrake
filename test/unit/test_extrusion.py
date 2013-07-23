@@ -97,17 +97,27 @@ elems2elems = elems2elems.reshape(nelems, 1)
 
 @pytest.fixture
 def iterset():
-    return op2.Set(nelems, 1, "iterset")
+    return op2.Set(nelems, "iterset")
 
 
 @pytest.fixture
 def indset():
-    return op2.Set(nelems, 1, "indset")
+    return op2.Set(nelems, "indset")
 
 
 @pytest.fixture
-def x(indset):
-    return op2.Dat(indset, range(nelems), numpy.uint32, "x")
+def diterset(iterset):
+    return op2.DataSet(iterset, 1, "diterset")
+
+
+@pytest.fixture
+def dindset(indset):
+    return op2.DataSet(indset, 1, "dindset")
+
+
+@pytest.fixture
+def x(dindset):
+    return op2.Dat(dindset, range(nelems), numpy.uint32, "x")
 
 
 @pytest.fixture
@@ -119,36 +129,51 @@ def iterset2indset(iterset, indset):
 
 @pytest.fixture
 def elements():
-    return op2.Set(nelems, 1, "elems", layers=layers)
+    return op2.Set(nelems, "elems", layers=layers)
 
 
 @pytest.fixture
 def node_set1():
-    return op2.Set(nnodes * layers, 1, "nodes1")
-
-
-@pytest.fixture
-def node_set2():
-    return op2.Set(nnodes * layers, 2, "nodes2")
+    return op2.Set(nnodes * layers, "nodes1")
 
 
 @pytest.fixture
 def edge_set1():
-    return op2.Set(nedges * layers, 1, "edges1")
+    return op2.Set(nedges * layers, "edges1")
 
 
 @pytest.fixture
 def elem_set1():
-    return op2.Set(nelems * wedges, 1, "elems1")
+    return op2.Set(nelems * wedges, "elems1")
 
 
 @pytest.fixture
-def elems_set2():
-    return op2.Set(nelems * wedges, 2, "elems2")
+def dnode_set1(node_set1):
+    return op2.DataSet(node_set1, 1, "dnodes1")
 
 
 @pytest.fixture
-def dat_coords(node_set2):
+def dnode_set2(node_set1):
+    return op2.DataSet(node_set1, 2, "dnodes2")
+
+
+@pytest.fixture
+def dedge_set1(edge_set1):
+    return op2.DataSet(edge_set1, 1, "dedges1")
+
+
+@pytest.fixture
+def delem_set1(elem_set1):
+    return op2.DataSet(elem_set1, 1, "delems1")
+
+
+@pytest.fixture
+def delems_set2(elem_set1):
+    return op2.DataSet(elem_set1, 2, "delems2")
+
+
+@pytest.fixture
+def dat_coords(dnode_set2):
     coords_size = nums[0] * layers * 2
     coords_dat = numpy.zeros(coords_size)
     count = 0
@@ -156,19 +181,19 @@ def dat_coords(node_set2):
         coords_dat[count:count + layers * dofs[0][0]] = numpy.tile(
             [(k / 2), k % 2], layers)
         count += layers * dofs[0][0]
-    return op2.Dat(node_set2, coords_dat, numpy.float64, "coords")
+    return op2.Dat(dnode_set2, coords_dat, numpy.float64, "coords")
 
 
 @pytest.fixture
-def dat_field(elem_set1):
+def dat_field(delem_set1):
     field_size = nums[2] * wedges * 1
     field_dat = numpy.zeros(field_size)
     field_dat[:] = 1.0
-    return op2.Dat(elem_set1, field_dat, numpy.float64, "field")
+    return op2.Dat(delem_set1, field_dat, numpy.float64, "field")
 
 
 @pytest.fixture
-def dat_c(node_set2):
+def dat_c(dnode_set2):
     coords_size = nums[0] * layers * 2
     coords_dat = numpy.zeros(coords_size)
     count = 0
@@ -176,23 +201,23 @@ def dat_c(node_set2):
         coords_dat[count:count + layers *
                    dofs[0][0]] = numpy.tile([0, 0], layers)
         count += layers * dofs[0][0]
-    return op2.Dat(node_set2, coords_dat, numpy.float64, "c")
+    return op2.Dat(dnode_set2, coords_dat, numpy.float64, "c")
 
 
 @pytest.fixture
-def dat_f(elem_set1):
+def dat_f(delem_set1):
     field_size = nums[2] * wedges * 1
     field_dat = numpy.zeros(field_size)
     field_dat[:] = -1.0
-    return op2.Dat(elem_set1, field_dat, numpy.float64, "f")
+    return op2.Dat(delem_set1, field_dat, numpy.float64, "f")
 
 
 @pytest.fixture
-def coords_map(elements, node_set2):
+def coords_map(elements, node_set1):
     lsize = nums[2] * map_dofs_coords
     ind_coords = compute_ind_extr(
         nums, map_dofs_coords, nelems, layers, mesh2d, dofs_coords, A, wedges, elems2nodes, lsize)
-    return op2.Map(elements, node_set2, map_dofs_coords, ind_coords, "elem_dofs", off1)
+    return op2.Map(elements, node_set1, map_dofs_coords, ind_coords, "elem_dofs", off1)
 
 
 @pytest.fixture
@@ -206,7 +231,7 @@ def field_map(elements, elem_set1):
 class TestExtrusion:
 
     """
-    Indirect Loop Tests
+    Extruded Mesh Tests
     """
 
     def test_extrusion(self, backend, elements, dat_coords, dat_field, coords_map, field_map):

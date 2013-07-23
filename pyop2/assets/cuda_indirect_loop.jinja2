@@ -41,7 +41,7 @@ __global__ void {{ parloop._stub_name }} (
     {%- endfor %}
 
     {%- for arg in parloop._all_inc_vec_like_args %}
-    {% for i in range(arg.map.dim) %}
+    {% for i in range(arg.map.arity) %}
     {{arg.ctype}} {{arg._local_name(idx=i)}}[{{arg.data.cdim}}];
     {%- endfor %}
     {%- endfor %}
@@ -51,9 +51,9 @@ __global__ void {{ parloop._stub_name }} (
     {% endfor %}
 
     {%- for arg in parloop._all_inc_vec_like_args %}
-    {{arg.ctype}} *{{arg._vec_name}}[{{arg.map.dim}}] = {
+    {{arg.ctype}} *{{arg._vec_name}}[{{arg.map.arity}}] = {
         {%- set comma = joiner(", ") -%}
-        {%- for i in range(arg.map.dim) %}
+        {%- for i in range(arg.map.arity) %}
         {{- comma() }}
         {{ arg._local_name(idx=i) }}
         {%- endfor %}
@@ -61,7 +61,7 @@ __global__ void {{ parloop._stub_name }} (
     {%- endfor %}
 
     {%- for arg in parloop._all_non_inc_vec_map_args %}
-    {{arg.ctype}} *{{arg._vec_name}}[{{arg.map.dim}}];
+    {{arg.ctype}} *{{arg._vec_name}}[{{arg.map.arity}}];
     {%- endfor %}
 
     {% for arg in parloop._all_global_reduction_args %}
@@ -128,7 +128,7 @@ __global__ void {{ parloop._stub_name }} (
         if ( idx < nelem ) {
         {%- endif %}
             {%- for arg in parloop._all_non_inc_vec_map_args %}
-            {%- for i in range(arg.map.dim) %}
+            {%- for i in range(arg.map.arity) %}
             {{arg._vec_name}}[{{i}}] = {{arg._shared_name}} + loc_map[{{arg._which_indirect + i}}*set_size + idx + offset_b]*{{arg.data.cdim}};
             {%- endfor -%}
             {%- endfor %}
@@ -141,7 +141,7 @@ __global__ void {{ parloop._stub_name }} (
 
             {% for arg in parloop._all_inc_vec_like_args %}
             for ( int idx2 = 0; idx2 < {{arg.data.cdim}}; ++idx2 ) {
-                {%- for i in range(arg.map.dim) %}
+                {%- for i in range(arg.map.arity) %}
                 {{arg._local_name(idx=i)}}[idx2] = ({{arg.ctype}})0;
                 {%- endfor %}
             }
@@ -177,7 +177,7 @@ __global__ void {{ parloop._stub_name }} (
                 {%- endfor %}
                 {%- for arg in parloop._all_inc_vec_like_args %}
                 for ( int idx2 = 0; idx2 < {{arg.data.cdim}}; ++idx2) {
-                    {%- for i in range(arg.map.dim) %}
+                    {%- for i in range(arg.map.arity) %}
                     {%- set tmp = 'loc_map[' ~ (arg._which_indirect + i) ~ ' * set_size + idx + offset_b]' %}
                     {{arg._shared_name}}[idx2 + {{tmp}} * {{arg.data.cdim}}] += {{arg._local_name(idx=i)}}[idx2];
                     {%- endfor %}

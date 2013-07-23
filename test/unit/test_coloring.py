@@ -59,11 +59,15 @@ class TestColoring:
 
     @pytest.fixture
     def nodes(cls):
-        return op2.Set(NUM_NODES, 1, "nodes")
+        return op2.Set(NUM_NODES, "nodes")
 
     @pytest.fixture
     def elements(cls):
-        return op2.Set(NUM_ELE, 1, "elements")
+        return op2.Set(NUM_ELE, "elements")
+
+    @pytest.fixture
+    def dnodes(cls, nodes):
+        return op2.DataSet(nodes, 1, "dnodes")
 
     @pytest.fixture
     def elem_node_map(cls):
@@ -75,13 +79,13 @@ class TestColoring:
         return op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 
     @pytest.fixture
-    def mat(cls, elem_node):
-        sparsity = op2.Sparsity((elem_node, elem_node), "sparsity")
+    def mat(cls, elem_node, dnodes):
+        sparsity = op2.Sparsity((dnodes, dnodes), (elem_node, elem_node), "sparsity")
         return op2.Mat(sparsity, valuetype, "mat")
 
     @pytest.fixture
-    def x(cls, nodes):
-        return op2.Dat(nodes, numpy.zeros(NUM_NODES, dtype=numpy.uint32), numpy.uint32, "x")
+    def x(cls, dnodes):
+        return op2.Dat(dnodes, numpy.zeros(NUM_NODES, dtype=numpy.uint32), numpy.uint32, "x")
 
     def test_thread_coloring(self, backend, elements, elem_node_map, elem_node, mat, x):
         # skip test:

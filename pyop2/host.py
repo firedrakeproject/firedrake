@@ -71,10 +71,10 @@ class Arg(base.Arg):
     def c_vec_dec(self):
         val = []
         if self._is_vec_map:
-            val.append(";\n%(type)s *%(vec_name)s[%(dim)s]" %
+            val.append(";\n%(type)s *%(vec_name)s[%(arity)s]" %
                        {'type': self.ctype,
                         'vec_name': self.c_vec_name(),
-                        'dim': self.map.dim,
+                        'arity': self.map.arity,
                         'max_threads': _max_threads})
         return ";\n".join(val)
 
@@ -96,10 +96,10 @@ class Arg(base.Arg):
         return val
 
     def c_ind_data(self, idx):
-        return "%(name)s + %(map_name)s[i * %(map_dim)s + %(idx)s] * %(dim)s" % \
+        return "%(name)s + %(map_name)s[i * %(arity)s + %(idx)s] * %(dim)s" % \
             {'name': self.c_arg_name(),
              'map_name': self.c_map_name(),
-             'map_dim': self.map.dim,
+             'arity': self.map.arity,
              'idx': idx,
              'dim': self.data.cdim}
 
@@ -142,7 +142,7 @@ class Arg(base.Arg):
 
     def c_vec_init(self):
         val = []
-        for i in range(self.map._dim):
+        for i in range(self.map.arity):
             val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                        {'vec_name': self.c_vec_name(),
                         'idx': i,
@@ -151,8 +151,8 @@ class Arg(base.Arg):
 
     def c_addto_scalar_field(self):
         maps = as_tuple(self.map, Map)
-        nrows = maps[0].dim
-        ncols = maps[1].dim
+        nrows = maps[0].arity
+        ncols = maps[1].arity
 
         return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
             {'mat': self.c_arg_name(),
@@ -165,8 +165,8 @@ class Arg(base.Arg):
 
     def c_addto_vector_field(self):
         maps = as_tuple(self.map, Map)
-        nrows = maps[0].dim
-        ncols = maps[1].dim
+        nrows = maps[0].arity
+        ncols = maps[1].arity
         dims = self.data.sparsity.dims
         rmult = dims[0]
         cmult = dims[1]

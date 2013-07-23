@@ -44,9 +44,14 @@ def set():
     return op2.Set(size)
 
 
+@pytest.fixture(scope='module')
+def dset(set):
+    return op2.DataSet(set, 1)
+
+
 @pytest.fixture
-def dat(set):
-    return op2.Dat(set, numpy.zeros(size, dtype=numpy.int32))
+def dat(dset):
+    return op2.Dat(dset, numpy.zeros(size, dtype=numpy.int32))
 
 
 class TestConstant:

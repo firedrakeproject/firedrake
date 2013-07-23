@@ -43,12 +43,17 @@ nelems = 4096
 
 @pytest.fixture
 def elems():
-    return op2.Set(nelems, 1, "elems")
+    return op2.Set(nelems, "elems")
 
 
 @pytest.fixture
-def elems2():
-    return op2.Set(nelems, 2, "elems2")
+def delems(elems):
+    return op2.DataSet(elems, 1, "delems")
+
+
+@pytest.fixture
+def delems2(elems):
+    return op2.DataSet(elems, 2, "delems2")
 
 
 def xarray():
@@ -62,12 +67,12 @@ class TestDirectLoop:
     """
 
     @pytest.fixture
-    def x(cls, elems):
-        return op2.Dat(elems, xarray(), numpy.uint32, "x")
+    def x(cls, delems):
+        return op2.Dat(delems, xarray(), numpy.uint32, "x")
 
     @pytest.fixture
-    def y(cls, elems2):
-        return op2.Dat(elems2, [xarray(), xarray()], numpy.uint32, "x")
+    def y(cls, delems2):
+        return op2.Dat(delems2, [xarray(), xarray()], numpy.uint32, "x")
 
     @pytest.fixture
     def g(cls):
@@ -78,8 +83,8 @@ class TestDirectLoop:
         return op2.Global(1, 1, numpy.uint32, "h")
 
     @pytest.fixture
-    def soa(cls, elems2):
-        return op2.Dat(elems2, [xarray(), xarray()], numpy.uint32, "x", soa=True)
+    def soa(cls, delems2):
+        return op2.Dat(delems2, [xarray(), xarray()], numpy.uint32, "x", soa=True)
 
     def test_wo(self, backend, elems, x):
         kernel_wo = """

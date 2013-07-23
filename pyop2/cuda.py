@@ -76,7 +76,7 @@ class Arg(op2.Arg):
             cmap = self.map[1]
             cidx = self.idx[1]
             esize = np.prod(self.data.dims)
-            size = esize * rmap.dim * cmap.dim
+            size = esize * rmap.arity * cmap.arity
             d = {'n': self._name,
                  'offset': self._lmaoffset_name,
                  'idx': idx,
@@ -85,7 +85,7 @@ class Arg(op2.Arg):
                  '0': ridx.index,
                  '1': cidx.index,
                  'lcdim': self.data.dims[1],
-                 'roff': cmap.dim * esize,
+                 'roff': cmap.arity * esize,
                  'coff': esize}
             # We walk through the lma-data in order of the
             # alphabet:
@@ -193,10 +193,9 @@ class Mat(DeviceDataMixin, op2.Mat):
     def _lmadata(self):
         if not hasattr(self, '__lmadata'):
             nentries = 0
-            # dense block of rmap.dim x cmap.dim for each rmap/cmap
-            # pair
+            # dense block of rmap.arity x cmap.arity for each rmap/cmap pair
             for rmap, cmap in self.sparsity.maps:
-                nentries += rmap.dim * cmap.dim
+                nentries += rmap.arity * cmap.arity
 
             entry_size = 0
             # all pairs of maps in the sparsity must have the same
@@ -213,12 +212,12 @@ class Mat(DeviceDataMixin, op2.Mat):
 
     def _lmaoffset(self, iterset):
         offset = 0
-        size = self.sparsity.maps[0][0].dataset.size
+        size = self.sparsity.maps[0][0].toset.size
         size *= np.asscalar(np.prod(self.dims))
         for rmap, cmap in self.sparsity.maps:
             if rmap.iterset is iterset:
                 break
-            offset += rmap.dim * cmap.dim
+            offset += rmap.arity * cmap.arity
         return offset * size
 
     @property
@@ -255,7 +254,7 @@ class Mat(DeviceDataMixin, op2.Mat):
         assert rowmap.iterset is colmap.iterset
         nelems = rowmap.iterset.size
         nthread = 128
-        nblock = (nelems * rowmap.dim * colmap.dim) / nthread + 1
+        nblock = (nelems * rowmap.arity * colmap.arity) / nthread + 1
 
         rowmap._to_device()
         colmap._to_device()
@@ -265,16 +264,16 @@ class Mat(DeviceDataMixin, op2.Mat):
                    self._rowptr.gpudata,
                    self._colidx.gpudata,
                    rowmap._device_values.gpudata,
-                   np.int32(rowmap.dim)]
+                   np.int32(rowmap.arity)]
         if self._is_scalar_field:
             arglist.extend([colmap._device_values.gpudata,
-                            np.int32(colmap.dim),
+                            np.int32(colmap.arity),
                             np.int32(nelems)])
             fun = sfun
         else:
             arglist.extend([np.int32(self.dims[0]),
                             colmap._device_values.gpudata,
-                            np.int32(colmap.dim),
+                            np.int32(colmap.arity),
                             np.int32(self.dims[1]),
                             np.int32(nelems)])
             fun = vfun
@@ -283,7 +282,7 @@ class Mat(DeviceDataMixin, op2.Mat):
 
     @property
     def values(self):
-        shape = self.sparsity.maps[0][0].dataset.size * self.dims[0]
+        shape = self.sparsity.maps[0][0].toset.size * self.dims[0]
         shape = (shape, shape)
         ret = np.zeros(shape=shape, dtype=self.dtype)
         csrdata = self._csrdata.get()
