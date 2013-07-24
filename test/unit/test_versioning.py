@@ -34,45 +34,54 @@
 import pytest
 import numpy
 import random
-from pyop2 import device
 from pyop2 import op2
+
 
 def _seed():
     return 0.02041724
 
 nelems = 8
 
+
 @pytest.fixture
 def iterset():
-    return op2.Set(nelems, 1, "iterset")
+    return op2.Set(nelems, "iterset")
+
 
 @pytest.fixture
 def indset():
-    return op2.Set(nelems, 1, "indset")
+    return op2.Set(nelems, "indset")
+
 
 @pytest.fixture
 def indset2():
-    return op2.Set(nelems, 2, "indset2")
+    return op2.Set(nelems, "indset2")**2
+
 
 @pytest.fixture
 def g():
     return op2.Global(1, 0, numpy.uint32, "g")
 
+
 @pytest.fixture
 def x(indset):
     return op2.Dat(indset, range(nelems), numpy.uint32, "x")
+
 
 @pytest.fixture
 def x2(indset2):
     return op2.Dat(indset2, range(nelems) * 2, numpy.uint32, "x2")
 
+
 @pytest.fixture
 def xl(indset):
     return op2.Dat(indset, range(nelems), numpy.uint64, "xl")
 
+
 @pytest.fixture
 def y(indset):
     return op2.Dat(indset, [0] * nelems, numpy.uint32, "y")
+
 
 @pytest.fixture
 def iter2ind1(iterset, indset):
@@ -80,11 +89,13 @@ def iter2ind1(iterset, indset):
     random.shuffle(u_map, _seed)
     return op2.Map(iterset, indset, 1, u_map, "iter2ind1")
 
+
 @pytest.fixture
 def iter2ind2(iterset, indset):
     u_map = numpy.array(range(nelems) * 2, dtype=numpy.uint32)
     random.shuffle(u_map, _seed)
     return op2.Map(iterset, indset, 2, u_map, "iter2ind2")
+
 
 @pytest.fixture
 def iter2ind22(iterset, indset2):
@@ -96,7 +107,7 @@ def iter2ind22(iterset, indset2):
 class TestVersioning:
     @pytest.fixture
     def mat(cls, iter2ind1):
-        sparsity = op2.Sparsity((iter2ind1, iter2ind1), "sparsity")
+        sparsity = op2.Sparsity(iter2ind1.toset, iter2ind1, "sparsity")
         return op2.Mat(sparsity, 'float64', "mat")
 
     def test_initial_version(self, backend, mat, g, x):
@@ -116,9 +127,9 @@ class TestVersioning:
         assert mat.vcache_get_version() == 0
 
     def test_version_after_zero(self, backend, mat):
-        mat.zero_rows([1], 1.0) # 2
-        mat.zero() # 0
-        mat.zero_rows([2], 1.0) # 3
+        mat.zero_rows([1], 1.0)  # 2
+        mat.zero()  # 0
+        mat.zero_rows([2], 1.0)  # 3
         assert mat.vcache_get_version() == 3
 
     def test_valid_snapshot(self, backend, x):
@@ -130,10 +141,11 @@ class TestVersioning:
         x += 1
         assert not s.is_valid()
 
+
 class TestCopyOnWrite:
     @pytest.fixture
     def mat(cls, iter2ind1):
-        sparsity = op2.Sparsity((iter2ind1, iter2ind1), "sparsity")
+        sparsity = op2.Sparsity(iter2ind1.toset, iter2ind1, "sparsity")
         return op2.Mat(sparsity, 'float64', "mat")
 
     def test_duplicate_mat(self, backend, mat):
@@ -164,9 +176,6 @@ class TestCopyOnWrite:
         mat_dup = mat.duplicate()
         mat_dup.zero_rows([0], 1.0)
         assert mat.handle is not mat_dup.handle
-
-class TestAssemblyCache:
-    pass
 
 
 if __name__ == '__main__':

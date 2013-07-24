@@ -44,7 +44,7 @@ from mpi import MPI, collective
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
 from ir.ast_plan import init_ir
-from caching import modifies_arguments
+from versioning import modifies_arguments
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',

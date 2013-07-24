@@ -42,7 +42,8 @@ import operator
 from hashlib import md5
 
 from configuration import configuration
-from caching import Cached, Versioned, modifies, CopyOnWrite, KernelCached
+from caching import Cached, KernelCached
+from versioning import Versioned, modifies, CopyOnWrite
 from exceptions import *
 from utils import *
 from backends import _make_object
