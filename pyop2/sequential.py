@@ -69,8 +69,8 @@ void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end,
     %(ind)s%(zero_tmps)s;
     %(ind)s%(kernel_name)s(%(kernel_args)s);
     %(ind)s%(addtos_vector_field)s;
-    %(ind)s%(addtos_scalar_field_extruded)s;
     %(itspace_loop_close)s
+    %(ind)s%(addtos_scalar_field_extruded)s;
     %(apply_offset_to_mat)s
     %(apply_offset)s
     %(extr_loop_close)s

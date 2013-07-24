@@ -65,11 +65,11 @@ partition_size = int(opt['partsize'])
 mass = op2.Kernel("""
 void comp_vol(double A[1], double *x[], double *y[])
 {
-  double abs = x[0][0]*(x[2][1]-x[4][1]) + x[2][0]*(x[4][1]-x[0][1])
+  double area = x[0][0]*(x[2][1]-x[4][1]) + x[2][0]*(x[4][1]-x[0][1])
                + x[4][0]*(x[0][1]-x[2][1]);
-  if (abs < 0)
-    abs = abs * (-1.0);
-  A[0]+=0.5*abs*0.1 * y[0][0];
+  if (area < 0)
+    area = area * (-1.0);
+  A[0]+=0.5*area*0.1 * y[0][0];
 }""", "comp_vol")
 
 

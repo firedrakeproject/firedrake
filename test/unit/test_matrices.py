@@ -848,6 +848,29 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps = 1.e-14
         assert_allclose(vecmat.values, expected_matrix, eps)
 
+    def Nottest_extruded_assemble_mat(self, backend, mass, xtr_mat, xtr_coords, xtr_elements,
+                                      xtr_elem_node, expected_matrix):
+        op2.par_loop(mass, xtr_elements(3, 3),
+                     xtr_mat((xtr_elem_node[op2.i[0]], xtr_elem_node[op2.i[1]]), op2.INC),
+                     xtr_coords(xtr_elem_node, op2.READ))
+        eps = 1.e-5
+        assert_allclose(xtr_mat.values, expected_matrix, eps)
+
+    def NOTtest_extruded_assemble_rhs(self, backend, rhs, elements, b, coords, f,
+                                      elem_node, expected_rhs):
+        op2.par_loop(rhs, elements,
+                     b(elem_node, op2.INC),
+                     coords(elem_node, op2.READ),
+                     f(elem_node, op2.READ))
+
+        eps = 1.e-12
+        assert_allclose(b.data, expected_rhs, eps)
+
+    def NOTtest_extruded_solve(self, backend, mat, b, x, f):
+        op2.solve(mat, x, b)
+        eps = 1.e-8
+        assert_allclose(x.data, f.data, eps)
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
