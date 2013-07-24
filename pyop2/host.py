@@ -498,7 +498,6 @@ class JITModule(base.JITModule):
                 'interm_globals_decl': indent(_intermediate_globals_decl, 3),
                 'interm_globals_init': indent(_intermediate_globals_init, 3),
                 'interm_globals_writeback': indent(_intermediate_globals_writeback, 3),
-                'vec_decs': indent(_vec_decs, 4),
                 'addtos_scalar_field_extruded': indent(_addtos_scalar_field_extruded, 2 + nloops),
                 'apply_offset_to_mat': indent(_apply_offset_to_mat, 2 + nloops),
                 'map_init': indent(_map_init, 5),
