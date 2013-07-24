@@ -409,6 +409,10 @@ class Set(object):
         """Indicate whether a given DataSet is compatible with this Set."""
         return dset.set is self
 
+    def __pow__(self, e):
+        """Derive a :class:`DataSet` with dimension ``e``"""
+        return DataSet(self, dim=e)
+
     @classmethod
     def fromhdf5(cls, f, name):
         """Construct a :class:`Set` from set named ``name`` in HDF5 data ``f``"""

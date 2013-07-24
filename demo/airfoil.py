@@ -60,17 +60,12 @@ def main(opt):
             pbevcell = op2.Map.fromhdf5(bedges, cells, f, "pbecell")
             pcell = op2.Map.fromhdf5(cells, nodes, f, "pcell")
 
-            dvnodes = op2.DataSet(nodes, 2)
-            dbedges = op2.DataSet(bedges, 1)
-            dcells = op2.DataSet(cells, 1)
-            dvcells = op2.DataSet(cells, 4)
-
-            p_bound = op2.Dat.fromhdf5(dbedges, f, "p_bound")
-            p_x = op2.Dat.fromhdf5(dvnodes, f, "p_x")
-            p_q = op2.Dat.fromhdf5(dvcells, f, "p_q")
-            p_qold = op2.Dat.fromhdf5(dvcells, f, "p_qold")
-            p_adt = op2.Dat.fromhdf5(dcells, f, "p_adt")
-            p_res = op2.Dat.fromhdf5(dvcells, f, "p_res")
+            p_bound = op2.Dat.fromhdf5(bedges ** 1, f, "p_bound")
+            p_x = op2.Dat.fromhdf5(nodes ** 2, f, "p_x")
+            p_q = op2.Dat.fromhdf5(cells ** 4, f, "p_q")
+            p_qold = op2.Dat.fromhdf5(cells ** 4, f, "p_qold")
+            p_adt = op2.Dat.fromhdf5(cells ** 1, f, "p_adt")
+            p_res = op2.Dat.fromhdf5(cells ** 4, f, "p_res")
 
             op2.Const.fromhdf5(f, "gam")
             op2.Const.fromhdf5(f, "gm1")

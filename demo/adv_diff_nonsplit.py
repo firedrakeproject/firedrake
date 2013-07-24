@@ -100,18 +100,17 @@ rhs, = compile_form(L, "rhs")
 valuetype = np.float64
 
 nodes, vnodes, coords, elements, elem_node = read_triangle(opt['mesh'])
-dnodes1 = op2.DataSet(nodes, 1)
 
 num_nodes = nodes.size
 
-sparsity = op2.Sparsity((dnodes1, dnodes1), (elem_node, elem_node), "sparsity")
+sparsity = op2.Sparsity((nodes ** 1, nodes ** 1), (elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 tracer_vals = np.zeros(num_nodes, dtype=valuetype)
-tracer = op2.Dat(dnodes1, tracer_vals, valuetype, "tracer")
+tracer = op2.Dat(nodes ** 1, tracer_vals, valuetype, "tracer")
 
 b_vals = np.zeros(num_nodes, dtype=valuetype)
-b = op2.Dat(dnodes1, b_vals, valuetype, "b")
+b = op2.Dat(nodes ** 1, b_vals, valuetype, "b")
 
 velocity_vals = np.asarray([1.0, 0.0] * num_nodes, dtype=valuetype)
 velocity = op2.Dat(vnodes, velocity_vals, valuetype, "velocity")
