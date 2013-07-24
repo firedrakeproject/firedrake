@@ -148,18 +148,24 @@ class Arg(base.Arg):
                         'data': self.c_ind_data(i)})
         return ";\n".join(val)
 
-    def c_addto_scalar_field(self):
+    def c_addto_scalar_field(self, extruded):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].arity
         ncols = maps[1].arity
+        rows_str = "%s + i * %s" % (self.c_map_name(), nrows)
+        cols_str = "%s2 + i * %s" % (self.c_map_name(), ncols)
+
+        if extruded is not None:
+            rows_str = "%s" % (extruded + self.c_map_name())
+            cols_str = "%s2" % (extruded + self.c_map_name())
 
         return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
             {'mat': self.c_arg_name(),
              'vals': self.c_kernel_arg_name(),
              'nrows': nrows,
              'ncols': ncols,
-             'rows': "%s + i * %s" % (self.c_map_name(), nrows),
-             'cols': "%s2 + i * %s" % (self.c_map_name(), ncols),
+             'rows': rows_str,
+             'cols': cols_str,
              'insert': self.access == WRITE}
 
     def c_addto_vector_field(self):
@@ -212,11 +218,11 @@ class Arg(base.Arg):
         else:
             raise RuntimeError("Don't know how to zero temp array for %s" % self)
 
-    def c_add_offset(self, layers, count):
+    def c_add_offset(self, layers, count, is_mat):
         return """
 for(int j=0; j<%(layers)s;j++){
   %(name)s[j] += _off%(num)s[j];
-}""" % {'name': self.c_vec_name(),
+}""" % {'name': self.c_vec_name() if not is_mat else self.c_kernel_arg_name(),
             'layers': layers,
             'num': count}
 
@@ -253,6 +259,46 @@ for(int j=0; j<%(layers)s;j++){
 #pragma omp critical
 for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 """ % {'combine': combine, 'dim': self.data.cdim}
+
+    def c_map_decl(self):
+        maps = as_tuple(self.map, Map)
+        nrows = maps[0].arity
+        ncols = maps[1].arity
+        return "int xtr_%(name)s[%(dim_row)s];\nint xtr_%(name)s2[%(dim_col)s];\n" % \
+            {'name': self.c_map_name(),
+             'dim_row': str(nrows),
+             'dim_col': str(ncols)}
+
+    def c_map_init(self):
+        maps = as_tuple(self.map, Map)
+        nrows = maps[0].arity
+        ncols = maps[1].arity
+        res = "\n"
+        for i in range(nrows):
+            res += "xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);\n" % \
+                {'name': self.c_map_name(),
+                 'dim': str(nrows),
+                 'ind': str(i)}
+        for i in range(ncols):
+            res += "xtr_%(name)s2[%(ind)s] = *(%(name)s2 + i * %(dim)s + %(ind)s);\n" % \
+                {'name': self.c_map_name(),
+                 'dim': str(nrows),
+                 'ind': str(i)}
+        return res
+
+    def c_add_offset_mat(self, map, count, map_number):
+        arity = map.arity
+        map_id = ""
+        if map_number == 2:
+            map_id = "2"
+        res = "\n"
+        for i in range(arity):
+            res += "xtr_%(name)s%(map_id)s[%(ind)s] += _off%(num)s[%(ind)s];\n" % \
+                {'name': self.c_map_name(),
+                 'map_id': map_id,
+                 'num': str(count),
+                 'ind': str(i)}
+        return res
 
 
 class JITModule(base.JITModule):
@@ -361,7 +407,7 @@ class JITModule(base.JITModule):
 
         _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field() for arg in self._args
                                            if arg._is_mat and arg.data._is_vector_field])
-        _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field() for arg in self._args
+        _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(None) for arg in self._args
                                            if arg._is_mat and arg.data._is_scalar_field])
 
         _zero_tmps = ';\n'.join([arg.c_zero_tmp() for arg in self._args if arg._is_mat])
@@ -387,15 +433,34 @@ class JITModule(base.JITModule):
              if arg._is_global_reduction])
 
         if self._layers > 1:
-            _off_args = ', ' + ', '.join([c_offset_init(count)
-                                         for count, arg in enumerate(self._args)
-                                         if not arg._is_mat and arg._is_vec_map])
-            _off_inits = ';\n'.join([c_offset_decl(count)
-                                    for count, arg in enumerate(self._args)
-                                    if not arg._is_mat and arg._is_vec_map])
-            _apply_offset = ' \n'.join([arg.c_add_offset(arg.map.offset.size, count)
-                                       for count, arg in enumerate(self._args)
-                                       if not arg._is_mat and arg._is_vec_map])
+            _off_args = ''
+            _off_inits = ''
+            _apply_offset = ''
+            _map_decl = ''
+            _map_init = ''
+            _apply_offset_to_mat = ''
+            count = 0
+            for arg in self._args:
+                if arg._is_mat or arg._is_vec_map:
+                    maps = as_tuple(arg.map, Map)
+                    map_number = 1
+                    for map in maps:
+                        _off_args += ', ' + c_offset_init(count)
+                        _off_inits += ';\n' + c_offset_decl(count)
+                        if arg._is_mat:
+                            _apply_offset_to_mat += ' \n' + arg.c_add_offset_mat(map, count, map_number)
+                        else:
+                            _apply_offset += ' \n' + arg.c_add_offset(map.offset.size, count, arg._is_mat)
+                        count += 1
+                        map_number += 1
+
+            _map_decl += ';\n'.join([arg.c_map_decl() for arg in self._args
+                                     if arg._is_mat and arg.data._is_scalar_field])
+
+            _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field("xtr_") for arg in self._args
+                                                        if arg._is_mat and arg.data._is_scalar_field])
+            _addtos_scalar_field = ""
+
             _extr_loop = '\n' + extrusion_loop(self._layers - 1)
             _extr_loop_close = '}\n'
         else:
@@ -404,6 +469,10 @@ class JITModule(base.JITModule):
             _off_inits = ""
             _extr_loop = ""
             _extr_loop_close = ""
+            _addtos_scalar_field_extruded = ""
+            _apply_offset_to_mat = ""
+            _map_decl = ""
+            _map_init = ""
 
         indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
 
@@ -423,9 +492,14 @@ class JITModule(base.JITModule):
                 'addtos_scalar_field': indent(_addtos_scalar_field, 2),
                 'apply_offset': indent(_apply_offset, 3),
                 'off_args': _off_args,
-                'off_inits': _off_inits,
+                'off_inits': indent(_off_inits, 1),
                 'extr_loop': indent(_extr_loop, 5),
                 'extr_loop_close': indent(_extr_loop_close, 2),
                 'interm_globals_decl': indent(_intermediate_globals_decl, 3),
                 'interm_globals_init': indent(_intermediate_globals_init, 3),
-                'interm_globals_writeback': indent(_intermediate_globals_writeback, 3)}
+                'interm_globals_writeback': indent(_intermediate_globals_writeback, 3),
+                'vec_decs': indent(_vec_decs, 4),
+                'addtos_scalar_field_extruded': indent(_addtos_scalar_field_extruded, 2 + nloops),
+                'apply_offset_to_mat': indent(_apply_offset_to_mat, 2 + nloops),
+                'map_init': indent(_map_init, 5),
+                'map_decl': indent(_map_decl, 1)}

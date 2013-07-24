@@ -60,13 +60,17 @@ void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end,
   %(local_tensor_decs)s;
   %(const_inits)s;
   %(off_inits)s;
+  %(map_decl)s
   for ( int i = start; i < end; i++ ) {
     %(vec_inits)s;
+    %(map_init)s;
     %(extr_loop)s
     %(itspace_loops)s
     %(ind)s%(zero_tmps)s;
     %(ind)s%(kernel_name)s(%(kernel_args)s);
     %(ind)s%(addtos_vector_field)s;
+    %(ind)s%(addtos_scalar_field_extruded)s;
+    %(ind)s%(apply_offset_to_mat)s
     %(apply_offset)s
     %(itspace_loop_close)s
     %(extr_loop_close)s
