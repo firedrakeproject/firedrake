@@ -226,7 +226,27 @@ Dependencies:
   * pycparser >= 2.09.1 (revision 854e720 or newer)
   * pyopencl >= 2012.1
 
-Install via `pip`:
+pyopencl requires the OpenCL header `CL/cl.h` in a standard include path. On a
+Debian system, install it via the package manager:
+```
+sudo apt-get install opencl-headers
+```
+
+If you want to use OpenCL headers and/or libraries from a non-standard location
+you need to configure pyopencl manually:
+```
+export OPENCL_ROOT=/usr/local/opencl # change as appropriate
+git clone https://github.com/inducer/pyopencl.git
+cd pyopencl
+git submodule init
+git submodule update
+./configure.py --no-use-shipped-boost \
+  --cl-inc-dir=${OPENCL_ROOT}/include --cl-lib-dir=${OPENCL_ROOT}/lib
+python setup.py build
+sudo python setup.py install
+```
+
+Otherwise, install dependencies via `pip`:
 ```
 pip install Jinja2 mako pyopencl>=2012.1 git+https://github.com/eliben/pycparser.git#egg=pycparser-2.09.1
 ```
