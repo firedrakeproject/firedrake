@@ -181,7 +181,7 @@ Dependencies:
   * Jinja2
   * mako
   * pycparser >= 2.09.1 (revision 854e720 or newer)
-  * pycuda revision a6c9b40 or newer
+  * pycuda >= 2013.1
 
 The [cusp library](http://cusplibrary.github.io) version 0.3.1 headers need to
 be in your (CUDA) include path.
@@ -206,14 +206,13 @@ Make sure `nvcc` is in your `$PATH` and `libcuda.so` in your `$LIBRARY_PATH` if
 in a non-standard location:
 ```
 export CUDA_ROOT=/usr/local/cuda # change as appropriate
-cd /tmp
-git clone http://git.tiker.net/trees/pycuda.git
+git clone https://github.com/induce/pycuda.git
 cd pycuda
 git submodule init
 git submodule update
 # libcuda.so is in a non-standard location on Ubuntu systems
 ./configure.py --no-use-shipped-boost \
-  --cudadrv-lib-dir='/usr/lib/nvidia-current,${CUDA_ROOT}/lib,${CUDA_ROOT}/lib64'
+  --cudadrv-lib-dir="/usr/lib/nvidia-current,${CUDA_ROOT}/lib,${CUDA_ROOT}/lib64"
 python setup.py build
 sudo python setup.py install
 sudo cp siteconf.py /etc/aksetup-defaults.py

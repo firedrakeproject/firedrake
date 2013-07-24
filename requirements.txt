@@ -1,6 +1,6 @@
 hg+https://bitbucket.org/khinsen/scientificpython
 codepy>=2013.1
-git+git://github.com/inducer/pycuda.git#egg=pycuda
+pycuda>=2013.1
 pyopencl>=2012.1
 h5py>=2.0.0
 petsc
