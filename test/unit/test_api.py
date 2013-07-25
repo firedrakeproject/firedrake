@@ -317,6 +317,11 @@ class TestSetAPI:
         with pytest.raises(exceptions.NameTypeError):
             op2.Set(1, 2)
 
+    def test_set_iter(self, backend, set):
+        "Set should be iterable and yield self."
+        for s in set:
+            assert s is set
+
     def test_set_repr(self, backend, set):
         "Set repr should produce a Set object when eval'd."
         from pyop2.op2 import Set  # noqa: needed by eval
@@ -447,6 +452,11 @@ class TestDataSetAPI:
         "DataSet constructor should create a dim tuple from a list."
         s = op2.DataSet(iterset, [2, 3])
         assert s.dim == (2, 3)
+
+    def test_dset_iter(self, backend, dset):
+        "DataSet should be iterable and yield self."
+        for s in dset:
+            assert s is dset
 
     def test_dset_repr(self, backend, dset):
         "DataSet repr should produce a Set object when eval'd."
@@ -618,6 +628,11 @@ class TestDatAPI:
         d1.data[0] = -1.0
         assert d1 != d2
         assert not d1 == d2
+
+    def test_dat_iter(self, backend, dat):
+        "Dat should be iterable and yield self."
+        for d in dat:
+            assert d is dat
 
     def test_dat_repr(self, backend, dat):
         "Dat repr should produce a Dat object when eval'd."
@@ -823,6 +838,11 @@ class TestMatAPI:
         diag_mat.set_diagonal(vec)
         assert np.allclose((diag_mat * vec).data_ro, np.multiply(dat.data_ro, dat.data_ro))
 
+    def test_mat_iter(self, backend, mat):
+        "Mat should be iterable and yield self."
+        for m in mat:
+            assert m is mat
+
     def test_mat_repr(self, backend, mat):
         "Mat should have the expected repr."
 
@@ -947,6 +967,11 @@ class TestConstAPI:
         with pytest.raises(exceptions.DataValueError):
             c.data = [1, 2]
 
+    def test_const_iter(self, backend, const):
+        "Const should be iterable and yield self."
+        for c in const:
+            assert c is const
+
     def test_const_repr(self, backend, const):
         "Const repr should produce a Const object when eval'd."
         from pyop2.op2 import Const  # noqa: needed by eval
@@ -1060,6 +1085,11 @@ class TestGlobalAPI:
         "Globals should not compare equal when having different data."
         assert op2.Global(1, [1.0]) != op2.Global(1, [2.0])
         assert not op2.Global(1, [1.0]) == op2.Global(1, [2.0])
+
+    def test_global_iter(self, backend, g):
+        "Global should be iterable and yield self."
+        for g_ in g:
+            assert g_ is g
 
     def test_global_repr(self, backend):
         "Global repr should produce a Global object when eval'd."
@@ -1181,6 +1211,11 @@ class TestMapAPI:
         m2.values[0] = 2
         assert m != m2
         assert not m == m2
+
+    def test_map_iter(self, backend, m):
+        "Map should be iterable and yield self."
+        for m_ in m:
+            assert m_ is m
 
     def test_map_repr(self, backend, m):
         "Map should have the expected repr."
