@@ -45,9 +45,9 @@ from exceptions import MatTypeError, DatTypeError
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
-           'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'Subset', 'DataSet',
-           'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map', 'Sparsity',
-           'Solver', 'par_loop', 'solve']
+           'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'MixedSet',
+           'Subset', 'DataSet', 'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map',
+           'Sparsity', 'Solver', 'par_loop', 'solve']
 
 
 def initialised():
@@ -120,6 +120,10 @@ class Kernel(base.Kernel):
 
 
 class Set(base.Set):
+    __metaclass__ = backends._BackendSelector
+
+
+class MixedSet(base.MixedSet):
     __metaclass__ = backends._BackendSelector
 
 

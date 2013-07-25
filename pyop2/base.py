@@ -786,6 +786,95 @@ class SetPartition(object):
         self.size = size
 
 
+class MixedSet(Set):
+    """A container for a bag of :class:`Set`\s."""
+
+    def __init__(self, sets):
+        """:param iterable sets: Iterable of :class:`Set`\s"""
+        self._sets = as_tuple(sets, Set)
+        assert all(s.layers == self._sets[0].layers for s in self._sets), \
+            "All components of a MixedSet must have the same number of layers."
+
+    def __getitem__(self, idx):
+        """Return :class:`Set` with index ``idx`` or a given slice of sets."""
+        return self._sets[idx]
+
+    @property
+    def split(self):
+        """The underlying tuple of :class:`Set`\s."""
+        return self._sets
+
+    @property
+    def core_size(self):
+        """Core set sizes. Owned elements not touching halo elements."""
+        return tuple(s.core_size for s in self._sets)
+
+    @property
+    def size(self):
+        """Set sizes, owned elements."""
+        return tuple(s.size for s in self._sets)
+
+    @property
+    def exec_size(self):
+        """Set sizes including execute halo elements."""
+        return tuple(s.exec_size for s in self._sets)
+
+    @property
+    def total_size(self):
+        """Total set sizes, including halo elements."""
+        return tuple(s.total_size for s in self._sets)
+
+    @property
+    def sizes(self):
+        """Set sizes: core, owned, execute halo, total."""
+        return tuple(s.sizes for s in self._sets)
+
+    @property
+    def name(self):
+        """User-defined labels."""
+        return tuple(s.name for s in self._sets)
+
+    @property
+    def halo(self):
+        """:class:`Halo`\s associated with these :class:`Set`\s."""
+        halos = tuple(s.halo for s in self._sets)
+        return halos if any(halos) else None
+
+    @property
+    def layers(self):
+        """Numbers of layers in the extruded mesh."""
+        return self._sets[0].layers
+
+    def __iter__(self):
+        """Yield all :class:`Set`\s when iterated over."""
+        for s in self._sets:
+            yield s
+
+    def __len__(self):
+        """Return number of contained :class:`Set`s."""
+        return len(self._sets)
+
+    def __eq__(self, other):
+        """:class:`MixedSet`\s are equivalent if all their contained
+        :class:`Set`\s are and the order is the same."""
+        try:
+            return self._sets == other._sets
+        # Deal with the case of comparing to a different type
+        except AttributeError:
+            return False
+
+    def __ne__(self, other):
+        """:class:`MixedSet`\s are equivalent if all their contained
+        :class:`Set`\s are."""
+        return not self == other
+
+    def __str__(self):
+        return "OP2 MixedSet composed of Sets: %s" % (self._sets,)
+
+    def __repr__(self):
+        return "MixedSet(%r)" % (self._sets,)
+
+
 class DataSet(object):
     """PyOP2 Data Set
 
