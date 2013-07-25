@@ -729,7 +729,11 @@ class DataCarrier(object):
 
 class Dat(DataCarrier):
 
-    """OP2 vector data. A ``Dat`` holds ``dim`` values for every member of a :class:`Set`.
+    """OP2 vector data. A ``Dat`` holds values on every element of a :class:`DataSet`.
+
+    If a :class:`Set` is passed as the ``dataset`` argument, rather
+    than a :class:`DataSet`, the ``Dat`` is created with a default
+    :class:`DataSet` dimension of 1.
 
     When a ``Dat`` is passed to :func:`par_loop`, the map via which
     indirection occurs and the access descriptor are passed by
@@ -751,9 +755,13 @@ class Dat(DataCarrier):
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
 
-    @validate_type(('dataset', DataSet, DataSetTypeError), ('name', str, NameTypeError))
+    @validate_type(('dataset', (DataSet, Set), DataSetTypeError), ('name', str, NameTypeError))
     def __init__(self, dataset, data=None, dtype=None, name=None,
                  soa=None, uid=None):
+        if type(dataset) is Set:
+            # If a Set, rather than a dataset is passed in, default to
+            # a dataset dimension of 1.
+            dataset = dataset ** 1
         if data is None:
             data = np.zeros(dataset.total_size * dataset.cdim)
         self._dataset = dataset
@@ -1263,6 +1271,9 @@ class Sparsity(Cached):
     """OP2 Sparsity, a matrix structure derived from the union of the outer
     product of pairs of :class:`Map` objects.
 
+    :param dsets: :class:`DataSet`\s for the left and right function spaces this
+    :class:`Sparsity` maps between
+    :class:`Sparsity` maps between
     :param maps: :class:`Maps` to build the :class:`Sparsity` from
     :type maps: a pair of :class:`Maps` specifying a row map and a column map,
         or a tuple of pairs of :class:`Maps` specifying multiple row and
@@ -1281,7 +1292,7 @@ class Sparsity(Cached):
     _globalcount = 0
 
     @classmethod
-    @validate_type(('dsets', (DataSet, tuple), DataSetTypeError),
+    @validate_type(('dsets', (Set, DataSet, tuple), DataSetTypeError),
                    ('maps', (Map, tuple), MapTypeError),)
     def _process_args(cls, dsets, maps, name=None, *args, **kwargs):
         "Turn maps argument into a canonical tuple of pairs."
@@ -1289,10 +1300,13 @@ class Sparsity(Cached):
         assert not name or isinstance(name, str), "Name must be of type str"
 
         # A single data set becomes a pair of identical data sets
-        dsets = (dsets, dsets) if isinstance(dsets, DataSet) else dsets
+        dsets = [dsets, dsets] if isinstance(dsets, (Set, DataSet)) else list(dsets)
 
         # Check data sets are valid
-        for dset in dsets:
+        for i, _ in enumerate(dsets):
+            if type(dsets[i]) is Set:
+                dsets[i] = (dsets[i]) ** 1
+            dset = dsets[i]
             if not isinstance(dset, DataSet):
                 raise DataSetTypeError("All data sets must be of type DataSet, not type %r" % type(dset))
 
@@ -1323,6 +1337,11 @@ class Sparsity(Cached):
             return
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
+
+        # Default to a dataset dimension of 1 if we got a Set instead.
+        for i, _ in enumerate(dsets):
+            if type(dsets[i]) is Set:
+                dsets[i] = (dsets[i]) ** 1
 
         self._dsets = dsets
 
