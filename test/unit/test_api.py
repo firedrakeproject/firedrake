@@ -61,6 +61,16 @@ def toset():
     return op2.Set(3, 'toset')
 
 
+@pytest.fixture
+def sets(set, iterset, toset):
+    return set, iterset, toset
+
+
+@pytest.fixture
+def mset(sets):
+    return op2.MixedSet(sets)
+
+
 @pytest.fixture(params=[1, 2, (2, 3)])
 def dset(request, set):
     return op2.DataSet(set, request.param, 'dfoo')
@@ -416,6 +426,98 @@ class TestSubsetAPI:
 
         ss2 = op2.Subset(set, range(5))
         assert_equal(ss.indices, ss2.indices)
+
+
+class TestMixedSetAPI:
+
+    """
+    MixedSet API unit tests
+    """
+
+    def test_mixed_set_illegal_set(self, backend):
+        "MixedSet sets should be of type Set."
+        with pytest.raises(TypeError):
+            op2.MixedSet(('foo', 'bar'))
+
+    def test_mixed_set_getitem(self, backend, sets):
+        "MixedSet should return the corresponding Set when indexed."
+        mset = op2.MixedSet(sets)
+        for i, s in enumerate(sets):
+            assert mset[i] == s
+
+    def test_mixed_set_split(self, backend, sets):
+        "MixedSet split should return a tuple of the Sets."
+        assert op2.MixedSet(sets).split == sets
+
+    def test_mixed_set_core_size(self, backend, mset):
+        "MixedSet core_size should return a tuple of the Set core_sizes."
+        assert mset.core_size == tuple(s.core_size for s in mset)
+
+    def test_mixed_set_size(self, backend, mset):
+        "MixedSet size should return a tuple of the Set sizes."
+        assert mset.size == tuple(s.size for s in mset)
+
+    def test_mixed_set_exec_size(self, backend, mset):
+        "MixedSet exec_size should return a tuple of the Set exec_sizes."
+        assert mset.exec_size == tuple(s.exec_size for s in mset)
+
+    def test_mixed_set_total_size(self, backend, mset):
+        "MixedSet total_size should return a tuple of the Set total_sizes."
+        assert mset.total_size == tuple(s.total_size for s in mset)
+
+    def test_mixed_set_sizes(self, backend, mset):
+        "MixedSet sizes should return a tuple of the Set sizes."
+        assert mset.sizes == tuple(s.sizes for s in mset)
+
+    def test_mixed_set_name(self, backend, mset):
+        "MixedSet name should return a tuple of the Set names."
+        assert mset.name == tuple(s.name for s in mset)
+
+    def test_mixed_set_halo(self, backend, mset):
+        "MixedSet halo should be None when running sequentially."
+        assert mset.halo is None
+
+    def test_mixed_set_layers(self, backend, mset):
+        "MixedSet layers should return the layers of the first Set."
+        assert mset.layers == mset[0].layers
+
+    def test_mixed_set_layers_must_match(self, backend, sets):
+        "All components of a MixedSet must have the same number of layers."
+        sets[1]._layers += 1
+        with pytest.raises(AssertionError):
+            op2.MixedSet(sets)
+
+    def test_mixed_set_iter(self, backend, mset, sets):
+        "MixedSet should be iterable and yield the Sets."
+        assert tuple(s for s in mset) == sets
+
+    def test_mixed_set_len(self, backend, sets):
+        "MixedSet should have length equal to the number of contained Sets."
+        assert len(op2.MixedSet(sets)) == len(sets)
+
+    def test_mixed_set_eq(self, backend, sets):
+        "MixedSets created from the same Sets should compare equal."
+        assert op2.MixedSet(sets) == op2.MixedSet(sets)
+        assert not op2.MixedSet(sets) != op2.MixedSet(sets)
+
+    def test_mixed_set_ne(self, backend, set, iterset, toset):
+        "MixedSets created from different Sets should not compare equal."
+        assert op2.MixedSet((set, iterset, toset)) != op2.MixedSet((set, toset, iterset))
+        assert not op2.MixedSet((set, iterset, toset)) == op2.MixedSet((set, toset, iterset))
+
+    def test_mixed_set_ne_set(self, backend, sets):
+        "A MixedSet should not compare equal to a Set."
+        assert op2.MixedSet(sets) != sets[0]
+        assert not op2.MixedSet(sets) == sets[0]
+
+    def test_mixed_set_repr(self, backend, mset):
+        "MixedSet repr should produce a MixedSet object when eval'd."
+        from pyop2.op2 import Set, MixedSet  # noqa: needed by eval
+        assert isinstance(eval(repr(mset)), base.MixedSet)
+
+    def test_mixed_set_str(self, backend, mset):
+        "MixedSet should have the expected string representation."
+        assert str(mset) == "OP2 MixedSet composed of Sets: %s" % (mset._sets,)
 
 
 class TestDataSetAPI:
