@@ -223,36 +223,36 @@ class TestDataSetAPI:
     """
 
     def test_dset_illegal_set(self, backend):
-        "Set should be Set."
+        "DataSet set should be Set."
         with pytest.raises(exceptions.SetTypeError):
-            op2.DataSet('illegalsize', 1)
+            op2.DataSet('illegalset', 1)
 
     def test_dset_illegal_dim(self, iterset, backend):
-        "Set dim should be int or int tuple."
+        "DataSet dim should be int or int tuple."
         with pytest.raises(TypeError):
             op2.DataSet(iterset, 'illegaldim')
 
     def test_dset_illegal_dim_tuple(self, iterset, backend):
-        "Set dim should be int or int tuple."
+        "DataSet dim should be int or int tuple."
         with pytest.raises(TypeError):
             op2.DataSet(iterset, (1, 'illegaldim'))
 
     def test_dset_illegal_name(self, iterset, backend):
-        "Set name should be string."
+        "DataSet name should be string."
         with pytest.raises(exceptions.NameTypeError):
             op2.DataSet(iterset, 1, 2)
 
     def test_dset_default_dim(self, iterset, backend):
-        "Set constructor should default dim to (1,)."
+        "DataSet constructor should default dim to (1,)."
         assert op2.DataSet(iterset).dim == (1,)
 
     def test_dset_dim(self, iterset, backend):
-        "Set constructor should create a dim tuple."
+        "DataSet constructor should create a dim tuple."
         s = op2.DataSet(iterset, 1)
         assert s.dim == (1,)
 
     def test_dset_dim_list(self, iterset, backend):
-        "Set constructor should create a dim tuple from a list."
+        "DataSet constructor should create a dim tuple from a list."
         s = op2.DataSet(iterset, [2, 3])
         assert s.dim == (2, 3)
 
@@ -267,7 +267,7 @@ class TestDataSetAPI:
             % (dset.name, dset.set, dset.dim)
 
     def test_dset_equality(self, backend, dset):
-        "The equality test for data sets is same dim and same set"
+        "The equality test for DataSets is same dim and same set"
         setcopy = op2.DataSet(dset.set, dset.dim, dset.name)
         assert setcopy.set == dset.set and setcopy.dim == dset.dim
 
@@ -528,10 +528,9 @@ class TestMatAPI:
             m.dtype == np.float64 and m.name == 'bar'
 
     def test_mat_illegal_maps(self, backend, sparsity):
+        "Mat arg constructor should reject invalid maps."
         m = op2.Mat(sparsity)
-        set1 = op2.Set(2)
-        set2 = op2.Set(3)
-        wrongmap = op2.Map(set1, set2, 2, [0, 0, 0, 0])
+        wrongmap = op2.Map(op2.Set(2), op2.Set(3), 2, [0, 0, 0, 0])
         with pytest.raises(exceptions.MapValueError):
             m((wrongmap[0], wrongmap[1]), op2.INC)
 
