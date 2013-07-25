@@ -541,29 +541,36 @@ def free_sparsity(object sparsity):
         except:
             pass
 
+cdef core.cmap init_map(omap):
+    cdef core.cmap out
+    out.from_size = omap.iterset.size
+    out.from_exec_size = omap.iterset.exec_size
+    out.to_size = omap.toset.size
+    out.to_exec_size = omap.toset.exec_size
+    out.arity = omap.arity
+    out.values = <int *>np.PyArray_DATA(omap.values)
+    return out
+
 def build_sparsity(object sparsity, bool parallel):
     cdef int rmult, cmult
     rmult, cmult = sparsity._dims
     cdef int nrows = sparsity._nrows
     cdef int lsize = nrows*rmult
-    cdef op_map rmap, cmap
     cdef int nmaps = len(sparsity._rmaps)
     cdef int *d_nnz, *o_nnz, *rowptr, *colidx
     cdef int d_nz, o_nz
 
-    cdef core.op_map *rmaps = <core.op_map *>malloc(nmaps * sizeof(core.op_map))
+    cdef core.cmap *rmaps = <core.cmap *>malloc(nmaps * sizeof(core.cmap))
     if rmaps is NULL:
         raise MemoryError("Unable to allocate space for rmaps")
-    cdef core.op_map *cmaps = <core.op_map *>malloc(nmaps * sizeof(core.op_map))
+    cdef core.cmap *cmaps = <core.cmap *>malloc(nmaps * sizeof(core.cmap))
     if cmaps is NULL:
         raise MemoryError("Unable to allocate space for cmaps")
 
     try:
         for i in range(nmaps):
-            rmap = sparsity._rmaps[i]._c_handle
-            cmap = sparsity._cmaps[i]._c_handle
-            rmaps[i] = rmap._handle
-            cmaps[i] = cmap._handle
+            rmaps[i] = init_map(sparsity._rmaps[i])
+            cmaps[i] = init_map(sparsity._cmaps[i])
 
         if parallel:
             core.build_sparsity_pattern_mpi(rmult, cmult, nrows, nmaps,

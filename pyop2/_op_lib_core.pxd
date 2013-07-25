@@ -130,7 +130,15 @@ cdef extern from *:
     cdef void emit_endif '#endif //' ()
 
 cdef extern from "sparsity_utils.h":
-    void build_sparsity_pattern_seq ( int, int, int, int, op_map *, op_map *,
+    ctypedef struct cmap:
+        int from_size
+        int from_exec_size
+        int to_size
+        int to_exec_size
+        int arity
+        int* values
+
+    void build_sparsity_pattern_seq ( int, int, int, int, cmap *, cmap *,
                                       int **, int **, int **, int * )
-    void build_sparsity_pattern_mpi ( int, int, int, int, op_map *, op_map *,
+    void build_sparsity_pattern_mpi ( int, int, int, int, cmap *, cmap *,
                                       int **, int **, int *, int * )

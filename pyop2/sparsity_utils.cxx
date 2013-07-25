@@ -1,9 +1,11 @@
 #include <vector>
 #include <set>
+#include <stdlib.h>
+
 #include "sparsity_utils.h"
 
 void build_sparsity_pattern_seq ( int rmult, int cmult, int nrows, int nmaps,
-                                  op_map * rowmaps, op_map * colmaps,
+                                  cmap * rowmaps, cmap * colmaps,
                                   int ** _nnz, int ** _rowptr, int ** _colidx,
                                   int * _nz )
 {
@@ -14,16 +16,16 @@ void build_sparsity_pattern_seq ( int rmult, int cmult, int nrows, int nmaps,
   std::vector< std::set< int > > s_diag(lsize);
 
   for ( int m = 0; m < nmaps; m++ ) {
-    op_map rowmap = rowmaps[m];
-    op_map colmap = colmaps[m];
-    int rsize = rowmap->from->size;
+    cmap rowmap = rowmaps[m];
+    cmap colmap = colmaps[m];
+    int rsize = rowmap.from_size;
     for ( int e = 0; e < rsize; ++e ) {
-      for ( int i = 0; i < rowmap->dim; ++i ) {
+      for ( int i = 0; i < rowmap.arity; ++i ) {
         for ( int r = 0; r < rmult; r++ ) {
-          int row = rmult * rowmap->map[i + e*rowmap->dim] + r;
-          for ( int d = 0; d < colmap->dim; d++ ) {
+          int row = rmult * rowmap.values[i + e*rowmap.arity] + r;
+          for ( int d = 0; d < colmap.arity; d++ ) {
             for ( int c = 0; c < cmult; c++ ) {
-              s_diag[row].insert(cmult * colmap->map[d + e * colmap->dim] + c);
+              s_diag[row].insert(cmult * colmap.values[d + e * colmap.arity] + c);
             }
           }
         }
@@ -51,7 +53,7 @@ void build_sparsity_pattern_seq ( int rmult, int cmult, int nrows, int nmaps,
 }
 
 void build_sparsity_pattern_mpi ( int rmult, int cmult, int nrows, int nmaps,
-                                  op_map * rowmaps, op_map * colmaps,
+                                  cmap * rowmaps, cmap * colmaps,
                                   int ** _d_nnz, int ** _o_nnz,
                                   int * _d_nz, int * _o_nz )
 {
@@ -63,18 +65,18 @@ void build_sparsity_pattern_mpi ( int rmult, int cmult, int nrows, int nmaps,
   std::vector< std::set< int > > s_odiag(lsize);
 
   for ( int m = 0; m < nmaps; m++ ) {
-    op_map rowmap = rowmaps[m];
-    op_map colmap = colmaps[m];
-    int rsize = rowmap->from->size + rowmap->from->exec_size;
+    cmap rowmap = rowmaps[m];
+    cmap colmap = colmaps[m];
+    int rsize = rowmap.from_size + rowmap.from_exec_size;
     for ( int e = 0; e < rsize; ++e ) {
-      for ( int i = 0; i < rowmap->dim; ++i ) {
+      for ( int i = 0; i < rowmap.arity; ++i ) {
         for ( int r = 0; r < rmult; r++ ) {
-          int row = rmult * rowmap->map[i + e*rowmap->dim] + r;
+          int row = rmult * rowmap.values[i + e*rowmap.arity] + r;
           // NOTE: this hides errors due to invalid map entries
           if ( row < lsize ) { // ignore values inside the MPI halo region
-            for ( int d = 0; d < colmap->dim; d++ ) {
+            for ( int d = 0; d < colmap.arity; d++ ) {
               for ( int c = 0; c < cmult; c++ ) {
-                int entry = cmult * colmap->map[d + e * colmap->dim] + c;
+                int entry = cmult * colmap.values[d + e * colmap.arity] + c;
                 if ( entry < lsize ) {
                   s_diag[row].insert(entry);
                 } else {
