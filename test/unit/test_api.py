@@ -466,6 +466,11 @@ class TestSparsityAPI:
         s = op2.Sparsity(di, mi, "foo")
         assert s.maps[0] == (mi, mi) and s.dims == (1, 1) and s.name == "foo" and s.dsets == (di, di)
 
+    def test_sparsity_set_not_dset(self, backend, di, mi):
+        "If we pass a Set, not a DataSet, it default to dimension 1."
+        s = op2.Sparsity(mi.toset, mi)
+        assert s.maps[0] == (mi, mi) and s.dims == (1, 1) and s.dsets == (di, di)
+
     def test_sparsity_map_pair(self, backend, di, mi):
         "Sparsity constructor should accept a pair of maps"
         s = op2.Sparsity((di, di), (mi, mi), "foo")
