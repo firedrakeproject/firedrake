@@ -650,6 +650,10 @@ class Set(object):
         """Set the partition size"""
         self._partition_size = partition_value
 
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
+
     def __str__(self):
         return "OP2 Set: %s with size %s" % (self._name, self._size)
 
@@ -840,6 +844,10 @@ class DataSet(object):
         """:class:`DataSet`\s compare equal if they are defined on the same
         :class:`Set` and have the same ``dim``."""
         return not self == other
+
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
 
     def __str__(self):
         return "OP2 DataSet: %s on set %s, with dim %s" % \
@@ -1376,6 +1384,10 @@ class Dat(DataCarrier):
         _make_object('ParLoop', self._copy_kernel, self.dataset.set,
                      self(READ), other(WRITE)).enqueue()
 
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
+
     def __eq__(self, other):
         """:class:`Dat`\s compare equal if defined on the same
         :class:`DataSet` and containing the same data."""
@@ -1622,6 +1634,10 @@ class Const(DataCarrier):
     def data(self, value):
         self._data = verify_reshape(value, self.dtype, self.dim)
 
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
+
     def __str__(self):
         return "OP2 Const: %s of dim %s and type %s with value %s" \
                % (self._name, self._dim, self._data.dtype.name, self._data)
@@ -1704,6 +1720,10 @@ class Global(DataCarrier):
         ``data``."""
         return not self == other
 
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
+
     def __str__(self):
         return "OP2 Global Argument: %s with dim %s and value %s" \
             % (self._name, self._dim, self._data)
@@ -1767,6 +1787,7 @@ class IterationIndex(object):
     # tuple.  Because, __getitem__ returns a new IterationIndex
     # we have to explicitly provide an iterable interface
     def __iter__(self):
+        """Yield self when iterated over."""
         yield self
 
 i = IterationIndex()
@@ -1826,6 +1847,7 @@ class Map(object):
     # (needed in as_tuple).  Because, __getitem__ no longer returns a
     # Map we have to explicitly provide an iterable interface
     def __iter__(self):
+        """Yield self when iterated over."""
         yield self
 
     def __getslice__(self, i, j):
@@ -2217,6 +2239,10 @@ class Mat(DataCarrier):
     def dtype(self):
         """The Python type of the data."""
         return self._datatype
+
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
 
     def __mul__(self, other):
         """Multiply this :class:`Mat` with the vector ``other``."""
