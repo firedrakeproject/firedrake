@@ -216,6 +216,15 @@ class TestSetAPI:
         "The in operator should indicate incompatibility of DataSet and Set"
         assert dset not in op2.Set(5, 'bar')
 
+    def test_set_exponentiation_builds_dset(self, backend, set):
+        "The exponentiation operator should build a DataSet"
+        dset = set ** 1
+        assert isinstance(dset, base.DataSet)
+        assert dset.cdim == 1
+
+        dset = set ** 3
+        assert dset.cdim == 3
+
 
 class TestDataSetAPI:
     """
@@ -318,6 +327,14 @@ class TestDatAPI:
         to_set2 = op2.Map(set1, set2, 1, [0, 0, 0])
         with pytest.raises(exceptions.MapValueError):
             d(to_set2, op2.READ)
+
+    def test_dat_on_set_builds_dim_one_dataset(self, backend, set):
+        """If a Set is passed as the dataset argument, it should be
+        converted into a Dataset with dim=1"""
+        d = op2.Dat(set)
+        assert d.cdim == 1
+        assert isinstance(d.dataset, base.DataSet)
+        assert d.dataset.cdim == 1
 
     def test_dat_dtype(self, backend, dset):
         "Default data type should be numpy.float64."
