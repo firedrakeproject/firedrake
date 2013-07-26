@@ -64,7 +64,7 @@ Reserved option names:
     - configure, reset, __*__
 """
 
-import types
+from types import ModuleType
 import sys
 import yaml
 import pkg_resources
@@ -72,13 +72,17 @@ import warnings
 import UserDict
 
 
-class ConfigModule(types.ModuleType):
+class ConfigModule(ModuleType):
 
     """Dictionary impersonating a module allowing direct access to attributes."""
 
     OP_CONFIG_KEY = 'config'
     DEFAULT_CONFIG = 'assets/default.yaml'
     DEFAULT_USER_CONFIG = 'pyop2.yaml'
+
+    def __init__(self, name, doc=None):
+        super(ConfigModule, self).__init__(name, doc)
+        self._config = None
 
     def configure(self, **kargs):
         entries = list()
