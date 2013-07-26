@@ -132,10 +132,10 @@ edges = op2.Set(nedge, "edges")
 
 ppedge = op2.Map(edges, nodes, 2, pp, "ppedge")
 
-p_A = op2.Dat(edges ** 1, data=A, name="p_A")
-p_r = op2.Dat(nodes ** 1, data=r, name="p_r")
-p_u = op2.Dat(nodes ** 1, data=u, name="p_u")
-p_du = op2.Dat(nodes ** 1, data=du, name="p_du")
+p_A = op2.Dat(edges, data=A, name="p_A")
+p_r = op2.Dat(nodes, data=r, name="p_r")
+p_u = op2.Dat(nodes, data=u, name="p_u")
+p_du = op2.Dat(nodes, data=du, name="p_du")
 
 alpha = op2.Const(1, data=1.0, name="alpha", dtype=fp_type)
 

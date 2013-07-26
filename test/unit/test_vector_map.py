@@ -117,9 +117,9 @@ class TestVectorMap:
         edges = op2.Set(nedges, "edges")
 
         node_vals = op2.Dat(
-            nodes ** 1, numpy.array(range(nnodes), dtype=numpy.uint32), numpy.uint32, "node_vals")
+            nodes, numpy.array(range(nnodes), dtype=numpy.uint32), numpy.uint32, "node_vals")
         edge_vals = op2.Dat(
-            edges ** 1, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
+            edges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
 
         e_map = numpy.array([(i, i + 1)
                             for i in range(nedges)], dtype=numpy.uint32)

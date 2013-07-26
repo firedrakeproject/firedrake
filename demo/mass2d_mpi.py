@@ -108,7 +108,7 @@ else:
 
 elem_node = op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 
-sparsity = op2.Sparsity((nodes ** 1, nodes ** 1), (elem_node, elem_node), "sparsity")
+sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 if op2.MPI.comm.rank == 0:
@@ -129,9 +129,9 @@ else:
     op2.MPI.comm.Abort(1)
 b_vals = np.asarray([0.0] * NUM_NODES[3], dtype=valuetype)
 x_vals = np.asarray([0.0] * NUM_NODES[3], dtype=valuetype)
-f = op2.Dat(nodes ** 1, f_vals, valuetype, "f")
-b = op2.Dat(nodes ** 1, b_vals, valuetype, "b")
-x = op2.Dat(nodes ** 1, x_vals, valuetype, "x")
+f = op2.Dat(nodes, f_vals, valuetype, "f")
+b = op2.Dat(nodes, b_vals, valuetype, "b")
+x = op2.Dat(nodes, x_vals, valuetype, "x")
 
 # Assemble and solve
 

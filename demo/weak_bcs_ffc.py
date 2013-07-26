@@ -112,7 +112,7 @@ bdry_node_node_map = np.asarray([0, 1, 2], dtype=valuetype)
 bdry_node_node = op2.Map(
     bdry_nodes, nodes, 1, bdry_node_node_map, "bdry_node_node")
 
-sparsity = op2.Sparsity((nodes ** 1, nodes ** 1), (elem_node, elem_node), "sparsity")
+sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 coord_vals = np.asarray([(0.0, 0.0), (0.5, 0.0), (1.0, 0.0),
@@ -125,18 +125,18 @@ f_vals = np.asarray([0.0] * 9, dtype=valuetype)
 b_vals = np.asarray([0.0] * NUM_NODES, dtype=valuetype)
 x_vals = np.asarray([0.0] * NUM_NODES, dtype=valuetype)
 u_vals = np.asarray([1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0])
-f = op2.Dat(nodes ** 1, f_vals, valuetype, "f")
-b = op2.Dat(nodes ** 1, b_vals, valuetype, "b")
-x = op2.Dat(nodes ** 1, x_vals, valuetype, "x")
-u = op2.Dat(nodes ** 1, u_vals, valuetype, "u")
+f = op2.Dat(nodes, f_vals, valuetype, "f")
+b = op2.Dat(nodes, b_vals, valuetype, "b")
+x = op2.Dat(nodes, x_vals, valuetype, "x")
+u = op2.Dat(nodes, u_vals, valuetype, "u")
 
 bdry_vals = np.asarray([1.0, 1.0, 1.0], dtype=valuetype)
-bdry = op2.Dat(bdry_nodes ** 1, bdry_vals, valuetype, "bdry")
+bdry = op2.Dat(bdry_nodes, bdry_vals, valuetype, "bdry")
 
 # This isn't perfect, defining the boundary gradient on more nodes than are on
 # the boundary is couter-intuitive
 bdry_grad_vals = np.asarray([2.0] * 9, dtype=valuetype)
-bdry_grad = op2.Dat(nodes ** 1, bdry_grad_vals, valuetype, "gradient")
+bdry_grad = op2.Dat(nodes, bdry_grad_vals, valuetype, "gradient")
 facet = op2.Global(1, 2, np.uint32, "facet")
 
 # If a form contains multiple integrals with differing coefficients, FFC

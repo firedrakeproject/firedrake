@@ -266,5 +266,5 @@ class TestLinAlgScalar:
 
     def test_norm(self, backend):
         s = op2.Set(2)
-        n = op2.Dat(s ** 1, [3, 4], np.float64, "n")
+        n = op2.Dat(s, [3, 4], np.float64, "n")
         assert abs(n.norm - 5) < 1e-12

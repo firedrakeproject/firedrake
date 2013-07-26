@@ -286,10 +286,10 @@ coords_dofsSet = op2.Set(nums[0] * layers, "coords_dofsSet")
 coords = op2.Dat(coords_dofsSet ** 2, coords_dat, np.float64, "coords")
 
 wedges_dofsSet = op2.Set(nums[2] * wedges, "wedges_dofsSet")
-field = op2.Dat(wedges_Set ** 1, field_dat, np.float64, "field")
+field = op2.Dat(wedges_Set, field_dat, np.float64, "field")
 
 p1_dofsSet = op2.Set(nums[0] * layers, "p1_dofsSet")
-res = op2.Dat(p1_dofsSet ** 1, res_dat, np.float64, "res")
+res = op2.Dat(p1_dofsSet, res_dat, np.float64, "res")
 
 # THE MAP from the ind
 # create the map from element to dofs for each element in the 2D mesh

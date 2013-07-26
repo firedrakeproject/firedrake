@@ -60,11 +60,11 @@ def main(opt):
             pbevcell = op2.Map.fromhdf5(bedges, cells, f, "pbecell")
             pcell = op2.Map.fromhdf5(cells, nodes, f, "pcell")
 
-            p_bound = op2.Dat.fromhdf5(bedges ** 1, f, "p_bound")
+            p_bound = op2.Dat.fromhdf5(bedges, f, "p_bound")
             p_x = op2.Dat.fromhdf5(nodes ** 2, f, "p_x")
             p_q = op2.Dat.fromhdf5(cells ** 4, f, "p_q")
             p_qold = op2.Dat.fromhdf5(cells ** 4, f, "p_qold")
-            p_adt = op2.Dat.fromhdf5(cells ** 1, f, "p_adt")
+            p_adt = op2.Dat.fromhdf5(cells, f, "p_adt")
             p_res = op2.Dat.fromhdf5(cells ** 4, f, "p_res")
 
             op2.Const.fromhdf5(f, "gam")

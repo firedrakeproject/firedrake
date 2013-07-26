@@ -58,7 +58,7 @@ class TestSparsity:
         nodes = op2.Set(5)
         elem_node = op2.Map(elements, nodes, 3, [0, 4, 3, 0, 1, 4,
                                                  1, 2, 4, 2, 3, 4])
-        sparsity = op2.Sparsity((nodes ** 1, nodes ** 1), (elem_node, elem_node))
+        sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node))
         assert all(sparsity._rowptr == [0, 4, 8, 12, 16, 21])
         assert all(sparsity._colidx == [0, 1, 3, 4, 0, 1, 2, 4, 1, 2,
                                         3, 4, 0, 2, 3, 4, 0, 1, 2, 3, 4])
@@ -67,7 +67,7 @@ class TestSparsity:
         s = op2.Set(5)
         with pytest.raises(MapValueError):
             m = op2.Map(s, s, 1)
-            op2.Sparsity((s ** 1, s ** 1), (m, m))
+            op2.Sparsity((s, s), (m, m))
 
 
 class TestMatrices:
@@ -630,7 +630,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
         nelems = 128
         set = op2.Set(nelems)
         map = op2.Map(set, set, 1, numpy.array(range(nelems), numpy.uint32))
-        sparsity = op2.Sparsity((set ** 1, set ** 1), (map, map))
+        sparsity = op2.Sparsity((set, set), (map, map))
         mat = op2.Mat(sparsity, numpy.float64)
         kernel = op2.Kernel(zero_mat_code, "zero_mat")
         op2.par_loop(kernel, set(1, 1), mat(

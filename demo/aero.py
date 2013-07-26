@@ -61,12 +61,12 @@ def main(opt):
 
             # dats
             p_xm = op2.Dat.fromhdf5(nodes ** 2, f, 'p_x')
-            p_phim = op2.Dat.fromhdf5(nodes ** 1, f, 'p_phim')
-            p_resm = op2.Dat.fromhdf5(nodes ** 1, f, 'p_resm')
+            p_phim = op2.Dat.fromhdf5(nodes, f, 'p_phim')
+            p_resm = op2.Dat.fromhdf5(nodes, f, 'p_resm')
             p_K = op2.Dat.fromhdf5(cells ** 16, f, 'p_K')
-            p_V = op2.Dat.fromhdf5(nodes ** 1, f, 'p_V')
-            p_P = op2.Dat.fromhdf5(nodes ** 1, f, 'p_P')
-            p_U = op2.Dat.fromhdf5(nodes ** 1, f, 'p_U')
+            p_V = op2.Dat.fromhdf5(nodes, f, 'p_V')
+            p_P = op2.Dat.fromhdf5(nodes, f, 'p_P')
+            p_U = op2.Dat.fromhdf5(nodes, f, 'p_U')
     except IOError:
         import sys
         print "Failed reading mesh: Could not read from %s\n" % opt['mesh']
