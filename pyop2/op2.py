@@ -46,8 +46,8 @@ from exceptions import MatTypeError, DatTypeError
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'MixedSet',
-           'Subset', 'DataSet', 'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map',
-           'Sparsity', 'Solver', 'par_loop', 'solve']
+           'Subset', 'DataSet', 'MixedDataSet', 'Halo', 'Dat', 'Mat', 'Const',
+           'Global', 'Map', 'Sparsity', 'Solver', 'par_loop', 'solve']
 
 
 def initialised():
@@ -135,7 +135,10 @@ class DataSet(base.DataSet):
     __metaclass__ = backends._BackendSelector
 
 
-@collective
+class MixedDataSet(base.MixedDataSet):
+    __metaclass__ = backends._BackendSelector
+
+
 class Halo(base.Halo):
     __metaclass__ = backends._BackendSelector
 

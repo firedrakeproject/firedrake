@@ -958,6 +958,107 @@ class DataSet(object):
         return dat.dataset == self
 
 
+class MixedDataSet(DataSet):
+    """A container for a bag of :class:`DataSet`\s.
+
+    Initialized either from a :class:`MixedSet` and an iterable of ``dims`` of
+    corresponding length ::
+
+        mdset = op2.MixedDataSet(mset, [dim1, ..., dimN])
+
+    or from a tuple of :class:`Set`\s and an iterable of ``dims`` of
+    corresponding length ::
+
+        mdset = op2.MixedDataSet([set1, ..., setN], [dim1, ..., dimN])
+
+    or from a :class:`MixedSet` without explicitly specifying ``dims``, in
+    which case they default to 1 ::
+
+        mdset = op2.MixedDataSet(mset)
+
+    or from a list of :class:`DataSet`\s and/or :class:`Set`\s ::
+
+        mdset = op2.MixedDataSet([dset1, ..., dsetN])
+    """
+
+    def __init__(self, mset_or_dsets, dims=None):
+        if dims is not None and len(mset_or_dsets) != len(dims):
+            raise ValueError("Got MixedSet of %d Sets but %s dims" %
+                             (len(mset_or_dsets), len(dims)))
+        # If the first argument is a MixedSet or and iterable of Sets, the
+        # second is expected to be an iterable of dims of the corresponding
+        # length
+        if isinstance(mset_or_dsets, MixedSet) or \
+                all(isinstance(s, Set) for s in mset_or_dsets):
+            self._dsets = tuple(s ** d for s, d in
+                                zip(mset_or_dsets, dims or [1] * len(mset_or_dsets)))
+        # Otherwise expect the first argument to be an iterable of Sets and/or
+        # DataSets and upcast Sets to DataSets as necessary
+        else:
+            mset_or_dsets = [s if isinstance(s, DataSet) else s ** 1 for s in mset_or_dsets]
+            self._dsets = as_tuple(mset_or_dsets, type=DataSet)
+
+    def __getitem__(self, idx):
+        """Return :class:`DataSet` with index ``idx`` or a given slice of datasets."""
+        return self._dsets[idx]
+
+    @property
+    def split(self):
+        """The underlying tuple of :class:`DataSet`\s."""
+        return self._dsets
+
+    @property
+    def dim(self):
+        """The shape tuple of the values for each element of the sets."""
+        return tuple(s.dim for s in self._dsets)
+
+    @property
+    def cdim(self):
+        """The scalar number of values for each member of the sets. This is
+        the product of the dim tuples."""
+        return tuple(s.cdim for s in self._dsets)
+
+    @property
+    def name(self):
+        """Returns the name of the data sets."""
+        return tuple(s.name for s in self._dsets)
+
+    @property
+    def set(self):
+        """Returns the :class:`MixedSet` this :class:`MixedDataSet` is
+        defined on."""
+        return MixedSet(s.set for s in self._dsets)
+
+    def __iter__(self):
+        """Yield all :class:`DataSet`\s when iterated over."""
+        for ds in self._dsets:
+            yield ds
+
+    def __len__(self):
+        """Return number of contained :class:`DataSet`s."""
+        return len(self._dsets)
+
+    def __eq__(self, other):
+        """:class:`MixedDataSet`\s are equivalent if all their contained
+        :class:`DataSet`\s are."""
+        try:
+            return self._dsets == other._dsets
+        # Deal with the case of comparing to a different type
+        except AttributeError:
+            return False
+
+    def __ne__(self, other):
+        """:class:`MixedDataSet`\s are equivalent if all their contained
+        :class:`DataSet`\s are."""
+        return not self == other
+
+    def __str__(self):
+        return "OP2 MixedDataSet composed of DataSets: %s" % (self._dsets,)
+
+    def __repr__(self):
+        return "MixedDataSet(%r)" % (self._dsets,)
+
+
 class Halo(object):
 
     """A description of a halo associated with a :class:`Set`.
