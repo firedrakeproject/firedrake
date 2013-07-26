@@ -87,6 +87,16 @@ def dtoset(toset):
 
 
 @pytest.fixture
+def dsets(dset, diterset, dtoset):
+    return dset, diterset, dtoset
+
+
+@pytest.fixture
+def mdset(dsets):
+    return op2.MixedDataSet(dsets)
+
+
+@pytest.fixture
 def dat(request, dtoset):
     return op2.Dat(dtoset, np.arange(dtoset.cdim * dtoset.size, dtype=np.int32))
 
@@ -603,6 +613,121 @@ class TestDataSetAPI:
     def test_dat_not_in_dset(self, backend, dset):
         "The in operator should indicate incompatibility of DataSet and Set"
         assert op2.Dat(dset) not in op2.DataSet(op2.Set(5, 'bar'))
+
+
+class TestMixedDataSetAPI:
+    """
+    MixedDataSet API unit tests
+    """
+
+    def test_mixed_dset_illegal_arg(self, backend, set):
+        """Constructing a MixedDataSet from anything other than a MixedSet or
+        an iterable of Sets and/or DataSets should fail."""
+        with pytest.raises(TypeError):
+            op2.MixedDataSet('illegalarg')
+
+    def test_mixed_dset_dsets(self, backend, dsets):
+        """Constructing a MixedDataSet from an iterable of DataSets should
+        leave them unchanged."""
+        assert op2.MixedDataSet(dsets).split == dsets
+
+    def test_mixed_dset_upcast_sets(self, backend, sets):
+        "Constructing a MixedDataSet from an iterable of Sets should upcast."
+        assert op2.MixedDataSet(sets).split == tuple(s ** 1 for s in sets)
+
+    def test_mixed_dset_sets_and_dsets(self, backend, set, dset):
+        """Constructing a MixedDataSet from an iterable with a mixture of
+        Sets and DataSets should upcast the Sets."""
+        assert op2.MixedDataSet((set, dset)).split == (set ** 1, dset)
+
+    def test_mixed_dset_dim_default_to_one(self, backend, mset):
+        """Constructing a MixedDataSet from a MixedSet without dims should
+        default them to 1."""
+        assert op2.MixedDataSet(mset).dim == ((1,),) * len(mset)
+
+    def test_mixed_dset_from_sets_dims_from_iterable(self, backend, sets):
+        """Constructing a MixedDataSet from an iterable of Sets should use
+        given dims."""
+        dims = ((2,), (2, 2), (1,))
+        assert op2.MixedDataSet(sets, dims).dim == dims
+
+    def test_mixed_dset_dims_from_iterable(self, backend, mset):
+        "Constructing a MixedDataSet from a MixedSet should use given dims."
+        dims = ((2,), (2, 2), (1,))
+        assert op2.MixedDataSet(mset, dims).dim == dims
+
+    def test_mixed_dset_from_sets_dims_mismatch(self, backend, sets):
+        """Constructing a MixedDataSet from an iterable of Sets with
+        mismatching number of dims should raise ValueError."""
+        with pytest.raises(ValueError):
+            op2.MixedDataSet(sets, range(1, len(sets)))
+
+    def test_mixed_dset_dims_mismatch(self, backend, mset):
+        """Constructing a MixedDataSet from a MixedSet with mismatching dims
+        should raise ValueError."""
+        with pytest.raises(ValueError):
+            op2.MixedDataSet(mset, range(1, len(mset)))
+
+    def test_mixed_dset_getitem(self, backend, dsets):
+        "MixedDataSet should return the corresponding DataSet when indexed."
+        mdset = op2.MixedDataSet(dsets)
+        for i, ds in enumerate(dsets):
+            assert mdset[i] == ds
+
+    def test_mixed_dset_split(self, backend, dsets):
+        "MixedDataSet split should return a tuple of the DataSets."
+        assert op2.MixedDataSet(dsets).split == dsets
+
+    def test_mixed_dset_dim(self, backend, mdset):
+        "MixedDataSet dim should return a tuple of the DataSet dims."
+        assert mdset.dim == tuple(s.dim for s in mdset)
+
+    def test_mixed_dset_cdim(self, backend, mdset):
+        "MixedDataSet cdim should return a tuple of the DataSet cdims."
+        assert mdset.cdim == tuple(s.cdim for s in mdset)
+
+    def test_mixed_dset_name(self, backend, mdset):
+        "MixedDataSet name should return a tuple of the DataSet names."
+        assert mdset.name == tuple(s.name for s in mdset)
+
+    def test_mixed_dset_set(self, backend, mset):
+        "MixedDataSet set should return a MixedSet."
+        assert op2.MixedDataSet(mset).set == mset
+
+    def test_mixed_dset_iter(self, backend, mdset, dsets):
+        "MixedDataSet should be iterable and yield the DataSets."
+        assert tuple(s for s in mdset) == dsets
+
+    def test_mixed_dset_len(self, backend, dsets):
+        """MixedDataSet should have length equal to the number of contained
+        DataSets."""
+        assert len(op2.MixedDataSet(dsets)) == len(dsets)
+
+    def test_mixed_dset_eq(self, backend, dsets):
+        "MixedDataSets created from the same DataSets should compare equal."
+        assert op2.MixedDataSet(dsets) == op2.MixedDataSet(dsets)
+        assert not op2.MixedDataSet(dsets) != op2.MixedDataSet(dsets)
+
+    def test_mixed_dset_ne(self, backend, dset, diterset, dtoset):
+        "MixedDataSets created from different DataSets should not compare equal."
+        mds1 = op2.MixedDataSet((dset, diterset, dtoset))
+        mds2 = op2.MixedDataSet((dset, dtoset, diterset))
+        assert mds1 != mds2
+        assert not mds1 == mds2
+
+    def test_mixed_dset_ne_dset(self, backend, diterset, dtoset):
+        "MixedDataSets should not compare equal to a scalar DataSet."
+        assert op2.MixedDataSet((diterset, dtoset)) != diterset
+        assert not op2.MixedDataSet((diterset, dtoset)) == diterset
+
+    def test_mixed_dset_repr(self, backend, mdset):
+        "MixedDataSet repr should produce a MixedDataSet object when eval'd."
+        from pyop2.op2 import Set, DataSet, MixedDataSet  # noqa: needed by eval
+        assert isinstance(eval(repr(mdset)), base.MixedDataSet)
+
+    def test_mixed_dset_str(self, backend, mdset):
+        "MixedDataSet should have the expected string representation."
+        assert str(mdset) == "OP2 MixedDataSet composed of DataSets: %s" % (mdset._dsets,)
 
 
 class TestDatAPI:
