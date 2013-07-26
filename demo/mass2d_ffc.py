@@ -79,25 +79,22 @@ valuetype = np.float64
 nodes = op2.Set(NUM_NODES, "nodes")
 elements = op2.Set(NUM_ELE, "elements")
 
-dnodes1 = op2.DataSet(nodes, 1)
-vnodes = op2.DataSet(nodes, 2)
-
 elem_node_map = np.asarray([0, 1, 3, 2, 3, 1], dtype=np.uint32)
 elem_node = op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 
-sparsity = op2.Sparsity((dnodes1, dnodes1), (elem_node, elem_node), "sparsity")
+sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
 coord_vals = np.asarray([(0.0, 0.0), (2.0, 0.0), (1.0, 1.0), (0.0, 1.5)],
                         dtype=valuetype)
-coords = op2.Dat(vnodes, coord_vals, valuetype, "coords")
+coords = op2.Dat(nodes ** 2, coord_vals, valuetype, "coords")
 
 f_vals = np.asarray([1.0, 2.0, 3.0, 4.0], dtype=valuetype)
 b_vals = np.asarray([0.0] * NUM_NODES, dtype=valuetype)
 x_vals = np.asarray([0.0] * NUM_NODES, dtype=valuetype)
-f = op2.Dat(dnodes1, f_vals, valuetype, "f")
-b = op2.Dat(dnodes1, b_vals, valuetype, "b")
-x = op2.Dat(dnodes1, x_vals, valuetype, "x")
+f = op2.Dat(nodes, f_vals, valuetype, "f")
+b = op2.Dat(nodes, b_vals, valuetype, "b")
+x = op2.Dat(nodes, x_vals, valuetype, "x")
 
 # Assemble and solve
 

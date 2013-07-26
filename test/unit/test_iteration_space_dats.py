@@ -116,13 +116,10 @@ class TestIterationSpaceDats:
         nodes = op2.Set(nnodes, "nodes")
         edges = op2.Set(nedges, "edges")
 
-        dnodes = op2.DataSet(nodes, 1, "dnodes")
-        dedges = op2.DataSet(edges, 1, "dedges")
-
-        node_vals = op2.Dat(dnodes, numpy.arange(
+        node_vals = op2.Dat(nodes, numpy.arange(
             nnodes, dtype=numpy.uint32), numpy.uint32, "node_vals")
         edge_vals = op2.Dat(
-            dedges, numpy.zeros(nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
+            edges, numpy.zeros(nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
 
         e_map = numpy.array([(i, i + 1)
                             for i in range(nedges)], dtype=numpy.uint32)

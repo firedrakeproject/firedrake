@@ -54,23 +54,19 @@ def main(opt):
             bnodes = op2.Set.fromhdf5(f, 'bedges')
             cells = op2.Set.fromhdf5(f, 'cells')
 
-            dnodes = op2.DataSet(nodes, 1)
-            dvnodes = op2.DataSet(nodes, 2)
-            dcells = op2.DataSet(cells, 16)
-
             # maps
             pbnodes = op2.Map.fromhdf5(bnodes, nodes, f, 'pbedge')
             pcell = op2.Map.fromhdf5(cells, nodes, f, 'pcell')
             pvcell = op2.Map.fromhdf5(cells, nodes, f, 'pcell')
 
             # dats
-            p_xm = op2.Dat.fromhdf5(dvnodes, f, 'p_x')
-            p_phim = op2.Dat.fromhdf5(dnodes, f, 'p_phim')
-            p_resm = op2.Dat.fromhdf5(dnodes, f, 'p_resm')
-            p_K = op2.Dat.fromhdf5(dcells, f, 'p_K')
-            p_V = op2.Dat.fromhdf5(dnodes, f, 'p_V')
-            p_P = op2.Dat.fromhdf5(dnodes, f, 'p_P')
-            p_U = op2.Dat.fromhdf5(dnodes, f, 'p_U')
+            p_xm = op2.Dat.fromhdf5(nodes ** 2, f, 'p_x')
+            p_phim = op2.Dat.fromhdf5(nodes, f, 'p_phim')
+            p_resm = op2.Dat.fromhdf5(nodes, f, 'p_resm')
+            p_K = op2.Dat.fromhdf5(cells ** 16, f, 'p_K')
+            p_V = op2.Dat.fromhdf5(nodes, f, 'p_V')
+            p_P = op2.Dat.fromhdf5(nodes, f, 'p_P')
+            p_U = op2.Dat.fromhdf5(nodes, f, 'p_U')
     except IOError:
         import sys
         print "Failed reading mesh: Could not read from %s\n" % opt['mesh']

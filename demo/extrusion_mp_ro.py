@@ -237,12 +237,10 @@ tdat = time.clock() - t0dat
 # DECLARE OP2 STRUCTURES
 
 coords_dofsSet = op2.Set(nums[0] * layers, "coords_dofsSet")
-coords_dofsDataSet = op2.DataSet(coords_dofsSet, 2)
-coords = op2.Dat(coords_dofsDataSet, coords_dat, np.float64, "coords")
+coords = op2.Dat(coords_dofsSet ** 2, coords_dat, np.float64, "coords")
 
 wedges_dofsSet = op2.Set(nums[2] * wedges, "wedges_dofsSet")
-wedges_dofsDataSet = op2.DataSet(wedges_dofsSet, 1)
-field = op2.Dat(wedges_dofsDataSet, field_dat, np.float64, "field")
+field = op2.Dat(wedges_dofsSet, field_dat, np.float64, "field")
 
 # THE MAP from the ind
 # create the map from element to dofs for each element in the 2D mesh

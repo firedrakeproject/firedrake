@@ -99,13 +99,10 @@ class TestPlan:
         nodes = op2.Set(nelems, "nodes")
         edges = op2.Set(nedges, "edges")
 
-        dnodes = op2.DataSet(nodes, 1, "dnodes")
-        dedges = op2.DataSet(edges, 1, "dedges")
-
         node_vals = op2.Dat(
-            dnodes, numpy.array(range(nelems), dtype=numpy.uint32), numpy.uint32, "node_vals")
+            nodes, numpy.array(range(nelems), dtype=numpy.uint32), numpy.uint32, "node_vals")
         edge_vals = op2.Dat(
-            dedges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
+            edges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
 
         e_map = numpy.array([(i, i + 1)
                             for i in range(nedges)], dtype=numpy.uint32)
@@ -130,20 +127,18 @@ class TestPlan:
         kernel = op2.Kernel("", "dummy")
         elements = op2.Set(2, "elements")
         nodes = op2.Set(4, "nodes")
-        dnodes = op2.DataSet(nodes, 1, "dnodes")
-        vnodes = op2.DataSet(nodes, 2, "vnodes")
         elem_node = op2.Map(elements, nodes, 3,
                             numpy.asarray([0, 1, 3, 2, 3, 1],
                                           dtype=numpy.uint32),
                             "elem_node")
-        b = op2.Dat(dnodes, numpy.asarray([0.0] * 4, dtype=numpy.float64),
+        b = op2.Dat(nodes, numpy.asarray([0.0] * 4, dtype=numpy.float64),
                     numpy.float64, "b")
-        coords = op2.Dat(vnodes,
+        coords = op2.Dat(nodes ** 2,
                          numpy.asarray([(0.0, 0.0), (2.0, 0.0),
                                         (1.0, 1.0), (0.0, 1.5)],
                                        dtype=numpy.float64),
                          numpy.float64, "coords")
-        f = op2.Dat(dnodes,
+        f = op2.Dat(nodes,
                     numpy.asarray([1.0, 2.0, 3.0, 4.0], dtype=numpy.float64),
                     numpy.float64, "f")
         device.compare_plans(kernel,

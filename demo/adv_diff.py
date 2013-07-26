@@ -100,11 +100,10 @@ def main(opt):
     valuetype = np.float64
 
     nodes, vnodes, coords, elements, elem_node = read_triangle(opt['mesh'])
-    dnodes1 = op2.DataSet(nodes, 1)
 
     num_nodes = nodes.size
 
-    sparsity = op2.Sparsity((dnodes1, dnodes1), (elem_node, elem_node), "sparsity")
+    sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node), "sparsity")
     if opt['advection']:
         adv_mat = op2.Mat(sparsity, valuetype, "adv_mat")
         op2.par_loop(adv, elements(3, 3),
@@ -117,10 +116,10 @@ def main(opt):
                      coords(elem_node, op2.READ))
 
     tracer_vals = np.zeros(num_nodes, dtype=valuetype)
-    tracer = op2.Dat(dnodes1, tracer_vals, valuetype, "tracer")
+    tracer = op2.Dat(nodes, tracer_vals, valuetype, "tracer")
 
     b_vals = np.zeros(num_nodes, dtype=valuetype)
-    b = op2.Dat(dnodes1, b_vals, valuetype, "b")
+    b = op2.Dat(nodes, b_vals, valuetype, "b")
 
     velocity_vals = np.asarray([1.0, 0.0] * num_nodes, dtype=valuetype)
     velocity = op2.Dat(vnodes, velocity_vals, valuetype, "velocity")
@@ -190,7 +189,7 @@ def main(opt):
 
     if opt['print_output'] or opt['test_output']:
         analytical_vals = np.zeros(num_nodes, dtype=valuetype)
-        analytical = op2.Dat(dnodes1, analytical_vals, valuetype, "analytical")
+        analytical = op2.Dat(nodes, analytical_vals, valuetype, "analytical")
 
         i_cond = op2.Kernel(i_cond_code % {'T': T}, "i_cond")
 

@@ -100,9 +100,8 @@ class TestIndirectLoop:
 
     def test_indirect_inc(self, backend, iterset):
         unitset = op2.Set(1, "unitset")
-        dunitset = op2.DataSet(unitset, 1, "dunitest")
 
-        u = op2.Dat(dunitset, numpy.array([0], dtype=numpy.uint32),
+        u = op2.Dat(unitset, numpy.array([0], dtype=numpy.uint32),
                     numpy.uint32, "u")
 
         u_map = numpy.zeros(nelems, dtype=numpy.uint32)
@@ -139,9 +138,8 @@ class TestIndirectLoop:
 
     def test_2d_dat(self, backend, iterset):
         indset = op2.Set(nelems, "indset2")
-        dindset = op2.DataSet(indset, 2, "dindset2")
         x = op2.Dat(
-            dindset, numpy.array([range(nelems), range(nelems)], dtype=numpy.uint32), numpy.uint32, "x")
+            indset ** 2, numpy.array([range(nelems), range(nelems)], dtype=numpy.uint32), numpy.uint32, "x")
 
         kernel_wo = "void kernel_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }\n"
 
@@ -153,12 +151,10 @@ class TestIndirectLoop:
         nedges = nelems - 1
         nodes = op2.Set(nelems, "nodes")
         edges = op2.Set(nedges, "edges")
-        dnodes = op2.DataSet(nodes, 1, "dnodes")
-        dedges = op2.DataSet(edges, 1, "dedges")
         node_vals = op2.Dat(
-            dnodes, numpy.array(range(nelems), dtype=numpy.uint32), numpy.uint32, "node_vals")
+            nodes, numpy.array(range(nelems), dtype=numpy.uint32), numpy.uint32, "node_vals")
         edge_vals = op2.Dat(
-            dedges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
+            edges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
 
         e_map = numpy.array([(i, i + 1)
                             for i in range(nedges)], dtype=numpy.uint32)

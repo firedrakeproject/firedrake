@@ -67,15 +67,13 @@ def yi(dset):
 @pytest.fixture
 def x2():
     s = op2.Set(nelems, "s1")
-    ds = op2.DataSet(s, (1, 2), "ds1")
-    return op2.Dat(ds, np.zeros(2 * nelems), np.float64, "x")
+    return op2.Dat(s ** (1, 2), np.zeros(2 * nelems), np.float64, "x")
 
 
 @pytest.fixture
 def y2():
     s = op2.Set(nelems, "s2")
-    ds = op2.DataSet(s, (2, 1), "ds2")
-    return op2.Dat(ds, np.zeros(2 * nelems), np.float64, "y")
+    return op2.Dat(s ** (2, 1), np.zeros(2 * nelems), np.float64, "y")
 
 
 class TestLinAlgOp:
@@ -268,6 +266,5 @@ class TestLinAlgScalar:
 
     def test_norm(self, backend):
         s = op2.Set(2)
-        ds = op2.DataSet(s, 1)
-        n = op2.Dat(ds, [3, 4], np.float64, "n")
+        n = op2.Dat(s, [3, 4], np.float64, "n")
         assert abs(n.norm - 5) < 1e-12
