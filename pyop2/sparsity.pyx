@@ -138,16 +138,17 @@ cdef build_sparsity_pattern_mpi(int rmult, int cmult, int nrows, list maps):
         for e in range (rsize):
             for i in range(rowmap.arity):
                 for r in range(rmult):
-                    row = rmult * rowmap.values[i + e*rowmap.arity] + r
-                    # NOTE: this hides errors due to invalid map entries
-                    if row < lsize:
-                        for d in range(colmap.arity):
-                            for c in range(cmult):
-                                entry = cmult * colmap.values[d + e * colmap.arity] + c
-                                if entry < lsize:
-                                    s_diag[row].insert(entry)
-                                else:
-                                    s_odiag[row].insert(entry)
+                    for l in range(rowmap.layers - 1):
+                        row = rmult * rowmap.values[i + e*rowmap.arity] + r + l * rowmap.offset[i]
+                        # NOTE: this hides errors due to invalid map entries
+                        if row < lsize:
+                            for d in range(colmap.arity):
+                                for c in range(cmult):
+                                    entry = cmult * colmap.values[d + e * colmap.arity] + c + l * colmap.offset[d]
+                                    if entry < lsize:
+                                        s_diag[row].insert(entry)
+                                    else:
+                                        s_odiag[row].insert(entry)
 
     # Create final sparsity structure
     cdef np.ndarray[DTYPE_t, ndim=1] d_nnz = np.empty(lsize, dtype=np.int32)
