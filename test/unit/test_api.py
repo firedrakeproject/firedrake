@@ -67,6 +67,11 @@ def dset(request, set):
 
 
 @pytest.fixture
+def dat(request, dset):
+    return op2.Dat(dset, np.arange(dset.cdim * dset.size, dtype=np.int32))
+
+
+@pytest.fixture
 def diterset(iterset):
     return op2.DataSet(iterset, 1, 'diterset')
 
@@ -309,8 +314,7 @@ class TestDatAPI:
         """Dat initilialised without the data should initialise data with the
         correct size and type."""
         d = op2.Dat(dset)
-        assert d.data.size == dset.size * \
-            np.prod(dset.dim) and d.data.dtype == np.float64
+        assert d.data.size == dset.size * dset.cdim and d.data.dtype == np.float64
 
     def test_dat_initialise_data_type(self, backend, dset):
         """Dat intiialised without the data but with specified type should
@@ -343,22 +347,22 @@ class TestDatAPI:
 
     def test_dat_float(self, backend, dset):
         "Data type for float data should be numpy.float64."
-        d = op2.Dat(dset, [1.0] * dset.size * np.prod(dset.dim))
+        d = op2.Dat(dset, [1.0] * dset.size * dset.cdim)
         assert d.dtype == np.double
 
     def test_dat_int(self, backend, dset):
         "Data type for int data should be numpy.int."
-        d = op2.Dat(dset, [1] * dset.size * np.prod(dset.dim))
+        d = op2.Dat(dset, [1] * dset.size * dset.cdim)
         assert d.dtype == np.int
 
     def test_dat_convert_int_float(self, backend, dset):
         "Explicit float type should override NumPy's default choice of int."
-        d = op2.Dat(dset, [1] * dset.size * np.prod(dset.dim), np.double)
+        d = op2.Dat(dset, [1] * dset.size * dset.cdim, np.double)
         assert d.dtype == np.float64
 
     def test_dat_convert_float_int(self, backend, dset):
         "Explicit int type should override NumPy's default choice of float."
-        d = op2.Dat(dset, [1.5] * dset.size * np.prod(dset.dim), np.int32)
+        d = op2.Dat(dset, [1.5] * dset.size * dset.cdim, np.int32)
         assert d.dtype == np.int32
 
     def test_dat_illegal_dtype(self, backend, dset):
@@ -369,25 +373,24 @@ class TestDatAPI:
     def test_dat_illegal_length(self, backend, dset):
         "Mismatching data length should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
-            op2.Dat(dset, [1] * (dset.size * np.prod(dset.dim) + 1))
+            op2.Dat(dset, [1] * (dset.size * dset.cdim + 1))
 
     def test_dat_reshape(self, backend, dset):
         "Data should be reshaped according to the set's dim."
-        d = op2.Dat(dset, [1.0] * dset.size * np.prod(dset.dim))
+        d = op2.Dat(dset, [1.0] * dset.size * dset.cdim)
         assert d.data.shape == (dset.size,) + dset.dim
 
     def test_dat_properties(self, backend, dset):
         "Dat constructor should correctly set attributes."
-        d = op2.Dat(dset, [1] * dset.size * np.prod(dset.dim), 'double', 'bar')
+        d = op2.Dat(dset, [1] * dset.size * dset.cdim, 'double', 'bar')
         assert d.dataset.set == dset.set and d.dtype == np.float64 and \
-            d.name == 'bar' and d.data.sum() == dset.size * np.prod(dset.dim)
+            d.name == 'bar' and d.data.sum() == dset.size * dset.cdim
 
-    def test_dat_repr(self, backend, dset):
+    def test_dat_repr(self, backend, dat):
         "Dat repr should produce a Dat object when eval'd."
         from pyop2.op2 import Dat, DataSet, Set  # noqa: needed by eval
         from numpy import dtype  # noqa: needed by eval
-        d = op2.Dat(dset, dtype='double', name='bar')
-        assert isinstance(eval(repr(d)), base.Dat)
+        assert isinstance(eval(repr(dat)), base.Dat)
 
     def test_dat_str(self, backend, dset):
         "Dat should have the expected string representation."
@@ -396,22 +399,20 @@ class TestDatAPI:
             % (d.name, d.dataset, d.data.dtype.name)
         assert str(d) == s
 
-    def test_dat_ro_accessor(self, backend, dset):
+    def test_dat_ro_accessor(self, backend, dat):
         "Attempting to set values through the RO accessor should raise an error."
-        d = op2.Dat(dset, range(np.prod(dset.dim) * dset.size), dtype=np.int32)
-        x = d.data_ro
+        x = dat.data_ro
         with pytest.raises((RuntimeError, ValueError)):
             x[0] = 1
 
-    def test_dat_ro_write_accessor(self, backend, dset):
+    def test_dat_ro_write_accessor(self, backend, dat):
         "Re-accessing the data in writeable form should be allowed."
-        d = op2.Dat(dset, range(np.prod(dset.dim) * dset.size), dtype=np.int32)
-        x = d.data_ro
+        x = dat.data_ro
         with pytest.raises((RuntimeError, ValueError)):
             x[0] = 1
-        x = d.data
+        x = dat.data
         x[0] = -100
-        assert (d.data_ro[0] == -100).all()
+        assert (dat.data_ro[0] == -100).all()
 
 
 class TestSparsityAPI:
