@@ -668,6 +668,11 @@ class IterationSpace(object):
     def _extent_ranges(self):
         return [e for e in self.extents]
 
+    def __eq__(self, other):
+        """:class:`IterationSpace`s compare equal if they are defined on the
+        same :class:`Set` and have the same ``extent``."""
+        return self._iterset == other._iterset and self._extents == other._extents
+
     def __str__(self):
         return "OP2 Iteration Space: %s with extents %s" % (self._iterset, self._extents)
 

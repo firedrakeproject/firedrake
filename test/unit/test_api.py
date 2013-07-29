@@ -940,6 +940,20 @@ class TestIterationSpaceAPI:
         i = op2.IterationSpace(set, (2, 3))
         assert i.iterset == set and i.extents == (2, 3)
 
+    def test_iteration_space_eq(self, backend, set):
+        """IterationSpaces should compare equal if defined on the same Set."""
+        assert op2.IterationSpace(set, 3) == op2.IterationSpace(set, 3)
+
+    def test_iteration_space_neq_set(self, backend):
+        """IterationSpaces should not compare equal if defined on different
+        Sets."""
+        assert op2.IterationSpace(op2.Set(3), 3) != op2.IterationSpace(op2.Set(3), 3)
+
+    def test_iteration_space_neq_extent(self, backend, set):
+        """IterationSpaces should not compare equal if defined with different
+        extents."""
+        assert op2.IterationSpace(set, 3) != op2.IterationSpace(set, 2)
+
     def test_iteration_space_repr(self, backend, set):
         """IterationSpace repr should produce a IterationSpace object when
         eval'd."""
