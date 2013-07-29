@@ -51,6 +51,7 @@ ctypedef struct cmap:
     int arity
     int* values
     int* offset
+    int layers
 
 cdef cmap init_map(omap):
     cdef cmap out
@@ -61,6 +62,7 @@ cdef cmap init_map(omap):
     out.arity = omap.arity
     out.values = <int *>np.PyArray_DATA(omap.values)
     out.offset = <int *>np.PyArray_DATA(omap.offset)
+    out.layers = omap.iterset.layers
     return out
 
 @cython.boundscheck(False)
@@ -86,10 +88,12 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
         for e in range(rsize):
             for i in range(rowmap.arity):
                 for r in range(rmult):
-                    row = rmult * rowmap.values[i + e*rowmap.arity] + r
-                    for d in range(colmap.arity):
-                        for c in range(cmult):
-                            s_diag[row].insert(cmult * colmap.values[d + e * colmap.arity] + c)
+                    for l in range(rowmap.layers - 1):
+                        row = rmult * rowmap.values[i + e*rowmap.arity] + r + l * rowmap.offset[i]
+                        for d in range(colmap.arity):
+                            for c in range(cmult):
+                                s_diag[row].insert(cmult * colmap.values[d + e * colmap.arity] +
+                                                   c + l * colmap.offset[d])
 
     # Create final sparsity structure
     cdef np.ndarray[DTYPE_t, ndim=1] nnz = np.empty(lsize, dtype=np.int32)
