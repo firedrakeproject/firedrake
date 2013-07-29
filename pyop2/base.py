@@ -488,6 +488,8 @@ class DataSet(object):
         return self._set
 
     def __eq__(self, other):
+        """:class:`DataSet`\s compare equal if they are defined on the same
+        :class:`Set` and have the same ``dim``."""
         return self.set == other.set and self.dim == other.dim
 
     def __str__(self):
