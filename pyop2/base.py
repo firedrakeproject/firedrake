@@ -119,6 +119,13 @@ class Arg(object):
         self._lib_handle = None
         self._in_flight = False  # some kind of comms in flight for this arg
 
+    def __eq__(self):
+        """:class:`Arg`\s compare equal of they are defined on the same data,
+        use the same :class:`Map` with the same index and the same access
+        descriptor."""
+        return self._dat == other._dat and self._map == other._map and \
+            self._idx == other._idx and self._access == other._access
+
     def __str__(self):
         return "OP2 Arg: dat %s, map %s, index %s, access %s" % \
             (self._dat, self._map, self._idx, self._access)
