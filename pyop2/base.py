@@ -880,8 +880,11 @@ class Dat(DataCarrier):
     def __eq__(self, other):
         """:class:`Dat`\s compare equal if defined on the same
         :class:`DataSet` and containing the same data."""
-        return self._dataset == other._dataset \
-            and np.array_equal(self._data, other._data)
+        try:
+            return (self._dataset == other._dataset and
+                    np.array_equal(self._data, other._data))
+        except AttributeError:
+            return False
 
     def __str__(self):
         return "OP2 Dat: %s on (%s) with datatype %s" \
