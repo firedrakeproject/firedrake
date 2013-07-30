@@ -1417,6 +1417,11 @@ class Dat(DataCarrier):
         return _make_object('Arg', data=self, map=path, access=access, flatten=flatten)
 
     @property
+    def split(self):
+        """Tuple containing only this :class:`Dat`."""
+        return (self,)
+
+    @property
     def dataset(self):
         """:class:`DataSet` on which the Dat is defined."""
         return self._dataset
@@ -1799,6 +1804,114 @@ class Dat(DataCarrier):
         soa = slot.attrs['type'].find(':soa') > 0
         ret = cls(dataset, data, name=name, soa=soa)
         return ret
+
+
+class MixedDat(Dat):
+    """A container for a bag of :class:`Dat`\s.
+
+    Initialized either from a :class:`MixedDataSet`, a :class:`MixedSet`, or
+    an iterable of :class:`DataSet`\s and/or :class:`Set`\s, where all the
+    :class:`Set`\s are implcitly upcast to :class:`DataSet`\s ::
+
+        mdat = op2.MixedDat(mdset)
+        mdat = op2.MixedDat([dset1, ..., dsetN])
+
+    or from an iterable of :class:`Dat`\s ::
+
+        mdat = op2.MixedDat([dat1, ..., datN])
+    """
+
+    def __init__(self, mdset_or_dats):
+        self._dats = tuple(d if isinstance(d, Dat) else _make_object('Dat', d)
+                           for d in mdset_or_dats)
+
+    def __getitem__(self, idx):
+        """Return :class:`Dat` with index ``idx`` or a given slice of Dats."""
+        return self._dats[idx]
+
+    @property
+    def split(self):
+        """The underlying tuple of :class:`Dat`\s."""
+        return self._dats
+
+    @property
+    def dataset(self):
+        """:class:`MixedDataSet`\s this :class:`MixedDat` is defined on."""
+        return MixedDataSet(tuple(s.dataset for s in self._dats))
+
+    @property
+    def soa(self):
+        """Are the data in SoA format?"""
+        return tuple(s.soa for s in self._dats)
+
+    @property
+    @collective
+    def data(self):
+        """Numpy arrays containing the data excluding halos."""
+        return tuple(s.data for s in self._dats)
+
+    @property
+    @collective
+    def data_with_halos(self):
+        """Numpy arrays containing the data including halos."""
+        return tuple(s.data_with_halos for s in self._dats)
+
+    @property
+    @collective
+    def data_ro(self):
+        """Numpy arrays with read-only data excluding halos."""
+        return tuple(s.data_ro for s in self._dats)
+
+    @property
+    @collective
+    def data_ro_with_halos(self):
+        """Numpy arrays with read-only data including halos."""
+        return tuple(s.data_ro_with_halos for s in self._dats)
+
+    @property
+    def needs_halo_update(self):
+        """Has this Dat been written to since the last halo exchange?"""
+        return any(s.needs_halo_update for s in self._dats)
+
+    @needs_halo_update.setter
+    def needs_halo_update(self, val):
+        """Indictate whether this Dat requires a halo update"""
+        for d in self._dats:
+            d.needs_halo_update = val
+
+    def zero(self):
+        """Zero the data associated with this :class:`MixedDat`."""
+        for d in self._dats:
+            d.zero()
+
+    def __iter__(self):
+        """Yield all :class:`Dat`\s when iterated over."""
+        for d in self._dats:
+            yield d
+
+    def __len__(self):
+        """Return number of contained :class:`Dats`\s."""
+        return len(self._dats)
+
+    def __eq__(self, other):
+        """:class:`MixedDat`\s are equal if all their contained :class:`Dat`\s
+        are."""
+        try:
+            return self._dats == other._dats
+        # Deal with the case of comparing to a different type
+        except AttributeError:
+            return False
+
+    def __ne__(self, other):
+        """:class:`MixedDat`\s are equal if all their contained :class:`Dat`\s
+        are."""
+        return not self == other
+
+    def __str__(self):
+        return "OP2 MixedDat composed of Dats: %s" % (self._dats,)
+
+    def __repr__(self):
+        return "MixedDat(%r)" % (self._dats,)
 
 
 class Const(DataCarrier):
