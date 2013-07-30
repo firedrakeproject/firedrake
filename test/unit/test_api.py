@@ -102,6 +102,16 @@ def dat(request, dtoset):
 
 
 @pytest.fixture
+def dats(dtoset, diterset, dset):
+    return op2.Dat(dtoset), op2.Dat(diterset), op2.Dat(dset)
+
+
+@pytest.fixture
+def mdat(dats):
+    return op2.MixedDat(dats)
+
+
+@pytest.fixture
 def m(iterset, toset):
     return op2.Map(iterset, toset, 2, [1] * 2 * iterset.size, 'm')
 
@@ -793,6 +803,11 @@ class TestDatAPI:
         d = op2.Dat(dset, [1.0] * dset.size * dset.cdim)
         assert type(d.dtype) == np.dtype
 
+    def test_dat_split(self, backend, dat):
+        "Splitting a Dat should yield a tuple with self"
+        for d in dat.split:
+            d == dat
+
     def test_dat_dtype(self, backend, dset):
         "Default data type should be numpy.float64."
         d = op2.Dat(dset)
@@ -905,6 +920,124 @@ class TestDatAPI:
         "Temporary Dats should not allocate storage until accessed."
         d = op2.Dat(dset)
         assert not d._is_allocated
+
+
+class TestMixedDatAPI:
+
+    """
+    MixedDat API unit tests
+    """
+
+    def test_mixed_dat_illegal_arg(self, backend):
+        """Constructing a MixedDat from anything other than a MixedSet, a
+        MixedDataSet or an iterable of Dats should fail."""
+        with pytest.raises(exceptions.DataSetTypeError):
+            op2.MixedDat('illegalarg')
+
+    def test_mixed_dat_dats(self, backend, dats):
+        """Constructing a MixedDat from an iterable of Dats should leave them
+        unchanged."""
+        assert op2.MixedDat(dats).split == dats
+
+    def test_mixed_dat_dsets(self, backend, mdset):
+        """Constructing a MixedDat from an iterable of DataSets should leave
+        them unchanged."""
+        assert op2.MixedDat(mdset).dataset == mdset
+
+    def test_mixed_dat_upcast_sets(self, backend, mset):
+        "Constructing a MixedDat from an iterable of Sets should upcast."
+        assert op2.MixedDat(mset).dataset == op2.MixedDataSet(mset)
+
+    def test_mixed_dat_sets_dsets_dats(self, backend, set, dset):
+        """Constructing a MixedDat from an iterable of Sets, DataSets and
+        Dats should upcast as necessary."""
+        dat = op2.Dat(op2.Set(3) ** 2)
+        assert op2.MixedDat((set, dset, dat)).split == (op2.Dat(set), op2.Dat(dset), dat)
+
+    def test_mixed_dat_getitem(self, backend, mdat):
+        "MixedDat should return the corresponding Dat when indexed."
+        for i, d in enumerate(mdat):
+            assert mdat[i] == d
+        assert mdat[:-1] == tuple(mdat)[:-1]
+
+    def test_mixed_dat_dim(self, backend, mdset):
+        "MixedDat dim should return a tuple of the DataSet dims."
+        assert op2.MixedDat(mdset).dim == mdset.dim
+
+    def test_mixed_dat_cdim(self, backend, mdset):
+        "MixedDat cdim should return a tuple of the DataSet cdims."
+        assert op2.MixedDat(mdset).cdim == mdset.cdim
+
+    def test_mixed_dat_soa(self, backend, mdat):
+        "MixedDat soa should return a tuple of the Dat soa flags."
+        assert mdat.soa == tuple(d.soa for d in mdat)
+
+    def test_mixed_dat_data(self, backend, mdat):
+        "MixedDat data should return a tuple of the Dat data arrays."
+        assert all((d1 == d2.data).all() for d1, d2 in zip(mdat.data, mdat))
+
+    def test_mixed_dat_data_ro(self, backend, mdat):
+        "MixedDat data_ro should return a tuple of the Dat data_ro arrays."
+        assert all((d1 == d2.data_ro).all() for d1, d2 in zip(mdat.data_ro, mdat))
+
+    def test_mixed_dat_data_with_halos(self, backend, mdat):
+        """MixedDat data_with_halos should return a tuple of the Dat
+        data_with_halos arrays."""
+        assert all((d1 == d2.data_with_halos).all() for d1, d2 in zip(mdat.data_with_halos, mdat))
+
+    def test_mixed_dat_data_ro_with_halos(self, backend, mdat):
+        """MixedDat data_ro_with_halos should return a tuple of the Dat
+        data_ro_with_halos arrays."""
+        assert all((d1 == d2.data_ro_with_halos).all() for d1, d2 in zip(mdat.data_ro_with_halos, mdat))
+
+    def test_mixed_dat_needs_halo_update(self, backend, mdat):
+        """MixedDat needs_halo_update should indicate if at least one contained
+        Dat needs a halo update."""
+        assert not mdat.needs_halo_update
+        mdat[0].needs_halo_update = True
+        assert mdat.needs_halo_update
+
+    def test_mixed_dat_needs_halo_update_setter(self, backend, mdat):
+        """Setting MixedDat needs_halo_update should set the property for all
+        contained Dats."""
+        assert not mdat.needs_halo_update
+        mdat.needs_halo_update = True
+        assert all(d.needs_halo_update for d in mdat)
+
+    def test_mixed_dat_iter(self, backend, mdat, dats):
+        "MixedDat should be iterable and yield the Dats."
+        assert tuple(s for s in mdat) == dats
+
+    def test_mixed_dat_len(self, backend, dats):
+        """MixedDat should have length equal to the number of contained Dats."""
+        assert len(op2.MixedDat(dats)) == len(dats)
+
+    def test_mixed_dat_eq(self, backend, dats):
+        "MixedDats created from the same Dats should compare equal."
+        assert op2.MixedDat(dats) == op2.MixedDat(dats)
+        assert not op2.MixedDat(dats) != op2.MixedDat(dats)
+
+    def test_mixed_dat_ne(self, backend, dats):
+        "MixedDats created from different Dats should not compare equal."
+        mdat1 = op2.MixedDat((dats[0], dats[1], dats[2]))
+        mdat2 = op2.MixedDat((dats[0], dats[2], dats[1]))
+        assert mdat1 != mdat2
+        assert not mdat1 == mdat2
+
+    def test_mixed_dat_ne_dat(self, backend, dats):
+        "A MixedDat should not compare equal to a Dat."
+        assert op2.MixedDat(dats) != dats[0]
+        assert not op2.MixedDat(dats) == dats[0]
+
+    def test_mixed_dat_repr(self, backend, mdat):
+        "MixedDat repr should produce a MixedDat object when eval'd."
+        from pyop2.op2 import Set, DataSet, MixedDataSet, Dat, MixedDat  # noqa: needed by eval
+        from numpy import dtype  # noqa: needed by eval
+        assert isinstance(eval(repr(mdat)), base.MixedDat)
+
+    def test_mixed_dat_str(self, backend, mdat):
+        "MixedDat should have the expected string representation."
+        assert str(mdat) == "OP2 MixedDat composed of Dats: %s" % (mdat.split,)
 
 
 class TestSparsityAPI:
