@@ -1262,9 +1262,11 @@ class Map(object):
                % (self._iterset, self._toset, self._arity, self._name)
 
     def __eq__(self, o):
+        """:class:`Map`\s compare equal if defined on the same ``iterset``,
+        ``toset`` and have the same ``arity`` and ``data``."""
         try:
             return (self._iterset == o._iterset and self._toset == o._toset and
-                    self._arity == o.arity and self._name == o.name)
+                    self._arity == o.arity and np.array_equal(self._values, o._values))
         except AttributeError:
             return False
 

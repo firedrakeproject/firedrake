@@ -905,25 +905,25 @@ class TestMapAPI:
     def test_map_equality(self, backend, m):
         """A map is equal if all its attributes are equal, bearing in mind that
         equality is identity for sets."""
-        m2 = op2.Map(m.iterset, m.toset, m.arity, m.values, m.name)
-        assert m == m2
+        assert m == op2.Map(m.iterset, m.toset, m.arity, m.values)
 
-    def test_map_copied_set_inequality(self, backend, m):
-        """Maps that have copied but not equal iteration sets are not equal"""
-        itercopy = op2.Set(m.iterset.size, m.iterset.name)
-        m2 = op2.Map(itercopy, m.toset, m.arity, m.values, m.name)
+    def test_map_neq_iterset(self, backend, m):
+        """Maps that have copied but not equal iteration sets are not equal."""
+        assert m != op2.Map(op2.Set(m.iterset.size), m.toset, m.arity, m.values)
+
+    def test_map_neq_toset(self, backend, m):
+        """Maps that have copied but not equal to sets are not equal."""
+        assert m != op2.Map(m.iterset, op2.Set(m.toset.size), m.arity, m.values)
+
+    def test_map_neq_arity(self, backend, m):
+        """Maps that have different arities are not equal."""
+        assert m != op2.Map(m.iterset, m.toset, m.arity * 2, list(m.values) * 2)
+
+    def test_map_neq_values(self, backend, m):
+        """Maps that have different values are not equal."""
+        m2 = op2.Map(m.iterset, m.toset, m.arity, m.values.copy())
+        m2.values[0] = 2
         assert m != m2
-
-    def test_map_arity_inequality(self, backend, m):
-        """Maps that have different arities are not equal"""
-        m2 = op2.Map(m.iterset, m.toset,
-                     m.arity * 2, list(m.values) * 2, m.name)
-        assert m != m2
-
-    def test_map_name_inequality(self, backend, m):
-        """Maps with different names are not equal"""
-        n = op2.Map(m.iterset, m.toset, m.arity, m.values, 'n')
-        assert m != n
 
     def test_map_repr(self, backend, m):
         "Map should have the expected repr."
