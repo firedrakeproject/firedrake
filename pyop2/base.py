@@ -1111,7 +1111,11 @@ class Global(DataCarrier):
     def __eq__(self, other):
         """:class:`Global`\s compare equal when having the same ``dim`` and
         ``data``."""
-        return self._dim == other._dim and np.array_equal(self._data, other._data)
+        try:
+            return (self._dim == other._dim and
+                    np.array_equal(self._data, other._data))
+        except AttributeError:
+            return False
 
     def __str__(self):
         return "OP2 Global Argument: %s with dim %s and value %s" \
