@@ -121,7 +121,7 @@ cdef class Plan:
         """
         # indices referenced for this dat-map pair
         def indices(dat, map):
-            return [arg.idx for arg in args if arg.data == dat and arg.map == map]
+            return [arg.idx for arg in args if arg.data is dat and arg.map is map]
 
         self._ninds = 0
         self._nargs = len([arg for arg in args if not arg._is_mat])
