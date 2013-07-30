@@ -1,12 +1,17 @@
 #!/usr/bin/env python
 
-try:
+def get_devices():
     import pyopencl as cl
-    platforms = cl.get_platforms()
     ctxs = []
-    for i, p in enumerate(platforms):
-        for j in range(len(p.get_devices())):
-            ctxs.append('%d:%d' % (i,j))
-    print ' '.join(ctxs)
-except ImportError:
-    print ''
+    for i, p in enumerate(cl.get_platforms()):
+        for j, d in enumerate(p.get_devices()):
+            # 64-bit floating point support is required
+            if 'fp64' in d.extensions:
+                ctxs.append('%d:%d' % (i,j) if len(p.get_devices()) > 1 else str(i))
+    return ctxs
+
+if __name__ == '__main__':
+    try:
+        print ' '.join(get_devices())
+    except ImportError:
+        print ''
