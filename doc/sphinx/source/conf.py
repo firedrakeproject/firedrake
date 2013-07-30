@@ -29,6 +29,9 @@ sys.path.insert(0, os.path.abspath('../../..'))
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = ['sphinx.ext.autodoc', 'sphinx.ext.todo', 'sphinx.ext.pngmath']
 autodoc_default_flags = ['members', 'undoc-members', 'private-members']
+# Both the class’ and the __init__ method’s docstring are concatenated and
+# inserted into the class definition
+autoclass_content = 'both'
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
