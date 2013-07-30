@@ -221,10 +221,11 @@ class Arg(base.Arg):
     def c_add_offset(self, layers, count, is_mat):
         return """
 for(int j=0; j<%(layers)s;j++){
-  %(name)s[j] += _off%(num)s[j];
+  %(name)s[j] += _off%(num)s[j] * %(dim)s;
 }""" % {'name': self.c_vec_name() if not is_mat else self.c_kernel_arg_name(),
             'layers': layers,
-            'num': count}
+            'num': count,
+            'dim': self.data.cdim}
 
     # New globals generation which avoids false sharing.
     def c_intermediate_globals_decl(self, count):
@@ -269,21 +270,19 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
              'dim_row': str(nrows),
              'dim_col': str(ncols)}
 
-    def c_map_init(self):
-        maps = as_tuple(self.map, Map)
-        nrows = maps[0].arity
-        ncols = maps[1].arity
+    def c_map_init(self, map, count, map_number):
+        arity = map.arity
+        map_id = ""
+        if map_number == 2:
+            map_id = "2"
         res = "\n"
-        for i in range(nrows):
-            res += "xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);\n" % \
+        for i in range(arity):
+            res += "xtr_%(name)s%(map_id)s[%(ind)s] = *(%(name)s%(map_id)s + i * %(dim)s + %(ind)s) + j_0 * _off%(num)s[%(ind)s];\n" % \
                 {'name': self.c_map_name(),
-                 'dim': str(nrows),
-                 'ind': str(i)}
-        for i in range(ncols):
-            res += "xtr_%(name)s2[%(ind)s] = *(%(name)s2 + i * %(dim)s + %(ind)s);\n" % \
-                {'name': self.c_map_name(),
-                 'dim': str(nrows),
-                 'ind': str(i)}
+                 'dim': str(arity),
+                 'ind': str(i),
+                 'num': str(count),
+                 'map_id': map_id}
         return res
 
     def c_add_offset_mat(self, map, count, map_number):
@@ -438,7 +437,6 @@ class JITModule(base.JITModule):
             _apply_offset = ''
             _map_decl = ''
             _map_init = ''
-            _apply_offset_to_mat = ''
             count = 0
             for arg in self._args:
                 if arg._is_mat or arg._is_vec_map:
@@ -448,7 +446,7 @@ class JITModule(base.JITModule):
                         _off_args += ', ' + c_offset_init(count)
                         _off_inits += ';\n' + c_offset_decl(count)
                         if arg._is_mat:
-                            _apply_offset_to_mat += ' \n' + arg.c_add_offset_mat(map, count, map_number)
+                            _map_init += '; \n' + arg.c_map_init(map, count, map_number)
                         else:
                             _apply_offset += ' \n' + arg.c_add_offset(map.offset.size, count, arg._is_mat)
                         count += 1
@@ -470,7 +468,6 @@ class JITModule(base.JITModule):
             _extr_loop = ""
             _extr_loop_close = ""
             _addtos_scalar_field_extruded = ""
-            _apply_offset_to_mat = ""
             _map_decl = ""
             _map_init = ""
 
@@ -499,6 +496,5 @@ class JITModule(base.JITModule):
                 'interm_globals_init': indent(_intermediate_globals_init, 3),
                 'interm_globals_writeback': indent(_intermediate_globals_writeback, 3),
                 'addtos_scalar_field_extruded': indent(_addtos_scalar_field_extruded, 2 + nloops),
-                'apply_offset_to_mat': indent(_apply_offset_to_mat, 2 + nloops),
                 'map_init': indent(_map_init, 5),
                 'map_decl': indent(_map_decl, 1)}

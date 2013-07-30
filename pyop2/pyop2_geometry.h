@@ -43,6 +43,18 @@
   J[7] = vertex_coordinates[2][2] - vertex_coordinates[0][2]; \
   J[8] = vertex_coordinates[3][2] - vertex_coordinates[0][2];
 
+/// Compute Jacobian J for tensor product prism embedded in R^3
+#define compute_jacobian_prism_3d(J, vertex_coordinates) \
+  J[0] = vertex_coordinates[2][0] - vertex_coordinates[0][0]; \
+  J[1] = vertex_coordinates[4][0] - vertex_coordinates[0][0]; \
+  J[2] = vertex_coordinates[1][0] - vertex_coordinates[0][0]; \
+  J[3] = vertex_coordinates[2][1] - vertex_coordinates[0][1]; \
+  J[4] = vertex_coordinates[4][1] - vertex_coordinates[0][1]; \
+  J[5] = vertex_coordinates[1][1] - vertex_coordinates[0][1]; \
+  J[6] = vertex_coordinates[2][2] - vertex_coordinates[0][2]; \
+  J[7] = vertex_coordinates[4][2] - vertex_coordinates[0][2]; \
+  J[8] = vertex_coordinates[1][2] - vertex_coordinates[0][2];
+
 //--- Computation of Jacobian inverses ---
 
 /// Compute Jacobian inverse K for interval embedded in R^1
@@ -93,6 +105,28 @@
 
 /// Compute Jacobian inverse K for tetrahedron embedded in R^3
 #define compute_jacobian_inverse_tetrahedron_3d(K, det, J) \
+  const double d_00 = J[4]*J[8] - J[5]*J[7]; \
+  const double d_01 = J[5]*J[6] - J[3]*J[8]; \
+  const double d_02 = J[3]*J[7] - J[4]*J[6]; \
+  const double d_10 = J[2]*J[7] - J[1]*J[8]; \
+  const double d_11 = J[0]*J[8] - J[2]*J[6]; \
+  const double d_12 = J[1]*J[6] - J[0]*J[7]; \
+  const double d_20 = J[1]*J[5] - J[2]*J[4]; \
+  const double d_21 = J[2]*J[3] - J[0]*J[5]; \
+  const double d_22 = J[0]*J[4] - J[1]*J[3]; \
+  det = J[0]*d_00 + J[3]*d_10 + J[6]*d_20; \
+  K[0] = d_00 / det; \
+  K[1] = d_10 / det; \
+  K[2] = d_20 / det; \
+  K[3] = d_01 / det; \
+  K[4] = d_11 / det; \
+  K[5] = d_21 / det; \
+  K[6] = d_02 / det; \
+  K[7] = d_12 / det; \
+  K[8] = d_22 / det;
+  
+/// Compute Jacobian inverse K for tensor product prism embedded in R^3 - identical to tet
+#define compute_jacobian_inverse_prism_3d(K, det, J) \
   const double d_00 = J[4]*J[8] - J[5]*J[7]; \
   const double d_01 = J[5]*J[6] - J[3]*J[8]; \
   const double d_02 = J[3]*J[7] - J[4]*J[6]; \
