@@ -1295,24 +1295,15 @@ IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 
 class Sparsity(Cached):
 
-    """OP2 Sparsity, a matrix structure derived from the union of the outer
-    product of pairs of :class:`Map` objects.
-
-    :param dsets: :class:`DataSet`\s for the left and right function spaces this
-    :class:`Sparsity` maps between
-    :class:`Sparsity` maps between
-    :param maps: :class:`Maps` to build the :class:`Sparsity` from
-    :type maps: a pair of :class:`Maps` specifying a row map and a column map,
-        or a tuple of pairs of :class:`Maps` specifying multiple row and
-        column maps - if a single :class:`Map` is passed, it is used as both a
-        row map and a column map
-    :param string name: user-defined label (optional)
+    """OP2 Sparsity, the non-zero structure a matrix derived from the union of
+    the outer product of pairs of :class:`Map` objects.
 
     Examples of constructing a Sparsity: ::
 
-        Sparsity(single_map, 'mass')
-        Sparsity((single_rowmap, single_colmap))
-        Sparsity(((first_rowmap, first_colmap), (second_rowmap, second_colmap)))
+        Sparsity(single_dset, single_map, 'mass')
+        Sparsity((row_dset, col_dset), (single_rowmap, single_colmap))
+        Sparsity((row_dset, col_dset),
+                 [(first_rowmap, first_colmap), (second_rowmap, second_colmap)])
     """
 
     _cache = {}
@@ -1359,6 +1350,16 @@ class Sparsity(Cached):
         return (dsets, maps)
 
     def __init__(self, dsets, maps, name=None):
+        """
+        :param dsets: :class:`DataSet`\s for the left and right function
+            spaces this :class:`Sparsity` maps between
+        :param maps: :class:`Map`\s to build the :class:`Sparsity` from
+        :type maps: a pair of :class:`Map`\s specifying a row map and a column
+            map, or an iterable of pairs of :class:`Map`\s specifying multiple
+            row and column maps - if a single :class:`Map` is passed, it is
+            used as both a row map and a column map
+        :param string name: user-defined label (optional)
+        """
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
