@@ -130,6 +130,7 @@ class DeviceDataMixin(object):
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
         maybe_setflags(self._data, write=True)
+        self.needs_halo_update = True
         self._from_device()
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.HOST
@@ -139,6 +140,7 @@ class DeviceDataMixin(object):
     @collective
     def data(self, value):
         maybe_setflags(self._data, write=True)
+        self.needs_halo_update = True
         self._data = verify_reshape(value, self.dtype, self._data.shape)
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.HOST
