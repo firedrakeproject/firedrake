@@ -871,6 +871,12 @@ class Dat(DataCarrier):
         _make_object('ParLoop', self._zero_kernel, self.dataset.set,
                      self(IdentityMap, WRITE)).compute()
 
+    def __eq__(self, other):
+        """:class:`Dat`\s compare equal if defined on the same
+        :class:`DataSet` and containing the same data."""
+        return self._dataset == other._dataset \
+            and np.array_equal(self._data, other._data)
+
     def __str__(self):
         return "OP2 Dat: %s on (%s) with datatype %s" \
                % (self._name, self._dataset, self._data.dtype.name)

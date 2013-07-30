@@ -386,6 +386,26 @@ class TestDatAPI:
         assert d.dataset.set == dset.set and d.dtype == np.float64 and \
             d.name == 'bar' and d.data.sum() == dset.size * dset.cdim
 
+    def test_dat_equality(self, backend, dset):
+        """Dats should compare equal if defined on the same DataSets and
+        having the same data."""
+        assert op2.Dat(dset) == op2.Dat(dset)
+
+    def test_dat_neq_dset(self, backend):
+        """Dats should not compare equal if defined on different DataSets."""
+        assert op2.Dat(op2.Set(3)) != op2.Dat(op2.Set(3))
+
+    def test_dat_neq_dtype(self, backend, dset):
+        """Dats should not compare equal when having data of different
+        dtype."""
+        assert op2.Dat(dset, dtype=np.int64) != op2.Dat(dset, dtype=np.float64)
+
+    def test_dat_neq_data(self, backend, dset):
+        """Dats should not compare equal when having different data."""
+        d1, d2 = op2.Dat(dset), op2.Dat(dset)
+        d1.data[0] = -1.0
+        assert d1 != d2
+
     def test_dat_repr(self, backend, dat):
         "Dat repr should produce a Dat object when eval'd."
         from pyop2.op2 import Dat, DataSet, Set  # noqa: needed by eval
