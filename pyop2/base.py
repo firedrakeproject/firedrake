@@ -57,9 +57,10 @@ class Access(object):
     """OP2 access type. In an :py:class:`Arg`, this describes how the
     :py:class:`DataCarrier` will be accessed.
 
-    .. warning :: Access should not be instantiated by user code. Instead, use
-    the predefined values: :const:`READ`, :const:`WRITE`, :const:`RW`,
-    :const:`INC`, :const:`MIN`, :const:`MAX`
+    .. warning ::
+        Access should not be instantiated by user code. Instead, use
+        the predefined values: :const:`READ`, :const:`WRITE`, :const:`RW`,
+        :const:`INC`, :const:`MIN`, :const:`MAX`
     """
 
     _modes = ["READ", "WRITE", "RW", "INC", "MIN", "MAX"]
@@ -107,8 +108,9 @@ class Arg(object):
 
     """An argument to a :func:`par_loop`.
 
-    .. warning:: User code should not directly instantiate :class:`Arg`.
-    Instead, use the call syntax on the :class:`DataCarrier`.
+    .. warning ::
+        User code should not directly instantiate :class:`Arg`.
+        Instead, use the call syntax on the :class:`DataCarrier`.
     """
 
     def __init__(self, data=None, map=None, idx=None, access=None):
@@ -524,8 +526,8 @@ class Halo(object):
     correctly number all the set elements in the halo region as well
     as owned elements.  Providing this array is only necessary if you
     will access :class:`Mat` objects on the :class:`Set` this `Halo`
-    lives on.  Insertion into :class:`Dat`s always uses process-local
-    numbering, however insertion into :class:`Mat`s uses cross-process
+    lives on.  Insertion into :class:`Dat`\s always uses process-local
+    numbering, however insertion into :class:`Mat`\s uses cross-process
     numbering under the hood.
     """
 
@@ -616,8 +618,9 @@ class IterationSpace(object):
 
     """OP2 iteration space type.
 
-    .. Warning:: User code should not directly instantiate IterationSpace. Instead
-    use the call syntax on the iteration set in the :func:`par_loop` call.
+    .. Warning ::
+        User code should not directly instantiate IterationSpace. Instead
+        use the call syntax on the iteration set in the :func:`par_loop` call.
     """
 
     @validate_type(('iterset', Set, SetTypeError))
@@ -695,9 +698,10 @@ class IterationSpace(object):
 
 class DataCarrier(object):
 
-    """Abstract base class for OP2 data. Actual objects will be
-    ``DataCarrier`` objects of rank 0 (:class:`Const` and
-    :class:`Global`), rank 1 (:class:`Dat`), or rank 2
+    """Abstract base class for OP2 data.
+
+    Actual objects will be :class:`DataCarrier` objects of rank 0
+    (:class:`Const` and :class:`Global`), rank 1 (:class:`Dat`), or rank 2
     (:class:`Mat`)"""
 
     @property
@@ -743,27 +747,29 @@ class DataCarrier(object):
 
 class Dat(DataCarrier):
 
-    """OP2 vector data. A ``Dat`` holds values on every element of a :class:`DataSet`.
+    """OP2 vector data. A :class:`Dat` holds values on every element of a
+    :class:`DataSet`.
 
     If a :class:`Set` is passed as the ``dataset`` argument, rather
-    than a :class:`DataSet`, the ``Dat`` is created with a default
+    than a :class:`DataSet`, the :class:`Dat` is created with a default
     :class:`DataSet` dimension of 1.
 
-    When a ``Dat`` is passed to :func:`par_loop`, the map via which
+    When a :class:`Dat` is passed to :func:`par_loop`, the map via which
     indirection occurs and the access descriptor are passed by
-    `calling` the ``Dat``. For instance, if a ``Dat`` named ``D`` is
+    calling the :class:`Dat`. For instance, if a :class:`Dat` named ``D`` is
     to be accessed for reading via a :class:`Map` named ``M``, this is
-    accomplished by::
+    accomplished by ::
 
       D(M, pyop2.READ)
 
     The :class:`Map` through which indirection occurs can be indexed
     using the index notation described in the documentation for the
-    :class:`Map` class. Direct access to a Dat can be accomplished by
-    using the :data:`IdentityMap` as the indirection.
+    :class:`Map`. Direct access to a Dat can be accomplished by
+    using the :class:`IdentityMap` as the indirection.
 
-    ``Dat`` objects support the pointwise linear algebra operations +=, *=,
-    -=, /=, where *= and /= also support multiplication/division by a scalar.
+    :class:`Dat` objects support the pointwise linear algebra operations
+    ``+=``, ``*=``, ``-=``, ``/=``, where ``*=`` and ``/=`` also support
+    multiplication / division by a scalar.
     """
 
     _globalcount = 0
@@ -1295,24 +1301,15 @@ IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
 
 class Sparsity(Cached):
 
-    """OP2 Sparsity, a matrix structure derived from the union of the outer
-    product of pairs of :class:`Map` objects.
-
-    :param dsets: :class:`DataSet`\s for the left and right function spaces this
-    :class:`Sparsity` maps between
-    :class:`Sparsity` maps between
-    :param maps: :class:`Maps` to build the :class:`Sparsity` from
-    :type maps: a pair of :class:`Maps` specifying a row map and a column map,
-        or a tuple of pairs of :class:`Maps` specifying multiple row and
-        column maps - if a single :class:`Map` is passed, it is used as both a
-        row map and a column map
-    :param string name: user-defined label (optional)
+    """OP2 Sparsity, the non-zero structure a matrix derived from the union of
+    the outer product of pairs of :class:`Map` objects.
 
     Examples of constructing a Sparsity: ::
 
-        Sparsity(single_map, 'mass')
-        Sparsity((single_rowmap, single_colmap))
-        Sparsity(((first_rowmap, first_colmap), (second_rowmap, second_colmap)))
+        Sparsity(single_dset, single_map, 'mass')
+        Sparsity((row_dset, col_dset), (single_rowmap, single_colmap))
+        Sparsity((row_dset, col_dset),
+                 [(first_rowmap, first_colmap), (second_rowmap, second_colmap)])
     """
 
     _cache = {}
@@ -1359,6 +1356,16 @@ class Sparsity(Cached):
         return (dsets, maps)
 
     def __init__(self, dsets, maps, name=None):
+        """
+        :param dsets: :class:`DataSet`\s for the left and right function
+            spaces this :class:`Sparsity` maps between
+        :param maps: :class:`Map`\s to build the :class:`Sparsity` from
+        :type maps: a pair of :class:`Map`\s specifying a row map and a column
+            map, or an iterable of pairs of :class:`Map`\s specifying multiple
+            row and column maps - if a single :class:`Map` is passed, it is
+            used as both a row map and a column map
+        :param string name: user-defined label (optional)
+        """
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
@@ -1583,7 +1590,6 @@ class Mat(DataCarrier):
             This is a dense array, so will need a lot of memory.  It's
             probably not a good idea to access this property if your
             matrix has more than around 10000 degrees of freedom.
-
         """
         raise NotImplementedError("Abstract base Mat does not implement values()")
 
@@ -1686,8 +1692,11 @@ class ParLoop(object):
     """Represents the kernel, iteration space and arguments of a parallel loop
     invocation.
 
-    .. note:: Users should not directly construct :class:`ParLoop` objects, but
-    use ``op2.par_loop()`` instead."""
+    .. note ::
+
+        Users should not directly construct :class:`ParLoop` objects, but
+        use ``op2.par_loop()`` instead.
+    """
 
     def __init__(self, kernel, itspace, *args):
         # Always use the current arguments, also when we hit cache
