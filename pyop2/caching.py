@@ -41,14 +41,16 @@ import os
 class Cached(object):
 
     """Base class providing global caching of objects. Derived classes need to
-    implement classmethods :py:meth:`_process_args` and :py:meth:`_cache_key`
-    and define a class attribute :py:attribute:`_cache` of type :py:class:`dict`.
+    implement classmethods :meth:`_process_args` and :meth:`_cache_key`
+    and define a class attribute :attr:`_cache` of type :class:`dict`.
 
-    .. warning:: The derived class' :py:meth:`__init__` is still called if the
-    object is retrieved from cache. If that is not desired, derived classes can
-    set a flag indicating whether the constructor has already been called and
-    immediately return from :py:meth:`__init__` if the flag is set. Otherwise
-    the object will be re-initialized even if it was returned from cache!"""
+    .. warning::
+        The derived class' :meth:`__init__` is still called if the object is
+        retrieved from cache. If that is not desired, derived classes can set
+        a flag indicating whether the constructor has already been called and
+        immediately return from :meth:`__init__` if the flag is set. Otherwise
+        the object will be re-initialized even if it was returned from cache!
+    """
 
     def __new__(cls, *args, **kwargs):
         args, kwargs = cls._process_args(*args, **kwargs)
@@ -76,10 +78,10 @@ class Cached(object):
     @classmethod
     def _process_args(cls, *args, **kwargs):
         """Pre-processes the arguments before they are being passed to
-        :py:meth:`_cache_key` and the constructor.
+        :meth:`_cache_key` and the constructor.
 
-        :rtype: *must* return a :py:class:`list` of *args* and a
-            :py:class:`dict` of *kwargs*"""
+        :rtype: *must* return a :class:`list` of *args* and a
+            :class:`dict` of *kwargs*"""
         return args, kwargs
 
     @classmethod
@@ -100,12 +102,14 @@ class Cached(object):
 class DiskCached(Cached):
 
     """Base class providing global caching of objects on disk. The same notes
-    as in :py:class:`Cached` apply. In addition, derived classes need to
-    define a class attribute :py:attribute:`_cachedir` specifying the path
-    where to cache objects on disk.
+    as in :class:`Cached` apply. In addition, derived classes need to
+    define a class attribute :attr:`_cachedir` specifying the path where to
+    cache objects on disk.
 
-    .. warning:: The key returned by :py:meth:`_cache_key` *must* be a
-    :py:class:`str` safe to use as a filename, such as an md5 hex digest."""
+    .. warning ::
+        The key returned by :meth:`_cache_key` *must* be a
+        :class:`str` safe to use as a filename, such as an md5 hex digest.
+    """
 
     @classmethod
     def _cache_lookup(cls, key):
