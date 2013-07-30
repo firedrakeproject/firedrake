@@ -804,6 +804,18 @@ class TestGlobalAPI:
         with pytest.raises(exceptions.DataValueError):
             c.data = [1, 2]
 
+    def test_global_eq(self, backend):
+        "Globals should compare equal when having the same dim and data."
+        assert op2.Global(1, [1.0]) == op2.Global(1, [1.0])
+
+    def test_global_neq_dim(self, backend):
+        "Globals should not compare equal when having different dims."
+        assert op2.Global(1) != op2.Global(2)
+
+    def test_global_neq_data(self, backend):
+        "Globals should not compare equal when having different data."
+        assert op2.Global(1, [1.0]) != op2.Global(1, [2.0])
+
     def test_global_repr(self, backend):
         "Global repr should produce a Global object when eval'd."
         from pyop2.op2 import Global  # noqa: needed by eval

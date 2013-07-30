@@ -1099,6 +1099,11 @@ class Global(DataCarrier):
     def __call__(self, access):
         return _make_object('Arg', data=self, access=access)
 
+    def __eq__(self, other):
+        """:class:`Global`\s compare equal when having the same ``dim`` and
+        ``data``."""
+        return self._dim == other._dim and np.array_equal(self._data, other._data)
+
     def __str__(self):
         return "OP2 Global Argument: %s with dim %s and value %s" \
             % (self._name, self._dim, self._data)
