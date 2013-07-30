@@ -16,6 +16,8 @@ SPHINX_BUILD_DIR = $(SPHINX_DIR)/build
 SPHINX_TARGET = html
 SPHINX_TARGET_DIR = $(SPHINX_BUILD_DIR)/$(SPHINX_TARGET)
 
+PORT = 8000
+
 MESHES_DIR = demo/meshes
 
 all: ext
@@ -31,6 +33,7 @@ help:
 	@echo "  regression         : run regression tests"
 	@echo "  regression_BACKEND : run regression tests for BACKEND"
 	@echo "  doc                : build sphinx documentation"
+	@echo "  serve_docs         : launch local web server to serve up documentation"
 	@echo "  update_docs        : build sphinx documentation and push to GitHub"
 	@echo "  ext                : rebuild Cython extension"
 	@echo "  ext_clean          : delete generated extension"
@@ -67,6 +70,9 @@ regression_opencl:
 
 doc:
 	make -C $(SPHINX_DIR) $(SPHINX_TARGET)
+
+serve_docs:
+	cd $(SPHINX_TARGET_DIR); python -m SimpleHTTPServer $(PORT)
 
 update_docs:
 	if [ ! -d $(SPHINX_TARGET_DIR)/.git ]; then \
