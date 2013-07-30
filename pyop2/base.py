@@ -119,6 +119,13 @@ class Arg(object):
         self._lib_handle = None
         self._in_flight = False  # some kind of comms in flight for this arg
 
+    def __eq__(self):
+        """:class:`Arg`\s compare equal of they are defined on the same data,
+        use the same :class:`Map` with the same index and the same access
+        descriptor."""
+        return self._dat == other._dat and self._map == other._map and \
+            self._idx == other._idx and self._access == other._access
+
     def __str__(self):
         return "OP2 Arg: dat %s, map %s, index %s, access %s" % \
             (self._dat, self._map, self._idx, self._access)
@@ -481,6 +488,8 @@ class DataSet(object):
         return self._set
 
     def __eq__(self, other):
+        """:class:`DataSet`\s compare equal if they are defined on the same
+        :class:`Set` and have the same ``dim``."""
         return self.set == other.set and self.dim == other.dim
 
     def __str__(self):
@@ -667,6 +676,11 @@ class IterationSpace(object):
     @property
     def _extent_ranges(self):
         return [e for e in self.extents]
+
+    def __eq__(self, other):
+        """:class:`IterationSpace`s compare equal if they are defined on the
+        same :class:`Set` and have the same ``extent``."""
+        return self._iterset == other._iterset and self._extents == other._extents
 
     def __str__(self):
         return "OP2 Iteration Space: %s with extents %s" % (self._iterset, self._extents)
@@ -856,6 +870,12 @@ class Dat(DataCarrier):
             self._zero_kernel = _make_object('Kernel', k, 'zero')
         _make_object('ParLoop', self._zero_kernel, self.dataset.set,
                      self(IdentityMap, WRITE)).compute()
+
+    def __eq__(self, other):
+        """:class:`Dat`\s compare equal if defined on the same
+        :class:`DataSet` and containing the same data."""
+        return self._dataset == other._dataset \
+            and np.array_equal(self._data, other._data)
 
     def __str__(self):
         return "OP2 Dat: %s on (%s) with datatype %s" \
@@ -1079,6 +1099,11 @@ class Global(DataCarrier):
     def __call__(self, access):
         return _make_object('Arg', data=self, access=access)
 
+    def __eq__(self, other):
+        """:class:`Global`\s compare equal when having the same ``dim`` and
+        ``data``."""
+        return self._dim == other._dim and np.array_equal(self._data, other._data)
+
     def __str__(self):
         return "OP2 Global Argument: %s with dim %s and value %s" \
             % (self._name, self._dim, self._data)
@@ -1237,9 +1262,11 @@ class Map(object):
                % (self._iterset, self._toset, self._arity, self._name)
 
     def __eq__(self, o):
+        """:class:`Map`\s compare equal if defined on the same ``iterset``,
+        ``toset`` and have the same ``arity`` and ``data``."""
         try:
             return (self._iterset == o._iterset and self._toset == o._toset and
-                    self._arity == o.arity and self._name == o.name)
+                    self._arity == o.arity and np.array_equal(self._values, o._values))
         except AttributeError:
             return False
 

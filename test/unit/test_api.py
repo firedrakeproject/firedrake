@@ -67,6 +67,11 @@ def dset(request, set):
 
 
 @pytest.fixture
+def dat(request, dset):
+    return op2.Dat(dset, np.arange(dset.cdim * dset.size, dtype=np.int32))
+
+
+@pytest.fixture
 def diterset(iterset):
     return op2.DataSet(iterset, 1, 'diterset')
 
@@ -309,8 +314,7 @@ class TestDatAPI:
         """Dat initilialised without the data should initialise data with the
         correct size and type."""
         d = op2.Dat(dset)
-        assert d.data.size == dset.size * \
-            np.prod(dset.dim) and d.data.dtype == np.float64
+        assert d.data.size == dset.size * dset.cdim and d.data.dtype == np.float64
 
     def test_dat_initialise_data_type(self, backend, dset):
         """Dat intiialised without the data but with specified type should
@@ -343,22 +347,22 @@ class TestDatAPI:
 
     def test_dat_float(self, backend, dset):
         "Data type for float data should be numpy.float64."
-        d = op2.Dat(dset, [1.0] * dset.size * np.prod(dset.dim))
+        d = op2.Dat(dset, [1.0] * dset.size * dset.cdim)
         assert d.dtype == np.double
 
     def test_dat_int(self, backend, dset):
         "Data type for int data should be numpy.int."
-        d = op2.Dat(dset, [1] * dset.size * np.prod(dset.dim))
+        d = op2.Dat(dset, [1] * dset.size * dset.cdim)
         assert d.dtype == np.int
 
     def test_dat_convert_int_float(self, backend, dset):
         "Explicit float type should override NumPy's default choice of int."
-        d = op2.Dat(dset, [1] * dset.size * np.prod(dset.dim), np.double)
+        d = op2.Dat(dset, [1] * dset.size * dset.cdim, np.double)
         assert d.dtype == np.float64
 
     def test_dat_convert_float_int(self, backend, dset):
         "Explicit int type should override NumPy's default choice of float."
-        d = op2.Dat(dset, [1.5] * dset.size * np.prod(dset.dim), np.int32)
+        d = op2.Dat(dset, [1.5] * dset.size * dset.cdim, np.int32)
         assert d.dtype == np.int32
 
     def test_dat_illegal_dtype(self, backend, dset):
@@ -369,25 +373,44 @@ class TestDatAPI:
     def test_dat_illegal_length(self, backend, dset):
         "Mismatching data length should raise DataValueError."
         with pytest.raises(exceptions.DataValueError):
-            op2.Dat(dset, [1] * (dset.size * np.prod(dset.dim) + 1))
+            op2.Dat(dset, [1] * (dset.size * dset.cdim + 1))
 
     def test_dat_reshape(self, backend, dset):
         "Data should be reshaped according to the set's dim."
-        d = op2.Dat(dset, [1.0] * dset.size * np.prod(dset.dim))
+        d = op2.Dat(dset, [1.0] * dset.size * dset.cdim)
         assert d.data.shape == (dset.size,) + dset.dim
 
     def test_dat_properties(self, backend, dset):
         "Dat constructor should correctly set attributes."
-        d = op2.Dat(dset, [1] * dset.size * np.prod(dset.dim), 'double', 'bar')
+        d = op2.Dat(dset, [1] * dset.size * dset.cdim, 'double', 'bar')
         assert d.dataset.set == dset.set and d.dtype == np.float64 and \
-            d.name == 'bar' and d.data.sum() == dset.size * np.prod(dset.dim)
+            d.name == 'bar' and d.data.sum() == dset.size * dset.cdim
 
-    def test_dat_repr(self, backend, dset):
+    def test_dat_equality(self, backend, dset):
+        """Dats should compare equal if defined on the same DataSets and
+        having the same data."""
+        assert op2.Dat(dset) == op2.Dat(dset)
+
+    def test_dat_neq_dset(self, backend):
+        """Dats should not compare equal if defined on different DataSets."""
+        assert op2.Dat(op2.Set(3)) != op2.Dat(op2.Set(3))
+
+    def test_dat_neq_dtype(self, backend, dset):
+        """Dats should not compare equal when having data of different
+        dtype."""
+        assert op2.Dat(dset, dtype=np.int64) != op2.Dat(dset, dtype=np.float64)
+
+    def test_dat_neq_data(self, backend, dset):
+        """Dats should not compare equal when having different data."""
+        d1, d2 = op2.Dat(dset), op2.Dat(dset)
+        d1.data[0] = -1.0
+        assert d1 != d2
+
+    def test_dat_repr(self, backend, dat):
         "Dat repr should produce a Dat object when eval'd."
         from pyop2.op2 import Dat, DataSet, Set  # noqa: needed by eval
         from numpy import dtype  # noqa: needed by eval
-        d = op2.Dat(dset, dtype='double', name='bar')
-        assert isinstance(eval(repr(d)), base.Dat)
+        assert isinstance(eval(repr(dat)), base.Dat)
 
     def test_dat_str(self, backend, dset):
         "Dat should have the expected string representation."
@@ -396,22 +419,20 @@ class TestDatAPI:
             % (d.name, d.dataset, d.data.dtype.name)
         assert str(d) == s
 
-    def test_dat_ro_accessor(self, backend, dset):
+    def test_dat_ro_accessor(self, backend, dat):
         "Attempting to set values through the RO accessor should raise an error."
-        d = op2.Dat(dset, range(np.prod(dset.dim) * dset.size), dtype=np.int32)
-        x = d.data_ro
+        x = dat.data_ro
         with pytest.raises((RuntimeError, ValueError)):
             x[0] = 1
 
-    def test_dat_ro_write_accessor(self, backend, dset):
+    def test_dat_ro_write_accessor(self, backend, dat):
         "Re-accessing the data in writeable form should be allowed."
-        d = op2.Dat(dset, range(np.prod(dset.dim) * dset.size), dtype=np.int32)
-        x = d.data_ro
+        x = dat.data_ro
         with pytest.raises((RuntimeError, ValueError)):
             x[0] = 1
-        x = d.data
+        x = dat.data
         x[0] = -100
-        assert (d.data_ro[0] == -100).all()
+        assert (dat.data_ro[0] == -100).all()
 
 
 class TestSparsityAPI:
@@ -783,6 +804,18 @@ class TestGlobalAPI:
         with pytest.raises(exceptions.DataValueError):
             c.data = [1, 2]
 
+    def test_global_eq(self, backend):
+        "Globals should compare equal when having the same dim and data."
+        assert op2.Global(1, [1.0]) == op2.Global(1, [1.0])
+
+    def test_global_neq_dim(self, backend):
+        "Globals should not compare equal when having different dims."
+        assert op2.Global(1) != op2.Global(2)
+
+    def test_global_neq_data(self, backend):
+        "Globals should not compare equal when having different data."
+        assert op2.Global(1, [1.0]) != op2.Global(1, [2.0])
+
     def test_global_repr(self, backend):
         "Global repr should produce a Global object when eval'd."
         from pyop2.op2 import Global  # noqa: needed by eval
@@ -872,25 +905,25 @@ class TestMapAPI:
     def test_map_equality(self, backend, m):
         """A map is equal if all its attributes are equal, bearing in mind that
         equality is identity for sets."""
-        m2 = op2.Map(m.iterset, m.toset, m.arity, m.values, m.name)
-        assert m == m2
+        assert m == op2.Map(m.iterset, m.toset, m.arity, m.values)
 
-    def test_map_copied_set_inequality(self, backend, m):
-        """Maps that have copied but not equal iteration sets are not equal"""
-        itercopy = op2.Set(m.iterset.size, m.iterset.name)
-        m2 = op2.Map(itercopy, m.toset, m.arity, m.values, m.name)
+    def test_map_neq_iterset(self, backend, m):
+        """Maps that have copied but not equal iteration sets are not equal."""
+        assert m != op2.Map(op2.Set(m.iterset.size), m.toset, m.arity, m.values)
+
+    def test_map_neq_toset(self, backend, m):
+        """Maps that have copied but not equal to sets are not equal."""
+        assert m != op2.Map(m.iterset, op2.Set(m.toset.size), m.arity, m.values)
+
+    def test_map_neq_arity(self, backend, m):
+        """Maps that have different arities are not equal."""
+        assert m != op2.Map(m.iterset, m.toset, m.arity * 2, list(m.values) * 2)
+
+    def test_map_neq_values(self, backend, m):
+        """Maps that have different values are not equal."""
+        m2 = op2.Map(m.iterset, m.toset, m.arity, m.values.copy())
+        m2.values[0] = 2
         assert m != m2
-
-    def test_map_arity_inequality(self, backend, m):
-        """Maps that have different arities are not equal"""
-        m2 = op2.Map(m.iterset, m.toset,
-                     m.arity * 2, list(m.values) * 2, m.name)
-        assert m != m2
-
-    def test_map_name_inequality(self, backend, m):
-        """Maps with different names are not equal"""
-        n = op2.Map(m.iterset, m.toset, m.arity, m.values, 'n')
-        assert m != n
 
     def test_map_repr(self, backend, m):
         "Map should have the expected repr."
@@ -939,6 +972,20 @@ class TestIterationSpaceAPI:
         "IterationSpace constructor should correctly set attributes."
         i = op2.IterationSpace(set, (2, 3))
         assert i.iterset == set and i.extents == (2, 3)
+
+    def test_iteration_space_eq(self, backend, set):
+        """IterationSpaces should compare equal if defined on the same Set."""
+        assert op2.IterationSpace(set, 3) == op2.IterationSpace(set, 3)
+
+    def test_iteration_space_neq_set(self, backend):
+        """IterationSpaces should not compare equal if defined on different
+        Sets."""
+        assert op2.IterationSpace(op2.Set(3), 3) != op2.IterationSpace(op2.Set(3), 3)
+
+    def test_iteration_space_neq_extent(self, backend, set):
+        """IterationSpaces should not compare equal if defined with different
+        extents."""
+        assert op2.IterationSpace(set, 3) != op2.IterationSpace(set, 2)
 
     def test_iteration_space_repr(self, backend, set):
         """IterationSpace repr should produce a IterationSpace object when

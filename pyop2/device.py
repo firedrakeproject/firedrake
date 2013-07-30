@@ -233,7 +233,7 @@ class Const(DeviceDataMixin, base.Const):
 
 class Global(DeviceDataMixin, base.Global):
 
-    def __init__(self, dim, data, dtype=None, name=None):
+    def __init__(self, dim, data=None, dtype=None, name=None):
         base.Global.__init__(self, dim, data, dtype, name)
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
