@@ -70,8 +70,7 @@ def read_triangle(f, layers=None):
                 node_values[node] = (x, y)
 
     nodes = op2.Set(num_nodes, "nodes")
-    vnodes = op2.DataSet(nodes, 2, "vnodes")
-    coords = op2.Dat(vnodes, np.asarray(node_values, dtype=np.float64),
+    coords = op2.Dat(nodes ** 2, np.asarray(node_values, dtype=np.float64),
                      np.float64, "coords")
 
     # Read elements
@@ -111,4 +110,4 @@ def read_triangle(f, layers=None):
         elements = op2.Set(num_tri, "elements", layers=layers)
     elem_node = op2.Map(elements, nodes, 3, flat_map, "elem_node")
 
-    return nodes, vnodes, coords, elements, elem_node
+    return nodes, coords, elements, elem_node
