@@ -49,6 +49,8 @@ layers = 11
 
 elem_node_map = np.asarray([0, 1, 3, 2, 3, 1], dtype=np.uint32)
 
+xtr_elem_node_map = np.asarray([0, 1, 11, 12, 33, 34, 22, 23, 33, 34, 11, 12], dtype=np.uint32)
+
 
 @pytest.fixture(scope='module')
 def nodes():
@@ -144,6 +146,12 @@ def xtr_dnodes(xtr_nodes):
     return op2.DataSet(xtr_nodes, 1, "xtr_dnodes")
 
 
+@pytest.fixture(scope='module')
+def xtr_elem_node(xtr_elements, xtr_nodes):
+    return op2.Map(xtr_elements, xtr_nodes, 6, xtr_elem_node_map, "xtr_elem_node",
+                   np.array([1, 1, 1, 1, 1, 1], dtype=np.int32))
+
+
 @pytest.fixture
 def x(dnodes):
     x_vals = np.zeros(NUM_NODES, dtype=valuetype)
@@ -230,8 +238,9 @@ void mass(double localTensor[1][1], double* c0[2], int i_r_0, int i_r_1)
 }"""
     return op2.Kernel(kernel_code, "mass")
 
-    @pytest.fixture
-    def mass_swapped(cls):
+
+@pytest.fixture
+def mass_swapped():
         kernel_code = """
 void mass_swapped(double localTensor[1][1], double* c0[2], int i_r_0, int i_r_1)
 {
@@ -657,8 +666,9 @@ void kernel_set_vec(double entry[2][2], double* g, int i, int j)
 """
     return op2.Kernel(kernel_code, "kernel_set_vec")
 
-    @pytest.fixture
-    def extrusion_kernel(cls):
+
+@pytest.fixture
+def extrusion_kernel():
         kernel_code = """
 void extrusion_kernel(double *xtr[], double *x[], int* j[])
 {
@@ -669,8 +679,9 @@ void extrusion_kernel(double *xtr[], double *x[], int* j[])
 }"""
         return op2.Kernel(kernel_code, "extrusion_kernel")
 
-    @pytest.fixture
-    def vol_comp(cls):
+
+@pytest.fixture
+def vol_comp():
         kernel_code = """
 void vol_comp(double A[1][1], double *x[], int i0, int i1)
 {
@@ -682,8 +693,23 @@ void vol_comp(double A[1][1], double *x[], int i0, int i1)
 }"""
         return op2.Kernel(kernel_code, "vol_comp")
 
-    @pytest.fixture
-    def expected_matrix(cls):
+
+@pytest.fixture
+def vol_comp_rhs():
+        kernel_code = """
+void vol_comp_rhs(double A[1], double *x[], int *y[], int i0)
+{
+  double area = x[0][0]*(x[2][1]-x[4][1]) + x[2][0]*(x[4][1]-x[0][1])
+               + x[4][0]*(x[0][1]-x[2][1]);
+  if (area < 0)
+    area = area * (-1.0);
+  A[0] += 0.5 * area * (x[1][2] - x[0][2]) * y[0][0];
+}"""
+        return op2.Kernel(kernel_code, "vol_comp_rhs")
+
+
+@pytest.fixture
+def expected_matrix():
         expected_vals = [(0.25, 0.125, 0.0, 0.125),
                          (0.125, 0.291667, 0.0208333, 0.145833),
                          (0.0, 0.0208333, 0.0416667, 0.0208333),
@@ -964,10 +990,12 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps = 1.e-14
         assert_allclose(vecmat.values, expected_matrix, eps)
 
-    def test_extruded_assemble_mat(self, backend, mass, xtr_mat, xtr_coords,
-                                   xtr_elements, xtr_elem_node,
-                                   expected_matrix, extrusion_kernel,
-                                   xtr_nodes, vol_comp, mass_swapped):
+    def test_extruded_assemble_mat_rhs_solve(self, backend, mass, xtr_mat,
+                                             xtr_coords, xtr_elements,
+                                             xtr_elem_node, expected_matrix,
+                                             extrusion_kernel, xtr_nodes,
+                                             vol_comp, mass_swapped,
+                                             xtr_dnodes, vol_comp_rhs, xtr_b):
         coords_dim = 3
         coords_xtr_dim = 3  # dimension
         # BIG TRICK HERE:
@@ -1014,27 +1042,31 @@ void zero_mat(double local_mat[1][1], int i, int j)
                      coords(map_2d, op2.READ),
                      layer(layer_xtr, op2.READ))
 
-        op2.par_loop(vol_comp, xtr_elements(3, 3),
+        # Assemble the main matrix.
+        op2.par_loop(vol_comp, xtr_elements(6, 6),
                      xtr_mat((xtr_elem_node[op2.i[0]], xtr_elem_node[op2.i[1]]), op2.INC),
                      coords_xtr(xtr_elem_node, op2.READ))
 
         eps = 1.e-5
-        assert_allclose(sum(sum(xtr_mat.values)), 9.0, eps)
+        assert_allclose(sum(sum(xtr_mat.values)), 36.0, eps)
 
-    def Nottest_extruded_assemble_rhs(self, backend, rhs, elements, b, coords, f,
-                                      elem_node, expected_rhs):
-        op2.par_loop(rhs, elements,
-                     b(elem_node, op2.INC),
-                     coords(elem_node, op2.READ),
-                     f(elem_node, op2.READ))
+        # Assemble the RHS
+        xtr_f_vals = np.array([1] * NUM_NODES * layers, dtype=np.int32)
+        xtr_f = op2.Dat(d_lnodes_xtr, xtr_f_vals, np.int32, "xtr_f")
 
-        eps = 1.e-12
-        assert_allclose(b.data, expected_rhs, eps)
+        op2.par_loop(vol_comp_rhs, xtr_elements(6),
+                     xtr_b(xtr_elem_node[op2.i[0]], op2.INC),
+                     coords_xtr(xtr_elem_node, op2.READ),
+                     xtr_f(xtr_elem_node, op2.READ))
 
-    def NOTtest_extruded_solve(self, backend, mat, b, x, f):
-        op2.solve(mat, x, b)
-        eps = 1.e-8
-        assert_allclose(x.data, f.data, eps)
+        assert_allclose(sum(xtr_b.data), 6.0, eps)
+
+        x_vals = np.zeros(NUM_NODES * layers, dtype=valuetype)
+        xtr_x = op2.Dat(d_lnodes_xtr, x_vals, valuetype, "xtr_x")
+
+        op2.solve(xtr_mat, xtr_x, xtr_b)
+
+        assert_allclose(sum(xtr_x.data), 7.3333333, eps)
 
 if __name__ == '__main__':
     import os

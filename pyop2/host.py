@@ -102,6 +102,13 @@ class Arg(base.Arg):
              'idx': idx,
              'dim': self.data.cdim}
 
+    def c_ind_data_xtr(self, idx):
+        return "%(name)s + xtr_%(map_name)s[%(idx)s] * %(dim)s" % \
+            {'name': self.c_arg_name(),
+             'map_name': self.c_map_name(),
+             'idx': idx,
+             'dim': self.data.cdim}
+
     def c_kernel_arg_name(self):
         return "p_%s" % self.c_arg_name()
 
@@ -125,7 +132,10 @@ class Arg(base.Arg):
                 else:
                     raise RuntimeError("Don't know how to pass kernel arg %s" % self)
             else:
-                return self.c_ind_data("i_%d" % self.idx.index)
+                if self.data is not None and self.data.dataset.layers > 1:
+                    return self.c_ind_data_xtr("i_%d" % self.idx.index)
+                else:
+                    return self.c_ind_data("i_%d" % self.idx.index)
         elif self._is_indirect:
             if self._is_vec_map:
                 return self.c_vec_name()
@@ -269,6 +279,13 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             {'name': self.c_map_name(),
              'dim_row': str(nrows),
              'dim_col': str(ncols)}
+
+    def c_map_decl_itspace(self):
+        map = self.map
+        nrows = map.arity
+        return "int xtr_%(name)s[%(dim_row)s];\n" % \
+            {'name': self.c_map_name(),
+             'dim_row': str(nrows)}
 
     def c_map_init(self, map, count, map_number):
         arity = map.arity
@@ -439,13 +456,13 @@ class JITModule(base.JITModule):
             _map_init = ''
             count = 0
             for arg in self._args:
-                if arg._is_mat or arg._is_vec_map:
+                if arg._uses_itspace or arg._is_vec_map:
                     maps = as_tuple(arg.map, Map)
                     map_number = 1
                     for map in maps:
                         _off_args += ', ' + c_offset_init(count)
                         _off_inits += ';\n' + c_offset_decl(count)
-                        if arg._is_mat:
+                        if arg._uses_itspace:
                             _map_init += '; \n' + arg.c_map_init(map, count, map_number)
                         else:
                             _apply_offset += ' \n' + arg.c_add_offset(map.offset.size, count, arg._is_mat)
@@ -454,6 +471,8 @@ class JITModule(base.JITModule):
 
             _map_decl += ';\n'.join([arg.c_map_decl() for arg in self._args
                                      if arg._is_mat and arg.data._is_scalar_field])
+            _map_decl += ';\n'.join([arg.c_map_decl_itspace() for arg in self._args
+                                     if arg._uses_itspace and not arg._is_mat])
 
             _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field("xtr_") for arg in self._args
                                                         if arg._is_mat and arg.data._is_scalar_field])
