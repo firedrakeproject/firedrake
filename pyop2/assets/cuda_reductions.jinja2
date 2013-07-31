@@ -17,11 +17,11 @@ __device__ void {{ arg._reduction_kernel_name }}(
     volatile {{ arg.data.ctype }} *reduction_result,
     {{ arg.data.ctype }} input_value)
 {
-    extern __shared__ volatile {{ arg.data.ctype }} temp[];
+    extern __shared__ volatile {{ arg.data.ctype }} {{ arg._reduction_tmp_name }}[];
     {{ arg.data.ctype }} dat_t;
     int tid = threadIdx.x;
     __syncthreads();
-    temp[tid] = input_value;
+    {{ arg._reduction_tmp_name }}[tid] = input_value;
     __syncthreads();
 
     // Fixup non-power of 2 blockDim
@@ -29,9 +29,9 @@ __device__ void {{ arg._reduction_kernel_name }}(
     int d = 1 << (31 - __clz((int)blockDim.x - 1));
 
     if ( tid + d < blockDim.x ) {
-        dat_t = temp[tid + d];
+        dat_t = {{ arg._reduction_tmp_name }}[tid + d];
         {{ reduction_op(arg, 'input_value', 'dat_t')|indent(8) }}
-        temp[tid] = input_value;
+        {{ arg._reduction_tmp_name }}[tid] = input_value;
     }
 
     // Reductions with more than one warp
@@ -39,9 +39,9 @@ __device__ void {{ arg._reduction_kernel_name }}(
     for ( d >>= 1; d > {{ launch.WARPSIZE }}; d >>= 1 ) {
         __syncthreads();
         if ( tid < d ) {
-            dat_t = temp[tid + d];
+            dat_t = {{ arg._reduction_tmp_name }}[tid + d];
             {{ reduction_op(arg, 'input_value', 'dat_t')|indent(12) }}
-            temp[tid] = input_value;
+            {{ arg._reduction_tmp_name }}[tid] = input_value;
         }
     }
 
@@ -50,9 +50,9 @@ __device__ void {{ arg._reduction_kernel_name }}(
     if ( tid < {{ launch.WARPSIZE }} ) {
         for ( ; d > 0; d >>= 1 ) {
             if ( tid < d ) {
-                dat_t = temp[tid + d];
+                dat_t = {{ arg._reduction_tmp_name }}[tid + d];
                 {{ reduction_op(arg, 'input_value', 'dat_t')|indent(16) }}
-                temp[tid] = input_value;
+                {{ arg._reduction_tmp_name }}[tid] = input_value;
             }
         }
         // Update global reduction var
