@@ -47,26 +47,26 @@ def main(opt):
 
             # Declare sets, maps, datasets and global constants
 
-            vnodes = op2.Set.fromhdf5(f, "nodes", dim=2)
+            nodes = op2.Set.fromhdf5(f, "nodes")
             edges = op2.Set.fromhdf5(f, "edges")
             bedges = op2.Set.fromhdf5(f, "bedges")
             cells = op2.Set.fromhdf5(f, "cells")
-            vcells = op2.Set.fromhdf5(f, "cells", dim=4)
+            cells = op2.Set.fromhdf5(f, "cells")
 
-            pedge = op2.Map.fromhdf5(edges, vnodes, f, "pedge")
+            pedge = op2.Map.fromhdf5(edges, nodes, f, "pedge")
             pecell = op2.Map.fromhdf5(edges, cells, f, "pecell")
-            pevcell = op2.Map.fromhdf5(edges, vcells, f, "pecell")
-            pbedge = op2.Map.fromhdf5(bedges, vnodes, f, "pbedge")
+            pevcell = op2.Map.fromhdf5(edges, cells, f, "pecell")
+            pbedge = op2.Map.fromhdf5(bedges, nodes, f, "pbedge")
             pbecell = op2.Map.fromhdf5(bedges, cells, f, "pbecell")
-            pbevcell = op2.Map.fromhdf5(bedges, vcells, f, "pbecell")
-            pcell = op2.Map.fromhdf5(cells, vnodes, f, "pcell")
+            pbevcell = op2.Map.fromhdf5(bedges, cells, f, "pbecell")
+            pcell = op2.Map.fromhdf5(cells, nodes, f, "pcell")
 
             p_bound = op2.Dat.fromhdf5(bedges, f, "p_bound")
-            p_x = op2.Dat.fromhdf5(vnodes, f, "p_x")
-            p_q = op2.Dat.fromhdf5(vcells, f, "p_q")
-            p_qold = op2.Dat.fromhdf5(vcells, f, "p_qold")
+            p_x = op2.Dat.fromhdf5(nodes ** 2, f, "p_x")
+            p_q = op2.Dat.fromhdf5(cells ** 4, f, "p_q")
+            p_qold = op2.Dat.fromhdf5(cells ** 4, f, "p_qold")
             p_adt = op2.Dat.fromhdf5(cells, f, "p_adt")
-            p_res = op2.Dat.fromhdf5(vcells, f, "p_res")
+            p_res = op2.Dat.fromhdf5(cells ** 4, f, "p_res")
 
             op2.Const.fromhdf5(f, "gam")
             op2.Const.fromhdf5(f, "gm1")
