@@ -400,3 +400,14 @@ void kernel_max(double* x, double* g)
                      d1(op2.IdentityMap, op2.READ),
                      g2(op2.INC))
         assert g2.data == d1.data.sum() + 10
+
+    def test_globals_with_different_types(self, backend, set):
+        g_uint32 = op2.Global(1, [0], numpy.uint32, "g_uint32")
+        g_double = op2.Global(1, [0.0], numpy.float64, "g_double")
+        k = """void k(unsigned int* i, double* d) { *i += 1; *d += 1.0f; }"""
+        op2.par_loop(op2.Kernel(k, "k"),
+                     set,
+                     g_uint32(op2.INC),
+                     g_double(op2.INC))
+        assert_allclose(g_uint32.data[0], g_double.data[0])
+        assert g_uint32.data[0] == set.size
