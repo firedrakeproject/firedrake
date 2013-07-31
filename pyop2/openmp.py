@@ -160,6 +160,7 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
   %(const_inits)s;
   %(local_tensor_decs)s;
   %(off_inits)s;
+  %(map_decl)s
 
   #ifdef _OPENMP
   int nthread = omp_get_max_threads();
@@ -183,12 +184,14 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
       {
         %(vec_inits)s;
         %(extr_loop)s
+        %(map_init)s;
         %(itspace_loops)s
         %(zero_tmps)s;
         %(kernel_name)s(%(kernel_args)s);
         %(addtos_vector_field)s;
-        %(apply_offset)s
         %(itspace_loop_close)s
+        %(ind)s%(addtos_scalar_field_extruded)s;
+        %(apply_offset)s
         %(extr_loop_close)s
         %(addtos_scalar_field)s;
       }

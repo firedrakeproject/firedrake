@@ -64,7 +64,7 @@ dofs = numpy.array([[2, 0], [0, 0], [0, 1]])
 dofs_coords = numpy.array([[2, 0], [0, 0], [0, 0]])
 dofs_field = numpy.array([[0, 0], [0, 0], [0, 1]])
 
-off1 = numpy.array([2, 2, 2, 2, 2, 2], dtype=numpy.int32)
+off1 = numpy.array([1, 1, 1, 1, 1, 1], dtype=numpy.int32)
 off2 = numpy.array([1], dtype=numpy.int32)
 
 noDofs = numpy.dot(mesh2d, dofs)
