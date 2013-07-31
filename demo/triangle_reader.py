@@ -37,7 +37,7 @@ from pyop2 import op2
 import numpy as np
 
 
-def read_triangle(f, layers=None):
+def read_triangle(f, layers=1):
     """Read the triangle file with prefix f into OP2 data strctures. Presently
     only .node and .ele files are read, attributes are ignored, and there may
     be bugs. The dat structures are returned as:
@@ -54,61 +54,27 @@ def read_triangle(f, layers=None):
     # Read nodes
     with open(f + '.node') as h:
         num_nodes = int(h.readline().split(' ')[0])
-        node_values = [0] * num_nodes
+        node_values = np.zeros((num_nodes, 2), dtype=np.float64)
         for line in h:
             if line[0] == '#':
                 continue
-            if layers is None:
-                vals = line.split()
-                node = int(vals[0]) - 1
-                x, y = [float(x) for x in vals[1:3]]
-                node_values[node] = (x, y)
-            else:
-                vals = line.strip(" \n").split()
-                node = int(vals[0]) - 1
-                x, y = [float(x) for x in [vals[1], vals[2]]]
-                node_values[node] = (x, y)
+            node, x, y = line.split()[:3]
+            node_values[int(node) - 1, :] = [float(x), float(y)]
 
     nodes = op2.Set(num_nodes, "nodes")
-    vnodes = op2.DataSet(nodes, 2, "vnodes")
-    coords = op2.Dat(vnodes, np.asarray(node_values, dtype=np.float64),
-                     np.float64, "coords")
+    coords = op2.Dat(nodes ** 2, node_values, name="coords")
 
     # Read elements
     with open(f + '.ele') as h:
-        if layers is None:
-            num_tri, nodes_per_tri, num_attrs = \
-                map(lambda x: int(x), h.readline().split())
-            map_values = [0] * num_tri
-            for line in h:
-                if line[0] == '#':
-                    continue
-                vals = line.split()
-                tri = int(vals[0])
-                ele_nodes = [int(x) - 1 for x in vals[1:nodes_per_tri + 1]]
-                map_values[tri - 1] = ele_nodes
-        else:
-            lline = h.readline().strip('\n').split(' ')
-            final_line = [x for x in lline if x != '']
+        num_tri, nodes_per_tri, num_attrs = [int(x) for x in h.readline().split()]
+        map_values = np.zeros((num_tri, nodes_per_tri), dtype=np.int32)
+        for line in h:
+            if line[0] == '#':
+                continue
+            vals = [int(x) - 1 for x in line.split()]
+            map_values[vals[0], :] = vals[1:nodes_per_tri + 1]
 
-            num_tri, nodes_per_tri, num_attrs = \
-                map(lambda x: int(x), final_line)
-            map_values = [0] * num_tri
-            for line in h:
-                if line[0] == '#':
-                    continue
-                vals = [x for x in line.strip('\n').split(' ') if x != '']
-                tri = int(vals[0])
-                ele_nodes = [int(x) - 1 for x in vals[1:nodes_per_tri + 1]]
-                map_values[tri - 1] = ele_nodes
+    elements = op2.Set(num_tri, "elements", layers=layers)
+    elem_node = op2.Map(elements, nodes, nodes_per_tri, map_values, "elem_node")
 
-    # Ref: http://stackoverflow.com/a/952952/396967
-    flat_map = [item for sublist in map_values for item in sublist]
-
-    if layers is None:
-        elements = op2.Set(num_tri, "elements")
-    else:
-        elements = op2.Set(num_tri, "elements", layers=layers)
-    elem_node = op2.Map(elements, nodes, 3, flat_map, "elem_node")
-
-    return nodes, vnodes, coords, elements, elem_node
+    return nodes, coords, elements, elem_node

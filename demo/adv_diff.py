@@ -99,7 +99,7 @@ def main(opt):
 
     valuetype = np.float64
 
-    nodes, vnodes, coords, elements, elem_node = read_triangle(opt['mesh'])
+    nodes, coords, elements, elem_node = read_triangle(opt['mesh'])
 
     num_nodes = nodes.size
 
@@ -122,7 +122,7 @@ def main(opt):
     b = op2.Dat(nodes, b_vals, valuetype, "b")
 
     velocity_vals = np.asarray([1.0, 0.0] * num_nodes, dtype=valuetype)
-    velocity = op2.Dat(vnodes, velocity_vals, valuetype, "velocity")
+    velocity = op2.Dat(nodes ** 2, velocity_vals, valuetype, "velocity")
 
     # Set initial condition
 

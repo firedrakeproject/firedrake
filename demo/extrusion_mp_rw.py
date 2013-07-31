@@ -83,7 +83,7 @@ void comp_vol(double A[1], double *x[], double *y[], double *z[], int j)
 # Set up simulation data structures
 valuetype = np.float64
 
-nodes, vnodes, coords, elements, elem_node = read_triangle(mesh_name, layers)
+nodes, coords, elements, elem_node = read_triangle(mesh_name, layers)
 
 # mesh data
 mesh2d = np.array([3, 3, 1])

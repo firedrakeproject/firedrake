@@ -61,6 +61,7 @@ parser.add_argument('-s', '--save-output',
 parser.add_argument('-p', '--print-output',
                     action='store_true',
                     help='Print the output of the run to stdout')
+
 opt = vars(parser.parse_args())
 op2.init(**opt)
 mesh_name = opt['mesh']
@@ -85,7 +86,7 @@ rhs, = compile_form(L, "rhs")
 
 valuetype = np.float64
 
-nodes, vnodes, coords, elements, elem_node = read_triangle(opt['mesh'])
+nodes, coords, elements, elem_node = read_triangle(opt['mesh'])
 num_nodes = nodes.size
 
 sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node), "sparsity")
