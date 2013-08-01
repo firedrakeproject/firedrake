@@ -126,30 +126,9 @@ def b(dnodes):
 
 
 @pytest.fixture(scope='module')
-def xtr_elements():
-    return op2.Set(NUM_ELE, "xtr_elements", layers=layers)
-
-
-@pytest.fixture(scope='module')
 def b_vec(dvnodes):
     b_vals = np.zeros(NUM_NODES * 2, dtype=valuetype)
     return op2.Dat(dvnodes, b_vals, valuetype, "b")
-
-
-@pytest.fixture(scope='module')
-def xtr_nodes():
-    return op2.Set(NUM_NODES * layers, "xtr_nodes", layers=layers)
-
-
-@pytest.fixture(scope='module')
-def xtr_dnodes(xtr_nodes):
-    return op2.DataSet(xtr_nodes, 1, "xtr_dnodes")
-
-
-@pytest.fixture(scope='module')
-def xtr_elem_node(xtr_elements, xtr_nodes):
-    return op2.Map(xtr_elements, xtr_nodes, 6, xtr_elem_node_map, "xtr_elem_node",
-                   np.array([1, 1, 1, 1, 1, 1], dtype=np.int32))
 
 
 @pytest.fixture
@@ -158,29 +137,10 @@ def x(dnodes):
     return op2.Dat(dnodes, x_vals, valuetype, "x")
 
 
-@pytest.fixture(scope='module')
-def xtr_mat(xtr_elem_node, xtr_dnodes):
-    sparsity = op2.Sparsity((xtr_dnodes, xtr_dnodes), (xtr_elem_node, xtr_elem_node), "xtr_sparsity")
-    return op2.Mat(sparsity, valuetype, "xtr_mat")
-
-
-@pytest.fixture(scope='module')
-def xtr_dvnodes(xtr_nodes):
-    return op2.DataSet(xtr_nodes, 3, "xtr_dvnodes")
-
-
 @pytest.fixture
 def x_vec(dvnodes):
     x_vals = np.zeros(NUM_NODES * 2, dtype=valuetype)
     return op2.Dat(dvnodes, x_vals, valuetype, "x")
-
-
-@pytest.fixture(scope='module')
-def xtr_coords(xtr_dvnodes):
-    coord_vals = np.asarray([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
-                             (0.0, 1.0, 0.0), (1.0, 1.0, 0.0)],
-                            dtype=valuetype)
-    return coord_vals
 
 
 @pytest.fixture
@@ -237,64 +197,6 @@ void mass(double localTensor[1][1], double* c0[2], int i_r_0, int i_r_1)
   };
 }"""
     return op2.Kernel(kernel_code, "mass")
-
-
-@pytest.fixture
-def mass_swapped():
-        kernel_code = """
-void mass_swapped(double localTensor[1][1], double* c0[2], int i_r_0, int i_r_1)
-{
-  double CG1[3][6] = { {  0.09157621, 0.09157621, 0.81684757,
-                                   0.44594849, 0.44594849, 0.10810302 },
-                                {  0.09157621, 0.81684757, 0.09157621,
-                                   0.44594849, 0.10810302, 0.44594849 },
-                                {  0.81684757, 0.09157621, 0.09157621,
-                                   0.10810302, 0.44594849, 0.44594849 } };
-  double d_CG1[3][6][2] = { { {  1., 0. },
-                                       {  1., 0. },
-                                       {  1., 0. },
-                                       {  1., 0. },
-                                       {  1., 0. },
-                                       {  1., 0. } },
-
-                                     { {  0., 1. },
-                                       {  0., 1. },
-                                       {  0., 1. },
-                                       {  0., 1. },
-                                       {  0., 1. },
-                                       {  0., 1. } },
-
-                                     { { -1.,-1. },
-                                       { -1.,-1. },
-                                       { -1.,-1. },
-                                       { -1.,-1. },
-                                       { -1.,-1. },
-                                       { -1.,-1. } } };
-  double w[6] = {  0.05497587, 0.05497587, 0.05497587, 0.11169079,
-                            0.11169079, 0.11169079 };
-  double c_q0[6][2][2];
-  for(int i_g = 0; i_g < 6; i_g++)
-  {
-    for(int i_d_0 = 0; i_d_0 < 2; i_d_0++)
-    {
-      for(int i_d_1 = 0; i_d_1 < 2; i_d_1++)
-      {
-        c_q0[i_g][i_d_0][i_d_1] = 0.0;
-        for(int q_r_0 = 0; q_r_0 < 3; q_r_0++)
-        {
-          c_q0[i_g][i_d_0][i_d_1] += c0[q_r_0][i_d_0] * d_CG1[q_r_0][i_g][i_d_1];
-        };
-      };
-    };
-  };
-  for(int i_g = 0; i_g < 6; i_g++)
-  {
-    double ST0 = 0.0;
-    ST0 += CG1[i_r_0][i_g] * CG1[i_r_1][i_g] * (c_q0[i_g][0][0] * c_q0[i_g][1][1] + -1 * c_q0[i_g][0][1] * c_q0[i_g][1][0]);
-    localTensor[0][0] += ST0 * w[i_g];
-  };
-}"""
-        return op2.Kernel(kernel_code, "mass_swapped")
 
 
 @pytest.fixture
@@ -668,47 +570,6 @@ void kernel_set_vec(double entry[2][2], double* g, int i, int j)
 
 
 @pytest.fixture
-def extrusion_kernel():
-        kernel_code = """
-void extrusion_kernel(double *xtr[], double *x[], int* j[])
-{
-    //Only the Z-coord is increased, the others stay the same
-    xtr[0][0] = x[0][0];
-    xtr[0][1] = x[0][1];
-    xtr[0][2] = 0.1*j[0][0];
-}"""
-        return op2.Kernel(kernel_code, "extrusion_kernel")
-
-
-@pytest.fixture
-def vol_comp():
-        kernel_code = """
-void vol_comp(double A[1][1], double *x[], int i0, int i1)
-{
-  double area = x[0][0]*(x[2][1]-x[4][1]) + x[2][0]*(x[4][1]-x[0][1])
-               + x[4][0]*(x[0][1]-x[2][1]);
-  if (area < 0)
-    area = area * (-1.0);
-  A[0][0] += 0.5 * area * (x[1][2] - x[0][2]);
-}"""
-        return op2.Kernel(kernel_code, "vol_comp")
-
-
-@pytest.fixture
-def vol_comp_rhs():
-        kernel_code = """
-void vol_comp_rhs(double A[1], double *x[], int *y[], int i0)
-{
-  double area = x[0][0]*(x[2][1]-x[4][1]) + x[2][0]*(x[4][1]-x[0][1])
-               + x[4][0]*(x[0][1]-x[2][1]);
-  if (area < 0)
-    area = area * (-1.0);
-  A[0] += 0.5 * area * (x[1][2] - x[0][2]) * y[0][0];
-}"""
-        return op2.Kernel(kernel_code, "vol_comp_rhs")
-
-
-@pytest.fixture
 def expected_matrix():
         expected_vals = [(0.25, 0.125, 0.0, 0.125),
                          (0.125, 0.291667, 0.0208333, 0.145833),
@@ -990,83 +851,6 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps = 1.e-14
         assert_allclose(vecmat.values, expected_matrix, eps)
 
-    def test_extruded_assemble_mat_rhs_solve(self, backend, mass, xtr_mat,
-                                             xtr_coords, xtr_elements,
-                                             xtr_elem_node, expected_matrix,
-                                             extrusion_kernel, xtr_nodes,
-                                             vol_comp, mass_swapped,
-                                             xtr_dnodes, vol_comp_rhs, xtr_b):
-        coords_dim = 3
-        coords_xtr_dim = 3  # dimension
-        # BIG TRICK HERE:
-        # We need the +1 in order to include the entire column of vertices.
-        # Extrusion is meant to iterate over the 3D cells which are layer - 1 in number.
-        # The +1 correction helps in the case of iteration over vertices which need
-        # one extra layer.
-        iterset = op2.Set(NUM_NODES, "verts1", layers=(layers + 1))
-        vnodes = op2.DataSet(iterset, coords_dim)
-
-        d_nodes_xtr = op2.DataSet(xtr_nodes, coords_xtr_dim)
-        d_lnodes_xtr = op2.DataSet(xtr_nodes, 1)
-
-        # Create an op2.Dat with the base mesh coordinates
-        coords_vec = np.zeros(vnodes.total_size * coords_dim)
-        length = len(xtr_coords.flatten())
-        coords_vec[0:length] = xtr_coords.flatten()
-        coords = op2.Dat(vnodes, coords_vec, np.float64, "dat1")
-
-        # Create an op2.Dat with slots for the extruded coordinates
-        coords_new = np.array([0.] * layers * NUM_NODES * coords_xtr_dim, dtype=np.float64)
-        coords_xtr = op2.Dat(d_nodes_xtr, coords_new, np.float64, "dat_xtr")
-
-        # Creat an op2.Dat to hold the layer number
-        layer_vec = np.tile(np.arange(0, layers), NUM_NODES)
-        layer = op2.Dat(d_lnodes_xtr, layer_vec, np.int32, "dat_layer")
-
-        # Map a map for the bottom of the mesh.
-        vertex_to_coords = [i for i in range(0, NUM_NODES)]
-        v2coords_offset = np.array([0], np.int32)
-        map_2d = op2.Map(iterset, iterset, 1, vertex_to_coords, "v2coords", v2coords_offset)
-
-        # Create Map for extruded vertices
-        vertex_to_xtr_coords = [layers * i for i in range(0, NUM_NODES)]
-        v2xtr_coords_offset = np.array([1], np.int32)
-        map_xtr = op2.Map(iterset, xtr_nodes, 1, vertex_to_xtr_coords, "v2xtr_coords", v2xtr_coords_offset)
-
-        # Create Map for layer number
-        v2xtr_layer_offset = np.array([1], np.int32)
-        layer_xtr = op2.Map(iterset, xtr_nodes, 1, vertex_to_xtr_coords, "v2xtr_layer", v2xtr_layer_offset)
-
-        op2.par_loop(extrusion_kernel, iterset,
-                     coords_xtr(map_xtr, op2.INC),
-                     coords(map_2d, op2.READ),
-                     layer(layer_xtr, op2.READ))
-
-        # Assemble the main matrix.
-        op2.par_loop(vol_comp, xtr_elements(6, 6),
-                     xtr_mat((xtr_elem_node[op2.i[0]], xtr_elem_node[op2.i[1]]), op2.INC),
-                     coords_xtr(xtr_elem_node, op2.READ))
-
-        eps = 1.e-5
-        assert_allclose(sum(sum(xtr_mat.values)), 36.0, eps)
-
-        # Assemble the RHS
-        xtr_f_vals = np.array([1] * NUM_NODES * layers, dtype=np.int32)
-        xtr_f = op2.Dat(d_lnodes_xtr, xtr_f_vals, np.int32, "xtr_f")
-
-        op2.par_loop(vol_comp_rhs, xtr_elements(6),
-                     xtr_b(xtr_elem_node[op2.i[0]], op2.INC),
-                     coords_xtr(xtr_elem_node, op2.READ),
-                     xtr_f(xtr_elem_node, op2.READ))
-
-        assert_allclose(sum(xtr_b.data), 6.0, eps)
-
-        x_vals = np.zeros(NUM_NODES * layers, dtype=valuetype)
-        xtr_x = op2.Dat(d_lnodes_xtr, x_vals, valuetype, "xtr_x")
-
-        op2.solve(xtr_mat, xtr_x, xtr_b)
-
-        assert_allclose(sum(xtr_x.data), 7.3333333, eps)
 
 if __name__ == '__main__':
     import os
