@@ -117,6 +117,21 @@ def m(iterset, toset):
 
 
 @pytest.fixture
+def m2(set, toset):
+    return op2.Map(set, toset, 1, [1] * set.size, 'm2')
+
+
+@pytest.fixture
+def maps(m, iterset, set):
+    return m, op2.Map(iterset, set, 1, [1] * iterset.size)
+
+
+@pytest.fixture
+def mmap(maps):
+    return op2.MixedMap(maps)
+
+
+@pytest.fixture
 def const(request):
     c = op2.Const(1, 1, 'test_const_nonunique_name')
     request.addfinalizer(c.remove_from_namespace)
@@ -1547,6 +1562,11 @@ class TestMapAPI:
         m = op2.Map(iterset, toset, 2, [1] * 2 * iterset.size)
         assert m.arity == 2 and m.values.shape == (iterset.size, 2)
 
+    def test_map_split(self, backend, m):
+        "Splitting a Map should yield a tuple with self"
+        for m_ in m.split:
+            m_ == m
+
     def test_map_properties(self, backend, iterset, toset):
         "Data constructor should correctly set attributes."
         m = op2.Map(iterset, toset, 2, [1] * 2 * iterset.size, 'bar')
@@ -1611,6 +1631,97 @@ class TestMapAPI:
         s = "OP2 Map: %s from (%s) to (%s) with arity %s" \
             % (m.name, m.iterset, m.toset, m.arity)
         assert str(m) == s
+
+
+class TestMixedMapAPI:
+
+    """
+    MixedMap API unit tests
+    """
+
+    def test_mixed_map_illegal_arg(self, backend):
+        "Map iterset should be Set."
+        with pytest.raises(TypeError):
+            op2.MixedMap('illegalarg')
+
+    def test_mixed_map_split(self, backend, maps):
+        """Constructing a MixedDat from an iterable of Maps should leave them
+        unchanged."""
+        mmap = op2.MixedMap(maps)
+        assert mmap.split == maps
+        for i, m in enumerate(maps):
+            assert mmap.split[i] == m
+        assert mmap.split[:-1] == tuple(mmap)[:-1]
+
+    def test_mixed_map_nonunique_itset(self, backend, m, m2):
+        "Map toset should be Set."
+        with pytest.raises(exceptions.MapTypeError):
+            op2.MixedMap((m, m2))
+
+    def test_mixed_map_iterset(self, backend, mmap):
+        "MixedMap iterset should return the common iterset of all Maps."
+        for m in mmap:
+            assert mmap.iterset == m.iterset
+
+    def test_mixed_map_toset(self, backend, mmap):
+        "MixedMap toset should return a MixedSet of the Map tosets."
+        assert mmap.toset == op2.MixedSet(m.toset for m in mmap)
+
+    def test_mixed_map_arity(self, backend, mmap):
+        "MixedMap arity should return the sum of the Map arities."
+        assert mmap.arity == sum(m.arity for m in mmap)
+
+    def test_mixed_map_values(self, backend, mmap):
+        "MixedMap values should return a tuple of the Map values."
+        assert all((v == m.values).all() for v, m in zip(mmap.values, mmap))
+
+    def test_mixed_map_values_with_halo(self, backend, mmap):
+        "MixedMap values_with_halo should return a tuple of the Map values."
+        assert all((v == m.values_with_halo).all() for v, m in zip(mmap.values_with_halo, mmap))
+
+    def test_mixed_map_name(self, backend, mmap):
+        "MixedMap name should return a tuple of the Map names."
+        assert mmap.name == tuple(m.name for m in mmap)
+
+    def test_mixed_map_offset(self, backend, mmap):
+        "MixedMap offset should return a tuple of the Map offsets."
+        assert mmap.offset == tuple(m.offset for m in mmap)
+
+    def test_mixed_map_iter(self, backend, maps):
+        "MixedMap should be iterable and yield the Maps."
+        assert tuple(m for m in op2.MixedMap(maps)) == maps
+
+    def test_mixed_map_len(self, backend, maps):
+        """MixedMap should have length equal to the number of contained Maps."""
+        assert len(op2.MixedMap(maps)) == len(maps)
+
+    def test_mixed_map_eq(self, backend, maps):
+        "MixedMaps created from the same Maps should compare equal."
+        assert op2.MixedMap(maps) == op2.MixedMap(maps)
+        assert not op2.MixedMap(maps) != op2.MixedMap(maps)
+
+    def test_mixed_map_ne(self, backend, maps):
+        "MixedMaps created from different Maps should not compare equal."
+        mm1 = op2.MixedMap((maps[0], maps[1]))
+        mm2 = op2.MixedMap((maps[1], maps[0]))
+        assert mm1 != mm2
+        assert not mm1 == mm2
+
+    def test_mixed_map_ne_map(self, backend, maps):
+        "A MixedMap should not compare equal to a Map."
+        assert op2.MixedMap(maps) != maps[0]
+        assert not op2.MixedMap(maps) == maps[0]
+
+    def test_mixed_map_repr(self, backend, mmap):
+        "MixedMap should have the expected repr."
+        # Note: We can't actually reproduce a MixedMap from its repr because
+        # the iteration sets will not be identical, which is checked in the
+        # constructor
+        assert repr(mmap) == "MixedMap(%r)" % (mmap.split,)
+
+    def test_mixed_map_str(self, backend, mmap):
+        "MixedMap should have the expected string representation."
+        assert str(mmap) == "OP2 MixedMap composed of Maps: %s" % (mmap.split,)
 
 
 class TestIterationSpaceAPI:
