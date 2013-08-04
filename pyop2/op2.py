@@ -47,8 +47,8 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'MixedSet',
            'Subset', 'DataSet', 'MixedDataSet', 'Halo', 'Dat', 'MixedDat',
-           'Mat', 'Const', 'Global', 'Map', 'Sparsity', 'Solver', 'par_loop',
-           'solve']
+           'Mat', 'Const', 'Global', 'Map', 'MixedMap', 'Sparsity', 'Solver',
+           'par_loop', 'solve']
 
 
 def initialised():
@@ -165,6 +165,10 @@ class Global(base.Global):
 
 
 class Map(base.Map):
+    __metaclass__ = backends._BackendSelector
+
+
+class MixedMap(base.MixedMap):
     __metaclass__ = backends._BackendSelector
 
 

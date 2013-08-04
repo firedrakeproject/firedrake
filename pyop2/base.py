@@ -2160,7 +2160,7 @@ class Map(object):
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
     def __getitem__(self, index):
-        if isinstance(index, int) and not (0 <= index < self._arity):
+        if isinstance(index, int) and not (0 <= index < self.arity):
             raise IndexValueError("Index must be in interval [0,%d]" % (self._arity - 1))
         if isinstance(index, IterationIndex) and index.index not in [0, 1]:
             raise IndexValueError("IterationIndex must be in interval [0,1]")
@@ -2179,6 +2179,10 @@ class Map(object):
 
     def __getslice__(self, i, j):
         raise NotImplementedError("Slicing maps is not currently implemented")
+
+    @property
+    def split(self):
+        return (self,)
 
     @property
     def iterset(self):
@@ -2257,6 +2261,94 @@ class Map(object):
         if len(arity) != 1:
             raise ArityTypeError("Unrecognised arity value %s" % arity)
         return cls(iterset, toset, arity[0], values, name)
+
+
+class MixedMap(Map):
+    """A container for a bag of :class:`Map`\s."""
+
+    def __init__(self, maps):
+        """:param iterable maps: Iterable of :class:`Map`\s"""
+        self._maps = as_tuple(maps, type=Map)
+        # Make sure all itersets are identical
+        if not all(m.iterset == self._maps[0].iterset for m in self._maps):
+            raise MapTypeError("All maps in a MixedMap need to share the same iterset")
+
+    @property
+    def split(self):
+        """The underlying tuple of :class:`Map`\s."""
+        return self._maps
+
+    @property
+    def iterset(self):
+        """:class:`MixedSet` mapped from."""
+        return self._maps[0].iterset
+
+    @property
+    def toset(self):
+        """:class:`MixedSet` mapped to."""
+        return MixedSet(tuple(m.toset for m in self._maps))
+
+    @property
+    def arity(self):
+        """Arity of the mapping: total number of toset elements mapped to per
+        iterset element."""
+        return sum(m.arity for m in self._maps)
+
+    @property
+    def values(self):
+        """Mapping arrays excluding data for halos.
+
+        This only returns the map values for local points, to see the
+        halo points too, use :meth:`values_with_halo`."""
+        return tuple(m.values for m in self._maps)
+
+    @property
+    def values_with_halo(self):
+        """Mapping arrays including data for halos.
+
+        This returns all map values (including halo points), see
+        :meth:`values` if you only need to look at the local
+        points."""
+        return tuple(m.values_with_halo for m in self._maps)
+
+    @property
+    def name(self):
+        """User-defined labels"""
+        return tuple(m.name for m in self._maps)
+
+    @property
+    def offset(self):
+        """Vertical offsets."""
+        return tuple(m.offset for m in self._maps)
+
+    def __iter__(self):
+        """Yield all :class:`Map`\s when iterated over."""
+        for m in self._maps:
+            yield m
+
+    def __len__(self):
+        """Number of contained :class:`Map`\s."""
+        return len(self._maps)
+
+    def __eq__(self, other):
+        """:class:`MixedMap`\s are equal if all their contained :class:`Map`\s
+        are."""
+        try:
+            return self._maps == other._maps
+        # Deal with the case of comparing to a different type
+        except AttributeError:
+            return False
+
+    def __ne__(self, other):
+        """:class:`MixedMap`\s are equal if all their contained :class:`Map`\s
+        are."""
+        return not self == other
+
+    def __str__(self):
+        return "OP2 MixedMap composed of Maps: %s" % (self._maps,)
+
+    def __repr__(self):
+        return "MixedMap(%r)" % (self._maps,)
 
 
 class Sparsity(Cached):
