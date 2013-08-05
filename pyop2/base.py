@@ -1369,11 +1369,10 @@ class Sparsity(Cached):
 
     @classmethod
     @validate_type(('dsets', (Set, DataSet, tuple), DataSetTypeError),
-                   ('maps', (Map, tuple), MapTypeError),)
+                   ('maps', (Map, tuple), MapTypeError),
+                   ('name', str, NameTypeError))
     def _process_args(cls, dsets, maps, name=None, *args, **kwargs):
         "Turn maps argument into a canonical tuple of pairs."
-
-        assert not name or isinstance(name, str), "Name must be of type str"
 
         # A single data set becomes a pair of identical data sets
         dsets = [dsets, dsets] if isinstance(dsets, (Set, DataSet)) else list(dsets)
@@ -1437,21 +1436,21 @@ class Sparsity(Cached):
         # Make sure that the "to" Set of each map in a pair is the set of the
         # corresponding DataSet set
         for pair in maps:
-            if pair[0].toset is not dsets[0].set or \
-               pair[1].toset is not dsets[1].set:
+            if not (pair[0].toset == dsets[0].set and
+                    pair[1].toset == dsets[1].set):
                 raise RuntimeError("Map to set must be the same as corresponding DataSet set")
 
         # Each pair of maps must have the same from-set (iteration set)
         for pair in maps:
-            if pair[0].iterset is not pair[1].iterset:
+            if not pair[0].iterset == pair[1].iterset:
                 raise RuntimeError("Iterset of both maps in a pair must be the same")
 
         # Each row map must have the same to-set (data set)
-        if not all(m.toset is self._rmaps[0].toset for m in self._rmaps):
+        if not all(m.toset == self._rmaps[0].toset for m in self._rmaps):
             raise RuntimeError("To set of all row maps must be the same")
 
         # Each column map must have the same to-set (data set)
-        if not all(m.toset is self._cmaps[0].toset for m in self._cmaps):
+        if not all(m.toset == self._cmaps[0].toset for m in self._cmaps):
             raise RuntimeError("To set of all column maps must be the same")
 
         # All rmaps and cmaps have the same data set - just use the first.
