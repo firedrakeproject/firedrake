@@ -654,6 +654,10 @@ class Set(object):
         """Yield self when iterated over."""
         yield self
 
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
+
     def __str__(self):
         return "OP2 Set: %s with size %s" % (self._name, self._size)
 
@@ -848,6 +852,10 @@ class DataSet(object):
     def __iter__(self):
         """Yield self when iterated over."""
         yield self
+
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
 
     def __str__(self):
         return "OP2 DataSet: %s on set %s, with dim %s" % \
@@ -1388,6 +1396,10 @@ class Dat(DataCarrier):
         """Yield self when iterated over."""
         yield self
 
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
+
     def __eq__(self, other):
         """:class:`Dat`\s compare equal if defined on the same
         :class:`DataSet` and containing the same data."""
@@ -1638,6 +1650,10 @@ class Const(DataCarrier):
         """Yield self when iterated over."""
         yield self
 
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
+
     def __str__(self):
         return "OP2 Const: %s of dim %s and type %s with value %s" \
                % (self._name, self._dim, self._data.dtype.name, self._data)
@@ -1723,6 +1739,10 @@ class Global(DataCarrier):
     def __iter__(self):
         """Yield self when iterated over."""
         yield self
+
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
 
     def __str__(self):
         return "OP2 Global Argument: %s with dim %s and value %s" \
@@ -1849,6 +1869,10 @@ class Map(object):
     def __iter__(self):
         """Yield self when iterated over."""
         yield self
+
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
 
     def __getslice__(self, i, j):
         raise NotImplementedError("Slicing maps is not currently implemented")

@@ -322,6 +322,10 @@ class TestSetAPI:
         for s in set:
             assert s is set
 
+    def test_set_len(self, backend, set):
+        "Set len should be 1."
+        assert len(set) == 1
+
     def test_set_repr(self, backend, set):
         "Set repr should produce a Set object when eval'd."
         from pyop2.op2 import Set  # noqa: needed by eval
@@ -457,6 +461,10 @@ class TestDataSetAPI:
         "DataSet should be iterable and yield self."
         for s in dset:
             assert s is dset
+
+    def test_dset_len(self, backend, dset):
+        "DataSet len should be 1."
+        assert len(dset) == 1
 
     def test_dset_repr(self, backend, dset):
         "DataSet repr should produce a Set object when eval'd."
@@ -633,6 +641,10 @@ class TestDatAPI:
         "Dat should be iterable and yield self."
         for d in dat:
             assert d is dat
+
+    def test_dat_len(self, backend, dat):
+        "Dat len should be 1."
+        assert len(dat) == 1
 
     def test_dat_repr(self, backend, dat):
         "Dat repr should produce a Dat object when eval'd."
@@ -972,6 +984,10 @@ class TestConstAPI:
         for c in const:
             assert c is const
 
+    def test_const_len(self, backend, const):
+        "Const len should be 1."
+        assert len(const) == 1
+
     def test_const_repr(self, backend, const):
         "Const repr should produce a Const object when eval'd."
         from pyop2.op2 import Const  # noqa: needed by eval
@@ -1090,6 +1106,10 @@ class TestGlobalAPI:
         "Global should be iterable and yield self."
         for g_ in g:
             assert g_ is g
+
+    def test_global_len(self, backend, g):
+        "Global len should be 1."
+        assert len(g) == 1
 
     def test_global_repr(self, backend):
         "Global repr should produce a Global object when eval'd."
@@ -1216,6 +1236,10 @@ class TestMapAPI:
         "Map should be iterable and yield self."
         for m_ in m:
             assert m_ is m
+
+    def test_map_len(self, backend, m):
+        "Map len should be 1."
+        assert len(m) == 1
 
     def test_map_repr(self, backend, m):
         "Map should have the expected repr."
