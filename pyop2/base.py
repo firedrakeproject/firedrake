@@ -2371,7 +2371,7 @@ class Sparsity(Cached):
 
     @classmethod
     @validate_type(('dsets', (Set, DataSet, tuple), DataSetTypeError),
-                   ('maps', (Map, tuple), MapTypeError),
+                   ('maps', (Map, tuple, list), MapTypeError),
                    ('name', str, NameTypeError))
     def _process_args(cls, dsets, maps, name=None, *args, **kwargs):
         "Turn maps argument into a canonical tuple of pairs."
@@ -2462,7 +2462,25 @@ class Sparsity(Cached):
 
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         Sparsity._globalcount += 1
-        build_sparsity(self, parallel=MPI.parallel)
+
+        # If the Sparsity is defined on MixedDataSets, we need to build each
+        # block separately
+        if isinstance(dsets[0], MixedDataSet) or isinstance(dsets[1], MixedDataSet):
+            self._blocks = []
+            for i, rds in enumerate(dsets[0]):
+                row = []
+                for j, cds in enumerate(dsets[1]):
+                    row.append(Sparsity((rds, cds), [(rm.split[i], cm.split[j]) for rm, cm in maps]))
+                self._blocks.append(row)
+            self._rowptr = tuple(s._rowptr for s in self)
+            self._colidx = tuple(s._colidx for s in self)
+            self._d_nnz = tuple(s._d_nnz for s in self)
+            self._o_nnz = tuple(s._o_nnz for s in self)
+            self._d_nz = sum(s._d_nz for s in self)
+            self._o_nz = sum(s._o_nz for s in self)
+        else:
+            build_sparsity(self, parallel=MPI.parallel)
+            self._blocks = [[self]]
         self._initialized = True
 
     @property
