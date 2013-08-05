@@ -2483,9 +2483,14 @@ class Sparsity(Cached):
             self._blocks = [[self]]
         self._initialized = True
 
-    @property
-    def _nmaps(self):
-        return len(self._rmaps)
+    def __getitem__(self, idx):
+        """Return :class:`Sparsity` block with row and column given by ``idx``
+        or a given row of blocks."""
+        try:
+            i, j = idx
+            return self._blocks[i][j]
+        except TypeError:
+            return self._blocks[idx]
 
     @property
     def dsets(self):
@@ -2523,6 +2528,11 @@ class Sparsity(Cached):
         return self._dims
 
     @property
+    def shape(self):
+        """Number of block rows and columns."""
+        return len(self._dsets[0]), len(self._dsets[1])
+
+    @property
     def nrows(self):
         """The number of rows in the ``Sparsity``."""
         return self._nrows
@@ -2536,6 +2546,12 @@ class Sparsity(Cached):
     def name(self):
         """A user-defined label."""
         return self._name
+
+    def __iter__(self):
+        """Iterate over all :class:`Sparsity`\s by row and then by column."""
+        for row in self._blocks:
+            for s in row:
+                yield s
 
     def __str__(self):
         return "OP2 Sparsity: dsets %s, rmaps %s, cmaps %s, name %s" % \
