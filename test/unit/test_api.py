@@ -149,6 +149,22 @@ def const(request):
 
 
 @pytest.fixture
+def mds(dtoset, set):
+    return op2.MixedDataSet((dtoset, set))
+
+
+# pytest doesn't currently support using fixtures are paramters to tests
+# or other fixtures. We have to work around that by requesting fixtures
+# by name
+@pytest.fixture(params=[('mds', 'mds', 'mmap', 'mmap'),
+                        ('mds', 'dtoset', 'mmap', 'm_iterset_toset'),
+                        ('dtoset', 'mds', 'm_iterset_toset', 'mmap')])
+def ms(request):
+    rds, cds, rm, cm = [request.getfuncargvalue(p) for p in request.param]
+    return op2.Sparsity((rds, cds), (rm, cm))
+
+
+@pytest.fixture
 def sparsity(m_iterset_toset, dtoset):
     return op2.Sparsity((dtoset, dtoset), (m_iterset_toset, m_iterset_toset))
 
@@ -1108,20 +1124,6 @@ class TestSparsityAPI:
         return op2.Sparsity(di, mi)
 
     @pytest.fixture
-    def mds(cls, dtoset, set):
-        return op2.MixedDataSet((dtoset, set))
-
-    # pytest doesn't currently support using fixtures are paramters to tests
-    # or other fixtures. We have to work around that by requesting fixtures
-    # by name
-    @pytest.fixture(params=[('mds', 'mds', 'mmap', 'mmap'),
-                            ('mds', 'dtoset', 'mmap', 'm_iterset_toset'),
-                            ('dtoset', 'mds', 'm_iterset_toset', 'mmap')])
-    def ms(cls, request):
-        rds, cds, rm, cm = [request.getfuncargvalue(p) for p in request.param]
-        return op2.Sparsity((rds, cds), (rm, cm))
-
-    @pytest.fixture
     def mixed_row_sparsity(cls, dtoset, mds, m_iterset_toset, mmap):
         return op2.Sparsity((mds, dtoset), (mmap, m_iterset_toset))
 
@@ -1315,7 +1317,12 @@ class TestMatAPI:
         assert m.sparsity == sparsity and  \
             m.dtype == np.float64 and m.name == 'bar'
 
-    def test_mat_arg_illegal_maps(self, backend, mat):
+    def test_mat_mixed(self, backend, ms):
+        "Default data type should be numpy.float64."
+        m = op2.Mat(ms)
+        assert m.dtype == np.double
+
+    def test_mat_illegal_maps(self, backend, mat):
         "Mat arg constructor should reject invalid maps."
         wrongmap = op2.Map(op2.Set(2), op2.Set(3), 2, [0, 0, 0, 0])
         with pytest.raises(exceptions.MapValueError):
