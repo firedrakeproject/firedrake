@@ -628,6 +628,24 @@ class TestSparsity:
         assert all(sparsity._colidx == [0, 1, 3, 4, 0, 1, 2, 4, 1, 2,
                                         3, 4, 0, 2, 3, 4, 0, 1, 2, 3, 4])
 
+    def test_build_mixed_sparsity(self, backend):
+        """Building a sparsity from a pair of mixed maps should give the
+        expected rowptr and colidx for each block."""
+        elem = op2.Set(3)
+        node = op2.Set(4)
+        elem_node = op2.Map(elem, node, 2, [0, 1, 1, 2, 2, 3])
+        elem_elem = op2.Map(elem, elem, 1, [0, 1, 2])
+        sparsity = op2.Sparsity(op2.MixedDataSet((elem, node)),
+                                op2.MixedMap((elem_elem, elem_node)))
+        assert all(sparsity._rowptr[0] == [0, 1, 2, 3])
+        assert all(sparsity._rowptr[1] == [0, 2, 4, 6])
+        assert all(sparsity._rowptr[2] == [0, 1, 3, 5, 6])
+        assert all(sparsity._rowptr[3] == [0, 2, 5, 8, 10])
+        assert all(sparsity._colidx[0] == [0, 1, 2])
+        assert all(sparsity._colidx[1] == [0, 1, 1, 2, 2, 3])
+        assert all(sparsity._colidx[2] == [0, 0, 1, 1, 2, 2])
+        assert all(sparsity._colidx[3] == [0, 1, 0, 1, 2, 1, 2, 3, 2, 3])
+
     def test_sparsity_null_maps(self, backend):
         """Building sparsity from a pair of non-initialized maps should fail."""
         s = op2.Set(5)
