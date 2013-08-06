@@ -329,7 +329,7 @@ class Set(object):
     IMPORT_EXEC_SIZE = 2
     IMPORT_NON_EXEC_SIZE = 3
 
-    @validate_type(('size', (int, tuple, list), SizeTypeError),
+    @validate_type(('size', (int, tuple, list, np.ndarray), SizeTypeError),
                    ('name', str, NameTypeError))
     def __init__(self, size=None, name=None, halo=None, layers=None):
         if type(size) is int:
