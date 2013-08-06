@@ -46,118 +46,103 @@ NUM_ELE = 2
 NUM_NODES = 4
 NUM_DIMS = 2
 
-
-class TestSparsity:
-
-    """
-    Sparsity tests
-    """
-
-    def test_build_sparsity(self, backend):
-        elements = op2.Set(4)
-        nodes = op2.Set(5)
-        elem_node = op2.Map(elements, nodes, 3, [0, 4, 3, 0, 1, 4,
-                                                 1, 2, 4, 2, 3, 4])
-        sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node))
-        assert all(sparsity._rowptr == [0, 4, 8, 12, 16, 21])
-        assert all(sparsity._colidx == [0, 1, 3, 4, 0, 1, 2, 4, 1, 2,
-                                        3, 4, 0, 2, 3, 4, 0, 1, 2, 3, 4])
-
-    def test_sparsity_null_maps(self, backend):
-        s = op2.Set(5)
-        with pytest.raises(MapValueError):
-            m = op2.Map(s, s, 1)
-            op2.Sparsity((s, s), (m, m))
+elem_node_map = numpy.asarray([0, 1, 3, 2, 3, 1], dtype=numpy.uint32)
 
 
-class TestMatrices:
+@pytest.fixture(scope='module')
+def nodes():
+    return op2.Set(NUM_NODES, "nodes")
 
-    """
-    Matrix tests
 
-    """
+@pytest.fixture(scope='module')
+def elements():
+    return op2.Set(NUM_ELE, "elements")
 
-    elem_node_map = numpy.asarray([0, 1, 3, 2, 3, 1], dtype=numpy.uint32)
 
-    # FIXME: Cached setup can be removed when __eq__ methods implemented.
-    @pytest.fixture(scope='module')
-    def nodes(cls):
-        return op2.Set(NUM_NODES, "nodes")
+@pytest.fixture(scope='module')
+def dnodes(nodes):
+    return op2.DataSet(nodes, 1, "dnodes")
 
-    @pytest.fixture(scope='module')
-    def elements(cls):
-        return op2.Set(NUM_ELE, "elements")
 
-    @pytest.fixture(scope='module')
-    def dnodes(cls, nodes):
-        return op2.DataSet(nodes, 1, "dnodes")
+@pytest.fixture(scope='module')
+def dvnodes(nodes):
+    return op2.DataSet(nodes, 2, "dvnodes")
 
-    @pytest.fixture(scope='module')
-    def dvnodes(cls, nodes):
-        return op2.DataSet(nodes, 2, "dvnodes")
 
-    @pytest.fixture(scope='module')
-    def delements(cls, elements):
-        return op2.DataSet(elements, 1, "delements")
+@pytest.fixture(scope='module')
+def delements(elements):
+    return op2.DataSet(elements, 1, "delements")
 
-    @pytest.fixture(scope='module')
-    def elem_node(cls, elements, nodes):
-        return op2.Map(elements, nodes, 3, cls.elem_node_map, "elem_node")
 
-    @pytest.fixture(scope='module')
-    def mat(cls, elem_node, dnodes):
-        sparsity = op2.Sparsity((dnodes, dnodes), (elem_node, elem_node), "sparsity")
-        return op2.Mat(sparsity, valuetype, "mat")
+@pytest.fixture(scope='module')
+def elem_node(elements, nodes):
+    return op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
 
-    @pytest.fixture(scope='module')
-    def vecmat(cls, elem_node, dvnodes):
-        sparsity = op2.Sparsity((dvnodes, dvnodes), (elem_node, elem_node), "sparsity")
-        return op2.Mat(sparsity, valuetype, "vecmat")
 
-    @pytest.fixture
-    def coords(cls, dvnodes):
-        coord_vals = numpy.asarray([(0.0, 0.0), (2.0, 0.0),
-                                  (1.0, 1.0), (0.0, 1.5)],
-            dtype=valuetype)
-        return op2.Dat(dvnodes, coord_vals, valuetype, "coords")
+@pytest.fixture(scope='module')
+def mat(elem_node, dnodes):
+    sparsity = op2.Sparsity((dnodes, dnodes), (elem_node, elem_node), "sparsity")
+    return op2.Mat(sparsity, valuetype, "mat")
 
-    @pytest.fixture(scope='module')
-    def g(cls, request):
-        return op2.Global(1, 1.0, numpy.float64, "g")
 
-    @pytest.fixture
-    def f(cls, dnodes):
-        f_vals = numpy.asarray([1.0, 2.0, 3.0, 4.0], dtype=valuetype)
-        return op2.Dat(dnodes, f_vals, valuetype, "f")
+@pytest.fixture(scope='module')
+def vecmat(elem_node, dvnodes):
+    sparsity = op2.Sparsity((dvnodes, dvnodes), (elem_node, elem_node), "sparsity")
+    return op2.Mat(sparsity, valuetype, "vecmat")
 
-    @pytest.fixture
-    def f_vec(cls, dvnodes):
-        f_vals = numpy.asarray([(1.0, 2.0)] * 4, dtype=valuetype)
-        return op2.Dat(dvnodes, f_vals, valuetype, "f")
 
-    @pytest.fixture(scope='module')
-    def b(cls, dnodes):
-        b_vals = numpy.zeros(NUM_NODES, dtype=valuetype)
-        return op2.Dat(dnodes, b_vals, valuetype, "b")
+@pytest.fixture
+def coords(dvnodes):
+    coord_vals = numpy.asarray([(0.0, 0.0), (2.0, 0.0),
+                              (1.0, 1.0), (0.0, 1.5)],
+        dtype=valuetype)
+    return op2.Dat(dvnodes, coord_vals, valuetype, "coords")
 
-    @pytest.fixture(scope='module')
-    def b_vec(cls, dvnodes):
-        b_vals = numpy.zeros(NUM_NODES * 2, dtype=valuetype)
-        return op2.Dat(dvnodes, b_vals, valuetype, "b")
 
-    @pytest.fixture
-    def x(cls, dnodes):
-        x_vals = numpy.zeros(NUM_NODES, dtype=valuetype)
-        return op2.Dat(dnodes, x_vals, valuetype, "x")
+@pytest.fixture(scope='module')
+def g(request):
+    return op2.Global(1, 1.0, numpy.float64, "g")
 
-    @pytest.fixture
-    def x_vec(cls, dvnodes):
-        x_vals = numpy.zeros(NUM_NODES * 2, dtype=valuetype)
-        return op2.Dat(dvnodes, x_vals, valuetype, "x")
 
-    @pytest.fixture
-    def mass(cls):
-        kernel_code = """
+@pytest.fixture
+def f(dnodes):
+    f_vals = numpy.asarray([1.0, 2.0, 3.0, 4.0], dtype=valuetype)
+    return op2.Dat(dnodes, f_vals, valuetype, "f")
+
+
+@pytest.fixture
+def f_vec(dvnodes):
+    f_vals = numpy.asarray([(1.0, 2.0)] * 4, dtype=valuetype)
+    return op2.Dat(dvnodes, f_vals, valuetype, "f")
+
+
+@pytest.fixture(scope='module')
+def b(dnodes):
+    b_vals = numpy.zeros(NUM_NODES, dtype=valuetype)
+    return op2.Dat(dnodes, b_vals, valuetype, "b")
+
+
+@pytest.fixture(scope='module')
+def b_vec(dvnodes):
+    b_vals = numpy.zeros(NUM_NODES * 2, dtype=valuetype)
+    return op2.Dat(dvnodes, b_vals, valuetype, "b")
+
+
+@pytest.fixture
+def x(dnodes):
+    x_vals = numpy.zeros(NUM_NODES, dtype=valuetype)
+    return op2.Dat(dnodes, x_vals, valuetype, "x")
+
+
+@pytest.fixture
+def x_vec(dvnodes):
+    x_vals = numpy.zeros(NUM_NODES * 2, dtype=valuetype)
+    return op2.Dat(dvnodes, x_vals, valuetype, "x")
+
+
+@pytest.fixture
+def mass():
+    kernel_code = """
 void mass(double localTensor[1][1], double* c0[2], int i_r_0, int i_r_1)
 {
   double CG1[3][6] = { {  0.09157621, 0.09157621, 0.81684757,
@@ -172,14 +157,12 @@ void mass(double localTensor[1][1], double* c0[2], int i_r_0, int i_r_1)
                                        {  1., 0. },
                                        {  1., 0. },
                                        {  1., 0. } },
-
                                      { {  0., 1. },
                                        {  0., 1. },
                                        {  0., 1. },
                                        {  0., 1. },
                                        {  0., 1. },
                                        {  0., 1. } },
-
                                      { { -1.,-1. },
                                        { -1.,-1. },
                                        { -1.,-1. },
@@ -210,11 +193,12 @@ void mass(double localTensor[1][1], double* c0[2], int i_r_0, int i_r_1)
     localTensor[0][0] += ST0 * w[i_g];
   };
 }"""
-        return op2.Kernel(kernel_code, "mass")
+    return op2.Kernel(kernel_code, "mass")
 
-    @pytest.fixture
-    def rhs(cls):
-        kernel_code = """
+
+@pytest.fixture
+def rhs():
+    kernel_code = """
 void rhs(double** localTensor, double* c0[2], double* c1[1])
 {
   double CG1[3][6] = { {  0.09157621, 0.09157621, 0.81684757,
@@ -229,14 +213,12 @@ void rhs(double** localTensor, double* c0[2], double* c1[1])
                                        {  1., 0. },
                                        {  1., 0. },
                                        {  1., 0. } },
-
                                      { {  0., 1. },
                                        {  0., 1. },
                                        {  0., 1. },
                                        {  0., 1. },
                                        {  0., 1. },
                                        {  0., 1. } },
-
                                      { { -1.,-1. },
                                        { -1.,-1. },
                                        { -1.,-1. },
@@ -276,11 +258,12 @@ void rhs(double** localTensor, double* c0[2], double* c1[1])
     };
   };
 }"""
-        return op2.Kernel(kernel_code, "rhs")
+    return op2.Kernel(kernel_code, "rhs")
 
-    @pytest.fixture
-    def mass_ffc(cls):
-        kernel_code = """
+
+@pytest.fixture
+def mass_ffc():
+    kernel_code = """
 void mass_ffc(double A[1][1], double *x[2], int j, int k)
 {
     double J_00 = x[1][0] - x[0][0];
@@ -303,11 +286,12 @@ void mass_ffc(double A[1][1], double *x[2], int j, int k)
     }
 }
 """
-        return op2.Kernel(kernel_code, "mass_ffc")
+    return op2.Kernel(kernel_code, "mass_ffc")
 
-    @pytest.fixture
-    def rhs_ffc(cls):
-        kernel_code = """
+
+@pytest.fixture
+def rhs_ffc():
+    kernel_code = """
 void rhs_ffc(double **A, double *x[2], double **w0)
 {
     double J_00 = x[1][0] - x[0][0];
@@ -325,17 +309,14 @@ void rhs_ffc(double **A, double *x[2], double **w0)
     {0.166666666666667, 0.166666666666667, 0.666666666666667},
     {0.166666666666667, 0.666666666666667, 0.166666666666667}};
 
-
     for (unsigned int ip = 0; ip < 3; ip++)
     {
-
       double F0 = 0.0;
 
       for (unsigned int r = 0; r < 3; r++)
       {
         F0 += FE0[ip][r]*w0[r][0];
       }
-
 
       for (unsigned int j = 0; j < 3; j++)
       {
@@ -344,11 +325,12 @@ void rhs_ffc(double **A, double *x[2], double **w0)
     }
 }
 """
-        return op2.Kernel(kernel_code, "rhs_ffc")
+    return op2.Kernel(kernel_code, "rhs_ffc")
 
-    @pytest.fixture
-    def rhs_ffc_itspace(cls):
-        kernel_code = """
+
+@pytest.fixture
+def rhs_ffc_itspace():
+    kernel_code = """
 void rhs_ffc_itspace(double A[1], double *x[2], double **w0, int j)
 {
     double J_00 = x[1][0] - x[0][0];
@@ -357,7 +339,6 @@ void rhs_ffc_itspace(double A[1], double *x[2], double **w0, int j)
     double J_11 = x[2][1] - x[0][1];
 
     double detJ = J_00*J_11 - J_01*J_10;
-
     double det = fabs(detJ);
 
     double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
@@ -366,10 +347,8 @@ void rhs_ffc_itspace(double A[1], double *x[2], double **w0, int j)
     {0.166666666666667, 0.166666666666667, 0.666666666666667},
     {0.166666666666667, 0.666666666666667, 0.166666666666667}};
 
-
     for (unsigned int ip = 0; ip < 3; ip++)
     {
-
       double F0 = 0.0;
 
       for (unsigned int r = 0; r < 3; r++)
@@ -377,16 +356,16 @@ void rhs_ffc_itspace(double A[1], double *x[2], double **w0, int j)
         F0 += FE0[ip][r]*w0[r][0];
       }
 
-
       A[0] += FE0[ip][j]*F0*W3[ip]*det;
     }
 }
 """
-        return op2.Kernel(kernel_code, "rhs_ffc_itspace")
+    return op2.Kernel(kernel_code, "rhs_ffc_itspace")
 
-    @pytest.fixture
-    def mass_vector_ffc(cls):
-        kernel_code = """
+
+@pytest.fixture
+def mass_vector_ffc():
+    kernel_code = """
 void mass_vector_ffc(double A[2][2], double *x[2], int j, int k)
 {
     const double J_00 = x[1][0] - x[0][0];
@@ -395,7 +374,6 @@ void mass_vector_ffc(double A[2][2], double *x[2], int j, int k)
     const double J_11 = x[2][1] - x[0][1];
 
     double detJ = J_00*J_11 - J_01*J_10;
-
     const double det = fabs(detJ);
 
     const double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
@@ -420,11 +398,12 @@ void mass_vector_ffc(double A[2][2], double *x[2], int j, int k)
     }
 }
 """
-        return op2.Kernel(kernel_code, "mass_vector_ffc")
+    return op2.Kernel(kernel_code, "mass_vector_ffc")
 
-    @pytest.fixture
-    def rhs_ffc_vector(cls):
-        kernel_code = """
+
+@pytest.fixture
+def rhs_ffc_vector():
+    kernel_code = """
 void rhs_vector_ffc(double **A, double *x[2], double **w0)
 {
     const double J_00 = x[1][0] - x[0][0];
@@ -450,7 +429,6 @@ void rhs_vector_ffc(double **A, double *x[2], double **w0)
     {
       double F0 = 0.0;
       double F1 = 0.0;
-
       for (unsigned int r = 0; r < 3; r++)
       {
         for (unsigned int s = 0; s < 2; s++)
@@ -459,7 +437,6 @@ void rhs_vector_ffc(double **A, double *x[2], double **w0)
           F1 += (FE0_C1[ip][3*s+r])*w0[r][s];
         }
       }
-
       for (unsigned int j = 0; j < 3; j++)
       {
         for (unsigned int r = 0; r < 2; r++)
@@ -469,11 +446,12 @@ void rhs_vector_ffc(double **A, double *x[2], double **w0)
       }
     }
 }"""
-        return op2.Kernel(kernel_code, "rhs_vector_ffc")
+    return op2.Kernel(kernel_code, "rhs_vector_ffc")
 
-    @pytest.fixture
-    def rhs_ffc_vector_itspace(cls):
-        kernel_code = """
+
+@pytest.fixture
+def rhs_ffc_vector_itspace():
+    kernel_code = """
 void rhs_vector_ffc_itspace(double A[2], double *x[2], double **w0, int j)
 {
     const double J_00 = x[1][0] - x[0][0];
@@ -482,7 +460,6 @@ void rhs_vector_ffc_itspace(double A[2], double *x[2], double **w0, int j)
     const double J_11 = x[2][1] - x[0][1];
 
     double detJ = J_00*J_11 - J_01*J_10;
-
     const double det = fabs(detJ);
 
     const double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
@@ -499,7 +476,6 @@ void rhs_vector_ffc_itspace(double A[2], double *x[2], double **w0, int j)
     {
       double F0 = 0.0;
       double F1 = 0.0;
-
       for (unsigned int r = 0; r < 3; r++)
       {
         for (unsigned int s = 0; s < 2; s++)
@@ -515,51 +491,56 @@ void rhs_vector_ffc_itspace(double A[2], double *x[2], double **w0, int j)
       }
     }
 }"""
-        return op2.Kernel(kernel_code, "rhs_vector_ffc_itspace")
+    return op2.Kernel(kernel_code, "rhs_vector_ffc_itspace")
 
-    @pytest.fixture
-    def zero_dat(cls):
-        kernel_code = """
+
+@pytest.fixture
+def zero_dat():
+    kernel_code = """
 void zero_dat(double *dat)
 {
   *dat = 0.0;
 }
 """
-        return op2.Kernel(kernel_code, "zero_dat")
+    return op2.Kernel(kernel_code, "zero_dat")
 
-    @pytest.fixture
-    def zero_vec_dat(cls):
-        kernel_code = """
+
+@pytest.fixture
+def zero_vec_dat():
+    kernel_code = """
 void zero_vec_dat(double *dat)
 {
   dat[0] = 0.0; dat[1] = 0.0;
 }
 """
-        return op2.Kernel(kernel_code, "zero_vec_dat")
+    return op2.Kernel(kernel_code, "zero_vec_dat")
 
-    @pytest.fixture
-    def kernel_inc(cls):
-        kernel_code = """
+
+@pytest.fixture
+def kernel_inc():
+    kernel_code = """
 void kernel_inc(double entry[1][1], double* g, int i, int j)
 {
   entry[0][0] += *g;
 }
 """
-        return op2.Kernel(kernel_code, "kernel_inc")
+    return op2.Kernel(kernel_code, "kernel_inc")
 
-    @pytest.fixture
-    def kernel_set(cls):
-        kernel_code = """
+
+@pytest.fixture
+def kernel_set():
+    kernel_code = """
 void kernel_set(double entry[1][1], double* g, int i, int j)
 {
   entry[0][0] = *g;
 }
 """
-        return op2.Kernel(kernel_code, "kernel_set")
+    return op2.Kernel(kernel_code, "kernel_set")
 
-    @pytest.fixture
-    def kernel_inc_vec(cls):
-        kernel_code = """
+
+@pytest.fixture
+def kernel_inc_vec():
+    kernel_code = """
 void kernel_inc_vec(double entry[2][2], double* g, int i, int j)
 {
   entry[0][0] += *g;
@@ -568,11 +549,12 @@ void kernel_inc_vec(double entry[2][2], double* g, int i, int j)
   entry[1][1] += *g;
 }
 """
-        return op2.Kernel(kernel_code, "kernel_inc_vec")
+    return op2.Kernel(kernel_code, "kernel_inc_vec")
 
-    @pytest.fixture
-    def kernel_set_vec(cls):
-        kernel_code = """
+
+@pytest.fixture
+def kernel_set_vec():
+    kernel_code = """
 void kernel_set_vec(double entry[2][2], double* g, int i, int j)
 {
   entry[0][0] = *g;
@@ -581,44 +563,79 @@ void kernel_set_vec(double entry[2][2], double* g, int i, int j)
   entry[1][1] = *g;
 }
 """
-        return op2.Kernel(kernel_code, "kernel_set_vec")
+    return op2.Kernel(kernel_code, "kernel_set_vec")
 
-    @pytest.fixture
-    def expected_matrix(cls):
-        expected_vals = [(0.25, 0.125, 0.0, 0.125),
-                         (0.125, 0.291667, 0.0208333, 0.145833),
-                         (0.0, 0.0208333, 0.0416667, 0.0208333),
-                         (0.125, 0.145833, 0.0208333, 0.291667)]
-        return numpy.asarray(expected_vals, dtype=valuetype)
 
-    @pytest.fixture
-    def expected_vector_matrix(cls):
-        expected_vals = [(0.25, 0., 0.125, 0., 0., 0., 0.125, 0.),
-                         (0., 0.25, 0., 0.125, 0., 0., 0., 0.125),
-                         (0.125, 0., 0.29166667, 0.,
-                          0.02083333, 0., 0.14583333, 0.),
-                         (0., 0.125, 0., 0.29166667, 0.,
-                          0.02083333, 0., 0.14583333),
-                         (0., 0., 0.02083333, 0.,
-                          0.04166667, 0., 0.02083333, 0.),
-                         (0., 0., 0., 0.02083333, 0.,
-                          0.04166667, 0., 0.02083333),
-                         (0.125, 0., 0.14583333, 0.,
-                          0.02083333, 0., 0.29166667, 0.),
-                         (0., 0.125, 0., 0.14583333, 0., 0.02083333, 0., 0.29166667)]
-        return numpy.asarray(expected_vals, dtype=valuetype)
+@pytest.fixture
+def expected_matrix():
+    expected_vals = [(0.25, 0.125, 0.0, 0.125),
+                     (0.125, 0.291667, 0.0208333, 0.145833),
+                     (0.0, 0.0208333, 0.0416667, 0.0208333),
+                     (0.125, 0.145833, 0.0208333, 0.291667)]
+    return numpy.asarray(expected_vals, dtype=valuetype)
 
-    @pytest.fixture
-    def expected_rhs(cls):
-        return numpy.asarray([[0.9999999523522115], [1.3541666031724144],
-                              [0.2499999883507239], [1.6458332580869566]],
-                             dtype=valuetype)
 
-    @pytest.fixture
-    def expected_vec_rhs(cls):
-        return numpy.asarray([[0.5, 1.0], [0.58333333, 1.16666667],
-                              [0.08333333, 0.16666667], [0.58333333, 1.16666667]],
-                             dtype=valuetype)
+@pytest.fixture
+def expected_vector_matrix():
+    expected_vals = [(0.25, 0., 0.125, 0., 0., 0., 0.125, 0.),
+                     (0., 0.25, 0., 0.125, 0., 0., 0., 0.125),
+                     (0.125, 0., 0.29166667, 0.,
+                      0.02083333, 0., 0.14583333, 0.),
+                     (0., 0.125, 0., 0.29166667, 0.,
+                      0.02083333, 0., 0.14583333),
+                     (0., 0., 0.02083333, 0.,
+                      0.04166667, 0., 0.02083333, 0.),
+                     (0., 0., 0., 0.02083333, 0.,
+                      0.04166667, 0., 0.02083333),
+                     (0.125, 0., 0.14583333, 0.,
+                      0.02083333, 0., 0.29166667, 0.),
+                     (0., 0.125, 0., 0.14583333, 0., 0.02083333, 0., 0.29166667)]
+    return numpy.asarray(expected_vals, dtype=valuetype)
+
+
+@pytest.fixture
+def expected_rhs():
+    return numpy.asarray([[0.9999999523522115], [1.3541666031724144],
+                          [0.2499999883507239], [1.6458332580869566]],
+                         dtype=valuetype)
+
+
+@pytest.fixture
+def expected_vec_rhs():
+    return numpy.asarray([[0.5, 1.0], [0.58333333, 1.16666667],
+                          [0.08333333, 0.16666667], [0.58333333, 1.16666667]],
+                         dtype=valuetype)
+
+
+class TestSparsity:
+
+    """
+    Sparsity tests
+    """
+
+    def test_build_sparsity(self, backend):
+        elements = op2.Set(4)
+        nodes = op2.Set(5)
+        elem_node = op2.Map(elements, nodes, 3, [0, 4, 3, 0, 1, 4,
+                                                 1, 2, 4, 2, 3, 4])
+        sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node))
+        assert all(sparsity._rowptr == [0, 4, 8, 12, 16, 21])
+        assert all(sparsity._colidx == [0, 1, 3, 4, 0, 1, 2, 4, 1, 2,
+                                        3, 4, 0, 2, 3, 4, 0, 1, 2, 3, 4])
+
+    def test_sparsity_null_maps(self, backend):
+        s = op2.Set(5)
+        with pytest.raises(MapValueError):
+            m = op2.Map(s, s, 1)
+            op2.Sparsity((s, s), (m, m))
+
+
+class TestMatrices:
+
+    """
+    Matrix tests
+
+    """
 
     def test_minimal_zero_mat(self, backend, skip_cuda):
         zero_mat_code = """
