@@ -114,6 +114,27 @@ class Mat(base.Mat):
         if not self.dtype == PETSc.ScalarType:
             raise RuntimeError("Can only create a matrix of type %s, %s is not supported"
                                % (PETSc.ScalarType, self.dtype))
+        # If the Sparsity is defined on MixedDataSets, we need to build a MatNest
+        if self.sparsity.shape > (1, 1):
+            self._init_nest()
+        else:
+            self._init_block()
+
+    def _init_nest(self):
+        mat = PETSc.Mat()
+        self._blocks = []
+        rows, cols = self.sparsity.shape
+        for i in range(rows):
+            row = []
+            for j in range(cols):
+                row.append(Mat(self.sparsity[i, j], self.dtype,
+                           '_'.join([self.name, str(i), str(j)])))
+            self._blocks.append(row)
+        # PETSc Mat.createNest wants a flattened list of Mats
+        mat.createNest([[m.handle for m in row] for row in self._blocks])
+        self._handle = mat
+
+    def _init_block(self):
         mat = PETSc.Mat()
         row_lg = PETSc.LGMap()
         col_lg = PETSc.LGMap()
