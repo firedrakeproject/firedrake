@@ -358,7 +358,6 @@ class JITModule(base.JITModule):
         self._extents = itspace.extents
         self._layers = itspace.layers
         self._args = args
-        self._mixed_shape = (1, 1)
 
     def __call__(self, *args):
         self.compile()(*args)
@@ -556,7 +555,9 @@ class JITModule(base.JITModule):
                 'addtos_scalar_field_extruded': indent(_addtos_scalar_field_extruded, 2 + nloops),
             }
 
-        nrows, ncols = self._mixed_shape
+        # Look at the first argument to figure out the mixed space shape
+        get_shape = lambda a: a._dat.sparsity.shape if a._is_mat else (len(a._dat), 1)
+        nrows, ncols = get_shape(self._args[0])
         return {'kernel_name': self._kernel.name,
                 'ssinds_arg': _ssinds_arg,
                 'ssinds_dec': _ssinds_dec,
