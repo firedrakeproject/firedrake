@@ -219,6 +219,25 @@ class Dat(device.Dat, petsc_base.Dat, DeviceDataMixin):
         """The L2-norm on the flattened vector."""
         return np.sqrt(array.dot(self.array, self.array).get())
 
+    def halo_exchange_begin(self):
+        if self.dataset.halo is None:
+            return
+        self._from_device()
+        super(Dat, self).halo_exchange_begin()
+
+    def halo_exchange_end(self):
+        if self.dataset.halo is None:
+            return
+        super(Dat, self).halo_exchange_end()
+        if self.state in [DeviceDataMixin.DEVICE,
+                          DeviceDataMixin.BOTH]:
+            self._halo_to_device()
+            self.state = DeviceDataMixin.DEVICE
+
+    def _halo_to_device(self):
+        _lim = self.dataset.size * self.dataset.cdim
+        self._device_data.ravel()[_lim:].set(self._data[self.dataset.size:], queue=_queue)
+
 
 class Sparsity(device.Sparsity):
 
@@ -244,22 +263,24 @@ class Mat(device.Mat, petsc_base.Mat, DeviceDataMixin):
     """OP2 OpenCL matrix data type."""
 
     def _allocate_device(self):
-        pass
+        if self.state is DeviceDataMixin.DEVICE_UNALLOCATED:
+            self._dev_array = array.empty(_queue,
+                                          self.sparsity.nz,
+                                          self.dtype)
+            self.state = DeviceDataMixin.HOST
 
     def _to_device(self):
-        pass
+        if not hasattr(self, '_array'):
+            self._init()
+            self.state = DeviceDataMixin.HOST
+        if self.state is DeviceDataMixin.HOST:
+            self._dev_array.set(self._array, queue=_queue)
+            self.state = DeviceDataMixin.BOTH
 
     def _from_device(self):
-        pass
-
-    @property
-    def _dev_array(self):
-        if not hasattr(self, '__dev_array'):
-            setattr(self, '__dev_array',
-                    array.empty(_queue,
-                                self.sparsity.nz,
-                                self.dtype))
-        return getattr(self, '__dev_array')
+        if self.state is DeviceDataMixin.DEVICE:
+            self._dev_array.get(queue=_queue, ary=self._array)
+            self.state = DeviceDataMixin.BOTH
 
     @property
     def _colidx(self):
@@ -269,20 +290,20 @@ class Mat(device.Mat, petsc_base.Mat, DeviceDataMixin):
     def _rowptr(self):
         return self._sparsity.rowptr
 
-    def _upload_array(self):
-        self._dev_array.set(self.array, queue=_queue)
-        self.state = DeviceDataMixin.BOTH
-
-    @collective
-    def assemble(self):
-        if self.state is DeviceDataMixin.DEVICE:
-            self._dev_array.get(queue=_queue, ary=self.array)
-            self.state = DeviceDataMixin.BOTH
+    def _assemble(self):
+        self._from_device()
         self.handle.assemble()
+        self.state = DeviceDataMixin.HOST
 
     @property
     def cdim(self):
         return np.prod(self.dims)
+
+    @property
+    def values(self):
+        base._force(set([self]), set())
+        self._from_device()
+        return self.handle[:, :]
 
 
 class Const(device.Const, DeviceDataMixin):
@@ -311,6 +332,7 @@ class Global(device.Global, DeviceDataMixin):
 
     @property
     def data(self):
+        base._force(set([self]), set())
         if self.state is DeviceDataMixin.DEVICE:
             self._array.get(_queue, ary=self._data)
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
@@ -319,6 +341,7 @@ class Global(device.Global, DeviceDataMixin):
 
     @data.setter
     def data(self, value):
+        base._force(set(), set([self]))
         self._data = verify_reshape(value, self.dtype, self.dim)
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.HOST
@@ -389,7 +412,8 @@ void global_%(type)s_%(dim)s_post_reduction (
         kernel.set_arg(1, self._d_reduc_array.data)
         kernel.set_arg(2, np.int32(nelems))
         cl.enqueue_task(_queue, kernel).wait()
-
+        self._array.get(queue=_queue, ary=self._data)
+        self.state = DeviceDataMixin.BOTH
         del self._d_reduc_array
 
 
@@ -400,10 +424,6 @@ class Map(device.Map):
     def _to_device(self):
         if not hasattr(self, '_device_values'):
             self._device_values = array.to_device(_queue, self._values)
-        else:
-            warnings.warn(
-                "Copying Map data for %s again, do you really want to do this?" % self)
-            self._device_values.set(self._values, _queue)
 
 
 class Plan(plan.Plan):
@@ -465,11 +485,10 @@ class Plan(plan.Plan):
 
 class Solver(petsc_base.Solver):
 
-    @collective
-    def solve(self, A, x, b):
+    def _solve(self, A, x, b):
         x._from_device()
         b._from_device()
-        super(Solver, self).solve(A, x, b)
+        super(Solver, self)._solve(A, x, b)
         # Explicitly mark solution as dirty so a copy back to device occurs
         if x.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             x.state = DeviceDataMixin.HOST
@@ -526,8 +545,11 @@ class JITModule(base.JITModule):
                                'codegen': {'amd': _AMD_fixes},
                                'op2const': Const._definitions()
                                }).encode("ascii")
+        #if MPI.comm.rank == 0:
+        #    print src
         self.dump_gen_code(src)
-        prg = cl.Program(_ctx, src).build(options="-Werror")
+        # disabled -Werror, because some SDK wine about ffc generated code
+        prg = cl.Program(_ctx, src).build(options="")
         self._fun = prg.__getattr__(self._parloop._stub_name)
         return self._fun
 
@@ -642,25 +664,21 @@ class ParLoop(device.ParLoop):
         else:
             return {'partition_size': self._i_partition_size()}
 
-    @collective
-    def compute(self):
-        if self._has_soa:
-            op2stride = Const(1, self._it_space.size, name='op2stride',
-                              dtype='int32')
-
+    def _compute(self, part):
         conf = self.launch_configuration()
 
         if self._is_indirect:
-            self._plan = Plan(self._it_space.iterset,
-                              *self._unwound_args,
-                              partition_size=conf['partition_size'],
-                              matrix_coloring=self._requires_matrix_coloring)
-            conf['local_memory_size'] = self._plan.nshared
-            conf['ninds'] = self._plan.ninds
+            _plan = Plan(part,
+                         *self._unwound_args,
+                         partition_size=conf['partition_size'],
+                         matrix_coloring=self._requires_matrix_coloring)
+            conf['local_memory_size'] = _plan.nshared
+            conf['ninds'] = _plan.ninds
             conf['work_group_size'] = min(_max_work_group_size,
                                           conf['partition_size'])
-            conf['work_group_count'] = self._plan.nblocks
+            conf['work_group_count'] = _plan.nblocks
         conf['warpsize'] = _warpsize
+        conf['op2stride'] = self._it_space.size
 
         fun = JITModule(self.kernel, self.it_space, *self.args, parloop=self, conf=conf)
 
@@ -685,7 +703,7 @@ class ParLoop(device.ParLoop):
 
         for m in self._unique_matrix:
             args.append(m._dev_array.data)
-            m._upload_array()
+            m._to_device()
             args.append(m._rowptr.data)
             args.append(m._colidx.data)
 
@@ -694,24 +712,26 @@ class ParLoop(device.ParLoop):
             args.append(m._device_values.data)
 
         if self._is_direct:
-            args.append(np.int32(self._it_space.size))
+            args.append(np.int32(part.size))
+            args.append(np.int32(part.offset))
             fun(conf['thread_count'], conf['work_group_size'], *args)
         else:
-            args.append(np.int32(self._it_space.size))
-            args.append(self._plan.ind_map.data)
-            args.append(self._plan.loc_map.data)
-            args.append(self._plan.ind_sizes.data)
-            args.append(self._plan.ind_offs.data)
-            args.append(self._plan.blkmap.data)
-            args.append(self._plan.offset.data)
-            args.append(self._plan.nelems.data)
-            args.append(self._plan.nthrcol.data)
-            args.append(self._plan.thrcol.data)
+            args.append(np.int32(part.size))
+            args.append(np.int32(part.offset))
+            args.append(_plan.ind_map.data)
+            args.append(_plan.loc_map.data)
+            args.append(_plan.ind_sizes.data)
+            args.append(_plan.ind_offs.data)
+            args.append(_plan.blkmap.data)
+            args.append(_plan.offset.data)
+            args.append(_plan.nelems.data)
+            args.append(_plan.nthrcol.data)
+            args.append(_plan.thrcol.data)
 
             block_offset = 0
             args.append(0)
-            for i in range(self._plan.ncolors):
-                blocks_per_grid = int(self._plan.ncolblk[i])
+            for i in range(_plan.ncolors):
+                blocks_per_grid = int(_plan.ncolblk[i])
                 threads_per_block = min(_max_work_group_size, conf['partition_size'])
                 thread_count = threads_per_block * blocks_per_grid
 
@@ -726,14 +746,8 @@ class ParLoop(device.ParLoop):
             if arg._is_dat:
                 maybe_setflags(arg.data._data, write=False)
 
-        for mat in [arg.data for arg in self._matrix_args]:
-            mat.assemble()
-
         for a in self._all_global_reduction_args:
             a.data._post_kernel_reduction_task(conf['work_group_count'], a.access)
-
-        if self._has_soa:
-            op2stride.remove_from_namespace()
 
 
 @collective

@@ -120,6 +120,7 @@ void {{ parloop._stub_name }}(
   __global int* {{ matem.name }},
   {%- endfor -%}
   int set_size,
+  int set_offset,
   __global int* p_ind_map,
   __global short *p_loc_map,
   __global int* p_ind_sizes,
@@ -209,7 +210,7 @@ void {{ parloop._stub_name }}(
     active_threads_count_ceiling = get_local_size(0) * (1 + (active_threads_count - 1) / get_local_size(0));
     colors_count = p_nthrcol[block_id];
 {%- endif %}
-    shared_memory_offset = p_offset[block_id];
+    shared_memory_offset = p_offset[block_id] - set_offset;
     {% for arg in parloop._unique_indirect_dat_args -%}
     {{ arg._size_name }} = p_ind_sizes[{{loop.index0}} + block_id * {{ loop.length }}];
     {{ arg._map_name }} = &p_ind_map[{{arg._which_indirect}} * set_size] + p_ind_offsets[{{loop.index0}} + block_id * {{loop.length}}];
