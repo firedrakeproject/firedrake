@@ -43,23 +43,28 @@ from utils import as_tuple, flatten
 
 class Arg(base.Arg):
 
-    def c_arg_name(self):
+    def c_arg_name(self, i=None, j=None):
         name = self.name
         if self._is_indirect and not (self._is_vec_map or self._uses_itspace):
             name = "%s_%d" % (name, self.idx)
+        if i is not None:
+            name += "_%d" % i
+        if j is not None:
+            name += "_%d" % j
         return name
 
     def c_vec_name(self):
         return self.c_arg_name() + "_vec"
 
-    def c_map_name(self, idx=0):
-        return self.c_arg_name() + "_map%d" % idx
+    def c_map_name(self, i, j):
+        return self.c_arg_name() + "_map%d_%d" % (i, j)
 
     def c_wrapper_arg(self):
-        val = "PyObject *_%(name)s" % {'name': self.c_arg_name()}
+        val = "PyObject *_%s" % self.c_arg_name()
         if self._is_indirect or self._is_mat:
-            for idx, _ in enumerate(as_tuple(self.map, Map)):
-                val += ", PyObject *_%(name)s" % {'name': self.c_map_name(idx)}
+            for i, map in enumerate(as_tuple(self.map, Map)):
+                for j, m in enumerate(map):
+                    val += ", PyObject *_%s" % (self.c_map_name(i, j))
         return val
 
     def c_vec_dec(self):
@@ -77,28 +82,30 @@ class Arg(base.Arg):
             val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
                 {'name': self.c_arg_name(), 'type': self.ctype}
         if self._is_indirect or self._is_mat:
-            for idx, _ in enumerate(as_tuple(self.map, Map)):
-                val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" % \
-                       {'name': self.c_map_name(idx)}
+            for i, map in enumerate(as_tuple(self.map, Map)):
+                for j in range(len(map)):
+                    val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" \
+                        % {'name': self.c_map_name(i, j)}
         if self._is_vec_map:
             val += self.c_vec_dec()
         return val
 
-    def c_ind_data(self, idx, j=0):
+    def c_ind_data(self, idx, i, j=0):
         return "%(name)s + %(map_name)s[i * %(arity)s + %(idx)s] * %(dim)s%(off)s" % \
             {'name': self.c_arg_name(),
-             'map_name': self.c_map_name(),
+             'map_name': self.c_map_name(0, i),
              'arity': self.map.arity,
              'idx': idx,
              'dim': self.data.cdim,
              'off': ' + %d' % j if j else ''}
 
-    def c_ind_data_xtr(self, idx):
-        return "%(name)s + xtr_%(map_name)s[%(idx)s] * %(dim)s" % \
+    def c_ind_data_xtr(self, idx, i, j=0):
+        return "%(name)s + xtr_%(map_name)s[%(idx)s] * %(dim)s%(off)s" % \
             {'name': self.c_arg_name(),
-             'map_name': self.c_map_name(),
+             'map_name': self.c_map_name(0, i),
              'idx': idx,
-             'dim': self.data.cdim}
+             'dim': self.data.cdim,
+             'off': ' + %d' % j if j else ''}
 
     def c_kernel_arg_name(self):
         return "p_%s" % self.c_arg_name()
@@ -109,13 +116,13 @@ class Arg(base.Arg):
     def c_local_tensor_name(self):
         return self.c_kernel_arg_name()
 
-    def c_kernel_arg(self, count):
+    def c_kernel_arg(self, count, i):
         if self._uses_itspace:
             if self._is_mat:
                 if self.data._is_vector_field:
                     return self.c_kernel_arg_name()
                 elif self.data._is_scalar_field:
-                    idx = ''.join(["[i_%d]" % i for i, _ in enumerate(self.data.dims)])
+                    idx = ''.join(["[i_%d]" % n for n in range(len(self.data.dims))])
                     return "(%(t)s (*)[1])&%(name)s%(idx)s" % \
                         {'t': self.ctype,
                          'name': self.c_kernel_arg_name(),
@@ -124,19 +131,19 @@ class Arg(base.Arg):
                     raise RuntimeError("Don't know how to pass kernel arg %s" % self)
             else:
                 if self.data is not None and self.data.dataset.set.layers > 1:
-                    return self.c_ind_data_xtr("i_%d" % self.idx.index)
+                    return self.c_ind_data_xtr("i_%d" % self.idx.index, i)
                 elif self._flatten:
                     return "%(name)s + %(map_name)s[i * %(arity)s + i_0 %% %(arity)d] * %(dim)s + (i_0 / %(arity)d)" % \
                         {'name': self.c_arg_name(),
-                         'map_name': self.c_map_name(),
+                         'map_name': self.c_map_name(0, i),
                          'arity': self.map.arity,
                          'dim': self.data.cdim}
                 else:
-                    return self.c_ind_data("i_%d" % self.idx.index)
+                    return self.c_ind_data("i_%d" % self.idx.index, i)
         elif self._is_indirect:
             if self._is_vec_map:
                 return self.c_vec_name()
-            return self.c_ind_data(self.idx)
+            return self.c_ind_data(self.idx, i)
         elif self._is_global_reduction:
             return self.c_global_reduction_name(count)
         elif isinstance(self.data, Global):
@@ -146,33 +153,33 @@ class Arg(base.Arg):
                 {'name': self.c_arg_name(),
                  'dim': self.data.cdim}
 
-    def c_vec_init(self):
+    def c_vec_init(self, i, j):
         val = []
         if self._flatten:
-            for j in range(self.data.dataset.cdim):
+            for d in range(self.data.dataset.cdim):
                 for idx in range(self.map.arity):
                     val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                {'vec_name': self.c_vec_name(),
-                                'idx': j * self.map.arity + idx,
-                                'data': self.c_ind_data(idx, j)})
+                                'idx': d * self.map.arity + idx,
+                                'data': self.c_ind_data(idx, i, d)})
         else:
             for idx in range(self.map.arity):
                 val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                            {'vec_name': self.c_vec_name(),
                             'idx': idx,
-                            'data': self.c_ind_data(idx)})
+                            'data': self.c_ind_data(idx, i)})
         return ";\n".join(val)
 
-    def c_addto_scalar_field(self, extruded=None):
+    def c_addto_scalar_field(self, i, j, extruded=None):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].arity
         ncols = maps[1].arity
-        rows_str = "%s + i * %s" % (self.c_map_name(0), nrows)
-        cols_str = "%s + i * %s" % (self.c_map_name(1), ncols)
+        rows_str = "%s + i * %s" % (self.c_map_name(0, i), nrows)
+        cols_str = "%s + i * %s" % (self.c_map_name(1, j), ncols)
 
         if extruded is not None:
-            rows_str = extruded + self.c_map_name(0)
-            cols_str = extruded + self.c_map_name(1)
+            rows_str = extruded + self.c_map_name(0, i)
+            cols_str = extruded + self.c_map_name(1, j)
 
         return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
             {'mat': self.c_arg_name(),
@@ -183,7 +190,7 @@ class Arg(base.Arg):
              'cols': cols_str,
              'insert': self.access == WRITE}
 
-    def c_addto_vector_field(self):
+    def c_addto_vector_field(self, i, j):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].arity
         ncols = maps[1].arity
@@ -196,28 +203,28 @@ class Arg(base.Arg):
             val = "&%s%s" % (self.c_kernel_arg_name(), idx)
             row = "%(m)s * %(map)s[i * %(dim)s + i_0 %% %(dim)s] + (i_0 / %(dim)s)" % \
                   {'m': rmult,
-                   'map': self.c_map_name(idx=0),
+                   'map': self.c_map_name(0, i),
                    'dim': nrows}
             col = "%(m)s * %(map)s[i * %(dim)s + i_1 %% %(dim)s] + (i_1 / %(dim)s)" % \
                   {'m': cmult,
-                   'map': self.c_map_name(idx=1),
+                   'map': self.c_map_name(1, j),
                    'dim': ncols}
             return 'addto_scalar(%s, %s, %s, %s, %d)' \
                 % (self.c_arg_name(), val, row, col, self.access == WRITE)
-        for i in xrange(rmult):
-            for j in xrange(cmult):
-                idx = '[%d][%d]' % (i, j)
+        for r in xrange(rmult):
+            for c in xrange(cmult):
+                idx = '[%d][%d]' % (r, c)
                 val = "&%s%s" % (self.c_kernel_arg_name(), idx)
-                row = "%(m)s * %(map)s[i * %(dim)s + i_0] + %(i)s" % \
+                row = "%(m)s * %(map)s[i * %(dim)s + i_0] + %(r)s" % \
                       {'m': rmult,
-                       'map': self.c_map_name(idx=0),
+                       'map': self.c_map_name(0, i),
                        'dim': nrows,
-                       'i': i}
-                col = "%(m)s * %(map)s[i * %(dim)s + i_1] + %(j)s" % \
+                       'r': r}
+                col = "%(m)s * %(map)s[i * %(dim)s + i_1] + %(c)s" % \
                       {'m': cmult,
-                       'map': self.c_map_name(idx=1),
+                       'map': self.c_map_name(1, j),
                        'dim': ncols,
-                       'j': j}
+                       'c': c}
 
                 s.append('addto_scalar(%s, %s, %s, %s, %d)'
                          % (self.c_arg_name(), val, row, col, self.access == WRITE))
@@ -297,7 +304,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         nrows = maps[0].arity
         ncols = maps[1].arity
         return '\n'.join(["int xtr_%(name)s[%(dim_row)s];" %
-                          {'name': self.c_map_name(idx),
+                          {'name': self.c_map_name(idx, 0),
                            'dim_row': nrows,
                            'dim_col': ncols} for idx in range(2)])
 
@@ -305,12 +312,12 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         map = self.map
         nrows = map.arity
         return "int xtr_%(name)s[%(dim_row)s];\n" % \
-            {'name': self.c_map_name(),
+            {'name': self.c_map_name(0, 0),
              'dim_row': str(nrows)}
 
     def c_map_init(self):
         return '\n'.join(flatten([["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);"
-                                   % {'name': self.c_map_name(i),
+                                   % {'name': self.c_map_name(i, 0),
                                       'dim': map.arity,
                                       'ind': idx}
                                    for idx in range(map.arity)]
@@ -321,7 +328,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 
     def c_add_offset_map(self):
         return '\n'.join(flatten([["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];"
-                                   % {'name': self.c_map_name(i),
+                                   % {'name': self.c_map_name(i, 0),
                                       'off': self.c_offset(i),
                                       'ind': idx}
                                    for idx in range(map.arity)]
@@ -484,23 +491,23 @@ class JITModule(base.JITModule):
             _off_inits = ""
 
         def itset_loop_body(i, j):
-            _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self._args
+            _vec_inits = ';\n'.join([arg.c_vec_init(i, j) for arg in self._args
                                      if not arg._is_mat and arg._is_vec_map])
             _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e)
                                        for n, e in enumerate(self._extents)])
             _zero_tmps = ';\n'.join([arg.c_zero_tmp() for arg in self._args if arg._is_mat])
             _kernel_it_args = ["i_%d" % d for d in range(len(self._extents))]
-            _kernel_user_args = [arg.c_kernel_arg(count)
+            _kernel_user_args = [arg.c_kernel_arg(count, i)
                                  for count, arg in enumerate(self._args)]
             _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
-            _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field() for arg in self._args
+            _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j) for arg in self._args
                                                if arg._is_mat and arg.data._is_vector_field])
             _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
             _apply_offset = ""
             if self._layers > 1:
                 _map_init = ';\n'.join([arg.c_map_init() for arg in self._args
                                         if arg._uses_itspace])
-                _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field("xtr_") for arg in self._args
+                _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, "xtr_") for arg in self._args
                                                             if arg._is_mat and arg.data._is_scalar_field])
                 _addtos_scalar_field = ""
                 _extr_loop = '\n' + extrusion_loop(self._layers - 1)
@@ -512,7 +519,7 @@ class JITModule(base.JITModule):
             else:
                 _map_init = ""
                 _addtos_scalar_field_extruded = ""
-                _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field() for arg in self._args
+                _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(i, j) for arg in self._args
                                                    if arg._is_mat and arg.data._is_scalar_field])
                 _extr_loop = ""
                 _extr_loop_close = ""
