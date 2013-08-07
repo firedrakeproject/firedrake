@@ -351,6 +351,7 @@ class JITModule(base.JITModule):
         self._extents = itspace.extents
         self._layers = itspace.layers
         self._args = args
+        self._mixed_shape = (1, 1)
 
     def __call__(self, *args):
         self.compile()(*args)
@@ -482,11 +483,11 @@ class JITModule(base.JITModule):
             _off_args = ""
             _off_inits = ""
 
-        def itset_loop_body():
+        def itset_loop_body(i, j):
             _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self._args
                                      if not arg._is_mat and arg._is_vec_map])
-            _itspace_loops = '\n'.join(['  ' * i + itspace_loop(i, e)
-                                       for i, e in enumerate(self._extents)])
+            _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e)
+                                       for n, e in enumerate(self._extents)])
             _zero_tmps = ';\n'.join([arg.c_zero_tmp() for arg in self._args if arg._is_mat])
             _kernel_it_args = ["i_%d" % d for d in range(len(self._extents))]
             _kernel_user_args = [arg.c_kernel_arg(count)
@@ -494,7 +495,7 @@ class JITModule(base.JITModule):
             _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
             _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field() for arg in self._args
                                                if arg._is_mat and arg.data._is_vector_field])
-            _itspace_loop_close = '\n'.join('  ' * i + '}' for i in range(nloops - 1, -1, -1))
+            _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
             _apply_offset = ""
             if self._layers > 1:
                 _map_init = ';\n'.join([arg.c_map_init() for arg in self._args
@@ -548,6 +549,7 @@ class JITModule(base.JITModule):
                 'addtos_scalar_field_extruded': indent(_addtos_scalar_field_extruded, 2 + nloops),
             }
 
+        nrows, ncols = self._mixed_shape
         return {'kernel_name': self._kernel.name,
                 'ssinds_arg': _ssinds_arg,
                 'ssinds_dec': _ssinds_dec,
@@ -563,4 +565,5 @@ class JITModule(base.JITModule):
                 'interm_globals_decl': indent(_intermediate_globals_decl, 3),
                 'interm_globals_init': indent(_intermediate_globals_init, 3),
                 'interm_globals_writeback': indent(_intermediate_globals_writeback, 3),
-                'itset_loop_body': itset_loop_body()}
+                'itset_loop_body': '\n'.join([itset_loop_body(i, j)
+                                              for j in range(ncols) for i in range(nrows)])}
