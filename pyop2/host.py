@@ -520,8 +520,39 @@ class JITModule(base.JITModule):
 
         indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
 
-        return {'ind': '  ' * nloops,
-                'kernel_name': self._kernel.name,
+        itset_loop_body = """
+    %(vec_inits)s;
+    %(map_init)s;
+    %(extr_loop)s
+    %(itspace_loops)s
+    %(ind)s%(zero_tmps)s;
+    %(ind)s%(kernel_name)s(%(kernel_args)s);
+    %(ind)s%(addtos_vector_field)s;
+    %(itspace_loop_close)s
+    %(ind)s%(addtos_scalar_field_extruded)s;
+    %(apply_offset)s
+    %(extr_loop_close)s
+    %(addtos_scalar_field)s;
+"""
+
+        _itset_loop_body = itset_loop_body % {
+            'ind': '  ' * nloops,
+            'vec_inits': indent(_vec_inits, 5),
+            'map_init': indent(_map_init, 5),
+            'itspace_loops': indent(_itspace_loops, 2),
+            'extr_loop': indent(_extr_loop, 5),
+            'zero_tmps': indent(_zero_tmps, 2 + nloops),
+            'kernel_name': self._kernel.name,
+            'kernel_args': _kernel_args,
+            'addtos_vector_field': indent(_addtos_vector_field, 2 + nloops),
+            'apply_offset': indent(_apply_offset, 3),
+            'extr_loop_close': indent(_extr_loop_close, 2),
+            'itspace_loop_close': indent(_itspace_loop_close, 2),
+            'addtos_scalar_field': indent(_addtos_scalar_field, 2),
+            'addtos_scalar_field_extruded': indent(_addtos_scalar_field_extruded, 2 + nloops),
+        }
+
+        return {'kernel_name': self._kernel.name,
                 'ssinds_arg': _ssinds_arg,
                 'ssinds_dec': _ssinds_dec,
                 'index_expr': _index_expr,
@@ -530,21 +561,10 @@ class JITModule(base.JITModule):
                 'const_args': _const_args,
                 'const_inits': indent(_const_inits, 1),
                 'local_tensor_decs': indent(_local_tensor_decs, 1),
-                'itspace_loops': indent(_itspace_loops, 2),
-                'itspace_loop_close': indent(_itspace_loop_close, 2),
-                'vec_inits': indent(_vec_inits, 5),
-                'zero_tmps': indent(_zero_tmps, 2 + nloops),
-                'kernel_args': _kernel_args,
-                'addtos_vector_field': indent(_addtos_vector_field, 2 + nloops),
-                'addtos_scalar_field': indent(_addtos_scalar_field, 2),
-                'apply_offset': indent(_apply_offset, 3),
                 'off_args': _off_args,
                 'off_inits': indent(_off_inits, 1),
-                'extr_loop': indent(_extr_loop, 5),
-                'extr_loop_close': indent(_extr_loop_close, 2),
+                'map_decl': indent(_map_decl, 1),
                 'interm_globals_decl': indent(_intermediate_globals_decl, 3),
                 'interm_globals_init': indent(_intermediate_globals_init, 3),
                 'interm_globals_writeback': indent(_intermediate_globals_writeback, 3),
-                'addtos_scalar_field_extruded': indent(_addtos_scalar_field_extruded, 2 + nloops),
-                'map_init': indent(_map_init, 5),
-                'map_decl': indent(_map_decl, 1)}
+                'itset_loop_body': _itset_loop_body}
