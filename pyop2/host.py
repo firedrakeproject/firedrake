@@ -163,7 +163,7 @@ class Arg(base.Arg):
                             'data': self.c_ind_data(idx)})
         return ";\n".join(val)
 
-    def c_addto_scalar_field(self, extruded):
+    def c_addto_scalar_field(self, extruded=None):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].arity
         ncols = maps[1].arity
@@ -434,35 +434,17 @@ class JITModule(base.JITModule):
             [arg.c_local_tensor_dec(self._extents) for arg in self._args if arg._is_mat])
         _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self._args])
 
-        _kernel_user_args = [arg.c_kernel_arg(count)
-                             for count, arg in enumerate(self._args)]
-        _kernel_it_args = ["i_%d" % d for d in range(len(self._extents))]
-        _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
-        _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self._args
-                                 if not arg._is_mat and arg._is_vec_map])
-
         nloops = len(self._extents)
         extents = list(self._extents)
         for arg in self._args:
-            if arg._flatten:
-                if arg._is_mat:
-                    dims = arg.data.sparsity.dims
-                    extents[0] *= dims[0]
-                    extents[1] *= dims[1]
-                    break
-                if arg._is_dat and arg._uses_itspace:
-                    extents[0] *= arg.data.cdim
-                    break
-        _itspace_loops = '\n'.join(['  ' * i + itspace_loop(i, e)
-                                    for i, e in enumerate(extents)])
-        _itspace_loop_close = '\n'.join('  ' * i + '}' for i in range(nloops - 1, -1, -1))
-
-        _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field() for arg in self._args
-                                           if arg._is_mat and arg.data._is_vector_field])
-        _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(None) for arg in self._args
-                                           if arg._is_mat and arg.data._is_scalar_field])
-
-        _zero_tmps = ';\n'.join([arg.c_zero_tmp() for arg in self._args if arg._is_mat])
+            if arg._is_mat and arg.data._is_vector_field and arg._flatten:
+                dims = arg.data.sparsity.dims
+                extents[0] *= dims[0]
+                extents[1] *= dims[1]
+                break
+            if arg._flatten and arg._uses_itspace:
+                extents[0] *= arg.data.cdim
+        self._extents = tuple(extents)
 
         if len(Const._defs) > 0:
             _const_args = ', '
@@ -484,43 +466,57 @@ class JITModule(base.JITModule):
              for count, arg in enumerate(self._args)
              if arg._is_global_reduction])
 
-        _apply_offset = ""
+        indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
+
+        _map_decl = ""
         if self._layers > 1:
             _off_args = ''.join([arg.c_offset_init() for arg in self._args
                                  if arg._uses_itspace or arg._is_vec_map])
             _off_inits = ';\n'.join([arg.c_offset_decl() for arg in self._args
                                      if arg._uses_itspace or arg._is_vec_map])
-            _apply_offset += ';\n'.join([arg.c_add_offset_map() for arg in self._args
-                                        if arg._uses_itspace])
-            _apply_offset += ';\n'.join([arg.c_add_offset() for arg in self._args
-                                         if arg._is_vec_map])
-            _map_init = ';\n'.join([arg.c_map_init() for arg in self._args
-                                    if arg._uses_itspace])
-            _map_decl = ''
-
             _map_decl += ';\n'.join([arg.c_map_decl() for arg in self._args
                                      if arg._is_mat and arg.data._is_scalar_field])
             _map_decl += ';\n'.join([arg.c_map_decl_itspace() for arg in self._args
                                      if arg._uses_itspace and not arg._is_mat])
-
-            _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field("xtr_") for arg in self._args
-                                                        if arg._is_mat and arg.data._is_scalar_field])
-            _addtos_scalar_field = ""
-
-            _extr_loop = '\n' + extrusion_loop(self._layers - 1)
-            _extr_loop_close = '}\n'
         else:
             _off_args = ""
             _off_inits = ""
-            _extr_loop = ""
-            _extr_loop_close = ""
-            _addtos_scalar_field_extruded = ""
-            _map_decl = ""
-            _map_init = ""
 
-        indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
+        def itset_loop_body():
+            _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self._args
+                                     if not arg._is_mat and arg._is_vec_map])
+            _itspace_loops = '\n'.join(['  ' * i + itspace_loop(i, e)
+                                       for i, e in enumerate(self._extents)])
+            _zero_tmps = ';\n'.join([arg.c_zero_tmp() for arg in self._args if arg._is_mat])
+            _kernel_it_args = ["i_%d" % d for d in range(len(self._extents))]
+            _kernel_user_args = [arg.c_kernel_arg(count)
+                                 for count, arg in enumerate(self._args)]
+            _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
+            _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field() for arg in self._args
+                                               if arg._is_mat and arg.data._is_vector_field])
+            _itspace_loop_close = '\n'.join('  ' * i + '}' for i in range(nloops - 1, -1, -1))
+            _apply_offset = ""
+            if self._layers > 1:
+                _map_init = ';\n'.join([arg.c_map_init() for arg in self._args
+                                        if arg._uses_itspace])
+                _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field("xtr_") for arg in self._args
+                                                            if arg._is_mat and arg.data._is_scalar_field])
+                _addtos_scalar_field = ""
+                _extr_loop = '\n' + extrusion_loop(self._layers - 1)
+                _extr_loop_close = '}\n'
+                _apply_offset += ';\n'.join([arg.c_add_offset_map() for arg in self._args
+                                            if arg._uses_itspace])
+                _apply_offset += ';\n'.join([arg.c_add_offset() for arg in self._args
+                                             if arg._is_vec_map])
+            else:
+                _map_init = ""
+                _addtos_scalar_field_extruded = ""
+                _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field() for arg in self._args
+                                                   if arg._is_mat and arg.data._is_scalar_field])
+                _extr_loop = ""
+                _extr_loop_close = ""
 
-        itset_loop_body = """
+            template = """
     %(vec_inits)s;
     %(map_init)s;
     %(extr_loop)s
@@ -535,22 +531,22 @@ class JITModule(base.JITModule):
     %(addtos_scalar_field)s;
 """
 
-        _itset_loop_body = itset_loop_body % {
-            'ind': '  ' * nloops,
-            'vec_inits': indent(_vec_inits, 5),
-            'map_init': indent(_map_init, 5),
-            'itspace_loops': indent(_itspace_loops, 2),
-            'extr_loop': indent(_extr_loop, 5),
-            'zero_tmps': indent(_zero_tmps, 2 + nloops),
-            'kernel_name': self._kernel.name,
-            'kernel_args': _kernel_args,
-            'addtos_vector_field': indent(_addtos_vector_field, 2 + nloops),
-            'apply_offset': indent(_apply_offset, 3),
-            'extr_loop_close': indent(_extr_loop_close, 2),
-            'itspace_loop_close': indent(_itspace_loop_close, 2),
-            'addtos_scalar_field': indent(_addtos_scalar_field, 2),
-            'addtos_scalar_field_extruded': indent(_addtos_scalar_field_extruded, 2 + nloops),
-        }
+            return template % {
+                'ind': '  ' * nloops,
+                'vec_inits': indent(_vec_inits, 5),
+                'map_init': indent(_map_init, 5),
+                'itspace_loops': indent(_itspace_loops, 2),
+                'extr_loop': indent(_extr_loop, 5),
+                'zero_tmps': indent(_zero_tmps, 2 + nloops),
+                'kernel_name': self._kernel.name,
+                'kernel_args': _kernel_args,
+                'addtos_vector_field': indent(_addtos_vector_field, 2 + nloops),
+                'apply_offset': indent(_apply_offset, 3),
+                'extr_loop_close': indent(_extr_loop_close, 2),
+                'itspace_loop_close': indent(_itspace_loop_close, 2),
+                'addtos_scalar_field': indent(_addtos_scalar_field, 2),
+                'addtos_scalar_field_extruded': indent(_addtos_scalar_field_extruded, 2 + nloops),
+            }
 
         return {'kernel_name': self._kernel.name,
                 'ssinds_arg': _ssinds_arg,
@@ -567,4 +563,4 @@ class JITModule(base.JITModule):
                 'interm_globals_decl': indent(_intermediate_globals_decl, 3),
                 'interm_globals_init': indent(_intermediate_globals_init, 3),
                 'interm_globals_writeback': indent(_intermediate_globals_writeback, 3),
-                'itset_loop_body': _itset_loop_body}
+                'itset_loop_body': itset_loop_body()}
