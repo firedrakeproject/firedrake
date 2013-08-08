@@ -618,8 +618,25 @@ class Halo(object):
         del odict['_comm']
         return odict
 
-    def __setstate__(self, dict):
-        self.__dict__.update(dict)
+    def __setstate__(self, d):
+        self.__dict__.update(d)
+        # Update old pickle dumps to new Halo format
+        sends = self.__dict__['_sends']
+        receives = self.__dict__['_receives']
+        if not isinstance(sends, dict):
+            tmp = {}
+            for i, s in enumerate(sends):
+                if len(s) > 0:
+                    tmp[i] = s
+            sends = tmp
+        if not isinstance(receives, dict):
+            tmp = {}
+            for i, s in enumerate(receives):
+                if len(s) > 0:
+                    tmp[i] = s
+            receives = tmp
+        self._sends = sends
+        self._receives = receives
         # FIXME: This will break for custom halo communicators
         self._comm = MPI.comm
 
