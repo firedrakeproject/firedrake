@@ -329,7 +329,7 @@ class Set(object):
     IMPORT_EXEC_SIZE = 2
     IMPORT_NON_EXEC_SIZE = 3
 
-    @validate_type(('size', (int, tuple, list), SizeTypeError),
+    @validate_type(('size', (int, tuple, list, np.ndarray), SizeTypeError),
                    ('name', str, NameTypeError))
     def __init__(self, size=None, name=None, halo=None, layers=None):
         if type(size) is int:
@@ -513,13 +513,11 @@ class Halo(object):
     The halo object describes which :class:`Set` elements are sent
     where, and which :class:`Set` elements are received from where.
 
-    For each process to send to, `sends[process]` should be a numpy
-    arraylike (tuple, list, iterable, numpy array) of the set elements
-    to send to `process`.  Similarly `receives[process]` should be the
-    set elements that will be received from `process`.
-
-    To send/receive no set elements to/from a process, pass an empty
-    list in that position.
+    The `sends` should be a dict whose key is the process we want to
+    send to, similarly the `receives should be a dict whose key is the
+    process we want to receive from.  The value should in each case be
+    a numpy array of the set elements to send to/receive from each
+    `process`.
 
     The gnn2unn array is a map from process-local set element
     numbering to cross-process set element numbering.  It must
@@ -532,50 +530,62 @@ class Halo(object):
     """
 
     def __init__(self, sends, receives, comm=None, gnn2unn=None):
-        self._sends = tuple(np.asarray(x, dtype=np.int32) for x in sends)
-        self._receives = tuple(np.asarray(x, dtype=np.int32) for x in receives)
+        # Fix up old style list of sends/receives into dict of sends/receives
+        if not isinstance(sends, dict):
+            tmp = {}
+            for i, s in enumerate(sends):
+                if len(s) > 0:
+                    tmp[i] = s
+            sends = tmp
+        if not isinstance(receives, dict):
+            tmp = {}
+            for i, s in enumerate(receives):
+                if len(s) > 0:
+                    tmp[i] = s
+            receives = tmp
+        self._sends = sends
+        self._receives = receives
+        # The user might have passed lists, not numpy arrays, so fix that here.
+        for i, a in self._sends.iteritems():
+            self._sends[i] = np.asarray(a)
+        for i, a in self._receives.iteritems():
+            self._receives[i] = np.asarray(a)
         self._global_to_petsc_numbering = gnn2unn
         self._comm = _check_comm(comm) if comm is not None else MPI.comm
         # FIXME: is this a necessity?
         assert self._comm == MPI.comm, "Halo communicator not COMM"
         rank = self._comm.rank
-        size = self._comm.size
 
-        assert len(self._sends) == size, \
-            "Invalid number of sends for Halo, got %d, wanted %d" % \
-            (len(self._sends), size)
-        assert len(self._receives) == size, \
-            "Invalid number of receives for Halo, got %d, wanted %d" % \
-            (len(self._receives), size)
-
-        assert self._sends[rank].size == 0, \
+        assert rank not in self._sends, \
             "Halo was specified with self-sends on rank %d" % rank
-        assert self._receives[rank].size == 0, \
+        assert rank not in self._receives, \
             "Halo was specified with self-receives on rank %d" % rank
 
     @property
     def sends(self):
         """Return the sends associated with this :class:`Halo`.
 
-        A tuple of numpy arrays, one entry for each rank, with each
-        array indicating the :class:`Set` elements to send.
+        A dict of numpy arrays, keyed by the rank to send to, with
+        each array indicating the :class:`Set` elements to send.
 
         For example, to send no elements to rank 0, elements 1 and 2
         to rank 1 and no elements to rank 2 (with comm.size == 3) we
         would have:
 
-        (np.empty(0, dtype=np.int32), np.array([1,2], dtype=np.int32),
-         np.empty(0, dtype=np.int32)."""
+        {1: np.array([1,2], dtype=np.int32)}.
+        """
         return self._sends
 
     @property
     def receives(self):
         """Return the receives associated with this :class:`Halo`.
 
-        A tuple of numpy arrays, one entry for each rank, with each
-        array indicating the :class:`Set` elements to receive.
+        A dict of numpy arrays, keyed by the rank to receive from,
+        with each array indicating the :class:`Set` elements to
+        receive.
 
-        See `Halo.sends` for an example"""
+        See `Halo.sends` for an example.
+        """
         return self._receives
 
     @property
@@ -593,11 +603,11 @@ class Halo(object):
     def verify(self, s):
         """Verify that this :class:`Halo` is valid for a given
 :class:`Set`."""
-        for dest, sends in enumerate(self.sends):
+        for dest, sends in self.sends.iteritems():
             assert (sends >= 0).all() and (sends < s.size).all(), \
                 "Halo send to %d is invalid (outside owned elements)" % dest
 
-        for source, receives in enumerate(self.receives):
+        for source, receives in self.receives.iteritems():
             assert (receives >= s.size).all() and \
                 (receives < s.total_size).all(), \
                 "Halo receive from %d is invalid (not in halo elements)" % \
@@ -608,8 +618,25 @@ class Halo(object):
         del odict['_comm']
         return odict
 
-    def __setstate__(self, dict):
-        self.__dict__.update(dict)
+    def __setstate__(self, d):
+        self.__dict__.update(d)
+        # Update old pickle dumps to new Halo format
+        sends = self.__dict__['_sends']
+        receives = self.__dict__['_receives']
+        if not isinstance(sends, dict):
+            tmp = {}
+            for i, s in enumerate(sends):
+                if len(s) > 0:
+                    tmp[i] = s
+            sends = tmp
+        if not isinstance(receives, dict):
+            tmp = {}
+            for i, s in enumerate(receives):
+                if len(s) > 0:
+                    tmp[i] = s
+            receives = tmp
+        self._sends = sends
+        self._receives = receives
         # FIXME: This will break for custom halo communicators
         self._comm = MPI.comm
 
@@ -802,10 +829,10 @@ class Dat(DataCarrier):
         self._name = name or "dat_%d" % self._id
         halo = dataset.halo
         if halo is not None:
-            self._send_reqs = [None] * halo.comm.size
-            self._send_buf = [None] * halo.comm.size
-            self._recv_reqs = [None] * halo.comm.size
-            self._recv_buf = [None] * halo.comm.size
+            self._send_reqs = {}
+            self._send_buf = {}
+            self._recv_reqs = {}
+            self._recv_buf = {}
 
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, path, access):
@@ -950,21 +977,11 @@ class Dat(DataCarrier):
         halo = self.dataset.halo
         if halo is None:
             return
-        for dest, ele in enumerate(halo.sends):
-            if ele.size == 0:
-                # Don't send to self (we've asserted that ele.size ==
-                # 0 previously) or if there are no elements to send
-                self._send_reqs[dest] = _MPI.REQUEST_NULL
-                continue
+        for dest, ele in halo.sends.iteritems():
             self._send_buf[dest] = self._data[ele]
             self._send_reqs[dest] = halo.comm.Isend(self._send_buf[dest],
                                                     dest=dest, tag=self._id)
-        for source, ele in enumerate(halo.receives):
-            if ele.size == 0:
-                # Don't receive from self or if there are no elements
-                # to receive
-                self._recv_reqs[source] = _MPI.REQUEST_NULL
-                continue
+        for source, ele in halo.receives.iteritems():
             self._recv_buf[source] = self._data[ele]
             self._recv_reqs[source] = halo.comm.Irecv(self._recv_buf[source],
                                                       source=source, tag=self._id)
@@ -974,16 +991,17 @@ class Dat(DataCarrier):
         halo = self.dataset.halo
         if halo is None:
             return
-        _MPI.Request.Waitall(self._recv_reqs)
-        _MPI.Request.Waitall(self._send_reqs)
-        self._send_buf = [None] * len(self._send_buf)
+        _MPI.Request.Waitall(self._recv_reqs.values())
+        _MPI.Request.Waitall(self._send_reqs.values())
+        self._recv_reqs.clear()
+        self._send_reqs.clear()
+        self._send_buf.clear()
         # data is read-only in a ParLoop, make it temporarily writable
         maybe_setflags(self._data, write=True)
-        for source, buf in enumerate(self._recv_buf):
-            if buf is not None:
-                self._data[halo.receives[source]] = buf
+        for source, buf in self._recv_buf.iteritems():
+            self._data[halo.receives[source]] = buf
         maybe_setflags(self._data, write=False)
-        self._recv_buf = [None] * len(self._recv_buf)
+        self._recv_buf.clear()
 
     @property
     def norm(self):
