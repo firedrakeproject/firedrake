@@ -86,14 +86,14 @@ if op2.MPI.comm.size != 2:
 
 if op2.MPI.comm.rank == 0:
     node_global_to_universal = np.asarray([0, 1, 2, 3], dtype=PETSc.IntType)
-    node_halo = op2.Halo(sends=([], [0, 1]), receives=([], [2, 3]),
+    node_halo = op2.Halo(sends={1: [0, 1]}, receives={1: [2, 3]},
                          gnn2unn=node_global_to_universal)
-    element_halo = op2.Halo(sends=([], [0]), receives=([], [1]))
+    element_halo = op2.Halo(sends={1: [0]}, receives={1: [1]})
 elif op2.MPI.comm.rank == 1:
     node_global_to_universal = np.asarray([2, 3, 1, 0], dtype=PETSc.IntType)
-    node_halo = op2.Halo(sends=([0, 1], []), receives=([3, 2], []),
+    node_halo = op2.Halo(sends={0: [0, 1]}, receives={0: [3, 2]},
                          gnn2unn=node_global_to_universal)
-    element_halo = op2.Halo(sends=([0], []), receives=([1], []))
+    element_halo = op2.Halo(sends={0: [0]}, receives={0: [1]})
 else:
     op2.MPI.comm.Abort(1)
 nodes = op2.Set(NUM_NODES, "nodes", halo=node_halo)
