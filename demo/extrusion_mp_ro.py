@@ -207,9 +207,9 @@ for d in range(0, 2):  # for 2D and then for 3D
                     count += 1
 
 for i in range(0, map_dofs_coords):
-    off_coords[i] = off[i]
+    off_coords[i] = 1
 for i in range(0, map_dofs_field):
-    off_field[i] = off[i + map_dofs_coords]
+    off_field[i] = 1
 
 # assemble the dat
 # compute total number of dofs in the 3D mesh
