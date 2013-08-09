@@ -45,8 +45,6 @@ nelems = 42
 
 class TestLaziness:
 
-    skip_backends = ['opencl', 'cuda']
-
     @pytest.fixture
     def iterset(cls):
         return op2.Set(nelems, name="iterset")
