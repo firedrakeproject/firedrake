@@ -65,33 +65,43 @@ class LazyComputation(object):
         assert False, "Not implemented"
 
 
-def _force(reads, writes):
-    """Forces the evaluation of delayed computation on which reads and writes
-    depend.
-    """
-    def _depends_on(reads, writes, cont):
-        return not not (reads & cont.writes | writes & cont.reads | writes & cont.writes)
+class ExecutionTrace(object):
 
-    global _trace
+    """Container maintaining delayed computation until they are executed."""
 
-    for cont in reversed(_trace):
-        if _depends_on(reads, writes, cont):
-            cont._scheduled = True
-            reads = reads | cont.reads - cont.writes
-            writes = writes | cont.writes
-        else:
-            cont._scheduled = False
+    def __init__(self):
+        self._trace = list()
 
-    nt = list()
-    for cont in _trace:
-        if cont._scheduled:
-            cont._run()
-        else:
-            nt.append(cont)
-    _trace = nt
+    def append(self, computation):
+        self._trace.append(computation)
+    
+    def evaluate(self, reads, writes):
+        """Forces the evaluation of delayed computation on which reads and writes
+        depend.
+        """
+        def _depends_on(reads, writes, cont):
+            return not not (reads & cont.writes or \
+                            writes & cont.reads or \
+                            writes & cont.writes)
 
-"""List maintaining delayed computation until they are executed."""
-_trace = list()
+        for comp in reversed(self._trace):
+            if _depends_on(reads, writes, comp):
+                comp._scheduled = True
+                reads = reads | comp.reads - comp.writes
+                writes = writes | comp.writes
+            else:
+                comp._scheduled = False
+
+        new_trace = list()
+        for comp in self._trace:
+            if comp._scheduled:
+                comp._run()
+            else:
+                new_trace.append(comp)
+        self._trace = new_trace 
+
+
+_trace = ExecutionTrace()
 
 # Data API
 
@@ -988,7 +998,7 @@ class Dat(DataCarrier):
     @collective
     def data(self):
         """Numpy array containing the data values."""
-        _force(set([self]), set([self]))
+        _trace.evaluate(set([self]), set([self]))
         if self.dataset.total_size > 0 and self._data.size == 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
         maybe_setflags(self._data, write=True)
@@ -998,7 +1008,7 @@ class Dat(DataCarrier):
     @property
     def data_ro(self):
         """Numpy array containing the data values.  Read-only"""
-        _force(set([self]), set())
+        _trace.evaluate(set([self]), set())
         if self.dataset.total_size > 0 and self._data.size == 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
         maybe_setflags(self._data, write=False)
@@ -1201,7 +1211,7 @@ class Const(DataCarrier):
         """Remove this Const object from the namespace
 
         This allows the same name to be redeclared with a different shape."""
-        _force(set(), set([self]))
+        _trace.evaluate(set(), set([self]))
         Const._defs.discard(self)
 
     def _format_declaration(self):
@@ -1278,14 +1288,14 @@ class Global(DataCarrier):
     @property
     def data(self):
         """Data array."""
-        _force(set([self]), set())
+        _trace.evaluate(set([self]), set())
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
 
     @data.setter
     def data(self, value):
-        _force(set(), set([self]))
+        _trace.evaluate(set(), set([self]))
         self._data = verify_reshape(value, self.dtype, self.dim)
 
     @property
@@ -2089,7 +2099,7 @@ class Solver(object):
         :arg x: The :class:`Dat` to receive the solution.
         :arg b: The :class:`Dat` containing the RHS.
         """
-        _force(set([A, b]), set([x]))
+        _trace.evaluate(set([A, b]), set([x]))
         self._solve(A, x, b)
 
     def _solve(self, A, x, b):

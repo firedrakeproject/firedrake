@@ -140,7 +140,7 @@ class Mat(base.Mat):
     @collective
     def zero(self):
         """Zero the matrix."""
-        base._force(set(), set([self]))
+        base._trace.evaluate(set(), set([self]))
         self.handle.zeroEntries()
 
     @collective
@@ -148,7 +148,7 @@ class Mat(base.Mat):
         """Zeroes the specified rows of the matrix, with the exception of the
         diagonal entry, which is set to diag_val. May be used for applying
         strong boundary conditions."""
-        base._force(set(), set([self]))
+        base._trace.evaluate(set(), set([self]))
         self.handle.zeroRowsLocal(rows, diag_val)
 
     @collective
@@ -160,12 +160,12 @@ class Mat(base.Mat):
         """Array of non-zero values."""
         if not hasattr(self, '_array'):
             self._init()
-        base._force(set([self]), set())
+        base._trace.evaluate(set([self]), set())
         return self._array
 
     @property
     def values(self):
-        base._force(set([self]), set())
+        base._trace.evaluate(set([self]), set())
         return self.handle[:, :]
 
     @property

@@ -305,7 +305,7 @@ class Mat(DeviceDataMixin, op2.Mat):
 
     @property
     def values(self):
-        base._force(set([self]), set([self]))
+        base._trace.evaluate(set([self]), set([self]))
         shape = self.sparsity.maps[0][0].toset.size * self.dims[0]
         shape = (shape, shape)
         ret = np.zeros(shape=shape, dtype=self.dtype)
@@ -319,11 +319,11 @@ class Mat(DeviceDataMixin, op2.Mat):
 
     @property
     def array(self):
-        base._force(set([self]), set([self]))
+        base._trace.evaluate(set([self]), set([self]))
         return self._csrdata.get()
 
     def zero_rows(self, rows, diag_val):
-        base._force(set(), set([self]))
+        base._trace.evaluate(set(), set([self]))
         for row in rows:
             s = self.sparsity._rowptr[row]
             e = self.sparsity._rowptr[row + 1]
@@ -380,14 +380,14 @@ class Global(DeviceDataMixin, op2.Global):
 
     @property
     def data(self):
-        base._force(set([self]), set())
+        base._trace.evaluate(set([self]), set())
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.HOST
         return self._data
 
     @data.setter
     def data(self, value):
-        base._force(set(), set([self]))
+        base._trace.evaluate(set(), set([self]))
         self._data = verify_reshape(value, self.dtype, self.dim)
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.HOST

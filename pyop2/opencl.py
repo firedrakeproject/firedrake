@@ -301,7 +301,7 @@ class Mat(device.Mat, petsc_base.Mat, DeviceDataMixin):
 
     @property
     def values(self):
-        base._force(set([self]), set())
+        base._trace.evaluate(set([self]), set())
         self._from_device()
         return self.handle[:, :]
 
@@ -332,7 +332,7 @@ class Global(device.Global, DeviceDataMixin):
 
     @property
     def data(self):
-        base._force(set([self]), set())
+        base._trace.evaluate(set([self]), set())
         if self.state is DeviceDataMixin.DEVICE:
             self._array.get(_queue, ary=self._data)
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
@@ -341,7 +341,7 @@ class Global(device.Global, DeviceDataMixin):
 
     @data.setter
     def data(self, value):
-        base._force(set(), set([self]))
+        base._trace.evaluate(set(), set([self]))
         self._data = verify_reshape(value, self.dtype, self.dim)
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.HOST
