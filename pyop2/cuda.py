@@ -673,7 +673,7 @@ class JITModule(base.JITModule):
         if hasattr(self, '_fun'):
             return self._fun
         compiler_opts = ['-m64', '-Xptxas', '-dlcm=ca',
-                         '-Xptxas=-v', '-O3', '-use_fast_math', '-DNVCC', '-g']
+                         '-Xptxas=-v', '-O3', '-use_fast_math', '-DNVCC']
         inttype = np.dtype('int32').char
         argtypes = inttype      # set size
         argtypes += inttype  # offset

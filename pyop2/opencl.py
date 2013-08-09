@@ -545,11 +545,9 @@ class JITModule(base.JITModule):
                                'codegen': {'amd': _AMD_fixes},
                                'op2const': Const._definitions()
                                }).encode("ascii")
-        #if MPI.comm.rank == 0:
-        #    print src
         self.dump_gen_code(src)
         # disabled -Werror, because some SDK wine about ffc generated code
-        prg = cl.Program(_ctx, src).build(options="")
+        prg = cl.Program(_ctx, src).build(options="-Werror")
         self._fun = prg.__getattr__(self._parloop._stub_name)
         return self._fun
 
