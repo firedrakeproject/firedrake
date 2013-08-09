@@ -219,6 +219,27 @@ class Dat(DeviceDataMixin, base.Dat):
             raise ValueError("operands could not be broadcast together with shapes %s, %s"
                              % (self.array.shape, other.array.shape))
 
+    def halo_exchange_begin(self):
+        if self.dataset.halo is None:
+            return
+        maybe_setflags(self._data, write=True)
+        self._from_device()
+        super(Dat, self).halo_exchange_begin()
+
+    def halo_exchange_end(self):
+        if self.dataset.halo is None:
+            return
+        maybe_setflags(self._data, write=True)
+        super(Dat, self).halo_exchange_end()
+        if self.state in [DeviceDataMixin.DEVICE,
+                          DeviceDataMixin.BOTH]:
+            self._halo_to_device()
+            self.state = DeviceDataMixin.DEVICE
+
+    def _halo_to_device(self):
+        _lim = self.dataset.size * self.dataset.cdim
+        self._device_data.ravel()[_lim:].set(self._data[self.dataset.size:])
+
 
 class Const(DeviceDataMixin, base.Const):
 

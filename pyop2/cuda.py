@@ -170,27 +170,6 @@ class Dat(DeviceDataMixin, op2.Dat):
         """The L2-norm on the flattened vector."""
         return np.sqrt(gpuarray.dot(self.array, self.array).get())
 
-    def halo_exchange_begin(self):
-        if self.dataset.halo is None:
-            return
-        maybe_setflags(self._data, write=True)
-        self._from_device()
-        super(Dat, self).halo_exchange_begin()
-
-    def halo_exchange_end(self):
-        if self.dataset.halo is None:
-            return
-        maybe_setflags(self._data, write=True)
-        super(Dat, self).halo_exchange_end()
-        if self.state in [DeviceDataMixin.DEVICE,
-                          DeviceDataMixin.BOTH]:
-            self._halo_to_gpu()
-            self.state = DeviceDataMixin.DEVICE
-
-    def _halo_to_gpu(self):
-        _lim = self.dataset.size * self.dataset.cdim
-        self._device_data.ravel()[_lim:].set(self._data[self.dataset.size:])
-
 
 class Sparsity(op2.Sparsity):
 
