@@ -33,7 +33,7 @@
 
 """PyOP2 Stupid MPI demo
 
-This demo repeatidily computes the input mesh geometric center by two means
+This demo repeatedly computes the input mesh geometric center by two means
 and scaling the mesh around its center.
 
 The domain read in from a pickle dump.
@@ -106,7 +106,7 @@ collect_area(double* varea, double* area)
 }""", "collect_area")
 
     expected_area = 1.0
-    for i, s in enumerate([[1, 2], [2, 1], [3, 3], [2, 5], [5, 2]]):
+    for s in [[1, 2], [2, 1], [3, 3], [2, 5], [5, 2]]:
         center1 = op2.Global(2, [0.0, 0.0], valuetype, name='center1')
         center2 = op2.Global(2, [0.0, 0.0], valuetype, name='center2')
         node_count = op2.Global(1, [0], np.int32, name='node_count')
@@ -131,7 +131,7 @@ collect_area(double* varea, double* area)
                      center1(op2.READ),
                      scale(op2.READ))
 
-        varea.data.fill(0.0)
+        varea.zero()
         op2.par_loop(dispatch_area, elements,
                      coords(op2.READ, elem_node),
                      varea(op2.INC, elem_node))
