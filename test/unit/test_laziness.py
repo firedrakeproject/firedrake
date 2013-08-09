@@ -112,23 +112,28 @@ sum(unsigned int* sum, unsigned int* x)
 }
 """
 
-        op2.par_loop(op2.Kernel(kernel_add_one, "add_one"), iterset, x(op2.RW))
-        op2.par_loop(op2.Kernel(kernel_copy, "copy"), iterset, y(op2.WRITE), x(op2.READ))
-        op2.par_loop(op2.Kernel(kernel_sum, "sum"), iterset, a(op2.INC), x(op2.READ))
+        pl_add = op2.par_loop(op2.Kernel(kernel_add_one, "add_one"), iterset, x(op2.RW))
+        pl_copy = op2.par_loop(op2.Kernel(kernel_copy, "copy"), iterset, y(op2.WRITE), x(op2.READ))
+        pl_sum = op2.par_loop(op2.Kernel(kernel_sum, "sum"), iterset, a(op2.INC), x(op2.READ))
 
         # check everything is zero at first
         assert sum(x._data) == 0
         assert sum(y._data) == 0
         assert a._data[0] == 0
+        assert op2.base._trace.in_queue(pl_add)
+        assert op2.base._trace.in_queue(pl_copy)
+        assert op2.base._trace.in_queue(pl_sum)
 
-        # force computation affecting a (1st and 3rd par_loop)
+        # force computation affecting 'a' (1st and 3rd par_loop)
         assert a.data[0] == nelems
-        assert sum(x._data) == nelems
-        # checks second par_loop has not yet been executed
-        assert sum(y._data) == 0
+        assert not op2.base._trace.in_queue(pl_add)
+        assert op2.base._trace.in_queue(pl_copy)
+        assert not op2.base._trace.in_queue(pl_sum)
+        assert sum(x.data) == nelems
 
         # force the last par_loop remaining (2nd)
         assert sum(y.data) == nelems
+        assert not op2.base._trace.in_queue(pl_copy)
 
 if __name__ == '__main__':
     import os

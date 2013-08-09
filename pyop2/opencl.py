@@ -750,7 +750,7 @@ class ParLoop(device.ParLoop):
 
 @collective
 def par_loop(kernel, it_space, *args):
-    ParLoop(kernel, it_space, *args)
+    return ParLoop(kernel, it_space, *args)
 
 
 def _setup():

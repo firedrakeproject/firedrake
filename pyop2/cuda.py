@@ -718,7 +718,7 @@ class JITModule(base.JITModule):
 
 @collective
 def par_loop(kernel, it_space, *args):
-    ParLoop(kernel, it_space, *args)
+    return ParLoop(kernel, it_space, *args)
 
 
 class ParLoop(op2.ParLoop):

@@ -74,15 +74,16 @@ class ExecutionTrace(object):
 
     def append(self, computation):
         self._trace.append(computation)
-    
+
+    def in_queue(self, computation):
+        return computation in self._trace
+
     def evaluate(self, reads, writes):
         """Forces the evaluation of delayed computation on which reads and writes
         depend.
         """
         def _depends_on(reads, writes, cont):
-            return not not (reads & cont.writes or \
-                            writes & cont.reads or \
-                            writes & cont.writes)
+            return reads & cont.writes or writes & cont.reads or writes & cont.writes
 
         for comp in reversed(self._trace):
             if _depends_on(reads, writes, comp):
@@ -98,7 +99,7 @@ class ExecutionTrace(object):
                 comp._run()
             else:
                 new_trace.append(comp)
-        self._trace = new_trace 
+        self._trace = new_trace
 
 
 _trace = ExecutionTrace()
