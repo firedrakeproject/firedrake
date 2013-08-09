@@ -323,7 +323,7 @@ class Mat(DeviceDataMixin, op2.Mat):
         return self._csrdata.get()
 
     def zero_rows(self, rows, diag_val):
-        base._trace.evaluate(set(), set([self]))
+        base._trace.evaluate(set([self]), set([self]))
         for row in rows:
             s = self.sparsity._rowptr[row]
             e = self.sparsity._rowptr[row + 1]
@@ -334,6 +334,7 @@ class Mat(DeviceDataMixin, op2.Mat):
                 self._csrdata[diag:diag + 1].fill(diag_val)
 
     def zero(self):
+        base._trace.evaluate(set([]), set([self]))
         self._csrdata.fill(0)
         self._lmadata.fill(0)
 

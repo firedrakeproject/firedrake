@@ -148,7 +148,7 @@ class Mat(base.Mat):
         """Zeroes the specified rows of the matrix, with the exception of the
         diagonal entry, which is set to diag_val. May be used for applying
         strong boundary conditions."""
-        base._trace.evaluate(set(), set([self]))
+        base._trace.evaluate(set([self]), set([self]))
         self.handle.zeroRowsLocal(rows, diag_val)
 
     @collective
