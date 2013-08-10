@@ -61,7 +61,8 @@ OP2 and PyOP2 require a number of tools to be available:
 
 On a Debian-based system (Ubuntu, Mint, etc.) install them by running::
 
-  sudo apt-get install -y build-essential python-dev bzr git-core mercurial \        cmake cmake-curses-gui python-pip swig
+  sudo apt-get install -y build-essential python-dev bzr git-core mercurial \
+  cmake cmake-curses-gui python-pip swig
 
 OP2-Common
 ----------
@@ -75,8 +76,8 @@ library (only sequential is needed), which is built in-place as follows::
   cd .. 
   export OP2_DIR=`pwd`
 
-For further instructions refer to the [OP2-Common README]
-(https://github.com/OP2/OP2-Common/blob/master/op2/c/README).
+For further instructions refer to the `OP2-Common README
+<https://github.com/OP2/OP2-Common/blob/master/op2/c/README>`.
 
 If you have already built OP2-Common, make sure ``OP2_DIR`` is exported
 or the PyOP2 setup will fail.
@@ -269,8 +270,8 @@ Installing the Intel OpenCL toolkit (64bit systems only)::
   cd /tmp 
   # install alien to convert the rpm to a deb package 
   sudo apt-get install alien 
-  fakeroot wget http://registrationcenter.intel.com/irc_nas/2563/intel_sdk_for_ocl_applications_2012_x64.tgz t
-  ar xzf intel_sdk_for_ocl_applications_2012_x64.tgz 
+  fakeroot wget http://registrationcenter.intel.com/irc_nas/2563/intel_sdk_for_ocl_applications_2012_x64.tgz
+  tar xzf intel_sdk_for_ocl_applications_2012_x64.tgz 
   fakeroot alien *.rpm 
   sudo dpkg -i --force-overwrite *.deb
 
