@@ -1,5 +1,5 @@
-Installation
-============
+Installing PyOP2
+================
 
 The main testing platform for PyOP2 is Ubuntu 12.04 64-bit with Python
 2.7.3. Other UNIX-like systems may or may not work. Microsoft Windows is
