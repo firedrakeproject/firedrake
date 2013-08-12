@@ -196,7 +196,7 @@ Dependencies:
 * codepy >= 2013.1 
 * Jinja2 
 * mako 
-* pycparser >= 2.09.1 (revision 854e720 or newer) 
+* pycparser >= 2.10
 * pycuda >= 2013.1
 
 The `cusp library <http://cusplibrary.github.io>`__ version 0.3.1
@@ -215,7 +215,7 @@ is too old, you will need to install it via ``pip``, see below.
 
 Install dependencies via ``pip``::
 
-  pip install codepy Jinja2 mako git+https://github.com/eliben/pycparser.git#egg=pycparser-2.09.1
+  pip install codepy Jinja2 mako pycparser>=2.10
 
 If a pycuda package is not available, it will be necessary to install it
 manually. Make sure ``nvcc`` is in your ``$PATH`` and ``libcuda.so`` in
@@ -240,7 +240,7 @@ Dependencies:
 
 * Jinja2 
 * mako 
-* pycparser >= 2.09.1 (revision 854e720 or newer) 
+* pycparser >= 2.10
 * pyopencl >= 2012.1
 
 pyopencl requires the OpenCL header ``CL/cl.h`` in a standard include
@@ -263,7 +263,7 @@ location you need to configure pyopencl manually::
 
 Otherwise, install dependencies via ``pip``::
 
-  pip install Jinja2 mako pyopencl>=2012.1 git+https://github.com/eliben/pycparser.git#egg=pycparser-2.09.1
+  pip install Jinja2 mako pyopencl>=2012.1 pycparser>=2.10
 
 Installing the Intel OpenCL toolkit (64bit systems only)::
 
