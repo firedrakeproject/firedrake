@@ -303,21 +303,20 @@ class Set(object):
     integers.  The latter case is used for running in parallel where
     we distinguish between:
 
-      - CORE (owned and not touching halo)
-      - OWNED (owned, touching halo)
-      - EXECUTE HALO (not owned, but executed over redundantly)
-      - NON EXECUTE HALO (not owned, read when executing in the
-                          execute halo)
+      - `CORE` (owned and not touching halo)
+      - `OWNED` (owned, touching halo)
+      - `EXECUTE HALO` (not owned, but executed over redundantly)
+      - `NON EXECUTE HALO` (not owned, read when executing in the execute halo)
 
     If a single integer is passed, we assume that we're running in
     serial and there is no distinction.
 
-    The division of set elements is:
+    The division of set elements is: ::
 
-    [0, CORE)
-    [CORE, OWNED)
-    [OWNED, EXECUTE HALO)
-    [EXECUTE HALO, NON EXECUTE HALO).
+        [0, CORE)
+        [CORE, OWNED)
+        [OWNED, EXECUTE HALO)
+        [EXECUTE HALO, NON EXECUTE HALO).
 
     Halo send/receive data is stored on sets in a :class:`Halo`.
     """
@@ -514,7 +513,7 @@ class Halo(object):
     where, and which :class:`Set` elements are received from where.
 
     The `sends` should be a dict whose key is the process we want to
-    send to, similarly the `receives should be a dict whose key is the
+    send to, similarly the `receives` should be a dict whose key is the
     process we want to receive from.  The value should in each case be
     a numpy array of the set elements to send to/receive from each
     `process`.
@@ -568,11 +567,10 @@ class Halo(object):
         A dict of numpy arrays, keyed by the rank to send to, with
         each array indicating the :class:`Set` elements to send.
 
-        For example, to send no elements to rank 0, elements 1 and 2
-        to rank 1 and no elements to rank 2 (with comm.size == 3) we
-        would have:
+        For example, to send no elements to rank 0, elements 1 and 2 to rank 1
+        and no elements to rank 2 (with ``comm.size == 3``) we would have: ::
 
-        {1: np.array([1,2], dtype=np.int32)}.
+            {1: np.array([1,2], dtype=np.int32)}.
         """
         return self._sends
 
@@ -584,7 +582,7 @@ class Halo(object):
         with each array indicating the :class:`Set` elements to
         receive.
 
-        See `Halo.sends` for an example.
+        See :func:`Halo.sends` for an example.
         """
         return self._receives
 
@@ -793,7 +791,7 @@ class Dat(DataCarrier):
     The :class:`Map` through which indirection occurs can be indexed
     using the index notation described in the documentation for the
     :class:`Map`. Direct access to a Dat can be accomplished by
-    using the :class:`IdentityMap` as the indirection.
+    using the :obj:`IdentityMap` as the indirection.
 
     :class:`Dat` objects support the pointwise linear algebra operations
     ``+=``, ``*=``, ``-=``, ``/=``, where ``*=`` and ``/=`` also support

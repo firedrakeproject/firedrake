@@ -61,7 +61,7 @@ class NameTypeError(TypeError):
 
 class SetTypeError(TypeError):
 
-    """Invalid type for Set."""
+    """Invalid type for :class:`pyop2.op2.Set`."""
 
 
 class SizeTypeError(TypeError):
@@ -71,26 +71,26 @@ class SizeTypeError(TypeError):
 
 class SparsityTypeError(TypeError):
 
-    """Invalid type for sparsity."""
+    """Invalid type for :class:`pyop2.op2.Sparsity`."""
 
 
 class MapTypeError(TypeError):
 
-    """Invalid type for map."""
+    """Invalid type for :class:`pyop2.op2.Map`."""
 
 
 class DataSetTypeError(TypeError):
-    """Invalid type for data set."""
+    """Invalid type for :class:`pyop2.op2.DataSet`."""
 
 
 class MatTypeError(TypeError):
 
-    """Invalid type for mat."""
+    """Invalid type for :class:`pyop2.op2.Mat`."""
 
 
 class DatTypeError(TypeError):
 
-    """Invalid type for dat."""
+    """Invalid type for :class:`pyop2.op2.Dat`."""
 
 
 class DataValueError(ValueError):
@@ -110,9 +110,9 @@ class ModeValueError(ValueError):
 
 class SetValueError(ValueError):
 
-    """Illegal value for Set."""
+    """Illegal value for :class:`pyop2.op2.Set`."""
 
 
 class MapValueError(ValueError):
 
-    """Illegal value for Map."""
+    """Illegal value for :class:`pyop2.op2.Map`."""
