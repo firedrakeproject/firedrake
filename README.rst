@@ -19,10 +19,13 @@ Python dependencies will be installed system wide::
 
 
 Running without superuser privileges will instruct you which packages
-need to be installed. Python depencenies will be installed to the user
+need to be installed. Python dependencies will be installed to the user
 site ``~/.local``::
 
   wget -O - https://github.com/OP2/PyOP2/raw/master/install.sh | bash
+
+In each case, OP2-Common and PyOP2 will be cloned to subdirectories of
+the current directory.
 
 After installation has completed and a rudimentary functionality check,
 the test suite is run. The script indicates whether all these steps have
@@ -34,6 +37,9 @@ output is redirected to a log file ``pyop2_install.log``. Please consult
 this log file in the case of errors. If you can't figure out the cause
 of discover a bug in the installation script, please `report
 it <https://github.com/OP2/PyOP2/issues>`__.
+
+This completes the quick start installation. More complete
+instructions follow for virtual machine and native installations.
 
 Provisioning a virtual machine
 ------------------------------
@@ -110,7 +116,10 @@ Common dependencies:
 * `PETSc4py <https://bitbucket.org/mapdes/petsc4py>`__ >= 3.3 
 * PyYAML
 
-Install dependencies via the package manager (Debian based systems)::
+With the exception of the PETSc dependencies, these can be installed
+using the package management system of your OS, or via ``pip``.
+
+Install the dependencies via the package manager (Debian based systems)::
 
   sudo apt-get install cython python-decorator python-instant python-numpy python-yaml
 
