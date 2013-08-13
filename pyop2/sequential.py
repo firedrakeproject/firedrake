@@ -49,7 +49,7 @@ def par_loop(kernel, it_space, *args):
 
 class JITModule(host.JITModule):
 
-    wrapper = """
+    _wrapper = """
 void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end,
                             %(wrapper_args)s %(const_args)s %(off_args)s) {
   int start = (int)PyInt_AsLong(_start);

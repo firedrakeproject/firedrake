@@ -60,8 +60,7 @@ Configuration option lookup order:
     4. From default value defined by pyop2 (`assets/default.yaml`)
     5. KeyError
 
-Reserved option names:
-    - configure, reset, __*__
+Reserved option names: ``configure``, ``reset``, ``__*__``
 """
 
 from types import ModuleType

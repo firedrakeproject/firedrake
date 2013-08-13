@@ -82,7 +82,7 @@ class FFCKernel(DiskCached):
 
 
 def compile_form(form, name):
-    """Compile a form using FFC and return an OP2 kernel"""
+    """Compile a form using FFC and return a :class:`pyop2.op2.Kernel`."""
 
     # Check that we get a Form
     if not isinstance(form, Form):

@@ -106,7 +106,7 @@ invocations."""
 
 class Arg(object):
 
-    """An argument to a :func:`par_loop`.
+    """An argument to a :func:`pyop2.op2.par_loop`.
 
     .. warning ::
         User code should not directly instantiate :class:`Arg`.
@@ -295,7 +295,7 @@ class Set(object):
     :param halo: An exisiting halo to use (optional).
 
     When the set is employed as an iteration space in a
-    :func:`par_loop`, the extent of any local iteration space within
+    :func:`pyop2.op2.par_loop`, the extent of any local iteration space within
     each set entry is indicated in brackets. See the example in
     :func:`pyop2.op2.par_loop` for more details.
 
@@ -303,21 +303,20 @@ class Set(object):
     integers.  The latter case is used for running in parallel where
     we distinguish between:
 
-      - CORE (owned and not touching halo)
-      - OWNED (owned, touching halo)
-      - EXECUTE HALO (not owned, but executed over redundantly)
-      - NON EXECUTE HALO (not owned, read when executing in the
-                          execute halo)
+      - `CORE` (owned and not touching halo)
+      - `OWNED` (owned, touching halo)
+      - `EXECUTE HALO` (not owned, but executed over redundantly)
+      - `NON EXECUTE HALO` (not owned, read when executing in the execute halo)
 
     If a single integer is passed, we assume that we're running in
     serial and there is no distinction.
 
-    The division of set elements is:
+    The division of set elements is: ::
 
-    [0, CORE)
-    [CORE, OWNED)
-    [OWNED, EXECUTE HALO)
-    [EXECUTE HALO, NON EXECUTE HALO).
+        [0, CORE)
+        [CORE, OWNED)
+        [OWNED, EXECUTE HALO)
+        [EXECUTE HALO, NON EXECUTE HALO).
 
     Halo send/receive data is stored on sets in a :class:`Halo`.
     """
@@ -514,7 +513,7 @@ class Halo(object):
     where, and which :class:`Set` elements are received from where.
 
     The `sends` should be a dict whose key is the process we want to
-    send to, similarly the `receives should be a dict whose key is the
+    send to, similarly the `receives` should be a dict whose key is the
     process we want to receive from.  The value should in each case be
     a numpy array of the set elements to send to/receive from each
     `process`.
@@ -568,11 +567,10 @@ class Halo(object):
         A dict of numpy arrays, keyed by the rank to send to, with
         each array indicating the :class:`Set` elements to send.
 
-        For example, to send no elements to rank 0, elements 1 and 2
-        to rank 1 and no elements to rank 2 (with comm.size == 3) we
-        would have:
+        For example, to send no elements to rank 0, elements 1 and 2 to rank 1
+        and no elements to rank 2 (with ``comm.size == 3``) we would have: ::
 
-        {1: np.array([1,2], dtype=np.int32)}.
+            {1: np.array([1,2], dtype=np.int32)}.
         """
         return self._sends
 
@@ -584,7 +582,7 @@ class Halo(object):
         with each array indicating the :class:`Set` elements to
         receive.
 
-        See `Halo.sends` for an example.
+        See :func:`Halo.sends` for an example.
         """
         return self._receives
 
@@ -647,7 +645,8 @@ class IterationSpace(object):
 
     .. Warning ::
         User code should not directly instantiate IterationSpace. Instead
-        use the call syntax on the iteration set in the :func:`par_loop` call.
+        use the call syntax on the iteration set in the
+        :func:`pyop2.op2.par_loop` call.
     """
 
     @validate_type(('iterset', Set, SetTypeError))
@@ -781,8 +780,8 @@ class Dat(DataCarrier):
     than a :class:`DataSet`, the :class:`Dat` is created with a default
     :class:`DataSet` dimension of 1.
 
-    When a :class:`Dat` is passed to :func:`par_loop`, the map via which
-    indirection occurs and the access descriptor are passed by
+    When a :class:`Dat` is passed to :func:`pyop2.op2.par_loop`, the map via
+    which indirection occurs and the access descriptor are passed by
     calling the :class:`Dat`. For instance, if a :class:`Dat` named ``D`` is
     to be accessed for reading via a :class:`Map` named ``M``, this is
     accomplished by ::
@@ -792,7 +791,7 @@ class Dat(DataCarrier):
     The :class:`Map` through which indirection occurs can be indexed
     using the index notation described in the documentation for the
     :class:`Map`. Direct access to a Dat can be accomplished by
-    using the :class:`IdentityMap` as the indirection.
+    using the :obj:`IdentityMap` as the indirection.
 
     :class:`Dat` objects support the pointwise linear algebra operations
     ``+=``, ``*=``, ``-=``, ``/=``, where ``*=`` and ``/=`` also support
@@ -1102,7 +1101,7 @@ class Global(DataCarrier):
 
     """OP2 global value.
 
-    When a ``Global`` is passed to a :func:`par_loop`, the access
+    When a ``Global`` is passed to a :func:`pyop2.op2.par_loop`, the access
     descriptor is passed by `calling` the ``Global``.  For example, if
     a ``Global`` named ``G`` is to be accessed for reading, this is
     accomplished by::
@@ -1207,9 +1206,9 @@ class Map(object):
     """OP2 map, a relation between two :class:`Set` objects.
 
     Each entry in the ``iterset`` maps to ``arity`` entries in the
-    ``toset``. When a map is used in a :func:`par_loop`, it is possible to
-    use Python index notation to select an individual entry on the right hand
-    side of this map. There are three possibilities:
+    ``toset``. When a map is used in a :func:`pyop2.op2.par_loop`, it is
+    possible to use Python index notation to select an individual entry on the
+    right hand side of this map. There are three possibilities:
 
     * No index. All ``arity`` :class:`Dat` entries will be passed to the
       kernel.
@@ -1217,8 +1216,8 @@ class Map(object):
       map result will be passed to the kernel.
     * An :class:`IterationIndex`, ``some_map[pyop2.i[n]]``. ``n``
       will take each value from ``0`` to ``e-1`` where ``e`` is the
-      ``n`` th extent passed to the iteration space for this :func:`par_loop`.
-      See also :data:`i`.
+      ``n`` th extent passed to the iteration space for this
+      :func:`pyop2.op2.par_loop`. See also :data:`i`.
     """
 
     _globalcount = 0
@@ -1553,7 +1552,7 @@ class Mat(DataCarrier):
     """OP2 matrix data. A ``Mat`` is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`.
 
-    When a ``Mat`` is passed to :func:`par_loop`, the maps via which
+    When a ``Mat`` is passed to :func:`pyop2.op2.par_loop`, the maps via which
     indirection occurs for the row and column space, and the access
     descriptor are passed by `calling` the ``Mat``. For instance, if a
     ``Mat`` named ``A`` is to be accessed for reading via a row :class:`Map`
@@ -1720,7 +1719,7 @@ class ParLoop(object):
     .. note ::
 
         Users should not directly construct :class:`ParLoop` objects, but
-        use ``op2.par_loop()`` instead.
+        use :func:`pyop2.op2.par_loop` instead.
     """
 
     def __init__(self, kernel, itspace, *args):

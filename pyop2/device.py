@@ -315,18 +315,18 @@ class _GenericPlan(base.Cached):
 
 class CPlan(_GenericPlan, core.op_plan):
 
-    """
-    Legacy plan function.
-        Does not support matrix coloring.
+    """Legacy plan function.
+
+    Does not support matrix coloring.
     """
     pass
 
 
 class PPlan(_GenericPlan, core.Plan):
 
-    """
-    PyOP2's cython plan function.
-        Support matrix coloring, selective staging and thread color computation.
+    """PyOP2's cython plan function.
+
+    Support matrix coloring, selective staging and thread color computation.
     """
     pass
 
