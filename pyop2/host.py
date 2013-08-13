@@ -288,7 +288,7 @@ class JITModule(base.JITModule):
             kernel_code = """
             inline %(code)s
             """ % {'code': self._kernel.code}
-        code_to_compile = dedent(self.wrapper) % self.generate_code()
+        code_to_compile = dedent(self._wrapper) % self.generate_code()
 
         _const_decs = '\n'.join([const._format_declaration()
                                 for const in Const._definitions()]) + '\n'

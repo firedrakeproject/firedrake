@@ -137,7 +137,7 @@ class JITModule(host.JITModule):
     _libraries = [os.environ.get('OMP_LIBS') or omplib]
     _system_headers = ['omp.h']
 
-    wrapper = """
+    _wrapper = """
 void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
                             PyObject* _part_size, PyObject* _ncolors, PyObject* _blkmap,
                             PyObject* _ncolblk, PyObject* _nelems  %(off_args)s) {
