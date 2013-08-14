@@ -32,21 +32,21 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-import numpy
+import numpy as np
 from numpy.testing import assert_allclose
 
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
 
 # Data type
-valuetype = numpy.float64
+valuetype = np.float64
 
 # Constants
 NUM_ELE = 2
 NUM_NODES = 4
 NUM_DIMS = 2
 
-elem_node_map = numpy.asarray([0, 1, 3, 2, 3, 1], dtype=numpy.uint32)
+elem_node_map = np.asarray([0, 1, 3, 2, 3, 1], dtype=np.uint32)
 
 
 @pytest.fixture(scope='module')
@@ -93,50 +93,50 @@ def vecmat(elem_node, dvnodes):
 
 @pytest.fixture
 def coords(dvnodes):
-    coord_vals = numpy.asarray([(0.0, 0.0), (2.0, 0.0),
-                              (1.0, 1.0), (0.0, 1.5)],
-        dtype=valuetype)
+    coord_vals = np.asarray([(0.0, 0.0), (2.0, 0.0),
+                             (1.0, 1.0), (0.0, 1.5)],
+                            dtype=valuetype)
     return op2.Dat(dvnodes, coord_vals, valuetype, "coords")
 
 
 @pytest.fixture(scope='module')
 def g(request):
-    return op2.Global(1, 1.0, numpy.float64, "g")
+    return op2.Global(1, 1.0, np.float64, "g")
 
 
 @pytest.fixture
 def f(dnodes):
-    f_vals = numpy.asarray([1.0, 2.0, 3.0, 4.0], dtype=valuetype)
+    f_vals = np.asarray([1.0, 2.0, 3.0, 4.0], dtype=valuetype)
     return op2.Dat(dnodes, f_vals, valuetype, "f")
 
 
 @pytest.fixture
 def f_vec(dvnodes):
-    f_vals = numpy.asarray([(1.0, 2.0)] * 4, dtype=valuetype)
+    f_vals = np.asarray([(1.0, 2.0)] * 4, dtype=valuetype)
     return op2.Dat(dvnodes, f_vals, valuetype, "f")
 
 
 @pytest.fixture(scope='module')
 def b(dnodes):
-    b_vals = numpy.zeros(NUM_NODES, dtype=valuetype)
+    b_vals = np.zeros(NUM_NODES, dtype=valuetype)
     return op2.Dat(dnodes, b_vals, valuetype, "b")
 
 
 @pytest.fixture(scope='module')
 def b_vec(dvnodes):
-    b_vals = numpy.zeros(NUM_NODES * 2, dtype=valuetype)
+    b_vals = np.zeros(NUM_NODES * 2, dtype=valuetype)
     return op2.Dat(dvnodes, b_vals, valuetype, "b")
 
 
 @pytest.fixture
 def x(dnodes):
-    x_vals = numpy.zeros(NUM_NODES, dtype=valuetype)
+    x_vals = np.zeros(NUM_NODES, dtype=valuetype)
     return op2.Dat(dnodes, x_vals, valuetype, "x")
 
 
 @pytest.fixture
 def x_vec(dvnodes):
-    x_vals = numpy.zeros(NUM_NODES * 2, dtype=valuetype)
+    x_vals = np.zeros(NUM_NODES * 2, dtype=valuetype)
     return op2.Dat(dvnodes, x_vals, valuetype, "x")
 
 
@@ -572,7 +572,7 @@ def expected_matrix():
                      (0.125, 0.291667, 0.0208333, 0.145833),
                      (0.0, 0.0208333, 0.0416667, 0.0208333),
                      (0.125, 0.145833, 0.0208333, 0.291667)]
-    return numpy.asarray(expected_vals, dtype=valuetype)
+    return np.asarray(expected_vals, dtype=valuetype)
 
 
 @pytest.fixture
@@ -590,21 +590,21 @@ def expected_vector_matrix():
                      (0.125, 0., 0.14583333, 0.,
                       0.02083333, 0., 0.29166667, 0.),
                      (0., 0.125, 0., 0.14583333, 0., 0.02083333, 0., 0.29166667)]
-    return numpy.asarray(expected_vals, dtype=valuetype)
+    return np.asarray(expected_vals, dtype=valuetype)
 
 
 @pytest.fixture
 def expected_rhs():
-    return numpy.asarray([[0.9999999523522115], [1.3541666031724144],
-                          [0.2499999883507239], [1.6458332580869566]],
-                         dtype=valuetype)
+    return np.asarray([[0.9999999523522115], [1.3541666031724144],
+                       [0.2499999883507239], [1.6458332580869566]],
+                      dtype=valuetype)
 
 
 @pytest.fixture
 def expected_vec_rhs():
-    return numpy.asarray([[0.5, 1.0], [0.58333333, 1.16666667],
-                          [0.08333333, 0.16666667], [0.58333333, 1.16666667]],
-                         dtype=valuetype)
+    return np.asarray([[0.5, 1.0], [0.58333333, 1.16666667],
+                       [0.08333333, 0.16666667], [0.58333333, 1.16666667]],
+                      dtype=valuetype)
 
 
 class TestSparsity:
@@ -646,14 +646,14 @@ void zero_mat(double local_mat[1][1], int i, int j)
 """
         nelems = 128
         set = op2.Set(nelems)
-        map = op2.Map(set, set, 1, numpy.array(range(nelems), numpy.uint32))
+        map = op2.Map(set, set, 1, np.array(range(nelems), np.uint32))
         sparsity = op2.Sparsity((set, set), (map, map))
-        mat = op2.Mat(sparsity, numpy.float64)
+        mat = op2.Mat(sparsity, np.float64)
         kernel = op2.Kernel(zero_mat_code, "zero_mat")
         op2.par_loop(kernel, set(1, 1), mat(
             (map[op2.i[0]], map[op2.i[1]]), op2.WRITE))
 
-        expected_matrix = numpy.zeros((nelems, nelems), dtype=numpy.float64)
+        expected_matrix = np.zeros((nelems, nelems), dtype=np.float64)
         eps = 1.e-12
         assert_allclose(mat.values, expected_matrix, eps)
 
@@ -683,7 +683,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
     def test_zero_matrix(self, backend, mat):
         """Test that the matrix is zeroed correctly."""
         mat.zero()
-        expected_matrix = numpy.zeros((4, 4), dtype=valuetype)
+        expected_matrix = np.zeros((4, 4), dtype=valuetype)
         eps = 1.e-14
         assert_allclose(mat.values, expected_matrix, eps)
 
@@ -701,7 +701,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.WRITE),
                      g(op2.READ))
         # Check we have set all values in the matrix to 1
-        assert_allclose(mat.array, numpy.ones_like(mat.array))
+        assert_allclose(mat.array, np.ones_like(mat.array))
         mat.zero()
 
     def test_set_matrix_vec(self, backend, vecmat, elements, elem_node,
@@ -722,14 +722,14 @@ void zero_mat(double local_mat[1][1], int i, int j)
                              op2.i[0]], elem_node[op2.i[1]]), op2.WRITE),
                      g(op2.READ))
         # Check we have set all values in the matrix to 1
-        assert_allclose(vecmat.array, numpy.ones_like(vecmat.array))
+        assert_allclose(vecmat.array, np.ones_like(vecmat.array))
         vecmat.zero()
 
     def test_zero_rhs(self, backend, b, zero_dat, nodes):
         """Test that the RHS is zeroed correctly."""
         op2.par_loop(zero_dat, nodes,
                      b(op2.IdentityMap, op2.WRITE))
-        assert all(b.data == numpy.zeros_like(b.data))
+        assert all(b.data == np.zeros_like(b.data))
 
     def test_assemble_ffc(self, backend, mass_ffc, mat, coords, elements,
                           elem_node, expected_matrix):
@@ -820,7 +820,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
     def test_zero_vector_matrix(self, backend, vecmat):
         """Test that the matrix is zeroed correctly."""
         vecmat.zero()
-        expected_matrix = numpy.zeros((8, 8), dtype=valuetype)
+        expected_matrix = np.zeros((8, 8), dtype=valuetype)
         eps = 1.e-14
         assert_allclose(vecmat.values, expected_matrix, eps)
 
