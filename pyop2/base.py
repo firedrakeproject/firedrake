@@ -423,6 +423,10 @@ class Arg(object):
         return isinstance(self._dat, Mat)
 
     @property
+    def _is_mixed_mat(self):
+        return self._is_mat and self._dat.sparsity.shape > (1, 1)
+
+    @property
     def _is_global(self):
         return isinstance(self._dat, Global)
 
