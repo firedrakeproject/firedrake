@@ -158,6 +158,7 @@ class Mat(base.Mat):
         self._handle = mat
 
     def _init_block(self):
+        self._blocks = [[self]]
         mat = PETSc.Mat()
         row_lg = PETSc.LGMap()
         col_lg = PETSc.LGMap()
@@ -201,6 +202,21 @@ class Mat(base.Mat):
         mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
         self._handle = mat
 
+    def __getitem__(self, idx):
+        """Return :class:`Mat` block with row and column given by ``idx``
+        or a given row of blocks."""
+        try:
+            i, j = idx
+            return self.blocks[i][j]
+        except TypeError:
+            return self.blocks[idx]
+
+    def __iter__(self):
+        """Iterate over all :class:`Mat` blocks by row and then by column."""
+        for row in self.blocks:
+            for s in row:
+                yield s
+
     @collective
     def dump(self, filename):
         """Dump the matrix to file ``filename`` in PETSc binary format."""
@@ -238,6 +254,13 @@ class Mat(base.Mat):
     @collective
     def _assemble(self):
         self.handle.assemble()
+
+    @property
+    def blocks(self):
+        """2-dimensional array of matrix blocks."""
+        if not hasattr(self, '_blocks'):
+            self._init()
+        return self._blocks
 
     @property
     def array(self):
