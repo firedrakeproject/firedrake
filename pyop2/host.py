@@ -75,9 +75,20 @@ class Arg(base.Arg):
              'arity': self.map.arity * cdim}
 
     def c_wrapper_dec(self):
-        if self._is_mat:
+        if self._is_mixed_mat:
             val = "Mat %(name)s = (Mat)((uintptr_t)PyLong_AsUnsignedLong(_%(name)s))" % \
                 {"name": self.c_arg_name()}
+            rows, cols = self._dat.sparsity.shape
+            for i in range(rows):
+                for j in range(cols):
+                    val += ";\nMat %(iname)s; MatNestGetSubMat(%(name)s, %(i)d, %(j)d, &%(iname)s)" \
+                        % {'name': self.c_arg_name(),
+                           'iname': self.c_arg_name(i, j),
+                           'i': i,
+                           'j': j}
+        elif self._is_mat:
+            val = "Mat %s = (Mat)((uintptr_t)PyLong_AsUnsignedLong(_%s))" % \
+                (self.c_arg_name(0, 0), self.c_arg_name())
         else:
             val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
                 {'name': self.c_arg_name(), 'type': self.ctype}
@@ -182,7 +193,7 @@ class Arg(base.Arg):
             cols_str = extruded + self.c_map_name(1, j)
 
         return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
-            {'mat': self.c_arg_name(),
+            {'mat': self.c_arg_name(i, j),
              'vals': self.c_kernel_arg_name(),
              'nrows': nrows,
              'ncols': ncols,
@@ -210,7 +221,7 @@ class Arg(base.Arg):
                    'map': self.c_map_name(1, j),
                    'dim': ncols}
             return 'addto_scalar(%s, %s, %s, %s, %d)' \
-                % (self.c_arg_name(), val, row, col, self.access == WRITE)
+                % (self.c_arg_name(i, j), val, row, col, self.access == WRITE)
         for r in xrange(rmult):
             for c in xrange(cmult):
                 idx = '[%d][%d]' % (r, c)
@@ -227,7 +238,7 @@ class Arg(base.Arg):
                        'c': c}
 
                 s.append('addto_scalar(%s, %s, %s, %s, %d)'
-                         % (self.c_arg_name(), val, row, col, self.access == WRITE))
+                         % (self.c_arg_name(i, j), val, row, col, self.access == WRITE))
         return ';\n'.join(s)
 
     def c_local_tensor_dec(self, extents):
