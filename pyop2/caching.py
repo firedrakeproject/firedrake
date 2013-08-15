@@ -58,7 +58,7 @@ class Cached(object):
         try:
             return cls._cache_lookup(key)
         except KeyError:
-            obj = super(Cached, cls).__new__(cls, *args, **kwargs)
+            obj = super(Cached, cls).__new__(cls)
             obj._key = key
             obj._initialized = False
             obj.__init__(*args, **kwargs)
