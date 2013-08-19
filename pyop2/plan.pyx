@@ -90,7 +90,7 @@ cdef class Plan:
     cdef int _nshared
     cdef int _ncolors
 
-    def __cinit__(self, kernel, iset, *args, **kwargs):
+    def __init__(self, kernel, iset, *args, **kwargs):
         ps = kwargs.get('partition_size', 1)
         mc = kwargs.get('matrix_coloring', False)
         st = kwargs.get('staging', True)
