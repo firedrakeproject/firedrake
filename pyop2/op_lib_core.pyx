@@ -277,7 +277,7 @@ cdef class op_plan:
     cdef int idx
     cdef int set_size
     cdef int nind_ele
-    def __cinit__(self, kernel, iset, *args, **kwargs):
+    def __init__(self, kernel, iset, *args, **kwargs):
         """Instantiate a C-level op_plan for a parallel loop.
 
 Arguments to this constructor should be the arguments of the parallel
