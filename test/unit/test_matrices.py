@@ -614,6 +614,8 @@ class TestSparsity:
     """
 
     def test_build_sparsity(self, backend):
+        """Building a sparsity from a pair of maps should give the expected
+        rowptr and colidx."""
         elements = op2.Set(4)
         nodes = op2.Set(5)
         elem_node = op2.Map(elements, nodes, 3, [0, 4, 3, 0, 1, 4,
@@ -624,6 +626,7 @@ class TestSparsity:
                                         3, 4, 0, 2, 3, 4, 0, 1, 2, 3, 4])
 
     def test_sparsity_null_maps(self, backend):
+        """Building sparsity from a pair of non-initialized maps should fail."""
         s = op2.Set(5)
         with pytest.raises(MapValueError):
             m = op2.Map(s, s, 1)
@@ -638,6 +641,7 @@ class TestMatrices:
     """
 
     def test_minimal_zero_mat(self, backend, skip_cuda):
+        """Assemble a matrix that is all zeros."""
         zero_mat_code = """
 void zero_mat(double local_mat[1][1], int i, int j)
 {
@@ -659,6 +663,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
 
     def test_assemble_mat(self, backend, mass, mat, coords, elements,
                           elem_node, expected_matrix):
+        """Assemble a simple finite-element matrix and check the result."""
         op2.par_loop(mass, elements(3, 3),
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
@@ -667,6 +672,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
 
     def test_assemble_rhs(self, backend, rhs, elements, b, coords, f,
                           elem_node, expected_rhs):
+        """Assemble a simple finite-element right-hand side and check result."""
         op2.par_loop(rhs, elements,
                      b(elem_node, op2.INC),
                      coords(elem_node, op2.READ),
@@ -676,6 +682,8 @@ void zero_mat(double local_mat[1][1], int i, int j)
         assert_allclose(b.data, expected_rhs, eps)
 
     def test_solve(self, backend, mat, b, x, f):
+        """Solve a linear system where the solution is equal to the right-hand
+        side and check the result."""
         op2.solve(mat, x, b)
         eps = 1.e-8
         assert_allclose(x.data, f.data, eps)
@@ -753,6 +761,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
 
     def test_rhs_ffc(self, backend, rhs_ffc, elements, b, coords, f,
                      elem_node, expected_rhs):
+        """Test that the FFC rhs assembly assembles the correct values."""
         op2.par_loop(rhs_ffc, elements,
                      b(elem_node, op2.INC),
                      coords(elem_node, op2.READ),
@@ -764,6 +773,8 @@ void zero_mat(double local_mat[1][1], int i, int j)
     def test_rhs_ffc_itspace(self, backend, rhs_ffc_itspace, elements, b,
                              coords, f, elem_node, expected_rhs,
                              zero_dat, nodes):
+        """Test that the FFC right-hand side assembly using iteration spaces
+        assembles the correct values."""
         # Zero the RHS first
         op2.par_loop(zero_dat, nodes,
                      b(op2.IdentityMap, op2.WRITE))
@@ -777,6 +788,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
     def test_rhs_vector_ffc(self, backend, rhs_ffc_vector, elements, b_vec,
                             coords, f_vec, elem_node,
                             expected_vec_rhs, nodes):
+        """Test that the FFC vector rhs assembly assembles the correct values."""
         op2.par_loop(rhs_ffc_vector, elements,
                      b_vec(elem_node, op2.INC),
                      coords(elem_node, op2.READ),
@@ -787,6 +799,8 @@ void zero_mat(double local_mat[1][1], int i, int j)
     def test_rhs_vector_ffc_itspace(self, backend, rhs_ffc_vector_itspace,
                                     elements, b_vec, coords, f_vec, elem_node,
                                     expected_vec_rhs, nodes, zero_vec_dat):
+        """Test that the FFC vector right-hand side assembly using iteration
+        spaces assembles the correct values."""
         # Zero the RHS first
         op2.par_loop(zero_vec_dat, nodes,
                      b_vec(op2.IdentityMap, op2.WRITE))
@@ -798,12 +812,16 @@ void zero_mat(double local_mat[1][1], int i, int j)
         assert_allclose(b_vec.data, expected_vec_rhs, eps)
 
     def test_zero_rows(self, backend, mat, expected_matrix):
+        """Zeroing a row in the matrix should set the diagonal to the given
+        value and all other values to 0."""
         expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
         mat.zero_rows([0], 12.0)
         eps = 1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
     def test_zero_last_row(self, backend, mat, expected_matrix):
+        """Zeroing a row in the matrix should set the diagonal to the given
+        value and all other values to 0."""
         which = NUM_NODES - 1
         # because the previous test zeroed the first row
         expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
@@ -813,12 +831,14 @@ void zero_mat(double local_mat[1][1], int i, int j)
         assert_allclose(mat.values, expected_matrix, eps)
 
     def test_vector_solve(self, backend, vecmat, b_vec, x_vec, f_vec):
+        """Solve a linear system with a vector matrix where the solution is
+        equal to the right-hand side and check the result."""
         op2.solve(vecmat, x_vec, b_vec)
         eps = 1.e-12
         assert_allclose(x_vec.data, f_vec.data, eps)
 
     def test_zero_vector_matrix(self, backend, vecmat):
-        """Test that the matrix is zeroed correctly."""
+        """Test that the vector matrix is zeroed correctly."""
         vecmat.zero()
         expected_matrix = np.zeros((8, 8), dtype=valuetype)
         eps = 1.e-14
