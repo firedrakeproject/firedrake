@@ -116,6 +116,11 @@ Common dependencies:
 * `PETSc4py <https://bitbucket.org/mapdes/petsc4py>`__ >= 3.3 
 * PyYAML
 
+Testing dependencies (optional, required to run the tests):
+
+* pytest >= 2.3
+* flake8
+
 With the exception of the PETSc dependencies, these can be installed
 using the package management system of your OS, or via ``pip``.
 
