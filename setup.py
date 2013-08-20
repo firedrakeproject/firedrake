@@ -61,15 +61,22 @@ except ImportError:
 setup_requires = [
     'numpy>=1.6',
 ]
+
 install_requires = [
     'decorator',
     'instant>=1.0',
     'numpy>=1.6',
     'PyYAML',
 ]
+
 version = sys.version_info[:2]
 if version < (2, 7) or (3, 0) <= version <= (3, 1):
     install_requires += ['argparse', 'ordereddict']
+
+test_requires = [
+    'flake8',
+    'pytest>=2.3',
+]
 
 setup(name='PyOP2',
       version='0.1',
@@ -91,6 +98,7 @@ setup(name='PyOP2',
       ],
       setup_requires=setup_requires,
       install_requires=install_requires,
+      test_requires=test_requires,
       packages=['pyop2', 'pyop2_utils'],
       package_dir={'pyop2': 'pyop2', 'pyop2_utils': 'pyop2_utils'},
       package_data={
