@@ -1828,9 +1828,11 @@ class ParLoop(object):
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
                 else:
-                    if arg._is_mat:
-                        continue
-                    if m._toset != arg.data._dataset.set:
+                    if arg._is_mat and m.toset != arg.data.sparsity.dsets[j].set:
+                        raise MapValueError(
+                            "To set of arg %s map %s doesn't match the set of its Mat." %
+                            (i, j))
+                    if not arg._is_mat and m._toset != arg.data._dataset.set:
                         raise MapValueError(
                             "To set of arg %s map %s doesn't match the set of its Dat." %
                             (i, j))
