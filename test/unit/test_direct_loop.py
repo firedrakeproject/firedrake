@@ -32,7 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-import numpy
+import numpy as np
 
 from pyop2 import op2
 
@@ -57,7 +57,7 @@ def delems2(elems):
 
 
 def xarray():
-    return numpy.array(range(nelems), dtype=numpy.uint32)
+    return np.array(range(nelems), dtype=np.uint32)
 
 
 class TestDirectLoop:
@@ -68,23 +68,23 @@ class TestDirectLoop:
 
     @pytest.fixture
     def x(cls, delems):
-        return op2.Dat(delems, xarray(), numpy.uint32, "x")
+        return op2.Dat(delems, xarray(), np.uint32, "x")
 
     @pytest.fixture
     def y(cls, delems2):
-        return op2.Dat(delems2, [xarray(), xarray()], numpy.uint32, "x")
+        return op2.Dat(delems2, [xarray(), xarray()], np.uint32, "x")
 
     @pytest.fixture
     def g(cls):
-        return op2.Global(1, 0, numpy.uint32, "g")
+        return op2.Global(1, 0, np.uint32, "g")
 
     @pytest.fixture
     def h(cls):
-        return op2.Global(1, 1, numpy.uint32, "h")
+        return op2.Global(1, 1, np.uint32, "h")
 
     @pytest.fixture
     def soa(cls, delems2):
-        return op2.Dat(delems2, [xarray(), xarray()], numpy.uint32, "x", soa=True)
+        return op2.Dat(delems2, [xarray(), xarray()], np.uint32, "x", soa=True)
 
     def test_wo(self, backend, elems, x):
         """Set a Dat to a scalar value with op2.WRITE."""
