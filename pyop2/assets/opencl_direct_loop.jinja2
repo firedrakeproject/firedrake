@@ -51,9 +51,9 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
   {%- else -%}
     matrix_set
   {%- endif -%}(
-    {{ arg.data.name }},
-    {{ arg.data.name }}_rowptr,
-    {{ arg.data.name }}_colidx,
+    {{ arg.name }},
+    {{ arg.name }}_rowptr,
+    {{ arg.name }}_colidx,
     {%- for map in arg._map %}
     {% set ext = parloop._it_space._extent_ranges[loop.index0] -%}
     {% set dim = arg.data.sparsity.dims[loop.index0] -%}
@@ -72,21 +72,21 @@ __kernel
 __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
     void {{ parloop._stub_name }} (
   {%- for arg in parloop._unique_dat_args -%}
-  __global {{ arg.data._cl_type }} *{{ arg._name }},
+  __global {{ arg.data._cl_type }} *{{ arg.name }},
   {% endfor -%}
   {%- for arg in parloop._all_global_reduction_args -%}
-  __global {{ arg.data._cl_type }} *{{ arg._name }},
+  __global {{ arg.data._cl_type }} *{{ arg.name }},
   {% endfor -%}
   {%- for arg in parloop._all_global_non_reduction_args -%}
-  __global {{ arg.data._cl_type }} *{{ arg.data.name }},
+  __global {{ arg.data._cl_type }} *{{ arg.name }},
   {% endfor -%}
   {%- for c in op2const -%}
   __constant {{ c._cl_type }} *{{ c.name }},
   {% endfor -%}
-  {% for mat in parloop._unique_matrix %}
-  __global {{ mat._cl_type }}* {{ mat.name }},
-  __global int* {{ mat.name }}_rowptr,
-  __global int* {{ mat.name }}_colidx,
+  {% for arg in parloop._matrix_args %}
+  __global {{ arg.data._cl_type }}* {{ arg.name }},
+  __global int* {{ arg.name }}_rowptr,
+  __global int* {{ arg.name }}_colidx,
   {% endfor -%}
   {% for matem in parloop._matrix_entry_maps -%}
   __global int* {{ matem.name }},
@@ -120,7 +120,7 @@ __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
   {% endfor %}
 
   {% for arg in parloop._all_global_reduction_args -%}
-  __local {{ arg.data._cl_type }}* {{ arg.data.name }}_reduc_tmp = (__local {{ arg.data._cl_type }}*) shared;
+  __local {{ arg.data._cl_type }}* {{ arg.name }}_reduc_tmp = (__local {{ arg.data._cl_type }}*) shared;
   {% endfor %}
 
   {% if(parloop._matrix_args) %}
@@ -156,7 +156,7 @@ __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
   // on device reduction
   {% for arg in parloop._all_global_reduction_args %}
   for (i_1 = 0; i_1 < {{ arg.data.cdim }}; ++i_1)
-  {{ arg._reduction_kernel_name }}(&{{ arg._name }}[i_1 + get_group_id(0) * {{ arg.data.cdim }}], {{ arg._reduction_local_name }}[i_1], {{ arg.data.name }}_reduc_tmp);
+  {{ arg._reduction_kernel_name }}(&{{ arg.name }}[i_1 + get_group_id(0) * {{ arg.data.cdim }}], {{ arg._reduction_local_name }}[i_1], {{ arg.name }}_reduc_tmp);
   {% endfor %}
   {% endif %}
 }

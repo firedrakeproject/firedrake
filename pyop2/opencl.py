@@ -110,11 +110,11 @@ class Arg(device.Arg):
             if self._is_global_reduction:
                 return self._reduction_local_name
             else:
-                return self._name
+                return self.name
         if self._is_direct:
             if self.data.soa:
-                return "%s + (%s + offset_b)" % (self._name, idx)
-            return "%s + (%s + offset_b) * %s" % (self._name, idx,
+                return "%s + (%s + offset_b)" % (self.name, idx)
+            return "%s + (%s + offset_b) * %s" % (self.name, idx,
                                                   self.data.cdim)
         if self._is_indirect:
             if self._is_vec_map:
@@ -134,9 +134,9 @@ class Arg(device.Arg):
         elif self._is_global_reduction:
             return self._reduction_local_name
         elif self._is_global:
-            return self._name
+            return self.name
         else:
-            return "%s + %s" % (self._name, idx)
+            return "%s + %s" % (self.name, idx)
 
 
 class DeviceDataMixin(device.DeviceDataMixin):
