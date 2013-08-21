@@ -114,6 +114,13 @@ class Arg(object):
     """
 
     def __init__(self, data=None, map=None, idx=None, access=None):
+        """Checks that:
+
+        1. the maps used are initialized i.e. have mapping data associated, and
+        2. the to Set of the map used to access it matches the Set it is
+           defined on.
+
+        A :class:`MapValueError` is raised if these conditions are not met."""
         self._dat = data
         self._map = map
         self._idx = idx
@@ -122,6 +129,19 @@ class Arg(object):
         self._in_flight = False  # some kind of comms in flight for this arg
         self._position = None
         self._indirect_position = None
+
+        # Check arguments for consistency
+        if self._is_global or map == IdentityMap:
+            return
+        for j, m in enumerate(map):
+            if not m.values.size:
+                raise MapValueError("%s is not initialized." % map)
+            if self._is_mat and m.toset != data.sparsity.dsets[j].set:
+                raise MapValueError(
+                    "To set of %s doesn't match the set of %s." % (map, data))
+            if self._is_dat and m._toset != data.dataset.set:
+                raise MapValueError(
+                    "To set of %s doesn't match the set of %s." % (map, data))
 
     def __eq__(self):
         """:class:`Arg`\s compare equal of they are defined on the same data,
@@ -1369,11 +1389,10 @@ class Sparsity(Cached):
 
     @classmethod
     @validate_type(('dsets', (Set, DataSet, tuple), DataSetTypeError),
-                   ('maps', (Map, tuple), MapTypeError),)
+                   ('maps', (Map, tuple), MapTypeError),
+                   ('name', str, NameTypeError))
     def _process_args(cls, dsets, maps, name=None, *args, **kwargs):
         "Turn maps argument into a canonical tuple of pairs."
-
-        assert not name or isinstance(name, str), "Name must be of type str"
 
         # A single data set becomes a pair of identical data sets
         dsets = [dsets, dsets] if isinstance(dsets, (Set, DataSet)) else list(dsets)
@@ -1437,21 +1456,21 @@ class Sparsity(Cached):
         # Make sure that the "to" Set of each map in a pair is the set of the
         # corresponding DataSet set
         for pair in maps:
-            if pair[0].toset is not dsets[0].set or \
-               pair[1].toset is not dsets[1].set:
+            if not (pair[0].toset == dsets[0].set and
+                    pair[1].toset == dsets[1].set):
                 raise RuntimeError("Map to set must be the same as corresponding DataSet set")
 
         # Each pair of maps must have the same from-set (iteration set)
         for pair in maps:
-            if pair[0].iterset is not pair[1].iterset:
+            if not pair[0].iterset == pair[1].iterset:
                 raise RuntimeError("Iterset of both maps in a pair must be the same")
 
         # Each row map must have the same to-set (data set)
-        if not all(m.toset is self._rmaps[0].toset for m in self._rmaps):
+        if not all(m.toset == self._rmaps[0].toset for m in self._rmaps):
             raise RuntimeError("To set of all row maps must be the same")
 
         # Each column map must have the same to-set (data set)
-        if not all(m.toset is self._cmaps[0].toset for m in self._cmaps):
+        if not all(m.toset == self._cmaps[0].toset for m in self._cmaps):
             raise RuntimeError("To set of all column maps must be the same")
 
         # All rmaps and cmaps have the same data set - just use the first.
@@ -1812,29 +1831,17 @@ class ParLoop(object):
                 arg.data.needs_halo_update = True
 
     def check_args(self):
-        """Checks the following:
+        """Checks that the iteration set of the :class:`ParLoop` matches the iteration
+        set of all its arguments.
 
-        1. That the iteration set of the :class:`ParLoop` matches the iteration
-           set of all its arguments.
-        2. For each argument, check that the to Set of the map used to access
-           it matches the Set it is defined on.
-
-        A :class:`MapValueError` is raised if these conditions are not met."""
-        iterset = self._it_space._iterset
+        A :class:`MapValueError` is raised if this condition is not met."""
         for i, arg in enumerate(self._actual_args):
             if arg._is_global or arg._map == IdentityMap:
                 continue
             for j, m in enumerate(arg._map):
-                if m._iterset != iterset:
+                if m._iterset != self._it_space._iterset:
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
-                else:
-                    if arg._is_mat:
-                        continue
-                    if m._toset != arg.data._dataset.set:
-                        raise MapValueError(
-                            "To set of arg %s map %s doesn't match the set of its Dat." %
-                            (i, j))
 
     def generate_code(self):
         raise RuntimeError('Must select a backend')

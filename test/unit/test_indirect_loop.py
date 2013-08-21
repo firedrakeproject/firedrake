@@ -32,10 +32,11 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-import numpy
+import numpy as np
 import random
 
 from pyop2 import op2
+from pyop2.exceptions import MapValueError
 
 
 def _seed():
@@ -68,12 +69,12 @@ def dindset(indset):
 
 @pytest.fixture
 def x(dindset):
-    return op2.Dat(dindset, range(nelems), numpy.uint32, "x")
+    return op2.Dat(dindset, range(nelems), np.uint32, "x")
 
 
 @pytest.fixture
 def iterset2indset(iterset, indset):
-    u_map = numpy.array(range(nelems), dtype=numpy.uint32)
+    u_map = np.array(range(nelems), dtype=np.uint32)
     random.shuffle(u_map, _seed)
     return op2.Map(iterset, indset, 1, u_map, "iterset2indset")
 
@@ -84,7 +85,30 @@ class TestIndirectLoop:
     Indirect Loop Tests
     """
 
+    def test_mismatching_iterset(self, backend, iterset, indset, x):
+        """Accessing a par_loop argument via a Map with iterset not matching
+        the par_loop's should raise an exception."""
+        with pytest.raises(MapValueError):
+            op2.par_loop(op2.Kernel("", "dummy"), iterset,
+                         x(op2.Map(op2.Set(nelems), indset, 1), op2.WRITE))
+
+    def test_mismatching_indset(self, backend, iterset, x):
+        """Accessing a par_loop argument via a Map with toset not matching
+        the Dat's should raise an exception."""
+        with pytest.raises(MapValueError):
+            op2.par_loop(op2.Kernel("", "dummy"), iterset,
+                         x(op2.Map(iterset, op2.Set(nelems), 1), op2.WRITE))
+
+    def test_uninitialized_map(self, backend, iterset, indset, x):
+        """Accessing a par_loop argument via an uninitialized Map should raise
+        an exception."""
+        kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"
+        with pytest.raises(MapValueError):
+            op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), iterset,
+                         x(op2.Map(iterset, indset, 1), op2.WRITE))
+
     def test_onecolor_wo(self, backend, iterset, x, iterset2indset):
+        """Set a Dat to a scalar value with op2.WRITE."""
         kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"
 
         op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"),
@@ -92,6 +116,7 @@ class TestIndirectLoop:
         assert all(map(lambda x: x == 42, x.data))
 
     def test_onecolor_rw(self, backend, iterset, x, iterset2indset):
+        """Increment each value of a Dat by one with op2.RW."""
         kernel_rw = "void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }\n"
 
         op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"),
@@ -99,12 +124,12 @@ class TestIndirectLoop:
         assert sum(x.data) == nelems * (nelems + 1) / 2
 
     def test_indirect_inc(self, backend, iterset):
+        """Sum into a scalar Dat with op2.INC."""
         unitset = op2.Set(1, "unitset")
 
-        u = op2.Dat(unitset, numpy.array([0], dtype=numpy.uint32),
-                    numpy.uint32, "u")
+        u = op2.Dat(unitset, np.array([0], dtype=np.uint32), np.uint32, "u")
 
-        u_map = numpy.zeros(nelems, dtype=numpy.uint32)
+        u_map = np.zeros(nelems, dtype=np.uint32)
         iterset2unit = op2.Map(iterset, unitset, 1, u_map, "iterset2unitset")
 
         kernel_inc = "void kernel_inc(unsigned int* x) { (*x) = (*x) + 1; }\n"
@@ -114,7 +139,8 @@ class TestIndirectLoop:
         assert u.data[0] == nelems
 
     def test_global_read(self, backend, iterset, x, iterset2indset):
-        g = op2.Global(1, 2, numpy.uint32, "g")
+        """Divide a Dat by a Global."""
+        g = op2.Global(1, 2, np.uint32, "g")
 
         kernel_global_read = "void kernel_global_read(unsigned int* x, unsigned int* g) { (*x) /= (*g); }\n"
 
@@ -125,9 +151,13 @@ class TestIndirectLoop:
         assert sum(x.data) == sum(map(lambda v: v / 2, range(nelems)))
 
     def test_global_inc(self, backend, iterset, x, iterset2indset):
-        g = op2.Global(1, 0, numpy.uint32, "g")
+        """Increment each value of a Dat by one and a Global at the same time."""
+        g = op2.Global(1, 0, np.uint32, "g")
 
-        kernel_global_inc = "void kernel_global_inc(unsigned int *x, unsigned int *inc) { (*x) = (*x) + 1; (*inc) += (*x); }\n"
+        kernel_global_inc = """
+        void kernel_global_inc(unsigned int *x, unsigned int *inc) {
+          (*x) = (*x) + 1; (*inc) += (*x);
+        }"""
 
         op2.par_loop(
             op2.Kernel(kernel_global_inc, "kernel_global_inc"), iterset,
@@ -137,9 +167,10 @@ class TestIndirectLoop:
         assert g.data[0] == nelems * (nelems + 1) / 2
 
     def test_2d_dat(self, backend, iterset):
+        """Set both components of a vector-valued Dat to a scalar value."""
         indset = op2.Set(nelems, "indset2")
-        x = op2.Dat(
-            indset ** 2, numpy.array([range(nelems), range(nelems)], dtype=numpy.uint32), numpy.uint32, "x")
+        x = op2.Dat(indset ** 2, np.array([range(nelems), range(nelems)],
+                    dtype=np.uint32), np.uint32, "x")
 
         kernel_wo = "void kernel_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }\n"
 
@@ -148,29 +179,28 @@ class TestIndirectLoop:
         assert all(map(lambda x: all(x == [42, 43]), x.data))
 
     def test_2d_map(self, backend):
+        """Sum nodal values incident to a common edge."""
         nedges = nelems - 1
         nodes = op2.Set(nelems, "nodes")
         edges = op2.Set(nedges, "edges")
-        node_vals = op2.Dat(
-            nodes, numpy.array(range(nelems), dtype=numpy.uint32), numpy.uint32, "node_vals")
-        edge_vals = op2.Dat(
-            edges, numpy.array([0] * nedges, dtype=numpy.uint32), numpy.uint32, "edge_vals")
+        node_vals = op2.Dat(nodes, np.arange(nelems, dtype=np.uint32),
+                            np.uint32, "node_vals")
+        edge_vals = op2.Dat(edges, np.zeros(nedges, dtype=np.uint32),
+                            np.uint32, "edge_vals")
 
-        e_map = numpy.array([(i, i + 1)
-                            for i in range(nedges)], dtype=numpy.uint32)
+        e_map = np.array([(i, i + 1) for i in range(nedges)], dtype=np.uint32)
         edge2node = op2.Map(edges, nodes, 2, e_map, "edge2node")
 
         kernel_sum = """
-        void kernel_sum(unsigned int *nodes1, unsigned int *nodes2, unsigned int *edge)
-        { *edge = *nodes1 + *nodes2; }
-        """
+        void kernel_sum(unsigned int *nodes1, unsigned int *nodes2, unsigned int *edge) {
+          *edge = *nodes1 + *nodes2;
+        }"""
         op2.par_loop(op2.Kernel(kernel_sum, "kernel_sum"), edges,
                      node_vals(edge2node[0], op2.READ),
                      node_vals(edge2node[1], op2.READ),
                      edge_vals(op2.IdentityMap, op2.WRITE))
 
-        expected = numpy.asarray(
-            range(1, nedges * 2 + 1, 2)).reshape(nedges, 1)
+        expected = np.arange(1, nedges * 2 + 1, 2).reshape(nedges, 1)
         assert all(expected == edge_vals.data)
 
 if __name__ == '__main__':
