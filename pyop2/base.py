@@ -120,6 +120,8 @@ class Arg(object):
         self._access = access
         self._lib_handle = None
         self._in_flight = False  # some kind of comms in flight for this arg
+        self._position = None
+        self._indirect_position = None
 
     def __eq__(self):
         """:class:`Arg`\s compare equal of they are defined on the same data,
@@ -135,6 +137,32 @@ class Arg(object):
     def __repr__(self):
         return "Arg(%r, %r, %r, %r)" % \
             (self._dat, self._map, self._idx, self._access)
+
+    @property
+    def name(self):
+        return "arg%d" % self._position
+
+    @property
+    def position(self):
+        """The position of this :class:`Arg` in the :class:`ParLoop` argument list"""
+        return self._position
+
+    @position.setter
+    def position(self, val):
+        """Set the position of this :class:`Arg` in the :class:`ParLoop` argument list"""
+        self._position = val
+
+    @property
+    def indirect_position(self):
+        """The position of the first unique occurence of this
+    indirect :class:`Arg` in the :class:`ParLoop` argument list."""
+        return self._indirect_position
+
+    @indirect_position.setter
+    def indirect_position(self, val):
+        """Set the position of the first unique occurence of this
+    indirect :class:`Arg` in the :class:`ParLoop` argument list."""
+        self._indirect_position = val
 
     @property
     def ctype(self):
@@ -1730,6 +1758,17 @@ class ParLoop(object):
             itspace, IterationSpace) else IterationSpace(itspace)
         self._is_layered = itspace.layers > 1
 
+        for i, arg in enumerate(self._actual_args):
+            arg.position = i
+            arg.indirect_position = i
+        for i, arg1 in enumerate(self._actual_args):
+            if arg1._is_dat and arg1._is_indirect:
+                for arg2 in self._actual_args[i:]:
+                    # We have to check for identity here (we really
+                    # want these to be the same thing, not just look
+                    # the same)
+                    if arg2.data is arg1.data and arg2.map is arg1.map:
+                        arg2.indirect_position = arg1.indirect_position
         self.check_args()
 
     def compute(self):

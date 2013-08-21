@@ -45,56 +45,58 @@ from base import *
 class Arg(base.Arg):
 
     @property
-    def _name(self):
-        return self.data.name
+    def name(self):
+        if self._is_indirect:
+            return "ind_arg%d" % self.indirect_position
+        return "arg%d" % self.position
 
     @property
     def _lmaoffset_name(self):
-        return "%s_lmaoffset" % self._name
+        return "%s_lmaoffset" % self.name
 
     @property
     def _shared_name(self):
-        return "%s_shared" % self._name
+        return "%s_shared" % self.name
 
     def _local_name(self, idx=None):
         if self._is_direct:
-            return "%s_local" % self._name
+            return "%s_local" % self.name
         else:
             if self._is_vec_map and idx is not None:
-                return "%s%s_local" % (self._name, self._which_indirect + idx)
+                return "%s_%s_local" % (self.name, self._which_indirect + idx)
             if self._uses_itspace:
                 if idx is not None:
-                    return "%s%s_local" % (self._name, self._which_indirect + idx)
-                return "%s%s_local" % (self._name, self.idx.index)
-            return "%s%s_local" % (self._name, self.idx)
+                    return "%s_%s_local" % (self.name, self._which_indirect + idx)
+                return "%s_%s_local" % (self.name, self.idx.index)
+            return "%s_%s_local" % (self.name, self.idx)
 
     @property
     def _reduction_local_name(self):
-        return "%s_reduction_local" % self._name
+        return "%s_reduction_local" % self.name
 
     @property
     def _reduction_tmp_name(self):
-        return "%s_reduction_tmp" % self._name
+        return "%s_reduction_tmp" % self.name
 
     @property
     def _reduction_kernel_name(self):
-        return "%s_reduction_kernel" % self._name
+        return "%s_reduction_kernel" % self.name
 
     @property
     def _vec_name(self):
-        return "%s_vec" % self._name
+        return "%s_vec" % self.name
 
     @property
     def _map_name(self):
-        return "%s_map" % self._name
+        return "%s_map" % self.name
 
     @property
     def _size_name(self):
-        return "%s_size" % self._name
+        return "%s_size" % self.name
 
     @property
     def _mat_entry_name(self):
-        return "%s_entry" % self._name
+        return "%s_entry" % self.name
 
     @property
     def _is_staged_direct(self):
@@ -407,14 +409,16 @@ class ParLoop(base.ParLoop):
         for arg in self._actual_args:
             if arg._is_vec_map:
                 for i in range(arg.map.arity):
-                    self.__unwound_args.append(arg.data(arg.map[i],
-                                                        arg.access))
+                    a = arg.data(arg.map[i], arg.access)
+                    a.position = arg.position
+                    self.__unwound_args.append(a)
             elif arg._is_mat:
                 self.__unwound_args.append(arg)
             elif arg._uses_itspace:
                 for i in range(self._it_space.extents[arg.idx.index]):
-                    self.__unwound_args.append(arg.data(arg.map[i],
-                                                        arg.access))
+                    a = arg.data(arg.map[i], arg.access)
+                    a.position = arg.position
+                    self.__unwound_args.append(a)
             else:
                 self.__unwound_args.append(arg)
 

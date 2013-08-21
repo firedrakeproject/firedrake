@@ -4,7 +4,7 @@
 __global__ void {{ parloop._stub_name }} (
     int set_size,
     {% for arg in parloop._unique_args -%}
-    {{ arg.ctype }} *{{arg._name}},
+    {{ arg.ctype }} *{{arg.name}},
     {%- if arg._is_mat %}
     int {{arg._lmaoffset_name}},
     {%- endif %}
@@ -104,7 +104,7 @@ __global__ void {{ parloop._stub_name }} (
     // Copy into shared memory
     {% for arg in parloop._unique_read_or_rw_indirect_dat_args %}
     for ( int idx = threadIdx.x; idx < {{arg._size_name}} * {{arg.data.cdim}}; idx += blockDim.x ) {
-        {{arg._shared_name}}[idx] = {{arg._name}}[idx % {{arg.data.cdim}} + {{arg._map_name}}[idx / {{arg.data.cdim}}] * {{arg.data.cdim}}];
+        {{arg._shared_name}}[idx] = {{arg.name}}[idx % {{arg.data.cdim}} + {{arg._map_name}}[idx / {{arg.data.cdim}}] * {{arg.data.cdim}}];
     }
     {% endfor -%}
 
@@ -199,13 +199,13 @@ __global__ void {{ parloop._stub_name }} (
     {%- endif %}
     {%- for arg in parloop._unique_write_or_rw_indirect_dat_args %}
     for ( int idx = threadIdx.x; idx < {{arg._size_name}} * {{arg.data.cdim}}; idx += blockDim.x ) {
-        {{arg._name}}[idx % {{arg.data.cdim}} + {{arg._map_name}}[idx/{{arg.data.cdim}}] * {{arg.data.cdim}}] = {{arg._shared_name}}[idx];
+        {{arg.name}}[idx % {{arg.data.cdim}} + {{arg._map_name}}[idx/{{arg.data.cdim}}] * {{arg.data.cdim}}] = {{arg._shared_name}}[idx];
     }
     {% endfor %}
 
     {%- for arg in parloop._unique_inc_indirect_dat_args %}
     for ( int idx = threadIdx.x; idx < {{arg._size_name}} * {{arg.data.cdim}}; idx += blockDim.x ) {
-        {{arg._name}}[idx % {{arg.data.cdim}} + {{arg._map_name}}[idx/{{arg.data.cdim}}] * {{arg.data.cdim}}] += {{arg._shared_name}}[idx];
+        {{arg.name}}[idx % {{arg.data.cdim}} + {{arg._map_name}}[idx/{{arg.data.cdim}}] * {{arg.data.cdim}}] += {{arg._shared_name}}[idx];
     }
     {% endfor %}
 
@@ -214,7 +214,7 @@ __global__ void {{ parloop._stub_name }} (
     // the reduction.
     {% for arg in parloop._all_global_reduction_args %}
     for ( int idx = 0; idx < {{ arg.data.cdim}}; ++idx ) {
-        {{ arg._reduction_kernel_name }}(&{{arg._name}}[idx + blockIdx.x * {{arg.data.cdim}}], {{arg._reduction_local_name}}[idx]);
+        {{ arg._reduction_kernel_name }}(&{{arg.name}}[idx + blockIdx.x * {{arg.data.cdim}}], {{arg._reduction_local_name}}[idx]);
     }
     {% endfor %}
 }

@@ -67,6 +67,6 @@ __device__ void {{ arg._reduction_kernel_name }}(
 {%- if (arg._is_INC) -%}
 {{ arg._reduction_local_name }} [idx] = ({{arg.ctype}})0;
 {%- else -%}
-{{ arg._reduction_local_name }}[idx] = {{arg._name}}[idx + blockIdx.x * {{arg.data.cdim}}];
+{{ arg._reduction_local_name }}[idx] = {{arg.name}}[idx + blockIdx.x * {{arg.data.cdim}}];
 {%- endif -%}
 {%- endmacro -%}
