@@ -36,7 +36,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 
 from pyop2 import op2
-from pyop2.exceptions import MapValueError
+from pyop2.exceptions import MapValueError, ModeValueError
 
 # Data type
 valuetype = np.float64
@@ -639,6 +639,13 @@ class TestMatrices:
     Matrix tests
 
     """
+
+    @pytest.mark.parametrize("mode", [op2.READ, op2.RW, op2.MAX, op2.MIN])
+    def test_invalid_mode(self, backend, elements, elem_node, mat, mode):
+        """Mat args can only have modes WRITE and INC."""
+        with pytest.raises(ModeValueError):
+            op2.par_loop(op2.Kernel("", "dummy"), elements(1, 1),
+                         mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), mode))
 
     def test_minimal_zero_mat(self, backend, skip_cuda):
         """Assemble a matrix that is all zeros."""
