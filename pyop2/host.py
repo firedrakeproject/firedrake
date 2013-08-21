@@ -48,9 +48,9 @@ _max_threads = 32
 class Arg(base.Arg):
 
     def c_arg_name(self):
-        name = self.data.name
+        name = self.name
         if self._is_indirect and not (self._is_vec_map or self._uses_itspace):
-            name += str(self.idx)
+            name = "%s_%d" % (name, self.idx)
         return name
 
     def c_vec_name(self):
