@@ -36,6 +36,7 @@ import numpy as np
 import random
 
 from pyop2 import op2
+from pyop2.exceptions import MapValueError
 
 
 def _seed():
@@ -83,6 +84,20 @@ class TestIndirectLoop:
     """
     Indirect Loop Tests
     """
+
+    def test_mismatching_iterset(self, backend, iterset, indset, x):
+        """Accessing a par_loop argument via a Map with iterset not matching
+        the par_loop's should raise an exception."""
+        with pytest.raises(MapValueError):
+            op2.par_loop(op2.Kernel("", "dummy"), iterset,
+                         x(op2.Map(op2.Set(nelems), indset, 1), op2.WRITE))
+
+    def test_mismatching_indset(self, backend, iterset, x):
+        """Accessing a par_loop argument via a Map with toset not matching
+        the Dat's should raise an exception."""
+        with pytest.raises(MapValueError):
+            op2.par_loop(op2.Kernel("", "dummy"), iterset,
+                         x(op2.Map(iterset, op2.Set(nelems), 1), op2.WRITE))
 
     def test_onecolor_wo(self, backend, iterset, x, iterset2indset):
         """Set a Dat to a scalar value with op2.WRITE."""
