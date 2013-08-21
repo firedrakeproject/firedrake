@@ -99,6 +99,14 @@ class TestIndirectLoop:
             op2.par_loop(op2.Kernel("", "dummy"), iterset,
                          x(op2.Map(iterset, op2.Set(nelems), 1), op2.WRITE))
 
+    def test_uninitialized_map(self, backend, iterset, indset, x):
+        """Accessing a par_loop argument via an uninitialized Map should raise
+        an exception."""
+        kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"
+        with pytest.raises(MapValueError):
+            op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), iterset,
+                         x(op2.Map(iterset, indset, 1), op2.WRITE))
+
     def test_onecolor_wo(self, backend, iterset, x, iterset2indset):
         """Set a Dat to a scalar value with op2.WRITE."""
         kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"

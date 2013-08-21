@@ -1813,9 +1813,10 @@ class ParLoop(object):
     def check_args(self):
         """Checks the following:
 
-        1. That the iteration set of the :class:`ParLoop` matches the iteration
+        1. That all maps used are initialized i.e. have mapping data associated.
+        2. That the iteration set of the :class:`ParLoop` matches the iteration
            set of all its arguments.
-        2. For each argument, check that the to Set of the map used to access
+        3. For each argument, check that the to Set of the map used to access
            it matches the Set it is defined on.
 
         A :class:`MapValueError` is raised if these conditions are not met."""
@@ -1824,6 +1825,8 @@ class ParLoop(object):
             if arg._is_global or arg._map == IdentityMap:
                 continue
             for j, m in enumerate(arg._map):
+                if not m.values.size:
+                    raise MapValueError("Arg %s map %s is not initialized." % (i, j))
                 if m._iterset != iterset:
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
