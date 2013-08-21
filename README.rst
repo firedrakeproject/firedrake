@@ -116,6 +116,11 @@ Common dependencies:
 * `PETSc4py <https://bitbucket.org/mapdes/petsc4py>`__ >= 3.3 
 * PyYAML
 
+Testing dependencies (optional, required to run the tests):
+
+* pytest >= 2.3
+* flake8
+
 With the exception of the PETSc dependencies, these can be installed
 using the package management system of your OS, or via ``pip``.
 
@@ -412,14 +417,14 @@ module <http://modules.sourceforge.net/>`__.
 Testing your installation
 -------------------------
 
-PyOP2 unit tests use `pytest <http://pytest.org>`__. Install via package
+PyOP2 unit tests use `pytest <http://pytest.org>`__ >= 2.3. Install via package
 manager::
 
   sudo apt-get install python-pytest 
 
 or pip::
 
-  pip install pytest
+  pip install pytest>=2.3
 
 The code linting test uses `flake8 <http://flake8.readthedocs.org>`__.
 Install via pip::
