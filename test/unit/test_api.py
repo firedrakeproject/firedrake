@@ -67,11 +67,6 @@ def dset(request, set):
 
 
 @pytest.fixture
-def dat(request, dset):
-    return op2.Dat(dset, np.arange(dset.cdim * dset.size, dtype=np.int32))
-
-
-@pytest.fixture
 def diterset(iterset):
     return op2.DataSet(iterset, 1, 'diterset')
 
@@ -79,6 +74,11 @@ def diterset(iterset):
 @pytest.fixture
 def dtoset(toset):
     return op2.DataSet(toset, 1, 'dtoset')
+
+
+@pytest.fixture
+def dat(request, dtoset):
+    return op2.Dat(dtoset, np.arange(dtoset.cdim * dtoset.size, dtype=np.int32))
 
 
 @pytest.fixture
@@ -96,6 +96,11 @@ def const(request):
 @pytest.fixture
 def sparsity(m, dtoset):
     return op2.Sparsity((dtoset, dtoset), (m, m))
+
+
+@pytest.fixture
+def mat(sparsity):
+    return op2.Mat(sparsity)
 
 
 class TestInitAPI:
@@ -181,6 +186,44 @@ class TestAccessAPI:
         "Illegal access modes should raise an exception."
         with pytest.raises(exceptions.ModeValueError):
             base.Access('ILLEGAL_ACCESS')
+
+
+class TestArgAPI:
+
+    """
+    Arg API unit tests
+    """
+
+    def test_arg_eq_dat(self, backend, dat, m):
+        assert dat(m, op2.READ) == dat(m, op2.READ)
+        assert dat(m[0], op2.READ) == dat(m[0], op2.READ)
+        assert not dat(m, op2.READ) != dat(m, op2.READ)
+        assert not dat(m[0], op2.READ) != dat(m[0], op2.READ)
+
+    def test_arg_ne_dat_idx(self, backend, dat, m):
+        assert dat(m[0], op2.READ) != dat(m[1], op2.READ)
+        assert not dat(m[0], op2.READ) == dat(m[1], op2.READ)
+
+    def test_arg_ne_dat_mode(self, backend, dat, m):
+        assert dat(m, op2.READ) != dat(m, op2.WRITE)
+        assert not dat(m, op2.READ) == dat(m, op2.WRITE)
+
+    def test_arg_ne_dat_map(self, backend, dat, m):
+        m2 = op2.Map(m.iterset, m.toset, 1, np.ones(m.iterset.size))
+        assert dat(m, op2.READ) != dat(m2, op2.READ)
+        assert not dat(m, op2.READ) == dat(m2, op2.READ)
+
+    def test_arg_eq_mat(self, backend, mat, m):
+        assert mat((m[0], m[0]), op2.INC) == mat((m[0], m[0]), op2.INC)
+        assert not mat((m[0], m[0]), op2.INC) != mat((m[0], m[0]), op2.INC)
+
+    def test_arg_ne_mat_idx(self, backend, mat, m):
+        assert mat((m[0], m[0]), op2.INC) != mat((m[1], m[1]), op2.INC)
+        assert not mat((m[0], m[0]), op2.INC) == mat((m[1], m[1]), op2.INC)
+
+    def test_arg_ne_mat_mode(self, backend, mat, m):
+        assert mat((m[0], m[0]), op2.INC) != mat((m[0], m[0]), op2.WRITE)
+        assert not mat((m[0], m[0]), op2.INC) == mat((m[0], m[0]), op2.WRITE)
 
 
 class TestSetAPI:
