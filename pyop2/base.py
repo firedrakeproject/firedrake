@@ -143,12 +143,18 @@ class Arg(object):
                 raise MapValueError(
                     "To set of %s doesn't match the set of %s." % (map, data))
 
-    def __eq__(self):
+    def __eq__(self, other):
         """:class:`Arg`\s compare equal of they are defined on the same data,
         use the same :class:`Map` with the same index and the same access
         descriptor."""
         return self._dat == other._dat and self._map == other._map and \
             self._idx == other._idx and self._access == other._access
+
+    def __ne__(self, other):
+        """:class:`Arg`\s compare equal of they are defined on the same data,
+        use the same :class:`Map` with the same index and the same access
+        descriptor."""
+        return not self == other
 
     def __str__(self):
         return "OP2 Arg: dat %s, map %s, index %s, access %s" % \
@@ -541,6 +547,11 @@ class DataSet(object):
         :class:`Set` and have the same ``dim``."""
         return self.set == other.set and self.dim == other.dim
 
+    def __ne__(self, other):
+        """:class:`DataSet`\s compare equal if they are defined on the same
+        :class:`Set` and have the same ``dim``."""
+        return not self == other
+
     def __str__(self):
         return "OP2 DataSet: %s on set %s, with dim %s" % \
             (self._name, self._set, self._dim)
@@ -759,6 +770,11 @@ class IterationSpace(object):
         same :class:`Set` and have the same ``extent``."""
         return self._iterset == other._iterset and self._extents == other._extents
 
+    def __ne__(self, other):
+        """:class:`IterationSpace`s compare equal if they are defined on the
+        same :class:`Set` and have the same ``extent``."""
+        return not self == other
+
     def __str__(self):
         return "OP2 Iteration Space: %s with extents %s" % (self._iterset, self._extents)
 
@@ -956,9 +972,15 @@ class Dat(DataCarrier):
         :class:`DataSet` and containing the same data."""
         try:
             return (self._dataset == other._dataset and
+                    self._data.dtype == other._data.dtype and
                     np.array_equal(self._data, other._data))
         except AttributeError:
             return False
+
+    def __ne__(self, other):
+        """:class:`Dat`\s compare equal if defined on the same
+        :class:`DataSet` and containing the same data."""
+        return not self == other
 
     def __str__(self):
         return "OP2 Dat: %s on (%s) with datatype %s" \
@@ -1182,6 +1204,11 @@ class Global(DataCarrier):
         except AttributeError:
             return False
 
+    def __ne__(self, other):
+        """:class:`Global`\s compare equal when having the same ``dim`` and
+        ``data``."""
+        return not self == other
+
     def __str__(self):
         return "OP2 Global Argument: %s with dim %s and value %s" \
             % (self._name, self._dim, self._data)
@@ -1349,7 +1376,7 @@ class Map(object):
             return False
 
     def __ne__(self, o):
-        return not self.__eq__(o)
+        return not self == o
 
     @property
     def _c_handle(self):

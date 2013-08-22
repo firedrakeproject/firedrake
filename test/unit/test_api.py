@@ -67,11 +67,6 @@ def dset(request, set):
 
 
 @pytest.fixture
-def dat(request, dset):
-    return op2.Dat(dset, np.arange(dset.cdim * dset.size, dtype=np.int32))
-
-
-@pytest.fixture
 def diterset(iterset):
     return op2.DataSet(iterset, 1, 'diterset')
 
@@ -79,6 +74,11 @@ def diterset(iterset):
 @pytest.fixture
 def dtoset(toset):
     return op2.DataSet(toset, 1, 'dtoset')
+
+
+@pytest.fixture
+def dat(request, dtoset):
+    return op2.Dat(dtoset, np.arange(dtoset.cdim * dtoset.size, dtype=np.int32))
 
 
 @pytest.fixture
@@ -96,6 +96,11 @@ def const(request):
 @pytest.fixture
 def sparsity(m, dtoset):
     return op2.Sparsity((dtoset, dtoset), (m, m))
+
+
+@pytest.fixture
+def mat(sparsity):
+    return op2.Mat(sparsity)
 
 
 class TestInitAPI:
@@ -183,6 +188,44 @@ class TestAccessAPI:
             base.Access('ILLEGAL_ACCESS')
 
 
+class TestArgAPI:
+
+    """
+    Arg API unit tests
+    """
+
+    def test_arg_eq_dat(self, backend, dat, m):
+        assert dat(m, op2.READ) == dat(m, op2.READ)
+        assert dat(m[0], op2.READ) == dat(m[0], op2.READ)
+        assert not dat(m, op2.READ) != dat(m, op2.READ)
+        assert not dat(m[0], op2.READ) != dat(m[0], op2.READ)
+
+    def test_arg_ne_dat_idx(self, backend, dat, m):
+        assert dat(m[0], op2.READ) != dat(m[1], op2.READ)
+        assert not dat(m[0], op2.READ) == dat(m[1], op2.READ)
+
+    def test_arg_ne_dat_mode(self, backend, dat, m):
+        assert dat(m, op2.READ) != dat(m, op2.WRITE)
+        assert not dat(m, op2.READ) == dat(m, op2.WRITE)
+
+    def test_arg_ne_dat_map(self, backend, dat, m):
+        m2 = op2.Map(m.iterset, m.toset, 1, np.ones(m.iterset.size))
+        assert dat(m, op2.READ) != dat(m2, op2.READ)
+        assert not dat(m, op2.READ) == dat(m2, op2.READ)
+
+    def test_arg_eq_mat(self, backend, mat, m):
+        assert mat((m[0], m[0]), op2.INC) == mat((m[0], m[0]), op2.INC)
+        assert not mat((m[0], m[0]), op2.INC) != mat((m[0], m[0]), op2.INC)
+
+    def test_arg_ne_mat_idx(self, backend, mat, m):
+        assert mat((m[0], m[0]), op2.INC) != mat((m[1], m[1]), op2.INC)
+        assert not mat((m[0], m[0]), op2.INC) == mat((m[1], m[1]), op2.INC)
+
+    def test_arg_ne_mat_mode(self, backend, mat, m):
+        assert mat((m[0], m[0]), op2.INC) != mat((m[0], m[0]), op2.WRITE)
+        assert not mat((m[0], m[0]), op2.INC) == mat((m[0], m[0]), op2.WRITE)
+
+
 class TestSetAPI:
 
     """
@@ -208,10 +251,16 @@ class TestSetAPI:
         "Set should have the expected string representation."
         assert str(set) == "OP2 Set: %s with size %s" % (set.name, set.size)
 
-    def test_set_equality(self, backend, set):
+    def test_set_eq(self, backend, set):
         "The equality test for sets is identity, not attribute equality"
+        assert set == set
+        assert not set != set
+
+    def test_set_ne(self, backend, set):
+        "Sets with the same attributes should not be equal if not identical."
         setcopy = op2.Set(set.size, set.name)
-        assert set == set and set != setcopy
+        assert set != setcopy
+        assert not set == setcopy
 
     def test_dset_in_set(self, backend, set, dset):
         "The in operator should indicate compatibility of DataSet and Set"
@@ -280,10 +329,23 @@ class TestDataSetAPI:
         assert str(dset) == "OP2 DataSet: %s on set %s, with dim %s" \
             % (dset.name, dset.set, dset.dim)
 
-    def test_dset_equality(self, backend, dset):
+    def test_dset_eq(self, backend, dset):
         "The equality test for DataSets is same dim and same set"
-        setcopy = op2.DataSet(dset.set, dset.dim, dset.name)
-        assert setcopy.set == dset.set and setcopy.dim == dset.dim
+        dsetcopy = op2.DataSet(dset.set, dset.dim)
+        assert dsetcopy == dset
+        assert not dsetcopy != dset
+
+    def test_dset_ne_set(self, backend, dset):
+        "DataSets with the same dim but different Sets are not equal."
+        dsetcopy = op2.DataSet(op2.Set(dset.set.size), dset.dim)
+        assert dsetcopy != dset
+        assert not dsetcopy == dset
+
+    def test_dset_ne_dim(self, backend, dset):
+        "DataSets with the same Set but different dims are not equal."
+        dsetcopy = op2.DataSet(dset.set, tuple(d + 1 for d in dset.dim))
+        assert dsetcopy != dset
+        assert not dsetcopy == dset
 
     def test_dat_in_dset(self, backend, dset):
         "The in operator should indicate compatibility of DataSet and Set"
@@ -386,25 +448,29 @@ class TestDatAPI:
         assert d.dataset.set == dset.set and d.dtype == np.float64 and \
             d.name == 'bar' and d.data.sum() == dset.size * dset.cdim
 
-    def test_dat_equality(self, backend, dset):
+    def test_dat_eq(self, backend, dset):
         """Dats should compare equal if defined on the same DataSets and
         having the same data."""
         assert op2.Dat(dset) == op2.Dat(dset)
+        assert not op2.Dat(dset) != op2.Dat(dset)
 
-    def test_dat_neq_dset(self, backend):
+    def test_dat_ne_dset(self, backend):
         """Dats should not compare equal if defined on different DataSets."""
         assert op2.Dat(op2.Set(3)) != op2.Dat(op2.Set(3))
+        assert not op2.Dat(op2.Set(3)) == op2.Dat(op2.Set(3))
 
-    def test_dat_neq_dtype(self, backend, dset):
+    def test_dat_ne_dtype(self, backend, dset):
         """Dats should not compare equal when having data of different
         dtype."""
         assert op2.Dat(dset, dtype=np.int64) != op2.Dat(dset, dtype=np.float64)
+        assert not op2.Dat(dset, dtype=np.int64) == op2.Dat(dset, dtype=np.float64)
 
-    def test_dat_neq_data(self, backend, dset):
+    def test_dat_ne_data(self, backend, dset):
         """Dats should not compare equal when having different data."""
         d1, d2 = op2.Dat(dset), op2.Dat(dset)
         d1.data[0] = -1.0
         assert d1 != d2
+        assert not d1 == d2
 
     def test_dat_repr(self, backend, dat):
         "Dat repr should produce a Dat object when eval'd."
@@ -559,10 +625,9 @@ class TestMatAPI:
         with pytest.raises(sequential.NameTypeError):
             op2.Mat(sparsity, name=2)
 
-    def test_mat_dtype(self, backend, sparsity):
+    def test_mat_dtype(self, backend, mat):
         "Default data type should be numpy.float64."
-        m = op2.Mat(sparsity)
-        assert m.dtype == np.double
+        assert mat.dtype == np.double
 
     def test_mat_properties(self, backend, sparsity):
         "Mat constructor should correctly set attributes."
@@ -570,28 +635,25 @@ class TestMatAPI:
         assert m.sparsity == sparsity and  \
             m.dtype == np.float64 and m.name == 'bar'
 
-    def test_mat_illegal_maps(self, backend, sparsity):
+    def test_mat_illegal_maps(self, backend, mat):
         "Mat arg constructor should reject invalid maps."
-        m = op2.Mat(sparsity)
         wrongmap = op2.Map(op2.Set(2), op2.Set(3), 2, [0, 0, 0, 0])
         with pytest.raises(exceptions.MapValueError):
-            m((wrongmap[0], wrongmap[1]), op2.INC)
+            mat((wrongmap[0], wrongmap[1]), op2.INC)
 
-    def test_mat_repr(self, backend, sparsity):
+    def test_mat_repr(self, backend, mat):
         "Mat should have the expected repr."
 
         # Note: We can't actually reproduce a Sparsity from its repr because
         # the Sparsity constructor checks that the maps are populated
-        m = op2.Mat(sparsity)
-        r = "Mat(%r, %r, %r)" % (m.sparsity, m.dtype, m.name)
-        assert repr(m) == r
+        r = "Mat(%r, %r, %r)" % (mat.sparsity, mat.dtype, mat.name)
+        assert repr(mat) == r
 
-    def test_mat_str(self, backend, sparsity):
+    def test_mat_str(self, backend, mat):
         "Mat should have the expected string representation."
-        m = op2.Mat(sparsity)
         s = "OP2 Mat: %s, sparsity (%s), datatype %s" \
-            % (m.name, m.sparsity, m.dtype.name)
-        assert str(m) == s
+            % (mat.name, mat.sparsity, mat.dtype.name)
+        assert str(mat) == s
 
 
 class TestConstAPI:
@@ -807,14 +869,17 @@ class TestGlobalAPI:
     def test_global_eq(self, backend):
         "Globals should compare equal when having the same dim and data."
         assert op2.Global(1, [1.0]) == op2.Global(1, [1.0])
+        assert not op2.Global(1, [1.0]) != op2.Global(1, [1.0])
 
-    def test_global_neq_dim(self, backend):
+    def test_global_ne_dim(self, backend):
         "Globals should not compare equal when having different dims."
         assert op2.Global(1) != op2.Global(2)
+        assert not op2.Global(1) == op2.Global(2)
 
-    def test_global_neq_data(self, backend):
+    def test_global_ne_data(self, backend):
         "Globals should not compare equal when having different data."
         assert op2.Global(1, [1.0]) != op2.Global(1, [2.0])
+        assert not op2.Global(1, [1.0]) == op2.Global(1, [2.0])
 
     def test_global_repr(self, backend):
         "Global repr should produce a Global object when eval'd."
@@ -888,42 +953,44 @@ class TestMapAPI:
         assert m.iterset == iterset and m.toset == toset and m.arity == 2 \
             and m.values.sum() == 2 * iterset.size and m.name == 'bar'
 
-    def test_map_indexing(self, backend, iterset, toset):
+    def test_map_indexing(self, backend, m):
         "Indexing a map should create an appropriate Arg"
-        m = op2.Map(iterset, toset, 2, [1] * 2 * iterset.size, 'm')
+        assert m[0].idx == 0
 
-        arg = m[0]
-        assert arg.idx == 0
-
-    def test_map_slicing(self, backend, iterset, toset):
+    def test_map_slicing(self, backend, m):
         "Slicing a map is not allowed"
-        m = op2.Map(iterset, toset, 2, [1] * 2 * iterset.size, 'm')
-
         with pytest.raises(NotImplementedError):
             m[:]
 
-    def test_map_equality(self, backend, m):
-        """A map is equal if all its attributes are equal, bearing in mind that
-        equality is identity for sets."""
-        assert m == op2.Map(m.iterset, m.toset, m.arity, m.values)
+    def test_map_eq(self, backend, m):
+        """Maps should compare equal if defined on the identical iterset and
+        toset and having the same arity and mapping values."""
+        mcopy = op2.Map(m.iterset, m.toset, m.arity, m.values)
+        assert m == mcopy
+        assert not m != mcopy
 
-    def test_map_neq_iterset(self, backend, m):
+    def test_map_ne_iterset(self, backend, m):
         """Maps that have copied but not equal iteration sets are not equal."""
         assert m != op2.Map(op2.Set(m.iterset.size), m.toset, m.arity, m.values)
 
-    def test_map_neq_toset(self, backend, m):
+    def test_map_ne_toset(self, backend, m):
         """Maps that have copied but not equal to sets are not equal."""
-        assert m != op2.Map(m.iterset, op2.Set(m.toset.size), m.arity, m.values)
+        mcopy = op2.Map(m.iterset, op2.Set(m.toset.size), m.arity, m.values)
+        assert m != mcopy
+        assert not m == mcopy
 
-    def test_map_neq_arity(self, backend, m):
+    def test_map_ne_arity(self, backend, m):
         """Maps that have different arities are not equal."""
-        assert m != op2.Map(m.iterset, m.toset, m.arity * 2, list(m.values) * 2)
+        mcopy = op2.Map(m.iterset, m.toset, m.arity * 2, list(m.values) * 2)
+        assert m != mcopy
+        assert not m == mcopy
 
-    def test_map_neq_values(self, backend, m):
+    def test_map_ne_values(self, backend, m):
         """Maps that have different values are not equal."""
         m2 = op2.Map(m.iterset, m.toset, m.arity, m.values.copy())
         m2.values[0] = 2
         assert m != m2
+        assert not m == m2
 
     def test_map_repr(self, backend, m):
         "Map should have the expected repr."
@@ -976,16 +1043,19 @@ class TestIterationSpaceAPI:
     def test_iteration_space_eq(self, backend, set):
         """IterationSpaces should compare equal if defined on the same Set."""
         assert op2.IterationSpace(set, 3) == op2.IterationSpace(set, 3)
+        assert not op2.IterationSpace(set, 3) != op2.IterationSpace(set, 3)
 
-    def test_iteration_space_neq_set(self, backend):
+    def test_iteration_space_ne_set(self, backend):
         """IterationSpaces should not compare equal if defined on different
         Sets."""
         assert op2.IterationSpace(op2.Set(3), 3) != op2.IterationSpace(op2.Set(3), 3)
+        assert not op2.IterationSpace(op2.Set(3), 3) == op2.IterationSpace(op2.Set(3), 3)
 
-    def test_iteration_space_neq_extent(self, backend, set):
+    def test_iteration_space_ne_extent(self, backend, set):
         """IterationSpaces should not compare equal if defined with different
         extents."""
         assert op2.IterationSpace(set, 3) != op2.IterationSpace(set, 2)
+        assert not op2.IterationSpace(set, 3) == op2.IterationSpace(set, 2)
 
     def test_iteration_space_repr(self, backend, set):
         """IterationSpace repr should produce a IterationSpace object when
