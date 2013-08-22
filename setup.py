@@ -40,10 +40,6 @@ from glob import glob
 import numpy
 import sys
 
-# Find OP2 include and library directories
-OP2_INC, OP2_LIB = None, None
-execfile('pyop2/find_op2.py')
-
 # If Cython is available, built the extension module from the Cython source
 try:
     from Cython.Distutils import build_ext
@@ -116,9 +112,6 @@ setup(name='PyOP2',
       scripts=glob('scripts/*'),
       cmdclass=cmdclass,
       ext_modules=[Extension('pyop2.op_lib_core', op_lib_core_sources,
-                             include_dirs=['pyop2', OP2_INC, numpy.get_include()],
-                             library_dirs=[OP2_LIB],
-                             runtime_library_dirs=[OP2_LIB],
-                             libraries=["op2_seq"]),
+                             include_dirs=['pyop2', numpy.get_include()]),
                    Extension('pyop2.computeind', computeind_sources,
                              include_dirs=[numpy.get_include()])])

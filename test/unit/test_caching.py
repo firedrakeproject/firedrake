@@ -115,7 +115,7 @@ class TestPlanCache:
     """
     # No plan for sequential backend
     skip_backends = ['sequential']
-    cache = op2.device.Plan._cache
+    cache = device.Plan._cache
 
     @pytest.fixture
     def mat(cls, iter2ind1, dindset):

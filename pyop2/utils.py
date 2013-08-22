@@ -232,10 +232,6 @@ def parser(description=None, group=False):
                    type=argparse.FileType('r'),
                    help='specify alternate configuration' if group
                    else 'specify alternate pyop2 configuration')
-    g.add_argument('--legacy-plan', dest='python_plan', action='store_false',
-                   default=argparse.SUPPRESS,
-                   help='use the legacy plan' if group
-                   else 'set pyop2 to use the legacy plan')
 
     return parser
 

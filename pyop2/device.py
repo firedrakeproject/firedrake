@@ -269,7 +269,7 @@ class Mat(base.Mat):
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
 
-class _GenericPlan(base.Cached):
+class Plan(base.Cached, core.Plan):
 
     _cache = {}
 
@@ -316,81 +316,6 @@ class _GenericPlan(base.Cached):
         key += subkey
 
         return key
-
-
-class CPlan(_GenericPlan, core.op_plan):
-
-    """Legacy plan function.
-
-    Does not support matrix coloring.
-    """
-    pass
-
-
-class PPlan(_GenericPlan, core.Plan):
-
-    """PyOP2's cython plan function.
-
-    Support matrix coloring, selective staging and thread color computation.
-    """
-    pass
-
-# _GenericPlan, CPlan, and PPlan are not meant to be instantiated directly.
-# one should instead use Plan. The actual class that is instanciated is defined
-# at configuration time see (op2.py::init())
-Plan = PPlan
-
-
-def compare_plans(kernel, iset, *args, **kwargs):
-    """This can only be used if caching is disabled."""
-
-    ps = kwargs.get('partition_size', 0)
-    mc = kwargs.get('matrix_coloring', False)
-
-    assert not mc, "CPlan does not support matrix coloring, can not compare"
-    assert ps > 0, "need partition size"
-
-    # filter the list of access descriptor arguments:
-    #  - drop mat arguments (not supported by the C plan
-    #  - expand vec arguments
-    fargs = list()
-    for arg in args:
-        if arg._is_vec_map:
-            for i in range(arg.map.arity):
-                fargs.append(arg.data(arg.map[i], arg.access))
-        elif arg._is_mat:
-            fargs.append(arg)
-        elif arg._uses_itspace:
-            for i in range(self._it_space.extents[arg.idx.index]):
-                fargs.append(arg.data(arg.map[i], arg.access))
-        else:
-            fargs.append(arg)
-
-    s = iset._iterset if isinstance(iset, IterationSpace) else iset
-
-    kwargs['refresh_cache'] = True
-
-    cplan = CPlan(kernel, s, *fargs, **kwargs)
-    pplan = PPlan(kernel, s, *fargs, **kwargs)
-
-    assert cplan is not pplan
-    assert pplan.ninds == cplan.ninds
-    assert pplan.nblocks == cplan.nblocks
-    assert pplan.ncolors == cplan.ncolors
-    assert pplan.nshared == cplan.nshared
-    assert (pplan.nelems == cplan.nelems).all()
-    # slice is ok cause op2 plan function seems to allocate an
-    # arbitrarily longer array
-    assert (pplan.ncolblk == cplan.ncolblk[:len(pplan.ncolblk)]).all()
-    assert (pplan.blkmap == cplan.blkmap).all()
-    assert (pplan.nthrcol == cplan.nthrcol).all()
-    assert (pplan.thrcol == cplan.thrcol).all()
-    assert (pplan.offset == cplan.offset).all()
-    assert (pplan.nindirect == cplan.nindirect).all()
-    assert ((pplan.ind_map == cplan.ind_map) | (pplan.ind_map == -1)).all()
-    assert (pplan.ind_offs == cplan.ind_offs).all()
-    assert (pplan.ind_sizes == cplan.ind_sizes).all()
-    assert (pplan.loc_map == cplan.loc_map).all()
 
 
 class ParLoop(base.ParLoop):

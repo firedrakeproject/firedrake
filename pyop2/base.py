@@ -329,12 +329,6 @@ class Arg(object):
             self.data._data = np.copy(self.data._buf)
 
     @property
-    def _c_handle(self):
-        if self._lib_handle is None:
-            self._lib_handle = core.op_arg(self)
-        return self._lib_handle
-
-    @property
     def data(self):
         """Data carrier: :class:`Dat`, :class:`Mat`, :class:`Const` or
         :class:`Global`."""
@@ -484,12 +478,6 @@ class Set(object):
             raise SizeTypeError("Shape of %s is incorrect" % name)
         size = slot.value.astype(np.int)
         return cls(size[0], name)
-
-    @property
-    def _c_handle(self):
-        if self._lib_handle is None:
-            self._lib_handle = core.op_set(self)
-        return self._lib_handle
 
 
 class DataSet(object):
@@ -1092,12 +1080,6 @@ class Dat(DataCarrier):
         ret = cls(dataset, data, name=name, soa=soa)
         return ret
 
-    @property
-    def _c_handle(self):
-        if self._lib_handle is None:
-            self._lib_handle = core.op_dat(self)
-        return self._lib_handle
-
 
 class Const(DataCarrier):
 
@@ -1383,12 +1365,6 @@ class Map(object):
 
     def __ne__(self, o):
         return not self == o
-
-    @property
-    def _c_handle(self):
-        if self._lib_handle is None:
-            self._lib_handle = core.op_map(self)
-        return self._lib_handle
 
     @classmethod
     def fromhdf5(cls, iterset, toset, f, name):

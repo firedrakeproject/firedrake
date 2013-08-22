@@ -67,7 +67,7 @@ void build_sparsity_pattern_mpi ( int rmult, int cmult, int nrows, int nmaps,
   for ( int m = 0; m < nmaps; m++ ) {
     cmap rowmap = rowmaps[m];
     cmap colmap = colmaps[m];
-    int rsize = rowmap.from_size + rowmap.from_exec_size;
+    int rsize = rowmap.from_exec_size;
     for ( int e = 0; e < rsize; ++e ) {
       for ( int i = 0; i < rowmap.arity; ++i ) {
         for ( int r = 0; r < rmult; r++ ) {

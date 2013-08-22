@@ -39,23 +39,6 @@ else
     libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran >> $LOGFILE 2>&1
 fi
 
-echo "*** Installing OP2-Common ***" | tee -a $LOGFILE
-echo | tee -a $LOGFILE
-
-if [ -d OP2-Common/.git ]; then
-  (
-  cd OP2-Common
-  git checkout master >> $LOGFILE 2>&1
-  git pull origin master >> $LOGFILE 2>&1
-  )
-else
-  git clone git://github.com/OP2/OP2-Common.git >> $LOGFILE 2>&1
-fi
-cd OP2-Common/op2/c
-./cmake.local -DOP2_WITH_CUDA=0 -DOP2_WITH_HDF5=0 -DOP2_WITH_MPI=0 -DOP2_WITH_OPENMP=0 >> $LOGFILE 2>&1
-cd ..
-export OP2_DIR=`pwd`
-
 cd $BASE_DIR
 
 echo "*** Installing dependencies ***" | tee -a $LOGFILE
@@ -98,7 +81,6 @@ export PYTHONPATH=`pwd`:$PYTHONPATH
 if [ ! -f .env ]; then
   cat > .env <<EOF
 export PYOP2_DIR=${PYOP2_DIR}
-export OP2_DIR=${OP2_DIR}
 export PYTHONPATH=`pwd`:\$PYTHONPATH
 EOF
 fi
