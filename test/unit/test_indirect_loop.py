@@ -36,11 +36,8 @@ import numpy as np
 import random
 
 from pyop2 import op2
-from pyop2.exceptions import MapValueError
+from pyop2.exceptions import MapValueError, IndexValueError
 
-
-def _seed():
-    return 0.02041724
 
 # Large enough that there is more than one block and more than one
 # thread per element in device backends
@@ -58,25 +55,49 @@ def indset():
 
 
 @pytest.fixture
+def unitset():
+    return op2.Set(1, "unitset")
+
+
+@pytest.fixture
 def diterset(iterset):
     return op2.DataSet(iterset, 1, "diterset")
 
 
 @pytest.fixture
-def dindset(indset):
-    return op2.DataSet(indset, 1, "dindset")
+def x(indset):
+    return op2.Dat(indset, range(nelems), np.uint32, "x")
 
 
 @pytest.fixture
-def x(dindset):
-    return op2.Dat(dindset, range(nelems), np.uint32, "x")
+def x2(indset):
+    return op2.Dat(indset ** 2, np.array([range(nelems), range(nelems)],
+                   dtype=np.uint32), np.uint32, "x2")
 
 
 @pytest.fixture
-def iterset2indset(iterset, indset):
-    u_map = np.array(range(nelems), dtype=np.uint32)
-    random.shuffle(u_map, _seed)
+def mapd():
+    mapd = range(nelems)
+    random.shuffle(mapd, lambda: 0.02041724)
+    return mapd
+
+
+@pytest.fixture
+def iterset2indset(iterset, indset, mapd):
+    u_map = np.array(mapd, dtype=np.uint32)
     return op2.Map(iterset, indset, 1, u_map, "iterset2indset")
+
+
+@pytest.fixture
+def iterset2indset2(iterset, indset, mapd):
+    u_map = np.array([mapd, mapd], dtype=np.uint32)
+    return op2.Map(iterset, indset, 2, u_map, "iterset2indset2")
+
+
+@pytest.fixture
+def iterset2unitset(iterset, unitset):
+    u_map = np.zeros(nelems, dtype=np.uint32)
+    return op2.Map(iterset, unitset, 1, u_map, "iterset2unitset")
 
 
 class TestIndirectLoop:
@@ -98,6 +119,14 @@ class TestIndirectLoop:
         with pytest.raises(MapValueError):
             op2.par_loop(op2.Kernel("", "dummy"), iterset,
                          x(op2.Map(iterset, op2.Set(nelems), 1), op2.WRITE))
+
+    def test_mismatching_itspace(self, backend, iterset, iterset2indset, iterset2indset2, x):
+        """par_loop arguments using an IterationIndex must use a local
+        iteration space of the same extents."""
+        with pytest.raises(IndexValueError):
+            op2.par_loop(op2.Kernel("", "dummy"), iterset,
+                         x(iterset2indset[op2.i[0]], op2.WRITE),
+                         x(iterset2indset2[op2.i[0]], op2.WRITE))
 
     def test_uninitialized_map(self, backend, iterset, indset, x):
         """Accessing a par_loop argument via an uninitialized Map should raise
@@ -123,19 +152,12 @@ class TestIndirectLoop:
                      iterset, x(iterset2indset[0], op2.RW))
         assert sum(x.data) == nelems * (nelems + 1) / 2
 
-    def test_indirect_inc(self, backend, iterset):
+    def test_indirect_inc(self, backend, iterset, unitset, iterset2unitset):
         """Sum into a scalar Dat with op2.INC."""
-        unitset = op2.Set(1, "unitset")
-
         u = op2.Dat(unitset, np.array([0], dtype=np.uint32), np.uint32, "u")
-
-        u_map = np.zeros(nelems, dtype=np.uint32)
-        iterset2unit = op2.Map(iterset, unitset, 1, u_map, "iterset2unitset")
-
         kernel_inc = "void kernel_inc(unsigned int* x) { (*x) = (*x) + 1; }\n"
-
         op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"),
-                     iterset, u(iterset2unit[0], op2.INC))
+                     iterset, u(iterset2unitset[0], op2.INC))
         assert u.data[0] == nelems
 
     def test_global_read(self, backend, iterset, x, iterset2indset):
@@ -166,17 +188,12 @@ class TestIndirectLoop:
         assert sum(x.data) == nelems * (nelems + 1) / 2
         assert g.data[0] == nelems * (nelems + 1) / 2
 
-    def test_2d_dat(self, backend, iterset):
+    def test_2d_dat(self, backend, iterset, iterset2indset, x2):
         """Set both components of a vector-valued Dat to a scalar value."""
-        indset = op2.Set(nelems, "indset2")
-        x = op2.Dat(indset ** 2, np.array([range(nelems), range(nelems)],
-                    dtype=np.uint32), np.uint32, "x")
-
         kernel_wo = "void kernel_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }\n"
-
         op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), iterset,
-                     x(iterset2indset(iterset, indset)[0], op2.WRITE))
-        assert all(map(lambda x: all(x == [42, 43]), x.data))
+                     x2(iterset2indset[0], op2.WRITE))
+        assert all(all(v == [42, 43]) for v in x2.data)
 
     def test_2d_map(self, backend):
         """Sum nodal values incident to a common edge."""
