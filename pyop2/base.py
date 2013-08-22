@@ -1874,10 +1874,13 @@ class ParLoop(object):
                 arg.data.needs_halo_update = True
 
     def check_args(self):
-        """Checks that the iteration set of the :class:`ParLoop` matches the iteration
-        set of all its arguments.
+        """Checks that the iteration set of the :class:`ParLoop` matches the
+        iteration set of all its arguments. A :class:`MapValueError` is raised
+        if this condition is not met.
 
-        A :class:`MapValueError` is raised if this condition is not met."""
+        Also determines the size of the local iteration space and checks all
+        arguments using an :class:`IterationIndex` for consistency."""
+        itspace = ()
         for i, arg in enumerate(self._actual_args):
             if arg._is_global or arg._map == IdentityMap:
                 continue
@@ -1885,6 +1888,11 @@ class ParLoop(object):
                 if m._iterset != self._it_space._iterset:
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
+            if arg._uses_itspace:
+                _itspace = tuple(m.arity for m in arg._map)
+                if itspace and itspace != _itspace:
+                    raise IndexValueError("Mismatching iteration space size for argument %d" % i)
+                itspace = _itspace
 
     def generate_code(self):
         raise RuntimeError('Must select a backend')
