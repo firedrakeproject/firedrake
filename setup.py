@@ -34,6 +34,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from setuptools import setup
+from distutils.command.sdist import sdist as _sdist
 from distutils.extension import Extension
 from glob import glob
 import numpy
@@ -77,6 +78,15 @@ test_requires = [
     'flake8',
     'pytest>=2.3',
 ]
+
+
+class sdist(_sdist):
+    def run(self):
+        # Make sure the compiled Cython files in the distribution are up-to-date
+        from Cython.Build import cythonize
+        cythonize(['pyop2/op_lib_core.pyx', 'pyop2/computeind.pyx'])
+        _sdist.run(self)
+cmdclass['sdist'] = sdist
 
 setup(name='PyOP2',
       version='0.1',
