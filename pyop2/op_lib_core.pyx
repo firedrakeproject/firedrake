@@ -115,4 +115,3 @@ def build_sparsity(object sparsity, bool parallel):
         free(rmaps)
         free(cmaps)
 
-include "plan.pyx"

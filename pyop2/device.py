@@ -37,7 +37,7 @@ try:
 # from PyPI
 except ImportError:
     from ordereddict import OrderedDict
-import op_lib_core as core
+import plan
 import base
 from base import *
 from mpi import collective
@@ -269,7 +269,7 @@ class Mat(base.Mat):
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
 
-class Plan(base.Cached, core.Plan):
+class Plan(base.Cached, plan.Plan):
 
     _cache = {}
 
