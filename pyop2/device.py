@@ -40,6 +40,7 @@ except ImportError:
 import op_lib_core as core
 import base
 from base import *
+from mpi import collective
 
 
 class Arg(base.Arg):
@@ -127,6 +128,7 @@ class DeviceDataMixin(object):
         self._state = value
 
     @property
+    @collective
     def data(self):
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
@@ -137,6 +139,7 @@ class DeviceDataMixin(object):
         return self._data
 
     @data.setter
+    @collective
     def data(self, value):
         maybe_setflags(self._data, write=True)
         self._data = verify_reshape(value, self.dtype, self._data.shape)

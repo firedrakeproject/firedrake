@@ -42,7 +42,7 @@ import op_lib_core as core
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
 from logger import debug, info, warning, error, critical, set_log_level
-from mpi import MPI
+from mpi import MPI, collective
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
 
@@ -53,6 +53,7 @@ __all__ = ['cfg', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX', 'IdentityMap',
            'Solver', 'par_loop', 'solve']
 
 
+@collective
 def init(**kwargs):
     """Initialise OP2: select the backend and potentially other configuration
     options.
@@ -92,6 +93,7 @@ def init(**kwargs):
 
 
 @atexit.register
+@collective
 def exit():
     """Exit OP2 and clean up"""
     cfg.reset()
@@ -116,6 +118,7 @@ class DataSet(base.DataSet):
     __metaclass__ = backends._BackendSelector
 
 
+@collective
 class Halo(base.Halo):
     __metaclass__ = backends._BackendSelector
 
@@ -148,6 +151,7 @@ class Solver(base.Solver):
     __metaclass__ = backends._BackendSelector
 
 
+@collective
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel
 
@@ -195,6 +199,7 @@ def par_loop(kernel, it_space, *args):
     return backends._BackendSelector._backend.par_loop(kernel, it_space, *args)
 
 
+@collective
 @validate_type(('M', base.Mat, MatTypeError),
                ('x', base.Dat, DatTypeError),
                ('b', base.Dat, DatTypeError))

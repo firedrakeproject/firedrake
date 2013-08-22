@@ -37,6 +37,7 @@ from device import *
 import device
 import petsc_base
 from utils import verify_reshape, uniquify, maybe_setflags
+from mpi import collective
 import configuration as cfg
 import pyopencl as cl
 from pyopencl import array
@@ -271,6 +272,7 @@ class Mat(device.Mat, petsc_base.Mat, DeviceDataMixin):
         self._dev_array.set(self.array, queue=_queue)
         self.state = DeviceDataMixin.BOTH
 
+    @collective
     def assemble(self):
         if self.state is DeviceDataMixin.DEVICE:
             self._dev_array.get(queue=_queue, ary=self.array)
@@ -462,6 +464,7 @@ class Plan(device.Plan):
 
 class Solver(petsc_base.Solver):
 
+    @collective
     def solve(self, A, x, b):
         x._from_device()
         b._from_device()
@@ -638,6 +641,7 @@ class ParLoop(device.ParLoop):
         else:
             return {'partition_size': self._i_partition_size()}
 
+    @collective
     def compute(self):
         if self._has_soa:
             op2stride = Const(1, self._it_space.size, name='op2stride',
@@ -731,6 +735,7 @@ class ParLoop(device.ParLoop):
             op2stride.remove_from_namespace()
 
 
+@collective
 def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()
 

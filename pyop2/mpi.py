@@ -72,6 +72,7 @@ class MPIConfig(object):
         return self.COMM
 
     @comm.setter
+    @collective
     def comm(self, comm):
         """Set the MPI communicator for parallel communication.
 

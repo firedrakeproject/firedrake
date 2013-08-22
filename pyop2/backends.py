@@ -39,6 +39,7 @@
 import void
 import finalised
 from logger import warning
+from mpi import collective
 backends = {'void': void, 'finalised': finalised}
 
 
@@ -130,6 +131,7 @@ def get_backend():
     return _BackendSelector._backend.__name__
 
 
+@collective
 def set_backend(backend):
     """Set the OP2 backend"""
 
@@ -151,6 +153,7 @@ def set_backend(backend):
     _BackendSelector._backend = mod
 
 
+@collective
 def unset_backend():
     """Unset the OP2 backend"""
     _BackendSelector._backend = finalised

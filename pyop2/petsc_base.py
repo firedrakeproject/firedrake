@@ -44,6 +44,7 @@ import base
 from base import *
 from logger import debug
 import mpi
+from mpi import collective
 
 
 class MPIConfig(mpi.MPIConfig):
@@ -53,6 +54,7 @@ class MPIConfig(mpi.MPIConfig):
         PETSc.Sys.setDefaultComm(self.comm)
 
     @mpi.MPIConfig.comm.setter
+    @collective
     def comm(self, comm):
         """Set the MPI communicator for parallel communication."""
         self.COMM = mpi._check_comm(comm)
@@ -67,6 +69,7 @@ mpi.MPI = MPI
 class Dat(base.Dat):
 
     @property
+    @collective
     def vec(self):
         """PETSc Vec appropriate for this Dat."""
         if not hasattr(self, '_vec'):
@@ -80,6 +83,7 @@ class Mat(base.Mat):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`."""
 
+    @collective
     def _init(self):
         if not self.dtype == PETSc.ScalarType:
             raise RuntimeError("Can only create a matrix of type %s, %s is not supported"
@@ -127,21 +131,25 @@ class Mat(base.Mat):
         mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
         self._handle = mat
 
+    @collective
     def dump(self, filename):
         """Dump the matrix to file ``filename`` in PETSc binary format."""
         vwr = PETSc.Viewer().createBinary(filename, PETSc.Viewer.Mode.WRITE)
         self.handle.view(vwr)
 
+    @collective
     def zero(self):
         """Zero the matrix."""
         self.handle.zeroEntries()
 
+    @collective
     def zero_rows(self, rows, diag_val):
         """Zeroes the specified rows of the matrix, with the exception of the
         diagonal entry, which is set to diag_val. May be used for applying
         strong boundary conditions."""
         self.handle.zeroRowsLocal(rows, diag_val)
 
+    @collective
     def _assemble(self):
         self.handle.assemble()
 
@@ -179,6 +187,7 @@ class Solver(base.Solver, PETSc.KSP):
                               for r in dir(converged_reason)
                               if not r.startswith('_')])
 
+    @collective
     def _set_parameters(self):
         self.setType(self.parameters['linear_solver'])
         self.getPC().setType(self.parameters['preconditioner'])
@@ -189,6 +198,7 @@ class Solver(base.Solver, PETSc.KSP):
         if self.parameters['plot_convergence']:
             self.parameters['monitor_convergence'] = True
 
+    @collective
     def solve(self, A, x, b):
         self._set_parameters()
         self.setOperators(A.handle)
