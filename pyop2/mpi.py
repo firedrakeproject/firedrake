@@ -37,6 +37,15 @@ from decorator import decorator
 from mpi4py import MPI as _MPI
 
 
+def collective(fn):
+    extra = """
+    This function is logically collective over MPI ranks, it is an
+    error to call it on fewer than all the ranks in MPI communicator.
+    """
+    fn.__doc__ = "%s\n%s" % (fn.__doc__, extra)
+    return fn
+
+
 def _check_comm(comm):
     if isinstance(comm, int):
         # If it's come from Fluidity where an MPI_Comm is just an integer.
@@ -63,6 +72,7 @@ class MPIConfig(object):
         return self.COMM
 
     @comm.setter
+    @collective
     def comm(self, comm):
         """Set the MPI communicator for parallel communication.
 

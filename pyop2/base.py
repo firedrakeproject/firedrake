@@ -46,7 +46,7 @@ from caching import Cached
 from exceptions import *
 from utils import *
 from backends import _make_object
-from mpi import MPI, _MPI, _check_comm
+from mpi import MPI, _MPI, _check_comm, collective
 import op_lib_core as core
 
 # Data API
@@ -271,6 +271,7 @@ class Arg(object):
     def _uses_itspace(self):
         return self._is_mat or isinstance(self.idx, IterationIndex)
 
+    @collective
     def halo_exchange_begin(self):
         """Begin halo exchange for the argument if a halo update is required.
         Doing halo exchanges only makes sense for :class:`Dat` objects."""
@@ -282,6 +283,7 @@ class Arg(object):
             self._in_flight = True
             self.data.halo_exchange_begin()
 
+    @collective
     def halo_exchange_end(self):
         """End halo exchange if it is in flight.
         Doing halo exchanges only makes sense for :class:`Dat` objects."""
@@ -290,6 +292,7 @@ class Arg(object):
             self._in_flight = False
             self.data.halo_exchange_end()
 
+    @collective
     def reduction_begin(self):
         """Begin reduction for the argument if its access is INC, MIN, or MAX.
         Doing a reduction only makes sense for :class:`Global` objects."""
@@ -313,6 +316,7 @@ class Arg(object):
             # the result.
             MPI.comm.Allreduce(self.data._data, self.data._buf, op=op)
 
+    @collective
     def reduction_end(self):
         """End reduction for the argument if it is in flight.
         Doing a reduction only makes sense for :class:`Global` objects."""
@@ -930,6 +934,7 @@ class Dat(DataCarrier):
         return self._soa
 
     @property
+    @collective
     def data(self):
         """Numpy array containing the data values."""
         if self.dataset.total_size > 0 and self._data.size == 0:
@@ -952,9 +957,12 @@ class Dat(DataCarrier):
         return self._needs_halo_update
 
     @needs_halo_update.setter
+    @collective
     def needs_halo_update(self, val):
+        """Indictate whether this Dat requires a halo update"""
         self._needs_halo_update = val
 
+    @collective
     def zero(self):
         """Zero the data associated with this :class:`Dat`"""
         if not hasattr(self, '_zero_kernel'):
@@ -1041,6 +1049,7 @@ class Dat(DataCarrier):
         """Pointwise division or scaling of fields."""
         return self._iop(other, operator.idiv)
 
+    @collective
     def halo_exchange_begin(self):
         """Begin halo exchange."""
         halo = self.dataset.halo
@@ -1055,6 +1064,7 @@ class Dat(DataCarrier):
             self._recv_reqs[source] = halo.comm.Irecv(self._recv_buf[source],
                                                       source=source, tag=self._id)
 
+    @collective
     def halo_exchange_end(self):
         """End halo exchange. Waits on MPI recv."""
         halo = self.dataset.halo
@@ -1817,10 +1827,12 @@ class ParLoop(object):
                         arg2.indirect_position = arg1.indirect_position
         self.check_args()
 
+    @collective
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
         raise RuntimeError('Must select a backend')
 
+    @collective
     def halo_exchange_begin(self):
         """Start halo exchanges."""
         if self.is_direct:
@@ -1830,6 +1842,7 @@ class ParLoop(object):
             if arg._is_dat:
                 arg.halo_exchange_begin()
 
+    @collective
     def halo_exchange_end(self):
         """Finish halo exchanges (wait on irecvs)"""
         if self.is_direct:
@@ -1838,18 +1851,21 @@ class ParLoop(object):
             if arg._is_dat:
                 arg.halo_exchange_end()
 
+    @collective
     def reduction_begin(self):
         """Start reductions"""
         for arg in self.args:
             if arg._is_global_reduction:
                 arg.reduction_begin()
 
+    @collective
     def reduction_end(self):
         """End reductions"""
         for arg in self.args:
             if arg._is_global_reduction:
                 arg.reduction_end()
 
+    @collective
     def maybe_set_halo_update_needed(self):
         """Set halo update needed for :class:`Dat` arguments that are written to
         in this parallel loop."""
@@ -1979,6 +1995,7 @@ class Solver(object):
         else:
             self.parameters.update(kwargs)
 
+    @collective
     def update_parameters(self, parameters):
         """Update solver parameters
 
@@ -1986,6 +2003,7 @@ class Solver(object):
         """
         self.parameters.update(parameters)
 
+    @collective
     def solve(self, A, x, b):
         """Solve a matrix equation.
 

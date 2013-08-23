@@ -37,6 +37,7 @@ import configuration as cfg
 import device as op2
 import numpy as np
 from utils import verify_reshape, maybe_setflags
+from mpi import collective
 import jinja2
 import pycuda.driver as driver
 import pycuda.gpuarray as gpuarray
@@ -618,6 +619,7 @@ def _cusp_solver(M, parameters):
 
 class Solver(base.Solver):
 
+    @collective
     def solve(self, M, x, b):
         b._to_device()
         x._to_device()
@@ -688,6 +690,7 @@ class JITModule(base.JITModule):
         self.compile().prepared_async_call(*args, **kwargs)
 
 
+@collective
 def par_loop(kernel, it_space, *args):
     ParLoop(kernel, it_space, *args).compute()
     _stream.synchronize()
@@ -719,6 +722,7 @@ class ParLoop(op2.ParLoop):
                     'block_size': block_size,
                     'grid_size': grid_size}
 
+    @collective
     def compute(self):
         if self._has_soa:
             op2stride = Const(1, self._it_space.size, name='op2stride',

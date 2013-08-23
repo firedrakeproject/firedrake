@@ -39,6 +39,7 @@ import math
 
 from exceptions import *
 from utils import *
+from mpi import collective
 from petsc_base import *
 import host
 import device
@@ -125,6 +126,7 @@ class Arg(host.Arg):
 # Parallel loop API
 
 
+@collective
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
     ParLoop(kernel, it_space, *args).compute()
@@ -221,6 +223,7 @@ void wrap_%(kernel_name)s__(PyObject *_end, %(wrapper_args)s %(const_args)s,
 
 class ParLoop(device.ParLoop, host.ParLoop):
 
+    @collective
     def compute(self):
         fun = JITModule(self.kernel, self.it_space, *self.args)
         _args = [self._it_space.size]
