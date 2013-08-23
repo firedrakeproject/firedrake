@@ -1810,8 +1810,6 @@ class ParLoop(object):
         # Always use the current arguments, also when we hit cache
         self._actual_args = args
         self._kernel = kernel
-        self._it_space = itspace if isinstance(
-            itspace, IterationSpace) else IterationSpace(itspace)
         self._is_layered = itspace.layers > 1
 
         for i, arg in enumerate(self._actual_args):
@@ -1825,7 +1823,9 @@ class ParLoop(object):
                     # the same)
                     if arg2.data is arg1.data and arg2.map is arg1.map:
                         arg2.indirect_position = arg1.indirect_position
-        self.check_args()
+
+        iterset = itspace if isinstance(itspace, Set) else itspace.iterset
+        self._it_space = IterationSpace(iterset, self.check_args(iterset))
 
     @collective
     def compute(self):
@@ -1873,19 +1873,21 @@ class ParLoop(object):
             if arg._is_dat and arg.access in [INC, WRITE, RW]:
                 arg.data.needs_halo_update = True
 
-    def check_args(self):
+    def check_args(self, iterset):
         """Checks that the iteration set of the :class:`ParLoop` matches the
         iteration set of all its arguments. A :class:`MapValueError` is raised
         if this condition is not met.
 
         Also determines the size of the local iteration space and checks all
-        arguments using an :class:`IterationIndex` for consistency."""
+        arguments using an :class:`IterationIndex` for consistency.
+
+        :return: size of the local iteration space"""
         itspace = ()
         for i, arg in enumerate(self._actual_args):
             if arg._is_global or arg._map == IdentityMap:
                 continue
             for j, m in enumerate(arg._map):
-                if m._iterset != self._it_space._iterset:
+                if m._iterset != iterset:
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
             if arg._uses_itspace:
@@ -1893,6 +1895,7 @@ class ParLoop(object):
                 if itspace and itspace != _itspace:
                     raise IndexValueError("Mismatching iteration space size for argument %d" % i)
                 itspace = _itspace
+        return itspace
 
     def generate_code(self):
         raise RuntimeError('Must select a backend')
