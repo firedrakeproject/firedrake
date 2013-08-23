@@ -408,9 +408,6 @@ class Set(object):
             self.halo.verify(self)
         Set._globalcount += 1
 
-    def __call__(self, *dims):
-        return IterationSpace(self, dims)
-
     @property
     def core_size(self):
         """Core set size.  Owned elements not touching halo elements."""
@@ -707,10 +704,9 @@ class IterationSpace(object):
     """OP2 iteration space type.
 
     .. Warning ::
-        User code should not directly instantiate IterationSpace. Instead
-        use the call syntax on the iteration set in the
-        :func:`pyop2.op2.par_loop` call.
-    """
+        User code should not directly instantiate :class:`IterationSpace`.
+        This class is only for internal use inside a
+        :func:`pyop2.op2.par_loop`."""
 
     @validate_type(('iterset', Set, SetTypeError))
     def __init__(self, iterset, extents=()):
