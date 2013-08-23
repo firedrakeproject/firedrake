@@ -102,10 +102,6 @@ def exit():
         backends.unset_backend()
 
 
-class IterationSpace(base.IterationSpace):
-    __metaclass__ = backends._BackendSelector
-
-
 class Kernel(base.Kernel):
     __metaclass__ = backends._BackendSelector
 

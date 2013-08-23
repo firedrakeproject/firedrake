@@ -42,12 +42,6 @@ class Access(object):
         raise RuntimeError("op2.exit has been called")
 
 
-class IterationSpace(object):
-
-    def __init__(self, *args):
-        raise RuntimeError("op2.exit has been called")
-
-
 class Set(object):
 
     def __init__(self, *args):

@@ -1013,60 +1013,61 @@ class TestIterationSpaceAPI:
     def test_iteration_space_illegal_iterset(self, backend, set):
         "IterationSpace iterset should be Set."
         with pytest.raises(exceptions.SetTypeError):
-            op2.IterationSpace('illegalset', 1)
+            base.IterationSpace('illegalset', 1)
 
     def test_iteration_space_illegal_extents(self, backend, set):
         "IterationSpace extents should be int or int tuple."
         with pytest.raises(TypeError):
-            op2.IterationSpace(set, 'illegalextents')
+            base.IterationSpace(set, 'illegalextents')
 
     def test_iteration_space_illegal_extents_tuple(self, backend, set):
         "IterationSpace extents should be int or int tuple."
         with pytest.raises(TypeError):
-            op2.IterationSpace(set, (1, 'illegalextents'))
+            base.IterationSpace(set, (1, 'illegalextents'))
 
     def test_iteration_space_extents(self, backend, set):
         "IterationSpace constructor should create a extents tuple."
-        m = op2.IterationSpace(set, 1)
+        m = base.IterationSpace(set, 1)
         assert m.extents == (1,)
 
     def test_iteration_space_extents_list(self, backend, set):
         "IterationSpace constructor should create a extents tuple from a list."
-        m = op2.IterationSpace(set, [2, 3])
+        m = base.IterationSpace(set, [2, 3])
         assert m.extents == (2, 3)
 
     def test_iteration_space_properties(self, backend, set):
         "IterationSpace constructor should correctly set attributes."
-        i = op2.IterationSpace(set, (2, 3))
+        i = base.IterationSpace(set, (2, 3))
         assert i.iterset == set and i.extents == (2, 3)
 
     def test_iteration_space_eq(self, backend, set):
         """IterationSpaces should compare equal if defined on the same Set."""
-        assert op2.IterationSpace(set, 3) == op2.IterationSpace(set, 3)
-        assert not op2.IterationSpace(set, 3) != op2.IterationSpace(set, 3)
+        assert base.IterationSpace(set, 3) == base.IterationSpace(set, 3)
+        assert not base.IterationSpace(set, 3) != base.IterationSpace(set, 3)
 
     def test_iteration_space_ne_set(self, backend):
         """IterationSpaces should not compare equal if defined on different
         Sets."""
-        assert op2.IterationSpace(op2.Set(3), 3) != op2.IterationSpace(op2.Set(3), 3)
-        assert not op2.IterationSpace(op2.Set(3), 3) == op2.IterationSpace(op2.Set(3), 3)
+        assert base.IterationSpace(op2.Set(3), 3) != base.IterationSpace(op2.Set(3), 3)
+        assert not base.IterationSpace(op2.Set(3), 3) == base.IterationSpace(op2.Set(3), 3)
 
     def test_iteration_space_ne_extent(self, backend, set):
         """IterationSpaces should not compare equal if defined with different
         extents."""
-        assert op2.IterationSpace(set, 3) != op2.IterationSpace(set, 2)
-        assert not op2.IterationSpace(set, 3) == op2.IterationSpace(set, 2)
+        assert base.IterationSpace(set, 3) != base.IterationSpace(set, 2)
+        assert not base.IterationSpace(set, 3) == base.IterationSpace(set, 2)
 
     def test_iteration_space_repr(self, backend, set):
         """IterationSpace repr should produce a IterationSpace object when
         eval'd."""
-        from pyop2.op2 import Set, IterationSpace  # noqa: needed by eval
-        m = op2.IterationSpace(set, 1)
+        from pyop2.op2 import Set  # noqa: needed by eval
+        from pyop2.base import IterationSpace  # noqa: needed by eval
+        m = base.IterationSpace(set, 1)
         assert isinstance(eval(repr(m)), base.IterationSpace)
 
     def test_iteration_space_str(self, backend, set):
         "IterationSpace should have the expected string representation."
-        m = op2.IterationSpace(set, 1)
+        m = base.IterationSpace(set, 1)
         s = "OP2 Iteration Space: %s with extents %s" % (m.iterset, m.extents)
         assert str(m) == s
 
