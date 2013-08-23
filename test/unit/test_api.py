@@ -1098,13 +1098,25 @@ class TestKernelAPI:
         assert str(k) == "OP2 Kernel: %s" % k.name
 
 
-class TestIllegalItersetMaps:
+class TestParLoopAPI:
 
     """
-    Pass args with the wrong iterset maps to ParLoops, and check that they are trapped.
+    ParLoop API unit tests
     """
+
+    def test_illegal_kernel(self, backend, set, dat, m):
+        """The first ParLoop argument has to be of type op2.Kernel."""
+        with pytest.raises(exceptions.KernelTypeError):
+            op2.par_loop('illegal_kernel', set, dat(m, op2.READ))
+
+    def test_illegal_iterset(self, backend, dat, m):
+        """The first ParLoop argument has to be of type op2.Kernel."""
+        with pytest.raises(exceptions.SetTypeError):
+            op2.par_loop(op2.Kernel("", "k"), 'illegal_set', dat(m, op2.READ))
 
     def test_illegal_dat_iterset(self, backend):
+        """ParLoop should reject a Dat argument using a different iteration
+        set from the par_loop's."""
         set1 = op2.Set(2)
         set2 = op2.Set(3)
         dset1 = op2.DataSet(set1, 1)
@@ -1115,6 +1127,8 @@ class TestIllegalItersetMaps:
             op2.par_loop(kernel, set1, dat(map, op2.READ))
 
     def test_illegal_mat_iterset(self, backend, sparsity):
+        """ParLoop should reject a Mat argument using a different iteration
+        set from the par_loop's."""
         set1 = op2.Set(2)
         m = op2.Mat(sparsity)
         rmap, cmap = sparsity.maps[0]
