@@ -34,7 +34,7 @@
 import pytest
 import numpy
 import random
-from pyop2 import device
+from pyop2 import plan
 from pyop2 import op2
 
 
@@ -115,7 +115,7 @@ class TestPlanCache:
     """
     # No plan for sequential backend
     skip_backends = ['sequential']
-    cache = device.Plan._cache
+    cache = plan.Plan._cache
 
     @pytest.fixture
     def mat(cls, iter2ind1, dindset):
@@ -281,21 +281,19 @@ void kernel_swap(unsigned int* x)
         self.cache.clear()
         assert len(self.cache) == 0
         k = op2.Kernel("""void dummy() {}""", "dummy")
-        plan1 = device.Plan(k,
-                            iterset,
-                            mat((iter2ind1[op2.i[0]],
-                                 iter2ind1[op2.i[1]]), op2.INC),
-                            x(iter2ind1[0], op2.READ),
-                            partition_size=10,
-                            matrix_coloring=True)
+        plan1 = plan.Plan(k,
+                          iterset,
+                          mat((iter2ind1[op2.i[0]], iter2ind1[op2.i[1]]), op2.INC),
+                          x(iter2ind1[0], op2.READ),
+                          partition_size=10,
+                          matrix_coloring=True)
         assert len(self.cache) == 1
-        plan2 = device.Plan(k,
-                            iterset,
-                            mat((iter2ind1[op2.i[0]],
-                                 iter2ind1[op2.i[1]]), op2.INC),
-                            x(iter2ind1[0], op2.READ),
-                            partition_size=10,
-                            matrix_coloring=True)
+        plan2 = plan.Plan(k,
+                          iterset,
+                          mat((iter2ind1[op2.i[0]], iter2ind1[op2.i[1]]), op2.INC),
+                          x(iter2ind1[0], op2.READ),
+                          partition_size=10,
+                          matrix_coloring=True)
 
         assert len(self.cache) == 1
         assert plan1 is plan2
@@ -305,21 +303,21 @@ void kernel_swap(unsigned int* x)
         self.cache.clear()
         assert len(self.cache) == 0
         k = op2.Kernel("""void dummy() {}""", "dummy")
-        plan1 = device.Plan(k,
-                            iterset,
-                            mat((iter2ind1[op2.i[0]],
-                                 iter2ind1[op2.i[1]]), op2.INC),
-                            x(iter2ind1[0], op2.READ),
-                            partition_size=10,
-                            matrix_coloring=True)
+        plan1 = plan.Plan(k,
+                          iterset,
+                          mat((iter2ind1[op2.i[0]],
+                               iter2ind1[op2.i[1]]), op2.INC),
+                          x(iter2ind1[0], op2.READ),
+                          partition_size=10,
+                          matrix_coloring=True)
         assert len(self.cache) == 1
-        plan2 = device.Plan(k,
-                            iterset,
-                            mat((iter2ind1[op2.i[1]],
-                                 iter2ind1[op2.i[0]]), op2.INC),
-                            x(iter2ind1[0], op2.READ),
-                            partition_size=10,
-                            matrix_coloring=True)
+        plan2 = plan.Plan(k,
+                          iterset,
+                          mat((iter2ind1[op2.i[1]],
+                               iter2ind1[op2.i[0]]), op2.INC),
+                          x(iter2ind1[0], op2.READ),
+                          partition_size=10,
+                          matrix_coloring=True)
 
         assert len(self.cache) == 2
         assert plan1 is not plan2

@@ -35,7 +35,7 @@ import pytest
 import numpy
 from random import randrange
 
-from pyop2 import device
+from pyop2 import plan as _plan
 from pyop2 import op2
 
 backends = ['opencl', 'openmp']
@@ -93,13 +93,13 @@ class TestColoring:
 void dummy(double* mat[1][1], unsigned int* x, int i, int j)
 {
 }""", "dummy")
-        plan = device.Plan(kernel,
-                           elements,
-                           mat((elem_node[op2.i[0]],
-                                elem_node[op2.i[1]]), op2.INC),
-                           x(elem_node[0], op2.WRITE),
-                           partition_size=NUM_ELE / 2,
-                           matrix_coloring=True)
+        plan = _plan.Plan(kernel,
+                          elements,
+                          mat((elem_node[op2.i[0]],
+                               elem_node[op2.i[1]]), op2.INC),
+                          x(elem_node[0], op2.WRITE),
+                          partition_size=NUM_ELE / 2,
+                          matrix_coloring=True)
 
         assert plan.nblocks == 2
         eidx = 0

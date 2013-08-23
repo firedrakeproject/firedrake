@@ -43,6 +43,7 @@ from mpi import collective
 from petsc_base import *
 import host
 import device
+import plan as _plan
 from subprocess import Popen, PIPE
 
 # hard coded value to max openmp threads
@@ -248,12 +249,12 @@ class ParLoop(device.ParLoop, host.ParLoop):
 
         # Create a plan, for colored execution
         if [arg for arg in self.args if arg._is_indirect or arg._is_mat]:
-            plan = device.Plan(self._kernel, self._it_space.iterset,
-                               *self._unwound_args,
-                               partition_size=part_size,
-                               matrix_coloring=True,
-                               staging=False,
-                               thread_coloring=False)
+            plan = _plan.Plan(self._kernel, self._it_space.iterset,
+                              *self._unwound_args,
+                              partition_size=part_size,
+                              matrix_coloring=True,
+                              staging=False,
+                              thread_coloring=False)
 
         else:
             # Create a fake plan for direct loops.

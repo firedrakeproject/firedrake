@@ -31,13 +31,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-try:
-    from collections import OrderedDict
-# OrderedDict was added in Python 2.7. Earlier versions can use ordereddict
-# from PyPI
-except ImportError:
-    from ordereddict import OrderedDict
-import plan
 import base
 from base import *
 from mpi import collective
@@ -267,55 +260,6 @@ class Mat(base.Mat):
     def __init__(self, datasets, dtype=None, name=None):
         base.Mat.__init__(self, datasets, dtype, name)
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
-
-
-class Plan(base.Cached, plan.Plan):
-
-    _cache = {}
-
-    @classmethod
-    def _cache_key(cls, kernel, iset, *args, **kwargs):
-        # Disable caching if requested
-        if kwargs.pop('refresh_cache', False):
-            return
-        partition_size = kwargs.get('partition_size', 0)
-        matrix_coloring = kwargs.get('matrix_coloring', False)
-
-        key = (iset.size, partition_size, matrix_coloring)
-
-        # For each indirect arg, the map, the access type, and the
-        # indices into the map are important
-        inds = OrderedDict()
-        for arg in args:
-            if arg._is_indirect:
-                dat = arg.data
-                map = arg.map
-                acc = arg.access
-                # Identify unique dat-map-acc tuples
-                k = (dat, map, acc is base.INC)
-                l = inds.get(k, [])
-                l.append(arg.idx)
-                inds[k] = l
-
-        # order of indices doesn't matter
-        subkey = ('dats', )
-        for k, v in inds.iteritems():
-            # Only dimension of dat matters, but identity of map does
-            subkey += (k[0].cdim, k[1:],) + tuple(sorted(v))
-        key += subkey
-
-        # For each matrix arg, the maps and indices
-        subkey = ('mats', )
-        for arg in args:
-            if arg._is_mat:
-                # For colouring, we only care about the rowmap
-                # and the associated iteration index
-                idxs = (arg.idx[0].__class__,
-                        arg.idx[0].index)
-                subkey += (as_tuple(arg.map[0]), idxs)
-        key += subkey
-
-        return key
 
 
 class ParLoop(base.ParLoop):

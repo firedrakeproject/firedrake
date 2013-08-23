@@ -35,6 +35,7 @@
 
 from device import *
 import device
+import plan
 import petsc_base
 from utils import verify_reshape, uniquify, maybe_setflags
 from mpi import collective
@@ -405,7 +406,7 @@ class Map(device.Map):
             self._device_values.set(self._values, _queue)
 
 
-class Plan(device.Plan):
+class Plan(plan.Plan):
 
     @property
     def ind_map(self):

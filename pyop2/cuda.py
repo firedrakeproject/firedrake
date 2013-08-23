@@ -35,6 +35,7 @@ import base
 from device import *
 import configuration as cfg
 import device as op2
+import plan
 import numpy as np
 from utils import verify_reshape, maybe_setflags
 from mpi import collective
@@ -404,7 +405,7 @@ class Map(op2.Map):
         self._device_values.get(self._values)
 
 
-class Plan(op2.Plan):
+class Plan(plan.Plan):
 
     @property
     def nthrcol(self):
