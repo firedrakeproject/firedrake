@@ -45,8 +45,7 @@ try:
     from Cython.Distutils import build_ext
     cmdclass = {'build_ext': build_ext}
     plan_sources = ['pyop2/plan.pyx']
-    op_lib_core_sources = ['pyop2/op_lib_core.pyx', 'pyop2/_op_lib_core.pxd',
-                           'pyop2/sparsity_utils.cxx']
+    sparsity_sources = ['pyop2/sparsity.pyx']
     computeind_sources = ['pyop2/computeind.pyx']
 
 # Else we require the Cython-compiled .c file to be present and use that
@@ -54,7 +53,7 @@ try:
 except ImportError:
     cmdclass = {}
     plan_sources = ['pyop2/plan.c']
-    op_lib_core_sources = ['pyop2/op_lib_core.c', 'pyop2/sparsity_utils.cxx']
+    sparsity_sources = ['pyop2/sparsity.cpp']
     computeind_sources = ['pyop2/computeind.c']
 
 setup_requires = [
@@ -82,7 +81,9 @@ class sdist(_sdist):
     def run(self):
         # Make sure the compiled Cython files in the distribution are up-to-date
         from Cython.Build import cythonize
-        cythonize(['pyop2/op_lib_core.pyx', 'pyop2/plan.pyx', 'pyop2/computeind.pyx'])
+        cythonize(plan_sources)
+        cythonize(sparsity_sources, language="c++")
+        cythonize(computeind_sources)
         _sdist.run(self)
 cmdclass['sdist'] = sdist
 
@@ -115,7 +116,7 @@ setup(name='PyOP2',
       cmdclass=cmdclass,
       ext_modules=[Extension('pyop2.plan', plan_sources,
                              include_dirs=[numpy.get_include()]),
-                   Extension('pyop2.op_lib_core', op_lib_core_sources,
-                             include_dirs=['pyop2', numpy.get_include()]),
+                   Extension('pyop2.sparsity', sparsity_sources,
+                             include_dirs=['pyop2', numpy.get_include()], language="c++"),
                    Extension('pyop2.computeind', computeind_sources,
                              include_dirs=[numpy.get_include()])])

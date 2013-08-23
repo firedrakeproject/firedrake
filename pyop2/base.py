@@ -47,7 +47,7 @@ from exceptions import *
 from utils import *
 from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
-import op_lib_core as core
+from sparsity import build_sparsity
 
 # Data API
 
@@ -1490,7 +1490,7 @@ class Sparsity(Cached):
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         self._lib_handle = None
         Sparsity._globalcount += 1
-        core.build_sparsity(self, parallel=MPI.parallel)
+        build_sparsity(self, parallel=MPI.parallel)
         self._initialized = True
 
     @property
