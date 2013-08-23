@@ -1802,6 +1802,8 @@ class ParLoop(object):
         use :func:`pyop2.op2.par_loop` instead.
     """
 
+    @validate_type(('kernel', Kernel, KernelTypeError),
+                   ('iterset', Set, SetTypeError))
     def __init__(self, kernel, iterset, *args):
         # Always use the current arguments, also when we hit cache
         self._actual_args = args

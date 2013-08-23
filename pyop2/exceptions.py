@@ -93,6 +93,11 @@ class DatTypeError(TypeError):
     """Invalid type for :class:`pyop2.op2.Dat`."""
 
 
+class KernelTypeError(TypeError):
+
+    """Invalid type for :class:`pyop2.op2.Kernel`."""
+
+
 class DataValueError(ValueError):
 
     """Illegal value for data."""
