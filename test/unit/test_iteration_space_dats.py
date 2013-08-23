@@ -56,44 +56,24 @@ def ele():
     return op2.Set(nele, 'ele')
 
 
-@pytest.fixture(scope='module')
-def dnode(node):
-    return op2.DataSet(node, 1, 'dnode')
-
-
-@pytest.fixture(scope='module')
-def dnode2(node):
-    return op2.DataSet(node, 2, 'dnode2')
-
-
-@pytest.fixture(scope='module')
-def dele(ele):
-    return op2.DataSet(ele, 1, 'dele')
-
-
-@pytest.fixture(scope='module')
-def dele2(ele):
-    return op2.DataSet(ele, 2, 'dele2')
+@pytest.fixture
+def d1(node):
+    return op2.Dat(node, numpy.zeros(nnodes), dtype=numpy.int32)
 
 
 @pytest.fixture
-def d1(dnode):
-    return op2.Dat(dnode, numpy.zeros(nnodes), dtype=numpy.int32)
+def d2(node):
+    return op2.Dat(node ** 2, numpy.zeros(2 * nnodes), dtype=numpy.int32)
 
 
 @pytest.fixture
-def d2(dnode2):
-    return op2.Dat(dnode2, numpy.zeros(2 * nnodes), dtype=numpy.int32)
+def vd1(ele):
+    return op2.Dat(ele, numpy.zeros(nele), dtype=numpy.int32)
 
 
 @pytest.fixture
-def vd1(dele):
-    return op2.Dat(dele, numpy.zeros(nele), dtype=numpy.int32)
-
-
-@pytest.fixture
-def vd2(dele2):
-    return op2.Dat(dele2, numpy.zeros(2 * nele), dtype=numpy.int32)
+def vd2(ele):
+    return op2.Dat(ele ** 2, numpy.zeros(2 * nele), dtype=numpy.int32)
 
 
 @pytest.fixture(scope='module')
@@ -130,8 +110,7 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
 { *edge += nodes[0]; }
 """
 
-        op2.par_loop(op2.Kernel(kernel_sum, "kernel_sum"),
-                     edges(edge2node.arity),
+        op2.par_loop(op2.Kernel(kernel_sum, "kernel_sum"), edges,
                      node_vals(edge2node[op2.i[0]], op2.READ),
                      edge_vals(op2.IdentityMap, op2.INC))
 
@@ -144,7 +123,7 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
         void k(int *d, int *vd, int i) {
         d[0] = vd[0];
         }"""
-        op2.par_loop(op2.Kernel(k, 'k'), node(node2ele.arity),
+        op2.par_loop(op2.Kernel(k, 'k'), node,
                      d1(op2.IdentityMap, op2.WRITE),
                      vd1(node2ele[op2.i[0]], op2.READ))
         assert all(d1.data[::2] == vd1.data)
@@ -157,7 +136,7 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
         }
         """
 
-        op2.par_loop(op2.Kernel(k, 'k'), node(node2ele.arity),
+        op2.par_loop(op2.Kernel(k, 'k'), node,
                      vd1(node2ele[op2.i[0]], op2.WRITE))
         assert all(vd1.data == 2)
 
@@ -169,7 +148,7 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
         void k(int *d, int *vd, int i) {
         vd[0] += *d;
         }"""
-        op2.par_loop(op2.Kernel(k, 'k'), node(node2ele.arity),
+        op2.par_loop(op2.Kernel(k, 'k'), node,
                      d1(op2.IdentityMap, op2.READ),
                      vd1(node2ele[op2.i[0]], op2.INC))
         expected = numpy.zeros_like(vd1.data)
@@ -187,7 +166,7 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
         d[0] = vd[0];
         d[1] = vd[1];
         }"""
-        op2.par_loop(op2.Kernel(k, 'k'), node(node2ele.arity),
+        op2.par_loop(op2.Kernel(k, 'k'), node,
                      d2(op2.IdentityMap, op2.WRITE),
                      vd2(node2ele[op2.i[0]], op2.READ))
         assert all(d2.data[::2, 0] == vd2.data[:, 0])
@@ -203,7 +182,7 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
         }
         """
 
-        op2.par_loop(op2.Kernel(k, 'k'), node(node2ele.arity),
+        op2.par_loop(op2.Kernel(k, 'k'), node,
                      vd2(node2ele[op2.i[0]], op2.WRITE))
         assert all(vd2.data[:, 0] == 2)
         assert all(vd2.data[:, 1] == 3)
@@ -218,7 +197,7 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
         vd[0] += d[0];
         vd[1] += d[1];
         }"""
-        op2.par_loop(op2.Kernel(k, 'k'), node(node2ele.arity),
+        op2.par_loop(op2.Kernel(k, 'k'), node,
                      d2(op2.IdentityMap, op2.READ),
                      vd2(node2ele[op2.i[0]], op2.INC))
 

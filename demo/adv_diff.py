@@ -106,12 +106,12 @@ def main(opt):
     sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node), "sparsity")
     if opt['advection']:
         adv_mat = op2.Mat(sparsity, valuetype, "adv_mat")
-        op2.par_loop(adv, elements(3, 3),
+        op2.par_loop(adv, elements,
                      adv_mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
     if opt['diffusion']:
         diff_mat = op2.Mat(sparsity, valuetype, "diff_mat")
-        op2.par_loop(diff, elements(3, 3),
+        op2.par_loop(diff, elements,
                      diff_mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
 
@@ -163,7 +163,7 @@ def main(opt):
 
         if opt['advection']:
             b.zero()
-            op2.par_loop(adv_rhs, elements(3),
+            op2.par_loop(adv_rhs, elements,
                          b(elem_node[op2.i[0]], op2.INC),
                          coords(elem_node, op2.READ),
                          tracer(elem_node, op2.READ),
@@ -175,7 +175,7 @@ def main(opt):
 
         if opt['diffusion']:
             b.zero()
-            op2.par_loop(diff_rhs, elements(3),
+            op2.par_loop(diff_rhs, elements,
                          b(elem_node[op2.i[0]], op2.INC),
                          coords(elem_node, op2.READ),
                          tracer(elem_node, op2.READ))

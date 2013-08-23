@@ -1013,60 +1013,61 @@ class TestIterationSpaceAPI:
     def test_iteration_space_illegal_iterset(self, backend, set):
         "IterationSpace iterset should be Set."
         with pytest.raises(exceptions.SetTypeError):
-            op2.IterationSpace('illegalset', 1)
+            base.IterationSpace('illegalset', 1)
 
     def test_iteration_space_illegal_extents(self, backend, set):
         "IterationSpace extents should be int or int tuple."
         with pytest.raises(TypeError):
-            op2.IterationSpace(set, 'illegalextents')
+            base.IterationSpace(set, 'illegalextents')
 
     def test_iteration_space_illegal_extents_tuple(self, backend, set):
         "IterationSpace extents should be int or int tuple."
         with pytest.raises(TypeError):
-            op2.IterationSpace(set, (1, 'illegalextents'))
+            base.IterationSpace(set, (1, 'illegalextents'))
 
     def test_iteration_space_extents(self, backend, set):
         "IterationSpace constructor should create a extents tuple."
-        m = op2.IterationSpace(set, 1)
+        m = base.IterationSpace(set, 1)
         assert m.extents == (1,)
 
     def test_iteration_space_extents_list(self, backend, set):
         "IterationSpace constructor should create a extents tuple from a list."
-        m = op2.IterationSpace(set, [2, 3])
+        m = base.IterationSpace(set, [2, 3])
         assert m.extents == (2, 3)
 
     def test_iteration_space_properties(self, backend, set):
         "IterationSpace constructor should correctly set attributes."
-        i = op2.IterationSpace(set, (2, 3))
+        i = base.IterationSpace(set, (2, 3))
         assert i.iterset == set and i.extents == (2, 3)
 
     def test_iteration_space_eq(self, backend, set):
         """IterationSpaces should compare equal if defined on the same Set."""
-        assert op2.IterationSpace(set, 3) == op2.IterationSpace(set, 3)
-        assert not op2.IterationSpace(set, 3) != op2.IterationSpace(set, 3)
+        assert base.IterationSpace(set, 3) == base.IterationSpace(set, 3)
+        assert not base.IterationSpace(set, 3) != base.IterationSpace(set, 3)
 
     def test_iteration_space_ne_set(self, backend):
         """IterationSpaces should not compare equal if defined on different
         Sets."""
-        assert op2.IterationSpace(op2.Set(3), 3) != op2.IterationSpace(op2.Set(3), 3)
-        assert not op2.IterationSpace(op2.Set(3), 3) == op2.IterationSpace(op2.Set(3), 3)
+        assert base.IterationSpace(op2.Set(3), 3) != base.IterationSpace(op2.Set(3), 3)
+        assert not base.IterationSpace(op2.Set(3), 3) == base.IterationSpace(op2.Set(3), 3)
 
     def test_iteration_space_ne_extent(self, backend, set):
         """IterationSpaces should not compare equal if defined with different
         extents."""
-        assert op2.IterationSpace(set, 3) != op2.IterationSpace(set, 2)
-        assert not op2.IterationSpace(set, 3) == op2.IterationSpace(set, 2)
+        assert base.IterationSpace(set, 3) != base.IterationSpace(set, 2)
+        assert not base.IterationSpace(set, 3) == base.IterationSpace(set, 2)
 
     def test_iteration_space_repr(self, backend, set):
         """IterationSpace repr should produce a IterationSpace object when
         eval'd."""
-        from pyop2.op2 import Set, IterationSpace  # noqa: needed by eval
-        m = op2.IterationSpace(set, 1)
+        from pyop2.op2 import Set  # noqa: needed by eval
+        from pyop2.base import IterationSpace  # noqa: needed by eval
+        m = base.IterationSpace(set, 1)
         assert isinstance(eval(repr(m)), base.IterationSpace)
 
     def test_iteration_space_str(self, backend, set):
         "IterationSpace should have the expected string representation."
-        m = op2.IterationSpace(set, 1)
+        m = base.IterationSpace(set, 1)
         s = "OP2 Iteration Space: %s with extents %s" % (m.iterset, m.extents)
         assert str(m) == s
 
@@ -1098,13 +1099,25 @@ class TestKernelAPI:
         assert str(k) == "OP2 Kernel: %s" % k.name
 
 
-class TestIllegalItersetMaps:
+class TestParLoopAPI:
 
     """
-    Pass args with the wrong iterset maps to ParLoops, and check that they are trapped.
+    ParLoop API unit tests
     """
+
+    def test_illegal_kernel(self, backend, set, dat, m):
+        """The first ParLoop argument has to be of type op2.Kernel."""
+        with pytest.raises(exceptions.KernelTypeError):
+            op2.par_loop('illegal_kernel', set, dat(m, op2.READ))
+
+    def test_illegal_iterset(self, backend, dat, m):
+        """The first ParLoop argument has to be of type op2.Kernel."""
+        with pytest.raises(exceptions.SetTypeError):
+            op2.par_loop(op2.Kernel("", "k"), 'illegal_set', dat(m, op2.READ))
 
     def test_illegal_dat_iterset(self, backend):
+        """ParLoop should reject a Dat argument using a different iteration
+        set from the par_loop's."""
         set1 = op2.Set(2)
         set2 = op2.Set(3)
         dset1 = op2.DataSet(set1, 1)
@@ -1112,15 +1125,17 @@ class TestIllegalItersetMaps:
         map = op2.Map(set2, set1, 1, [0, 0, 0])
         kernel = op2.Kernel("void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):
-            base.ParLoop(kernel, set1, dat(map, op2.READ))
+            op2.par_loop(kernel, set1, dat(map, op2.READ))
 
     def test_illegal_mat_iterset(self, backend, sparsity):
+        """ParLoop should reject a Mat argument using a different iteration
+        set from the par_loop's."""
         set1 = op2.Set(2)
         m = op2.Mat(sparsity)
         rmap, cmap = sparsity.maps[0]
         kernel = op2.Kernel("void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):
-            base.ParLoop(kernel, set1(3, 3),
+            op2.par_loop(kernel, set1,
                          m((rmap[op2.i[0]], cmap[op2.i[1]]), op2.INC))
 
 

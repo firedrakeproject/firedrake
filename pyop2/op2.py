@@ -48,8 +48,8 @@ from exceptions import MatTypeError, DatTypeError
 
 __all__ = ['cfg', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX', 'IdentityMap',
            'i', 'debug', 'info', 'warning', 'error', 'critical',
-           'set_log_level', 'MPI', 'init', 'exit', 'IterationSpace', 'Kernel',
-           'Set', 'DataSet', 'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map', 'Sparsity',
+           'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'DataSet',
+           'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map', 'Sparsity',
            'Solver', 'par_loop', 'solve']
 
 
@@ -102,10 +102,6 @@ def exit():
         backends.unset_backend()
 
 
-class IterationSpace(base.IterationSpace):
-    __metaclass__ = backends._BackendSelector
-
-
 class Kernel(base.Kernel):
     __metaclass__ = backends._BackendSelector
 
@@ -152,36 +148,44 @@ class Solver(base.Solver):
 
 
 @collective
-def par_loop(kernel, it_space, *args):
+def par_loop(kernel, iterset, *args):
     """Invocation of an OP2 kernel
 
     :arg kernel: The :class:`Kernel` to be executed.
-    :arg it_space: The iteration space over which the kernel should be
-                   executed. The primary iteration space will be a
-                   :class:`Set`. If a local iteration space is required, then
-                   this can be provided in brackets. The local iteration space
-                   may be either rank-1 or rank-2. For example, to iterate over
-                   a :class:`Set` named ``elements`` assembling a 3x3 local
-                   matrix at each entry, the ``it_space`` argument should be
-                   ``elements(3,3)``. To iterate over ``elements`` assembling
-                   a dimension-3 local vector at each entry, the ``it_space``
-                   argument should be ``elements(3)``.
-    :arg \*args: One or more objects of type :class:`Global`, :class:`Dat` or
-                 :class:`Mat` which are the global data structures from and to
+    :arg iterset: The iteration :class:`Set` over which the kernel should be
+                  executed.
+    :arg \*args: One or more :class:`base.Arg`\s constructed from a
+                 :class:`Global`, :class:`Dat` or :class:`Mat` using the call
+                 syntax and passing in an optionally indexed :class:`Map`
+                 through which this :class:`base.Arg` is accessed and the
+                 :class:`base.Access` descriptor indicating how the
+                 :class:`Kernel` is going to access this data (see the example
+                 below). These are the global data structures from and to
                  which the kernel will read and write.
 
-    ``par_loop`` invocation is illustrated by the following example::
+    .. warning ::
+        It is the caller's responsibility that the number and type of all
+        :class:`base.Arg`\s passed to the :func:`par_loop` match those expected
+        by the :class:`Kernel`. No runtime check is performed to ensure this!
 
-      pyop2.par_loop(mass, elements(3,3),
-             mat((elem_node[pyop2.i[0]]), elem_node[pyop2.i[1]]), pyop2.INC),
-             coords(elem_node, pyop2.READ))
+    If a :func:`par_loop` argument indexes into a :class:`Map` using an
+    :class:`base.IterationIndex`, this implies the use of a local
+    :class:`base.IterationSpace` of a size given by the arity of the
+    :class:`Map`. It is an error to have several arguments using local
+    iteration spaces of different size.
+
+    :func:`par_loop` invocation is illustrated by the following example ::
+
+      pyop2.par_loop(mass, elements,
+                     mat((elem_node[pyop2.i[0]]), elem_node[pyop2.i[1]]), pyop2.INC),
+                     coords(elem_node, pyop2.READ))
 
     This example will execute the :class:`Kernel` ``mass`` over the
     :class:`Set` ``elements`` executing 3x3 times for each
-    :class:`Set` member. The :class:`Kernel` takes four arguments, the
-    first is a :class:`Mat` named ``mat``, the second is a field named
-    `coords`. The remaining two arguments indicate which local
-    iteration space point the kernel is to execute.
+    :class:`Set` member, assuming the :class:`Map` ``elem_node`` is of arity 3.
+    The :class:`Kernel` takes four arguments, the first is a :class:`Mat` named
+    ``mat``, the second is a field named ``coords``. The remaining two arguments
+    indicate which local iteration space point the kernel is to execute.
 
     A :class:`Mat` requires a pair of :class:`Map` objects, one each
     for the row and column spaces. In this case both are the same
@@ -196,7 +200,7 @@ def par_loop(kernel, it_space, *args):
     ``elem_node`` for the relevant member of ``elements`` will be
     passed to the kernel as a vector.
     """
-    return backends._BackendSelector._backend.par_loop(kernel, it_space, *args)
+    return backends._BackendSelector._backend.par_loop(kernel, iterset, *args)
 
 
 @collective

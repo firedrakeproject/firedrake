@@ -42,12 +42,6 @@ class Access(object):
         raise RuntimeError("Please call op2.init to select a backend")
 
 
-class IterationSpace(object):
-
-    def __init__(self, *args, **kwargs):
-        raise RuntimeError("Please call op2.init to select a backend")
-
-
 class Set(object):
 
     def __init__(self, *args, **kwargs):

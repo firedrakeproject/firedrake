@@ -482,12 +482,12 @@ void kernel_swap(unsigned int* x[2])
         assert len(self.cache) == 0
         k = op2.Kernel("""void k(unsigned int *x, int i) {}""", 'k')
 
-        op2.par_loop(k, iterset(2),
+        op2.par_loop(k, iterset,
                      x2(iter2ind2[op2.i[0]], op2.INC))
 
         assert len(self.cache) == 1
 
-        op2.par_loop(k, iterset(2),
+        op2.par_loop(k, iterset,
                      x2(iter2ind2[op2.i[0]], op2.INC))
 
         assert len(self.cache) == 1

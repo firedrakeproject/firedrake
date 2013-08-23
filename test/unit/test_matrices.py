@@ -644,7 +644,7 @@ class TestMatrices:
     def test_invalid_mode(self, backend, elements, elem_node, mat, mode):
         """Mat args can only have modes WRITE and INC."""
         with pytest.raises(ModeValueError):
-            op2.par_loop(op2.Kernel("", "dummy"), elements(1, 1),
+            op2.par_loop(op2.Kernel("", "dummy"), elements,
                          mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), mode))
 
     def test_minimal_zero_mat(self, backend, skip_cuda):
@@ -661,8 +661,8 @@ void zero_mat(double local_mat[1][1], int i, int j)
         sparsity = op2.Sparsity((set, set), (map, map))
         mat = op2.Mat(sparsity, np.float64)
         kernel = op2.Kernel(zero_mat_code, "zero_mat")
-        op2.par_loop(kernel, set(1, 1), mat(
-            (map[op2.i[0]], map[op2.i[1]]), op2.WRITE))
+        op2.par_loop(kernel, set,
+                     mat((map[op2.i[0]], map[op2.i[1]]), op2.WRITE))
 
         expected_matrix = np.zeros((nelems, nelems), dtype=np.float64)
         eps = 1.e-12
@@ -671,7 +671,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
     def test_assemble_mat(self, backend, mass, mat, coords, elements,
                           elem_node, expected_matrix):
         """Assemble a simple finite-element matrix and check the result."""
-        op2.par_loop(mass, elements(3, 3),
+        op2.par_loop(mass, elements,
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
         eps = 1.e-5
@@ -707,12 +707,12 @@ void zero_mat(double local_mat[1][1], int i, int j)
         """Test accessing a scalar matrix with the WRITE access by adding some
         non-zero values into the matrix, then setting them back to zero with a
         kernel using op2.WRITE"""
-        op2.par_loop(kernel_inc, elements(3, 3),
+        op2.par_loop(kernel_inc, elements,
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      g(op2.READ))
         # Check we have ones in the matrix
         assert mat.array.sum() == 3 * 3 * elements.size
-        op2.par_loop(kernel_set, elements(3, 3),
+        op2.par_loop(kernel_set, elements,
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.WRITE),
                      g(op2.READ))
         # Check we have set all values in the matrix to 1
@@ -724,14 +724,14 @@ void zero_mat(double local_mat[1][1], int i, int j)
         """Test accessing a vector matrix with the WRITE access by adding some
         non-zero values into the matrix, then setting them back to zero with a
         kernel using op2.WRITE"""
-        op2.par_loop(kernel_inc_vec, elements(3, 3),
+        op2.par_loop(kernel_inc_vec, elements,
                      vecmat(
                          (elem_node[
                              op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      g(op2.READ))
         # Check we have ones in the matrix
         assert vecmat.array.sum() == 2 * 2 * 3 * 3 * elements.size
-        op2.par_loop(kernel_set_vec, elements(3, 3),
+        op2.par_loop(kernel_set_vec, elements,
                      vecmat(
                          (elem_node[
                              op2.i[0]], elem_node[op2.i[1]]), op2.WRITE),
@@ -749,7 +749,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
     def test_assemble_ffc(self, backend, mass_ffc, mat, coords, elements,
                           elem_node, expected_matrix):
         """Test that the FFC mass assembly assembles the correct values."""
-        op2.par_loop(mass_ffc, elements(3, 3),
+        op2.par_loop(mass_ffc, elements,
                      mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                      coords(elem_node, op2.READ))
         eps = 1.e-5
@@ -758,7 +758,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
     def test_assemble_vec_mass(self, backend, mass_vector_ffc, vecmat, coords,
                                elements, expected_vector_matrix, elem_node):
         """Test that the FFC vector mass assembly assembles the correct values."""
-        op2.par_loop(mass_vector_ffc, elements(3, 3),
+        op2.par_loop(mass_vector_ffc, elements,
                      vecmat(
                          (elem_node[
                              op2.i[0]], elem_node[op2.i[1]]), op2.INC),
@@ -785,7 +785,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
         # Zero the RHS first
         op2.par_loop(zero_dat, nodes,
                      b(op2.IdentityMap, op2.WRITE))
-        op2.par_loop(rhs_ffc_itspace, elements(3),
+        op2.par_loop(rhs_ffc_itspace, elements,
                      b(elem_node[op2.i[0]], op2.INC),
                      coords(elem_node, op2.READ),
                      f(elem_node, op2.READ))
@@ -811,7 +811,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
         # Zero the RHS first
         op2.par_loop(zero_vec_dat, nodes,
                      b_vec(op2.IdentityMap, op2.WRITE))
-        op2.par_loop(rhs_ffc_vector_itspace, elements(3),
+        op2.par_loop(rhs_ffc_vector_itspace, elements,
                      b_vec(elem_node[op2.i[0]], op2.INC),
                      coords(elem_node, op2.READ),
                      f_vec(elem_node, op2.READ))
