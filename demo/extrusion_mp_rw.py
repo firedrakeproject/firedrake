@@ -329,10 +329,9 @@ t0loop2 = time.time()
 for i in range(0, 100):
     op2.par_loop(mass, elements,
                  g(op2.INC),
-                 coords(elem_dofs, op2.READ),
-                 field(elem_elem, op2.READ),
-                 res(elem_p1_dofs, op2.INC)
-                 )
+                 coords(op2.READ, elem_dofs),
+                 field(op2.READ, elem_elem),
+                 res(op2.INC, elem_p1_dofs))
 tloop += time.clock() - t0loop  # t is CPU seconds elapsed (floating point)
 tloop2 = time.time() - t0loop2
 

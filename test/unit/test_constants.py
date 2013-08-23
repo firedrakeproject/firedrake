@@ -66,7 +66,7 @@ class TestConstant:
         """
         constant = op2.Const(1, 100, dtype=numpy.int32, name="myconstant")
         op2.par_loop(op2.Kernel(kernel, "kernel_1d_read"),
-                     set, dat(op2.IdentityMap, op2.WRITE))
+                     set, dat(op2.WRITE))
 
         constant.remove_from_namespace()
         assert all(dat.data == constant.data)
@@ -78,7 +78,7 @@ class TestConstant:
         constant = op2.Const(2, (100, 200), dtype=numpy.int32,
                              name="myconstant")
         op2.par_loop(op2.Kernel(kernel, "kernel_2d_read"),
-                     set, dat(op2.IdentityMap, op2.WRITE))
+                     set, dat(op2.WRITE))
         constant.remove_from_namespace()
         assert all(dat.data == constant.data.sum())
 
@@ -90,14 +90,14 @@ class TestConstant:
         constant = op2.Const(1, 10, dtype=numpy.int32, name="myconstant")
 
         op2.par_loop(op2.Kernel(k, 'k'),
-                     set, dat(op2.IdentityMap, op2.WRITE))
+                     set, dat(op2.WRITE))
 
         assert all(dat.data == constant.data)
 
         constant.data == 11
 
         op2.par_loop(op2.Kernel(k, 'k'),
-                     set, dat(op2.IdentityMap, op2.WRITE))
+                     set, dat(op2.WRITE))
 
         constant.remove_from_namespace()
         assert all(dat.data == constant.data)
@@ -112,7 +112,7 @@ class TestConstant:
         constant = op2.Const(1, 10, dtype=numpy.int32, name="myconstant")
 
         op2.par_loop(op2.Kernel(k, 'k'),
-                     set, dat(op2.IdentityMap, op2.WRITE))
+                     set, dat(op2.WRITE))
 
         assert len(cache) == 1
         assert all(dat.data == constant.data)
@@ -120,7 +120,7 @@ class TestConstant:
         constant.data == 11
 
         op2.par_loop(op2.Kernel(k, 'k'),
-                     set, dat(op2.IdentityMap, op2.WRITE))
+                     set, dat(op2.WRITE))
 
         constant.remove_from_namespace()
         assert len(cache) == 1

@@ -87,47 +87,47 @@ def main(opt):
 
         # Save old flow solution
         op2.par_loop(save_soln, cells,
-                     p_q(op2.IdentityMap, op2.READ),
-                     p_qold(op2.IdentityMap, op2.WRITE))
+                     p_q(op2.READ),
+                     p_qold(op2.WRITE))
 
         # Predictor/corrector update loop
         for k in range(2):
 
             # Calculate area/timestep
             op2.par_loop(adt_calc, cells,
-                         p_x(pcell[0], op2.READ),
-                         p_x(pcell[1], op2.READ),
-                         p_x(pcell[2], op2.READ),
-                         p_x(pcell[3], op2.READ),
-                         p_q(op2.IdentityMap, op2.READ),
-                         p_adt(op2.IdentityMap, op2.WRITE))
+                         p_x(op2.READ, pcell[0]),
+                         p_x(op2.READ, pcell[1]),
+                         p_x(op2.READ, pcell[2]),
+                         p_x(op2.READ, pcell[3]),
+                         p_q(op2.READ),
+                         p_adt(op2.WRITE))
 
             # Calculate flux residual
             op2.par_loop(res_calc, edges,
-                         p_x(pedge[0], op2.READ),
-                         p_x(pedge[1], op2.READ),
-                         p_q(pevcell[0], op2.READ),
-                         p_q(pevcell[1], op2.READ),
-                         p_adt(pecell[0], op2.READ),
-                         p_adt(pecell[1], op2.READ),
-                         p_res(pevcell[0], op2.INC),
-                         p_res(pevcell[1], op2.INC))
+                         p_x(op2.READ, pedge[0]),
+                         p_x(op2.READ, pedge[1]),
+                         p_q(op2.READ, pevcell[0]),
+                         p_q(op2.READ, pevcell[1]),
+                         p_adt(op2.READ, pecell[0]),
+                         p_adt(op2.READ, pecell[1]),
+                         p_res(op2.INC, pevcell[0]),
+                         p_res(op2.INC, pevcell[1]))
 
             op2.par_loop(bres_calc, bedges,
-                         p_x(pbedge[0], op2.READ),
-                         p_x(pbedge[1], op2.READ),
-                         p_q(pbevcell[0], op2.READ),
-                         p_adt(pbecell[0], op2.READ),
-                         p_res(pbevcell[0], op2.INC),
-                         p_bound(op2.IdentityMap, op2.READ))
+                         p_x(op2.READ, pbedge[0]),
+                         p_x(op2.READ, pbedge[1]),
+                         p_q(op2.READ, pbevcell[0]),
+                         p_adt(op2.READ, pbecell[0]),
+                         p_res(op2.INC, pbevcell[0]),
+                         p_bound(op2.READ))
 
             # Update flow field
             rms = op2.Global(1, 0.0, np.double, "rms")
             op2.par_loop(update, cells,
-                         p_qold(op2.IdentityMap, op2.READ),
-                         p_q(op2.IdentityMap, op2.WRITE),
-                         p_res(op2.IdentityMap, op2.RW),
-                         p_adt(op2.IdentityMap, op2.READ),
+                         p_qold(op2.READ),
+                         p_q(op2.WRITE),
+                         p_res(op2.RW),
+                         p_adt(op2.READ),
                          rms(op2.INC))
         # Print iteration history
         rms = sqrt(rms.data / cells.size)

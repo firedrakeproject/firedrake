@@ -38,13 +38,13 @@ import atexit
 import backends
 import configuration as cfg
 import base
-from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
+from base import READ, WRITE, RW, INC, MIN, MAX, i
 from logger import debug, info, warning, error, critical, set_log_level
 from mpi import MPI, collective
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
 
-__all__ = ['cfg', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX', 'IdentityMap',
+__all__ = ['cfg', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'i', 'debug', 'info', 'warning', 'error', 'critical',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'DataSet',
            'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map', 'Sparsity',

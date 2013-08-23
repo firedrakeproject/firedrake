@@ -247,9 +247,8 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
 
         op2.par_loop(mass, elements,
                      g(op2.INC),
-                     dat_coords(coords_map, op2.READ),
-                     dat_field(field_map, op2.READ)
-                     )
+                     dat_coords(op2.READ, coords_map),
+                     dat_field(op2.READ, field_map))
 
         assert int(g.data[0]) == int((layers - 1) * 0.1 * (nelems / 2))
 
@@ -257,7 +256,7 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
         kernel_wo = "void kernel_wo(double* x[], int j) { x[0][0] = double(42); }\n"
 
         op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"),
-                     elements, dat_f(field_map, op2.WRITE))
+                     elements, dat_f(op2.WRITE, field_map))
 
         assert all(map(lambda x: x == 42, dat_f.data))
 
@@ -271,7 +270,7 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
                                                                x[5][0] = double(42); x[5][1] = double(42);
                                                             }\n"""
         op2.par_loop(op2.Kernel(kernel_wo_c, "kernel_wo_c"),
-                     elements, dat_c(coords_map, op2.WRITE))
+                     elements, dat_c(op2.WRITE, coords_map))
 
         assert all(map(lambda x: x[0] == 42 and x[1] == 42, dat_c.data))
 
@@ -286,8 +285,8 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
                                                                y[0][0] = sum;
                                                             }\n"""
         op2.par_loop(op2.Kernel(kernel_wtf, "kernel_wtf"), elements,
-                     dat_coords(coords_map, op2.READ),
-                     dat_f(field_map, op2.WRITE))
+                     dat_coords(op2.READ, coords_map),
+                     dat_f(op2.WRITE, field_map))
         assert all(map(lambda x: x[0] >= 0, dat_f.data))
 
     def test_indirect_coords_inc(self, backend, elements, dat_coords,
@@ -302,8 +301,8 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
                                                                }
                                                             }\n"""
         op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"), elements,
-                     dat_coords(coords_map, op2.READ),
-                     dat_c(coords_map, op2.INC))
+                     dat_coords(op2.READ, coords_map),
+                     dat_c(op2.INC, coords_map))
 
         assert sum(sum(dat_c.data)) == nums[0] * layers * 2
 

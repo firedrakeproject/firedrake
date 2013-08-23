@@ -886,7 +886,8 @@ class Dat(DataCarrier):
             self._recv_buf = {}
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, path, access):
+    def __call__(self, access, path=None):
+        path = path or IdentityMap
         if isinstance(path, Map):
             if path._toset != self._dataset.set and path != IdentityMap:
                 raise MapValueError("To Set of Map does not match Set of Dat.")
@@ -957,7 +958,7 @@ class Dat(DataCarrier):
             }""" % {'t': self.ctype, 'dim': self.cdim}
             self._zero_kernel = _make_object('Kernel', k, 'zero')
         _make_object('ParLoop', self._zero_kernel, self.dataset.set,
-                     self(IdentityMap, WRITE)).compute()
+                     self(WRITE)).compute()
 
     def __eq__(self, other):
         """:class:`Dat`\s compare equal if defined on the same
@@ -1630,7 +1631,7 @@ class Mat(DataCarrier):
         Mat._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, path, access):
+    def __call__(self, access, path):
         path = as_tuple(path, Arg, 2)
         path_maps = [arg.map for arg in path]
         path_idxs = [arg.idx for arg in path]

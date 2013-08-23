@@ -123,24 +123,24 @@ def main(opt):
     for i in xrange(1, niter + 1):
 
         op2.par_loop(res_calc, cells,
-                     p_xm(pvcell, op2.READ),
-                     p_phim(pcell, op2.READ),
-                     p_K(op2.IdentityMap, op2.WRITE),
-                     p_resm(pcell, op2.INC))
+                     p_xm(op2.READ, pvcell),
+                     p_phim(op2.READ, pcell),
+                     p_K(op2.WRITE),
+                     p_resm(op2.INC, pcell))
 
         op2.par_loop(dirichlet, bnodes,
-                     p_resm(pbnodes[0], op2.WRITE))
+                     p_resm(op2.WRITE, pbnodes[0]))
 
         c1 = op2.Global(1, data=0.0, name='c1')
         c2 = op2.Global(1, data=0.0, name='c2')
         c3 = op2.Global(1, data=0.0, name='c3')
         # c1 = R' * R
         op2.par_loop(init_cg, nodes,
-                     p_resm(op2.IdentityMap, op2.READ),
+                     p_resm(op2.READ),
                      c1(op2.INC),
-                     p_U(op2.IdentityMap, op2.WRITE),
-                     p_V(op2.IdentityMap, op2.WRITE),
-                     p_P(op2.IdentityMap, op2.WRITE))
+                     p_U(op2.WRITE),
+                     p_V(op2.WRITE),
+                     p_P(op2.WRITE))
 
         # Set stopping criteria
         res0 = sqrt(c1.data)
@@ -153,19 +153,19 @@ def main(opt):
 
             # V = Stiffness * P
             op2.par_loop(spMV, cells,
-                         p_V(pcell, op2.INC),
-                         p_K(op2.IdentityMap, op2.READ),
-                         p_P(pcell, op2.READ))
+                         p_V(op2.INC, pcell),
+                         p_K(op2.READ),
+                         p_P(op2.READ, pcell))
 
             op2.par_loop(dirichlet, bnodes,
-                         p_V(pbnodes[0], op2.WRITE))
+                         p_V(op2.WRITE, pbnodes[0]))
 
             c2.data = 0.0
 
             # c2 = P' * V
             op2.par_loop(dotPV, nodes,
-                         p_P(op2.IdentityMap, op2.READ),
-                         p_V(op2.IdentityMap, op2.READ),
+                         p_P(op2.READ),
+                         p_V(op2.READ),
                          c2(op2.INC))
 
             alpha = op2.Global(1, data=c1.data / c2.data, name='alpha')
@@ -173,23 +173,23 @@ def main(opt):
             # U = U + alpha * P
             # resm = resm - alpha * V
             op2.par_loop(updateUR, nodes,
-                         p_U(op2.IdentityMap, op2.INC),
-                         p_resm(op2.IdentityMap, op2.INC),
-                         p_P(op2.IdentityMap, op2.READ),
-                         p_V(op2.IdentityMap, op2.RW),
+                         p_U(op2.INC),
+                         p_resm(op2.INC),
+                         p_P(op2.READ),
+                         p_V(op2.RW),
                          alpha(op2.READ))
 
             c3.data = 0.0
             # c3 = resm' * resm
             op2.par_loop(dotR, nodes,
-                         p_resm(op2.IdentityMap, op2.READ),
+                         p_resm(op2.READ),
                          c3(op2.INC))
 
             beta = op2.Global(1, data=c3.data / c1.data, name="beta")
             # P = beta * P + resm
             op2.par_loop(updateP, nodes,
-                         p_resm(op2.IdentityMap, op2.READ),
-                         p_P(op2.IdentityMap, op2.RW),
+                         p_resm(op2.READ),
+                         p_P(op2.RW),
                          beta(op2.READ))
 
             c1.data = c3.data
@@ -200,9 +200,9 @@ def main(opt):
 
         # phim = phim - Stiffness \ Load
         op2.par_loop(update, nodes,
-                     p_phim(op2.IdentityMap, op2.RW),
-                     p_resm(op2.IdentityMap, op2.WRITE),
-                     p_U(op2.IdentityMap, op2.READ),
+                     p_phim(op2.RW),
+                     p_resm(op2.WRITE),
+                     p_U(op2.READ),
                      rms(op2.INC))
 
         print "rms = %10.5e iter: %d" % (sqrt(rms.data) / sqrt(nodes.size), it)

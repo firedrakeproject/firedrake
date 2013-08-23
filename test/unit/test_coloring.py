@@ -90,9 +90,9 @@ class TestColoring:
         assert NUM_ELE % 2 == 0, "NUM_ELE must be even."
 
         plan = _plan.Plan(elements,
-                          mat((elem_node[op2.i[0]],
-                               elem_node[op2.i[1]]), op2.INC),
-                          x(elem_node[0], op2.WRITE),
+                          mat(op2.INC, (elem_node[op2.i[0]],
+                                        elem_node[op2.i[1]])),
+                          x(op2.WRITE, elem_node[0]),
                           partition_size=NUM_ELE / 2,
                           matrix_coloring=True)
 

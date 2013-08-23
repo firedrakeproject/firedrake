@@ -128,13 +128,13 @@ bdry = op2.Dat(bdry_nodes, bdry_vals, valuetype, "bdry")
 # Assemble matrix and rhs
 
 op2.par_loop(laplacian, elements,
-             mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-             coords(elem_node, op2.READ))
+             mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
+             coords(op2.READ, elem_node))
 
 op2.par_loop(rhs, elements,
-             b(elem_node[op2.i[0]], op2.INC),
-             coords(elem_node, op2.READ),
-             f(elem_node, op2.READ))
+             b(op2.INC, elem_node[op2.i[0]]),
+             coords(op2.READ, elem_node),
+             f(op2.READ, elem_node))
 
 # Apply strong BCs
 
@@ -143,8 +143,8 @@ strongbc_rhs = op2.Kernel("""
 void strongbc_rhs(double *val, double *target) { *target = *val; }
 """, "strongbc_rhs")
 op2.par_loop(strongbc_rhs, bdry_nodes,
-             bdry(op2.IdentityMap, op2.READ),
-             b(bdry_node_node[0], op2.WRITE))
+             bdry(op2.READ),
+             b(op2.WRITE, bdry_node_node[0]))
 
 solver = op2.Solver(linear_solver='gmres')
 solver.solve(mat, x, b)

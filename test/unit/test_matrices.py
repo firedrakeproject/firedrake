@@ -645,7 +645,7 @@ class TestMatrices:
         """Mat args can only have modes WRITE and INC."""
         with pytest.raises(ModeValueError):
             op2.par_loop(op2.Kernel("", "dummy"), elements,
-                         mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), mode))
+                         mat(mode, (elem_node[op2.i[0]], elem_node[op2.i[1]])))
 
     def test_minimal_zero_mat(self, backend, skip_cuda):
         """Assemble a matrix that is all zeros."""
@@ -662,7 +662,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
         mat = op2.Mat(sparsity, np.float64)
         kernel = op2.Kernel(zero_mat_code, "zero_mat")
         op2.par_loop(kernel, set,
-                     mat((map[op2.i[0]], map[op2.i[1]]), op2.WRITE))
+                     mat(op2.WRITE, (map[op2.i[0]], map[op2.i[1]])))
 
         expected_matrix = np.zeros((nelems, nelems), dtype=np.float64)
         eps = 1.e-12
@@ -672,8 +672,8 @@ void zero_mat(double local_mat[1][1], int i, int j)
                           elem_node, expected_matrix):
         """Assemble a simple finite-element matrix and check the result."""
         op2.par_loop(mass, elements,
-                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                     coords(elem_node, op2.READ))
+                     mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
+                     coords(op2.READ, elem_node))
         eps = 1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
@@ -681,9 +681,9 @@ void zero_mat(double local_mat[1][1], int i, int j)
                           elem_node, expected_rhs):
         """Assemble a simple finite-element right-hand side and check result."""
         op2.par_loop(rhs, elements,
-                     b(elem_node, op2.INC),
-                     coords(elem_node, op2.READ),
-                     f(elem_node, op2.READ))
+                     b(op2.INC, elem_node),
+                     coords(op2.READ, elem_node),
+                     f(op2.READ, elem_node))
 
         eps = 1.e-12
         assert_allclose(b.data, expected_rhs, eps)
@@ -708,12 +708,12 @@ void zero_mat(double local_mat[1][1], int i, int j)
         non-zero values into the matrix, then setting them back to zero with a
         kernel using op2.WRITE"""
         op2.par_loop(kernel_inc, elements,
-                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                     mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
                      g(op2.READ))
         # Check we have ones in the matrix
         assert mat.array.sum() == 3 * 3 * elements.size
         op2.par_loop(kernel_set, elements,
-                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.WRITE),
+                     mat(op2.WRITE, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
                      g(op2.READ))
         # Check we have set all values in the matrix to 1
         assert_allclose(mat.array, np.ones_like(mat.array))
@@ -725,16 +725,14 @@ void zero_mat(double local_mat[1][1], int i, int j)
         non-zero values into the matrix, then setting them back to zero with a
         kernel using op2.WRITE"""
         op2.par_loop(kernel_inc_vec, elements,
-                     vecmat(
-                         (elem_node[
-                             op2.i[0]], elem_node[op2.i[1]]), op2.INC),
+                     vecmat(op2.INC,
+                            (elem_node[op2.i[0]], elem_node[op2.i[1]])),
                      g(op2.READ))
         # Check we have ones in the matrix
         assert vecmat.array.sum() == 2 * 2 * 3 * 3 * elements.size
         op2.par_loop(kernel_set_vec, elements,
-                     vecmat(
-                         (elem_node[
-                             op2.i[0]], elem_node[op2.i[1]]), op2.WRITE),
+                     vecmat(op2.WRITE,
+                            (elem_node[op2.i[0]], elem_node[op2.i[1]])),
                      g(op2.READ))
         # Check we have set all values in the matrix to 1
         assert_allclose(vecmat.array, np.ones_like(vecmat.array))
@@ -743,15 +741,15 @@ void zero_mat(double local_mat[1][1], int i, int j)
     def test_zero_rhs(self, backend, b, zero_dat, nodes):
         """Test that the RHS is zeroed correctly."""
         op2.par_loop(zero_dat, nodes,
-                     b(op2.IdentityMap, op2.WRITE))
+                     b(op2.WRITE))
         assert all(b.data == np.zeros_like(b.data))
 
     def test_assemble_ffc(self, backend, mass_ffc, mat, coords, elements,
                           elem_node, expected_matrix):
         """Test that the FFC mass assembly assembles the correct values."""
         op2.par_loop(mass_ffc, elements,
-                     mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                     coords(elem_node, op2.READ))
+                     mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
+                     coords(op2.READ, elem_node))
         eps = 1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
@@ -759,10 +757,9 @@ void zero_mat(double local_mat[1][1], int i, int j)
                                elements, expected_vector_matrix, elem_node):
         """Test that the FFC vector mass assembly assembles the correct values."""
         op2.par_loop(mass_vector_ffc, elements,
-                     vecmat(
-                         (elem_node[
-                             op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                     coords(elem_node, op2.READ))
+                     vecmat(op2.INC,
+                            (elem_node[op2.i[0]], elem_node[op2.i[1]])),
+                     coords(op2.READ, elem_node))
         eps = 1.e-6
         assert_allclose(vecmat.values, expected_vector_matrix, eps)
 
@@ -770,9 +767,9 @@ void zero_mat(double local_mat[1][1], int i, int j)
                      elem_node, expected_rhs):
         """Test that the FFC rhs assembly assembles the correct values."""
         op2.par_loop(rhs_ffc, elements,
-                     b(elem_node, op2.INC),
-                     coords(elem_node, op2.READ),
-                     f(elem_node, op2.READ))
+                     b(op2.INC, elem_node),
+                     coords(op2.READ, elem_node),
+                     f(op2.READ, elem_node))
 
         eps = 1.e-6
         assert_allclose(b.data, expected_rhs, eps)
@@ -784,11 +781,11 @@ void zero_mat(double local_mat[1][1], int i, int j)
         assembles the correct values."""
         # Zero the RHS first
         op2.par_loop(zero_dat, nodes,
-                     b(op2.IdentityMap, op2.WRITE))
+                     b(op2.WRITE))
         op2.par_loop(rhs_ffc_itspace, elements,
-                     b(elem_node[op2.i[0]], op2.INC),
-                     coords(elem_node, op2.READ),
-                     f(elem_node, op2.READ))
+                     b(op2.INC, elem_node[op2.i[0]]),
+                     coords(op2.READ, elem_node),
+                     f(op2.READ, elem_node))
         eps = 1.e-6
         assert_allclose(b.data, expected_rhs, eps)
 
@@ -797,9 +794,9 @@ void zero_mat(double local_mat[1][1], int i, int j)
                             expected_vec_rhs, nodes):
         """Test that the FFC vector rhs assembly assembles the correct values."""
         op2.par_loop(rhs_ffc_vector, elements,
-                     b_vec(elem_node, op2.INC),
-                     coords(elem_node, op2.READ),
-                     f_vec(elem_node, op2.READ))
+                     b_vec(op2.INC, elem_node),
+                     coords(op2.READ, elem_node),
+                     f_vec(op2.READ, elem_node))
         eps = 1.e-6
         assert_allclose(b_vec.data, expected_vec_rhs, eps)
 
@@ -810,11 +807,11 @@ void zero_mat(double local_mat[1][1], int i, int j)
         spaces assembles the correct values."""
         # Zero the RHS first
         op2.par_loop(zero_vec_dat, nodes,
-                     b_vec(op2.IdentityMap, op2.WRITE))
+                     b_vec(op2.WRITE))
         op2.par_loop(rhs_ffc_vector_itspace, elements,
-                     b_vec(elem_node[op2.i[0]], op2.INC),
-                     coords(elem_node, op2.READ),
-                     f_vec(elem_node, op2.READ))
+                     b_vec(op2.INC, elem_node[op2.i[0]]),
+                     coords(op2.READ, elem_node),
+                     f_vec(op2.READ, elem_node))
         eps = 1.e-6
         assert_allclose(b_vec.data, expected_vec_rhs, eps)
 

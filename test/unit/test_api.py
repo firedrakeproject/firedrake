@@ -195,35 +195,35 @@ class TestArgAPI:
     """
 
     def test_arg_eq_dat(self, backend, dat, m):
-        assert dat(m, op2.READ) == dat(m, op2.READ)
-        assert dat(m[0], op2.READ) == dat(m[0], op2.READ)
-        assert not dat(m, op2.READ) != dat(m, op2.READ)
-        assert not dat(m[0], op2.READ) != dat(m[0], op2.READ)
+        assert dat(op2.READ, m) == dat(op2.READ, m)
+        assert dat(op2.READ, m[0]) == dat(op2.READ, m[0])
+        assert not dat(op2.READ, m) != dat(op2.READ, m)
+        assert not dat(op2.READ, m[0]) != dat(op2.READ, m[0])
 
     def test_arg_ne_dat_idx(self, backend, dat, m):
-        assert dat(m[0], op2.READ) != dat(m[1], op2.READ)
-        assert not dat(m[0], op2.READ) == dat(m[1], op2.READ)
+        assert dat(op2.READ, m[0]) != dat(op2.READ, m[1])
+        assert not dat(op2.READ, m[0]) == dat(op2.READ, m[1])
 
     def test_arg_ne_dat_mode(self, backend, dat, m):
-        assert dat(m, op2.READ) != dat(m, op2.WRITE)
-        assert not dat(m, op2.READ) == dat(m, op2.WRITE)
+        assert dat(op2.READ, m) != dat(op2.WRITE, m)
+        assert not dat(op2.READ, m) == dat(op2.WRITE, m)
 
     def test_arg_ne_dat_map(self, backend, dat, m):
         m2 = op2.Map(m.iterset, m.toset, 1, np.ones(m.iterset.size))
-        assert dat(m, op2.READ) != dat(m2, op2.READ)
-        assert not dat(m, op2.READ) == dat(m2, op2.READ)
+        assert dat(op2.READ, m) != dat(op2.READ, m2)
+        assert not dat(op2.READ, m) == dat(op2.READ, m2)
 
     def test_arg_eq_mat(self, backend, mat, m):
-        assert mat((m[0], m[0]), op2.INC) == mat((m[0], m[0]), op2.INC)
-        assert not mat((m[0], m[0]), op2.INC) != mat((m[0], m[0]), op2.INC)
+        assert mat(op2.INC, (m[0], m[0])) == mat(op2.INC, (m[0], m[0]))
+        assert not mat(op2.INC, (m[0], m[0])) != mat(op2.INC, (m[0], m[0]))
 
     def test_arg_ne_mat_idx(self, backend, mat, m):
-        assert mat((m[0], m[0]), op2.INC) != mat((m[1], m[1]), op2.INC)
-        assert not mat((m[0], m[0]), op2.INC) == mat((m[1], m[1]), op2.INC)
+        assert mat(op2.INC, (m[0], m[0])) != mat(op2.INC, (m[1], m[1]))
+        assert not mat(op2.INC, (m[0], m[0])) == mat(op2.INC, (m[1], m[1]))
 
     def test_arg_ne_mat_mode(self, backend, mat, m):
-        assert mat((m[0], m[0]), op2.INC) != mat((m[0], m[0]), op2.WRITE)
-        assert not mat((m[0], m[0]), op2.INC) == mat((m[0], m[0]), op2.WRITE)
+        assert mat(op2.INC, (m[0], m[0])) != mat(op2.WRITE, (m[0], m[0]))
+        assert not mat(op2.INC, (m[0], m[0])) == mat(op2.WRITE, (m[0], m[0]))
 
 
 class TestSetAPI:
@@ -392,7 +392,7 @@ class TestDatAPI:
         set2 = op2.Set(2)
         to_set2 = op2.Map(set1, set2, 1, [0, 0, 0])
         with pytest.raises(exceptions.MapValueError):
-            d(to_set2, op2.READ)
+            d(op2.READ, to_set2)
 
     def test_dat_on_set_builds_dim_one_dataset(self, backend, set):
         """If a Set is passed as the dataset argument, it should be
@@ -639,7 +639,7 @@ class TestMatAPI:
         "Mat arg constructor should reject invalid maps."
         wrongmap = op2.Map(op2.Set(2), op2.Set(3), 2, [0, 0, 0, 0])
         with pytest.raises(exceptions.MapValueError):
-            mat((wrongmap[0], wrongmap[1]), op2.INC)
+            mat(op2.INC, (wrongmap[0], wrongmap[1]))
 
     def test_mat_repr(self, backend, mat):
         "Mat should have the expected repr."
@@ -1108,12 +1108,12 @@ class TestParLoopAPI:
     def test_illegal_kernel(self, backend, set, dat, m):
         """The first ParLoop argument has to be of type op2.Kernel."""
         with pytest.raises(exceptions.KernelTypeError):
-            op2.par_loop('illegal_kernel', set, dat(m, op2.READ))
+            op2.par_loop('illegal_kernel', set, dat(op2.READ, m))
 
     def test_illegal_iterset(self, backend, dat, m):
         """The first ParLoop argument has to be of type op2.Kernel."""
         with pytest.raises(exceptions.SetTypeError):
-            op2.par_loop(op2.Kernel("", "k"), 'illegal_set', dat(m, op2.READ))
+            op2.par_loop(op2.Kernel("", "k"), 'illegal_set', dat(op2.READ, m))
 
     def test_illegal_dat_iterset(self, backend):
         """ParLoop should reject a Dat argument using a different iteration
@@ -1125,7 +1125,7 @@ class TestParLoopAPI:
         map = op2.Map(set2, set1, 1, [0, 0, 0])
         kernel = op2.Kernel("void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):
-            op2.par_loop(kernel, set1, dat(map, op2.READ))
+            base.ParLoop(kernel, set1, dat(op2.READ, map))
 
     def test_illegal_mat_iterset(self, backend, sparsity):
         """ParLoop should reject a Mat argument using a different iteration
@@ -1136,7 +1136,7 @@ class TestParLoopAPI:
         kernel = op2.Kernel("void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):
             op2.par_loop(kernel, set1,
-                         m((rmap[op2.i[0]], cmap[op2.i[1]]), op2.INC))
+                         m(op2.INC, (rmap[op2.i[0]], cmap[op2.i[1]])))
 
 
 class TestSolverAPI:

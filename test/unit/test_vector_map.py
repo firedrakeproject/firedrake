@@ -131,8 +131,8 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
 """
 
         op2.par_loop(op2.Kernel(kernel_sum, "kernel_sum"), edges,
-                     node_vals(edge2node, op2.READ),
-                     edge_vals(op2.IdentityMap, op2.WRITE))
+                     node_vals(op2.READ, edge2node),
+                     edge_vals(op2.WRITE))
 
         expected = numpy.asarray(
             range(1, nedges * 2 + 1, 2)).reshape(nedges, 1)
@@ -145,8 +145,8 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
         *d = vd[0][0];
         }"""
         op2.par_loop(op2.Kernel(k, 'k'), node,
-                     d1(op2.IdentityMap, op2.WRITE),
-                     vd1(node2ele, op2.READ))
+                     d1(op2.WRITE),
+                     vd1(op2.READ, node2ele))
         assert all(d1.data[::2] == vd1.data)
         assert all(d1.data[1::2] == vd1.data)
 
@@ -158,7 +158,7 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
         """
 
         op2.par_loop(op2.Kernel(k, 'k'), node,
-                     vd1(node2ele, op2.WRITE))
+                     vd1(op2.WRITE, node2ele))
         assert all(vd1.data == 2)
 
     def test_inc_1d_vector_map(self, backend, node, d1, vd1, node2ele):
@@ -170,8 +170,8 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
         vd[0][0] += *d;
         }"""
         op2.par_loop(op2.Kernel(k, 'k'), node,
-                     d1(op2.IdentityMap, op2.READ),
-                     vd1(node2ele, op2.INC))
+                     d1(op2.READ),
+                     vd1(op2.INC, node2ele))
         expected = numpy.zeros_like(vd1.data)
         expected[:] = 3
         expected += numpy.arange(
@@ -188,8 +188,8 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
         d[1] = vd[0][1];
         }"""
         op2.par_loop(op2.Kernel(k, 'k'), node,
-                     d2(op2.IdentityMap, op2.WRITE),
-                     vd2(node2ele, op2.READ))
+                     d2(op2.WRITE),
+                     vd2(op2.READ, node2ele))
         assert all(d2.data[::2, 0] == vd2.data[:, 0])
         assert all(d2.data[::2, 1] == vd2.data[:, 1])
         assert all(d2.data[1::2, 0] == vd2.data[:, 0])
@@ -204,7 +204,7 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
         """
 
         op2.par_loop(op2.Kernel(k, 'k'), node,
-                     vd2(node2ele, op2.WRITE))
+                     vd2(op2.WRITE, node2ele))
         assert all(vd2.data[:, 0] == 2)
         assert all(vd2.data[:, 1] == 3)
 
@@ -219,8 +219,8 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
         vd[0][1] += d[1];
         }"""
         op2.par_loop(op2.Kernel(k, 'k'), node,
-                     d2(op2.IdentityMap, op2.READ),
-                     vd2(node2ele, op2.INC))
+                     d2(op2.READ),
+                     vd2(op2.INC, node2ele))
 
         expected = numpy.zeros_like(vd2.data)
         expected[:, 0] = 3
