@@ -1112,7 +1112,7 @@ class TestIllegalItersetMaps:
         map = op2.Map(set2, set1, 1, [0, 0, 0])
         kernel = op2.Kernel("void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):
-            base.ParLoop(kernel, set1, dat(map, op2.READ))
+            op2.par_loop(kernel, set1, dat(map, op2.READ))
 
     def test_illegal_mat_iterset(self, backend, sparsity):
         set1 = op2.Set(2)
@@ -1120,7 +1120,7 @@ class TestIllegalItersetMaps:
         rmap, cmap = sparsity.maps[0]
         kernel = op2.Kernel("void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):
-            base.ParLoop(kernel, set1(3, 3),
+            op2.par_loop(kernel, set1,
                          m((rmap[op2.i[0]], cmap[op2.i[1]]), op2.INC))
 
 
