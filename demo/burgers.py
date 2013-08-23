@@ -161,7 +161,7 @@ while normsq.data[0] > tolsq:
 
     mat.zero()
 
-    op2.par_loop(burgers, elements(2, 2),
+    op2.par_loop(burgers, elements,
                  mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
                  coords(elem_node, op2.READ),
                  tracer(elem_node, op2.READ))
@@ -172,7 +172,7 @@ while normsq.data[0] > tolsq:
 
     rhs.zero()
 
-    op2.par_loop(rhs, elements(3),
+    op2.par_loop(rhs, elements,
                  b(elem_node[op2.i[0]], op2.INC),
                  coords(elem_node, op2.READ),
                  tracer(elem_node, op2.READ))

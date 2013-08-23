@@ -100,11 +100,11 @@ x = op2.Dat(nodes ** 2, x_vals, valuetype, "x")
 
 # Assemble and solve
 
-op2.par_loop(mass, elements(3, 3),
+op2.par_loop(mass, elements,
              mat((elem_vnode[op2.i[0]], elem_vnode[op2.i[1]]), op2.INC),
              coords(elem_vnode, op2.READ))
 
-op2.par_loop(rhs, elements(3),
+op2.par_loop(rhs, elements,
              b(elem_vnode[op2.i[0]], op2.INC),
              coords(elem_vnode, op2.READ),
              f(elem_vnode, op2.READ))
