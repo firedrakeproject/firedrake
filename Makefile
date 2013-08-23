@@ -20,6 +20,8 @@ PORT = 8000
 
 MESHES_DIR = demo/meshes
 
+GIT_REV = $(shell git rev-parse --verify --short HEAD)
+
 all: ext
 
 .PHONY : help test lint unit regression doc update_docs ext ext_clean meshes
@@ -81,7 +83,7 @@ update_docs:
 fi
 	cd $(SPHINX_TARGET_DIR); git fetch -p; git checkout -f gh-pages; git reset --hard origin/gh-pages
 	make -C $(SPHINX_DIR) $(SPHINX_TARGET)
-	cd $(SPHINX_TARGET_DIR); git commit -am "Update documentation"; git push origin gh-pages
+	cd $(SPHINX_TARGET_DIR); git add .; git commit -am "Update documentation to revision $(GIT_REV)"; git push origin gh-pages
 
 ext: ext_clean
 	python setup.py build_ext -i
