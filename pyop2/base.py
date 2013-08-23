@@ -1802,11 +1802,11 @@ class ParLoop(object):
         use :func:`pyop2.op2.par_loop` instead.
     """
 
-    def __init__(self, kernel, itspace, *args):
+    def __init__(self, kernel, iterset, *args):
         # Always use the current arguments, also when we hit cache
         self._actual_args = args
         self._kernel = kernel
-        self._is_layered = itspace.layers > 1
+        self._is_layered = iterset.layers > 1
 
         for i, arg in enumerate(self._actual_args):
             arg.position = i
@@ -1820,7 +1820,6 @@ class ParLoop(object):
                     if arg2.data is arg1.data and arg2.map is arg1.map:
                         arg2.indirect_position = arg1.indirect_position
 
-        iterset = itspace if isinstance(itspace, Set) else itspace.iterset
         self._it_space = IterationSpace(iterset, self.check_args(iterset))
 
     @collective
