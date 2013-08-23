@@ -56,44 +56,24 @@ def ele():
     return op2.Set(nele, 'ele')
 
 
-@pytest.fixture(scope='module')
-def dnode(node):
-    return op2.DataSet(node, 1, 'dnode')
-
-
-@pytest.fixture(scope='module')
-def dnode2(node):
-    return op2.DataSet(node, 2, 'dnode2')
-
-
-@pytest.fixture(scope='module')
-def dele(ele):
-    return op2.DataSet(ele, 1, 'dele')
-
-
-@pytest.fixture(scope='module')
-def dele2(ele):
-    return op2.DataSet(ele, 2, 'dele2')
+@pytest.fixture
+def d1(node):
+    return op2.Dat(node, numpy.zeros(nnodes), dtype=numpy.int32)
 
 
 @pytest.fixture
-def d1(dnode):
-    return op2.Dat(dnode, numpy.zeros(nnodes), dtype=numpy.int32)
+def d2(node):
+    return op2.Dat(node ** 2, numpy.zeros(2 * nnodes), dtype=numpy.int32)
 
 
 @pytest.fixture
-def d2(dnode2):
-    return op2.Dat(dnode2, numpy.zeros(2 * nnodes), dtype=numpy.int32)
+def vd1(ele):
+    return op2.Dat(ele, numpy.zeros(nele), dtype=numpy.int32)
 
 
 @pytest.fixture
-def vd1(dele):
-    return op2.Dat(dele, numpy.zeros(nele), dtype=numpy.int32)
-
-
-@pytest.fixture
-def vd2(dele2):
-    return op2.Dat(dele2, numpy.zeros(2 * nele), dtype=numpy.int32)
+def vd2(ele):
+    return op2.Dat(ele ** 2, numpy.zeros(2 * nele), dtype=numpy.int32)
 
 
 @pytest.fixture(scope='module')
