@@ -169,8 +169,8 @@ def par_loop(kernel, iterset, *args):
     :func:`par_loop` invocation is illustrated by the following example ::
 
       pyop2.par_loop(mass, elements,
-                     mat((elem_node[pyop2.i[0]]), elem_node[pyop2.i[1]]), pyop2.INC),
-                     coords(elem_node, pyop2.READ))
+                     mat(pyop2.INC, (elem_node[pyop2.i[0]]), elem_node[pyop2.i[1]]),
+                     coords(pyop2.READ, elem_node))
 
     This example will execute the :class:`Kernel` ``mass`` over the
     :class:`Set` ``elements`` executing 3x3 times for each

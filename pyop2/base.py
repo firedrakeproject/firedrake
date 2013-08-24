@@ -838,12 +838,12 @@ class Dat(DataCarrier):
     to be accessed for reading via a :class:`Map` named ``M``, this is
     accomplished by ::
 
-      D(M, pyop2.READ)
+      D(pyop2.READ, M)
 
     The :class:`Map` through which indirection occurs can be indexed
     using the index notation described in the documentation for the
-    :class:`Map`. Direct access to a Dat can be accomplished by
-    using the :obj:`IdentityMap` as the indirection.
+    :class:`Map`. Direct access to a Dat is accomplished by
+    omitting the path argument.
 
     :class:`Dat` objects support the pointwise linear algebra operations
     ``+=``, ``*=``, ``-=``, ``/=``, where ``*=`` and ``/=`` also support
@@ -1612,7 +1612,7 @@ class Mat(DataCarrier):
     ``Mat`` named ``A`` is to be accessed for reading via a row :class:`Map`
     named ``R`` and a column :class:`Map` named ``C``, this is accomplished by::
 
-     A( (R[pyop2.i[0]], C[pyop2.i[1]]), pyop2.READ)
+     A(pyop2.READ, (R[pyop2.i[0]], C[pyop2.i[1]]))
 
     Notice that it is `always` necessary to index the indirection maps
     for a ``Mat``. See the :class:`Mat` documentation for more
