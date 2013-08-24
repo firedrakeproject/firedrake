@@ -3,8 +3,12 @@ pyop2.pdf
 pyop2.aux
 pyop2.log
 *.pyc
-/pyop2/op_lib_core.c
-/pyop2/op_lib_core.so
+/pyop2/computeind.c
+/pyop2/computeind.so
+/pyop2/plan.c
+/pyop2/plan.so
+/pyop2/sparsity.cpp
+/pyop2/sparsity.so
 *.edge
 *.ele
 *.msh
