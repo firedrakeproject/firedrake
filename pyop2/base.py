@@ -131,7 +131,7 @@ class Arg(object):
         self._indirect_position = None
 
         # Check arguments for consistency
-        if self._is_global or map == IdentityMap:
+        if self._is_global or map is None:
             return
         for j, m in enumerate(map):
             if not m.values.size:
@@ -253,11 +253,11 @@ class Arg(object):
 
     @property
     def _is_direct(self):
-        return isinstance(self._dat, Dat) and self._map is IdentityMap
+        return isinstance(self._dat, Dat) and self.map is None
 
     @property
     def _is_indirect(self):
-        return isinstance(self._dat, Dat) and self._map not in [None, IdentityMap]
+        return isinstance(self._dat, Dat) and self.map is not None
 
     @property
     def _is_indirect_and_not_read(self):
@@ -887,15 +887,13 @@ class Dat(DataCarrier):
 
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, access, path=None):
-        path = path or IdentityMap
-        if isinstance(path, Map):
-            if path._toset != self._dataset.set and path != IdentityMap:
-                raise MapValueError("To Set of Map does not match Set of Dat.")
-            return _make_object('Arg', data=self, map=path, access=access)
-        else:
+        if isinstance(path, Arg):
             path._dat = self
             path._access = access
             return path
+        if path and path._toset != self._dataset.set:
+            raise MapValueError("To Set of Map does not match Set of Dat.")
+        return _make_object('Arg', data=self, map=path, access=access)
 
     @property
     def dataset(self):
@@ -1377,9 +1375,6 @@ class Map(object):
             raise ArityTypeError("Unrecognised arity value %s" % arity)
         return cls(iterset, toset, arity[0], values, name)
 
-IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
-"""The identity map.  Used to indicate direct access to a :class:`Dat`."""
-
 
 class Sparsity(Cached):
 
@@ -1745,10 +1740,7 @@ class JITModule(Cached):
                     idx = (arg.idx.__class__, arg.idx.index)
                 else:
                     idx = arg.idx
-                if arg.map is IdentityMap:
-                    map_arity = None
-                else:
-                    map_arity = arg.map.arity
+                map_arity = arg.map.arity if arg.map else None
                 key += (arg.data.dim, arg.data.dtype, map_arity, idx, arg.access)
             elif arg._is_mat:
                 idxs = (arg.idx[0].__class__, arg.idx[0].index,
@@ -1855,7 +1847,7 @@ class ParLoop(object):
         :return: size of the local iteration space"""
         itspace = ()
         for i, arg in enumerate(self._actual_args):
-            if arg._is_global or arg._map == IdentityMap:
+            if arg._is_global or arg.map is None:
                 continue
             for j, m in enumerate(arg._map):
                 if m._iterset != iterset:
@@ -1891,7 +1883,7 @@ class ParLoop(object):
     def is_direct(self):
         """Is this parallel loop direct? I.e. are all the arguments either
         :class:Dats accessed through the identity map, or :class:Global?"""
-        return all(a.map in [None, IdentityMap] for a in self.args)
+        return all(a.map is None for a in self.args)
 
     @property
     def is_indirect(self):
