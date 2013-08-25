@@ -32,7 +32,6 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from libc.stdlib cimport malloc, free
-from libc.stdint cimport uintptr_t
 from libcpp.vector cimport vector
 from libcpp.set cimport set
 from cython.operator cimport dereference as deref, preincrement as inc
@@ -42,9 +41,7 @@ cimport numpy as np
 
 np.import_array()
 
-cdef data_to_numpy_array_with_spec(void * ptr, np.npy_intp size, int t):
-    """Return an array of SIZE elements (each of type T) with data from PTR."""
-    return np.PyArray_SimpleNewFromData(1, &size, t, ptr)
+ctypedef np.int32_t DTYPE_t
 
 def free_sparsity(object sparsity):
     cdef np.ndarray tmp
@@ -75,16 +72,13 @@ cdef cmap init_map(omap):
     out.offset = <int *>np.PyArray_DATA(omap.offset)
     return out
 
-cdef void build_sparsity_pattern_seq (int rmult, int cmult, int nrows, list maps,
-                                      int ** _nnz, int ** _rowptr, int ** _colidx,
-                                      int * _nz):
+cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
     """Create and populate auxiliary data structure: for each element of the
     from set, for each row pointed to by the row map, add all columns pointed
     to by the col map."""
     cdef:
         int e, i, r, d, c
         int lsize, rsize, row
-        int *nnz, *rowptr, *colidx
         cmap rowmap, colmap
         vector[set[int]] s_diag
         set[int].iterator it
@@ -105,14 +99,14 @@ cdef void build_sparsity_pattern_seq (int rmult, int cmult, int nrows, list maps
                             s_diag[row].insert(cmult * colmap.values[d + e * colmap.arity] + c)
 
     # Create final sparsity structure
-    nnz = <int*>malloc(lsize * sizeof(int))
-    rowptr = <int*>malloc((lsize+1) * sizeof(int))
+    cdef np.ndarray[DTYPE_t, ndim=1] nnz = np.empty(lsize, dtype=np.int32)
+    cdef np.ndarray[DTYPE_t, ndim=1] rowptr = np.empty(lsize + 1, dtype=np.int32)
     rowptr[0] = 0
     for row in range(lsize):
         nnz[row] = s_diag[row].size()
         rowptr[row+1] = rowptr[row] + nnz[row]
 
-    colidx = <int*>malloc(rowptr[lsize] * sizeof(int))
+    cdef np.ndarray[DTYPE_t, ndim=1] colidx = np.empty(rowptr[lsize], dtype=np.int32)
     # Note: elements in a set are always sorted, so no need to sort colidx
     for row in range(lsize):
         i = rowptr[row]
@@ -122,22 +116,15 @@ cdef void build_sparsity_pattern_seq (int rmult, int cmult, int nrows, list maps
             inc(it)
             i += 1
 
-    _nz[0] = rowptr[lsize]
-    _nnz[0] = nnz
-    _rowptr[0] = rowptr
-    _colidx[0] = colidx
+    return rowptr[lsize], nnz, rowptr, colidx
 
-cdef void build_sparsity_pattern_mpi (int rmult, int cmult, int nrows, list maps,
-                                      int ** _d_nnz, int ** _o_nnz,
-                                      int * _d_nz, int * _o_nz ):
+cdef build_sparsity_pattern_mpi(int rmult, int cmult, int nrows, list maps):
     """Create and populate auxiliary data structure: for each element of the
     from set, for each row pointed to by the row map, add all columns pointed
     to by the col map."""
     cdef:
         int lsize, rsize, row, entry
         int e, i, r, d, c
-        int dnz, o_nz
-        int *d_nnz, *o_nnz
         cmap rowmap, colmap
         vector[set[int]] s_diag, s_odiag
 
@@ -164,20 +151,17 @@ cdef void build_sparsity_pattern_mpi (int rmult, int cmult, int nrows, list maps
                                     s_odiag[row].insert(entry)
 
     # Create final sparsity structure
-    d_nnz = <int*> malloc(lsize * sizeof(int))
-    o_nnz = <int*> malloc(lsize * sizeof(int))
-    d_nz = 0
-    o_nz = 0
+    cdef np.ndarray[DTYPE_t, ndim=1] d_nnz = np.empty(lsize, dtype=np.int32)
+    cdef np.ndarray[DTYPE_t, ndim=1] o_nnz = np.empty(lsize, dtype=np.int32)
+    cdef int d_nz = 0
+    cdef int o_nz = 0
     for row in range(lsize):
         d_nnz[row] = s_diag[row].size()
         d_nz += d_nnz[row]
         o_nnz[row] = s_odiag[row].size()
         o_nz += o_nnz[row]
 
-    _d_nnz[0] = d_nnz;
-    _o_nnz[0] = o_nnz;
-    _d_nz[0] = d_nz;
-    _o_nz[0] = o_nz;
+    return d_nnz, o_nnz, d_nz, o_nz
 
 def build_sparsity(object sparsity, bool parallel):
     cdef int rmult, cmult
@@ -185,30 +169,14 @@ def build_sparsity(object sparsity, bool parallel):
     cdef int nrows = sparsity._nrows
     cdef int lsize = nrows*rmult
     cdef int nmaps = len(sparsity._rmaps)
-    cdef int *d_nnz, *o_nnz, *rowptr, *colidx
-    cdef int d_nz, o_nz
 
     if parallel:
-        build_sparsity_pattern_mpi(rmult, cmult, nrows, sparsity.maps,
-                                   &d_nnz, &o_nnz, &d_nz, &o_nz)
-        sparsity._d_nnz = data_to_numpy_array_with_spec(d_nnz, lsize,
-                                                        np.NPY_INT32)
-        sparsity._o_nnz = data_to_numpy_array_with_spec(o_nnz, lsize,
-                                                        np.NPY_INT32)
+        sparsity._d_nnz, sparsity._o_nnz, sparsity._d_nz, sparsity._d_nz = \
+            build_sparsity_pattern_mpi(rmult, cmult, nrows, sparsity.maps)
         sparsity._rowptr = []
         sparsity._colidx = []
-        sparsity._d_nz = d_nz
-        sparsity._o_nz = o_nz
     else:
-        build_sparsity_pattern_seq(rmult, cmult, nrows, sparsity.maps,
-                                   &d_nnz, &rowptr, &colidx, &d_nz)
-        sparsity._d_nnz = data_to_numpy_array_with_spec(d_nnz, lsize,
-                                                        np.NPY_INT32)
+        sparsity._d_nz, sparsity._d_nnz, sparsity._rowptr, sparsity._colidx = \
+            build_sparsity_pattern_seq(rmult, cmult, nrows, sparsity.maps)
         sparsity._o_nnz = []
-        sparsity._rowptr = data_to_numpy_array_with_spec(rowptr, lsize+1,
-                                                        np.NPY_INT32)
-        sparsity._colidx = data_to_numpy_array_with_spec(colidx,
-                                                        rowptr[lsize],
-                                                        np.NPY_INT32)
-        sparsity._d_nz = d_nz
         sparsity._o_nz = 0
