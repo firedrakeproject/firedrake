@@ -747,7 +747,7 @@ class ParLoop(op2.ParLoop):
             # It would be much nicer if we could tell op_plan_core "I
             # have X bytes shared memory"
             part_size = (_AVAILABLE_SHARED_MEMORY / (64 * maxbytes)) * 64
-            self._plan = Plan(self.kernel, self._it_space.iterset,
+            self._plan = Plan(self._it_space.iterset,
                               *self._unwound_args,
                               partition_size=part_size)
             max_grid_size = self._plan.ncolblk.max()

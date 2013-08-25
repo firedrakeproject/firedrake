@@ -280,16 +280,13 @@ void kernel_swap(unsigned int* x)
     def test_same_with_mat(self, backend, iterset, x, iter2ind1, mat):
         self.cache.clear()
         assert len(self.cache) == 0
-        k = op2.Kernel("""void dummy() {}""", "dummy")
-        plan1 = plan.Plan(k,
-                          iterset,
+        plan1 = plan.Plan(iterset,
                           mat((iter2ind1[op2.i[0]], iter2ind1[op2.i[1]]), op2.INC),
                           x(iter2ind1[0], op2.READ),
                           partition_size=10,
                           matrix_coloring=True)
         assert len(self.cache) == 1
-        plan2 = plan.Plan(k,
-                          iterset,
+        plan2 = plan.Plan(iterset,
                           mat((iter2ind1[op2.i[0]], iter2ind1[op2.i[1]]), op2.INC),
                           x(iter2ind1[0], op2.READ),
                           partition_size=10,
@@ -302,17 +299,14 @@ void kernel_swap(unsigned int* x)
                                                     x, iter2ind1, mat):
         self.cache.clear()
         assert len(self.cache) == 0
-        k = op2.Kernel("""void dummy() {}""", "dummy")
-        plan1 = plan.Plan(k,
-                          iterset,
+        plan1 = plan.Plan(iterset,
                           mat((iter2ind1[op2.i[0]],
                                iter2ind1[op2.i[1]]), op2.INC),
                           x(iter2ind1[0], op2.READ),
                           partition_size=10,
                           matrix_coloring=True)
         assert len(self.cache) == 1
-        plan2 = plan.Plan(k,
-                          iterset,
+        plan2 = plan.Plan(iterset,
                           mat((iter2ind1[op2.i[1]],
                                iter2ind1[op2.i[0]]), op2.INC),
                           x(iter2ind1[0], op2.READ),

@@ -90,7 +90,7 @@ cdef class _Plan:
     cdef int _nshared
     cdef int _ncolors
 
-    def __init__(self, kernel, iset, *args, **kwargs):
+    def __init__(self, iset, *args, **kwargs):
         ps = kwargs.get('partition_size', 1)
         mc = kwargs.get('matrix_coloring', False)
         st = kwargs.get('staging', True)
@@ -460,7 +460,7 @@ class Plan(base.Cached, _Plan):
     _cache = {}
 
     @classmethod
-    def _cache_key(cls, kernel, iset, *args, **kwargs):
+    def _cache_key(cls, iset, *args, **kwargs):
         # Disable caching if requested
         if kwargs.pop('refresh_cache', False):
             return

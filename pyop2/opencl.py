@@ -651,7 +651,7 @@ class ParLoop(device.ParLoop):
         conf = self.launch_configuration()
 
         if self._is_indirect:
-            self._plan = Plan(self.kernel, self._it_space.iterset,
+            self._plan = Plan(self._it_space.iterset,
                               *self._unwound_args,
                               partition_size=conf['partition_size'],
                               matrix_coloring=self._requires_matrix_coloring)

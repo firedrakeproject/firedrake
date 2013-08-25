@@ -249,7 +249,7 @@ class ParLoop(device.ParLoop, host.ParLoop):
 
         # Create a plan, for colored execution
         if [arg for arg in self.args if arg._is_indirect or arg._is_mat]:
-            plan = _plan.Plan(self._kernel, self._it_space.iterset,
+            plan = _plan.Plan(self._it_space.iterset,
                               *self._unwound_args,
                               partition_size=part_size,
                               matrix_coloring=True,
