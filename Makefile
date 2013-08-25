@@ -89,7 +89,7 @@ ext: ext_clean
 	python setup.py build_ext -i
 
 ext_clean:
-	rm -rf build pyop2/op_lib_core.c pyop2/op_lib_core.so
+	rm -rf build pyop2/compute_ind.c pyop2/compute_ind.so pyop2/plan.c pyop2/plan.so pyop2/sparsity.c pyop2/sparsity.so
 
 meshes:
 	make -C $(MESHES_DIR) meshes
