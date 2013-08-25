@@ -40,7 +40,6 @@ import base
 from base import *
 from utils import as_tuple
 import configuration as cfg
-from find_op2 import *
 
 _max_threads = 32
 
@@ -300,12 +299,12 @@ class JITModule(base.JITModule):
             code_to_compile, additional_declarations=kernel_code,
             additional_definitions=_const_decs + kernel_code,
             cppargs=self._cppargs + (['-O0', '-g'] if cfg.debug else []),
-            include_dirs=[OP2_INC, get_petsc_dir() + '/include'],
+            include_dirs=[get_petsc_dir() + '/include'],
             source_directory=os.path.dirname(os.path.abspath(__file__)),
             wrap_headers=["mat_utils.h"],
             system_headers=self._system_headers,
-            library_dirs=[OP2_LIB, get_petsc_dir() + '/lib'],
-            libraries=['op2_seq', 'petsc'] + self._libraries,
+            library_dirs=[get_petsc_dir() + '/lib'],
+            libraries=['petsc'] + self._libraries,
             sources=["mat_utils.cxx"])
         if cc:
             os.environ['CC'] = cc
