@@ -75,15 +75,14 @@ cdef cmap init_map(omap):
     out.offset = <int *>np.PyArray_DATA(omap.offset)
     return out
 
-cdef void build_sparsity_pattern_seq (int rmult, int cmult, int nrows, int nmaps,
-                                      cmap * rowmaps, cmap * colmaps,
+cdef void build_sparsity_pattern_seq (int rmult, int cmult, int nrows, list maps,
                                       int ** _nnz, int ** _rowptr, int ** _colidx,
                                       int * _nz):
-    # Create and populate auxiliary data structure: for each element of
-    # the from set, for each row pointed to by the row map, add all
-    # columns pointed to by the col map
+    """Create and populate auxiliary data structure: for each element of the
+    from set, for each row pointed to by the row map, add all columns pointed
+    to by the col map."""
     cdef:
-        int m, e, i, r, d, c
+        int e, i, r, d, c
         int lsize, rsize, row
         int *nnz, *rowptr, *colidx
         cmap rowmap, colmap
@@ -93,9 +92,9 @@ cdef void build_sparsity_pattern_seq (int rmult, int cmult, int nrows, int nmaps
     lsize = nrows*rmult
     s_diag = vector[set[int]](lsize)
 
-    for m in range(nmaps):
-        rowmap = rowmaps[m]
-        colmap = colmaps[m]
+    for rmap, cmap in maps:
+        rowmap = init_map(rmap)
+        colmap = init_map(cmap)
         rsize = rowmap.from_size
         for e in range(rsize):
             for i in range(rowmap.arity):
@@ -128,16 +127,15 @@ cdef void build_sparsity_pattern_seq (int rmult, int cmult, int nrows, int nmaps
     _rowptr[0] = rowptr
     _colidx[0] = colidx
 
-cdef void build_sparsity_pattern_mpi (int rmult, int cmult, int nrows, int nmaps,
-                                      cmap * rowmaps, cmap * colmaps,
+cdef void build_sparsity_pattern_mpi (int rmult, int cmult, int nrows, list maps,
                                       int ** _d_nnz, int ** _o_nnz,
                                       int * _d_nz, int * _o_nz ):
-    # Create and populate auxiliary data structure: for each element of
-    # the from set, for each row pointed to by the row map, add all
-    # columns pointed to by the col map
+    """Create and populate auxiliary data structure: for each element of the
+    from set, for each row pointed to by the row map, add all columns pointed
+    to by the col map."""
     cdef:
         int lsize, rsize, row, entry
-        int m, e, i, r, d, c
+        int e, i, r, d, c
         int dnz, o_nz
         int *d_nnz, *o_nnz
         cmap rowmap, colmap
@@ -147,9 +145,9 @@ cdef void build_sparsity_pattern_mpi (int rmult, int cmult, int nrows, int nmaps
     s_diag = vector[set[int]](lsize)
     s_odiag = vector[set[int]](lsize)
 
-    for m in range(nmaps):
-        rowmap = rowmaps[m];
-        colmap = colmaps[m];
+    for rmap, cmap in maps:
+        rowmap = init_map(rmap)
+        colmap = init_map(cmap)
         rsize = rowmap.from_exec_size;
         for e in range (rsize):
             for i in range(rowmap.arity):
@@ -190,45 +188,27 @@ def build_sparsity(object sparsity, bool parallel):
     cdef int *d_nnz, *o_nnz, *rowptr, *colidx
     cdef int d_nz, o_nz
 
-    cdef cmap *rmaps = <cmap *>malloc(nmaps * sizeof(cmap))
-    if rmaps is NULL:
-        raise MemoryError("Unable to allocate space for rmaps")
-    cdef cmap *cmaps = <cmap *>malloc(nmaps * sizeof(cmap))
-    if cmaps is NULL:
-        raise MemoryError("Unable to allocate space for cmaps")
-
-    try:
-        for i in range(nmaps):
-            rmaps[i] = init_map(sparsity._rmaps[i])
-            cmaps[i] = init_map(sparsity._cmaps[i])
-
-        if parallel:
-            build_sparsity_pattern_mpi(rmult, cmult, nrows, nmaps,
-                                       rmaps, cmaps, &d_nnz, &o_nnz,
-                                       &d_nz, &o_nz)
-            sparsity._d_nnz = data_to_numpy_array_with_spec(d_nnz, lsize,
-                                                            np.NPY_INT32)
-            sparsity._o_nnz = data_to_numpy_array_with_spec(o_nnz, lsize,
-                                                            np.NPY_INT32)
-            sparsity._rowptr = []
-            sparsity._colidx = []
-            sparsity._d_nz = d_nz
-            sparsity._o_nz = o_nz
-        else:
-            build_sparsity_pattern_seq(rmult, cmult, nrows, nmaps,
-                                       rmaps, cmaps,
-                                       &d_nnz, &rowptr, &colidx, &d_nz)
-            sparsity._d_nnz = data_to_numpy_array_with_spec(d_nnz, lsize,
-                                                            np.NPY_INT32)
-            sparsity._o_nnz = []
-            sparsity._rowptr = data_to_numpy_array_with_spec(rowptr, lsize+1,
-                                                            np.NPY_INT32)
-            sparsity._colidx = data_to_numpy_array_with_spec(colidx,
-                                                            rowptr[lsize],
-                                                            np.NPY_INT32)
-            sparsity._d_nz = d_nz
-            sparsity._o_nz = 0
-    finally:
-        free(rmaps)
-        free(cmaps)
-
+    if parallel:
+        build_sparsity_pattern_mpi(rmult, cmult, nrows, sparsity.maps,
+                                   &d_nnz, &o_nnz, &d_nz, &o_nz)
+        sparsity._d_nnz = data_to_numpy_array_with_spec(d_nnz, lsize,
+                                                        np.NPY_INT32)
+        sparsity._o_nnz = data_to_numpy_array_with_spec(o_nnz, lsize,
+                                                        np.NPY_INT32)
+        sparsity._rowptr = []
+        sparsity._colidx = []
+        sparsity._d_nz = d_nz
+        sparsity._o_nz = o_nz
+    else:
+        build_sparsity_pattern_seq(rmult, cmult, nrows, sparsity.maps,
+                                   &d_nnz, &rowptr, &colidx, &d_nz)
+        sparsity._d_nnz = data_to_numpy_array_with_spec(d_nnz, lsize,
+                                                        np.NPY_INT32)
+        sparsity._o_nnz = []
+        sparsity._rowptr = data_to_numpy_array_with_spec(rowptr, lsize+1,
+                                                        np.NPY_INT32)
+        sparsity._colidx = data_to_numpy_array_with_spec(colidx,
+                                                        rowptr[lsize],
+                                                        np.NPY_INT32)
+        sparsity._d_nz = d_nz
+        sparsity._o_nz = 0
