@@ -186,7 +186,7 @@ should be left unset when building petsc4py.
 Install `petsc4py <https://bitbucket.org/mapdes/petsc4py>`__ via
 ``pip``::
 
-  pip install hg+https://bitbucket.org/mapdes/petsc4py#egg=petsc4py 
+  pip install git+https://bitbucket.org/mapdes/petsc4py#egg=petsc4py
 
 PETSc and Fluidity
 ^^^^^^^^^^^^^^^^^^
@@ -196,9 +196,9 @@ the same PETSc, which must be build with Fortran support!
 
 Fluidity does presently not support PETSc >= 3.4, therefore you will
 need a version of petsc4py compatible with PETSc 3.3, available as the
-``3.3`` bookmark::
+``3.3`` branch ::
 
-  pip install hg+https://bitbucket.org/mapdes/petsc4py@3.3#egg=petsc4py
+  pip install git+https://bitbucket.org/mapdes/petsc4py@3.3#egg=petsc4py
 
 CUDA backend:
 ~~~~~~~~~~~~~
