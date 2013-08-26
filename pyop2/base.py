@@ -1553,9 +1553,6 @@ class Sparsity(Cached):
     def __repr__(self):
         return "Sparsity(%r, %r, %r)" % (self.dsets, self.maps, self.name)
 
-    def __del__(self):
-        core.free_sparsity(self)
-
     @property
     def rowptr(self):
         """Row pointer array of CSR data structure."""

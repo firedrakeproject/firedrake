@@ -31,7 +31,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from libc.stdlib cimport malloc, free
 from libcpp.vector cimport vector
 from libcpp.set cimport set
 from cython.operator cimport dereference as deref, preincrement as inc
@@ -42,15 +41,6 @@ cimport numpy as np
 np.import_array()
 
 ctypedef np.int32_t DTYPE_t
-
-def free_sparsity(object sparsity):
-    cdef np.ndarray tmp
-    for attr in ['_rowptr', '_colidx', '_d_nnz', '_o_nnz']:
-        try:
-            tmp = getattr(sparsity, attr)
-            free(<void *>np.PyArray_DATA(tmp))
-        except:
-            pass
 
 ctypedef struct cmap:
     int from_size
