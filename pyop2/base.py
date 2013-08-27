@@ -1179,7 +1179,7 @@ class Global(DataCarrier):
         Global._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, access):
+    def __call__(self, access, path=None):
         return _make_object('Arg', data=self, access=access)
 
     def __eq__(self, other):
