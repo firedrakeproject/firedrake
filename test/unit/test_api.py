@@ -384,7 +384,17 @@ class TestDatAPI:
         d = op2.Dat(dset, dtype=np.int32)
         assert d.data.dtype == np.int32
 
-    def test_dat_illegal_map(self, backend, dset):
+    @pytest.mark.parametrize("mode", [op2.MAX, op2.MIN])
+    def test_dat_arg_illegal_mode(self, backend, dat, mode):
+        """Dat __call__ should not allow access modes not allowed for a Dat."""
+        with pytest.raises(exceptions.ModeValueError):
+            dat(mode)
+
+    def test_dat_arg_default_map(self, backend, dat):
+        """Dat __call__ should default the Arg map to None if not given."""
+        assert dat(op2.READ).map is None
+
+    def test_dat_arg_illegal_map(self, backend, dset):
         """Dat __call__ should not allow a map with a toset other than this
         Dat's set."""
         d = op2.Dat(dset)
