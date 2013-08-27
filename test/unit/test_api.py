@@ -650,11 +650,22 @@ class TestMatAPI:
         assert m.sparsity == sparsity and  \
             m.dtype == np.float64 and m.name == 'bar'
 
-    def test_mat_illegal_maps(self, backend, mat):
+    def test_mat_arg_illegal_maps(self, backend, mat):
         "Mat arg constructor should reject invalid maps."
         wrongmap = op2.Map(op2.Set(2), op2.Set(3), 2, [0, 0, 0, 0])
         with pytest.raises(exceptions.MapValueError):
             mat(op2.INC, (wrongmap[0], wrongmap[1]))
+
+    def test_mat_arg_nonindexed_maps(self, backend, mat, m):
+        "Mat arg constructor should reject nonindexed maps."
+        with pytest.raises(TypeError):
+            mat(op2.INC, (m, m))
+
+    @pytest.mark.parametrize("mode", [op2.READ, op2.RW, op2.MIN, op2.MAX])
+    def test_mat_arg_illegal_mode(self, backend, mat, mode, m):
+        """Mat arg constructor should reject illegal access modes."""
+        with pytest.raises(exceptions.ModeValueError):
+            mat(mode, (m[op2.i[0]], m[op2.i[1]]))
 
     def test_mat_repr(self, backend, mat):
         "Mat should have the expected repr."
