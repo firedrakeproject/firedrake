@@ -40,23 +40,20 @@ from glob import glob
 import numpy
 import sys
 
-# Find OP2 include and library directories
-OP2_INC, OP2_LIB = None, None
-execfile('pyop2/find_op2.py')
-
 # If Cython is available, built the extension module from the Cython source
 try:
     from Cython.Distutils import build_ext
     cmdclass = {'build_ext': build_ext}
-    op_lib_core_sources = ['pyop2/op_lib_core.pyx', 'pyop2/_op_lib_core.pxd',
-                           'pyop2/sparsity_utils.cxx']
+    plan_sources = ['pyop2/plan.pyx']
+    sparsity_sources = ['pyop2/sparsity.pyx']
     computeind_sources = ['pyop2/computeind.pyx']
 
 # Else we require the Cython-compiled .c file to be present and use that
 # Note: file is not in revision control but needs to be included in distributions
 except ImportError:
     cmdclass = {}
-    op_lib_core_sources = ['pyop2/op_lib_core.c', 'pyop2/sparsity_utils.cxx']
+    plan_sources = ['pyop2/plan.c']
+    sparsity_sources = ['pyop2/sparsity.cpp']
     computeind_sources = ['pyop2/computeind.c']
 
 setup_requires = [
@@ -84,7 +81,9 @@ class sdist(_sdist):
     def run(self):
         # Make sure the compiled Cython files in the distribution are up-to-date
         from Cython.Build import cythonize
-        cythonize(['pyop2/op_lib_core.pyx', 'pyop2/computeind.pyx'])
+        cythonize(plan_sources)
+        cythonize(sparsity_sources, language="c++")
+        cythonize(computeind_sources)
         _sdist.run(self)
 cmdclass['sdist'] = sdist
 
@@ -115,10 +114,9 @@ setup(name='PyOP2',
           'pyop2': ['assets/*', 'mat_utils.*', 'sparsity_utils.*', '*.pyx', '*.pxd']},
       scripts=glob('scripts/*'),
       cmdclass=cmdclass,
-      ext_modules=[Extension('pyop2.op_lib_core', op_lib_core_sources,
-                             include_dirs=['pyop2', OP2_INC, numpy.get_include()],
-                             library_dirs=[OP2_LIB],
-                             runtime_library_dirs=[OP2_LIB],
-                             libraries=["op2_seq"]),
+      ext_modules=[Extension('pyop2.plan', plan_sources,
+                             include_dirs=[numpy.get_include()]),
+                   Extension('pyop2.sparsity', sparsity_sources,
+                             include_dirs=['pyop2', numpy.get_include()], language="c++"),
                    Extension('pyop2.computeind', computeind_sources,
                              include_dirs=[numpy.get_include()])])

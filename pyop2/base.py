@@ -47,7 +47,7 @@ from exceptions import *
 from utils import *
 from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
-import op_lib_core as core
+from sparsity import build_sparsity
 
 # Data API
 
@@ -329,12 +329,6 @@ class Arg(object):
             self.data._data = np.copy(self.data._buf)
 
     @property
-    def _c_handle(self):
-        if self._lib_handle is None:
-            self._lib_handle = core.op_arg(self)
-        return self._lib_handle
-
-    @property
     def data(self):
         """Data carrier: :class:`Dat`, :class:`Mat`, :class:`Const` or
         :class:`Global`."""
@@ -484,12 +478,6 @@ class Set(object):
             raise SizeTypeError("Shape of %s is incorrect" % name)
         size = slot.value.astype(np.int)
         return cls(size[0], name)
-
-    @property
-    def _c_handle(self):
-        if self._lib_handle is None:
-            self._lib_handle = core.op_set(self)
-        return self._lib_handle
 
 
 class DataSet(object):
@@ -1092,12 +1080,6 @@ class Dat(DataCarrier):
         ret = cls(dataset, data, name=name, soa=soa)
         return ret
 
-    @property
-    def _c_handle(self):
-        if self._lib_handle is None:
-            self._lib_handle = core.op_dat(self)
-        return self._lib_handle
-
 
 class Const(DataCarrier):
 
@@ -1384,12 +1366,6 @@ class Map(object):
     def __ne__(self, o):
         return not self == o
 
-    @property
-    def _c_handle(self):
-        if self._lib_handle is None:
-            self._lib_handle = core.op_map(self)
-        return self._lib_handle
-
     @classmethod
     def fromhdf5(cls, iterset, toset, f, name):
         """Construct a :class:`Map` from set named ``name`` in HDF5 data ``f``"""
@@ -1514,7 +1490,7 @@ class Sparsity(Cached):
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         self._lib_handle = None
         Sparsity._globalcount += 1
-        core.build_sparsity(self, parallel=MPI.parallel)
+        build_sparsity(self, parallel=MPI.parallel)
         self._initialized = True
 
     @property
@@ -1576,9 +1552,6 @@ class Sparsity(Cached):
 
     def __repr__(self):
         return "Sparsity(%r, %r, %r)" % (self.dsets, self.maps, self.name)
-
-    def __del__(self):
-        core.free_sparsity(self)
 
     @property
     def rowptr(self):

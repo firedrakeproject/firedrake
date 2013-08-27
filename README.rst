@@ -58,7 +58,7 @@ dependencies using the above install script.
 Preparing the system
 --------------------
 
-OP2 and PyOP2 require a number of tools to be available: 
+PyOP2 require a number of tools to be available: 
 
 * gcc, make, CMake 
 * bzr, Git, Mercurial 
@@ -69,24 +69,6 @@ On a Debian-based system (Ubuntu, Mint, etc.) install them by running::
 
   sudo apt-get install -y build-essential python-dev bzr git-core mercurial \
   cmake cmake-curses-gui python-pip swig
-
-OP2-Common
-----------
-
-PyOP2 depends on the `OP2-Common <https://github.com/OP2/OP2-Common>`__
-library (only sequential is needed), which is built in-place as follows::
-
-  git clone git://github.com/OP2/OP2-Common.git 
-  cd OP2-Common/op2/c 
-  ./cmake.local -DOP2_WITH_CUDA=0 -DOP2_WITH_HDF5=0 -DOP2_WITH_MPI=0 -DOP2_WITH_OPENMP=0 
-  cd .. 
-  export OP2_DIR=`pwd`
-
-For further instructions refer to the `OP2-Common README
-<https://github.com/OP2/OP2-Common/blob/master/op2/c/README>`.
-
-If you have already built OP2-Common, make sure ``OP2_DIR`` is exported
-or the PyOP2 setup will fail.
 
 Dependencies
 ------------
@@ -324,9 +306,7 @@ Clone the PyOP2 repository::
 
   git clone git://github.com/OP2/PyOP2.git
  
-If not set, ``OP2_DIR`` should be set to the location of the 'op2'
-folder within the OP2-Common build. PyOP2 uses
-`Cython <http://cython.org>`__ extension modules, which need to be built
+PyOP2 uses `Cython <http://cython.org>`__ extension modules, which need to be built
 in-place when using PyOP2 from the source tree::
 
   python setup.py build_ext --inplace
@@ -392,11 +372,6 @@ To make sure PyOP2 finds all its dependencies, create a file ``.env``
 e.g. in your PyOP2 root directory and source it via ``. .env`` when
 using PyOP2. Use the template below, adjusting paths and removing
 definitions as necessary::
-
-  # Root directory of your OP2 installation, always needed 
-  export OP2_DIR=/path/to/OP2-Common/op2 
-  # If you have installed the OP2 library define e.g. 
-  export OP2_PREFIX=/usr/local
 
   #PETSc installation, not necessary when PETSc was installed via pip
   export PETSC_DIR=/path/to/petsc 

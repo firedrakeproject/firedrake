@@ -36,7 +36,7 @@ Cython implementation of the Plan construction.
 """
 
 import base
-from utils import align
+from utils import align, as_tuple
 import math
 import numpy
 cimport numpy
@@ -65,7 +65,7 @@ ctypedef struct flat_race_args_t:
     int count
     map_idx_t * mip
 
-cdef class Plan:
+cdef class _Plan:
     """Plan object contains necessary information for data staging and execution scheduling."""
 
     # NOTE:
@@ -90,7 +90,7 @@ cdef class Plan:
     cdef int _nshared
     cdef int _ncolors
 
-    def __init__(self, kernel, iset, *args, **kwargs):
+    def __init__(self, iset, *args, **kwargs):
         ps = kwargs.get('partition_size', 1)
         mc = kwargs.get('matrix_coloring', False)
         st = kwargs.get('staging', True)
@@ -453,3 +453,52 @@ cdef class Plan:
     @property
     def nsharedCol(self):
         return numpy.array([self._nshared] * self._ncolors, dtype=numpy.int32)
+
+
+class Plan(base.Cached, _Plan):
+
+    _cache = {}
+
+    @classmethod
+    def _cache_key(cls, iset, *args, **kwargs):
+        # Disable caching if requested
+        if kwargs.pop('refresh_cache', False):
+            return
+        partition_size = kwargs.get('partition_size', 0)
+        matrix_coloring = kwargs.get('matrix_coloring', False)
+
+        key = (iset.size, partition_size, matrix_coloring)
+
+        # For each indirect arg, the map, the access type, and the
+        # indices into the map are important
+        inds = OrderedDict()
+        for arg in args:
+            if arg._is_indirect:
+                dat = arg.data
+                map = arg.map
+                acc = arg.access
+                # Identify unique dat-map-acc tuples
+                k = (dat, map, acc is base.INC)
+                l = inds.get(k, [])
+                l.append(arg.idx)
+                inds[k] = l
+
+        # order of indices doesn't matter
+        subkey = ('dats', )
+        for k, v in inds.iteritems():
+            # Only dimension of dat matters, but identity of map does
+            subkey += (k[0].cdim, k[1:],) + tuple(sorted(v))
+        key += subkey
+
+        # For each matrix arg, the maps and indices
+        subkey = ('mats', )
+        for arg in args:
+            if arg._is_mat:
+                # For colouring, we only care about the rowmap
+                # and the associated iteration index
+                idxs = (arg.idx[0].__class__,
+                        arg.idx[0].index)
+                subkey += (as_tuple(arg.map[0]), idxs)
+        key += subkey
+
+        return key

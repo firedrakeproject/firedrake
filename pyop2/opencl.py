@@ -35,6 +35,7 @@
 
 from device import *
 import device
+import plan
 import petsc_base
 from utils import verify_reshape, uniquify, maybe_setflags
 from mpi import collective
@@ -405,7 +406,7 @@ class Map(device.Map):
             self._device_values.set(self._values, _queue)
 
 
-class Plan(device.Plan):
+class Plan(plan.Plan):
 
     @property
     def ind_map(self):
@@ -650,7 +651,7 @@ class ParLoop(device.ParLoop):
         conf = self.launch_configuration()
 
         if self._is_indirect:
-            self._plan = Plan(self.kernel, self._it_space.iterset,
+            self._plan = Plan(self._it_space.iterset,
                               *self._unwound_args,
                               partition_size=conf['partition_size'],
                               matrix_coloring=self._requires_matrix_coloring)

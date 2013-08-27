@@ -36,9 +36,7 @@
 import atexit
 
 import backends
-import device
 import configuration as cfg
-import op_lib_core as core
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, IdentityMap, i
 from logger import debug, info, warning, error, critical, set_log_level
@@ -77,10 +75,6 @@ def init(**kwargs):
     if 'backend' in kwargs and backend not in ('pyop2.void', 'pyop2.' + kwargs['backend']):
         raise RuntimeError("Changing the backend is not possible once set.")
     cfg.configure(**kwargs)
-    if cfg['python_plan']:
-        device.Plan = device.PPlan
-    else:
-        device.Plan = device.CPlan
     set_log_level(cfg['log_level'])
     if backend == 'pyop2.void':
         backends.set_backend(cfg.backend)
@@ -89,7 +83,6 @@ def init(**kwargs):
             backends._BackendSelector._backend.MPI.comm = kwargs['comm']
         global MPI
         MPI = backends._BackendSelector._backend.MPI  # noqa: backend override
-        core.op_init(args=None, diags=0)
 
 
 @atexit.register
@@ -98,7 +91,6 @@ def exit():
     """Exit OP2 and clean up"""
     cfg.reset()
     if backends.get_backend() != 'pyop2.void':
-        core.op_exit()
         backends.unset_backend()
 
 
