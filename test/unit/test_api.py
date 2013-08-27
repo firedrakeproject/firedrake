@@ -103,6 +103,11 @@ def mat(sparsity):
     return op2.Mat(sparsity)
 
 
+@pytest.fixture
+def g():
+    return op2.Global(1, 1)
+
+
 class TestInitAPI:
 
     """
@@ -864,17 +869,15 @@ class TestGlobalAPI:
         assert g.dim == (2, 2) and g.dtype == np.float64 and g.name == 'bar' \
             and g.data.sum() == 4
 
-    def test_global_setter(self, backend):
+    def test_global_setter(self, backend, g):
         "Setter attribute on data should correct set data value."
-        c = op2.Global(1, 1)
-        c.data = 2
-        assert c.data.sum() == 2
+        g.data = 2
+        assert g.data.sum() == 2
 
-    def test_global_setter_malformed_data(self, backend):
+    def test_global_setter_malformed_data(self, backend, g):
         "Setter attribute should reject malformed data."
-        c = op2.Global(1, 1)
         with pytest.raises(exceptions.DataValueError):
-            c.data = [1, 2]
+            g.data = [1, 2]
 
     def test_global_eq(self, backend):
         "Globals should compare equal when having the same dim and data."
@@ -904,6 +907,16 @@ class TestGlobalAPI:
         s = "OP2 Global Argument: %s with dim %s and value %s" \
             % (g.name, g.dim, g.data)
         assert str(g) == s
+
+    @pytest.mark.parametrize("mode", [op2.RW, op2.WRITE])
+    def test_global_arg_illegal_mode(self, backend, g, mode):
+        """Global __call__ should not allow illegal access modes."""
+        with pytest.raises(exceptions.ModeValueError):
+            g(mode)
+
+    def test_global_arg_ignore_map(self, backend, g, m):
+        """Global __call__ should ignore the optional second argument."""
+        assert g(op2.READ, m).map is None
 
 
 class TestMapAPI:
