@@ -188,7 +188,7 @@ class Arg(object):
         if self._is_global or map is None:
             return
         for j, m in enumerate(map):
-            if not m.values.size:
+            if not len(m.values):
                 raise MapValueError("%s is not initialized." % map)
             if self._is_mat and m.toset != data.sparsity.dsets[j].set:
                 raise MapValueError(
@@ -970,7 +970,7 @@ class Dat(DataCarrier):
             path._dat = self
             path._access = access
             return path
-        if path and path._toset != self._dataset.set:
+        if path and path.toset != self.dataset.set:
             raise MapValueError("To Set of Map does not match Set of Dat.")
         return _make_object('Arg', data=self, map=path, access=access)
 
@@ -1968,7 +1968,7 @@ class ParLoop(LazyComputation):
             if arg._is_global or arg.map is None:
                 continue
             for j, m in enumerate(arg._map):
-                if m._iterset != iterset:
+                if m.iterset != iterset:
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
             if arg._uses_itspace:
