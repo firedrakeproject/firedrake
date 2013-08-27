@@ -37,6 +37,7 @@ from cython.operator cimport dereference as deref, preincrement as inc
 from cpython cimport bool
 import numpy as np
 cimport numpy as np
+import cython
 
 np.import_array()
 
@@ -62,6 +63,8 @@ cdef cmap init_map(omap):
     out.offset = <int *>np.PyArray_DATA(omap.offset)
     return out
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
     """Create and populate auxiliary data structure: for each element of the
     from set, for each row pointed to by the row map, add all columns pointed
@@ -108,6 +111,8 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
 
     return rowptr[lsize], nnz, rowptr, colidx
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef build_sparsity_pattern_mpi(int rmult, int cmult, int nrows, list maps):
     """Create and populate auxiliary data structure: for each element of the
     from set, for each row pointed to by the row map, add all columns pointed
@@ -153,6 +158,8 @@ cdef build_sparsity_pattern_mpi(int rmult, int cmult, int nrows, list maps):
 
     return d_nnz, o_nnz, d_nz, o_nz
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def build_sparsity(object sparsity, bool parallel):
     cdef int rmult, cmult
     rmult, cmult = sparsity._dims
