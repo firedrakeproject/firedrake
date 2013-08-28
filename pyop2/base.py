@@ -325,17 +325,25 @@ class Arg(object):
         self._indirect_position = None
 
         # Check arguments for consistency
-        if self._is_global or map is None:
-            return
-        for j, m in enumerate(map):
-            if m.iterset.total_size > 0 and len(m.values_with_halo) == 0:
-                raise MapValueError("%s is not initialized." % map)
-            if self._is_mat and m.toset != data.sparsity.dsets[j].set:
+        if not (self._is_global or map is None):
+            for j, m in enumerate(map):
+                if m.iterset.total_size > 0 and len(m.values_with_halo) == 0:
+                    raise MapValueError("%s is not initialized." % map)
+                if self._is_mat and m.toset != data.sparsity.dsets[j].set:
+                    raise MapValueError(
+                        "To set of %s doesn't match the set of %s." % (map, data))
+            if self._is_dat and map.toset != data.dataset.set:
                 raise MapValueError(
                     "To set of %s doesn't match the set of %s." % (map, data))
-            if self._is_dat and m._toset != data.dataset.set:
-                raise MapValueError(
-                    "To set of %s doesn't match the set of %s." % (map, data))
+
+        # Determine the iteration space extents, if any
+        if self._is_mat:
+            self._extents = tuple(tuple((mr.arity, mc.arity) for mc in map[1])
+                                  for mr in map[0])
+        elif self._uses_itspace:
+            self._extents = tuple(((m.arity,),) for m in map)
+        else:
+            self._extents = None
 
     def __eq__(self, other):
         """:class:`Arg`\s compare equal of they are defined on the same data,
