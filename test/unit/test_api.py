@@ -1703,8 +1703,9 @@ class TestMapAPI:
     def test_map_properties(self, backend, iterset, toset):
         "Data constructor should correctly set attributes."
         m = op2.Map(iterset, toset, 2, [1] * 2 * iterset.size, 'bar')
-        assert m.iterset == iterset and m.toset == toset and m.arity == 2 \
-            and m.values.sum() == 2 * iterset.size and m.name == 'bar'
+        assert (m.iterset == iterset and m.toset == toset and m.arity == 2 and
+                m.arities == (2,) and m.values.sum() == 2 * iterset.size and
+                m.name == 'bar')
 
     def test_map_indexing(self, backend, m_iterset_toset):
         "Indexing a map should create an appropriate Arg"
@@ -1812,6 +1813,10 @@ class TestMixedMapAPI:
     def test_mixed_map_arity(self, backend, mmap):
         "MixedMap arity should return the sum of the Map arities."
         assert mmap.arity == sum(m.arity for m in mmap)
+
+    def test_mixed_map_arities(self, backend, mmap):
+        "MixedMap arities should return a tuple of the Map arities."
+        assert mmap.arities == tuple(m.arity for m in mmap)
 
     def test_mixed_map_values(self, backend, mmap):
         "MixedMap values should return a tuple of the Map values."

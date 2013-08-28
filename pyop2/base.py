@@ -2226,6 +2226,14 @@ class Map(object):
         return self._arity
 
     @property
+    def arities(self):
+        """Arity of the mapping: number of toset elements mapped to per
+        iterset element.
+
+        :rtype: tuple"""
+        return (self._arity,)
+
+    @property
     def values(self):
         """Mapping array.
 
@@ -2318,6 +2326,14 @@ class MixedMap(Map):
         """Arity of the mapping: total number of toset elements mapped to per
         iterset element."""
         return sum(m.arity for m in self._maps)
+
+    @property
+    def arities(self):
+        """Arity of the mapping: number of toset elements mapped to per
+        iterset element.
+
+        :rtype: tuple"""
+        return tuple(m.arity for m in self._maps)
 
     @property
     def values(self):
