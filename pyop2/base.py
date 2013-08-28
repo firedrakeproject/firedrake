@@ -824,28 +824,28 @@ class MixedSet(Set):
 
     @property
     def core_size(self):
-        """Core set sizes. Owned elements not touching halo elements."""
-        return tuple(s.core_size for s in self._sets)
+        """Core set size. Owned elements not touching halo elements."""
+        return sum(s.core_size for s in self._sets)
 
     @property
     def size(self):
-        """Set sizes, owned elements."""
-        return tuple(s.size for s in self._sets)
+        """Set size, owned elements."""
+        return sum(s.size for s in self._sets)
 
     @property
     def exec_size(self):
-        """Set sizes including execute halo elements."""
-        return tuple(s.exec_size for s in self._sets)
+        """Set size including execute halo elements."""
+        return sum(s.exec_size for s in self._sets)
 
     @property
     def total_size(self):
-        """Total set sizes, including halo elements."""
-        return tuple(s.total_size for s in self._sets)
+        """Total set size, including halo elements."""
+        return sum(s.total_size for s in self._sets)
 
     @property
     def sizes(self):
         """Set sizes: core, owned, execute halo, total."""
-        return tuple(s.sizes for s in self._sets)
+        return (self.core_size, self.size, self.exec_size, self.total_size)
 
     @property
     def name(self):

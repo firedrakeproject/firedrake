@@ -522,24 +522,24 @@ class TestMixedSetAPI:
         assert op2.MixedSet(sets).split == sets
 
     def test_mixed_set_core_size(self, backend, mset):
-        "MixedSet core_size should return a tuple of the Set core_sizes."
-        assert mset.core_size == tuple(s.core_size for s in mset)
+        "MixedSet core_size should return the sum of the Set core_sizes."
+        assert mset.core_size == sum(s.core_size for s in mset)
 
     def test_mixed_set_size(self, backend, mset):
-        "MixedSet size should return a tuple of the Set sizes."
-        assert mset.size == tuple(s.size for s in mset)
+        "MixedSet size should return the sum of the Set sizes."
+        assert mset.size == sum(s.size for s in mset)
 
     def test_mixed_set_exec_size(self, backend, mset):
-        "MixedSet exec_size should return a tuple of the Set exec_sizes."
-        assert mset.exec_size == tuple(s.exec_size for s in mset)
+        "MixedSet exec_size should return the sum of the Set exec_sizes."
+        assert mset.exec_size == sum(s.exec_size for s in mset)
 
     def test_mixed_set_total_size(self, backend, mset):
-        "MixedSet total_size should return a tuple of the Set total_sizes."
-        assert mset.total_size == tuple(s.total_size for s in mset)
+        "MixedSet total_size should return the sum of the Set total_sizes."
+        assert mset.total_size == sum(s.total_size for s in mset)
 
     def test_mixed_set_sizes(self, backend, mset):
         "MixedSet sizes should return a tuple of the Set sizes."
-        assert mset.sizes == tuple(s.sizes for s in mset)
+        assert mset.sizes == (mset.core_size, mset.size, mset.exec_size, mset.total_size)
 
     def test_mixed_set_name(self, backend, mset):
         "MixedSet name should return a tuple of the Set names."
