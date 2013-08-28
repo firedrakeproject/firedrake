@@ -1215,9 +1215,10 @@ class IterationSpace(object):
         :func:`pyop2.op2.par_loop`."""
 
     @validate_type(('iterset', Set, SetTypeError))
-    def __init__(self, iterset, extents=()):
+    def __init__(self, iterset, extents=(), block_shape=None):
         self._iterset = iterset
         self._extents = as_tuple(extents, int)
+        self._block_shape = block_shape or (((),),)
 
     @property
     def iterset(self):
@@ -1228,6 +1229,12 @@ class IterationSpace(object):
     def extents(self):
         """Extents of the IterationSpace within each item of ``iterset``"""
         return self._extents
+
+    @property
+    def block_shape(self):
+        """2-dimensional grid of extents of the IterationSpace within each
+        item of ``iterset``"""
+        return self._block_shape
 
     @property
     def name(self):
@@ -1292,7 +1299,7 @@ class IterationSpace(object):
     @property
     def cache_key(self):
         """Cache key used to uniquely identify the object in the cache."""
-        return self._extents, self.iterset.layers, isinstance(self._iterset, Subset)
+        return self._extents, self._block_shape, self.iterset.layers, isinstance(self._iterset, Subset)
 
 
 class DataCarrier(object):
@@ -2856,7 +2863,7 @@ class ParLoop(LazyComputation):
                     if arg2.data is arg1.data and arg2.map is arg1.map:
                         arg2.indirect_position = arg1.indirect_position
 
-        self._it_space = IterationSpace(iterset, self.check_args(iterset))
+        self._it_space = self.build_itspace(iterset)
 
     def _run(self):
         return self.compute()
@@ -2936,7 +2943,7 @@ class ParLoop(LazyComputation):
             if arg._is_mat:
                 arg.data._assemble()
 
-    def check_args(self, iterset):
+    def build_itspace(self, iterset):
         """Checks that the iteration set of the :class:`ParLoop` matches the
         iteration set of all its arguments. A :class:`MapValueError` is raised
         if this condition is not met.
@@ -2944,22 +2951,25 @@ class ParLoop(LazyComputation):
         Also determines the size of the local iteration space and checks all
         arguments using an :class:`IterationIndex` for consistency.
 
-        :return: size of the local iteration space"""
-        iterset = iterset.superset if isinstance(iterset, Subset) else iterset
+        :return: class:`IterationSpace` for this :class:`ParLoop`"""
+
+        _iterset = iterset.superset if isinstance(iterset, Subset) else iterset
         itspace = ()
+        extents = None
         for i, arg in enumerate(self._actual_args):
             if arg._is_global or arg.map is None:
                 continue
             for j, m in enumerate(arg._map):
-                if m.iterset != iterset:
+                if m.iterset != _iterset:
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
             if arg._uses_itspace:
-                _itspace = tuple(m.arity for m in arg._map)
-                if itspace and itspace != _itspace:
+                _extents = arg._extents
+                itspace = tuple(m.arity for m in arg.map)
+                if extents and extents != _extents:
                     raise IndexValueError("Mismatching iteration space size for argument %d" % i)
-                itspace = _itspace
-        return itspace
+                extents = _extents
+        return IterationSpace(iterset, itspace, extents)
 
     def offset_args(self):
         """The offset args that need to be added to the argument list."""
