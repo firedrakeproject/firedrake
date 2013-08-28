@@ -52,7 +52,6 @@ void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end,
   int end = (int)PyInt_AsLong(_end);
   %(ssinds_dec)s
   %(wrapper_decs)s;
-  %(local_tensor_decs)s;
   %(const_inits)s;
   %(off_inits)s;
   %(map_decl)s
