@@ -87,8 +87,9 @@ class sdist(_sdist):
         _sdist.run(self)
 cmdclass['sdist'] = sdist
 
+from pyop2.version import __version__ as pyop2_version
 setup(name='PyOP2',
-      version='0.1',
+      version=pyop2_version,
       description='OP2 runtime library and python bindings',
       author='Imperial College London and others',
       author_email='mapdes@imperial.ac.uk',
