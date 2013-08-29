@@ -111,22 +111,22 @@ class TestIndirectLoop:
         the par_loop's should raise an exception."""
         with pytest.raises(MapValueError):
             op2.par_loop(op2.Kernel("", "dummy"), iterset,
-                         x(op2.Map(op2.Set(nelems), indset, 1), op2.WRITE))
+                         x(op2.WRITE, op2.Map(op2.Set(nelems), indset, 1)))
 
     def test_mismatching_indset(self, backend, iterset, x):
         """Accessing a par_loop argument via a Map with toset not matching
         the Dat's should raise an exception."""
         with pytest.raises(MapValueError):
             op2.par_loop(op2.Kernel("", "dummy"), iterset,
-                         x(op2.Map(iterset, op2.Set(nelems), 1), op2.WRITE))
+                         x(op2.WRITE, op2.Map(iterset, op2.Set(nelems), 1)))
 
     def test_mismatching_itspace(self, backend, iterset, iterset2indset, iterset2indset2, x):
         """par_loop arguments using an IterationIndex must use a local
         iteration space of the same extents."""
         with pytest.raises(IndexValueError):
             op2.par_loop(op2.Kernel("", "dummy"), iterset,
-                         x(iterset2indset[op2.i[0]], op2.WRITE),
-                         x(iterset2indset2[op2.i[0]], op2.WRITE))
+                         x(op2.WRITE, iterset2indset[op2.i[0]]),
+                         x(op2.WRITE, iterset2indset2[op2.i[0]]))
 
     def test_uninitialized_map(self, backend, iterset, indset, x):
         """Accessing a par_loop argument via an uninitialized Map should raise
@@ -134,14 +134,14 @@ class TestIndirectLoop:
         kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"
         with pytest.raises(MapValueError):
             op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), iterset,
-                         x(op2.Map(iterset, indset, 1), op2.WRITE))
+                         x(op2.WRITE, op2.Map(iterset, indset, 1)))
 
     def test_onecolor_wo(self, backend, iterset, x, iterset2indset):
         """Set a Dat to a scalar value with op2.WRITE."""
         kernel_wo = "void kernel_wo(unsigned int* x) { *x = 42; }\n"
 
         op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"),
-                     iterset, x(iterset2indset[0], op2.WRITE))
+                     iterset, x(op2.WRITE, iterset2indset[0]))
         assert all(map(lambda x: x == 42, x.data))
 
     def test_onecolor_rw(self, backend, iterset, x, iterset2indset):
@@ -149,7 +149,7 @@ class TestIndirectLoop:
         kernel_rw = "void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }\n"
 
         op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"),
-                     iterset, x(iterset2indset[0], op2.RW))
+                     iterset, x(op2.RW, iterset2indset[0]))
         assert sum(x.data) == nelems * (nelems + 1) / 2
 
     def test_indirect_inc(self, backend, iterset, unitset, iterset2unitset):
@@ -157,7 +157,7 @@ class TestIndirectLoop:
         u = op2.Dat(unitset, np.array([0], dtype=np.uint32), np.uint32, "u")
         kernel_inc = "void kernel_inc(unsigned int* x) { (*x) = (*x) + 1; }\n"
         op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"),
-                     iterset, u(iterset2unitset[0], op2.INC))
+                     iterset, u(op2.INC, iterset2unitset[0]))
         assert u.data[0] == nelems
 
     def test_global_read(self, backend, iterset, x, iterset2indset):
@@ -168,7 +168,7 @@ class TestIndirectLoop:
 
         op2.par_loop(op2.Kernel(kernel_global_read, "kernel_global_read"),
                      iterset,
-                     x(iterset2indset[0], op2.RW),
+                     x(op2.RW, iterset2indset[0]),
                      g(op2.READ))
         assert sum(x.data) == sum(map(lambda v: v / 2, range(nelems)))
 
@@ -183,7 +183,7 @@ class TestIndirectLoop:
 
         op2.par_loop(
             op2.Kernel(kernel_global_inc, "kernel_global_inc"), iterset,
-            x(iterset2indset[0], op2.RW),
+            x(op2.RW, iterset2indset[0]),
             g(op2.INC))
         assert sum(x.data) == nelems * (nelems + 1) / 2
         assert g.data[0] == nelems * (nelems + 1) / 2
@@ -192,7 +192,7 @@ class TestIndirectLoop:
         """Set both components of a vector-valued Dat to a scalar value."""
         kernel_wo = "void kernel_wo(unsigned int* x) { x[0] = 42; x[1] = 43; }\n"
         op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"), iterset,
-                     x2(iterset2indset[0], op2.WRITE))
+                     x2(op2.WRITE, iterset2indset[0]))
         assert all(all(v == [42, 43]) for v in x2.data)
 
     def test_2d_map(self, backend):
@@ -213,9 +213,9 @@ class TestIndirectLoop:
           *edge = *nodes1 + *nodes2;
         }"""
         op2.par_loop(op2.Kernel(kernel_sum, "kernel_sum"), edges,
-                     node_vals(edge2node[0], op2.READ),
-                     node_vals(edge2node[1], op2.READ),
-                     edge_vals(op2.IdentityMap, op2.WRITE))
+                     node_vals(op2.READ, edge2node[0]),
+                     node_vals(op2.READ, edge2node[1]),
+                     edge_vals(op2.WRITE))
 
         expected = np.arange(1, nedges * 2 + 1, 2).reshape(nedges, 1)
         assert all(expected == edge_vals.data)

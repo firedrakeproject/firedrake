@@ -158,17 +158,17 @@ void update(%(t)s *r, %(t)s *du, %(t)s *u, %(t)s *u_sum, %(t)s *u_max) {
 
 for iter in xrange(0, NITER):
     op2.par_loop(res, edges,
-                 p_A(op2.IdentityMap, op2.READ),
-                 p_u(ppedge[1], op2.READ),
-                 p_du(ppedge[0], op2.INC),
+                 p_A(op2.READ),
+                 p_u(op2.READ, ppedge[1]),
+                 p_du(op2.INC, ppedge[0]),
                  beta(op2.READ))
     u_sum = op2.Global(1, data=0.0, name="u_sum", dtype=fp_type)
     u_max = op2.Global(1, data=0.0, name="u_max", dtype=fp_type)
 
     op2.par_loop(update, nodes,
-                 p_r(op2.IdentityMap, op2.READ),
-                 p_du(op2.IdentityMap, op2.RW),
-                 p_u(op2.IdentityMap, op2.INC),
+                 p_r(op2.READ),
+                 p_du(op2.RW),
+                 p_u(op2.INC),
                  u_sum(op2.INC),
                  u_max(op2.MAX))
 

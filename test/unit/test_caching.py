@@ -135,12 +135,12 @@ class TestPlanCache:
 
         op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"),
                      iterset,
-                     x(iter2ind1[0], op2.RW))
+                     x(op2.RW, iter2ind1[0]))
         assert len(self.cache) == 1
 
         op2.par_loop(op2.Kernel(kernel_dec, "kernel_dec"),
                      iterset,
-                     x(iter2ind1[0], op2.RW))
+                     x(op2.RW, iter2ind1[0]))
         assert len(self.cache) == 1
 
     def test_arg_order(self, backend, iterset, iter2ind1, x, y):
@@ -158,15 +158,15 @@ void kernel_swap(unsigned int* x, unsigned int* y)
 """
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     x(iter2ind1[0], op2.RW),
-                     y(iter2ind1[0], op2.RW))
+                     x(op2.RW, iter2ind1[0]),
+                     y(op2.RW, iter2ind1[0]))
 
         assert len(self.cache) == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     y(iter2ind1[0], op2.RW),
-                     x(iter2ind1[0], op2.RW))
+                     y(op2.RW, iter2ind1[0]),
+                     x(op2.RW, iter2ind1[0]))
 
         assert len(self.cache) == 1
 
@@ -185,15 +185,15 @@ void kernel_swap(unsigned int* x, unsigned int* y)
 """
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     x(iter2ind2[0], op2.RW),
-                     x(iter2ind2[1], op2.RW))
+                     x(op2.RW, iter2ind2[0]),
+                     x(op2.RW, iter2ind2[1]))
 
         assert len(self.cache) == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     x(iter2ind2[1], op2.RW),
-                     x(iter2ind2[0], op2.RW))
+                     x(op2.RW, iter2ind2[1]),
+                     x(op2.RW, iter2ind2[0]))
 
         assert len(self.cache) == 1
 
@@ -212,14 +212,14 @@ void kernel_swap(unsigned int* x)
 """
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     x2(iter2ind2[0], op2.RW))
+                     x2(op2.RW, iter2ind2[0]))
 
         assert len(self.cache) == 1
 
         kernel_inc = "void kernel_inc(unsigned long* x) { *x += 1; }"
         op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"),
                      iterset,
-                     xl(iter2ind1[0], op2.RW))
+                     xl(op2.RW, iter2ind1[0]))
 
         assert len(self.cache) == 2
 
@@ -230,14 +230,14 @@ void kernel_swap(unsigned int* x)
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned long* a64) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
                      iterset,
-                     x(iter2ind1[0], op2.INC),
-                     a64(op2.IdentityMap, op2.RW))
+                     x(op2.INC, iter2ind1[0]),
+                     a64(op2.RW))
         assert len(self.cache) == 1
 
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* g) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
                      iterset,
-                     x(iter2ind1[0], op2.INC),
+                     x(op2.INC, iter2ind1[0]),
                      g(op2.READ))
         assert len(self.cache) == 1
 
@@ -248,15 +248,15 @@ void kernel_swap(unsigned int* x)
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* y) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
                      iterset,
-                     x(iter2ind2[0], op2.INC),
-                     x(iter2ind2[1], op2.INC))
+                     x(op2.INC, iter2ind2[0]),
+                     x(op2.INC, iter2ind2[1]))
         assert len(self.cache) == 1
 
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* y) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
                      iterset,
-                     y(iter2ind2[0], op2.INC),
-                     y(iter2ind2[1], op2.INC))
+                     y(op2.INC, iter2ind2[0]),
+                     y(op2.INC, iter2ind2[1]))
         assert len(self.cache) == 1
 
     def test_diff_conflicts(self, backend, iterset, iter2ind2, x, y):
@@ -266,29 +266,31 @@ void kernel_swap(unsigned int* x)
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* y) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
                      iterset,
-                     x(iter2ind2[0], op2.READ),
-                     x(iter2ind2[1], op2.READ))
+                     x(op2.READ, iter2ind2[0]),
+                     x(op2.READ, iter2ind2[1],))
         assert len(self.cache) == 1
 
         kernel_dummy = "void kernel_dummy(unsigned int* x, unsigned int* y) { }"
         op2.par_loop(op2.Kernel(kernel_dummy, "kernel_dummy"),
                      iterset,
-                     y(iter2ind2[0], op2.INC),
-                     y(iter2ind2[1], op2.INC))
+                     y(op2.INC, iter2ind2[0]),
+                     y(op2.INC, iter2ind2[1]))
         assert len(self.cache) == 2
 
     def test_same_with_mat(self, backend, iterset, x, iter2ind1, mat):
         self.cache.clear()
         assert len(self.cache) == 0
         plan1 = plan.Plan(iterset,
-                          mat((iter2ind1[op2.i[0]], iter2ind1[op2.i[1]]), op2.INC),
-                          x(iter2ind1[0], op2.READ),
+                          mat(op2.INC, (iter2ind1[op2.i[0]],
+                                        iter2ind1[op2.i[1]])),
+                          x(op2.READ, iter2ind1[0]),
                           partition_size=10,
                           matrix_coloring=True)
         assert len(self.cache) == 1
         plan2 = plan.Plan(iterset,
-                          mat((iter2ind1[op2.i[0]], iter2ind1[op2.i[1]]), op2.INC),
-                          x(iter2ind1[0], op2.READ),
+                          mat(op2.INC, (iter2ind1[op2.i[0]],
+                                        iter2ind1[op2.i[1]])),
+                          x(op2.READ, iter2ind1[0]),
                           partition_size=10,
                           matrix_coloring=True)
 
@@ -300,16 +302,16 @@ void kernel_swap(unsigned int* x)
         self.cache.clear()
         assert len(self.cache) == 0
         plan1 = plan.Plan(iterset,
-                          mat((iter2ind1[op2.i[0]],
-                               iter2ind1[op2.i[1]]), op2.INC),
-                          x(iter2ind1[0], op2.READ),
+                          mat(op2.INC, (iter2ind1[op2.i[0]],
+                                        iter2ind1[op2.i[1]])),
+                          x(op2.READ, iter2ind1[0]),
                           partition_size=10,
                           matrix_coloring=True)
         assert len(self.cache) == 1
         plan2 = plan.Plan(iterset,
-                          mat((iter2ind1[op2.i[1]],
-                               iter2ind1[op2.i[0]]), op2.INC),
-                          x(iter2ind1[0], op2.READ),
+                          mat(op2.INC, (iter2ind1[op2.i[1]],
+                                        iter2ind1[op2.i[0]])),
+                          x(op2.READ, iter2ind1[0]),
                           partition_size=10,
                           matrix_coloring=True)
 
@@ -341,15 +343,15 @@ class TestGeneratedCodeCache:
 
         op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
                      iterset,
-                     a(op2.IdentityMap, op2.WRITE),
-                     x(iter2ind1[0], op2.READ))
+                     a(op2.WRITE),
+                     x(op2.READ, iter2ind1[0]))
 
         assert len(self.cache) == 1
 
         op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
                      iterset,
-                     a(op2.IdentityMap, op2.WRITE),
-                     x(iter2ind1[0], op2.READ))
+                     a(op2.WRITE),
+                     x(op2.READ, iter2ind1[0]))
 
         assert len(self.cache) == 1
 
@@ -361,8 +363,8 @@ class TestGeneratedCodeCache:
 
         op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
                      iterset,
-                     a(op2.IdentityMap, op2.WRITE),
-                     x(iter2ind1[0], op2.READ))
+                     a(op2.WRITE),
+                     x(op2.READ, iter2ind1[0]))
 
         assert len(self.cache) == 1
 
@@ -370,8 +372,8 @@ class TestGeneratedCodeCache:
 
         op2.par_loop(op2.Kernel(kernel_cpy, "kernel_cpy"),
                      iterset,
-                     a(op2.IdentityMap, op2.WRITE),
-                     x(iter2ind1[0], op2.READ))
+                     a(op2.WRITE),
+                     x(op2.READ, iter2ind1[0]))
 
         assert len(self.cache) == 2
 
@@ -390,15 +392,15 @@ void kernel_swap(unsigned int* x, unsigned int* y)
 """
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     x(iter2ind1[0], op2.RW),
-                     y(iter2ind1[0], op2.RW))
+                     x(op2.RW, iter2ind1[0]),
+                     y(op2.RW, iter2ind1[0]))
 
         assert len(self.cache) == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     y(iter2ind1[0], op2.RW),
-                     x(iter2ind1[0], op2.RW))
+                     y(op2.RW, iter2ind1[0]),
+                     x(op2.RW, iter2ind1[0]))
 
         assert len(self.cache) == 1
 
@@ -417,14 +419,14 @@ void kernel_swap(unsigned int* x, unsigned int* y)
 """
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     a(op2.IdentityMap, op2.RW),
-                     b(op2.IdentityMap, op2.RW))
+                     a(op2.RW),
+                     b(op2.RW))
         assert len(self.cache) == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     b(op2.IdentityMap, op2.RW),
-                     a(op2.IdentityMap, op2.RW))
+                     b(op2.RW),
+                     a(op2.RW))
         assert len(self.cache) == 1
 
     def test_vector_map(self, backend, iterset, x2, iter2ind2):
@@ -443,12 +445,12 @@ void kernel_swap(unsigned int* x[2])
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     x2(iter2ind2, op2.RW))
+                     x2(op2.RW, iter2ind2))
         assert len(self.cache) == 1
 
         op2.par_loop(op2.Kernel(kernel_swap, "kernel_swap"),
                      iterset,
-                     x2(iter2ind2, op2.RW))
+                     x2(op2.RW, iter2ind2))
 
         assert len(self.cache) == 1
 
@@ -458,14 +460,14 @@ void kernel_swap(unsigned int* x[2])
         k = op2.Kernel("""void k(unsigned int *x, unsigned int *y) {}""", 'k')
 
         op2.par_loop(k, iterset,
-                     x2(iter2ind2[0], op2.INC),
-                     x2(iter2ind2[1], op2.INC))
+                     x2(op2.INC, iter2ind2[0]),
+                     x2(op2.INC, iter2ind2[1]))
 
         assert len(self.cache) == 1
 
         op2.par_loop(k, iterset,
-                     x2(iter2ind2[1], op2.INC),
-                     x2(iter2ind2[0], op2.INC))
+                     x2(op2.INC, iter2ind2[1]),
+                     x2(op2.INC, iter2ind2[0]))
 
         assert len(self.cache) == 2
 
@@ -475,12 +477,12 @@ void kernel_swap(unsigned int* x[2])
         k = op2.Kernel("""void k(unsigned int *x, int i) {}""", 'k')
 
         op2.par_loop(k, iterset,
-                     x2(iter2ind2[op2.i[0]], op2.INC))
+                     x2(op2.INC, iter2ind2[op2.i[0]]))
 
         assert len(self.cache) == 1
 
         op2.par_loop(k, iterset,
-                     x2(iter2ind2[op2.i[0]], op2.INC))
+                     x2(op2.INC, iter2ind2[op2.i[0]]))
 
         assert len(self.cache) == 1
 
@@ -492,14 +494,14 @@ void kernel_swap(unsigned int* x[2])
         k = op2.Kernel("""void k(unsigned int *x) {}""", 'k')
         c = op2.Const(1, 1, name='c', dtype=numpy.uint32)
 
-        op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
+        op2.par_loop(k, iterset, d(op2.WRITE))
         assert len(self.cache) == 1
 
         c.remove_from_namespace()
 
         c = op2.Const(2, (1, 1), name='c', dtype=numpy.uint32)
 
-        op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
+        op2.par_loop(k, iterset, d(op2.WRITE))
         assert len(self.cache) == 2
 
         c.remove_from_namespace()
@@ -512,11 +514,11 @@ void kernel_swap(unsigned int* x[2])
         k = op2.Kernel("""void k(unsigned int *x) {}""", 'k')
         c = op2.Const(1, 1, name='c', dtype=numpy.uint32)
 
-        op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
+        op2.par_loop(k, iterset, d(op2.WRITE))
         assert len(self.cache) == 1
 
         c.data = 2
-        op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
+        op2.par_loop(k, iterset, d(op2.WRITE))
         assert len(self.cache) == 1
 
         c.remove_from_namespace()
@@ -528,11 +530,11 @@ void kernel_swap(unsigned int* x[2])
 
         k = op2.Kernel("""void k(void *x) {}""", 'k')
 
-        op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
+        op2.par_loop(k, iterset, d(op2.WRITE))
         assert len(self.cache) == 1
 
         d = op2.Dat(diterset, range(nelems), numpy.int32)
-        op2.par_loop(k, iterset, d(op2.IdentityMap, op2.WRITE))
+        op2.par_loop(k, iterset, d(op2.WRITE))
         assert len(self.cache) == 2
 
     def test_change_global_dtype_matters(self, backend, iterset, diterset):

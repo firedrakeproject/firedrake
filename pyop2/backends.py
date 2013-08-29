@@ -56,7 +56,7 @@ def _make_object(obj, *args, **kwargs):
 
       def zero(self):
           ParLoop(self._zero_kernel, self.dataset.set,
-                  self(IdentityMap, WRITE)).compute()
+                  self(WRITE)).compute()
 
     but if we place this in a base class, then the :class:`ParLoop`
     object we instantiate is a base `ParLoop`, rather than (if we're
@@ -65,7 +65,7 @@ def _make_object(obj, *args, **kwargs):
 
       def zero(self):
           _make_object('ParLoop', self._zero_kernel, self.dataset.set,
-                       self(IdentityMap, WRITE)).compute()
+                       self(WRITE)).compute()
 
     That way, the correct type of `ParLoop` will be instantiated at
     runtime."""

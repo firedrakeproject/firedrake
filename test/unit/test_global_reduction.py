@@ -158,7 +158,7 @@ void kernel_min(unsigned int* x, unsigned int* g)
         g = op2.Global(1, 8, numpy.uint32, "g")
 
         op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), set,
-                     duint32(op2.IdentityMap, op2.READ),
+                     duint32(op2.READ),
                      g(op2.MIN))
         assert g.data[0] == 8
 
@@ -172,7 +172,7 @@ void kernel_min(int* x, int* g)
         g = op2.Global(1, 8, numpy.int32, "g")
 
         op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), set,
-                     dint32(op2.IdentityMap, op2.READ),
+                     dint32(op2.READ),
                      g(op2.MIN))
         assert g.data[0] == -12
 
@@ -186,7 +186,7 @@ void kernel_max(int* x, int* g)
         g = op2.Global(1, -42, numpy.int32, "g")
 
         op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), set,
-                     dint32(op2.IdentityMap, op2.READ),
+                     dint32(op2.READ),
                      g(op2.MAX))
         assert g.data[0] == -12
 
@@ -200,7 +200,7 @@ void kernel_min(float* x, float* g)
         g = op2.Global(1, -.8, numpy.float32, "g")
 
         op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), set,
-                     dfloat32(op2.IdentityMap, op2.READ),
+                     dfloat32(op2.READ),
                      g(op2.MIN))
 
         assert_allclose(g.data[0], -12.0)
@@ -215,7 +215,7 @@ void kernel_max(float* x, float* g)
         g = op2.Global(1, -42.8, numpy.float32, "g")
 
         op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), set,
-                     dfloat32(op2.IdentityMap, op2.READ),
+                     dfloat32(op2.READ),
                      g(op2.MAX))
         assert_allclose(g.data[0], -12.0)
 
@@ -229,7 +229,7 @@ void kernel_min(double* x, double* g)
         g = op2.Global(1, -.8, numpy.float64, "g")
 
         op2.par_loop(op2.Kernel(kernel_min, "kernel_min"), set,
-                     dfloat64(op2.IdentityMap, op2.READ),
+                     dfloat64(op2.READ),
                      g(op2.MIN))
         assert_allclose(g.data[0], -12.0)
 
@@ -243,14 +243,14 @@ void kernel_max(double* x, double* g)
         g = op2.Global(1, -42.8, numpy.float64, "g")
 
         op2.par_loop(op2.Kernel(kernel_max, "kernel_max"), set,
-                     dfloat64(op2.IdentityMap, op2.READ),
+                     dfloat64(op2.READ),
                      g(op2.MAX))
         assert_allclose(g.data[0], -12.0)
 
     def test_1d_read(self, backend, k1_write_to_dat, set, d1):
         g = op2.Global(1, 1, dtype=numpy.uint32)
         op2.par_loop(k1_write_to_dat, set,
-                     d1(op2.IdentityMap, op2.WRITE),
+                     d1(op2.WRITE),
                      g(op2.READ))
 
         assert all(d1.data == g.data)
@@ -258,7 +258,7 @@ void kernel_max(double* x, double* g)
     def test_2d_read(self, backend, k2_write_to_dat, set, d1):
         g = op2.Global(2, (1, 2), dtype=numpy.uint32)
         op2.par_loop(k2_write_to_dat, set,
-                     d1(op2.IdentityMap, op2.WRITE),
+                     d1(op2.WRITE),
                      g(op2.READ))
 
         assert all(d1.data == g.data.sum())
@@ -266,7 +266,7 @@ void kernel_max(double* x, double* g)
     def test_1d_inc(self, backend, k1_inc_to_global, set, d1):
         g = op2.Global(1, 0, dtype=numpy.uint32)
         op2.par_loop(k1_inc_to_global, set,
-                     d1(op2.IdentityMap, op2.READ),
+                     d1(op2.READ),
                      g(op2.INC))
 
         assert g.data == d1.data.sum()
@@ -275,7 +275,7 @@ void kernel_max(double* x, double* g)
         val = d1.data.min() + 1
         g = op2.Global(1, val, dtype=numpy.uint32)
         op2.par_loop(k1_min_to_global, set,
-                     d1(op2.IdentityMap, op2.READ),
+                     d1(op2.READ),
                      g(op2.MIN))
 
         assert g.data == d1.data.min()
@@ -285,7 +285,7 @@ void kernel_max(double* x, double* g)
         val = d1.data.min() - 1
         g = op2.Global(1, val, dtype=numpy.uint32)
         op2.par_loop(k1_min_to_global, set,
-                     d1(op2.IdentityMap, op2.READ),
+                     d1(op2.READ),
                      g(op2.MIN))
         assert g.data == val
 
@@ -293,7 +293,7 @@ void kernel_max(double* x, double* g)
         val = d1.data.max() - 1
         g = op2.Global(1, val, dtype=numpy.uint32)
         op2.par_loop(k1_max_to_global, set,
-                     d1(op2.IdentityMap, op2.READ),
+                     d1(op2.READ),
                      g(op2.MAX))
 
         assert g.data == d1.data.max()
@@ -302,7 +302,7 @@ void kernel_max(double* x, double* g)
         val = d1.data.max() + 1
         g = op2.Global(1, val, dtype=numpy.uint32)
         op2.par_loop(k1_max_to_global, set,
-                     d1(op2.IdentityMap, op2.READ),
+                     d1(op2.READ),
                      g(op2.MAX))
 
         assert g.data == val
@@ -310,7 +310,7 @@ void kernel_max(double* x, double* g)
     def test_2d_inc(self, backend, k2_inc_to_global, set, d2):
         g = op2.Global(2, (0, 0), dtype=numpy.uint32)
         op2.par_loop(k2_inc_to_global, set,
-                     d2(op2.IdentityMap, op2.READ),
+                     d2(op2.READ),
                      g(op2.INC))
 
         assert g.data[0] == d2.data[:, 0].sum()
@@ -321,7 +321,7 @@ void kernel_max(double* x, double* g)
         val_1 = d2.data[:, 1].min() + 1
         g = op2.Global(2, (val_0, val_1), dtype=numpy.uint32)
         op2.par_loop(k2_min_to_global, set,
-                     d2(op2.IdentityMap, op2.READ),
+                     d2(op2.READ),
                      g(op2.MIN))
 
         assert g.data[0] == d2.data[:, 0].min()
@@ -334,7 +334,7 @@ void kernel_max(double* x, double* g)
         val_1 = d2.data[:, 1].min() - 1
         g = op2.Global(2, (val_0, val_1), dtype=numpy.uint32)
         op2.par_loop(k2_min_to_global, set,
-                     d2(op2.IdentityMap, op2.READ),
+                     d2(op2.READ),
                      g(op2.MIN))
         assert g.data[0] == val_0
         assert g.data[1] == val_1
@@ -344,7 +344,7 @@ void kernel_max(double* x, double* g)
         val_1 = d2.data[:, 1].max() - 1
         g = op2.Global(2, (val_0, val_1), dtype=numpy.uint32)
         op2.par_loop(k2_max_to_global, set,
-                     d2(op2.IdentityMap, op2.READ),
+                     d2(op2.READ),
                      g(op2.MAX))
 
         assert g.data[0] == d2.data[:, 0].max()
@@ -355,7 +355,7 @@ void kernel_max(double* x, double* g)
         max_val_1 = d2.data[:, 1].max() + 1
         g = op2.Global(2, (max_val_0, max_val_1), dtype=numpy.uint32)
         op2.par_loop(k2_max_to_global, set,
-                     d2(op2.IdentityMap, op2.READ),
+                     d2(op2.READ),
                      g(op2.MAX))
 
         assert g.data[0] == max_val_0
@@ -364,12 +364,12 @@ void kernel_max(double* x, double* g)
     def test_1d_multi_inc_same_global(self, backend, k1_inc_to_global, set, d1):
         g = op2.Global(1, 0, dtype=numpy.uint32)
         op2.par_loop(k1_inc_to_global, set,
-                     d1(op2.IdentityMap, op2.READ),
+                     d1(op2.READ),
                      g(op2.INC))
         assert g.data == d1.data.sum()
 
         op2.par_loop(k1_inc_to_global, set,
-                     d1(op2.IdentityMap, op2.READ),
+                     d1(op2.READ),
                      g(op2.INC))
 
         assert g.data == d1.data.sum() * 2
@@ -377,13 +377,13 @@ void kernel_max(double* x, double* g)
     def test_1d_multi_inc_same_global_reset(self, backend, k1_inc_to_global, set, d1):
         g = op2.Global(1, 0, dtype=numpy.uint32)
         op2.par_loop(k1_inc_to_global, set,
-                     d1(op2.IdentityMap, op2.READ),
+                     d1(op2.READ),
                      g(op2.INC))
         assert g.data == d1.data.sum()
 
         g.data = 10
         op2.par_loop(k1_inc_to_global, set,
-                     d1(op2.IdentityMap, op2.READ),
+                     d1(op2.READ),
                      g(op2.INC))
 
         assert g.data == d1.data.sum() + 10
@@ -392,12 +392,12 @@ void kernel_max(double* x, double* g)
         g = op2.Global(1, 0, dtype=numpy.uint32)
         g2 = op2.Global(1, 10, dtype=numpy.uint32)
         op2.par_loop(k1_inc_to_global, set,
-                     d1(op2.IdentityMap, op2.READ),
+                     d1(op2.READ),
                      g(op2.INC))
         assert g.data == d1.data.sum()
 
         op2.par_loop(k1_inc_to_global, set,
-                     d1(op2.IdentityMap, op2.READ),
+                     d1(op2.READ),
                      g2(op2.INC))
         assert g2.data == d1.data.sum() + 10
 

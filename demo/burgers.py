@@ -114,8 +114,8 @@ void i_cond(double *c, double *t)
 i_cond = op2.Kernel(i_cond_code, "i_cond")
 
 op2.par_loop(i_cond, nodes,
-             coords(op2.IdentityMap, op2.READ),
-             tracer(op2.IdentityMap, op2.WRITE))
+             coords(op2.READ),
+             tracer(op2.WRITE))
 
 # Boundary condition
 
@@ -154,17 +154,17 @@ while normsq.data[0] > tolsq:
     # Assign result from previous timestep
 
     op2.par_loop(assign_dat, nodes,
-                 tracer_old(op2.IdentityMap, op2.WRITE),
-                 tracer(op2.IdentityMap, op2.READ))
+                 tracer_old(op2.WRITE),
+                 tracer(op2.READ))
 
     # Matrix assembly
 
     mat.zero()
 
     op2.par_loop(burgers, elements,
-                 mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                 coords(elem_node, op2.READ),
-                 tracer(elem_node, op2.READ))
+                 mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
+                 coords(op2.READ, elem_node),
+                 tracer(op2.READ, elem_node))
 
     mat.zero_rows([0, n - 1], 1.0)
 
@@ -173,13 +173,13 @@ while normsq.data[0] > tolsq:
     rhs.zero()
 
     op2.par_loop(rhs, elements,
-                 b(elem_node[op2.i[0]], op2.INC),
-                 coords(elem_node, op2.READ),
-                 tracer(elem_node, op2.READ))
+                 b(op2.INC, elem_node[op2.i[0]]),
+                 coords(op2.READ, elem_node),
+                 tracer(op2.READ, elem_node))
 
     op2.par_loop(strongbc_rhs, b_nodes,
-                 bdry(op2.IdentityMap, op2.READ),
-                 b(b_node_node[0], op2.WRITE))
+                 bdry(op2.READ),
+                 b(op2.WRITE, b_node_node[0]))
 
     # Solve
 
@@ -189,8 +189,8 @@ while normsq.data[0] > tolsq:
 
     normsq = op2.Global(1, data=0.0, name="norm")
     op2.par_loop(l2norm_diff_sq, nodes,
-                 tracer(op2.IdentityMap, op2.READ),
-                 tracer_old(op2.IdentityMap, op2.READ),
+                 tracer(op2.READ),
+                 tracer_old(op2.READ),
                  normsq(op2.INC))
 
     print "L2 Norm squared: %s" % normsq.data[0]

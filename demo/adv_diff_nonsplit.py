@@ -138,8 +138,8 @@ void i_cond(double *c, double *t)
 i_cond = op2.Kernel(i_cond_code, "i_cond")
 
 op2.par_loop(i_cond, nodes,
-             coords(op2.IdentityMap, op2.READ),
-             tracer(op2.IdentityMap, op2.WRITE))
+             coords(op2.READ),
+             tracer(op2.WRITE))
 
 # Assemble and solve
 
@@ -158,16 +158,16 @@ while T < 0.2:
 
     mat.zero()
     op2.par_loop(lhs, elements,
-                 mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-                 coords(elem_node, op2.READ),
-                 velocity(elem_node, op2.READ))
+                 mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
+                 coords(op2.READ, elem_node),
+                 velocity(op2.READ, elem_node))
 
     b.zero()
     op2.par_loop(rhs, elements,
-                 b(elem_node[op2.i[0]], op2.INC),
-                 coords(elem_node, op2.READ),
-                 tracer(elem_node, op2.READ),
-                 velocity(elem_node, op2.READ))
+                 b(op2.INC, elem_node[op2.i[0]]),
+                 coords(op2.READ, elem_node),
+                 tracer(op2.READ, elem_node),
+                 velocity(op2.READ, elem_node))
 
     solver.solve(mat, tracer, b)
 

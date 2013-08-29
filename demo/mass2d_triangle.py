@@ -105,13 +105,13 @@ f = op2.Dat(nodes, f_vals, valuetype, "f")
 # Assemble and solve
 
 op2.par_loop(mass, elements,
-             mat((elem_node[op2.i[0]], elem_node[op2.i[1]]), op2.INC),
-             coords(elem_node, op2.READ))
+             mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
+             coords(op2.READ, elem_node))
 
 op2.par_loop(rhs, elements,
-             b(elem_node[op2.i[0]], op2.INC),
-             coords(elem_node, op2.READ),
-             f(elem_node, op2.READ))
+             b(op2.INC, elem_node[op2.i[0]]),
+             coords(op2.READ, elem_node),
+             f(op2.READ, elem_node))
 
 solver = op2.Solver()
 solver.solve(mat, x, b)

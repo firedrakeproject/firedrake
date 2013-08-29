@@ -103,6 +103,11 @@ def mat(sparsity):
     return op2.Mat(sparsity)
 
 
+@pytest.fixture
+def g():
+    return op2.Global(1, 1)
+
+
 class TestInitAPI:
 
     """
@@ -195,35 +200,35 @@ class TestArgAPI:
     """
 
     def test_arg_eq_dat(self, backend, dat, m):
-        assert dat(m, op2.READ) == dat(m, op2.READ)
-        assert dat(m[0], op2.READ) == dat(m[0], op2.READ)
-        assert not dat(m, op2.READ) != dat(m, op2.READ)
-        assert not dat(m[0], op2.READ) != dat(m[0], op2.READ)
+        assert dat(op2.READ, m) == dat(op2.READ, m)
+        assert dat(op2.READ, m[0]) == dat(op2.READ, m[0])
+        assert not dat(op2.READ, m) != dat(op2.READ, m)
+        assert not dat(op2.READ, m[0]) != dat(op2.READ, m[0])
 
     def test_arg_ne_dat_idx(self, backend, dat, m):
-        assert dat(m[0], op2.READ) != dat(m[1], op2.READ)
-        assert not dat(m[0], op2.READ) == dat(m[1], op2.READ)
+        assert dat(op2.READ, m[0]) != dat(op2.READ, m[1])
+        assert not dat(op2.READ, m[0]) == dat(op2.READ, m[1])
 
     def test_arg_ne_dat_mode(self, backend, dat, m):
-        assert dat(m, op2.READ) != dat(m, op2.WRITE)
-        assert not dat(m, op2.READ) == dat(m, op2.WRITE)
+        assert dat(op2.READ, m) != dat(op2.WRITE, m)
+        assert not dat(op2.READ, m) == dat(op2.WRITE, m)
 
     def test_arg_ne_dat_map(self, backend, dat, m):
         m2 = op2.Map(m.iterset, m.toset, 1, np.ones(m.iterset.size))
-        assert dat(m, op2.READ) != dat(m2, op2.READ)
-        assert not dat(m, op2.READ) == dat(m2, op2.READ)
+        assert dat(op2.READ, m) != dat(op2.READ, m2)
+        assert not dat(op2.READ, m) == dat(op2.READ, m2)
 
     def test_arg_eq_mat(self, backend, mat, m):
-        assert mat((m[0], m[0]), op2.INC) == mat((m[0], m[0]), op2.INC)
-        assert not mat((m[0], m[0]), op2.INC) != mat((m[0], m[0]), op2.INC)
+        assert mat(op2.INC, (m[0], m[0])) == mat(op2.INC, (m[0], m[0]))
+        assert not mat(op2.INC, (m[0], m[0])) != mat(op2.INC, (m[0], m[0]))
 
     def test_arg_ne_mat_idx(self, backend, mat, m):
-        assert mat((m[0], m[0]), op2.INC) != mat((m[1], m[1]), op2.INC)
-        assert not mat((m[0], m[0]), op2.INC) == mat((m[1], m[1]), op2.INC)
+        assert mat(op2.INC, (m[0], m[0])) != mat(op2.INC, (m[1], m[1]))
+        assert not mat(op2.INC, (m[0], m[0])) == mat(op2.INC, (m[1], m[1]))
 
     def test_arg_ne_mat_mode(self, backend, mat, m):
-        assert mat((m[0], m[0]), op2.INC) != mat((m[0], m[0]), op2.WRITE)
-        assert not mat((m[0], m[0]), op2.INC) == mat((m[0], m[0]), op2.WRITE)
+        assert mat(op2.INC, (m[0], m[0])) != mat(op2.WRITE, (m[0], m[0]))
+        assert not mat(op2.INC, (m[0], m[0])) == mat(op2.WRITE, (m[0], m[0]))
 
 
 class TestSetAPI:
@@ -384,7 +389,17 @@ class TestDatAPI:
         d = op2.Dat(dset, dtype=np.int32)
         assert d.data.dtype == np.int32
 
-    def test_dat_illegal_map(self, backend, dset):
+    @pytest.mark.parametrize("mode", [op2.MAX, op2.MIN])
+    def test_dat_arg_illegal_mode(self, backend, dat, mode):
+        """Dat __call__ should not allow access modes not allowed for a Dat."""
+        with pytest.raises(exceptions.ModeValueError):
+            dat(mode)
+
+    def test_dat_arg_default_map(self, backend, dat):
+        """Dat __call__ should default the Arg map to None if not given."""
+        assert dat(op2.READ).map is None
+
+    def test_dat_arg_illegal_map(self, backend, dset):
         """Dat __call__ should not allow a map with a toset other than this
         Dat's set."""
         d = op2.Dat(dset)
@@ -392,7 +407,7 @@ class TestDatAPI:
         set2 = op2.Set(2)
         to_set2 = op2.Map(set1, set2, 1, [0, 0, 0])
         with pytest.raises(exceptions.MapValueError):
-            d(to_set2, op2.READ)
+            d(op2.READ, to_set2)
 
     def test_dat_on_set_builds_dim_one_dataset(self, backend, set):
         """If a Set is passed as the dataset argument, it should be
@@ -635,11 +650,22 @@ class TestMatAPI:
         assert m.sparsity == sparsity and  \
             m.dtype == np.float64 and m.name == 'bar'
 
-    def test_mat_illegal_maps(self, backend, mat):
+    def test_mat_arg_illegal_maps(self, backend, mat):
         "Mat arg constructor should reject invalid maps."
         wrongmap = op2.Map(op2.Set(2), op2.Set(3), 2, [0, 0, 0, 0])
         with pytest.raises(exceptions.MapValueError):
-            mat((wrongmap[0], wrongmap[1]), op2.INC)
+            mat(op2.INC, (wrongmap[0], wrongmap[1]))
+
+    def test_mat_arg_nonindexed_maps(self, backend, mat, m):
+        "Mat arg constructor should reject nonindexed maps."
+        with pytest.raises(TypeError):
+            mat(op2.INC, (m, m))
+
+    @pytest.mark.parametrize("mode", [op2.READ, op2.RW, op2.MIN, op2.MAX])
+    def test_mat_arg_illegal_mode(self, backend, mat, mode, m):
+        """Mat arg constructor should reject illegal access modes."""
+        with pytest.raises(exceptions.ModeValueError):
+            mat(mode, (m[op2.i[0]], m[op2.i[1]]))
 
     def test_mat_repr(self, backend, mat):
         "Mat should have the expected repr."
@@ -854,17 +880,15 @@ class TestGlobalAPI:
         assert g.dim == (2, 2) and g.dtype == np.float64 and g.name == 'bar' \
             and g.data.sum() == 4
 
-    def test_global_setter(self, backend):
+    def test_global_setter(self, backend, g):
         "Setter attribute on data should correct set data value."
-        c = op2.Global(1, 1)
-        c.data = 2
-        assert c.data.sum() == 2
+        g.data = 2
+        assert g.data.sum() == 2
 
-    def test_global_setter_malformed_data(self, backend):
+    def test_global_setter_malformed_data(self, backend, g):
         "Setter attribute should reject malformed data."
-        c = op2.Global(1, 1)
         with pytest.raises(exceptions.DataValueError):
-            c.data = [1, 2]
+            g.data = [1, 2]
 
     def test_global_eq(self, backend):
         "Globals should compare equal when having the same dim and data."
@@ -894,6 +918,16 @@ class TestGlobalAPI:
         s = "OP2 Global Argument: %s with dim %s and value %s" \
             % (g.name, g.dim, g.data)
         assert str(g) == s
+
+    @pytest.mark.parametrize("mode", [op2.RW, op2.WRITE])
+    def test_global_arg_illegal_mode(self, backend, g, mode):
+        """Global __call__ should not allow illegal access modes."""
+        with pytest.raises(exceptions.ModeValueError):
+            g(mode)
+
+    def test_global_arg_ignore_map(self, backend, g, m):
+        """Global __call__ should ignore the optional second argument."""
+        assert g(op2.READ, m).map is None
 
 
 class TestMapAPI:
@@ -1108,12 +1142,12 @@ class TestParLoopAPI:
     def test_illegal_kernel(self, backend, set, dat, m):
         """The first ParLoop argument has to be of type op2.Kernel."""
         with pytest.raises(exceptions.KernelTypeError):
-            op2.par_loop('illegal_kernel', set, dat(m, op2.READ))
+            op2.par_loop('illegal_kernel', set, dat(op2.READ, m))
 
     def test_illegal_iterset(self, backend, dat, m):
         """The first ParLoop argument has to be of type op2.Kernel."""
         with pytest.raises(exceptions.SetTypeError):
-            op2.par_loop(op2.Kernel("", "k"), 'illegal_set', dat(m, op2.READ))
+            op2.par_loop(op2.Kernel("", "k"), 'illegal_set', dat(op2.READ, m))
 
     def test_illegal_dat_iterset(self, backend):
         """ParLoop should reject a Dat argument using a different iteration
@@ -1125,7 +1159,7 @@ class TestParLoopAPI:
         map = op2.Map(set2, set1, 1, [0, 0, 0])
         kernel = op2.Kernel("void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):
-            op2.par_loop(kernel, set1, dat(map, op2.READ))
+            base.ParLoop(kernel, set1, dat(op2.READ, map))
 
     def test_illegal_mat_iterset(self, backend, sparsity):
         """ParLoop should reject a Mat argument using a different iteration
@@ -1136,7 +1170,7 @@ class TestParLoopAPI:
         kernel = op2.Kernel("void k() { }", "k")
         with pytest.raises(exceptions.MapValueError):
             op2.par_loop(kernel, set1,
-                         m((rmap[op2.i[0]], cmap[op2.i[1]]), op2.INC))
+                         m(op2.INC, (rmap[op2.i[0]], cmap[op2.i[1]])))
 
 
 class TestSolverAPI:

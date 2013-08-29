@@ -88,39 +88,39 @@ def main(opt):
 
         # Save old flow solution
         op2.par_loop(save_soln, cells,
-                     p_q(op2.IdentityMap, op2.READ),
-                     p_qold(op2.IdentityMap, op2.WRITE))
+                     p_q(op2.READ),
+                     p_qold(op2.WRITE))
 
         # Predictor/corrector update loop
         for k in range(2):
 
             # Calculate area/timestep
             op2.par_loop(adt_calc, cells,
-                         p_x(pcell, op2.READ),
-                         p_q(op2.IdentityMap, op2.READ),
-                         p_adt(op2.IdentityMap, op2.WRITE))
+                         p_x(op2.READ, pcell),
+                         p_q(op2.READ),
+                         p_adt(op2.WRITE))
 
             # Calculate flux residual
             op2.par_loop(res_calc, edges,
-                         p_x(pedge, op2.READ),
-                         p_q(pevcell, op2.READ),
-                         p_adt(pecell, op2.READ),
-                         p_res(pevcell, op2.INC))
+                         p_x(op2.READ, pedge),
+                         p_q(op2.READ, pevcell),
+                         p_adt(op2.READ, pecell),
+                         p_res(op2.INC, pevcell))
 
             op2.par_loop(bres_calc, bedges,
-                         p_x(pbedge, op2.READ),
-                         p_q(pbevcell[0], op2.READ),
-                         p_adt(pbecell[0], op2.READ),
-                         p_res(pbevcell[0], op2.INC),
-                         p_bound(op2.IdentityMap, op2.READ))
+                         p_x(op2.READ, pbedge),
+                         p_q(op2.READ, pbevcell[0]),
+                         p_adt(op2.READ, pbecell[0]),
+                         p_res(op2.INC, pbevcell[0]),
+                         p_bound(op2.READ))
 
             # Update flow field
             rms = op2.Global(1, 0.0, np.double, "rms")
             op2.par_loop(update, cells,
-                         p_qold(op2.IdentityMap, op2.READ),
-                         p_q(op2.IdentityMap, op2.WRITE),
-                         p_res(op2.IdentityMap, op2.RW),
-                         p_adt(op2.IdentityMap, op2.READ),
+                         p_qold(op2.READ),
+                         p_q(op2.WRITE),
+                         p_res(op2.RW),
+                         p_adt(op2.READ),
                          rms(op2.INC))
         # Print iteration history
         rms = sqrt(rms.data / cells.size)

@@ -131,7 +131,7 @@ class Arg(object):
         self._indirect_position = None
 
         # Check arguments for consistency
-        if self._is_global or map == IdentityMap:
+        if self._is_global or map is None:
             return
         for j, m in enumerate(map):
             if not m.values.size:
@@ -253,11 +253,11 @@ class Arg(object):
 
     @property
     def _is_direct(self):
-        return isinstance(self._dat, Dat) and self._map is IdentityMap
+        return isinstance(self._dat, Dat) and self.map is None
 
     @property
     def _is_indirect(self):
-        return isinstance(self._dat, Dat) and self._map not in [None, IdentityMap]
+        return isinstance(self._dat, Dat) and self.map is not None
 
     @property
     def _is_indirect_and_not_read(self):
@@ -838,12 +838,12 @@ class Dat(DataCarrier):
     to be accessed for reading via a :class:`Map` named ``M``, this is
     accomplished by ::
 
-      D(M, pyop2.READ)
+      D(pyop2.READ, M)
 
     The :class:`Map` through which indirection occurs can be indexed
     using the index notation described in the documentation for the
-    :class:`Map`. Direct access to a Dat can be accomplished by
-    using the :obj:`IdentityMap` as the indirection.
+    :class:`Map`. Direct access to a Dat is accomplished by
+    omitting the path argument.
 
     :class:`Dat` objects support the pointwise linear algebra operations
     ``+=``, ``*=``, ``-=``, ``/=``, where ``*=`` and ``/=`` also support
@@ -886,15 +886,14 @@ class Dat(DataCarrier):
             self._recv_buf = {}
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, path, access):
-        if isinstance(path, Map):
-            if path._toset != self._dataset.set and path != IdentityMap:
-                raise MapValueError("To Set of Map does not match Set of Dat.")
-            return _make_object('Arg', data=self, map=path, access=access)
-        else:
+    def __call__(self, access, path=None):
+        if isinstance(path, Arg):
             path._dat = self
             path._access = access
             return path
+        if path and path._toset != self._dataset.set:
+            raise MapValueError("To Set of Map does not match Set of Dat.")
+        return _make_object('Arg', data=self, map=path, access=access)
 
     @property
     def dataset(self):
@@ -957,7 +956,7 @@ class Dat(DataCarrier):
             }""" % {'t': self.ctype, 'dim': self.cdim}
             self._zero_kernel = _make_object('Kernel', k, 'zero')
         _make_object('ParLoop', self._zero_kernel, self.dataset.set,
-                     self(IdentityMap, WRITE)).compute()
+                     self(WRITE)).compute()
 
     def __eq__(self, other):
         """:class:`Dat`\s compare equal if defined on the same
@@ -1180,7 +1179,7 @@ class Global(DataCarrier):
         Global._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, access):
+    def __call__(self, access, path=None):
         return _make_object('Arg', data=self, access=access)
 
     def __eq__(self, other):
@@ -1375,9 +1374,6 @@ class Map(object):
         if len(arity) != 1:
             raise ArityTypeError("Unrecognised arity value %s" % arity)
         return cls(iterset, toset, arity[0], values, name)
-
-IdentityMap = Map(Set(0), Set(0), 1, [], 'identity')
-"""The identity map.  Used to indicate direct access to a :class:`Dat`."""
 
 
 class Sparsity(Cached):
@@ -1611,7 +1607,7 @@ class Mat(DataCarrier):
     ``Mat`` named ``A`` is to be accessed for reading via a row :class:`Map`
     named ``R`` and a column :class:`Map` named ``C``, this is accomplished by::
 
-     A( (R[pyop2.i[0]], C[pyop2.i[1]]), pyop2.READ)
+     A(pyop2.READ, (R[pyop2.i[0]], C[pyop2.i[1]]))
 
     Notice that it is `always` necessary to index the indirection maps
     for a ``Mat``. See the :class:`Mat` documentation for more
@@ -1630,7 +1626,7 @@ class Mat(DataCarrier):
         Mat._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, path, access):
+    def __call__(self, access, path):
         path = as_tuple(path, Arg, 2)
         path_maps = [arg.map for arg in path]
         path_idxs = [arg.idx for arg in path]
@@ -1744,10 +1740,7 @@ class JITModule(Cached):
                     idx = (arg.idx.__class__, arg.idx.index)
                 else:
                     idx = arg.idx
-                if arg.map is IdentityMap:
-                    map_arity = None
-                else:
-                    map_arity = arg.map.arity
+                map_arity = arg.map.arity if arg.map else None
                 key += (arg.data.dim, arg.data.dtype, map_arity, idx, arg.access)
             elif arg._is_mat:
                 idxs = (arg.idx[0].__class__, arg.idx[0].index,
@@ -1854,7 +1847,7 @@ class ParLoop(object):
         :return: size of the local iteration space"""
         itspace = ()
         for i, arg in enumerate(self._actual_args):
-            if arg._is_global or arg._map == IdentityMap:
+            if arg._is_global or arg.map is None:
                 continue
             for j, m in enumerate(arg._map):
                 if m._iterset != iterset:
@@ -1890,7 +1883,7 @@ class ParLoop(object):
     def is_direct(self):
         """Is this parallel loop direct? I.e. are all the arguments either
         :class:Dats accessed through the identity map, or :class:Global?"""
-        return all(a.map in [None, IdentityMap] for a in self.args)
+        return all(a.map is None for a in self.args)
 
     @property
     def is_indirect(self):
