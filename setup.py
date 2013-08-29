@@ -87,9 +87,10 @@ class sdist(_sdist):
         _sdist.run(self)
 cmdclass['sdist'] = sdist
 
+# Get the package version without importing anyting from pyop2
+execfile('pyop2/version.py')
 setup(name='PyOP2',
-      # Make sure this matches whatever is in pyop2/version.py
-      version='0.2.1',
+      version=__version__,  # noqa: pulled from pyop2/version.py
       description='OP2 runtime library and python bindings',
       author='Imperial College London and others',
       author_email='mapdes@imperial.ac.uk',
