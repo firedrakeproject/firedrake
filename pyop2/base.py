@@ -2411,7 +2411,7 @@ class Sparsity(Cached):
     _globalcount = 0
 
     @classmethod
-    @validate_type(('dsets', (Set, DataSet, tuple), DataSetTypeError),
+    @validate_type(('dsets', (Set, DataSet, tuple, list), DataSetTypeError),
                    ('maps', (Map, tuple, list), MapTypeError),
                    ('name', str, NameTypeError))
     def _process_args(cls, dsets, maps, name=None, *args, **kwargs):
@@ -2419,12 +2419,11 @@ class Sparsity(Cached):
 
         # A single data set becomes a pair of identical data sets
         dsets = [dsets, dsets] if isinstance(dsets, (Set, DataSet)) else list(dsets)
+        # Upcast Sets to DataSets
+        dsets = [s ** 1 if isinstance(s, Set) else s for s in dsets]
 
         # Check data sets are valid
-        for i, _ in enumerate(dsets):
-            if type(dsets[i]) is Set:
-                dsets[i] = (dsets[i]) ** 1
-            dset = dsets[i]
+        for dset in dsets:
             if not isinstance(dset, DataSet):
                 raise DataSetTypeError("All data sets must be of type DataSet, not type %r" % type(dset))
 
@@ -2442,6 +2441,29 @@ class Sparsity(Cached):
                 if len(m.values_with_halo) == 0 and m.iterset.total_size > 0:
                     raise MapValueError(
                         "Unpopulated map values when trying to build sparsity.")
+            # Make sure that the "to" Set of each map in a pair is the set of
+            # the corresponding DataSet set
+            if not (pair[0].toset == dsets[0].set and
+                    pair[1].toset == dsets[1].set):
+                raise RuntimeError("Map to set must be the same as corresponding DataSet set")
+
+            # Each pair of maps must have the same from-set (iteration set)
+            if not pair[0].iterset == pair[1].iterset:
+                raise RuntimeError("Iterset of both maps in a pair must be the same")
+
+        rmaps, cmaps = zip(*maps)
+
+        if not len(rmaps) == len(cmaps):
+            raise RuntimeError("Must pass equal number of row and column maps")
+
+        # Each row map must have the same to-set (data set)
+        if not all(m.toset == rmaps[0].toset for m in rmaps):
+            raise RuntimeError("To set of all row maps must be the same")
+
+        # Each column map must have the same to-set (data set)
+        if not all(m.toset == cmaps[0].toset for m in cmaps):
+            raise RuntimeError("To set of all column maps must be the same")
+
         # Need to return a list of args and dict of kwargs (empty in this case)
         return [tuple(dsets), tuple(sorted(maps)), name], {}
 
@@ -2463,38 +2485,10 @@ class Sparsity(Cached):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
+
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
-
-        # Default to a dataset dimension of 1 if we got a Set instead.
-        for i, _ in enumerate(dsets):
-            if type(dsets[i]) is Set:
-                dsets[i] = (dsets[i]) ** 1
-
         self._dsets = dsets
-
-        assert len(self._rmaps) == len(self._cmaps), \
-            "Must pass equal number of row and column maps"
-
-        # Make sure that the "to" Set of each map in a pair is the set of the
-        # corresponding DataSet set
-        for pair in maps:
-            if not (pair[0].toset == dsets[0].set and
-                    pair[1].toset == dsets[1].set):
-                raise RuntimeError("Map to set must be the same as corresponding DataSet set")
-
-        # Each pair of maps must have the same from-set (iteration set)
-        for pair in maps:
-            if not pair[0].iterset == pair[1].iterset:
-                raise RuntimeError("Iterset of both maps in a pair must be the same")
-
-        # Each row map must have the same to-set (data set)
-        if not all(m.toset == self._rmaps[0].toset for m in self._rmaps):
-            raise RuntimeError("To set of all row maps must be the same")
-
-        # Each column map must have the same to-set (data set)
-        if not all(m.toset == self._cmaps[0].toset for m in self._cmaps):
-            raise RuntimeError("To set of all column maps must be the same")
 
         # All rmaps and cmaps have the same data set - just use the first.
         self._nrows = self._rmaps[0].toset.size
