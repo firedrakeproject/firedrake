@@ -872,6 +872,10 @@ class MixedSet(Set):
         """Return number of contained :class:`Set`s."""
         return len(self._sets)
 
+    def __pow__(self, e):
+        """Derive a :class:`MixedDataSet` with dimensions ``e``"""
+        return MixedDataSet(self._sets, e)
+
     def __eq__(self, other):
         """:class:`MixedSet`\s are equivalent if all their contained
         :class:`Set`\s are and the order is the same."""
