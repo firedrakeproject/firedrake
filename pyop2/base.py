@@ -1881,6 +1881,12 @@ class MixedDat(Dat):
         return self._dats[idx]
 
     @property
+    def dtype(self):
+        """The NumPy dtype of the data."""
+        # FIXME: What if Dats forming the MixedDat have different dtypes?
+        return self._dats[0].dtype
+
+    @property
     def split(self):
         """The underlying tuple of :class:`Dat`\s."""
         return self._dats
