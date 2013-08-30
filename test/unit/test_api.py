@@ -572,6 +572,18 @@ class TestMixedSetAPI:
         "MixedSet should have length equal to the number of contained Sets."
         assert len(op2.MixedSet(sets)) == len(sets)
 
+    def test_mixed_set_pow_int(self, backend, mset):
+        "MixedSet should implement ** operator returning a MixedDataSet."
+        assert mset ** 1 == op2.MixedDataSet([s ** 1 for s in mset])
+
+    def test_mixed_set_pow_seq(self, backend, mset):
+        "MixedSet should implement ** operator returning a MixedDataSet."
+        assert mset ** ((1,) * len(mset)) == op2.MixedDataSet([s ** 1 for s in mset])
+
+    def test_mixed_set_pow_gen(self, backend, mset):
+        "MixedSet should implement ** operator returning a MixedDataSet."
+        assert mset ** (1 for _ in mset) == op2.MixedDataSet([s ** 1 for s in mset])
+
     def test_mixed_set_eq(self, backend, sets):
         "MixedSets created from the same Sets should compare equal."
         assert op2.MixedSet(sets) == op2.MixedSet(sets)
@@ -711,7 +723,7 @@ class TestMixedDataSetAPI:
     def test_mixed_dset_upcast_sets(self, backend, msets, mset):
         """Constructing a MixedDataSet from an iterable/iterator of Sets or
         MixedSet should upcast."""
-        assert op2.MixedDataSet(msets).split == tuple(s ** 1 for s in mset)
+        assert op2.MixedDataSet(msets) == mset ** 1
 
     def test_mixed_dset_sets_and_dsets(self, backend, set, dset):
         """Constructing a MixedDataSet from an iterable with a mixture of
