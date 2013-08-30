@@ -32,7 +32,7 @@ __global__ void {{ parloop._stub_name }} (
     {% if parloop._unique_inc_indirect_dat_args %}
     __shared__ int nelems2, ncolor;
     {% endif -%}
-    __shared__ int nelem, offset_b;
+    __shared__ int nelem, offset_b, offset_b_abs;
     {% if parloop._has_matrix_arg %}
     __shared__ int ele_offset;
     {% endif %}
@@ -75,7 +75,8 @@ __global__ void {{ parloop._stub_name }} (
     if (threadIdx.x == 0) {
         int blockId = blkmap[blockIdx.x + blockIdx.y * gridDim.x + block_offset];
         nelem = nelems[blockId];
-        offset_b = offset[blockId] - set_offset;
+        offset_b_abs = offset[blockId];
+        offset_b = offset_b_abs - set_offset;
 
         {% if parloop._has_matrix_arg %}
         ele_offset = 0;

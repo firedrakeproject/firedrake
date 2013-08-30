@@ -109,9 +109,9 @@ class Arg(op2.Arg):
                 return self.name
         if self._is_direct:
             if self.data.soa:
-                return "%s + (%s + offset_b)" % (self.name, idx)
-            return "%s + (%s + offset_b) * %s" % (self.name, idx,
-                                                  self.data.cdim)
+                return "%s + (%s + offset_b_abs)" % (self.name, idx)
+            return "%s + (%s + offset_b_abs) * %s" % (self.name, idx,
+                                                      self.data.cdim)
         if self._is_indirect:
             if self._is_vec_map:
                 return self._vec_name
