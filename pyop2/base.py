@@ -125,7 +125,6 @@ class Arg(object):
         self._map = map
         self._idx = idx
         self._access = access
-        self._lib_handle = None
         self._in_flight = False  # some kind of comms in flight for this arg
         self._position = None
         self._indirect_position = None
@@ -394,7 +393,6 @@ class Set(object):
         self._ieh_size = size[Set.IMPORT_EXEC_SIZE]
         self._inh_size = size[Set.IMPORT_NON_EXEC_SIZE]
         self._name = name or "set_%d" % Set._globalcount
-        self._lib_handle = None
         self._halo = halo
         self._layers = layers if layers is not None else 1
         self._partition_size = 1024
@@ -868,7 +866,6 @@ class Dat(DataCarrier):
                                     allow_none=True)
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
-        self._lib_handle = None
         self._needs_halo_update = False
         # If the uid is not passed in from outside, assume that Dats
         # have been declared in the same order everywhere.
@@ -1293,7 +1290,6 @@ class Map(object):
         self._values = verify_reshape(values, np.int32, (iterset.total_size, arity),
                                       allow_none=True)
         self._name = name or "map_%d" % Map._globalcount
-        self._lib_handle = None
         self._offset = offset
         Map._globalcount += 1
 
@@ -1484,7 +1480,6 @@ class Sparsity(Cached):
         self._dims = (self._dsets[0].cdim, self._dsets[1].cdim)
 
         self._name = name or "sparsity_%d" % Sparsity._globalcount
-        self._lib_handle = None
         Sparsity._globalcount += 1
         build_sparsity(self, parallel=MPI.parallel)
         self._initialized = True
@@ -1622,7 +1617,6 @@ class Mat(DataCarrier):
         self._sparsity = sparsity
         self._datatype = np.dtype(dtype)
         self._name = name or "mat_%d" % Mat._globalcount
-        self._lib_handle = None
         Mat._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
