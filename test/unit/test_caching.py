@@ -126,6 +126,24 @@ class TestPlanCache:
     def a64(cls, iterset, diterset):
         return op2.Dat(diterset, range(nelems), numpy.uint64, "a")
 
+    def test_plan_per_iterset_partition(self, backend):
+        set = op2.Set([2, 4, 4, 4], "set")
+        indset = op2.Set(4, "indset")
+        dat = op2.Dat(set ** 1, [0, 1, 2, 3], dtype=numpy.int32)
+        inddat = op2.Dat(indset ** 1, [0, 0, 0, 0], dtype=numpy.int32)
+        map = op2.Map(set, indset, 1, [0, 1, 2, 3])
+
+        self.cache.clear()
+        assert len(self.cache) == 0
+
+        op2.par_loop(op2.Kernel("void assign(int* src, int* dst) { *dst = *src; }",
+                                "assign"),
+                     set,
+                     dat(op2.READ),
+                     inddat(op2.WRITE, map[0]))
+        assert (dat.data == inddat.data).all()
+        assert len(self.cache) == 2
+
     def test_same_arg(self, backend, iterset, iter2ind1, x):
         self.cache.clear()
         assert len(self.cache) == 0

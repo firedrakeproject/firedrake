@@ -41,9 +41,11 @@ from pyop2 import op2
 nelems = 4096
 
 
-@pytest.fixture
-def elems():
-    return op2.Set(nelems, "elems")
+@pytest.fixture(params=[(nelems, nelems, nelems, nelems),
+                        (0, nelems, nelems, nelems),
+                        (nelems / 2, nelems, nelems, nelems)])
+def elems(request):
+    return op2.Set(request.param, "elems")
 
 
 @pytest.fixture
