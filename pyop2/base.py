@@ -2137,6 +2137,8 @@ class Global(DataCarrier):
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
 
+    data_ro = data
+
     @data.setter
     def data(self, value):
         _trace.evaluate(set(), set([self]))
