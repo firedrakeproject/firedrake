@@ -373,6 +373,15 @@ class Arg(object):
             (self._dat, self._map, self._idx, self._access)
 
     @property
+    def split(self):
+        """Split a mixed argument into a tuple of constituent arguments."""
+        if self._is_mixed_dat:
+            return tuple(_make_object('Arg', d, m, self._idx, self._access)
+                         for d, m in zip(self._dat, self._map))
+        else:
+            return (self,)
+
+    @property
     def name(self):
         """The generated argument name."""
         return "arg%d" % self._position
@@ -451,6 +460,10 @@ class Arg(object):
     @property
     def _is_dat(self):
         return isinstance(self._dat, Dat)
+
+    @property
+    def _is_mixed_dat(self):
+        return isinstance(self._dat, MixedDat)
 
     @property
     def _is_INC(self):
