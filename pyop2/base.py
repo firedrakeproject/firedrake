@@ -979,8 +979,8 @@ class DataSet(object):
 class MixedDataSet(DataSet):
     """A container for a bag of :class:`DataSet`\s.
 
-    Initialized either from a :class:`MixedSet` and an iterable of ``dims`` of
-    corresponding length ::
+    Initialized either from a :class:`MixedSet` and an iterable or iterator of
+    ``dims`` of corresponding length ::
 
         mdset = op2.MixedDataSet(mset, [dim1, ..., dimN])
 
@@ -989,32 +989,54 @@ class MixedDataSet(DataSet):
 
         mdset = op2.MixedDataSet([set1, ..., setN], [dim1, ..., dimN])
 
-    or from a :class:`MixedSet` without explicitly specifying ``dims``, in
-    which case they default to 1 ::
+    If all ``dims`` are to be the same, they can also be given as an
+    :class:`int` for either of above invocations ::
+
+        mdset = op2.MixedDataSet(mset, dim)
+        mdset = op2.MixedDataSet([set1, ..., setN], dim)
+
+    Initialized from a :class:`MixedSet` without explicitly specifying ``dims``
+    they default to 1 ::
 
         mdset = op2.MixedDataSet(mset)
 
-    or from a list of :class:`DataSet`\s and/or :class:`Set`\s ::
+    Initialized from an iterable or iterator of :class:`DataSet`\s and/or
+    :class:`Set`\s, where :class:`Set`\s are implicitly upcast to
+    :class:`DataSet`\s of dim 1 ::
 
         mdset = op2.MixedDataSet([dset1, ..., dsetN])
     """
 
-    def __init__(self, mset_or_dsets, dims=None):
-        if dims is not None and len(mset_or_dsets) != len(dims):
-            raise ValueError("Got MixedSet of %d Sets but %s dims" %
-                             (len(mset_or_dsets), len(dims)))
-        # If the first argument is a MixedSet or and iterable of Sets, the
-        # second is expected to be an iterable of dims of the corresponding
-        # length
-        if isinstance(mset_or_dsets, MixedSet) or \
-                all(isinstance(s, Set) for s in mset_or_dsets):
-            self._dsets = tuple(s ** d for s, d in
-                                zip(mset_or_dsets, dims or [1] * len(mset_or_dsets)))
+    def __init__(self, arg, dims=None):
+        """
+        :param arg:  a :class:`MixedSet` or an iterable or a generator
+                     expression of :class:`Set`\s or :class:`DataSet`\s or a
+                     mixture of both
+        :param dims: `None` (the default) or an :class:`int` or an iterable or
+                     generator expression of :class:`int`\s, which **must** be
+                     of same length as `arg`
+
+        .. Warning ::
+            When using generator expressions for ``arg`` or ``dims``, these
+            **must** terminate or else will cause an infinite loop.
+        """
+        # If the second argument is not None it is expect to be a scalar dim
+        # or an iterable of dims and the first is expected to be a MixedSet or
+        # an iterable of Sets
+        if dims is not None:
+            # If arg is a MixedSet, get its Sets tuple
+            sets = arg.split if isinstance(arg, MixedSet) else tuple(arg)
+            # If dims is a scalar, turn it into a tuple of right length
+            dims = (dims,) * len(sets) if isinstance(dims, int) else tuple(dims)
+            if len(sets) != len(dims):
+                raise ValueError("Got MixedSet of %d Sets but %s dims" %
+                                 (len(sets), len(dims)))
+            self._dsets = tuple(s ** d for s, d in zip(sets, dims))
         # Otherwise expect the first argument to be an iterable of Sets and/or
         # DataSets and upcast Sets to DataSets as necessary
         else:
-            mset_or_dsets = [s if isinstance(s, DataSet) else s ** 1 for s in mset_or_dsets]
-            self._dsets = as_tuple(mset_or_dsets, type=DataSet)
+            arg = [s if isinstance(s, DataSet) else s ** 1 for s in arg]
+            self._dsets = as_tuple(arg, type=DataSet)
 
     def __getitem__(self, idx):
         """Return :class:`DataSet` with index ``idx`` or a given slice of datasets."""
