@@ -6,18 +6,27 @@ pyop2 user documentation
 
 .. automodule:: pyop2
     :members:
-    :undoc-members:
     :show-inheritance:
     :inherited-members:
 
+    Initialization and finalization
+    ...............................
+
     .. autofunction:: init
     .. autofunction:: exit
+
+    Parallel loops and linear solves
+    ................................
+
     .. autofunction:: par_loop
     .. autofunction:: solve
 
-    .. autoclass:: Kernel
-       :inherited-members:
+    Data structures
+    ...............
+
     .. autoclass:: Set
+       :inherited-members:
+    .. autoclass:: DataSet
        :inherited-members:
     .. autoclass:: Map
        :inherited-members:
@@ -31,6 +40,12 @@ pyop2 user documentation
     .. autoclass:: Dat
        :inherited-members:
     .. autoclass:: Mat
+       :inherited-members:
+
+    Kernels
+    .......
+
+    .. autoclass:: Kernel
        :inherited-members:
 
     .. autodata:: i
