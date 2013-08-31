@@ -34,8 +34,6 @@
 """Base classes for OP2 objects, containing metadata and runtime data
 information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
-
-.. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
 """
 
 import numpy as np
@@ -1383,6 +1381,8 @@ class Sparsity(Cached):
         Sparsity((row_dset, col_dset), (single_rowmap, single_colmap))
         Sparsity((row_dset, col_dset),
                  [(first_rowmap, first_colmap), (second_rowmap, second_colmap)])
+
+    .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
     """
 
     _cache = {}
