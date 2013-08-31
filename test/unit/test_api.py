@@ -71,6 +71,11 @@ def mset(sets):
     return op2.MixedSet(sets)
 
 
+@pytest.fixture(params=['sets', 'mset', 'gen'])
+def msets(sets, mset, request):
+    return {'sets': sets, 'mset': mset, 'gen': iter(sets)}[request.param]
+
+
 @pytest.fixture(params=[1, 2, (2, 3)])
 def dset(request, set):
     return op2.DataSet(set, request.param, 'dfoo')
@@ -682,58 +687,73 @@ class TestMixedDataSetAPI:
     MixedDataSet API unit tests
     """
 
-    def test_mixed_dset_illegal_arg(self, backend, set):
+    @pytest.mark.parametrize('arg', ['illegalarg', (set, 'illegalarg'),
+                                     iter((set, 'illegalarg'))])
+    def test_mixed_dset_illegal_arg(self, backend, arg):
         """Constructing a MixedDataSet from anything other than a MixedSet or
         an iterable of Sets and/or DataSets should fail."""
         with pytest.raises(TypeError):
-            op2.MixedDataSet('illegalarg')
+            op2.MixedDataSet(arg)
 
-    def test_mixed_dset_dsets(self, backend, dsets):
-        """Constructing a MixedDataSet from an iterable of DataSets should
-        leave them unchanged."""
-        assert op2.MixedDataSet(dsets).split == dsets
+    @pytest.mark.parametrize('dims', ['illegaldim', (1, 2, 'illegaldim')])
+    def test_mixed_dset_dsets_illegal_dims(self, backend, dsets, dims):
+        """When constructing a MixedDataSet from an iterable of DataSets it is
+        an error to specify dims."""
+        with pytest.raises((TypeError, ValueError)):
+            op2.MixedDataSet(dsets, dims)
 
-    def test_mixed_dset_upcast_sets(self, backend, sets):
-        "Constructing a MixedDataSet from an iterable of Sets should upcast."
-        assert op2.MixedDataSet(sets).split == tuple(s ** 1 for s in sets)
+    def test_mixed_dset_dsets_dims(self, backend, dsets):
+        """When constructing a MixedDataSet from an iterable of DataSets it is
+        an error to specify dims."""
+        with pytest.raises(TypeError):
+            op2.MixedDataSet(dsets, 1)
+
+    def test_mixed_dset_upcast_sets(self, backend, msets, mset):
+        """Constructing a MixedDataSet from an iterable/iterator of Sets or
+        MixedSet should upcast."""
+        assert op2.MixedDataSet(msets).split == tuple(s ** 1 for s in mset)
 
     def test_mixed_dset_sets_and_dsets(self, backend, set, dset):
         """Constructing a MixedDataSet from an iterable with a mixture of
         Sets and DataSets should upcast the Sets."""
         assert op2.MixedDataSet((set, dset)).split == (set ** 1, dset)
 
-    def test_mixed_dset_dim_default_to_one(self, backend, mset):
-        """Constructing a MixedDataSet from a MixedSet without dims should
-        default them to 1."""
-        assert op2.MixedDataSet(mset).dim == ((1,),) * len(mset)
+    def test_mixed_dset_sets_and_dsets_gen(self, backend, set, dset):
+        """Constructing a MixedDataSet from an iterable with a mixture of
+        Sets and DataSets should upcast the Sets."""
+        assert op2.MixedDataSet(iter((set, dset))).split == (set ** 1, dset)
 
-    def test_mixed_dset_from_sets_dims_from_iterable(self, backend, sets):
-        """Constructing a MixedDataSet from an iterable of Sets should use
-        given dims."""
+    def test_mixed_dset_dims_default_to_one(self, backend, msets, mset):
+        """Constructing a MixedDataSet from an interable/iterator of Sets or
+        MixedSet without dims should default them to 1."""
+        assert op2.MixedDataSet(msets).dim == ((1,),) * len(mset)
+
+    def test_mixed_dset_dims_int(self, backend, msets, mset):
+        """Construct a MixedDataSet from an iterator/iterable of Sets and a
+        MixedSet with dims as an int."""
+        assert op2.MixedDataSet(msets, 2).dim == ((2,),) * len(mset)
+
+    def test_mixed_dset_dims_gen(self, backend, msets, mset):
+        """Construct a MixedDataSet from an iterator/iterable of Sets and a
+        MixedSet with dims as a generator."""
+        dims = (2 for _ in mset)
+        assert op2.MixedDataSet(msets, dims).dim == ((2,),) * len(mset)
+
+    def test_mixed_dset_dims_iterable(self, backend, msets):
+        """Construct a MixedDataSet from an iterator/iterable of Sets and a
+        MixedSet with dims as an iterable."""
         dims = ((2,), (2, 2), (1,))
-        assert op2.MixedDataSet(sets, dims).dim == dims
+        assert op2.MixedDataSet(msets, dims).dim == dims
 
-    def test_mixed_dset_dims_from_iterable(self, backend, mset):
-        "Constructing a MixedDataSet from a MixedSet should use given dims."
-        dims = ((2,), (2, 2), (1,))
-        assert op2.MixedDataSet(mset, dims).dim == dims
-
-    def test_mixed_dset_from_sets_dims_mismatch(self, backend, sets):
-        """Constructing a MixedDataSet from an iterable of Sets with
-        mismatching number of dims should raise ValueError."""
+    def test_mixed_dset_dims_mismatch(self, backend, msets, sets):
+        """Constructing a MixedDataSet from an iterable/iterator of Sets and a
+        MixedSet with mismatching number of dims should raise ValueError."""
         with pytest.raises(ValueError):
-            op2.MixedDataSet(sets, range(1, len(sets)))
+            op2.MixedDataSet(msets, range(1, len(sets)))
 
-    def test_mixed_dset_dims_mismatch(self, backend, mset):
-        """Constructing a MixedDataSet from a MixedSet with mismatching dims
-        should raise ValueError."""
-        with pytest.raises(ValueError):
-            op2.MixedDataSet(mset, range(1, len(mset)))
-
-    def test_mixed_dset_getitem(self, backend, dsets):
+    def test_mixed_dset_getitem(self, backend, mdset):
         "MixedDataSet should return the corresponding DataSet when indexed."
-        mdset = op2.MixedDataSet(dsets)
-        for i, ds in enumerate(dsets):
+        for i, ds in enumerate(mdset):
             assert mdset[i] == ds
 
     def test_mixed_dset_split(self, backend, dsets):
