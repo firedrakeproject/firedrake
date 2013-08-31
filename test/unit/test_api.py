@@ -102,13 +102,13 @@ def mdset(dsets):
 
 
 @pytest.fixture
-def dat(request, dtoset):
+def dat(dtoset):
     return op2.Dat(dtoset, np.arange(dtoset.cdim * dtoset.size, dtype=np.int32))
 
 
 @pytest.fixture
-def dats(dtoset, diterset, dset):
-    return op2.Dat(dtoset), op2.Dat(diterset), op2.Dat(dset)
+def dats(dtoset, dset):
+    return op2.Dat(dtoset), op2.Dat(dset)
 
 
 @pytest.fixture
@@ -344,6 +344,26 @@ class TestArgAPI:
     """
     Arg API unit tests
     """
+
+    def test_arg_split_dat(self, backend, dat, m_iterset_toset):
+        arg = dat(op2.READ, m_iterset_toset)
+        for a in arg.split:
+            assert a == arg
+
+    def test_arg_split_mdat(self, backend, mdat, mmap):
+        arg = mdat(op2.READ, mmap)
+        for a, d in zip(arg.split, mdat):
+            assert a.data == d
+
+    def test_arg_split_mat(self, backend, mat, m_iterset_toset):
+        arg = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
+        for a in arg.split:
+            assert a == arg
+
+    def test_arg_split_global(self, backend, g):
+        arg = g(op2.READ)
+        for a in arg.split:
+            assert a == arg
 
     def test_arg_eq_dat(self, backend, dat, m_iterset_toset):
         assert dat(op2.READ, m_iterset_toset) == dat(op2.READ, m_iterset_toset)
@@ -1103,8 +1123,8 @@ class TestMixedDatAPI:
 
     def test_mixed_dat_ne(self, backend, dats):
         "MixedDats created from different Dats should not compare equal."
-        mdat1 = op2.MixedDat((dats[0], dats[1], dats[2]))
-        mdat2 = op2.MixedDat((dats[0], dats[2], dats[1]))
+        mdat1 = op2.MixedDat(dats)
+        mdat2 = op2.MixedDat(reversed(dats))
         assert mdat1 != mdat2
         assert not mdat1 == mdat2
 
