@@ -1854,9 +1854,6 @@ class ParLoop(object):
                 itspace = _itspace
         return itspace
 
-    def generate_code(self):
-        raise RuntimeError('Must select a backend')
-
     def offset_args(self):
         """The offset args that need to be added to the argument list."""
         _args = []
