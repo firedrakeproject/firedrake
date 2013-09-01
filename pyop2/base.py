@@ -372,10 +372,10 @@ class Set(object):
 
     _globalcount = 0
 
-    CORE_SIZE = 0
-    OWNED_SIZE = 1
-    IMPORT_EXEC_SIZE = 2
-    IMPORT_NON_EXEC_SIZE = 3
+    _CORE_SIZE = 0
+    _OWNED_SIZE = 1
+    _IMPORT_EXEC_SIZE = 2
+    _IMPORT_NON_EXEC_SIZE = 3
 
     @validate_type(('size', (int, tuple, list, np.ndarray), SizeTypeError),
                    ('name', str, NameTypeError))
@@ -383,13 +383,13 @@ class Set(object):
         if type(size) is int:
             size = [size] * 4
         size = as_tuple(size, int, 4)
-        assert size[Set.CORE_SIZE] <= size[Set.OWNED_SIZE] <= \
-            size[Set.IMPORT_EXEC_SIZE] <= size[Set.IMPORT_NON_EXEC_SIZE], \
+        assert size[Set._CORE_SIZE] <= size[Set._OWNED_SIZE] <= \
+            size[Set._IMPORT_EXEC_SIZE] <= size[Set._IMPORT_NON_EXEC_SIZE], \
             "Set received invalid sizes: %s" % size
-        self._core_size = size[Set.CORE_SIZE]
-        self._size = size[Set.OWNED_SIZE]
-        self._ieh_size = size[Set.IMPORT_EXEC_SIZE]
-        self._inh_size = size[Set.IMPORT_NON_EXEC_SIZE]
+        self._core_size = size[Set._CORE_SIZE]
+        self._size = size[Set._OWNED_SIZE]
+        self._ieh_size = size[Set._IMPORT_EXEC_SIZE]
+        self._inh_size = size[Set._IMPORT_NON_EXEC_SIZE]
         self._name = name or "set_%d" % Set._globalcount
         self._halo = halo
         self._layers = layers if layers is not None else 1
