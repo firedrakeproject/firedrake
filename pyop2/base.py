@@ -163,6 +163,7 @@ class Arg(object):
 
     @property
     def name(self):
+        """The generated argument name."""
         return "arg%d" % self._position
 
     @property
@@ -327,8 +328,8 @@ class Arg(object):
 
     @property
     def data(self):
-        """Data carrier: :class:`Dat`, :class:`Mat`, :class:`Const` or
-        :class:`Global`."""
+        """Data carrier of this argument: :class:`Dat`, :class:`Mat`,
+        :class:`Const` or :class:`Global`."""
         return self._dat
 
 
@@ -732,10 +733,12 @@ class IterationSpace(object):
 
     @property
     def layers(self):
+        """Number of layers in the extruded mesh"""
         return self._iterset.layers
 
     @property
     def partition_size(self):
+        """Default partition size"""
         return self.iterset.partition_size
 
     @property
@@ -767,6 +770,7 @@ class IterationSpace(object):
 
     @property
     def cache_key(self):
+        """Cache key used to uniquely identify the object in the cache."""
         return self._extents, self.iterset.layers
 
 
@@ -1336,7 +1340,7 @@ class Map(object):
 
     @property
     def offset(self):
-        """Return the vertical offset."""
+        """The vertical offset."""
         return self._offset
 
     def __str__(self):
@@ -1490,7 +1494,8 @@ class Sparsity(Cached):
 
     @property
     def dsets(self):
-        """A pair of DataSets."""
+        """A pair of :class:`DataSet`\s for the left and right function
+        spaces this :class:`Sparsity` maps between."""
         return self._dsets
 
     @property
@@ -1633,7 +1638,7 @@ class Mat(DataCarrier):
         """A pair of integers giving the number of matrix rows and columns for
         each member of the row :class:`Set` and column :class:`Set`
         respectively. This corresponds to the ``cdim`` member of a
-        :class:`Set`."""
+        :class:`DataSet`."""
         return self._sparsity._dims
 
     @property
