@@ -35,14 +35,15 @@
 
 from decorator import decorator
 from mpi4py import MPI as _MPI
+from utils import trim
 
 
 def collective(fn):
-    extra = """
+    extra = trim("""
     This function is logically collective over MPI ranks, it is an
     error to call it on fewer than all the ranks in MPI communicator.
-    """
-    fn.__doc__ = "%s\n%s" % (fn.__doc__, extra)
+    """)
+    fn.__doc__ = "%s\n\n%s" % (trim(fn.__doc__), extra) if fn.__doc__ else extra
     return fn
 
 

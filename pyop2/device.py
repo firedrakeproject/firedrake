@@ -40,6 +40,7 @@ class Arg(base.Arg):
 
     @property
     def name(self):
+        """The generated argument name."""
         if self._is_indirect:
             return "ind_arg%d" % self.indirect_position
         return "arg%d" % self.position
@@ -98,6 +99,7 @@ class Arg(base.Arg):
 
 
 class DeviceDataMixin(object):
+
     DEVICE_UNALLOCATED = 'DEVICE_UNALLOCATED'  # device_data not allocated
     HOST_UNALLOCATED = 'HOST_UNALLOCATED'     # host data not allocated
     DEVICE = 'DEVICE'                         # device valid, host invalid
@@ -114,6 +116,7 @@ class DeviceDataMixin(object):
 
     @property
     def state(self):
+        """Current allocation state of the data."""
         return self._state
 
     @state.setter
@@ -123,6 +126,7 @@ class DeviceDataMixin(object):
     @property
     @collective
     def data(self):
+        """Numpy array containing the data values."""
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
         maybe_setflags(self._data, write=True)
@@ -141,6 +145,7 @@ class DeviceDataMixin(object):
 
     @property
     def data_ro(self):
+        """Numpy array containing the data values.  Read-only"""
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
         maybe_setflags(self._data, write=True)
@@ -173,12 +178,15 @@ class DeviceDataMixin(object):
         return data
 
     def _allocate_device(self):
+        """Allocate device data array."""
         raise RuntimeError("Abstract device class can't do this")
 
     def _to_device(self):
+        """Upload data array from host to device."""
         raise RuntimeError("Abstract device class can't do this")
 
     def _from_device(self):
+        """Download data array from device to host."""
         raise RuntimeError("Abstract device class can't do this")
 
 
@@ -191,6 +199,7 @@ class Dat(DeviceDataMixin, base.Dat):
 
     @property
     def array(self):
+        """The data array on the device."""
         self._to_device()
         return self._device_data
 
@@ -201,6 +210,7 @@ class Dat(DeviceDataMixin, base.Dat):
         self.state = DeviceDataMixin.DEVICE
 
     def _check_shape(self, other):
+        """Check if ``other`` has compatible shape."""
         if not self.array.shape == other.array.shape:
             raise ValueError("operands could not be broadcast together with shapes %s, %s"
                              % (self.array.shape, other.array.shape))
@@ -214,6 +224,7 @@ class Const(DeviceDataMixin, base.Const):
 
     @property
     def data(self):
+        """Numpy array containing the data values."""
         self.state = DeviceDataMixin.HOST
         return self._data
 
@@ -223,9 +234,11 @@ class Const(DeviceDataMixin, base.Const):
         self.state = DeviceDataMixin.HOST
 
     def _to_device(self):
+        """Upload data array from host to device."""
         raise RuntimeError("Abstract device class can't do this")
 
     def _from_device(self):
+        """Download data array from device to host."""
         raise RuntimeError("Copying Const %s from device not allowed" % self)
 
 
@@ -249,9 +262,11 @@ class Map(base.Map):
         base.Map.__init__(self, iterset, dataset, arity, values, name)
 
     def _to_device(self):
+        """Upload mapping values from host to device."""
         raise RuntimeError("Abstract device class can't do this")
 
     def _from_device(self):
+        """Download mapping values from device to host."""
         raise RuntimeError("Abstract device class can't do this")
 
 

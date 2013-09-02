@@ -34,8 +34,6 @@
 """Base classes for OP2 objects, containing metadata and runtime data
 information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
-
-.. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
 """
 
 import numpy as np
@@ -165,6 +163,7 @@ class Arg(object):
 
     @property
     def name(self):
+        """The generated argument name."""
         return "arg%d" % self._position
 
     @property
@@ -329,8 +328,8 @@ class Arg(object):
 
     @property
     def data(self):
-        """Data carrier: :class:`Dat`, :class:`Mat`, :class:`Const` or
-        :class:`Global`."""
+        """Data carrier of this argument: :class:`Dat`, :class:`Mat`,
+        :class:`Const` or :class:`Global`."""
         return self._dat
 
 
@@ -374,10 +373,10 @@ class Set(object):
 
     _globalcount = 0
 
-    CORE_SIZE = 0
-    OWNED_SIZE = 1
-    IMPORT_EXEC_SIZE = 2
-    IMPORT_NON_EXEC_SIZE = 3
+    _CORE_SIZE = 0
+    _OWNED_SIZE = 1
+    _IMPORT_EXEC_SIZE = 2
+    _IMPORT_NON_EXEC_SIZE = 3
 
     @validate_type(('size', (int, tuple, list, np.ndarray), SizeTypeError),
                    ('name', str, NameTypeError))
@@ -385,13 +384,13 @@ class Set(object):
         if type(size) is int:
             size = [size] * 4
         size = as_tuple(size, int, 4)
-        assert size[Set.CORE_SIZE] <= size[Set.OWNED_SIZE] <= \
-            size[Set.IMPORT_EXEC_SIZE] <= size[Set.IMPORT_NON_EXEC_SIZE], \
+        assert size[Set._CORE_SIZE] <= size[Set._OWNED_SIZE] <= \
+            size[Set._IMPORT_EXEC_SIZE] <= size[Set._IMPORT_NON_EXEC_SIZE], \
             "Set received invalid sizes: %s" % size
-        self._core_size = size[Set.CORE_SIZE]
-        self._size = size[Set.OWNED_SIZE]
-        self._ieh_size = size[Set.IMPORT_EXEC_SIZE]
-        self._inh_size = size[Set.IMPORT_NON_EXEC_SIZE]
+        self._core_size = size[Set._CORE_SIZE]
+        self._size = size[Set._OWNED_SIZE]
+        self._ieh_size = size[Set._IMPORT_EXEC_SIZE]
+        self._inh_size = size[Set._IMPORT_NON_EXEC_SIZE]
         self._name = name or "set_%d" % Set._globalcount
         self._halo = halo
         self._layers = layers if layers is not None else 1
@@ -734,10 +733,12 @@ class IterationSpace(object):
 
     @property
     def layers(self):
+        """Number of layers in the extruded mesh"""
         return self._iterset.layers
 
     @property
     def partition_size(self):
+        """Default partition size"""
         return self.iterset.partition_size
 
     @property
@@ -769,6 +770,7 @@ class IterationSpace(object):
 
     @property
     def cache_key(self):
+        """Cache key used to uniquely identify the object in the cache."""
         return self._extents, self.iterset.layers
 
 
@@ -1338,7 +1340,7 @@ class Map(object):
 
     @property
     def offset(self):
-        """Return the vertical offset."""
+        """The vertical offset."""
         return self._offset
 
     def __str__(self):
@@ -1383,6 +1385,8 @@ class Sparsity(Cached):
         Sparsity((row_dset, col_dset), (single_rowmap, single_colmap))
         Sparsity((row_dset, col_dset),
                  [(first_rowmap, first_colmap), (second_rowmap, second_colmap)])
+
+    .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
     """
 
     _cache = {}
@@ -1490,7 +1494,8 @@ class Sparsity(Cached):
 
     @property
     def dsets(self):
-        """A pair of DataSets."""
+        """A pair of :class:`DataSet`\s for the left and right function
+        spaces this :class:`Sparsity` maps between."""
         return self._dsets
 
     @property
@@ -1633,7 +1638,7 @@ class Mat(DataCarrier):
         """A pair of integers giving the number of matrix rows and columns for
         each member of the row :class:`Set` and column :class:`Set`
         respectively. This corresponds to the ``cdim`` member of a
-        :class:`Set`."""
+        :class:`DataSet`."""
         return self._sparsity._dims
 
     @property
@@ -1853,9 +1858,6 @@ class ParLoop(object):
                     raise IndexValueError("Mismatching iteration space size for argument %d" % i)
                 itspace = _itspace
         return itspace
-
-    def generate_code(self):
-        raise RuntimeError('Must select a backend')
 
     def offset_args(self):
         """The offset args that need to be added to the argument list."""
