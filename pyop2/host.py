@@ -43,7 +43,7 @@ from utils import as_tuple, flatten
 
 class Arg(base.Arg):
 
-    def c_arg_name(self, i=None, j=None):
+    def c_arg_name(self, i=0, j=None):
         name = self.name
         if self._is_indirect and not (self._is_vec_map or self._uses_itspace):
             name = "%s_%d" % (name, self.idx)
@@ -60,7 +60,11 @@ class Arg(base.Arg):
         return self.c_arg_name() + "_map%d_%d" % (i, j)
 
     def c_wrapper_arg(self):
-        val = "PyObject *_%s" % self.c_arg_name()
+        if self._is_mat:
+            val = "PyObject *_%s" % self.c_arg_name()
+        else:
+            val = ', '.join(["PyObject *_%s" % self.c_arg_name(i)
+                             for i in range(len(self.data))])
         if self._is_indirect or self._is_mat:
             for i, map in enumerate(as_tuple(self.map, Map)):
                 for j, m in enumerate(map):
@@ -90,8 +94,9 @@ class Arg(base.Arg):
             val = "Mat %s = (Mat)((uintptr_t)PyLong_AsUnsignedLong(_%s))" % \
                 (self.c_arg_name(0, 0), self.c_arg_name())
         else:
-            val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
-                {'name': self.c_arg_name(), 'type': self.ctype}
+            val = ';\n'.join(["%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)"
+                             % {'name': self.c_arg_name(i), 'type': self.ctype}
+                             for i, _ in enumerate(self.data)])
         if self._is_indirect or self._is_mat:
             for i, map in enumerate(as_tuple(self.map, Map)):
                 for j in range(len(map)):
@@ -103,11 +108,11 @@ class Arg(base.Arg):
 
     def c_ind_data(self, idx, i, j=0):
         return "%(name)s + %(map_name)s[i * %(arity)s + %(idx)s] * %(dim)s%(off)s" % \
-            {'name': self.c_arg_name(),
-             'map_name': self.c_map_name(0, i),
-             'arity': self.map.arity,
+            {'name': self.c_arg_name(i),
+             'map_name': self.c_map_name(i, 0),
+             'arity': self.map.split[i].arity,
              'idx': idx,
-             'dim': self.data.cdim,
+             'dim': self.data.split[i].cdim,
              'off': ' + %d' % j if j else ''}
 
     def c_ind_data_xtr(self, idx, i, j=0):
@@ -158,11 +163,10 @@ class Arg(base.Arg):
         elif self._is_global_reduction:
             return self.c_global_reduction_name(count)
         elif isinstance(self.data, Global):
-            return self.c_arg_name()
+            return self.c_arg_name(i)
         else:
-            return "%(name)s + i * %(dim)s" % \
-                {'name': self.c_arg_name(),
-                 'dim': self.data.cdim}
+            return "%(name)s + i * %(dim)s" % {'name': self.c_arg_name(i),
+                                               'dim': self.data.cdim}
 
     def c_vec_init(self, i, j):
         val = []
