@@ -611,13 +611,20 @@ def expected_vec_rhs():
 
 
 @pytest.fixture
-def msparsity():
-    elem = op2.Set(3)
-    node = op2.Set(4)
-    elem_node = op2.Map(elem, node, 2, [0, 1, 1, 2, 2, 3])
-    elem_elem = op2.Map(elem, elem, 1, [0, 1, 2])
-    return op2.Sparsity(op2.MixedDataSet((elem, node)),
-                        op2.MixedMap((elem_elem, elem_node)))
+def mset():
+    return op2.MixedSet((op2.Set(3), op2.Set(4)))
+
+
+@pytest.fixture
+def mmap(mset):
+    elem, node = mset
+    return op2.MixedMap((op2.Map(elem, elem, 1, [0, 1, 2]),
+                         op2.Map(elem, node, 2, [0, 1, 1, 2, 2, 3])))
+
+
+@pytest.fixture
+def msparsity(mset, mmap):
+    return op2.Sparsity(mset, mmap)
 
 
 class TestSparsity:
@@ -889,10 +896,9 @@ class TestMixedMatrices:
     # Only working for sequential so far
     backends = ['sequential']
 
-    def test_assemble_mixed_mat(self, backend, msparsity):
+    def test_assemble_mixed_mat(self, backend, msparsity, mmap):
         """Assemble all ones into a matrix declared on a mixed sparsity."""
         m = op2.Mat(msparsity)
-        mmap = msparsity.maps[0][0]
         addone = op2.Kernel("""void addone(double v[1][1], int i, int j) {
                             v[0][0] += 1.0; }""", "addone")
         op2.par_loop(addone, mmap.iterset,
@@ -908,6 +914,17 @@ class TestMixedMatrices:
         assert_allclose(m[0, 1].values, od, eps)
         assert_allclose(m[1, 0].values, od.T, eps)
         assert_allclose(m[1, 1].values, ll, eps)
+
+    def test_assemble_mixed_rhs(self, backend, mset, mmap):
+        """Assemble a simple right-hand side over a mixed space and check result."""
+        d = op2.MixedDat(mset)
+        addone = op2.Kernel("""void addone(double v[1], int i) {
+                            v[0] += 1.0; }""", "addone")
+        op2.par_loop(addone, mmap.iterset,
+                     d(op2.INC, mmap[op2.i[0]]))
+        eps = 1.e-12
+        assert_allclose(d[0].data_ro, np.ones(3), eps)
+        assert_allclose(d[1].data_ro, [1.0, 2.0, 2.0, 1.0], eps)
 
 
 if __name__ == '__main__':
