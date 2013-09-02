@@ -94,8 +94,8 @@ Common dependencies:
 * decorator 
 * instant >= 1.0 
 * numpy >= 1.6 
-* `PETSc <https://bitbucket.org/ggorman/petsc-3.3-omp>`__ >= 3.3 with Fortran interface, C++ and OpenMP support 
-* `PETSc4py <https://bitbucket.org/mapdes/petsc4py>`__ >= 3.3 
+* PETSc_ >= 3.3 with Fortran interface, C++ and OpenMP support
+* PETSc4py_ >= 3.4
 * PyYAML
 
 Testing dependencies (optional, required to run the tests):
@@ -103,7 +103,7 @@ Testing dependencies (optional, required to run the tests):
 * pytest >= 2.3
 * flake8
 
-With the exception of the PETSc dependencies, these can be installed
+With the exception of the PETSc_ dependencies, these can be installed
 using the package management system of your OS, or via ``pip``.
 
 Install the dependencies via the package manager (Debian based systems)::
@@ -130,26 +130,21 @@ Install these via ``pip``::
 PETSc
 ~~~~~
 
-PyOP2 uses `petsc4py <http://packages.python.org/petsc4py/>`__, the
-Python bindings for the `PETSc <http://www.mcs.anl.gov/petsc/>`__ linear
-algebra library.
-
-We maintain `a fork of
-petsc4py <https://bitbucket.org/mapdes/petsc4py>`__ with extensions that
-are required by PyOP2 and requires: 
+PyOP2 uses petsc4py_, the Python bindings for the PETSc_ linear algebra
+library and requires:
 
 * an MPI implementation built with *shared libraries* 
-* PETSc 3.3 built with *shared libraries*
+* PETSc_ 3.3 or 3.4 built with *shared libraries*
 
-If you have a suitable PETSc installed on your system, ``PETSC_DIR`` and
-``PETSC_ARCH`` need to be set for the petsc4py installer to find it. On
-a Debian/Ubuntu system with PETSc 3.3 installed, this can be achieved
+If you have a suitable PETSc_ installed on your system, ``PETSC_DIR`` and
+``PETSC_ARCH`` need to be set for the petsc4py_ installer to find it. On
+a Debian/Ubuntu system with PETSc_ 3.3 installed, this can be achieved
 via::
 
   export PETSC_DIR=/usr/lib/petscdir/3.3 
   export PETSC_ARCH=linux-gnu-c-opt
 
-If not, make sure all PETSc dependencies (BLAS/LAPACK, MPI and a Fortran
+If not, make sure all PETSc_ dependencies (BLAS/LAPACK, MPI and a Fortran
 compiler) are installed. On a Debian based system, run::
 
   sudo apt-get install -y libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran
@@ -158,29 +153,25 @@ If you want OpenMP support or don't have a suitable PETSc installed on
 your system, build the `PETSc OMP branch <https://bitbucket.org/ggorman/petsc-3.3-omp>`__::
 
   PETSC_CONFIGURE_OPTIONS="--with-fortran-interfaces=1 --with-c++-support --with-openmp" \   
-  pip install hg+https://bitbucket.org/ggorman/petsc-3.3-omp 
+    pip install hg+https://bitbucket.org/ggorman/petsc-3.3-omp
   unset PETSC_DIR
   unset PETSC_ARCH
 
-If you built PETSc using ``pip``, ``PETSC_DIR`` and ``PETSC_ARCH``
-should be left unset when building petsc4py.
+If you built PETSc_ using ``pip``, ``PETSC_DIR`` and ``PETSC_ARCH``
+should be left unset when building petsc4py_.
 
-Install `petsc4py <https://bitbucket.org/mapdes/petsc4py>`__ via
+Install petsc4py_ via
 ``pip``::
 
-  pip install git+https://bitbucket.org/mapdes/petsc4py#egg=petsc4py
+  pip install "petsc4py >= 3.4"
 
 PETSc and Fluidity
 ^^^^^^^^^^^^^^^^^^
 
 When using PyOP2 with Fluidity it's crucial that both are built against
-the same PETSc, which must be build with Fortran support!
+the same PETSc_, which must be build with Fortran support!
 
-Fluidity does presently not support PETSc >= 3.4, therefore you will
-need a version of petsc4py compatible with PETSc 3.3, available as the
-``3.3`` branch ::
-
-  pip install git+https://bitbucket.org/mapdes/petsc4py@3.3#egg=petsc4py
+Fluidity does presently not support PETSc_ >= 3.4.
 
 CUDA backend:
 ~~~~~~~~~~~~~
@@ -384,7 +375,7 @@ definitions as necessary::
   # Add any other Python module in non-standard locations
 
   #Add PyOP2 to PYTHONPATH
-  export PYTHONPATH=/path/to/PyOP2:$PYTHONPATH \`\`\`
+  export PYTHONPATH=/path/to/PyOP2:$PYTHONPATH
 
 Alternatively, package the configuration in an `environment
 module <http://modules.sourceforge.net/>`__.
@@ -436,3 +427,6 @@ Run ``pydoc <module>`` to find out where a module/package is loaded
 from. To print the module search path, run::
 
  python -c 'from pprint import pprint; import sys; pprint(sys.path)'
+
+.. _PETSc: http://www.mcs.anl.gov/petsc/
+.. _petsc4py: http://pythonhosted.org/petsc4py/
