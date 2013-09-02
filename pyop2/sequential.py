@@ -78,7 +78,10 @@ class ParLoop(host.ParLoop):
                 if arg._is_mat:
                     self._jit_args.append(arg.data.handle.handle)
                 else:
-                    self._jit_args.append(arg.data._data)
+                    for d in arg.data:
+                        # Cannot access a property of the Dat or we will force
+                        # evaluation of the trace
+                        self._jit_args.append(d._data)
 
                 if arg._is_indirect or arg._is_mat:
                     maps = as_tuple(arg.map, Map)
