@@ -91,7 +91,8 @@ __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
   {% for matem in parloop._matrix_entry_maps -%}
   __global int* {{ matem.name }},
   {%- endfor %}
-  int set_size
+  int set_size,
+  int set_offset
   ) {
   {% if(parloop._needs_shared_memory) -%}
   __local char shared[{{ launch.local_memory_size }}] __attribute__((aligned(sizeof(long))));
@@ -137,10 +138,13 @@ __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
     {{ arg._reduction_local_name }}[i_1] = {{ common.reduction_id_value(arg) }};
   {% endfor %}
 
-  for (i_1 = get_global_id(0); i_1 < set_size; i_1 += get_global_size(0)) {
+  for (i_1 = set_offset + get_global_id(0);
+       i_1 < (set_offset + set_size);
+       i_1 += get_global_size(0))
+  {
     {%- if (parloop._all_staged_direct_args) %}
     local_offset = i_1 - thread_id;
-    active_threads_count = min(OP_WARPSIZE, set_size - local_offset);
+    active_threads_count = min(OP_WARPSIZE, set_offset + set_size - local_offset);
     {%- endif -%}
 
     {% for arg in parloop._all_staged_in_direct_args -%}

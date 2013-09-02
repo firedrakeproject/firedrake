@@ -44,9 +44,12 @@ from pyop2.exceptions import MapValueError, IndexValueError
 nelems = 4096
 
 
+@pytest.fixture(params=[(nelems, nelems, nelems, nelems),
+                        (0, nelems, nelems, nelems),
+                        (nelems / 2, nelems, nelems, nelems)])
 @pytest.fixture
-def iterset():
-    return op2.Set(nelems, "iterset")
+def iterset(request):
+    return op2.Set(request.param, "iterset")
 
 
 @pytest.fixture

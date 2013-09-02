@@ -46,7 +46,7 @@ from host import Arg  # noqa: needed by BackendSelector
 @collective
 def par_loop(kernel, it_space, *args):
     """Invocation of an OP2 kernel with an access descriptor"""
-    ParLoop(kernel, it_space, *args).compute()
+    return ParLoop(kernel, it_space, *args)
 
 
 class JITModule(host.JITModule):
@@ -78,56 +78,33 @@ void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end,
 
 class ParLoop(host.ParLoop):
 
-    @collective
-    def compute(self):
+    def __init__(self, *args, **kwargs):
+        host.ParLoop.__init__(self, *args, **kwargs)
+
+    def _compute(self, part):
         fun = JITModule(self.kernel, self.it_space, *self.args)
-        _args = [0, 0]          # start, stop
-        for arg in self.args:
-            if arg._is_mat:
-                _args.append(arg.data.handle.handle)
-            else:
-                _args.append(arg.data._data)
+        if not hasattr(self, '_jit_args'):
+            self._jit_args = [0, 0]
+            for arg in self.args:
+                if arg._is_mat:
+                    self._jit_args.append(arg.data.handle.handle)
+                else:
+                    self._jit_args.append(arg.data._data)
 
-            if arg._is_dat:
-                maybe_setflags(arg.data._data, write=False)
+                if arg._is_indirect or arg._is_mat:
+                    maps = as_tuple(arg.map, Map)
+                    for map in maps:
+                        self._jit_args.append(map.values)
 
-            if arg._is_indirect or arg._is_mat:
-                maps = as_tuple(arg.map, Map)
-                for map in maps:
-                    _args.append(map.values)
+            for c in Const._definitions():
+                self._jit_args.append(c.data)
 
-        for c in Const._definitions():
-            _args.append(c.data)
+            self._jit_args.extend(self.offset_args())
 
-        # offset_args returns an empty list if there are none
-        _args.extend(self.offset_args())
-
-        # kick off halo exchanges
-        self.halo_exchange_begin()
-        # compute over core set elements
-        _args[0] = 0
-        _args[1] = self.it_space.core_size
-        fun(*_args)
-        # wait for halo exchanges to complete
-        self.halo_exchange_end()
-        # compute over remaining owned set elements
-        _args[0] = self.it_space.core_size
-        _args[1] = self.it_space.size
-        fun(*_args)
-        # By splitting the reduction here we get two advantages:
-        # - we don't double count contributions in halo elements
-        # - once our MPI supports the asynchronous collectives in
-        #   MPI-3, we can do more comp/comms overlap
-        self.reduction_begin()
-        if self.needs_exec_halo:
-            _args[0] = self.it_space.size
-            _args[1] = self.it_space.exec_size
-            fun(*_args)
-        self.reduction_end()
-        self.maybe_set_halo_update_needed()
-        for arg in self.args:
-            if arg._is_mat:
-                arg.data._assemble()
+        if part.size > 0:
+            self._jit_args[0] = part.offset
+            self._jit_args[1] = part.offset + part.size
+            fun(*self._jit_args)
 
 
 def _setup():

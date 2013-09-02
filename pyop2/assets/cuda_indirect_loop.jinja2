@@ -3,6 +3,7 @@
 {%- macro kernel_stub() -%}
 __global__ void {{ parloop._stub_name }} (
     int set_size,
+    int set_offset,
     {% for arg in parloop._unique_args -%}
     {{ arg.ctype }} *{{arg.name}},
     {%- if arg._is_mat %}
@@ -31,7 +32,7 @@ __global__ void {{ parloop._stub_name }} (
     {% if parloop._unique_inc_indirect_dat_args %}
     __shared__ int nelems2, ncolor;
     {% endif -%}
-    __shared__ int nelem, offset_b;
+    __shared__ int nelem, offset_b, offset_b_abs;
     {% if parloop._has_matrix_arg %}
     __shared__ int ele_offset;
     {% endif %}
@@ -74,7 +75,8 @@ __global__ void {{ parloop._stub_name }} (
     if (threadIdx.x == 0) {
         int blockId = blkmap[blockIdx.x + blockIdx.y * gridDim.x + block_offset];
         nelem = nelems[blockId];
-        offset_b = offset[blockId];
+        offset_b_abs = offset[blockId];
+        offset_b = offset_b_abs - set_offset;
 
         {% if parloop._has_matrix_arg %}
         ele_offset = 0;
@@ -149,6 +151,7 @@ __global__ void {{ parloop._stub_name }} (
             {% for r in parloop._it_space.extents %}
             for ( int i{{loop.index0}} = 0; i{{loop.index0}} < {{r}}; ++i{{loop.index0}} ) {
             {% endfor %}
+
             {{parloop.kernel.name}}(
                 {%- set comma = joiner(",") -%}
                 {%- for arg in parloop.args -%}
@@ -159,6 +162,7 @@ __global__ void {{ parloop._stub_name }} (
                 , i{{loop.index0}}
                 {% endfor -%}
                 );
+
             {% for r in parloop._it_space._extents %}
             }
             {% endfor %}
@@ -225,7 +229,7 @@ __global__ void {{ parloop._stub_name }} (
 {{ c._format_declaration() }}
 {% endfor %}
 {%- if parloop._has_soa %}
-#define OP2_STRIDE(array, idx) (array)[op2stride * (idx)]
+#define OP2_STRIDE(array, idx) (array)[ {{ launch.op2stride }} * (idx)]
 {% endif %}
 #define ROUND_UP(bytes) (((bytes) + 15) & ~15)
 

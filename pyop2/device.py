@@ -127,9 +127,11 @@ class DeviceDataMixin(object):
     @collective
     def data(self):
         """Numpy array containing the data values."""
+        base._trace.evaluate(set([self]), set())
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
         maybe_setflags(self._data, write=True)
+        self.needs_halo_update = True
         self._from_device()
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.HOST
@@ -138,7 +140,9 @@ class DeviceDataMixin(object):
     @data.setter
     @collective
     def data(self, value):
+        base._trace.evaluate(set(), set([self]))
         maybe_setflags(self._data, write=True)
+        self.needs_halo_update = True
         self._data = verify_reshape(value, self.dtype, self._data.shape)
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.HOST
@@ -214,6 +218,27 @@ class Dat(DeviceDataMixin, base.Dat):
         if not self.array.shape == other.array.shape:
             raise ValueError("operands could not be broadcast together with shapes %s, %s"
                              % (self.array.shape, other.array.shape))
+
+    def halo_exchange_begin(self):
+        if self.dataset.halo is None:
+            return
+        maybe_setflags(self._data, write=True)
+        self._from_device()
+        super(Dat, self).halo_exchange_begin()
+
+    def halo_exchange_end(self):
+        if self.dataset.halo is None:
+            return
+        maybe_setflags(self._data, write=True)
+        super(Dat, self).halo_exchange_end()
+        if self.state in [DeviceDataMixin.DEVICE,
+                          DeviceDataMixin.BOTH]:
+            self._halo_to_device()
+            self.state = DeviceDataMixin.DEVICE
+
+    def _halo_to_device(self):
+        _lim = self.dataset.size * self.dataset.cdim
+        self._device_data.ravel()[_lim:].set(self._data[self.dataset.size:])
 
 
 class Const(DeviceDataMixin, base.Const):

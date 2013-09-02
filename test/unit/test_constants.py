@@ -114,8 +114,8 @@ class TestConstant:
         op2.par_loop(op2.Kernel(k, 'k'),
                      set, dat(op2.WRITE))
 
-        assert len(cache) == 1
         assert all(dat.data == constant.data)
+        assert len(cache) == 1
 
         constant.data == 11
 
@@ -123,8 +123,8 @@ class TestConstant:
                      set, dat(op2.WRITE))
 
         constant.remove_from_namespace()
-        assert len(cache) == 1
         assert all(dat.data == constant.data)
+        assert len(cache) == 1
 
 if __name__ == '__main__':
     import os

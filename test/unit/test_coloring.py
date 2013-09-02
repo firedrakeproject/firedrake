@@ -89,7 +89,7 @@ class TestColoring:
     def test_thread_coloring(self, backend, elements, elem_node_map, elem_node, mat, x):
         assert NUM_ELE % 2 == 0, "NUM_ELE must be even."
 
-        plan = _plan.Plan(elements,
+        plan = _plan.Plan(elements.all_part,
                           mat(op2.INC, (elem_node[op2.i[0]],
                                         elem_node[op2.i[1]])),
                           x(op2.WRITE, elem_node[0]),

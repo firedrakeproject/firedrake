@@ -33,7 +33,7 @@
 {% endfor -%}
 {%- else -%}
 {%- for i in range(arg.map.arity) %}
-{{ arg._vec_name }}[{{ i }}] = &{{ arg._shared_name }}[p_loc_map[i_1 + {{arg._which_indirect + i}}*set_size + shared_memory_offset] * {{ arg.data.cdim }}];
+{{ arg._vec_name }}[{{ i }}] = &{{ arg._shared_name }}[p_loc_map[i_1 + {{arg._which_indirect + i}}*set_size + offset_b] * {{ arg.data.cdim }}];
 {%- endfor -%}
 {%- endif -%}
 {%- endmacro -%}
@@ -53,11 +53,11 @@ for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2) {
 {%- macro color_reduction(arg) -%}
 for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2) {
    {%- if(arg._is_INC) %}
-   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + shared_memory_offset + {{arg._which_indirect}}*set_size] * {{ arg.data.cdim }}] += {{ arg._local_name() }}[i_2];
+   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect}}*set_size] * {{ arg.data.cdim }}] += {{ arg._local_name() }}[i_2];
    {% elif(arg._is_MIN) %}
-   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + shared_memory_offset + {(arg._which_indirect}}*set_size] * {{ arg.data.cdim }}] = min({{ arg._shared_name }}[i_2 + p_loc_map[i_1 + shared_memory_offset + {{arg._which_indirect}}*set_size] * {{ arg.data.cdim }}], {{ arg._local_name() }}[i_2]);
+   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {(arg._which_indirect}}*set_size] * {{ arg.data.cdim }}] = min({{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect}}*set_size] * {{ arg.data.cdim }}], {{ arg._local_name() }}[i_2]);
    {% elif(arg._is_MAX) %}
-   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + shared_memory_offset + {{arg._which_indirect}}*set_size] * {{ arg.data.cdim }}] = max({{ arg._shared_name }}[i_2 + p_loc_map[i_1 + shared_memory_offset + {{arg._which_indirect}}*set_size] * {{ arg.data.cdim }}], {{ arg._local_name() }}[i_2]);
+   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect}}*set_size] * {{ arg.data.cdim }}] = max({{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect}}*set_size] * {{ arg.data.cdim }}], {{ arg._local_name() }}[i_2]);
    {% endif %}
 }
 {%- endmacro -%}
@@ -66,11 +66,11 @@ for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2) {
 for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2) {
     {% for i in range(arg.map.arity) %}
    {%- if(arg._is_INC) %}
-   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + shared_memory_offset + {{arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}] += {{ arg._local_name(idx=i) }}[i_2];
+   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}] += {{ arg._local_name(idx=i) }}[i_2];
    {% elif(arg._is_MIN) %}
-   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + shared_memory_offset + {(arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}] = min({{ arg._shared_name }}[i_2 + p_loc_map[i_1 + shared_memory_offset + {{arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}], {{ arg._local_name(idx=i) }}[i_2]);
+   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {(arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}] = min({{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}], {{ arg._local_name(idx=i) }}[i_2]);
    {% elif(arg._is_MAX) %}
-   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + shared_memory_offset + {{arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}] = max({{ arg._shared_name }}[i_2 + p_loc_map[i_1 + shared_memory_offset + {{arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}], {{ arg._local_name(idx=i) }}[i_2]);
+   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}] = max({{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}], {{ arg._local_name(idx=i) }}[i_2]);
    {% endif %}
    {% endfor %}
 }
@@ -120,6 +120,7 @@ void {{ parloop._stub_name }}(
   __global int* {{ matem.name }},
   {%- endfor -%}
   int set_size,
+  int set_offset,
   __global int* p_ind_map,
   __global short *p_loc_map,
   __global int* p_ind_sizes,
@@ -132,7 +133,8 @@ void {{ parloop._stub_name }}(
   __private int block_offset
 ) {
   __local char shared [{{ launch.local_memory_size }}] __attribute__((aligned(sizeof(long))));
-  __local int shared_memory_offset;
+  __local int offset_b;
+  __local int offset_b_abs;
   __local int active_threads_count;
 
   int nbytes;
@@ -209,7 +211,8 @@ void {{ parloop._stub_name }}(
     active_threads_count_ceiling = get_local_size(0) * (1 + (active_threads_count - 1) / get_local_size(0));
     colors_count = p_nthrcol[block_id];
 {%- endif %}
-    shared_memory_offset = p_offset[block_id];
+    offset_b_abs = p_offset[block_id];
+    offset_b = offset_b_abs - set_offset;
     {% for arg in parloop._unique_indirect_dat_args -%}
     {{ arg._size_name }} = p_ind_sizes[{{loop.index0}} + block_id * {{ loop.length }}];
     {{ arg._map_name }} = &p_ind_map[{{arg._which_indirect}} * set_size] + p_ind_offsets[{{loop.index0}} + block_id * {{loop.length}}];
@@ -255,7 +258,7 @@ void {{ parloop._stub_name }}(
       {%- endfor %}
 
       {{ kernel_call() | indent(6) }}
-      color_2 = p_thrcol[i_1 + shared_memory_offset];
+      color_2 = p_thrcol[i_1 + offset_b];
     }
     for (color_1 = 0; color_1 < colors_count; ++color_1) {
       // should there be a if + barrier pattern for each indirect reduction argument ?
@@ -359,7 +362,7 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
     {%- for map in arg._map %}
     {% set ext = parloop._it_space._extent_ranges[loop.index0] -%}
     {% set dim = arg.data.sparsity.dims[loop.index0] -%}
-    {{ dim }}*{{ map.name }}[(i_1 + shared_memory_offset) * {{ ext }} + idx_{{ loop.index0 }}]+i{{ loop.index0 }},
+    {{ dim }}*{{ map.name }}[(i_1 + offset_b) * {{ ext }} + idx_{{ loop.index0 }}]+i{{ loop.index0 }},
     {%- endfor %}
     {{ arg.name }}_entry[idx_0][idx_1][i0][i1]
   );
@@ -393,7 +396,7 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
 {%- macro kernel_call_arg(arg) -%}
 {% if(arg._is_direct) -%}
   {{ typecast("__global", arg.data._cl_type + "*", "__private") -}}
-  ({{ arg.name }} + (i_1 + shared_memory_offset) * {{ arg.data.cdim }})
+  ({{ arg.name }} + (i_1 + offset_b_abs) * {{ arg.data.cdim }})
 {%- elif(arg._is_mat) -%}
   {{ arg.name }}_entry[idx_0][idx_1]
 {%- elif(arg._uses_itspace) -%}
@@ -407,7 +410,7 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
 {%- elif(arg._is_global) -%}
   {{ arg.name }}
 {%- else -%}
-&{{ arg._shared_name }}[p_loc_map[i_1 + shared_memory_offset + {{arg._which_indirect}}*set_size] * {{ arg.data.cdim }}]
+&{{ arg._shared_name }}[p_loc_map[i_1 + offset_b + {{arg._which_indirect}}*set_size] * {{ arg.data.cdim }}]
 {%- endif -%}
 {%- endmacro -%}
 

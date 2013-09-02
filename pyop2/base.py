@@ -47,6 +47,63 @@ from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
 from sparsity import build_sparsity
 
+
+class LazyComputation(object):
+
+    """Helper class holding computation to be carried later on.
+    """
+
+    def __init__(self, reads, writes):
+        self.reads = reads
+        self.writes = writes
+        self._scheduled = False
+
+        global _trace
+        _trace.append(self)
+
+    def _run(self):
+        assert False, "Not implemented"
+
+
+class ExecutionTrace(object):
+
+    """Container maintaining delayed computation until they are executed."""
+
+    def __init__(self):
+        self._trace = list()
+
+    def append(self, computation):
+        self._trace.append(computation)
+
+    def in_queue(self, computation):
+        return computation in self._trace
+
+    def evaluate(self, reads, writes):
+        """Forces the evaluation of delayed computation on which reads and writes
+        depend.
+        """
+        def _depends_on(reads, writes, cont):
+            return reads & cont.writes or writes & cont.reads or writes & cont.writes
+
+        for comp in reversed(self._trace):
+            if _depends_on(reads, writes, comp):
+                comp._scheduled = True
+                reads = reads | comp.reads - comp.writes
+                writes = writes | comp.writes
+            else:
+                comp._scheduled = False
+
+        new_trace = list()
+        for comp in self._trace:
+            if comp._scheduled:
+                comp._run()
+            else:
+                new_trace.append(comp)
+        self._trace = new_trace
+
+
+_trace = ExecutionTrace()
+
 # Data API
 
 
@@ -475,6 +532,29 @@ class Set(object):
             raise SizeTypeError("Shape of %s is incorrect" % name)
         size = slot.value.astype(np.int)
         return cls(size[0], name)
+
+    @property
+    def core_part(self):
+        return SetPartition(self, 0, self.core_size)
+
+    @property
+    def owned_part(self):
+        return SetPartition(self, self.core_size, self.size - self.core_size)
+
+    @property
+    def exec_part(self):
+        return SetPartition(self, self.size, self.exec_size - self.size)
+
+    @property
+    def all_part(self):
+        return SetPartition(self, 0, self.exec_size)
+
+
+class SetPartition(object):
+    def __init__(self, set, offset, size):
+        self.set = set
+        self.offset = offset
+        self.size = size
 
 
 class DataSet(object):
@@ -919,6 +999,7 @@ class Dat(DataCarrier):
     @collective
     def data(self):
         """Numpy array containing the data values."""
+        _trace.evaluate(set([self]), set([self]))
         if self.dataset.total_size > 0 and self._data.size == 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
         maybe_setflags(self._data, write=True)
@@ -928,6 +1009,7 @@ class Dat(DataCarrier):
     @property
     def data_ro(self):
         """Numpy array containing the data values.  Read-only"""
+        _trace.evaluate(set([self]), set())
         if self.dataset.total_size > 0 and self._data.size == 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
         maybe_setflags(self._data, write=False)
@@ -1130,6 +1212,7 @@ class Const(DataCarrier):
         """Remove this Const object from the namespace
 
         This allows the same name to be redeclared with a different shape."""
+        _trace.evaluate(set(), set([self]))
         Const._defs.discard(self)
 
     def _format_declaration(self):
@@ -1206,12 +1289,14 @@ class Global(DataCarrier):
     @property
     def data(self):
         """Data array."""
+        _trace.evaluate(set([self]), set())
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
 
     @data.setter
     def data(self, value):
+        _trace.evaluate(set(), set([self]))
         self._data = verify_reshape(value, self.dtype, self.dim)
 
     @property
@@ -1756,8 +1841,7 @@ class JITModule(Cached):
         return key
 
 
-class ParLoop(object):
-
+class ParLoop(LazyComputation):
     """Represents the kernel, iteration space and arguments of a parallel loop
     invocation.
 
@@ -1770,6 +1854,10 @@ class ParLoop(object):
     @validate_type(('kernel', Kernel, KernelTypeError),
                    ('iterset', Set, SetTypeError))
     def __init__(self, kernel, iterset, *args):
+        LazyComputation.__init__(self,
+                                 set([a.data for a in args if a.access in [READ, RW]]) | Const._defs,
+                                 set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]))
+
         # Always use the current arguments, also when we hit cache
         self._actual_args = args
         self._kernel = kernel
@@ -1789,10 +1877,36 @@ class ParLoop(object):
 
         self._it_space = IterationSpace(iterset, self.check_args(iterset))
 
+    def _run(self):
+        return self.compute()
+
     @collective
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
-        raise RuntimeError('Must select a backend')
+        self.halo_exchange_begin()
+        self.maybe_set_dat_dirty()
+        self._compute_if_not_empty(self.it_space.iterset.core_part)
+        self.halo_exchange_end()
+        self._compute_if_not_empty(self.it_space.iterset.owned_part)
+        self.reduction_begin()
+        if self.needs_exec_halo:
+            self._compute_if_not_empty(self.it_space.iterset.exec_part)
+        self.reduction_end()
+        self.maybe_set_halo_update_needed()
+        self.assemble()
+
+    def _compute_if_not_empty(self, part):
+        if part.size > 0:
+            self._compute(part)
+
+    def _compute(self, part):
+        """Executes the kernel over all members of a MPI-part of the iteration space."""
+        raise RuntimeError("Must select a backend")
+
+    def maybe_set_dat_dirty(self):
+        for arg in self.args:
+            if arg._is_dat:
+                maybe_setflags(arg.data._data, write=False)
 
     @collective
     def halo_exchange_begin(self):
@@ -1834,6 +1948,11 @@ class ParLoop(object):
         for arg in self.args:
             if arg._is_dat and arg.access in [INC, WRITE, RW]:
                 arg.data.needs_halo_update = True
+
+    def assemble(self):
+        for arg in self.args:
+            if arg._is_mat:
+                arg.data._assemble()
 
     def check_args(self, iterset):
         """Checks that the iteration set of the :class:`ParLoop` matches the
@@ -1981,4 +2100,8 @@ class Solver(object):
         :arg x: The :class:`Dat` to receive the solution.
         :arg b: The :class:`Dat` containing the RHS.
         """
+        _trace.evaluate(set([A, b]), set([x]))
+        self._solve(A, x, b)
+
+    def _solve(self, A, x, b):
         raise NotImplementedError("solve must be implemented by backend")

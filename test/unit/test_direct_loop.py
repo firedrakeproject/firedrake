@@ -41,9 +41,11 @@ from pyop2 import op2
 nelems = 4096
 
 
-@pytest.fixture
-def elems():
-    return op2.Set(nelems, "elems")
+@pytest.fixture(params=[(nelems, nelems, nelems, nelems),
+                        (0, nelems, nelems, nelems),
+                        (nelems / 2, nelems, nelems, nelems)])
+def elems(request):
+    return op2.Set(request.param, "elems")
 
 
 @pytest.fixture
@@ -210,6 +212,7 @@ class TestDirectLoop:
         x_data = x.data
         op2.par_loop(op2.Kernel(kernel, 'k'),
                      elems, x(op2.WRITE))
+        op2.base._trace.evaluate(set([x]), set())
         with pytest.raises((RuntimeError, ValueError)):
             x_data[0] = 1
 

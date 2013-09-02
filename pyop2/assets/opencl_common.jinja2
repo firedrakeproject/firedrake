@@ -22,7 +22,7 @@
 {%- macro defines(launch) -%}
 #define ROUND_UP(bytes) (((bytes) + 15) & ~15)
 #define OP_WARPSIZE {{ launch.warpsize }}
-#define OP2_STRIDE(arr, idx) ((arr)[op2stride * (idx)])
+#define OP2_STRIDE(arr, idx) ((arr)[{{ launch.op2stride }} * (idx)])
 {%- endmacro -%}
 
 {#                                    #}
