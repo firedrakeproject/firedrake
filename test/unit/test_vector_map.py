@@ -135,11 +135,11 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
                      edge_vals(op2.WRITE))
 
         expected = numpy.asarray(
-            range(1, nedges * 2 + 1, 2)).reshape(nedges, 1)
+            range(1, nedges * 2 + 1, 2))
         assert all(expected == edge_vals.data)
 
     def test_read_1d_vector_map(self, backend, node, d1, vd1, node2ele):
-        vd1.data[:] = numpy.arange(nele).reshape(nele, 1)
+        vd1.data[:] = numpy.arange(nele)
         k = """
         void k(int *d, int *vd[1]) {
         *d = vd[0][0];

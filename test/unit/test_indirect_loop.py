@@ -220,7 +220,7 @@ class TestIndirectLoop:
                      node_vals(op2.READ, edge2node[1]),
                      edge_vals(op2.WRITE))
 
-        expected = np.arange(1, nedges * 2 + 1, 2).reshape(nedges, 1)
+        expected = np.arange(1, nedges * 2 + 1, 2)
         assert all(expected == edge_vals.data)
 
 if __name__ == '__main__':

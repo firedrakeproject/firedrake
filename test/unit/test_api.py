@@ -455,7 +455,8 @@ class TestDatAPI:
     def test_dat_reshape(self, backend, dset):
         "Data should be reshaped according to the set's dim."
         d = op2.Dat(dset, [1.0] * dset.size * dset.cdim)
-        assert d.data.shape == (dset.size,) + dset.dim
+        shape = (dset.size,) + (() if dset.cdim == 1 else dset.dim)
+        assert d.data.shape == shape
 
     def test_dat_properties(self, backend, dset):
         "Dat constructor should correctly set attributes."

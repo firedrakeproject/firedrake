@@ -943,9 +943,8 @@ class Dat(DataCarrier):
         if data is None:
             data = np.zeros(dataset.total_size * dataset.cdim)
         self._dataset = dataset
-        self._data = verify_reshape(data, dtype,
-                                    (dataset.total_size,) + dataset.dim,
-                                    allow_none=True)
+        shape = (dataset.total_size,) + (() if dataset.cdim == 1 else dataset.dim)
+        self._data = verify_reshape(data, dtype, shape, allow_none=True)
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
         self._needs_halo_update = False
