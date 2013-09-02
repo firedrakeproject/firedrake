@@ -47,7 +47,7 @@ echo | tee -a $LOGFILE
 ${PIP} Cython decorator instant numpy pyyaml flake8 >> $LOGFILE 2>&1
 PETSC_CONFIGURE_OPTIONS="--with-fortran --with-fortran-interfaces --with-c++-support --with-openmp" \
   ${PIP} hg+https://bitbucket.org/ggorman/petsc-3.3-omp#egg=petsc-3.3 >> $LOGFILE 2>&1
-${PIP} git+https://bitbucket.org/mapdes/petsc4py#egg=petsc4py >> $LOGFILE 2>&1
+${PIP} "petsc4py >= 3.4" >> $LOGFILE 2>&1
 
 echo "*** Installing FEniCS dependencies ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE

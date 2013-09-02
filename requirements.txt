@@ -4,4 +4,4 @@ pycuda>=2013.1
 pyopencl>=2012.1
 h5py>=2.0.0
 petsc==3.3
-git+https://bitbucket.org/mapdes/petsc4py#egg=petsc4py
+petsc4py>=3.4
