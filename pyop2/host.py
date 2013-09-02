@@ -276,6 +276,8 @@ class JITModule(base.JITModule):
         if hasattr(self, '_fun'):
             return self._fun
         from instant import inline_with_numpy
+        strip = lambda code: '\n'.join([l for l in code.splitlines()
+                                        if l.strip() and l.strip() != ';'])
 
         if any(arg._is_soa for arg in self._args):
             kernel_code = """
@@ -287,7 +289,7 @@ class JITModule(base.JITModule):
             kernel_code = """
             inline %(code)s
             """ % {'code': self._kernel.code}
-        code_to_compile = dedent(self._wrapper) % self.generate_code()
+        code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
 
         _const_decs = '\n'.join([const._format_declaration()
                                 for const in Const._definitions()]) + '\n'
