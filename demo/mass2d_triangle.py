@@ -92,10 +92,8 @@ num_nodes = nodes.size
 sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node), "sparsity")
 mat = op2.Mat(sparsity, valuetype, "mat")
 
-b_vals = np.asarray([0.0] * num_nodes, dtype=valuetype)
-x_vals = np.asarray([0.0] * num_nodes, dtype=valuetype)
-b = op2.Dat(nodes, b_vals, valuetype, "b")
-x = op2.Dat(nodes, x_vals, valuetype, "x")
+b = op2.Dat(nodes, np.zeros(num_nodes, dtype=valuetype), valuetype, "b")
+x = op2.Dat(nodes, np.zeros(num_nodes, dtype=valuetype), valuetype, "x")
 
 # Set up initial condition
 
@@ -123,6 +121,7 @@ if opt['print_output']:
 
 # Save output (if necessary)
 if opt['save_output']:
-    import pickle
-    with open("mass2d_triangle.out", "w") as out:
-        pickle.dump((f.data, x.data, b.data, mat.array), out)
+    from cPickle import dump, HIGHEST_PROTOCOL
+    from gzip import open
+    with open("mass2d_triangle.out.gz", "wb") as out:
+        dump((f.data, x.data, b.data, mat.array), out, HIGHEST_PROTOCOL)

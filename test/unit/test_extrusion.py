@@ -287,7 +287,7 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
         op2.par_loop(op2.Kernel(kernel_wtf, "kernel_wtf"), elements,
                      dat_coords(op2.READ, coords_map),
                      dat_f(op2.WRITE, field_map))
-        assert all(map(lambda x: x[0] >= 0, dat_f.data))
+        assert all(dat_f.data >= 0)
 
     def test_indirect_coords_inc(self, backend, elements, dat_coords,
                                  dat_field, coords_map, field_map, dat_c,

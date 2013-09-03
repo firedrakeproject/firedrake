@@ -114,11 +114,11 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
                      node_vals(op2.READ, edge2node[op2.i[0]]),
                      edge_vals(op2.INC))
 
-        expected = numpy.arange(1, nedges * 2 + 1, 2).reshape(nedges, 1)
+        expected = numpy.arange(1, nedges * 2 + 1, 2)
         assert all(expected == edge_vals.data)
 
     def test_read_1d_itspace_map(self, backend, node, d1, vd1, node2ele):
-        vd1.data[:] = numpy.arange(nele).reshape(nele, 1)
+        vd1.data[:] = numpy.arange(nele)
         k = """
         void k(int *d, int *vd, int i) {
         d[0] = vd[0];

@@ -595,8 +595,8 @@ def expected_vector_matrix():
 
 @pytest.fixture
 def expected_rhs():
-    return np.asarray([[0.9999999523522115], [1.3541666031724144],
-                       [0.2499999883507239], [1.6458332580869566]],
+    return np.asarray([0.9999999523522115, 1.3541666031724144,
+                       0.2499999883507239, 1.6458332580869566],
                       dtype=valuetype)
 
 
