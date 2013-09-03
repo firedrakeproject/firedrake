@@ -145,18 +145,23 @@ def main(opt):
         print "Computed solution: %s" % x.data
 
     # Save output (if necessary)
+    if opt['return_output']:
+        return u.data, x.data
     if opt['save_output']:
         import pickle
         with open("laplace.out", "w") as out:
             pickle.dump((u.data, x.data), out)
 
+parser = utils.parser(group=True, description=__doc__)
+parser.add_argument('--print-output', action='store_true', help='Print output')
+parser.add_argument('-r', '--return-output', action='store_true',
+                    help='Return output for testing')
+parser.add_argument('-s', '--save-output', action='store_true',
+                    help='Save output for testing')
+parser.add_argument('-p', '--profile', action='store_true',
+                    help='Create a cProfile for the run')
+
 if __name__ == '__main__':
-    parser = utils.parser(group=True, description=__doc__)
-    parser.add_argument('--print-output', action='store_true', help='Print output')
-    parser.add_argument('-s', '--save-output', action='store_true',
-                        help='Save output for testing')
-    parser.add_argument('-p', '--profile', action='store_true',
-                        help='Create a cProfile for the run')
     opt = vars(parser.parse_args())
     op2.init(**opt)
 
