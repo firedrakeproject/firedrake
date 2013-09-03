@@ -8,10 +8,11 @@
   </problem_definition>
   <variables>
     <variable name="error" language="python">from cPickle import load
-from gzip import open
+import gzip
 import numpy as np
-with open("mass2d_triangle.out.gz") as f:
-    f_vals, x_vals, b_vals, mat_array = load(f)
+f = gzip.open("mass2d_triangle.out.gz")
+f_vals, x_vals, b_vals, mat_array = load(f)
+f.close()
 diffnorm = np.linalg.norm(f_vals-x_vals)
 nodenorm = np.linalg.norm(f_vals)
 error = (diffnorm/nodenorm)

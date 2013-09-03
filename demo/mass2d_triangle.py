@@ -122,6 +122,7 @@ if opt['print_output']:
 # Save output (if necessary)
 if opt['save_output']:
     from cPickle import dump, HIGHEST_PROTOCOL
-    from gzip import open
-    with open("mass2d_triangle.out.gz", "wb") as out:
-        dump((f.data, x.data, b.data, mat.array), out, HIGHEST_PROTOCOL)
+    import gzip
+    out = gzip.open("mass2d_triangle.out.gz", "wb")
+    dump((f.data, x.data, b.data, mat.array), out, HIGHEST_PROTOCOL)
+    out.close()
