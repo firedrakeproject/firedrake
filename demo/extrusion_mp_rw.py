@@ -286,7 +286,7 @@ coords_dofsSet = op2.Set(nums[0] * layers, "coords_dofsSet")
 coords = op2.Dat(coords_dofsSet ** 2, coords_dat, np.float64, "coords")
 
 wedges_dofsSet = op2.Set(nums[2] * wedges, "wedges_dofsSet")
-field = op2.Dat(wedges_Set, field_dat, np.float64, "field")
+field = op2.Dat(wedges_dofsSet, field_dat, np.float64, "field")
 
 p1_dofsSet = op2.Set(nums[0] * layers, "p1_dofsSet")
 res = op2.Dat(p1_dofsSet, res_dat, np.float64, "res")
