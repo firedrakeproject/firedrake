@@ -34,3 +34,9 @@ def test_laplace_ffc(backend):
     from demo.laplace_ffc import main, parser
     f, x = main(vars(parser.parse_args(['-r'])))
     assert sum(abs(f - x)) < 1e-12
+
+
+def test_mass2d_ffc(backend):
+    from demo.mass2d_ffc import main, parser
+    f, x = main(vars(parser.parse_args(['-r'])))
+    assert sum(abs(f - x)) < 1e-12
