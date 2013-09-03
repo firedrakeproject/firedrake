@@ -28,3 +28,9 @@ def test_adv_diff(backend, meshes):
                     for name, _ in meshes])
     convergence = np.log2(res[:len(meshes) - 1] / res[1:])
     assert all(convergence > [1.5, 1.85, 1.95])
+
+
+def test_laplace_ffc(backend):
+    from demo.laplace_ffc import main, parser
+    f, x = main(vars(parser.parse_args(['-r'])))
+    assert sum(abs(f - x)) < 1e-12
