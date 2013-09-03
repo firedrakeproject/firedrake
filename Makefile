@@ -7,7 +7,7 @@ UNIT_TEST_DIR = $(TEST_BASE_DIR)/unit
 REGRESSION_TEST_DIR = $(TEST_BASE_DIR)/regression
 
 TESTHARNESS = $(REGRESSION_TEST_DIR)/testharness.py
-BACKENDS ?= sequential opencl openmp cuda mpi_sequential
+BACKENDS ?= sequential opencl openmp cuda mpi_sequential mpi_openmp
 OPENCL_ALL_CTXS := $(shell scripts/detect_opencl_devices)
 OPENCL_CTXS ?= $(OPENCL_ALL_CTXS)
 
