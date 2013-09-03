@@ -103,6 +103,8 @@ def main(opt):
         print "Computed solution: %s" % x.data
 
     # Save output (if necessary)
+    if opt['return_output']:
+        return f.data, x.data
     if opt['save_output']:
         from cPickle import dump, HIGHEST_PROTOCOL
         import gzip
@@ -110,17 +112,20 @@ def main(opt):
         dump((f.data, x.data, b.data, mat.array), out, HIGHEST_PROTOCOL)
         out.close()
 
+parser = utils.parser(group=True, description=__doc__)
+parser.add_argument('-m', '--mesh', required=True,
+                    help='Base name of triangle mesh \
+                          (excluding the .ele or .node extension)')
+parser.add_argument('-r', '--return-output', action='store_true',
+                    help='Return output for testing')
+parser.add_argument('-s', '--save-output', action='store_true',
+                    help='Save the output of the run (used for testing)')
+parser.add_argument('--print-output', action='store_true',
+                    help='Print the output of the run to stdout')
+parser.add_argument('-p', '--profile', action='store_true',
+                    help='Create a cProfile for the run')
+
 if __name__ == '__main__':
-    parser = utils.parser(group=True, description=__doc__)
-    parser.add_argument('-m', '--mesh', required=True,
-                        help='Base name of triangle mesh \
-                              (excluding the .ele or .node extension)')
-    parser.add_argument('-s', '--save-output', action='store_true',
-                        help='Save the output of the run (used for testing)')
-    parser.add_argument('--print-output', action='store_true',
-                        help='Print the output of the run to stdout')
-    parser.add_argument('-p', '--profile', action='store_true',
-                        help='Create a cProfile for the run')
     opt = vars(parser.parse_args())
     op2.init(**opt)
 
