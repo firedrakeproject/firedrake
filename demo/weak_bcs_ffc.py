@@ -172,6 +172,8 @@ def main(opt):
     solver.solve(mat, x, b)
 
     # Print solution
+    if opt['return_output']:
+        return u.data, x.data
     if opt['print_output']:
         print "Expected solution: %s" % u.data
         print "Computed solution: %s" % x.data
@@ -182,13 +184,16 @@ def main(opt):
         with open("weak_bcs.out", "w") as out:
             pickle.dump((u.data, x.data), out)
 
+parser = utils.parser(group=True, description=__doc__)
+parser.add_argument('--print-output', action='store_true', help='Print output')
+parser.add_argument('-r', '--return-output', action='store_true',
+                    help='Return output for testing')
+parser.add_argument('-s', '--save-output', action='store_true',
+                    help='Save the output of the run (used for testing)')
+parser.add_argument('-p', '--profile', action='store_true',
+                    help='Create a cProfile for the run')
+
 if __name__ == '__main__':
-    parser = utils.parser(group=True, description=__doc__)
-    parser.add_argument('--print-output', action='store_true', help='Print output')
-    parser.add_argument('-s', '--save-output', action='store_true',
-                        help='Save the output of the run (used for testing)')
-    parser.add_argument('-p', '--profile', action='store_true',
-                        help='Create a cProfile for the run')
     opt = vars(parser.parse_args())
     op2.init(**opt)
 
