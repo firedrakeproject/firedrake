@@ -135,8 +135,8 @@ class LazyComputation(object):
     """
 
     def __init__(self, reads, writes):
-        self.reads = reads
-        self.writes = writes
+        self.reads = set(flatten(reads))
+        self.writes = set(flatten(writes))
         self._scheduled = False
 
     def enqueue(self):
@@ -195,14 +195,14 @@ class ExecutionTrace(object):
 
         if reads is not None:
             try:
-                reads = set(reads)
+                reads = set(flatten(reads))
             except TypeError:       # not an iterable
                 reads = set([reads])
         else:
             reads = set()
         if writes is not None:
             try:
-                writes = set(writes)
+                writes = set(flatten(writes))
             except TypeError:
                 writes = set([writes])
         else:
