@@ -33,23 +33,24 @@
 
 """OP2 OpenCL backend."""
 
-from device import *
+import collections
+from jinja2 import Environment, PackageLoader
+import math
+import numpy as np
+import os
+from pycparser import c_parser, c_ast, c_generator
+import pyopencl as cl
+from pyopencl import array
+import time
+
+import configuration as cfg
 import device
+from device import *
+from logger import warning
+from mpi import collective
 import plan
 import petsc_base
 from utils import verify_reshape, uniquify, maybe_setflags
-from mpi import collective
-import configuration as cfg
-import pyopencl as cl
-from pyopencl import array
-import numpy as np
-import collections
-import warnings
-import math
-from jinja2 import Environment, PackageLoader
-from pycparser import c_parser, c_ast, c_generator
-import os
-import time
 
 
 class Kernel(device.Kernel):
@@ -573,7 +574,7 @@ class ParLoop(device.ParLoop):
     def _i_partition_size(self):
         # TODO FIX: something weird here
         # available_local_memory
-        warnings.warn('temporary fix to available local memory computation (-512)')
+        warning('temporary fix to available local memory computation (-512)')
         available_local_memory = _max_local_memory - 512
         # 16bytes local mem used for global / local indices and sizes
         available_local_memory -= 16
@@ -619,7 +620,7 @@ class ParLoop(device.ParLoop):
                 # passed to the kernel
                 # 7: 7bytes potentialy lost for aligning the shared memory
                 # buffer to 'long'
-                warnings.warn('temporary fix to available local memory computation (-512)')
+                warning('temporary fix to available local memory computation (-512)')
                 available_local_memory = _max_local_memory - 512
                 available_local_memory -= 16
                 available_local_memory -= (len(self._unique_dat_args) +
@@ -756,7 +757,7 @@ def _setup():
     _has_dpfloat = 'cl_khr_fp64' in _queue.device.extensions or 'cl_amd_fp64' \
         in _queue.device.extensions
     if not _has_dpfloat:
-        warnings.warn('device does not support double precision floating point \
+        warning('device does not support double precision floating point \
                 computation, expect undefined behavior for double')
 
     if 'cl_khr_int64_base_atomics' in _queue.device.extensions:
