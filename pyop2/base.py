@@ -2875,7 +2875,8 @@ class ParLoop(LazyComputation):
     def maybe_set_dat_dirty(self):
         for arg in self.args:
             if arg._is_dat and arg.data._is_allocated:
-                maybe_setflags(arg.data._data, write=False)
+                for d in arg.data:
+                    maybe_setflags(d._data, write=False)
 
     @collective
     def halo_exchange_begin(self):
