@@ -479,6 +479,11 @@ class Solver(petsc_base.Solver):
 
 class JITModule(base.JITModule):
 
+    @classmethod
+    def _cache_key(cls, kernel, itspace, *args, **kwargs):
+        # The local memory size is hard coded of the generated code
+        return base.JITModule._cache_key(kernel, itspace, *args) + (kwargs['conf']['local_memory_size'],)
+
     def __init__(self, kernel, itspace_extents, *args, **kwargs):
         # No need to protect against re-initialization since these attributes
         # are not expensive to set and won't be used if we hit cache
