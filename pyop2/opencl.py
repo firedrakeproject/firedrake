@@ -535,7 +535,7 @@ class JITModule(base.JITModule):
 
     def dump_gen_code(self, src):
         if cfg['dump-gencode']:
-            path = cfg['dump-gencode-path'] % {"kernel": self.kernel.name,
+            path = cfg['dump-gencode-path'] % {"kernel": self._parloop.kernel.name,
                                                "time": time.strftime('%Y-%m-%d@%H:%M:%S')}
 
             if not os.path.exists(path):
