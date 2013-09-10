@@ -130,7 +130,7 @@ echo | tee -a $LOGFILE
 
 cd $PYOP2_DIR
 
-make test BACKENDS="sequential openmp mpi_sequential" >> $LOGFILE 2>&1
+make test BACKENDS="sequential openmp" >> $LOGFILE 2>&1
 
 if [ $? -ne 0 ]; then
   echo "PyOP2 testing failed" 1>&2
