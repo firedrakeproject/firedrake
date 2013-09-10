@@ -187,7 +187,7 @@ def main(opt):
 
         T = T + dt
 
-    if opt['print_output'] or opt['test_output']:
+    if opt['print_output'] or opt['test_output'] or opt['return_output']:
         analytical_vals = np.zeros(num_nodes, dtype=valuetype)
         analytical = op2.Dat(nodes, analytical_vals, valuetype, "analytical")
 
@@ -201,7 +201,7 @@ def main(opt):
     if opt['print_output']:
         print "Expected - computed  solution: %s" % (tracer.data - analytical.data)
 
-    if opt['test_output']:
+    if opt['test_output'] or opt['return_output']:
         l2norm = dot(t - a, t - a) * dx
         l2_kernel, = compile_form(l2norm, "error_norm")
         result = op2.Global(1, [0.0])
@@ -210,26 +210,31 @@ def main(opt):
                      coords(op2.READ, elem_node),
                      tracer(op2.READ, elem_node),
                      analytical(op2.READ, elem_node))
-        with open("adv_diff.%s.out" % os.path.split(opt['mesh'])[-1], "w") as out:
-            out.write(str(result.data[0]) + "\n")
+        if opt['test_output']:
+            with open("adv_diff.%s.out" % os.path.split(opt['mesh'])[-1], "w") as out:
+                out.write(str(result.data[0]) + "\n")
+        if opt['return_output']:
+            return result.data[0]
+
+parser = utils.parser(group=True, description=__doc__)
+parser.add_argument('-m', '--mesh', required=True,
+                    help='Base name of triangle mesh \
+                          (excluding the .ele or .node extension)')
+parser.add_argument('-v', '--visualize', action='store_true',
+                    help='Visualize the result using viper')
+parser.add_argument('--no-advection', action='store_false',
+                    dest='advection', help='Disable advection')
+parser.add_argument('--no-diffusion', action='store_false',
+                    dest='diffusion', help='Disable diffusion')
+parser.add_argument('--print-output', action='store_true', help='Print output')
+parser.add_argument('-r', '--return-output', action='store_true',
+                    help='Return output for testing')
+parser.add_argument('-t', '--test-output', action='store_true',
+                    help='Save output for testing')
+parser.add_argument('-p', '--profile', action='store_true',
+                    help='Create a cProfile for the run')
 
 if __name__ == '__main__':
-    parser = utils.parser(group=True, description=__doc__)
-    parser.add_argument('-m', '--mesh', required=True,
-                        help='Base name of triangle mesh \
-                              (excluding the .ele or .node extension)')
-    parser.add_argument('-v', '--visualize', action='store_true',
-                        help='Visualize the result using viper')
-    parser.add_argument('--no-advection', action='store_false',
-                        dest='advection', help='Disable advection')
-    parser.add_argument('--no-diffusion', action='store_false',
-                        dest='diffusion', help='Disable diffusion')
-    parser.add_argument('--print-output', action='store_true', help='Print output')
-    parser.add_argument('-t', '--test-output', action='store_true',
-                        help='Save output for testing')
-    parser.add_argument('-p', '--profile', action='store_true',
-                        help='Create a cProfile for the run')
-
     opt = vars(parser.parse_args())
     op2.init(**opt)
 

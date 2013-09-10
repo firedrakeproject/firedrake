@@ -60,132 +60,145 @@ from ufl import *
 
 import numpy as np
 
+
+def main(opt):
+    # Set up finite element problem
+
+    E = FiniteElement("Lagrange", "triangle", 1)
+
+    v = TestFunction(E)
+    u = TrialFunction(E)
+    f = Coefficient(E)
+    g = Coefficient(E)
+
+    a = dot(grad(v,), grad(u)) * dx
+    L = v * f * dx + v * g * ds(2)
+
+    # Generate code for Laplacian and rhs assembly.
+
+    laplacian, = compile_form(a, "laplacian")
+    rhs, weak = compile_form(L, "rhs")
+
+    # Set up simulation data structures
+
+    NUM_ELE = 8
+    NUM_NODES = 9
+    NUM_BDRY_ELE = 2
+    NUM_BDRY_NODE = 3
+    valuetype = np.float64
+
+    nodes = op2.Set(NUM_NODES, "nodes")
+    elements = op2.Set(NUM_ELE, "elements")
+
+    # Elements that Weak BC will be assembled over
+    top_bdry_elements = op2.Set(NUM_BDRY_ELE, "top_boundary_elements")
+    # Nodes that Strong BC will be applied over
+    bdry_nodes = op2.Set(NUM_BDRY_NODE, "boundary_nodes")
+
+    elem_node_map = np.array([0, 1, 4, 4, 3, 0, 1, 2, 5, 5, 4, 1, 3, 4, 7, 7,
+                              6, 3, 4, 5, 8, 8, 7, 4], dtype=np.uint32)
+    elem_node = op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
+
+    top_bdry_elem_node_map = np.array([7, 6, 3, 8, 7, 4], dtype=valuetype)
+    top_bdry_elem_node = op2.Map(top_bdry_elements, nodes, 3,
+                                 top_bdry_elem_node_map, "top_bdry_elem_node")
+
+    bdry_node_node_map = np.array([0, 1, 2], dtype=valuetype)
+    bdry_node_node = op2.Map(
+        bdry_nodes, nodes, 1, bdry_node_node_map, "bdry_node_node")
+
+    sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node), "sparsity")
+    mat = op2.Mat(sparsity, valuetype, "mat")
+
+    coord_vals = np.array([(0.0, 0.0), (0.5, 0.0), (1.0, 0.0),
+                           (0.0, 0.5), (0.5, 0.5), (1.0, 0.5),
+                           (0.0, 1.0), (0.5, 1.0), (1.0, 1.0)],
+                          dtype=valuetype)
+    coords = op2.Dat(nodes ** 2, coord_vals, valuetype, "coords")
+
+    u_vals = np.array([1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0])
+    f = op2.Dat(nodes, np.zeros(NUM_NODES, dtype=valuetype), valuetype, "f")
+    b = op2.Dat(nodes, np.zeros(NUM_NODES, dtype=valuetype), valuetype, "b")
+    x = op2.Dat(nodes, np.zeros(NUM_NODES, dtype=valuetype), valuetype, "x")
+    u = op2.Dat(nodes, u_vals, valuetype, "u")
+
+    bdry = op2.Dat(bdry_nodes, np.ones(3, dtype=valuetype), valuetype, "bdry")
+
+    # This isn't perfect, defining the boundary gradient on more nodes than are on
+    # the boundary is couter-intuitive
+    bdry_grad_vals = np.asarray([2.0] * 9, dtype=valuetype)
+    bdry_grad = op2.Dat(nodes, bdry_grad_vals, valuetype, "gradient")
+    facet = op2.Global(1, 2, np.uint32, "facet")
+
+    # If a form contains multiple integrals with differing coefficients, FFC
+    # generates kernels that take all the coefficients of the entire form (not
+    # only the respective integral) as arguments. Arguments that correspond to
+    # forms that are not used in that integral are simply not referenced.
+    # We therefore need a dummy argument in place of the coefficient that is not
+    # used in the par_loop for OP2 to generate the correct kernel call.
+
+    # Assemble matrix and rhs
+
+    op2.par_loop(laplacian, elements,
+                 mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
+                 coords(op2.READ, elem_node))
+
+    op2.par_loop(rhs, elements,
+                 b(op2.INC, elem_node[op2.i[0]]),
+                 coords(op2.READ, elem_node),
+                 f(op2.READ, elem_node),
+                 bdry_grad(op2.READ, elem_node))  # argument ignored
+
+    # Apply weak BC
+
+    op2.par_loop(weak, top_bdry_elements,
+                 b(op2.INC, top_bdry_elem_node[op2.i[0]]),
+                 coords(op2.READ, top_bdry_elem_node),
+                 f(op2.READ, top_bdry_elem_node),  # argument ignored
+                 bdry_grad(op2.READ, top_bdry_elem_node),
+                 facet(op2.READ))
+
+    # Apply strong BC
+
+    mat.zero_rows([0, 1, 2], 1.0)
+    strongbc_rhs = op2.Kernel("""
+    void strongbc_rhs(double *val, double *target) { *target = *val; }
+    """, "strongbc_rhs")
+    op2.par_loop(strongbc_rhs, bdry_nodes,
+                 bdry(op2.READ),
+                 b(op2.WRITE, bdry_node_node[0]))
+
+    solver = op2.Solver(linear_solver='gmres')
+    solver.solve(mat, x, b)
+
+    # Print solution
+    if opt['return_output']:
+        return u.data, x.data
+    if opt['print_output']:
+        print "Expected solution: %s" % u.data
+        print "Computed solution: %s" % x.data
+
+    # Save output (if necessary)
+    if opt['save_output']:
+        import pickle
+        with open("weak_bcs.out", "w") as out:
+            pickle.dump((u.data, x.data), out)
+
 parser = utils.parser(group=True, description=__doc__)
-parser.add_argument('-s', '--save-output',
-                    action='store_true',
+parser.add_argument('--print-output', action='store_true', help='Print output')
+parser.add_argument('-r', '--return-output', action='store_true',
+                    help='Return output for testing')
+parser.add_argument('-s', '--save-output', action='store_true',
                     help='Save the output of the run (used for testing)')
-opt = vars(parser.parse_args())
-op2.init(**opt)
+parser.add_argument('-p', '--profile', action='store_true',
+                    help='Create a cProfile for the run')
 
-# Set up finite element problem
+if __name__ == '__main__':
+    opt = vars(parser.parse_args())
+    op2.init(**opt)
 
-E = FiniteElement("Lagrange", "triangle", 1)
-
-v = TestFunction(E)
-u = TrialFunction(E)
-f = Coefficient(E)
-g = Coefficient(E)
-
-a = dot(grad(v,), grad(u)) * dx
-L = v * f * dx + v * g * ds(2)
-
-# Generate code for Laplacian and rhs assembly.
-
-laplacian, = compile_form(a, "laplacian")
-rhs, weak = compile_form(L, "rhs")
-
-# Set up simulation data structures
-
-NUM_ELE = 8
-NUM_NODES = 9
-NUM_BDRY_ELE = 2
-NUM_BDRY_NODE = 3
-valuetype = np.float64
-
-nodes = op2.Set(NUM_NODES, "nodes")
-elements = op2.Set(NUM_ELE, "elements")
-
-# Elements that Weak BC will be assembled over
-top_bdry_elements = op2.Set(NUM_BDRY_ELE, "top_boundary_elements")
-# Nodes that Strong BC will be applied over
-bdry_nodes = op2.Set(NUM_BDRY_NODE, "boundary_nodes")
-
-elem_node_map = np.asarray([0, 1, 4, 4, 3, 0, 1, 2, 5, 5, 4, 1, 3, 4, 7, 7, 6,
-                            3, 4, 5, 8, 8, 7, 4], dtype=np.uint32)
-elem_node = op2.Map(elements, nodes, 3, elem_node_map, "elem_node")
-
-top_bdry_elem_node_map = np.asarray([7, 6, 3, 8, 7, 4], dtype=valuetype)
-top_bdry_elem_node = op2.Map(top_bdry_elements, nodes, 3,
-                             top_bdry_elem_node_map, "top_bdry_elem_node")
-
-bdry_node_node_map = np.asarray([0, 1, 2], dtype=valuetype)
-bdry_node_node = op2.Map(
-    bdry_nodes, nodes, 1, bdry_node_node_map, "bdry_node_node")
-
-sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node), "sparsity")
-mat = op2.Mat(sparsity, valuetype, "mat")
-
-coord_vals = np.asarray([(0.0, 0.0), (0.5, 0.0), (1.0, 0.0),
-                         (0.0, 0.5), (0.5, 0.5), (1.0, 0.5),
-                         (0.0, 1.0), (0.5, 1.0), (1.0, 1.0)],
-                        dtype=valuetype)
-coords = op2.Dat(nodes ** 2, coord_vals, valuetype, "coords")
-
-f_vals = np.asarray([0.0] * 9, dtype=valuetype)
-b_vals = np.asarray([0.0] * NUM_NODES, dtype=valuetype)
-x_vals = np.asarray([0.0] * NUM_NODES, dtype=valuetype)
-u_vals = np.asarray([1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 3.0, 3.0, 3.0])
-f = op2.Dat(nodes, f_vals, valuetype, "f")
-b = op2.Dat(nodes, b_vals, valuetype, "b")
-x = op2.Dat(nodes, x_vals, valuetype, "x")
-u = op2.Dat(nodes, u_vals, valuetype, "u")
-
-bdry_vals = np.asarray([1.0, 1.0, 1.0], dtype=valuetype)
-bdry = op2.Dat(bdry_nodes, bdry_vals, valuetype, "bdry")
-
-# This isn't perfect, defining the boundary gradient on more nodes than are on
-# the boundary is couter-intuitive
-bdry_grad_vals = np.asarray([2.0] * 9, dtype=valuetype)
-bdry_grad = op2.Dat(nodes, bdry_grad_vals, valuetype, "gradient")
-facet = op2.Global(1, 2, np.uint32, "facet")
-
-# If a form contains multiple integrals with differing coefficients, FFC
-# generates kernels that take all the coefficients of the entire form (not
-# only the respective integral) as arguments. Arguments that correspond to
-# forms that are not used in that integral are simply not referenced.
-# We therefore need a dummy argument in place of the coefficient that is not
-# used in the par_loop for OP2 to generate the correct kernel call.
-
-# Assemble matrix and rhs
-
-op2.par_loop(laplacian, elements,
-             mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
-             coords(op2.READ, elem_node))
-
-op2.par_loop(rhs, elements,
-             b(op2.INC, elem_node[op2.i[0]]),
-             coords(op2.READ, elem_node),
-             f(op2.READ, elem_node),
-             bdry_grad(op2.READ, elem_node))  # argument ignored
-
-# Apply weak BC
-
-op2.par_loop(weak, top_bdry_elements,
-             b(op2.INC, top_bdry_elem_node[op2.i[0]]),
-             coords(op2.READ, top_bdry_elem_node),
-             f(op2.READ, top_bdry_elem_node),  # argument ignored
-             bdry_grad(op2.READ, top_bdry_elem_node),
-             facet(op2.READ))
-
-# Apply strong BC
-
-mat.zero_rows([0, 1, 2], 1.0)
-strongbc_rhs = op2.Kernel("""
-void strongbc_rhs(double *val, double *target) { *target = *val; }
-""", "strongbc_rhs")
-op2.par_loop(strongbc_rhs, bdry_nodes,
-             bdry(op2.READ),
-             b(op2.WRITE, bdry_node_node[0]))
-
-solver = op2.Solver(linear_solver='gmres')
-solver.solve(mat, x, b)
-
-# Print solution
-print "Expected solution: %s" % u.data
-print "Computed solution: %s" % x.data
-
-# Save output (if necessary)
-if opt['save_output']:
-    import pickle
-    with open("weak_bcs.out", "w") as out:
-        pickle.dump((u.data, x.data), out)
+    if opt['profile']:
+        import cProfile
+        cProfile.run('main(opt)', filename='weak_bcs_ffc.cprofile')
+    else:
+        main(opt)

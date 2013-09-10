@@ -48,81 +48,90 @@ from ufl import *
 
 import numpy as np
 
+
+def main(opt):
+    # Set up finite element identity problem
+
+    E = FiniteElement("Lagrange", "triangle", 1)
+
+    v = TestFunction(E)
+    u = TrialFunction(E)
+    f = Coefficient(E)
+
+    a = v * u * dx
+    L = v * f * dx
+
+    # Generate code for mass and rhs assembly.
+
+    mass, = compile_form(a, "mass")
+    rhs, = compile_form(L, "rhs")
+
+    # Set up simulation data structures
+
+    valuetype = np.float64
+
+    nodes, coords, elements, elem_node = read_triangle(opt['mesh'])
+
+    sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node), "sparsity")
+    mat = op2.Mat(sparsity, valuetype, "mat")
+
+    b = op2.Dat(nodes, np.zeros(nodes.size, dtype=valuetype), valuetype, "b")
+    x = op2.Dat(nodes, np.zeros(nodes.size, dtype=valuetype), valuetype, "x")
+
+    # Set up initial condition
+
+    f_vals = np.array([2 * X + 4 * Y for X, Y in coords.data], dtype=valuetype)
+    f = op2.Dat(nodes, f_vals, valuetype, "f")
+
+    # Assemble and solve
+
+    op2.par_loop(mass, elements,
+                 mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
+                 coords(op2.READ, elem_node))
+
+    op2.par_loop(rhs, elements,
+                 b(op2.INC, elem_node[op2.i[0]]),
+                 coords(op2.READ, elem_node),
+                 f(op2.READ, elem_node))
+
+    solver = op2.Solver()
+    solver.solve(mat, x, b)
+
+    # Print solution (if necessary)
+    if opt['print_output']:
+        print "Expected solution: %s" % f.data
+        print "Computed solution: %s" % x.data
+
+    # Save output (if necessary)
+    if opt['return_output']:
+        return f.data, x.data
+    if opt['save_output']:
+        from cPickle import dump, HIGHEST_PROTOCOL
+        import gzip
+        out = gzip.open("mass2d_triangle.out.gz", "wb")
+        dump((f.data, x.data, b.data, mat.array), out, HIGHEST_PROTOCOL)
+        out.close()
+
 parser = utils.parser(group=True, description=__doc__)
-parser.add_argument('-m', '--mesh',
-                    action='store',
-                    type=str,
-                    required=True,
+parser.add_argument('-m', '--mesh', required=True,
                     help='Base name of triangle mesh \
                           (excluding the .ele or .node extension)')
-parser.add_argument('-s', '--save-output',
-                    action='store_true',
+parser.add_argument('-r', '--return-output', action='store_true',
+                    help='Return output for testing')
+parser.add_argument('-s', '--save-output', action='store_true',
                     help='Save the output of the run (used for testing)')
-parser.add_argument('-p', '--print-output',
-                    action='store_true',
+parser.add_argument('--print-output', action='store_true',
                     help='Print the output of the run to stdout')
+parser.add_argument('-p', '--profile', action='store_true',
+                    help='Create a cProfile for the run')
 
-opt = vars(parser.parse_args())
-op2.init(**opt)
-mesh_name = opt['mesh']
+if __name__ == '__main__':
+    opt = vars(parser.parse_args())
+    op2.init(**opt)
 
-# Set up finite element identity problem
-
-E = FiniteElement("Lagrange", "triangle", 1)
-
-v = TestFunction(E)
-u = TrialFunction(E)
-f = Coefficient(E)
-
-a = v * u * dx
-L = v * f * dx
-
-# Generate code for mass and rhs assembly.
-
-mass, = compile_form(a, "mass")
-rhs, = compile_form(L, "rhs")
-
-# Set up simulation data structures
-
-valuetype = np.float64
-
-nodes, coords, elements, elem_node = read_triangle(opt['mesh'])
-num_nodes = nodes.size
-
-sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node), "sparsity")
-mat = op2.Mat(sparsity, valuetype, "mat")
-
-b = op2.Dat(nodes, np.zeros(num_nodes, dtype=valuetype), valuetype, "b")
-x = op2.Dat(nodes, np.zeros(num_nodes, dtype=valuetype), valuetype, "x")
-
-# Set up initial condition
-
-f_vals = np.asarray([2 * X + 4 * Y for X, Y in coords.data], dtype=valuetype)
-f = op2.Dat(nodes, f_vals, valuetype, "f")
-
-# Assemble and solve
-
-op2.par_loop(mass, elements,
-             mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
-             coords(op2.READ, elem_node))
-
-op2.par_loop(rhs, elements,
-             b(op2.INC, elem_node[op2.i[0]]),
-             coords(op2.READ, elem_node),
-             f(op2.READ, elem_node))
-
-solver = op2.Solver()
-solver.solve(mat, x, b)
-
-# Print solution (if necessary)
-if opt['print_output']:
-    print "Expected solution: %s" % f.data
-    print "Computed solution: %s" % x.data
-
-# Save output (if necessary)
-if opt['save_output']:
-    from cPickle import dump, HIGHEST_PROTOCOL
-    import gzip
-    out = gzip.open("mass2d_triangle.out.gz", "wb")
-    dump((f.data, x.data, b.data, mat.array), out, HIGHEST_PROTOCOL)
-    out.close()
+    if opt['profile']:
+        import cProfile
+        filename = 'mass2d_triangle.%s.cprofile' % os.path.split(opt['mesh'])[-1]
+        cProfile.run('main(opt)', filename=filename)
+    else:
+        main(opt)
