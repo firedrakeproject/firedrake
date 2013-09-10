@@ -44,7 +44,8 @@ cd $BASE_DIR
 echo "*** Installing dependencies ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
 
-${PIP} Cython decorator instant numpy pyyaml flake8 >> $LOGFILE 2>&1
+# Install Cython so we can build PyOP2 from source
+${PIP} Cython numpy >> $LOGFILE 2>&1
 PETSC_CONFIGURE_OPTIONS="--with-fortran --with-fortran-interfaces --with-c++-support" \
   ${PIP} "petsc == 3.3.7" >> $LOGFILE 2>&1
 # Trick petsc4py into not uninstalling PETSc 3.3; it depends on PETSc 3.4
@@ -66,13 +67,7 @@ echo | tee -a $LOGFILE
 
 cd $BASE_DIR
 
-if [ -d PyOP2/.git ]; then
-  (
-  cd PyOP2
-  git checkout master >> $LOGFILE 2>&1
-  git pull origin master >> $LOGFILE 2>&1
-  )
-else
+if [ ! -d PyOP2/.git ]; then
   git clone git://github.com/OP2/PyOP2.git >> $LOGFILE 2>&1
 fi
 cd PyOP2
@@ -93,7 +88,7 @@ Congratulations! PyOP2 installed successfully!
 echo "*** Installing PyOP2 testing dependencies ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
 
-${PIP} pytest >> $LOGFILE 2>&1
+${PIP} pytest flake8 >> $LOGFILE 2>&1
 if (( EUID != 0 )); then
   echo "PyOP2 tests require the following packages to be installed:"
   echo "  gmsh unzip"
