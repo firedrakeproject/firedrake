@@ -76,16 +76,8 @@ else
   git clone git://github.com/OP2/PyOP2.git >> $LOGFILE 2>&1
 fi
 cd PyOP2
-make ext >> $LOGFILE 2>&1
+python setup.py develop --user >> $LOGFILE 2>&1
 export PYOP2_DIR=`pwd`
-export PYTHONPATH=`pwd`:$PYTHONPATH
-
-if [ ! -f .env ]; then
-  cat > .env <<EOF
-export PYOP2_DIR=${PYOP2_DIR}
-export PYTHONPATH=`pwd`:\$PYTHONPATH
-EOF
-fi
 
 python -c 'from pyop2 import op2'
 if [ $? != 0 ]; then
@@ -96,13 +88,6 @@ fi
 
 echo "
 Congratulations! PyOP2 installed successfully!
-
-To use PyOP2, make sure the following environment variables are set:
-export PYOP2_DIR=${PYOP2_DIR}
-export OP2_DIR=${OP2_DIR}
-export PYTHONPATH=`pwd`:\$PYTHONPATH
-
-or source the '.env' script with '. ${PYOP2_DIR}/.env'
 "
 
 echo "*** Installing PyOP2 testing dependencies ***" | tee -a $LOGFILE
