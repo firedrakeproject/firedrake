@@ -33,9 +33,12 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from setuptools import setup
+try:
+    from setuptools import setup, Extension
+except ImportError:
+    from distutils.core import setup
+    from distutils.extension import Extension
 from distutils.command.sdist import sdist as _sdist
-from distutils.extension import Extension
 from glob import glob
 import numpy
 import sys
