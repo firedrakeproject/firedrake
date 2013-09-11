@@ -40,7 +40,6 @@ except ImportError:
     from distutils.extension import Extension
 from distutils.command.sdist import sdist as _sdist
 from glob import glob
-import numpy
 import sys
 
 # If Cython is available, built the extension module from the Cython source
@@ -62,6 +61,23 @@ except ImportError:
     from os.path import exists
     if not all([exists(f) for f in sources]):
         raise ImportError("Installing from source requires Cython")
+
+
+# https://mail.python.org/pipermail/distutils-sig/2007-September/008253.html
+class NumpyExtension(Extension, object):
+    """Extension type that adds the NumPy include directory to include_dirs."""
+
+    def __init__(self, *args, **kwargs):
+        super(NumpyExtension, self).__init__(*args, **kwargs)
+
+    @property
+    def include_dirs(self):
+        from numpy import get_include
+        return self._include_dirs + [get_include()]
+
+    @include_dirs.setter
+    def include_dirs(self, include_dirs):
+        self._include_dirs = include_dirs
 
 setup_requires = [
     'numpy>=1.6',
@@ -124,9 +140,7 @@ setup(name='PyOP2',
           'pyop2': ['assets/*', 'mat_utils.*', 'sparsity_utils.*', '*.pyx', '*.pxd']},
       scripts=glob('scripts/*'),
       cmdclass=cmdclass,
-      ext_modules=[Extension('pyop2.plan', plan_sources,
-                             include_dirs=[numpy.get_include()]),
-                   Extension('pyop2.sparsity', sparsity_sources,
-                             include_dirs=['pyop2', numpy.get_include()], language="c++"),
-                   Extension('pyop2.computeind', computeind_sources,
-                             include_dirs=[numpy.get_include()])])
+      ext_modules=[NumpyExtension('pyop2.plan', plan_sources),
+                   NumpyExtension('pyop2.sparsity', sparsity_sources,
+                                  include_dirs=['pyop2'], language="c++"),
+                   NumpyExtension('pyop2.computeind', computeind_sources)])
