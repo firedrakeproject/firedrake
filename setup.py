@@ -55,6 +55,10 @@ except ImportError:
     plan_sources = ['pyop2/plan.c']
     sparsity_sources = ['pyop2/sparsity.cpp']
     computeind_sources = ['pyop2/computeind.c']
+    sources = plan_sources + sparsity_sources + computeind_sources
+    from os.path import exists
+    if not all([exists(f) for f in sources]):
+        raise ImportError("Installing from source requires Cython")
 
 setup_requires = [
     'numpy>=1.6',
