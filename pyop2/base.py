@@ -1325,6 +1325,12 @@ class IterationSpace(object):
     def _extent_ranges(self):
         return [e for e in self.extents]
 
+    def __iter__(self):
+        """Yield all block shapes with their indices as i, j, shape tuples."""
+        for i, row in enumerate(self.block_shape):
+            for j, shape in enumerate(row):
+                yield i, j, shape
+
     def __eq__(self, other):
         """:class:`IterationSpace`s compare equal if they are defined on the
         same :class:`Set` and have the same ``extent``."""
