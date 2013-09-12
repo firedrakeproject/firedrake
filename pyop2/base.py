@@ -1276,12 +1276,6 @@ class IterationSpace(object):
         return self._extents
 
     @property
-    def block_shape(self):
-        """2-dimensional grid of extents of the IterationSpace within each
-        item of ``iterset``"""
-        return self._block_shape
-
-    @property
     def name(self):
         """The name of the :class:`Set` over which this IterationSpace is
         defined."""
@@ -1327,7 +1321,7 @@ class IterationSpace(object):
 
     def __iter__(self):
         """Yield all block shapes with their indices as i, j, shape tuples."""
-        for i, row in enumerate(self.block_shape):
+        for i, row in enumerate(self._block_shape):
             for j, shape in enumerate(row):
                 yield i, j, shape
 
