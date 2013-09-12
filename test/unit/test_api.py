@@ -1959,6 +1959,19 @@ class TestIterationSpaceAPI:
         i = base.IterationSpace(set, (2, 3))
         assert i.iterset == set and i.extents == (2, 3)
 
+    def test_iteration_space_iter(self, backend, set):
+        "Iterating an empty IterationSpace should yield an empty shape."
+        for i, j, shape in base.IterationSpace(set):
+            assert i == 0 and j == 0 and shape == ()
+
+    @pytest.mark.parametrize('shapes', [(((1, 1), (1, 2)), ((2, 1), (2, 2))),
+                                        (((1, 2),), ((2, 1),))])
+    def test_iteration_space_iter_blocks(self, backend, set, shapes):
+        """Iterating an IterationSpace should yield its blocks shapes and their
+        indices."""
+        for i, j, shape in base.IterationSpace(set, block_shape=shapes):
+            assert shape == shapes[i][j]
+
     def test_iteration_space_eq(self, backend, set):
         """IterationSpaces should compare equal if defined on the same Set."""
         assert base.IterationSpace(set, 3) == base.IterationSpace(set, 3)
