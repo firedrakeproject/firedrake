@@ -370,9 +370,6 @@ class JITModule(base.JITModule):
         # are not expensive to set and won't be used if we hit cache
         self._kernel = kernel
         self._itspace = itspace
-        self._extents = itspace.extents
-        self._block_shape = itspace.block_shape
-        self._layers = itspace.layers
         self._args = args
 
     def __call__(self, *args):
@@ -478,7 +475,7 @@ class JITModule(base.JITModule):
         indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
 
         _map_decl = ""
-        if self._layers > 1:
+        if self._itspace.layers > 1:
             _off_args = ''.join([arg.c_offset_init() for arg in self._args
                                  if arg._uses_itspace or arg._is_vec_map])
             _off_inits = ';\n'.join([arg.c_offset_decl() for arg in self._args
@@ -508,13 +505,13 @@ class JITModule(base.JITModule):
                                                if arg._is_mat and arg.data._is_vector_field])
             _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
             _apply_offset = ""
-            if self._layers > 1:
+            if self._itspace.layers > 1:
                 _map_init = ';\n'.join([arg.c_map_init() for arg in self._args
                                         if arg._uses_itspace])
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, "xtr_") for arg in self._args
                                                             if arg._is_mat and arg.data._is_scalar_field])
                 _addtos_scalar_field = ""
-                _extr_loop = '\n' + extrusion_loop(self._layers - 1)
+                _extr_loop = '\n' + extrusion_loop(self._itspace.layers - 1)
                 _extr_loop_close = '}\n'
                 _apply_offset += ';\n'.join([arg.c_add_offset_map() for arg in self._args
                                             if arg._uses_itspace])
@@ -576,6 +573,4 @@ class JITModule(base.JITModule):
                 'interm_globals_decl': indent(_intermediate_globals_decl, 3),
                 'interm_globals_init': indent(_intermediate_globals_init, 3),
                 'interm_globals_writeback': indent(_intermediate_globals_writeback, 3),
-                'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape)
-                                              for i, row in enumerate(self._block_shape)
-                                              for j, shape in enumerate(row)])}
+                'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape) for i, j, shape in self._itspace])}
