@@ -627,6 +627,11 @@ def msparsity(mset, mmap):
     return op2.Sparsity(mset, mmap)
 
 
+@pytest.fixture
+def mvsparsity(mset, mmap):
+    return op2.Sparsity(mset ** 2, mmap)
+
+
 class TestSparsity:
 
     """
@@ -656,6 +661,28 @@ class TestSparsity:
         assert all(msparsity._colidx[1] == [0, 1, 1, 2, 2, 3])
         assert all(msparsity._colidx[2] == [0, 0, 1, 1, 2, 2])
         assert all(msparsity._colidx[3] == [0, 1, 0, 1, 2, 1, 2, 3, 2, 3])
+
+    def test_build_mixed_sparsity_vector(self, backend, mvsparsity):
+        """Building a sparsity from a pair of mixed maps and a vector DataSet
+        should give the expected rowptr and colidx for each block."""
+        assert all(mvsparsity._rowptr[0] == [0, 2, 4, 6, 8, 10, 12])
+        assert all(mvsparsity._rowptr[1] == [0, 4, 8, 12, 16, 20, 24])
+        assert all(mvsparsity._rowptr[2] == [0, 2, 4, 8, 12, 16, 20, 22, 24])
+        assert all(mvsparsity._rowptr[3] == [0, 4, 8, 14, 20, 26, 32, 36, 40])
+        assert all(mvsparsity._colidx[0] == [0, 1, 0, 1,
+                                             2, 3, 2, 3,
+                                             4, 5, 4, 5])
+        assert all(mvsparsity._colidx[1] == [0, 1, 2, 3, 0, 1, 2, 3,
+                                             2, 3, 4, 5, 2, 3, 4, 5,
+                                             4, 5, 6, 7, 4, 5, 6, 7])
+        assert all(mvsparsity._colidx[2] == [0, 1, 0, 1,
+                                             0, 1, 2, 3, 0, 1, 2, 3,
+                                             2, 3, 4, 5, 2, 3, 4, 5,
+                                             4, 5, 4, 5])
+        assert all(mvsparsity._colidx[3] == [0, 1, 2, 3, 0, 1, 2, 3,
+                                             0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5,
+                                             2, 3, 4, 5, 6, 7, 2, 3, 4, 5, 6, 7,
+                                             4, 5, 6, 7, 4, 5, 6, 7])
 
     def test_sparsity_null_maps(self, backend):
         """Building sparsity from a pair of non-initialized maps should fail."""
