@@ -923,6 +923,13 @@ class TestMixedMatrices:
     # Only working for sequential so far
     backends = ['sequential']
 
+    # off-diagonal blocks
+    od = np.array([[1.0, 1.0, 0.0, 0.0],
+                   [0.0, 1.0, 1.0, 0.0],
+                   [0.0, 0.0, 1.0, 1.0]])
+    # lower left block
+    ll = np.diag([1.0, 2.0, 2.0, 1.0]) + np.diag([1.0, 1.0, 1.0], -1) + np.diag([1.0, 1.0, 1.0], 1)
+
     def test_assemble_mixed_mat(self, backend, msparsity, mmap):
         """Assemble all ones into a matrix declared on a mixed sparsity."""
         m = op2.Mat(msparsity)
@@ -931,16 +938,26 @@ class TestMixedMatrices:
         op2.par_loop(addone, mmap.iterset,
                      m(op2.INC, (mmap[op2.i[0]], mmap[op2.i[1]])))
         eps = 1.e-12
-        # off-diagonal blocks
-        od = np.array([[1.0, 1.0, 0.0, 0.0],
-                       [0.0, 1.0, 1.0, 0.0],
-                       [0.0, 0.0, 1.0, 1.0]])
-        # lower left block
-        ll = np.diag([1.0, 2.0, 2.0, 1.0]) + np.diag([1.0, 1.0, 1.0], -1) + np.diag([1.0, 1.0, 1.0], 1)
         assert_allclose(m[0, 0].values, np.eye(3), eps)
-        assert_allclose(m[0, 1].values, od, eps)
-        assert_allclose(m[1, 0].values, od.T, eps)
-        assert_allclose(m[1, 1].values, ll, eps)
+        assert_allclose(m[0, 1].values, self.od, eps)
+        assert_allclose(m[1, 0].values, self.od.T, eps)
+        assert_allclose(m[1, 1].values, self.ll, eps)
+
+    def test_assemble_mixed_mat_vector(self, backend, mvsparsity, mmap):
+        """Assemble all ones into a matrix declared on a mixed sparsity built
+        from a vector DataSet."""
+        m = op2.Mat(mvsparsity)
+        addone = op2.Kernel("""void addone(double v[2][2], int i, int j) {
+                            v[0][0] += 1.0; v[0][1] += 1.0;
+                            v[1][0] += 1.0; v[1][1] += 1.0; }""", "addone")
+        op2.par_loop(addone, mmap.iterset,
+                     m(op2.INC, (mmap[op2.i[0]], mmap[op2.i[1]])))
+        eps = 1.e-12
+        b = np.ones((2, 2))
+        assert_allclose(m[0, 0].values, np.kron(np.eye(3), b), eps)
+        assert_allclose(m[0, 1].values, np.kron(self.od, b), eps)
+        assert_allclose(m[1, 0].values, np.kron(self.od.T, b), eps)
+        assert_allclose(m[1, 1].values, np.kron(self.ll, b), eps)
 
     def test_assemble_mixed_rhs(self, backend, mset, mmap):
         """Assemble a simple right-hand side over a mixed space and check result."""
@@ -952,6 +969,18 @@ class TestMixedMatrices:
         eps = 1.e-12
         assert_allclose(d[0].data_ro, np.ones(3), eps)
         assert_allclose(d[1].data_ro, [1.0, 2.0, 2.0, 1.0], eps)
+
+    def test_assemble_mixed_rhs_vector(self, backend, mset, mmap):
+        """Assemble a simple right-hand side over a mixed space and check result."""
+        d = op2.MixedDat(mset ** 2)
+        addone = op2.Kernel("""void addone(double v[1], int i) {
+                            v[0] += 1.0; v[1] += 1.0; }""", "addone")
+        op2.par_loop(addone, mmap.iterset,
+                     d(op2.INC, mmap[op2.i[0]]))
+        eps = 1.e-12
+        exp = np.kron(np.array([1.0, 2.0, 2.0, 1.0]).reshape(4, 1), np.ones(2))
+        assert_allclose(d[0].data_ro, np.ones((3, 2)), eps)
+        assert_allclose(d[1].data_ro, exp, eps)
 
 
 if __name__ == '__main__':
