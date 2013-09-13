@@ -386,10 +386,6 @@ class JITModule(base.JITModule):
              for count, arg in enumerate(self._args)
              if arg._is_global_reduction])
 
-        _vec_decs = ';\n'.join([arg.c_vec_dec()
-                               for arg in self._args
-                               if not arg._is_mat and arg._is_vec_map])
-
         if self._layers > 1:
             _off_args = ', ' + ', '.join([c_offset_init(count)
                                          for count, arg in enumerate(self._args)
@@ -433,5 +429,4 @@ class JITModule(base.JITModule):
                 'extr_loop_close': indent(_extr_loop_close, 2),
                 'interm_globals_decl': indent(_intermediate_globals_decl, 3),
                 'interm_globals_init': indent(_intermediate_globals_init, 3),
-                'interm_globals_writeback': indent(_intermediate_globals_writeback, 3),
-                'vec_decs': indent(_vec_decs, 4)}
+                'interm_globals_writeback': indent(_intermediate_globals_writeback, 3)}

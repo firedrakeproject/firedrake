@@ -176,7 +176,6 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
     #pragma omp for schedule(static)
     for ( int __b = boffset; __b < boffset + nblocks; __b++ )
     {
-      %(vec_decs)s;
       int bid = blkmap[__b];
       int nelem = nelems[bid];
       int efirst = offset[bid];
