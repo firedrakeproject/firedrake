@@ -209,9 +209,7 @@ class Arg(base.Arg):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].split[i].arity
         ncols = maps[1].split[j].arity
-        dims = self.data.sparsity.dims
-        rmult = dims[0]
-        cmult = dims[1]
+        rmult, cmult = self.data.sparsity[i, j].dims
         s = []
         if self._flatten:
             idx = '[0][0]'
@@ -250,7 +248,7 @@ class Arg(base.Arg):
         if self.data._is_scalar_field:
             dims = ''.join(["[%d]" % d for d in extents])
         elif self.data._is_vector_field:
-            dims = ''.join(["[%d]" % d for d in self.data.dims])
+            dims = ''.join(["[%d]" % d for d in self.data[i, j].dims])
             if self._flatten:
                 dims = '[1][1]'
         else:
@@ -267,7 +265,7 @@ class Arg(base.Arg):
             if self._flatten:
                 return "%(name)s[0][0] = (%(t)s)0" % \
                     {'name': self.c_kernel_arg_name(i, j), 't': t}
-            size = np.prod(self.data.dims)
+            size = np.prod(self.data[i, j].dims)
             return "memset(%(name)s, 0, sizeof(%(t)s) * %(size)s)" % \
                 {'name': self.c_kernel_arg_name(i, j), 't': t, 'size': size}
         else:
