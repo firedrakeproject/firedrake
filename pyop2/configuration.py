@@ -64,6 +64,7 @@ Reserved option names: ``configure``, ``reset``, ``__*__``
 """
 
 from types import ModuleType
+import os
 import sys
 import yaml
 import pkg_resources
@@ -78,6 +79,11 @@ class ConfigModule(ModuleType):
     OP_CONFIG_KEY = 'config'
     DEFAULT_CONFIG = 'assets/default.yaml'
     DEFAULT_USER_CONFIG = 'pyop2.yaml'
+    OP2_ENV_VARS = [('PYOP2_DEBUG', 'debug', int),
+                    ('PYOP2_LOG_LEVEL', 'log_level', str),
+                    ('PYOP2_BACKEND', 'backend', str),
+                    ('PYOP2_DUMP_GENCODE', 'dump-gencode', bool),
+                    ('PYOP2_DUMP_GENCODE_PATH', 'dump-gencode-path', str)]
 
     def __init__(self, name, doc=None):
         super(ConfigModule, self).__init__(name, doc)
@@ -104,6 +110,10 @@ class ConfigModule(ModuleType):
             except IOError:
                 pass
 
+        # Environment variables override configuration files
+        entries += [(key, t(os.environ[var])) for var, key, t in
+                    ConfigModule.OP2_ENV_VARS if var in os.environ]
+        # Command line arguments override environment variables
         entries += kargs.items()
         self._config = UserDict.UserDict(entries)
 
