@@ -615,14 +615,17 @@ def mset():
     return op2.MixedSet((op2.Set(3), op2.Set(4)))
 
 
+rdata = lambda s: np.arange(1, s + 1, dtype=np.float64)
+
+
 @pytest.fixture
 def mdat(mset):
-    return op2.MixedDat(op2.Dat(s, np.ones(s.size)) for s in mset)
+    return op2.MixedDat(op2.Dat(s, rdata(s.size)) for s in mset)
 
 
 @pytest.fixture
 def mvdat(mset):
-    return op2.MixedDat(op2.Dat(s ** 2, np.ones(2 * s.size)) for s in mset)
+    return op2.MixedDat(op2.Dat(s ** 2, zip(rdata(s.size), rdata(s.size))) for s in mset)
 
 
 @pytest.fixture
@@ -934,14 +937,16 @@ class TestMixedMatrices:
     backends = ['sequential']
 
     # off-diagonal blocks
-    od = np.array([[1.0, 1.0, 0.0, 0.0],
-                   [0.0, 1.0, 1.0, 0.0],
-                   [0.0, 0.0, 1.0, 1.0]])
+    od = np.array([[1.0, 2.0, 0.0, 0.0],
+                   [0.0, 4.0, 6.0, 0.0],
+                   [0.0, 0.0, 9.0, 12.0]])
     # lower left block
-    ll = np.diag([1.0, 2.0, 2.0, 1.0]) + np.diag([1.0, 1.0, 1.0], -1) + np.diag([1.0, 1.0, 1.0], 1)
+    ll = (np.diag([1.0, 8.0, 18.0, 16.0]) +
+          np.diag([2.0, 6.0, 12.0], -1) +
+          np.diag([2.0, 6.0, 12.0], 1))
 
     def test_assemble_mixed_mat(self, backend, msparsity, mmap, mdat):
-        """Assemble all ones into a matrix declared on a mixed sparsity."""
+        """Assemble into a matrix declared on a mixed sparsity."""
         mat = op2.Mat(msparsity)
         addone = op2.Kernel("""void addone_mat(double v[1][1], double ** d, int i, int j) {
                             v[0][0] += d[i][0] * d[j][0]; }""", "addone_mat")
@@ -949,14 +954,14 @@ class TestMixedMatrices:
                      mat(op2.INC, (mmap[op2.i[0]], mmap[op2.i[1]])),
                      mdat(op2.READ, mmap))
         eps = 1.e-12
-        assert_allclose(mat[0, 0].values, np.eye(3), eps)
+        assert_allclose(mat[0, 0].values, np.diag([1.0, 4.0, 9.0]), eps)
         assert_allclose(mat[0, 1].values, self.od, eps)
         assert_allclose(mat[1, 0].values, self.od.T, eps)
         assert_allclose(mat[1, 1].values, self.ll, eps)
 
     def test_assemble_mixed_mat_vector(self, backend, mvsparsity, mmap, mvdat):
-        """Assemble all ones into a matrix declared on a mixed sparsity built
-        from a vector DataSet."""
+        """Assemble into a matrix declared on a mixed sparsity built from a
+        vector DataSet."""
         mat = op2.Mat(mvsparsity)
         addone = op2.Kernel("""void addone_mat_vec(double v[2][2], double ** d, int i, int j) {
                             v[0][0] += d[i][0] * d[j][0];
@@ -968,7 +973,7 @@ class TestMixedMatrices:
                      mvdat(op2.READ, mmap))
         eps = 1.e-12
         b = np.ones((2, 2))
-        assert_allclose(mat[0, 0].values, np.kron(np.eye(3), b), eps)
+        assert_allclose(mat[0, 0].values, np.kron(np.diag([1.0, 4.0, 9.0]), b), eps)
         assert_allclose(mat[0, 1].values, np.kron(self.od, b), eps)
         assert_allclose(mat[1, 0].values, np.kron(self.od.T, b), eps)
         assert_allclose(mat[1, 1].values, np.kron(self.ll, b), eps)
@@ -982,8 +987,8 @@ class TestMixedMatrices:
                      dat(op2.INC, mmap[op2.i[0]]),
                      mdat(op2.READ, mmap))
         eps = 1.e-12
-        assert_allclose(dat[0].data_ro, np.ones(3), eps)
-        assert_allclose(dat[1].data_ro, [1.0, 2.0, 2.0, 1.0], eps)
+        assert_allclose(dat[0].data_ro, rdata(3), eps)
+        assert_allclose(dat[1].data_ro, [1.0, 4.0, 6.0, 4.0], eps)
 
     def test_assemble_mixed_rhs_vector(self, backend, mset, mmap, mvdat):
         """Assemble a simple right-hand side over a mixed space and check result."""
@@ -994,8 +999,8 @@ class TestMixedMatrices:
                      dat(op2.INC, mmap[op2.i[0]]),
                      mvdat(op2.READ, mmap))
         eps = 1.e-12
-        exp = np.kron(np.array([1.0, 2.0, 2.0, 1.0]).reshape(4, 1), np.ones(2))
-        assert_allclose(dat[0].data_ro, np.ones((3, 2)), eps)
+        exp = np.kron(zip([1.0, 4.0, 6.0, 4.0]), np.ones(2))
+        assert_allclose(dat[0].data_ro, np.kron(zip(rdata(3)), np.ones(2)), eps)
         assert_allclose(dat[1].data_ro, exp, eps)
 
 
