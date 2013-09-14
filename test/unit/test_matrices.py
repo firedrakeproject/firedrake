@@ -616,6 +616,16 @@ def mset():
 
 
 @pytest.fixture
+def mdat(mset):
+    return op2.MixedDat(op2.Dat(s, np.ones(s.size)) for s in mset)
+
+
+@pytest.fixture
+def mvdat(mset):
+    return op2.MixedDat(op2.Dat(s ** 2, np.ones(2 * s.size)) for s in mset)
+
+
+@pytest.fixture
 def mmap(mset):
     elem, node = mset
     return op2.MixedMap((op2.Map(elem, elem, 1, [0, 1, 2]),
@@ -930,57 +940,63 @@ class TestMixedMatrices:
     # lower left block
     ll = np.diag([1.0, 2.0, 2.0, 1.0]) + np.diag([1.0, 1.0, 1.0], -1) + np.diag([1.0, 1.0, 1.0], 1)
 
-    def test_assemble_mixed_mat(self, backend, msparsity, mmap):
+    def test_assemble_mixed_mat(self, backend, msparsity, mmap, mdat):
         """Assemble all ones into a matrix declared on a mixed sparsity."""
-        m = op2.Mat(msparsity)
-        addone = op2.Kernel("""void addone(double v[1][1], int i, int j) {
-                            v[0][0] += 1.0; }""", "addone")
+        mat = op2.Mat(msparsity)
+        addone = op2.Kernel("""void addone_mat(double v[1][1], double ** d, int i, int j) {
+                            v[0][0] += d[i][0] * d[j][0]; }""", "addone_mat")
         op2.par_loop(addone, mmap.iterset,
-                     m(op2.INC, (mmap[op2.i[0]], mmap[op2.i[1]])))
+                     mat(op2.INC, (mmap[op2.i[0]], mmap[op2.i[1]])),
+                     mdat(op2.READ, mmap))
         eps = 1.e-12
-        assert_allclose(m[0, 0].values, np.eye(3), eps)
-        assert_allclose(m[0, 1].values, self.od, eps)
-        assert_allclose(m[1, 0].values, self.od.T, eps)
-        assert_allclose(m[1, 1].values, self.ll, eps)
+        assert_allclose(mat[0, 0].values, np.eye(3), eps)
+        assert_allclose(mat[0, 1].values, self.od, eps)
+        assert_allclose(mat[1, 0].values, self.od.T, eps)
+        assert_allclose(mat[1, 1].values, self.ll, eps)
 
-    def test_assemble_mixed_mat_vector(self, backend, mvsparsity, mmap):
+    def test_assemble_mixed_mat_vector(self, backend, mvsparsity, mmap, mvdat):
         """Assemble all ones into a matrix declared on a mixed sparsity built
         from a vector DataSet."""
-        m = op2.Mat(mvsparsity)
-        addone = op2.Kernel("""void addone(double v[2][2], int i, int j) {
-                            v[0][0] += 1.0; v[0][1] += 1.0;
-                            v[1][0] += 1.0; v[1][1] += 1.0; }""", "addone")
+        mat = op2.Mat(mvsparsity)
+        addone = op2.Kernel("""void addone_mat_vec(double v[2][2], double ** d, int i, int j) {
+                            v[0][0] += d[i][0] * d[j][0];
+                            v[0][1] += d[i][0] * d[j][1];
+                            v[1][0] += d[i][1] * d[j][0];
+                            v[1][1] += d[i][1] * d[j][1]; }""", "addone_mat_vec")
         op2.par_loop(addone, mmap.iterset,
-                     m(op2.INC, (mmap[op2.i[0]], mmap[op2.i[1]])))
+                     mat(op2.INC, (mmap[op2.i[0]], mmap[op2.i[1]])),
+                     mvdat(op2.READ, mmap))
         eps = 1.e-12
         b = np.ones((2, 2))
-        assert_allclose(m[0, 0].values, np.kron(np.eye(3), b), eps)
-        assert_allclose(m[0, 1].values, np.kron(self.od, b), eps)
-        assert_allclose(m[1, 0].values, np.kron(self.od.T, b), eps)
-        assert_allclose(m[1, 1].values, np.kron(self.ll, b), eps)
+        assert_allclose(mat[0, 0].values, np.kron(np.eye(3), b), eps)
+        assert_allclose(mat[0, 1].values, np.kron(self.od, b), eps)
+        assert_allclose(mat[1, 0].values, np.kron(self.od.T, b), eps)
+        assert_allclose(mat[1, 1].values, np.kron(self.ll, b), eps)
 
-    def test_assemble_mixed_rhs(self, backend, mset, mmap):
+    def test_assemble_mixed_rhs(self, backend, mset, mmap, mdat):
         """Assemble a simple right-hand side over a mixed space and check result."""
-        d = op2.MixedDat(mset)
-        addone = op2.Kernel("""void addone(double v[1], int i) {
-                            v[0] += 1.0; }""", "addone")
+        dat = op2.MixedDat(mset)
+        addone = op2.Kernel("""void addone_rhs(double v[1], double ** d, int i) {
+                            v[0] += d[i][0]; }""", "addone_rhs")
         op2.par_loop(addone, mmap.iterset,
-                     d(op2.INC, mmap[op2.i[0]]))
+                     dat(op2.INC, mmap[op2.i[0]]),
+                     mdat(op2.READ, mmap))
         eps = 1.e-12
-        assert_allclose(d[0].data_ro, np.ones(3), eps)
-        assert_allclose(d[1].data_ro, [1.0, 2.0, 2.0, 1.0], eps)
+        assert_allclose(dat[0].data_ro, np.ones(3), eps)
+        assert_allclose(dat[1].data_ro, [1.0, 2.0, 2.0, 1.0], eps)
 
-    def test_assemble_mixed_rhs_vector(self, backend, mset, mmap):
+    def test_assemble_mixed_rhs_vector(self, backend, mset, mmap, mvdat):
         """Assemble a simple right-hand side over a mixed space and check result."""
-        d = op2.MixedDat(mset ** 2)
-        addone = op2.Kernel("""void addone(double v[1], int i) {
-                            v[0] += 1.0; v[1] += 1.0; }""", "addone")
+        dat = op2.MixedDat(mset ** 2)
+        addone = op2.Kernel("""void addone_rhs_vec(double v[1], double ** d, int i) {
+                            v[0] += d[i][0]; v[1] += d[i][1]; }""", "addone_rhs_vec")
         op2.par_loop(addone, mmap.iterset,
-                     d(op2.INC, mmap[op2.i[0]]))
+                     dat(op2.INC, mmap[op2.i[0]]),
+                     mvdat(op2.READ, mmap))
         eps = 1.e-12
         exp = np.kron(np.array([1.0, 2.0, 2.0, 1.0]).reshape(4, 1), np.ones(2))
-        assert_allclose(d[0].data_ro, np.ones((3, 2)), eps)
-        assert_allclose(d[1].data_ro, exp, eps)
+        assert_allclose(dat[0].data_ro, np.ones((3, 2)), eps)
+        assert_allclose(dat[1].data_ro, exp, eps)
 
 
 if __name__ == '__main__':
