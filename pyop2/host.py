@@ -307,7 +307,8 @@ class JITModule(base.JITModule):
             system_headers=self._system_headers,
             library_dirs=[get_petsc_dir() + '/lib'],
             libraries=['petsc'] + self._libraries,
-            sources=["mat_utils.cxx"])
+            sources=["mat_utils.cxx"],
+            modulename=self._kernel.name if cfg.debug else None)
         if cc:
             os.environ['CC'] = cc
         else:
