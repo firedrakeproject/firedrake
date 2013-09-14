@@ -571,4 +571,4 @@ class JITModule(base.JITModule):
                 'interm_globals_decl': indent(_intermediate_globals_decl, 3),
                 'interm_globals_init': indent(_intermediate_globals_init, 3),
                 'interm_globals_writeback': indent(_intermediate_globals_writeback, 3),
-                'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape) for i, j, shape in self._itspace])}
+                'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape) for i, j, shape, _ in self._itspace])}

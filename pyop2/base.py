@@ -340,16 +340,22 @@ class Arg(object):
         # FIXME: if the arg is flattened we assumed it's not mixed
         if self._is_mat and self._flatten:
             self._extents = (((map[0].arity * data.dims[0], map[1].arity * data.dims[1]),),)
+            self._offsets = (((0, 0),),)
         elif self._is_mat:
             self._extents = tuple(tuple((mr.arity, mc.arity) for mc in map[1])
                                   for mr in map[0])
+            self._offsets = tuple(tuple((i, j) for j in map[1].arange)
+                                  for i in map[0].arange)
         # FIXME: if the arg is flattened we assumed it's not mixed
         elif self._uses_itspace and self._flatten:
             self._extents = (((map.arity * data.cdim,),),)
+            self._offsets = None
         elif self._uses_itspace:
             self._extents = tuple(((m.arity,),) for m in map)
+            self._offsets = tuple(((o,),) for o in map.arange)
         else:
             self._extents = None
+            self._offsets = None
 
     def __eq__(self, other):
         """:class:`Arg`\s compare equal of they are defined on the same data,
@@ -1260,10 +1266,11 @@ class IterationSpace(object):
         :func:`pyop2.op2.par_loop`."""
 
     @validate_type(('iterset', Set, SetTypeError))
-    def __init__(self, iterset, extents=(), block_shape=None):
+    def __init__(self, iterset, extents=(), block_shape=None, offsets=None):
         self._iterset = iterset
         self._extents = as_tuple(extents, int)
-        self._block_shape = block_shape or (((),),)
+        self._block_shape = block_shape or ((self._extents,),)
+        self._offsets = offsets or (((0,),),)
 
     @property
     def iterset(self):
@@ -1320,10 +1327,11 @@ class IterationSpace(object):
         return [e for e in self.extents]
 
     def __iter__(self):
-        """Yield all block shapes with their indices as i, j, shape tuples."""
+        """Yield all block shapes with their indices as i, j, shape, offsets
+        tuples."""
         for i, row in enumerate(self._block_shape):
             for j, shape in enumerate(row):
-                yield i, j, shape
+                yield i, j, shape, self._offsets[i][j]
 
     def __eq__(self, other):
         """:class:`IterationSpace`s compare equal if they are defined on the
@@ -3029,6 +3037,7 @@ class ParLoop(LazyComputation):
         _iterset = iterset.superset if isinstance(iterset, Subset) else iterset
         itspace = ()
         extents = None
+        offsets = None
         for i, arg in enumerate(self._actual_args):
             if arg._is_global or arg.map is None:
                 continue
@@ -3042,7 +3051,8 @@ class ParLoop(LazyComputation):
                 if extents and extents != _extents:
                     raise IndexValueError("Mismatching iteration space size for argument %d" % i)
                 extents = _extents
-        return IterationSpace(iterset, itspace, extents)
+                offsets = arg._offsets
+        return IterationSpace(iterset, itspace, extents, offsets)
 
     def offset_args(self):
         """The offset args that need to be added to the argument list."""
