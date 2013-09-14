@@ -168,7 +168,7 @@ class Arg(base.Arg):
             return "%(name)s + i * %(dim)s" % {'name': self.c_arg_name(i),
                                                'dim': self.data.cdim}
 
-    def c_vec_init(self, i, j):
+    def c_vec_init(self):
         val = []
         if self._flatten:
             for d in range(self.data.dataset.cdim):
@@ -176,13 +176,14 @@ class Arg(base.Arg):
                     val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                {'vec_name': self.c_vec_name(),
                                 'idx': d * self.map.arity + idx,
-                                'data': self.c_ind_data(idx, i, d)})
+                                'data': self.c_ind_data(idx, 0, d)})
         else:
-            for idx in range(self.map.arity):
-                val.append("%(vec_name)s[%(idx)s] = %(data)s" %
-                           {'vec_name': self.c_vec_name(),
-                            'idx': idx,
-                            'data': self.c_ind_data(idx, i)})
+            for i, rng in enumerate(zip(self.map.arange[:-1], self.map.arange[1:])):
+                for mi, idx in enumerate(range(*rng)):
+                    val.append("%(vec_name)s[%(idx)s] = %(data)s" %
+                               {'vec_name': self.c_vec_name(),
+                                'idx': idx,
+                                'data': self.c_ind_data(mi, i)})
         return ";\n".join(val)
 
     def c_addto_scalar_field(self, i, j, extruded=None):
@@ -470,6 +471,9 @@ class JITModule(base.JITModule):
              for count, arg in enumerate(self._args)
              if arg._is_global_reduction])
 
+        _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self._args
+                                 if not arg._is_mat and arg._is_vec_map])
+
         indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
 
         _map_decl = ""
@@ -486,16 +490,14 @@ class JITModule(base.JITModule):
             _off_args = ""
             _off_inits = ""
 
-        def itset_loop_body(i, j, shape):
+        def itset_loop_body(i, j, shape, offsets):
             nloops = len(shape)
             _local_tensor_decs = ';\n'.join(
                 [arg.c_local_tensor_dec(shape, i, j) for arg in self._args if arg._is_mat])
-            _vec_inits = ';\n'.join([arg.c_vec_init(i, j) for arg in self._args
-                                     if not arg._is_mat and arg._is_vec_map])
             _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e)
                                        for n, e in enumerate(shape)])
             _zero_tmps = ';\n'.join([arg.c_zero_tmp(i, j) for arg in self._args if arg._is_mat])
-            _kernel_it_args = ["i_%d" % d for d in range(len(shape))]
+            _kernel_it_args = ["i_%d + %d" % (d, offsets[d]) for d in range(len(shape))]
             _kernel_user_args = [arg.c_kernel_arg(count, i, j)
                                  for count, arg in enumerate(self._args)]
             _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
@@ -525,7 +527,6 @@ class JITModule(base.JITModule):
 
             template = """
     %(local_tensor_decs)s;
-    %(vec_inits)s;
     %(map_init)s;
     %(extr_loop)s
     %(itspace_loops)s
@@ -542,7 +543,6 @@ class JITModule(base.JITModule):
             return template % {
                 'ind': '  ' * nloops,
                 'local_tensor_decs': indent(_local_tensor_decs, 1),
-                'vec_inits': indent(_vec_inits, 5),
                 'map_init': indent(_map_init, 5),
                 'itspace_loops': indent(_itspace_loops, 2),
                 'extr_loop': indent(_extr_loop, 5),
@@ -565,10 +565,11 @@ class JITModule(base.JITModule):
                 'wrapper_decs': indent(_wrapper_decs, 1),
                 'const_args': _const_args,
                 'const_inits': indent(_const_inits, 1),
+                'vec_inits': indent(_vec_inits, 2),
                 'off_args': _off_args,
                 'off_inits': indent(_off_inits, 1),
                 'map_decl': indent(_map_decl, 1),
                 'interm_globals_decl': indent(_intermediate_globals_decl, 3),
                 'interm_globals_init': indent(_intermediate_globals_init, 3),
                 'interm_globals_writeback': indent(_intermediate_globals_writeback, 3),
-                'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape) for i, j, shape, _ in self._itspace])}
+                'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape, offsets) for i, j, shape, offsets in self._itspace])}

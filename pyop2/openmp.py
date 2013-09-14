@@ -178,6 +178,7 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
       for (int n = efirst; n < efirst+ nelem; n++ )
       {
         int i = %(index_expr)s;
+        %(vec_inits)s;
         %(itset_loop_body)s;
       }
     }
