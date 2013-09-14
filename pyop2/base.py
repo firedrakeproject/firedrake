@@ -2281,6 +2281,11 @@ class Map(object):
         return (self._arity,)
 
     @property
+    def arange(self):
+        """Tuple of arity offsets for each constituent :class:`Map`."""
+        return (0, self._arity)
+
+    @property
     def values(self):
         """Mapping array.
 
@@ -2381,6 +2386,11 @@ class MixedMap(Map):
 
         :rtype: tuple"""
         return tuple(m.arity for m in self._maps)
+
+    @property
+    def arange(self):
+        """Tuple of arity offsets for each constituent :class:`Map`."""
+        return (0,) + tuple(np.cumsum(self.arities))
 
     @property
     def values(self):
