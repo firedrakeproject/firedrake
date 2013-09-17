@@ -2530,7 +2530,7 @@ class Sparsity(Cached):
             raise RuntimeError("To set of all column maps must be the same")
 
         # Need to return a list of args and dict of kwargs (empty in this case)
-        return [tuple(dsets), tuple(sorted(maps)), name], {}
+        return [tuple(dsets), tuple(sorted(uniquify(maps))), name], {}
 
     @classmethod
     def _cache_key(cls, dsets, maps, *args, **kwargs):

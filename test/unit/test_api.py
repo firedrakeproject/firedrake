@@ -1232,10 +1232,10 @@ class TestSparsityAPI:
         assert (s.maps[0] == (m_iterset_toset, md) and s.dims == (1, 1) and
                 s.name == "foo" and s.dsets == (di, dd))
 
-    def test_sparsity_multiple_map_pairs(self, backend, mi, di):
-        "Sparsity constructor should accept tuple of pairs of maps"
+    def test_sparsity_unique_map_pairs(self, backend, mi, di):
+        "Sparsity constructor should filter duplicate tuples of pairs of maps."
         s = op2.Sparsity((di, di), ((mi, mi), (mi, mi)), "foo")
-        assert s.maps == [(mi, mi), (mi, mi)] and s.dims == (1, 1)
+        assert s.maps == [(mi, mi)] and s.dims == (1, 1)
 
     def test_sparsity_map_pairs_different_itset(self, backend, mi, di, dd, m_iterset_toset):
         "Sparsity constructor should accept maps with different iteration sets"
