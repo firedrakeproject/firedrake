@@ -225,9 +225,9 @@ def flatten(iterable):
 
 
 def uniquify(iterable):
-    """Remove duplicates in ITERABLE but preserve order."""
+    """Remove duplicates in given iterable, preserving order."""
     uniq = set()
-    return [x for x in iterable if x not in uniq and (uniq.add(x) or True)]
+    return (x for x in iterable if x not in uniq and (uniq.add(x) or True))
 
 
 def parser(description=None, group=False):
