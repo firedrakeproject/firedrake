@@ -40,6 +40,7 @@ import numpy as np
 import operator
 from hashlib import md5
 
+import configuration as cfg
 from caching import Cached
 from exceptions import *
 from utils import *
@@ -73,10 +74,16 @@ class ExecutionTrace(object):
         self._trace = list()
 
     def append(self, computation):
-        self._trace.append(computation)
+        if not cfg['lazy_evaluation']:
+            assert not self._trace
+            computation._run()
+        else:
+            self._trace.append(computation)
 
     def in_queue(self, computation):
         return computation in self._trace
+        else:
+            self._trace.append(computation)
 
     def evaluate(self, reads, writes):
         """Forces the evaluation of delayed computation on which reads and writes
@@ -1853,10 +1860,6 @@ class ParLoop(LazyComputation):
     @validate_type(('kernel', Kernel, KernelTypeError),
                    ('iterset', Set, SetTypeError))
     def __init__(self, kernel, iterset, *args):
-        LazyComputation.__init__(self,
-                                 set([a.data for a in args if a.access in [READ, RW]]) | Const._defs,
-                                 set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]))
-
         # Always use the current arguments, also when we hit cache
         self._actual_args = args
         self._kernel = kernel
@@ -1875,6 +1878,10 @@ class ParLoop(LazyComputation):
                         arg2.indirect_position = arg1.indirect_position
 
         self._it_space = IterationSpace(iterset, self.check_args(iterset))
+
+        LazyComputation.__init__(self,
+                                 set([a.data for a in args if a.access in [READ, RW]]) | Const._defs,
+                                 set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]))
 
     def _run(self):
         return self.compute()
