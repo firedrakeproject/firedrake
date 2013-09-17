@@ -85,8 +85,18 @@ class ExecutionTrace(object):
 
     def in_queue(self, computation):
         return computation in self._trace
-        else:
-            self._trace.append(computation)
+
+    def clear(self):
+        """Forcefully drops delayed computation. Only use this if you know what you
+        are doing.
+        """
+        self._trace = list()
+
+    def evaluate_all(self):
+        """Forces the evaluation of all delayed computations."""
+        for comp in self._trace:
+            comp._run()
+        self._trace = list()
 
     def evaluate(self, reads, writes):
         """Forces the evaluation of delayed computation on which reads and writes
