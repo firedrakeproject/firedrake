@@ -374,6 +374,8 @@ class JITModule(base.JITModule):
             inline %(code)s
             """ % {'code': self._kernel.code}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
+        if cfg.debug:
+            self._wrapper_code = code_to_compile
 
         _const_decs = '\n'.join([const._format_declaration()
                                 for const in Const._definitions()]) + '\n'
