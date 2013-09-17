@@ -77,6 +77,9 @@ class ExecutionTrace(object):
         if not cfg['lazy_evaluation']:
             assert not self._trace
             computation._run()
+        elif cfg['lazy_max_trace_length'] > 0 and cfg['lazy_max_trace_length'] == len(self._trace):
+            self.evaluate(computation.reads, computation.writes)
+            computation._run()
         else:
             self._trace.append(computation)
 
