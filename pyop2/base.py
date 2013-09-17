@@ -954,17 +954,19 @@ class Dat(DataCarrier):
     _modes = [READ, WRITE, RW, INC]
 
     @validate_type(('dataset', (DataSet, Set), DataSetTypeError), ('name', str, NameTypeError))
+    @validate_dtype(('dtype', None, DataTypeError))
     def __init__(self, dataset, data=None, dtype=None, name=None,
                  soa=None, uid=None):
         if type(dataset) is Set:
             # If a Set, rather than a dataset is passed in, default to
             # a dataset dimension of 1.
             dataset = dataset ** 1
-        if data is None:
-            data = np.zeros(dataset.total_size * dataset.cdim)
+        self._shape = (dataset.total_size,) + (() if dataset.cdim == 1 else dataset.dim)
         self._dataset = dataset
-        shape = (dataset.total_size,) + (() if dataset.cdim == 1 else dataset.dim)
-        self._data = verify_reshape(data, dtype, shape, allow_none=True)
+        if data is None:
+            self._dtype = dtype if dtype is not None else np.float64
+        else:
+            self._data = verify_reshape(data, dtype, self._shape, allow_none=True)
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
         self._needs_halo_update = False
@@ -1035,6 +1037,24 @@ class Dat(DataCarrier):
         return self._data
 
     @property
+    def _data(self):
+        if not self._is_allocated:
+            self._numpy_data = np.zeros(self._shape, dtype=self._dtype)
+        return self._numpy_data
+
+    @_data.setter
+    def _data(self, value):
+        self._numpy_data = value
+
+    @property
+    def _is_allocated(self):
+        return hasattr(self, '_numpy_data')
+
+    @property
+    def dtype(self):
+        return self._data.dtype if self._is_allocated else self._dtype
+
+    @property
     def needs_halo_update(self):
         '''Has this Dat been written to since the last halo exchange?'''
         return self._needs_halo_update
@@ -1062,9 +1082,14 @@ class Dat(DataCarrier):
         """:class:`Dat`\s compare equal if defined on the same
         :class:`DataSet` and containing the same data."""
         try:
-            return (self._dataset == other._dataset and
-                    self._data.dtype == other._data.dtype and
-                    np.array_equal(self._data, other._data))
+            if self._is_allocated and other._is_allocated:
+                return (self._dataset == other._dataset and
+                        self.dtype == other.dtype and
+                        np.array_equal(self._data, other._data))
+            elif not (self._is_allocated or other._is_allocated):
+                return (self._dataset == other._dataset and
+                        self.dtype == other.dtype)
+            return False
         except AttributeError:
             return False
 
