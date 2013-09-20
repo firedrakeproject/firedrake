@@ -89,3 +89,14 @@ class MPIConfig(object):
         return decorator(wrapper, f)
 
 MPI = MPIConfig()
+
+# Install an exception hook to MPI Abort if an exception isn't caught
+# see: https://groups.google.com/d/msg/mpi4py/me2TFzHmmsQ/sSF99LE0t9QJ
+if MPI.parallel:
+    import sys
+    except_hook = sys.excepthook
+
+    def mpi_excepthook(typ, value, traceback):
+        except_hook(typ, value, traceback)
+        MPI.comm.Abort(1)
+    sys.excepthook = mpi_excepthook
