@@ -945,14 +945,28 @@ class TestMixedMatrices:
           np.diag([2.0, 6.0, 12.0], -1) +
           np.diag([2.0, 6.0, 12.0], 1))
 
-    def test_assemble_mixed_mat(self, backend, msparsity, mmap, mdat):
-        """Assemble into a matrix declared on a mixed sparsity."""
+    @pytest.fixture
+    def mat(self, msparsity, mmap, mdat):
         mat = op2.Mat(msparsity)
         addone = op2.Kernel("""void addone_mat(double v[1][1], double ** d, int i, int j) {
                             v[0][0] += d[i][0] * d[j][0]; }""", "addone_mat")
         op2.par_loop(addone, mmap.iterset,
                      mat(op2.INC, (mmap[op2.i[0]], mmap[op2.i[1]])),
                      mdat(op2.READ, mmap))
+        return mat
+
+    @pytest.fixture
+    def dat(self, mset, mmap, mdat):
+        dat = op2.MixedDat(mset)
+        addone = op2.Kernel("""void addone_rhs(double v[1], double ** d, int i) {
+                            v[0] += d[i][0]; }""", "addone_rhs")
+        op2.par_loop(addone, mmap.iterset,
+                     dat(op2.INC, mmap[op2.i[0]]),
+                     mdat(op2.READ, mmap))
+        return dat
+
+    def test_assemble_mixed_mat(self, backend, mat):
+        """Assemble into a matrix declared on a mixed sparsity."""
         eps = 1.e-12
         assert_allclose(mat[0, 0].values, np.diag([1.0, 4.0, 9.0]), eps)
         assert_allclose(mat[0, 1].values, self.od, eps)
@@ -978,14 +992,8 @@ class TestMixedMatrices:
         assert_allclose(mat[1, 0].values, np.kron(self.od.T, b), eps)
         assert_allclose(mat[1, 1].values, np.kron(self.ll, b), eps)
 
-    def test_assemble_mixed_rhs(self, backend, mset, mmap, mdat):
+    def test_assemble_mixed_rhs(self, backend, dat):
         """Assemble a simple right-hand side over a mixed space and check result."""
-        dat = op2.MixedDat(mset)
-        addone = op2.Kernel("""void addone_rhs(double v[1], double ** d, int i) {
-                            v[0] += d[i][0]; }""", "addone_rhs")
-        op2.par_loop(addone, mmap.iterset,
-                     dat(op2.INC, mmap[op2.i[0]]),
-                     mdat(op2.READ, mmap))
         eps = 1.e-12
         assert_allclose(dat[0].data_ro, rdata(3), eps)
         assert_allclose(dat[1].data_ro, [1.0, 4.0, 6.0, 4.0], eps)
@@ -1002,6 +1010,16 @@ class TestMixedMatrices:
         exp = np.kron(zip([1.0, 4.0, 6.0, 4.0]), np.ones(2))
         assert_allclose(dat[0].data_ro, np.kron(zip(rdata(3)), np.ones(2)), eps)
         assert_allclose(dat[1].data_ro, exp, eps)
+
+    def test_solve_mixed(self, backend, mat, dat):
+        x = op2.MixedDat(dat.dataset)
+        # FIXME Preconditioners don't seems to work with VecNest, not clear if
+        # it's an issue in petsc4py or PyOP2
+        op2.Solver(pc_type='none').solve(mat, x, dat)
+        b = mat * x
+        eps = 1.e-12
+        assert_allclose(dat[0].data_ro, b[0].data_ro, eps)
+        assert_allclose(dat[1].data_ro, b[1].data_ro, eps)
 
 
 if __name__ == '__main__':
