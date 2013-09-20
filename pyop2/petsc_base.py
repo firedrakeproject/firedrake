@@ -104,6 +104,29 @@ class Dat(base.Dat):
         self.vec.view(vwr)
 
 
+class MixedDat(base.MixedDat):
+
+    @property
+    @collective
+    def vec(self):
+        """PETSc Vec appropriate for this Dat.
+
+        You're allowed to modify the data you get back from this view."""
+        if not hasattr(self, '_vec'):
+            self._vec = PETSc.Vec().createNest([d.vec for d in self._dats])
+        return self._vec
+
+    @property
+    @collective
+    def vec_ro(self):
+        """PETSc Vec appropriate for this Dat.
+
+        You're not allowed to modify the data you get back from this view."""
+        if not hasattr(self, '_vec'):
+            self._vec = PETSc.Vec().createNest([d.vec_ro for d in self._dats])
+        return self._vec
+
+
 class Mat(base.Mat):
 
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
