@@ -57,6 +57,17 @@ ffc_parameters['write_file'] = False
 ffc_parameters['format'] = 'pyop2'
 
 
+def _check_version():
+    from version import __version_info__ as pyop2_version, __version__
+    try:
+        if constants.PYOP2_VERSION_INFO[:2] == pyop2_version[:2]:
+            return
+    except AttributeError:
+        pass
+    raise RuntimeError("Incompatible PyOP2 version %s and FFC PyOP2 version %s."
+                       % (__version__, getattr(constants, 'PYOP2_VERSION', 'unknown')))
+
+
 class FFCKernel(DiskCached):
 
     _cache = {}
@@ -91,5 +102,6 @@ def compile_form(form, name):
 
     return FFCKernel(form, name).kernels
 
+_check_version()
 if not os.path.exists(FFCKernel._cachedir):
     os.makedirs(FFCKernel._cachedir)
