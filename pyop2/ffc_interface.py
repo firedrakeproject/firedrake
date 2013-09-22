@@ -41,7 +41,7 @@ import tempfile
 from ufl import Form
 from ufl.algorithms import as_form
 from ffc import default_parameters, compile_form as ffc_compile_form
-from ffc import constants  # noqa: used in unit tests
+from ffc import constants
 from ffc.log import set_level, ERROR
 
 from caching import DiskCached
@@ -66,7 +66,8 @@ class FFCKernel(DiskCached):
     @classmethod
     def _cache_key(cls, form, name):
         form_data = form.compute_form_data()
-        return md5(form_data.signature + name + Kernel._backend.__name__).hexdigest()
+        return md5(form_data.signature + name + Kernel._backend.__name__ +
+                   constants.FFC_VERSION + constants.PYOP2_VERSION).hexdigest()
 
     def __init__(self, form, name):
         if self._initialized:
