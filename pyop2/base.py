@@ -168,8 +168,21 @@ class Arg(object):
         Instead, use the call syntax on the :class:`DataCarrier`.
     """
 
-    def __init__(self, data=None, map=None, idx=None, access=None):
-        """Checks that:
+    def __init__(self, data=None, map=None, idx=None, access=None, flatten=False):
+        """
+        :param data: A data-carrying object, either :class:`Dat` or class:`Mat`
+        :param map:  A :class:`Map` to access this :class:`Arg` or the default
+                     if the identity map is to be used.
+        :param idx:  An index into the :class:`Map`: an :class:`IterationIndex`
+                     when using an iteration space, an :class:`int` to use a
+                     given component of the mapping or the default to use all
+                     components of the mapping.
+        :param access: An access descriptor of type :class:`Access`
+        :param flatten: Treat the data dimensions of this :class:`Arg` as flat
+                        s.t. the kernel is passed a flat vector of length
+                        ``map.arity * data.dataset.cdim``.
+
+        Checks that:
 
         1. the maps used are initialized i.e. have mapping data associated, and
         2. the to Set of the map used to access it matches the Set it is
@@ -180,6 +193,7 @@ class Arg(object):
         self._map = map
         self._idx = idx
         self._access = access
+        self._flatten = flatten
         self._in_flight = False  # some kind of comms in flight for this arg
         self._position = None
         self._indirect_position = None
@@ -968,14 +982,15 @@ class Dat(DataCarrier):
             self._recv_buf = {}
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, access, path=None):
+    def __call__(self, access, path=None, flatten=False):
         if isinstance(path, Arg):
             path._dat = self
             path._access = access
+            path._flatten = flatten
             return path
         if path and path.toset != self.dataset.set:
             raise MapValueError("To Set of Map does not match Set of Dat.")
-        return _make_object('Arg', data=self, map=path, access=access)
+        return _make_object('Arg', data=self, map=path, access=access, flatten=flatten)
 
     @property
     def dataset(self):
