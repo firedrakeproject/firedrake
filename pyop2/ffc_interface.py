@@ -41,7 +41,7 @@ import tempfile
 from ufl import Form
 from ufl.algorithms import as_form
 from ffc import default_parameters, compile_form as ffc_compile_form
-from ffc import constants  # noqa: used in unit tests
+from ffc import constants
 from ffc.log import set_level, ERROR
 
 from caching import DiskCached
@@ -57,6 +57,17 @@ ffc_parameters['write_file'] = False
 ffc_parameters['format'] = 'pyop2'
 
 
+def _check_version():
+    from version import __version_info__ as pyop2_version, __version__
+    try:
+        if constants.PYOP2_VERSION_INFO[:2] == pyop2_version[:2]:
+            return
+    except AttributeError:
+        pass
+    raise RuntimeError("Incompatible PyOP2 version %s and FFC PyOP2 version %s."
+                       % (__version__, getattr(constants, 'PYOP2_VERSION', 'unknown')))
+
+
 class FFCKernel(DiskCached):
 
     _cache = {}
@@ -66,7 +77,8 @@ class FFCKernel(DiskCached):
     @classmethod
     def _cache_key(cls, form, name):
         form_data = form.compute_form_data()
-        return md5(form_data.signature + name + Kernel._backend.__name__).hexdigest()
+        return md5(form_data.signature + name + Kernel._backend.__name__ +
+                   constants.FFC_VERSION + constants.PYOP2_VERSION).hexdigest()
 
     def __init__(self, form, name):
         if self._initialized:
@@ -90,5 +102,6 @@ def compile_form(form, name):
 
     return FFCKernel(form, name).kernels
 
+_check_version()
 if not os.path.exists(FFCKernel._cachedir):
     os.makedirs(FFCKernel._cachedir)
