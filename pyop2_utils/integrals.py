@@ -48,7 +48,6 @@ exterior_facet_integral_combined = """\
 
 void %(classname)s(%(arglist)s)
 {
-  unsigned int facet = *facet_p;
 %(tabulate_tensor)s
 }"""
 
