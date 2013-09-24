@@ -291,11 +291,13 @@ def trim(docstring):
 
 def get_petsc_dir():
     try:
-        return os.environ['PETSC_DIR']
+        arch = '/' + os.environ.get('PETSC_ARCH', '')
+        dir = os.environ['PETSC_DIR']
+        return (dir, dir + arch)
     except KeyError:
         try:
             import petsc
-            return petsc.get_petsc_dir()
+            return (petsc.get_petsc_dir(), )
         except ImportError:
             sys.exit("""Error: Could not find PETSc library.
 

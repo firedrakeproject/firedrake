@@ -301,11 +301,11 @@ class JITModule(base.JITModule):
             code_to_compile, additional_declarations=kernel_code,
             additional_definitions=_const_decs + kernel_code,
             cppargs=self._cppargs + (['-O0', '-g'] if cfg.debug else []),
-            include_dirs=[get_petsc_dir() + '/include'],
+            include_dirs=[d + '/include' for d in get_petsc_dir()],
             source_directory=os.path.dirname(os.path.abspath(__file__)),
             wrap_headers=["mat_utils.h"],
             system_headers=self._system_headers,
-            library_dirs=[get_petsc_dir() + '/lib'],
+            library_dirs=[d + '/lib' for d in get_petsc_dir()],
             libraries=['petsc'] + self._libraries,
             sources=["mat_utils.cxx"],
             modulename=self._kernel.name if cfg.debug else None)
