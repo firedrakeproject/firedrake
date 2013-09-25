@@ -132,7 +132,7 @@ class Arg(base.Arg):
                 else:
                     raise RuntimeError("Don't know how to pass kernel arg %s" % self)
             else:
-                if self.data is not None and self.data.dataset.layers > 1:
+                if self.data is not None and self.data.dataset.set.layers > 1:
                     return self.c_ind_data_xtr("i_%d" % self.idx.index)
                 else:
                     return self.c_ind_data("i_%d" % self.idx.index)
