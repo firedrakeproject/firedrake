@@ -134,6 +134,7 @@ class Mat(base.Mat):
     @collective
     def dump(self, filename):
         """Dump the matrix to file ``filename`` in PETSc binary format."""
+        base._trace.evaluate(set([self]), set())
         vwr = PETSc.Viewer().createBinary(filename, PETSc.Viewer.Mode.WRITE)
         self.handle.view(vwr)
 
