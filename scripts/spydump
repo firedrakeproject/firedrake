@@ -75,7 +75,7 @@ def compare_dump(files, outfile=None, marker='.', markersize=.5):
     if len(files) > 1:
         matplotlib.rc('font', size=4)
         pylab.figure(figsize=(12, 5), dpi=300)
-        pylab.subplot(131)
+        pylab.subplot(221)
     else:
         matplotlib.rc('font', size=10)
         pylab.figure(figsize=(5, 5), dpi=300)
@@ -84,13 +84,20 @@ def compare_dump(files, outfile=None, marker='.', markersize=.5):
 
     if len(files) > 1:
         csr2 = dump2csr(files[1])
-        pylab.subplot(132)
+        pylab.subplot(222)
         pylab.spy(csr2, **opts)
         pylab.title(files[1])
 
-        pylab.subplot(133)
+        pylab.subplot(223)
         pylab.spy(csr1 - csr2, **opts)
         pylab.title(files[0] + ' - ' + files[1])
+
+        pylab.subplot(224)
+        pylab.plot(csr1.data, label=files[0], **opts)
+        pylab.plot(csr2.data, label=files[1], **opts)
+        pylab.plot(csr1.data - csr2.data, label='Difference', **opts)
+        pylab.legend()
+        pylab.title('Nonzero values')
 
     if outfile:
         pylab.savefig(outfile)
