@@ -46,7 +46,7 @@ from exceptions import MatTypeError, DatTypeError
 
 __all__ = ['cfg', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
-           'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'DataSet',
+           'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'Subset', 'DataSet',
            'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map', 'Sparsity',
            'Solver', 'par_loop', 'solve']
 
@@ -105,6 +105,10 @@ class Kernel(base.Kernel):
 
 
 class Set(base.Set):
+    __metaclass__ = backends._BackendSelector
+
+
+class Subset(base.Subset):
     __metaclass__ = backends._BackendSelector
 
 

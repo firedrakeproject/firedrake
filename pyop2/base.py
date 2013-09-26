@@ -609,6 +609,66 @@ class Set(object):
         return SetPartition(self, 0, self.exec_size)
 
 
+class Subset(Set):
+
+    """OP2 subset.
+
+    :param superset: The superset of the subset.
+    :type superset: ``Set``. (NOTE: Subset of subsets is unsupported)
+    :param indices: Elements of the superset that form the subset.
+    :type indices: a list of integers, or a numpy array.
+    """
+    @validate_type(('superset', Set, TypeError),
+                   ('indices', (list, np.ndarray), TypeError))
+    def __init__(self, superset, indices):
+        self._superset = superset
+        self._indices = verify_reshape(indices, np.int32, (len(indices),))
+
+        self._sub_core_size = 0
+        self._sub_size = 0
+        self._sub_ieh_size = 0
+        self._sub_inh_size = 0
+        for idx in indices:
+            if idx < self._core_size:
+                self._sub_core_size += 1
+            if idx < self._size:
+                self._sub_size += 1
+            if idx < self._ieh_size:
+                self._sub_ieh_size += 1
+            self._sub_inh_size += 1
+
+    # Look up any unspecified attributes on the _set.
+    def __getattr__(self, name):
+        """Returns a Set specific attribute."""
+        return getattr(self._superset, name)
+
+    @property
+    def superset(self):
+        """Returns the superset Set"""
+        return self._superset
+
+    @property
+    def indices(self):
+        return self._indices
+
+    # override superclass behavior
+    @property
+    def core_part(self):
+        return SetPartition(self, 0, self._sub_core_size)
+
+    @property
+    def owned_part(self):
+        return SetPartition(self, self._sub_core_size, self._sub_size - self._sub_core_size)
+
+    @property
+    def exec_part(self):
+        return SetPartition(self, self._sub_size, self._sub_exec_size - self._sub_size)
+
+    @property
+    def all_part(self):
+        return SetPartition(self, 0, self._sub_exec_size)
+
+
 class SetPartition(object):
     def __init__(self, set, offset, size):
         self.set = set
@@ -910,7 +970,7 @@ class IterationSpace(object):
     @property
     def cache_key(self):
         """Cache key used to uniquely identify the object in the cache."""
-        return self._extents, self.iterset.layers
+        return self._extents, self.iterset.layers, isinstance(self._iterset, Subset)
 
 
 class DataCarrier(object):
@@ -2197,6 +2257,7 @@ class ParLoop(LazyComputation):
         arguments using an :class:`IterationIndex` for consistency.
 
         :return: size of the local iteration space"""
+        iterset = iterset.superset if isinstance(iterset, Subset) else iterset
         itspace = ()
         for i, arg in enumerate(self._actual_args):
             if arg._is_global or arg.map is None:

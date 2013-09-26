@@ -46,15 +46,18 @@ class JITModule(host.JITModule):
 
     _wrapper = """
 void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end,
+                            %(ssinds_arg)s
                             %(wrapper_args)s %(const_args)s %(off_args)s) {
   int start = (int)PyInt_AsLong(_start);
   int end = (int)PyInt_AsLong(_end);
+  %(ssinds_dec)s
   %(wrapper_decs)s;
   %(local_tensor_decs)s;
   %(const_inits)s;
   %(off_inits)s;
   %(map_decl)s
-  for ( int i = start; i < end; i++ ) {
+  for ( int n = start; n < end; n++ ) {
+    int i = %(index_expr)s;
     %(vec_inits)s;
     %(map_init)s;
     %(extr_loop)s
@@ -81,6 +84,8 @@ class ParLoop(host.ParLoop):
         fun = JITModule(self.kernel, self.it_space, *self.args)
         if not hasattr(self, '_jit_args'):
             self._jit_args = [0, 0]
+            if isinstance(self._it_space._iterset, Subset):
+                self._jit_args.append(self._it_space._iterset._indices)
             for arg in self.args:
                 if arg._is_mat:
                     self._jit_args.append(arg.data.handle.handle)
