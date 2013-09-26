@@ -1732,13 +1732,14 @@ class Mat(DataCarrier):
         Mat._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, access, path):
+    def __call__(self, access, path, flatten=False):
         path = as_tuple(path, Arg, 2)
         path_maps = [arg.map for arg in path]
         path_idxs = [arg.idx for arg in path]
         if tuple(path_maps) not in self.sparsity.maps:
             raise MapValueError("Path maps not in sparsity maps")
-        return _make_object('Arg', data=self, map=path_maps, access=access, idx=path_idxs)
+        return _make_object('Arg', data=self, map=path_maps, access=access,
+                            idx=path_idxs, flatten=flatten)
 
     @property
     def dims(self):
