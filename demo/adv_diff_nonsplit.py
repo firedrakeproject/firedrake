@@ -138,7 +138,7 @@ void i_cond(double *c, double *t)
 i_cond = op2.Kernel(i_cond_code, "i_cond")
 
 op2.par_loop(i_cond, nodes,
-             coords(op2.READ),
+             coords(op2.READ, flatten=True),
              tracer(op2.WRITE))
 
 # Assemble and solve
@@ -159,13 +159,13 @@ while T < 0.2:
     mat.zero()
     op2.par_loop(lhs, elements,
                  mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
-                 coords(op2.READ, elem_node),
+                 coords(op2.READ, elem_node, flatten=True),
                  velocity(op2.READ, elem_node))
 
     b.zero()
     op2.par_loop(rhs, elements,
                  b(op2.INC, elem_node[op2.i[0]]),
-                 coords(op2.READ, elem_node),
+                 coords(op2.READ, elem_node, flatten=True),
                  tracer(op2.READ, elem_node),
                  velocity(op2.READ, elem_node))
 

@@ -106,12 +106,12 @@ def main(opt):
         adv_mat = op2.Mat(sparsity, valuetype, "adv_mat")
         op2.par_loop(adv, elements,
                      adv_mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
-                     coords(op2.READ, elem_node))
+                     coords(op2.READ, elem_node, flatten=True))
     if opt['diffusion']:
         diff_mat = op2.Mat(sparsity, valuetype, "diff_mat")
         op2.par_loop(diff, elements,
                      diff_mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
-                     coords(op2.READ, elem_node))
+                     coords(op2.READ, elem_node, flatten=True))
 
     tracer_vals = np.zeros(num_nodes, dtype=valuetype)
     tracer = op2.Dat(nodes, tracer_vals, valuetype, "tracer")
@@ -142,7 +142,7 @@ def main(opt):
     i_cond = op2.Kernel(i_cond_code % {'T': T}, "i_cond")
 
     op2.par_loop(i_cond, nodes,
-                 coords(op2.READ),
+                 coords(op2.READ, flatten=True),
                  tracer(op2.WRITE))
 
     # Assemble and solve
@@ -157,7 +157,7 @@ def main(opt):
             b.zero()
             op2.par_loop(adv_rhs, elements,
                          b(op2.INC, elem_node[op2.i[0]]),
-                         coords(op2.READ, elem_node),
+                         coords(op2.READ, elem_node, flatten=True),
                          tracer(op2.READ, elem_node),
                          velocity(op2.READ, elem_node))
 
@@ -169,7 +169,7 @@ def main(opt):
             b.zero()
             op2.par_loop(diff_rhs, elements,
                          b(op2.INC, elem_node[op2.i[0]]),
-                         coords(op2.READ, elem_node),
+                         coords(op2.READ, elem_node, flatten=True),
                          tracer(op2.READ, elem_node))
 
             solver.solve(diff_mat, tracer, b)
@@ -183,7 +183,7 @@ def main(opt):
         i_cond = op2.Kernel(i_cond_code % {'T': T}, "i_cond")
 
         op2.par_loop(i_cond, nodes,
-                     coords(op2.READ),
+                     coords(op2.READ, flatten=True),
                      analytical(op2.WRITE))
 
     # Print error w.r.t. analytical solution
@@ -197,7 +197,7 @@ def main(opt):
         result = op2.Global(1, [0.0])
         op2.par_loop(l2_kernel, elements,
                      result(op2.INC),
-                     coords(op2.READ, elem_node),
+                     coords(op2.READ, elem_node, flatten=True),
                      tracer(op2.READ, elem_node),
                      analytical(op2.READ, elem_node)
                      )

@@ -137,11 +137,11 @@ x = op2.Dat(nodes, x_vals, valuetype, "x")
 
 op2.par_loop(mass, elements,
              mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
-             coords(op2.READ, elem_node))
+             coords(op2.READ, elem_node, flatten=True))
 
 op2.par_loop(rhs, elements,
              b(op2.INC, elem_node[op2.i[0]]),
-             coords(op2.READ, elem_node),
+             coords(op2.READ, elem_node, flatten=True),
              f(op2.READ, elem_node))
 
 solver = op2.Solver()
