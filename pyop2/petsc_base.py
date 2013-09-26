@@ -77,6 +77,13 @@ class Dat(base.Dat):
             self._vec = PETSc.Vec().createWithArray(self._data, size=size)
         return self._vec
 
+    @collective
+    def dump(self, filename):
+        """Dump the vector to file ``filename`` in PETSc binary format."""
+        base._trace.evaluate(set([self]), set())
+        vwr = PETSc.Viewer().createBinary(filename, PETSc.Viewer.Mode.WRITE)
+        self.vec.view(vwr)
+
 
 class Mat(base.Mat):
 
