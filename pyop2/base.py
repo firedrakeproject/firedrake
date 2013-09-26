@@ -1014,6 +1014,10 @@ class Dat(DataCarrier):
         maybe_setflags(self._data, write=False)
         return self._data
 
+    def save(self, filename):
+        """Write the data array to file ``filename`` in NumPy format."""
+        np.save(filename, self.data_ro)
+
     @property
     def needs_halo_update(self):
         '''Has this Dat been written to since the last halo exchange?'''
