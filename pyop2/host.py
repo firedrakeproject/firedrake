@@ -143,19 +143,19 @@ class Arg(base.Arg):
 
     def c_vec_init(self):
         val = []
-        for idx in range(self.map.arity):
-            if self._flatten:
-                cdim = self.data.dataset.cdim
-                for j in range(cdim):
+        if self._flatten:
+            for j in range(self.data.dataset.cdim):
+                for idx in range(self.map.arity):
                     val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                {'vec_name': self.c_vec_name(),
-                                'idx': idx * cdim + j,
-                                'data': self.c_ind_data(mi, j)})
-            else:
+                                'idx': j * self.map.arity + idx,
+                                'data': self.c_ind_data(idx, j)})
+        else:
+            for idx in range(self.map.arity):
                 val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                            {'vec_name': self.c_vec_name(),
                             'idx': idx,
-                            'data': self.c_ind_data(mi)})
+                            'data': self.c_ind_data(idx)})
         return ";\n".join(val)
 
     def c_addto_scalar_field(self, extruded):
