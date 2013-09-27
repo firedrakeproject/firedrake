@@ -59,8 +59,10 @@ class LazyComputation(object):
         self.writes = writes
         self._scheduled = False
 
+    def enqueue(self):
         global _trace
         _trace.append(self)
+        return self
 
     def _run(self):
         assert False, "Not implemented"
@@ -1076,7 +1078,7 @@ class Dat(DataCarrier):
             }""" % {'t': self.ctype, 'dim': self.cdim}
             self._zero_kernel = _make_object('Kernel', k, 'zero')
         _make_object('ParLoop', self._zero_kernel, self.dataset.set,
-                     self(WRITE)).compute()
+                     self(WRITE)).enqueue()
 
     def __eq__(self, other):
         """:class:`Dat`\s compare equal if defined on the same
@@ -1898,6 +1900,9 @@ class ParLoop(LazyComputation):
     @validate_type(('kernel', Kernel, KernelTypeError),
                    ('iterset', Set, SetTypeError))
     def __init__(self, kernel, iterset, *args):
+        LazyComputation.__init__(self,
+                                 set([a.data for a in args if a.access in [READ, RW]]) | Const._defs,
+                                 set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]))
         # Always use the current arguments, also when we hit cache
         self._actual_args = args
         self._kernel = kernel
@@ -1916,10 +1921,6 @@ class ParLoop(LazyComputation):
                         arg2.indirect_position = arg1.indirect_position
 
         self._it_space = IterationSpace(iterset, self.check_args(iterset))
-
-        LazyComputation.__init__(self,
-                                 set([a.data for a in args if a.access in [READ, RW]]) | Const._defs,
-                                 set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]))
 
     def _run(self):
         return self.compute()
@@ -2153,4 +2154,4 @@ class Solver(object):
 
 @collective
 def par_loop(kernel, it_space, *args):
-    return _make_object('ParLoop', kernel, it_space, *args)
+    return _make_object('ParLoop', kernel, it_space, *args).enqueue()
