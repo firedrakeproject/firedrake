@@ -34,19 +34,12 @@
 """OP2 sequential backend."""
 
 from exceptions import *
-from mpi import collective
 from utils import as_tuple
 from petsc_base import *
 import host
 from host import Arg  # noqa: needed by BackendSelector
 
 # Parallel loop API
-
-
-@collective
-def par_loop(kernel, it_space, *args):
-    """Invocation of an OP2 kernel with an access descriptor"""
-    return ParLoop(kernel, it_space, *args)
 
 
 class JITModule(host.JITModule):

@@ -2149,3 +2149,8 @@ class Solver(object):
 
     def _solve(self, A, x, b):
         raise NotImplementedError("solve must be implemented by backend")
+
+
+@collective
+def par_loop(kernel, it_space, *args):
+    return _make_object('ParLoop', kernel, it_space, *args)
