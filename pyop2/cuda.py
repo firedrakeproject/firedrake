@@ -280,7 +280,7 @@ class Mat(DeviceDataMixin, op2.Mat):
                             np.int32(nelems)])
             fun = vfun
         _stream.synchronize()
-        fun.prepared_async_call((nblock, 1, 1), (nthread, 1, 1), _stream, *arglist)
+        fun.prepared_async_call((int(nblock), 1, 1), (nthread, 1, 1), _stream, *arglist)
 
     @property
     def values(self):
@@ -635,8 +635,8 @@ class Solver(base.Solver):
                      M._csrdata,
                      b._device_data,
                      x._device_data,
-                     b.dataset.size * b.cdim,
-                     x.dataset.size * x.cdim,
+                     int(b.dataset.size * b.cdim),
+                     int(x.dataset.size * x.cdim),
                      M._csrdata.size)
         x.state = DeviceDataMixin.DEVICE
 
