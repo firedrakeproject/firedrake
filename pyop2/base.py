@@ -902,6 +902,10 @@ class DataCarrier(object):
         the product of the dim tuple."""
         return self._cdim
 
+    def _force_evaluation(self):
+        """Force the evaluation of any outstanding computation to ensure that this DataCarrier is up to date"""
+        _trace.evaluate(set([self]), set([self]))
+
 
 class Dat(DataCarrier):
 
