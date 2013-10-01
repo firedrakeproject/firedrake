@@ -7,8 +7,13 @@ util = {}
 util.update({
     "point": lambda p: "[%s]" % p,
     "assign": lambda s, e: "%s = %s" % (s, e),
+    "incr": lambda s, e: "%s += %s" % (s, e),
+    "incr++": lambda s: "%s++" % s,
     "wrap": lambda e: "(%s)" % e,
-    "decl": lambda q, t, s, a, e: "%s%s %s %s= %s;" % (q, t, s, a, e)
+    "bracket": lambda s: "{%s}" % s,
+    "decl": lambda q, t, s, a: "%s%s %s%s;" % (q, t, s, a),
+    "decl_init": lambda q, t, s, a, e: "%s%s %s%s = %s;" % (q, t, s, a, e),
+    "for": lambda s1, e, s2, s3: "for (%s; %s; %s)\n%s" % (s1, e, s2, s3)
 })
 
 # Base classes of the AST ###
@@ -51,10 +56,14 @@ class Expr(Node):
 
 class BinExpr(Expr):
 
-    def __init__(self, expr1, expr2):
+    def __init__(self, expr1, expr2, op):
         Expr.__init__(self)
         self.children.append(expr1)
         self.children.append(expr2)
+        self.op = op
+
+    def gencode(self):
+        return self.op.join([n.gencode() for n in self.children])
 
 
 class UnExpr(Expr):
@@ -64,10 +73,17 @@ class UnExpr(Expr):
         self.children.append(expr)
 
 
-class Parentheses(UnExpr):
+class ArrayInit(Expr):
 
-    def __init__(self, expr):
-        UnExpr.__init__(self, expr)
+    def __init__(self, values):
+        Expr.__init__(self)
+        self.values = values
+
+    def gencode(self):
+        return self.values
+
+
+class Parentheses(UnExpr):
 
     def gencode(self):
         return util["wrap"](self.children[0].gencode())
@@ -76,10 +92,19 @@ class Parentheses(UnExpr):
 class Sum(BinExpr):
 
     def __init__(self, expr1, expr2):
-        BinExpr.__init__(self, expr1, expr2)
+        BinExpr.__init__(self, expr1, expr2, " + ")
 
-    def gencode(self):
-        return " + ".join([n.gencode() for n in self.children])
+
+class Prod(BinExpr):
+
+    def __init__(self, expr1, expr2):
+        BinExpr.__init__(self, expr1, expr2, " * ")
+
+
+class Less(BinExpr):
+
+    def __init__(self, expr1, expr2):
+        BinExpr.__init__(self, expr1, expr2, " < ")
 
 
 class Symbol(Expr):
@@ -102,10 +127,26 @@ class Symbol(Expr):
 
 # Statements ###
 
-class Assign(Node):
 
-    def __init__(self, sym, exp):
+class Statement(Node):
+
+    """Base class for the statement set of productions"""
+
+    def __init__(self, pragma=None):
         Node.__init__(self)
+        self.pragma = pragma
+
+
+class EmptyStatement(Statement):
+
+    def gencode(self):
+        return ""
+
+
+class Assign(Statement):
+
+    def __init__(self, sym, exp, pragma=None):
+        Statement.__init__(self, pragma)
         self.children.append(sym)
         self.children.append(exp)
 
@@ -114,19 +155,37 @@ class Assign(Node):
                               self.children[1].gencode())
 
 
-class Decl(Node):
+class Incr(Statement):
+
+    def __init__(self, sym, exp, pragma=None):
+        Statement.__init__(self, pragma)
+        self.children.append(sym)
+        self.children.append(exp)
+
+    def gencode(self):
+        if type(self.children[1]) == Symbol and self.children[1].symbol == 1:
+            return util["incr++"](self.children[0].gencode())
+        else:
+            return util["incr"](self.children[0].gencode(),
+                                self.children[1].gencode())
+
+
+class Decl(Statement):
 
     """syntax: [qualifiers] typ sym [attributes] [= init];
     e.g. static const double FE0[3][3] __attribute__(align(32)) = {{...}};
     """
 
-    def __init__(self, typ, sym, init="", qualifiers=[], attributes=[]):
-        Node.__init__(self)
+    def __init__(self, typ, sym, init=None, qualifiers=[], attributes=[]):
+        Statement.__init__(self)
         self.typ = typ
         self.sym = sym
-        self.init = init
         self.qual = qualifiers
         self.att = attributes
+        if not init:
+            self.init = EmptyStatement()
+        else:
+            self.init = init
 
     def gencode(self):
 
@@ -136,5 +195,44 @@ class Decl(Node):
             else:
                 return ""
 
-        return util["decl"](spacer(self.qual), self.typ, self.sym.gencode(),
-                            spacer(self.att), self.init)
+        if type(self.init) == EmptyStatement:
+            return util["decl"](spacer(self.qual), self.typ,
+                                self.sym.gencode(), spacer(self.att))
+        else:
+            return util["decl_init"](spacer(self.qual), self.typ,
+                                     self.sym.gencode(), spacer(self.att), self.init.gencode())
+
+
+class Block(Statement):
+
+    def __init__(self, stmts, pragma=None, openscope=False):
+        Statement.__init__(self, pragma)
+        self.children = stmts
+        self.openscope = openscope
+
+    def gencode(self):
+        code = "\n".join([n.gencode() for n in self.children])
+        if self.openscope:
+            code = "{\n%s\n}\n" % indent(code)
+        return code
+
+
+class For(Statement):
+
+    def __init__(self, init, cond, incr, body, pragma=None):
+        Statement.__init__(self, pragma)
+        self.children.append(body)
+        self.init = init
+        self.cond = cond
+        self.incr = incr
+
+    def gencode(self):
+        return util["for"](self.init.gencode(), self.cond.gencode(),
+                           self.incr.gencode(), self.children[0].gencode())
+
+
+# Utility functions ###
+def indent(block):
+    """Indent each row of the given string block with n*4 spaces."""
+    indentation = " " * 4
+    return indentation + ("\n" + indentation).join(block.split("\n"))
