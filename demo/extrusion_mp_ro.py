@@ -63,13 +63,13 @@ partition_size = int(opt['partsize'])
 # Generate code for kernel
 
 mass = op2.Kernel("""
-void comp_vol(double A[1], double *x[], double *y[], int j)
+void comp_vol(double A[1], double *x[], double *y[])
 {
-  double abs = x[0][0]*(x[2][1]-x[4][1]) + x[2][0]*(x[4][1]-x[0][1])
+  double area = x[0][0]*(x[2][1]-x[4][1]) + x[2][0]*(x[4][1]-x[0][1])
                + x[4][0]*(x[0][1]-x[2][1]);
-  if (abs < 0)
-    abs = abs * (-1.0);
-  A[0]+=0.5*abs*0.1 * y[0][0];
+  if (area < 0)
+    area = area * (-1.0);
+  A[0]+=0.5*area*0.1 * y[0][0];
 }""", "comp_vol")
 
 
@@ -207,9 +207,9 @@ for d in range(0, 2):  # for 2D and then for 3D
                     count += 1
 
 for i in range(0, map_dofs_coords):
-    off_coords[i] = off[i]
+    off_coords[i] = 1
 for i in range(0, map_dofs_field):
-    off_field[i] = off[i + map_dofs_coords]
+    off_field[i] = 1
 
 # assemble the dat
 # compute total number of dofs in the 3D mesh

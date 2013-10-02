@@ -34,11 +34,20 @@
 import pytest
 import numpy
 import random
+from numpy.testing import assert_allclose
 
 from pyop2 import op2
 from pyop2.computeind import compute_ind_extr
 
 backends = ['sequential', 'openmp']
+
+# Data type
+valuetype = numpy.float64
+
+# Constants
+NUM_ELE = 2
+NUM_NODES = 4
+NUM_DIMS = 2
 
 
 def _seed():
@@ -64,7 +73,7 @@ dofs = numpy.array([[2, 0], [0, 0], [0, 1]])
 dofs_coords = numpy.array([[2, 0], [0, 0], [0, 0]])
 dofs_field = numpy.array([[0, 0], [0, 0], [0, 1]])
 
-off1 = numpy.array([2, 2, 2, 2, 2, 2], dtype=numpy.int32)
+off1 = numpy.array([1, 1, 1, 1, 1, 1], dtype=numpy.int32)
 off2 = numpy.array([1], dtype=numpy.int32)
 
 noDofs = numpy.dot(mesh2d, dofs)
@@ -93,6 +102,9 @@ elems2edges = elems2edges.reshape(nelems, 3)
 elems2elems = numpy.zeros(mesh2d[2] * nelems, numpy.int32)
 elems2elems[:] = range(nelems)
 elems2elems = elems2elems.reshape(nelems, 1)
+
+xtr_elem_node_map = numpy.asarray(
+    [0, 1, 11, 12, 33, 34, 22, 23, 33, 34, 11, 12], dtype=numpy.uint32)
 
 
 @pytest.fixture
@@ -228,6 +240,94 @@ def field_map(elements, elem_set1):
     return op2.Map(elements, elem_set1, map_dofs_field, ind_field, "elem_elem", off2)
 
 
+@pytest.fixture
+def xtr_elements():
+    return op2.Set(NUM_ELE, "xtr_elements", layers=layers)
+
+
+@pytest.fixture
+def xtr_nodes():
+    return op2.Set(NUM_NODES * layers, "xtr_nodes", layers=layers)
+
+
+@pytest.fixture
+def xtr_dnodes(xtr_nodes):
+    return op2.DataSet(xtr_nodes, 1, "xtr_dnodes")
+
+
+@pytest.fixture
+def xtr_elem_node(xtr_elements, xtr_nodes):
+    return op2.Map(xtr_elements, xtr_nodes, 6, xtr_elem_node_map, "xtr_elem_node",
+                   numpy.array([1, 1, 1, 1, 1, 1], dtype=numpy.int32))
+
+
+@pytest.fixture
+def xtr_mat(xtr_elem_node, xtr_dnodes):
+    sparsity = op2.Sparsity((xtr_dnodes, xtr_dnodes), (
+        xtr_elem_node, xtr_elem_node), "xtr_sparsity")
+    return op2.Mat(sparsity, valuetype, "xtr_mat")
+
+
+@pytest.fixture
+def xtr_dvnodes(xtr_nodes):
+    return op2.DataSet(xtr_nodes, 3, "xtr_dvnodes")
+
+
+@pytest.fixture
+def xtr_b(xtr_dnodes):
+    b_vals = numpy.zeros(NUM_NODES * layers, dtype=valuetype)
+    return op2.Dat(xtr_dnodes, b_vals, valuetype, "xtr_b")
+
+
+@pytest.fixture
+def xtr_coords(xtr_dvnodes):
+    coord_vals = numpy.asarray([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+                              (0.0, 1.0, 0.0), (1.0, 1.0, 0.0)],
+        dtype=valuetype)
+    return coord_vals
+
+
+@pytest.fixture
+def extrusion_kernel():
+        kernel_code = """
+void extrusion_kernel(double *xtr[], double *x[], int* j[])
+{
+    //Only the Z-coord is increased, the others stay the same
+    xtr[0][0] = x[0][0];
+    xtr[0][1] = x[0][1];
+    xtr[0][2] = 0.1*j[0][0];
+}"""
+        return op2.Kernel(kernel_code, "extrusion_kernel")
+
+
+@pytest.fixture
+def vol_comp():
+        kernel_code = """
+void vol_comp(double A[1][1], double *x[], int i0, int i1)
+{
+  double area = x[0][0]*(x[2][1]-x[4][1]) + x[2][0]*(x[4][1]-x[0][1])
+               + x[4][0]*(x[0][1]-x[2][1]);
+  if (area < 0)
+    area = area * (-1.0);
+  A[0][0] += 0.5 * area * (x[1][2] - x[0][2]);
+}"""
+        return op2.Kernel(kernel_code, "vol_comp")
+
+
+@pytest.fixture
+def vol_comp_rhs():
+        kernel_code = """
+void vol_comp_rhs(double A[1], double *x[], int *y[], int i0)
+{
+  double area = x[0][0]*(x[2][1]-x[4][1]) + x[2][0]*(x[4][1]-x[0][1])
+               + x[4][0]*(x[0][1]-x[2][1]);
+  if (area < 0)
+    area = area * (-1.0);
+  A[0] += 0.5 * area * (x[1][2] - x[0][2]) * y[0][0];
+}"""
+        return op2.Kernel(kernel_code, "vol_comp_rhs")
+
+
 class TestExtrusion:
 
     """
@@ -237,7 +337,7 @@ class TestExtrusion:
     def test_extrusion(self, backend, elements, dat_coords, dat_field, coords_map, field_map):
         g = op2.Global(1, data=0.0, name='g')
         mass = op2.Kernel("""
-void comp_vol(double A[1], double *x[], double *y[], int j)
+void comp_vol(double A[1], double *x[], double *y[])
 {
     double abs = x[0][0]*(x[2][1]-x[4][1])+x[2][0]*(x[4][1]-x[0][1])+x[4][0]*(x[0][1]-x[2][1]);
     if (abs < 0)
@@ -253,7 +353,7 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
         assert int(g.data[0]) == int((layers - 1) * 0.1 * (nelems / 2))
 
     def test_write_data_field(self, backend, elements, dat_coords, dat_field, coords_map, field_map, dat_f):
-        kernel_wo = "void kernel_wo(double* x[], int j) { x[0][0] = double(42); }\n"
+        kernel_wo = "void kernel_wo(double* x[]) { x[0][0] = double(42); }\n"
 
         op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"),
                      elements, dat_f(op2.WRITE, field_map))
@@ -261,7 +361,7 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
         assert all(map(lambda x: x == 42, dat_f.data))
 
     def test_write_data_coords(self, backend, elements, dat_coords, dat_field, coords_map, field_map, dat_c):
-        kernel_wo_c = """void kernel_wo_c(double* x[], int j) {
+        kernel_wo_c = """void kernel_wo_c(double* x[]) {
                                                                x[0][0] = double(42); x[0][1] = double(42);
                                                                x[1][0] = double(42); x[1][1] = double(42);
                                                                x[2][0] = double(42); x[2][1] = double(42);
@@ -277,7 +377,7 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
     def test_read_coord_neighbours_write_to_field(
         self, backend, elements, dat_coords, dat_field,
             coords_map, field_map, dat_c, dat_f):
-        kernel_wtf = """void kernel_wtf(double* x[], double* y[], int j) {
+        kernel_wtf = """void kernel_wtf(double* x[], double* y[]) {
                                                                double sum = 0.0;
                                                                for (int i=0; i<6; i++){
                                                                     sum += x[i][0] + x[i][1];
@@ -292,7 +392,7 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
     def test_indirect_coords_inc(self, backend, elements, dat_coords,
                                  dat_field, coords_map, field_map, dat_c,
                                  dat_f):
-        kernel_inc = """void kernel_inc(double* x[], double* y[], int j) {
+        kernel_inc = """void kernel_inc(double* x[], double* y[]) {
                                                                for (int i=0; i<6; i++){
                                                                  if (y[i][0] == 0){
                                                                     y[i][0] += 1;
@@ -305,6 +405,85 @@ void comp_vol(double A[1], double *x[], double *y[], int j)
                      dat_c(op2.INC, coords_map))
 
         assert sum(sum(dat_c.data)) == nums[0] * layers * 2
+
+    def test_extruded_assemble_mat_rhs_solve(
+        self, backend, xtr_mat, xtr_coords, xtr_elements,
+        xtr_elem_node, extrusion_kernel, xtr_nodes, vol_comp,
+            xtr_dnodes, vol_comp_rhs, xtr_b):
+        coords_dim = 3
+        coords_xtr_dim = 3  # dimension
+        # BIG TRICK HERE:
+        # We need the +1 in order to include the entire column of vertices.
+        # Extrusion is meant to iterate over the 3D cells which are layer - 1 in number.
+        # The +1 correction helps in the case of iteration over vertices which need
+        # one extra layer.
+        iterset = op2.Set(NUM_NODES, "verts1", layers=(layers + 1))
+        vnodes = op2.DataSet(iterset, coords_dim)
+
+        d_nodes_xtr = op2.DataSet(xtr_nodes, coords_xtr_dim)
+        d_lnodes_xtr = op2.DataSet(xtr_nodes, 1)
+
+        # Create an op2.Dat with the base mesh coordinates
+        coords_vec = numpy.zeros(vnodes.total_size * coords_dim)
+        length = len(xtr_coords.flatten())
+        coords_vec[0:length] = xtr_coords.flatten()
+        coords = op2.Dat(vnodes, coords_vec, numpy.float64, "dat1")
+
+        # Create an op2.Dat with slots for the extruded coordinates
+        coords_new = numpy.array(
+            [0.] * layers * NUM_NODES * coords_xtr_dim, dtype=numpy.float64)
+        coords_xtr = op2.Dat(d_nodes_xtr, coords_new, numpy.float64, "dat_xtr")
+
+        # Creat an op2.Dat to hold the layer number
+        layer_vec = numpy.tile(numpy.arange(0, layers), NUM_NODES)
+        layer = op2.Dat(d_lnodes_xtr, layer_vec, numpy.int32, "dat_layer")
+
+        # Map a map for the bottom of the mesh.
+        vertex_to_coords = [i for i in range(0, NUM_NODES)]
+        v2coords_offset = numpy.array([0], numpy.int32)
+        map_2d = op2.Map(iterset, iterset, 1, vertex_to_coords, "v2coords", v2coords_offset)
+
+        # Create Map for extruded vertices
+        vertex_to_xtr_coords = [layers * i for i in range(0, NUM_NODES)]
+        v2xtr_coords_offset = numpy.array([1], numpy.int32)
+        map_xtr = op2.Map(
+            iterset, xtr_nodes, 1, vertex_to_xtr_coords, "v2xtr_coords", v2xtr_coords_offset)
+
+        # Create Map for layer number
+        v2xtr_layer_offset = numpy.array([1], numpy.int32)
+        layer_xtr = op2.Map(
+            iterset, xtr_nodes, 1, vertex_to_xtr_coords, "v2xtr_layer", v2xtr_layer_offset)
+
+        op2.par_loop(extrusion_kernel, iterset,
+                     coords_xtr(op2.INC, map_xtr),
+                     coords(op2.READ, map_2d),
+                     layer(op2.READ, layer_xtr))
+
+        # Assemble the main matrix.
+        op2.par_loop(vol_comp, xtr_elements,
+                     xtr_mat(op2.INC, (xtr_elem_node[op2.i[0]], xtr_elem_node[op2.i[1]])),
+                     coords_xtr(op2.READ, xtr_elem_node))
+
+        eps = 1.e-5
+        assert_allclose(sum(sum(xtr_mat.values)), 36.0, eps)
+
+        # Assemble the RHS
+        xtr_f_vals = numpy.array([1] * NUM_NODES * layers, dtype=numpy.int32)
+        xtr_f = op2.Dat(d_lnodes_xtr, xtr_f_vals, numpy.int32, "xtr_f")
+
+        op2.par_loop(vol_comp_rhs, xtr_elements,
+                     xtr_b(op2.INC, xtr_elem_node[op2.i[0]]),
+                     coords_xtr(op2.READ, xtr_elem_node),
+                     xtr_f(op2.READ, xtr_elem_node))
+
+        assert_allclose(sum(xtr_b.data), 6.0, eps)
+
+        x_vals = numpy.zeros(NUM_NODES * layers, dtype=valuetype)
+        xtr_x = op2.Dat(d_lnodes_xtr, x_vals, valuetype, "xtr_x")
+
+        op2.solve(xtr_mat, xtr_x, xtr_b)
+
+        assert_allclose(sum(xtr_x.data), 7.3333333, eps)
 
     # TODO: extend for higher order elements
 

@@ -45,8 +45,11 @@ valuetype = np.float64
 NUM_ELE = 2
 NUM_NODES = 4
 NUM_DIMS = 2
+layers = 11
 
 elem_node_map = np.asarray([0, 1, 3, 2, 3, 1], dtype=np.uint32)
+
+xtr_elem_node_map = np.asarray([0, 1, 11, 12, 33, 34, 22, 23, 33, 34, 11, 12], dtype=np.uint32)
 
 
 @pytest.fixture(scope='module')
@@ -568,11 +571,11 @@ void kernel_set_vec(double entry[2][2], double* g, int i, int j)
 
 @pytest.fixture
 def expected_matrix():
-    expected_vals = [(0.25, 0.125, 0.0, 0.125),
-                     (0.125, 0.291667, 0.0208333, 0.145833),
-                     (0.0, 0.0208333, 0.0416667, 0.0208333),
-                     (0.125, 0.145833, 0.0208333, 0.291667)]
-    return np.asarray(expected_vals, dtype=valuetype)
+        expected_vals = [(0.25, 0.125, 0.0, 0.125),
+                         (0.125, 0.291667, 0.0208333, 0.145833),
+                         (0.0, 0.0208333, 0.0416667, 0.0208333),
+                         (0.125, 0.145833, 0.0208333, 0.291667)]
+        return np.asarray(expected_vals, dtype=valuetype)
 
 
 @pytest.fixture
@@ -847,6 +850,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
         expected_matrix = np.zeros((8, 8), dtype=valuetype)
         eps = 1.e-14
         assert_allclose(vecmat.values, expected_matrix, eps)
+
 
 if __name__ == '__main__':
     import os
