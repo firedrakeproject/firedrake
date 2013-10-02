@@ -63,8 +63,8 @@ void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end,
   %(map_decl)s
   for ( int i = start; i < end; i++ ) {
     %(vec_inits)s;
-    %(extr_loop)s
     %(map_init)s;
+    %(extr_loop)s
     %(itspace_loops)s
     %(ind)s%(zero_tmps)s;
     %(ind)s%(kernel_name)s(%(kernel_args)s);

@@ -55,16 +55,14 @@ class Arg(base.Arg):
     def c_vec_name(self):
         return self.c_arg_name() + "_vec"
 
-    def c_map_name(self):
-        return self.c_arg_name() + "_map"
+    def c_map_name(self, idx=0):
+        return self.c_arg_name() + "_map%d" % idx
 
     def c_wrapper_arg(self):
         val = "PyObject *_%(name)s" % {'name': self.c_arg_name()}
         if self._is_indirect or self._is_mat:
-            val += ", PyObject *_%(name)s" % {'name': self.c_map_name()}
-            maps = as_tuple(self.map, Map)
-            if len(maps) is 2:
-                val += ", PyObject *_%(name)s" % {'name': self.c_map_name() + '2'}
+            for idx, _ in enumerate(as_tuple(self.map, Map)):
+                val += ", PyObject *_%(name)s" % {'name': self.c_map_name(idx)}
         return val
 
     def c_vec_dec(self):
@@ -85,11 +83,9 @@ class Arg(base.Arg):
             val = "%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)" % \
                 {'name': self.c_arg_name(), 'type': self.ctype}
         if self._is_indirect or self._is_mat:
-            val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" % \
-                   {'name': self.c_map_name()}
-        if self._is_mat:
-            val += ";\nint *%(name)s2 = (int *)(((PyArrayObject *)_%(name)s2)->data)" % \
-                {'name': self.c_map_name()}
+            for idx, _ in enumerate(as_tuple(self.map, Map)):
+                val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" % \
+                       {'name': self.c_map_name(idx)}
         if self._is_vec_map:
             val += self.c_vec_dec()
         return val
@@ -162,12 +158,12 @@ class Arg(base.Arg):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].arity
         ncols = maps[1].arity
-        rows_str = "%s + i * %s" % (self.c_map_name(), nrows)
-        cols_str = "%s2 + i * %s" % (self.c_map_name(), ncols)
+        rows_str = "%s + i * %s" % (self.c_map_name(0), nrows)
+        cols_str = "%s + i * %s" % (self.c_map_name(1), ncols)
 
         if extruded is not None:
-            rows_str = "%s" % (extruded + self.c_map_name())
-            cols_str = "%s2" % (extruded + self.c_map_name())
+            rows_str = extruded + self.c_map_name(0)
+            cols_str = extruded + self.c_map_name(1)
 
         return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
             {'mat': self.c_arg_name(),
@@ -192,12 +188,12 @@ class Arg(base.Arg):
                 val = "&%s%s" % (self.c_kernel_arg_name(), idx)
                 row = "%(m)s * %(map)s[i * %(dim)s + i_0] + %(i)s" % \
                       {'m': rmult,
-                       'map': self.c_map_name(),
+                       'map': self.c_map_name(idx=0),
                        'dim': nrows,
                        'i': i}
-                col = "%(m)s * %(map)s2[i * %(dim)s + i_1] + %(j)s" % \
+                col = "%(m)s * %(map)s[i * %(dim)s + i_1] + %(j)s" % \
                       {'m': cmult,
-                       'map': self.c_map_name(),
+                       'map': self.c_map_name(idx=1),
                        'dim': ncols,
                        'j': j}
 
@@ -228,14 +224,12 @@ class Arg(base.Arg):
         else:
             raise RuntimeError("Don't know how to zero temp array for %s" % self)
 
-    def c_add_offset(self, layers, count, is_mat):
-        return """
-for(int j=0; j<%(layers)s;j++){
-  %(name)s[j] += _off%(num)s[j] * %(dim)s;
-}""" % {'name': self.c_vec_name() if not is_mat else self.c_kernel_arg_name(),
-            'layers': layers,
-            'num': count,
-            'dim': self.data.cdim}
+    def c_add_offset(self, arity, count, is_mat):
+        return '\n'.join(["%(name)s[%(j)d] += _off%(num)s[%(j)d] * %(dim)s;" %
+                          {'name': self.c_vec_name() if not is_mat else self.c_kernel_arg_name(),
+                           'j': j,
+                           'num': count,
+                           'dim': self.data.cdim} for j in range(arity)])
 
     # New globals generation which avoids false sharing.
     def c_intermediate_globals_decl(self, count):
@@ -275,10 +269,10 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         maps = as_tuple(self.map, Map)
         nrows = maps[0].arity
         ncols = maps[1].arity
-        return "int xtr_%(name)s[%(dim_row)s];\nint xtr_%(name)s2[%(dim_col)s];\n" % \
-            {'name': self.c_map_name(),
-             'dim_row': str(nrows),
-             'dim_col': str(ncols)}
+        return '\n'.join(["int xtr_%(name)s[%(dim_row)s];" %
+                          {'name': self.c_map_name(idx),
+                           'dim_row': nrows,
+                           'dim_col': ncols} for idx in range(2)])
 
     def c_map_decl_itspace(self):
         map = self.map
@@ -287,31 +281,23 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             {'name': self.c_map_name(),
              'dim_row': str(nrows)}
 
-    def c_map_init(self, map, count, map_number):
+    def c_map_init(self, map, count, idx):
         arity = map.arity
-        map_id = ""
-        if map_number == 2:
-            map_id = "2"
         res = "\n"
         for i in range(arity):
-            res += "xtr_%(name)s%(map_id)s[%(ind)s] = *(%(name)s%(map_id)s + i * %(dim)s + %(ind)s) + j_0 * _off%(num)s[%(ind)s];\n" % \
-                {'name': self.c_map_name(),
+            res += "xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);\n" % \
+                {'name': self.c_map_name(idx),
                  'dim': str(arity),
                  'ind': str(i),
-                 'num': str(count),
-                 'map_id': map_id}
+                 'num': str(count)}
         return res
 
-    def c_add_offset_mat(self, map, count, map_number):
+    def c_add_offset_mat(self, map, count, idx):
         arity = map.arity
-        map_id = ""
-        if map_number == 2:
-            map_id = "2"
         res = "\n"
         for i in range(arity):
-            res += "xtr_%(name)s%(map_id)s[%(ind)s] += _off%(num)s[%(ind)s];\n" % \
-                {'name': self.c_map_name(),
-                 'map_id': map_id,
+            res += "xtr_%(name)s[%(ind)s] += _off%(num)s[%(ind)s];\n" % \
+                {'name': self.c_map_name(idx),
                  'num': str(count),
                  'ind': str(i)}
         return res
@@ -457,17 +443,15 @@ class JITModule(base.JITModule):
             count = 0
             for arg in self._args:
                 if arg._uses_itspace or arg._is_vec_map:
-                    maps = as_tuple(arg.map, Map)
-                    map_number = 1
-                    for map in maps:
+                    for map_id, map in enumerate(as_tuple(arg.map, Map)):
                         _off_args += ', ' + c_offset_init(count)
                         _off_inits += ';\n' + c_offset_decl(count)
                         if arg._uses_itspace:
-                            _map_init += '; \n' + arg.c_map_init(map, count, map_number)
+                            _map_init += '; \n' + arg.c_map_init(map, count, map_id)
+                            _apply_offset += ' \n' + arg.c_add_offset_mat(map, count, map_id)
                         else:
                             _apply_offset += ' \n' + arg.c_add_offset(map.offset.size, count, arg._is_mat)
                         count += 1
-                        map_number += 1
 
             _map_decl += ';\n'.join([arg.c_map_decl() for arg in self._args
                                      if arg._is_mat and arg.data._is_scalar_field])
