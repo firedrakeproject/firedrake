@@ -140,6 +140,7 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
                             PyObject* _blkmap,
                             PyObject* _offset,
                             PyObject* _nelems,
+                            %(ssinds_arg)s
                             %(wrapper_args)s
                             %(const_args)s
                             %(off_args)s) {
@@ -149,6 +150,7 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
   int* blkmap = (int *)(((PyArrayObject *)_blkmap)->data);
   int* offset = (int *)(((PyArrayObject *)_offset)->data);
   int* nelems = (int *)(((PyArrayObject *)_nelems)->data);
+  %(ssinds_dec)s
 
   %(wrapper_decs)s;
   %(const_inits)s;
@@ -174,8 +176,9 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
       int bid = blkmap[__b];
       int nelem = nelems[bid];
       int efirst = offset[bid];
-      for (int i = efirst; i < efirst+ nelem; i++ )
+      for (int n = efirst; n < efirst+ nelem; n++ )
       {
+        int i = %(index_expr)s;
         %(vec_inits)s;
         %(map_init)s;
         %(extr_loop)s
@@ -219,7 +222,9 @@ class ParLoop(device.ParLoop, host.ParLoop):
     def _compute(self, part):
         fun = JITModule(self.kernel, self.it_space, *self.args)
         if not hasattr(self, '_jit_args'):
-            self._jit_args = [None, None, None, None, None]
+            self._jit_args = [None] * 5
+            if isinstance(self._it_space._iterset, Subset):
+                self._jit_args.append(self._it_space._iterset._indices)
             for arg in self.args:
                 if arg._is_mat:
                     self._jit_args.append(arg.data.handle.handle)
