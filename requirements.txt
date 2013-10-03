@@ -1,3 +1,4 @@
+git+https://bitbucket.org/mapdes/ffc.git@pyop2#egg=ffc
 hg+https://bitbucket.org/khinsen/scientificpython
 codepy>=2013.1
 pycuda>=2013.1
