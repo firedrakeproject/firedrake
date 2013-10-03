@@ -62,7 +62,8 @@ __global__ void {{ parloop._stub_name }} (
     {%- endfor %}
 
     {%- for arg in parloop._all_non_inc_vec_map_args %}
-    {{arg.ctype}} *{{arg._vec_name}}[{{arg.map.arity}}];
+    {%- set cdim = arg.data.dataset.cdim if arg._flatten else 1 %}
+    {{arg.ctype}} *{{arg._vec_name}}[{{arg.map.arity * cdim}}];
     {%- endfor %}
 
     {% for arg in parloop._all_global_reduction_args %}
@@ -130,9 +131,17 @@ __global__ void {{ parloop._stub_name }} (
         if ( idx < nelem ) {
         {%- endif %}
             {%- for arg in parloop._all_non_inc_vec_map_args %}
+            {%- if arg._flatten %}
+            {%- for j in range(arg.data.dataset.cdim) %}
+            {%- for i in range(arg.map.arity) %}
+            {{arg._vec_name}}[{{j * arg.map.arity + i}}] = {{arg._shared_name}} + loc_map[{{arg._which_indirect + i}}*set_size + idx + offset_b]*{{arg.data.cdim}} + {{j}};
+            {%- endfor -%}
+            {%- endfor -%}
+            {%- else %}
             {%- for i in range(arg.map.arity) %}
             {{arg._vec_name}}[{{i}}] = {{arg._shared_name}} + loc_map[{{arg._which_indirect + i}}*set_size + idx + offset_b]*{{arg.data.cdim}};
             {%- endfor -%}
+            {% endif %}
             {%- endfor %}
             // initialise locals
             {% for arg in parloop._all_inc_non_vec_map_indirect_dat_args %}

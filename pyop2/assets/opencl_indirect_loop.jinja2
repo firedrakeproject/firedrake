@@ -28,13 +28,21 @@
 {%- macro populate_vec_map(arg) -%}
 // populate vec map
 {%- if(arg._is_indirect_reduction) -%}
-{%- for i in range(arg.map.arity) %}
+  {%- for i in range(arg.map.arity) %}
 {{ arg._vec_name }}[{{ i }}] = {{ arg._local_name(idx=i) }};
-{% endfor -%}
+  {% endfor -%}
 {%- else -%}
-{%- for i in range(arg.map.arity) %}
-{{ arg._vec_name }}[{{ i }}] = &{{ arg._shared_name }}[p_loc_map[i_1 + {{arg._which_indirect + i}}*set_size + offset_b] * {{ arg.data.cdim }}];
-{%- endfor -%}
+  {%- if arg._flatten %}
+    {%- for j in range(arg.data.dataset.cdim) %}
+      {%- for i in range(arg.map.arity) %}
+{{ arg._vec_name }}[{{ j * arg.map.arity + i }}] = {{ arg._shared_name }} + p_loc_map[i_1 + {{arg._which_indirect + i}}*set_size + offset_b] * {{ arg.data.cdim }} + {{ j }};
+      {%- endfor -%}
+    {%- endfor -%}
+  {%- else %}
+    {%- for i in range(arg.map.arity) %}
+{{ arg._vec_name }}[{{ i }}] = {{ arg._shared_name }} + p_loc_map[i_1 + {{arg._which_indirect + i}}*set_size + offset_b] * {{ arg.data.cdim }};
+    {%- endfor -%}
+  {%- endif -%}
 {%- endif -%}
 {%- endmacro -%}
 
@@ -192,13 +200,15 @@ void {{ parloop._stub_name }}(
   __local {{ arg.data._cl_type }}* __local {{ arg._shared_name }};
 {%- endfor %}
 {% for arg  in parloop._all_non_inc_vec_map_args %}
-  __local {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.arity }}];
+  {%- set cdim = arg.data.dataset.cdim if arg._flatten else 1 %}
+  __local {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.arity * cdim }}];
 {%- endfor %}
 {% for arg in parloop._all_inc_vec_map_args %}
   {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.arity }}];
 {%- endfor %}
 {% for arg in parloop._all_non_inc_itspace_dat_args %}
-  __local {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.arity }}];
+  {%- set cdim = arg.data.dataset.cdim if arg._flatten else 1 %}
+  __local {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.arity * cdim }}];
 {%- endfor %}
 {% for arg in parloop._all_inc_itspace_dat_args %}
   {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.arity }}];

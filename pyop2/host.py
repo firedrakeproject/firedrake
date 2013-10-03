@@ -41,8 +41,6 @@ from base import *
 from utils import as_tuple
 import configuration as cfg
 
-_max_threads = 32
-
 
 class Arg(base.Arg):
 
@@ -66,14 +64,11 @@ class Arg(base.Arg):
         return val
 
     def c_vec_dec(self):
-        val = []
-        if self._is_vec_map:
-            val.append(";\n%(type)s *%(vec_name)s[%(arity)s]" %
-                       {'type': self.ctype,
-                        'vec_name': self.c_vec_name(),
-                        'arity': self.map.arity,
-                        'max_threads': _max_threads})
-        return ";\n".join(val)
+        cdim = self.data.dataset.cdim if self._flatten else 1
+        return ";\n%(type)s *%(vec_name)s[%(arity)s]" % \
+            {'type': self.ctype,
+             'vec_name': self.c_vec_name(),
+             'arity': self.map.arity * cdim}
 
     def c_wrapper_dec(self):
         if self._is_mat:
@@ -90,13 +85,14 @@ class Arg(base.Arg):
             val += self.c_vec_dec()
         return val
 
-    def c_ind_data(self, idx):
-        return "%(name)s + %(map_name)s[i * %(arity)s + %(idx)s] * %(dim)s" % \
+    def c_ind_data(self, idx, j=0):
+        return "%(name)s + %(map_name)s[i * %(arity)s + %(idx)s] * %(dim)s%(off)s" % \
             {'name': self.c_arg_name(),
              'map_name': self.c_map_name(),
              'arity': self.map.arity,
              'idx': idx,
-             'dim': self.data.cdim}
+             'dim': self.data.cdim,
+             'off': ' + %d' % j if j else ''}
 
     def c_ind_data_xtr(self, idx):
         return "%(name)s + xtr_%(map_name)s[%(idx)s] * %(dim)s" % \
@@ -147,11 +143,19 @@ class Arg(base.Arg):
 
     def c_vec_init(self):
         val = []
-        for i in range(self.map.arity):
-            val.append("%(vec_name)s[%(idx)s] = %(data)s" %
-                       {'vec_name': self.c_vec_name(),
-                        'idx': i,
-                        'data': self.c_ind_data(i)})
+        if self._flatten:
+            for j in range(self.data.dataset.cdim):
+                for idx in range(self.map.arity):
+                    val.append("%(vec_name)s[%(idx)s] = %(data)s" %
+                               {'vec_name': self.c_vec_name(),
+                                'idx': j * self.map.arity + idx,
+                                'data': self.c_ind_data(idx, j)})
+        else:
+            for idx in range(self.map.arity):
+                val.append("%(vec_name)s[%(idx)s] = %(data)s" %
+                           {'vec_name': self.c_vec_name(),
+                            'idx': idx,
+                            'data': self.c_ind_data(idx)})
         return ";\n".join(val)
 
     def c_addto_scalar_field(self, extruded):

@@ -141,11 +141,11 @@ def main(opt):
 
     op2.par_loop(laplacian, elements,
                  mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
-                 coords(op2.READ, elem_node))
+                 coords(op2.READ, elem_node, flatten=True))
 
     op2.par_loop(rhs, elements,
                  b(op2.INC, elem_node[op2.i[0]]),
-                 coords(op2.READ, elem_node),
+                 coords(op2.READ, elem_node, flatten=True),
                  f(op2.READ, elem_node),
                  bdry_grad(op2.READ, elem_node))  # argument ignored
 
@@ -153,7 +153,7 @@ def main(opt):
 
     op2.par_loop(weak, top_bdry_elements,
                  b(op2.INC, top_bdry_elem_node[op2.i[0]]),
-                 coords(op2.READ, top_bdry_elem_node),
+                 coords(op2.READ, top_bdry_elem_node, flatten=True),
                  f(op2.READ, top_bdry_elem_node),  # argument ignored
                  bdry_grad(op2.READ, top_bdry_elem_node),
                  facet(op2.READ))

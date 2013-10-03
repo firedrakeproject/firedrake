@@ -54,6 +54,7 @@ def test_mass2d_triangle(backend, unstructured_square):
     assert np.linalg.norm(f - x) / np.linalg.norm(f) < 1e-6
 
 
+@pytest.mark.xfail
 def test_mass_vector_ffc(backend):
     from demo.mass_vector_ffc import main, parser
     f, x = main(vars(parser.parse_args(['-r'])))

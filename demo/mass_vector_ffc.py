@@ -93,13 +93,13 @@ def main(opt):
     # Assemble and solve
 
     op2.par_loop(mass, elements,
-                 mat(op2.INC, (elem_vnode[op2.i[0]], elem_vnode[op2.i[1]])),
-                 coords(op2.READ, elem_vnode))
+                 mat(op2.INC, (elem_vnode[op2.i[0]], elem_vnode[op2.i[1]]), flatten=True),
+                 coords(op2.READ, elem_vnode, flatten=True))
 
     op2.par_loop(rhs, elements,
-                 b(op2.INC, elem_vnode[op2.i[0]]),
-                 coords(op2.READ, elem_vnode),
-                 f(op2.READ, elem_vnode))
+                 b(op2.INC, elem_vnode[op2.i[0]], flatten=True),
+                 coords(op2.READ, elem_vnode, flatten=True),
+                 f(op2.READ, elem_vnode, flatten=True))
 
     solver = op2.Solver()
     solver.solve(mat, x, b)
