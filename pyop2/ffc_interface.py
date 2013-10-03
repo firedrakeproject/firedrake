@@ -46,6 +46,7 @@ from ffc.log import set_level, ERROR
 
 from caching import DiskCached
 from op2 import Kernel
+from mpi import MPI
 
 _form_cache = {}
 
@@ -104,5 +105,5 @@ def compile_form(form, name):
     return FFCKernel(form, name).kernels
 
 _check_version()
-if not os.path.exists(FFCKernel._cachedir):
+if not os.path.exists(FFCKernel._cachedir) and MPI.comm.rank == 0:
     os.makedirs(FFCKernel._cachedir)
