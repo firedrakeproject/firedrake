@@ -60,6 +60,7 @@ ${PIP} \
   bzr+http://bazaar.launchpad.net/~florian-rathgeber/ufc/python-setup#egg=ufc_utils \
   git+https://bitbucket.org/fenics-project/ufl#egg=ufl \
   git+https://bitbucket.org/fenics-project/fiat#egg=fiat \
+  git+https://bitbucket.org/fenics-project/instant#egg=instant \
   hg+https://bitbucket.org/khinsen/scientificpython >> $LOGFILE 2>&1
 
 echo "*** Installing PyOP2 ***" | tee -a $LOGFILE
