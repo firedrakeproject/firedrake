@@ -85,7 +85,7 @@ setup_requires = [
 
 install_requires = [
     'decorator',
-    'instant>=1.0',
+    'instant>=1.2',
     'mpi4py',
     'numpy>=1.6',
     'PyYAML',

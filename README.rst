@@ -92,7 +92,7 @@ Common dependencies:
 
 * Cython >= 0.17 
 * decorator 
-* instant >= 1.0 
+* instant >= 1.2 
 * numpy >= 1.6 
 * PETSc_ >= 3.3 with Fortran interface, C++ and OpenMP support
 * PETSc4py_ >= 3.4
