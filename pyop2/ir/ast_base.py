@@ -83,7 +83,7 @@ class ArrayInit(Expr):
         return self.values
 
 
-class Parentheses(UnExpr):
+class Par(UnExpr):
 
     def gencode(self):
         return util["wrap"](self.children[0].gencode())
@@ -99,6 +99,12 @@ class Prod(BinExpr):
 
     def __init__(self, expr1, expr2):
         BinExpr.__init__(self, expr1, expr2, " * ")
+
+
+class Div(BinExpr):
+
+    def __init__(self, expr1, expr2):
+        BinExpr.__init__(self, expr1, expr2, " / ")
 
 
 class Less(BinExpr):
