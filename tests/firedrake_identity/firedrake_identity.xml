@@ -1,0 +1,22 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>identity</name>
+  <owner userid="dham"/>
+  <tags>firedrake</tags>
+  <problem_definition length="short" nprocs="1">
+    <command_line>true</command_line>
+  </problem_definition>
+  <variables>
+    <variable name="error" language="python">
+import test_firedrake_identity as test
+error = test.run_test()
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="Error inf norm. degree 1" language="python">assert error[0] &lt; 1.0e-15</test>
+    <test name="Error inf norm. degree 2" language="python">assert error[1] &lt; 1.0e-6</test>
+    <test name="Error inf norm. degree 3" language="python">assert error[2] &lt; 1.0e-6</test>
+    <test name="Error inf norm. degree 4" language="python">assert error[3] &lt; 1.0e-5</test>
+  </pass_tests>
+  <warn_tests/>
+</testproblem>

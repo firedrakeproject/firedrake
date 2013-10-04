@@ -1,0 +1,34 @@
+#!/bin/bash
+# Attempt to determine the version of Fluidity
+
+# In order this looks at:
+#  - The PACKAGE_VERSION environment variable
+#  - the configure-time variable FLUIDITY_VERSION
+#  - bzr (asking for the branch nickname and revno)
+
+# Usage:
+# bin/version-info [FILENAME]
+#   If FILENAME is not specified, print determination of fluidity
+#   version to stdout.
+#   Otherwise, write the fluidity version as C #defines to FILENAME.
+#   The file is only written to if the version existing in the file
+#   differs from the one we've just figured out.
+
+if [ x"$PACKAGE_VERSION" = x"" ]; then
+    if [ "@FLUIDITY_VERSION@" = "" ]; then
+        PACKAGE_VERSION=`bzr version-info --custom --template='{branch_nick}.{revno}'`
+    else
+        PACKAGE_VERSION="@FLUIDITY_VERSION@"
+    fi
+fi
+
+if [ x"$@" = x"" ]; then
+    echo $PACKAGE_VERSION
+else
+    grep "\"${PACKAGE_VERSION}\"" $@ >/dev/null 2>&1 ||
+    (printf "#ifndef _FLUIDITY_VERSION_H\n\
+#define _FLUIDITY_VERSION_H\n\
+#define __FLUIDITY_VERSION__ \"${PACKAGE_VERSION}\"\n\
+#endif /* _FLUIDITY_VERSION_H */\n" > $@ &&
+    echo "DEFINE __FLUIDITY_VERSION__")
+fi

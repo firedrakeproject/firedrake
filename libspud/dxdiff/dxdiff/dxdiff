@@ -1,0 +1,87 @@
+#!/usr/bin/env python
+
+#    This file is part of dxdiff.
+#
+#    dxdiff is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    dxdiff is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with Diamond.  If not, see <http://www.gnu.org/licenses/>.
+
+from getopt import getopt
+import sys
+import os
+from lxml import etree
+from diff import diff
+
+def __display_help():
+  """
+  Prints usage information to standard output.
+  """
+
+  print "\n".join(["Usage: dxdiff [OPTIONS] ... [FILE1] [FILE2]",
+                   "",
+                   "An XML aware diff tool. [FILE1] and [FILE2] are the XML files to be compared.",
+                   "[FILE1] should be the old file.",
+                   "",
+                   "Options:",
+                   ""
+                   "-h               Display this message",
+                   ""])
+
+def __main():
+  """
+  Main routine to run dxdiff
+  """
+
+  try:
+    opts, args = getopt(sys.argv[1:], "hso:")
+  except:
+    __display_help()
+    sys.exit(1)
+
+  if len(args) != 2:
+    __display_help()
+    sys.exit(1)
+
+  if ("h", "") in opts:
+    __display_help()
+
+  output_file = None
+  for opt in opts:
+    if opt[0] == "-o":
+      output_file = opt[1]
+
+  file1 = args[0]
+  file2 = args[1]
+
+  try:
+    os.stat(file1)
+  except OSError:
+    print "Could not find " + file1 + "!"
+    sys.exit(1)
+
+  try:
+    os.stat(file2)
+  except OSError:
+    print "Could not find " + file2 + "!"
+    sys.exit(1)
+
+  xmlold = etree.parse(file1)
+  xmlnew = etree.parse(file2)
+
+  editscript = diff(xmlold, xmlnew)
+  if ("s", "") not in opts:
+    print editscript
+  if output_file is not None:
+    editscript.write(output_file)
+
+if __name__ == "__main__":
+  __main()

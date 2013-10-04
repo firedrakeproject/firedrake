@@ -1,0 +1,382 @@
+<?xml version='1.0' encoding='utf-8'?>
+<fluidity_options>
+  <simulation_name>
+    <string_value lines="1">explicit-hyperc-superman-conservative</string_value>
+  </simulation_name>
+  <problem_type>
+    <string_value lines="1">multimaterial</string_value>
+  </problem_type>
+  <geometry>
+    <dimension>
+      <integer_value rank="0">2</integer_value>
+    </dimension>
+    <mesh name="CoordinateMesh">
+      <from_file file_name="2d_square">
+        <format name="triangle"/>
+        <stat>
+          <include_in_stat/>
+        </stat>
+      </from_file>
+    </mesh>
+    <mesh name="VelocityMesh">
+      <from_mesh>
+        <mesh name="CoordinateMesh"/>
+        <mesh_shape>
+          <polynomial_degree>
+            <integer_value rank="0">0</integer_value>
+          </polynomial_degree>
+        </mesh_shape>
+        <mesh_continuity>
+          <string_value>discontinuous</string_value>
+        </mesh_continuity>
+        <stat>
+          <exclude_from_stat/>
+        </stat>
+      </from_mesh>
+    </mesh>
+    <mesh name="PressureMesh">
+      <from_mesh>
+        <mesh name="CoordinateMesh"/>
+        <stat>
+          <exclude_from_stat/>
+        </stat>
+      </from_mesh>
+    </mesh>
+    <quadrature>
+      <degree>
+        <integer_value rank="0">1</integer_value>
+      </degree>
+      <controlvolume_surface_degree>
+        <integer_value rank="0">1</integer_value>
+      </controlvolume_surface_degree>
+    </quadrature>
+  </geometry>
+  <io>
+    <dump_format>
+      <string_value>vtk</string_value>
+    </dump_format>
+    <dump_period_in_timesteps>
+      <constant>
+        <integer_value rank="0">100</integer_value>
+      </constant>
+    </dump_period_in_timesteps>
+    <output_mesh name="PressureMesh"/>
+    <checkpointing>
+      <checkpoint_period_in_dumps>
+        <integer_value rank="0">10000000</integer_value>
+        <comment>10</comment>
+      </checkpoint_period_in_dumps>
+      <checkpoint_at_end/>
+    </checkpointing>
+    <stat/>
+  </io>
+  <timestepping>
+    <current_time>
+      <real_value rank="0">0.0</real_value>
+    </current_time>
+    <timestep>
+      <real_value rank="0">0.025</real_value>
+      <comment>this is overwritten by the adaptive timestepping</comment>
+    </timestep>
+    <finish_time>
+      <real_value rank="0">3.0</real_value>
+    </finish_time>
+    <adaptive_timestep>
+      <requested_cfl>
+        <real_value rank="0">0.25</real_value>
+      </requested_cfl>
+      <courant_number name="ControlVolumeCFLNumber">
+        <mesh name="PressureMesh"/>
+      </courant_number>
+      <at_first_timestep/>
+    </adaptive_timestep>
+  </timestepping>
+  <physical_parameters>
+    <gravity>
+      <magnitude>
+        <real_value rank="0">1.0</real_value>
+      </magnitude>
+      <vector_field name="GravityDirection" rank="1">
+        <prescribed>
+          <mesh name="CoordinateMesh"/>
+          <value name="WholeMesh">
+            <constant>
+              <real_value shape="2" dim1="dim" rank="1">1.0 2.0</real_value>
+            </constant>
+          </value>
+          <output/>
+          <stat>
+            <include_in_stat/>
+          </stat>
+          <detectors>
+            <exclude_from_detectors/>
+          </detectors>
+        </prescribed>
+      </vector_field>
+    </gravity>
+  </physical_parameters>
+  <material_phase name="Material1">
+    <equation_of_state>
+      <fluids>
+        <linear>
+          <reference_density>
+            <real_value rank="0">1.0</real_value>
+          </reference_density>
+        </linear>
+      </fluids>
+    </equation_of_state>
+    <scalar_field name="Density" rank="0">
+      <diagnostic>
+        <algorithm name="Internal" material_phase_support="multiple"/>
+        <mesh name="PressureMesh"/>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+      </diagnostic>
+    </scalar_field>
+    <vector_field name="Velocity" rank="1">
+      <prescribed>
+        <mesh name="VelocityMesh"/>
+        <value name="WholeMesh">
+          <python>
+            <string_value lines="20" type="python">def val(X,t):
+   # Do not remove this comment
+   u =  0.25 * ((4*X[0] - 2) + (4*X[1] - 2)**3)
+   v = -0.25 * ((4*X[1] - 2) + (4*X[0] - 2)**3)
+   return [u, v]</string_value>
+          </python>
+        </value>
+        <output/>
+        <stat>
+          <include_in_stat/>
+        </stat>
+        <detectors>
+          <exclude_from_detectors/>
+        </detectors>
+        <enforce_discrete_properties>
+          <solenoidal>
+            <interpolated_field>
+              <discontinuous>
+                <lump_mass_matrix/>
+              </discontinuous>
+            </interpolated_field>
+            <lagrange_multiplier>
+              <mesh name="PressureMesh"/>
+              <spatial_discretisation>
+                <control_volumes/>
+              </spatial_discretisation>
+              <solver>
+                <iterative_method name="cg"/>
+                <preconditioner name="sor"/>
+                <relative_error>
+                  <real_value rank="0">1.E-12</real_value>
+                </relative_error>
+                <max_iterations>
+                  <integer_value rank="0">10000</integer_value>
+                </max_iterations>
+                <never_ignore_solver_failures/>
+                <diagnostics>
+                  <monitors/>
+                </diagnostics>
+              </solver>
+            </lagrange_multiplier>
+          </solenoidal>
+        </enforce_discrete_properties>
+      </prescribed>
+    </vector_field>
+    <scalar_field name="ControlVolumeCFLNumber" rank="0">
+      <diagnostic>
+        <algorithm name="Internal" material_phase_support="multiple"/>
+        <mesh name="PressureMesh"/>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+      </diagnostic>
+    </scalar_field>
+    <scalar_field name="MaterialVolumeFraction" rank="0">
+      <prognostic>
+        <mesh name="PressureMesh"/>
+        <equation name="AdvectionDiffusion"/>
+        <spatial_discretisation>
+          <control_volumes>
+            <face_value name="HyperC">
+              <project_upwind_value_from_point>
+                <bound_projected_value_locally/>
+                <store_upwind_elements/>
+              </project_upwind_value_from_point>
+              <courant_number name="ControlVolumeCFLNumber"/>
+            </face_value>
+            <diffusion_scheme name="BassiRebay"/>
+          </control_volumes>
+          <conservative_advection>
+            <real_value rank="0">0.0</real_value>
+          </conservative_advection>
+        </spatial_discretisation>
+        <temporal_discretisation>
+          <theta>
+            <real_value rank="0">0.0</real_value>
+          </theta>
+          <control_volumes>
+            <pivot_theta>
+              <real_value rank="0">0.0</real_value>
+            </pivot_theta>
+          </control_volumes>
+        </temporal_discretisation>
+        <explicit/>
+        <initial_condition name="WholeMesh">
+          <python>
+            <string_value lines="20" type="python">def val(X,t):
+	from math import sqrt, pi
+	dx1 = X[0]-0.5
+	dx2 = X[1]-0.5
+	r=sqrt(dx1*dx1+dx2*dx2)
+	if (r&lt;=(0.25)):
+		return 1.0
+	else:
+		return 0.0</string_value>
+          </python>
+        </initial_condition>
+        <boundary_conditions name="LetNoOneLeave">
+          <surface_ids>
+            <integer_value shape="4" rank="1">7 8 9 10</integer_value>
+          </surface_ids>
+          <type name="zero_flux"/>
+        </boundary_conditions>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+        <consistent_interpolation/>
+      </prognostic>
+    </scalar_field>
+    <scalar_field name="AnalyticalMaterialVolumeFraction" rank="0">
+      <prescribed>
+        <mesh name="PressureMesh"/>
+        <value name="WholeMesh">
+          <python>
+            <string_value lines="20" type="python">def val(X,t):
+	from math import sqrt, pi
+	dx1 = X[0]-0.5
+	dx2 = X[1]-0.5
+	r=sqrt(dx1*dx1+dx2*dx2)
+	if (r&lt;=(0.25)):
+		return 1.0
+	else:
+		return 0.0</string_value>
+          </python>
+        </value>
+        <output/>
+        <stat/>
+        <detectors>
+          <exclude_from_detectors/>
+        </detectors>
+      </prescribed>
+    </scalar_field>
+    <scalar_field name="ScalarAbsoluteDifference" rank="0">
+      <diagnostic field_name_b="MaterialVolumeFraction" field_name_a="AnalyticalMaterialVolumeFraction">
+        <algorithm name="Internal" material_phase_support="multiple"/>
+        <mesh name="PressureMesh"/>
+        <output/>
+        <stat>
+          <include_cv_stats/>
+        </stat>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+      </diagnostic>
+    </scalar_field>
+    <scalar_field name="ControlVolumeDivergence" rank="0">
+      <diagnostic field_name="Velocity">
+        <algorithm name="Internal" material_phase_support="multiple"/>
+        <mesh name="PressureMesh"/>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+      </diagnostic>
+    </scalar_field>
+    <tensor_field name="DummyTensor" rank="2">
+      <prescribed>
+        <mesh name="CoordinateMesh"/>
+        <value name="WholeMesh">
+          <anisotropic_asymmetric>
+            <constant>
+              <real_value symmetric="false" dim2="dim" shape="2 2" dim1="dim" rank="2">1.0 2.0 3.0 4.0</real_value>
+            </constant>
+          </anisotropic_asymmetric>
+        </value>
+        <output/>
+      </prescribed>
+    </tensor_field>
+  </material_phase>
+  <material_phase name="Material2">
+    <equation_of_state>
+      <fluids>
+        <linear>
+          <reference_density>
+            <real_value rank="0">1.0</real_value>
+          </reference_density>
+        </linear>
+      </fluids>
+    </equation_of_state>
+    <scalar_field name="Density" rank="0">
+      <aliased material_phase_name="Material1" field_name="Density"/>
+    </scalar_field>
+    <vector_field name="Velocity" rank="1">
+      <aliased material_phase_name="Material1" field_name="Velocity"/>
+    </vector_field>
+    <scalar_field name="MaterialVolumeFraction" rank="0">
+      <diagnostic>
+        <algorithm name="Internal" material_phase_support="multiple"/>
+        <mesh name="PressureMesh"/>
+        <output/>
+        <stat/>
+        <convergence>
+          <include_in_convergence/>
+        </convergence>
+        <detectors>
+          <include_in_detectors/>
+        </detectors>
+        <steady_state>
+          <include_in_steady_state/>
+        </steady_state>
+      </diagnostic>
+    </scalar_field>
+  </material_phase>
+</fluidity_options>

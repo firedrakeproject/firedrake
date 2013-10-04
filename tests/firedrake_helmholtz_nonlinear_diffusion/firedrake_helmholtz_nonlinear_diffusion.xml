@@ -1,0 +1,23 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>Helmholtz problem with variable diffusion constant</name>
+  <owner userid="wence"/>
+  <tags>firedrake</tags>
+  <problem_definition length="short" nprocs="1">
+    <command_line>true</command_line>
+  </problem_definition>
+  <variables>
+    <variable name="l2_diff" language="python">
+import test_firedrake_helmholtz_nonlinear_diffusion as test
+l2_diff = test.l2_diff
+    </variable>
+    <variable name="l2_conv" language="python">
+import test_firedrake_helmholtz_nonlinear_diffusion as test
+l2_conv = test.l2_conv
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="L2 error convergence" language="python">assert (l2_conv &gt; 1.8).all()</test>
+  </pass_tests>
+  <warn_tests/>
+</testproblem>

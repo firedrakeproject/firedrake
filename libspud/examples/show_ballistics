@@ -1,0 +1,35 @@
+#!/usr/bin/python
+from optparse import OptionParser
+import sys
+import numpy
+import pylab
+
+# Script starts here.
+optparser=OptionParser(usage='usage: %prog  <filename.csv>',
+                       add_help_option=True,
+                       description="""This plots the result of a ballistics simulation """)
+
+(options, argv) = optparser.parse_args()
+
+if len(argv)!=1:
+    optparser.print_help()
+    sys.exit(1)
+
+output=file(argv[0], 'r')
+
+header=output.readline().split(",")
+
+column_count=len(header)
+
+projectile_count=(column_count-1)/2
+
+data=numpy.fromfile(output, sep=",")
+
+data=data.reshape(data.size/column_count, column_count)
+
+for i in range(projectile_count):
+    pylab.plot(data[:,2*(i+1)-1], data[:,2*(i+1)],'+-')
+
+pylab.legend([field[:-2] for field in header[1::2]])
+
+pylab.show()

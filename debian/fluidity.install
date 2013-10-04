@@ -1,0 +1,4 @@
+usr/bin/*
+usr/share/doc/*
+usr/share/diamond/schemata/*
+usr/share/fluidity/*

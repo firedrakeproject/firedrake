@@ -1,0 +1,391 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">
+  <!--
+    Any value in the xml file can be accompanied by a comment
+    displayed together in the gui.
+  -->
+  <define name="comment">
+    <optional>
+      <element name="comment">
+        <data type="string"/>
+      </element>
+    </optional>
+  </define>
+  <!-- A simple string -->
+  <define name="anystring">
+    <element name="string_value">
+      <!--
+        Lines is a hint to the gui about the size of the text box.
+        It is not an enforced limit on string length.
+      -->
+      <attribute name="lines">
+        <value>1</value>
+      </attribute>
+      <data type="string"/>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <!-- a filename for which the gui -->
+  <define name="filename">
+    <element name="string_value">
+      <attribute name="type">
+        <value>filename</value>
+      </attribute>
+      <!--
+        Lines is a hint to the gui about the size of the text box.
+        It is not an enforced limit on string length.
+      -->
+      <attribute name="lines">
+        <value>1</value>
+      </attribute>
+      <data type="string"/>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <!-- python_code is just a long string -->
+  <define name="python_code">
+    <element name="string_value">
+      <attribute name="type">
+        <value>code</value>
+      </attribute>
+      <attribute name="language">
+        <value>python</value>
+      </attribute>
+      <!--
+        Lines is a hint to the gui about the size of the text box.
+        It is not an enforced limit on string length.
+      -->
+      <attribute name="lines">
+        <value>20</value>
+      </attribute>
+      <data type="string"/>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <define name="integer">
+    <element name="integer_value">
+      <attribute name="rank">
+        <value>0</value>
+      </attribute>
+      <list>
+        <data type="integer"/>
+      </list>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <!-- an integer vector of any length -->
+  <define name="integer_vector">
+    <element name="integer_value">
+      <attribute name="rank">
+        <value>1</value>
+      </attribute>
+      <attribute name="shape">
+        <data type="integer"/>
+      </attribute>
+      <list>
+        <oneOrMore>
+          <data type="integer"/>
+        </oneOrMore>
+      </list>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <!-- an integer tensor of any shape -->
+  <define name="integer_tensor">
+    <element name="integer_value">
+      <attribute name="rank">
+        <value>2</value>
+      </attribute>
+      <attribute name="shape">
+        <list>
+          <data type="integer"/>
+          <data type="integer"/>
+        </list>
+      </attribute>
+      <list>
+        <oneOrMore>
+          <data type="integer"/>
+        </oneOrMore>
+      </list>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <!-- An integer vector of length dim -->
+  <define name="integer_dim_vector">
+    <element name="integer_value">
+      <attribute name="rank">
+        <value>1</value>
+      </attribute>
+      <!--
+        Setting dim1 to a function of dim allows the gui to set the
+        vector to the right length.
+      -->
+      <attribute name="dim1">
+        <value>dim</value>
+      </attribute>
+      <attribute name="shape">
+        <data type="integer"/>
+      </attribute>
+      <list>
+        <oneOrMore>
+          <data type="integer"/>
+        </oneOrMore>
+      </list>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <!-- An dim x dim integer matrix (rank 2 tensor). -->
+  <define name="integer_dim_tensor">
+    <element name="integer_value">
+      <attribute name="rank">
+        <value>2</value>
+      </attribute>
+      <!--
+        Setting dim1, dim2 to a function of dim allows the gui to set the
+        tensor to the right shape.
+      -->
+      <attribute name="dim1">
+        <value>dim</value>
+      </attribute>
+      <attribute name="dim2">
+        <value>dim</value>
+      </attribute>
+      <attribute name="shape">
+        <list>
+          <data type="integer"/>
+          <data type="integer"/>
+        </list>
+      </attribute>
+      <list>
+        <oneOrMore>
+          <data type="integer"/>
+        </oneOrMore>
+      </list>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <define name="real">
+    <element name="real_value">
+      <attribute name="rank">
+        <value>0</value>
+      </attribute>
+      <list>
+        <data type="float"/>
+      </list>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <!-- An arbitrary length real vector -->
+  <define name="real_vector">
+    <element name="real_value">
+      <attribute name="rank">
+        <value>1</value>
+      </attribute>
+      <attribute name="shape">
+        <data type="integer"/>
+      </attribute>
+      <list>
+        <oneOrMore>
+          <data type="float"/>
+        </oneOrMore>
+      </list>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <!-- An arbitrary size real matrix (rank 2 tensor). -->
+  <define name="real_tensor">
+    <element name="real_value">
+      <attribute name="rank">
+        <value>2</value>
+      </attribute>
+      <attribute name="shape">
+        <list>
+          <data type="integer"/>
+          <data type="integer"/>
+        </list>
+      </attribute>
+      <list>
+        <oneOrMore>
+          <data type="float"/>
+        </oneOrMore>
+      </list>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <!-- A real vector of length dim -->
+  <define name="real_dim_vector">
+    <element name="real_value">
+      <attribute name="rank">
+        <value>1</value>
+      </attribute>
+      <!--
+        Setting dim1 to a function of dim allows the gui to set the
+        vector to the right length.
+      -->
+      <attribute name="dim1">
+        <value>dim</value>
+      </attribute>
+      <attribute name="shape">
+        <data type="integer"/>
+      </attribute>
+      <list>
+        <oneOrMore>
+          <data type="float"/>
+        </oneOrMore>
+      </list>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <!-- A real vector of length dim minus one -->
+  <define name="real_dim_minus_one_vector">
+    <element name="real_value">
+      <attribute name="rank">
+        <value>1</value>
+      </attribute>
+      <!--
+        Setting dim1 to a function of dim allows the gui to set the
+        vector to the right length.
+      -->
+      <attribute name="dim1">
+        <value>dim-1</value>
+      </attribute>
+      <attribute name="shape">
+        <data type="integer"/>
+      </attribute>
+      <list>
+        <oneOrMore>
+          <data type="float"/>
+        </oneOrMore>
+      </list>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <!-- A dim x dim real matrix (rank 2 tensor). -->
+  <define name="real_dim_tensor">
+    <element name="real_value">
+      <attribute name="symmetric">
+        <value>false</value>
+      </attribute>
+      <attribute name="rank">
+        <value>2</value>
+      </attribute>
+      <!--
+        Setting dim1, dim2 to a function of dim allows the gui to set the
+        tensor to the right shape.
+      -->
+      <attribute name="dim1">
+        <value>dim</value>
+      </attribute>
+      <attribute name="dim2">
+        <value>dim</value>
+      </attribute>
+      <attribute name="shape">
+        <list>
+          <data type="integer"/>
+          <data type="integer"/>
+        </list>
+      </attribute>
+      <list>
+        <oneOrMore>
+          <data type="float"/>
+        </oneOrMore>
+      </list>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <!-- A dim x dim real matrix (rank 2 tensor) constrained to be symmetric. -->
+  <define name="real_dim_symmetric_tensor">
+    <element name="real_value">
+      <attribute name="symmetric">
+        <value>true</value>
+      </attribute>
+      <attribute name="rank">
+        <value>2</value>
+      </attribute>
+      <attribute name="dim1">
+        <value>dim</value>
+      </attribute>
+      <attribute name="dim2">
+        <value>dim</value>
+      </attribute>
+      <attribute name="shape">
+        <list>
+          <data type="integer"/>
+          <data type="integer"/>
+        </list>
+      </attribute>
+      <list>
+        <oneOrMore>
+          <data type="float"/>
+        </oneOrMore>
+      </list>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <!-- A dim-1 x dim-1 real matrix (rank 2 tensor). -->
+  <define name="real_dim_minus_one_tensor">
+    <element name="real_value">
+      <attribute name="symmetric">
+        <value>false</value>
+      </attribute>
+      <attribute name="rank">
+        <value>2</value>
+      </attribute>
+      <!--
+        Setting dim1, dim2 to a function of dim allows the gui to set the
+        tensor to the right shape.
+      -->
+      <attribute name="dim1">
+        <value>dim-1</value>
+      </attribute>
+      <attribute name="dim2">
+        <value>dim-1</value>
+      </attribute>
+      <attribute name="shape">
+        <list>
+          <data type="integer"/>
+          <data type="integer"/>
+        </list>
+      </attribute>
+      <list>
+        <oneOrMore>
+          <data type="float"/>
+        </oneOrMore>
+      </list>
+    </element>
+    <ref name="comment"/>
+  </define>
+  <!-- A dim-1 x dim-1 real matrix (rank 2 tensor) constrained to be symmetric. -->
+  <define name="real_dim_minus_one_symmetric_tensor">
+    <element name="real_value">
+      <attribute name="symmetric">
+        <value>true</value>
+      </attribute>
+      <attribute name="rank">
+        <value>2</value>
+      </attribute>
+      <!--
+        Setting dim1, dim2 to a function of dim allows the gui to set the
+        tensor to the right shape.
+      -->
+      <attribute name="dim1">
+        <value>dim-1</value>
+      </attribute>
+      <attribute name="dim2">
+        <value>dim-1</value>
+      </attribute>
+      <attribute name="shape">
+        <list>
+          <data type="integer"/>
+          <data type="integer"/>
+        </list>
+      </attribute>
+      <list>
+        <oneOrMore>
+          <data type="float"/>
+        </oneOrMore>
+      </list>
+    </element>
+    <ref name="comment"/>
+  </define>
+</grammar>

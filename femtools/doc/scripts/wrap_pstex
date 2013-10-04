@@ -1,0 +1,30 @@
+#!/usr/bin/python
+import sys
+
+try:
+    filename=sys.argv[1]
+except:
+    sys.stderr.write("Missing pstex_t filename\n")
+    sys.exit(1)
+
+header=r"""\documentclass{article}
+
+\usepackage{graphicx,color}
+\pagestyle{empty}
+\input{notation}
+
+\begin{document}
+
+  \input{"""
+
+footer=r"""}
+
+\end{document}
+"""
+
+outfile=file(filename[:-8]+".tex","w")
+
+outfile.write(header+filename+footer)
+
+outfile.close()
+

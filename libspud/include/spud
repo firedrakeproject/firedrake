@@ -1,0 +1,553 @@
+/*  Copyright (C) 2006 Imperial College London and others.
+
+    Please see the AUTHORS file in the main source directory for a full list
+    of copyright holders.
+
+    Prof. C Pain
+    Applied Modelling and Computation Group
+    Department of Earth Science and Engineering
+    Imperial College London
+
+    C.Pain@Imperial.ac.uk
+
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation,
+    version 2.1 of the License.
+
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
+    USA
+*/
+
+#ifndef SPUD_H
+#define SPUD_H
+
+#include <algorithm>
+#include <cassert>
+#include <deque>
+#include <iostream>
+#include <limits>
+#include <map>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "tinyxml.h"
+
+#include "spud_enums.h"
+
+namespace Spud{
+
+  typedef char logical_t;
+
+  class OptionManager{
+
+    public:
+
+      static void clear_options();
+      static void* get_manager();
+      static void set_manager(void* m);
+
+      static OptionError load_options(const std::string& filename);
+      static OptionError write_options(const std::string& filename);
+
+      static OptionError get_child_name(const std::string& key, const unsigned& index, std::string& child_name);
+
+      static OptionError get_number_of_children(const std::string& key, int& child_count);
+
+      static int option_count(const std::string& key);
+
+      static logical_t have_option(const std::string& key);
+
+      static OptionError get_option_type(const std::string& key, OptionType& type);
+      static OptionError get_option_rank(const std::string& key, int& rank);
+      static OptionError get_option_shape(const std::string& key, std::vector<int>& shape);
+
+      static OptionError get_option(const std::string& key, double& val);
+      static OptionError get_option(const std::string& key, double& val, const double& default_val);
+      static OptionError get_option(const std::string& key, std::vector<double>& val);
+      static OptionError get_option(const std::string& key, std::vector<double>& val, const std::vector<double>& default_val);
+      static OptionError get_option(const std::string& key, std::vector< std::vector<double> >& val);
+      static OptionError get_option(const std::string& key, std::vector< std::vector<double> >& val, const std::vector< std::vector<double> >& default_val);
+
+      static OptionError get_option(const std::string& key, int& val);
+      static OptionError get_option(const std::string& key, int& val, const int& default_val);
+      static OptionError get_option(const std::string& key, std::vector<int>& val);
+      static OptionError get_option(const std::string& key, std::vector<int>& val, const std::vector<int>& default_val);
+      static OptionError get_option(const std::string& key, std::vector< std::vector<int> >& val);
+      static OptionError get_option(const std::string& key, std::vector< std::vector<int> >& val, const std::vector< std::vector<int> >& default_val);
+
+      static OptionError get_option(const std::string& key, std::string& val);
+      static OptionError get_option(const std::string& key, std::string& val, const std::string& default_val);
+
+      static OptionError add_option(const std::string& key);
+
+      static OptionError set_option(const std::string& key, const double& val);
+      static OptionError set_option(const std::string& key, const std::vector<double>& val);
+      static OptionError set_option(const std::string& key, const std::vector< std::vector<double> >& val);
+
+      static OptionError set_option(const std::string& key, const int& val);
+      static OptionError set_option(const std::string& key, const std::vector<int>& val);
+      static OptionError set_option(const std::string& key, const std::vector< std::vector<int> >& val);
+
+      static OptionError set_option(const std::string& key, const std::string& val);
+      static OptionError set_option_attr(const std::string& key, const std::string& val);
+
+      static OptionError set_option_attribute(const std::string& key, const std::string& val);
+
+      static OptionError move_option(const std::string& key1, const std::string& key2);
+      static OptionError copy_option(const std::string& key1, const std::string& key2);
+
+      static OptionError delete_option(const std::string& key);
+
+      static void print_options();
+
+    private:
+
+      OptionManager();
+
+      OptionManager(const OptionManager& manager);
+
+      ~OptionManager();
+
+      OptionManager& operator=(const OptionManager& manager);
+
+      static OptionError check_key(const std::string& key);
+
+      static OptionError check_rank(const std::string& key, const int& rank);
+
+      static OptionError check_type(const std::string& key, const OptionType& type);
+
+      static OptionError check_option(const std::string& key, const OptionType& type, const int& rank);
+
+      static OptionManager manager;
+
+      void reset();
+
+      class Option{
+
+        public:
+
+          Option();
+
+          Option(const Option& inOption);
+
+          Option(std::string name);
+
+          ~Option();
+
+          const Option& operator=(const Option& inOption);
+
+          /**
+            * Read from an XML file with the given filename.
+            * Sets the name of this element to be that of the root element in
+            * the supplied XML file, and adds children to this element
+            * corresponding to the data in the XML file.
+            */
+          OptionError load_options(const std::string& filename);
+          /**
+            * Write out this element and all of its children to an XML file
+            * with the supplied filename.
+            */
+          OptionError write_options(const std::string& filename) const;
+
+          /**
+            * Get the name of this element.
+            */
+          std::string get_name() const;
+
+          /**
+            * Get the attribute status for this element.
+            */
+          logical_t get_is_attribute() const;
+
+          /**
+            * Generate a list containing the names of the children of the
+            * element with the supplied key.
+            */
+          void list_children(const std::string& key, std::deque< std::string >& kids) const;
+
+          /**
+            * Get the child of this element at the supplied key.
+            * Const version.
+            */
+          const Option* get_child(const std::string& key) const;
+          /**
+            * Get the child of this element at the supplied key.
+            * Non-const version - checks that the child exists, and if it does
+            * finds it with create_child.
+            */
+          Option* get_child(const std::string& key);
+
+          /** Counts the number of elements with this key.
+           */
+          size_t count(const std::string& key) const;
+
+          /** Finds first element with this key.
+           */
+          std::deque< std::pair<std::string, Option> >::iterator find(const std::string& key);
+          std::deque< std::pair<std::string, Option> >::const_iterator find(const std::string& key) const;
+
+          /** Finds next element with this key after current iterator.
+           */
+          std::deque< std::pair<std::string, Option> >::iterator
+            find_next(std::deque< std::pair<std::string, Option> >::iterator current, const std::string& key);
+          std::deque< std::pair<std::string, Option> >::const_iterator
+            find_next(std::deque< std::pair<std::string, Option> >::const_iterator current, const std::string& key) const;
+
+          /**
+            * Get the number of elements at the supplied key. Searches all
+            * possible paths matching the given key.
+            */
+          int option_count(const std::string& key) const;
+
+          /**
+            * Test if an element exists at the supplied key.
+            */
+          logical_t have_option(const std::string& key) const;
+
+          /**
+            * Get the type of the data in this element, or the __value child if
+            * it exists.
+            */
+          OptionType get_option_type() const;
+          /**
+            * Get the rank of the data in this element, or the __value child if
+            * it exists.
+            */
+          size_t get_option_rank() const;
+          /**
+            * Get the shape of the data in this element, or the __value child
+            * if it exists.
+            */
+          std::vector<int> get_option_shape() const;
+
+          /**
+            * Get the double data from this element, or from the __value child
+            * if it exists.
+            */
+          OptionError get_option(std::vector<double>& val) const;
+          /**
+            * Get the int data from this element, or from the __value child
+            * if it exists.
+            */
+          OptionError get_option(std::vector<int>& val) const;
+          /**
+            * Get the string data from this element, or from the __value child
+            * if it exists.
+            */
+          OptionError get_option(std::string& val) const;
+
+          /**
+            * Get the double data from the supplied key.
+            */
+          OptionError get_option(const std::string& key, std::vector<double>& val) const;
+          /**
+            * Get the int data from the supplied key.
+            */
+          OptionError get_option(const std::string& key, std::vector<int>& val) const;
+
+          /**
+            * Get the string data from the supplied key.
+            */
+          OptionError get_option(const std::string& key, std::string& val) const;
+
+          /**
+            * Find or add a new element at the supplied key.
+            */
+          OptionError add_option(const std::string& key);
+
+          /**
+            * Set the data in the element, or in the __value child if it
+            * exists, with the supplied double data.
+            */
+          OptionError set_option(const std::vector<double>& val, const int& rank, const std::vector<int>& shape);
+          /**
+            * Set the data in the element, or in the __value child if it
+            * exists, with the supplied int data.
+            */
+          OptionError set_option(const std::vector<int>& val, const int& rank, const std::vector<int>& shape);
+          /**
+            * Set the data in the element, or in the __value child if it
+            * exists, with the supplied string data.
+            */
+          OptionError set_option(const std::string& val);
+
+          /**
+            * Set the data at the supplied key with the supplied double data.
+            */
+          OptionError set_option(const std::string& key, const std::vector<double>& val, const int& rank, const std::vector<int>& shape);
+          /**
+            * Set the data at the supplied key with the supplied int data.
+            */
+          OptionError set_option(const std::string& key, const std::vector<int>& val, const int& rank, const std::vector<int>& shape);
+          /**
+            * Set the data at the supplied key with the supplied string data.
+            */
+          OptionError set_option(const std::string& key, const std::string& val);
+
+          /**
+            * Attempt to set the attribute status for this element.
+            * Only elements with string data and no children may be marked as
+            * attributes.
+            */
+          logical_t set_is_attribute(const logical_t& is_attribute);
+          /**
+            * Set the data at the supplied key with the supplied string data,
+            * and mark the element as an attribute.
+            */
+          OptionError set_attribute(const std::string& key, const std::string& val);
+
+          /*
+           * Move an option.
+           */
+          OptionError move_option(const std::string& key1, const std::string& key2);
+
+          /*
+           * Copy an option.
+           */
+          OptionError copy_option(const std::string& key1, const std::string& key2);
+
+          /**
+            * Delete the element at the supplied key.
+            */
+          OptionError delete_option(const std::string& key);
+
+          /**
+            * Print this element to standard output.
+            */
+          void print(const std::string& prefix = "") const;
+
+          /**
+            * Turn on verbosity for this element (used for debugging only).
+            */
+          void verbose_on();
+          /**
+            * Turn off verbosity for this element.
+            */
+          void verbose_off();
+
+        private:
+
+          /**
+            * Finds or creates a new child at the supplied key, and returns
+            * that child.
+            * If the parent of a created child is marked as an attribute,
+            * unmarks it.
+            */
+          Option* create_child(const std::string& key);
+
+          /**
+            * Set the rank and shape for the data in this element.
+            */
+          OptionError set_rank_and_shape(const int& rank, const std::vector<int>& shape);
+          /**
+            * Set the option type for this element, and delete all data of
+            * other option types.
+            * If the new option type is not string type and this element is
+            * marked as an attribute, unmarks it.
+            */
+          OptionError set_option_type(const OptionType& val_type);
+
+          /**
+            * Parses the supplied TiXmlNode and sets the data and and attribute
+            * status of this element appropriately.
+            */
+          void parse_node(const std::string& root, const TiXmlNode* node);
+          /**
+            * Convert this element into a TiXmlElement.
+            */
+          TiXmlElement* to_element() const;
+
+          /**
+            * Tokenize the supplied string
+            */
+          void tokenize(const std::string& str, std::vector<std::string>& tokens, const std::string& delimiters = " ") const;
+          /**
+            * Split the supplied key into the highest child name (including its
+            * index) and key from that sub-child.
+            */
+          OptionError split_name(const std::string& in, std::string& name, std::string& branch) const;
+          /**
+            * Split the supplied key in into the highest child name (excluding
+            * its index), the index of that sub-child, and the key from that
+            * sub-child.
+            */
+          OptionError split_name(const std::string& in, std::string& name, int& index, std::string& branch) const;
+          /**
+            * Split the name of this element into the key (excluding the name
+            * attribute) and it's name attribute (which may be empty).
+            */
+          void split_node_name(std::string& node_name, std::string& name_attr) const;
+
+          /**
+            * Converts the data for this element into a string.
+            */
+          std::string data_as_string() const;
+
+          std::string node_name;
+          std::deque< std::pair<std::string, Option> > children;
+
+          int rank, shape[2];
+          std::vector<double> data_double;
+          std::vector<int> data_int;
+          std::string data_string;
+
+          logical_t is_attribute;
+
+          logical_t verbose;
+
+      };
+
+      bool deallocated;
+      Option* options;
+
+  };
+
+  inline void clear_options(){
+    OptionManager::clear_options();
+  }
+
+  inline void* get_manager(){
+    return OptionManager::get_manager();
+  }
+
+  inline void set_manager(void* m){
+    OptionManager::set_manager(m);
+    return;
+  }
+
+  inline OptionError load_options(const std::string& filename){
+    return OptionManager::load_options(filename);
+  }
+
+  inline OptionError write_options(const std::string& filename){
+    return OptionManager::write_options(filename);
+  }
+
+  inline OptionError get_child_name(const std::string& key, const unsigned& index, std::string& child_name){
+    return OptionManager::get_child_name(key, index, child_name);
+  }
+
+  inline OptionError get_number_of_children(const std::string& key, int& child_count){
+    return OptionManager::get_number_of_children(key, child_count);
+  }
+
+  inline int option_count(const std::string& key){
+    return OptionManager::option_count(key);
+  }
+
+  inline logical_t have_option(const std::string& key){
+    return OptionManager::have_option(key);
+  }
+
+  inline OptionError get_option_type(const std::string& key, OptionType& type){
+    return OptionManager::get_option_type(key, type);
+  }
+  inline OptionError get_option_rank(const std::string& key, int& rank){
+    return OptionManager::get_option_rank(key, rank);
+  }
+  inline OptionError get_option_shape(const std::string& key, std::vector<int>& shape){
+    return OptionManager::get_option_shape(key, shape);
+  }
+
+  inline OptionError get_option(const std::string& key, double& val){
+    return OptionManager::get_option(key, val);
+  }
+  inline OptionError get_option(const std::string& key, double& val, const double& default_val){
+    return OptionManager::get_option(key, val, default_val);
+  }
+  inline OptionError get_option(const std::string& key, std::vector<double>& val){
+    return OptionManager::get_option(key, val);
+  }
+  inline OptionError get_option(const std::string& key, std::vector<double>& val, const std::vector<double>& default_val){
+    return OptionManager::get_option(key, val, default_val);
+  }
+  inline OptionError get_option(const std::string& key, std::vector< std::vector<double> >& val){
+    return OptionManager::get_option(key, val);
+  }
+  inline OptionError get_option(const std::string& key, std::vector< std::vector<double> >& val, const std::vector< std::vector<double> >& default_val){
+    return OptionManager::get_option(key, val, default_val);
+  }
+  inline OptionError get_option(const std::string& key, int& val){
+    return OptionManager::get_option(key, val);
+  }
+  inline OptionError get_option(const std::string& key, int& val, const int& default_val){
+    return OptionManager::get_option(key, val, default_val);
+  }
+  inline OptionError get_option(const std::string& key, std::vector<int>& val){
+    return OptionManager::get_option(key, val);
+  }
+  inline OptionError get_option(const std::string& key, std::vector<int>& val, const std::vector<int>& default_val){
+    return OptionManager::get_option(key, val, default_val);
+  }
+  inline OptionError get_option(const std::string& key, std::vector< std::vector<int> >& val){
+    return OptionManager::get_option(key, val);
+  }
+  inline OptionError get_option(const std::string& key, std::vector< std::vector<int> >& val, const std::vector< std::vector<int> >& default_val){
+    return OptionManager::get_option(key, val, default_val);
+  }
+  inline OptionError get_option(const std::string& key, std::string& val){
+    return OptionManager::get_option(key, val);
+  }
+  inline OptionError get_option(const std::string& key, std::string& val, const std::string& default_val){
+    return OptionManager::get_option(key, val, default_val);
+  }
+
+  inline OptionError add_option(const std::string& key){
+    return OptionManager::add_option(key);
+  }
+
+  inline OptionError set_option(const std::string& key, const double& val){
+    return OptionManager::set_option(key, val);
+  }
+  inline OptionError set_option(const std::string& key, const std::vector<double>& val){
+    return OptionManager::set_option(key, val);
+  }
+  inline OptionError set_option(const std::string& key, const std::vector< std::vector<double> >& val){
+    return OptionManager::set_option(key, val);
+  }
+  inline OptionError set_option(const std::string& key, const int& val){
+    return OptionManager::set_option(key, val);
+  }
+  inline OptionError set_option(const std::string& key, const std::vector<int>& val){
+    return OptionManager::set_option(key, val);
+  }
+  inline OptionError set_option(const std::string& key, const std::vector< std::vector<int> >& val){
+    return OptionManager::set_option(key, val);
+  }
+  inline OptionError set_option(const std::string& key, const std::string& val){
+    return OptionManager::set_option(key, val);
+  }
+
+  inline OptionError set_option_attribute(const std::string& key, const std::string& val){
+    return OptionManager::set_option_attribute(key, val);
+  }
+
+  inline OptionError move_option(const std::string& key1, const std::string& key2){
+    return OptionManager::move_option(key1, key2);
+  }
+
+  inline OptionError copy_option(const std::string& key1, const std::string& key2){
+    return OptionManager::copy_option(key1, key2);
+  }
+  inline OptionError delete_option(const std::string& key){
+    return OptionManager::delete_option(key);
+  }
+
+  inline void print_options(){
+    OptionManager::print_options();
+
+    return;
+  }
+
+}
+
+#endif

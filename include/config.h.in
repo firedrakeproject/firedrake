@@ -1,0 +1,172 @@
+/* include/config.h.in.  Generated from configure.in by autoheader.  */
+
+/* Define to dummy `main' function (if any) required to link to the Fortran
+   libraries. */
+#undef F77_DUMMY_MAIN
+
+/* Define to a macro mangling the given C identifier (in lower and upper
+   case), which must not contain underscores, for linking with Fortran. */
+#undef F77_FUNC
+
+/* As F77_FUNC, but for C identifiers containing underscores. */
+#undef F77_FUNC_
+
+/* Define to dummy `main' function (if any) required to link to the Fortran
+   libraries. */
+#undef FC_DUMMY_MAIN
+
+/* Define if F77 and FC dummy `main' functions are identical. */
+#undef FC_DUMMY_MAIN_EQ_F77
+
+/* Define if you have libadjoint. */
+#undef HAVE_ADJOINT
+
+/* Define if you have a BLAS library. */
+#undef HAVE_BLAS
+
+/* Define to 1 if you have the file `hyperlight/Hyperlight.cpp'. */
+#undef HAVE_HYPERLIGHT_HYPERLIGHT_CPP
+
+/* Define to 1 if you have the file `hyperlight/Hyperlight.h'. */
+#undef HAVE_HYPERLIGHT_HYPERLIGHT_H
+
+/* Define to 1 if you have the file `hyperlight/Iop.cpp'. */
+#undef HAVE_HYPERLIGHT_IOP_CPP
+
+/* Define to 1 if you have the file `hyperlight/Iop.h'. */
+#undef HAVE_HYPERLIGHT_IOP_H
+
+/* Define to 1 if you have the file `hyperlight/Sky.cpp'. */
+#undef HAVE_HYPERLIGHT_SKY_CPP
+
+/* Define to 1 if you have the file `hyperlight/Sky.h'. */
+#undef HAVE_HYPERLIGHT_SKY_H
+
+/* Define if you have hypre library. */
+#undef HAVE_HYPRE
+
+/* Define to 1 if you have the <inttypes.h> header file. */
+#undef HAVE_INTTYPES_H
+
+/* Define if you have LAPACK library. */
+#undef HAVE_LAPACK
+
+/* Define to 1 if you have the `arpack' library (-larpack). */
+#undef HAVE_LIBARPACK
+
+/* Define to 1 if you have the `dl' library (-ldl). */
+#undef HAVE_LIBDL
+
+/* Define to 1 if you have the `exodus' library (-lexodus). */
+#undef HAVE_LIBEXODUS
+
+/* Define to 1 if you have the `exoIIv2c' library (-lexoIIv2c). */
+#undef HAVE_LIBEXOIIV2C
+
+/* Define to 1 if you have the `m' library (-lm). */
+#undef HAVE_LIBM
+
+/* Define to 1 if you have the `netcdf' library (-lnetcdf). */
+#undef HAVE_LIBNETCDF
+
+/* Define to 1 if you have the `netcdff' library (-lnetcdff). */
+#undef HAVE_LIBNETCDFF
+
+/* Define to 1 if you have the `pthread' library (-lpthread). */
+#undef HAVE_LIBPTHREAD
+
+/* Define to 1 if you have the `stdc++' library (-lstdc++). */
+#undef HAVE_LIBSTDC__
+
+/* Define to 1 if you have the `vtkCommon' library (-lvtkCommon). */
+#undef HAVE_LIBVTKCOMMON
+
+/* Define to 1 if you have the `vtkexpat' library (-lvtkexpat). */
+#undef HAVE_LIBVTKEXPAT
+
+/* Define to 1 if you have the `vtkFiltering' library (-lvtkFiltering). */
+#undef HAVE_LIBVTKFILTERING
+
+/* Define to 1 if you have the `vtkGraphics' library (-lvtkGraphics). */
+#undef HAVE_LIBVTKGRAPHICS
+
+/* Define to 1 if you have the `vtkIO' library (-lvtkIO). */
+#undef HAVE_LIBVTKIO
+
+/* Define to 1 if you have the `vtksys' library (-lvtksys). */
+#undef HAVE_LIBVTKSYS
+
+/* Define to 1 if you have the `vtkzlib' library (-lvtkzlib). */
+#undef HAVE_LIBVTKZLIB
+
+/* Define to 1 if you have the <memory.h> header file. */
+#undef HAVE_MEMORY_H
+
+/* Define if you have ParMetis library. */
+#undef HAVE_PARMETIS
+
+/* Define if you have the PETSc library. */
+#undef HAVE_PETSC
+
+/* Define if you have petsc fortran modules. */
+#undef HAVE_PETSC_MODULES
+
+/* If available, contains the Python version number currently in use. */
+#undef HAVE_PYTHON
+
+/* Define to 1 if you have the <stdint.h> header file. */
+#undef HAVE_STDINT_H
+
+/* Define to 1 if you have the <stdlib.h> header file. */
+#undef HAVE_STDLIB_H
+
+/* Define to 1 if you have the <strings.h> header file. */
+#undef HAVE_STRINGS_H
+
+/* Define to 1 if you have the <string.h> header file. */
+#undef HAVE_STRING_H
+
+/* Define to 1 if you have the <sys/stat.h> header file. */
+#undef HAVE_SYS_STAT_H
+
+/* Define to 1 if you have the <sys/types.h> header file. */
+#undef HAVE_SYS_TYPES_H
+
+/* Define to 1 if you have the <unistd.h> header file. */
+#undef HAVE_UNISTD_H
+
+/* Define if you have zoltan library. */
+#undef HAVE_ZOLTAN
+
+/* Define to 1 if `sizeof (long int)' = 8. Obsolete, use `SIZEOF_LONG_INT'. */
+#undef LONG_64_BITS
+
+/* Define to the address where bug reports for this package should be sent. */
+#undef PACKAGE_BUGREPORT
+
+/* Define to the full name of this package. */
+#undef PACKAGE_NAME
+
+/* Define to the full name and version of this package. */
+#undef PACKAGE_STRING
+
+/* Define to the one symbol short name of this package. */
+#undef PACKAGE_TARNAME
+
+/* Define to the home page for this package. */
+#undef PACKAGE_URL
+
+/* Define to the version of this package. */
+#undef PACKAGE_VERSION
+
+/* The size of `long int', as computed by sizeof. */
+#undef SIZEOF_LONG_INT
+
+/* The size of `void *', as computed by sizeof. */
+#undef SIZEOF_VOID_P
+
+/* Define to 1 if you have the ANSI C header files. */
+#undef STDC_HEADERS
+
+/* Define to 1 if the X Window System is missing or not being used. */
+#undef X_DISPLAY_MISSING

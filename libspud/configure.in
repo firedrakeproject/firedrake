@@ -1,0 +1,309 @@
+#    Copyright (C) 2006 Imperial College London and others.
+#
+#    Please see the AUTHORS file in the main source directory for a full list
+#    of copyright holders.
+#
+#    Prof. C Pain
+#    Applied Modelling and Computation Group
+#    Department of Earth Science and Engineering
+#    Imperial College London
+#
+#    C.Pain@Imperial.ac.uk
+#
+#    This library is free software; you can redistribute it and/or
+#    modify it under the terms of the GNU Lesser General Public
+#    License as published by the Free Software Foundation,
+#    version 2.1 of the License.
+#
+#    This library is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#    Lesser General Public License for more details.
+#
+#    You should have received a copy of the GNU Lesser General Public
+#    License along with this library; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
+#    USA
+
+dnl Process this file with autoconf to produce a configure script.
+AC_INIT(include/spud.h)
+
+LT_INIT
+LT_LANG([CXX])
+LT_LANG([FC])
+
+# This is to get around some odd behavious of some fortran compilers
+FCFLAGS="$FCFLAGS -I/usr/include"
+
+#
+# Name spud
+#
+AC_ARG_ENABLE(debugging,
+[AC_HELP_STRING([--enable-debugging],
+[turns on debugging flags])])
+
+# Check system type
+AC_CANONICAL_HOST
+
+# Find compilers
+AC_MSG_NOTICE([*** Fishing for legacy fortran compiler.])
+AC_PROG_F77(ifort ifc efc sunf95 gfortran pgf95 pathf95 g95 f90,,f90,$PATH)
+AC_F77_LIBRARY_LDFLAGS
+fcompiler=`basename $F77`
+
+AC_MSG_NOTICE([*** Fishing for modern Fortran compiler])
+AC_PROG_FC(ifort ifc efc sunf95 gfortran pgf95 pathf95 g95 f90,,f90,$PATH)
+AC_FC_LIBRARY_LDFLAGS
+fccompiler=`basename $FC`
+
+if test "$fcompiler" = "sunf95" ; then
+    MODINC_FLAG="-M"
+    FFLAGS="-M../include $FFLAGS"
+    FCFLAGS="-M../include $FCFLAGS"
+else
+    MODINC_FLAG="-I"
+fi
+
+if test "$F77" = "$FC" ; then
+    smart_fortran="yes"
+    AC_MSG_NOTICE([*** Assuming that $FC can process both free and fixed form fortran files.])
+else
+    AC_MSG_NOTICE([*** Assuming that $FC cannot process both free and fixed form fortran files (silly fortran).])
+    smart_fortran="no"
+fi
+
+AC_PROG_CXX(icpc icc ecc sunCC pgCC g++ CC)
+AC_PROG_CPP
+LINKER=$CXX
+
+AC_LONG_64_BITS
+
+# Find fortran libraries required when linking with C++ main.
+AC_FC_LIBRARY_LDFLAGS
+
+AC_F77_WRAPPERS
+
+# Check for standard libraries
+AC_LANG_PUSH([C])
+AC_CHECK_LIB(stdc++,main,,)
+AC_CHECK_LIB(m,main,,)
+AC_CHECK_LIB(pthread,main,,)
+
+LIBS="$LAPACK_LIBS $BLAS_LIBS $LIBS $FCLIBS $FLIBS"
+
+LINKER=$CXX
+
+##
+## what compiler options work
+##
+if test "$FC" = "g95"; then
+    FCFLAGS="-ffast-math -fno-second-underscore $FCFLAGS"
+fi
+
+if test "$FC" = "gfortran"; then
+    if test "$enable_debugging" = "yes" ; then
+	FCFLAGS="-frecord-marker=4 $FCFLAGS"
+    else
+	FCFLAGS="-ffast-math -frecord-marker=4 $FCFLAGS"
+    fi
+    CPPFLAGS="$CPPFLAGS -DUSING_GFORTRAN=1"
+fi
+
+AC_LANG_PUSH(Fortran 77)
+AC_MSG_CHECKING([how do we get fortran 77 to allow long lines])
+old_FLAGS="$FFLAGS"
+extended_source_flag=none
+AC_TRY_COMPILE([],
+  [
+       PRINT*, "hello world                                                                                      "],
+  [
+  AC_MSG_RESULT(no extra flags required)
+  extended_source_flag=happy
+  ],[])
+
+if test "$extended_source_flag" != happy ; then
+if test "$extended_source_flag" = none ; then
+  FFLAGS="-extend_source"
+  AC_TRY_COMPILE([],
+  [
+       PRINT*, "hello world                                                                                      "],
+  [
+  extended_source_flag=$FFLAGS
+  AC_MSG_RESULT([$FFLAGS])
+  FFLAGS="$old_FLAGS $FFLAGS"
+  ],[])
+fi
+if test "$extended_source_flag" = none ; then
+  FFLAGS="-132"
+  AC_TRY_COMPILE([],
+  [
+       PRINT*, "hello world                                                                                      "],
+  [
+  extended_source_flag=$FFLAGS
+  AC_MSG_RESULT([$FFLAGS])
+  FFLAGS="$old_FLAGS $FFLAGS"
+  ],[])
+fi
+if test "$extended_source_flag" = none ; then
+  FFLAGS="-ffree-line-length-none -ffixed-line-length-none"
+  AC_TRY_COMPILE([],
+  [
+       PRINT*, "hello world                                                                                      "],
+  [
+  extended_source_flag=$FFLAGS
+  AC_MSG_RESULT([$FFLAGS])
+  FFLAGS="$old_FLAGS $FFLAGS"
+  ],[])
+fi
+if test "$extended_source_flag" = none ; then
+  FFLAGS="-ffixed-line-length-huge -ffree-line-length-huge"
+  AC_TRY_COMPILE([],
+  [
+       PRINT*, "hello world                                                                                      "],
+  [
+  extended_source_flag=$FFLAGS
+  AC_MSG_RESULT([$FFLAGS])
+  FFLAGS="$old_FLAGS $FFLAGS"
+  ],[])
+fi
+if test "$extended_source_flag" = none ; then
+  FFLAGS="-ffixed-line-length-132 -ffree-line-length-huge"
+  AC_TRY_COMPILE([],
+  [
+       PRINT*, "hello world                                                                                      "],
+  [
+  extended_source_flag=$FFLAGS
+  AC_MSG_RESULT([$FFLAGS])
+  FFLAGS="$old_FLAGS $FFLAGS"
+  ],[])
+fi
+if test "$extended_source_flag" = none ; then
+  FFLAGS="-ffixed-line-length-132"
+  AC_TRY_COMPILE([],
+  [
+       PRINT*, "hello world                                                                                      "],
+  [
+  extended_source_flag=$FFLAGS
+  AC_MSG_RESULT([$FFLAGS])
+  FFLAGS="$old_FLAGS $FFLAGS"
+  ],[])
+fi
+if test "$extended_source_flag" = none ; then
+  FFLAGS="-Mextend"
+  AC_TRY_COMPILE([],
+  [
+       PRINT*, "hello world                                                                                      "],
+  [
+  extended_source_flag=$FFLAGS
+  AC_MSG_RESULT([$FFLAGS])
+  FFLAGS="$old_FLAGS $FFLAGS"
+  ],[])
+fi
+if test "$extended_source_flag" = none ; then
+  FFLAGS="-qfixed=256"
+  AC_TRY_COMPILE([],
+  [
+       PRINT*, "hello world                                                                                      "],
+    [
+    extended_source_flag=$FFLAGS
+    AC_MSG_RESULT([$FFLAGS])
+    FFLAGS="$old_FLAGS $FFLAGS"
+    ],[])
+fi
+if test "$extended_source_flag" = none ; then
+  FFLAGS="-e"
+  AC_TRY_COMPILE([],
+  [
+       PRINT*, "hello world                                                                                      "],
+    [
+    extended_source_flag=$FFLAGS
+    AC_MSG_RESULT([$FFLAGS])
+    FFLAGS="$old_FLAGS $FFLAGS"
+    ],[])
+fi
+
+if test "$extended_source_flag" = none ; then
+  AC_MSG_RESULT([we cannot])
+else
+  FCFLAGS="$FCFLAGS $extended_source_flag"
+fi
+fi
+
+AC_LANG_POP([Fortran 77])
+
+AC_PROG_INSTALL
+AC_CHECK_PROG(MAKE, gmake, gmake, make, $PATH)
+
+# Set default for ARFLAGS, since autoconf does not have a macro for
+# it. This allows people to set it when running configure or make.
+AC_CHECK_PROG(AR, ar, ar, ,$PATH)
+test -n "$ARFLAGS" || ARFLAGS="cr"
+AC_PROG_RANLIB
+
+AC_ARG_ENABLE(verbose,
+[AC_HELP_STRING([--enable-verbose],
+[turns on super verbosity])])
+
+if test "$enable_verbose" = "yes" ; then
+   CPPFLAGS="$CPPFLAGS -DVERBOSE_MESSAGES=1"
+fi
+
+if test "$enable_debugging" = "yes" ; then
+  CXXFLAGS="-g -O0 `echo $CXXFLAGS | sed 's/-O2//g'`"
+  FCFLAGS="-g -O0 `echo $FCFLAGS | sed 's/-O2//g'`"
+
+  if test "$fcompiler" = "ifort" ; then
+    FCFLAGS="-C -traceback -check nooutput_conversion -check noarg_temp_created  ${FCFLAGS}"
+    CXXFLAGS="-fno-omit-frame-pointer ${CXXFLAGS}"
+  elif test "$fcompiler" = "gfortran" ; then
+    FCFLAGS="-fbounds-check -Wall ${FCFLAGS}"
+    CXXFLAGS="-fbounds-check -Wall ${CXXFLAGS}"
+    LDFLAGS="-rdynamic ${LDFLAGS}"
+  elif test "$fcompiler" = "g95" ; then
+    FCFLAGS="-fbounds-check -ftrace=full ${FCFLAGS}"
+  elif test "$fcompiler" = "sunf95" ; then
+    FCFLAGS="-C -ftrap=invalid -fpover ${FCFLAGS}"
+    CXXFLAGS="-ftrap=invalid ${CXXFLAGS}"
+  else
+    FCFLAGS="-C ${FCFLAGS}"
+  fi
+
+else
+    AC_MSG_NOTICE([Setting optimisation flags])
+    CPPFLAGS="$CPPFLAGS -DNDEBUG=1"
+    FCFLAGS="-O3 `echo $FCFLAGS | sed 's/-g -O2//g'`"
+    CXXFLAGS="-O3 `echo $CXXFLAGS | sed 's/-g -O2//g'`"
+fi
+
+if test "$FC" = "ifc" ; then
+  FCFLAGS="-implicitnone -w95 $FCFLAGS"
+fi
+
+##############################################################
+# enable gprof profiling
+
+AC_ARG_ENABLE(profiling,
+[AC_HELP_STRING([--enable-profiling],
+[enable gprof profiling])])
+
+if test "$enable_profiling" = "yes" ; then
+  PROFILING_FLAG="-pg"
+  CPPFLAGS="-pg $CPPFLAGS"
+  FCFLAGS="-pg $FCFLAGS"
+
+  LINKER="$LINKER -pg"
+else
+  PROFILING_FLAG=""
+fi
+AC_SUBST(PROFILING_FLAG)
+
+VERSION=`svnversion .`
+AC_SUBST(VERSION)
+AC_SUBST(ARFLAGS)
+AC_SUBST(LINKER)
+AC_SUBST(MAKE)
+AC_SUBST(LIBS)
+
+AC_OUTPUT(Makefile src/tests/Makefile examples/Makefile
+          bin/spud-preprocess
+          diamond/setup.py diamond/diamond/plugins.py diamond/diamond/preprocess.py)

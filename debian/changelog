@@ -1,0 +1,62 @@
+fluidity (4.1maverick1) maverick; urgency=low
+
+  * Fluidity release 4.1
+
+ -- Tim Bond <timothy.bond@imperial.ac.uk>  Mon, 07 Nov 2011 12:49:49 +0000
+
+fluidity (4.0.999prerelease1maverick5) maverick; urgency=low
+
+  * Additional trunk changes brought in prior to release
+  * Adding in an examples tarball to the package for release
+
+ -- Tim Bond <timothy.bond@imperial.ac.uk> Sun, 06 Nov 2011 20:49:11 +0000
+
+fluidity (4.0.999prerelease1maverick4) maverick; urgency=low
+
+  * Removing fluidity-dev dependency; replacing with best guess at what is
+    needed for everyday running and to run the examples.
+
+ -- Tim Bond <timothy.bond@imperial.ac.uk>  Thu, 03 Nov 2011 21:03:59 +0000
+
+fluidity (4.0.999prerelease1maverick1) maverick; urgency=low
+
+  * Fix the Debian packaging for release 4.1.
+
+ -- Patrick Farrell <patrick.farrell06@imperial.ac.uk>  Wed, 02 Nov 2011 14:19:12 +0000
+
+fluidity (3.4.svn6573) unstable; urgency=low
+
+  * Another general update. In particular, several tools were out of date.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Wed, 28 May 2008 17:11:09 +0100
+
+fluidity (3.4.svn5549) unstable; urgency=low
+
+  * General revision after many changes, especially to new options.
+
+ -- David Ham <dham@attila.ese.ic.ac.uk>  Tue, 04 Mar 2008 11:31:54 +0000
+
+fluidity (3.4.svn4127) unstable; urgency=low
+
+  * Added python modules to the debian distribution.
+
+ -- David Ham <dham@attila.ese.ic.ac.uk>  Thu, 08 Nov 2007 15:33:02 +0000
+
+fluidity (3.4.svn4115-1) unstable; urgency=low
+
+  * Added fluidity-dev dependency.
+
+ -- David Ham <dham@attila.ese.ic.ac.uk>  Wed, 07 Nov 2007 16:42:58 +0000
+
+fluidity (3.4.svn4115) unstable; urgency=low
+
+  * Initial release plus basic debianisation
+
+ -- David Ham <dham@attila.ese.ic.ac.uk>  Wed, 07 Nov 2007 12:20:21 +0000
+
+fluidity (3.4.svn4090-1) unstable; urgency=low
+
+  * Initial release
+
+ -- David Ham <david.ham@imperial.ac.uk>  Mon, 05 Nov 2007 15:35:54 +0000
+

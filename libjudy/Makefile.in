@@ -1,0 +1,14 @@
+MAKE = @MAKE@
+
+default:
+	cd src; $(MAKE)
+
+clean:
+	cd src; $(MAKE) clean
+
+install:
+	cp src/libjudy.a ../lib
+	cp src/Judy.h ../include
+distclean: clean
+	rm -fr config.h libtool make.log stamp-h1 src/obj src/Judy1/Judy1TablesGen src/JudyL/JudyLTablesGen
+

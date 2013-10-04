@@ -1,0 +1,93 @@
+#    Copyright (C) 2006 Imperial College London and others.
+#
+#    Please see the AUTHORS file in the main source directory for a full list
+#    of copyright holders.
+#
+#    Prof. C Pain
+#    Applied Modelling and Computation Group
+#    Department of Earth Science and Engineering
+#    Imperial College London
+#
+#    amcgsoftware@imperial.ac.uk
+#
+#    This library is free software; you can redistribute it and/or
+#    modify it under the terms of the GNU Lesser General Public
+#    License as published by the Free Software Foundation,
+#    version 2.1 of the License.
+#
+#    This library is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#    Lesser General Public License for more details.
+#
+#    You should have received a copy of the GNU Lesser General Public
+#    License along with this library; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
+#    USA
+SHELL = @SHELL@
+
+PACKAGE_NAME = @PACKAGE_NAME@
+FLUIDITY = $(PACKAGE_NAME)
+
+FC      = @FC@
+FCFLAGS = -I../include -I/usr/include @CPPFLAGS@ @FCFLAGS@
+
+CC  = @CC@
+CFLAGS  = @CFLAGS@ -I../include
+
+CXX = @CXX@
+CXXFLAGS= @CPPFLAGS@ @CXXFLAGS@ -I../include
+
+LINKER = @LINKER@ @LDFLAGS@
+
+FLLINKER = @FLLINKER@ @LDFLAGS@ $(FCFLAGS)
+
+LIBS = -L../lib ./lib/libadaptivity.a ./lib/libspatialindex.a ./lib/libspud.a ./lib/libvtkfortran.a ./lib/libjudy.a @LIBS@ @BLAS_LIBS@ @LIB_FEMDEM@
+FLIBS = -L../lib @FLIBS@
+
+BINARIES =
+
+.SUFFIXES: .f90 .F90 .c .cpp .o .a
+
+%.o:	%.f90
+	$(FC) $(FCFLAGS) -c $<
+%.o:	%.F90
+	$(FC) $(FCFLAGS) -c $<
+%.o:	%.c
+	$(CC) $(CFLAGS) -c $<
+%.o:	%.cpp
+	$(CXX) $(CXXFLAGS) -c $<
+
+default: $(BINARIES) scripts
+
+scripts:
+	mkdir -p ../bin
+	for i in *.py ; do cp $$i ../bin/`basename $$i .py` ; done
+	for i in *.sh ; do cp $$i ../bin/`basename $$i .sh` ; done
+
+install-version-info: version-info
+	@mkdir -p ../bin
+	@chmod +x $<
+	@cp $< ../bin/$<
+
+.PHONY: install-version-info
+
+.PHONY: install_python
+
+install_python:
+	python setup.py bdist --format=tar
+	tar -x -C /$(DESTDIR) -f dist/*.tar
+
+# we need a symlink to ../lib, as $(LIBS) contains relative references to
+# libraries (i.e. ./lib/libadaptivity.a instead of -ladaptivity)
+lib/:
+	ln -sf ../lib
+
+
+clean:
+	rm -f *.o *.mod
+	rm -rf build dist fluidity.egg-info
+	rm -f lib
+
+distclean:
+	rm -f version-info

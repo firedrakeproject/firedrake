@@ -1,0 +1,260 @@
+spud (1.1.3) natty; urgency=low
+
+  * Fix a bug in the setting of tensor data.
+
+ -- Patrick Farrell <patrick.farrell06@imperial.ac.uk>  Fri, 29 Jul 2011 11:32:38 +0100
+
+spud (1.1.2) natty; urgency=low
+
+  * Bugfixes for the bugs caused by the major reorganisation of the code.
+
+ -- Patrick Farrell <patrick.farrell06@imperial.ac.uk>  Fri, 29 Jul 2011 10:03:50 +0100
+
+spud (1.1.1) natty; urgency=low
+
+  * Offer two major new features in Diamond: slice view and group view.
+  * Slicing shows all instances of a particular entry, along with its
+    data and attributes.
+  * Grouping modifies the treeview to only show all instances of a
+    particular entry.
+
+ -- Patrick Farrell <patrick.farrell06@imperial.ac.uk>  Tue, 26 Jul 2011 17:37:17 +0100
+
+spud (1.1.0) natty; urgency=low
+
+  * Refactor the Fortran calls to C to use iso_c_binding
+  * Clean up the C interface to remove old Fortran interface hacks.
+  * Modify interfaces so that almost every routine returns an error status.
+  * Consequential changes to the manual.
+  * Cause bash completion for diamond to be installed by the package.
+  * Include Fraser's first week of work on Diamond.
+
+ -- David A Ham <david.ham@imperial.ac.uk>  Tue, 12 Jul 2011 09:56:34 +0100
+
+spud (1.0.24) natty; urgency=low
+
+  * Update the manual to reflect the move to Launchpad.
+
+ -- David A Ham <david.ham@imperial.ac.uk>  Tue, 28 Jun 2011 18:24:02 +0100
+
+spud (1.0.23) maverick; urgency=low
+
+  * Include the latest diamond updates
+
+ -- Patrick Farrell <patrick.farrell06@imperial.ac.uk>  Thu, 03 Feb 2011 12:10:17 +0000
+
+spud (1.0.22) maverick; urgency=low
+
+  * Schema for ICOM-Fluidity now points to 4.0-release.
+
+ -- Tim Bond <timothy.bond@imperial.ac.uk>  Thu, 11 Nov 2010 14:10:30 +0000
+
+spud (1.0.21) maverick; urgency=low
+
+  * Schema for ICOM-Fluidity now points to release-candidate in a schemas directory.
+
+ -- Tim Bond <timothy.bond@imperial.ac.uk>  Wed, 27 Oct 2010 15:32:51 +0100
+
+spud (1.0.20) unstable; urgency=low
+
+  * Various interface bug fixes.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Wed, 07 Apr 2010 14:01:17 +0100
+
+spud (1.0.19) unstable; urgency=low
+
+  * Version 1.0.18 was broken on some platforms (karmic, debian unstable)
+    due to missing sym-links (see commit 505).
+  * Entry of python code in diamond is now done in a gedit widget
+    with syntax highlighting and a monospaced font.
+
+ -- Stephan Kramer <s.kramer@imperial.ac.uk>  Sat, 27 Feb 2010 14:46:46 +0000
+
+spud (1.0.18) unstable; urgency=low
+
+  * Update to set_option to insert __value elements when needed.
+  * utf-8 in xml headers rather than utf8.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Wed, 24 Feb 2010 18:03:40 +0000
+
+spud (1.0.17) karmic; urgency=low
+
+  * Use libtool to build a static and shared library
+
+ -- Patrick Farrell <patrick.farrell06@imperial.ac.uk>  Thu, 10 Dec 2009 11:05:15 +0000
+
+spud (1.0.16) intrepid; urgency=low
+
+  * Various bugfixes including to diamond validation.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Thu, 25 Jun 2009 15:17:07 +0100
+
+spud (1.0.15) intrepid; urgency=low
+
+  * We need a new release for various minor bugs.
+
+ -- Patrick Farrell <patrick.farrell06@imperial.ac.uk>  Fri, 19 Jun 2009 13:30:53 +0100
+
+spud (1.0.14) intrepid; urgency=low
+
+  * We need a new release for various minor bugs.
+
+ -- Patrick Farrell <patrick.farrell06@imperial.ac.uk>  Mon, 01 Jun 2009 14:08:04 +0100
+
+spud (1.0.13) unstable; urgency=low
+
+  * Fix the None bug which prevents opening files with lost elements.
+  * Bugfix for included files when opening remotely.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Wed, 15 Apr 2009 09:56:03 +0100
+
+spud (1.0.12) unstable; urgency=low
+
+  * Of course, as soon as you release you spot a bug.
+    Optional entries, when activated by double clicking,
+    are now populated.
+
+ -- Patrick Farrell <patrick.farrell06@imperial.ac.uk>  Mon, 30 Mar 2009 16:04:38 +0100
+
+spud (1.0.11) unstable; urgency=low
+
+  * Make the schema parsing about 10x faster.
+    This is done by loading elements from the schema as they
+    are needed rather than all at initialisation.
+  * This necessitates the disabling of the find dialog for now.
+
+ -- Patrick Farrell <patrick.farrell06@imperial.ac.uk>  Mon, 30 Mar 2009 15:29:35 +0100
+
+spud (1.0.10) unstable; urgency=low
+
+  * Diamond now has the capability to pull schemas from the web. This also removes the need for many users to have .diamond/schemata/flml files as diamond automatically knows about the current Fluidity trunk schema.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Fri, 27 Feb 2009 13:14:50 +0000
+
+spud (1.0.9) unstable; urgency=low
+
+  * Include single precision Fortran interfaces for get_option and set_option.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Thu, 26 Feb 2009 14:48:10 +0000
+
+spud (1.0.8) unstable; urgency=low
+
+  * Include new formatting of whitespace in comments.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Mon, 02 Feb 2009 15:25:33 +0000
+
+spud (1.0.7) unstable; urgency=low
+
+  * Include spud-set and related changes to Diamond and the manual.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Thu, 08 Jan 2009 17:52:43 +0000
+
+spud (1.0.6) unstable; urgency=low
+
+  * Cause spudtools to conflict with older libspud-dev
+
+ -- David Ham <david.ham@imperial.ac.uk>  Mon, 15 Sep 2008 17:33:46 +0100
+
+spud (1.0.5) unstable; urgency=low
+
+  * Split out the schema and spud-preprocess into a separate package.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Mon, 15 Sep 2008 17:06:27 +0100
+
+spud (1.0.4) unstable; urgency=low
+
+  * Diamond plugins now work.
+  * Added examples directory and ballistics example.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Mon, 15 Sep 2008 13:56:52 +0100
+
+spud (1.0.3) hardy; urgency=low
+
+  * Move the GDK thread initialisation call.
+  * If you think you understand threads, you don't
+    understand threads.
+
+ -- Patrick Farrell <patrick.farrell06@imperial.ac.uk>  Thu, 14 Aug 2008 17:27:52 +0100
+
+spud (1.0.2) hardy; urgency=low
+
+  * Fix infinite loop on load due to awkward schema changes.
+
+ -- Patrick Farrell <patrick.farrell06@imperial.ac.uk>  Thu, 14 Aug 2008 11:29:18 +0100
+
+spud (1.0.1) hardy; urgency=low
+
+  * Fix a few bugs.
+
+ -- Patrick Farrell <patrick.farrell06@imperial.ac.uk>  Tue, 29 Jul 2008 14:50:07 +0100
+
+spud (1.0) unstable; urgency=low
+
+  * Initial release!
+
+ -- David Ham <david.ham@imperial.ac.uk>  Thu, 26 Jun 2008 18:05:51 +0100
+
+spud (0.99) unstable; urgency=low
+
+  * Release candidate
+
+ -- David Ham <david.ham@imperial.ac.uk>  Thu, 26 Jun 2008 15:48:25 +0100
+
+spud (0.9.1) unstable; urgency=low
+
+  * Fix for file reading bug.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Tue, 24 Jun 2008 18:20:19 +0100
+
+spud (0.9) unstable; urgency=low
+
+  * Version with merged in new xml parser.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Mon, 23 Jun 2008 18:19:33 +0100
+
+spud (0.2.5) unstable; urgency=low
+
+  * Bugfix for setting of rank and shape
+
+ -- David Ham <david.ham@imperial.ac.uk>  Mon, 02 Jun 2008 16:24:00 +0100
+
+spud (0.2.4) unstable; urgency=low
+
+  * Various diamond bugs reverted.
+  * Interface changes to libspud.
+  * Spud is now all double precision independent of compiler options.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Tue, 27 May 2008 15:14:08 +0100
+
+spud (0.2.3) unstable; urgency=low
+
+  * Changed python2.5 dependency to python
+  * Added spud-preprocess
+
+ -- David Ham <david.ham@imperial.ac.uk>  Fri, 23 May 2008 17:45:54 +0100
+
+spud (0.2.1) unstable; urgency=low
+
+  * Caused package to conflict with and replace python-diamond.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Thu, 15 May 2008 12:11:37 +0100
+
+spud (0.2) unstable; urgency=low
+
+  * Transition to spud source package producing libspud-dev
+    and diamond binary packages.
+
+ -- David Ham <david.ham@imperial.ac.uk>  Tue, 13 May 2008 16:15:09 +0100
+
+spud (0.1b-1) gutsy; urgency=low
+
+  * Bundle the modified Xvif parser with diamond.
+  * Lots of bugfixes and new features.
+
+ -- Patrick Farrell <patrick.farrell@imperial.ac.uk>  Mon, 10 Dec 2007 12:21:46 +0000
+
+spud (0.1a-1) unstable; urgency=low
+
+  * source package automatically created by stdeb 0.2.a1
+
+ -- Patrick Farrell <patrick.farrell@imperial.ac.uk>  Mon, 03 Dec 2007 13:26:28 +0000

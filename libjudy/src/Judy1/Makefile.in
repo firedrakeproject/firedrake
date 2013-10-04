@@ -1,0 +1,93 @@
+#    Copyright (C) 2006 Imperial College London and others.
+#
+#    Please see the AUTHORS file in the main source directory for a full list
+#    of copyright holders.
+#
+#    Prof. C Pain
+#    Applied Modelling and Computation Group
+#    Department of Earth Science and Engineering
+#    Imperial College London
+#
+#    amcgsoftware@imperial.ac.uk
+#
+#    This library is free software; you can redistribute it and/or
+#    modify it under the terms of the GNU Lesser General Public
+#    License as published by the Free Software Foundation,
+#    version 2.1 of the License.
+#
+#    This library is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#    Lesser General Public License for more details.
+#
+#    You should have received a copy of the GNU Lesser General Public
+#    License along with this library; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
+#    USA
+
+SHELL = @SHELL@
+
+PACKAGE_NAME = @PACKAGE_NAME@
+FLUIDITY = $(PACKAGE_NAME)
+
+MPIF90  = @MPIF90@
+
+CC      = @CC@
+CFLAGS  = @CPPFLAGS@ @CFLAGS@ @JUDY_CFLAGS@ -I../include -I/usr/local/include -I.. -I../JudyCommon -DJUDY1
+
+MAKE    = @MAKE@
+
+LIBS    = -L../lib -l$(FLUIDITY) @LIBS@ @BLAS_LIBS@
+
+OBJS = Judy1Tables.o Judy1Test.o j__udy1Test.o Judy1Set.o Judy1SetArray.o Judy1Unset.o Judy1First.o Judy1Next.o \
+			 Judy1Prev.o Judy1NextEmpty.o Judy1PrevEmpty.o Judy1Count.o Judy1ByCount.o Judy1FreeArray.o Judy1MemUsed.o \
+			 Judy1MemActive.o Judy1Cascade.o Judy1Decascade.o Judy1CreateBranch.o Judy1InsertBranch.o Judy1MallocIF.o
+
+.SUFFIXES: .f90 .F90 .cpp .c .o .a
+
+# cancel implicit rule that tries to make .o from .mod with m2c:
+%.o: %.mod
+
+default: $(OBJS)
+	cp *.o ../obj/
+
+.c.o:
+	@echo "        CC $<"
+	$(CC) $(CFLAGS) -c $<
+
+j__udy1Test.o: j__udy1Test.c
+	@echo "        CC $<"
+	$(CC) $(CFLAGS) -DJUDYGETINLINE -c $<
+
+Judy1Next.o: Judy1Next.c
+	@echo "        CC $<"
+	$(CC) $(CFLAGS) -DJUDYNEXT -c $<
+
+Judy1NextEmpty.o: Judy1NextEmpty.c
+	@echo "        CC $<"
+	$(CC) $(CFLAGS) -DJUDYNEXT -c $<
+
+Judy1Prev.o: Judy1Prev.c
+	@echo "        CC $<"
+	$(CC) $(CFLAGS) -DJUDYPREV -c $<
+
+Judy1PrevEmpty.o: Judy1PrevEmpty.c
+	@echo "        CC $<"
+	$(CC) $(CFLAGS) -DJUDYPREV -c $<
+
+Judy1ByCount.o: Judy1ByCount.c
+	@echo "        CC $<"
+	$(CC) $(CFLAGS) -DNOSMARTJBB -DNOSMARTJBU -DNOSMARTJLB -c $<
+
+Judy1Tables.o: Judy1Tables.c
+	@echo "        CC $<"
+	$(CC) $(CFLAGS) -c $<
+
+Judy1Tables.c:
+	$(CC) $(CFLAGS) -DJUDY1 Judy1TablesGen.c -o Judy1TablesGen
+	./Judy1TablesGen
+
+clean:
+	rm -f *.o
+	rm -f Judy1Tables.c
+

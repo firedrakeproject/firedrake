@@ -1,0 +1,31 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>identity</name>
+  <owner userid="dham"/>
+  <tags>firedrake</tags>
+  <problem_definition length="short" nprocs="1">
+    <command_line>true</command_line>
+  </problem_definition>
+  <variables>
+    <variable name="one_form" language="python">
+import test_firedrake_assemble as test
+import firedrake as fd
+one_form = fd.assemble(fd.action(test.M,test.f))
+    </variable>
+    <variable name="zero_form" language="python">
+import test_firedrake_assemble as test
+import firedrake as fd
+zero_form = fd.assemble(fd.action(fd.action(test.M,test.f),test.one))
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="One_form value" language="python">assert abs(sum(one_form.dat.data)-0.5) &lt; 1.0e-14</test>
+    <test name="Zero_form value" language="python">assert abs(zero_form-0.5) &lt; 1.0e-14</test>
+    <test name="One_form type" language="python">
+import firedrake as fd
+assert isinstance(one_form, fd.Function)
+    </test>
+    <test name="Zero_form type" language="python">assert isinstance(zero_form, float)</test>
+  </pass_tests>
+  <warn_tests/>
+</testproblem>

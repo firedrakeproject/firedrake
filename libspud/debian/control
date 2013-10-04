@@ -1,0 +1,73 @@
+Source: spud
+Maintainer: The ICOM team <patrick.farrell@imperial.ac.uk>
+Uploaders: David Ham <david.ham@imperial.ac.uk>
+Section: science
+Priority: extra
+Build-Depends: gfortran (>=4.2), g++ (>=4.2), python-setuptools (>= 0.6b3-1), python-all-dev (>= 2.3.5-11), debhelper (>= 5.0.38), python-central (>= 0.5.6), texlive, python-support
+Standards-Version: 3.8.0
+XS-Python-Version: >= 2.5
+
+Package: diamond
+Architecture: all
+Depends: python-gtk2, python-lxml, libxml2-utils, python, spudtools, python-gtksourceview2, python-dxdiff, python-glade2
+Recommends: python-psyco
+Suggests:
+Conflicts: python-diamond
+Replaces: python-diamond
+Provides: ${python:Provides}
+XB-Python-Version: ${python:Versions}
+Description: A schema-driven interface for writing XML documents
+ Diamond is a dynamic schema-driven graphical user interface for writing
+ XML documents. The interface is automatically generated from a schema
+ written in RELAX NG describing an XML language. The interface is optimised
+ for configuring models for solving problems in computational mechanics,
+ though the technology is generic to any sort of XML document creation.
+
+Package: libspud-dev
+Architecture: any
+Depends: ${shlibs:Depends}, spudtools, libtinyxml-dev
+Recommends: diamond
+Section: libdevel
+Suggests:
+Description: An automatic options system for scientific models.
+ Spud is an automatic options system which reads an xml options file
+ into a dictionary for immediate access from within the model. The xml
+ file is generated using a spud-compatible RELAX NG schema and a
+ schema-aware editor such as Diamond.
+
+Package: spudtools
+Architecture: all
+Depends: ${shlibs:Depends}, trang (>= 20091111-1)
+Recommends: diamond
+Conflicts: libspud-dev (<1.0.6)
+Replaces: libspud-dev (<1.0.6)
+Section: science
+Suggests:
+Description: An automatic options system for scientific models.
+ Spud is an automatic options system which reads an xml options file
+ into a dictionary for immediate access from within the model. The xml
+ file is generated using a spud-compatible RELAX NG schema and a
+ schema-aware editor such as Diamond. Spudtools contains the schema
+ for the spud base language and the spud-preprocess script for
+ converting schemas between the compact and xml syntaxes.
+
+Package: python-spud
+Section: python
+Architecture: any
+XB-Python-Version: ${python:Versions}
+Depends: libspud-dev (= ${binary:Version}), ${python:Depends}, ${misc:Depends}
+Description: An automatic options system for scientific models (python interface).
+ Spud is an automatic options system which reads an xml options file
+ into a dictionary for immediate access from within the model. The xml
+ file is generated using a spud-compatible RELAX NG schema and a
+ schema-aware editor such as Diamond. This package contains the Python
+ bindings for libspud.
+
+Package: python-dxdiff
+Section: python
+Architecture: all
+XB-Python-Version: ${python:Versions}
+Depends: ${python:Depends}, ${misc:Depends}
+Description: An XML aware diff tool.
+ DXdiff (Diamond Xml diff) is an XML aware diff tool for finding edit scripts
+ between two XML files.

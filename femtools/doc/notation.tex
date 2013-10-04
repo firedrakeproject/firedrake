@@ -1,0 +1,69 @@
+\newcommand{\fortran}[1]{\framebox{#1}}
+\renewcommand{\c}[1]{\framebox{#1}}
+\newcommand{\cpp}[1]{\framebox{#1}}
+
+% Commands defining notation in programming languages.
+\newcommand{\procedure}[2]{\subsection{#1}\hypertarget{#2}{}\label{#2}}
+\newcommand{\stat}{\lstinline[language=fortran]+stat+\xspace}
+\newcommand{\anyfield}{\protect\hyperlink{type:anyfield}{\textit{anyfield}}}
+\newcommand{\meshtype}{\protect\hyperlink{type:mesh}{mesh\_type}}
+\newcommand{\scalarfield}{\protect\hyperlink{type:scalarfield}{scalar\_field}}
+\newcommand{\vectorfield}{\protect\hyperlink{type:vectorfield}{vector\_field}}
+\newcommand{\tensorfield}{\protect\hyperlink{type:tensorfield}{tensor\_field}}
+\newcommand{\elementtype}{\protect\hyperlink{type:elementtype}{element\_type}}
+\newcommand{\quadraturetype}{\protect\hyperlink{type:quadraturetype}{quadrature\_type}}
+\newcommand{\valshape}{\textit{valshape}}
+
+\newcommand{\remapfield}{\protect\hyperlink{proc:remapfield}{remap\_field}}
+
+\newcommand{\eleloc}{\protect\hyperlink{proc:eleloc}{ele\_loc}}
+\newcommand{\elengi}{\protect\hyperlink{proc:eleloc}{ele\_ngi}}
+\newcommand{\faceloc}{\protect\hyperlink{proc:faceloc}{face\_loc}}
+\newcommand{\nodeval}{\protect\hyperlink{proc:nodeval}{node\_val}}
+
+\newcommand{\elevalatquad}{\protect\hyperlink{proc:elevalatquad}{ele\_val\_at\_quad}}
+
+\newcommand{\allocate}{\lstinline[language=fortran]+allocate+\xspace}
+\newcommand{\deallocate}{\lstinline[language=fortran]+deallocate+\xspace}
+
+\newcommand{\module}[2][1]
+        {\textbf{Module:}\ #2\ifthenelse{\equal{#2}{}}
+        {\\\textbf{Internal module:}\ #1}{}}
+
+% Commands definining mathematical notation.
+
+% This is for quantities which are physically vectors.
+\renewcommand{\vec}[1]{\mathbf{#1}}
+% Physical rank 2 tensors
+\newcommand{\tensor}[1]{\overline{\overline{#1}}}
+% This is for vectors formed of the value of a quantity at each node.
+\newcommand{\dvec}[1]{\underline{#1}}
+% This is for matrices in the discrete system.
+\newcommand{\mat}[1]{\mathrm{#1}}
+
+\renewcommand{\u}{\ensuremath{\vec{u}}}
+\renewcommand{\v}{\ensuremath{\vec{v}}}
+\newcommand{\x}{\ensuremath{\vec{x}}}
+\newcommand{\Ne}{N_\mathrm{e}}
+\newcommand{\Ndof}{N_\mathrm{dof}}
+\newcommand{\Ndim}{N_\mathrm{dim}}
+\newcommand{\Nelm}{N_E}
+\newcommand{\Nloc}{N_\mathrm{loc}}
+\newcommand{\Nquad}{N_\mathrm{quad}}
+\newcommand{\iloc}{{i_\mathrm{loc}}}
+\newcommand{\jloc}{{j_\mathrm{loc}}}
+\newcommand{\vecphi}{\ensuremath{\pmb{\phi}}}
+\newcommand{\vecxi}{\ensuremath{\pmb{\xi}}}
+\newcommand{\tensorphi}{\ensuremath{\overline{\overline{\phi}}}}
+\renewcommand{\d}{\mathrm{d}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\OmegaPhi}{[\Omega,\Phi]}
+
+\newcommand{\M}{\ensuremath{\mat{M}}\xspace}
+
+%Vector calculus.
+\renewcommand{\dot}{\cdot}
+\newcommand{\cross}{\times}
+\newcommand{\grad}{\nabla}
+\renewcommand{\div}{\nabla\dot}
+\newcommand{\curl}{\nabla\cross}

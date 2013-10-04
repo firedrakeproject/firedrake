@@ -1,0 +1,1 @@
+o Check the inline editing functions work with tensors etc.

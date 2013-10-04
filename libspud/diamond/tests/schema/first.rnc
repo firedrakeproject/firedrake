@@ -1,0 +1,6 @@
+include "spud_base.rnc"
+
+start = element test {
+	element example_real_tensor { real_tensor },
+  element example_real_vector { real_vector }
+}

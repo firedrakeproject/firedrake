@@ -1,0 +1,74 @@
+#products_example {
+	width:400px;
+	height:282px;
+	position:relative;
+	float:left;
+}
+
+/*
+	Slideshow
+*/
+
+#products {
+}
+
+/*
+	Slides container
+	Important:
+	Set the width of your slides container
+	Set to display none, prevents content flash
+*/
+
+#products .slides_container {
+	width:366px;
+	overflow:hidden;
+	float:left;
+	position:relative;
+	display:none;
+}
+
+/*
+	Each slide
+	Important:
+	Set the width of your slides
+	If height not specified height will be set by the slide content
+	Set to display block
+*/
+
+.slides_container a {
+	width:366px;
+	height:274px;
+	display:block;
+}
+
+/*
+	Caption
+*/
+
+.caption {
+	letter-spacing:0;
+	position:relative;
+	text-shadow:0 1px 0 rgba(255,255,255,.8);
+	-webkit-font-smoothing: subpixel-antialiased;
+	z-index:500;
+	position:absolute;
+	bottom:-35px;
+	left:0;
+	height:30px;
+	padding-left: 10px;
+	padding-bottom: 20px;
+	background:#000;
+	background:rgba(0,0,0,.5);
+	width:400px;
+	font-size:1.0em;
+	line-height:1.33;
+	color:#fff;
+	border-top:1px solid #000;
+	text-shadow:none;
+}
+
+.slides_container div.slide {
+	width:400px;
+	height:282px;
+	display:block;
+}

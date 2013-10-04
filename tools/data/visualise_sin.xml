@@ -1,0 +1,57 @@
+<?xml version='1.0' encoding='utf-8'?>
+<visualise_elements>
+  <project_name>
+    <string_value lines="1">visualise_sin</string_value>
+  </project_name>
+  <geometry>
+    <dimension>
+      <integer_value rank="0">2</integer_value>
+    </dimension>
+    <element_vertices>
+      <integer_value rank="0">3</integer_value>
+    </element_vertices>
+    <element_degree>
+      <integer_value rank="0">2</integer_value>
+    </element_degree>
+    <element_family>
+      <string_value lines="1">lagrange</string_value>
+    </element_family>
+    <quadrature>
+      <degree>
+        <integer_value rank="0">4</integer_value>
+      </degree>
+    </quadrature>
+    <visualisation_degree>
+      <integer_value rank="0">6</integer_value>
+    </visualisation_degree>
+    <mesh name="CoordinateMesh">
+      <from_file file_name="square">
+        <format name="gmsh"/>
+      </from_file>
+    </mesh>
+    <mesh name="TracerMesh">
+      <from_mesh>
+        <mesh name="CoordinateMesh"/>
+        <mesh_shape>
+          <polynomial_degree>
+            <integer_value rank="0">2</integer_value>
+          </polynomial_degree>
+        </mesh_shape>
+      </from_mesh>
+    </mesh>
+  </geometry>
+  <material_phase name="MaterialPhase">
+    <scalar_field name="Tracer" rank="0">
+      <prescribed>
+        <mesh name="TracerMesh"/>
+        <value name="WholeMesh">
+          <python>
+            <string_value lines="20" type="python">def val(X,t):
+  from math import sin,pi
+  return sin(X[0]*pi)*sin(X[1]*pi)</string_value>
+          </python>
+        </value>
+      </prescribed>
+    </scalar_field>
+  </material_phase>
+</visualise_elements>

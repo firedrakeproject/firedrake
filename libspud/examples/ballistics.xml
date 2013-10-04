@@ -1,0 +1,41 @@
+<?xml version='1.0' encoding='utf8'?>
+<ballistics_options>
+  <simulation_name>
+    <string_value lines="1" type="filename">bal1</string_value>
+  </simulation_name>
+  <timestepping>
+    <dt>
+      <real_value rank="0">0.1</real_value>
+    </dt>
+    <finish_time>
+      <real_value rank="0">10</real_value>
+    </finish_time>
+    <time_integration_scheme>
+      <string_value lines="1">explicit_euler</string_value>
+    </time_integration_scheme>
+  </timestepping>
+  <gravity>
+    <real_value rank="0">10</real_value>
+  </gravity>
+  <projectile name="proj1">
+    <initial_velocity>
+      <real_value shape="2" dim1="dim" rank="1">10 10</real_value>
+    </initial_velocity>
+    <launch_position>
+      <real_value shape="1" dim1="dim-1" rank="1">10</real_value>
+    </launch_position>
+  </projectile>
+  <projectile name="proj2">
+    <initial_velocity>
+      <real_value shape="2" dim1="dim" rank="1">-5 10</real_value>
+    </initial_velocity>
+    <launch_position>
+      <real_value shape="1" dim1="dim-1" rank="1">20</real_value>
+    </launch_position>
+  </projectile>
+  <geometry>
+    <dimension>
+      <integer_value rank="0">2</integer_value>
+    </dimension>
+  </geometry>
+</ballistics_options>

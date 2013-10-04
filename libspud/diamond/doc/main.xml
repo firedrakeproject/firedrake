@@ -1,0 +1,1521 @@
+<!--
+
+  This is a GNOME documentation template, designed by the GNOME
+  Documentation Project Team. Please use it for writing GNOME
+  documentation, making obvious changes. In particular, all the words
+  written in UPPERCASE (with the exception of GNOME) should be
+  replaced. As for "legalnotice", please leave the reference
+  unchanged.
+
+  Remember that this is a guide, rather than a perfect model to follow
+  slavishly. Make your manual logical and readable.  And don't forget
+  to remove these comments in your final documentation!  ;-)
+-->
+<!--
+
+      (Do not remove this comment block.)
+  Maintained by the GNOME Documentation Project
+  http://developer.gnome.org/projects/gdp
+  Template version: 2.0 beta
+  Template last modified Apr 11, 2002
+-->
+<!--
+ =============Document Header =============================
+-->
+<article id="index" lang="en">
+<!--
+ please do not change the id; for translations, change lang to
+-->
+<!-- appropriate code -->
+<articleinfo>
+<title>
+<application>Diamond</application>
+ manual
+</title>
+<copyright>
+<holder>Matthew Whitworth</holder>
+</copyright>
+<!--
+ translators: uncomment this:
+
+  <copyright>
+   <year>2002</year>
+   <holder>ME-THE-TRANSLATOR (Latin translation)</holder>
+  </copyright>
+
+
+-->
+<!--
+ An address can be added to the publisher information.  If a role is
+     not specified, the publisher/author is the same for all versions of the
+     document.
+-->
+<publisher>
+<publishername> GNOME Documentation Project </publishername>
+</publisher>
+
+<!--
+ This file  contains link to license for the documentation (GNU FDL), and
+        other legal stuff such as "NO WARRANTY" statement. Please do not change
+	any of this.
+-->
+<authorgroup>
+<author>
+<firstname>Documentation</firstname>
+<surname>Matthew Whitworth</surname>
+<affiliation>
+<orgname>Imperial Applied Modelling and Computation Group</orgname>
+<address>
+<email>mtw07@doc.ic.ac.uk</email>
+</address>
+</affiliation>
+</author>
+<!--
+ This is appropriate place for other contributors: translators,
+     maintainers,  etc. Commented out by default.
+
+      <othercredit role="translator">
+		<firstname>Latin</firstname>
+		<surname>Translator 1</surname>
+		<affiliation>
+	  		<orgname>Latin Translation Team</orgname>
+	  		<address> <email>translator@gnome.org</email> </address>
+		</affiliation>
+		<contrib>Latin translation</contrib>
+      </othercredit>
+-->
+</authorgroup>
+<!--
+ According to GNU FDL, revision history is mandatory if you are
+-->
+<!--
+ modifying/reusing someone else's document.  If not, you can omit it.
+-->
+<!--
+ Remember to remove the &manrevision; entity from the revision entries other
+-->
+<!-- than the current revision. -->
+<!--
+ The revision numbering system for GNOME manuals is as follows:
+-->
+<!-- * the revision number consists of two components -->
+<!--
+ * the first component of the revision number reflects the release version of the GNOME desktop.
+-->
+<!--
+ * the second component of the revision number is a decimal unit that is incremented with each revision of the manual.
+-->
+<!--
+ For example, if the GNOME desktop release is V2.x, the first version of the manual that
+-->
+<!--
+ is written in that desktop timeframe is V2.0, the second version of the manual is V2.1, etc.
+-->
+<!--
+ When the desktop release version changes to V3.x, the revision number of the manual changes
+-->
+<!-- to V3.0, and so on. -->
+
+<releaseinfo>
+This manual describes version 0.2 of Diamond.
+
+</releaseinfo>
+
+<legalnotice>
+<title>Feedback</title>
+
+<para>
+To report a bug or make a suggestion regarding the
+<application>Diamond</application>
+ application or
+      this manual, follow the directions in the
+<ulink url="ghelp:gnome-feedback" type="help">GNOME Feedback Page</ulink>
+.
+
+</para>
+
+<!--
+ Translators may also add here feedback address for translations
+-->
+</legalnotice>
+</articleinfo>
+
+<indexterm zone="index">
+<primary>MY-GNOME-APP</primary>
+</indexterm>
+
+<indexterm zone="index">
+<primary>mygnomeapp</primary>
+</indexterm>
+
+<!--
+ ============= Document Body =============================
+-->
+
+<!--
+ ============= Introduction ==============================
+-->
+
+<!--
+ Use the Introduction section to give a brief overview of what
+     the application is and what it does.
+-->
+
+<sect1 id="myapp-introduction">
+<title>Introduction</title>
+
+<para>
+The
+<application>Diamond</application>
+ application enables you to view image files.
+
+<application>Diamond</application>
+ provides the following features:
+</para>
+
+<itemizedlist>
+
+<listitem>
+<para>Support for the following image file formats:</para>
+
+<itemizedlist>
+
+<listitem>
+<para>BMP - Windows Bitmap</para>
+</listitem>
+
+<listitem>
+<para>GIF - Graphics Interchange Format</para>
+</listitem>
+
+<listitem>
+<para>ICO - Windows Icon</para>
+</listitem>
+
+<listitem>
+<para>JPEG - Joint Photographic Experts Group</para>
+</listitem>
+
+<listitem>
+<para>PNG - Portable Network Graphics </para>
+</listitem>
+
+<listitem>
+<para>PNM - Portable Anymap from the PPM Toolkit</para>
+</listitem>
+
+<listitem>
+<para>RAS - Sun Raster </para>
+</listitem>
+
+<listitem>
+<para>TIFF - Tagged Image File Format</para>
+</listitem>
+
+<listitem>
+<para>XPM - X Pixmap</para>
+</listitem>
+</itemizedlist>
+</listitem>
+
+<listitem>
+
+<para>
+A variety of zoom levels and full screen viewing, with low usage
+	  of memory regardless of the zoom level.
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+Bonobo embedding technology that enables you to embed image views
+	  in other GNOME applications.
+</para>
+</listitem>
+</itemizedlist>
+
+<note>
+<para>This is a note.</para>
+</note>
+</sect1>
+
+<!--
+ =========== Getting Started ==============================
+-->
+
+<!--
+ Use the Getting Started section to describe the steps required
+     to start the application and to describe the user interface components
+     of the application. If there is other information that it is important
+     for readers to know before they start using the application, you should
+     also include this information here.
+     If the information about how to get started is very short, you can
+     include it in the Introduction and omit this section.
+-->
+
+<sect1 id="myapp-getting-started">
+<title>Getting Started</title>
+
+<sect2 id="myapp-start">
+
+<title>
+To Start
+<application>MY-GNOME-APPLICATION</application>
+</title>
+
+<para>
+You can start
+
+<application>
+<application>MY-GNOME-APPLICATION</application>
+</application>
+ in the following ways:
+
+</para>
+
+<variablelist>
+
+<varlistentry>
+
+<term>
+<guimenu>Applications</guimenu>
+ menu
+</term>
+
+<listitem>
+
+<para>
+Choose
+
+
+<menuchoice>
+<guisubmenu>Submenu Name </guisubmenu>
+<guimenuitem>My-GNOME-APPLICATION</guimenuitem>
+</menuchoice>
+.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>Command line</term>
+
+<listitem>
+
+<para>
+To start
+
+<application>
+<application>MY-GNOME-APPLICATION</application>
+</application>
+ from a command line, type the following command,
+    		then press
+<keycap>Return</keycap>
+:
+</para>
+
+<para>
+<command>myapp</command>
+<replaceable>filename.jpg</replaceable>
+</para>
+
+<para>
+where
+
+<replaceable>filename.jpg</replaceable>
+ is the name of the file you
+			want to open.
+
+</para>
+
+<para>
+<application>MY-GNOME-APPLICATION</application>
+ opens each file that you specify in a new window.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</sect2>
+
+<sect2 id="myapp-when-start">
+
+<title>
+When You Start
+<application>MY-GNOME-APPLICATION</application>
+</title>
+
+<para>
+When you start
+
+<application>
+<application>MY-GNOME-APPLICATION</application>
+</application>
+, the following window is displayed.
+</para>
+<!-- ==== Figure ==== -->
+
+<figure id="mainwindow-fig">
+
+<title>
+<application>MY-GNOME-APPLICATION</application>
+ Start Up Window
+</title>
+
+<screenshot>
+
+<mediaobject>
+
+<imageobject>
+<imagedata fileref="figures/myapp_start_window.png" format="PNG"/>
+</imageobject>
+
+<!--
+ EPS versions of the figures are not required at the moment.
+-->
+
+<!--
+
+		    <imageobject>
+      		<imagedata fileref="figures/image.eps" format="EPS"/>
+    		    </imageobject>
+
+-->
+
+<textobject>
+
+<phrase>
+Shows
+<application>MY-GNOME-APPLICATION</application>
+ main window. Contains titlebar, menubar, toolbar, display area, and
+	      scrollbars. Menubar contains File, View, Settings, and Help menus.
+</phrase>
+</textobject>
+</mediaobject>
+</screenshot>
+</figure>
+<!-- ==== End of Figure ==== -->
+
+<!--
+ Include any descriptions of the GUI immediately after the screenshot of the main UI,
+-->
+
+<!--
+ for example, the items on the menubar and on the toolbar. This section is optional.
+-->
+
+<para>
+The
+<application>MY-GNOME-APPLICATION</application>
+ window contains the following elements:
+
+</para>
+
+<variablelist>
+
+<varlistentry>
+<term>Menubar. </term>
+
+<listitem>
+
+<para>
+The menus on the menubar contain all of the commands you need to work with files in
+
+
+<application>
+<application>MY-GNOME-APPLICATION</application>
+</application>
+.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>Toolbar. </term>
+
+<listitem>
+
+<para>
+ The toolbar contains a subset of the commands that you can access from the menubar.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+<term>Statusbar. </term>
+
+<listitem>
+
+<para>
+The statusbar displays information about current
+
+<application>
+<application>MY-GNOME-APPLICATION</application>
+</application>
+
+	activity and contextual information about the menu items.
+</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</sect2>
+</sect1>
+
+<!--
+ ================ Usage ================================
+-->
+
+<!--
+ Use this section to describe how to use the application to perform the tasks for
+  which the application is designed.
+-->
+
+<sect1 id="myapp-usage">
+<title>Usage</title>
+
+<para>
+You can use the
+<application>MY-GNOME-APPLICATION</application>
+ application to
+      perform the following tasks:
+
+
+<itemizedlist>
+
+<listitem>
+
+<para>
+<xref linkend="myapp-open-image"/>
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+<xref linkend="myapp-manipulate-view"/>
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+<xref linkend="myapp-scroll-image"/>
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+<xref linkend="myapp-close-image"/>
+</para>
+</listitem>
+</itemizedlist>
+</para>
+
+<!--
+ ================ Usage Subsection ================================
+-->
+
+<sect2 id="myapp-open-image">
+<title>To Open an Image</title>
+
+<para>
+To open an image, choose
+
+
+<menuchoice>
+<guimenu>File</guimenu>
+<guimenuitem>Open Image</guimenuitem>
+</menuchoice>
+. The
+
+<guilabel>Open Image</guilabel>
+ dialog is displayed. Select the file
+	that you want to open, then click
+
+<guibutton>OK</guibutton>
+. To open another image in a new window,
+	choose
+
+
+<menuchoice>
+<guimenu>File</guimenu>
+<guimenuitem>Create New Window</guimenuitem>
+</menuchoice>
+. Choose
+
+
+<menuchoice>
+<guimenu>File</guimenu>
+<guimenuitem>Open Image</guimenuitem>
+</menuchoice>
+	to select the file that you want to open. You can also drag an image
+	from another application such as a file manager to the
+<application>MY-GNOME-APPLICATION</application>
+
+	window. If the
+<application>MY-GNOME-APPLICATION</application>
+ window is empty, the application displays
+	the image in the window. If the window is not empty, the
+	application starts a new window to display the file. The
+	application displays the name of the image file and the size
+	of the image in pixels in the titlebar of the window.
+</para>
+
+<para>
+
+	If you try to open an image file format that
+<application>MY-GNOME-APPLICATION</application>
+ does
+	not recognize, the application displays an error
+	message.
+
+</para>
+
+<caution>
+<para>This is a caution.</para>
+</caution>
+</sect2>
+
+<!--
+ ================ Usage Subsection ================================
+-->
+
+<sect2 id="myapp-manipulate-view">
+<title>To Manipulate the View of an Image</title>
+
+<para>
+You can use the following methods to resize the view of an image in
+	the
+<application>MY-GNOME-APPLICATION</application>
+ window:
+</para>
+
+<itemizedlist>
+
+<listitem>
+
+<para>
+To enlarge the view of an image, choose
+
+
+<menuchoice>
+<guimenu>View</guimenu>
+<guimenuitem>Zoom In</guimenuitem>
+</menuchoice>
+.
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+To shrink the view of an image, choose
+
+
+<menuchoice>
+<guimenu>View</guimenu>
+<guimenuitem>Zoom Out</guimenuitem>
+</menuchoice>
+.
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+To view the image at its actual size, choose
+
+
+<menuchoice>
+<guimenu>View</guimenu>
+<guimenuitem>Zoom 1:1</guimenuitem>
+</menuchoice>
+.
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+To enlarge or shrink the view of an image so that the image
+	    fits the
+<application>MY-GNOME-APPLICATION</application>
+ window, choose
+
+
+<menuchoice>
+<guimenu>View</guimenu>
+<guimenuitem>Fit to Window</guimenuitem>
+</menuchoice>
+.
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+To enlarge or shrink the image to a specific zoom factor,
+	    choose
+
+
+<menuchoice>
+<guimenu>View</guimenu>
+<guimenuitem>Zoom factor</guimenuitem>
+</menuchoice>
+, then choose the appropriate zoom factor from the
+	    drop-down list.
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+To display the image in full screen mode, choose
+
+
+<menuchoice>
+<guimenu>View</guimenu>
+<guimenuitem>Full Screen</guimenuitem>
+</menuchoice>
+. Full screen mode displays the image in a window that
+	    fills the full screen. The window does not contain a
+	    window frame, titlebar,
+	    menubar, or toolbar. To exit from this mode, press the
+
+<keycap>Esc</keycap>
+ key or
+
+
+<keycombo>
+<keycap>Ctrl</keycap>
+<keycap>W</keycap>
+</keycombo>
+.
+
+</para>
+</listitem>
+</itemizedlist>
+
+<tip>
+<para>This is a tip.</para>
+</tip>
+</sect2>
+
+<!--
+ ================ Usage Subsection ================================
+-->
+
+<sect2 id="myapp-scroll-image">
+<title>To Scroll an Image</title>
+
+<para>
+To scroll around an image that is larger than the image window or
+	full screen window, you can use the following methods:
+</para>
+
+<itemizedlist>
+
+<listitem>
+<para>Use the arrow keys on the keyboard.</para>
+</listitem>
+
+<listitem>
+
+<para>
+Drag the image in the opposite direction to the direction in
+	    which you want to scroll. For example, if you want to
+	      scroll down the image,
+	    drag the image upwards in the window.
+</para>
+</listitem>
+
+<listitem>
+<para>Use the scrollbars on the window.</para>
+</listitem>
+</itemizedlist>
+</sect2>
+
+<!--
+ ================ Usage Subsection ================================
+-->
+
+<sect2 id="myapp-close-image">
+<title>To Close an Image</title>
+
+<para>
+To close an image, choose
+
+
+<menuchoice>
+<guimenu>File</guimenu>
+<guimenuitem>Close This Window</guimenuitem>
+</menuchoice>
+. If the window is the last
+
+<application>MY-GNOME-APPLICATION</application>
+ window open, the application exits.
+</para>
+
+<para>
+To quit
+<application>MY-GNOME-APPLICATION</application>
+ and close all of the
+	windows that you opened in the current session, choose
+
+
+<menuchoice>
+<guimenu>File</guimenu>
+<guimenuitem>Exit</guimenuitem>
+</menuchoice>
+.
+</para>
+
+<warning>
+<para>This is a warning.</para>
+</warning>
+</sect2>
+</sect1>
+
+<!--
+ ============= Customization =============================
+-->
+
+<!--
+ Use this section to describe how to customize the application.
+-->
+
+<sect1 id="myapp-prefs">
+<title>Settings</title>
+
+<para>
+To configure
+<application>MY-GNOME-APPLICATION</application>
+, choose
+
+
+<menuchoice>
+<guimenu>Settings</guimenu>
+<guimenuitem>Preferences</guimenuitem>
+</menuchoice>
+. The
+
+<guilabel>Preferences</guilabel>
+ dialog contains the following tabbed
+      sections:
+</para>
+
+<itemizedlist>
+
+<listitem>
+
+<para>
+<xref linkend="myapp-prefs-display"/>
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+<xref linkend="myapp-prefs-viewers"/>
+</para>
+</listitem>
+</itemizedlist>
+
+<!--
+ =============== Customization Subsection ================
+-->
+
+<!--
+ Use a new section to describe different tabbed sections on the Settings or Preferences
+	     dialog.
+-->
+
+<sect2 id="myapp-prefs-display">
+<title>Display</title>
+
+<variablelist>
+
+<varlistentry>
+
+<term>
+<guilabel>Interpolation type</guilabel>
+</term>
+
+<listitem>
+
+<para>
+Use this drop-down list box to specify the
+	      interpolation method that
+
+<application>MY-GNOME-APPLICATION</application>
+ uses when the
+	      application resizes images. Select one of the following
+	      options:
+</para>
+
+<itemizedlist>
+
+<listitem>
+
+<para>
+<guilabel>Nearest neighbor</guilabel>
+</para>
+
+<para>
+This method of interpolation takes a location in the
+		  original image and replicates the pixel that is
+		  nearest to this location. When
+		  you zoom in on an image, the pixels are
+		  replicated. When you zoom out of an
+		  image, the image loses some of its detail.
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+<guilabel>Bilinear</guilabel>
+</para>
+
+<para>
+This is a simple and fast method of interpolation. When
+		  you zoom in on an image,
+<application>MY-GNOME-APPLICATION</application>
+ uses up to four
+		  adjacent pixels to compute the colors of the new
+		  pixels. When you zoom out of
+		  an image,
+<application>MY-GNOME-APPLICATION</application>
+ averages regions of color in the
+		  existing image to compute the colors of the pixels.
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+<guilabel>Hyperbolic</guilabel>
+</para>
+
+<para>
+This is a high-quality, slow method of interpolation. The
+		  application performs interpolation on the image in
+		  the manner described in
+		  Digital Image Warping by George Wolberg.
+</para>
+</listitem>
+</itemizedlist>
+
+<para>
+Default:
+
+<guilabel>Nearest neighbor</guilabel>
+.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+
+<term>
+<guilabel>Transparency type</guilabel>
+</term>
+
+<listitem>
+
+<para>
+Use this drop-down list box to specify how
+
+<application>MY-GNOME-APPLICATION</application>
+ displays transparent or partially opaque
+	      backgrounds in images. Select one of the following options:
+</para>
+
+<itemizedlist>
+
+<listitem>
+
+<para>
+<guilabel>Dark checks</guilabel>
+</para>
+<para>This option displays black and dark gray checks.</para>
+</listitem>
+
+<listitem>
+
+<para>
+<guilabel>Midtone checks</guilabel>
+</para>
+
+<para>
+This option displays dark gray and light gray
+		  checks.
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+<guilabel>Light checks</guilabel>
+</para>
+<para>This option displays light gray and white checks.</para>
+</listitem>
+
+<listitem>
+
+<para>
+<guilabel>Black only</guilabel>
+</para>
+<para>This option displays solid black.</para>
+</listitem>
+
+<listitem>
+
+<para>
+<guilabel>Gray only</guilabel>
+</para>
+<para>This option displays solid gray.</para>
+</listitem>
+
+<listitem>
+
+<para>
+<guilabel>White only</guilabel>
+</para>
+<para>This option displays solid white.</para>
+</listitem>
+</itemizedlist>
+
+<para>
+Default:
+
+<guilabel>Dark checks</guilabel>
+.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+
+<term>
+<guilabel>Check size</guilabel>
+</term>
+
+<listitem>
+
+<para>
+Use this drop-down list box to specify the size of the checks
+	      to use to display transparent or partially opaque
+	      backgrounds in images. This
+	      option is only relevant if you choose
+
+<guilabel>Dark checks</guilabel>
+,
+
+<guilabel>Midtone checks</guilabel>
+, or
+
+<guilabel>Light checks</guilabel>
+ from the
+
+<guilabel>Transparency type</guilabel>
+ drop-down list box.
+	      Select one of the following options:
+</para>
+
+<itemizedlist>
+
+<listitem>
+
+<para>
+<guilabel>Small</guilabel>
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+<guilabel>Medium</guilabel>
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+<guilabel>Large</guilabel>
+</para>
+</listitem>
+</itemizedlist>
+
+<para>
+Default:
+
+<guilabel>Small</guilabel>
+.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+
+<term>
+<guilabel>Dither type</guilabel>
+</term>
+
+<listitem>
+
+<para>
+Use this drop-down list box to specify the dithering method
+	      to use to display images. Dithering is a technique that
+	      is used to simulate
+	      colors in the original image file but that your system
+	      can not display. Select
+	      one of the following options:
+</para>
+
+<itemizedlist>
+
+<listitem>
+
+<para>
+<guilabel>None</guilabel>
+</para>
+<para>This option does not use dithering. </para>
+</listitem>
+
+<listitem>
+
+<para>
+<guilabel>Normal (pseudocolor)</guilabel>
+</para>
+
+<para>
+This option performs dithering on pseudocolor displays,
+		  which use a limited palette of colors.
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+<guilabel>Maximum (high color)</guilabel>
+</para>
+
+<para>
+This option performs dithering on pseudocolor and high
+		  color displays.
+</para>
+</listitem>
+</itemizedlist>
+
+<para>
+Default:
+
+<guilabel>None</guilabel>
+.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+
+<term>
+<guilabel>Two-pass scrolling</guilabel>
+</term>
+
+<listitem>
+
+<para>
+Select this option to render an image in two passes
+	      when you scroll the image quickly. The first pass
+	      renders a low quality version of the image. The second
+	      pass renders a full quality version of the image over
+	      the low quality version. Two-pass scrolling enables you
+	      to view at least a low quality version of the image at
+	      all times regardless of how quickly you scroll the
+	      image.
+
+</para>
+<para>Default: unselected.</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</sect2>
+
+<!--
+ ============= Customization Subsection =====================
+-->
+
+<!--
+ Another tabbed section on the Preferences dialog.
+-->
+
+<sect2 id="myapp-prefs-viewers">
+<title>Viewers</title>
+
+<para>
+You can set the following viewer preferences:
+
+
+<itemizedlist>
+
+<listitem>
+
+<para>
+<xref linkend="myapp-viewer-prefs-image-window"/>
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+<xref linkend="myapp-viewer-prefs-full-screen"/>
+</para>
+</listitem>
+</itemizedlist>
+</para>
+
+<sect3 id="myapp-viewer-prefs-image-window">
+<title>Image Windows</title>
+
+<para>
+The
+
+<guilabel>Image Windows</guilabel>
+ group contains the preferences
+	  that you can set to view images in image windows.
+</para>
+
+<variablelist>
+
+<varlistentry>
+
+<term>
+<guilabel>Use scrollbars</guilabel>
+</term>
+
+<listitem>
+
+<para>
+Use this drop-down list box to specify when to use
+		scrollbars to scroll through an image. Select one of
+		the following options:
+</para>
+
+<itemizedlist>
+
+<listitem>
+
+<para>
+<guilabel>Never</guilabel>
+</para>
+
+<para>
+This option never displays scrollbars. You can use the
+		    arrow keys on the keyboard or the mouse to scroll
+		    through the image.
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+<guilabel>Only if image does not fit</guilabel>
+</para>
+
+<para>
+This option displays scrollbars when the image is
+		    larger than the image window.
+</para>
+</listitem>
+</itemizedlist>
+
+<para>
+Default:
+
+<guilabel>Never</guilabel>
+.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+
+<term>
+<guilabel>Pick window size and zoom factor
+		automatically</guilabel>
+</term>
+
+<listitem>
+
+<para>
+Select this option to resize the image window to fit the
+		image or to resize the image to fit the image
+		window. If the image is small,
+
+<application>MY-GNOME-APPLICATION</application>
+ resizes the image window to fit the image. If
+		the image is large,
+<application>MY-GNOME-APPLICATION</application>
+ resizes the image to fit
+		the image window.
+</para>
+<para>Default: unselected.</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+
+<term>
+<guilabel>Open images in a new window</guilabel>
+</term>
+
+<listitem>
+
+<para>
+Select this option to open a new
+
+<application>MY-GNOME-APPLICATION</application>
+ window each time you open an image. If you do
+		not select this option,
+<application>MY-GNOME-APPLICATION</application>
+ replaces the existing
+		image with the new image when you open an image.
+</para>
+<para>Default: unselected.</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</sect3>
+
+<sect3 id="myapp-viewer-prefs-full-screen">
+<title>Full Screen</title>
+
+<para>
+The
+
+<guilabel>Full Screen</guilabel>
+ group contains the preferences that
+	  you can set to view images in full screen mode.
+</para>
+
+<variablelist>
+
+<varlistentry>
+
+<term>
+<guilabel>Use scrollbars</guilabel>
+</term>
+
+<listitem>
+
+<para>
+Use this drop-down list box to specify when to use
+		scrollbars to scroll through an image. Select one of the following
+		options:
+</para>
+
+<itemizedlist>
+
+<listitem>
+
+<para>
+<guilabel>Never</guilabel>
+</para>
+
+<para>
+This option never displays scrollbars. You can use the
+		    arrow keys on the keyboard or the mouse to scroll
+		    through the image.
+</para>
+</listitem>
+
+<listitem>
+
+<para>
+<guilabel>Only if image does not fit</guilabel>
+</para>
+
+<para>
+This option displays scrollbars when the image is
+		    larger than the full screen.
+</para>
+</listitem>
+</itemizedlist>
+
+<para>
+Default:
+
+<guilabel>Never</guilabel>
+.
+</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+
+<term>
+<guilabel>Use 1:1 zoom factor</guilabel>
+</term>
+
+<listitem>
+
+<para>
+Select this option to use the 1:1 zoom factor when you open
+		an image. The 1:1 zoom factor displays the image at
+		its actual size.
+</para>
+<para>Default: selected.</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+
+<term>
+<guilabel>Use same zoom factor as image window</guilabel>
+</term>
+
+<listitem>
+
+<para>
+Select this option to use the same zoom factor that the
+		application uses to display the image in an image
+	      window.
+</para>
+<para>Default: unselected.</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+
+<term>
+<guilabel>Fit all images to screen</guilabel>
+</term>
+
+<listitem>
+
+<para>
+Select this option to resize images to fill the full screen
+		when you open the images in full screen mode.
+</para>
+<para>Default: unselected.</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+
+<term>
+<guilabel>Fit standard-sized images to screen</guilabel>
+</term>
+
+<listitem>
+
+<para>
+Select this option to automatically resize images
+		that are the same size as standard screens so that the
+		images fill the full screen when you open them in full
+		screen mode. If you select this option,
+<application>MY-GNOME-APPLICATION</application>
+ ignores
+		the settings for the previous three options when you
+		open an image that is the same size as a standard
+		screen.  Examples of standard screen sizes are 640 x
+		480 pixels, 1024 x 768 pixels, and so on.
+</para>
+<para>Default: unselected.</para>
+</listitem>
+</varlistentry>
+
+<varlistentry>
+
+<term>
+<guilabel>Put a bevel around the edge of the screen</guilabel>
+</term>
+
+<listitem>
+
+<para>
+Select this option to display a 3D beveled border around
+		the full screen view of an image.
+</para>
+<para>Default: unselected.</para>
+</listitem>
+</varlistentry>
+</variablelist>
+</sect3>
+</sect2>
+</sect1>
+
+<!--
+ ============= Bugs ==================================
+-->
+
+<!--
+ This section is optional and is commented out by default.
+     You can use it to describe known bugs and limitations of the
+	  program if there are any - please be frank and list all
+     problems you know of.
+
+  <sect1 id="mayapp-bugs">
+  <title>Known Bugs and Limitations</title>
+  <para> </para>
+ </sect1>
+-->
+
+<!--
+ ============= About ==================================
+-->
+
+<!--
+ This section contains info about the program (not docs), such as
+      author's name(s), web page, license, feedback address. This
+      section is optional: primary place for this info is "About.." box of
+      the program. However, if you do wish to include this info in the
+      manual, this is the place to put it. Alternatively, you can put this information in the title page.
+-->
+
+<sect1 id="myapp-about">
+
+<title>
+About
+<application>MY-GNOME-APPLICATION</application>
+</title>
+
+<para>
+<application>MY-GNOME-APPLICATION</application>
+ was written by GNOME-HACKER
+      (
+<email>hacker@gnome.org</email>
+). To find more information about
+
+<application>MY-GNOME-APPLICATION</application>
+, please visit the
+
+<ulink url="http://www.my-gnome-app.org" type="http">MY-GNOME-APP Web
+	page</ulink>
+.
+</para>
+
+<para>
+
+      To report a bug or make a suggestion regarding this application or
+      this manual, follow the directions in this
+
+<ulink url="ghelp:gnome-feedback" type="help">document</ulink>
+.
+
+</para>
+
+<para>
+ This program is distributed under the terms of the GNU
+      General Public license as published by the Free Software
+      Foundation; either version 2 of the License, or (at your option)
+      any later version. A copy of this license can be found at this
+
+<ulink url="ghelp:gpl" type="help">link</ulink>
+, or in the file
+      COPYING included with the source code of this program.
+</para>
+</sect1>
+</article>

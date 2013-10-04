@@ -1,0 +1,22 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>expressions</name>
+  <!-- Basic test of firedrake expression integration -->
+  <owner userid="dham"/>
+  <tags>firedrake</tags>
+  <problem_definition length="short" nprocs="1">
+    <command_line>true</command_line>
+  </problem_definition>
+  <variables>
+    <variable name="tests" language="python">
+import test_firedrake_expressions as test
+t = test.tests
+test.print_tests(t)
+tests = all( [tst[2] for tst in t] + test.exceptions)
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="All_expressions_work" language="python"> assert tests</test>
+  </pass_tests>
+  <warn_tests/>
+</testproblem>

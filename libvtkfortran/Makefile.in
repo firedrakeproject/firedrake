@@ -1,0 +1,78 @@
+# Copyright (C) 2004-2006 by Gerard Gorman
+# Copyright (C) 2006- Imperial College London and others.
+#
+#  Please see the AUTHORS file in the main source directory for a full list
+#  of copyright holders.
+#
+#  Dr Gerard J Gorman
+#  Applied Modelling and Computation Group
+#  Department of Earth Science and Engineering
+#  Imperial College London
+#
+#  g.gorman@imperial.ac.uk
+#
+#  This library is free software; you can redistribute it and/or
+#  modify it under the terms of the GNU Lesser General Public
+#  License as published by the Free Software Foundation; either
+#  version 2.1 of the License.
+#
+#  This library is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+#  Lesser General Public License for more details.
+#
+#  You should have received a copy of the GNU Lesser General Public
+#  License along with this library; if not, write to the Free Software
+#  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307
+#  USA
+
+SHELL = @SHELL@
+
+FC = @FC@
+FCFLAGS = -I./include @CPPFLAGS@ @FCFLAGS@
+
+CXX = @CXX@
+CXXFLAGS = -I./include @CPPFLAGS@ @CXXFLAGS@
+
+LINKER = @CXX@
+LIBS = @LIBS@
+
+AR = @AR@
+ARFLAGS = @ARFLAGS@
+
+MAKE = gmake
+
+LIB = libvtkfortran.a
+SLIB = libvtkfortran.so
+DLIB = libvtkfortran.dylib
+
+MAJOR = 1
+VERSION = 1
+
+OBJS = vtkfortran.o vtkmeshio.o fvtkfortran.o
+TINY_OBJS = tinyxmlparser.o tinyxmlerror.o tinyxml.o
+
+.SUFFIXES:
+.SUFFIXES: .F90 .cpp .o .a
+
+.cpp.o:
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $<
+
+.F90.o:
+	$(FC) $(CPPFLAGS) $(FCFLAGS) -c $<
+
+default: $(OBJS)
+	$(AR) $(ARFLAGS) $(LIB) $(OBJS)
+
+shared: $(OBJS) $(TINY_OBJS)
+
+	$(LINKER) -shared -Wl,-soname,$(SLIB).$(MAJOR),-z,defs -o $(SLIB).$(VERSION) $(OBJS) $(TINY_OBJS) $(LIBS)
+
+dynamic: $(OBJS)
+	$(CXX) -dynamiclib -install_name $(DLIB) -o $(DLIB) $(OBJS) $(LIBS)
+
+clean:
+	rm -f *.o *.mod $(LIB) $(SLIB)* $(DLIB)
+
+distclean: clean
+	rm -f make.log include/confdefs.h include/vtk.h

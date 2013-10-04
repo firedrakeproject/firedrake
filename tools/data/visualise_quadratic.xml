@@ -1,0 +1,28 @@
+<?xml version='1.0' encoding='utf-8'?>
+<visualise_elements>
+  <project_name>
+    <string_value lines="1">visualise_quadratic</string_value>
+  </project_name>
+  <geometry>
+    <dimension>
+      <integer_value rank="0">2</integer_value>
+    </dimension>
+    <element_vertices>
+      <integer_value rank="0">3</integer_value>
+    </element_vertices>
+    <element_degree>
+      <integer_value rank="0">2</integer_value>
+    </element_degree>
+    <element_family>
+      <string_value lines="1">lagrange</string_value>
+    </element_family>
+    <quadrature>
+      <degree>
+        <integer_value rank="0">4</integer_value>
+      </degree>
+    </quadrature>
+    <visualisation_degree>
+      <integer_value rank="0">20</integer_value>
+    </visualisation_degree>
+  </geometry>
+</visualise_elements>

@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>expressions</name>
+  <!-- Basic test of firedrake expression integration -->
+  <owner userid="dham"/>
+  <tags>firedrake</tags>
+  <problem_definition length="special" nprocs="1">
+    <command_line>true</command_line>
+  </problem_definition>
+  <variables>
+  </variables>
+  <warn_tests/>
+</testproblem>

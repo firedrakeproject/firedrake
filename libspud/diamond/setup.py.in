@@ -1,0 +1,77 @@
+from distutils.core import setup
+from distutils.extension import Extension
+import os
+import os.path
+import glob
+
+# There are a number of local hacks in this file, to deal with the multiple
+# ways in which setup.py is called by various scripts and packaging methods
+# that interact with spud, enabling setuptools to grok their intentions.
+
+# In some cases, we will be passed a 'DESTDIR' from an upstream packagaing
+# system. This will be a local directory to install into, and act as local '/'
+# as far as all paths are concerned. Check for this, and fail nicely if not set.
+
+prefix = None
+import sys
+
+# We may also be given prefix, either as a configuration option (which will be
+# dealt with by substitutions later) or as a command line option. If a command
+# line option is present, parse this. In some cases, just to add spice into the
+# mix, PREFIX is supplied twice - once by configure, and again by a parent
+# Makefile as a command-line flag.
+#
+# As an alternative to DESTDIR being set, Debian packaging calls setup.py with
+# a --root command line option which does the same thing. This needs to be
+# parsed if present, and supercedes any previous DESTDIR picked up from
+# environment.
+
+for i, arg in enumerate(sys.argv):
+  if "--prefix" in arg:
+    prefix = arg.split('=')[1]
+
+# Given the above prefix possibilities, as well as root and DESTDIR, we need to
+# construct a list of data directories to be installed
+#
+#   * configure-supplied prefixes are dealt with by substitution directly into
+#       this file, with @ PREFIX @ being replaced.
+#   * prefixes as command-line options are pushed by us
+#
+# Note that in the case of this and other packages which supply prefix twice
+# (once in configure, and then again on the command line) we honour the prefix
+# on the command line in preference to the configure prefix.
+
+# First parse the plugin directories
+plugin_dirs = [dir for dir in os.listdir('plugins') if os.path.isdir(os.path.join('plugins', dir)) and dir[0] != '.']
+plugin_data_files = []
+for plugin in plugin_dirs:
+  if prefix is None:
+    plugin_data_files.append(("@prefix@/share/diamond/plugins/" + plugin,
+      glob.glob('plugins/' + plugin + '/*.py')))
+  else:
+    plugin_data_files.append((prefix + "/share/diamond/plugins/" + plugin,
+      glob.glob('plugins/' + plugin + '/*.py')))
+
+# Now parse the GUI directories
+gui_data_files = []
+if prefix is None:
+  gui_data_files.append(("@prefix@/share/diamond/gui",
+    ["gui/gui.glade", "gui/diamond.svg"]))
+else:
+  gui_data_files.append((prefix + "/share/diamond/gui",
+    ["gui/gui.glade", "gui/diamond.svg"]))
+
+# We now have all the information we need; run setup.
+setup(
+      name='diamond',
+      version='1.0',
+      description="Fluidity preprocessor",
+      author = "The ICOM team",
+      author_email = "patrick.farrell@imperial.ac.uk",
+      url = "http://amcg.ese.ic.ac.uk",
+      packages = ['diamond'],
+      package_dir = {'diamond': 'diamond'},
+      scripts=["bin/diamond"],
+      data_files = gui_data_files + plugin_data_files
+     )
+

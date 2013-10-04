@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns:a="http://relaxng.org/ns/compatibility/annotations/1.0" xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="">
+  <include href="spud_base.rng"/>
+  <start>
+    <element name="ballistics_options">
+      <element name="simulation_name">
+        <ref name="filename">
+          <a:documentation>The name of the simulation.
+This will be used as the basename of output files. </a:documentation>
+        </ref>
+      </element>
+      <!--
+        Timestepping_options is a named pattern defined below.
+        In this case this is used to reduce clutter and increase readability.
+      -->
+      <ref name="timestepping_options"/>
+      <element name="gravity">
+        <ref name="real">
+          <a:documentation>The acceleration due to gravity measured downwards.
+e.g. 9.8</a:documentation>
+        </ref>
+      </element>
+      <oneOrMore>
+        <ref name="projectile"/>
+      </oneOrMore>
+      <!-- The + means one or more projectiles. -->
+      <element name="geometry">
+        <element name="dimension">
+          <element name="integer_value">
+            <a:documentation>Only 2D simulations are suppored by ballistics.</a:documentation>
+            <attribute name="rank">
+              <value>0</value>
+            </attribute>
+            <value>2</value>
+          </element>
+        </element>
+      </element>
+    </element>
+  </start>
+  <define name="timestepping_options">
+    <element name="timestepping">
+      <element name="dt">
+        <ref name="real">
+          <a:documentation>The length of each timestep.</a:documentation>
+        </ref>
+      </element>
+      <element name="finish_time">
+        <ref name="real">
+          <a:documentation>The time at which the simulation should stop.</a:documentation>
+        </ref>
+      </element>
+      <element name="time_integration_scheme">
+        <element name="string_value">
+          <a:documentation>The algorithm which will be used to move the projectiles.
+explicit_euler is the first order unstable numeric scheme.
+analytic is the analytic solution.</a:documentation>
+          <!--
+            Lines is a hint to the gui about the size of the text box.
+            It is not an enforced limit on string length.
+          -->
+          <attribute name="lines">
+            <value>1</value>
+          </attribute>
+          <choice>
+            <value>explicit_euler</value>
+            <value>analytic</value>
+          </choice>
+        </element>
+      </element>
+    </element>
+  </define>
+  <define name="projectile">
+    <element name="projectile">
+      <attribute name="name">
+        <a:documentation>An object with a velocity. Projectiles move during the simulation
+and are accelerated by gravity.
+
+The projectile name identifies this projectile in the output.</a:documentation>
+        <data type="string"/>
+      </attribute>
+      <element name="initial_velocity">
+        <ref name="real_dim_vector">
+          <a:documentation>Velocity of the projectile at launch.</a:documentation>
+        </ref>
+      </element>
+      <element name="launch_position">
+        <ref name="real_dim_minus_one_vector">
+          <a:documentation>Position along the x axis at which the projectile begins.</a:documentation>
+        </ref>
+      </element>
+    </element>
+  </define>
+</grammar>

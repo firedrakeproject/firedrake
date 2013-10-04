@@ -1,0 +1,153 @@
+\chapter{Diamond}\label{chap:diamond}
+
+\section{Installation}
+Diamond depends on Python (version 2.3 or greater), PyGTK,
+the 4Suite XML library, and the lxml library. All of these dependencies
+are available in the Debian/Ubuntu repositories with the following command:
+\begin{verbatim}
+apt-get install python-gtk2 python-lxml python-4suite-xml
+\end{verbatim}
+
+Windows versions of these packages are available for download on their respective websites.
+
+\section{Configuration files}
+
+In accordance with normal Unix practice, system wide configuration for
+diamond is stored in the \verb+/etc/diamond+ directory while per-user
+configuration is stored in a \verb+.diamond+ directory in the user's home
+directory.
+
+\subsection{Colour}\label{sec:colour}
+
+Diamond diff view uses colour to display differences between documents.
+These colours are configured by a text file in the diamond directory called \verb+settings+
+with the following contents:
+\begin{verbatim}
+[colour]
+normal = black
+insert = green
+delete = red
+update = blue
+subupdate = cornflowerblue
+diffadd = lightgreen
+diffsub = indianred
+\end{verbatim}
+All colours are optional and will be filled in to the above default values if not given.
+The colour are specified with X11 colour names, see \href{http://en.wikipedia.org/wiki/X11_color_names}{here}.
+
+\subsection{Schemas}
+
+Diamond needs to know which Spud schemas are installed and available on the
+current system. This is specified in the \verb+schemata+ subdirectory of the
+\verb+/etc/diamond+ and \verb+~/.diamond+ directories. The file names in the
+\verb+schemata+ directory give the filename extension associated with a
+particular problem description language. The content of the file is two or
+more lines. The first line is the name of the problem description language,
+the remaining lines are key value pairs (key = value) of alias names and the
+path of the XML syntax (\verb+.rng+) version of the corresponding schema.
+A line with no "key =" part will be interpreted as "default =".
+
+For example, the Fluidity package has a problem description language called
+the Fluidity Markup Language which uses the file extension
+\verb+.flml+. When installed on a system by the sysadmin, Fluidity might
+create the file \verb+/etc/diamond/flml+ with the following contents:
+\begin{verbatim}
+Fluidity Markup Language
+/usr/share/fluidity/fluidity_options.rng
+\end{verbatim}
+An individual user \verb+jrluser+ might have the current version of the
+Fluidity svn tree checked out in their home directory and would need to
+point diamond at the (posssibly updated) schema in their source
+tree. \verb+jrluser+ would then create the file
+\verb+/home/jrluser/.diamond/schemata/flml+ which would contain:
+\begin{verbatim}
+Fluidity Markup Language
+/home/jrluser/fluidity/schemas/fluidity_options.rng
+\end{verbatim}
+Now Diamond will pick up the version of the schema in \verb+jrluser+'s svn
+tree rather than the version the sysadmin installed.
+Alternatively they could just add an alias to the existing \verb+//home/jrluser/.diamond/schemata/flml+:
+\begin{verbatim}
+Fluidity Markup Language
+/usr/share/fluidity/fluidity_options.rng
+jrl = /home/jrluser/fluidity/schemas/fluidity_options.rng
+\end{verbatim}
+
+It is also possible to specify a URL over HTTP for the location of the
+schema. For example:
+\begin{verbatim}
+Fluidity Markup Language
+http://amcg.ese.ic.ac.uk/svn/fluidity/trunk/tools/fluidity_options.rng
+\end{verbatim}
+This is to facilitate centralised deployments.
+
+\section{Starting Diamond}
+
+Diamond can be started in several ways.
+
+When executed as
+\begin{verbatim}
+diamond
+\end{verbatim}
+Diamond will offer the user the choice of which registered schema to use.
+If only one schema is registered, then it will use that by default.
+Diamond will open a blank document of the language specified by the schema to be edited.
+
+When executed as
+\begin{verbatim}
+diamond -s /path/to/schema.rng
+\end{verbatim}
+Diamond will open a blank document using the schema specified on the command line.
+
+When executed as
+\begin{verbatim}
+diamond filename.suffix
+\end{verbatim}
+Diamond will inspect the registered schemas for the suffix specified
+and use that schema.
+
+\section{Using Diamond}
+
+Diamond provides three views.
+\begin{description}
+\item[Main view] Is how Diamond starts up.
+\item[Slice view] Shows same type elements together.
+\item[Diff view] Shows the differences between the open document and another.
+\end{description}
+
+\subsection{Main view}
+The main view shows the tree structure of the document on the left hand side and
+data and documentation for the currently selected element on the right hand side.
+The treeview can be traversed with either the mouse by clicking to open, close, add and
+destroy elements or with the keyboard, using the arrows keys, enter and delete.
+Elements can be copied (puts the XML representation onto the clipboard) or XML can be pasted into
+an element.
+Finally elements of the same type can be grouped together, this will bring all elements of the selected
+type to the top level and hide other elements. Ungroup will then return the view to normal.
+
+\subsection{Slice view}
+Slice view is opened by right clicking an element and selecting \verb+Slice+ or
+selecting an element and then selecting \verb+Slice+ in the \verb+Edit+ menu.
+The slice view shows a list of a given type of element. Each item shows the path, data and attributes for that element.
+
+\subsection{Diff view}
+To open diff view select \verb+Diff+ or \verb+Diff against last save+ in the \verb+Tools+ menu.
+The diff view shows the differences between the currently open document (understood to be the newer version)
+and a user selected document (understood to be the older version). The diff view does NOT understand some conventions
+used in the main view such as hiding certain elements (for example real\_value or comment).
+The colours used in the diff view can be set in the settings file see \ref{sec:colour}.
+
+\subsection{Dynamic validation}
+Diamond uses the schema to guide the editing of valid documents that the schema
+permits. When a blank document is opened, information necessary to make a valid
+document is missing and the document is thus invalid\footnote{This is true for all
+but a trivial schema which permits only one document.}. The invalidity of the document
+is reflected in the colouration of the root node: valid nodes are coloured in black,
+while invalid nodes are coloured in blue. As invalid nodes have their attributes
+and data specified, their validity is dynamically updated and they are coloured appropriately.
+The document as a whole is valid if and only if the root node is coloured black.
+
+\subsection{Finding unused schema elements}
+Diamond has a built in tool to test multiple document files against one schema to see what parts of the schema are not used.
+In the \verb+Tools+ menu select \verb+Find schema usage+, it will prompt for an input directory. It will find every file with
+a matching suffix (.flml for Fluidity Markup Langauge) in the directory tree and check the schema against them.

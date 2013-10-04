@@ -1,0 +1,19 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>identity</name>
+  <owner userid="gb308"/>
+  <tags>ufl</tags>
+  <problem_definition length="short" nprocs="1">
+    <command_line>true</command_line>
+  </problem_definition>
+  <variables>
+    <variable name="result" language="python">
+import test_firedrake_var_p0 as test
+result = test.run_test()
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="Unit Extruded Square Integration value." language="python">assert result[0] == "0.5"</test>
+  </pass_tests>
+  <warn_tests/>
+</testproblem>

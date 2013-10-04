@@ -1,0 +1,58 @@
+from distutils.core import setup
+from distutils.extension import Extension
+import os
+import os.path
+import numpy as np
+
+try:
+  destdir = os.environ["DESTDIR"]
+except KeyError:
+  destdir = ""
+
+libs = """@LIB_FEMDEM@ @LIBS@ @BLAS_LIBS@"""
+
+cflags = """@CFLAGS@"""
+
+try:
+    from Cython.Distutils import build_ext
+    cmdclass = {'build_ext': build_ext}
+    firedrake_sources = ["firedrake/core_types.pyx", "firedrake/fluidity_types.pxd"]
+    evtk_sources = ['evtk/cevtk.pyx']
+except ImportError:
+    # No cython, core_types.c must be generated in distributions.
+    cmdclass = {}
+    firedrake_sources = ["firedrake/core_types.c"]
+    evtk_sources = ['evtk/cevtk.c']
+
+interface_module = Extension('firedrake.core_types',
+                             sources = firedrake_sources,
+                             libraries = ["fluidity",
+                                          "vtkfortran",
+                                          "spatialindex",
+                                          "spud",
+                                          "judy",
+                                          "mpi_cxx"],
+                             library_dirs = ["../lib"],
+                             runtime_library_dirs = [os.path.abspath("../lib")],
+                             extra_compile_args = cflags.split(),
+                             extra_link_args = libs.split(),
+                             )
+
+ext = Extension('evtk.cevtk', evtk_sources, include_dirs = [np.get_include()])
+
+# Get the package version without importing anyting from firedrake
+execfile('firedrake/version.py')
+setup(
+      name = 'fluidity',
+      version = __version__,
+      cmdclass = cmdclass,
+      description="Fluidity python files",
+      author = "The ICOM team",
+      author_email = "patrick.farrell06@imperial.ac.uk",
+      url = "http://amcg.ese.ic.ac.uk",
+      packages = ['fluidity', 'fluidity.diagnostics', "firedrake", "evtk"],
+      py_modules = ['fluidity_tools', 'vtktools'],
+      ext_modules = [interface_module, ext]
+     )
+
+

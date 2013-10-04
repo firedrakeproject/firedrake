@@ -1,0 +1,18 @@
+MAKE = @MAKE@
+
+default:
+	mkdir -p obj
+	cd JudyCommon; $(MAKE); cd ..
+	cd Judy1; $(MAKE); cd ..
+	cd JudyL; $(MAKE); cd ..
+	cd JudySL; $(MAKE); cd ..
+	cd JudyHS; $(MAKE); cd ..
+	ar cr libjudy.a obj/*.o
+
+clean:
+	cd JudyCommon; $(MAKE) clean; cd ..
+	cd Judy1; $(MAKE) clean; cd ..
+	cd JudyL; $(MAKE) clean; cd ..
+	cd JudySL; $(MAKE) clean; cd ..
+	cd JudyHS; $(MAKE) clean; cd ..
+	rm -f obj/* libjudy.a
