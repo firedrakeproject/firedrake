@@ -319,7 +319,6 @@ element equations requires a `fork of
 FFC <https://bitbucket.org/mapdes/ffc>`__ and dependencies: 
 
 * `UFL <https://bitbucket.org/fenics-project/ufl>`__ 
-* `UFC <https://bitbucket.org/fenics-project/ufc>`__ 
 * `FIAT <https://bitbucket.org/fenics-project/fiat>`__
 
 Install via the package manager
@@ -351,7 +350,6 @@ Alternatively, install FFC and all dependencies via pip::
 
   pip install \
     git+https://bitbucket.org/mapdes/ffc.git@pyop2#egg=ffc   
-    bzr+http://bazaar.launchpad.net/~florian-rathgeber/ufc/python-setup#egg=ufc_utils   
     git+https://bitbucket.org/fenics-project/ufl.git#egg=ufl   
     git+https://bitbucket.org/fenics-project/fiat.git#egg=fiat   
     hg+https://bitbucket.org/khinsen/scientificpython

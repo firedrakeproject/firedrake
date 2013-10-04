@@ -57,7 +57,6 @@ echo | tee -a $LOGFILE
 
 ${PIP} \
   git+https://bitbucket.org/mapdes/ffc@pyop2#egg=ffc \
-  bzr+http://bazaar.launchpad.net/~florian-rathgeber/ufc/python-setup#egg=ufc_utils \
   git+https://bitbucket.org/fenics-project/ufl#egg=ufl \
   git+https://bitbucket.org/fenics-project/fiat#egg=fiat \
   git+https://bitbucket.org/fenics-project/instant#egg=instant \
