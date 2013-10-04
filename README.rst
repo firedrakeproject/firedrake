@@ -1,3 +1,6 @@
+.. image:: https://travis-ci.org/OP2/PyOP2.png?branch=master
+  :target: https://travis-ci.org/OP2/PyOP2
+
 Installing PyOP2
 ================
 
