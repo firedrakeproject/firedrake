@@ -47,10 +47,7 @@ echo | tee -a $LOGFILE
 # Install Cython so we can build PyOP2 from source
 ${PIP} Cython numpy >> $LOGFILE 2>&1
 PETSC_CONFIGURE_OPTIONS="--with-fortran --with-fortran-interfaces --with-c++-support" \
-  ${PIP} "petsc == 3.3.7" >> $LOGFILE 2>&1
-# Trick petsc4py into not uninstalling PETSc 3.3; it depends on PETSc 3.4
-export PETSC_DIR=$(python -c 'import petsc; print(petsc.get_petsc_dir())')
-${PIP} --no-deps "petsc4py >= 3.4" >> $LOGFILE 2>&1
+  ${PIP} "petsc>=3.4" "petsc4py>=3.4" >> $LOGFILE 2>&1
 
 echo "*** Installing FEniCS dependencies ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE

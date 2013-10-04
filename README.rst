@@ -94,7 +94,7 @@ Common dependencies:
 * decorator 
 * instant >= 1.2 
 * numpy >= 1.6 
-* PETSc_ >= 3.3 with Fortran interface, C++ and OpenMP support
+* PETSc_ >= 3.4 with Fortran interfaces
 * PETSc4py_ >= 3.4
 * PyYAML
 
@@ -134,14 +134,14 @@ PyOP2 uses petsc4py_, the Python bindings for the PETSc_ linear algebra
 library and requires:
 
 * an MPI implementation built with *shared libraries* 
-* PETSc_ 3.3 or 3.4 built with *shared libraries*
+* PETSc_ 3.4 or later built with *shared libraries*
 
 If you have a suitable PETSc_ installed on your system, ``PETSC_DIR`` and
 ``PETSC_ARCH`` need to be set for the petsc4py_ installer to find it. On
-a Debian/Ubuntu system with PETSc_ 3.3 installed, this can be achieved
+a Debian/Ubuntu system with PETSc_ 3.4 installed, this can be achieved
 via::
 
-  export PETSC_DIR=/usr/lib/petscdir/3.3 
+  export PETSC_DIR=/usr/lib/petscdir/3.4
   export PETSC_ARCH=linux-gnu-c-opt
 
 If not, make sure all PETSc_ dependencies (BLAS/LAPACK, MPI and a Fortran
@@ -149,29 +149,19 @@ compiler) are installed. On a Debian based system, run::
 
   sudo apt-get install -y libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran
 
-If you want OpenMP support or don't have a suitable PETSc installed on
-your system, build the `PETSc OMP branch <https://bitbucket.org/ggorman/petsc-3.3-omp>`__::
+Then install PETSc_ via ``pip`` ::
 
-  PETSC_CONFIGURE_OPTIONS="--with-fortran-interfaces=1 --with-c++-support --with-openmp" \   
-    pip install hg+https://bitbucket.org/ggorman/petsc-3.3-omp
+  PETSC_CONFIGURE_OPTIONS="--with-fortran-interfaces=1 --with-c++-support" \
+    pip install "petsc >= 3.4"
   unset PETSC_DIR
   unset PETSC_ARCH
 
 If you built PETSc_ using ``pip``, ``PETSC_DIR`` and ``PETSC_ARCH``
 should be left unset when building petsc4py_.
 
-Install petsc4py_ via
-``pip``::
+Install petsc4py_ via ``pip``::
 
   pip install "petsc4py >= 3.4"
-
-PETSc and Fluidity
-^^^^^^^^^^^^^^^^^^
-
-When using PyOP2 with Fluidity it's crucial that both are built against
-the same PETSc_, which must be build with Fortran support!
-
-Fluidity does presently not support PETSc_ >= 3.4.
 
 CUDA backend:
 ~~~~~~~~~~~~~

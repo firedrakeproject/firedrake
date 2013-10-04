@@ -4,5 +4,5 @@ codepy>=2013.1
 pycuda>=2013.1
 pyopencl>=2012.1
 h5py>=2.0.0
-petsc==3.3
+petsc>=3.4
 petsc4py>=3.4
