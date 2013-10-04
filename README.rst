@@ -314,44 +314,39 @@ necessary.
 FFC Interface
 -------------
 
-Solving `UFL <https://bitbucket.org/fenics-project/ufl>`__ finite
-element equations requires a `fork of
-FFC <https://bitbucket.org/mapdes/ffc>`__ and dependencies: 
+Solving UFL_ finite element equations requires a fork of FFC_ and dependencies:
 
-* `UFL <https://bitbucket.org/fenics-project/ufl>`__ 
-* `FIAT <https://bitbucket.org/fenics-project/fiat>`__
+* UFL_
+* FIAT_
 
 Install via the package manager
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-On a supported platform, get all the dependencies for FFC by installing
-the FEniCS toolchain from
-`packages <http://fenicsproject.org/download/>`__::
+On a supported platform, get all the dependencies for FFC_ by `installing
+the FEniCS toolchain packages <http://fenicsproject.org/download/>`__::
 
   sudo apt-get install fenics
 
-Our `FFC fork <https://bitbucket.org/mapdes/ffc>`__ is required, and
-must be added to your ``$PYTHONPATH``::
+Our FFC_ fork is required, and must be added to your ``$PYTHONPATH``::
 
   git clone -b pyop2 https://bitbucket.org/mapdes/ffc.git $FFC_DIR 
   export PYTHONPATH=$FFC_DIR:$PYTHONPATH
 
-This branch of FFC also requires the latest version of
-`UFL <https://bitbucket.org/fenics-project/ufl>`__, also added to
+This branch of FFC_ also requires the latest version of UFL_, also added to
 ``$PYTHONPATH``::
 
-  git clone https://bitbucket.org/fenics-project/ufl.git $UFL_DIR 
+  git clone https://bitbucket.org/mapdes/ufl.git $UFL_DIR
   export PYTHONPATH=$UFL_DIR:$PYTHONPATH
 
 Install via pip
 ~~~~~~~~~~~~~~~
 
-Alternatively, install FFC and all dependencies via pip::
+Alternatively, install FFC_ and all dependencies via pip::
 
   pip install \
     git+https://bitbucket.org/mapdes/ffc.git@pyop2#egg=ffc   
-    git+https://bitbucket.org/fenics-project/ufl.git#egg=ufl   
-    git+https://bitbucket.org/fenics-project/fiat.git#egg=fiat   
+    git+https://bitbucket.org/mapdes/ufl.git#egg=ufl
+    git+https://bitbucket.org/mapdes/fiat.git#egg=fiat
     hg+https://bitbucket.org/khinsen/scientificpython
 
 Setting up the environment
@@ -406,13 +401,11 @@ If all tests in our test suite pass, you should be good to go::
 
   make test
 
-This will run both unit and regression tests, the latter require UFL
-and FFC.
+This will run both unit and regression tests, the latter require UFL_ and FFC_.
 
 This will attempt to run tests for all backends and skip those for not
-available backends. If the `FFC
-fork <https://bitbucket.org/mapdes/ffc>`__ is not found, tests for the
-FFC interface are xfailed.
+available backends. If the FFC_ fork is not found, tests for the FFC_ interface
+are xfailed.
 
 Troubleshooting
 ---------------
@@ -428,3 +421,5 @@ from. To print the module search path, run::
 
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _petsc4py: http://pythonhosted.org/petsc4py/
+.. _FIAT: https://bitbucket.org/mapdes/fiat
+.. _UFL: https://bitbucket.org/mapdes/ufl
