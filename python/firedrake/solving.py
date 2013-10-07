@@ -29,7 +29,6 @@ import numpy
 import ufl
 from ufl_expr import derivative
 from ufl.algorithms.signature import compute_form_signature
-from bcs import BoundaryCondition, DirichletBC
 from pyop2 import op2, ffc_interface
 import core_types
 from assemble_expressions import assemble_expression
@@ -112,11 +111,7 @@ class LinearVariationalSolver(object):
         A = assemble(self._problem.a)
         b = assemble(self._problem.L).dat
 
-        # Apply Dirichlet BCs
-        for bc in self._problem.bcs:
-            if not isinstance(bc, DirichletBC):
-                raise NotImplementedError("Only DirichletBCs supported")
-            bc.apply(A, b)
+        # TODO: Apply Dirichlet BCs
 
         # FIXME: Parameters are not forced into solver a la Dolfin - only taken
         # from FLML.
@@ -570,6 +565,5 @@ def _extract_bcs(bcs):
     elif not isinstance(bcs, (list, tuple)):
         bcs = [bcs]
     for bc in bcs:
-        if not isinstance(bc, BoundaryCondition):
-            raise RuntimeError("Unable to extract boundary condition arguments")
+        raise NotImplementedError("Boundary conditions are not supported yet")
     return bcs
