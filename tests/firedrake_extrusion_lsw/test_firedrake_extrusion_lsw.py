@@ -21,57 +21,80 @@ void extrusion_kernel(double *xtr[], double *x[], int* j[])
 }"""
 
 mesh = ExtrudedMesh(m, layers, extrusion_kernel)
-W = FunctionSpace(mesh, "BDM", 1, vfamily="Lagrange", vdegree=1)
-X = FunctionSpace(mesh, "DG", 0, vfamily="Lagrange", vdegree=1)
-Xplot = FunctionSpace(mesh, "CG", 1, vfamily="Lagrange", vdegree=1)
 
-# Define starting field
-u_0 = Function(W)
-u_h = Function(W)
-u_1 = Function(W)
-p_0 = Function(X)
-p_1 = Function(X)
-p_plot = Function(Xplot)
-p_0.interpolate(Expression("sin(4*pi*x[0])*sin(2*pi*x[1])"))
 
-T = 0.5
-t = 0
-dt = 0.0025
+def lsw_strang(test_mode):
+    W = FunctionSpace(mesh, "BDM", 1, vfamily="Lagrange", vdegree=1)
+    X = FunctionSpace(mesh, "DG", 0, vfamily="Lagrange", vdegree=1)
+    if not test_mode:
+        Xplot = FunctionSpace(mesh, "CG", 1, vfamily="Lagrange", vdegree=1)
 
-file = File("lsw3d.pvd")
-p_trial = TrialFunction(Xplot)
-p_test = TestFunction(Xplot)
-solve(p_trial * p_test * dx == p_0 * p_test * dx, p_plot)
-file << p_plot, t
+    # Define starting field
+    u_0 = Function(W)
+    u_h = Function(W)
+    u_1 = Function(W)
+    p_0 = Function(X)
+    p_1 = Function(X)
+    if not test_mode:
+        p_plot = Function(Xplot)
+    p_0.interpolate(Expression("sin(4*pi*x[0])*sin(2*pi*x[1])"))
 
-while t < T:
-    u = TrialFunction(W)
-    w = TestFunction(W)
-    a_1 = dot(w, u) * dx
-    L_1 = dot(w, u_0) * dx + 0.5 * dt * div(w) * p_0 * dx
-    solve(a_1 == L_1, u_h)
+    if not test_mode:
+        T = 0.5
+    else:
+        T = 0.01
+    t = 0
+    dt = 0.0025
 
-    p = TrialFunction(X)
-    phi = TestFunction(X)
-    a_2 = phi * p * dx
-    L_2 = phi * p_0 * dx - dt * phi * div(u_h) * dx
-    solve(a_2 == L_2, p_1)
+    if not test_mode:
+        file = File("lsw3d.pvd")
+        p_trial = TrialFunction(Xplot)
+        p_test = TestFunction(Xplot)
+        solve(p_trial * p_test * dx == p_0 * p_test * dx, p_plot)
+        file << p_plot, t
 
-    u = TrialFunction(W)
-    w = TestFunction(W)
-    a_3 = dot(w, u) * dx
-    L_3 = dot(w, u_h) * dx + 0.5 * dt * div(w) * p_1 * dx
-    solve(a_3 == L_3, u_1)
+    E_0 = assemble(0.5 * p_0 * p_0 * dx + 0.5 * dot(u_0, u_0) * dx)
 
-    # u_0.assign(u_1)
-    # p_0.assign(p_1)
-    u_0 = u_1
-    p_0 = p_1
-    t += dt
+    while t < T:
+        u = TrialFunction(W)
+        w = TestFunction(W)
+        a_1 = dot(w, u) * dx
+        L_1 = dot(w, u_0) * dx + 0.5 * dt * div(w) * p_0 * dx
+        solve(a_1 == L_1, u_h)
 
-    # project into P1 x P1 for plotting
-    p_trial = TrialFunction(Xplot)
-    p_test = TestFunction(Xplot)
-    solve(p_trial * p_test * dx == p_0 * p_test * dx, p_plot)
-    file << p_plot, t
-    print t
+        p = TrialFunction(X)
+        phi = TestFunction(X)
+        a_2 = phi * p * dx
+        L_2 = phi * p_0 * dx - dt * phi * div(u_h) * dx
+        solve(a_2 == L_2, p_1)
+
+        u = TrialFunction(W)
+        w = TestFunction(W)
+        a_3 = dot(w, u) * dx
+        L_3 = dot(w, u_h) * dx + 0.5 * dt * div(w) * p_1 * dx
+        solve(a_3 == L_3, u_1)
+
+        u_0.assign(u_1)
+        p_0.assign(p_1)
+        t += dt
+
+        if not test_mode:
+            # project into P1 x P1 for plotting
+            p_trial = TrialFunction(Xplot)
+            p_test = TestFunction(Xplot)
+            solve(p_trial * p_test * dx == p_0 * p_test * dx, p_plot)
+            file << p_plot, t
+            print t
+
+    E_1 = assemble(0.5 * p_0 * p_0 * dx + 0.5 * dot(u_0, u_0) * dx)
+    return np.abs(E_1 - E_0)
+
+
+def run_test(test_mode=False):
+    return [lsw_strang(test_mode)]
+
+if __name__ == "__main__":
+
+    result = run_test()
+    for i, res in enumerate(result):
+        print "Result for extruded lsw energy error %r: %r" % (i + 1, res)

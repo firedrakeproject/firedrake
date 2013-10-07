@@ -57,7 +57,7 @@ void comp_vol(double A[1], double *x[], double *y[])
                  f.dat(op2.READ, f.cell_node_map)
                  )
 
-    return str(g.data[0])
+    return np.abs(g.data[0] - 3.0)
 
 
 def run_test():

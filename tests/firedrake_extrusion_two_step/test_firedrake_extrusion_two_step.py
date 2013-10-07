@@ -42,8 +42,6 @@ def two_step():
     assemble(L)
     f_e = Function(X)
     solve(a == L, f_e)
-    # print "One step:"
-    # print f_e.dat.data
 
     # DO IN TWO STEPS
     u = TrialFunction(W)
@@ -56,7 +54,7 @@ def two_step():
     assemble(L)
     f1 = Function(W)
     solve(a == L, f1)
-    # x should be (2x, 2y) but we have no way of checking............
+    # FIXME x should be (2x, 2y) but we have no way of checking
 
     u = TrialFunction(X)
     v = TestFunction(X)
@@ -69,10 +67,7 @@ def two_step():
     f2 = Function(X)
     solve(a == L, f2)
 
-    # print "Two steps:"
-    # print f2.dat.data
-
-    return sum(f2.dat.data - f_e.dat.data)
+    return np.max(np.abs(f2.dat.data - f_e.dat.data))
 
 
 def run_test():

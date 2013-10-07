@@ -13,7 +13,7 @@ result = test.run_test()
     </variable>
   </variables>
   <pass_tests>
-    <test name="Unit Extruded Square Integration value." language="python">assert result[0] == "3.0"</test>
+    <test name="Unit Extruded Square Integration value." language="python">assert result[0] &lt; 1.0e-11</test>
   </pass_tests>
   <warn_tests/>
 </testproblem>

@@ -73,7 +73,7 @@ void comp_reduction(double A[1], double *x[])
                  f_rhs.dat(op2.READ, f_rhs.cell_node_map)
                  )
 
-    return str(g.data[0])
+    return np.abs(g.data[0] - 0.5)
 
 
 def run_test():

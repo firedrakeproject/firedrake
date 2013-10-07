@@ -47,7 +47,7 @@ void populate_tracer(double *x[], double *c[])
 
     g = firedrake.assemble(f * firedrake.dx)
 
-    return str(g)
+    return np.abs(g - 0.5)
 
 
 def run_test():
