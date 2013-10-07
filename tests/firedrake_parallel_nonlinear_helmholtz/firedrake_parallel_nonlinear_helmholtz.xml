@@ -3,7 +3,7 @@
   <name>Nonlinearified linear Helmholtz problem</name>
   <owner userid="wence"/>
   <tags>firedrake</tags>
-  <problem_definition length="short" nprocs="1">
+  <problem_definition length="special" nprocs="1">
     <command_line>mpiexec -n 3 python test_firedrake_parallel_nonlinear_helmholtz.py</command_line>
   </problem_definition>
   <variables>
