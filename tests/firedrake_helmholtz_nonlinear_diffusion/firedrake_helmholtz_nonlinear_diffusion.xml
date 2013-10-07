@@ -11,9 +11,14 @@
 import test_firedrake_helmholtz_nonlinear_diffusion as test
 l2_conv = test.run_convergence_test()
     </variable>
+    <variable name="l2_conv_fail" language="python">
+import test_firedrake_helmholtz_nonlinear_diffusion as test
+l2_conv_fail = test.run_convergence_test(parameters={'snes_type' : 'ksponly'})
+    </variable>
   </variables>
   <pass_tests>
     <test name="L2 error convergence" language="python">assert (l2_conv &gt; 1.8).all()</test>
+    <test name="L2 error convergence using linear solve" language="python">assert not (l2_conv_fail &gt; 1.8).all()</test>
   </pass_tests>
   <warn_tests/>
 </testproblem>
