@@ -7,13 +7,9 @@
     <command_line>true</command_line>
   </problem_definition>
   <variables>
-    <variable name="l2_diff" language="python">
-import test_firedrake_helmholtz_nonlinear_diffusion as test
-l2_diff = test.l2_diff
-    </variable>
     <variable name="l2_conv" language="python">
 import test_firedrake_helmholtz_nonlinear_diffusion as test
-l2_conv = test.l2_conv
+l2_conv = test.run_convergence_test()
     </variable>
   </variables>
   <pass_tests>

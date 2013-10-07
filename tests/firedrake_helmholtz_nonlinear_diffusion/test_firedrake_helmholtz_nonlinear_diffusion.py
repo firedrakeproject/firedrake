@@ -28,7 +28,7 @@ and the analytical solution
 from firedrake import *
 
 
-def run_test(x):
+def run_test(x, parameters={}):
     # Create mesh and define function space
     mesh = UnitSquareMesh(2 ** x, 2 ** x)
     V = FunctionSpace(mesh, "CG", 1)
@@ -52,23 +52,21 @@ def run_test(x):
     a = (dot(grad(v), D * grad(u)) + kappa * v * u) * dx
     L = f * v * dx
 
-    solve(a - L == 0, u)
+    solve(a - L == 0, u, solver_parameters=parameters)
 
     f.interpolate(Expression("cos(x[0]*2*pi)*cos(x[1]*2*pi)"))
 
     return sqrt(assemble(dot(u - f, u - f) * dx))
 
 
-def run_convergence_test():
+def run_convergence_test(parameters={}):
     import numpy as np
-    l2_diff = [run_test(i) for i in range(3, 8)]
+    l2_diff = [run_test(i, parameters) for i in range(3, 8)]
 
     from math import log
     conv = [log(l2_diff[i] / l2_diff[i + 1], 2)
             for i in range(len(l2_diff) - 1)]
-    return np.array(l2_diff), np.array(conv)
+    return np.array(conv)
 
-l2_diff, l2_conv = run_convergence_test()
 if __name__ == '__main__':
-    print "L2 difference to analytic solution: %s" % l2_diff
-    print "Convergence ratios: %s" % l2_conv
+    print "Convergence ratios: %s" % run_convergence_test()
