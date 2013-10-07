@@ -15,7 +15,7 @@ and the analytical solution
 from firedrake import *
 
 
-def run_test(x):
+def run_test(x, parameters={}):
     # Create mesh and define function space
     mesh = UnitSquareMesh(2 ** x, 2 ** x)
     V = FunctionSpace(mesh, "CG", 2)
@@ -30,16 +30,15 @@ def run_test(x):
     L = f * v * dx
 
     # Compute solution
-    solve(a - L == 0, u)
+    solve(a - L == 0, u, solver_parameters=parameters)
 
     f.interpolate(Expression("cos(x[0]*2*pi)*cos(x[1]*2*pi)"))
 
     return sqrt(assemble(dot(u - f, u - f) * dx))
 
 
-def run_convergence_test():
-    diff = [run_test(i) for i in range(3, 8)]
-
+def run_convergence_test(parameters={}):
+    diff = [run_test(i, parameters) for i in range(3, 8)]
     from math import log
     import numpy as np
     conv = [log(diff[i] / diff[i + 1], 2) for i in range(len(diff) - 1)]
