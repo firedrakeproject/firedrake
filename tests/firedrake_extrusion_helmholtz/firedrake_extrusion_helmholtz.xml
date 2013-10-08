@@ -1,0 +1,22 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>helmholtz</name>
+  <owner userid="gb308"/>
+  <tags>firedrake</tags>
+  <problem_definition length="short" nprocs="1">
+    <command_line>true</command_line>
+  </problem_definition>
+  <variables>
+    <variable name="result" language="python">
+import test_firedrake_extrusion_helmholtz as test
+result = test.run_test(test_mode=True)
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="Helmholtz on 2x2 extruded mesh" language="python">assert result[0] &lt; 0.14</test>
+    <test name="Helmholtz on 4x4 extruded mesh" language="python">assert result[1] &lt; 0.075</test>
+    <test name="Helmholtz on 8x8 extruded mesh" language="python">assert result[2] &lt; 0.038</test>
+    <test name="Helmholtz on 16x16 extruded mesh" language="python">assert result[3] &lt; 0.0175</test>
+  </pass_tests>
+  <warn_tests/>
+</testproblem>
