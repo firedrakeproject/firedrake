@@ -44,7 +44,7 @@ class get_interval_mesh(object):
         name = tempfile.NamedTemporaryFile('w+r').name
         dx = 1.0 / self._nx
         # This ensures the rightmost point is actually present.
-        nodes = arange(0, 0.01 * dx, dx)
+        nodes = arange(0, 1.0 + 0.01 * dx, dx)
         eles = [(i + 1, i + 2) for i in range(len(nodes) - 1)]
         dim = 1
 
