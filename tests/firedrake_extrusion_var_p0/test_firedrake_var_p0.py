@@ -31,7 +31,6 @@ def integrate_var_p0(family, degree):
     populate_p0 = op2.Kernel("""
 void populate_tracer(double *x[], double *c[])
 {
-  //printf("%f %f \\n", c[1][2], c[0][2]);
   x[0][0] = (c[1][2] + c[0][2]) / 2;
 }""", "populate_tracer")
 

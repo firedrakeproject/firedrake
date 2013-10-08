@@ -1,6 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <testproblem>
-  <name>identity</name>
+  <name>extrusion assembly</name>
   <owner userid="gb308"/>
   <tags>firedrake</tags>
   <problem_definition length="short" nprocs="1">

@@ -20,9 +20,6 @@ void extrusion_kernel(double *xtr[], double *x[], int* j[])
 
 mesh = firedrake.ExtrudedMesh(m, layers, extrusion_kernel)
 
-#import pyop2.configuration as cfg
-# cfg.configure(debug=1)
-
 
 def integrate_rhs(family, degree):
     horiz = ufl.FiniteElement(family, None, degree)

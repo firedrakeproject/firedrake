@@ -1,6 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <testproblem>
-  <name>identity</name>
+  <name>integrate unit cube</name>
   <owner userid="gb308"/>
   <tags>firedrake</tags>
   <problem_definition length="short" nprocs="1">
@@ -13,7 +13,7 @@ result = test.run_test()
     </variable>
   </variables>
   <pass_tests>
-    <test name="Unit Extruded Square Integration value." language="python">assert result[0] &lt; 1.0e-12</test>
+    <test name="Integrate unit cube." language="python">assert result[0] &lt; 1.0e-12</test>
   </pass_tests>
   <warn_tests/>
 </testproblem>
