@@ -19,9 +19,6 @@ void extrusion_kernel(double *xtr[], double *x[], int* j[])
 
 mesh = firedrake.ExtrudedMesh(m, layers, extrusion_kernel)
 
-#import pyop2.configuration as cfg
-# cfg.configure(debug=1)
-
 
 def integrate_p0(family, degree):
     fs = firedrake.FunctionSpace(mesh, family, degree, name="fs")
