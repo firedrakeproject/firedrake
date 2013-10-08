@@ -28,14 +28,7 @@ def integrate_p0(family, degree):
 
     f = firedrake.Function(fs)
 
-    populate_p0 = op2.Kernel("""
-void populate_tracer(double *x[])
-{
-  x[0][0] = 3;
-}""", "populate_tracer")
-
-    op2.par_loop(populate_p0, f.cell_set,
-                 f.dat(op2.INC, f.cell_node_map))
+    f.assign(3.0)
 
     volume = op2.Kernel("""
 void comp_vol(double A[1], double *x[], double *y[])
