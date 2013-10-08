@@ -1,0 +1,19 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>linear shallow water</name>
+  <owner userid="gb308"/>
+  <tags>firedrake</tags>
+  <problem_definition length="short" nprocs="1">
+    <command_line>true</command_line>
+  </problem_definition>
+  <variables>
+    <variable name="result" language="python">
+import test_firedrake_extrusion_lsw as test
+result = test.run_test(test_mode=True)
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="LSW" language="python">assert result[0] &lt; 1.0e-6</test>
+  </pass_tests>
+  <warn_tests/>
+</testproblem>
