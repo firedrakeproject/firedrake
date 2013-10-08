@@ -34,7 +34,7 @@ def helmholtz(test_mode, pwr=None):
         xtr[0][0] = x[0][0];
         xtr[0][1] = x[0][1];
         xtr[0][2] = %(height)s*j[0][0];
-    }""" % {'height': str(1.0 / 2 ** power)}
+    }""" % {'height': str(1.0 / (2 ** power))}
 
     mesh = ExtrudedMesh(m, layers, extrusion_kernel)
 
@@ -69,13 +69,18 @@ def helmholtz(test_mode, pwr=None):
 
 
 def run_test(test_mode=False):
-    result = []
-    for i in range(1, 5):
-        result.append(helmholtz(test_mode, pwr=i))
-    return result
+    l2_diff = []
+    import numpy as np
+    for i in range(4, 8):
+        l2_diff.append(helmholtz(test_mode, pwr=i))
 
-if __name__ == "__main__":
+    conv = []
+    from math import log
+    for i in range(len(l2_diff) - 1):
+        conv.append(log(l2_diff[i] / l2_diff[i + 1], 2))
+    return np.array(l2_diff), np.array(conv)
 
-    result = run_test()
-    for i, res in enumerate(result):
-        print "Helmholtz convergence values %r: %r" % (i + 1, res)
+l2_diff, l2_conv = run_test(test_mode=True)
+if __name__ == '__main__':
+    print "L2 difference to analytic solution: %s" % l2_diff
+    print "Convergence ratios: %s" % l2_conv
