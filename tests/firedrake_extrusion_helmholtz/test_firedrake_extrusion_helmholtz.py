@@ -17,7 +17,7 @@ import sys
 
 
 def helmholtz(test_mode, pwr=None):
-    if pow is None:
+    if pwr is None:
         power = int(sys.argv[1])
     else:
         power = pwr
