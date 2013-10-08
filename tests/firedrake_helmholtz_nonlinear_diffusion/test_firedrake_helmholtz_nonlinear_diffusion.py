@@ -60,15 +60,12 @@ def run_test(x):
 
 
 def run_convergence_test():
-    l2_diff = []
     import numpy as np
-    for i in range(3, 8):
-        l2_diff.append(run_test(i))
+    l2_diff = [run_test(i) for i in range(3, 8)]
 
-    conv = []
     from math import log
-    for i in range(len(l2_diff) - 1):
-        conv.append(log(l2_diff[i] / l2_diff[i + 1], 2))
+    conv = [log(l2_diff[i] / l2_diff[i + 1], 2)
+            for i in range(len(l2_diff) - 1)]
     return np.array(l2_diff), np.array(conv)
 
 l2_diff, l2_conv = run_convergence_test()
