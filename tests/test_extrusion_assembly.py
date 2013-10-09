@@ -1,17 +1,17 @@
 from firedrake import *
 import numpy as np
 
-power = 1
-m = UnitSquareMesh(2 ** power, 2 ** power)
-layers = 11
-
-# Populate the coordinates of the extruded mesh by providing the
-# coordinates as a field.
-
-mesh = firedrake.ExtrudedMesh(m, layers, layer_height=0.1)
-
 
 def identity_xtr(family, degree):
+    power = 1
+    m = UnitSquareMesh(2 ** power, 2 ** power)
+    layers = 11
+
+    # Populate the coordinates of the extruded mesh by providing the
+    # coordinates as a field.
+
+    mesh = firedrake.ExtrudedMesh(m, layers, layer_height=0.1)
+
     fs = firedrake.FunctionSpace(mesh, family, degree, name="fs")
 
     f = firedrake.Function(fs)
@@ -32,18 +32,9 @@ def identity_xtr(family, degree):
     return np.max(np.abs(out.dat.data - f.dat.data))
 
 
-def run_test():
+def test_firedrake_extrusion_assembly():
     family = "Lagrange"
     degree = range(1, 5)
 
-    error = []
-    for d in degree:
-        error.append(identity_xtr(family, d))
-    return error
-
-
-if __name__ == "__main__":
-
-    error = run_test()
-    for i, err in enumerate(error):
-        print "Inf norm error in identity for Lagrange %r: %r" % (i + 1, err)
+    error = np.array([identity_xtr(family, d) for d in degree])
+    assert (error < np.array([1.0e-14, 1.0e-12, 1.0e-10, 1.0e-8])).all()
