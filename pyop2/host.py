@@ -38,7 +38,7 @@ from textwrap import dedent
 
 import base
 from base import *
-from utils import as_tuple
+from utils import as_tuple, flatten
 import configuration as cfg
 
 
@@ -228,12 +228,12 @@ class Arg(base.Arg):
         else:
             raise RuntimeError("Don't know how to zero temp array for %s" % self)
 
-    def c_add_offset(self, arity, count, is_mat):
+    def c_add_offset(self):
         return '\n'.join(["%(name)s[%(j)d] += _off%(num)s[%(j)d] * %(dim)s;" %
-                          {'name': self.c_vec_name() if not is_mat else self.c_kernel_arg_name(),
+                          {'name': self.c_vec_name(),
                            'j': j,
-                           'num': count,
-                           'dim': self.data.cdim} for j in range(arity)])
+                           'num': self.c_offset(),
+                           'dim': self.data.cdim} for j in range(self.map.arity)])
 
     # New globals generation which avoids false sharing.
     def c_intermediate_globals_decl(self, count):
@@ -285,26 +285,33 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             {'name': self.c_map_name(),
              'dim_row': str(nrows)}
 
-    def c_map_init(self, map, count, idx):
-        arity = map.arity
-        res = "\n"
-        for i in range(arity):
-            res += "xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);\n" % \
-                {'name': self.c_map_name(idx),
-                 'dim': str(arity),
-                 'ind': str(i),
-                 'num': str(count)}
-        return res
+    def c_map_init(self):
+        return '\n'.join(flatten([["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);"
+                                   % {'name': self.c_map_name(i),
+                                      'dim': map.arity,
+                                      'ind': idx}
+                                   for idx in range(map.arity)]
+                                  for i, map in enumerate(as_tuple(self.map, Map))]))
 
-    def c_add_offset_mat(self, map, count, idx):
-        arity = map.arity
-        res = "\n"
-        for i in range(arity):
-            res += "xtr_%(name)s[%(ind)s] += _off%(num)s[%(ind)s];\n" % \
-                {'name': self.c_map_name(idx),
-                 'num': str(count),
-                 'ind': str(i)}
-        return res
+    def c_offset(self, idx=0):
+        return "%s%s" % (self.position, idx)
+
+    def c_add_offset_map(self):
+        return '\n'.join(flatten([["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];"
+                                   % {'name': self.c_map_name(i),
+                                      'off': self.c_offset(i),
+                                      'ind': idx}
+                                   for idx in range(map.arity)]
+                                  for i, map in enumerate(as_tuple(self.map, Map))]))
+
+    def c_offset_init(self):
+        return ''.join([", PyObject *off%s" % self.c_offset(i)
+                        for i in range(len(as_tuple(self.map, Map)))])
+
+    def c_offset_decl(self):
+        return ';\n'.join(['int * _off%(cnt)s = (int *)(((PyArrayObject *)off%(cnt)s)->data)'
+                           % {'cnt': self.c_offset(i)}
+                           for i in range(len(as_tuple(self.map, Map)))])
 
 
 class JITModule(base.JITModule):
@@ -383,13 +390,6 @@ class JITModule(base.JITModule):
             tmp = '%(name)s[%%(i)s] = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[%%(i)s]' % d
             return ';\n'.join([tmp % {'i': i} for i in range(c.cdim)])
 
-        def c_offset_init(c):
-            return "PyObject *off%(name)s" % {'name': c}
-
-        def c_offset_decl(count):
-            return 'int * _off%(cnt)s = (int *)(((PyArrayObject *)off%(cnt)s)->data)' % \
-                {'cnt': count}
-
         def extrusion_loop(d):
             return "for (int j_0=0; j_0<%d; ++j_0){" % d
 
@@ -438,24 +438,19 @@ class JITModule(base.JITModule):
              for count, arg in enumerate(self._args)
              if arg._is_global_reduction])
 
+        _apply_offset = ""
         if self._layers > 1:
-            _off_args = ''
-            _off_inits = ''
-            _apply_offset = ''
+            _off_args = ''.join([arg.c_offset_init() for arg in self._args
+                                 if arg._uses_itspace or arg._is_vec_map])
+            _off_inits = ';\n'.join([arg.c_offset_decl() for arg in self._args
+                                     if arg._uses_itspace or arg._is_vec_map])
+            _apply_offset += ';\n'.join([arg.c_add_offset_map() for arg in self._args
+                                        if arg._uses_itspace])
+            _apply_offset += ';\n'.join([arg.c_add_offset() for arg in self._args
+                                         if arg._is_vec_map])
+            _map_init = ';\n'.join([arg.c_map_init() for arg in self._args
+                                    if arg._uses_itspace])
             _map_decl = ''
-            _map_init = ''
-            count = 0
-            for arg in self._args:
-                if arg._uses_itspace or arg._is_vec_map:
-                    for map_id, map in enumerate(as_tuple(arg.map, Map)):
-                        _off_args += ', ' + c_offset_init(count)
-                        _off_inits += ';\n' + c_offset_decl(count)
-                        if arg._uses_itspace:
-                            _map_init += '; \n' + arg.c_map_init(map, count, map_id)
-                            _apply_offset += ' \n' + arg.c_add_offset_mat(map, count, map_id)
-                        else:
-                            _apply_offset += ' \n' + arg.c_add_offset(map.offset.size, count, arg._is_mat)
-                        count += 1
 
             _map_decl += ';\n'.join([arg.c_map_decl() for arg in self._args
                                      if arg._is_mat and arg.data._is_scalar_field])
@@ -469,7 +464,6 @@ class JITModule(base.JITModule):
             _extr_loop = '\n' + extrusion_loop(self._layers - 1)
             _extr_loop_close = '}\n'
         else:
-            _apply_offset = ""
             _off_args = ""
             _off_inits = ""
             _extr_loop = ""
