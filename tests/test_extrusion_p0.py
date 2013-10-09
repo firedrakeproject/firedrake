@@ -1,18 +1,18 @@
 from firedrake import *
 import pyop2 as op2
 
-power = 5
-m = UnitSquareMesh(2 ** power, 2 ** power)
-layers = 11
-
-# Populate the coordinates of the extruded mesh by providing the
-# coordinates as a field.
-# TODO: provide a kernel which will describe how coordinates are extruded.
-
-mesh = firedrake.ExtrudedMesh(m, layers, layer_height=0.1)
-
 
 def integrate_p0(family, degree):
+    power = 5
+    m = UnitSquareMesh(2 ** power, 2 ** power)
+    layers = 11
+
+    # Populate the coordinates of the extruded mesh by providing the
+    # coordinates as a field.
+    # TODO: provide a kernel which will describe how coordinates are extruded.
+
+    mesh = firedrake.ExtrudedMesh(m, layers, layer_height=0.1)
+
     fs = firedrake.FunctionSpace(mesh, family, degree, name="fs")
 
     f = firedrake.Function(fs)
@@ -42,14 +42,8 @@ void comp_vol(double A[1], double *x[], double *y[])
     return np.abs(g.data[0] - 3.0)
 
 
-def run_test():
+def test_firedrake_extrusion_p0():
     family = "DG"
     degree = 0
 
-    return [integrate_p0(family, degree)]
-
-if __name__ == "__main__":
-
-    result = run_test()
-    for i, res in enumerate(result):
-        print "Result for extruded unit cube integration %r: %r" % (i + 1, res)
+    assert integrate_p0(family, degree) < 1.0e-11
