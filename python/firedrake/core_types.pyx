@@ -140,12 +140,16 @@ def make_flat_fiat_element(ufl_cell_element, ufl_cell, flattened_entity_dofs):
 
     return base_element
 
-def make_extruded_coords(mesh, kernel_str, layers):
+def make_extruded_coords(mesh, layers, kernel=None, layer_height=None):
     """Given a kernel, use it to generate the extruded coordinates.
 
     :arg mesh: the 2d mesh to extrude
     :arg layers: the number of layers in the extruded mesh
-    :arg kernel_str: a C function which produces the z value
+    :arg kernel: an op2 Kernel which produces the extruded coordinates
+    :arg layer_height: if provided it creates coordinates for evenly 
+    spaced layers
+    Either the kernel or the layer_height must be provided. Should 
+    both be provided then the kernel takes precendence.
     of the coordinates.  Its calling signature is:
 
         void extrusion_kernel(double *extruded_coords[],
@@ -163,9 +167,19 @@ def make_extruded_coords(mesh, kernel_str, layers):
            extruded_coords[0][2] = 0.1 * layer_number[0][0]; // Z
        }
     """
+
+    if kernel is None and layer_height is not None:
+        kernel = op2.Kernel("""
+void extrusion_kernel(double *xtr[], double *x[], int* j[])
+{
+    //Only the Z-coord is increased, the others stay the same
+    xtr[0][0] = x[0][0];
+    xtr[0][1] = x[0][1];
+    xtr[0][2] = %(height)s*j[0][0];
+}""" % {"height" : str(layer_height)} , "extrusion_kernel")
+
     coords_dim = len(mesh._coordinates[0])
     coords_xtr_dim = 3 #dimension
-    kernel = op2.Kernel(kernel_str, "extrusion_kernel")
     # BIG TRICK HERE:
     # We need the +1 in order to include the entire column of vertices.
     # Extrusion is meant to iterate over the 3D cells which are layer - 1 in number.
@@ -458,7 +472,9 @@ class ExtrudedMesh(Mesh):
     direction
     :arg kernel: C kernel to produce 3D coordinates for the extruded
     mesh see :func:`make_extruded_coords` for more details."""
-    def __init__(self, mesh, layers, kernel):
+    def __init__(self, mesh, layers, kernel=None, layer_height=None):
+        if kernel is None and layer_height is None:
+            raise RuntimeError("Please provide a kernel or a fixed layer height")
         self._old_mesh = mesh
         self._layers = layers
         self._cells = mesh._cells
@@ -493,7 +509,7 @@ class ExtrudedMesh(Mesh):
         self.dofs_per_column = compute_extruded_dofs(fiat_element, flat_temp.entity_dofs(), layers)
 
         #Compute Coordinates of the extruded mesh
-        self._coordinates = make_extruded_coords(mesh, kernel, layers)
+        self._coordinates = make_extruded_coords(mesh, layers, kernel, layer_height)
 
         # Now we need to produce the extruded mesh using
         # techqniues employed when computing the
