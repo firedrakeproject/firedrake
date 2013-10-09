@@ -1,21 +1,20 @@
-"""Testing RT stuff
-"""
+"""Testing extruded RT elements."""
 
 # Begin demo
 from firedrake import *
 
-power = 4
-# Create mesh and define function space
-m = UnitSquareMesh(2 ** power, 2 ** power)
-layers = 11
-
-# Populate the coordinates of the extruded mesh by providing the
-# coordinates as a field.
-
-mesh = ExtrudedMesh(m, layers, layer_height=0.1)
-
 
 def two_step():
+    power = 4
+    # Create mesh and define function space
+    m = UnitSquareMesh(2 ** power, 2 ** power)
+    layers = 11
+
+    # Populate the coordinates of the extruded mesh by providing the
+    # coordinates as a field.
+
+    mesh = ExtrudedMesh(m, layers, layer_height=0.1)
+
     V = FunctionSpace(mesh, "Lagrange", 2, vfamily="DG", vdegree=0)
     W = FunctionSpace(mesh, "BDM", 1, vfamily="DG", vdegree=0)
     X = FunctionSpace(mesh, "DG", 0, vfamily="DG", vdegree=0)
@@ -62,11 +61,5 @@ def two_step():
     return np.max(np.abs(f2.dat.data - f_e.dat.data))
 
 
-def run_test():
-    return [two_step()]
-
-if __name__ == "__main__":
-
-    result = run_test()
-    for i, res in enumerate(result):
-        print "Result for extruded two step error %r: %r" % (i + 1, res)
+def test_firedrake_extrusion_two_step():
+    assert two_step() < 1.0e-4
