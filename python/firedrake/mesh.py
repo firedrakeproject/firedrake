@@ -12,6 +12,10 @@ except ImportError:
     from StringIO import StringIO
 
 
+import petsc4py, sys
+petsc4py.init(sys.argv)
+from petsc4py import PETSc
+
 import firedrake
 
 try:
@@ -191,25 +195,14 @@ class UnitSquareMesh(Mesh):
     """
 
     def __init__(self, nx, ny):
-        source = """
-            lc = 1e-2;
-            Point(1) = {0, 0, 0, lc};
-            line[] = Extrude {1, 0, 0}{
-                Point{1}; Layers{%d};
-            };
-            extrusion[] = Extrude {0, 1, 0}{
-                Line{1}; Layers{%d};
-            };
-            Physical Line(1) = { extrusion[3] };
-            Physical Line(2) = { extrusion[2] };
-            Physical Line(3) = { line[1] };
-            Physical Line(4) = { extrusion[0] };
-            Physical Surface(1) = { extrusion[1] };
-            """ % (nx, ny)
-        name = "unitsquare_%d_%d" % (nx, ny)
+        self.name = "unitsquare_%d_%d" % (nx, ny)
 
-        output = _get_msh_file(source, name, 2)
-        super(UnitSquareMesh, self).__init__(output)
+        # Create mesh from DMPlex
+        boundary = PETSc.DMPlex().create(MPI.comm)
+        boundary.setDimension(1)
+        boundary.createSquareBoundary([0., 0.], [1., 1.], [nx, ny])
+        dmplex = PETSc.DMPlex().generate(boundary)
+        super(UnitSquareMesh, self).__init__(self.name, plex=dmplex)
 
 
 class UnitCubeMesh(Mesh):
@@ -235,30 +228,14 @@ class UnitCubeMesh(Mesh):
     """
 
     def __init__(self, nx, ny, nz):
-        source = """
-            lc = 1e-2;
-            Point(1) = {0, 0, 0, lc};
-            Extrude {1, 0, 0}{
-                Point{1}; Layers{%d};
-            };
-            face[] = Extrude {0, 1, 0}{
-                Line{1}; Layers{%d};
-            };
-            extrusion[] = Extrude {0, 0, 1}{
-                Surface{5}; Layers{%d};
-            };
-            Physical Surface(1) = { extrusion[5] };
-            Physical Surface(2) = { extrusion[3] };
-            Physical Surface(3) = { extrusion[2] };
-            Physical Surface(4) = { extrusion[4] };
-            Physical Surface(5) = { face[1] };
-            Physical Surface(6) = { extrusion[0] };
-            Physical Volume(1) = { extrusion[1] };
-            """ % (nx, ny, nz)
-        name = "unitcube_%d_%d_%d" % (nx, ny, nz)
+        self.name = "unitcube_%d_%d_%d" % (nx, ny, nz)
 
-        output = _get_msh_file(source, name, 3)
-        super(UnitCubeMesh, self).__init__(output)
+        # Create mesh from DMPlex
+        boundary = PETSc.DMPlex().create(MPI.comm)
+        boundary.setDimension(2)
+        boundary.createCubeBoundary([0., 0., 0.], [1., 1., 1.], [nx, ny, nz])
+        dmplex = PETSc.DMPlex().generate(boundary)
+        super(UnitCubeMesh, self).__init__(self.name, plex=dmplex)
 
 
 class UnitCircleMesh(Mesh):

@@ -5,6 +5,11 @@ from mpi4py import MPI
 import numpy as np
 import cgen
 
+import petsc4py
+import sys
+petsc4py.init(sys.argv)
+from petsc4py import PETSc
+
 from libc.stdlib cimport malloc, free
 # Necessary so that we can use memoryviews
 from cython cimport view
@@ -381,7 +386,7 @@ class _Facets(object):
 
 class Mesh(object):
     """A representation of mesh topology and geometry."""
-    def __init__(self, filename, dim=None, periodic_coords=None):
+    def __init__(self, filename, dim=None, periodic_coords=None, plex=None):
         """
         :param filename: the mesh file to read.  Supported mesh formats
                are Gmsh (extension ``msh``) and triangle (extension
@@ -401,99 +406,48 @@ class Mesh(object):
 
         _init()
 
-        self.cell_halo = None
-        self.vertex_halo = None
         self.parent = None
 
         if dim is None:
             # Mesh reading in Fluidity level considers 0 to be None.
             dim = 0
 
-        self._from_file(filename, dim, periodic_coords)
+        self._plex = plex
+
+        if self._plex:
+            self._from_dmplex(self._plex, periodic_coords)
+        else:
+            self._from_file(filename, dim, periodic_coords)
 
         self._cell_orientations = op2.Dat(self.cell_set, dtype=np.int32,
                                           name="cell_orientations")
         # -1 is uninitialised.
         self._cell_orientations.data[:] = -1
 
-    def _from_file(self, filename, dim=0, periodic_coords=None):
-        """Read a mesh from `filename`
+    def _from_dmplex(self, plex, periodic_coords=None):
+        """ Create mesh from DMPlex object """
 
-        The extension of the filename determines the mesh type."""
-        basename, ext = os.path.splitext(filename)
+        self._plex = plex
+        self._dim  = plex.getDimension()
 
-        # Retrieve mesh struct from Fluidity
-        cdef ft.mesh_t mesh = ft.read_mesh_f(basename, _file_extensions[ext], dim)
-        self.name = filename
-
-        self._cells = np.array(<int[:mesh.cell_count, :mesh.cell_vertices:1]>mesh.element_vertex_list)
-        self._ufl_cell = ufl.Cell(
-            _cells[mesh.geometric_dimension][mesh.cell_vertices],
-            geometric_dimension=mesh.geometric_dimension)
-
-        self._entities = np.zeros(mesh.topological_dimension + 1, dtype=np.int)
+        cStart, cEnd = self._plex.getHeightStratum(0)  # cells
+        fStart, fEnd = self._plex.getHeightStratum(1)  # facets
+        vStart, vEnd = self._plex.getDepthStratum(0)   # vertices
+        self._entities = np.zeros(self._dim+1, dtype=np.int)
         self._entities[:] = -1 # Ensure that 3d edges get an out of band value.
-        self._entities[0]  = mesh.vertex_count
-        self._entities[-1] = mesh.cell_count
-        self._entities[-2] = mesh.interior_facet_count + mesh.exterior_facet_count
-        self.uid = mesh.uid
+        self._entities[0]  = vEnd - vStart  # vertex count
+        self._entities[-1] = cEnd - cStart  # cell count
+        self._entities[-2] = fEnd - fStart  # facet count
+        self.uid = _new_uid()
 
-        if mesh.interior_facet_count > 0:
-            interior_facet_cell = \
-                np.array(<int[:mesh.interior_facet_count, :2]>mesh.interior_facet_cell)
-            interior_local_facet_number = \
-                np.array(<int[:mesh.interior_facet_count, :2]>mesh.interior_local_facet_number)
-            self.interior_facets = _Facets(self, mesh.interior_facet_count,
-                                           "interior",
-                                           interior_facet_cell,
-                                           interior_local_facet_number)
-        else:
-            self.interior_facets = _Facets(self, 0, "interior", None, None)
+        self._ufl_cell = ufl.Cell(_cells[self._dim][self._dim+1], self._dim)
+        self._cells = np.array([self._plex.getCone(c) for c in range(cStart, cEnd)])
 
-        if mesh.exterior_facet_count > 0:
-            if mesh.boundary_ids != NULL:
-                boundary_ids = np.array(<int[:mesh.exterior_facet_count]>mesh.boundary_ids)
-            else:
-                boundary_ids = None
+        # TODO: Add facet and boundary ID support
+        boundary_ids = None
+        self.exterior_facets = _Facets(self, 0, "exterior", None, None)
+        self.interior_facets = _Facets(self, 0, "interior", None, None)
 
-            exterior_facet_cell = \
-                np.array(<int[:mesh.exterior_facet_count, :1]>mesh.exterior_facet_cell)
-            exterior_local_facet_number = \
-                np.array(<int[:mesh.exterior_facet_count, :1]>mesh.exterior_local_facet_number)
-            self.exterior_facets = _Facets(self, mesh.exterior_facet_count,
-                                           "exterior",
-                                           exterior_facet_cell,
-                                           exterior_local_facet_number,
-                                           boundary_ids)
-        else:
-            self.exterior_facets = _Facets(self, 0, "exterior", None, None)
-
-        if mesh.region_ids != NULL:
-            self.region_ids = np.array(<int[:mesh.cell_count]>mesh.region_ids)
-        else:
-            self.region_ids = None
-
-        # Build these from the Fluidity data, then need to convert
-        # them from np.int32 to python int type which is what PyOP2 expects
-        self.cell_classes = np.array(<int[:4]>mesh.cell_classes)
-        self.cell_classes = self.cell_classes.astype(int)
-        self.vertex_classes = np.array(<int[:4]>mesh.vertex_classes)
-        self.vertex_classes = self.vertex_classes.astype(int)
-
-        self._coordinates = np.array(<double[:mesh.vertex_count, :mesh.geometric_dimension:1]>
-                                     mesh.coordinates)
-
-        self._fluidity_coordinate = py.PyCapsule_New(mesh.fluidity_coordinate,
-                                                     _vector_field_name,
-                                                     &vector_field_destructor)
-        # No destructor for the mesh, because we don't have a separate
-        # Fluidity reference for it.
-        self._fluidity_mesh = py.PyCapsule_New(mesh.fluidity_mesh,
-                                               _mesh_name,
-                                               NULL)
-
-        self.cell_halo = Halo(self._fluidity_mesh, 'cell', self.cell_classes)
-        self.vertex_halo = Halo(self._fluidity_mesh, 'vertex', self.vertex_classes)
         # Note that for bendy elements, this needs to change.
         if periodic_coords is not None:
             if self.ufl_cell().geometric_dimension() != 1:
@@ -506,6 +460,9 @@ class Mesh(object):
         else:
             self._coordinate_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
 
+            plex_coords = self._plex.getCoordinates().getArray()
+            self._coordinates = np.reshape(plex_coords, (vEnd - vStart, self._dim))
+
             self._coordinate_field = types.Function(self._coordinate_fs,
                                                     val=self._coordinates,
                                                     name="Coordinates")
@@ -515,6 +472,34 @@ class Mesh(object):
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._domain_data = self._coordinate_field
+
+        # TODO: Add region ID support
+        self.region_ids = None
+
+    def _from_file(self, filename, dim=0, periodic_coords=None):
+        """Read a mesh from `filename`
+
+        The extension of the filename determines the mesh type."""
+        basename, ext = os.path.splitext(filename)
+
+        # Retrieve mesh struct from Fluidity
+        cdef ft.mesh_t mesh = ft.read_mesh_f(basename, _file_extensions[ext], dim)
+        self.name = filename
+
+        # Create DMPlex object from Fluidity struct
+        dim = mesh.topological_dimension
+        coords = np.array(<double[:mesh.vertex_count, :mesh.geometric_dimension:1]>mesh.coordinates)
+        cells = np.array(<int[:mesh.cell_count, :mesh.cell_vertices:1]>mesh.element_vertex_list)
+        cells = np.array([ c-1 for c in cells ])  # Non-Fortran numbering...
+        dmplex = PETSc.DMPlex().createFromCellList(dim, cells, coords)
+
+        self._from_dmplex(dmplex, periodic_coords)
+
+    @property
+    def layers(self):
+        """Return the number of layers of the extruded mesh
+        represented by the number of occurences of the base mesh."""
+        return self._layers
 
     def cell_orientations(self):
         """Return the orientation of each cell in the mesh.
@@ -597,14 +582,9 @@ class Mesh(object):
 
     @utils.cached_property
     def cell_set(self):
-        if self.cell_halo:
-            size = self.cell_classes
-            halo = self.cell_halo.op2_halo
-        else:
-            size = self.num_cells()
-            halo = None
+        size = self.num_cells()
         return self.parent.cell_set if self.parent else \
-            op2.Set(size, "%s_cells" % self.name, halo=halo)
+            op2.Set(size, "%s_cells" % self.name)
 
     def compute_boundaries(self):
         '''Currently a no-op for flop.py compatibility.'''
@@ -643,12 +623,10 @@ class ExtrudedMesh(Mesh):
         # All internal logic works with layers of base mesh (not layers of cells)
         self._layers = layers + 1
         self._cells = mesh._cells
-        self.cell_halo = mesh.cell_halo
         self._entities = mesh._entities
         self.parent = mesh.parent
         self.uid = mesh.uid
         self.region_ids = mesh.region_ids
-        self.cell_classes = mesh.cell_classes
         self._coordinates = mesh._coordinates
         self.name = mesh.name
 
@@ -934,55 +912,23 @@ class FunctionSpaceBase(Cached):
             self.dofs_per_column = np.zeros(1, np.int32)
             self.extruded = False
 
-        # Create the extruded function space
-        cdef ft.element_t element_f = as_element(self.fiat_element)
-
-        cdef void *fluidity_mesh = py.PyCapsule_GetPointer(mesh._fluidity_mesh, _mesh_name)
-        if fluidity_mesh == NULL:
-            raise RuntimeError("Didn't find fluidity mesh pointer in mesh %s" % mesh)
-
-        cdef int *dofs_per_column = <int *>np.PyArray_DATA(self.dofs_per_column)
-
-        if isinstance(mesh, ExtrudedMesh):
-            function_space = ft.extruded_mesh_f(fluidity_mesh, &element_f, dofs_per_column)
-        else:
-            function_space = ft.function_space_f(fluidity_mesh, &element_f)
-
-        free(element_f.dofs_per)
-        free(element_f.entity_dofs)
-
-        self._fluidity_function_space = py.PyCapsule_New(function_space.fluidity_mesh,
-                                                         _function_space_name,
-                                                         &function_space_destructor)
-
-        self._node_count = function_space.dof_count
-        self.cell_node_list = np.array(<int[:function_space.element_count, :element_f.ndof:1]>
-                                      function_space.element_dof_list)-1
-
-        self.dof_classes = np.array(<int[:4]>function_space.dof_classes)
-        self.dof_classes = self.dof_classes.astype(int)
-        self._mesh = mesh
-
-        self._halo = Halo(self._fluidity_function_space, 'vertex', self.dof_classes)
-
         self.name = name
-
         self._dim = dim
+        self._mesh = mesh
         self._index = None
 
-        if mesh.interior_facets.count > 0:
-            self.interior_facet_node_list = \
-                np.array(<int[:mesh.interior_facets.count,:2*element_f.ndof]>
-                         function_space.interior_facet_node_list)
-        else:
-            self.interior_facet_node_list = None
+        # TODO: DoF classes need to be derived properly
+        self.dof_classes = mesh.vertex_classes
 
-        if mesh.exterior_facets.count > 0:
-            self.exterior_facet_node_list = \
-                np.array(<int[:mesh.exterior_facets.count,:element_f.ndof]>
-                         function_space.exterior_facet_node_list)
-        else:
-            self.exterior_facet_node_list = None
+        # TODO: Derive Halo from DMPlex
+        self._halo = None
+
+        self._node_count = mesh.vertex_count
+        cStart,cEnd = mesh._plex.getHeightStratum(0)  # cells
+        self.cell_node_list = np.array([self._get_cell_nodes(c) for c in range(cStart, cEnd)])
+
+        self.interior_facet_node_list = None
+        self.exterior_facet_node_list = None
 
         # Note: this is the function space rank. The value rank may be different.
         self.rank = rank
@@ -993,6 +939,12 @@ class FunctionSpaceBase(Cached):
         self._cell_node_map_cache = {}
         self._exterior_facet_map_cache = {}
         self._interior_facet_map_cache = {}
+
+    def _get_cell_nodes(self, cell):
+        vStart,vEnd = self._mesh._plex.getDepthStratum(0)   # vertices
+        closure = self._mesh._plex.getTransitiveClosure(cell)[0]
+        closure_vertices = filter(lambda x: x>=vStart and x<vEnd, closure)
+        return map(lambda x: x-vStart, closure_vertices)
 
     @property
     def index(self):
