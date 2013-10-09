@@ -942,6 +942,9 @@ the :class:`FunctionSpace`.
 
         self._repr = None
 
+        if isinstance(function_space, Function):
+          self.assign(function_space)
+
     @property
     def cell_set(self):
         """The :class:`pyop2.Set` of cells for the mesh on which this
