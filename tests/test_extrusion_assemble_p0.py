@@ -1,18 +1,20 @@
+import pytest
+
 from firedrake import *
 import pyop2 as op2
 
-power = 5
-m = UnitSquareMesh(2 ** power, 2 ** power)
-layers = 11
-
-# Populate the coordinates of the extruded mesh by providing the
-# coordinates as a field.
-# TODO: provide a kernel which will describe how coordinates are extruded.
-
-mesh = firedrake.ExtrudedMesh(m, layers, layer_height=0.1)
-
 
 def integrate_assemble_p0(family, degree):
+    power = 5
+    m = UnitSquareMesh(2 ** power, 2 ** power)
+    layers = 11
+
+    # Populate the coordinates of the extruded mesh by providing the
+    # coordinates as a field.
+    # TODO: provide a kernel which will describe how coordinates are extruded.
+
+    mesh = firedrake.ExtrudedMesh(m, layers, layer_height=0.1)
+
     fs = firedrake.FunctionSpace(mesh, family, degree, name="fs")
 
     f = firedrake.Function(fs)
@@ -65,14 +67,6 @@ void comp_reduction(double A[1], double *x[])
     return np.abs(g.data[0] - 0.5)
 
 
-def run_test():
-    family = "DG"
-    degree = 0
-
-    return [integrate_assemble_p0(family, degree)]
-
-if __name__ == "__main__":
-
-    result = run_test()
-    for i, res in enumerate(result):
-        print "Result for extruded unit cube integration %r: %r" % (i + 1, res)
+@pytest.mark.parametrize(('family', 'degree'), [('DG', 0)])
+def test_firedrake_extrusion_assemble(family, degree):
+    assert integrate_assemble_p0(family, degree) < 1.0e-14
