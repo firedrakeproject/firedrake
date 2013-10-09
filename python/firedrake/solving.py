@@ -122,12 +122,26 @@ class NonlinearVariationalSolver(object):
 
     """Solves a nonlinear variational problem."""
 
+    _id = 0
     def __init__(self, *args, **kwargs):
+        """Build a nonlinear solver
+        :kwarg parameters: Solver parameters to pass to PETSc
+        This should be a dict mapping PETSc options to values.  For
+        example, to set the nonlinear solver type to just use a linear
+        solver:
+        .. code-block:: python
+
+            {'snes_type': 'ksponly'}
+
+        PETSc flag options should be specified with `bool` values. For example:
+        .. code-block:: python
+
+            {'snes_monitor': True}
+        """
         assert isinstance(args[0], NonlinearVariationalProblem)
         self._problem = args[0]
-        self.parameters = {}
-        test, trial = self._problem.J_ufl.compute_form_data(
-        ).original_arguments
+        self.parameters = kwargs.get('parameters', {})
+        test, trial = self._problem.J_ufl.compute_form_data().original_arguments
         fs_names = (test.function_space().name, trial.function_space().name)
         sparsity = op2.Sparsity((test.function_space().dof_dset,
                                  trial.function_space().dof_dset),
@@ -139,11 +153,20 @@ class NonlinearVariationalSolver(object):
         test = self._problem.F_ufl.compute_form_data().original_arguments[0]
         self._F_tensor = core_types.Function(test.function_space())
         self.snes = PETSc.SNES().create()
+        opt_prefix = 'firedrake_snes_%d' % NonlinearVariationalSolver._id
+        NonlinearVariationalSolver._id += 1
+
+        opts = PETSc.Options(opt_prefix)
+        self.snes.setOptionsPrefix(opt_prefix)
+        for k,v in self.parameters.iteritems():
+            opts[k] = v
+        self.snes.setFromOptions()
+        for k in self.parameters.iterkeys():
+            del opts[k]
 
         self.snes.setFunction(self.form_function, self._F_tensor.dat.vec)
         self.snes.setJacobian(self.form_jacobian, J=self._jac_tensor.handle,
                               P=self._jac_ptensor.handle)
-        self.snes.setFromOptions()
 
     def form_function(self, snes, X_, F_):
         if self._problem.u_ufl.dat.vec != X_:
@@ -417,29 +440,37 @@ def solve(*args, **kwargs):
         solve(a == L, u, bcs=bcs,
               solver_parameters={"linear_solver": "lu"},
               form_compiler_parameters={"optimize": True})
-              """
-    # *3. Solving nonlinear variational problems*
 
-    # A nonlinear variational problem F(u; v) = 0 for all v may be
-    # solved by calling solve(F == 0, u, ...), where the residual F is a
-    # linear form (linear in the test function v but possibly nonlinear
-    # in the unknown u) and u is a Function (the solution). Optional
-    # arguments may be supplied to specify boundary conditions, the
-    # Jacobian form or solver parameters. If the Jacobian is not
-    # supplied, it will be computed by automatic differentiation of the
-    # residual form. Some examples are given below:
+    *3. Solving nonlinear variational problems*
 
-    # .. code-block:: python
+    A nonlinear variational problem F(u; v) = 0 for all v may be
+    solved by calling solve(F == 0, u, ...), where the residual F is a
+    linear form (linear in the test function v but possibly nonlinear
+    in the unknown u) and u is a Function (the solution). Optional
+    arguments may be supplied to specify boundary conditions, the
+    Jacobian form or solver parameters. If the Jacobian is not
+    supplied, it will be computed by automatic differentiation of the
+    residual form. Some examples are given below:
 
-    #     solve(F == 0, u)
-    #     solve(F == 0, u, bcs=bc)
-    #     solve(F == 0, u, bcs=[bc1, bc2])
+    The nonlinear solver uses a PETSc SNES object under the hood. To
+    pass options to it, use the same options names as you would for
+    pure PETSc code.  See :class:`NonlinearVariationalSolver` for more
+    details.
 
-    #     solve(F == 0, u, bcs, J=J,
-    #           solver_parameters={"linear_solver": "lu"},
-    #           form_compiler_parameters={"optimize": True})
+    .. code-block:: python
 
-    # """
+        solve(F == 0, u)
+        solve(F == 0, u, bcs=bc)
+        solve(F == 0, u, bcs=[bc1, bc2])
+
+        solve(F == 0, u, bcs, J=J,
+              # Use Newton-Krylov iterations to solve the nonlinear
+              # system, using direct factorisation to solve the linear system.
+              solver_parameters={"snes_type": "newtonls",
+                                 "ksp_type" : "preonly",
+                                 "pc_type" : "lu"})
+
+    """
 
     assert(len(args) > 0)
 
@@ -488,8 +519,7 @@ def _solve_varproblem(*args, **kwargs):
                                               form_compiler_parameters=form_compiler_parameters)
 
         # Create solver and call solve
-        solver = NonlinearVariationalSolver(problem)
-        solver.parameters.update(solver_parameters)
+        solver = NonlinearVariationalSolver(problem, parameters=solver_parameters)
         solver.solve()
 
 
