@@ -28,7 +28,7 @@ def helmholtz(test_mode, pwr=None):
     # Populate the coordinates of the extruded mesh by providing the
     # coordinates as a field.
 
-    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / (2 ** power))
+    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / (layers - 1))
 
     V = FunctionSpace(mesh, "Lagrange", 1, vfamily="Lagrange", vdegree=1)
 
@@ -60,16 +60,10 @@ def helmholtz(test_mode, pwr=None):
         return sqrt(assemble((x - f) * (x - f) * dx))
 
 
-def run_test(test_mode=False):
+def test_firedrake_extrusion_helmholtz():
     import numpy as np
-    l2_diff = [helmholtz(test_mode, pwr=i) for i in range(4, 8)]
-
-    from math import log
-    conv = [log(l2_diff[i] / l2_diff[i + 1], 2)
-            for i in range(len(l2_diff) - 1)]
-    return np.array(l2_diff), np.array(conv)
-
-l2_diff, l2_conv = run_test(test_mode=True)
-if __name__ == '__main__':
-    print "L2 difference to analytic solution: %s" % l2_diff
-    print "Convergence ratios: %s" % l2_conv
+    l2_diff = np.array([helmholtz(test_mode=True, pwr=i) for i in range(4, 8)])
+    print "L2 error norms:", l2_diff
+    l2_conv = np.log2(l2_diff[:-1] / l2_diff[1:])
+    print "Convergence order:", l2_conv
+    assert (l2_conv > 1.8).all()
