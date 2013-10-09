@@ -1,21 +1,20 @@
-"""Demo of the Shallow Water
-"""
+"""Demo of Linear Shallow Water."""
 
 # Begin demo
 from firedrake import *
 
-power = 5
-# Create mesh and define function space
-m = UnitSquareMesh(2 ** power, 2 ** power)
-layers = 5
-
-# Populate the coordinates of the extruded mesh by providing the
-# coordinates as a field.
-
-mesh = ExtrudedMesh(m, layers, layer_height=0.25)
-
 
 def lsw_strang(test_mode):
+    power = 5
+    # Create mesh and define function space
+    m = UnitSquareMesh(2 ** power, 2 ** power)
+    layers = 5
+
+    # Populate the coordinates of the extruded mesh by providing the
+    # coordinates as a field.
+
+    mesh = ExtrudedMesh(m, layers, layer_height=0.25)
+
     W = FunctionSpace(mesh, "BDM", 1, vfamily="Lagrange", vdegree=1)
     X = FunctionSpace(mesh, "DG", 0, vfamily="Lagrange", vdegree=1)
     if not test_mode:
@@ -82,11 +81,5 @@ def lsw_strang(test_mode):
     return np.abs(E_1 - E_0)
 
 
-def run_test(test_mode=False):
-    return [lsw_strang(test_mode)]
-
-if __name__ == "__main__":
-
-    result = run_test()
-    for i, res in enumerate(result):
-        print "Result for extruded lsw energy error %r: %r" % (i + 1, res)
+def test_firedrake_extrusion_lsw():
+    assert lsw_strang(test_mode=True) < 1.0e-6
