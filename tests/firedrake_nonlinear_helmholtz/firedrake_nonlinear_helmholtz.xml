@@ -11,9 +11,15 @@
 import test_firedrake_nonlinear_helmholtz as test
 l2_conv = test.run_convergence_test()
     </variable>
+    <variable name="l2_conv_ksponly" language="python">
+import test_firedrake_nonlinear_helmholtz as test
+l2_conv_ksponly = test.run_convergence_test(parameters={'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type' : 'lu'})
+    </variable>
   </variables>
   <pass_tests>
     <test name="L2 convergence" language="python">assert (l2_conv &gt; 3.5).all()</test>
+    <test name="L2 convergence linear solve" language="python">assert (l2_conv_ksponly &gt; 3.5).all()</test>
   </pass_tests>
-  <warn_tests/>
+  <warn_tests>
+  </warn_tests>
 </testproblem>
