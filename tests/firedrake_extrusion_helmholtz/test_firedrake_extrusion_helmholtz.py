@@ -17,7 +17,7 @@ import sys
 
 
 def helmholtz(test_mode, pwr=None):
-    if pow is None:
+    if pwr is None:
         power = int(sys.argv[1])
     else:
         power = pwr
@@ -27,16 +27,8 @@ def helmholtz(test_mode, pwr=None):
 
     # Populate the coordinates of the extruded mesh by providing the
     # coordinates as a field.
-    extrusion_kernel = """
-    void extrusion_kernel(double *xtr[], double *x[], int* j[])
-    {
-        //Only the Z-coord is increased, the others stay the same
-        xtr[0][0] = x[0][0];
-        xtr[0][1] = x[0][1];
-        xtr[0][2] = %(height)s*j[0][0];
-    }""" % {'height': str(1.0 / (2 ** power))}
 
-    mesh = ExtrudedMesh(m, layers, extrusion_kernel)
+    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / (2 ** power))
 
     V = FunctionSpace(mesh, "Lagrange", 1, vfamily="Lagrange", vdegree=1)
 
@@ -69,15 +61,12 @@ def helmholtz(test_mode, pwr=None):
 
 
 def run_test(test_mode=False):
-    l2_diff = []
     import numpy as np
-    for i in range(4, 8):
-        l2_diff.append(helmholtz(test_mode, pwr=i))
+    l2_diff = [helmholtz(test_mode, pwr=i) for i in range(4, 8)]
 
-    conv = []
     from math import log
-    for i in range(len(l2_diff) - 1):
-        conv.append(log(l2_diff[i] / l2_diff[i + 1], 2))
+    conv = [log(l2_diff[i] / l2_diff[i + 1], 2)
+            for i in range(len(l2_diff) - 1)]
     return np.array(l2_diff), np.array(conv)
 
 l2_diff, l2_conv = run_test(test_mode=True)

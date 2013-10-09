@@ -41,15 +41,11 @@ def run_test(x, degree=2):
 
 
 def run_convergence_test():
-    diff = []
-    for i in range(3, 8):
-        tmp, _, _ = run_test(i)
-        diff.append(tmp)
-    conv = []
+    diff = [run_test(i)[0] for i in range(3, 8)]
+
     from math import log
     import numpy as np
-    for i in range(len(diff) - 1):
-        conv.append(log(diff[i] / diff[i + 1], 2))
+    conv = [log(diff[i] / diff[i + 1], 2) for i in range(len(diff) - 1)]
     return np.array(conv)
 
 if __name__ == '__main__':
