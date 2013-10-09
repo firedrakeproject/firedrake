@@ -11,16 +11,8 @@ layers = 11
 
 # Populate the coordinates of the extruded mesh by providing the
 # coordinates as a field.
-extrusion_kernel = """
-void extrusion_kernel(double *xtr[], double *x[], int* j[])
-{
-    //Only the Z-coord is increased, the others stay the same
-    xtr[0][0] = x[0][0];
-    xtr[0][1] = x[0][1];
-    xtr[0][2] = 0.1*j[0][0];
-}"""
 
-mesh = ExtrudedMesh(m, layers, extrusion_kernel)
+mesh = ExtrudedMesh(m, layers, layer_height=0.1)
 
 
 def two_step():
