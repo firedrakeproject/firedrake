@@ -2,18 +2,18 @@ from firedrake import *
 import pyop2 as op2
 import ufl
 
-power = 5
-m = UnitSquareMesh(2 ** power, 2 ** power)
-layers = 11
-
-# Populate the coordinates of the extruded mesh by providing the
-# coordinates as a field.
-# TODO: provide a kernel which will describe how coordinates are extruded.
-
-mesh = firedrake.ExtrudedMesh(m, layers, layer_height=0.1)
-
 
 def integrate_rhs(family, degree):
+    power = 5
+    m = UnitSquareMesh(2 ** power, 2 ** power)
+    layers = 11
+
+    # Populate the coordinates of the extruded mesh by providing the
+    # coordinates as a field.
+    # TODO: provide a kernel which will describe how coordinates are extruded.
+
+    mesh = firedrake.ExtrudedMesh(m, layers, layer_height=0.1)
+
     horiz = ufl.FiniteElement(family, None, degree)
     vert = ufl.FiniteElement(family, None, degree)
     prod = ufl.OuterProductElement(horiz, vert)
@@ -39,14 +39,7 @@ void populate_tracer(double *x[], double *c[])
     return np.abs(g - 0.5)
 
 
-def run_test():
+def test_firedrake_extrusion_rhs():
     family = "DG"
     degree = 0
-
-    return [integrate_rhs(family, degree)]
-
-if __name__ == "__main__":
-
-    result = run_test()
-    for i, res in enumerate(result):
-        print "Result for extruded unit cube integration %r: %r" % (i + 1, res)
+    assert integrate_rhs(family, degree) < 1.0e-14
