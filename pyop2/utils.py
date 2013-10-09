@@ -202,6 +202,11 @@ def align(bytes, alignment=16):
     return ((bytes + alignment - 1) // alignment) * alignment
 
 
+def flatten(iterable):
+    """Flatten a given nested iterable."""
+    return (x for e in iterable for x in e)
+
+
 def uniquify(iterable):
     """Remove duplicates in ITERABLE but preserve order."""
     uniq = set()
