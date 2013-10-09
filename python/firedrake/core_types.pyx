@@ -519,8 +519,7 @@ class ExtrudedMesh(Mesh):
         if fluidity_mesh == NULL:
             raise RuntimeError("Didn't find fluidity mesh pointer in mesh %s" % mesh)
 
-        cdef int _ptr = self.dofs_per_column.ctypes.data
-        cdef int *dofs_per_column = <int *><void *>_ptr
+        cdef int *dofs_per_column = <int *>np.PyArray_DATA(self.dofs_per_column)
 
         extruded_mesh = ft.extruded_mesh_f(fluidity_mesh, &element_f, dofs_per_column)
 
