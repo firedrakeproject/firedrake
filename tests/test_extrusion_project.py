@@ -44,16 +44,13 @@ def project(test_mode, pwr=None):
         return sqrt(assemble((x - g) * (x - g) * dx))
 
 
-def run_test(test_mode=False):
+def test_firedrake_extrusion_project():
     import numpy as np
-    l2_diff = [project(test_mode, pwr=i) for i in range(4, 8)]
+    l2_diff = [project(test_mode=True, pwr=i) for i in range(4, 8)]
+    print "l2 error norms:", l2_diff
 
     from math import log
-    conv = [log(l2_diff[i] / l2_diff[i + 1], 2)
-            for i in range(len(l2_diff) - 1)]
-    return np.array(l2_diff), np.array(conv)
-
-l2_diff, l2_conv = run_test(test_mode=True)
-if __name__ == '__main__':
-    print "L2 difference to analytic solution: %s" % l2_diff
-    print "Convergence ratios: %s" % l2_conv
+    conv = np.array([log(l2_diff[i] / l2_diff[i + 1], 2)
+                     for i in range(len(l2_diff) - 1)])
+    print "convergence order:", conv
+    assert (conv > 1.0).all()
