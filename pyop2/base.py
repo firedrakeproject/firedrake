@@ -202,7 +202,7 @@ class Arg(object):
         if self._is_global or map is None:
             return
         for j, m in enumerate(map):
-            if not len(m.values):
+            if m.iterset.total_size > 0 and len(m.values) == 0:
                 raise MapValueError("%s is not initialized." % map)
             if self._is_mat and m.toset != data.sparsity.dsets[j].set:
                 raise MapValueError(
