@@ -2,6 +2,7 @@ import ufl
 import ufl.argument
 from ufl.assertions import ufl_assert
 from ufl.finiteelement import FiniteElementBase
+from ufl.algorithms.analysis import extract_arguments
 import core_types
 
 
@@ -55,3 +56,24 @@ def derivative(form, u, du=None):
         else:
             raise RuntimeError("Can't compute derivative for form")
     return ufl.derivative(form, u, du)
+
+
+def adjoint(form, reordered_arguments=None):
+    """UFL form operator:
+    Given a combined bilinear form, compute the adjoint form by
+    changing the ordering (count) of the test and trial functions.
+
+    By default, new Argument objects will be created with
+    opposite ordering. However, if the adjoint form is to
+    be added to other forms later, their arguments must match.
+    In that case, the user must provide a tuple reordered_arguments=(u2,v2).
+    """
+
+    # ufl.adjoint creates new Arguments if no reordered_arguments is
+    # given.  To avoid that, always pass reordered_arguments with
+    # firedrake.Argument objects.
+    if reordered_arguments is None:
+        v, u = extract_arguments(form)
+        reordered_arguments = (Argument(u.element(), u.function_space()),
+                               Argument(v.element(), v.function_space()))
+    return ufl.adjoint(form, reordered_arguments)
