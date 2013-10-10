@@ -30,9 +30,9 @@ the Fluidity dependencies in appendix C of the Fluidity manual,
 obtainable from `Launchpad
 <https://launchpad.net/fluidity/+download>`_.
 
-Next, obtain the Firedrake source from Launchpad: ::
+Next, obtain the Firedrake source from Github: ::
 
- bzr branch lp:fluidity/firedrake
+ git clone https://github.com/firedrakeproject/firedrake.git
 
 You will also need to point Python and the dynamic linker at the right
 directories. You might want to consider setting these directories
