@@ -28,7 +28,7 @@ and the analytical solution
 from firedrake import *
 
 
-def run_test(x, parameters={}):
+def helmholtz(x, parameters={}):
     # Create mesh and define function space
     mesh = UnitSquareMesh(2 ** x, 2 ** x)
     V = FunctionSpace(mesh, "CG", 1)
@@ -61,12 +61,13 @@ def run_test(x, parameters={}):
 
 def run_convergence_test(parameters={}):
     import numpy as np
-    l2_diff = [run_test(i, parameters) for i in range(3, 8)]
+    l2_diff = np.array([helmholtz(i, parameters) for i in range(3, 8)])
+    return np.log2(l2_diff[:-1] / l2_diff[1:])
 
-    from math import log
-    conv = [log(l2_diff[i] / l2_diff[i + 1], 2)
-            for i in range(len(l2_diff) - 1)]
-    return np.array(conv)
 
-if __name__ == '__main__':
-    print "Convergence ratios: %s" % run_convergence_test()
+def test_l2_conv():
+    assert (run_convergence_test() > 1.8).all()
+
+
+def test_l2_conv_fail():
+    assert not (run_convergence_test(parameters={'snes_type': 'ksponly'}) > 1.8).all()
