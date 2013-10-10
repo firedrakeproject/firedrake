@@ -104,8 +104,15 @@ class LinearVariationalSolver(object):
 
     def __init__(self, problem):
         self._problem = problem
-        # FIXME: Make source-compatible with Dolfin parameters interface
-        self.parameters = {}
+        self._parameters = {}
+
+    @property
+    def parameters(self):
+        return self._parameters
+
+    @parameters.setter
+    def parameters(self, val):
+        self._parameters.update(val)
 
     def solve(self):
         A = assemble(self._problem.a)
@@ -113,9 +120,7 @@ class LinearVariationalSolver(object):
 
         # TODO: Apply Dirichlet BCs
 
-        # FIXME: Parameters are not forced into solver a la Dolfin - only taken
-        # from FLML.
-        _la_solve(A, self._problem.u, b)
+        _la_solve(A, self._problem.u, b, parameters=self.parameters)
 
 
 class NonlinearVariationalSolver(object):
@@ -385,22 +390,18 @@ def _assemble(f, tensor=None):
     return result()
 
 
-def _la_solve(A, x, b, linear_solver=None, preconditioner=None):
+def _la_solve(A, x, b, parameters={}):
     """Solves a linear algebra problem. Usage:
 
     .. code-block:: python
 
-        _la_solve(A, x, b, linear_solver=None, preconditioner=None)
+        _la_solve(A, x, b, parameters=parameters_dict)
 
-    The linear solver and preconditioner are selected with the following
-    precedence:
+    The linear solver and preconditioner are selected by looking at
+    the parameters dict, if it is empty, the defaults are taken from
+    PyOP2 (see :var:`op2.DEFAULT_SOLVER_PARAMETERS`)."""
 
-    1. Using linear_solver and preconditioner passed into the function. This is
-       for source compatibility with DOLFIN and would not normally be used in
-       Fluidity.
-    2. Using the solver options specified in the flml."""
-
-    solver = op2.Solver()
+    solver = op2.Solver(parameters=parameters)
     solver.solve(A, x.dat, b)
     x.dat.halo_exchange_begin()
     x.dat.halo_exchange_end()
@@ -503,7 +504,7 @@ def _solve_varproblem(*args, **kwargs):
 
         # Create solver and call solve
         solver = LinearVariationalSolver(problem)
-        solver.parameters.update(solver_parameters)
+        solver.parameters = solver_parameters
         solver.solve()
 
     # Solve nonlinear variational problem
