@@ -15,7 +15,7 @@ and the analytical solution
 from firedrake import *
 
 
-def run_test(x, degree=2):
+def helmholtz(x, degree=2):
     # Create mesh and define function space
     mesh = UnitSquareMesh(2 ** x, 2 ** x)
     V = FunctionSpace(mesh, "CG", degree)
@@ -40,19 +40,10 @@ def run_test(x, degree=2):
     return sqrt(assemble(dot(x - f, x - f) * dx)), x, f
 
 
-def run_convergence_test():
-    diff = [run_test(i)[0] for i in range(3, 8)]
-
-    from math import log
+def test_firedrake_helmholtz():
     import numpy as np
-    conv = [log(diff[i] / diff[i + 1], 2) for i in range(len(diff) - 1)]
-    return np.array(conv)
-
-if __name__ == '__main__':
-    conv = run_convergence_test()
-    print 'L2 convergence %s' % conv
-    _, x, f = run_test(5, degree=1)
-    # Save solution in VTK format
-    output = File("helmholtz.pvd")
-    output << x
-    output << f
+    diff = np.array([helmholtz(i)[0] for i in range(3, 7)])
+    print "l2 error norms:", diff
+    conv = np.log2(diff[:-1] / diff[1:])
+    print "convergence order:", conv
+    assert (np.array(conv) > 3.5).all()
