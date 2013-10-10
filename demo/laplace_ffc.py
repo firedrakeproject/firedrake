@@ -136,7 +136,7 @@ def main(opt):
                  bdry(op2.READ),
                  b(op2.WRITE, bdry_node_node[0]))
 
-    solver = op2.Solver(linear_solver='gmres')
+    solver = op2.Solver(ksp_type='gmres')
     solver.solve(mat, x, b)
 
     # Print solution

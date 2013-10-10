@@ -195,7 +195,11 @@ class Solver(base.Solver, PETSc.KSP):
 
     def __init__(self, parameters=None, **kwargs):
         super(Solver, self).__init__(parameters, **kwargs)
+        self._count = Solver._cnt
+        Solver._cnt += 1
         self.create(PETSc.COMM_WORLD)
+        prefix = 'pyop2_ksp_%d' % self._count
+        self.setOptionsPrefix(prefix)
         converged_reason = self.ConvergedReason()
         self._reasons = dict([(getattr(converged_reason, r), r)
                               for r in dir(converged_reason)
@@ -203,21 +207,25 @@ class Solver(base.Solver, PETSc.KSP):
 
     @collective
     def _set_parameters(self):
-        self.setType(self.parameters['linear_solver'])
-        self.getPC().setType(self.parameters['preconditioner'])
-        self.rtol = self.parameters['relative_tolerance']
-        self.atol = self.parameters['absolute_tolerance']
-        self.divtol = self.parameters['divergence_tolerance']
-        self.max_it = self.parameters['maximum_iterations']
-        if self.parameters['plot_convergence']:
-            self.parameters['monitor_convergence'] = True
+        opts = PETSc.Options()
+        opts.prefix = self.getOptionsPrefix()
+        for k, v in self.parameters.iteritems():
+            if type(v) is bool:
+                if v:
+                    opts[k] = None
+                else:
+                    continue
+            else:
+                opts[k] = v
+        self.setFromOptions()
+        for k in self.parameters.iterkeys():
+            del opts[k]
 
     @collective
     def _solve(self, A, x, b):
-        self._set_parameters()
         self.setOperators(A.handle)
-        self.setFromOptions()
-        if self.parameters['monitor_convergence']:
+        self._set_parameters()
+        if self.parameters['plot_convergence']:
             self.reshist = []
 
             def monitor(ksp, its, norm):
@@ -227,21 +235,19 @@ class Solver(base.Solver, PETSc.KSP):
         # Not using super here since the MRO would call base.Solver.solve
         PETSc.KSP.solve(self, b.vec, x.vec)
         x.needs_halo_update = True
-        if self.parameters['monitor_convergence']:
+        if self.parameters['plot_convergence']:
             self.cancelMonitor()
-            if self.parameters['plot_convergence']:
-                try:
-                    import pylab
-                    pylab.semilogy(self.reshist)
-                    pylab.title('Convergence history')
-                    pylab.xlabel('Iteration')
-                    pylab.ylabel('Residual norm')
-                    pylab.savefig('%sreshist_%04d.png' %
-                                  (self.parameters['plot_prefix'], Solver._cnt))
-                    Solver._cnt += 1
-                except ImportError:
-                    from warnings import warn
-                    warn("pylab not available, not plotting convergence history.")
+            try:
+                import pylab
+                pylab.semilogy(self.reshist)
+                pylab.title('Convergence history')
+                pylab.xlabel('Iteration')
+                pylab.ylabel('Residual norm')
+                pylab.savefig('%sreshist_%04d.png' %
+                              (self.parameters['plot_prefix'], self._count))
+            except ImportError:
+                from warnings import warn
+                warn("pylab not available, not plotting convergence history.")
         r = self.getConvergedReason()
         debug("Converged reason: %s" % self._reasons[r])
         debug("Iterations: %s" % self.getIterationNumber())
