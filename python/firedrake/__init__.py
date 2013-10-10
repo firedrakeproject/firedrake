@@ -1,4 +1,5 @@
 from core_types import *
+from projection import *
 from ufl import *
 from ufl_expr import *
 from solving import *
