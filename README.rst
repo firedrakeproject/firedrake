@@ -415,5 +415,6 @@ from. To print the module search path, run::
 
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _petsc4py: http://pythonhosted.org/petsc4py/
+.. _FFC: https://bitbucket.org/mapdes/ffc
 .. _FIAT: https://bitbucket.org/mapdes/fiat
 .. _UFL: https://bitbucket.org/mapdes/ufl
