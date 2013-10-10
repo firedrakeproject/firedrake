@@ -1173,6 +1173,17 @@ class TestParLoopAPI:
             op2.par_loop(kernel, set1,
                          m(op2.INC, (rmap[op2.i[0]], cmap[op2.i[1]])))
 
+    @pytest.mark.xfail
+    def test_empty_map_and_iterset(self, backend):
+        """If the iterset of the ParLoop is zero-sized, it should not matter if
+        a map defined on it has no values."""
+        s1 = op2.Set(0)
+        s2 = op2.Set(10)
+        m = op2.Map(s1, s2, 3)
+        d = op2.Dat(s2 ** 1, [0] * 10, dtype=int)
+        k = op2.Kernel("void k(int *x) {}", "k")
+        op2.par_loop(k, s1, d(op2.READ, m[0]))
+
 
 class TestSolverAPI:
 
