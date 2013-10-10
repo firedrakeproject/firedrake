@@ -1,0 +1,45 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>projection</name>
+  <!-- Basic test of firedrake facet integrals -->
+  <owner userid="wence"/>
+  <tags>firedrake</tags>
+  <problem_definition length="short" nprocs="1">
+    <command_line>true</command_line>
+  </problem_definition>
+  <variables>
+    <variable name="cg1_convergence" language="python">
+import test_projection as test
+cg1_convergence = test.run_convergence_test(degree=1, family='CG')
+    </variable>
+    <variable name="cg2_convergence" language="python">
+import test_projection as test
+cg2_convergence = test.run_convergence_test(degree=2, family='CG')
+    </variable>
+    <variable name="cg3_convergence" language="python">
+import test_projection as test
+cg3_convergence = test.run_convergence_test(degree=3, family='CG')
+    </variable>
+    <variable name="dg0_convergence" language="python">
+import test_projection as test
+dg0_convergence = test.run_convergence_test(degree=0, family='DG')
+    </variable>
+    <variable name="dg1_convergence" language="python">
+import test_projection as test
+dg1_convergence = test.run_convergence_test(degree=1, family='DG')
+    </variable>
+    <variable name="dg2_convergence" language="python">
+import test_projection as test
+dg2_convergence = test.run_convergence_test(degree=2, family='DG')
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="CG1 convergence is order 2" language="python">assert (cg1_convergence &gt; 1.8).all()</test>
+    <test name="CG2 convergence is order 3" language="python">assert (cg2_convergence &gt; 2.8).all()</test>
+    <test name="CG3 convergence is order 4" language="python">assert (cg3_convergence &gt; 3.8).all()</test>
+    <test name="DG0 convergence is order 1" language="python">assert (dg0_convergence &gt; 0.8).all()</test>
+    <test name="DG1 convergence is order 2" language="python">assert (dg1_convergence &gt; 1.8).all()</test>
+    <test name="DG2 convergence is order 3" language="python">assert (dg2_convergence &gt; 2.8).all()</test>
+  </pass_tests>
+  <warn_tests/>
+</testproblem>
