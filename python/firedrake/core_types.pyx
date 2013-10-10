@@ -140,16 +140,17 @@ def make_flat_fiat_element(ufl_cell_element, ufl_cell, flattened_entity_dofs):
     return base_element
 
 def make_extruded_coords(mesh, layers, kernel=None, layer_height=None):
-    """Given a kernel, use it to generate the extruded coordinates.
+    """Given a kernel or height between layers, use it to generate the
+    extruded coordinates.
 
     :arg mesh: the 2d mesh to extrude
     :arg layers: the number of layers in the extruded mesh
     :arg kernel: a :class:`pyop2.Kernel` which produces the extruded coordinates
-    :arg layer_height: if provided it creates coordinates for evenly 
+    :arg layer_height: if provided it creates coordinates for evenly
     spaced layers
-    Either the kernel or the layer_height must be provided. Should 
+    Either the kernel or the layer_height must be provided. Should
     both be provided then the kernel takes precendence.
-    of the coordinates.  Its calling signature is:
+    Its calling signature is:
 
         void extrusion_kernel(double *extruded_coords[],
                               double *two_d_coords[],
@@ -472,11 +473,13 @@ class Mesh(object):
 class ExtrudedMesh(Mesh):
     """Build an extruded mesh from a 2D input mesh
 
-    :arg mesh: 2D unstructured mesh
-    :arg layers: number of structured layers in the "vertical"
-    direction
-    :arg kernel: C kernel to produce 3D coordinates for the extruded
-    mesh see :func:`make_extruded_coords` for more details."""
+    :arg mesh:         2D unstructured mesh
+    :arg layers:       number of structured layers in the "vertical"
+                       direction
+    :arg kernel:       pyop2 Kernel to produce 3D coordinates for the extruded
+                       mesh see :func:`make_extruded_coords` for more details.
+    :arg layer_height: the height between two layers when all layers are
+                       evenly spaced."""
     def __init__(self, mesh, layers, kernel=None, layer_height=None):
         if kernel is None and layer_height is None:
             raise RuntimeError("Please provide a kernel or a fixed layer height")
