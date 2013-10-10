@@ -23,8 +23,31 @@ def identity(family, degree):
     return np.max(np.abs(out.dat.data - f.dat.data))
 
 
-def test_firedrake_identity():
+def run_test():
     family = "Lagrange"
     degree = range(1, 5)
-    error = np.array([identity(family, d) for d in degree])
+    return np.array([identity(family, d) for d in degree])
+
+
+def test_firedrake_identity():
+    assert (run_test() < np.array([1.0e-13, 1.0e-6, 1.0e-6, 1.0e-5])).all()
+
+
+def test_firedrake_identity_parallel():
+    from subprocess import call
+    from sys import executable
+    call(['mpiexec', '-n', '3', executable, __file__])
+    import pickle
+    with open("firedrake-identity-test-output.dat", "r") as f:
+        error = pickle.load(f)
     assert (error < np.array([1.0e-13, 1.0e-6, 1.0e-6, 1.0e-5])).all()
+
+
+if __name__ == "__main__":
+    from mpi4py import MPI
+    error = run_test()
+    MPI.COMM_WORLD.allreduce(MPI.IN_PLACE, error, MPI.MAX)
+    import pickle
+    if MPI.COMM_WORLD.rank == 0:
+        with open("firedrake-identity-test-output.dat", "w") as f:
+            pickle.dump(error, f)
