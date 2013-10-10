@@ -12,6 +12,7 @@ and the analytical solution
 """
 
 # Begin demo
+import pytest
 from firedrake import *
 
 
@@ -38,12 +39,11 @@ def run_test(x, parameters={}):
 
 
 def run_convergence_test(parameters={}):
-    diff = [run_test(i, parameters) for i in range(3, 8)]
-    from math import log
     import numpy as np
-    conv = [log(diff[i] / diff[i + 1], 2) for i in range(len(diff) - 1)]
-    return np.array(conv)
+    diff = np.array([run_test(i, parameters) for i in range(3, 7)])
+    return np.log2(diff[:-1] / diff[1:])
 
-if __name__ == '__main__':
-    l2_diff = run_test(5)
-    print "L2 difference to analytic solution: %s" % l2_diff
+
+@pytest.mark.parametrize('params', [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}])
+def test_l2_conv(params):
+    assert (run_convergence_test(parameters=params) > 3.5).all()
