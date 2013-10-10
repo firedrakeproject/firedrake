@@ -922,6 +922,10 @@ class VectorFunctionSpace(FunctionSpace):
             self._dim = self._mesh.ufl_cell().geometric_dimension()
         else:
             self._dim = dim
+        self._ufl_element = VectorElement(family,
+                                          domain=mesh._ufl_cell,
+                                          degree=degree,
+                                          dim=self._dim)
 
 class Function(ufl.Coefficient):
     """A :class:`Function` represents a discretised field over the
@@ -1040,6 +1044,9 @@ the :class:`FunctionSpace`.
 
         to_pts = []
 
+        if expression.rank() != self.function_space().rank:
+            raise RuntimeError('Rank mismatch between Expression and FunctionSpace')
+
         for dual in to_element.dual_basis():
             if not isinstance(dual, FIAT.functional.PointEvaluation):
                 raise NotImplementedError("Can only interpolate onto point evaluation operators. Try projecting instead")
@@ -1051,8 +1058,9 @@ the :class:`FunctionSpace`.
         # Produce C array notation of X.
         X_str = "{{"+"},\n{".join([ ",".join(map(str,x)) for x in X.T])+"}}"
 
+        assign_expression = ";\n".join(["A[%(i)d] = %(code)s" % { 'i': i, 'code': code } for i, code in enumerate(expression.code)])
         _expression_template = """
-void expression_kernel(double A[1], double **x_, int k)
+void expression_kernel(double A[%(rank)d], double **x_, int k)
 {
   const double X[%(ndof)d][%(xndof)d] = %(x_array)s;
 
@@ -1066,15 +1074,15 @@ void expression_kernel(double A[1], double **x_, int k)
     };
   };
 
-  // Note this currently only does the scalar case.
-  A[0] = %(expression)s;
+  %(assign_expression)s;
 }
 """
         kernel = op2.Kernel(_expression_template % { "x_array" : X_str,
                                                      "dim" : coords_space.dim,
                                                      "xndof" : coords_element.space_dimension(),
                                                      "ndof" : to_element.space_dimension(),
-                                                     "expression" : expression.code },
+                                                     "assign_expression" : assign_expression,
+                                                     "rank" : expression.rank() },
                             "expression_kernel")
 
         op2.par_loop(kernel, self.cell_set,
