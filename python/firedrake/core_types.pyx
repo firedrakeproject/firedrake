@@ -26,6 +26,8 @@ from pyop2.utils import as_tuple
 
 import utils
 
+from operator import itemgetter
+
 cimport fluidity_types as ft
 
 cdef extern from "capsulethunk.h": pass
@@ -305,6 +307,60 @@ cdef ft.element_t as_element(object fiat_element):
 
     return element
 
+def plex_closure_numbering(plex, vertex_numbering, closure, dofs_per_entity):
+    """Apply Fenics local numbering to a cell closure.
+
+    Vertices    := Ordered according to global/universal
+                   vertex numbering
+    Edges/faces := Ordered according to lexicographical
+                   ordering of non-incident vertices
+    """
+    dim = plex.getDimension()
+    local_numbering = np.empty(len(closure), dtype=np.int32)
+    vStart, vEnd = plex.getDepthStratum(0)   # vertice
+    is_vertex = lambda v: vStart <= v and v < vEnd
+
+    # Vertices := Ordered according to vertex numbering
+    vertices = filter(is_vertex, closure)
+    v_glbl = [vertex_numbering.getOffset(v) for v in vertices]
+
+    # Plex defines non-owned universal numbers as negative,
+    # correct with N = -(N+1)
+    v_glbl = [v if v >= 0 else -(v+1) for v in v_glbl]
+
+    vertices, v_glbl = zip(*sorted(zip(vertices, v_glbl), key=itemgetter(1)))
+    # Correct 1D edge numbering
+    if dim == 1:
+        vertices = vertices[::-1]
+    local_numbering[:len(vertices)] = vertices
+    offset = len(vertices)
+
+    # Local edge/face numbering := lexicographical ordering
+    #                              of non-incident vertices
+
+    for d in range(1, dim):
+        pStart, pEnd = plex.getDepthStratum(d)
+        points = filter(lambda p: pStart <= p and p < pEnd, closure)
+
+        # Re-order edge/facet points only if they have DoFs associated
+        if dofs_per_entity[d] > 0:
+            v_lcl = []   # local no. of non-incident vertices
+            for p in points:
+                p_closure = plex.getTransitiveClosure(p)[0]
+                v_incident = filter(is_vertex, p_closure)
+                v_non_inc = [v for v in vertices if v not in v_incident ]
+                v_lcl.append([np.where(vertices==v)[0][0] for v in v_non_inc])
+            points, v_lcl = zip(*sorted(zip(points, v_lcl), key=itemgetter(1)))
+
+        local_numbering[offset:offset+len(points)] = points
+        offset += len(points)
+
+    # Add the cell itself
+    cStart, cEnd = plex.getHeightStratum(0)  # cells
+    cells = filter(lambda c: cStart <= c and c < cEnd, closure)
+    local_numbering[offset:offset+len(cells)] = cells
+    return local_numbering
+
 class _Facets(object):
     """Wrapper class for facet interation information on a :class:`Mesh`"""
     def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None):
@@ -458,7 +514,9 @@ class Mesh(object):
                                                     val=periodic_coords,
                                                     name="Coordinates")
         else:
+
             self._coordinate_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
+            self._vertex_numbering = self._coordinate_fs._global_numbering
 
             plex_coords = self._plex.getCoordinates().getArray()
             self._coordinates = np.reshape(plex_coords, (vEnd - vStart, self._dim))
@@ -917,13 +975,19 @@ class FunctionSpaceBase(Cached):
         self._mesh = mesh
         self._index = None
 
+        # Create the PetscSection mapping topological entities to DoFs
+        entity_dofs = self.fiat_element.entity_dofs()
+        self._dofs_per_entity = [len(entity[0]) for d, entity in entity_dofs.iteritems()]
+        self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
+        self._global_numbering = self._plex.createSection(1, [1], self._dofs_per_entity)
+
         # TODO: DoF classes need to be derived properly
         self.dof_classes = mesh.vertex_classes
 
         # TODO: Derive Halo from DMPlex
         self._halo = None
 
-        self._node_count = mesh.vertex_count
+        self._node_count = self._global_numbering.getStorageSize()
         cStart,cEnd = mesh._plex.getHeightStratum(0)  # cells
         self.cell_node_list = np.array([self._get_cell_nodes(c) for c in range(cStart, cEnd)])
 
@@ -941,10 +1005,24 @@ class FunctionSpaceBase(Cached):
         self._interior_facet_map_cache = {}
 
     def _get_cell_nodes(self, cell):
-        vStart,vEnd = self._mesh._plex.getDepthStratum(0)   # vertices
-        closure = self._mesh._plex.getTransitiveClosure(cell)[0]
-        closure_vertices = filter(lambda x: x>=vStart and x<vEnd, closure)
-        return map(lambda x: x-vStart, closure_vertices)
+        plex = self._mesh._plex
+        closure = plex.getTransitiveClosure(cell)[0]
+        if self._dofs_per_entity[0] > 0:
+            vertex_numbering = self._global_numbering
+        else:
+            vertex_numbering = self._mesh._vertex_numbering
+        numbering = plex_closure_numbering(plex, vertex_numbering, closure,
+                                           self._dofs_per_entity)
+
+        offset = 0
+        cell_nodes = np.empty(sum(self._dofs_per_cell), dtype=np.int32)
+        for n in numbering:
+            dof = self._global_numbering.getDof(n)
+            off = self._global_numbering.getOffset(n)
+            for i in range(dof):
+                cell_nodes[offset+i] = off+i
+            offset += dof
+        return cell_nodes
 
     @property
     def index(self):
