@@ -238,17 +238,15 @@ class UnitCircleMesh(Mesh):
 
     def __init__(self, resolution):
         source = """
-            lc = 1e-2;
+            lc = %g;
             Point(1) = {0, -0.5, 0, lc};
-            boundary[] = Extrude {0, 1, 0} {
-                Point{1}; Layers{%d};
-            };
-            surface[] = Extrude{{0, 0, 1},{0, 0, 0}, 1.9999 * Pi}{
+            Point(2) = {0, 0.5, 0, lc};
+            Line(1) = {1, 2};
+            surface[] = Extrude{{0, 0, 1},{0, 0, 0}, 0.9999 * Pi}{
                     Line{1};Layers{%d};
             };
-            Physical Line(1) = { boundary[1] };
             Physical Surface(2) = { surface[1] };
-            """ % (2 * resolution, resolution * 4)
+            """ % (0.5 / resolution, resolution * 4)
         name = "unitcircle_%d" % resolution
 
         output = _get_msh_file(source, name, 2)
