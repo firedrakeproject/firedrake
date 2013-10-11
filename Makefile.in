@@ -297,7 +297,10 @@ distclean: clean
 	@find ./ \( -name make.log \) -exec rm -f {} \; > /dev/null
 	@rm -f Makefile > /dev/null
 
-test: fltools python_build serialtest
+test: fltools python_build lint serialtest
+
+lint:
+	@flake8
 
 serialtest: fltools
 	@cd tests; ../bin/testharness -l short -p serial $(EXCLUDE_TAGS) -n $(THREADS)
