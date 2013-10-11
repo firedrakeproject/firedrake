@@ -251,15 +251,7 @@ clean-debian:
 
 clean-test:
 	@echo "    CLEAN tests"
-	@cd tests; PYTHONPATH=../python ../tools/testharness.py --clean >/dev/null
-
-clean-all-tests: clean-test
-	@echo "    CLEAN parallel/special/long tests"
-	@PYTHONPATH=python tools/testharness.py --parallelism=parallel --clean >/dev/null
-	@PYTHONPATH=python tools/testharness.py --length=special --clean >/dev/null
-	@PYTHONPATH=python tools/testharness.py --length=special --parallelism=parallel --clean >/dev/null
-	@PYTHONPATH=python tools/testharness.py --length=long --clean >/dev/null
-	@PYTHONPATH=python tools/testharness.py --length=long --parallelism=parallel --clean >/dev/null
+	@cd tests; rm -f *.dat
 
 distclean: clean
 	@echo "    DISTCLEAN"
@@ -297,16 +289,13 @@ distclean: clean
 	@find ./ \( -name make.log \) -exec rm -f {} \; > /dev/null
 	@rm -f Makefile > /dev/null
 
-test: fltools python_build lint serialtest
+test: python_build lint serialtest
 
 lint:
 	@flake8
 
-serialtest: fltools
-	@cd tests; ../bin/testharness -l short -p serial $(EXCLUDE_TAGS) -n $(THREADS)
-
-mediumtest: fltools
-	@cd tests; ../bin/testharness -l medium $(EXCLUDE_TAGS) -n $(THREADS)
+serialtest:
+	@cd tests; py.test
 
 .PHONY: spudtools
 
@@ -328,11 +317,6 @@ build_unittest: fluidity_library libfemtools setuputs
 	@echo "    UNITTEST error_measures"
 	@cd femtools/tests; $(MAKE) unittest
 	@echo "    UNITTEST parameterisation"
-
-
-unittest: build_unittest
-	@echo "RUN bin/tests"
-	@bin/unittestharness bin/tests
 
 bin/spud-preprocess:
 	@echo "Installing spudtools"
