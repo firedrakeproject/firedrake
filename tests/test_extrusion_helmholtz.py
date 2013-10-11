@@ -12,8 +12,9 @@ and the analytical solution
 """
 
 # Begin demo
-from firedrake import *
+import pytest
 import sys
+from firedrake import *
 
 
 def helmholtz(test_mode, pwr=None):
@@ -60,6 +61,7 @@ def helmholtz(test_mode, pwr=None):
         return sqrt(assemble((x - f) * (x - f) * dx))
 
 
+@pytest.mark.skipif("config.option.short")
 def test_firedrake_extrusion_helmholtz():
     import numpy as np
     l2_diff = np.array([helmholtz(test_mode=True, pwr=i) for i in range(4, 8)])
