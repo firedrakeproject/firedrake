@@ -39,8 +39,13 @@ import pytest
 import numpy
 
 from pyop2 import op2
+from pyop2 import configuration as cfg
 
 nelems = 42
+
+
+def _is_greedy():
+    return not cfg['lazy_evaluation']
 
 
 class TestLaziness:
@@ -49,6 +54,7 @@ class TestLaziness:
     def iterset(cls):
         return op2.Set(nelems, name="iterset")
 
+    @pytest.mark.skipif("_is_greedy()")
     def test_stable(self, backend, iterset):
         a = op2.Global(1, 0, numpy.uint32, "a")
 
@@ -65,6 +71,7 @@ count(unsigned int* x)
         assert a.data[0] == nelems
         assert a.data[0] == nelems
 
+    @pytest.mark.skipif("_is_greedy()")
     def test_reorder(self, backend, iterset):
         a = op2.Global(1, 0, numpy.uint32, "a")
         b = op2.Global(1, 0, numpy.uint32, "b")
@@ -85,6 +92,7 @@ count(unsigned int* x)
         assert a._data[0] == 0
         assert a.data[0] == nelems
 
+    @pytest.mark.skipif("_is_greedy()")
     def test_chain(self, backend, iterset):
         a = op2.Global(1, 0, numpy.uint32, "a")
         x = op2.Dat(iterset, numpy.zeros(nelems), numpy.uint32, "x")

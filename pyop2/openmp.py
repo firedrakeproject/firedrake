@@ -39,7 +39,6 @@ import math
 
 from exceptions import *
 from utils import *
-from mpi import collective
 from petsc_base import *
 import host
 import device
@@ -126,12 +125,6 @@ class Arg(host.Arg):
             'count': count}
 
 # Parallel loop API
-
-
-@collective
-def par_loop(kernel, it_space, *args):
-    """Invocation of an OP2 kernel with an access descriptor"""
-    return ParLoop(kernel, it_space, *args)
 
 
 class JITModule(host.JITModule):

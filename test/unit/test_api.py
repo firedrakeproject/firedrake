@@ -516,6 +516,11 @@ class TestDatAPI:
         x[0] = -100
         assert (dat.data_ro[0] == -100).all()
 
+    def test_dat_lazy_allocation(self, backend, dset):
+        "Temporary Dats should not allocate storage until accessed."
+        d = op2.Dat(dset)
+        assert not d._is_allocated
+
 
 class TestSparsityAPI:
 

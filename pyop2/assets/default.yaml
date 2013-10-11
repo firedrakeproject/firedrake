@@ -2,7 +2,11 @@
 
 log_level: WARN
 
+lazy_evaluation: true
+lazy_max_trace_length: 0
+
 backend: sequential
+
 debug: 0
 
 # codegen

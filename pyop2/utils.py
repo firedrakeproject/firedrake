@@ -171,6 +171,23 @@ class validate_range(validate_base):
                             % (self.file, self.line, arg, range))
 
 
+class validate_dtype(validate_base):
+
+    """Decorator to validate argument value is in a valid Numpy dtype
+
+    The decorator expects one or more arguments, which are 3-tuples of
+    (name, _, exception), where name is the argument name in the
+    function being decorated, second argument is ignored and exception
+    is the exception type to be raised if validation fails."""
+
+    def check_arg(self, arg, ignored, exception):
+        try:
+            np.dtype(arg)
+        except TypeError:
+            raise exception("%s:%d %s must be a valid dtype"
+                            % (self.file, self.line, arg))
+
+
 def verify_reshape(data, dtype, shape, allow_none=False):
     """Verify data is of type dtype and try to reshaped to shape."""
 

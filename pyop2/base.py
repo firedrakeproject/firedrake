@@ -40,6 +40,7 @@ import numpy as np
 import operator
 from hashlib import md5
 
+import configuration as cfg
 from caching import Cached
 from exceptions import *
 from utils import *
@@ -58,8 +59,10 @@ class LazyComputation(object):
         self.writes = writes
         self._scheduled = False
 
+    def enqueue(self):
         global _trace
         _trace.append(self)
+        return self
 
     def _run(self):
         assert False, "Not implemented"
@@ -73,10 +76,29 @@ class ExecutionTrace(object):
         self._trace = list()
 
     def append(self, computation):
-        self._trace.append(computation)
+        if not cfg['lazy_evaluation']:
+            assert not self._trace
+            computation._run()
+        elif cfg['lazy_max_trace_length'] > 0 and cfg['lazy_max_trace_length'] == len(self._trace):
+            self.evaluate(computation.reads, computation.writes)
+            computation._run()
+        else:
+            self._trace.append(computation)
 
     def in_queue(self, computation):
         return computation in self._trace
+
+    def clear(self):
+        """Forcefully drops delayed computation. Only use this if you know what you
+        are doing.
+        """
+        self._trace = list()
+
+    def evaluate_all(self):
+        """Forces the evaluation of all delayed computations."""
+        for comp in self._trace:
+            comp._run()
+        self._trace = list()
 
     def evaluate(self, reads, writes):
         """Forces the evaluation of delayed computation on which reads and writes
@@ -952,17 +974,19 @@ class Dat(DataCarrier):
     _modes = [READ, WRITE, RW, INC]
 
     @validate_type(('dataset', (DataSet, Set), DataSetTypeError), ('name', str, NameTypeError))
+    @validate_dtype(('dtype', None, DataTypeError))
     def __init__(self, dataset, data=None, dtype=None, name=None,
                  soa=None, uid=None):
         if type(dataset) is Set:
             # If a Set, rather than a dataset is passed in, default to
             # a dataset dimension of 1.
             dataset = dataset ** 1
-        if data is None:
-            data = np.zeros(dataset.total_size * dataset.cdim)
+        self._shape = (dataset.total_size,) + (() if dataset.cdim == 1 else dataset.dim)
         self._dataset = dataset
-        shape = (dataset.total_size,) + (() if dataset.cdim == 1 else dataset.dim)
-        self._data = verify_reshape(data, dtype, shape, allow_none=True)
+        if data is None:
+            self._dtype = dtype if dtype is not None else np.float64
+        else:
+            self._data = verify_reshape(data, dtype, self._shape, allow_none=True)
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
         self._needs_halo_update = False
@@ -1038,6 +1062,24 @@ class Dat(DataCarrier):
         np.save(filename, self.data_ro)
 
     @property
+    def _data(self):
+        if not self._is_allocated:
+            self._numpy_data = np.zeros(self._shape, dtype=self._dtype)
+        return self._numpy_data
+
+    @_data.setter
+    def _data(self, value):
+        self._numpy_data = value
+
+    @property
+    def _is_allocated(self):
+        return hasattr(self, '_numpy_data')
+
+    @property
+    def dtype(self):
+        return self._data.dtype if self._is_allocated else self._dtype
+
+    @property
     def needs_halo_update(self):
         '''Has this Dat been written to since the last halo exchange?'''
         return self._needs_halo_update
@@ -1059,15 +1101,20 @@ class Dat(DataCarrier):
             }""" % {'t': self.ctype, 'dim': self.cdim}
             self._zero_kernel = _make_object('Kernel', k, 'zero')
         _make_object('ParLoop', self._zero_kernel, self.dataset.set,
-                     self(WRITE)).compute()
+                     self(WRITE)).enqueue()
 
     def __eq__(self, other):
         """:class:`Dat`\s compare equal if defined on the same
         :class:`DataSet` and containing the same data."""
         try:
-            return (self._dataset == other._dataset and
-                    self._data.dtype == other._data.dtype and
-                    np.array_equal(self._data, other._data))
+            if self._is_allocated and other._is_allocated:
+                return (self._dataset == other._dataset and
+                        self.dtype == other.dtype and
+                        np.array_equal(self._data, other._data))
+            elif not (self._is_allocated or other._is_allocated):
+                return (self._dataset == other._dataset and
+                        self.dtype == other.dtype)
+            return False
         except AttributeError:
             return False
 
@@ -1880,7 +1927,6 @@ class ParLoop(LazyComputation):
         LazyComputation.__init__(self,
                                  set([a.data for a in args if a.access in [READ, RW]]) | Const._defs,
                                  set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]))
-
         # Always use the current arguments, also when we hit cache
         self._actual_args = args
         self._kernel = kernel
@@ -2127,3 +2173,8 @@ class Solver(object):
 
     def _solve(self, A, x, b):
         raise NotImplementedError("solve must be implemented by backend")
+
+
+@collective
+def par_loop(kernel, it_space, *args):
+    return _make_object('ParLoop', kernel, it_space, *args).enqueue()

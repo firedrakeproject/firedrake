@@ -38,7 +38,6 @@ import device as op2
 import plan
 import numpy as np
 from utils import verify_reshape, maybe_setflags
-from mpi import collective
 import jinja2
 import pycuda.driver as driver
 import pycuda.gpuarray as gpuarray
@@ -693,11 +692,6 @@ class JITModule(base.JITModule):
 
     def __call__(self, *args, **kwargs):
         self.compile().prepared_async_call(*args, **kwargs)
-
-
-@collective
-def par_loop(kernel, it_space, *args):
-    return ParLoop(kernel, it_space, *args)
 
 
 class ParLoop(op2.ParLoop):

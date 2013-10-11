@@ -47,7 +47,6 @@ import configuration as cfg
 import device
 from device import *
 from logger import warning
-from mpi import collective
 import plan
 import petsc_base
 from utils import verify_reshape, uniquify, maybe_setflags
@@ -733,11 +732,6 @@ class ParLoop(device.ParLoop):
 
         for a in self._all_global_reduction_args:
             a.data._post_kernel_reduction_task(conf['work_group_count'], a.access)
-
-
-@collective
-def par_loop(kernel, it_space, *args):
-    return ParLoop(kernel, it_space, *args)
 
 
 def _setup():
