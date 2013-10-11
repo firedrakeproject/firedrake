@@ -1,3 +1,4 @@
+# NOTE This is a demo, not a regression test
 
 from firedrake import *
 
