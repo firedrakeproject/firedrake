@@ -472,13 +472,13 @@ _cusp_cache = dict()
 
 def _cusp_solver(M, parameters):
     cache_key = lambda t, p: (t,
-                              p['linear_solver'],
-                              p['preconditioner'],
-                              p['relative_tolerance'],
-                              p['absolute_tolerance'],
-                              p['maximum_iterations'],
-                              p['gmres_restart'],
-                              p['monitor_convergence'])
+                              p['ksp_type'],
+                              p['pc_type'],
+                              p['ksp_rtol'],
+                              p['ksp_atol'],
+                              p['ksp_max_it'],
+                              p['ksp_gmres_restart'],
+                              p['ksp_monitor'])
     module = _cusp_cache.get(cache_key(M.ctype, parameters))
     if module:
         return module
@@ -526,21 +526,21 @@ def _cusp_solver(M, parameters):
         None: none
     }
     try:
-        precond_call = preconditioners[parameters['preconditioner']]
+        precond_call = preconditioners[parameters['pc_type']]
     except KeyError:
         raise RuntimeError("Cusp does not support preconditioner type %s" %
-                           parameters['preconditioner'])
+                           parameters['pc_type'])
     solvers = {
         'cg': Statement('cusp::krylov::cg(A, x, b, monitor, M)'),
         'bicgstab': Statement('cusp::krylov::bicgstab(A, x, b, monitor, M)'),
-        'gmres': Statement('cusp::krylov::gmres(A, x, b, %(gmres_restart)d, monitor, M)' % parameters)
+        'gmres': Statement('cusp::krylov::gmres(A, x, b, %(ksp_gmres_restart)d, monitor, M)' % parameters)
     }
     try:
-        solve_call = solvers[parameters['linear_solver']]
+        solve_call = solvers[parameters['ksp_type']]
     except KeyError:
         raise RuntimeError("Cusp does not support solver type %s" %
-                           parameters['linear_solver'])
-    monitor = 'monitor(b, %(maximum_iterations)d, %(relative_tolerance)g, %(absolute_tolerance)g)' % parameters
+                           parameters['ksp_type'])
+    monitor = 'monitor(b, %(ksp_max_it)d, %(ksp_rtol)g, %(ksp_atol)g)' % parameters
 
     nvcc_function = FunctionBody(
         FunctionDeclaration(Value('void', '__cusp_solve'),
@@ -575,7 +575,7 @@ def _cusp_solver(M, parameters):
             Statement(
                 'matrix A(nrows, ncols, nnz, row_offsets, column_indices, matrix_values)'),
             Statement('cusp::%s_monitor< ValueType > %s' %
-                      ('verbose' if parameters['monitor_convergence'] else 'default',
+                      ('verbose' if parameters['ksp_monitor'] else 'default',
                        monitor)),
             precond_call,
             solve_call

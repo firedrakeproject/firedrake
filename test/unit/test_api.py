@@ -1195,30 +1195,30 @@ class TestSolverAPI:
         assert s.parameters == base.DEFAULT_SOLVER_PARAMETERS
 
     def test_set_options_with_params(self, backend):
-        params = {'linear_solver': 'gmres',
-                  'maximum_iterations': 25}
+        params = {'ksp_type': 'gmres',
+                  'ksp_max_it': 25}
         s = op2.Solver(params)
-        assert s.parameters['linear_solver'] == 'gmres' \
-            and s.parameters['maximum_iterations'] == 25
+        assert s.parameters['ksp_type'] == 'gmres' \
+            and s.parameters['ksp_max_it'] == 25
 
     def test_set_options_with_kwargs(self, backend):
-        s = op2.Solver(linear_solver='gmres', maximum_iterations=25)
-        assert s.parameters['linear_solver'] == 'gmres' \
-            and s.parameters['maximum_iterations'] == 25
+        s = op2.Solver(ksp_type='gmres', ksp_max_it=25)
+        assert s.parameters['ksp_type'] == 'gmres' \
+            and s.parameters['ksp_max_it'] == 25
 
     def test_update_parameters(self, backend):
         s = op2.Solver()
-        params = {'linear_solver': 'gmres',
-                  'maximum_iterations': 25}
+        params = {'ksp_type': 'gmres',
+                  'ksp_max_it': 25}
         s.update_parameters(params)
-        assert s.parameters['linear_solver'] == 'gmres' \
-            and s.parameters['maximum_iterations'] == 25
+        assert s.parameters['ksp_type'] == 'gmres' \
+            and s.parameters['ksp_max_it'] == 25
 
     def test_set_params_and_kwargs_illegal(self, backend):
-        params = {'linear_solver': 'gmres',
-                  'maximum_iterations': 25}
+        params = {'ksp_type': 'gmres',
+                  'ksp_max_it': 25}
         with pytest.raises(RuntimeError):
-            op2.Solver(params, linear_solver='cgs')
+            op2.Solver(params, ksp_type='cgs')
 
 if __name__ == '__main__':
     import os

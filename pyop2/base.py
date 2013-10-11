@@ -2053,21 +2053,20 @@ class ParLoop(LazyComputation):
         """Flag which triggers extrusion"""
         return self._is_layered
 
-DEFAULT_SOLVER_PARAMETERS = {'linear_solver': 'cg',
-                             'preconditioner': 'jacobi',
-                             'relative_tolerance': 1.0e-7,
-                             'absolute_tolerance': 1.0e-50,
-                             'divergence_tolerance': 1.0e+4,
-                             'maximum_iterations': 1000,
-                             'monitor_convergence': False,
+DEFAULT_SOLVER_PARAMETERS = {'ksp_type': 'cg',
+                             'pc_type': 'jacobi',
+                             'ksp_rtol': 1.0e-7,
+                             'ksp_atol': 1.0e-50,
+                             'ksp_divtol': 1.0e+4,
+                             'ksp_max_it': 1000,
+                             'ksp_monitor': False,
                              'plot_convergence': False,
                              'plot_prefix': '',
                              'error_on_nonconvergence': True,
-                             'gmres_restart': 30}
+                             'ksp_gmres_restart': 30}
 
-"""The default parameters for the solver are the same as those used in PETSc
-3.3. Note that the parameters accepted by :class:`op2.Solver` are only a subset
-of all PETSc parameters."""
+"""All parameters accepted by PETSc KSP and PC objects are permissible
+as options to the :class:`op2.Solver`."""
 
 
 class Solver(object):
