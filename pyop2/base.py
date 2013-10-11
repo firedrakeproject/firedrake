@@ -952,6 +952,9 @@ class Dat(DataCarrier):
     than a :class:`DataSet`, the :class:`Dat` is created with a default
     :class:`DataSet` dimension of 1.
 
+    If a :class:`Dat` is passed as the ``dataset`` argument, a copy is
+    returned.
+
     When a :class:`Dat` is passed to :func:`pyop2.op2.par_loop`, the map via
     which indirection occurs and the access descriptor are passed by
     calling the :class:`Dat`. For instance, if a :class:`Dat` named ``D`` is
@@ -973,10 +976,14 @@ class Dat(DataCarrier):
     _globalcount = 0
     _modes = [READ, WRITE, RW, INC]
 
-    @validate_type(('dataset', (DataSet, Set), DataSetTypeError), ('name', str, NameTypeError))
+    @validate_type(('dataset', (DataCarrier, DataSet, Set), DataSetTypeError), ('name', str, NameTypeError))
     @validate_dtype(('dtype', None, DataTypeError))
     def __init__(self, dataset, data=None, dtype=None, name=None,
                  soa=None, uid=None):
+        if isinstance(dataset, Dat):
+            self.__init__(dataset.dataset, np.copy(dataset.data_ro), dtype=dataset.dtype,
+                          name="copy_of_%s" % dataset.name)
+            return
         if type(dataset) is Set:
             # If a Set, rather than a dataset is passed in, default to
             # a dataset dimension of 1.
