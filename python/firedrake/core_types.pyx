@@ -9,6 +9,7 @@ import numpy as np
 import fluidity.utils as utils
 import pyop2 as op2
 import assemble_expressions
+from vector import Vector
 
 from libc.stdlib cimport malloc, free
 from libc.string cimport strcmp
@@ -994,6 +995,10 @@ the :class:`FunctionSpace`.
     @property
     def exterior_facet_node_map(self):
         return self._function_space.exterior_facet_node_map
+
+    def vector(self):
+        """Return a :class:`Vector` wrapping the data in this :class:`Function`"""
+        return Vector(self.dat)
 
     def function_space(self):
         return self._function_space
