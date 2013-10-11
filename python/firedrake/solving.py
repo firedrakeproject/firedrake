@@ -340,7 +340,8 @@ def _assemble(f, tensor=None):
                                    flatten=True)]
 
             for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.cell_node_map))
+                args.append(c.dat(op2.READ, c.cell_node_map,
+                                  flatten=True))
 
             op2.par_loop(*args)
         if domain_type == 'exterior_facet':
@@ -364,7 +365,8 @@ def _assemble(f, tensor=None):
                     coords.dat(op2.READ, coords.exterior_facet_node_map,
                                flatten=True)]
             for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.exterior_facet_node_map))
+                args.append(c.dat(op2.READ, c.exterior_facet_node_map,
+                                  flatten=True))
             args.append(m.exterior_facets.local_facet_dat(op2.READ))
             op2.par_loop(*args)
 
@@ -390,7 +392,8 @@ def _assemble(f, tensor=None):
                     coords.dat(op2.READ, coords.interior_facet_node_map,
                                flatten=True)]
             for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.interior_facet_node_map))
+                args.append(c.dat(op2.READ, c.interior_facet_node_map,
+                                  flatten=True))
             args.append(m.interior_facets.local_facet_dat(op2.READ))
             op2.par_loop(*args)
 
