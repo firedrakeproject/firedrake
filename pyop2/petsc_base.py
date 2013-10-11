@@ -71,12 +71,28 @@ class Dat(base.Dat):
     @property
     @collective
     def vec(self):
-        """PETSc Vec appropriate for this Dat."""
+        """PETSc Vec appropriate for this Dat.
+
+        You're allowed to modify the data you get back from this view."""
         # Getting the Vec needs to ensure we've done all current computation.
         self._force_evaluation()
         if not hasattr(self, '_vec'):
             size = (self.dataset.size * self.cdim, None)
-            self._vec = PETSc.Vec().createWithArray(self._data, size=size)
+            self._vec = PETSc.Vec().createWithArray(self.data, size=size)
+        self.needs_halo_update = True
+        return self._vec
+
+    @property
+    @collective
+    def vec_ro(self):
+        """PETSc Vec appropriate for this Dat.
+
+        You're not allowed to modify the data you get back from this view."""
+        # Getting the Vec needs to ensure we've done all current computation.
+        self._force_evaluation()
+        if not hasattr(self, '_vec'):
+            size = (self.dataset.size * self.cdim, None)
+            self._vec = PETSc.Vec().createWithArray(self.data_ro, size=size)
         return self._vec
 
     @collective
