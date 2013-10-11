@@ -47,3 +47,21 @@ def run_convergence_test(parameters={}):
 @pytest.mark.parametrize('params', [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}])
 def test_l2_conv(params):
     assert (run_convergence_test(parameters=params) > 3.5).all()
+
+
+def test_l2_conv_parallel():
+    from subprocess import call
+    from sys import executable
+    call(['mpiexec', '-n', '3', executable, __file__])
+    import pickle
+    with open("firedrake-nonlinear-helmholtz-test-output.dat", "r") as f:
+        l2_conv = pickle.load(f)
+    assert (l2_conv > 3.5).all()
+
+if __name__ == "__main__":
+    import pickle
+    from mpi4py import MPI
+    l2_conv = run_convergence_test()
+    if MPI.COMM_WORLD.rank == 0:
+        with open("firedrake-nonlinear-helmholtz-test-output.dat", "w") as f:
+            pickle.dump(l2_conv, f)
