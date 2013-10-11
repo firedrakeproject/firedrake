@@ -2,8 +2,9 @@
 """
 
 # Begin demo
-from firedrake import *
 import sys
+import pytest
+from firedrake import *
 
 
 def project(test_mode, pwr=None):
@@ -44,6 +45,7 @@ def project(test_mode, pwr=None):
         return sqrt(assemble((x - g) * (x - g) * dx))
 
 
+@pytest.mark.skipif("config.option.short")
 def test_firedrake_extrusion_project():
     import numpy as np
     l2_diff = [project(test_mode=True, pwr=i) for i in range(4, 8)]
