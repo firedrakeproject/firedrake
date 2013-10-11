@@ -159,7 +159,13 @@ class NonlinearVariationalSolver(object):
         opts = PETSc.Options(opt_prefix)
         self.snes.setOptionsPrefix(opt_prefix)
         for k,v in self.parameters.iteritems():
-            opts[k] = v
+            if type(v) is bool:
+                if v:
+                    opts[k] = None
+                else:
+                    continue
+            else:
+                opts[k] = v
         self.snes.setFromOptions()
         for k in self.parameters.iterkeys():
             del opts[k]
