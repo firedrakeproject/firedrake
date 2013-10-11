@@ -14,5 +14,6 @@ before_install:
 install: "python setup.py develop"
 # command to run tests
 script:
+  - "flake8"
   - "py.test test --backend=sequential"
   - "py.test test --backend=openmp"
