@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testproblem>
+  <name>mesh_generation</name>
+  <owner userid="wence"/>
+  <tags>firedrake</tags>
+  <problem_definition length="short" nprocs="1">
+    <command_line>true</command_line>
+  </problem_definition>
+  <variables>
+    <variable name="integrals" language="python">
+import test_mesh_generation as test
+integrals = test.run_test()
+    </variable>
+  </variables>
+  <pass_tests>
+    <test name="Integrating mesh volume gives correct values"
+          language="python">import numpy as np; assert np.allclose(integrals, 0, atol=1e-3)</test>
+  </pass_tests>
+  <warn_tests/>
+</testproblem>

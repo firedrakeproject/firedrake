@@ -359,14 +359,17 @@ class Mesh(object):
         self._entities[-2] = mesh.interior_facet_count + mesh.exterior_facet_count
         self.uid = mesh.uid
 
-        interior_facet_cell = \
-            np.array(<int[:mesh.interior_facet_count, :2]>mesh.interior_facet_cell)
-        interior_local_facet_number = \
-            np.array(<int[:mesh.interior_facet_count, :2]>mesh.interior_local_facet_number)
-        self.interior_facets = _Facets(self, mesh.interior_facet_count,
-                                       "interior",
-                                       interior_facet_cell,
-                                       interior_local_facet_number)
+        if mesh.interior_facet_count > 0:
+            interior_facet_cell = \
+                np.array(<int[:mesh.interior_facet_count, :2]>mesh.interior_facet_cell)
+            interior_local_facet_number = \
+                np.array(<int[:mesh.interior_facet_count, :2]>mesh.interior_local_facet_number)
+            self.interior_facets = _Facets(self, mesh.interior_facet_count,
+                                           "interior",
+                                           interior_facet_cell,
+                                           interior_local_facet_number)
+        else:
+            self.interior_facets = _Facets(self, 0, "interior", None, None)
 
         exterior_facet_cell = \
             np.array(<int[:mesh.exterior_facet_count, :1]>mesh.exterior_facet_cell)
@@ -806,9 +809,12 @@ class FunctionSpace(object):
         self._dim = 1
 
         if not isinstance(self._mesh, ExtrudedMesh):
-            self.interior_facet_node_list = \
-                np.array(<int[:self._mesh.interior_facets.count,:2*element_f.ndof]>
-                         function_space.interior_facet_node_list)
+            if self._mesh.interior_facets.count > 0:
+                self.interior_facet_node_list = \
+                    np.array(<int[:self._mesh.interior_facets.count,:2*element_f.ndof]>
+                             function_space.interior_facet_node_list)
+            else:
+                self.interior_facet_node_list = None
 
             self.exterior_facet_node_list = \
                 np.array(<int[:self._mesh.exterior_facets.count,:element_f.ndof]>
