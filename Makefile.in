@@ -297,6 +297,9 @@ lint:
 serialtest:
 	@cd tests; py.test
 
+shorttest: python_build lint
+	@cd tests; py.test --short
+
 .PHONY: spudtools
 
 spudtools:
