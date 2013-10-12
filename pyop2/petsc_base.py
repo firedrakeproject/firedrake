@@ -42,6 +42,7 @@ required to implement backend-specific features.
 from petsc4py import PETSc
 import base
 from base import *
+from backends import _make_object
 from logger import debug
 import mpi
 from mpi import collective
@@ -210,6 +211,16 @@ class Mat(base.Mat):
         if not hasattr(self, '_handle'):
             self._init()
         return self._handle
+
+    def __mul__(self, v):
+        """Multiply this :class:`Mat` with the vector ``v``."""
+        if not isinstance(v, Dat):
+            raise TypeError("Can only multiply Mat and Dat.")
+        y = self.handle * v.vec_ro
+        dat = _make_object('Dat', self.sparsity.dsets[0])
+        dat.data[:len(y.array)] = y.array[:]
+        dat.needs_halo_update = True
+        return dat
 
 # FIXME: Eventually (when we have a proper OpenCL solver) this wants to go in
 # sequential
