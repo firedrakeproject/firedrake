@@ -692,6 +692,12 @@ class TestMatAPI:
         diag_mat.set_diagonal(dat)
         assert np.allclose(diag_mat.array, dat.data_ro)
 
+    def test_mat_dat_mult(self, backend, diag_mat, dat, skip_cuda):
+        """Mat multiplied with Dat should perform matrix-vector multiplication
+        and yield a Dat."""
+        diag_mat.set_diagonal(dat)
+        assert np.allclose((diag_mat * dat).data_ro, np.multiply(dat.data_ro, dat.data_ro))
+
     def test_mat_repr(self, backend, mat):
         "Mat should have the expected repr."
 
