@@ -214,9 +214,9 @@ class Mat(base.Mat):
 
     def __mul__(self, v):
         """Multiply this :class:`Mat` with the vector ``v``."""
-        if not isinstance(v, Dat):
-            raise TypeError("Can only multiply Mat and Dat.")
-        y = self.handle * v.vec_ro
+        if not isinstance(v, (Dat, PETSc.Vec)):
+            raise TypeError("Can only multiply Mat and Dat or PETSc Vec.")
+        y = self.handle * (v.vec_ro if isinstance(v, Dat) else v)
         dat = _make_object('Dat', self.sparsity.dsets[0])
         dat.data[:len(y.array)] = y.array[:]
         dat.needs_halo_update = True
