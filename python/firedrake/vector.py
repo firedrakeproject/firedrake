@@ -54,7 +54,7 @@ class Vector(object):
             v = PETSc.Vec().createSeq(N, comm=PETSc.COMM_SELF)
             is_ = PETSc.IS().createStride(N, 0, 1, comm=PETSc.COMM_SELF)
         else:
-            assert type(global_indices) is np.ndarray
+            global_indices = np.asarray(global_indices, dtype=np.int32)
             N = len(global_indices)
             v = PETSc.Vec().createSeq(N, comm=PETSc.COMM_SELF)
             is_ = PETSc.IS().createGeneral(global_indices, comm=PETSc.COMM_SELF)
