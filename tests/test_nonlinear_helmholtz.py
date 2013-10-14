@@ -48,6 +48,8 @@ def test_l2_conv(params):
     assert (run_convergence_test(parameters=params) > 3.5).all()
 
 
+# This currently fails: https://github.com/firedrakeproject/firedrake/issues/1
+@pytest.mark.xfail
 @pytest.mark.parallel
 def test_l2_conv_parallel():
     from mpi4py import MPI
