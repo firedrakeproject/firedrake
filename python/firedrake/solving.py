@@ -128,6 +128,7 @@ class NonlinearVariationalSolver(object):
     """Solves a nonlinear variational problem."""
 
     _id = 0
+
     def __init__(self, *args, **kwargs):
         """Build a nonlinear solver
         :kwarg parameters: Solver parameters to pass to PETSc
@@ -163,7 +164,7 @@ class NonlinearVariationalSolver(object):
 
         opts = PETSc.Options(opt_prefix)
         self.snes.setOptionsPrefix(opt_prefix)
-        for k,v in self.parameters.iteritems():
+        for k, v in self.parameters.iteritems():
             if type(v) is bool:
                 if v:
                     opts[k] = None
