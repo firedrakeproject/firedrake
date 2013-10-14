@@ -13,7 +13,6 @@ and the analytical solution
 
 import pytest
 from firedrake import *
-from utils import parallel
 
 
 def run_test(x, parameters={}):
@@ -49,7 +48,7 @@ def test_l2_conv(params):
     assert (run_convergence_test(parameters=params) > 3.5).all()
 
 
-@parallel()
+@pytest.mark.parallel
 def test_l2_conv_parallel():
     from mpi4py import MPI
     l2_conv = run_convergence_test()

@@ -1,6 +1,6 @@
 import firedrake
 import numpy as np
-from utils import parallel
+import pytest
 
 
 def identity(family, degree):
@@ -34,7 +34,7 @@ def test_firedrake_identity():
     assert (run_test() < np.array([1.0e-13, 1.0e-6, 1.0e-6, 1.0e-5])).all()
 
 
-@parallel()
+@pytest.mark.parallel
 def test_firedrake_identity_parallel():
     from mpi4py import MPI
     error = run_test()
