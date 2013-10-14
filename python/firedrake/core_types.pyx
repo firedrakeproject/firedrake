@@ -950,8 +950,9 @@ the :class:`FunctionSpace`.
 
         ufl.Coefficient.__init__(self, self._function_space.ufl_element())
 
-        self.name = name
+        self._label = "a function"
         self.uid = _new_uid()
+        self._name = name or 'function_%d' % self.uid
 
         if val is not None:
             self.dat = op2.Dat(self.dof_dset, val, valuetype, self.name,
@@ -995,9 +996,28 @@ the :class:`FunctionSpace`.
     def function_space(self):
         return self._function_space
 
+    def name(self):
+        """Return the name of this :class:`Function`"""
+        return self._name
+
+    def label(self):
+        """Return the label (a description) of this :class:`Function`"""
+        return self._label
+
+    def rename(self, name=None, label=None):
+        """Set the name and or label of this :class:`Function`
+
+        :arg name: The new name of the `Function` (if not `None`)
+        :arg label: The new label for the `Function` (if not `None`)
+        """
+        if name is not None:
+            self._name = name
+        if label is not None:
+            self._label = label
+
     def __str__(self):
-        if self.name is not None:
-            return self.name
+        if self._name is not None:
+            return self._name
         else:
             return super(Function, self).__str__()
 
