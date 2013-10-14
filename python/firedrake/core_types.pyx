@@ -955,12 +955,12 @@ the :class:`FunctionSpace`.
         self._name = name or 'function_%d' % self.uid
 
         if val is not None:
-            self.dat = op2.Dat(self.dof_dset, val, valuetype, self.name,
+            self.dat = op2.Dat(self.dof_dset, val, valuetype, self._name,
                                uid=self.uid)
         else:
             self.dat = op2.Dat(self.dof_dset,
                                np.zeros(self._function_space.dof_count),
-                               valuetype, self.name, uid=self.uid)
+                               valuetype, self._name, uid=self.uid)
 
         self._repr = None
 
