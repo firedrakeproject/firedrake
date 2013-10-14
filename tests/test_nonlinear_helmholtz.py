@@ -11,9 +11,9 @@ and the analytical solution
   u(x, y) = cos(x[0]*2*pi)*cos(x[1]*2*pi)
 """
 
-# Begin demo
 import pytest
 from firedrake import *
+from utils import parallel
 
 
 def run_test(x, parameters={}):
@@ -49,19 +49,9 @@ def test_l2_conv(params):
     assert (run_convergence_test(parameters=params) > 3.5).all()
 
 
+@parallel()
 def test_l2_conv_parallel():
-    from subprocess import call
-    from sys import executable
-    call(['mpiexec', '-n', '3', executable, __file__])
-    import pickle
-    with open("firedrake-nonlinear-helmholtz-test-output.dat", "r") as f:
-        l2_conv = pickle.load(f)
-    assert (l2_conv > 3.5).all()
-
-if __name__ == "__main__":
-    import pickle
     from mpi4py import MPI
     l2_conv = run_convergence_test()
-    if MPI.COMM_WORLD.rank == 0:
-        with open("firedrake-nonlinear-helmholtz-test-output.dat", "w") as f:
-            pickle.dump(l2_conv, f)
+    print '[%d]' % MPI.COMM_WORLD.rank, 'convergence rate:', l2_conv
+    assert (l2_conv > 3.5).all()
