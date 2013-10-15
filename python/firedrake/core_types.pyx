@@ -18,6 +18,8 @@ cimport numpy as np
 cimport cpython as py
 cimport fluidity_types as ft
 
+cdef extern from "capsulethunk.h": pass
+
 np.import_array()
 
 cdef char *_function_space_name = "function_space"
