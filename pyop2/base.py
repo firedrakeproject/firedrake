@@ -1161,17 +1161,17 @@ class Dat(DataCarrier):
     def _op(self, other, op):
         if np.isscalar(other):
             return Dat(self.dataset,
-                       op(self._data, as_type(other, self.dtype)), self.dtype)
+                       op(self.data, as_type(other, self.dtype)), self.dtype)
         self._check_shape(other)
         return Dat(self.dataset,
-                   op(self._data, as_type(other.data, self.dtype)), self.dtype)
+                   op(self.data, as_type(other.data_ro, self.dtype)), self.dtype)
 
     def _iop(self, other, op):
         if np.isscalar(other):
-            op(self._data, as_type(other, self.dtype))
+            op(self.data, as_type(other, self.dtype))
         else:
             self._check_shape(other)
-            op(self._data, as_type(other.data, self.dtype))
+            op(self.data, as_type(other.data_ro, self.dtype))
         return self
 
     def __add__(self, other):
