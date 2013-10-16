@@ -44,3 +44,16 @@ def pytest_runtest_setup(item):
     run_parallel = item.keywords.get("parallel", None)
     if run_parallel:
         item._obj = parallel(run_parallel.kwargs.get('nprocs', 3))(item._obj)
+
+
+def pytest_cmdline_preparse(config, args):
+    if 'PYTEST_VERBOSE' in os.environ and '-v' not in args:
+        args.insert(0, '-v')
+    if 'PYTEST_EXITFIRST' in os.environ and '-x' not in args:
+        args.insert(0, '-x')
+    if 'PYTEST_NOCAPTURE' in os.environ and '-s' not in args:
+        args.insert(0, '-s')
+    if 'PYTEST_TBNATIVE' in os.environ:
+        args.insert(0, '--tb=native')
+    if 'PYTEST_WATCH' in os.environ and '-f' not in args:
+        args.insert(0, '-f')
