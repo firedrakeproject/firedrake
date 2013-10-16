@@ -337,9 +337,15 @@ class Arg(object):
                     "To set of %s doesn't match the set of %s." % (map, data))
 
         # Determine the iteration space extents, if any
-        if self._is_mat:
+        # FIXME: if the arg is flattened we assumed it's not mixed
+        if self._is_mat and self._flatten:
+            self._extents = (((map[0].arity * data.dims[0], map[1].arity * data.dims[1]),),)
+        elif self._is_mat:
             self._extents = tuple(tuple((mr.arity, mc.arity) for mc in map[1])
                                   for mr in map[0])
+        # FIXME: if the arg is flattened we assumed it's not mixed
+        elif self._uses_itspace and self._flatten:
+            self._extents = (((map.arity * data.cdim,),),)
         elif self._uses_itspace:
             self._extents = tuple(((m.arity,),) for m in map)
         else:
