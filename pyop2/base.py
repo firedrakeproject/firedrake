@@ -111,6 +111,16 @@ class ExecutionTrace(object):
                      This forces evaluation of all :func:`par_loop`\s that read from the
                      :class:`DataCarrier` (and any other dependent computation).
         """
+
+        try:
+            reads = set(reads)
+        except TypeError:       # not an iterable
+            reads = set([reads])
+        try:
+            writes = set(writes)
+        except TypeError:
+            writes = set([writes])
+
         def _depends_on(reads, writes, cont):
             return reads & cont.writes or writes & cont.reads or writes & cont.writes
 
