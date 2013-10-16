@@ -4,7 +4,7 @@
 # In order this looks at:
 #  - The PACKAGE_VERSION environment variable
 #  - the configure-time variable FLUIDITY_VERSION
-#  - bzr (asking for the branch nickname and revno)
+#  - git (asking for the branch name and revision)
 
 # Usage:
 # bin/version-info [FILENAME]
@@ -15,17 +15,19 @@
 #   differs from the one we've just figured out.
 
 if [ x"$PACKAGE_VERSION" = x"" ]; then
-    if [ "@FLUIDITY_VERSION@" = "" ]; then
-        PACKAGE_VERSION=`bzr version-info --custom --template='{branch_nick}.{revno}'`
-    else
-        PACKAGE_VERSION="@FLUIDITY_VERSION@"
-    fi
+  if [ "@FLUIDITY_VERSION@" = "" ]; then
+    BRANCH=`git symbolic-ref HEAD 2>/dev/null | cut -d"/" -f 3`
+    REVISION=`git rev-parse --short --verify HEAD`
+    PACKAGE_VERSION=$BRANCH.$REVISION
+  else
+    PACKAGE_VERSION="@FLUIDITY_VERSION@"
+  fi
 fi
 
 if [ x"$@" = x"" ]; then
-    echo $PACKAGE_VERSION
+  echo $PACKAGE_VERSION
 else
-    grep "\"${PACKAGE_VERSION}\"" $@ >/dev/null 2>&1 ||
+  grep "\"${PACKAGE_VERSION}\"" $@ >/dev/null 2>&1 ||
     (printf "#ifndef _FLUIDITY_VERSION_H\n\
 #define _FLUIDITY_VERSION_H\n\
 #define __FLUIDITY_VERSION__ \"${PACKAGE_VERSION}\"\n\
