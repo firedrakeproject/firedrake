@@ -126,6 +126,12 @@ class Arg(base.Arg):
             else:
                 if self.data is not None and self.data.dataset.set.layers > 1:
                     return self.c_ind_data_xtr("i_%d" % self.idx.index)
+                elif self._flatten:
+                    return "%(name)s + %(map_name)s[i * %(arity)s + i_0 %% %(arity)d] * %(dim)s + (i_0 / %(arity)d)" % \
+                        {'name': self.c_arg_name(),
+                         'map_name': self.c_map_name(),
+                         'arity': self.map.arity,
+                         'dim': self.data.cdim}
                 else:
                     return self.c_ind_data("i_%d" % self.idx.index)
         elif self._is_indirect:
@@ -186,6 +192,19 @@ class Arg(base.Arg):
         rmult = dims[0]
         cmult = dims[1]
         s = []
+        if self._flatten:
+            idx = '[0][0]'
+            val = "&%s%s" % (self.c_kernel_arg_name(), idx)
+            row = "%(m)s * %(map)s[i * %(dim)s + i_0 %% %(dim)s] + (i_0 / %(dim)s)" % \
+                  {'m': rmult,
+                   'map': self.c_map_name(idx=0),
+                   'dim': nrows}
+            col = "%(m)s * %(map)s[i * %(dim)s + i_1 %% %(dim)s] + (i_1 / %(dim)s)" % \
+                  {'m': cmult,
+                   'map': self.c_map_name(idx=1),
+                   'dim': ncols}
+            return 'addto_scalar(%s, %s, %s, %s, %d)' \
+                % (self.c_arg_name(), val, row, col, self.access == WRITE)
         for i in xrange(rmult):
             for j in xrange(cmult):
                 idx = '[%d][%d]' % (i, j)
@@ -211,6 +230,8 @@ class Arg(base.Arg):
             dims = ''.join(["[%d]" % d for d in extents])
         elif self.data._is_vector_field:
             dims = ''.join(["[%d]" % d for d in self.data.dims])
+            if self._flatten:
+                dims = '[1][1]'
         else:
             raise RuntimeError("Don't know how to declare temp array for %s" % self)
         return "%s %s%s" % (t, self.c_local_tensor_name(), dims)
@@ -222,6 +243,9 @@ class Arg(base.Arg):
             return "%(name)s%(idx)s = (%(t)s)0" % \
                 {'name': self.c_kernel_arg_name(), 't': t, 'idx': idx}
         elif self.data._is_vector_field:
+            if self._flatten:
+                return "%(name)s[0][0] = (%(t)s)0" % \
+                    {'name': self.c_kernel_arg_name(), 't': t}
             size = np.prod(self.data.dims)
             return "memset(%(name)s, 0, sizeof(%(t)s) * %(size)s)" % \
                 {'name': self.c_kernel_arg_name(), 't': t, 'size': size}
@@ -407,8 +431,19 @@ class JITModule(base.JITModule):
                                  if not arg._is_mat and arg._is_vec_map])
 
         nloops = len(self._extents)
+        extents = list(self._extents)
+        for arg in self._args:
+            if arg._flatten:
+                if arg._is_mat:
+                    dims = arg.data.sparsity.dims
+                    extents[0] *= dims[0]
+                    extents[1] *= dims[1]
+                    break
+                if arg._is_dat and arg._uses_itspace:
+                    extents[0] *= arg.data.cdim
+                    break
         _itspace_loops = '\n'.join(['  ' * i + itspace_loop(i, e)
-                                   for i, e in enumerate(self._extents)])
+                                    for i, e in enumerate(extents)])
         _itspace_loop_close = '\n'.join('  ' * i + '}' for i in range(nloops - 1, -1, -1))
 
         _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field() for arg in self._args
