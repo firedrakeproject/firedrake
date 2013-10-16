@@ -15,6 +15,10 @@
 
 {%- macro kernel_stub() -%}
 __global__ void {{ parloop._stub_name }} (int set_size, int offset
+    {%- if launch.subset -%}
+    ,
+    int* _ssinds
+    {% endif -%}
     {%- for arg in parloop.args -%}
     ,
     {{ arg.ctype }} *{{arg.name}}
@@ -50,8 +54,15 @@ __global__ void {{ parloop._stub_name }} (int set_size, int offset
     }
     {% endfor -%}
 
-    for ( int n = offset + threadIdx.x + blockIdx.x * blockDim.x;
-          n < (offset + set_size); n+= blockDim.x * gridDim.x ) {
+    for ( int ns = offset + threadIdx.x + blockIdx.x * blockDim.x;
+          ns < (offset + set_size); ns+= blockDim.x * gridDim.x ) {
+
+        {%- if launch.subset %}
+        int n = _ssinds[ns];
+        {% else %}
+        int n = ns;
+        {% endif -%}
+
         {% if (parloop._all_staged_direct_args) %}
         local_offset = n - thread_id;
         active_threads_count = min({{ launch.WARPSIZE }}, (offset + set_size) - local_offset);

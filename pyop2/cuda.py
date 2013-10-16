@@ -70,7 +70,10 @@ class Kernel(op2.Kernel):
 
 class Arg(op2.Arg):
 
-    def _indirect_kernel_arg_name(self, idx):
+    def _subset_index(self, s, subset):
+        return ("_ssinds[%s]" % s) if subset else ("(%s)" % s)
+
+    def _indirect_kernel_arg_name(self, idx, subset):
         if self._is_mat:
             rmap = self.map[0]
             ridx = self.idx[0]
@@ -80,7 +83,7 @@ class Arg(op2.Arg):
             size = esize * rmap.arity * cmap.arity
             d = {'n': self.name,
                  'offset': self._lmaoffset_name,
-                 'idx': idx,
+                 'idx': self._subset_index("ele_offset + %s" % idx, subset),
                  't': self.ctype,
                  'size': size,
                  '0': ridx.index,
@@ -99,7 +102,7 @@ class Arg(op2.Arg):
             #  A1 A2
             #  A3 A4
             return """(%(t)s (*)[%(lcdim)s])(%(n)s + %(offset)s +
-            (ele_offset + %(idx)s) * %(size)s +
+            %(idx)s * %(size)s +
             i%(0)s * %(roff)s + i%(1)s * %(coff)s)""" % d
         if self._is_global:
             if self._is_global_reduction:
@@ -108,9 +111,10 @@ class Arg(op2.Arg):
                 return self.name
         if self._is_direct:
             if self.data.soa:
-                return "%s + (%s + offset_b_abs)" % (self.name, idx)
-            return "%s + (%s + offset_b_abs) * %s" % (self.name, idx,
-                                                      self.data.cdim)
+                return "%s + %s" % (self.name, sub("%s + offset_b_abs" % idx))
+            return "%s + %s * %s" % (self.name,
+                                     self.data.cdim,
+                                     self._subset_index("%s + offset_b_abs" % idx, subset))
         if self._is_indirect:
             if self._is_vec_map:
                 return self._vec_name
@@ -136,6 +140,13 @@ class Arg(op2.Arg):
             return self.name
         else:
             return "%s + %s" % (self.name, idx)
+
+
+class Subset(op2.Subset):
+
+    def _allocate_device(self):
+        if not hasattr(self, '_device_data'):
+            self._device_data = gpuarray.to_gpu(self.indices)
 
 
 class DeviceDataMixin(op2.DeviceDataMixin):
@@ -656,6 +667,9 @@ class JITModule(base.JITModule):
         inttype = np.dtype('int32').char
         argtypes = inttype      # set size
         argtypes += inttype  # offset
+        if self._config['subset']:
+            argtypes += "P"  # subset's indices
+
         d = {'parloop': self._parloop,
              'launch': self._config,
              'constants': Const._definitions()}
@@ -727,6 +741,12 @@ class ParLoop(op2.ParLoop):
     def _compute(self, part):
         arglist = [np.int32(part.size), np.int32(part.offset)]
         config = self.launch_configuration(part)
+        config['subset'] = False
+        if isinstance(part.set, Subset):
+            config['subset'] = True
+            part.set._allocate_device()
+            arglist.append(np.intp(part.set._device_data.gpudata))
+
         fun = JITModule(self.kernel, self.it_space, *self.args, parloop=self, config=config)
 
         if self._is_direct:
@@ -752,7 +772,10 @@ class ParLoop(op2.ParLoop):
         for arg in _args:
             if arg._is_mat:
                 d = arg.data._lmadata.gpudata
-                offset = arg.data._lmaoffset(self._it_space.iterset)
+                itset = self._it_space.iterset
+                if isinstance(itset, op2.Subset):
+                    itset = itset.superset
+                offset = arg.data._lmaoffset(itset)
                 arglist.append(np.intp(d))
                 arglist.append(np.int32(offset))
             else:

@@ -4,6 +4,9 @@
 __global__ void {{ parloop._stub_name }} (
     int set_size,
     int set_offset,
+    {%- if launch.subset %}
+    int* _ssinds,
+    {% endif -%}
     {% for arg in parloop._unique_args -%}
     {{ arg.ctype }} *{{arg.name}},
     {%- if arg._is_mat %}
@@ -165,7 +168,7 @@ __global__ void {{ parloop._stub_name }} (
                 {%- set comma = joiner(",") -%}
                 {%- for arg in parloop.args -%}
                 {{ comma() }}
-                {{ arg._indirect_kernel_arg_name('idx') }}
+                {{ arg._indirect_kernel_arg_name('idx', launch.subset) }}
                 {%- endfor -%}
                 {%- for _ in parloop._it_space.extents -%}
                 , i{{loop.index0}}
