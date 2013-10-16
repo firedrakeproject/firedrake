@@ -67,6 +67,17 @@ def test_firedrake_identity_parallel():
     print '[%d]' % MPI.COMM_WORLD.rank, 'error:', error
     assert (error < np.array([1.0e-13, 1.0e-6, 1.0e-6, 1.0e-5])).all()
 
+
+@pytest.mark.xfail(reason="Parallel vector function space assembly needs BAIJ matrices")
+@pytest.mark.parallel(nprocs=2)
+def test_vector_identity_parallel():
+    from mpi4py import MPI
+    error = run_vector_test()
+    MPI.COMM_WORLD.allreduce(MPI.IN_PLACE, error, MPI.MAX)
+    print '[%d]' % MPI.COMM_WORLD.rank, 'error:', error
+    assert (error < 1e-6).all()
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
