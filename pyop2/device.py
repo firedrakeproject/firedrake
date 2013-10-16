@@ -155,7 +155,8 @@ class DeviceDataMixin(object):
             raise RuntimeError("Illegal access: No data associated with this Dat!")
         maybe_setflags(self._data, write=True)
         self._from_device()
-        self.state = DeviceDataMixin.BOTH
+        if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
+            self.state = DeviceDataMixin.BOTH
         maybe_setflags(self._data, write=False)
         return self._data
 
