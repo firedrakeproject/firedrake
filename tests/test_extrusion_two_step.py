@@ -1,6 +1,7 @@
 """Testing extruded RT elements."""
 
-# Begin demo
+import pytest
+
 from firedrake import *
 
 
@@ -63,3 +64,7 @@ def two_step():
 
 def test_firedrake_extrusion_two_step():
     assert two_step() < 1.0e-4
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

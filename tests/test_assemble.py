@@ -39,3 +39,7 @@ def test_zero_form(M, f, one):
     zero_form = fd.assemble(fd.action(fd.action(M, f), one))
     assert isinstance(zero_form, float)
     assert abs(zero_form - 0.5) < 1.0e-14
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

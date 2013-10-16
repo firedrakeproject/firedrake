@@ -20,3 +20,7 @@ def integrate_one(m):
     (integrate_one(UnitTetrahedronMesh()), 0.5 / 3)])
 def test_mesh_generation(volume, expected):
     assert abs(volume - expected) < 1e-3
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

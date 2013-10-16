@@ -29,4 +29,5 @@ def test_convergence(degree, family, expected_convergence):
     assert (conv > expected_convergence).all()
 
 if __name__ == '__main__':
-    print run_convergence_test()
+    import os
+    pytest.main(os.path.abspath(__file__))

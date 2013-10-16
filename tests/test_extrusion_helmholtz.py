@@ -11,7 +11,6 @@ and the analytical solution
   u(x, y) = cos(x[0]*2*pi)*cos(x[1]*2*pi)
 """
 
-# Begin demo
 import pytest
 import sys
 from firedrake import *
@@ -69,3 +68,7 @@ def test_firedrake_extrusion_helmholtz():
     l2_conv = np.log2(l2_diff[:-1] / l2_diff[1:])
     print "Convergence order:", l2_conv
     assert (l2_conv > 1.8).all()
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

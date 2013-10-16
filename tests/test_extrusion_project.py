@@ -1,9 +1,8 @@
-"""This demo program projects an analytic expression into a function space
-"""
+"""This demo program projects an analytic expression into a function space."""
 
-# Begin demo
 import sys
 import pytest
+
 from firedrake import *
 
 
@@ -56,3 +55,7 @@ def test_firedrake_extrusion_project():
                      for i in range(len(l2_diff) - 1)])
     print "convergence order:", conv
     assert (conv > 1.0).all()
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

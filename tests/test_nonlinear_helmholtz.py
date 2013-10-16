@@ -12,6 +12,7 @@ and the analytical solution
 """
 
 import pytest
+
 from firedrake import *
 
 
@@ -56,3 +57,7 @@ def test_l2_conv_parallel():
     l2_conv = run_convergence_test()
     print '[%d]' % MPI.COMM_WORLD.rank, 'convergence rate:', l2_conv
     assert (l2_conv > 3.5).all()
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

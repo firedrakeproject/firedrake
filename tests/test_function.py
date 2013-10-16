@@ -1,4 +1,5 @@
 import pytest
+
 from firedrake import *
 
 
@@ -39,3 +40,7 @@ def test_function_name(V):
 
     f.rename(name="bar", label="baz")
     assert f.name() == "bar" and f.label() == "baz"
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

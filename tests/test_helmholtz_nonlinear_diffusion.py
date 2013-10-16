@@ -22,8 +22,7 @@ and the analytical solution
   u(x, y) = cos(x*2*pi)*cos(y*2*pi)
 """
 
-# Begin demo
-
+import pytest
 
 from firedrake import *
 
@@ -71,3 +70,7 @@ def test_l2_conv():
 
 def test_l2_conv_fail():
     assert not (run_convergence_test(parameters={'snes_type': 'ksponly'}) > 1.8).all()
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

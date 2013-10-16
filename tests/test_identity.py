@@ -1,25 +1,26 @@
-import firedrake
 import numpy as np
 import pytest
 
+from firedrake import *
+
 
 def identity(family, degree):
-    mesh = firedrake.UnitCubeMesh(1, 1, 1)
-    fs = firedrake.FunctionSpace(mesh, family, degree)
+    mesh = UnitCubeMesh(1, 1, 1)
+    fs = FunctionSpace(mesh, family, degree)
 
-    f = firedrake.Function(fs)
-    out = firedrake.Function(fs)
+    f = Function(fs)
+    out = Function(fs)
 
-    u = firedrake.TrialFunction(fs)
-    v = firedrake.TestFunction(fs)
+    u = TrialFunction(fs)
+    v = TestFunction(fs)
 
-    firedrake.assemble(u * v * firedrake.dx)
+    assemble(u * v * dx)
 
-    f.interpolate(firedrake.Expression("x[0]"))
+    f.interpolate(Expression("x[0]"))
 
-    firedrake.assemble(f * v * firedrake.dx)
+    assemble(f * v * dx)
 
-    firedrake.solve(u * v * firedrake.dx == f * v * firedrake.dx, out)
+    solve(u * v * dx == f * v * dx, out)
 
     return np.max(np.abs(out.dat.data - f.dat.data))
 
@@ -41,3 +42,7 @@ def test_firedrake_identity_parallel():
     MPI.COMM_WORLD.allreduce(MPI.IN_PLACE, error, MPI.MAX)
     print '[%d]' % MPI.COMM_WORLD.rank, 'error:', error
     assert (error < np.array([1.0e-13, 1.0e-6, 1.0e-6, 1.0e-5])).all()
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

@@ -1,3 +1,5 @@
+import pytest
+
 from firedrake import *
 import pyop2 as op2
 import ufl
@@ -43,3 +45,7 @@ def test_firedrake_extrusion_rhs():
     family = "DG"
     degree = 0
     assert integrate_rhs(family, degree) < 1.0e-14
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

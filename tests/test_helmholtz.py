@@ -11,7 +11,8 @@ and the analytical solution
   u(x, y) = cos(x[0]*2*pi)*cos(x[1]*2*pi)
 """
 
-# Begin demo
+import pytest
+
 from firedrake import *
 
 
@@ -47,3 +48,7 @@ def test_firedrake_helmholtz():
     conv = np.log2(diff[:-1] / diff[1:])
     print "convergence order:", conv
     assert (np.array(conv) > 3.5).all()
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

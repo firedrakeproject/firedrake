@@ -1,3 +1,5 @@
+import pytest
+
 from firedrake import *
 import pyop2 as op2
 
@@ -47,3 +49,7 @@ def test_firedrake_extrusion_p0():
     degree = 0
 
     assert integrate_p0(family, degree) < 1.0e-11
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

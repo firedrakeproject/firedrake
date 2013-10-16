@@ -89,3 +89,7 @@ def test_expressions(test):
 def test_exceptions(f1, f2):
     with pytest.raises(ValueError):
         f1.assign(f2)
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

@@ -1,5 +1,7 @@
-from firedrake import *
 import numpy as np
+import pytest
+
+from firedrake import *
 
 
 def identity_xtr(family, degree):
@@ -38,3 +40,7 @@ def test_firedrake_extrusion_identity():
 
     error = np.array([identity_xtr(family, d) for d in degree])
     assert (error < np.array([1.0e-14, 1.0e-6, 1.0e-6, 1.0e-6])).all()
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

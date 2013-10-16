@@ -1,6 +1,7 @@
 """Demo of Linear Shallow Water."""
 
-# Begin demo
+import pytest
+
 from firedrake import *
 
 
@@ -83,3 +84,7 @@ def lsw_strang(test_mode):
 
 def test_firedrake_extrusion_lsw():
     assert lsw_strang(test_mode=True) < 1.0e-6
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))
