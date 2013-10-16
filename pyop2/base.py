@@ -1004,8 +1004,9 @@ class Dat(DataCarrier):
     def __init__(self, dataset, data=None, dtype=None, name=None,
                  soa=None, uid=None):
         if isinstance(dataset, Dat):
-            self.__init__(dataset.dataset, np.copy(dataset.data_ro), dtype=dataset.dtype,
+            self.__init__(dataset.dataset, None, dtype=dataset.dtype,
                           name="copy_of_%s" % dataset.name, soa=dataset.soa)
+            dataset.copy(self)
             return
         if type(dataset) is Set:
             # If a Set, rather than a dataset is passed in, default to
@@ -1132,6 +1133,21 @@ class Dat(DataCarrier):
             self._zero_kernel = _make_object('Kernel', k, 'zero')
         _make_object('ParLoop', self._zero_kernel, self.dataset.set,
                      self(WRITE)).enqueue()
+
+    @collective
+    def copy(self, other):
+        """Copy the data in this :class:`Dat` into another.
+
+        :arg other: The destination :class:`Dat`"""
+        if not hasattr(self, '_copy_kernel'):
+            k = """void copy(%(t)s *self, %(t)s *other) {
+                for (int n = 0; n < %(dim)s; ++n) {
+                    other[n] = self[n];
+                }
+            }""" % {'t': self.ctype, 'dim': self.cdim}
+            self._copy_kernel = _make_object('Kernel', k, 'copy')
+        par_loop(self._copy_kernel, self.dataset.set,
+                 self(READ), other(WRITE))
 
     def __eq__(self, other):
         """:class:`Dat`\s compare equal if defined on the same
