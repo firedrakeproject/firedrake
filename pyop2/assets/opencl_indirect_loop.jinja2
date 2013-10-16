@@ -129,6 +129,9 @@ void {{ parloop._stub_name }}(
   {%- endfor -%}
   int set_size,
   int set_offset,
+  {%- if launch.subset %}
+  __global int* _ssinds,
+  {% endif -%}
   __global int* p_ind_map,
   __global short *p_loc_map,
   __global int* p_ind_sizes,
@@ -403,10 +406,18 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
 {% endfor -%}
 {%- endmacro -%}
 
+{%- macro subset_ind(idx) -%}
+{%- if launch.subset -%}
+_ssinds[{{ idx }}]
+{%- else -%}
+({{ idx }})
+{%- endif -%}
+{%- endmacro -%}
+
 {%- macro kernel_call_arg(arg) -%}
 {% if(arg._is_direct) -%}
   {{ typecast("__global", arg.data._cl_type + "*", "__private") -}}
-  ({{ arg.name }} + (i_1 + offset_b_abs) * {{ arg.data.cdim }})
+  ({{ arg.name }} + {{ subset_ind("i_1 + offset_b_abs") }} * {{ arg.data.cdim }})
 {%- elif(arg._is_mat) -%}
   {{ arg.name }}_entry[idx_0][idx_1]
 {%- elif(arg._uses_itspace) -%}

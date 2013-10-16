@@ -113,7 +113,7 @@ class Arg(device.Arg):
     """OP2 OpenCL argument type."""
 
     # FIXME actually use this in the template
-    def _indirect_kernel_arg_name(self, idx):
+    def _indirect_kernel_arg_name(self, idx, subset):
         if self._is_global:
             if self._is_global_reduction:
                 return self._reduction_local_name
@@ -134,7 +134,7 @@ class Arg(device.Arg):
                     % (self._shared_name, self._which_indirect, idx,
                        self.data.cdim)
 
-    def _direct_kernel_arg_name(self, idx=None):
+    def _direct_kernel_arg_name(self, idx=None, subset=False):
         if self._is_mat:
             return self._mat_entry_name
         if self._is_staged_direct:
@@ -144,7 +144,17 @@ class Arg(device.Arg):
         elif self._is_global:
             return self.name
         else:
+            # not staged dat
+            if subset:
+                return "%s + _ssinds[%s]" % (self.name, idx)
             return "%s + %s" % (self.name, idx)
+
+
+class Subset(device.Subset):
+
+    def _allocate_device(self):
+        if not hasattr(self, '_device_data'):
+            self._device_data = array.to_device(_queue, self.indices)
 
 
 class DeviceDataMixin(device.DeviceDataMixin):
@@ -655,6 +665,7 @@ class ParLoop(device.ParLoop):
 
     def _compute(self, part):
         conf = self.launch_configuration()
+        conf['subset'] = isinstance(part.set, Subset)
 
         if self._is_indirect:
             _plan = Plan(part,
@@ -703,10 +714,16 @@ class ParLoop(device.ParLoop):
         if self._is_direct:
             args.append(np.int32(part.size))
             args.append(np.int32(part.offset))
+            if conf['subset']:
+                part.set._allocate_device()
+                args.append(part.set._device_data.data)
             fun(conf['thread_count'], conf['work_group_size'], *args)
         else:
             args.append(np.int32(part.size))
             args.append(np.int32(part.offset))
+            if conf['subset']:
+                part.set._allocate_device()
+                args.append(part.set._device_data.data)
             args.append(_plan.ind_map.data)
             args.append(_plan.loc_map.data)
             args.append(_plan.ind_sizes.data)
