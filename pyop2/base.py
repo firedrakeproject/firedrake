@@ -101,8 +101,15 @@ class ExecutionTrace(object):
         self._trace = list()
 
     def evaluate(self, reads, writes):
-        """Forces the evaluation of delayed computation on which reads and writes
+        """Force the evaluation of delayed computation on which reads and writes
         depend.
+
+        :arg reads: the :class:`DataCarrier`\s which you wish to read from.
+                    This forces evaluation of all :func:`par_loop`\s that write to
+                    the :class:`DataCarrier` (and any other dependent computation).
+        :arg writes: the :class:`DataCarrier`\s which you will write to (i.e. modify values).
+                     This forces evaluation of all :func:`par_loop`\s that read from the
+                     :class:`DataCarrier` (and any other dependent computation).
         """
         def _depends_on(reads, writes, cont):
             return reads & cont.writes or writes & cont.reads or writes & cont.writes
