@@ -1121,10 +1121,8 @@ class Dat(DataCarrier):
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, access, path=None, flatten=False):
         if isinstance(path, Arg):
-            path._dat = self
-            path._access = access
-            path._flatten = flatten
-            return path
+            return _make_object('Arg', data=self, map=path.map, idx=path.idx,
+                                access=access, flatten=flatten)
         if path and path.toset != self.dataset.set:
             raise MapValueError("To Set of Map does not match Set of Dat.")
         return _make_object('Arg', data=self, map=path, access=access, flatten=flatten)
