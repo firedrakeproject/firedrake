@@ -162,6 +162,15 @@ class TestLinAlgOp:
         xi = yi / y
         assert xi.data.dtype == np.int64
 
+    @pytest.mark.xfail
+    def test_linalg_and_parloop(self, backend, x, y):
+        """Linear algebra operators should force computation"""
+        x._data = np.zeros(x.dataset.total_size, dtype=np.float64)
+        k = op2.Kernel('void k(double *x) { *x = 1.0; }', 'k')
+        op2.par_loop(k, x.dataset.set, x(op2.WRITE))
+        z = x + y
+        assert all(z.data == y.data + 1)
+
 
 class TestLinAlgIop:
 
