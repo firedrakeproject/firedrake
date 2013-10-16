@@ -1005,7 +1005,7 @@ class Dat(DataCarrier):
                  soa=None, uid=None):
         if isinstance(dataset, Dat):
             self.__init__(dataset.dataset, np.copy(dataset.data_ro), dtype=dataset.dtype,
-                          name="copy_of_%s" % dataset.name)
+                          name="copy_of_%s" % dataset.name, soa=dataset.soa)
             return
         if type(dataset) is Set:
             # If a Set, rather than a dataset is passed in, default to
