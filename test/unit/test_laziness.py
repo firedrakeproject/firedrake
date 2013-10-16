@@ -92,7 +92,6 @@ count(unsigned int* x)
         assert a._data[0] == 0
         assert a.data[0] == nelems
 
-    @pytest.mark.xfail('config.getvalue("backend")[0] in ["cuda", "opencl"]')
     def test_ro_accessor(self, backend, iterset):
         """Read-only access to a Dat should force computation that writes to it."""
         op2.base._trace.clear()

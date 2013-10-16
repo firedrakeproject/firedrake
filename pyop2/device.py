@@ -150,6 +150,7 @@ class DeviceDataMixin(object):
     @property
     def data_ro(self):
         """Numpy array containing the data values.  Read-only"""
+        base._trace.evaluate(reads=self)
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
         maybe_setflags(self._data, write=True)
