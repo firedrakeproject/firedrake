@@ -51,6 +51,5 @@ setup(name='firedrake',
       author="Imperial College London and others",
       author_email="firedrake@imperial.ac.uk",
       url="http://firedrakeproject.org",
-      packages=['fluidity', 'fluidity.diagnostics', "firedrake", "evtk"],
-      py_modules=['fluidity_tools', 'vtktools'],
+      packages=["firedrake", "evtk"],
       ext_modules=[interface_module, ext])
