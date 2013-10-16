@@ -100,10 +100,33 @@ class ExecutionTrace(object):
             comp._run()
         self._trace = list()
 
-    def evaluate(self, reads, writes):
-        """Forces the evaluation of delayed computation on which reads and writes
+    def evaluate(self, reads=None, writes=None):
+        """Force the evaluation of delayed computation on which reads and writes
         depend.
+
+        :arg reads: the :class:`DataCarrier`\s which you wish to read from.
+                    This forces evaluation of all :func:`par_loop`\s that write to
+                    the :class:`DataCarrier` (and any other dependent computation).
+        :arg writes: the :class:`DataCarrier`\s which you will write to (i.e. modify values).
+                     This forces evaluation of all :func:`par_loop`\s that read from the
+                     :class:`DataCarrier` (and any other dependent computation).
         """
+
+        if reads is not None:
+            try:
+                reads = set(reads)
+            except TypeError:       # not an iterable
+                reads = set([reads])
+        else:
+            reads = set()
+        if writes is not None:
+            try:
+                writes = set(writes)
+            except TypeError:
+                writes = set([writes])
+        else:
+            writes = set()
+
         def _depends_on(reads, writes, cont):
             return reads & cont.writes or writes & cont.reads or writes & cont.writes
 
@@ -1144,17 +1167,17 @@ class Dat(DataCarrier):
     def _op(self, other, op):
         if np.isscalar(other):
             return Dat(self.dataset,
-                       op(self._data, as_type(other, self.dtype)), self.dtype)
+                       op(self.data, as_type(other, self.dtype)), self.dtype)
         self._check_shape(other)
         return Dat(self.dataset,
-                   op(self._data, as_type(other.data, self.dtype)), self.dtype)
+                   op(self.data, as_type(other.data_ro, self.dtype)), self.dtype)
 
     def _iop(self, other, op):
         if np.isscalar(other):
-            op(self._data, as_type(other, self.dtype))
+            op(self.data, as_type(other, self.dtype))
         else:
             self._check_shape(other)
-            op(self._data, as_type(other.data, self.dtype))
+            op(self.data, as_type(other.data_ro, self.dtype))
         return self
 
     def __add__(self, other):

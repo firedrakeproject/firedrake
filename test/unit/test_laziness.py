@@ -92,6 +92,28 @@ count(unsigned int* x)
         assert a._data[0] == 0
         assert a.data[0] == nelems
 
+    def test_ro_accessor(self, backend, iterset):
+        """Read-only access to a Dat should force computation that writes to it."""
+        op2.base._trace.clear()
+        d = op2.Dat(iterset, numpy.zeros(iterset.total_size), dtype=numpy.float64)
+        k = op2.Kernel('void k(double *x) { *x = 1.0; }', 'k')
+        op2.par_loop(k, iterset, d(op2.WRITE))
+        assert all(d.data_ro == 1.0)
+        assert len(op2.base._trace._trace) == 0
+
+    def test_rw_accessor(self, backend, iterset):
+        """Read-write access to a Dat should force computation that writes to it,
+        and any pending computations that read from it."""
+        op2.base._trace.clear()
+        d = op2.Dat(iterset, numpy.zeros(iterset.total_size), dtype=numpy.float64)
+        d2 = op2.Dat(iterset, numpy.empty(iterset.total_size), dtype=numpy.float64)
+        k = op2.Kernel('void k(double *x) { *x = 1.0; }', 'k')
+        k2 = op2.Kernel('void k2(double *x, double *y) { *x = *y; }', 'k2')
+        op2.par_loop(k, iterset, d(op2.WRITE))
+        op2.par_loop(k2, iterset, d2(op2.WRITE), d(op2.READ))
+        assert all(d.data == 1.0)
+        assert len(op2.base._trace._trace) == 0
+
     @pytest.mark.skipif("_is_greedy()")
     def test_chain(self, backend, iterset):
         a = op2.Global(1, 0, numpy.uint32, "a")
