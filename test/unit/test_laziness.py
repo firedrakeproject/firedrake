@@ -102,7 +102,6 @@ count(unsigned int* x)
         assert all(d.data_ro == 1.0)
         assert len(op2.base._trace._trace) == 0
 
-    @pytest.mark.xfail('config.getvalue("backend")[0] in ["cuda", "opencl"]')
     def test_rw_accessor(self, backend, iterset):
         """Read-write access to a Dat should force computation that writes to it,
         and any pending computations that read from it."""

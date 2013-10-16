@@ -127,7 +127,7 @@ class DeviceDataMixin(object):
     @collective
     def data(self):
         """Numpy array containing the data values."""
-        base._trace.evaluate(set([self]), set())
+        base._trace.evaluate(self, self)
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
         maybe_setflags(self._data, write=True)
