@@ -100,7 +100,7 @@ class ExecutionTrace(object):
             comp._run()
         self._trace = list()
 
-    def evaluate(self, reads, writes):
+    def evaluate(self, reads=None, writes=None):
         """Force the evaluation of delayed computation on which reads and writes
         depend.
 
@@ -112,14 +112,20 @@ class ExecutionTrace(object):
                      :class:`DataCarrier` (and any other dependent computation).
         """
 
-        try:
-            reads = set(reads)
-        except TypeError:       # not an iterable
-            reads = set([reads])
-        try:
-            writes = set(writes)
-        except TypeError:
-            writes = set([writes])
+        if reads is not None:
+            try:
+                reads = set(reads)
+            except TypeError:       # not an iterable
+                reads = set([reads])
+        else:
+            reads = set()
+        if writes is not None:
+            try:
+                writes = set(writes)
+            except TypeError:
+                writes = set([writes])
+        else:
+            writes = set()
 
         def _depends_on(reads, writes, cont):
             return reads & cont.writes or writes & cont.reads or writes & cont.writes
