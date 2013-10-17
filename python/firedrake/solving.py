@@ -273,6 +273,11 @@ def _assemble(f, tensor=None):
     if is_mat:
         test, trial = fd.original_arguments
 
+        if op2.MPI.parallel:
+            if isinstance(test.function_space(), core_types.VectorFunctionSpace) or \
+               isinstance(trial.function_space(), core_types.VectorFunctionSpace):
+                raise NotImplementedError(
+                    "It is not yet possible to assemble VectorFunctionSpaces in parallel")
         m = test.function_space().mesh()
         key = (compute_form_signature(f), test.function_space().dof_dset,
                trial.function_space().dof_dset,
@@ -299,6 +304,10 @@ def _assemble(f, tensor=None):
     elif is_vec:
         test = fd.original_arguments[0]
         m = test.function_space().mesh()
+        if op2.MPI.parallel:
+            if isinstance(test.function_space(), core_types.VectorFunctionSpace):
+                raise NotImplementedError(
+                    "It is not yet possible to assemble VectorFunctionSpaces in parallel")
         if tensor is None:
             result_function = core_types.Function(test.function_space())
             tensor = result_function.dat
