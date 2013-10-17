@@ -1,3 +1,7 @@
+notifications:
+  irc:
+    channels: "chat.freenode.net#firedrake"
+    skip_join: true
 language: python
 # We're not Python 2.6 compatible at the moment
 python: "2.7"
