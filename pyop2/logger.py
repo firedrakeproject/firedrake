@@ -53,6 +53,12 @@ warning = logger.warning
 error = logger.error
 critical = logger.critical
 
+DEBUG = logging.DEBUG
+INFO = logging.INFO
+WARNING = logging.WARNING
+ERROR = logging.ERROR
+CRITICAL = logging.CRITICAL
+
 
 def set_log_level(level):
     '''Set the log level of the PyOP2 logger.
@@ -61,31 +67,31 @@ def set_log_level(level):
     logger.setLevel(level)
 
 
-def info_red(message):
+def info_red(message, *args, **kwargs):
     ''' Write info message in red.
 
     :arg message: the message to be printed. '''
-    info(RED % message)
+    info(RED % message, *args, **kwargs)
 
 
-def info_green(message):
+def info_green(message, *args, **kwargs):
     ''' Write info message in green.
 
     :arg message: the message to be printed. '''
-    info(GREEN % message)
+    info(GREEN % message, *args, **kwargs)
 
 
-def info_blue(message):
+def info_blue(message, *args, **kwargs):
     ''' Write info message in blue.
 
     :arg message: the message to be printed. '''
-    info(BLUE % message)
+    info(BLUE % message, *args, **kwargs)
 
 
-def log(level, *args, **kwargs):
-    ''' Print message at given debug level.
+def log(level, msg, *args, **kwargs):
+    ''' Print 'msg % args' with the severity 'level'.
 
     :arg level: the log level. Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL
-    :arg message: the message to be printed. '''
+    :arg msg: the message '''
 
-    logger.log(level, *args, **kwargs)
+    logger.log(level, msg, *args, **kwargs)
