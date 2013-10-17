@@ -144,7 +144,7 @@ class _VTUFile(object):
                         (mesh.layers * (mesh._cells[ii] - 1) + nl, mesh.layers * (mesh._cells[ii] - 1) + nl + 1))
             connectivity = connectivity_temp.flatten()  # no need to subtract 1
 
-        data = {function.name: function.dat.data.flatten()}
+        data = {function.name(): function.dat.data.flatten()}
 
         coordinates = self._fd_to_evtk_coord(mesh._coordinates)
 
