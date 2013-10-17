@@ -118,8 +118,6 @@ class _VTUFile(object):
                 (e.family() == "Discontinuous Lagrange" and e.degree() == 0) or
                 (e.family() == "OuterProductElement")):
             raise ValueError("ufl element given is not supported.")
-        function.dat.halo_exchange_begin()
-        function.dat.halo_exchange_end()
         mesh = function.function_space().mesh()
         if not (e.family() == "OuterProductElement"):
             num_points = mesh._entities[0]
@@ -144,7 +142,7 @@ class _VTUFile(object):
                         (mesh.layers * (mesh._cells[ii] - 1) + nl, mesh.layers * (mesh._cells[ii] - 1) + nl + 1))
             connectivity = connectivity_temp.flatten()  # no need to subtract 1
 
-        data = {function.name(): function.dat.data.flatten()}
+        data = {function.name(): function.dat.data_ro_with_halos.flatten()}
 
         coordinates = self._fd_to_evtk_coord(mesh._coordinates)
 
