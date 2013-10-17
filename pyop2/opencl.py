@@ -80,12 +80,18 @@ class Kernel(device.Kernel):
                 self._func_node = node
                 self.visit(node.decl)
 
+        def visit_IdentifierType(self, node):
+            # Rewrite long long to long, since the former is not standard in opencl.
+            if node.names == ['long', 'long']:
+                node.names = ['long']
+
         def visit_ParamList(self, node):
             for i, p in enumerate(node.params):
                 if self._instrument[i][0]:
                     p.storage.append(self._instrument[i][0])
                 if self._instrument[i][1]:
                     p.type.quals.append(self._instrument[i][1])
+                self.visit(p)
 
             for cst in self._constants:
                 if cst._is_scalar:
