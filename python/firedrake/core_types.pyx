@@ -6,7 +6,7 @@ from ufl import *
 from mpi4py import MPI
 import FIAT
 import numpy as np
-import fluidity.utils as utils
+import utils
 import pyop2 as op2
 import assemble_expressions
 from vector import Vector
