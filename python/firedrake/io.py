@@ -265,12 +265,12 @@ class _PVTUFile(object):
     def __del__(self):
         self._writer.save()
 
-    def _update(self):
+    def _update(self, name):
         """Add all the vtu to be added to pvtu file."""
         for i in xrange(0, MPI.comm.size):
             new_vtk_name = os.path.splitext(
                 self._filename)[0] + "_" + str(i) + ".vtu"
-            self._writer.addFile(new_vtk_name)
+            self._writer.addFile(new_vtk_name, name)
 
 
 class PVTUWriter(object):
@@ -291,7 +291,7 @@ class PVTUWriter(object):
         self.xml.closeElement("PUnstructuredGrid")
         self.xml.closeElement("VTKFile")
 
-    def addFile(self, filepath):
+    def addFile(self, filepath, name):
         """Add VTU files to the PVTU file given in the filepath. For now, the
         attributes in vtu is assumed e.g. connectivity, offsets."""
 
@@ -305,7 +305,7 @@ class PVTUWriter(object):
         if not self._initialised:
 
             self.xml.openElement("PPointData")
-            self.addData("Float64", "None")
+            self.addData("Float64", name)
             self.xml.closeElement("PPointData")
             self.xml.openElement("PCellData")
             self.addData("Int32", "connectivity")
@@ -386,5 +386,5 @@ class _PVDFile(object):
             new_vtk = _VTUFile(self._filename)
             new_pvtu = _PVTUFile(new_pvtu_name)
             new_vtk << function
-            new_pvtu._update()
+            new_pvtu._update(function.name())
             self._writer.addFile(new_pvtu_name + ".pvtu", self._time_step)
