@@ -1,10 +1,11 @@
 from evtk.hl import *
 from evtk.vtk import _get_byte_order
-from evtk.hl import _requiresLargeVTKFileSize, _addDataToFile, _appendDataToFile
+from evtk.hl import _requiresLargeVTKFileSize
 from ufl import Cell, OuterProductCell
 import numpy as np
 import os
 from pyop2.mpi import *
+import core_types
 
 
 # Dictionary used to translate the cellname of firedrake
@@ -142,7 +143,19 @@ class _VTUFile(object):
                         (mesh.layers * (mesh._cells[ii] - 1) + nl, mesh.layers * (mesh._cells[ii] - 1) + nl + 1))
             connectivity = connectivity_temp.flatten()  # no need to subtract 1
 
-        data = {function.name(): function.dat.data_ro_with_halos.flatten()}
+        if isinstance(function.function_space(), core_types.VectorFunctionSpace):
+            tmp = function.dat.data_ro_with_halos
+            vdata = [None]*3
+            for i in range(function.dat.dim[0]):
+                vdata[i] = tmp[:, i].flatten()
+            for i in range(function.dat.dim[0], 3):
+                vdata[i] = np.zeros_like(vdata[0])
+            data = tuple(vdata)
+            # only for checking large file size
+            flat_data = {function.name(): tmp.flatten()}
+        else:
+            data = function.dat.data_ro_with_halos.flatten()
+            flat_data = {function.name(): data}
 
         coordinates = self._fd_to_evtk_coord(mesh._coordinates)
 
@@ -159,7 +172,7 @@ class _VTUFile(object):
             large_file_flag = _requiresLargeVTKFileSize("VtkUnstructuredGrid",
                                                         numPoints=num_points,
                                                         numCells=num_cells,
-                                                        pointData=data,
+                                                        pointData=flat_data,
                                                         cellData=None)
         # if DG0
         elif (e.family() == "Discontinuous Lagrange" and e.degree() == 0):
@@ -167,14 +180,14 @@ class _VTUFile(object):
                                                         numPoints=num_points,
                                                         numCells=num_cells,
                                                         pointData=None,
-                                                        cellData=data)
+                                                        cellData=flat_data)
         elif (e.family() == "OuterProductElement" and
               e._A.family() == "Lagrange" and e._A.degree() == 1 and
               e._B.family() == "Lagrange" and e._B.degree() == 1):
             large_file_flag = _requiresLargeVTKFileSize("VtkUnstructuredGrid",
                                                         numPoints=num_points,
                                                         numCells=num_cells,
-                                                        pointData=data,
+                                                        pointData=flat_data,
                                                         cellData=None)
 
         elif (e.family() == "OuterProductElement" and
@@ -186,7 +199,7 @@ class _VTUFile(object):
                                                         numPoints=num_points,
                                                         numCells=num_cells,
                                                         pointData=None,
-                                                        cellData=data)
+                                                        cellData=flat_data)
         else:
             raise ValueError("Only P1, P0, P1xP1, P0xP0 are supported.")
 
@@ -219,10 +232,14 @@ class _VTUFile(object):
 
         # CG1
         if e.degree() == 1:
-            _addDataToFile(self._writer, cellData=None, pointData=data)
+            self._writer.openData("Point", scalars=function.name())
+            self._writer.addData(function.name(), data)
+            self._writer.closeData("Point")
         # DG0
         else:
-            _addDataToFile(self._writer, cellData=data, pointData=None)
+            self._writer.openData("Cell", scalars=function.name())
+            self._writer.addData(function.name(), data)
+            self._writer.closeData("Cell")
         self._writer.closePiece()
         self._writer.closeGrid()
 
@@ -231,25 +248,21 @@ class _VTUFile(object):
         self._writer.appendData(connectivity)
         self._writer.appendData(offsets)
         self._writer.appendData(cell_types)
-        # CG1
-        if e.degree() == 1:
-            _appendDataToFile(self._writer, cellData=None, pointData=data)
-        # DG0
-        else:
-            _appendDataToFile(self._writer, cellData=data, pointData=None)
+        # CG1 or DG0
+        self._writer.appendData(data)
         self._writer.save()
 
     def _fd_to_evtk_coord(self, fdcoord):
         """In firedrake function, the coordinates are represented by the
         array."""
         if len(fdcoord[0]) == 3:
-            return (np.array([fdcoord[n][0] for n in range(0, len(fdcoord))]),
-                    np.array([fdcoord[n][1] for n in range(0, len(fdcoord))]),
-                    np.array([fdcoord[n][2] for n in range(0, len(fdcoord))]))
+            return (fdcoord[:, 0].flatten(),
+                    fdcoord[:, 1].flatten(),
+                    fdcoord[:, 2].flatten())
         else:
-            return (np.array([fdcoord[n][0] for n in range(0, len(fdcoord))]),
-                    np.array([fdcoord[n][1] for n in range(0, len(fdcoord))]),
-                    np.array([0] * len(fdcoord)))
+            return (fdcoord[:, 0].flatten(),
+                    fdcoord[:, 1].flatten(),
+                    np.zeros(fdcoord.shape[0]))
 
 
 class _PVTUFile(object):
