@@ -36,19 +36,56 @@
 import logging
 from mpi import MPI
 
+# Define colors
+RED = "\033[1;37;31m%s\033[0m"
+BLUE = "\033[1;37;34m%s\033[0m"
+GREEN = "\033[1;37;32m%s\033[0m"
+
 logger = logging.getLogger('pyop2')
 _ch = logging.StreamHandler()
 _ch.setFormatter(logging.Formatter(('[%d] ' % MPI.comm.rank if MPI.parallel else '') +
                                    '%(name)s:%(levelname)s %(message)s'))
 logger.addHandler(_ch)
 
-
-def set_log_level(level):
-    """Set the log level of the PyOP2 logger."""
-    logger.setLevel(level)
-
 debug = logger.debug
 info = logger.info
 warning = logger.warning
 error = logger.error
 critical = logger.critical
+
+
+def set_log_level(level):
+    '''Set the log level of the PyOP2 logger.
+
+    :arg level: the log level. Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL '''
+    logger.setLevel(level)
+
+
+def info_red(message):
+    ''' Write info message in red.
+
+    :arg message: the message to be printed. '''
+    info(RED % message)
+
+
+def info_green(message):
+    ''' Write info message in green.
+
+    :arg message: the message to be printed. '''
+    info(GREEN % message)
+
+
+def info_blue(message):
+    ''' Write info message in blue.
+
+    :arg message: the message to be printed. '''
+    info(BLUE % message)
+
+
+def log(level, *args, **kwargs):
+    ''' Print message at given debug level.
+
+    :arg level: the log level. Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    :arg message: the message to be printed. '''
+
+    logger.log(level, *args, **kwargs)
