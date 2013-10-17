@@ -922,10 +922,27 @@ class VectorFunctionSpace(FunctionSpace):
             self._dim = self._mesh.ufl_cell().geometric_dimension()
         else:
             self._dim = dim
-        self._ufl_element = VectorElement(family,
-                                          domain=mesh._ufl_cell,
-                                          degree=degree,
-                                          dim=self._dim)
+
+        if isinstance(mesh, ExtrudedMesh):
+            if isinstance(family, ufl.OuterProductElement):
+                raise NotImplementedError("Not yet implemented")
+            la = ufl.FiniteElement(family,
+                                   domain=mesh._old_mesh._ufl_cell,
+                                   degree=degree)
+            if vfamily is None or vdegree is None:
+                lb = ufl.FiniteElement(family,
+                                       domain=ufl.Cell("interval", 1),
+                                       degree=degree)
+            else:
+                lb = ufl.FiniteElement(vfamily,
+                                       domain=ufl.Cell("interval", 1),
+                                       degree=vdegree)
+            self._ufl_element = ufl.OuterProductVectorElement(la, lb)
+        else:
+            self._ufl_element = VectorElement(family,
+                                              domain=mesh._ufl_cell,
+                                              degree=degree,
+                                              dim=self._dim)
 
 class Function(ufl.Coefficient):
     """A :class:`Function` represents a discretised field over the
