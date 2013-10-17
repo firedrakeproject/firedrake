@@ -58,14 +58,15 @@ def initialised():
 
 @collective
 def init(**kwargs):
-    """Initialise OP2: select the backend and potentially other configuration
+    """Initialise PyOP2: select the backend and potentially other configuration
     options.
 
-    :arg backend: Set the hardware-specific backend. Current choices
-     are ``"sequential"``, ``"openmp"``, ``"opencl"`` and ``"cuda"``.
-    :arg debug: The level of debugging output.
-    :arg comm: The MPI communicator to use for parallel communication,
-               defaults to `MPI_COMM_WORLD`
+    :arg backend:   Set the hardware-specific backend. Current choices are
+                    ``"sequential"``, ``"openmp"``, ``"opencl"``, ``"cuda"``.
+    :arg debug:     The level of debugging output.
+    :arg comm:      The MPI communicator to use for parallel communication,
+                    defaults to `MPI_COMM_WORLD`
+    :arg log_level: The log level. Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
 
     .. note::
        Calling ``init`` again with a different backend raises an exception.
