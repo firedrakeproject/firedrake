@@ -374,21 +374,24 @@ class Mesh(object):
         else:
             self.interior_facets = _Facets(self, 0, "interior", None, None)
 
-        exterior_facet_cell = \
-            np.array(<int[:mesh.exterior_facet_count, :1]>mesh.exterior_facet_cell)
-        exterior_local_facet_number = \
-            np.array(<int[:mesh.exterior_facet_count, :1]>mesh.exterior_local_facet_number)
-        self.exterior_facets = _Facets(self, mesh.exterior_facet_count,
-                                       "exterior",
-                                       exterior_facet_cell,
-                                       exterior_local_facet_number)
+        if mesh.exterior_facet_count > 0:
+            exterior_facet_cell = \
+                np.array(<int[:mesh.exterior_facet_count, :1]>mesh.exterior_facet_cell)
+            exterior_local_facet_number = \
+                np.array(<int[:mesh.exterior_facet_count, :1]>mesh.exterior_local_facet_number)
+            self.exterior_facets = _Facets(self, mesh.exterior_facet_count,
+                                           "exterior",
+                                           exterior_facet_cell,
+                                           exterior_local_facet_number)
+        else:
+            self.exterior_facets = _Facets(self, 0, "exterior", None, None)
 
         if mesh.region_ids != NULL:
             self.region_ids = np.array(<int[:mesh.cell_count]>mesh.region_ids)
         else:
             self.region_ids = None
 
-        if mesh.boundary_ids != NULL:
+        if mesh.exterior_facet_count > 0 and mesh.boundary_ids != NULL:
             self.boundary_ids = np.array(<int[:mesh.exterior_facet_count]>mesh.boundary_ids)
         else:
             self.boundary_ids = None
