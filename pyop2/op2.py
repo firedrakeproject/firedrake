@@ -45,10 +45,15 @@ from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
 
 __all__ = ['cfg', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
-           'i', 'debug', 'info', 'warning', 'error', 'critical',
+           'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'DataSet',
            'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map', 'Sparsity',
            'Solver', 'par_loop', 'solve']
+
+
+def initialised():
+    """Check whether PyOP2 has been yet initialised but not yet finalised."""
+    return backends.get_backend() not in ['pyop2.void', 'pyop2.finalised']
 
 
 @collective
