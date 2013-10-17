@@ -104,6 +104,11 @@ def mat(sparsity):
 
 
 @pytest.fixture
+def diag_mat(toset):
+    return op2.Mat(op2.Sparsity(toset, op2.Map(toset, toset, 1, np.arange(toset.size))))
+
+
+@pytest.fixture
 def g():
     return op2.Global(1, 1)
 
@@ -680,6 +685,12 @@ class TestMatAPI:
         """Mat arg constructor should reject illegal access modes."""
         with pytest.raises(exceptions.ModeValueError):
             mat(mode, (m[op2.i[0]], m[op2.i[1]]))
+
+    def test_mat_set_diagonal(self, backend, diag_mat, dat, skip_cuda):
+        """Setting the diagonal of a zero matrix."""
+        diag_mat.zero()
+        diag_mat.set_diagonal(dat)
+        assert np.allclose(diag_mat.array, dat.data_ro)
 
     def test_mat_repr(self, backend, mat):
         "Mat should have the expected repr."

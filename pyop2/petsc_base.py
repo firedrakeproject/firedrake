@@ -178,6 +178,16 @@ class Mat(base.Mat):
         self.handle.zeroRowsLocal(rows, diag_val)
 
     @collective
+    def set_diagonal(self, vec):
+        """Add a vector to the diagonal of the matrix.
+
+        :params vec: vector to add (:class:`Dat` or :class:`PETsc.Vec`)"""
+        if not isinstance(vec, (Dat, PETSc.Vec)):
+            raise TypeError("Can only set diagonal from a Dat or PETSc Vec.")
+        v = vec if isinstance(vec, PETSc.Vec) else vec.vec_ro
+        self.handle.setDiagonal(v)
+
+    @collective
     def _assemble(self):
         self.handle.assemble()
 
