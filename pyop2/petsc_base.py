@@ -284,11 +284,19 @@ class Mat(base.Mat):
 
     def __mul__(self, v):
         """Multiply this :class:`Mat` with the vector ``v``."""
-        if not isinstance(v, (Dat, PETSc.Vec)):
+        if not isinstance(v, (base.Dat, PETSc.Vec)):
             raise TypeError("Can only multiply Mat and Dat or PETSc Vec.")
-        y = self.handle * (v.vec_ro if isinstance(v, Dat) else v)
-        dat = _make_object('Dat', self.sparsity.dsets[0])
-        dat.data[:len(y.array)] = y.array[:]
+        y = self.handle * (v.vec_ro if isinstance(v, base.Dat) else v)
+        if isinstance(v, base.MixedDat):
+            dat = _make_object('MixedDat', self.sparsity.dsets[0])
+            offset = 0
+            for d in dat:
+                sz = d.dataset.set.size
+                d.data[:] = y.getSubVector(PETSc.IS().createStride(sz, offset, 1)).array[:]
+                offset += sz
+        else:
+            dat = _make_object('Dat', self.sparsity.dsets[0])
+            dat.data[:] = y.array[:]
         dat.needs_halo_update = True
         return dat
 
