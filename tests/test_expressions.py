@@ -102,7 +102,7 @@ def idivtest(f, expr, x):
             np.all(f.dat.data == x))
 
 
-@pytest.fixture(params=range(1, 23))
+@pytest.fixture(params=range(1, 19))
 def alltests(request, f, one, two, minusthree, vf, vone, vtwo, vminusthree):
     return {
         1: exprtest(one + two, 3),
@@ -117,16 +117,12 @@ def alltests(request, f, one, two, minusthree, vf, vone, vtwo, vminusthree):
         10: imultest(f, 2, 10),
         11: idivtest(f, 2, 5),
         12: exprtest(vone + vtwo, 3),
-        13: exprtest(ufl.ln(vone), 0),
-        14: exprtest(vtwo ** vminusthree, 0.125),
-        15: exprtest(ufl.sign(vminusthree), -1),
-        16: exprtest(vone + vtwo / vtwo ** vminusthree, 17),
-        17: assigntest(vf, vone + vtwo, 3),
-        18: iaddtest(vf, vtwo, 5),
-        19: iaddtest(vf, 2, 7),
-        20: isubtest(vf, 2, 5),
-        21: imultest(vf, 2, 10),
-        22: idivtest(vf, 2, 5)
+        13: assigntest(vf, vone + vtwo, 3),
+        14: iaddtest(vf, vtwo, 5),
+        15: iaddtest(vf, 2, 7),
+        16: isubtest(vf, 2, 5),
+        17: imultest(vf, 2, 10),
+        18: idivtest(vf, 2, 5)
     }[request.param]
 
 

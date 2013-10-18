@@ -273,6 +273,11 @@ def _assemble(f, tensor=None):
     if is_mat:
         test, trial = fd.original_arguments
 
+        if op2.MPI.parallel:
+            if isinstance(test.function_space(), core_types.VectorFunctionSpace) or \
+               isinstance(trial.function_space(), core_types.VectorFunctionSpace):
+                raise NotImplementedError(
+                    "It is not yet possible to assemble VectorFunctionSpaces in parallel")
         m = test.function_space().mesh()
         key = (compute_form_signature(f), test.function_space().dof_dset,
                trial.function_space().dof_dset,
@@ -299,6 +304,10 @@ def _assemble(f, tensor=None):
     elif is_vec:
         test = fd.original_arguments[0]
         m = test.function_space().mesh()
+        if op2.MPI.parallel:
+            if isinstance(test.function_space(), core_types.VectorFunctionSpace):
+                raise NotImplementedError(
+                    "It is not yet possible to assemble VectorFunctionSpaces in parallel")
         if tensor is None:
             result_function = core_types.Function(test.function_space())
             tensor = result_function.dat
@@ -340,7 +349,8 @@ def _assemble(f, tensor=None):
                                    flatten=True)]
 
             for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.cell_node_map))
+                args.append(c.dat(op2.READ, c.cell_node_map,
+                                  flatten=True))
 
             op2.par_loop(*args)
         if domain_type == 'exterior_facet':
@@ -364,7 +374,8 @@ def _assemble(f, tensor=None):
                     coords.dat(op2.READ, coords.exterior_facet_node_map,
                                flatten=True)]
             for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.exterior_facet_node_map))
+                args.append(c.dat(op2.READ, c.exterior_facet_node_map,
+                                  flatten=True))
             args.append(m.exterior_facets.local_facet_dat(op2.READ))
             op2.par_loop(*args)
 
@@ -390,7 +401,8 @@ def _assemble(f, tensor=None):
                     coords.dat(op2.READ, coords.interior_facet_node_map,
                                flatten=True)]
             for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.interior_facet_node_map))
+                args.append(c.dat(op2.READ, c.interior_facet_node_map,
+                                  flatten=True))
             args.append(m.interior_facets.local_facet_dat(op2.READ))
             op2.par_loop(*args)
 
