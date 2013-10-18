@@ -247,7 +247,7 @@ class Arg(object):
         if self._is_global or map is None:
             return
         for j, m in enumerate(map):
-            if m.iterset.total_size > 0 and len(m.values) == 0:
+            if m.iterset.total_size > 0 and len(m.values_with_halo) == 0:
                 raise MapValueError("%s is not initialized." % map)
             if self._is_mat and m.toset != data.sparsity.dsets[j].set:
                 raise MapValueError(
@@ -1071,22 +1071,82 @@ class Dat(DataCarrier):
     @property
     @collective
     def data(self):
-        """Numpy array containing the data values."""
+        """Numpy array containing the data values.
+
+        With this accessor you are claiming that you will modify
+        the values you get back.  If you only need to look at the
+        values, use :meth:`data_ro` instead.
+
+        This only shows local values, to see the halo values too use
+        :meth:`data_with_halos`.
+
+        """
         _trace.evaluate(set([self]), set([self]))
         if self.dataset.total_size > 0 and self._data.size == 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
         maybe_setflags(self._data, write=True)
+        v = self._data[:self.dataset.size].view()
         self.needs_halo_update = True
+        return v
+
+    @property
+    @collective
+    def data_with_halos(self):
+        """A view of this :class:`Dat`\s data.
+
+        This accessor marks the :class:`Dat` as dirty, see
+        :meth:`data` for more details on the semantics.
+
+        With this accessor, you get to see up to date halo values, but
+        you should not try and modify them, because they will be
+        overwritten by the next halo exchange."""
+        self.data               # force evaluation
+        self.halo_exchange_begin()
+        self.halo_exchange_end()
+        self.needs_halo_update = True
+        maybe_setflags(self._data, write=True)
         return self._data
 
     @property
+    @collective
     def data_ro(self):
-        """Numpy array containing the data values.  Read-only"""
+        """Numpy array containing the data values.  Read-only.
+
+        With this accessor you are not allowed to modify the values
+        you get back.  If you need to do so, use :meth:`data` instead.
+
+        This only shows local values, to see the halo values too use
+        :meth:`data_ro_with_halos`.
+
+        """
         _trace.evaluate(set([self]), set())
         if self.dataset.total_size > 0 and self._data.size == 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
-        maybe_setflags(self._data, write=False)
-        return self._data
+        v = self._data[:self.dataset.size].view()
+        v.setflags(write=False)
+        return v
+
+    @property
+    @collective
+    def data_ro_with_halos(self):
+        """A view of this :class:`Dat`\s data.
+
+        This accessor does not mark the :class:`Dat` as dirty, and is
+        a read only view, see :meth:`data_ro` for more details on the
+        semantics.
+
+        With this accessor, you get to see up to date halo values, but
+        you should not try and modify them, because they will be
+        overwritten by the next halo exchange.
+
+        """
+        self.data_ro            # force evaluation
+        self.halo_exchange_begin()
+        self.halo_exchange_end()
+        self.needs_halo_update = False
+        v = self._data.view()
+        v.setflags(write=False)
+        return v
 
     def save(self, filename):
         """Write the data array to file ``filename`` in NumPy format."""
@@ -1530,7 +1590,19 @@ class Map(object):
 
     @property
     def values(self):
-        """Mapping array."""
+        """Mapping array.
+
+        This only returns the map values for local points, to see the
+        halo points too, use :meth:`values_with_halo`."""
+        return self._values[:self.iterset.size]
+
+    @property
+    def values_with_halo(self):
+        """Mapping array.
+
+        This returns all map values (including halo points), see
+        :meth:`values` if you only need to look at the local
+        points."""
         return self._values
 
     @property
@@ -1621,7 +1693,7 @@ class Sparsity(Cached):
                 if not isinstance(m, Map):
                     raise MapTypeError(
                         "All maps must be of type map, not type %r" % type(m))
-                if len(m.values) == 0:
+                if len(m.values_with_halo) == 0 and m.iterset.total_size > 0:
                     raise MapValueError(
                         "Unpopulated map values when trying to build sparsity.")
         # Need to return a list of args and dict of kwargs (empty in this case)

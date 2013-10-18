@@ -60,7 +60,7 @@ cdef cmap init_map(omap):
     out.to_size = omap.toset.size
     out.to_exec_size = omap.toset.exec_size
     out.arity = omap.arity
-    out.values = <int *>np.PyArray_DATA(omap.values)
+    out.values = <int *>np.PyArray_DATA(omap.values_with_halo)
     out.offset = <int *>np.PyArray_DATA(omap.offset)
     out.layers = omap.iterset.layers
     return out

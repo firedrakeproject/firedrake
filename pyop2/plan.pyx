@@ -149,7 +149,8 @@ cdef class _Plan:
                 ii = indices(dat,map)
                 l = len(ii)
 
-                inds[(dat,map,pi)], inv = numpy.unique(map.values[start:end,ii], return_inverse=True)
+                inds[(dat,map,pi)], inv = numpy.unique(map.values_with_halo[start:end,ii],
+                                                       return_inverse=True)
                 sizes[(dat,map,pi)] = len(inds[(dat,map,pi)])
 
                 for i, ind in enumerate(sorted(ii)):
@@ -252,7 +253,7 @@ cdef class _Plan:
             flat_race_args[i].mip = <map_idx_t*> malloc(flat_race_args[i].count * sizeof(map_idx_t))
             for j, mi in enumerate(race_args[ra]):
                 map, idx = mi
-                flat_race_args[i].mip[j].map_base = <int *> numpy.PyArray_DATA(map.values)
+                flat_race_args[i].mip[j].map_base = <int *> numpy.PyArray_DATA(map.values_with_halo)
                 flat_race_args[i].mip[j].arity = map.arity
                 flat_race_args[i].mip[j].idx = idx
 
