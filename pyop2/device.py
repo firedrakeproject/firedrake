@@ -128,14 +128,14 @@ class DeviceDataMixin(object):
     def data(self):
         """Numpy array containing the data values."""
         base._trace.evaluate(self, self)
-        if len(self._data) is 0:
+        if len(self._data) is 0 and self.dataset.total_size > 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
         maybe_setflags(self._data, write=True)
         self.needs_halo_update = True
         self._from_device()
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.HOST
-        return self._data
+        return self._data[:self.dataset.size]
 
     @data.setter
     @collective
@@ -151,14 +151,16 @@ class DeviceDataMixin(object):
     def data_ro(self):
         """Numpy array containing the data values.  Read-only"""
         base._trace.evaluate(reads=self)
-        if len(self._data) is 0:
+        if len(self._data) is 0 and self.dataset.total_size > 0:
             raise RuntimeError("Illegal access: No data associated with this Dat!")
         maybe_setflags(self._data, write=True)
         self._from_device()
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.BOTH
         maybe_setflags(self._data, write=False)
-        return self._data
+        v = self._data[:self.dataset.size].view()
+        v.setflags(write=False)
+        return v
 
     def _maybe_to_soa(self, data):
         """Convert host data to SoA order for device upload if necessary
@@ -285,7 +287,7 @@ class Map(base.Map):
         # user doesn't pass values, we fail with MapValueError rather than
         # a (confusing) error telling the user the function requires
         # additional parameters
-        if len(self.values) == 0 and self.iterset.total_size > 0:
+        if len(self.values_with_halo) == 0 and self.iterset.total_size > 0:
             raise MapValueError("Map values must be populated.")
 
     def _to_device(self):

@@ -43,7 +43,8 @@ nelems = 4096
 
 @pytest.fixture(params=[(nelems, nelems, nelems, nelems),
                         (0, nelems, nelems, nelems),
-                        (nelems / 2, nelems, nelems, nelems)])
+                        (nelems / 2, nelems, nelems, nelems),
+                        (0, nelems/2, nelems, nelems)])
 def elems(request):
     return op2.Set(request.param, "elems")
 
@@ -100,7 +101,10 @@ class TestDirectLoop:
         kernel_rw = """void kernel_rw(unsigned int* x) { (*x) = (*x) + 1; }"""
         op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"),
                      elems, x(op2.RW))
-        assert sum(x.data) == nelems * (nelems + 1) / 2
+        _nelems = elems.size
+        assert sum(x.data_ro) == _nelems * (_nelems + 1) / 2
+        if _nelems == nelems:
+            assert sum(x.data_ro_with_halos) == nelems * (nelems + 1) / 2
 
     def test_global_inc(self, backend, elems, x, g):
         """Increment each value of a Dat by one and a Global at the same time."""
@@ -109,7 +113,8 @@ class TestDirectLoop:
         }"""
         op2.par_loop(op2.Kernel(kernel_global_inc, "kernel_global_inc"),
                      elems, x(op2.RW), g(op2.INC))
-        assert g.data[0] == nelems * (nelems + 1) / 2
+        _nelems = elems.size
+        assert g.data[0] == _nelems * (_nelems + 1) / 2
 
     def test_global_inc_init_not_zero(self, backend, elems, g):
         """Increment a global initialized with a non-zero value."""
@@ -176,7 +181,8 @@ class TestDirectLoop:
         }"""
         op2.par_loop(op2.Kernel(kernel_global_read, "kernel_global_read"),
                      elems, x(op2.RW), h(op2.READ))
-        assert sum(x.data) == nelems * (nelems + 1) / 2
+        _nelems = elems.size
+        assert sum(x.data_ro) == _nelems * (_nelems + 1) / 2
 
     def test_2d_dat(self, backend, elems, y):
         """Set both components of a vector-valued Dat to a scalar value."""
@@ -209,7 +215,7 @@ class TestDirectLoop:
     def test_parloop_should_set_ro_flag(self, backend, elems, x):
         """Assert that a par_loop locks each Dat argument for writing."""
         kernel = """void k(unsigned int *x) { *x = 1; }"""
-        x_data = x.data
+        x_data = x.data_with_halos
         op2.par_loop(op2.Kernel(kernel, 'k'),
                      elems, x(op2.WRITE))
         op2.base._trace.evaluate(set([x]), set())
@@ -223,13 +229,14 @@ class TestDirectLoop:
         g.data[:] = 0
         op2.par_loop(op2.Kernel(kernel, 'k'), elems,
                      x(op2.READ), g(op2.INC))
-        assert g.data[0] == nelems
+        _nelems = elems.size
+        assert g.data[0] == _nelems
 
         x.data[:] = 2
         g.data[:] = 0
         op2.par_loop(op2.Kernel(kernel, 'k'), elems,
                      x(op2.READ), g(op2.INC))
-        assert g.data[0] == 2 * nelems
+        assert g.data[0] == 2 * _nelems
 
     def test_zero_1d_dat(self, backend, x):
         """Zero a Dat."""

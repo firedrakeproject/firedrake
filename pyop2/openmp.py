@@ -229,7 +229,7 @@ class ParLoop(device.ParLoop, host.ParLoop):
                 if arg._is_indirect or arg._is_mat:
                     maps = as_tuple(arg.map, Map)
                     for map in maps:
-                        self._jit_args.append(map.values)
+                        self._jit_args.append(map.values_with_halo)
 
             for c in Const._definitions():
                 self._jit_args.append(c.data)
