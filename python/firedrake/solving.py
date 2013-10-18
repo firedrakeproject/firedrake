@@ -370,7 +370,7 @@ def _assemble(f, tensor=None):
                                     flatten=True)
             else:
                 tensor_arg = tensor(op2.INC)
-            args = [kernel, m.exterior_facets.set, tensor_arg,
+            args = [kernel, m.exterior_facets.measure_set(integral.measure()), tensor_arg,
                     coords.dat(op2.READ, coords.exterior_facet_node_map,
                                flatten=True)]
             for c in fd.original_coefficients:

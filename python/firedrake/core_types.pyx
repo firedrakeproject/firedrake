@@ -301,7 +301,7 @@ class _Facets(object):
         self.local_facet_number = local_facet_number
 
         self.markers = markers
-        self._subsets = None
+        self._subsets = {}
 
     @utils.cached_property
     def set(self):
@@ -318,15 +318,23 @@ class _Facets(object):
 
         return op2.Subset(self.set,[])
 
+    def measure_set(self, measure):
+        '''Return the iteration set appropriate to measure. This will
+        either be for all the interior or exterior (as appropriate)
+        facets, or for a particular numbered subdomain.'''
 
+        if measure.domain_id() == measure.DOMAIN_ID_EVERYWHERE:
+            return self.set
+        else:
+            return self.subset(measure.domain_id())
 
     def subset(self, i):
         """Return the subset corresponding to a marker value of i."""
 
-        if self.markers and not self._subsets:
+        if self.markers is not None and not self._subsets:
             # Generate the subsets. One subset is created for each unique marker value.
             self._subsets = dict(((i,op2.Subset(self.set, np.nonzero(self.markers==i)[0]))
-                                  for id in np.unique(self.markers)))
+                                  for i in np.unique(self.markers)))
         try:
             return self._subsets[i]
         except KeyError:
