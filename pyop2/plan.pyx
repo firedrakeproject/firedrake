@@ -441,6 +441,12 @@ cdef class _Plan:
 
 class Plan(base.Cached, _Plan):
 
+    def __init__(self, iset, *args, **kwargs):
+        if self._initialized:
+            return
+        _Plan.__init__(self, iset, *args, **kwargs)
+        self._initialized = True
+
     _cache = {}
 
     @classmethod
