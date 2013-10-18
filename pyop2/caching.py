@@ -61,6 +61,11 @@ class Cached(object):
             obj = super(Cached, cls).__new__(cls)
             obj._key = key
             obj._initialized = False
+            # obj.__init__ will be called twice when constructing
+            # something not in the cache.  The first time here, with
+            # the canonicalised args, the second time directly in the
+            # subclass.  But that one should hit the cache and return
+            # straight away.
             obj.__init__(*args, **kwargs)
             # If key is None we're not supposed to store the object in cache
             if key:
