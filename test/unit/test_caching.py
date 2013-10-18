@@ -116,6 +116,7 @@ class TestPlanCache:
     # No plan for sequential backend
     skip_backends = ['sequential']
     cache = plan.Plan._cache
+    cache_hit = plan.Plan._cache_hit
 
     @pytest.fixture
     def mat(cls, iter2ind1, dindset):
@@ -312,6 +313,8 @@ void kernel_swap(unsigned int* x)
     def test_same_with_mat(self, backend, iterset, x, iter2ind1, mat):
         self.cache.clear()
         assert len(self.cache) == 0
+        self.cache_hit.clear()
+        assert len(self.cache_hit) == 0
         plan1 = plan.Plan(iterset.all_part,
                           mat(op2.INC, (iter2ind1[op2.i[0]],
                                         iter2ind1[op2.i[1]])),
@@ -321,6 +324,7 @@ void kernel_swap(unsigned int* x)
 
         op2.base._trace.evaluate(set([mat]), set())
         assert len(self.cache) == 1
+        assert self.cache_hit[plan1] == 1
         plan2 = plan.Plan(iterset.all_part,
                           mat(op2.INC, (iter2ind1[op2.i[0]],
                                         iter2ind1[op2.i[1]])),
@@ -331,11 +335,14 @@ void kernel_swap(unsigned int* x)
         op2.base._trace.evaluate(set([mat]), set())
         assert len(self.cache) == 1
         assert plan1 is plan2
+        assert self.cache_hit[plan1] == 2
 
     def test_iteration_index_order_matters_with_mat(self, backend, iterset,
                                                     x, iter2ind1, mat):
         self.cache.clear()
         assert len(self.cache) == 0
+        self.cache_hit.clear()
+        assert len(self.cache_hit) == 0
         plan1 = plan.Plan(iterset.all_part,
                           mat(op2.INC, (iter2ind1[op2.i[0]],
                                         iter2ind1[op2.i[1]])),
@@ -345,6 +352,7 @@ void kernel_swap(unsigned int* x)
 
         op2.base._trace.evaluate(set([mat]), set())
         assert len(self.cache) == 1
+        assert self.cache_hit[plan1] == 1
         plan2 = plan.Plan(iterset.all_part,
                           mat(op2.INC, (iter2ind1[op2.i[1]],
                                         iter2ind1[op2.i[0]])),
@@ -355,6 +363,8 @@ void kernel_swap(unsigned int* x)
         op2.base._trace.evaluate(set([mat]), set())
         assert len(self.cache) == 2
         assert plan1 is not plan2
+        assert self.cache_hit[plan1] == 1
+        assert self.cache_hit[plan2] == 1
 
 
 class TestGeneratedCodeCache:
