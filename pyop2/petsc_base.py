@@ -39,7 +39,9 @@ required to implement backend-specific features.
 .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
 """
 
+from contextlib import contextmanager
 from petsc4py import PETSc
+
 import base
 from base import *
 from backends import _make_object
@@ -105,6 +107,23 @@ class Dat(base.Dat):
 
 
 class MixedDat(base.MixedDat):
+
+    @contextmanager
+    def vecscatter(self, acc):
+        v = PETSc.Vec().createSeq(self.dataset.set.size)
+        offset = 0
+        scats = []
+        for d in self._dats:
+            sz = d.dataset.set.size
+            vscat = PETSc.Scatter().create(acc(d), None, v, PETSc.IS().createStride(sz, offset, 1))
+            vscat.scatterBegin(acc(d), v, addv=PETSc.InsertMode.INSERT_VALUES)
+            vscat.scatterEnd(acc(d), v, addv=PETSc.InsertMode.INSERT_VALUES)
+            offset += sz
+            scats.append(vscat)
+        yield v
+        for d, vscat in zip(self._dats, scats):
+            vscat.scatterBegin(v, acc(d), addv=PETSc.InsertMode.INSERT_VALUES, mode=PETSc.ScatterMode.REVERSE)
+            vscat.scatterEnd(v, acc(d), addv=PETSc.InsertMode.INSERT_VALUES, mode=PETSc.ScatterMode.REVERSE)
 
     @property
     @collective
