@@ -326,7 +326,7 @@ class _Facets(object):
         if measure.domain_id() == measure.DOMAIN_ID_EVERYWHERE:
             return self.set
         else:
-            return self.subset(measure.domain_id())
+            return self.subset(measure.domain_id().subdomain_ids()[0])
 
     def subset(self, i):
         """Return the subset corresponding to a marker value of i."""

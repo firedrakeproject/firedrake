@@ -16,6 +16,22 @@ def test_external_integral(f):
     assert abs(assemble(f * ds) - 2.0) < 1.0e-14
 
 
+def test_bottom_external_integral(f):
+    assert abs(assemble(f * ds(1)) - 0.5) < 1.0e-14
+
+
+def test_top_external_integral(f):
+    assert abs(assemble(f * ds(2)) - 0.5) < 1.0e-14
+
+
+def test_left_external_integral(f):
+    assert abs(assemble(f * ds(4))) < 1.0e-14
+
+
+def test_right_external_integral(f):
+    assert abs(assemble(f * ds(3)) - 1.0) < 1.0e-14
+
+
 def test_internal_integral(f):
     assert abs(assemble(f('+') * dS) - 1.0 / (2.0 ** 0.5)) < 1.0e-14
 
