@@ -118,8 +118,6 @@ class _VTUFile(object):
                 (e.family() == "Discontinuous Lagrange" and e.degree() == 0) or
                 (e.family() == "OuterProductElement")):
             raise ValueError("ufl element given is not supported.")
-        function.dat.halo_exchange_begin()
-        function.dat.halo_exchange_end()
         mesh = function.function_space().mesh()
         if not (e.family() == "OuterProductElement"):
             num_points = mesh._entities[0]
@@ -144,7 +142,7 @@ class _VTUFile(object):
                         (mesh.layers * (mesh._cells[ii] - 1) + nl, mesh.layers * (mesh._cells[ii] - 1) + nl + 1))
             connectivity = connectivity_temp.flatten()  # no need to subtract 1
 
-        data = {function.name: function.dat.data.flatten()}
+        data = {function.name(): function.dat.data_ro_with_halos.flatten()}
 
         coordinates = self._fd_to_evtk_coord(mesh._coordinates)
 
@@ -267,12 +265,12 @@ class _PVTUFile(object):
     def __del__(self):
         self._writer.save()
 
-    def _update(self):
+    def _update(self, name):
         """Add all the vtu to be added to pvtu file."""
         for i in xrange(0, MPI.comm.size):
             new_vtk_name = os.path.splitext(
                 self._filename)[0] + "_" + str(i) + ".vtu"
-            self._writer.addFile(new_vtk_name)
+            self._writer.addFile(new_vtk_name, name)
 
 
 class PVTUWriter(object):
@@ -293,7 +291,7 @@ class PVTUWriter(object):
         self.xml.closeElement("PUnstructuredGrid")
         self.xml.closeElement("VTKFile")
 
-    def addFile(self, filepath):
+    def addFile(self, filepath, name):
         """Add VTU files to the PVTU file given in the filepath. For now, the
         attributes in vtu is assumed e.g. connectivity, offsets."""
 
@@ -307,7 +305,7 @@ class PVTUWriter(object):
         if not self._initialised:
 
             self.xml.openElement("PPointData")
-            self.addData("Float64", "None")
+            self.addData("Float64", name)
             self.xml.closeElement("PPointData")
             self.xml.openElement("PCellData")
             self.addData("Int32", "connectivity")
@@ -388,5 +386,5 @@ class _PVDFile(object):
             new_vtk = _VTUFile(self._filename)
             new_pvtu = _PVTUFile(new_pvtu_name)
             new_vtk << function
-            new_pvtu._update()
+            new_pvtu._update(function.name())
             self._writer.addFile(new_pvtu_name + ".pvtu", self._time_step)
