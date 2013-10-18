@@ -1943,6 +1943,10 @@ class Mat(DataCarrier):
         """The Python type of the data."""
         return self._datatype
 
+    def __mul__(self, other):
+        """Multiply this :class:`Mat` with the vector ``other``."""
+        raise NotImplementedError("Abstract base Mat does not implement multiplication")
+
     def __str__(self):
         return "OP2 Mat: %s, sparsity (%s), datatype %s" \
                % (self._name, self._sparsity, self._datatype.name)

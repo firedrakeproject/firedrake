@@ -42,6 +42,7 @@ required to implement backend-specific features.
 from petsc4py import PETSc
 import base
 from base import *
+from backends import _make_object
 from logger import debug
 import mpi
 from mpi import collective
@@ -178,6 +179,16 @@ class Mat(base.Mat):
         self.handle.zeroRowsLocal(rows, diag_val)
 
     @collective
+    def set_diagonal(self, vec):
+        """Add a vector to the diagonal of the matrix.
+
+        :params vec: vector to add (:class:`Dat` or :class:`PETsc.Vec`)"""
+        if not isinstance(vec, (Dat, PETSc.Vec)):
+            raise TypeError("Can only set diagonal from a Dat or PETSc Vec.")
+        v = vec if isinstance(vec, PETSc.Vec) else vec.vec_ro
+        self.handle.setDiagonal(v)
+
+    @collective
     def _assemble(self):
         self.handle.assemble()
 
@@ -200,6 +211,16 @@ class Mat(base.Mat):
         if not hasattr(self, '_handle'):
             self._init()
         return self._handle
+
+    def __mul__(self, v):
+        """Multiply this :class:`Mat` with the vector ``v``."""
+        if not isinstance(v, (Dat, PETSc.Vec)):
+            raise TypeError("Can only multiply Mat and Dat or PETSc Vec.")
+        y = self.handle * (v.vec_ro if isinstance(v, Dat) else v)
+        dat = _make_object('Dat', self.sparsity.dsets[0])
+        dat.data[:len(y.array)] = y.array[:]
+        dat.needs_halo_update = True
+        return dat
 
 # FIXME: Eventually (when we have a proper OpenCL solver) this wants to go in
 # sequential
