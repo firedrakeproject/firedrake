@@ -59,17 +59,13 @@ def _new_uid():
     _current_uid += 1
     return _current_uid
 
-initialised = False
-
 def _init():
     """Cause op2.init() to be called in case the user has not done it
     for themselves. The result of this is that the user need only call
     op2.init if (s)he wants to set a non-default option, for example
-    to switch the backend."""
-    global initialised
-    if not initialised:
+    to switch the backend or the debug or log level."""
+    if not op2.initialised():
         op2.init()
-        initialised = True
 
 def fiat_from_ufl_element(ufl_element):
     if isinstance(ufl_element, ufl.OuterProductElement):
