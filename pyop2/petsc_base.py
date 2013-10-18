@@ -73,6 +73,12 @@ class Dat(base.Dat):
 
     @contextmanager
     def vec_context(self, acc, needs_halo_update=False):
+        """A context manager for a :class:`PETSc.Vec` from a :class:`Dat`.
+
+        :param acc: a lambda function for getting the array from a
+                    :class:`Dat` i.e. :meth:`Dat.data` or :meth:`Dat.data_ro`
+        :param needs_halo_update: is a halo update required afterwards?"""
+
         # Getting the Vec needs to ensure we've done all current computation.
         self._force_evaluation()
         if not hasattr(self, '_vec'):
@@ -85,7 +91,7 @@ class Dat(base.Dat):
     @property
     @collective
     def vec(self):
-        """PETSc Vec appropriate for this Dat.
+        """Context manager for a PETSc Vec appropriate for this Dat.
 
         You're allowed to modify the data you get back from this view."""
         return self.vec_context(lambda d: d.data, needs_halo_update=True)
@@ -93,7 +99,7 @@ class Dat(base.Dat):
     @property
     @collective
     def vec_ro(self):
-        """PETSc Vec appropriate for this Dat.
+        """Context manager for a PETSc Vec appropriate for this Dat.
 
         You're not allowed to modify the data you get back from this view."""
         return self.vec_context(lambda d: d.data_ro)
@@ -110,10 +116,23 @@ class MixedDat(base.MixedDat):
 
     @contextmanager
     def vecscatter(self, acc, needs_halo_update=False):
+        """A context manager scattering the arrays of all components of this
+        :class:`MixedDat` into a contiguous :class:`PETSc.Vec` and reverse
+        scattering to the original arrays when exiting the context.
+
+        :param acc: a lambda function for getting a :class:`PETSc.Vec` from a
+                    :class:`Dat` i.e. :meth:`Dat.vec` or :meth:`Dat.vec_ro`
+        :param needs_halo_update: is a halo update required afterwards?"""
+
+        # Allocate memory for the contiguous vector, create the scatter
+        # contexts and stash them on the object for later reuse
         if not (hasattr(self, '_vec') and hasattr(self, '_sctxs')):
             self._vec = PETSc.Vec().createSeq(self.dataset.set.size)
             self._sctxs = []
             offset = 0
+            # We need one scatter context per component. The entire array is
+            # scattered to the appropriate contiguous chunk of memory in the
+            # full vector
             for d in self._dats:
                 sz = d.dataset.set.size
                 with acc(d) as v:
@@ -121,11 +140,13 @@ class MixedDat(base.MixedDat):
                                                    PETSc.IS().createStride(sz, offset, 1))
                 offset += sz
                 self._sctxs.append(vscat)
+        # Do the actual forward scatter to fill the full vector with values
         for d, vscat in zip(self._dats, self._sctxs):
             with acc(d) as v:
                 vscat.scatterBegin(v, self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
                 vscat.scatterEnd(v, self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
         yield self._vec
+        # Reverse scatter to get the values back to their original locations
         for d, vscat in zip(self._dats, self._sctxs):
             with acc(d) as v:
                 vscat.scatterBegin(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
@@ -138,7 +159,7 @@ class MixedDat(base.MixedDat):
     @property
     @collective
     def vec(self):
-        """PETSc Vec appropriate for this Dat.
+        """Context manager for a PETSc Vec appropriate for this Dat.
 
         You're allowed to modify the data you get back from this view."""
         return self.vecscatter(lambda d: d.vec, needs_halo_update=True)
@@ -146,7 +167,7 @@ class MixedDat(base.MixedDat):
     @property
     @collective
     def vec_ro(self):
-        """PETSc Vec appropriate for this Dat.
+        """Context manager for a PETSc Vec appropriate for this Dat.
 
         You're not allowed to modify the data you get back from this view."""
         return self.vecscatter(lambda d: d.vec_ro)
