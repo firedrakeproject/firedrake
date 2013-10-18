@@ -283,7 +283,7 @@ cdef ft.element_t as_element(object fiat_element):
 
 class _Facets(object):
     """Wrapper class for facet interation information on a Mesh"""
-    def __init__(self, mesh, count, kind, facet_cell, local_facet_number):
+    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None):
 
         self.mesh = mesh
 
@@ -300,7 +300,8 @@ class _Facets(object):
 
         self.local_facet_number = local_facet_number
 
-
+        self.markers = markers
+        self._subsets = None
 
     @utils.cached_property
     def set(self):
@@ -308,6 +309,28 @@ class _Facets(object):
         size = self.count
         halo = None
         return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo)
+
+    @utils.cached_property
+    def _null_subset(self):
+        '''Empty subset for the case in which there are no facets with
+        a given marker value. This is required because not all
+        markers need be represented on all processors.'''
+
+        return op2.Subset(self.set,[])
+
+
+
+    def subset(self, i):
+        """Return the subset corresponding to a marker value of i."""
+
+        if self.markers and not self._subsets:
+            # Generate the subsets. One subset is created for each unique marker value.
+            self._subsets = dict(((i,op2.Subset(self.set, np.nonzero(self.markers==i)[0]))
+                                  for id in np.unique(self.markers)))
+        try:
+            return self._subsets[i]
+        except KeyError:
+            return self._null_subset
 
 
     @utils.cached_property
@@ -337,8 +360,6 @@ class Mesh(object):
         if isinstance(args[0], str):
             self._from_file(args[0])
 
-            self.name = args[0]
-
         else:
             raise NotImplementedError(
                 "Unknown argument types for Mesh constructor")
@@ -351,6 +372,8 @@ class Mesh(object):
 
         # Retrieve mesh struct from Fluidity
         cdef ft.mesh_t mesh = ft.read_mesh_f(basename, _file_extensions[ext])
+
+        self.name = filename
 
         self._cells = np.array(<int[:mesh.cell_count, :mesh.cell_vertices:1]>mesh.element_vertex_list)
         self._ufl_cell = ufl.Cell(
@@ -377,6 +400,11 @@ class Mesh(object):
             self.interior_facets = _Facets(self, 0, "interior", None, None)
 
         if mesh.exterior_facet_count > 0:
+            if mesh.boundary_ids != NULL:
+                boundary_ids = np.array(<int[:mesh.exterior_facet_count]>mesh.boundary_ids)
+            else:
+                boundary_ids = None
+
             exterior_facet_cell = \
                 np.array(<int[:mesh.exterior_facet_count, :1]>mesh.exterior_facet_cell)
             exterior_local_facet_number = \
@@ -384,7 +412,8 @@ class Mesh(object):
             self.exterior_facets = _Facets(self, mesh.exterior_facet_count,
                                            "exterior",
                                            exterior_facet_cell,
-                                           exterior_local_facet_number)
+                                           exterior_local_facet_number,
+                                           boundary_ids)
         else:
             self.exterior_facets = _Facets(self, 0, "exterior", None, None)
 
@@ -392,11 +421,6 @@ class Mesh(object):
             self.region_ids = np.array(<int[:mesh.cell_count]>mesh.region_ids)
         else:
             self.region_ids = None
-
-        if mesh.exterior_facet_count > 0 and mesh.boundary_ids != NULL:
-            self.boundary_ids = np.array(<int[:mesh.exterior_facet_count]>mesh.boundary_ids)
-        else:
-            self.boundary_ids = None
 
         # Build these from the Fluidity data, then need to convert
         # them from np.int32 to python int type which is what PyOP2 expects
