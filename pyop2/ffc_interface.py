@@ -59,14 +59,15 @@ ffc_parameters['format'] = 'pyop2'
 
 
 def _check_version():
-    from version import __version_info__ as pyop2_version, __version__
+    from version import __compatible_ffc_version_info__ as compatible_version, \
+        __compatible_ffc_version__ as version
     try:
-        if constants.PYOP2_VERSION_INFO[:2] == pyop2_version[:2]:
+        if constants.PYOP2_VERSION_INFO[:2] == compatible_version[:2]:
             return
     except AttributeError:
         pass
     raise RuntimeError("Incompatible PyOP2 version %s and FFC PyOP2 version %s."
-                       % (__version__, getattr(constants, 'PYOP2_VERSION', 'unknown')))
+                       % (version, getattr(constants, 'PYOP2_VERSION', 'unknown')))
 
 
 class FFCKernel(DiskCached):

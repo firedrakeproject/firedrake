@@ -45,22 +45,28 @@ from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
 
 __all__ = ['cfg', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
-           'i', 'debug', 'info', 'warning', 'error', 'critical',
+           'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'DataSet',
            'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map', 'Sparsity',
            'Solver', 'par_loop', 'solve']
 
 
+def initialised():
+    """Check whether PyOP2 has been yet initialised but not yet finalised."""
+    return backends.get_backend() not in ['pyop2.void', 'pyop2.finalised']
+
+
 @collective
 def init(**kwargs):
-    """Initialise OP2: select the backend and potentially other configuration
+    """Initialise PyOP2: select the backend and potentially other configuration
     options.
 
-    :arg backend: Set the hardware-specific backend. Current choices
-     are ``"sequential"``, ``"openmp"``, ``"opencl"`` and ``"cuda"``.
-    :arg debug: The level of debugging output.
-    :arg comm: The MPI communicator to use for parallel communication,
-               defaults to `MPI_COMM_WORLD`
+    :arg backend:   Set the hardware-specific backend. Current choices are
+                    ``"sequential"``, ``"openmp"``, ``"opencl"``, ``"cuda"``.
+    :arg debug:     The level of debugging output.
+    :arg comm:      The MPI communicator to use for parallel communication,
+                    defaults to `MPI_COMM_WORLD`
+    :arg log_level: The log level. Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
 
     .. note::
        Calling ``init`` again with a different backend raises an exception.

@@ -119,6 +119,10 @@ class TestInitAPI:
         with pytest.raises(RuntimeError):
             op2.Set(1)
 
+    def test_not_initialised(self):
+        "PyOP2 should report not initialised before op2.init has been called."
+        assert not op2.initialised()
+
     def test_invalid_init(self):
         "init should not accept an invalid backend."
         with pytest.raises(ImportError):
@@ -127,6 +131,10 @@ class TestInitAPI:
     def test_init(self, backend):
         "init should correctly set the backend."
         assert op2.backends.get_backend() == 'pyop2.' + backend
+
+    def test_initialised(self, backend):
+        "PyOP2 should report initialised after op2.init has been called."
+        assert op2.initialised()
 
     def test_double_init(self, backend):
         "Calling init again with the same backend should update the configuration."
