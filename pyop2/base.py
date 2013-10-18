@@ -1238,22 +1238,65 @@ class Dat(DataCarrier):
                % (self._dataset, self._data.dtype, self._name)
 
     def _check_shape(self, other):
-        pass
+        if other.dataset != self.dataset:
+            raise ValueError('Mismatched shapes in operands %s and %s' %
+                             self.dataset.dim, other.dataset.dim)
 
     def _op(self, other, op):
+        ops = {operator.add: '+',
+               operator.sub: '-',
+               operator.mul: '*',
+               operator.div: '/'}
+        ret = _make_object('Dat', self.dataset, None, self.dtype)
         if np.isscalar(other):
-            return Dat(self.dataset,
-                       op(self.data, as_type(other, self.dtype)), self.dtype)
-        self._check_shape(other)
-        return Dat(self.dataset,
-                   op(self.data, as_type(other.data_ro, self.dtype)), self.dtype)
-
-    def _iop(self, other, op):
-        if np.isscalar(other):
-            op(self.data, as_type(other, self.dtype))
+            other = _make_object('Global', 1, data=other)
+            k = _make_object('Kernel',
+                             """void k(%(t)s *self, %(to)s *other, %(t)s *ret) {
+                                for ( int n = 0; n < %(dim)s; ++n ) {
+                                    ret[n] = self[n] %(op)s (*other);
+                                }
+                             }""" % {'t': self.ctype, 'to': other.ctype,
+                                     'op': ops[op], 'dim': self.cdim},
+                             "k")
         else:
             self._check_shape(other)
-            op(self.data, as_type(other.data_ro, self.dtype))
+            k = _make_object('Kernel',
+                             """void k(%(t)s *self, %(to)s *other, %(t)s *ret) {
+                                for ( int n = 0; n < %(dim)s; ++n ) {
+                                    ret[n] = self[n] %(op)s other[n];
+                                }
+                             }""" % {'t': self.ctype, 'to': other.ctype,
+                                     'op': ops[op], 'dim': self.cdim},
+                             "k")
+        par_loop(k, self.dataset.set, self(READ), other(READ), ret(WRITE))
+        return ret
+
+    def _iop(self, other, op):
+        ops = {operator.iadd: '+=',
+               operator.isub: '-=',
+               operator.imul: '*=',
+               operator.idiv: '/='}
+        if np.isscalar(other):
+            other = _make_object('Global', 1, data=other)
+            k = _make_object('Kernel',
+                             """void k(%(t)s *self, %(to)s *other) {
+                                for ( int n = 0; n < %(dim)s; ++n ) {
+                                    self[n] %(op)s (*other);
+                                }
+                             }""" % {'t': self.ctype, 'to': other.ctype,
+                                     'op': ops[op], 'dim': self.cdim},
+                             "k")
+        else:
+            self._check_shape(other)
+            k = _make_object('Kernel',
+                             """void k(%(t)s *self, %(to)s *other) {
+                                for ( int n = 0; n < %(dim)s; ++n ) {
+                                    self[n] %(op)s other[n];
+                                }
+                             }""" % {'t': self.ctype, 'to': other.ctype,
+                                     'op': ops[op], 'dim': self.cdim},
+                             "k")
+        par_loop(k, self.dataset.set, self(INC), other(READ))
         return self
 
     def __add__(self, other):
