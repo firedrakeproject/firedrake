@@ -1013,9 +1013,7 @@ class TestMixedMatrices:
 
     def test_solve_mixed(self, backend, mat, dat):
         x = op2.MixedDat(dat.dataset)
-        # FIXME Preconditioners don't seems to work with VecNest, not clear if
-        # it's an issue in petsc4py or PyOP2
-        op2.Solver(pc_type='none').solve(mat, x, dat)
+        op2.solve(mat, x, dat)
         b = mat * x
         eps = 1.e-12
         assert_allclose(dat[0].data_ro, b[0].data_ro, eps)
