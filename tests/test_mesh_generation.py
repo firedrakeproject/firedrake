@@ -11,15 +11,28 @@ def integrate_one(m):
     return assemble(u * dx)
 
 
-@pytest.mark.parametrize(('volume', 'expected'), [
-    (integrate_one(UnitIntervalMesh(3)), 1),
-    (integrate_one(UnitSquareMesh(3, 3)), 1),
-    (integrate_one(UnitCubeMesh(3, 3, 3)), 1),
-    (integrate_one(UnitCircleMesh(15)), pi * 0.5 ** 2),
-    (integrate_one(UnitTriangleMesh()), 0.5),
-    (integrate_one(UnitTetrahedronMesh()), 0.5 / 3)])
-def test_mesh_generation(volume, expected):
-    assert abs(volume - expected) < 1e-3
+def test_unit_interval():
+    assert abs(integrate_one(UnitIntervalMesh(3)) - 1) < 1e-3
+
+
+def test_unit_square():
+    assert abs(integrate_one(UnitSquareMesh(3, 3)) - 1) < 1e-3
+
+
+def test_unit_cube():
+    assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
+
+
+def test_unit_circle():
+    assert abs(integrate_one(UnitCircleMesh(15)) - pi * 0.5 ** 2) < 1e-3
+
+
+def test_unit_triangle():
+    assert abs(integrate_one(UnitTriangleMesh()) - 0.5) < 1e-3
+
+
+def test_unit_tetrahedron():
+    assert abs(integrate_one(UnitTetrahedronMesh()) - 0.5 / 3) < 1e-3
 
 if __name__ == '__main__':
     import os
