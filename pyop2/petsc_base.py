@@ -71,19 +71,24 @@ mpi.MPI = MPI
 
 class Dat(base.Dat):
 
+    @contextmanager
+    def vec_context(self, acc, needs_halo_update=False):
+        # Getting the Vec needs to ensure we've done all current computation.
+        self._force_evaluation()
+        if not hasattr(self, '_vec'):
+            size = (self.dataset.size * self.cdim, None)
+            self._vec = PETSc.Vec().createWithArray(acc(self), size=size)
+        yield self._vec
+        if needs_halo_update:
+            self.needs_halo_update = True
+
     @property
     @collective
     def vec(self):
         """PETSc Vec appropriate for this Dat.
 
         You're allowed to modify the data you get back from this view."""
-        # Getting the Vec needs to ensure we've done all current computation.
-        self._force_evaluation()
-        if not hasattr(self, '_vec'):
-            size = (self.dataset.size * self.cdim, None)
-            self._vec = PETSc.Vec().createWithArray(self.data, size=size)
-        self.needs_halo_update = True
-        return self._vec
+        return self.vec_context(lambda d: d.data, needs_halo_update=True)
 
     @property
     @collective
@@ -91,12 +96,7 @@ class Dat(base.Dat):
         """PETSc Vec appropriate for this Dat.
 
         You're not allowed to modify the data you get back from this view."""
-        # Getting the Vec needs to ensure we've done all current computation.
-        self._force_evaluation()
-        if not hasattr(self, '_vec'):
-            size = (self.dataset.size * self.cdim, None)
-            self._vec = PETSc.Vec().createWithArray(self.data_ro, size=size)
-        return self._vec
+        return self.vec_context(lambda d: d.data_ro)
 
     @collective
     def dump(self, filename):
@@ -109,26 +109,31 @@ class Dat(base.Dat):
 class MixedDat(base.MixedDat):
 
     @contextmanager
-    def vecscatter(self, acc):
+    def vecscatter(self, acc, needs_halo_update=False):
         if not (hasattr(self, '_vec') and hasattr(self, '_sctxs')):
             self._vec = PETSc.Vec().createSeq(self.dataset.set.size)
             self._sctxs = []
             offset = 0
             for d in self._dats:
                 sz = d.dataset.set.size
-                vscat = PETSc.Scatter().create(acc(d), None, self._vec,
-                                               PETSc.IS().createStride(sz, offset, 1))
+                with acc(d) as v:
+                    vscat = PETSc.Scatter().create(v, None, self._vec,
+                                                   PETSc.IS().createStride(sz, offset, 1))
                 offset += sz
                 self._sctxs.append(vscat)
         for d, vscat in zip(self._dats, self._sctxs):
-            vscat.scatterBegin(acc(d), self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
-            vscat.scatterEnd(acc(d), self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
+            with acc(d) as v:
+                vscat.scatterBegin(v, self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
+                vscat.scatterEnd(v, self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
         yield self._vec
         for d, vscat in zip(self._dats, self._sctxs):
-            vscat.scatterBegin(self._vec, acc(d), addv=PETSc.InsertMode.INSERT_VALUES,
-                               mode=PETSc.ScatterMode.REVERSE)
-            vscat.scatterEnd(self._vec, acc(d), addv=PETSc.InsertMode.INSERT_VALUES,
-                             mode=PETSc.ScatterMode.REVERSE)
+            with acc(d) as v:
+                vscat.scatterBegin(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
+                                   mode=PETSc.ScatterMode.REVERSE)
+                vscat.scatterEnd(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
+                                 mode=PETSc.ScatterMode.REVERSE)
+        if needs_halo_update:
+            self.needs_halo_update = True
 
     @property
     @collective
@@ -136,9 +141,7 @@ class MixedDat(base.MixedDat):
         """PETSc Vec appropriate for this Dat.
 
         You're allowed to modify the data you get back from this view."""
-        if not hasattr(self, '_vec'):
-            self._vec = PETSc.Vec().createNest([d.vec for d in self._dats])
-        return self._vec
+        return self.vecscatter(lambda d: d.vec, needs_halo_update=True)
 
     @property
     @collective
@@ -146,9 +149,7 @@ class MixedDat(base.MixedDat):
         """PETSc Vec appropriate for this Dat.
 
         You're not allowed to modify the data you get back from this view."""
-        if not hasattr(self, '_vec'):
-            self._vec = PETSc.Vec().createNest([d.vec_ro for d in self._dats])
-        return self._vec
+        return self.vecscatter(lambda d: d.vec_ro)
 
 
 class Mat(base.Mat):
@@ -270,10 +271,13 @@ class Mat(base.Mat):
         """Add a vector to the diagonal of the matrix.
 
         :params vec: vector to add (:class:`Dat` or :class:`PETsc.Vec`)"""
-        if not isinstance(vec, (Dat, PETSc.Vec)):
+        if not isinstance(vec, (base.Dat, PETSc.Vec)):
             raise TypeError("Can only set diagonal from a Dat or PETSc Vec.")
-        v = vec if isinstance(vec, PETSc.Vec) else vec.vec_ro
-        self.handle.setDiagonal(v)
+        if isinstance(vec, PETSc.Vec):
+            self.handle.setDiagonal(vec)
+        else:
+            with vec.vec_ro as v:
+                self.handle.setDiagonal(v)
 
     @collective
     def _assemble(self):
@@ -310,7 +314,11 @@ class Mat(base.Mat):
         """Multiply this :class:`Mat` with the vector ``v``."""
         if not isinstance(v, (base.Dat, PETSc.Vec)):
             raise TypeError("Can only multiply Mat and Dat or PETSc Vec.")
-        y = self.handle * (v.vec_ro if isinstance(v, base.Dat) else v)
+        if isinstance(v, base.Dat):
+            with v.vec_ro as vec:
+                y = self.handle * vec
+        else:
+            y = self.handle * v
         if isinstance(v, base.MixedDat):
             dat = _make_object('MixedDat', self.sparsity.dsets[0])
             offset = 0
@@ -372,8 +380,9 @@ class Solver(base.Solver, PETSc.KSP):
                 debug("%3d KSP Residual norm %14.12e" % (its, norm))
             self.setMonitor(monitor)
         # Not using super here since the MRO would call base.Solver.solve
-        PETSc.KSP.solve(self, b.vec, x.vec)
-        x.needs_halo_update = True
+        with b.vec_ro as bv:
+            with x.vec as xv:
+                PETSc.KSP.solve(self, bv, xv)
         if self.parameters['plot_convergence']:
             self.cancelMonitor()
             try:

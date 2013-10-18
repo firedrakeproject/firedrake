@@ -1421,9 +1421,9 @@ class TestMatAPI:
     def test_mat_vec_mult(self, backend, diag_mat, dat, skip_cuda):
         """Mat multiplied with PETSc Vec should perform matrix-vector
         multiplication and yield a Dat."""
-        vec = dat.vec_ro
-        diag_mat.set_diagonal(vec)
-        assert np.allclose((diag_mat * vec).data_ro, np.multiply(dat.data_ro, dat.data_ro))
+        with dat.vec_ro as vec:
+            diag_mat.set_diagonal(vec)
+            assert np.allclose((diag_mat * vec).data_ro, np.multiply(dat.data_ro, dat.data_ro))
 
     def test_mat_iter(self, backend, mat):
         "Mat should be iterable and yield self."
