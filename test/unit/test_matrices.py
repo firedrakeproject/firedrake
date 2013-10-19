@@ -826,6 +826,14 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps = 1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
+    def test_zero_rows_subset(self, backend, nodes, mat, expected_matrix):
+        """Zeroing rows in the matrix given by a :class:`op2.Subset` should
+        set the diagonal to the given value and all other values to 0."""
+        expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
+        ss = op2.Subset(nodes, [0])
+        mat.zero_rows(ss, 12.0)
+        assert_allclose(mat.values, expected_matrix, 1e-5)
+
     def test_zero_last_row(self, backend, mat, expected_matrix):
         """Zeroing a row in the matrix should set the diagonal to the given
         value and all other values to 0."""
