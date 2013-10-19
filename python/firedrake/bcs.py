@@ -2,17 +2,17 @@
 
 
 class DirichletBC(object):
+    '''Implementation of a strong Dirichlet boundary condition.
+
+    :arg V: the :class:`FunctionSpace` on which the boundary condition
+        should be applied.
+    :arg g: the :class:`GenericFunction` defining the boundary condition
+        values.
+    :arg sub_domain: the integer id of the boundary region over which the
+        boundary condition should be applied.
+    '''
 
     def __init__(self, V, g, sub_domain):
-        '''Implementation of a strong Dirichlet boundary condition.
-
-        :arg V: the :class:`FunctionSpace` on which the boundary condition
-            should be applied.
-        :arg g: the :class:`GenericFunction` defining the boundary condition
-            values.
-        :arg sub_domain: the integer id of the boundary region over which the
-            boundary condition should be applied.
-        '''
 
         self._function_space = V
         self.function_arg = g

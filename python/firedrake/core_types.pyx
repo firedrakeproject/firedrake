@@ -866,6 +866,11 @@ class FunctionSpace(object):
         # always 0. The value rank may be different.
         self.rank = 0
 
+        # Empty external facet map cache. This is a sui generis cache
+        # implementation because of the need to support boundary
+        # conditions.
+        self._external_facet_map_cache = {}
+
     @property
     def node_count(self):
         """The number of global nodes in the function space. For a
@@ -926,12 +931,40 @@ class FunctionSpace(object):
                        self.interior_facet_node_list,
                        "%s_interior_facet_dof" % (self.name))
 
-    @utils.cached_property
-    def exterior_facet_node_map(self):
-        return op2.Map(self._mesh.exterior_facets.set, self.node_set,
-                       self.fiat_element.space_dimension(),
-                       self.exterior_facet_node_list,
-                       "%s_exterior_facet_dof" % (self.name))
+    def exterior_facet_node_map(self, bcs=None):
+        """Return the :class:`pyop2.Map` from facets to function space
+        nodes. If present, bcs must be a tuple of :class:`DirichletBC`\s. In
+        this case, the facet_node_map will return negative node indices where
+        boundary conditions should be applied. Where a PETSc matrix is
+        employed, this will cause the corresponding values to be discarded
+        during matrix assembly."""
+
+        if bcs is None:
+            lbcs = None
+        else:
+            # Ensure bcs is a tuple in a canonical order for the hash key.
+            lbcs = tuple(sorted(bcs, key=lambda bc: bc.__hash__()))
+
+        try:
+            # Cache hit
+            return self._external_facet_map_cache[lbcs]
+        except KeyError:
+            # Cache miss.
+            if lbcs is None:
+                facet_node_list = self.exterior_facet_node_list
+            else:
+                bcids = np.array([bc.sub_domain for bc in bcs])
+                fl = self.exterior_facet_node_list.ravel()
+
+                facet_node_list = np.where(np.in1d(fl, bcids), -fl, fl)
+
+            self._external_facet_map_cache[lbcs] = \
+                op2.Map(self._mesh.exterior_facets.set, self.node_set,
+                        self.fiat_element.space_dimension(),
+                        self.exterior_facet_node_list,
+                        "%s_exterior_facet_dof" % (self.name))
+
+            return self._external_facet_map_cache[lbcs]
 
     @property
     def dim(self):
@@ -949,8 +982,6 @@ class FunctionSpace(object):
     def mesh(self):
         """The :class:`Mesh` used to construct this :class:`FunctionSpace`."""
         return self._mesh
-
-
 
 
 class VectorFunctionSpace(FunctionSpace):

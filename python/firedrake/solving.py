@@ -250,12 +250,17 @@ only succeed if the Functions are on the same
         raise TypeError("Unable to assemble: %r" % f)
 
 
-def _assemble(f, tensor=None):
+def _assemble(f, bcs=None, tensor=None):
     """Assemble the form f and return a raw PyOP2 object representing
-    the result. This will be a :class:`float` for 0-forms, a
-    :class:`Function` for 1-forms and a :class:`op2.Mat` for
-    2-forms. The last of these may change to a native Firedrake type
-    in a future release.
+the result. This will be a :class:`float` for 0-forms, a
+:class:`Function` for 1-forms and a :class:`op2.Mat` for 2-forms. The
+last of these may change to a native Firedrake type in a future
+release.
+
+    :arg bcs: A tuple of :class`DirichletBC`\s to be applied.
+    :arg tensor: An existing tensor object into which the form should \
+be assembled. If this is not supplied, a new tensor will be created for \
+the purpose.
     """
 
     kernels = ffc_interface.compile_form(f, "form")
@@ -361,20 +366,20 @@ def _assemble(f, tensor=None):
 
             if is_mat:
                 tensor_arg = tensor(op2.INC,
-                                    (test.exterior_facet_node_map[op2.i[0]],
-                                     trial.exterior_facet_node_map[op2.i[1]]),
+                                    (test.exterior_facet_node_map(bcs)[op2.i[0]],
+                                     trial.exterior_facet_node_map(bcs)[op2.i[1]]),
                                     flatten=True)
             elif is_vec:
                 tensor_arg = tensor(op2.INC,
-                                    test.exterior_facet_node_map[op2.i[0]],
+                                    test.exterior_facet_node_map()[op2.i[0]],
                                     flatten=True)
             else:
                 tensor_arg = tensor(op2.INC)
             args = [kernel, m.exterior_facets.measure_set(integral.measure()), tensor_arg,
-                    coords.dat(op2.READ, coords.exterior_facet_node_map,
+                    coords.dat(op2.READ, coords.exterior_facet_node_map(),
                                flatten=True)]
             for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.exterior_facet_node_map,
+                args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
                                   flatten=True))
             args.append(m.exterior_facets.local_facet_dat(op2.READ))
             op2.par_loop(*args)
