@@ -144,7 +144,7 @@ def make_extruded_coords(mesh, layers, kernel=None, layer_height=None):
 
     :arg mesh: the 2d mesh to extrude
     :arg layers: the number of layers in the extruded mesh
-    :arg kernel: an op2 Kernel which produces the extruded coordinates
+    :arg kernel: a :class:`pyop2.Kernel` which produces the extruded coordinates
     :arg layer_height: if provided it creates coordinates for evenly 
     spaced layers
     Either the kernel or the layer_height must be provided. Should 
@@ -685,14 +685,14 @@ class FunctionSpace(object):
     """Create a function space
 
     :arg mesh: mesh to build the function space on
-    :arg family: string describing function space family, or a
-    :class:`ufl.OuterProductElement`
+    :arg family: string describing function space family, or a \
+:class:`ufl.OuterProductElement`
     :arg degree: degree of the function space
     :arg name: (optional) name of the function space
-    :arg vfamily: family of function space in vertical dimension
-    (:class:`ExtrudedMesh`\es only)
-    :arg vdegree: degree of function space in vertical dimension
-    (:class:`ExtrudedMesh`\es only)
+    :arg vfamily: family of function space in vertical dimension \
+(:class:`ExtrudedMesh`\es only)
+    :arg vdegree: degree of function space in vertical dimension \
+(:class:`ExtrudedMesh`\es only)
 
     If the mesh is an :class:`ExtrudedMesh`, and the `family` argument
     is a :class:`ufl.OuterProductElement`, `degree`, `vfamily` and
