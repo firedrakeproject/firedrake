@@ -838,7 +838,7 @@ class FunctionSpace(object):
 
         self._node_count = function_space.dof_count
         self.cell_node_list = np.array(<int[:function_space.element_count, :element_f.ndof:1]>
-                                      function_space.element_dof_list)
+                                      function_space.element_dof_list)-1
 
         self.dof_classes = np.array(<int[:4]>function_space.dof_classes)
         self.dof_classes = self.dof_classes.astype(int)
@@ -866,10 +866,12 @@ class FunctionSpace(object):
         # always 0. The value rank may be different.
         self.rank = 0
 
-        # Empty external facet map cache. This is a sui generis cache
+        # Empty map caches. This is a sui generis cache
         # implementation because of the need to support boundary
         # conditions.
-        self._external_facet_map_cache = {}
+        self._cell_node_map_cache = {}
+        self._exterior_facet_map_cache = {}
+        self._interior_facet_map_cache = {}
 
     @property
     def node_count(self):
@@ -915,30 +917,54 @@ class FunctionSpace(object):
                        valuetype)
 
 
-    @utils.cached_property
-    def cell_node_map(self):
-        """A :class:`pyop2.Map` from the :attr:`Mesh.cell_set` of the
-        underlying mesh to the :attr:`node_set` of this :class:FunctionSpace."""
-        return op2.Map(self._mesh.cell_set, self.node_set,
-                       self.fiat_element.space_dimension(),
-                       self.cell_node_list - 1, "%s_cell_dof" % (self.name),
-                       offset=self.offset)
+    def cell_node_map(self, bcs=None):
+        """Return the :class:`pyop2.Map` from interior facets to
+        function space nodes. If present, bcs must be a tuple of
+        :class:`DirichletBC`\s. In this case, the facet_node_map will return
+        negative node indices where boundary conditions should be
+        applied. Where a PETSc matrix is employed, this will cause the
+        corresponding values to be discarded during matrix assembly."""
 
-    @utils.cached_property
-    def interior_facet_node_map(self):
-        return op2.Map(self._mesh.interior_facets.set, self.node_set,
-                       2*self.fiat_element.space_dimension(),
-                       self.interior_facet_node_list,
-                       "%s_interior_facet_dof" % (self.name))
+        return self._map_cache(self._cell_node_map_cache,
+                               self._mesh.cell_set,
+                               self.cell_node_list,
+                               self.fiat_element.space_dimension(),
+                               bcs,
+                               "cell_node",
+                               self.offset)
+
+    def interior_facet_node_map(self, bcs=None):
+        """Return the :class:`pyop2.Map` from interior facets to
+        function space nodes. If present, bcs must be a tuple of
+        :class:`DirichletBC`\s. In this case, the facet_node_map will return
+        negative node indices where boundary conditions should be
+        applied. Where a PETSc matrix is employed, this will cause the
+        corresponding values to be discarded during matrix assembly."""
+
+        return self._map_cache(self._interior_facet_map_cache,
+                               self._mesh.interior_facets.set,
+                               self.interior_facet_node_list,
+                               2*self.fiat_element.space_dimension(),
+                               bcs,
+                               "interior_facet_node")
 
     def exterior_facet_node_map(self, bcs=None):
-        """Return the :class:`pyop2.Map` from facets to function space
-        nodes. If present, bcs must be a tuple of :class:`DirichletBC`\s. In
-        this case, the facet_node_map will return negative node indices where
-        boundary conditions should be applied. Where a PETSc matrix is
-        employed, this will cause the corresponding values to be discarded
-        during matrix assembly."""
+        """Return the :class:`pyop2.Map` from exterior facets to
+        function space nodes. If present, bcs must be a tuple of
+        :class:`DirichletBC`\s. In this case, the facet_node_map will return
+        negative node indices where boundary conditions should be
+        applied. Where a PETSc matrix is employed, this will cause the
+        corresponding values to be discarded during matrix assembly."""
 
+        return self._map_cache(self._exterior_facet_map_cache,
+                               self._mesh.exterior_facets.set,
+                               self.exterior_facet_node_list,
+                               self.fiat_element.space_dimension(),
+                               bcs,
+                               "exterior_facet_node")
+
+    def _map_cache(self, cache, entity_set, entity_node_list, map_dim, bcs, name,
+                   offset=None):
         if bcs is None:
             lbcs = None
         else:
@@ -947,24 +973,24 @@ class FunctionSpace(object):
 
         try:
             # Cache hit
-            return self._external_facet_map_cache[lbcs]
+            return cache[lbcs]
         except KeyError:
             # Cache miss.
             if lbcs is None:
-                facet_node_list = self.exterior_facet_node_list
+                new_entity_node_list = entity_node_list
             else:
                 bcids = np.array([bc.sub_domain for bc in bcs])
-                fl = self.exterior_facet_node_list.ravel()
+                nl = entity_node_list
 
-                facet_node_list = np.where(np.in1d(fl, bcids), -fl, fl)
+                new_entity_node_list = np.where(np.in1d(nl, bcids), -nl, nl)
 
-            self._external_facet_map_cache[lbcs] = \
-                op2.Map(self._mesh.exterior_facets.set, self.node_set,
-                        self.fiat_element.space_dimension(),
-                        self.exterior_facet_node_list,
-                        "%s_exterior_facet_dof" % (self.name))
+            cache[lbcs] = op2.Map(entity_set, self.node_set,
+                                  map_dim,
+                                  new_entity_node_list,
+                                  ("%s_"+name) % (self.name),
+                                  offset)
 
-            return self._external_facet_map_cache[lbcs]
+            return cache[lbcs]
 
     @property
     def dim(self):
@@ -1075,17 +1101,14 @@ the :class:`FunctionSpace`.
     def dof_dset(self):
         return self._function_space.dof_dset
 
-    @property
-    def cell_node_map(self):
-        return self._function_space.cell_node_map
+    def cell_node_map(self, bcs=None):
+        return self._function_space.cell_node_map(bcs)
 
-    @property
-    def interior_facet_node_map(self):
-        return self._function_space.interior_facet_node_map
+    def interior_facet_node_map(self, bcs=None):
+        return self._function_space.interior_facet_node_map(bcs)
 
-    @property
-    def exterior_facet_node_map(self):
-        return self._function_space.exterior_facet_node_map
+    def exterior_facet_node_map(self, bcs=None):
+        return self._function_space.exterior_facet_node_map(bcs)
 
     def vector(self):
         """Return a :class:`Vector` wrapping the data in this :class:`Function`"""
@@ -1174,8 +1197,8 @@ void expression_kernel(double A[%(rank)d], double **x_, int k)
                             "expression_kernel")
 
         op2.par_loop(kernel, self.cell_set,
-                     self.dat(op2.WRITE, self.cell_node_map[op2.i[0]]),
-                     coords.dat(op2.READ, coords.cell_node_map)
+                     self.dat(op2.WRITE, self.cell_node_map()[op2.i[0]]),
+                     coords.dat(op2.READ, coords.cell_node_map())
                      )
 
 

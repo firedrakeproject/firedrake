@@ -151,7 +151,7 @@ class NonlinearVariationalSolver(object):
         fs_names = (test.function_space().name, trial.function_space().name)
         sparsity = op2.Sparsity((test.function_space().dof_dset,
                                  trial.function_space().dof_dset),
-                                (test.cell_node_map, trial.cell_node_map),
+                                (test.cell_node_map(), trial.cell_node_map()),
                                 "%s_%s_sparsity" % fs_names)
         self._jac_tensor = op2.Mat(
             sparsity, numpy.float64, "%s_%s_matrix" % fs_names)
@@ -286,7 +286,7 @@ the purpose.
         m = test.function_space().mesh()
         key = (compute_form_signature(f), test.function_space().dof_dset,
                trial.function_space().dof_dset,
-               test.cell_node_map, trial.cell_node_map)
+               test.cell_node_map(), trial.cell_node_map())
         if tensor is None:
             tensor = _mat_cache.get(key)
             if not tensor:
@@ -295,8 +295,8 @@ the purpose.
                     test.function_space().name, trial.function_space().name)
                 sparsity = op2.Sparsity((test.function_space().dof_dset,
                                          trial.function_space().dof_dset),
-                                        (test.cell_node_map,
-                                         trial.cell_node_map),
+                                        (test.cell_node_map(),
+                                         trial.cell_node_map()),
                                         "%s_%s_sparsity" % fs_names)
                 tensor = op2.Mat(
                     sparsity, numpy.float64, "%s_%s_matrix" % fs_names)
@@ -333,11 +333,11 @@ the purpose.
         domain_type = integral.measure().domain_type()
         if domain_type == 'cell':
             if is_mat:
-                tensor_arg = tensor(op2.INC, (test.cell_node_map[op2.i[0]],
-                                              trial.cell_node_map[op2.i[1]]),
+                tensor_arg = tensor(op2.INC, (test.cell_node_map(bcs)[op2.i[0]],
+                                              trial.cell_node_map(bcs)[op2.i[1]]),
                                     flatten=True)
             elif is_vec:
-                tensor_arg = tensor(op2.INC, test.cell_node_map[op2.i[0]],
+                tensor_arg = tensor(op2.INC, test.cell_node_map()[op2.i[0]],
                                     flatten=True)
             else:
                 tensor_arg = tensor(op2.INC)
@@ -346,15 +346,15 @@ the purpose.
             if itspace.layers > 1:
                 coords_xtr = m._coordinate_field
                 args = [kernel, itspace, tensor_arg,
-                        coords_xtr.dat(op2.READ, coords_xtr.cell_node_map,
+                        coords_xtr.dat(op2.READ, coords_xtr.cell_node_map(),
                                        flatten=True)]
             else:
                 args = [kernel, itspace, tensor_arg,
-                        coords.dat(op2.READ, coords.cell_node_map,
+                        coords.dat(op2.READ, coords.cell_node_map(),
                                    flatten=True)]
 
             for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.cell_node_map,
+                args.append(c.dat(op2.READ, c.cell_node_map(),
                                   flatten=True))
 
             op2.par_loop(*args)
@@ -392,21 +392,21 @@ the purpose.
 
             if is_mat:
                 tensor_arg = tensor(
-                    op2.INC, (test.interior_facet_node_map[op2.i[0]],
-                              trial.interior_facet_node_map[
+                    op2.INC, (test.interior_facet_node_map(bcs)[op2.i[0]],
+                              trial.interior_facet_node_map(bcs)[
                                   op2.i[1]]),
                     flatten=True)
             elif is_vec:
                 tensor_arg = tensor(
-                    op2.INC, test.interior_facet_node_map[op2.i[0]],
+                    op2.INC, test.interior_facet_node_map()[op2.i[0]],
                     flatten=True)
             else:
                 tensor_arg = tensor(op2.INC)
             args = [kernel, m.interior_facets.set, tensor_arg,
-                    coords.dat(op2.READ, coords.interior_facet_node_map,
+                    coords.dat(op2.READ, coords.interior_facet_node_map(),
                                flatten=True)]
             for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.interior_facet_node_map,
+                args.append(c.dat(op2.READ, c.interior_facet_node_map(),
                                   flatten=True))
             args.append(m.interior_facets.local_facet_dat(op2.READ))
             op2.par_loop(*args)
