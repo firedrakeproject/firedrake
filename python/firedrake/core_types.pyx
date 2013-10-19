@@ -979,10 +979,9 @@ class FunctionSpace(object):
             if lbcs is None:
                 new_entity_node_list = entity_node_list
             else:
-                bcids = np.array([bc.sub_domain for bc in bcs])
-                nl = entity_node_list
-
-                new_entity_node_list = np.where(np.in1d(nl, bcids), -nl, nl)
+                bcids = reduce(np.unique, [bc.nodes for bc in bcs])
+                nl = entity_node_list.ravel()
+                new_entity_node_list = np.where(np.in1d(nl, bcids), -1-nl, nl)
 
             cache[lbcs] = op2.Map(entity_set, self.node_set,
                                   map_dim,

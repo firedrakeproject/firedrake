@@ -227,7 +227,7 @@ class NonlinearVariationalSolver(object):
                                (self.snes.getIterationNumber(), reason))
 
 
-def assemble(f, tensor=None):
+def assemble(f, tensor=None, bcs=None):
     """Evaluate f.
 
 If f is a :class:`UFL.form` then this evaluates the corresponding
@@ -243,14 +243,14 @@ only succeed if the Functions are on the same
 """
 
     if isinstance(f, ufl.form.Form):
-        return _assemble(f, tensor=tensor)
+        return _assemble(f, tensor=tensor, bcs=bcs)
     elif isinstance(f, ufl.expr.Expr):
         return assemble_expression(f)
     else:
         raise TypeError("Unable to assemble: %r" % f)
 
 
-def _assemble(f, bcs=None, tensor=None):
+def _assemble(f, tensor=None, bcs=None):
     """Assemble the form f and return a raw PyOP2 object representing
 the result. This will be a :class:`float` for 0-forms, a
 :class:`Function` for 1-forms and a :class:`op2.Mat` for 2-forms. The
