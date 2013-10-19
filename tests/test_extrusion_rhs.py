@@ -33,8 +33,8 @@ void populate_tracer(double *x[], double *c[])
     coords = f.function_space().mesh()._coordinate_field
 
     op2.par_loop(populate_p0, f.cell_set,
-                 f.dat(op2.INC, f.cell_node_map),
-                 coords.dat(op2.READ, coords.cell_node_map))
+                 f.dat(op2.INC, f.cell_node_map()),
+                 coords.dat(op2.READ, coords.cell_node_map()))
 
     g = firedrake.assemble(f * firedrake.dx)
 

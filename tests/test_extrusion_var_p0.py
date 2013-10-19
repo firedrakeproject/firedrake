@@ -28,8 +28,8 @@ void populate_tracer(double *x[], double *c[])
     coords = f.function_space().mesh()._coordinate_field
 
     op2.par_loop(populate_p0, f.cell_set,
-                 f.dat(op2.INC, f.cell_node_map),
-                 coords.dat(op2.READ, coords.cell_node_map))
+                 f.dat(op2.INC, f.cell_node_map()),
+                 coords.dat(op2.READ, coords.cell_node_map()))
 
     volume = op2.Kernel("""
 void comp_vol(double A[1], double *x[], double *y[])
@@ -45,8 +45,8 @@ void comp_vol(double A[1], double *x[], double *y[])
 
     op2.par_loop(volume, f.cell_set,
                  g(op2.INC),
-                 coords.dat(op2.READ, coords.cell_node_map),
-                 f.dat(op2.READ, f.cell_node_map)
+                 coords.dat(op2.READ, coords.cell_node_map()),
+                 f.dat(op2.READ, f.cell_node_map())
                  )
 
     return np.abs(g.data[0] - 0.5)
