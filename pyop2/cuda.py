@@ -311,8 +311,14 @@ class Mat(DeviceDataMixin, op2.Mat):
         base._trace.evaluate(set([self]), set([self]))
         return self._csrdata.get()
 
-    def zero_rows(self, rows, diag_val):
+    def zero_rows(self, rows, diag_val=1.0):
+        """Zeroes the specified rows of the matrix, with the exception of the
+        diagonal entry, which is set to diag_val. May be used for applying
+        strong boundary conditions.
+
+        :param rows: a :class:`Subset` or an iterable"""
         base._trace.evaluate(set([self]), set([self]))
+        rows = rows.indices if isinstance(rows, base.Subset) else rows
         for row in rows:
             s = self.sparsity._rowptr[row]
             e = self.sparsity._rowptr[row + 1]
