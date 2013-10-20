@@ -92,6 +92,7 @@ class NonlinearVariationalProblem(object):
         self.F_ufl = F
         self.J_ufl = J
         self.u_ufl = u
+        self.bcs = bcs
 
         # Store form compiler parameters
         form_compiler_parameters = form_compiler_parameters or {}
@@ -190,6 +191,8 @@ class NonlinearVariationalSolver(object):
         # X_, hence this not being inside the if above.
         self._problem.u_ufl.dat.needs_halo_update = True
         assemble(self._problem.F_ufl, tensor=self._F_tensor)
+        for bc in self._problem.bcs:
+            bc.apply(self.F_tensor, self.u_ufl)
         if F_ != self._F_tensor.dat.vec:
             # For some reason, self._F_tensor.dat.vec.copy(F_) gives
             # me diverged line searches in the SNES solver.  So do
@@ -203,12 +206,12 @@ class NonlinearVariationalSolver(object):
         self._problem.u_ufl.dat.needs_halo_update = True
         assemble(self._problem.J_ufl,
                  tensor=self._jac_ptensor,
-                 bcs=self.problem._bcs)
+                 bcs=self._problem.bcs)
         self._jac_ptensor._force_evaluation()
         if J_ != P_:
             assemble(self._problem.J_ufl,
                      tensor=self._jac_tensor,
-                     bcs=self.problem._bcs)
+                     bcs=self._problem.bcs)
             self._jac_tensor._force_evaluation()
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 
@@ -627,6 +630,4 @@ def _extract_bcs(bcs):
         bcs = []
     elif not isinstance(bcs, (list, tuple)):
         bcs = [bcs]
-    for bc in bcs:
-        raise NotImplementedError("Boundary conditions are not supported yet")
     return bcs

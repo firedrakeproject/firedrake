@@ -995,7 +995,7 @@ class FunctionSpace(object):
             return cache[lbcs]
         except KeyError:
             # Cache miss.
-            if lbcs is None:
+            if not lbcs:
                 new_entity_node_list = entity_node_list
             else:
                 bcids = reduce(np.unique, [bc.nodes for bc in bcs])
