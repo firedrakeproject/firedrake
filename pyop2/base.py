@@ -1648,7 +1648,7 @@ class Map(object):
 
     @validate_type(('iterset', Set, SetTypeError), ('toset', Set, SetTypeError),
                   ('arity', int, ArityTypeError), ('name', str, NameTypeError))
-    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None):
+    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, parent=None):
         self._iterset = iterset
         self._toset = toset
         self._arity = arity
@@ -1656,6 +1656,10 @@ class Map(object):
                                       allow_none=True)
         self._name = name or "map_%d" % Map._globalcount
         self._offset = offset
+        # This is intended to be used for modified maps, for example
+        # where a boundary condition is imposed by setting some map
+        # entries negative.
+        self._parent = parent
         Map._globalcount += 1
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
@@ -1737,6 +1741,11 @@ class Map(object):
 
     def __ne__(self, o):
         return not self == o
+
+    def __le__(self, o):
+        """o<=self if o equals self or its parent equals self."""
+
+        return self == o or (isinstance(self._parent, Map) and self._parent <= o)
 
     @classmethod
     def fromhdf5(cls, iterset, toset, f, name):
@@ -1970,6 +1979,17 @@ class Sparsity(Cached):
         PETSc's MatMPIAIJSetPreallocation_."""
         return int(self._o_nz)
 
+    def __contains__(self, other):
+        """Return true if other is a pair of maps in self.maps(). This
+        will also return true if the elements of other have parents in
+        self.maps()."""
+
+        for maps in self.maps:
+            if tuple(other) <= maps:
+                return True
+
+        return False
+
 
 class Mat(DataCarrier):
 
@@ -2004,7 +2024,7 @@ class Mat(DataCarrier):
         path = as_tuple(path, Arg, 2)
         path_maps = [arg.map for arg in path]
         path_idxs = [arg.idx for arg in path]
-        if tuple(path_maps) not in self.sparsity.maps:
+        if tuple(path_maps) not in self.sparsity:
             raise MapValueError("Path maps not in sparsity maps")
         return _make_object('Arg', data=self, map=path_maps, access=access,
                             idx=path_idxs, flatten=flatten)
