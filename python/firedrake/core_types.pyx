@@ -1284,7 +1284,7 @@ void expression_kernel(double A[%(rank)d], double **x_, int k)
                      )
 
 
-    def assign(self, expr):
+    def assign(self, expr, subset=None):
         """Set the :class:`Function` value to the pointwise value of
 expr. expr may only contain Functions on the same
 :class:`FunctionSpace` as the :class:`Function` being assigned to.
@@ -1299,7 +1299,7 @@ will add twice `g` to `f`.
         """
 
         assemble_expressions.evaluate_expression(
-            assemble_expressions.Assign(self, expr))
+            assemble_expressions.Assign(self, expr), subset)
 
         return self
 

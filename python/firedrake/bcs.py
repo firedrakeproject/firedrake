@@ -1,6 +1,7 @@
 # A module implementing strong (Dirichlet) boundary conditions.
 import utils
 import numpy as np
+import pyop2 as op2
 
 
 class DirichletBC(object):
@@ -36,3 +37,17 @@ class DirichletBC(object):
             fs.exterior_facet_boundary_node_map.values.take(
                 fs._mesh.exterior_facets.subset(self.sub_domain).indices,
                 axis=0))
+
+    @utils.cached_property
+    def node_set(self):
+        '''The subset corresponding to the nodes at which this
+        boundary condition applies.'''
+
+        return op2.Subset(self._function_space.node_set, self.nodes)
+
+    def apply(self, r, u):
+        """Apply this boundary condition to the residual function r
+        using current state u. This sets the boundary condition nodes
+        to the value u-bc."""
+
+        r.assign(u-self.function_arg, subset=self.node_set)

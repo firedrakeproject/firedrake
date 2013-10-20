@@ -201,10 +201,14 @@ class NonlinearVariationalSolver(object):
             X_.copy(self._problem.u_ufl.dat.vec)
         # Ensure guess has correct halo data.
         self._problem.u_ufl.dat.needs_halo_update = True
-        assemble(self._problem.J_ufl, tensor=self._jac_ptensor)
+        assemble(self._problem.J_ufl,
+                 tensor=self._jac_ptensor,
+                 bcs=self.problem._bcs)
         self._jac_ptensor._force_evaluation()
         if J_ != P_:
-            assemble(self._problem.J_ufl, tensor=self._jac_tensor)
+            assemble(self._problem.J_ufl,
+                     tensor=self._jac_tensor,
+                     bcs=self.problem._bcs)
             self._jac_tensor._force_evaluation()
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 
