@@ -926,13 +926,19 @@ class FunctionSpace(object):
         applied. Where a PETSc matrix is employed, this will cause the
         corresponding values to be discarded during matrix assembly."""
 
+        if bcs:
+            parent = self.cell_node_map()
+        else:
+            parent = None
+
         return self._map_cache(self._cell_node_map_cache,
                                self._mesh.cell_set,
                                self.cell_node_list,
                                self.fiat_element.space_dimension(),
                                bcs,
                                "cell_node",
-                               self.offset)
+                               self.offset,
+                               parent)
 
     def interior_facet_node_map(self, bcs=None):
         """Return the :class:`pyop2.Map` from interior facets to
@@ -942,12 +948,18 @@ class FunctionSpace(object):
         applied. Where a PETSc matrix is employed, this will cause the
         corresponding values to be discarded during matrix assembly."""
 
+        if bcs:
+            parent = self.interior_facet_node_map()
+        else:
+            parent = None
+
         return self._map_cache(self._interior_facet_map_cache,
                                self._mesh.interior_facets.set,
                                self.interior_facet_node_list,
                                2*self.fiat_element.space_dimension(),
                                bcs,
-                               "interior_facet_node")
+                               "interior_facet_node",
+                               parent=parent)
 
     def exterior_facet_node_map(self, bcs=None):
         """Return the :class:`pyop2.Map` from exterior facets to
@@ -957,15 +969,21 @@ class FunctionSpace(object):
         applied. Where a PETSc matrix is employed, this will cause the
         corresponding values to be discarded during matrix assembly."""
 
+        if bcs:
+            parent = self.exterior_facet_node_map()
+        else:
+            parent = None
+
         return self._map_cache(self._exterior_facet_map_cache,
                                self._mesh.exterior_facets.set,
                                self.exterior_facet_node_list,
                                self.fiat_element.space_dimension(),
                                bcs,
-                               "exterior_facet_node")
+                               "exterior_facet_node",
+                               parent=parent)
 
     def _map_cache(self, cache, entity_set, entity_node_list, map_dim, bcs, name,
-                   offset=None):
+                   offset=None, parent=None):
         if bcs is None:
             lbcs = None
         else:
@@ -988,7 +1006,8 @@ class FunctionSpace(object):
                                   map_dim,
                                   new_entity_node_list,
                                   ("%s_"+name) % (self.name),
-                                  offset)
+                                  offset,
+                                  parent)
 
             return cache[lbcs]
 
