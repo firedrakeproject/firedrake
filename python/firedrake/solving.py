@@ -411,6 +411,10 @@ the purpose.
             args.append(m.interior_facets.local_facet_dat(op2.READ))
             op2.par_loop(*args)
 
+    if bcs is not None and is_mat:
+        for bc in bcs:
+            tensor.zero_rows(bc.nodes)
+
     return result()
 
 

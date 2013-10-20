@@ -30,6 +30,9 @@ class DirichletBC(object):
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
 
-        return reduce(np.unique,
-                      self._function_space.exterior_facet_node_map().values,
-                      self._function_space._mesh.exterior_facets.subset(self.sub_domain).indices)
+        fs = self._function_space
+
+        return np.unique(
+            fs.exterior_facet_boundary_node_map.values.take(
+                fs._mesh.exterior_facets.subset(self.sub_domain).indices,
+                axis=0))

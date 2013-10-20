@@ -10,6 +10,7 @@ import utils
 import pyop2 as op2
 import assemble_expressions
 from vector import Vector
+import cgen
 
 from libc.stdlib cimport malloc, free
 from libc.string cimport strcmp
@@ -981,7 +982,7 @@ class FunctionSpace(object):
             else:
                 bcids = reduce(np.unique, [bc.nodes for bc in bcs])
                 nl = entity_node_list.ravel()
-                new_entity_node_list = np.where(np.in1d(nl, bcids), -1-nl, nl)
+                new_entity_node_list = np.where(np.in1d(nl, bcids), -1, nl)
 
             cache[lbcs] = op2.Map(entity_set, self.node_set,
                                   map_dim,
@@ -990,6 +991,69 @@ class FunctionSpace(object):
                                   offset)
 
             return cache[lbcs]
+
+    @utils.cached_property
+    def exterior_facet_boundary_node_map(self):
+        '''The :class:`pyop2.Map` from exterior facets to the nodes on
+        those facets. Note that this differs from
+        :method:`exterior_facet_node_map` in that only surface nodes
+        are referenced, not all nodes in cells touching the surface.'''
+
+        el = self.fiat_element
+        dim = len(el.ref_el.topology)-1
+        nodes_per_facet = \
+            len(self.fiat_element.entity_closure_dofs()[dim-1][0])
+
+        facet_set = self._mesh.exterior_facets.set
+
+        fs_dat = op2.Dat(facet_set**el.space_dimension(),
+                         data=self.exterior_facet_node_map().values)
+
+        facet_dat = op2.Dat(facet_set**nodes_per_facet,
+                            dtype=np.int32)
+
+        local_facet_nodes = np.array(
+            [dofs for e, dofs in el.entity_closure_dofs()[dim-1].iteritems()])
+
+        # Helper function to turn the inner index of an array into c
+        # array literals.
+        c_array = lambda xs : "{"+", ".join(map(str, xs))+"}"
+
+        kernel = op2.Kernel(str(cgen.FunctionBody(
+                    cgen.FunctionDeclaration(
+                        cgen.Value("void", "create_bc_node_map"),
+                        [cgen.Value("int", "*cell_nodes"),
+                         cgen.Value("int", "*facet_nodes"),
+                         cgen.Value("unsigned int", "*facet")
+                         ]
+                        ),
+                    cgen.Block(
+                        [cgen.ArrayInitializer(
+                                cgen.Const(
+                                    cgen.ArrayOf(
+                                        cgen.ArrayOf(
+                                            cgen.Value("int", "l_nodes"),
+                                            str(len(el.ref_el.topology[dim-1]))),
+                                        str(nodes_per_facet)),
+                                    ),
+                                map(c_array, local_facet_nodes)
+                                ),
+                         cgen.Value("int", "n"),
+                         cgen.For("n=0", "n < %d" % nodes_per_facet, "++n",
+                                  cgen.Assign("facet_nodes[n]",
+                                              "cell_nodes[l_nodes[facet[0]][n]]")
+                                  )
+                         ]
+                        )
+                    )), "create_bc_node_map")
+
+        op2.par_loop(kernel, facet_set,
+                     fs_dat(op2.READ),
+                     facet_dat(op2.WRITE),
+                     self._mesh.exterior_facets.local_facet_dat(op2.READ))
+
+        return op2.Map(facet_set, self.node_set, nodes_per_facet, facet_dat.data_ro, name="exterior_facet_boundary_node")
+
 
     @property
     def dim(self):
