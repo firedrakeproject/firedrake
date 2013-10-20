@@ -998,7 +998,7 @@ class FunctionSpace(object):
             if not lbcs:
                 new_entity_node_list = entity_node_list
             else:
-                bcids = reduce(np.unique, [bc.nodes for bc in bcs])
+                bcids = reduce(np.union1d, [bc.nodes for bc in bcs])
                 nl = entity_node_list.ravel()
                 new_entity_node_list = np.where(np.in1d(nl, bcids), -1, nl)
 

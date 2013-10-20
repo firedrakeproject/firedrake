@@ -192,7 +192,7 @@ class NonlinearVariationalSolver(object):
         self._problem.u_ufl.dat.needs_halo_update = True
         assemble(self._problem.F_ufl, tensor=self._F_tensor)
         for bc in self._problem.bcs:
-            bc.apply(self.F_tensor, self.u_ufl)
+            bc.apply(self._F_tensor, self._problem.u_ufl)
         if F_ != self._F_tensor.dat.vec:
             # For some reason, self._F_tensor.dat.vec.copy(F_) gives
             # me diverged line searches in the SNES solver.  So do
