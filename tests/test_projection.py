@@ -18,13 +18,13 @@ def run_test(x, degree=1, family='CG'):
 
 @pytest.mark.parametrize(('degree', 'family', 'expected_convergence'), [
     (1, 'CG', 1.8),
-    (2, 'CG', 2.8),
+    (2, 'CG', 2.6),
     (3, 'CG', 3.8),
     (0, 'DG', 0.8),
     (1, 'DG', 1.8),
     (2, 'DG', 2.8)])
 def test_convergence(degree, family, expected_convergence):
-    l2_diff = np.array([run_test(x, degree, family) for x in range(3, 8)])
+    l2_diff = np.array([run_test(x, degree, family) for x in range(2, 7)])
     conv = np.log2(l2_diff[:-1] / l2_diff[1:])
     assert (conv > expected_convergence).all()
 
