@@ -638,7 +638,7 @@ class Subset(Set):
 
     # Look up any unspecified attributes on the _set.
     def __getattr__(self, name):
-        """Returns a Set specific attribute."""
+        """Returns a :class:`Set` specific attribute."""
         return getattr(self._superset, name)
 
     @property
@@ -648,6 +648,7 @@ class Subset(Set):
 
     @property
     def indices(self):
+        """Returns the indices pointing in the superset."""
         return self._indices
 
     # override superclass behavior
