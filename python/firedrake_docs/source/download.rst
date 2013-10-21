@@ -30,7 +30,8 @@ the Fluidity dependencies in appendix C of the Fluidity manual,
 obtainable from `Launchpad
 <https://launchpad.net/fluidity/+download>`_.
 
-Next, obtain the Firedrake source from Github: ::
+Next, obtain the Firedrake source from `Github
+<http://github.com/firedrakeproject/firedrake>`_: ::
 
  git clone https://github.com/firedrakeproject/firedrake.git
 
