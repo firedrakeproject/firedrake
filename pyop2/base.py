@@ -641,6 +641,10 @@ class Subset(Set):
         """Returns a :class:`Set` specific attribute."""
         return getattr(self._superset, name)
 
+    def __pow__(self, e):
+        """Derive a :class:`DataSet` with dimension ``e``"""
+        raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
+
     @property
     def superset(self):
         """Returns the superset Set"""
@@ -687,6 +691,8 @@ class DataSet(object):
                    ('dim', (int, tuple, list), DimTypeError),
                    ('name', str, NameTypeError))
     def __init__(self, iter_set, dim=1, name=None):
+        if isinstance(iter_set, Subset):
+            raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
         self._set = iter_set
         self._dim = as_tuple(dim, int)
         self._cdim = np.asscalar(np.prod(self._dim))
