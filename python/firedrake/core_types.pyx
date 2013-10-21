@@ -145,12 +145,15 @@ def make_extruded_coords(mesh, layers, kernel=None, layer_height=None):
 
     :arg mesh: the 2d mesh to extrude
     :arg layers: the number of layers in the extruded mesh
-    :arg kernel: a :class:`pyop2.Kernel` which produces the extruded coordinates
+    :arg kernel: :class:`pyop2.Kernel` which produces the extruded coordinates
     :arg layer_height: if provided it creates coordinates for evenly
-    spaced layers
+                       spaced layers
+
     Either the kernel or the layer_height must be provided. Should
     both be provided then the kernel takes precendence.
     Its calling signature is:
+
+    .. c::
 
         void extrusion_kernel(double *extruded_coords[],
                               double *two_d_coords[],
@@ -158,6 +161,8 @@ def make_extruded_coords(mesh, layers, kernel=None, layer_height=None):
 
     So for example to build an evenly-spaced extruded mesh with eleven
     layers and height 1 in the vertical you would write:
+
+    .. c::
 
        void extrusion_kernel(double *extruded_coords[],
                              double *two_d_coords[],
