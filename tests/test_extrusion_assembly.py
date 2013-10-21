@@ -39,7 +39,7 @@ def test_firedrake_extrusion_assembly():
     degree = range(1, 5)
 
     error = np.array([identity_xtr(family, d) for d in degree])
-    assert (error < np.array([1.0e-14, 1.0e-12, 1.0e-10, 1.0e-8])).all()
+    assert (error < np.array([1.0e-13, 1.0e-12, 1.0e-10, 1.0e-8])).all()
 
 if __name__ == '__main__':
     import os

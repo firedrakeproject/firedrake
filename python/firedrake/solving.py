@@ -37,38 +37,6 @@ from petsc4py import PETSc
 _mat_cache = {}
 
 
-class LinearVariationalProblem(object):
-
-    def __init__(self, a, L, u, bcs=None,
-                 form_compiler_parameters=None):
-        """
-        Create linear variational problem a(u, v) = L(v).
-
-        An optional argument bcs may be passed to specify boundary
-        conditions.
-
-        Another optional argument form_compiler_parameters may be
-        specified to pass parameters to the form compiler.
-        """
-
-        # Extract and check arguments
-        u = _extract_u(u)
-        self.bcs = _extract_bcs(bcs)
-
-        # Check if linear form L is empty
-        if L.integrals() == ():
-            L = u * 0 * ufl.dx
-
-        # Store input UFL forms and solution Function
-        self.a = a
-        self.L = L
-        self.u = u
-
-        # Store form compiler parameters
-        form_compiler_parameters = form_compiler_parameters or {}
-        self.form_compiler_parameters = form_compiler_parameters
-
-
 class NonlinearVariationalProblem(object):
 
     """
@@ -97,31 +65,6 @@ class NonlinearVariationalProblem(object):
         # Store form compiler parameters
         form_compiler_parameters = form_compiler_parameters or {}
         self.form_compiler_parameters = form_compiler_parameters
-
-
-class LinearVariationalSolver(object):
-
-    """Solves a linear variational problem."""
-
-    def __init__(self, problem):
-        self._problem = problem
-        self._parameters = {}
-
-    @property
-    def parameters(self):
-        return self._parameters
-
-    @parameters.setter
-    def parameters(self, val):
-        self._parameters.update(val)
-
-    def solve(self):
-        A = assemble(self._problem.a)
-        b = assemble(self._problem.L).dat
-
-        # TODO: Apply Dirichlet BCs
-
-        _la_solve(A, self._problem.u, b, parameters=self.parameters)
 
 
 class NonlinearVariationalSolver(object):
@@ -237,6 +180,38 @@ class NonlinearVariationalSolver(object):
             raise RuntimeError("Nonlinear solve failed to converge after %d \
                                nonlinear iterations with reason: %s" %
                                (self.snes.getIterationNumber(), reason))
+
+
+class LinearVariationalProblem(NonlinearVariationalProblem):
+
+    def __init__(self, a, L, u, bcs=None,
+                 form_compiler_parameters=None):
+        """
+        Create linear variational problem a(u, v) = L(v).
+
+        An optional argument bcs may be passed to specify boundary
+        conditions.
+
+        Another optional argument form_compiler_parameters may be
+        specified to pass parameters to the form compiler.
+        """
+
+        # In the linear case, the Jacobian is the equation LHS.
+        J = a
+        F = ufl.action(J, u) - L
+
+        super(LinearVariationalProblem, self).__init__(F, u, bcs, J,
+                                                       form_compiler_parameters)
+
+
+class LinearVariationalSolver(NonlinearVariationalSolver):
+
+    """Solves a linear variational problem."""
+
+    def __init__(self, *args, **kwargs):
+        super(LinearVariationalSolver, self).__init__(*args, **kwargs)
+
+        self.parameters.setdefault('snes_type', 'ksponly')
 
 
 def assemble(f, tensor=None, bcs=None):
