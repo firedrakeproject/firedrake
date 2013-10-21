@@ -632,6 +632,8 @@ class Subset(Set):
     @validate_type(('superset', Set, TypeError),
                    ('indices', (list, np.ndarray), TypeError))
     def __init__(self, superset, indices):
+        # sort and remove duplicates
+        indices = np.unique(indices)
         if isinstance(superset, Subset):
             # Unroll indices to point to those in the parent
             indices = superset.indices[indices]
@@ -641,17 +643,15 @@ class Subset(Set):
         self._superset = superset
         self._indices = verify_reshape(indices, np.int32, (len(indices),))
 
-        if not ((self._indices < self.total_size).all() and\
-           (self._indices >= 0).all()):
-            raise SubsetIndexOutOfBounds()
+        if self._indices[0] < 0 or self._indices[-1] >= self._superset.total_size:
+            raise SubsetIndexOutOfBounds(
+                'Out of bounds indices in Subset construction: [%d, %d) not [0, %d)' %
+                (self._indices[0], self._indices[-1], self._superset.total_size))
 
-        # sorts and remove duplicates 
-        self._indices = np.unique(self._indices)
-
-        self._sub_core_size = sum(self._indices < self._core_size)
-        self._sub_size = sum(self._indices < self._size)
-        self._sub_ieh_size = sum(self._indices < self._ieh_size)
-        self._sub_inh_size = len(self._indices)
+        self._core_size = sum(self._indices < superset._core_size)
+        self._size = sum(self._indices < superset._size)
+        self._ieh_size = sum(self._indices < superset._ieh_size)
+        self._inh_size = len(self._indices)
 
     # Look up any unspecified attributes on the _set.
     def __getattr__(self, name):
@@ -682,23 +682,6 @@ class Subset(Set):
     def indices(self):
         """Returns the indices pointing in the superset."""
         return self._indices
-
-    # override superclass behavior
-    @property
-    def core_part(self):
-        return SetPartition(self, 0, self._sub_core_size)
-
-    @property
-    def owned_part(self):
-        return SetPartition(self, self._sub_core_size, self._sub_size - self._sub_core_size)
-
-    @property
-    def exec_part(self):
-        return SetPartition(self, self._sub_size, self._sub_exec_size - self._sub_size)
-
-    @property
-    def all_part(self):
-        return SetPartition(self, 0, self._sub_exec_size)
 
 
 class SetPartition(object):
