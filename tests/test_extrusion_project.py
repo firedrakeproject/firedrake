@@ -47,7 +47,7 @@ def project(test_mode, pwr=None):
 @pytest.mark.skipif("config.option.short")
 def test_firedrake_extrusion_project():
     import numpy as np
-    l2_diff = [project(test_mode=True, pwr=i) for i in range(4, 8)]
+    l2_diff = [project(test_mode=True, pwr=i) for i in range(4, 6)]
     print "l2 error norms:", l2_diff
 
     from math import log
