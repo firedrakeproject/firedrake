@@ -69,6 +69,11 @@ class SizeTypeError(TypeError):
     """Invalid type for size."""
 
 
+class SubsetIndexOutOfBounds(TypeError):
+
+    """Out of bound index."""
+
+
 class SparsityTypeError(TypeError):
 
     """Invalid type for :class:`pyop2.op2.Sparsity`."""

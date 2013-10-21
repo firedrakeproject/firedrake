@@ -624,18 +624,17 @@ class Subset(Set):
         self._superset = superset
         self._indices = verify_reshape(indices, np.int32, (len(indices),))
 
-        self._sub_core_size = 0
-        self._sub_size = 0
-        self._sub_ieh_size = 0
-        self._sub_inh_size = 0
-        for idx in indices:
-            if idx < self._core_size:
-                self._sub_core_size += 1
-            if idx < self._size:
-                self._sub_size += 1
-            if idx < self._ieh_size:
-                self._sub_ieh_size += 1
-            self._sub_inh_size += 1
+        if not ((self._indices < self.total_size).all() and\
+           (self._indices >= 0).all()):
+            raise SubsetIndexOutOfBounds()
+
+        # sorts and remove duplicates 
+        self._indices = np.unique(self._indices)
+
+        self._sub_core_size = sum(self._indices < self._core_size)
+        self._sub_size = sum(self._indices < self._size)
+        self._sub_ieh_size = sum(self._indices < self._ieh_size)
+        self._sub_inh_size = len(self._indices)
 
     # Look up any unspecified attributes on the _set.
     def __getattr__(self, name):

@@ -37,6 +37,7 @@ User API Unit Tests
 
 import pytest
 import numpy as np
+from numpy.testing import assert_equal
 from mpi4py import MPI
 
 from pyop2 import op2
@@ -296,6 +297,39 @@ class TestSetAPI:
 
         dset = set ** 3
         assert dset.cdim == 3
+
+
+class TestSubsetAPI:
+    """
+    Subset API unit tests
+    """
+
+    def test_illegal_set_arg(self, backend):
+        "The subset constructor checks arguments."
+        with pytest.raises(TypeError):
+            op2.Subset("fail", [0, 1])
+
+    def test_out_of_bounds_index(self, backend, set):
+        "The subset constructor checks indices are correct."
+        with pytest.raises(exceptions.SubsetIndexOutOfBounds):
+            op2.Subset(set, range(set.total_size + 1))
+
+    def test_invalid_index(self, backend, set):
+        "The subset constructor checks indices are correct."
+        with pytest.raises(exceptions.SubsetIndexOutOfBounds):
+            op2.Subset(set, [-1])
+
+    def test_indices_duplicate_removed(self, backend, set):
+        "The subset constructor voids duplicate indices)"
+        ss = op2.Subset(set, [0, 0, 1, 1])
+        assert np.sum(ss.indices == 0) == 1
+        assert np.sum(ss.indices == 1) == 1
+
+
+    def test_indices_sorted(self, backend, set):
+        "The subset constructor sorts indices)"
+        ss = op2.Subset(set, [0, 4, 1, 2, 3])
+        assert_equal(ss.indices, range(5))
 
 
 class TestDataSetAPI:
