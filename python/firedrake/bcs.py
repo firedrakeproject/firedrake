@@ -45,9 +45,17 @@ class DirichletBC(object):
 
         return op2.Subset(self._function_space.node_set, self.nodes)
 
-    def apply(self, r, u):
-        """Apply this boundary condition to the residual function r
-        using current state u. This sets the boundary condition nodes
-        to the value u-bc."""
+    def apply(self, r, u=None):
+        """Apply this boundary condition to the :class:`Function` ``r``.
 
-        r.assign(u-self.function_arg, subset=self.node_set)
+        If a current state, ``u``, is supplied then ``r`` is taken to be a
+        residual and the boundary condition nodes are set to the value
+        ``u-bc``.
+
+        If ``u`` is absent, then the boundary condition nodes of ``r`` are set
+        to the boundary condition values."""
+
+        if u:
+            r.assign(u-self.function_arg, subset=self.node_set)
+        else:
+            r.assign(self.function_arg, subset=self.node_set)

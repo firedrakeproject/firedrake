@@ -193,6 +193,7 @@ class NonlinearVariationalSolver(object):
         assemble(self._problem.F_ufl, tensor=self._F_tensor)
         for bc in self._problem.bcs:
             bc.apply(self._F_tensor, self._problem.u_ufl)
+
         if F_ != self._F_tensor.dat.vec:
             # For some reason, self._F_tensor.dat.vec.copy(F_) gives
             # me diverged line searches in the SNES solver.  So do
@@ -216,6 +217,10 @@ class NonlinearVariationalSolver(object):
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 
     def solve(self):
+        # Apply the boundary conditions to the initial guess.
+        for bc in self._problem.bcs:
+            bc.apply(self._problem.u_ufl)
+
         self.snes.solve(None, self._problem.u_ufl.dat.vec)
         # Only the local part of u gets updated by the petsc solve, so
         # we need to mark things as needing a halo update.
