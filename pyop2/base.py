@@ -625,13 +625,19 @@ class Subset(Set):
     """OP2 subset.
 
     :param superset: The superset of the subset.
-    :type superset: ``Set``. (NOTE: Subset of subsets is unsupported)
+    :type superset: a :class:`Set` or a :class:`Subset`.
     :param indices: Elements of the superset that form the subset.
     :type indices: a list of integers, or a numpy array.
     """
     @validate_type(('superset', Set, TypeError),
                    ('indices', (list, np.ndarray), TypeError))
     def __init__(self, superset, indices):
+        if isinstance(superset, Subset):
+            # Unroll indices to point to those in the parent
+            indices = superset.indices[indices]
+            superset = superset.superset
+        assert type(superset) is Set, 'Subset construction failed, should not happen'
+
         self._superset = superset
         self._indices = verify_reshape(indices, np.int32, (len(indices),))
 
