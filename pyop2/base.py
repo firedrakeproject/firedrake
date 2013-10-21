@@ -662,6 +662,17 @@ class Subset(Set):
         """Derive a :class:`DataSet` with dimension ``e``"""
         raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
 
+    def __getitem__(self, indices):
+        """Build a :class:`Subset` from this :class:`Subset`
+
+        :arg indices: The elements of this :class:`Subset` from which the
+                      :class:`Subset` should be formed.
+
+        """
+        if np.isscalar(indices):
+            indices = [indices]
+        return _make_object('Subset', self, indices)
+
     @property
     def superset(self):
         """Returns the superset Set"""
