@@ -631,7 +631,7 @@ class Subset(Set):
     :type indices: a list of integers, or a numpy array.
     """
     @validate_type(('superset', Set, TypeError),
-                   ('indices', (list, np.ndarray), TypeError))
+                   ('indices', (list, tuple, np.ndarray), TypeError))
     def __init__(self, superset, indices):
         # sort and remove duplicates
         indices = np.unique(indices)
