@@ -196,6 +196,7 @@ inc(unsigned int* v1, unsigned int* v2) {
 
         dat = op2.Dat(idset ** 1, data=[0, 1], dtype=np.float)
         map = op2.Map(iterset, indset, 4, [0, 1, 2, 3, 0, 1, 2, 3])
+        idmap = op2.Map(iterset, idset, 1, [0, 1])
         sparsity = op2.Sparsity((indset, indset), (map, map))
         mat = op2.Mat(sparsity, np.float64)
         mat01 = op2.Mat(sparsity, np.float64)
@@ -212,15 +213,15 @@ unique_id(double* dat, double mat[1][1], int i, int j) {
         mat10.zero()
 
         op2.par_loop(k, iterset,
-                     dat(op2.READ, map[0]),
+                     dat(op2.READ, idmap[0]),
                      mat(op2.INC, (map[op2.i[0]], map[op2.i[1]])))
 
         op2.par_loop(k, ss01,
-                     dat(op2.READ, map[0]),
+                     dat(op2.READ, idmap[0]),
                      mat01(op2.INC, (map[op2.i[0]], map[op2.i[1]])))
 
         op2.par_loop(k, ss10,
-                     dat(op2.READ, map[0]),
+                     dat(op2.READ, idmap[0]),
                      mat10(op2.INC, (map[op2.i[0]], map[op2.i[1]])))
 
         assert (mat01.values == mat.values).all()
