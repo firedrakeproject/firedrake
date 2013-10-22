@@ -63,7 +63,7 @@ def helmholtz(test_mode, pwr=None):
 @pytest.mark.skipif("config.option.short")
 def test_firedrake_extrusion_helmholtz():
     import numpy as np
-    l2_diff = np.array([helmholtz(test_mode=True, pwr=i) for i in range(4, 8)])
+    l2_diff = np.array([helmholtz(test_mode=True, pwr=i) for i in range(4, 6)])
     print "L2 error norms:", l2_diff
     l2_conv = np.log2(l2_diff[:-1] / l2_diff[1:])
     print "Convergence order:", l2_conv
