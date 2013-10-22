@@ -31,7 +31,7 @@ div.documentwrapper {
 }
 
 div.bodywrapper {
-   width: 900px;
+   width: 950px;
    margin-left: auto;
    margin-right: auto;
 }
@@ -113,13 +113,13 @@ div.related ul {
 
 div.sidebar {
     margin: 0 0 0.5em 1em;
-    border: 2px solid #c6d880;
-    background-color: #e6efc2;
-    width: 40%;
+    border: 2px solid #8c1b1e;
+    background-color: #eee;
+    width: 300px;
     float: right;
 	border-right-style: none;
 	border-left-style: none;
-	padding: 10px 20px;
+	padding: 0px 0px;
 }
 
 p.sidebar-title {
@@ -576,4 +576,25 @@ display: none;
 .app {
   height: 20em;
   margin-right: 1em;
+}
+
+/* Style elements controlling the RSS feeds */
+
+/*Container*/
+/*Header*/
+#header .feed_title  {
+    margin:10px 0px 10px 0px;
+    /*padding:10px 5px 50px 5px;*/
+    font-weight:bold;
+    font-size:16px;
+}
+
+.feed_item {    
+    margin:5px 0px 5px 0px;
+    background: #eee;
+    color: #3E4349;
+}
+
+.feed_item_date {
+    font-size: 12px;
 }
