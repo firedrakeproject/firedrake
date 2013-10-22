@@ -212,6 +212,7 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         super(LinearVariationalSolver, self).__init__(*args, **kwargs)
 
         self.parameters.setdefault('snes_type', 'ksponly')
+        self.parameters.setdefault('ksp_rtol', 1.e-7)
 
 
 def assemble(f, tensor=None, bcs=None):
