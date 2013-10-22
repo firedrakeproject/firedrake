@@ -85,8 +85,8 @@ class TestSubSet:
         even = np.arange(0, nelems, 2, dtype=np.int)
         odd = np.arange(1, nelems, 2, dtype=np.int)
 
-        sseven = iterset[even]
-        ssodd = iterset[odd]
+        sseven = iterset(even)
+        ssodd = iterset(odd)
 
         d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
         k = op2.Kernel("void inc(unsigned int* v) { *v += 1; }", "inc")
@@ -113,16 +113,16 @@ class TestSubSet:
 
     def test_direct_loop_sub_subset_with_indexing(self, backend, iterset):
         indices = np.arange(0, nelems, 2, dtype=np.int)
-        ss = iterset[indices]
+        ss = iterset(indices)
         indices = np.arange(0, nelems/2, 2, dtype=np.int)
-        sss = ss[indices]
+        sss = ss(indices)
 
         d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
         k = op2.Kernel("void inc(unsigned int* v) { *v += 1; }", "inc")
         op2.par_loop(k, sss, d(op2.RW))
 
         indices = np.arange(0, nelems, 4, dtype=np.int)
-        ss2 = iterset[indices]
+        ss2 = iterset(indices)
         d2 = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
         op2.par_loop(k, ss2, d2(op2.RW))
 
