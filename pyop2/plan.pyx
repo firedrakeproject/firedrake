@@ -149,8 +149,12 @@ cdef class _Plan:
                 ii = indices(dat,map)
                 l = len(ii)
 
-                inds[(dat,map,pi)], inv = numpy.unique(map.values_with_halo[start:end,ii],
-                                                       return_inverse=True)
+                if (isinstance(iset.set, base.Subset)):
+                    staged_values = map.values_with_halo[iset.set.indices[start:end]][:,ii]
+                else:
+                    staged_values = map.values_with_halo[start:end,ii]
+
+                inds[(dat,map,pi)], inv = numpy.unique(staged_values, return_inverse=True)
                 sizes[(dat,map,pi)] = len(inds[(dat,map,pi)])
 
                 for i, ind in enumerate(sorted(ii)):
@@ -267,6 +271,19 @@ cdef class _Plan:
         cdef int _mi
         cdef int _i
 
+        # indirection array:
+        # array containing the iteration set index given a thread index
+        #  - id for normal sets
+        #  - Subset::indices for subsets
+        # (the extra indirection is to avoid a having a test in the inner most
+        # loops and to avoid splitting code: set vs subset)
+        cdef int * iteridx
+        if isinstance(iset.set, base.Subset):
+            iteridx = <int *> numpy.PyArray_DATA(iset.set.indices)
+        else:
+            _id = numpy.arange(iset.set.total_size, dtype=numpy.uint32)
+            iteridx = <int *> numpy.PyArray_DATA(_id)
+
         # intra partition coloring
         self._thrcol = numpy.empty((iset.set.exec_size, ), dtype=numpy.int32)
         self._thrcol.fill(-1)
@@ -296,7 +313,7 @@ cdef class _Plan:
 
                             for _rai in range(n_race_args):
                                 for _mi in range(flat_race_args[_rai].count):
-                                    _mask |= flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]]
+                                    _mask |= flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[iteridx[_t] * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]]
 
                             if _mask == 0xffffffffu:
                                 terminated = False
@@ -309,7 +326,7 @@ cdef class _Plan:
                                 _mask = 1 << _color
                                 for _rai in range(n_race_args):
                                     for _mi in range(flat_race_args[_rai].count):
-                                        flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]] |= _mask
+                                        flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[iteridx[_t] * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]] |= _mask
 
                     _base_color += 32
 
@@ -340,7 +357,7 @@ cdef class _Plan:
                     for _t in range(offset[_p], offset[_p] + nelems[_p]):
                         for _rai in range(n_race_args):
                             for _mi in range(flat_race_args[_rai].count):
-                                _mask |= flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]]
+                                _mask |= flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[iteridx[_t] * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]]
 
                     if _mask == 0xffffffffu:
                         terminated = False
@@ -355,7 +372,7 @@ cdef class _Plan:
                         for _t in range(offset[_p], offset[_p] + nelems[_p]):
                             for _rai in range(n_race_args):
                                 for _mi in range(flat_race_args[_rai].count):
-                                    flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[_t * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]] |= _mask
+                                    flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[iteridx[_t] * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]] |= _mask
 
             _base_color += 32
 

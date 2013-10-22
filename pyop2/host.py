@@ -348,6 +348,7 @@ class JITModule(base.JITModule):
         # No need to protect against re-initialization since these attributes
         # are not expensive to set and won't be used if we hit cache
         self._kernel = kernel
+        self._itspace = itspace
         self._extents = itspace.extents
         self._layers = itspace.layers
         self._args = args
@@ -416,6 +417,14 @@ class JITModule(base.JITModule):
 
         def extrusion_loop(d):
             return "for (int j_0=0; j_0<%d; ++j_0){" % d
+
+        _ssinds_arg = ""
+        _ssinds_dec = ""
+        _index_expr = "n"
+        if isinstance(self._itspace._iterset, Subset):
+            _ssinds_arg = "PyObject* _ssinds,"
+            _ssinds_dec = "int* ssinds = (int*) (((PyArrayObject*) _ssinds)->data);"
+            _index_expr = "ssinds[n]"
 
         _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self._args])
 
@@ -511,6 +520,9 @@ class JITModule(base.JITModule):
 
         return {'ind': '  ' * nloops,
                 'kernel_name': self._kernel.name,
+                'ssinds_arg': _ssinds_arg,
+                'ssinds_dec': _ssinds_dec,
+                'index_expr': _index_expr,
                 'wrapper_args': _wrapper_args,
                 'wrapper_decs': indent(_wrapper_decs, 1),
                 'const_args': _const_args,

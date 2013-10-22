@@ -575,6 +575,19 @@ class Set(object):
     def __repr__(self):
         return "Set(%r, %r)" % (self._size, self._name)
 
+    def __call__(self, *indices):
+        """Build a :class:`Subset` from this :class:`Set`
+
+        :arg indices: The elements of this :class:`Set` from which the
+                      :class:`Subset` should be formed.
+
+        """
+        if len(indices) == 1:
+            indices = indices[0]
+            if np.isscalar(indices):
+                indices = [indices]
+        return _make_object('Subset', self, indices)
+
     def __contains__(self, dset):
         """Indicate whether a given DataSet is compatible with this Set."""
         return dset.set is self
@@ -609,6 +622,73 @@ class Set(object):
         return SetPartition(self, 0, self.exec_size)
 
 
+class Subset(Set):
+
+    """OP2 subset.
+
+    :param superset: The superset of the subset.
+    :type superset: a :class:`Set` or a :class:`Subset`.
+    :param indices: Elements of the superset that form the
+        subset. Duplicate values are removed when constructing the subset.
+    :type indices: a list of integers, or a numpy array.
+    """
+    @validate_type(('superset', Set, TypeError),
+                   ('indices', (list, tuple, np.ndarray), TypeError))
+    def __init__(self, superset, indices):
+        # sort and remove duplicates
+        indices = np.unique(indices)
+        if isinstance(superset, Subset):
+            # Unroll indices to point to those in the parent
+            indices = superset.indices[indices]
+            superset = superset.superset
+        assert type(superset) is Set, 'Subset construction failed, should not happen'
+
+        self._superset = superset
+        self._indices = verify_reshape(indices, np.int32, (len(indices),))
+
+        if self._indices[0] < 0 or self._indices[-1] >= self._superset.total_size:
+            raise SubsetIndexOutOfBounds(
+                'Out of bounds indices in Subset construction: [%d, %d) not [0, %d)' %
+                (self._indices[0], self._indices[-1], self._superset.total_size))
+
+        self._core_size = sum(self._indices < superset._core_size)
+        self._size = sum(self._indices < superset._size)
+        self._ieh_size = sum(self._indices < superset._ieh_size)
+        self._inh_size = len(self._indices)
+
+    # Look up any unspecified attributes on the _set.
+    def __getattr__(self, name):
+        """Returns a :class:`Set` specific attribute."""
+        return getattr(self._superset, name)
+
+    def __pow__(self, e):
+        """Derive a :class:`DataSet` with dimension ``e``"""
+        raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
+
+    def __call__(self, *indices):
+        """Build a :class:`Subset` from this :class:`Subset`
+
+        :arg indices: The elements of this :class:`Subset` from which the
+                      :class:`Subset` should be formed.
+
+        """
+        if len(indices) == 1:
+            indices = indices[0]
+            if np.isscalar(indices):
+                indices = [indices]
+        return _make_object('Subset', self, indices)
+
+    @property
+    def superset(self):
+        """Returns the superset Set"""
+        return self._superset
+
+    @property
+    def indices(self):
+        """Returns the indices pointing in the superset."""
+        return self._indices
+
+
 class SetPartition(object):
     def __init__(self, set, offset, size):
         self.set = set
@@ -627,6 +707,8 @@ class DataSet(object):
                    ('dim', (int, tuple, list), DimTypeError),
                    ('name', str, NameTypeError))
     def __init__(self, iter_set, dim=1, name=None):
+        if isinstance(iter_set, Subset):
+            raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
         self._set = iter_set
         self._dim = as_tuple(dim, int)
         self._cdim = np.asscalar(np.prod(self._dim))
@@ -910,7 +992,7 @@ class IterationSpace(object):
     @property
     def cache_key(self):
         """Cache key used to uniquely identify the object in the cache."""
-        return self._extents, self.iterset.layers
+        return self._extents, self.iterset.layers, isinstance(self._iterset, Subset)
 
 
 class DataCarrier(object):
@@ -1588,7 +1670,7 @@ class Map(object):
 
     @validate_type(('iterset', Set, SetTypeError), ('toset', Set, SetTypeError),
                   ('arity', int, ArityTypeError), ('name', str, NameTypeError))
-    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None):
+    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, parent=None):
         self._iterset = iterset
         self._toset = toset
         self._arity = arity
@@ -1596,6 +1678,10 @@ class Map(object):
                                       allow_none=True)
         self._name = name or "map_%d" % Map._globalcount
         self._offset = offset
+        # This is intended to be used for modified maps, for example
+        # where a boundary condition is imposed by setting some map
+        # entries negative.
+        self._parent = parent
         Map._globalcount += 1
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
@@ -1677,6 +1763,11 @@ class Map(object):
 
     def __ne__(self, o):
         return not self == o
+
+    def __le__(self, o):
+        """o<=self if o equals self or its parent equals self."""
+
+        return self == o or (isinstance(self._parent, Map) and self._parent <= o)
 
     @classmethod
     def fromhdf5(cls, iterset, toset, f, name):
@@ -1910,6 +2001,17 @@ class Sparsity(Cached):
         PETSc's MatMPIAIJSetPreallocation_."""
         return int(self._o_nz)
 
+    def __contains__(self, other):
+        """Return true if other is a pair of maps in self.maps(). This
+        will also return true if the elements of other have parents in
+        self.maps()."""
+
+        for maps in self.maps:
+            if tuple(other) <= maps:
+                return True
+
+        return False
+
 
 class Mat(DataCarrier):
 
@@ -1944,7 +2046,7 @@ class Mat(DataCarrier):
         path = as_tuple(path, Arg, 2)
         path_maps = [arg.map for arg in path]
         path_idxs = [arg.idx for arg in path]
-        if tuple(path_maps) not in self.sparsity.maps:
+        if tuple(path_maps) not in self.sparsity:
             raise MapValueError("Path maps not in sparsity maps")
         return _make_object('Arg', data=self, map=path_maps, access=access,
                             idx=path_idxs, flatten=flatten)
@@ -2197,6 +2299,7 @@ class ParLoop(LazyComputation):
         arguments using an :class:`IterationIndex` for consistency.
 
         :return: size of the local iteration space"""
+        iterset = iterset.superset if isinstance(iterset, Subset) else iterset
         itspace = ()
         for i, arg in enumerate(self._actual_args):
             if arg._is_global or arg.map is None:

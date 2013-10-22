@@ -34,7 +34,7 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
     {%- set comma = joiner(', ') -%}
     {%- for arg in parloop.args -%}
     {{- comma() }}
-    {{ arg._direct_kernel_arg_name(idx=idx) }}
+    {{ arg._direct_kernel_arg_name(idx=idx, subset=launch.subset) }}
     {% endfor -%}
     {{- kernel_call_const_args() }}
     {%- for ext in parloop._it_space._extent_ranges -%}
@@ -93,6 +93,9 @@ __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
   {%- endfor %}
   int set_size,
   int set_offset
+  {%- if launch.subset %}
+  , __global int* _ssinds
+  {% endif -%}
   ) {
   {% if(parloop._needs_shared_memory) -%}
   __local char shared[{{ launch.local_memory_size }}] __attribute__((aligned(sizeof(long))));
