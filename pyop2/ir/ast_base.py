@@ -3,7 +3,6 @@
 
 # This dictionary is used as a template generator for simple exprs and commands
 util = {}
-
 util.update({
     "point": lambda p: "[%s]" % p,
     "assign": lambda s, e: "%s = %s" % (s, e),
@@ -98,6 +97,12 @@ class Sum(BinExpr):
         BinExpr.__init__(self, expr1, expr2, " + ")
 
 
+class Sub(BinExpr):
+
+    def __init__(self, expr1, expr2):
+        BinExpr.__init__(self, expr1, expr2, " - ")
+
+
 class Prod(BinExpr):
 
     def __init__(self, expr1, expr2):
@@ -139,7 +144,53 @@ class Symbol(Expr):
 # Vector expression classes ###
 
 
+class AVXSum(Sum):
+
+    def gencode(self, scope=False):
+        op1, op2 = (self.children[0], self.children[1])
+        return "_mm256_add_pd (%s, %s)" % (op1.gencode(), op2.gencode())
+
+
+class AVXSub(Sub):
+
+    def gencode(self):
+        op1, op2 = (self.children[0], self.children[1])
+        return "_mm256_add_pd (%s, %s)" % (op1.gencode(), op2.gencode())
+
+
+class AVXProd(Prod):
+
+    def gencode(self):
+        op1, op2 = (self.children[0], self.children[1])
+        return "_mm256_mul_pd (%s, %s)" % (op1.gencode(), op2.gencode())
+
+
+class AVXDiv(Div):
+
+    def gencode(self):
+        op1, op2 = (self.children[0], self.children[1])
+        return "_mm256_div_pd (%s, %s)" % (op1.gencode(), op2.gencode())
+
+
+class AVXLoad(Symbol):
+
+    def gencode(self):
+        mem_access = False
+        points = ""
+        for p in self.rank:
+            points += util["point"](p)
+            mem_access = mem_access or not p.isdigit()
+        symbol = str(self.symbol) + points
+        if mem_access:
+            return "_mm256_load_pd (%s)" % symbol
+        else:
+            # TODO: maybe need to differentiate with broadcasts
+            return "_mm256_set1_pd (%s)" % symbol
+
+
 # Statements ###
+
+
 class Statement(Node):
 
     """Base class for the statement set of productions"""
@@ -281,8 +332,74 @@ class FunDecl(Statement):
                "\n{\n%s\n}" % indent(self.children[0].gencode())
 
 
-# Utility functions ###
+# Vector statements classes
 
+
+class AVXStore(Assign):
+
+    def gencode(self, scope=False):
+        op1 = self.children[0].gencode()
+        op2 = self.children[1].gencode()
+        return "_mm256_store_pd (%s, %s)" % (op1, op2) + semicolon(scope)
+
+
+class AVXLocalPermute(Statement):
+
+    def __init__(self, r, mask):
+        self.r = r
+        self.mask = mask
+
+    def gencode(self, scope=True):
+        op = self.r.gencode()
+        return "_mm256_permute_pd (%s, %s)" \
+            % (op, self.mask) + semicolon(scope)
+
+
+class AVXGlobalPermute(Statement):
+
+    def __init__(self, r1, r2, mask):
+        self.r1 = r1
+        self.r2 = r2
+        self.mask = mask
+
+    def gencode(self, scope=True):
+        op1 = self.r1.gencode()
+        op2 = self.r2.gencode()
+        return "_mm256_permute2f128_pd (%s, %s, %s)" \
+            % (op1, op2, self.mask) + semicolon(scope)
+
+
+class AVXUnpackHi(Statement):
+
+    def __init__(self, r1, r2):
+        self.r1 = r1
+        self.r2 = r2
+
+    def gencode(self, scope=True):
+        op1 = self.r1.gencode()
+        op2 = self.r2.gencode()
+        return "_mm256_unpackhi_pd (%s, %s)" % (op1, op2) + semicolon(scope)
+
+
+class AVXUnpackLo(Statement):
+
+    def __init__(self, r1, r2):
+        self.r1 = r1
+        self.r2 = r2
+
+    def gencode(self, scope=True):
+        op1 = self.r1.gencode()
+        op2 = self.r2.gencode()
+        return "_mm256_unpacklo_pd (%s, %s)" % (op1, op2) + semicolon(scope)
+
+
+class AVXSetZero(Statement):
+
+    def gencode(self, scope=True):
+        return "_mm256_setzero_pd ()" + semicolon(scope)
+
+
+### Utility functions ###
 
 def indent(block):
     """Indent each row of the given string block with n*4 spaces."""
