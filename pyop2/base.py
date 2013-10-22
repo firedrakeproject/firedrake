@@ -626,7 +626,8 @@ class Subset(Set):
 
     :param superset: The superset of the subset.
     :type superset: a :class:`Set` or a :class:`Subset`.
-    :param indices: Elements of the superset that form the subset.
+    :param indices: Elements of the superset that form the
+        subset. Duplicate values are removed when constructing the subset.
     :type indices: a list of integers, or a numpy array.
     """
     @validate_type(('superset', Set, TypeError),
