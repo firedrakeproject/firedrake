@@ -319,17 +319,29 @@ class TestSubsetAPI:
         with pytest.raises(exceptions.SubsetIndexOutOfBounds):
             op2.Subset(set, [-1])
 
+    def test_index_construction(self, backend, set):
+        "We should be able to construct a Subset by indexing a Set."
+        ss = set[0, 1]
+        ss2 = op2.Subset(set, [0, 1])
+        assert_equal(ss.indices, ss2.indices)
+
+        ss = set[0]
+        ss2 = op2.Subset(set, [0])
+        assert_equal(ss.indices, ss2.indices)
+
     def test_indices_duplicate_removed(self, backend, set):
         "The subset constructor voids duplicate indices)"
         ss = op2.Subset(set, [0, 0, 1, 1])
         assert np.sum(ss.indices == 0) == 1
         assert np.sum(ss.indices == 1) == 1
 
-
     def test_indices_sorted(self, backend, set):
         "The subset constructor sorts indices)"
         ss = op2.Subset(set, [0, 4, 1, 2, 3])
         assert_equal(ss.indices, range(5))
+
+        ss2 = op2.Subset(set, range(5))
+        assert_equal(ss.indices, ss2.indices)
 
 
 class TestDataSetAPI:

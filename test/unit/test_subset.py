@@ -80,6 +80,54 @@ class TestSubSet:
         op2.par_loop(k, ssodd, d(op2.RW))
         assert (d.data == 1).all()
 
+    def test_direct_complementary_subsets_with_indexing(self, backend, iterset):
+        """Test direct par_loop over two complementary subsets"""
+        even = np.arange(0, nelems, 2, dtype=np.int)
+        odd = np.arange(1, nelems, 2, dtype=np.int)
+
+        sseven = iterset[even]
+        ssodd = iterset[odd]
+
+        d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
+        k = op2.Kernel("void inc(unsigned int* v) { *v += 1; }", "inc")
+        op2.par_loop(k, sseven, d(op2.RW))
+        op2.par_loop(k, ssodd, d(op2.RW))
+        assert (d.data == 1).all()
+
+    def test_direct_loop_sub_subset(self, backend, iterset):
+        indices = np.arange(0, nelems, 2, dtype=np.int)
+        ss = op2.Subset(iterset, indices)
+        indices = np.arange(0, nelems/2, 2, dtype=np.int)
+        sss = op2.Subset(ss, indices)
+
+        d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
+        k = op2.Kernel("void inc(unsigned int* v) { *v += 1; }", "inc")
+        op2.par_loop(k, sss, d(op2.RW))
+
+        indices = np.arange(0, nelems, 4, dtype=np.int)
+        ss2 = op2.Subset(iterset, indices)
+        d2 = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
+        op2.par_loop(k, ss2, d2(op2.RW))
+
+        assert (d.data == d2.data).all()
+
+    def test_direct_loop_sub_subset_with_indexing(self, backend, iterset):
+        indices = np.arange(0, nelems, 2, dtype=np.int)
+        ss = iterset[indices]
+        indices = np.arange(0, nelems/2, 2, dtype=np.int)
+        sss = ss[indices]
+
+        d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
+        k = op2.Kernel("void inc(unsigned int* v) { *v += 1; }", "inc")
+        op2.par_loop(k, sss, d(op2.RW))
+
+        indices = np.arange(0, nelems, 4, dtype=np.int)
+        ss2 = iterset[indices]
+        d2 = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
+        op2.par_loop(k, ss2, d2(op2.RW))
+
+        assert (d.data == d2.data).all()
+
     def test_indirect_loop(self, backend, iterset):
         """Test a indirect ParLoop on a subset"""
         indices = np.array([i for i in range(nelems) if not i % 2], dtype=np.int)
