@@ -49,7 +49,7 @@ echo "*** Installing dependencies ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
 
 # Install Cython so we can build PyOP2 from source
-${PIP} Cython numpy >> $LOGFILE 2>&1
+${PIP} Cython decorator numpy PyYAML >> $LOGFILE 2>&1
 PETSC_CONFIGURE_OPTIONS="--with-fortran --with-fortran-interfaces --with-c++-support" \
   ${PIP} "petsc>=3.4" "petsc4py>=3.4" >> $LOGFILE 2>&1
 
