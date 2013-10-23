@@ -47,20 +47,7 @@
 		});
 	});
   </script>
-<script type="text/javascript">
 
-<!--  var _gaq = _gaq || [];
-  _gaq.push(['_setAccount', 'UA-31806773-1']);
-  _gaq.push(['_setDomainName', 'dolfin-adjoint.org']);
-  _gaq.push(['_trackPageview']);-->
-
-  (function() {
-    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
-    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
-    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
-  })();
-
-</script>
 
 {% if theme_favicon %}
 <link rel="shortcut icon" href="{{ pathto('_static/'+theme_favicon, 1) }}" />
@@ -74,16 +61,8 @@
   <div id="access">
     <div class="menu">
       <ul>
-<!--          <li class="page_item"><a href="{{ pathto('maths/%s.%s' % ('index', 'html'), 1) }}" title="Mathematical background to adjoints">Background</a></li>
-          <li class="page_item"><a href="{{ pathto('features/%s.%s' % ('index', 'html'), 1) }}" title="Features of firedrake">Features</a></li>
-          <li class="page_item"><a href="{{ pathto('about/%s.%s' % ('index', 'html'), 1) }}" title="Find out more about firedrake">About</a></li>-->
           <li class="page_item"><a href="{{ pathto('download.html', 1) }}" title="Obtain the firedrake code">Download</a></li>
-          <!--
-              <li class="page_item"><a href="{{ pathto('documentation/%s.%s' % ('tutorial', 'html'), 1) }}" title="Get started with firedrake">Tutorial</a></li>
-          <li class="page_item"><a href="{{ pathto('documentation/%s.%s' % ('index', 'html'), 1) }}" title="Learn how to use firedrake">Documentation</a></li>
-          <li class="page_item"><a href="{{ pathto('citing/%s.%s' % ('index', 'html'), 1) }}" title="Learn how to cite the firedrake project">Citing</a></li>-->
-<li class="page_item"><a href="{{ pathto('%s.%s' % ('team', 'html'), 1) }}" title="The guilty parties">Team</a></li>
-          <!--<li class="page_item"><a href="{{ pathto('support/%s.%s' % ('index', 'html'), 1) }}" title="Where to go for more help">Support</a></li>-->
+          <li class="page_item"><a href="{{ pathto('%s.%s' % ('team', 'html'), 1) }}" title="The guilty parties">Team</a></li>
       </ul>
     </div><!-- .menu -->
   </div><!-- #access -->
@@ -96,4 +75,3 @@
 {# do not display sidebars #}
 {% block sidebar1 %}{% endblock %}
 {% block sidebar2 %}{% endblock %}
-
