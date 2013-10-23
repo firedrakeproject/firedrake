@@ -982,7 +982,7 @@ class FunctionSpace(object):
                                "exterior_facet_node",
                                parent=parent)
 
-    def _map_cache(self, cache, entity_set, entity_node_list, map_dim, bcs, name,
+    def _map_cache(self, cache, entity_set, entity_node_list, map_arity, bcs, name,
                    offset=None, parent=None):
         if bcs is None:
             lbcs = None
@@ -1003,7 +1003,7 @@ class FunctionSpace(object):
                 new_entity_node_list = np.where(np.in1d(nl, bcids), -1, nl)
 
             cache[lbcs] = op2.Map(entity_set, self.node_set,
-                                  map_dim,
+                                  map_arity,
                                   new_entity_node_list,
                                   ("%s_"+name) % (self.name),
                                   offset,
@@ -1296,6 +1296,10 @@ both Functions on the same :class:`FunctionSpace` then::
   f += 2 * g
 
 will add twice `g` to `f`.
+
+If present, subset must be an :class:`pyop2.Subset` of
+:attr:`self.node_set`. The expression will then only be assigned
+to the nodes on that subset.
         """
 
         assemble_expressions.evaluate_expression(

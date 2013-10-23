@@ -34,7 +34,7 @@ class DirichletBC(object):
         fs = self._function_space
 
         return np.unique(
-            fs.exterior_facet_boundary_node_map.values.take(
+            fs.exterior_facet_boundary_node_map.values_with_halo.take(
                 fs._mesh.exterior_facets.subset(self.sub_domain).indices,
                 axis=0))
 
