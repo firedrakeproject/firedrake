@@ -17,11 +17,15 @@ if (( EUID != 0 )); then
   PIP="pip install --user"
   PREFIX=$HOME/.local
   PATH=$PREFIX/bin:$PATH
+  ASUSER=""
 else
   echo "*** Privileged installation ***" | tee -a $LOGFILE
+  echo "  Running unprivileged commands as ${SUDO_USER}" | tee -a $LOGFILE
   echo | tee -a $LOGFILE
   PIP="pip install"
   PREFIX=/usr/local
+  ASUSER="sudo -u ${SUDO_USER} "
+  HOME=$(getent passwd $SUDO_USER | cut -d: -f6)
 fi
 
 echo "*** Preparing system ***" | tee -a $LOGFILE
@@ -65,10 +69,10 @@ echo | tee -a $LOGFILE
 cd $BASE_DIR
 
 if [ ! -d PyOP2/.git ]; then
-  git clone git://github.com/OP2/PyOP2.git >> $LOGFILE 2>&1
+  ${ASUSER}git clone git://github.com/OP2/PyOP2.git >> $LOGFILE 2>&1
 fi
 cd PyOP2
-python setup.py develop --user >> $LOGFILE 2>&1
+${ASUSER}python setup.py develop --user >> $LOGFILE 2>&1
 export PYOP2_DIR=`pwd`
 
 python -c 'from pyop2 import op2'
@@ -98,7 +102,7 @@ echo | tee -a $LOGFILE
 
 cd $PYOP2_DIR
 
-make test BACKENDS="sequential openmp" >> $LOGFILE 2>&1
+${ASUSER}make test BACKENDS="sequential openmp" >> $LOGFILE 2>&1
 
 if [ $? -ne 0 ]; then
   echo "PyOP2 testing failed" 1>&2
