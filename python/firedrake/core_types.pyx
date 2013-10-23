@@ -913,12 +913,11 @@ class FunctionSpace(object):
         this :class:`FunctionSpace`."""
         return op2.DataSet(self.node_set, self.dim)
 
-    def make_dat(self):
+    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.Dat` defined on the
         :attr:`dof.dset` of this :class:`Function`."""
 
-        return op2.Dat(self.dof_dset, np.zeros(self.dof_count),
-                       valuetype)
+        return op2.Dat(self.dof_dset, val, valuetype, name, uid=uid)
 
 
     def cell_node_map(self, bcs=None):
@@ -1161,13 +1160,8 @@ class Function(ufl.Coefficient):
         self.uid = _new_uid()
         self._name = name or 'function_%d' % self.uid
 
-        if val is not None:
-            self.dat = op2.Dat(self.dof_dset, val, valuetype, self._name,
-                               uid=self.uid)
-        else:
-            self.dat = op2.Dat(self.dof_dset,
-                               np.zeros(self._function_space.dof_count),
-                               valuetype, self._name, uid=self.uid)
+        self.dat = self._function_space.make_dat(val, valuetype, self._name,
+                                                 uid=self.uid)
 
         self._repr = None
 
