@@ -6,47 +6,47 @@
 <![endif]-->
 
 <link rel="stylesheet" href="{{ pathto('_static/featured.css', 1) }}">
-<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.5.1/jquery.min.js"></script>
+<script src="//ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
 <script src="{{ pathto('_static/slides.min.jquery.js', 1) }}"></script>
-  <script>
-	$(function(){
-		$('#products').slides({
-			preload: true,
-			preloadImage: 'img/loading.gif',
-			effect: 'slide, fade',
-			crossfade: true,
-			slideSpeed: 350,
-			fadeSpeed: 500,
-			generateNextPrev: false,
-			generatePagination: false,
-	                play: 5000,
-                        hoverPause: false,
-                        animationStart: function(current){
-				$('.caption').animate({
-					bottom:-35
-				},100);
-				if (window.console && console.log) {
-					// example return of current slide number
-					console.log('animationStart on slide: ', current);
-				};
-			},
-			animationComplete: function(current){
-				$('.caption').animate({
-					bottom:0
-				},200);
-				if (window.console && console.log) {
-					// example return of current slide number
-					console.log('animationComplete on slide: ', current);
-				};
-			},
-			slidesLoaded: function() {
-				$('.caption').animate({
-					bottom:0
-				},200);
-			}
-		});
-	});
-  </script>
+<script>
+$(function(){
+  $('#products').slides({
+    preload: true,
+    preloadImage: 'img/loading.gif',
+    effect: 'slide, fade',
+    crossfade: true,
+    slideSpeed: 350,
+    fadeSpeed: 500,
+    generateNextPrev: false,
+    generatePagination: false,
+                play: 5000,
+                      hoverPause: false,
+                      animationStart: function(current){
+      $('.caption').animate({
+        bottom:-35
+      },100);
+      if (window.console && console.log) {
+        // example return of current slide number
+        console.log('animationStart on slide: ', current);
+      };
+    },
+    animationComplete: function(current){
+      $('.caption').animate({
+        bottom:0
+      },200);
+      if (window.console && console.log) {
+        // example return of current slide number
+        console.log('animationComplete on slide: ', current);
+      };
+    },
+    slidesLoaded: function() {
+      $('.caption').animate({
+        bottom:0
+      },200);
+    }
+  });
+});
+</script>
 
 
 {% if theme_favicon %}
