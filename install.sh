@@ -88,18 +88,9 @@ echo | tee -a $LOGFILE
 ${PIP} pytest flake8 >> $LOGFILE 2>&1
 if (( EUID != 0 )); then
   echo "PyOP2 tests require the following packages to be installed:"
-  echo "  gmsh unzip"
+  echo "  gmsh triangle-bin unzip"
 else
-  apt-get install -y gmsh unzip >> $LOGFILE 2>&1
-fi
-
-if [ ! `which triangle` ]; then
-  mkdir -p $TMPDIR/triangle
-  cd $TMPDIR/triangle
-  wget -q http://www.netlib.org/voronoi/triangle.zip >> $LOGFILE 2>&1
-  unzip triangle.zip >> $LOGFILE 2>&1
-  make triangle >> $LOGFILE 2>&1
-  cp triangle $PREFIX/bin
+  apt-get install -y gmsh triangle-bin unzip >> $LOGFILE 2>&1
 fi
 
 echo "*** Testing PyOP2 ***" | tee -a $LOGFILE
