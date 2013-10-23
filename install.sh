@@ -1,4 +1,13 @@
 #! /bin/bash
+
+# PyOP2 quick installation script. Installs PyOP2 and dependencies.
+#
+# Usage: install.sh [user name]
+#
+#   When run with superuser privileges, user name is used for commands to be
+#   run unprivileged if given. Otherwise $USERNAME is queried, which works
+#   when calling this script with sudo but not when calling from a root shell.
+
 BASE_DIR=`pwd`
 TEMP_DIR=/tmp
 LOGFILE=$BASE_DIR/pyop2_install.log
