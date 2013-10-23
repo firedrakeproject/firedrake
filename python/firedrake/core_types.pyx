@@ -345,7 +345,7 @@ class _Facets(object):
     @utils.cached_property
     def local_facet_dat(self):
         """Dat indicating which local facet of each adjacent
-cell corresponds to the current facet."""
+        cell corresponds to the current facet."""
 
         return op2.Dat(op2.DataSet(self.set, self._rank), self.local_facet_number,
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
@@ -726,14 +726,14 @@ class FunctionSpace(object):
     """Create a function space
 
     :arg mesh: mesh to build the function space on
-    :arg family: string describing function space family, or a \
-:class:`ufl.OuterProductElement`
+    :arg family: string describing function space family, or a
+        :class:`ufl.OuterProductElement`
     :arg degree: degree of the function space
     :arg name: (optional) name of the function space
-    :arg vfamily: family of function space in vertical dimension \
-(:class:`ExtrudedMesh`\es only)
-    :arg vdegree: degree of function space in vertical dimension \
-(:class:`ExtrudedMesh`\es only)
+    :arg vfamily: family of function space in vertical dimension
+        (:class:`ExtrudedMesh`\es only)
+    :arg vdegree: degree of function space in vertical dimension
+        (:class:`ExtrudedMesh`\es only)
 
     If the mesh is an :class:`ExtrudedMesh`, and the `family` argument
     is a :class:`ufl.OuterProductElement`, `degree`, `vfamily` and
@@ -748,6 +748,7 @@ class FunctionSpace(object):
     `degree` must be provided, `vfamily` and `vdegree` are ignored in
     this case.
     """
+
     def __init__(self, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
         if isinstance(mesh, ExtrudedMesh):
             # The function space must adapt to the extrusion
@@ -1126,21 +1127,22 @@ class VectorFunctionSpace(FunctionSpace):
 
 class Function(ufl.Coefficient):
     """A :class:`Function` represents a discretised field over the
-domain defined by the underlying :class:`Mesh`. Functions are
-represented as sums of basis functions:
+    domain defined by the underlying :class:`Mesh`. Functions are
+    represented as sums of basis functions:
 
-.. math::
+    .. math::
 
-        f = \\sum_i f_i \phi_i(x)
+            f = \\sum_i f_i \phi_i(x)
 
-The :class:`Function` class provides storage for the coefficients
-:math:`f_i` and associates them with a :class:`FunctionSpace` object
-which provides the basis functions :math:`\\phi_i(x)`.
+    The :class:`Function` class provides storage for the coefficients
+    :math:`f_i` and associates them with a :class:`FunctionSpace` object
+    which provides the basis functions :math:`\\phi_i(x)`.
 
-Note that the coefficients are always scalars: if the
-:class:`Function` is vector-valued then this is specified in
-the :class:`FunctionSpace`.
-"""
+    Note that the coefficients are always scalars: if the
+    :class:`Function` is vector-valued then this is specified in
+    the :class:`FunctionSpace`.
+    """
+
     def __init__(self, function_space, val = None, name = None):
 
         if isinstance(function_space, Function):
@@ -1287,20 +1289,20 @@ void expression_kernel(double A[%(rank)d], double **x_, int k)
 
     def assign(self, expr, subset=None):
         """Set the :class:`Function` value to the pointwise value of
-expr. expr may only contain Functions on the same
-:class:`FunctionSpace` as the :class:`Function` being assigned to.
+        expr. expr may only contain Functions on the same
+        :class:`FunctionSpace` as the :class:`Function` being assigned to.
 
-Similar functionality is available for the augmented assignment
-operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
-both Functions on the same :class:`FunctionSpace` then::
+        Similar functionality is available for the augmented assignment
+        operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
+        both Functions on the same :class:`FunctionSpace` then::
 
-  f += 2 * g
+          f += 2 * g
 
-will add twice `g` to `f`.
+        will add twice `g` to `f`.
 
-If present, subset must be an :class:`pyop2.Subset` of
-:attr:`self.node_set`. The expression will then only be assigned
-to the nodes on that subset.
+        If present, subset must be an :class:`pyop2.Subset` of
+        :attr:`self.node_set`. The expression will then only be assigned
+        to the nodes on that subset.
         """
 
         assemble_expressions.evaluate_expression(
