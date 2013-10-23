@@ -20,7 +20,7 @@ class Vector(object):
 
     def axpy(self, a, x):
         """Add a*x to self.
- 
+
         :arg a: a scalar
         :arg x: a :class:`Vector` or :class:`firedrake.Function`"""
         self.dat += a*x.dat
