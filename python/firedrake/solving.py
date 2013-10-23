@@ -37,38 +37,6 @@ from petsc4py import PETSc
 _mat_cache = {}
 
 
-class LinearVariationalProblem(object):
-
-    def __init__(self, a, L, u, bcs=None,
-                 form_compiler_parameters=None):
-        """
-        Create linear variational problem a(u, v) = L(v).
-
-        An optional argument bcs may be passed to specify boundary
-        conditions.
-
-        Another optional argument form_compiler_parameters may be
-        specified to pass parameters to the form compiler.
-        """
-
-        # Extract and check arguments
-        u = _extract_u(u)
-        self.bcs = _extract_bcs(bcs)
-
-        # Check if linear form L is empty
-        if L.integrals() == ():
-            L = u * 0 * ufl.dx
-
-        # Store input UFL forms and solution Function
-        self.a = a
-        self.L = L
-        self.u = u
-
-        # Store form compiler parameters
-        form_compiler_parameters = form_compiler_parameters or {}
-        self.form_compiler_parameters = form_compiler_parameters
-
-
 class NonlinearVariationalProblem(object):
 
     """
@@ -92,35 +60,11 @@ class NonlinearVariationalProblem(object):
         self.F_ufl = F
         self.J_ufl = J
         self.u_ufl = u
+        self.bcs = bcs
 
         # Store form compiler parameters
         form_compiler_parameters = form_compiler_parameters or {}
         self.form_compiler_parameters = form_compiler_parameters
-
-
-class LinearVariationalSolver(object):
-
-    """Solves a linear variational problem."""
-
-    def __init__(self, problem):
-        self._problem = problem
-        self._parameters = {}
-
-    @property
-    def parameters(self):
-        return self._parameters
-
-    @parameters.setter
-    def parameters(self, val):
-        self._parameters.update(val)
-
-    def solve(self):
-        A = assemble(self._problem.a)
-        b = assemble(self._problem.L).dat
-
-        # TODO: Apply Dirichlet BCs
-
-        _la_solve(A, self._problem.u, b, parameters=self.parameters)
 
 
 class NonlinearVariationalSolver(object):
@@ -151,7 +95,7 @@ class NonlinearVariationalSolver(object):
         fs_names = (test.function_space().name, trial.function_space().name)
         sparsity = op2.Sparsity((test.function_space().dof_dset,
                                  trial.function_space().dof_dset),
-                                (test.cell_node_map, trial.cell_node_map),
+                                (test.cell_node_map(), trial.cell_node_map()),
                                 "%s_%s_sparsity" % fs_names)
         self._jac_tensor = op2.Mat(
             sparsity, numpy.float64, "%s_%s_matrix" % fs_names)
@@ -190,6 +134,9 @@ class NonlinearVariationalSolver(object):
         # X_, hence this not being inside the if above.
         self._problem.u_ufl.dat.needs_halo_update = True
         assemble(self._problem.F_ufl, tensor=self._F_tensor)
+        for bc in self._problem.bcs:
+            bc.apply(self._F_tensor, self._problem.u_ufl)
+
         if F_ != self._F_tensor.dat.vec:
             # For some reason, self._F_tensor.dat.vec.copy(F_) gives
             # me diverged line searches in the SNES solver.  So do
@@ -201,14 +148,22 @@ class NonlinearVariationalSolver(object):
             X_.copy(self._problem.u_ufl.dat.vec)
         # Ensure guess has correct halo data.
         self._problem.u_ufl.dat.needs_halo_update = True
-        assemble(self._problem.J_ufl, tensor=self._jac_ptensor)
+        assemble(self._problem.J_ufl,
+                 tensor=self._jac_ptensor,
+                 bcs=self._problem.bcs)
         self._jac_ptensor._force_evaluation()
         if J_ != P_:
-            assemble(self._problem.J_ufl, tensor=self._jac_tensor)
+            assemble(self._problem.J_ufl,
+                     tensor=self._jac_tensor,
+                     bcs=self._problem.bcs)
             self._jac_tensor._force_evaluation()
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 
     def solve(self):
+        # Apply the boundary conditions to the initial guess.
+        for bc in self._problem.bcs:
+            bc.apply(self._problem.u_ufl)
+
         self.snes.solve(None, self._problem.u_ufl.dat.vec)
         # Only the local part of u gets updated by the petsc solve, so
         # we need to mark things as needing a halo update.
@@ -227,7 +182,40 @@ class NonlinearVariationalSolver(object):
                                (self.snes.getIterationNumber(), reason))
 
 
-def assemble(f, tensor=None):
+class LinearVariationalProblem(NonlinearVariationalProblem):
+
+    def __init__(self, a, L, u, bcs=None,
+                 form_compiler_parameters=None):
+        """
+        Create linear variational problem a(u, v) = L(v).
+
+        An optional argument bcs may be passed to specify boundary
+        conditions.
+
+        Another optional argument form_compiler_parameters may be
+        specified to pass parameters to the form compiler.
+        """
+
+        # In the linear case, the Jacobian is the equation LHS.
+        J = a
+        F = ufl.action(J, u) - L
+
+        super(LinearVariationalProblem, self).__init__(F, u, bcs, J,
+                                                       form_compiler_parameters)
+
+
+class LinearVariationalSolver(NonlinearVariationalSolver):
+
+    """Solves a linear variational problem."""
+
+    def __init__(self, *args, **kwargs):
+        super(LinearVariationalSolver, self).__init__(*args, **kwargs)
+
+        self.parameters.setdefault('snes_type', 'ksponly')
+        self.parameters.setdefault('ksp_rtol', 1.e-7)
+
+
+def assemble(f, tensor=None, bcs=None):
     """Evaluate f.
 
 If f is a :class:`UFL.form` then this evaluates the corresponding
@@ -243,19 +231,24 @@ only succeed if the Functions are on the same
 """
 
     if isinstance(f, ufl.form.Form):
-        return _assemble(f, tensor=tensor)
+        return _assemble(f, tensor=tensor, bcs=bcs)
     elif isinstance(f, ufl.expr.Expr):
         return assemble_expression(f)
     else:
         raise TypeError("Unable to assemble: %r" % f)
 
 
-def _assemble(f, tensor=None):
+def _assemble(f, tensor=None, bcs=None):
     """Assemble the form f and return a raw PyOP2 object representing
-    the result. This will be a :class:`float` for 0-forms, a
-    :class:`Function` for 1-forms and a :class:`op2.Mat` for
-    2-forms. The last of these may change to a native Firedrake type
-    in a future release.
+the result. This will be a :class:`float` for 0-forms, a
+:class:`Function` for 1-forms and a :class:`op2.Mat` for 2-forms. The
+last of these may change to a native Firedrake type in a future
+release.
+
+    :arg bcs: A tuple of :class`DirichletBC`\s to be applied.
+    :arg tensor: An existing tensor object into which the form should \
+be assembled. If this is not supplied, a new tensor will be created for \
+the purpose.
     """
 
     kernels = ffc_interface.compile_form(f, "form")
@@ -281,7 +274,7 @@ def _assemble(f, tensor=None):
         m = test.function_space().mesh()
         key = (compute_form_signature(f), test.function_space().dof_dset,
                trial.function_space().dof_dset,
-               test.cell_node_map, trial.cell_node_map)
+               test.cell_node_map(), trial.cell_node_map())
         if tensor is None:
             tensor = _mat_cache.get(key)
             if not tensor:
@@ -290,8 +283,8 @@ def _assemble(f, tensor=None):
                     test.function_space().name, trial.function_space().name)
                 sparsity = op2.Sparsity((test.function_space().dof_dset,
                                          trial.function_space().dof_dset),
-                                        (test.cell_node_map,
-                                         trial.cell_node_map),
+                                        (test.cell_node_map(),
+                                         trial.cell_node_map()),
                                         "%s_%s_sparsity" % fs_names)
                 tensor = op2.Mat(
                     sparsity, numpy.float64, "%s_%s_matrix" % fs_names)
@@ -328,11 +321,11 @@ def _assemble(f, tensor=None):
         domain_type = integral.measure().domain_type()
         if domain_type == 'cell':
             if is_mat:
-                tensor_arg = tensor(op2.INC, (test.cell_node_map[op2.i[0]],
-                                              trial.cell_node_map[op2.i[1]]),
+                tensor_arg = tensor(op2.INC, (test.cell_node_map(bcs)[op2.i[0]],
+                                              trial.cell_node_map(bcs)[op2.i[1]]),
                                     flatten=True)
             elif is_vec:
-                tensor_arg = tensor(op2.INC, test.cell_node_map[op2.i[0]],
+                tensor_arg = tensor(op2.INC, test.cell_node_map()[op2.i[0]],
                                     flatten=True)
             else:
                 tensor_arg = tensor(op2.INC)
@@ -341,15 +334,15 @@ def _assemble(f, tensor=None):
             if itspace.layers > 1:
                 coords_xtr = m._coordinate_field
                 args = [kernel, itspace, tensor_arg,
-                        coords_xtr.dat(op2.READ, coords_xtr.cell_node_map,
+                        coords_xtr.dat(op2.READ, coords_xtr.cell_node_map(),
                                        flatten=True)]
             else:
                 args = [kernel, itspace, tensor_arg,
-                        coords.dat(op2.READ, coords.cell_node_map,
+                        coords.dat(op2.READ, coords.cell_node_map(),
                                    flatten=True)]
 
             for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.cell_node_map,
+                args.append(c.dat(op2.READ, c.cell_node_map(),
                                   flatten=True))
 
             op2.par_loop(*args)
@@ -361,20 +354,20 @@ def _assemble(f, tensor=None):
 
             if is_mat:
                 tensor_arg = tensor(op2.INC,
-                                    (test.exterior_facet_node_map[op2.i[0]],
-                                     trial.exterior_facet_node_map[op2.i[1]]),
+                                    (test.exterior_facet_node_map(bcs)[op2.i[0]],
+                                     trial.exterior_facet_node_map(bcs)[op2.i[1]]),
                                     flatten=True)
             elif is_vec:
                 tensor_arg = tensor(op2.INC,
-                                    test.exterior_facet_node_map[op2.i[0]],
+                                    test.exterior_facet_node_map()[op2.i[0]],
                                     flatten=True)
             else:
                 tensor_arg = tensor(op2.INC)
-            args = [kernel, m.exterior_facets.set, tensor_arg,
-                    coords.dat(op2.READ, coords.exterior_facet_node_map,
+            args = [kernel, m.exterior_facets.measure_set(integral.measure()), tensor_arg,
+                    coords.dat(op2.READ, coords.exterior_facet_node_map(),
                                flatten=True)]
             for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.exterior_facet_node_map,
+                args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
                                   flatten=True))
             args.append(m.exterior_facets.local_facet_dat(op2.READ))
             op2.par_loop(*args)
@@ -387,24 +380,28 @@ def _assemble(f, tensor=None):
 
             if is_mat:
                 tensor_arg = tensor(
-                    op2.INC, (test.interior_facet_node_map[op2.i[0]],
-                              trial.interior_facet_node_map[
+                    op2.INC, (test.interior_facet_node_map(bcs)[op2.i[0]],
+                              trial.interior_facet_node_map(bcs)[
                                   op2.i[1]]),
                     flatten=True)
             elif is_vec:
                 tensor_arg = tensor(
-                    op2.INC, test.interior_facet_node_map[op2.i[0]],
+                    op2.INC, test.interior_facet_node_map()[op2.i[0]],
                     flatten=True)
             else:
                 tensor_arg = tensor(op2.INC)
             args = [kernel, m.interior_facets.set, tensor_arg,
-                    coords.dat(op2.READ, coords.interior_facet_node_map,
+                    coords.dat(op2.READ, coords.interior_facet_node_map(),
                                flatten=True)]
             for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.interior_facet_node_map,
+                args.append(c.dat(op2.READ, c.interior_facet_node_map(),
                                   flatten=True))
             args.append(m.interior_facets.local_facet_dat(op2.READ))
             op2.par_loop(*args)
+
+    if bcs is not None and is_mat:
+        for bc in bcs:
+            tensor.zero_rows(bc.nodes)
 
     return result()
 
@@ -614,6 +611,4 @@ def _extract_bcs(bcs):
         bcs = []
     elif not isinstance(bcs, (list, tuple)):
         bcs = [bcs]
-    for bc in bcs:
-        raise NotImplementedError("Boundary conditions are not supported yet")
     return bcs

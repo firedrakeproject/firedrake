@@ -10,6 +10,7 @@ import utils
 import pyop2 as op2
 import assemble_expressions
 from vector import Vector
+import cgen
 
 from libc.stdlib cimport malloc, free
 from libc.string cimport strcmp
@@ -283,7 +284,7 @@ cdef ft.element_t as_element(object fiat_element):
 
 class _Facets(object):
     """Wrapper class for facet interation information on a Mesh"""
-    def __init__(self, mesh, count, kind, facet_cell, local_facet_number):
+    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None):
 
         self.mesh = mesh
 
@@ -300,7 +301,8 @@ class _Facets(object):
 
         self.local_facet_number = local_facet_number
 
-
+        self.markers = markers
+        self._subsets = {}
 
     @utils.cached_property
     def set(self):
@@ -308,6 +310,36 @@ class _Facets(object):
         size = self.count
         halo = None
         return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo)
+
+    @utils.cached_property
+    def _null_subset(self):
+        '''Empty subset for the case in which there are no facets with
+        a given marker value. This is required because not all
+        markers need be represented on all processors.'''
+
+        return op2.Subset(self.set,[])
+
+    def measure_set(self, measure):
+        '''Return the iteration set appropriate to measure. This will
+        either be for all the interior or exterior (as appropriate)
+        facets, or for a particular numbered subdomain.'''
+
+        if measure.domain_id() == measure.DOMAIN_ID_EVERYWHERE:
+            return self.set
+        else:
+            return self.subset(measure.domain_id().subdomain_ids()[0])
+
+    def subset(self, i):
+        """Return the subset corresponding to a marker value of i."""
+
+        if self.markers is not None and not self._subsets:
+            # Generate the subsets. One subset is created for each unique marker value.
+            self._subsets = dict(((i,op2.Subset(self.set, np.nonzero(self.markers==i)[0]))
+                                  for i in np.unique(self.markers)))
+        try:
+            return self._subsets[i]
+        except KeyError:
+            return self._null_subset
 
 
     @utils.cached_property
@@ -337,8 +369,6 @@ class Mesh(object):
         if isinstance(args[0], str):
             self._from_file(args[0])
 
-            self.name = args[0]
-
         else:
             raise NotImplementedError(
                 "Unknown argument types for Mesh constructor")
@@ -351,6 +381,8 @@ class Mesh(object):
 
         # Retrieve mesh struct from Fluidity
         cdef ft.mesh_t mesh = ft.read_mesh_f(basename, _file_extensions[ext])
+
+        self.name = filename
 
         self._cells = np.array(<int[:mesh.cell_count, :mesh.cell_vertices:1]>mesh.element_vertex_list)
         self._ufl_cell = ufl.Cell(
@@ -377,6 +409,11 @@ class Mesh(object):
             self.interior_facets = _Facets(self, 0, "interior", None, None)
 
         if mesh.exterior_facet_count > 0:
+            if mesh.boundary_ids != NULL:
+                boundary_ids = np.array(<int[:mesh.exterior_facet_count]>mesh.boundary_ids)
+            else:
+                boundary_ids = None
+
             exterior_facet_cell = \
                 np.array(<int[:mesh.exterior_facet_count, :1]>mesh.exterior_facet_cell)
             exterior_local_facet_number = \
@@ -384,7 +421,8 @@ class Mesh(object):
             self.exterior_facets = _Facets(self, mesh.exterior_facet_count,
                                            "exterior",
                                            exterior_facet_cell,
-                                           exterior_local_facet_number)
+                                           exterior_local_facet_number,
+                                           boundary_ids)
         else:
             self.exterior_facets = _Facets(self, 0, "exterior", None, None)
 
@@ -392,11 +430,6 @@ class Mesh(object):
             self.region_ids = np.array(<int[:mesh.cell_count]>mesh.region_ids)
         else:
             self.region_ids = None
-
-        if mesh.exterior_facet_count > 0 and mesh.boundary_ids != NULL:
-            self.boundary_ids = np.array(<int[:mesh.exterior_facet_count]>mesh.boundary_ids)
-        else:
-            self.boundary_ids = None
 
         # Build these from the Fluidity data, then need to convert
         # them from np.int32 to python int type which is what PyOP2 expects
@@ -806,7 +839,7 @@ class FunctionSpace(object):
 
         self._node_count = function_space.dof_count
         self.cell_node_list = np.array(<int[:function_space.element_count, :element_f.ndof:1]>
-                                      function_space.element_dof_list)
+                                      function_space.element_dof_list)-1
 
         self.dof_classes = np.array(<int[:4]>function_space.dof_classes)
         self.dof_classes = self.dof_classes.astype(int)
@@ -833,6 +866,13 @@ class FunctionSpace(object):
         # Note that this is the function space rank and is therefore
         # always 0. The value rank may be different.
         self.rank = 0
+
+        # Empty map caches. This is a sui generis cache
+        # implementation because of the need to support boundary
+        # conditions.
+        self._cell_node_map_cache = {}
+        self._exterior_facet_map_cache = {}
+        self._interior_facet_map_cache = {}
 
     @property
     def node_count(self):
@@ -878,28 +918,162 @@ class FunctionSpace(object):
                        valuetype)
 
 
-    @utils.cached_property
-    def cell_node_map(self):
-        """A :class:`pyop2.Map` from the :attr:`Mesh.cell_set` of the
-        underlying mesh to the :attr:`node_set` of this :class:FunctionSpace."""
-        return op2.Map(self._mesh.cell_set, self.node_set,
-                       self.fiat_element.space_dimension(),
-                       self.cell_node_list - 1, "%s_cell_dof" % (self.name),
-                       offset=self.offset)
+    def cell_node_map(self, bcs=None):
+        """Return the :class:`pyop2.Map` from interior facets to
+        function space nodes. If present, bcs must be a tuple of
+        :class:`DirichletBC`\s. In this case, the facet_node_map will return
+        negative node indices where boundary conditions should be
+        applied. Where a PETSc matrix is employed, this will cause the
+        corresponding values to be discarded during matrix assembly."""
+
+        if bcs:
+            parent = self.cell_node_map()
+        else:
+            parent = None
+
+        return self._map_cache(self._cell_node_map_cache,
+                               self._mesh.cell_set,
+                               self.cell_node_list,
+                               self.fiat_element.space_dimension(),
+                               bcs,
+                               "cell_node",
+                               self.offset,
+                               parent)
+
+    def interior_facet_node_map(self, bcs=None):
+        """Return the :class:`pyop2.Map` from interior facets to
+        function space nodes. If present, bcs must be a tuple of
+        :class:`DirichletBC`\s. In this case, the facet_node_map will return
+        negative node indices where boundary conditions should be
+        applied. Where a PETSc matrix is employed, this will cause the
+        corresponding values to be discarded during matrix assembly."""
+
+        if bcs:
+            parent = self.interior_facet_node_map()
+        else:
+            parent = None
+
+        return self._map_cache(self._interior_facet_map_cache,
+                               self._mesh.interior_facets.set,
+                               self.interior_facet_node_list,
+                               2*self.fiat_element.space_dimension(),
+                               bcs,
+                               "interior_facet_node",
+                               parent=parent)
+
+    def exterior_facet_node_map(self, bcs=None):
+        """Return the :class:`pyop2.Map` from exterior facets to
+        function space nodes. If present, bcs must be a tuple of
+        :class:`DirichletBC`\s. In this case, the facet_node_map will return
+        negative node indices where boundary conditions should be
+        applied. Where a PETSc matrix is employed, this will cause the
+        corresponding values to be discarded during matrix assembly."""
+
+        if bcs:
+            parent = self.exterior_facet_node_map()
+        else:
+            parent = None
+
+        return self._map_cache(self._exterior_facet_map_cache,
+                               self._mesh.exterior_facets.set,
+                               self.exterior_facet_node_list,
+                               self.fiat_element.space_dimension(),
+                               bcs,
+                               "exterior_facet_node",
+                               parent=parent)
+
+    def _map_cache(self, cache, entity_set, entity_node_list, map_arity, bcs, name,
+                   offset=None, parent=None):
+        if bcs is None:
+            lbcs = None
+        else:
+            # Ensure bcs is a tuple in a canonical order for the hash key.
+            lbcs = tuple(sorted(bcs, key=lambda bc: bc.__hash__()))
+
+        try:
+            # Cache hit
+            return cache[lbcs]
+        except KeyError:
+            # Cache miss.
+            if not lbcs:
+                new_entity_node_list = entity_node_list
+            else:
+                bcids = reduce(np.union1d, [bc.nodes for bc in bcs])
+                nl = entity_node_list.ravel()
+                new_entity_node_list = np.where(np.in1d(nl, bcids), -1, nl)
+
+            cache[lbcs] = op2.Map(entity_set, self.node_set,
+                                  map_arity,
+                                  new_entity_node_list,
+                                  ("%s_"+name) % (self.name),
+                                  offset,
+                                  parent)
+
+            return cache[lbcs]
 
     @utils.cached_property
-    def interior_facet_node_map(self):
-        return op2.Map(self._mesh.interior_facets.set, self.node_set,
-                       2*self.fiat_element.space_dimension(),
-                       self.interior_facet_node_list,
-                       "%s_interior_facet_dof" % (self.name))
+    def exterior_facet_boundary_node_map(self):
+        '''The :class:`pyop2.Map` from exterior facets to the nodes on
+        those facets. Note that this differs from
+        :method:`exterior_facet_node_map` in that only surface nodes
+        are referenced, not all nodes in cells touching the surface.'''
 
-    @utils.cached_property
-    def exterior_facet_node_map(self):
-        return op2.Map(self._mesh.exterior_facets.set, self.node_set,
-                       self.fiat_element.space_dimension(),
-                       self.exterior_facet_node_list,
-                       "%s_exterior_facet_dof" % (self.name))
+        el = self.fiat_element
+        dim = len(el.ref_el.topology)-1
+        nodes_per_facet = \
+            len(self.fiat_element.entity_closure_dofs()[dim-1][0])
+
+        facet_set = self._mesh.exterior_facets.set
+
+        fs_dat = op2.Dat(facet_set**el.space_dimension(),
+                         data=self.exterior_facet_node_map().values_with_halo)
+
+        facet_dat = op2.Dat(facet_set**nodes_per_facet,
+                            dtype=np.int32)
+
+        local_facet_nodes = np.array(
+            [dofs for e, dofs in el.entity_closure_dofs()[dim-1].iteritems()])
+
+        # Helper function to turn the inner index of an array into c
+        # array literals.
+        c_array = lambda xs : "{"+", ".join(map(str, xs))+"}"
+
+        kernel = op2.Kernel(str(cgen.FunctionBody(
+                    cgen.FunctionDeclaration(
+                        cgen.Value("void", "create_bc_node_map"),
+                        [cgen.Value("int", "*cell_nodes"),
+                         cgen.Value("int", "*facet_nodes"),
+                         cgen.Value("unsigned int", "*facet")
+                         ]
+                        ),
+                    cgen.Block(
+                        [cgen.ArrayInitializer(
+                                cgen.Const(
+                                    cgen.ArrayOf(
+                                        cgen.ArrayOf(
+                                            cgen.Value("int", "l_nodes"),
+                                            str(len(el.ref_el.topology[dim-1]))),
+                                        str(nodes_per_facet)),
+                                    ),
+                                map(c_array, local_facet_nodes)
+                                ),
+                         cgen.Value("int", "n"),
+                         cgen.For("n=0", "n < %d" % nodes_per_facet, "++n",
+                                  cgen.Assign("facet_nodes[n]",
+                                              "cell_nodes[l_nodes[facet[0]][n]]")
+                                  )
+                         ]
+                        )
+                    )), "create_bc_node_map")
+
+        op2.par_loop(kernel, facet_set,
+                     fs_dat(op2.READ),
+                     facet_dat(op2.WRITE),
+                     self._mesh.exterior_facets.local_facet_dat(op2.READ))
+
+        return op2.Map(facet_set, self.node_set, nodes_per_facet, 
+                       facet_dat.data_ro_with_halos, name="exterior_facet_boundary_node")
+
 
     @property
     def dim(self):
@@ -917,8 +1091,6 @@ class FunctionSpace(object):
     def mesh(self):
         """The :class:`Mesh` used to construct this :class:`FunctionSpace`."""
         return self._mesh
-
-
 
 
 class VectorFunctionSpace(FunctionSpace):
@@ -1012,17 +1184,14 @@ the :class:`FunctionSpace`.
     def dof_dset(self):
         return self._function_space.dof_dset
 
-    @property
-    def cell_node_map(self):
-        return self._function_space.cell_node_map
+    def cell_node_map(self, bcs=None):
+        return self._function_space.cell_node_map(bcs)
 
-    @property
-    def interior_facet_node_map(self):
-        return self._function_space.interior_facet_node_map
+    def interior_facet_node_map(self, bcs=None):
+        return self._function_space.interior_facet_node_map(bcs)
 
-    @property
-    def exterior_facet_node_map(self):
-        return self._function_space.exterior_facet_node_map
+    def exterior_facet_node_map(self, bcs=None):
+        return self._function_space.exterior_facet_node_map(bcs)
 
     def vector(self):
         """Return a :class:`Vector` wrapping the data in this :class:`Function`"""
@@ -1111,12 +1280,12 @@ void expression_kernel(double A[%(rank)d], double **x_, int k)
                             "expression_kernel")
 
         op2.par_loop(kernel, self.cell_set,
-                     self.dat(op2.WRITE, self.cell_node_map[op2.i[0]]),
-                     coords.dat(op2.READ, coords.cell_node_map)
+                     self.dat(op2.WRITE, self.cell_node_map()[op2.i[0]]),
+                     coords.dat(op2.READ, coords.cell_node_map())
                      )
 
 
-    def assign(self, expr):
+    def assign(self, expr, subset=None):
         """Set the :class:`Function` value to the pointwise value of
 expr. expr may only contain Functions on the same
 :class:`FunctionSpace` as the :class:`Function` being assigned to.
@@ -1128,10 +1297,14 @@ both Functions on the same :class:`FunctionSpace` then::
   f += 2 * g
 
 will add twice `g` to `f`.
+
+If present, subset must be an :class:`pyop2.Subset` of
+:attr:`self.node_set`. The expression will then only be assigned
+to the nodes on that subset.
         """
 
         assemble_expressions.evaluate_expression(
-            assemble_expressions.Assign(self, expr))
+            assemble_expressions.Assign(self, expr), subset)
 
         return self
 

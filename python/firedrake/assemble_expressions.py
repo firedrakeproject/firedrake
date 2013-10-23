@@ -261,29 +261,29 @@ def expression_kernel(expr, args):
     return op2.Kernel(str(cgen.FunctionBody(fdecl, body)), "expression")
 
 
-def evaluate_preprocessed_expression(expr, args):
+def evaluate_preprocessed_expression(expr, args, subset=None):
 
     kernel = expression_kernel(expr, args)
 
     fs = args[0].function._function_space
 
-    parloop_args = [kernel, fs.node_set] +\
+    parloop_args = [kernel, subset or fs.node_set] +\
         [arg.function.dat(arg.intent)
          for arg in args]
 
     op2.par_loop(*parloop_args)
 
 
-def evaluate_expression(expr):
+def evaluate_expression(expr, subset=None):
     """Evaluates UFL expressions on Functions."""
 
     e = ExpressionWalker()
     processed_expr = e.visit(expr)
 
-    evaluate_preprocessed_expression(processed_expr, e._args.values())
+    evaluate_preprocessed_expression(processed_expr, e._args.values(), subset)
 
 
-def assemble_expression(expr):
+def assemble_expression(expr, subset=None):
     """Evaluates UFL expressions on Functions pointwise and assigns
     into a new :class:`Function`."""
 
@@ -297,6 +297,6 @@ def assemble_expression(expr):
     # Revisit to process the Assign.
     assign_expr = e.visit(assign_expr)
 
-    evaluate_preprocessed_expression(assign_expr, e._args.values())
+    evaluate_preprocessed_expression(assign_expr, e._args.values(), subset)
 
     return result
