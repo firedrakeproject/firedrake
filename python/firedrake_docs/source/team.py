@@ -12,6 +12,7 @@ team = OrderedDict([
     ("Nicolas Loriant", "http://www.doc.ic.ac.uk/~nloriant/"),
     ("Graham Markall", "http://www.doc.ic.ac.uk/~grm08/"),
     ("Andrew McRae", "http://www.imperial.ac.uk/people/a.mcrae12/"),
+    ("Michael Lange", "http://www.imperial.ac.uk/people/michael.lange/"),
     ("Colin Cotter", "http://www.imperial.ac.uk/people/colin.cotter/")
 ])
 
@@ -41,6 +42,7 @@ for member, url in team.iteritems():
     out.write(".. |" + member + "| image:: /images/" +
               member.split()[0].lower() + ".*\n")
     out.write("   :width: 50%\n")
+    out.write("   :target: %s\n" % url)
     out.write(".. _" + member + ": " + url + "\n")
 
     im = " |" + member + "|"
