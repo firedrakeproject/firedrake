@@ -578,6 +578,11 @@ display: none;
   margin-right: 1em;
 }
 
+/* Hack to disable the travis feed logo on the obtaining pyop2 page. */
+img[alt="build status"] {
+    display: none;
+}
+
 /* Style elements controlling the RSS feeds */
 
 /*Container*/
