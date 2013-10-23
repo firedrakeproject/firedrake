@@ -159,6 +159,7 @@ class UnitSquareMesh(Mesh):
 
     """Class that represents a structured triangular mesh of a 2D square whose
     edge is a unit length.
+
     :arg nx: The number of the cells in the x direction.
     :arg ny: The number of the cells in the y direction.
 
@@ -192,6 +193,7 @@ class UnitCubeMesh(Mesh):
 
     """Class that represents a structured tetrahedron mesh of a 3D cube whose
     edge is a unit length.
+
     :arg nx: The number of the cells in the x direction.
     :arg ny: The number of the cells in the y direction.
     :arg nx: The number of the cells in the z direction.
@@ -233,7 +235,7 @@ class UnitCircleMesh(Mesh):
     unit circle.
 
     :arg resolution: The number of cells lying along the radius and the arc of
-    the quadrant.
+      the quadrant.
     """
 
     def __init__(self, resolution):

@@ -20,6 +20,7 @@ class Vector(object):
 
     def axpy(self, a, x):
         """Add a*x to self.
+ 
         :arg a: a scalar
         :arg x: a :class:`Vector` or :class:`firedrake.Function`"""
         self.dat += a*x.dat
@@ -41,6 +42,7 @@ class Vector(object):
 
     def set_local(self, values):
         """Set process local values
+
         :arg values: a numpy array of values of length :func:`Vector.local_size`"""
         self.dat.data[:] = values
 
@@ -55,6 +57,7 @@ class Vector(object):
 
     def gather(self, global_indices=None):
         """Gather a :class:`Vector` to all processes
+
         :arg global_indices: the globally numbered indices to gather
                             (should be the same on all processes).  If
                             `None`, gather the entire :class:`Vector`."""

@@ -152,18 +152,14 @@ def make_extruded_coords(mesh, layers, kernel=None, layer_height=None):
 
     Either the kernel or the layer_height must be provided. Should
     both be provided then the kernel takes precendence.
-    Its calling signature is:
-
-    .. c::
+    Its calling signature is::
 
         void extrusion_kernel(double *extruded_coords[],
                               double *two_d_coords[],
                               int *layer_number[])
 
     So for example to build an evenly-spaced extruded mesh with eleven
-    layers and height 1 in the vertical you would write:
-
-    .. c::
+    layers and height 1 in the vertical you would write::
 
        void extrusion_kernel(double *extruded_coords[],
                              double *two_d_coords[],
@@ -1017,7 +1013,7 @@ class FunctionSpace(object):
     def exterior_facet_boundary_node_map(self):
         '''The :class:`pyop2.Map` from exterior facets to the nodes on
         those facets. Note that this differs from
-        :method:`exterior_facet_node_map` in that only surface nodes
+        :meth:`exterior_facet_node_map` in that only surface nodes
         are referenced, not all nodes in cells touching the surface.'''
 
         el = self.fiat_element
