@@ -16,11 +16,21 @@ For the impatient there is a script for the unattended installation of
 PyOP2 and its dependencies on a Ubuntu 12.04 or compatible platform.
 Only the sequential and OpenMP backends are covered at the moment.
 
+.. note::
+  This script is not intended to be used by PyOP2 developers. If you intend
+  to contribute to PyOP2 it is recommended to follow the instructions below
+  for a manual installation.
+
 Running with superuser privileges will install missing packages and
 Python dependencies will be installed system wide::
 
   wget -O - https://github.com/OP2/PyOP2/raw/master/install.sh | sudo bash
 
+.. warning::
+  This will fail if you if you require a password for ``sudo``. Run e.g. the
+  following beforehand to assure your password is cached ::
+
+      sudo whoami
 
 Running without superuser privileges will instruct you which packages
 need to be installed. Python dependencies will be installed to the user

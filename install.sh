@@ -1,4 +1,13 @@
 #! /bin/bash
+
+# PyOP2 quick installation script. Installs PyOP2 and dependencies.
+#
+# Usage: install.sh [user name]
+#
+#   When run with superuser privileges, user name is used for commands to be
+#   run unprivileged if given. Otherwise $USERNAME is queried, which works
+#   when calling this script with sudo but not when calling from a root shell.
+
 BASE_DIR=`pwd`
 TEMP_DIR=/tmp
 LOGFILE=$BASE_DIR/pyop2_install.log
@@ -17,11 +26,15 @@ if (( EUID != 0 )); then
   PIP="pip install --user"
   PREFIX=$HOME/.local
   PATH=$PREFIX/bin:$PATH
+  ASUSER=""
 else
   echo "*** Privileged installation ***" | tee -a $LOGFILE
+  echo "  Running unprivileged commands as ${SUDO_USER}" | tee -a $LOGFILE
   echo | tee -a $LOGFILE
   PIP="pip install"
   PREFIX=/usr/local
+  ASUSER="sudo -u ${SUDO_USER} "
+  HOME=$(getent passwd $SUDO_USER | cut -d: -f6)
 fi
 
 echo "*** Preparing system ***" | tee -a $LOGFILE
@@ -45,7 +58,7 @@ echo "*** Installing dependencies ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
 
 # Install Cython so we can build PyOP2 from source
-${PIP} Cython numpy >> $LOGFILE 2>&1
+${PIP} Cython decorator numpy PyYAML >> $LOGFILE 2>&1
 PETSC_CONFIGURE_OPTIONS="--with-fortran --with-fortran-interfaces --with-c++-support" \
   ${PIP} "petsc>=3.4" "petsc4py>=3.4" >> $LOGFILE 2>&1
 
@@ -65,10 +78,10 @@ echo | tee -a $LOGFILE
 cd $BASE_DIR
 
 if [ ! -d PyOP2/.git ]; then
-  git clone git://github.com/OP2/PyOP2.git >> $LOGFILE 2>&1
+  ${ASUSER}git clone git://github.com/OP2/PyOP2.git >> $LOGFILE 2>&1
 fi
 cd PyOP2
-python setup.py develop --user >> $LOGFILE 2>&1
+${ASUSER}python setup.py develop --user >> $LOGFILE 2>&1
 export PYOP2_DIR=`pwd`
 
 python -c 'from pyop2 import op2'
@@ -88,18 +101,9 @@ echo | tee -a $LOGFILE
 ${PIP} pytest flake8 >> $LOGFILE 2>&1
 if (( EUID != 0 )); then
   echo "PyOP2 tests require the following packages to be installed:"
-  echo "  gmsh unzip"
+  echo "  gmsh triangle-bin unzip"
 else
-  apt-get install -y gmsh unzip >> $LOGFILE 2>&1
-fi
-
-if [ ! `which triangle` ]; then
-  mkdir -p $TMPDIR/triangle
-  cd $TMPDIR/triangle
-  wget -q http://www.netlib.org/voronoi/triangle.zip >> $LOGFILE 2>&1
-  unzip triangle.zip >> $LOGFILE 2>&1
-  make triangle >> $LOGFILE 2>&1
-  cp triangle $PREFIX/bin
+  apt-get install -y gmsh triangle-bin unzip >> $LOGFILE 2>&1
 fi
 
 echo "*** Testing PyOP2 ***" | tee -a $LOGFILE
@@ -107,7 +111,7 @@ echo | tee -a $LOGFILE
 
 cd $PYOP2_DIR
 
-make test BACKENDS="sequential openmp" >> $LOGFILE 2>&1
+${ASUSER}make test BACKENDS="sequential openmp" >> $LOGFILE 2>&1
 
 if [ $? -ne 0 ]; then
   echo "PyOP2 testing failed" 1>&2
