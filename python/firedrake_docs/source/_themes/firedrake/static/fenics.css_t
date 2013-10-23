@@ -578,6 +578,10 @@ display: none;
   margin-right: 1em;
 }
 
+#the-firedrake-team td {
+  text-align: center;
+}
+
 /* Hack to disable the travis feed logo on the obtaining pyop2 page. */
 img[alt="build status"] {
     display: none;

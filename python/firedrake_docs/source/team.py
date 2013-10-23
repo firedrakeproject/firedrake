@@ -13,11 +13,12 @@ team = OrderedDict([
     ("Graham Markall", "http://www.doc.ic.ac.uk/~grm08/"),
     ("Andrew McRae", "http://www.imperial.ac.uk/people/a.mcrae12/"),
     ("Michael Lange", "http://www.imperial.ac.uk/people/michael.lange/"),
+    ("Simon Funke", "http://www.imperial.ac.uk/people/s.funke09/"),
     ("Colin Cotter", "http://www.imperial.ac.uk/people/colin.cotter/")
 ])
 
-cols = 3
-colwidth = "30%"
+cols = 4
+colwidth = "23%"
 
 coldashes = max(map(len, team.keys())) + 5
 
@@ -41,7 +42,7 @@ names = []
 for member, url in team.iteritems():
     out.write(".. |" + member + "| image:: /images/" +
               member.split()[0].lower() + ".*\n")
-    out.write("   :width: 50%\n")
+    out.write("   :width: 70%\n")
     out.write("   :target: %s\n" % url)
     out.write(".. _" + member + ": " + url + "\n")
 
