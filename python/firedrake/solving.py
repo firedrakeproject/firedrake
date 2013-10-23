@@ -108,13 +108,15 @@ class NonlinearVariationalSolver(object):
         self.snes.setOptionsPrefix(self._opt_prefix)
         self.parameters = kwargs.get('parameters', {})
 
-        self.snes.setFunction(self.form_function, self._F_tensor.dat.vec)
+        with self._F_tensor.dat.vec as v:
+            self.snes.setFunction(self.form_function, v)
         self.snes.setJacobian(self.form_jacobian, J=self._jac_tensor.handle,
                               P=self._jac_ptensor.handle)
 
     def form_function(self, snes, X_, F_):
-        if self._problem.u_ufl.dat.vec != X_:
-            X_.copy(self._problem.u_ufl.dat.vec)
+        with self._problem.u_ufl.dat.vec as v:
+            if v != X_:
+                X_.copy(v)
         # PETSc doesn't know about the halo regions in our dats, so
         # when it updates the guess it only does so on the local
         # portion. So ensure we do a halo update before assembling.
@@ -125,15 +127,17 @@ class NonlinearVariationalSolver(object):
         for bc in self._problem.bcs:
             bc.apply(self._F_tensor, self._problem.u_ufl)
 
-        if F_ != self._F_tensor.dat.vec:
-            # For some reason, self._F_tensor.dat.vec.copy(F_) gives
-            # me diverged line searches in the SNES solver.  So do
-            # aypx with alpha == 0, which is the same thing.  This works!
-            F_.aypx(0, self._F_tensor.dat.vec)
+        with self._F_tensor.dat.vec as v:
+            if F_ != v:
+                # For some reason, self._F_tensor.dat.vec.copy(F_) gives
+                # me diverged line searches in the SNES solver.  So do
+                # aypx with alpha == 0, which is the same thing.  This works!
+                F_.aypx(0, v)
 
     def form_jacobian(self, snes, X_, J_, P_):
-        if self._problem.u_ufl.dat.vec != X_:
-            X_.copy(self._problem.u_ufl.dat.vec)
+        with self._problem.u_ufl.dat.vec as v:
+            if v != X_:
+                X_.copy(v)
         # Ensure guess has correct halo data.
         self._problem.u_ufl.dat.needs_halo_update = True
         assemble(self._problem.J_ufl,
@@ -180,7 +184,9 @@ class NonlinearVariationalSolver(object):
         # solve, ensure these are passed through to the snes.
         self._update_parameters()
 
-        self.snes.solve(None, self._problem.u_ufl.dat.vec)
+        with self._problem.u_ufl.dat.vec as v:
+            self.snes.solve(None, v)
+
         # Only the local part of u gets updated by the petsc solve, so
         # we need to mark things as needing a halo update.
         self._problem.u_ufl.dat.needs_halo_update = True
