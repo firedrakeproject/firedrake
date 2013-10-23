@@ -8,6 +8,7 @@ import FIAT
 import numpy as np
 import utils
 from pyop2 import op2
+from pyop2.utils import flatten
 import assemble_expressions
 from vector import Vector
 import cgen
@@ -1121,6 +1122,150 @@ class VectorFunctionSpace(FunctionSpace):
                                               domain=mesh._ufl_cell,
                                               degree=degree,
                                               dim=self._dim)
+
+
+class MixedFunctionSpace(FunctionSpace):
+    """A mixed finite element :class:`FunctionSpace`."""
+
+    def __init__(self, spaces, name=None):
+        """
+        :param spaces: a list (or tuple) of :class:`FunctionSpace`s
+
+        The function space may be created as ::
+
+            V = MixedFunctionSpace(spaces)
+
+        ``spaces`` may consist of multiple occurances of the same space: ::
+
+            P1  = FunctionSpace(mesh, "CG", 1)
+            P2v = VectorFunctionSpace(mesh, "Lagrange", 2)
+
+            ME  = MixedFunctionSpace([P2v, P1, P1, P1])
+        """
+
+        self._spaces = list(flatten(spaces))
+        self._mesh = self._spaces[0]._mesh
+        self._ufl_element = ufl.MixedElement(*[fs.ufl_element() for fs in self._spaces])
+        self.name = '_'.join(str(s.name) for s in self._spaces)
+        self.rank = 1
+
+    def split(self):
+        """The list of :class:`FunctionSpace`\s of which this
+        :class:`MixedFunctionSpace` is composed."""
+        return self._spaces
+
+    def sub(self, i):
+        """Return the `i`th :class:`FunctionSpace` in this
+        :class:`MixedFunctionSpace`."""
+        return self[i]
+
+    def num_sub_spaces(self):
+        """Return the number of :class:`FunctionSpace`\s of which this
+        :class:`MixedFunctionSpace` is composed."""
+        return len(self)
+
+    def __len__(self):
+        """Return the number of :class:`FunctionSpace`\s of which this
+        :class:`MixedFunctionSpace` is composed."""
+        return len(self._spaces)
+
+    def __getitem__(self, i):
+        """Return the `i`th :class:`FunctionSpace` in this
+        :class:`MixedFunctionSpace`."""
+        return self._spaces[i]
+
+    def __iter__(self):
+        for s in self._spaces:
+            yield s
+
+    @property
+    def dim(self):
+        """Return a tuple of :attr:`FunctionSpace.dim`\s of the
+        :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
+        composed."""
+        return tuple(fs.dim for fs in self._spaces)
+
+    @property
+    def node_count(self):
+        """Return a tuple of :attr:`FunctionSpace.node_count`\s of the
+        :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
+        composed."""
+        return tuple(fs.node_count for fs in self._spaces)
+
+    @property
+    def dof_count(self):
+        """Return a tuple of :attr:`FunctionSpace.dof_count`\s of the
+        :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
+        composed."""
+        return tuple(fs.dof_count for fs in self._spaces)
+
+    @utils.cached_property
+    def node_set(self):
+        """A :class:`pyop2.MixedSet` containing the nodes of this
+        :class:`MixedFunctionSpace`. This is composed of the
+        :attr:`FunctionSpace.node_set`\s of the underlying
+        :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
+        composed of one or (for VectorFunctionSpaces) more degrees of freedom
+        are stored at each node."""
+        return op2.MixedSet(s.node_set for s in self._spaces)
+
+    @utils.cached_property
+    def dof_dset(self):
+        """A :class:`pyop2.MixedSet` containing the degrees of freedom of
+        this :class:`MixedFunctionSpace`. This is composed of the
+        :attr:`FunctionSpace.dof_dset`\s of the underlying
+        :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
+        composed."""
+        return op2.MixedDataSet(s.dof_dset for s in self._spaces)
+
+    def cell_node_map(self, bcs=None):
+        """A :class:`pyop2.MixedMap` from the :attr:`Mesh.cell_set` of the
+        underlying mesh to the :attr:`node_set` of this
+        :class:MixedFunctionSpace. This is composed of the
+        :attr:`FunctionSpace.cell_node_map`\s of the underlying
+        :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
+        composed."""
+        # FIXME: these want caching of sorts
+        return op2.MixedMap(s.cell_node_map(bcs) for s in self._spaces)
+
+    def interior_facet_node_map(self, bcs=None):
+        """Return the :class:`pyop2.MixedMap` from interior facets to
+        function space nodes. If present, bcs must be a tuple of
+        :class:`DirichletBC`\s. In this case, the facet_node_map will return
+        negative node indices where boundary conditions should be
+        applied. Where a PETSc matrix is employed, this will cause the
+        corresponding values to be discarded during matrix assembly."""
+        # FIXME: these want caching of sorts
+        return op2.MixedMap(s.interior_facet_node_map(bcs) for s in self._spaces)
+
+    def exterior_facet_node_map(self, bcs=None):
+        """Return the :class:`pyop2.Map` from exterior facets to
+        function space nodes. If present, bcs must be a tuple of
+        :class:`DirichletBC`\s. In this case, the facet_node_map will return
+        negative node indices where boundary conditions should be
+        applied. Where a PETSc matrix is employed, this will cause the
+        corresponding values to be discarded during matrix assembly."""
+        # FIXME: these want caching of sorts
+        return op2.MixedMap(s.exterior_facet_node_map(bcs) for s in self._spaces)
+
+    @utils.cached_property
+    def exterior_facet_boundary_node_map(self):
+        '''The :class:`pyop2.MixedMap` from exterior facets to the nodes on
+        those facets. Note that this differs from
+        :method:`exterior_facet_node_map` in that only surface nodes
+        are referenced, not all nodes in cells touching the surface.'''
+        return op2.MixedMap(s.exterior_facet_boundary_node_map for s in self._spaces)
+
+    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
+        """Return a newly allocated :class:`pyop2.MixedDat` defined on the
+        :attr:`dof.dset` of this :class:`MixedFunctionSpace`."""
+        if val is not None:
+            assert len(val) == len(self)
+        else:
+            val = [None for _ in self]
+        return op2.MixedDat(s.make_dat(v, valuetype, name, _new_uid())
+                            for s, v in zip(self._spaces, val))
+
 
 class Function(ufl.Coefficient):
     """A :class:`Function` represents a discretised field over the
