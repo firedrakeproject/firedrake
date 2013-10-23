@@ -1026,7 +1026,7 @@ class FunctionSpace(object):
         facet_set = self._mesh.exterior_facets.set
 
         fs_dat = op2.Dat(facet_set**el.space_dimension(),
-                         data=self.exterior_facet_node_map().values)
+                         data=self.exterior_facet_node_map().values_with_halo)
 
         facet_dat = op2.Dat(facet_set**nodes_per_facet,
                             dtype=np.int32)
@@ -1071,7 +1071,8 @@ class FunctionSpace(object):
                      facet_dat(op2.WRITE),
                      self._mesh.exterior_facets.local_facet_dat(op2.READ))
 
-        return op2.Map(facet_set, self.node_set, nodes_per_facet, facet_dat.data_ro, name="exterior_facet_boundary_node")
+        return op2.Map(facet_set, self.node_set, nodes_per_facet, 
+                       facet_dat.data_ro_with_halos, name="exterior_facet_boundary_node")
 
 
     @property

@@ -9,8 +9,9 @@ class DirichletBC(object):
 
     :arg V: the :class:`FunctionSpace` on which the boundary condition
         should be applied.
-    :arg g: the :class:`GenericFunction` defining the boundary condition
-        values.
+    :arg g: the boundary condition values. This can be a :class:`Function` on V,
+        or an expression (such as a literal constant) which can be pointwise
+        evaluated at the nodes of V.
     :arg sub_domain: the integer id of the boundary region over which the
         boundary condition should be applied.
     '''
