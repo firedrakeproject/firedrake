@@ -603,3 +603,14 @@ img[alt="build status"] {
 .feed_item_date {
     font-size: 12px;
 }
+
+/* Equispace the logos. */
+#firedrake-is-supported-by tr {
+    width: 100%;
+}
+
+/* Equispace the logos. */
+#firedrake-is-supported-by td {
+    width: 25%;
+    text-align: center;
+}
