@@ -23,6 +23,13 @@ class Vector(object):
         :arg x: a :class:`Vector` or :class:`firedrake.Function`"""
         self.dat.vec.axpy(a, x.dat.vec_ro)
 
+    def _scale(self, a):
+        """Scale self by `a`.
+
+        :arg a: a scalar
+        """
+        self.dat *= a
+
     def array(self):
         """Return a copy of the process local data as a numpy array"""
         return np.copy(self.dat.data_ro[:self.local_size()])
