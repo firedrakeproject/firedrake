@@ -1091,6 +1091,14 @@ class FunctionSpace(object):
         """The :class:`Mesh` used to construct this :class:`FunctionSpace`."""
         return self._mesh
 
+    def __iter__(self):
+        yield self
+
+    def __mul__(self, other):
+        """Create a :class:`MixedFunctionSpace` composed of this
+        :class:`FunctionSpace` and other"""
+        return MixedFunctionSpace((self, other))
+
 
 class VectorFunctionSpace(FunctionSpace):
     def __init__(self, mesh, family, degree, dim=None, name=None, vfamily=None, vdegree=None):
