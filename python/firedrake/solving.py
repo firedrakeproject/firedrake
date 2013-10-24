@@ -90,7 +90,6 @@ class NonlinearVariationalSolver(object):
         """
         assert isinstance(args[0], NonlinearVariationalProblem)
         self._problem = args[0]
-        self.parameters = kwargs.get('parameters', {})
         test, trial = self._problem.J_ufl.compute_form_data().original_arguments
         fs_names = (test.function_space().name, trial.function_space().name)
         sparsity = op2.Sparsity((test.function_space().dof_dset,
@@ -103,22 +102,10 @@ class NonlinearVariationalSolver(object):
         test = self._problem.F_ufl.compute_form_data().original_arguments[0]
         self._F_tensor = core_types.Function(test.function_space())
         self.snes = PETSc.SNES().create()
-        opt_prefix = 'firedrake_snes_%d' % NonlinearVariationalSolver._id
+        self._opt_prefix = 'firedrake_snes_%d' % NonlinearVariationalSolver._id
         NonlinearVariationalSolver._id += 1
-
-        opts = PETSc.Options(opt_prefix)
-        self.snes.setOptionsPrefix(opt_prefix)
-        for k, v in self.parameters.iteritems():
-            if type(v) is bool:
-                if v:
-                    opts[k] = None
-                else:
-                    continue
-            else:
-                opts[k] = v
-        self.snes.setFromOptions()
-        for k in self.parameters.iterkeys():
-            del opts[k]
+        self.snes.setOptionsPrefix(self._opt_prefix)
+        self.parameters = kwargs.get('parameters', {})
 
         self.snes.setFunction(self.form_function, self._F_tensor.dat.vec)
         self.snes.setJacobian(self.form_jacobian, J=self._jac_tensor.handle,
@@ -159,10 +146,38 @@ class NonlinearVariationalSolver(object):
             self._jac_tensor._force_evaluation()
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 
+    def _update_parameters(self):
+        opts = PETSc.Options(self._opt_prefix)
+        for k, v in self.parameters.iteritems():
+            if type(v) is bool:
+                if v:
+                    opts[k] = None
+                else:
+                    continue
+            else:
+                opts[k] = v
+        self.snes.setFromOptions()
+        for k in self.parameters.iterkeys():
+            del opts[k]
+
+    @property
+    def parameters(self):
+        return self._parameters
+
+    @parameters.setter
+    def parameters(self, val):
+        assert isinstance(val, dict), 'Must pass a dict to set parameters'
+        self._parameters = val
+        self._update_parameters()
+
     def solve(self):
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:
             bc.apply(self._problem.u_ufl)
+
+        # User might have updated parameters dict before calling
+        # solve, ensure these are passed through to the snes.
+        self._update_parameters()
 
         self.snes.solve(None, self._problem.u_ufl.dat.vec)
         # Only the local part of u gets updated by the petsc solve, so
@@ -212,7 +227,8 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         super(LinearVariationalSolver, self).__init__(*args, **kwargs)
 
         self.parameters.setdefault('snes_type', 'ksponly')
-        self.parameters.setdefault('ksp_rtol', 1.e-7)
+        self.parameters.setdefault('ksp_rtol', 1.0e-7)
+        self._update_parameters()
 
 
 def assemble(f, tensor=None, bcs=None):
@@ -519,8 +535,7 @@ def _solve_varproblem(*args, **kwargs):
                                            form_compiler_parameters=form_compiler_parameters)
 
         # Create solver and call solve
-        solver = LinearVariationalSolver(problem)
-        solver.parameters = solver_parameters
+        solver = LinearVariationalSolver(problem, parameters=solver_parameters)
         solver.solve()
 
     # Solve nonlinear variational problem
