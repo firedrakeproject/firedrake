@@ -33,8 +33,8 @@ else
   echo | tee -a $LOGFILE
   PIP="pip install"
   PREFIX=/usr/local
-  ASUSER="sudo -u ${SUDO_USER} "
   HOME=$(getent passwd $SUDO_USER | cut -d: -f6)
+  ASUSER="sudo -u ${SUDO_USER} HOME=${HOME} "
 fi
 
 echo "*** Preparing system ***" | tee -a $LOGFILE
