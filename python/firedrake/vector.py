@@ -1,6 +1,7 @@
 import numpy as np
 from petsc4py import PETSc
 from pyop2 import op2
+from mpi4py import MPI
 
 
 class Vector(object):
@@ -21,11 +22,18 @@ class Vector(object):
         """Add a*x to self.
         :arg a: a scalar
         :arg x: a :class:`Vector` or :class:`firedrake.Function`"""
-        self.dat.vec.axpy(a, x.dat.vec_ro)
+        self.dat += a*x.dat
+
+    def _scale(self, a):
+        """Scale self by `a`.
+
+        :arg a: a scalar
+        """
+        self.dat *= a
 
     def array(self):
         """Return a copy of the process local data as a numpy array"""
-        return np.copy(self.dat.data_ro[:self.local_size()])
+        return np.copy(self.dat.data_ro)
 
     def get_local(self):
         """Return a copy of the process local data as a numpy array"""
@@ -34,7 +42,7 @@ class Vector(object):
     def set_local(self, values):
         """Set process local values
         :arg values: a numpy array of values of length :func:`Vector.local_size`"""
-        self.dat.data[:self.local_size()] = values
+        self.dat.data[:] = values
 
     def local_size(self):
         """Return the size of the process local data (without ghost points)"""
@@ -42,7 +50,8 @@ class Vector(object):
 
     def size(self):
         """Return the global size of the data"""
-        return self.dat.vec_ro.getSize()
+        lsize = self.local_size()
+        return op2.MPI.comm.allreduce(lsize, op=MPI.SUM)
 
     def gather(self, global_indices=None):
         """Gather a :class:`Vector` to all processes
@@ -69,15 +78,13 @@ class Vector(object):
 
         :arg idx: the local idx, or indices to set.
         :arg value: the value, or values to give them."""
-        view = self.dat.data[:self.local_size()]
-        view[idx] = value
+        self.dat.data[idx] = value
 
     def __getitem__(self, idx):
         """Return a value or values in the local data
 
         :arg idx: the local idx, or indices to set."""
-        view = self.dat.data_ro[:self.local_size()]
-        return view[idx]
+        return self.dat.data_ro[idx]
 
     def __len__(self):
         """Return the length of the local data (not including ghost points)"""
