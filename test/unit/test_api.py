@@ -114,6 +114,27 @@ def g():
     return op2.Global(1, 1)
 
 
+class TestClassAPI:
+
+    """Do PyOP2 classes behave like normal classes?"""
+
+    @pytest.mark.xfail
+    def test_isinstance(self, backend, set, dat):
+        "isinstance should behave as expected."
+        assert isinstance(set, op2.Set)
+        assert isinstance(dat, op2.Dat)
+        assert not isinstance(set, op2.Dat)
+        assert not isinstance(dat, op2.Set)
+
+    @pytest.mark.xfail
+    def test_issubclass(self, backend, set, dat):
+        "issubclass should behave as expected"
+        assert issubclass(type(set), op2.Set)
+        assert issubclass(type(dat), op2.Dat)
+        assert not issubclass(type(set), op2.Dat)
+        assert not issubclass(type(dat), op2.Set)
+
+
 class TestInitAPI:
 
     """
