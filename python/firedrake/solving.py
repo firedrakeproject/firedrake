@@ -74,16 +74,19 @@ class NonlinearVariationalSolver(object):
     _id = 0
 
     def __init__(self, *args, **kwargs):
-        """Build a nonlinear solver
-        :kwarg parameters: Solver parameters to pass to PETSc
-        This should be a dict mapping PETSc options to values.  For
-        example, to set the nonlinear solver type to just use a linear
-        solver:
+        """Build a nonlinear solver.
+
+        :kwarg parameters: Solver parameters to pass to PETSc.
+            This should be a dict mapping PETSc options to values.  For
+            example, to set the nonlinear solver type to just use a linear
+            solver:
+
         .. code-block:: python
 
             {'snes_type': 'ksponly'}
 
         PETSc flag options should be specified with `bool` values. For example:
+
         .. code-block:: python
 
             {'snes_monitor': True}
@@ -224,6 +227,12 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
     """Solves a linear variational problem."""
 
     def __init__(self, *args, **kwargs):
+        """Build a linear solver.
+
+        :arg problem: A :class:`LinearVariationalProblem` to solve.
+        :kwarg parameters: Solver parameters to pass to PETSc.
+            This should be a dict mapping PETSc options to values.
+        """
         super(LinearVariationalSolver, self).__init__(*args, **kwargs)
 
         self.parameters.setdefault('snes_type', 'ksponly')
@@ -471,8 +480,18 @@ def solve(*args, **kwargs):
         solve(a == L, u, bcs=[bc1, bc2])
 
         solve(a == L, u, bcs=bcs,
-              solver_parameters={"linear_solver": "lu"},
+              solver_parameters={"ksp_type": "gmres"},
               form_compiler_parameters={"optimize": True})
+
+    The linear solver uses PETSc under the hood and accepts all PETSc
+    options as solver parameters.  For example, to solve the system
+    using direct factorisation use:
+
+    .. code-block:: python
+
+       solve(a == L, u, bcs=bcs,
+             solver_parameters={"ksp_type": "preonly", "pc_type":
+             "lu"})
 
     *3. Solving nonlinear variational problems*
 
