@@ -118,13 +118,35 @@ class TestLinAlgOp:
         x._data = y.data + 1.0
         assert all(x.data == (y + 1.0).data)
 
+    def test_radd_scalar(self, backend, x, y):
+        x._data = y.data + 1.0
+        assert all(x.data == (1.0 + y).data)
+
+    def test_pos_copies(self, backend, y):
+        z = +y
+        assert all(z.data == y.data)
+        assert z is not y
+
+    def test_neg_copies(self, backend, y):
+        z = -y
+        assert all(z.data == -y.data)
+        assert z is not y
+
     def test_sub_scalar(self, backend, x, y):
         x._data = y.data - 1.0
         assert all(x.data == (y - 1.0).data)
 
+    def test_rsub_scalar(self, backend, x, y):
+        x._data = 1.0 - y.data
+        assert all(x.data == (1.0 - y).data)
+
     def test_mul_scalar(self, backend, x, y):
         x._data = 2 * y.data
         assert all(x.data == (y * 2.0).data)
+
+    def test_rmul_scalar(self, backend, x, y):
+        x._data = 2 * y.data
+        assert all(x.data == (2.0 * y).data)
 
     def test_div_scalar(self, backend, x, y):
         x._data = 2 * y.data

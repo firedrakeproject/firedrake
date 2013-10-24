@@ -1097,9 +1097,10 @@ class Dat(DataCarrier):
         self._shape = (dataset.total_size,) + (() if dataset.cdim == 1 else dataset.dim)
         self._dataset = dataset
         if data is None:
-            self._dtype = dtype if dtype is not None else np.float64
+            self._dtype = np.dtype(dtype if dtype is not None else np.float64)
         else:
             self._data = verify_reshape(data, dtype, self._shape, allow_none=True)
+            self._dtype = self._data.dtype
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
         self._needs_halo_update = False
@@ -1248,7 +1249,7 @@ class Dat(DataCarrier):
 
     @property
     def dtype(self):
-        return self._data.dtype if self._is_allocated else self._dtype
+        return self._dtype
 
     @property
     def needs_halo_update(self):
@@ -1379,17 +1380,58 @@ class Dat(DataCarrier):
         par_loop(k, self.dataset.set, self(INC), other(READ))
         return self
 
+    def _uop(self, op):
+        ops = {operator.sub: '-'}
+        k = _make_object('Kernel',
+                         """void k(%(t)s *self) {
+                            for ( int n = 0; n < %(dim)s; ++n ) {
+                                self[n] = %(op)s self[n];
+                            }
+                         }""" % {'t': self.ctype, 'op': ops[op],
+                                 'dim': self.cdim},
+                         "k")
+        par_loop(k, self.dataset.set, self(RW))
+        return self
+
+    def __pos__(self):
+        pos = _make_object('Dat', self)
+        return pos
+
     def __add__(self, other):
         """Pointwise addition of fields."""
         return self._op(other, operator.add)
+
+    def __radd__(self, other):
+        """Pointwise addition of fields.
+
+        self.__radd__(other) <==> other + self."""
+        return self + other
+
+    def __neg__(self):
+        neg = _make_object('Dat', self)
+        return neg._uop(operator.sub)
 
     def __sub__(self, other):
         """Pointwise subtraction of fields."""
         return self._op(other, operator.sub)
 
+    def __rsub__(self, other):
+        """Pointwise subtraction of fields.
+
+        self.__rsub__(other) <==> other - self."""
+        ret = -self
+        ret += other
+        return ret
+
     def __mul__(self, other):
         """Pointwise multiplication or scaling of fields."""
         return self._op(other, operator.mul)
+
+    def __rmul__(self, other):
+        """Pointwise multiplication or scaling of fields.
+
+        self.__rmul__(other) <==> other * self."""
+        return self.__mul__(other)
 
     def __div__(self, other):
         """Pointwise division or scaling of fields."""
