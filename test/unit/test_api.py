@@ -480,6 +480,14 @@ class TestDatAPI:
         assert isinstance(d.dataset, base.DataSet)
         assert d.dataset.cdim == 1
 
+    @pytest.mark.xfail
+    def test_dat_dtype_type(self, backend, dset):
+        "The type of a Dat's dtype property should by numpy.dtype."
+        d = op2.Dat(dset)
+        assert type(d.dtype) == np.dtype
+        d = op2.Dat(dset, [1.0] * dset.size * dset.cdim)
+        assert type(d.dtype) == np.dtype
+
     def test_dat_dtype(self, backend, dset):
         "Default data type should be numpy.float64."
         d = op2.Dat(dset)
