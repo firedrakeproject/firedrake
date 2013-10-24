@@ -431,7 +431,7 @@ the purpose.
     return result()
 
 
-def _la_solve(A, x, b, parameters={}):
+def _la_solve(A, x, b, parameters={'ksp_type': 'gmres', 'pc_type': 'ilu'}):
     """Solves a linear algebra problem. Usage:
 
     .. code-block:: python
