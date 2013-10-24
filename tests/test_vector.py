@@ -49,6 +49,25 @@ def test_vector_gather_works(f):
     assert len(gathered) == 1 and gathered[0] == 2.0
 
 
+def test_axpy(f):
+    f.interpolate(Expression("2"))
+    v = f.vector()
+    y = Vector(v)
+    y[:] = 4
+
+    v.axpy(3, y)
+
+    assert (v.array() == 14.0).all()
+
+
+def test_scale(f):
+    f.interpolate(Expression("3"))
+    v = f.vector()
+    v._scale(7)
+
+    assert (v.array() == 21.0).all()
+
+
 @pytest.mark.parallel(nprocs=2)
 def test_parallel_gather():
     from mpi4py import MPI
@@ -66,6 +85,7 @@ def test_parallel_gather():
     gathered = v.gather()
     gsum = sum(gathered)
     assert lsum == gsum
+    assert len(gathered) == v.size()
 
     gathered = v.gather([0])
     assert len(gathered) == 1 and gathered[0] == 0
