@@ -480,7 +480,6 @@ class TestDatAPI:
         assert isinstance(d.dataset, base.DataSet)
         assert d.dataset.cdim == 1
 
-    @pytest.mark.xfail
     def test_dat_dtype_type(self, backend, dset):
         "The type of a Dat's dtype property should by numpy.dtype."
         d = op2.Dat(dset)

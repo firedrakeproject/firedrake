@@ -1097,9 +1097,10 @@ class Dat(DataCarrier):
         self._shape = (dataset.total_size,) + (() if dataset.cdim == 1 else dataset.dim)
         self._dataset = dataset
         if data is None:
-            self._dtype = dtype if dtype is not None else np.float64
+            self._dtype = np.dtype(dtype if dtype is not None else np.float64)
         else:
             self._data = verify_reshape(data, dtype, self._shape, allow_none=True)
+            self._dtype = self._data.dtype
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
         self._needs_halo_update = False
@@ -1248,7 +1249,7 @@ class Dat(DataCarrier):
 
     @property
     def dtype(self):
-        return self._data.dtype if self._is_allocated else self._dtype
+        return self._dtype
 
     @property
     def needs_halo_update(self):
