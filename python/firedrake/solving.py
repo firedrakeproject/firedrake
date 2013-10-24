@@ -457,8 +457,9 @@ def solve(*args, **kwargs):
 
     *1. Solving linear systems*
 
-    A linear system Ax = b may be solved by calling solve(A, x, b),
+    A linear system Ax = b may be solved by calling solve(A, x, b, solver_parameters={...}),
     where A is a matrix and x and b are vectors.
+    You can pass parameters to the linear solver as described below.
 
     .. code-block:: python
 
@@ -490,8 +491,7 @@ def solve(*args, **kwargs):
     .. code-block:: python
 
        solve(a == L, u, bcs=bcs,
-             solver_parameters={"ksp_type": "preonly", "pc_type":
-             "lu"})
+             solver_parameters={"ksp_type": "preonly", "pc_type": "lu"})
 
     *3. Solving nonlinear variational problems*
 
@@ -530,12 +530,11 @@ def solve(*args, **kwargs):
     if isinstance(args[0], ufl.classes.Equation):
         _solve_varproblem(*args, **kwargs)
 
-    # Default case, just call the wrapped C++ solve function
+    # Default case, call PyOP2 linear solver
     else:
-        if kwargs:
-            raise RuntimeError("Not expecting keyword arguments when solving \
-                               linear algebra problem")
-
+        parms = kwargs.pop('solver_parameters', None)
+        if parms:
+            return _la_solve(*args, parameters=parms)
         return _la_solve(*args)
 
 
