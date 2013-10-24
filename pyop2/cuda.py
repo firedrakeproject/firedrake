@@ -318,7 +318,7 @@ class Mat(DeviceDataMixin, op2.Mat):
 
         :param rows: a :class:`Subset` or an iterable"""
         base._trace.evaluate(set([self]), set([self]))
-        rows = rows.indices if isinstance(rows, base.Subset) else rows
+        rows = rows.indices if isinstance(rows, Subset) else rows
         for row in rows:
             s = self.sparsity._rowptr[row]
             e = self.sparsity._rowptr[row + 1]
@@ -779,7 +779,7 @@ class ParLoop(op2.ParLoop):
             if arg._is_mat:
                 d = arg.data._lmadata.gpudata
                 itset = self._it_space.iterset
-                if isinstance(itset, op2.Subset):
+                if isinstance(itset, Subset):
                     itset = itset.superset
                 offset = arg.data._lmaoffset(itset)
                 arglist.append(np.intp(d))

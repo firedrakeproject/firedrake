@@ -283,7 +283,7 @@ class TestSetAPI:
     def test_set_repr(self, backend, set):
         "Set repr should produce a Set object when eval'd."
         from pyop2.op2 import Set  # noqa: needed by eval
-        assert isinstance(eval(repr(set)), base.Set)
+        assert isinstance(eval(repr(set)), op2.Set)
 
     def test_set_str(self, backend, set):
         "Set should have the expected string representation."
@@ -311,7 +311,7 @@ class TestSetAPI:
     def test_set_exponentiation_builds_dset(self, backend, set):
         "The exponentiation operator should build a DataSet"
         dset = set ** 1
-        assert isinstance(dset, base.DataSet)
+        assert isinstance(dset, op2.DataSet)
         assert dset.cdim == 1
 
         dset = set ** 3
@@ -409,7 +409,7 @@ class TestDataSetAPI:
     def test_dset_repr(self, backend, dset):
         "DataSet repr should produce a Set object when eval'd."
         from pyop2.op2 import Set, DataSet  # noqa: needed by eval
-        assert isinstance(eval(repr(dset)), base.DataSet)
+        assert isinstance(eval(repr(dset)), op2.DataSet)
 
     def test_dset_str(self, backend, dset):
         "DataSet should have the expected string representation."
@@ -496,7 +496,7 @@ class TestDatAPI:
         converted into a Dataset with dim=1"""
         d = op2.Dat(set)
         assert d.cdim == 1
-        assert isinstance(d.dataset, base.DataSet)
+        assert isinstance(d.dataset, op2.DataSet)
         assert d.dataset.cdim == 1
 
     def test_dat_dtype(self, backend, dset):
@@ -574,7 +574,7 @@ class TestDatAPI:
         "Dat repr should produce a Dat object when eval'd."
         from pyop2.op2 import Dat, DataSet, Set  # noqa: needed by eval
         from numpy import dtype  # noqa: needed by eval
-        assert isinstance(eval(repr(dat)), base.Dat)
+        assert isinstance(eval(repr(dat)), op2.Dat)
 
     def test_dat_str(self, backend, dset):
         "Dat should have the expected string representation."
@@ -904,7 +904,7 @@ class TestConstAPI:
         from numpy import array  # noqa: needed by eval
         const.remove_from_namespace()
         c = eval(repr(const))
-        assert isinstance(c, base.Const)
+        assert isinstance(c, op2.Const)
         c.remove_from_namespace()
 
     def test_const_str(self, backend, const):
@@ -1017,7 +1017,7 @@ class TestGlobalAPI:
         from pyop2.op2 import Global  # noqa: needed by eval
         from numpy import array, dtype  # noqa: needed by eval
         g = op2.Global(1, 1, 'double')
-        assert isinstance(eval(repr(g)), base.Global)
+        assert isinstance(eval(repr(g)), op2.Global)
 
     def test_global_str(self, backend):
         "Global should have the expected string representation."
@@ -1203,8 +1203,8 @@ class TestIterationSpaceAPI:
         eval'd."""
         from pyop2.op2 import Set  # noqa: needed by eval
         from pyop2.base import IterationSpace  # noqa: needed by eval
-        m = base.IterationSpace(set, 1)
-        assert isinstance(eval(repr(m)), base.IterationSpace)
+        m = IterationSpace(set, 1)
+        assert isinstance(eval(repr(m)), IterationSpace)
 
     def test_iteration_space_str(self, backend, set):
         "IterationSpace should have the expected string representation."

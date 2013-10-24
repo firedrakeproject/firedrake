@@ -178,7 +178,7 @@ class Mat(base.Mat):
 
         :param rows: a :class:`Subset` or an iterable"""
         base._trace.evaluate(set([self]), set([self]))
-        rows = rows.indices if isinstance(rows, base.Subset) else rows
+        rows = rows.indices if isinstance(rows, Subset) else rows
         self.handle.zeroRowsLocal(rows, diag_val)
 
     @collective
