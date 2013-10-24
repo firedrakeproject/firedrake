@@ -117,6 +117,29 @@ class _BackendSelector(type):
         # Invoke the constructor with the arguments given
         return t(*args, **kwargs)
 
+    # More disgusting metaclass voodoo
+    def __instancecheck__(cls, instance):
+        """Return True if instance is an instance of cls
+
+        We need to override the default isinstance check because
+        `type(op2.Set(10))` is `base.Set` but type(op2.Set) is
+        `_BackendSelector` and so by default `isinstance(op2.Set(10),
+        op2.Set)` is False.
+
+        """
+        return isinstance(instance, cls._backend.__dict__[cls.__name__])
+
+    def __subclasscheck__(cls, subclass):
+        """Return True if subclass is a subclass of cls
+
+        We need to override the default subclass check because
+        type(op2.Set(10)) is `base.Set` but type(op2.Set) is
+        `_BackendSelector` and so by default
+        `isinstance(type(op2.Set(10)), op2.Set)` is False.
+
+        """
+        return issubclass(subclass, cls._backend.__dict__[cls.__name__])
+
     def fromhdf5(cls, *args, **kwargs):
         try:
             return cls._backend.__dict__[cls.__name__].fromhdf5(*args, **kwargs)
