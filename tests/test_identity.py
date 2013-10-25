@@ -52,7 +52,7 @@ def run_vector_test():
 
 
 def test_firedrake_identity():
-    assert (run_test() < np.array([1.0e-11, 1.0e-6, 1.0e-6, 1.0e-5])).all()
+    assert (run_test() < 1e-6).all()
 
 
 def test_vector_identity():

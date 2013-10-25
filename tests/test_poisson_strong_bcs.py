@@ -77,7 +77,7 @@ def test_poisson_analytic(params, degree):
                           for p in [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}]
                           for d in (1, 2)])
 def test_poisson_analytic_linear(params, degree):
-    assert (run_test_linear(2, degree, parameters=params) < 1.e-9)
+    assert (run_test_linear(2, degree, parameters=params) < 5.e-6)
 
 
 if __name__ == '__main__':

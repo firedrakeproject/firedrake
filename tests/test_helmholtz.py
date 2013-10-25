@@ -34,7 +34,7 @@ def helmholtz(x, degree=2):
     assemble(a)
     assemble(L)
     x = Function(V)
-    solve(a == L, x)
+    solve(a == L, x, solver_parameters={'ksp_type': 'cg'})
 
     # Analytical solution
     f.interpolate(Expression("cos(x[0]*pi*2)*cos(x[1]*pi*2)"))
@@ -47,7 +47,7 @@ def test_firedrake_helmholtz():
     print "l2 error norms:", diff
     conv = np.log2(diff[:-1] / diff[1:])
     print "convergence order:", conv
-    assert (np.array(conv) > 3.5).all()
+    assert (np.array(conv) > 2.8).all()
 
 if __name__ == '__main__':
     import os
