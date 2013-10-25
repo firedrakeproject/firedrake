@@ -324,6 +324,11 @@ class Arg(object):
         self._position = None
         self._indirect_position = None
 
+        if self._is_mixed_mat and flatten:
+            raise MatTypeError("A Mat Arg on a mixed space cannot be flattened!")
+        if self._is_mixed_dat and flatten:
+            raise DatTypeError("A MixedDat Arg cannot be flattened!")
+
         # Check arguments for consistency
         if not (self._is_global or map is None):
             for j, m in enumerate(map):
@@ -337,8 +342,7 @@ class Arg(object):
                     "To set of %s doesn't match the set of %s." % (map, data))
 
         # Determine the iteration space extents, if any
-        # FIXME: if the arg is flattened we assumed it's not mixed
-        if self._is_mat and self._flatten:
+        if self._is_mat and flatten:
             self._extents = (((map[0].arity * data.dims[0], map[1].arity * data.dims[1]),),)
             self._offsets = (((0, 0),),)
         elif self._is_mat:
@@ -346,8 +350,7 @@ class Arg(object):
                                   for mr in map[0])
             self._offsets = tuple(tuple((i, j) for j in map[1].arange)
                                   for i in map[0].arange)
-        # FIXME: if the arg is flattened we assumed it's not mixed
-        elif self._uses_itspace and self._flatten:
+        elif self._uses_itspace and flatten:
             self._extents = (((map.arity * data.cdim,),),)
             self._offsets = None
         elif self._uses_itspace:
@@ -470,6 +473,10 @@ class Arg(object):
     @property
     def _is_mixed_dat(self):
         return isinstance(self._dat, MixedDat)
+
+    @property
+    def _is_mixed(self):
+        return self._is_mixed_dat or self._is_mixed_mat
 
     @property
     def _is_INC(self):

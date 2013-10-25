@@ -185,6 +185,11 @@ def diag_mat(toset):
 
 
 @pytest.fixture
+def mmat(ms):
+    return op2.Mat(ms)
+
+
+@pytest.fixture
 def g():
     return op2.Global(1, 1)
 
@@ -344,6 +349,17 @@ class TestArgAPI:
     """
     Arg API unit tests
     """
+
+    def test_arg_mixed_dat_flatten(self, backend, mdat, mmap):
+        "Creating a flattened Arg on a MixedDat should fail."
+        with pytest.raises(exceptions.DatTypeError):
+            mdat(op2.READ, mmap, flatten=True)
+
+    def test_arg_mixed_mat_flatten(self, backend, mmat):
+        "Creating a flattened Arg on a mixed Mat should fail."
+        mr, mc = mmat.sparsity.maps[0]
+        with pytest.raises(exceptions.MatTypeError):
+            mmat(op2.INC, (mr[op2.i[0]], mc[op2.i[1]]), flatten=True)
 
     def test_arg_split_dat(self, backend, dat, m_iterset_toset):
         arg = dat(op2.READ, m_iterset_toset)
@@ -1369,10 +1385,9 @@ class TestMatAPI:
         assert m.sparsity == sparsity and  \
             m.dtype == np.float64 and m.name == 'bar'
 
-    def test_mat_mixed(self, backend, ms):
+    def test_mat_mixed(self, backend, mmat):
         "Default data type should be numpy.float64."
-        m = op2.Mat(ms)
-        assert m.dtype == np.double
+        assert mmat.dtype == np.double
 
     def test_mat_illegal_maps(self, backend, mat):
         "Mat arg constructor should reject invalid maps."
