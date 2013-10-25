@@ -686,6 +686,8 @@ class Halo(object):
 
     @utils.cached_property
     def op2_halo(self):
+        if not self.sends and not self.receives:
+            return None
         return op2.Halo(self.sends, self.receives,
                         comm=self.comm, gnn2unn=self.global_to_universal_number)
 
