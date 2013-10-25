@@ -1378,18 +1378,27 @@ class Function(ufl.Coefficient):
 
     def interpolate(self, expression):
         """Interpolate expression onto the :class:`Function`."""
+        for fs, dat in zip(self.function_space(), self.dat):
+            self._interpolate(fs, dat, expression)
 
-        coords = self.function_space().mesh()._coordinate_field
+    def _interpolate(self, fs, dat, expression):
+        """Interpolate expression onto a :class:`FunctionSpace`.
+
+        :param fs: :class:`FunctionSpace`
+        :param dat: :class:`op2.Dat`
+        :param expression: :class:`Expression`
+        """
+        coords = fs.mesh()._coordinate_field
 
         coords_space = coords.function_space()
 
         coords_element = coords_space.fiat_element
 
-        to_element = self.function_space().fiat_element
+        to_element = fs.fiat_element
 
         to_pts = []
 
-        if expression.rank() != self.function_space().rank:
+        if expression.rank() != fs.rank:
             raise RuntimeError('Rank mismatch between Expression and FunctionSpace')
 
         for dual in to_element.dual_basis():
@@ -1431,7 +1440,7 @@ void expression_kernel(double A[%(rank)d], double **x_, int k)
                             "expression_kernel")
 
         op2.par_loop(kernel, self.cell_set,
-                     self.dat(op2.WRITE, self.cell_node_map()[op2.i[0]]),
+                     dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
                      coords.dat(op2.READ, coords.cell_node_map())
                      )
 
