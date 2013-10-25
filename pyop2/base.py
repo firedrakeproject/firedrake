@@ -726,7 +726,7 @@ class DataSet(object):
     # Look up any unspecified attributes on the _set.
     def __getattr__(self, name):
         """Returns a Set specific attribute."""
-        return getattr(self._set, name)
+        return getattr(self.set, name)
 
     @property
     def dim(self):
