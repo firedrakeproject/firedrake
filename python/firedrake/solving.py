@@ -38,19 +38,19 @@ _mat_cache = {}
 
 
 class NonlinearVariationalProblem(object):
-
-    """
-    Create nonlinear variational problem F(u; v) = 0.
-
-    Optional arguments bcs and J may be passed to specify boundary
-    conditions and the Jacobian J = dF/du.
-
-    Another optional argument form_compiler_parameters may be
-    specified to pass parameters to the form compiler.
-    """
+    """Nonlinear variational problem F(u; v) = 0."""
 
     def __init__(self, F, u, bcs=None, J=None,
                  form_compiler_parameters=None):
+        """
+        :param F: the nonlinear form
+        :param u: the :class:`Function <firedrake.core_types.Function>` to
+            solve for
+        :param bcs: the boundary conditions (optional)
+        :param J: the Jacobian J = dF/du (optional)
+        :param dic form_compiler_parameters: parameters to pass to the form
+            compiler (optional)
+        """
 
         # Extract and check arguments
         u = _extract_u(u)
@@ -68,14 +68,12 @@ class NonlinearVariationalProblem(object):
 
 
 class NonlinearVariationalSolver(object):
-
-    """Solves a nonlinear variational problem."""
+    """Solves a :class:`NonlinearVariationalProblem`."""
 
     _id = 0
 
     def __init__(self, *args, **kwargs):
-        """Build a nonlinear solver.
-
+        """
         :kwarg parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.  For
             example, to set the nonlinear solver type to just use a linear
@@ -201,17 +199,18 @@ class NonlinearVariationalSolver(object):
 
 
 class LinearVariationalProblem(NonlinearVariationalProblem):
+    """Linear variational problem a(u, v) = L(v)."""
 
     def __init__(self, a, L, u, bcs=None,
                  form_compiler_parameters=None):
         """
-        Create linear variational problem a(u, v) = L(v).
-
-        An optional argument bcs may be passed to specify boundary
-        conditions.
-
-        Another optional argument form_compiler_parameters may be
-        specified to pass parameters to the form compiler.
+        :param a: the bilinear form
+        :param L: the linear form
+        :param u: the :class:`Function <firedrake.core_types.Function>` to
+            solve for
+        :param bcs: the boundary conditions (optional)
+        :param dict form_compiler_parameters: parameters to pass to the form
+            compiler (optional)
         """
 
         # In the linear case, the Jacobian is the equation LHS.
@@ -223,12 +222,10 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
 
 
 class LinearVariationalSolver(NonlinearVariationalSolver):
-
-    """Solves a linear variational problem."""
+    """Solves a :class:`LinearVariationalProblem`."""
 
     def __init__(self, *args, **kwargs):
-        """Build a linear solver.
-
+        """
         :arg problem: A :class:`LinearVariationalProblem` to solve.
         :kwarg parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.
@@ -243,17 +240,17 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
 def assemble(f, tensor=None, bcs=None):
     """Evaluate f.
 
-If f is a :class:`UFL.form` then this evaluates the corresponding
-integral(s) and returns a :class:`float` for 0-forms, a
-:class:`Function` for 1-forms and a :class:`op2.Mat` for 2-forms. The
-last of these may change to a native Firedrake type in a future
-release.
+    If f is a :class:`UFL.form` then this evaluates the corresponding
+    integral(s) and returns a :class:`float` for 0-forms, a
+    :class:`Function` for 1-forms and a :class:`op2.Mat` for 2-forms. The
+    last of these may change to a native Firedrake type in a future
+    release.
 
-If f is an expression other than a form, it will be evaluated
-pointwise on the Functions in the expression. This will
-only succeed if the Functions are on the same
-:class:`FunctionSpace`
-"""
+    If f is an expression other than a form, it will be evaluated
+    pointwise on the Functions in the expression. This will
+    only succeed if the Functions are on the same
+    :class:`FunctionSpace`
+    """
 
     if isinstance(f, ufl.form.Form):
         return _assemble(f, tensor=tensor, bcs=bcs)
@@ -265,15 +262,15 @@ only succeed if the Functions are on the same
 
 def _assemble(f, tensor=None, bcs=None):
     """Assemble the form f and return a raw PyOP2 object representing
-the result. This will be a :class:`float` for 0-forms, a
-:class:`Function` for 1-forms and a :class:`op2.Mat` for 2-forms. The
-last of these may change to a native Firedrake type in a future
-release.
+    the result. This will be a :class:`float` for 0-forms, a
+    :class:`Function` for 1-forms and a :class:`op2.Mat` for 2-forms. The
+    last of these may change to a native Firedrake type in a future
+    release.
 
     :arg bcs: A tuple of :class`DirichletBC`\s to be applied.
-    :arg tensor: An existing tensor object into which the form should \
-be assembled. If this is not supplied, a new tensor will be created for \
-the purpose.
+    :arg tensor: An existing tensor object into which the form should be
+        assembled. If this is not supplied, a new tensor will be created for
+        the purpose.
     """
 
     kernels = ffc_interface.compile_form(f, "form")
