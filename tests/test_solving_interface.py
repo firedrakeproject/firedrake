@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from numpy.linalg import norm
 
 
 @pytest.fixture
@@ -54,6 +55,38 @@ def test_nonlinear_solver_api(a_L_out):
     assert solver.snes.getType() == solver.snes.Type.NEWTONLS
     rtol, _, _, _ = solver.snes.getTolerances()
     assert rtol == solver.parameters['snes_rtol']
+
+
+def test_linear_solves_equivalent():
+    """solve(a == L, out) should return the same as solving with the assembled objects.
+
+    This relies on two different code paths agreeing on the same set of solver parameters."""
+    mesh = UnitSquareMesh(50, 50)
+
+    V = FunctionSpace(mesh, "CG", 1)
+
+    f = Function(V)
+    f.assign(1)
+    f.vector()[:] = 1.
+    t = TestFunction(V)
+    q = TrialFunction(V)
+
+    a = inner(t, q)*dx
+    L = inner(f, t)*dx
+
+    # Solve the system using forms
+    sol = Function(V)
+    solve(a == L, sol)
+
+    # And again
+    sol2 = Function(V)
+    solve(a == L, sol2)
+    assert norm(sol.vector()[:] - sol2.vector()[:]) == 0
+
+    # Solve the system using preassembled objects
+    sol3 = Function(V)
+    solve(assemble(a), sol3, assemble(L).dat)
+    assert norm(sol.vector()[:] - sol3.vector()[:]) == 0
 
 
 if __name__ == '__main__':
