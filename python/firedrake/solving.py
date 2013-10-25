@@ -287,13 +287,13 @@ the purpose.
 
     def get_rank(arg):
         return arg.function_space().rank
+    has_vec_fs = lambda arg: isinstance(arg.function_space(), core_types.VectorFunctionSpace)
 
     if is_mat:
         test, trial = fd.original_arguments
 
         if op2.MPI.parallel:
-            if isinstance(test.function_space(), core_types.VectorFunctionSpace) or \
-               isinstance(trial.function_space(), core_types.VectorFunctionSpace):
+            if has_vec_fs(test) or has_vec_fs(trial):
                 raise NotImplementedError(
                     "It is not yet possible to assemble VectorFunctionSpaces in parallel")
         m = test.function_space().mesh()
@@ -323,7 +323,7 @@ the purpose.
         test = fd.original_arguments[0]
         m = test.function_space().mesh()
         if op2.MPI.parallel:
-            if isinstance(test.function_space(), core_types.VectorFunctionSpace):
+            if has_vec_fs(test):
                 raise NotImplementedError(
                     "It is not yet possible to assemble VectorFunctionSpaces in parallel")
         if tensor is None:
@@ -348,10 +348,10 @@ the purpose.
             if is_mat:
                 tensor_arg = tensor(op2.INC, (test.cell_node_map(bcs)[op2.i[0]],
                                               trial.cell_node_map(bcs)[op2.i[1]]),
-                                    flatten=True)
+                                    flatten=has_vec_fs(test))
             elif is_vec:
                 tensor_arg = tensor(op2.INC, test.cell_node_map()[op2.i[0]],
-                                    flatten=True)
+                                    flatten=has_vec_fs(test))
             else:
                 tensor_arg = tensor(op2.INC)
 
@@ -360,15 +360,15 @@ the purpose.
                 coords_xtr = m._coordinate_field
                 args = [kernel, itspace, tensor_arg,
                         coords_xtr.dat(op2.READ, coords_xtr.cell_node_map(),
-                                       flatten=True)]
+                                       flatten=has_vec_fs(coords_xtr))]
             else:
                 args = [kernel, itspace, tensor_arg,
                         coords.dat(op2.READ, coords.cell_node_map(),
-                                   flatten=True)]
+                                   flatten=has_vec_fs(coords))]
 
             for c in fd.original_coefficients:
                 args.append(c.dat(op2.READ, c.cell_node_map(),
-                                  flatten=True))
+                                  flatten=has_vec_fs(c)))
 
             op2.par_loop(*args)
         if domain_type == 'exterior_facet':
