@@ -30,7 +30,7 @@ the Fluidity dependencies in appendix C of the Fluidity manual,
 obtainable from `Launchpad
 <https://launchpad.net/fluidity/+download>`_.
 
-Additionally, you will need the Python cgen package:
+Additionally, you will need the Python cgen package::
 
   sudo pip install cgen
 
