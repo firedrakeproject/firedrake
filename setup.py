@@ -96,7 +96,7 @@ if version < (2, 7) or (3, 0) <= version <= (3, 1):
     install_requires += ['argparse', 'ordereddict']
 
 test_requires = [
-    'flake8',
+    'flake8>=2.1.0',
     'pytest>=2.3',
 ]
 

@@ -115,7 +115,7 @@ Common dependencies:
 Testing dependencies (optional, required to run the tests):
 
 * pytest >= 2.3
-* flake8
+* flake8 >= 2.1.0
 
 With the exception of the PETSc_ dependencies, these can be installed
 using the package management system of your OS, or via ``pip``.
@@ -388,12 +388,12 @@ manager::
 
 or pip::
 
-  pip install pytest>=2.3
+  pip install "pytest>=2.3"
 
 The code linting test uses `flake8 <http://flake8.readthedocs.org>`__.
 Install via pip::
 
-  pip install flake8
+  pip install "flake8>=2.1.0"
 
 If you install *pytest* and *flake8* using ``pip --user``, you should
 include the binary folder of your local site in your path by adding the
