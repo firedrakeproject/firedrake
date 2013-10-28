@@ -12,9 +12,9 @@ def vcg1(mesh):
     return VectorFunctionSpace(mesh, "CG", 1)
 
 
-@pytest.fixture(scope='module', params=['cg1', 'vcg1'])
-def fs(request, cg1, vcg1):
-    return {'cg1': cg1, 'vcg1': vcg1}[request.param]
+@pytest.fixture(scope='module', params=['cg1', 'vcg1', 'cg1cg1', 'cg1dg0', 'cg2dg1'])
+def fs(request, cg1, vcg1, cg1cg1, cg1dg0, cg2dg1):
+    return {'cg1': cg1, 'vcg1': vcg1, 'cg1cg1': cg1cg1, 'cg1dg0': cg1dg0, 'cg2dg1': cg2dg1}[request.param]
 
 
 @pytest.fixture(params=['assign', 'interpolate'])
@@ -47,41 +47,48 @@ def sf(cg1):
 def vf(vcg1):
     return Function(vcg1, name="vf")
 
-exprtest = lambda expr, x: (expr, x, np.all(assemble(expr).dat.data == x))
+
+def to_bool(v):
+    try:
+        return np.all(v)
+    except:
+        return v
+
+exprtest = lambda expr, x: (expr, x, to_bool(d == x for d in assemble(expr).dat.data))
 
 assigntest = lambda f, expr, x: (str(f) + " = " + str(expr) + ", " + str(f), x,
-                                 np.all(f.assign(expr).dat.data == x))
+                                 to_bool(d == x for d in f.assign(expr).dat.data))
 
 
 def iaddtest(f, expr, x):
     f += expr
     return (str(f) + " += " + str(expr) + ", " + str(f), x,
-            np.all(f.dat.data == x))
+            to_bool(d == x for d in f.dat.data))
 
 
 def isubtest(f, expr, x):
     f -= expr
     return (str(f) + " -= " + str(expr) + ", " + str(f), x,
-            np.all(f.dat.data == x))
+            to_bool(d == x for d in f.dat.data))
 
 
 def imultest(f, expr, x):
     f *= expr
     return (str(f) + " *= " + str(expr) + ", " + str(f), x,
-            np.all(f.dat.data == x))
+            to_bool(d == x for d in f.dat.data))
 
 
 def idivtest(f, expr, x):
     f /= expr
     return (str(f) + " /= " + str(expr) + ", " + str(f), x,
-            np.all(f.dat.data == x))
+            to_bool(d == x for d in f.dat.data))
 
 
 @pytest.fixture(params=range(1, 12))
 def alltests(request, functions):
     f, one, two, minusthree = functions
     # Not all test cases work for vector function spaces
-    if isinstance(one.function_space(), VectorFunctionSpace):
+    if isinstance(one.function_space(), (VectorFunctionSpace, MixedFunctionSpace)):
         return {
             1: exprtest(one + two, 3),
             2: (None, None, True),
