@@ -72,13 +72,14 @@ mpi.MPI = MPI
 class Dat(base.Dat):
 
     @contextmanager
-    def vec_context(self, acc, needs_halo_update=False):
+    def vec_context(self, readonly=True, needs_halo_update=False):
         """A context manager for a :class:`PETSc.Vec` from a :class:`Dat`.
 
-        :param acc: a lambda function for getting the array from a
-                    :class:`Dat` i.e. :meth:`Dat.data` or :meth:`Dat.data_ro`
+        :param readonly: Access the data read-only (use :meth:`Dat.data_ro`)
+                         or read-write (use :meth:`Dat.data`)
         :param needs_halo_update: is a halo update required afterwards?"""
 
+        acc = (lambda d: d.data_ro) if readonly else (lambda d: d.data)
         # Getting the Vec needs to ensure we've done all current computation.
         self._force_evaluation()
         if not hasattr(self, '_vec'):
@@ -94,7 +95,7 @@ class Dat(base.Dat):
         """Context manager for a PETSc Vec appropriate for this Dat.
 
         You're allowed to modify the data you get back from this view."""
-        return self.vec_context(lambda d: d.data, needs_halo_update=True)
+        return self.vec_context(readonly=False, needs_halo_update=True)
 
     @property
     @collective
@@ -102,7 +103,7 @@ class Dat(base.Dat):
         """Context manager for a PETSc Vec appropriate for this Dat.
 
         You're not allowed to modify the data you get back from this view."""
-        return self.vec_context(lambda d: d.data_ro)
+        return self.vec_context()
 
     @collective
     def dump(self, filename):
@@ -115,15 +116,16 @@ class Dat(base.Dat):
 class MixedDat(base.MixedDat):
 
     @contextmanager
-    def vecscatter(self, acc, needs_halo_update=False):
+    def vecscatter(self, readonly=True, needs_halo_update=False):
         """A context manager scattering the arrays of all components of this
         :class:`MixedDat` into a contiguous :class:`PETSc.Vec` and reverse
         scattering to the original arrays when exiting the context.
 
-        :param acc: a lambda function for getting a :class:`PETSc.Vec` from a
-                    :class:`Dat` i.e. :meth:`Dat.vec` or :meth:`Dat.vec_ro`
+        :param readonly: Access the data read-only (use :meth:`Dat.data_ro`)
+                         or read-write (use :meth:`Dat.data`)
         :param needs_halo_update: is a halo update required afterwards?"""
 
+        acc = (lambda d: d.vec_ro) if readonly else (lambda d: d.vec)
         # Allocate memory for the contiguous vector, create the scatter
         # contexts and stash them on the object for later reuse
         if not (hasattr(self, '_vec') and hasattr(self, '_sctxs')):
@@ -146,13 +148,14 @@ class MixedDat(base.MixedDat):
                 vscat.scatterBegin(v, self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
                 vscat.scatterEnd(v, self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
         yield self._vec
-        # Reverse scatter to get the values back to their original locations
-        for d, vscat in zip(self._dats, self._sctxs):
-            with acc(d) as v:
-                vscat.scatterBegin(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
-                                   mode=PETSc.ScatterMode.REVERSE)
-                vscat.scatterEnd(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
-                                 mode=PETSc.ScatterMode.REVERSE)
+        if not readonly:
+            # Reverse scatter to get the values back to their original locations
+            for d, vscat in zip(self._dats, self._sctxs):
+                with acc(d) as v:
+                    vscat.scatterBegin(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
+                                       mode=PETSc.ScatterMode.REVERSE)
+                    vscat.scatterEnd(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
+                                     mode=PETSc.ScatterMode.REVERSE)
         if needs_halo_update:
             self.needs_halo_update = True
 
@@ -162,7 +165,7 @@ class MixedDat(base.MixedDat):
         """Context manager for a PETSc Vec appropriate for this Dat.
 
         You're allowed to modify the data you get back from this view."""
-        return self.vecscatter(lambda d: d.vec, needs_halo_update=True)
+        return self.vecscatter(readonly=False, needs_halo_update=True)
 
     @property
     @collective
@@ -170,7 +173,7 @@ class MixedDat(base.MixedDat):
         """Context manager for a PETSc Vec appropriate for this Dat.
 
         You're not allowed to modify the data you get back from this view."""
-        return self.vecscatter(lambda d: d.vec_ro)
+        return self.vecscatter()
 
 
 class Mat(base.Mat):
