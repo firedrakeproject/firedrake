@@ -2152,7 +2152,10 @@ class Global(DataCarrier):
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
 
-    data_ro = data
+    @property
+    def data_ro(self):
+        """Data array."""
+        return self.data
 
     @data.setter
     def data(self, value):
