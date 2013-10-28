@@ -115,7 +115,7 @@ cmdclass['sdist'] = sdist
 execfile('pyop2/version.py')
 setup(name='PyOP2',
       version=__version__,  # noqa: pulled from pyop2/version.py
-      description='OP2 runtime library and python bindings',
+      description='Framework for performance-portable parallel computations on unstructured meshes',
       author='Imperial College London and others',
       author_email='mapdes@imperial.ac.uk',
       url='https://github.com/OP2/PyOP2/',
