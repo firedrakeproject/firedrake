@@ -1098,6 +1098,12 @@ class FunctionSpace(object):
     def __iter__(self):
         yield self
 
+    def __getitem__(self, i):
+        """Return ``self`` if ``i`` is 0 or raise an exception."""
+        if i != 0:
+            raise IndexError("Only index 0 supported on a FunctionSpace")
+        return self
+
     def __mul__(self, other):
         """Create a :class:`MixedFunctionSpace` composed of this
         :class:`FunctionSpace` and other"""
