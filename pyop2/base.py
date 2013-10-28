@@ -1903,6 +1903,8 @@ class MixedDat(Dat):
     def __init__(self, mdset_or_dats):
         self._dats = tuple(d if isinstance(d, Dat) else _make_object('Dat', d)
                            for d in mdset_or_dats)
+        if not all(d.dtype == self._dats[0].dtype for d in self._dats):
+            raise DataValueError('MixedDat with different dtypes is not supported')
 
     def __getitem__(self, idx):
         """Return :class:`Dat` with index ``idx`` or a given slice of Dats."""
@@ -1911,7 +1913,6 @@ class MixedDat(Dat):
     @property
     def dtype(self):
         """The NumPy dtype of the data."""
-        # FIXME: What if Dats forming the MixedDat have different dtypes?
         return self._dats[0].dtype
 
     @property

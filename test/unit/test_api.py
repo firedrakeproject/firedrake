@@ -1054,6 +1054,11 @@ class TestMixedDatAPI:
         with pytest.raises(exceptions.DataSetTypeError):
             op2.MixedDat('illegalarg')
 
+    def test_mixed_dat_illegal_dtype(self, backend, set):
+        """Constructing a MixedDat from Dats of different dtype should fail."""
+        with pytest.raises(exceptions.DataValueError):
+            op2.MixedDat((op2.Dat(set, dtype=np.int), op2.Dat(set)))
+
     def test_mixed_dat_dats(self, backend, dats):
         """Constructing a MixedDat from an iterable of Dats should leave them
         unchanged."""
