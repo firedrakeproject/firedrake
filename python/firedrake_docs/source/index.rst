@@ -1,4 +1,4 @@
-.. sidebar:: Latest Firedrake activity on Github
+.. sidebar:: Latest commit to the Firedrake master branch on Github
 
   .. raw:: html
 
