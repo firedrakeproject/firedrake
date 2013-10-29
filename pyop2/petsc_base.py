@@ -295,6 +295,8 @@ class Mat(base.Mat):
         """Add a vector to the diagonal of the matrix.
 
         :params vec: vector to add (:class:`Dat` or :class:`PETsc.Vec`)"""
+        if self.sparsity.shape != (1, 1):
+            raise MatTypeError('Cannot set diagonal of blocked Mat, report bug')
         r, c = self.handle.getSize()
         if r != c:
             raise MatTypeError('Cannot set diagonal of non-square matrix')
