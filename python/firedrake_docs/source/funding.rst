@@ -28,7 +28,7 @@ NERC fellowship `NE/K008951/1 <http://gotw.nerc.ac.uk/list_full.asp?pcode=NE%2FK
 NERC grant `NE/K006789/1 <http://gotw.nerc.ac.uk/list_full.asp?pcode=NE%2FK006789%2F1>`_: 
   Gung Ho Phase 2 - developing a new UK weather and climate model.
 EPSRC grant `EP/L000407/1 <http://gow.epsrc.ac.uk/NGBOViewGrant.aspx?GrantRef=EP/L000407/1>`_: 
-  Platform: underpinning technologies for finite element stimulation.
+  Platform: underpinning technologies for finite element simulation.
 EPSRC Grant `EP/K008730/1 <http://gow.epsrc.ac.uk/NGBOViewGrant.aspx?GrantRef=EP/K008730/1>`_: 
   PAMELA: a Panoramic Approach to the Many-CorE LAnd-sape - from end-user to end-device: a holistic game-changing approach.
 EPSRC Grant `EP/I00677X/1 <http://gow.epsrc.ac.uk/ViewGrant.aspx?GrantRef=EP/I00677X/1>`_:
