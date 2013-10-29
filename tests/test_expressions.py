@@ -27,10 +27,10 @@ def functions(request, fs):
         one.assign(1)
         two.assign(2)
         minusthree.assign(-3)
-    elif isinstance(fs, VectorFunctionSpace):
-        one.interpolate(Expression(("1",)*one.geometric_dimension()))
-        two.interpolate(Expression(("2",)*two.geometric_dimension()))
-        minusthree.interpolate(Expression(("-3",)*minusthree.geometric_dimension()))
+    elif isinstance(fs, (MixedFunctionSpace, VectorFunctionSpace)):
+        one.interpolate(Expression(("1",)*one.function_space().cdim))
+        two.interpolate(Expression(("2",)*two.function_space().cdim))
+        minusthree.interpolate(Expression(("-3",)*minusthree.function_space().cdim))
     else:
         one.interpolate(Expression("1"))
         two.interpolate(Expression("2"))
