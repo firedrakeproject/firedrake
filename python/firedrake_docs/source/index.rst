@@ -2,7 +2,7 @@
 
   .. raw:: html
 
-    <div class="latest-commit" data-github="firedrakeproject/firedrake"></div>
+    <div class="latest-commit" data-github="firedrakeproject/firedrake" data-commits="10"></div>
     <script type="text/javascript" src="_static/jquery.latest-commit.js"></script>
 
 

@@ -8,7 +8,7 @@ jQuery(document).ready(function($){
       userUrl = "http://github.com/" + username, // Gets your user url
       repoUrl = "http://github.com/" + username + '/' + repoName; // Gets your repo url
     $.ajax({
-      url: 'https://api.github.com/repos/' + repo + '/commits?per_page=10', // Sets url to your commit index
+      url: 'https://api.github.com/repos/' + repo + '/commits?per_page=' + $container.data('commits'),
       dataType: 'jsonp',
       success: function(results) {
         for (i = 0; i < results.data.length; ++i) {
