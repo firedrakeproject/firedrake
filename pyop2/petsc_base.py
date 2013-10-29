@@ -295,6 +295,9 @@ class Mat(base.Mat):
         """Add a vector to the diagonal of the matrix.
 
         :params vec: vector to add (:class:`Dat` or :class:`PETsc.Vec`)"""
+        r, c = self.handle.getSize()
+        if r != c:
+            raise MatTypeError('Cannot set diagonal of non-square matrix')
         if not isinstance(vec, (base.Dat, PETSc.Vec)):
             raise TypeError("Can only set diagonal from a Dat or PETSc Vec.")
         if isinstance(vec, PETSc.Vec):
