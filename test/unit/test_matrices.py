@@ -927,6 +927,13 @@ void zero_mat(double local_mat[1][1], int i, int j)
         eps = 1.e-14
         assert_allclose(vecmat.values, expected_matrix, eps)
 
+    @pytest.mark.xfail('config.getvalue("backend")[0] == "cuda"')
+    def test_set_diagonal(self, backend, x, mat):
+        mat.zero()
+        mat.set_diagonal(x)
+        for i, v in enumerate(x.data_ro):
+            assert mat.handle[i, i] == v
+
 
 class TestMixedMatrices:
     """
