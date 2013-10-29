@@ -20,6 +20,7 @@ from cython cimport view
 cimport numpy as np
 cimport cpython as py
 cimport fluidity_types as ft
+from expression import Expression
 
 cdef extern from "capsulethunk.h": pass
 
@@ -1389,8 +1390,14 @@ class Function(ufl.Coefficient):
 
     def interpolate(self, expression):
         """Interpolate expression onto the :class:`Function`."""
+
+        if expression.rank() != self.function_space().rank:
+            raise RuntimeError('Rank mismatch between Expression and FunctionSpace')
+
+        i = 0
         for fs, dat in zip(self.function_space(), self.dat):
-            self._interpolate(fs, dat, expression)
+            self._interpolate(fs, dat, Expression(expression.code[i:i+fs.dim]))
+            i += fs.dim
 
     def _interpolate(self, fs, dat, expression):
         """Interpolate expression onto a :class:`FunctionSpace`.
@@ -1408,9 +1415,6 @@ class Function(ufl.Coefficient):
         to_element = fs.fiat_element
 
         to_pts = []
-
-        if expression.rank() != fs.rank:
-            raise RuntimeError('Rank mismatch between Expression and FunctionSpace')
 
         for dual in to_element.dual_basis():
             if not isinstance(dual, FIAT.functional.PointEvaluation):

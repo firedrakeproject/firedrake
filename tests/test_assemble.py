@@ -22,14 +22,20 @@ def fs(request, cg1, cg1cg1, cg1dg0, cg2dg1):
 @pytest.fixture
 def f(fs):
     f = Function(fs, name="f")
-    f.interpolate(Expression("x[0]"))
+    if isinstance(fs, (MixedFunctionSpace, VectorFunctionSpace)):
+        f.interpolate(Expression(("x[0]",) * fs.cdim))
+    else:
+        f.interpolate(Expression("x[0]"))
     return f
 
 
 @pytest.fixture
 def one(fs):
     one = Function(fs, name="one")
-    one.interpolate(Expression("1"))
+    if isinstance(fs, (MixedFunctionSpace, VectorFunctionSpace)):
+        one.interpolate(Expression(("1",) * fs.cdim))
+    else:
+        one.interpolate(Expression("1"))
     return one
 
 
