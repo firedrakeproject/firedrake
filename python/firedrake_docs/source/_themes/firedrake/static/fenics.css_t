@@ -112,26 +112,36 @@ div.related ul {
 /* -- sidebars -------------------------------------------------------------- */
 
 div.sidebar {
-    margin: 0 0 0.5em 1em;
-    border: 2px solid #8c1b1e;
-    background-color: #eee;
-    width: auto;
-    float: right;
+  margin: 0 0 0.5em 1em;
+  border: 2px solid #8c1b1e;
+  background-color: #eee;
+  width: 300px;
+  float: right;
 	border-right-style: none;
 	border-left-style: none;
 	padding: 0px 0px;
 }
 
+div.commit {
+  clear: both;
+  padding: 4px;
+}
+
+div.commit.even {
+  background-color: #ddd;
+}
+
 img.commit-author-img {
-  height: 80px;
-  width: 80px;
+  height: 48px;
+  width: 48px;
   float: left;
   margin-right: 10px;
+  display: none;
 }
 
 a.commit-link {
   font-weight: bold;
-  font-size: 18px;
+  padding-bottom: 4px;
 }
 
 pre.commit {
