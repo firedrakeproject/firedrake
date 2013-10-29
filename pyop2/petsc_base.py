@@ -129,7 +129,9 @@ class MixedDat(base.MixedDat):
         # Allocate memory for the contiguous vector, create the scatter
         # contexts and stash them on the object for later reuse
         if not (hasattr(self, '_vec') and hasattr(self, '_sctxs')):
-            self._vec = PETSc.Vec().createSeq(self.dataset.set.size)
+            self._vec = PETSc.Vec().create()
+            self._vec.setSizes((self.dataset.set.size, None))
+            self._vec.setUp()
             self._sctxs = []
             offset = 0
             # We need one scatter context per component. The entire array is
