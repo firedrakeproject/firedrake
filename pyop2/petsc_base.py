@@ -296,7 +296,15 @@ class Mat(base.Mat):
 
         :params vec: vector to add (:class:`Dat` or :class:`PETsc.Vec`)"""
         if self.sparsity.shape != (1, 1):
-            raise MatTypeError('Cannot set diagonal of blocked Mat, report bug')
+            if not isinstance(vec, base.MixedDat):
+                raise TypeError('Can only set diagonal of blocked Mat from MixedDat')
+            if vec.dataset != self.sparsity.dsets[1]:
+                raise TypeError('Mismatching datasets for MixedDat and Mat')
+            rows, cols = self.sparsity.shape
+            for i in range(rows):
+                if i < cols:
+                    self[i, i].set_diagonal(vec[i])
+            return
         r, c = self.handle.getSize()
         if r != c:
             raise MatTypeError('Cannot set diagonal of non-square matrix')
