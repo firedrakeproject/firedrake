@@ -122,6 +122,23 @@ div.sidebar {
 	padding: 0px 0px;
 }
 
+img.commit-author-img {
+  height: 80px;
+  width: 80px;
+  float: left;
+  margin-right: 10px;
+}
+
+a.commit-link {
+  font-weight: bold;
+  font-size: 18px;
+}
+
+pre.commit {
+  clear: both;
+  font-size: 12px;
+}
+
 p.sidebar-title {
     font-weight: bold;
 }
