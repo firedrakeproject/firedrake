@@ -36,7 +36,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 
 from pyop2 import op2
-from pyop2.exceptions import MapValueError, ModeValueError
+from pyop2.exceptions import MapValueError, ModeValueError, MatTypeError
 
 # Data type
 valuetype = np.float64
@@ -1026,6 +1026,9 @@ class TestMixedMatrices:
         assert_allclose(dat[0].data_ro, b[0].data_ro, eps)
         assert_allclose(dat[1].data_ro, b[1].data_ro, eps)
 
+    def test_set_diagonal(self, backend, mat, dat):
+        with pytest.raises(MatTypeError):
+            mat.set_diagonal(dat)
 
 if __name__ == '__main__':
     import os
