@@ -1086,6 +1086,8 @@ class FunctionSpace(object):
         constructor, and defaults to the geometric dimension of the :class:`Mesh`. """
         return self._dim
 
+    cdim = dim
+
     def ufl_element(self):
         """The :class:`ufl.FiniteElement` used to construct this
         :class:`FunctionSpace`."""
@@ -1202,6 +1204,13 @@ class MixedFunctionSpace(FunctionSpace):
         :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
         composed of."""
         return tuple(fs.dim for fs in self._spaces)
+
+    @property
+    def cdim(self):
+        """Return the sum of the :attr:`FunctionSpace.dim`\s of the
+        :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
+        composed of."""
+        return sum(fs.dim for fs in self._spaces)
 
     @property
     def node_count(self):
