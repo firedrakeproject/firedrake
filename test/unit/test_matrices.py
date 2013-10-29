@@ -36,7 +36,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 
 from pyop2 import op2
-from pyop2.exceptions import MapValueError, ModeValueError, MatTypeError
+from pyop2.exceptions import MapValueError, ModeValueError
 
 # Data type
 valuetype = np.float64
@@ -1027,8 +1027,19 @@ class TestMixedMatrices:
         assert_allclose(dat[1].data_ro, b[1].data_ro, eps)
 
     def test_set_diagonal(self, backend, mat, dat):
-        with pytest.raises(MatTypeError):
+        mat.zero()
+        mat.set_diagonal(dat)
+        rows, cols = mat.sparsity.shape
+        for i in range(rows):
+            if i < cols:
+                for j, v in enumerate(dat[i].data_ro):
+                    assert mat[i, i].handle[j, j] == v
+
+    def test_set_diagonal_invalid_dat(self, backend, mat, mset):
+        dat = op2.MixedDat(mset ** 4)
+        with pytest.raises(TypeError):
             mat.set_diagonal(dat)
+
 
 if __name__ == '__main__':
     import os
