@@ -3,9 +3,20 @@ from firedrake import *
 from common import *
 
 
-@pytest.fixture(scope='module', params=['cg1', 'cg1cg1', 'cg1dg0', 'cg2dg1'])
+@pytest.fixture(scope='module', params=['cg1', 'cg1cg1', 'cg1cg1[0]', 'cg1cg1[1]',
+                                        'cg1dg0', 'cg1dg0[0]', 'cg1dg0[1]',
+                                        'cg2dg1', 'cg2dg1[0]', 'cg2dg1[1]'])
 def fs(request, cg1, cg1cg1, cg1dg0, cg2dg1):
-    return {'cg1': cg1, 'cg1cg1': cg1cg1, 'cg1dg0': cg1dg0, 'cg2dg1': cg2dg1}[request.param]
+    return {'cg1': cg1,
+            'cg1cg1': cg1cg1,
+            'cg1cg1[0]': cg1cg1[0],
+            'cg1cg1[1]': cg1cg1[1],
+            'cg1dg0': cg1dg0,
+            'cg1dg0[0]': cg1dg0[0],
+            'cg1dg0[1]': cg1dg0[1],
+            'cg2dg1': cg2dg1,
+            'cg2dg1[0]': cg2dg1[0],
+            'cg2dg1[1]': cg2dg1[1]}[request.param]
 
 
 @pytest.fixture
