@@ -13,11 +13,11 @@ jQuery(document).ready(function($){
       success: function(results) {
         for (i = 0; i < results.data.length; ++i) {
           $commit = $(
-            '<div>' + // Needs to be wrapped.
+            '<div class="commit">' + // Needs to be wrapped.
             // ADD DESIRED CLASSES TO HTML TAGS BELOW!
             '<img class="commit-author-img" src="#" />' + // Commit author image
-            '<div>' +
-            '<p><a class="commit-link" href="#"></a></p>' + // First line of commit message
+            '<div class="commit-meta">' +
+            '<div><a class="commit-link" href="#"></a></div>' + // First line of commit message
             '<a class="commit-author" href="#" target="_blank"></a>' + // Link to commit author
             ' authored at <span class="commit-date"></span>' + // Outputs the commit date
             '</div>' +
@@ -31,6 +31,7 @@ jQuery(document).ready(function($){
           $commit.find('.commit-date').text(new Date(repo.commit.author.date).toLocaleString()); // Outputs commit date
           $commit.appendTo($container);
         }
+        $('.commit:even').addClass('even');
       }
     });
   });
