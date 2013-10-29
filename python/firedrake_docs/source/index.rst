@@ -1,8 +1,8 @@
-.. sidebar:: Latest commit to the Firedrake master branch on Github
+.. sidebar:: Latest commits to the Firedrake master branch on Github
 
   .. raw:: html
 
-    <div class="latest-commit" data-github="firedrakeproject/firedrake" data-commits="10"></div>
+    <div class="latest-commit" data-github="firedrakeproject/firedrake" data-commits="5"></div>
     <script type="text/javascript" src="_static/jquery.latest-commit.js"></script>
 
 
