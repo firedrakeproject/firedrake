@@ -115,7 +115,7 @@ div.sidebar {
     margin: 0 0 0.5em 1em;
     border: 2px solid #8c1b1e;
     background-color: #eee;
-    width: 300px;
+    width: auto;
     float: right;
 	border-right-style: none;
 	border-left-style: none;
