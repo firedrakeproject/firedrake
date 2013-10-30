@@ -3,14 +3,21 @@ from firedrake import *
 from common import *
 
 
-@pytest.fixture(scope='module', params=['cg1', 'cg1cg1', 'cg1cg1[0]', 'cg1cg1[1]',
+# FIXME: cg1vcg1 is not supported yet
+@pytest.fixture(scope='module', params=['cg1', 'vcg1',
+                                        'cg1cg1', 'cg1cg1[0]', 'cg1cg1[1]',
+                                        'cg1vcg1[0]', 'cg1vcg1[1]',
                                         'cg1dg0', 'cg1dg0[0]', 'cg1dg0[1]',
                                         'cg2dg1', 'cg2dg1[0]', 'cg2dg1[1]'])
-def fs(request, cg1, cg1cg1, cg1dg0, cg2dg1):
+def fs(request, cg1, vcg1, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
     return {'cg1': cg1,
+            'vcg1': vcg1,
             'cg1cg1': cg1cg1,
             'cg1cg1[0]': cg1cg1[0],
             'cg1cg1[1]': cg1cg1[1],
+            'cg1vcg1': cg1vcg1,
+            'cg1vcg1[0]': cg1vcg1[0],
+            'cg1vcg1[1]': cg1vcg1[1],
             'cg1dg0': cg1dg0,
             'cg1dg0[0]': cg1dg0[0],
             'cg1dg0[1]': cg1dg0[1],
@@ -49,8 +56,8 @@ def M(fs):
 def test_one_form(M, f):
     one_form = assemble(action(M, f))
     assert isinstance(one_form, Function)
-    for d in one_form.dat:
-        assert abs(sum(d.data) - 0.5) < 1.0e-12
+    for d, fs in zip(one_form.dat, f.function_space()):
+        assert abs(d.data.sum() - 0.5*fs.dim) < 1.0e-12
 
 
 def test_zero_form(M, f, one):
