@@ -765,6 +765,13 @@ class FunctionSpaceBase(object):
             self.offset = compute_offset(self.fiat_element.entity_dofs(),
                                          flattened_element.entity_dofs(),
                                          self.fiat_element.space_dimension())
+
+            # Compute the top and bottom masks to identify boundary dofs
+            b_mask = self.fiat_element.get_lower_mask()
+            t_mask = self.fiat_element.get_upper_mask()
+
+            self.bt_masks = (b_mask, t_mask)
+
             self.extruded = True
         else:
             # If not extruded specific, set things to None/False, etc.
@@ -942,6 +949,15 @@ class FunctionSpaceBase(object):
                                bcs,
                                "exterior_facet_node",
                                parent=parent)
+
+    def bottom_nodes(self):
+        """Return a list of the bottom layer nodes of the extruded mesh."""
+        return np.unique(self.cell_node_list[:, self.bt_masks[0]])
+
+    def top_nodes(self):
+        """Return a list of the top layer nodes of the extruded mesh."""
+        voffs = self.offset.take(self.bt_masks[1])*(self._mesh.layers-2)
+        return np.unique(self.cell_node_list[:, self.bt_masks[1]] + voffs)
 
     def _map_cache(self, cache, entity_set, entity_node_list, map_arity, bcs, name,
                    offset=None, parent=None):
