@@ -7,16 +7,6 @@ from firedrake import *
 from common import *
 
 
-@pytest.fixture(scope='module')
-def vcg1(mesh):
-    return VectorFunctionSpace(mesh, "CG", 1)
-
-
-@pytest.fixture(scope='module')
-def cg1vcg1(mesh, cg1, vcg1):
-    return cg1 * vcg1
-
-
 @pytest.fixture(scope='module', params=['cg1', 'vcg1',
                                         'cg1cg1', 'cg1cg1[0]', 'cg1cg1[1]',
                                         'cg1vcg1', 'cg1vcg1[0]', 'cg1vcg1[1]',
