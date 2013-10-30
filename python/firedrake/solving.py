@@ -184,8 +184,14 @@ class NonlinearVariationalSolver(object):
         # solve, ensure these are passed through to the snes.
         self._update_parameters()
 
-        with self._problem.u_ufl.dat.vec as v:
+        # Solve into a temporary vector to not conflict with any vector
+        # contexts that might be floating around
+        tmp = core_types.Function(self._problem.u_ufl)
+        with tmp.dat.vec as v:
             self.snes.solve(None, v)
+        # Copy back the result the Dat of the Function
+        for u, d in zip(self._problem.u_ufl.dat, tmp.dat):
+            u.data[:] = d.data_ro[:]
 
         # Only the local part of u gets updated by the petsc solve, so
         # we need to mark things as needing a halo update.
@@ -197,7 +203,7 @@ class NonlinearVariationalSolver(object):
         try:
             reason = reasons[r]
         except KeyError:
-            reason = 'unknown reason (petsc4py enum incomplete?)'
+            reason = 'unknown reason %d (petsc4py enum incomplete?)' % r
         if r < 0:
             raise RuntimeError("Nonlinear solve failed to converge after %d \
                                nonlinear iterations with reason: %s" %
