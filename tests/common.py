@@ -10,24 +10,44 @@ def mesh():
 
 @pytest.fixture(scope='module')
 def cg1(mesh):
-    return FunctionSpace(mesh, "Lagrange", 1)
+    return FunctionSpace(mesh, "CG", 1)
 
 
 @pytest.fixture(scope='module')
-def cg1cg1(mesh):
-    CG1 = FunctionSpace(mesh, "CG", 1)
-    return CG1 * CG1
+def cg2(mesh):
+    return FunctionSpace(mesh, "CG", 2)
 
 
 @pytest.fixture(scope='module')
-def cg1dg0(mesh):
-    CG1 = FunctionSpace(mesh, "CG", 1)
-    DG0 = FunctionSpace(mesh, "DG", 0)
-    return CG1 * DG0
+def dg0(mesh):
+    return FunctionSpace(mesh, "DG", 0)
 
 
 @pytest.fixture(scope='module')
-def cg2dg1(mesh):
-    CG2 = FunctionSpace(mesh, "CG", 2)
-    DG1 = FunctionSpace(mesh, "DG", 1)
-    return CG2 * DG1
+def dg1(mesh):
+    return FunctionSpace(mesh, "DG", 1)
+
+
+@pytest.fixture(scope='module')
+def vcg1(mesh):
+    return VectorFunctionSpace(mesh, "CG", 1)
+
+
+@pytest.fixture(scope='module')
+def cg1cg1(cg1):
+    return cg1 * cg1
+
+
+@pytest.fixture(scope='module')
+def cg1dg0(cg1, dg0):
+    return cg1 * dg0
+
+
+@pytest.fixture(scope='module')
+def cg2dg1(cg2, dg1):
+    return cg2 * dg1
+
+
+@pytest.fixture(scope='module')
+def cg1vcg1(mesh, cg1, vcg1):
+    return cg1 * vcg1
