@@ -36,19 +36,21 @@
 import atexit
 
 import backends
-import configuration as cfg
 import base
-from base import READ, WRITE, RW, INC, MIN, MAX, i
+from base import Configuration, READ, WRITE, RW, INC, MIN, MAX, i
 from logger import debug, info, warning, error, critical, set_log_level
 from mpi import MPI, collective
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
 
-__all__ = ['cfg', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
+__all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'Subset', 'DataSet',
            'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map', 'Sparsity',
            'Solver', 'par_loop', 'solve']
+
+
+configuration = None
 
 
 def initialised():
@@ -78,12 +80,28 @@ def init(**kwargs):
     backend = backends.get_backend()
     if backend == 'pyop2.finalised':
         raise RuntimeError("Calling init() after exit() is illegal.")
-    if 'backend' in kwargs and backend not in ('pyop2.void', 'pyop2.' + kwargs['backend']):
-        raise RuntimeError("Changing the backend is not possible once set.")
-    cfg.configure(**kwargs)
-    set_log_level(cfg['log_level'])
+
+    if backend != 'pyop2.void' and \
+            "backend" in kwargs and \
+            backend != "pyop2.%s" % kwargs["backend"]:
+        raise RuntimeError("Calling init() for a different backend is illegal.")
+
+    global configuration
+    if configuration is None:
+        base.configuration = Configuration(**kwargs)
+        configuration = base.configuration
+    else:
+        configuration.reconfigure(**kwargs)
+
+    set_log_level(base.configuration['log_level'])
     if backend == 'pyop2.void':
-        backends.set_backend(cfg.backend)
+        try:
+            backends.set_backend(base.configuration["backend"])
+        except:
+            configuration = None
+            base.configuration = None
+            raise
+
         backends._BackendSelector._backend._setup()
         if 'comm' in kwargs:
             backends._BackendSelector._backend.MPI.comm = kwargs['comm']
@@ -95,7 +113,8 @@ def init(**kwargs):
 @collective
 def exit():
     """Exit OP2 and clean up"""
-    cfg.reset()
+    base.configuration.reset()
+
     if backends.get_backend() != 'pyop2.void':
         backends.unset_backend()
 

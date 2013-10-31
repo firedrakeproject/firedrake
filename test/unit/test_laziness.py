@@ -45,7 +45,7 @@ nelems = 42
 
 
 def _is_greedy():
-    return not cfg['lazy_evaluation']
+    return not op2.configuration['lazy_evaluation']
 
 
 class TestLaziness:

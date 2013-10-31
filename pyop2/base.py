@@ -39,14 +39,66 @@ subclass these as required to implement backend-specific features.
 import numpy as np
 import operator
 from hashlib import md5
+import copy
+import os
 
-import configuration as cfg
 from caching import Cached
 from exceptions import *
 from utils import *
 from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
 from sparsity import build_sparsity
+
+
+configuration = None
+
+
+class Configuration(object):
+    # name, env variable, type, default, write once
+    DEFAULTS = {
+        "backend": ("PYOP2_BACKEND", str, "sequential", True),
+        "debug": ("PYOP2_DEBUG", int, 0, False),
+        "log_level": ("PYOP2_LOG_LEVEL", str, "WARN", False),
+        "lazy_evaluation": (None, bool, True, False),
+        "lazy_max_trace_length": (None, int, 0, False),
+        "dump_gencode": ("PYOP2_DUMP_GENCODE", bool, False, False),
+        "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str, "/tmp/%(kernel)s-%(time)s.cl.c", False),
+    }
+
+    def __init__(self, **kwargs):
+        dct = {}
+
+        # default values
+        for k, (kenv, t, v, ro) in Configuration.DEFAULTS.items():
+            dct[k] = v
+            if kenv and kenv in os.environ:
+                dct[k] = t(os.environ[kenv])
+
+        for k, v in kwargs.items():
+            dct[k] = v
+
+        self._conf = dct
+        self._rst = copy.deepcopy(dct)
+
+        if self["debug"] > 0:
+            warnings.simplefilter("always")
+
+    def reset(self):
+        self._conf = copy.deepcopy(self._rst)
+
+    def reconfigure(self, **kwargs):
+        for k, v in kwargs.items():
+            self[k] = v
+
+    def __getitem__(self, key):
+        return self._conf[key]
+
+    def __setitem__(self, key, value):
+        if key in Configuration.DEFAULTS:
+            _, _, _, ro = Configuration.DEFAULTS[key]
+            if ro and value != self[key]:
+                raise RuntimeError("%s is read only" % key)
+        self._conf[key] = value
 
 
 class LazyComputation(object):
@@ -76,10 +128,11 @@ class ExecutionTrace(object):
         self._trace = list()
 
     def append(self, computation):
-        if not cfg['lazy_evaluation']:
+        if not configuration['lazy_evaluation']:
             assert not self._trace
             computation._run()
-        elif cfg['lazy_max_trace_length'] > 0 and cfg['lazy_max_trace_length'] == len(self._trace):
+        elif configuration['lazy_max_trace_length'] > 0 and \
+                configuration['lazy_max_trace_length'] == len(self._trace):
             self.evaluate(computation.reads, computation.writes)
             computation._run()
         else:

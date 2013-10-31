@@ -43,7 +43,7 @@ import pyopencl as cl
 from pyopencl import array
 import time
 
-import configuration as cfg
+from base import configuration as cfg
 import device
 from device import *
 from logger import warning
@@ -560,8 +560,8 @@ class JITModule(base.JITModule):
         return self._fun
 
     def dump_gen_code(self, src):
-        if cfg['dump-gencode']:
-            path = cfg['dump-gencode-path'] % {"kernel": self._parloop.kernel.name,
+        if cfg['dump_gencode']:
+            path = cfg['dump_gencode_path'] % {"kernel": self._parloop.kernel.name,
                                                "time": time.strftime('%Y-%m-%d@%H:%M:%S')}
 
             if not os.path.exists(path):

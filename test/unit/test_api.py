@@ -44,7 +44,6 @@ from pyop2 import op2
 from pyop2 import exceptions
 from pyop2 import sequential
 from pyop2 import base
-from pyop2 import configuration as cfg
 
 
 @pytest.fixture
@@ -165,7 +164,7 @@ class TestInitAPI:
         "Calling init again with the same backend should update the configuration."
         op2.init(backend=backend, foo='bar')
         assert op2.backends.get_backend() == 'pyop2.' + backend
-        assert cfg.foo == 'bar'
+        assert op2.configuration['foo'] == 'bar'
 
     def test_change_backend_fails(self, backend):
         "Calling init again with a different backend should fail."

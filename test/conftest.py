@@ -145,5 +145,4 @@ def backend(request):
     # Skip test if initialisation failed
     except:
         pytest.skip('Backend %s is not available' % request.param)
-    request.addfinalizer(op2.exit)
     return request.param
