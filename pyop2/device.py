@@ -208,7 +208,6 @@ class Dat(DeviceDataMixin, base.Dat):
     @property
     def array(self):
         """The data array on the device."""
-        self._to_device()
         return self._device_data
 
     @array.setter
