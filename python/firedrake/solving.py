@@ -115,6 +115,21 @@ class NonlinearVariationalSolver(object):
         self.snes.setOptionsPrefix(self._opt_prefix)
         self.parameters = kwargs.get('parameters', {})
 
+        ksp = self.snes.getKSP()
+        pc = ksp.getPC()
+        if self._jac_tensor.sparsity.shape != (1, 1):
+            offset = 0
+            rows, cols = self._jac_tensor.sparsity.shape
+            ises = []
+            for i in range(rows):
+                if i < cols:
+                    nrows = self._jac_tensor[i, i].sparsity.nrows
+                    name = test.function_space()[i].name
+                    name = name if name else '%d' % i
+                    ises.append((name, PETSc.IS().createStride(nrows, first=offset, step=1)))
+                    offset += nrows
+            pc.setFieldSplitIS(*ises)
+
         with self._F_tensor.dat.vec as v:
             self.snes.setFunction(self.form_function, v)
         self.snes.setJacobian(self.form_jacobian, J=self._jac_tensor.handle,
