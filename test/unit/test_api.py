@@ -338,6 +338,11 @@ class TestSubsetAPI:
         with pytest.raises(exceptions.SubsetIndexOutOfBounds):
             op2.Subset(set, [-1])
 
+    def test_empty_subset(self, backend, set):
+        "Subsets can be empty."
+        ss = op2.Subset(set, [])
+        assert len(ss.indices) == 0
+
     def test_index_construction(self, backend, set):
         "We should be able to construct a Subset by indexing a Set."
         ss = set(0, 1)

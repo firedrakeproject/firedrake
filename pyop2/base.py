@@ -646,7 +646,8 @@ class Subset(Set):
         self._superset = superset
         self._indices = verify_reshape(indices, np.int32, (len(indices),))
 
-        if self._indices[0] < 0 or self._indices[-1] >= self._superset.total_size:
+        if len(self._indices) > 0 and (self._indices[0] < 0 or
+                                       self._indices[-1] >= self._superset.total_size):
             raise SubsetIndexOutOfBounds(
                 'Out of bounds indices in Subset construction: [%d, %d) not [0, %d)' %
                 (self._indices[0], self._indices[-1], self._superset.total_size))
