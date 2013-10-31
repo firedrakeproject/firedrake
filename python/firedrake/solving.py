@@ -110,7 +110,7 @@ class NonlinearVariationalSolver(object):
         test = self._problem.F_ufl.compute_form_data().original_arguments[0]
         self._F_tensor = core_types.Function(test.function_space())
         self.snes = PETSc.SNES().create()
-        self._opt_prefix = 'firedrake_snes_%d' % NonlinearVariationalSolver._id
+        self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
         NonlinearVariationalSolver._id += 1
         self.snes.setOptionsPrefix(self._opt_prefix)
         self.parameters = kwargs.get('parameters', {})
