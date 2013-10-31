@@ -1100,7 +1100,7 @@ class Dat(DataCarrier):
         if data is None:
             self._dtype = np.dtype(dtype if dtype is not None else np.float64)
         else:
-            self._data = verify_reshape(data, dtype, self._shape, allow_none=True)
+            self._data = verify_reshape(data, dtype, self.shape, allow_none=True)
             self._dtype = self._data.dtype
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
@@ -1235,9 +1235,13 @@ class Dat(DataCarrier):
         np.save(filename, self.data_ro)
 
     @property
+    def shape(self):
+        return self._shape
+
+    @property
     def _data(self):
         if not self._is_allocated:
-            self._numpy_data = np.zeros(self._shape, dtype=self._dtype)
+            self._numpy_data = np.zeros(self.shape, dtype=self._dtype)
         return self._numpy_data
 
     @_data.setter
@@ -1626,6 +1630,10 @@ class Global(DataCarrier):
     def __repr__(self):
         return "Global(%r, %r, %r, %r)" % (self._dim, self._data,
                                            self._data.dtype, self._name)
+
+    @property
+    def shape(self):
+        return self._data.shape
 
     @property
     def data(self):
