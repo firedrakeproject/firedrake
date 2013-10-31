@@ -202,8 +202,8 @@ class Dat(DeviceDataMixin, base.Dat):
 
     def __init__(self, dataset, data=None, dtype=None, name=None,
                  soa=None, uid=None):
-        base.Dat.__init__(self, dataset, data, dtype, name, soa, uid)
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
+        base.Dat.__init__(self, dataset, data, dtype, name, soa, uid)
 
     @property
     def array(self):
