@@ -66,6 +66,15 @@ class TestSubSet:
         inds, = np.where(d.data)
         assert (inds == indices).all()
 
+    def test_direct_loop_empty(self, backend, iterset):
+        """Test a direct loop with an empty subset"""
+        ss = op2.Subset(iterset, [])
+        d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
+        k = op2.Kernel("void inc(unsigned int* v) { *v += 1; }", "inc")
+        op2.par_loop(k, ss, d(op2.RW))
+        inds, = np.where(d.data)
+        assert (inds == []).all()
+
     def test_direct_complementary_subsets(self, backend, iterset):
         """Test direct par_loop over two complementary subsets"""
         even = np.array([i for i in range(nelems) if not i % 2], dtype=np.int)
@@ -141,6 +150,20 @@ class TestSubSet:
         op2.par_loop(k, ss, d(op2.INC, map[0]))
 
         assert d.data[0] == nelems / 2
+
+    def test_indirect_loop_empty(self, backend, iterset):
+        """Test a indirect ParLoop on an empty"""
+        ss = op2.Subset(iterset, [])
+
+        indset = op2.Set(2, "indset")
+        map = op2.Map(iterset, indset, 1, [(1 if i % 2 else 0) for i in range(nelems)])
+        d = op2.Dat(indset ** 1, data=None, dtype=np.uint32)
+
+        k = op2.Kernel("void inc(unsigned int* v) { *v += 1;}", "inc")
+        d.data[:] = 0
+        op2.par_loop(k, ss, d(op2.INC, map[0]))
+
+        assert (d.data == 0).all()
 
     def test_indirect_loop_with_direct_dat(self, backend, iterset):
         """Test a indirect ParLoop on a subset"""
