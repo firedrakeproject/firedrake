@@ -1317,11 +1317,11 @@ class Dat(DataCarrier):
 
     def __str__(self):
         return "OP2 Dat: %s on (%s) with datatype %s" \
-               % (self._name, self._dataset, self._data.dtype.name)
+               % (self._name, self._dataset, self.dtype.name)
 
     def __repr__(self):
         return "Dat(%r, None, %r, %r)" \
-               % (self._dataset, self._data.dtype, self._name)
+               % (self._dataset, self.dtype, self._name)
 
     def _check_shape(self, other):
         if other.dataset != self.dataset:
