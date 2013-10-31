@@ -85,6 +85,12 @@ EVAL = tools/silenteval.sh
 
 # Thread count for make test.
 THREADS=1
+# Run tests in parallel if threads > 1
+ifeq ($(THREADS), 1)
+    PYTEST_ARGS=
+else
+    PYTEST_ARGS=-n $(THREADS)
+endif
 
 EXCLUDE_TAGS =
 ifneq (@HAVE_ZOLTAN@,yes)
@@ -295,10 +301,10 @@ lint:
 	@flake8
 
 serialtest:
-	@cd tests; py.test
+	@cd tests; py.test $(PYTEST_ARGS)
 
 shorttest: python_build lint
-	@cd tests; py.test --short
+	@cd tests; py.test --short $(PYTEST_ARGS)
 
 .PHONY: spudtools
 
