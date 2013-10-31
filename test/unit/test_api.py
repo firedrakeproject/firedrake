@@ -152,6 +152,23 @@ class TestInitAPI:
         with pytest.raises(ImportError):
             op2.init(backend='invalid_backend')
 
+    def test_add_configuration_value(self):
+        """Defining an non default argument."""
+        c = base.Configuration(foo='bar')
+        assert c['foo'] == 'bar'
+
+    def test_change_backend(self):
+        """backend option is read only."""
+        c = base.Configuration(backend='cuda')
+        with pytest.raises(RuntimeError):
+            c['backend'] = 'other'
+
+    def test_reconfigure_backend(self):
+        """backend option is read only."""
+        c = base.Configuration(backend='cuda')
+        with pytest.raises(RuntimeError):
+            c.reconfigure(backend='other')
+
     def test_init(self, backend):
         "init should correctly set the backend."
         assert op2.backends.get_backend() == 'pyop2.' + backend
