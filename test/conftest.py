@@ -137,11 +137,18 @@ def pytest_generate_tests(metafunc):
         metafunc.parametrize("backend", backend, indirect=True)
 
 
+# It is preferable to run in greedy mode first, in
+# case some test create leftover computations
+@pytest.fixture(scope='session', params=[False, True])
+def lazy(request):
+    return request.param
+
+
 @pytest.fixture(scope='session')
-def backend(request):
+def backend(request, lazy):
     # Initialise the backend
     try:
-        op2.init(backend=request.param)
+        op2.init(backend=request.param, lazy_evaluation=lazy)
     # Skip test if initialisation failed
     except:
         pytest.skip('Backend %s is not available' % request.param)
