@@ -37,7 +37,7 @@ import configuration as cfg
 import device as op2
 import plan
 import numpy as np
-from utils import verify_reshape, maybe_setflags
+from utils import verify_reshape
 import jinja2
 import pycuda.driver as driver
 import pycuda.gpuarray as gpuarray
