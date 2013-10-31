@@ -851,11 +851,10 @@ class ParLoop(op2.ParLoop):
                 arg.data._finalise_reduction_begin(max_grid_size, arg.access)
                 arg.data._finalise_reduction_end(max_grid_size, arg.access)
             elif not arg._is_mat:
-                # Set write state to False
-                maybe_setflags(arg.data._data, write=False)
                 # Data state is updated in finalise_reduction for Global
                 if arg.access is not op2.READ:
                     arg.data.state = DeviceDataMixin.DEVICE
+        self.maybe_set_dat_dirty()
 
     def assemble(self):
         for arg in self.args:
