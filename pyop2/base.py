@@ -1345,8 +1345,8 @@ class Dat(DataCarrier):
                 }
             }""" % {'t': self.ctype, 'dim': self.cdim}
             self._copy_kernel = _make_object('Kernel', k, 'copy')
-        par_loop(self._copy_kernel, self.dataset.set,
-                 self(READ), other(WRITE))
+        _make_object('ParLoop', self._copy_kernel, self.dataset.set,
+                     self(READ), other(WRITE)).enqueue()
 
     def __eq__(self, other):
         """:class:`Dat`\s compare equal if defined on the same
