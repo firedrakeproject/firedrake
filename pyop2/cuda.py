@@ -154,9 +154,9 @@ class DeviceDataMixin(op2.DeviceDataMixin):
     def _allocate_device(self):
         if self.state is DeviceDataMixin.DEVICE_UNALLOCATED:
             if self.soa:
-                shape = self._data.T.shape
+                shape = tuple(reversed(self.shape))
             else:
-                shape = self._data.shape
+                shape = self.shape
             self._device_data = gpuarray.empty(shape=shape, dtype=self.dtype)
             self.state = DeviceDataMixin.HOST
 

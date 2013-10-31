@@ -143,7 +143,7 @@ class DeviceDataMixin(object):
         base._trace.evaluate(set(), set([self]))
         maybe_setflags(self._data, write=True)
         self.needs_halo_update = True
-        self._data = verify_reshape(value, self.dtype, self._data.shape)
+        self._data = verify_reshape(value, self.dtype, self.shape)
         if self.state is not DeviceDataMixin.DEVICE_UNALLOCATED:
             self.state = DeviceDataMixin.HOST
 
@@ -213,15 +213,15 @@ class Dat(DeviceDataMixin, base.Dat):
 
     @array.setter
     def array(self, ary):
-        assert not getattr(self, '_device_data') or self._device_data.shape == ary.shape
+        assert not getattr(self, '_device_data') or self.shape == ary.shape
         self._device_data = ary
         self.state = DeviceDataMixin.DEVICE
 
     def _check_shape(self, other):
         """Check if ``other`` has compatible shape."""
-        if not self.array.shape == other.array.shape:
+        if not self.shape == other.shape:
             raise ValueError("operands could not be broadcast together with shapes %s, %s"
-                             % (self.array.shape, other.array.shape))
+                             % (self.shape, other.shape))
 
     def halo_exchange_begin(self):
         if self.dataset.halo is None:
