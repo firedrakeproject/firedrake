@@ -50,6 +50,13 @@ class NonlinearVariationalProblem(object):
         :param J: the Jacobian J = dF/du (optional)
         :param dic form_compiler_parameters: parameters to pass to the form
             compiler (optional)
+
+        .. warning ::
+
+            Since this object contains a circular reference and a
+            custom __del__ attribute, you /must/ call :meth:`destroy`
+            on it when you are done, otherwise it will never be
+            garbage collected.
         """
 
         # Extract and check arguments
@@ -162,8 +169,23 @@ class NonlinearVariationalSolver(object):
             else:
                 opts[k] = v
         self.snes.setFromOptions()
+
+    def __del__(self):
+        # Remove stuff from the options database
+        # It's fixed size, so if we don't it gets too big.
+        opts = PETSc.Options(self._opt_prefix)
         for k in self.parameters.iterkeys():
             del opts[k]
+
+    def destroy(self):
+        """Destroy the SNES object inside the solver.
+
+        You must call this explicitly, because the SNES holds a
+        reference to the solver it lives inside, defeating the garbage
+        collector."""
+        if self.snes is not None:
+            self.snes.destroy()
+            self.snes = None
 
     @property
     def parameters(self):
@@ -580,6 +602,8 @@ def _solve_varproblem(*args, **kwargs):
         # Create solver and call solve
         solver = NonlinearVariationalSolver(problem, parameters=solver_parameters)
         solver.solve()
+    # destroy snes part of solver so everything can be gc'd
+    solver.destroy()
 
 
 def _extract_args(*args, **kwargs):
