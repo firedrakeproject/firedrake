@@ -178,7 +178,13 @@ class Dat(DeviceDataMixin, op2.Dat):
     @property
     def norm(self):
         """The L2-norm on the flattened vector."""
-        return np.sqrt(gpuarray.dot(self.array, self.array).get())
+        if self.state is DeviceDataMixin.DEVICE:
+            return np.sqrt(gpuarray.dot(self.array, self.array).get())
+        elif self.state in [DeviceDataMixin.DEVICE_UNALLOCATED,
+                            DeviceDataMixin.HOST, DeviceDataMixin.BOTH]:
+            return np.sqrt(np.dot(self.data_ro, self.data_ro))
+        else:
+            raise RuntimeError('Data neither on host nor device, oops!')
 
 
 class Sparsity(op2.Sparsity):
