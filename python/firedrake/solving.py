@@ -332,10 +332,6 @@ def _assemble(f, tensor=None, bcs=None):
     if is_mat:
         test, trial = fd.original_arguments
 
-        if op2.MPI.parallel:
-            if has_vec_fs(test) or has_vec_fs(trial):
-                raise NotImplementedError(
-                    "It is not yet possible to assemble VectorFunctionSpaces in parallel")
         m = test.function_space().mesh()
         map_pairs = []
         for integral in f.integrals():
@@ -377,10 +373,6 @@ def _assemble(f, tensor=None, bcs=None):
     elif is_vec:
         test = fd.original_arguments[0]
         m = test.function_space().mesh()
-        if op2.MPI.parallel:
-            if has_vec_fs(test):
-                raise NotImplementedError(
-                    "It is not yet possible to assemble VectorFunctionSpaces in parallel")
         if tensor is None:
             result_function = core_types.Function(test.function_space())
             tensor = result_function.dat
