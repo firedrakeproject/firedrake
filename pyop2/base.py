@@ -41,6 +41,7 @@ import operator
 from hashlib import md5
 import copy
 import os
+import tempfile
 
 from caching import Cached
 from exceptions import *
@@ -62,7 +63,7 @@ class Configuration(object):
         "lazy_evaluation": (None, bool, True, False),
         "lazy_max_trace_length": (None, int, 0, False),
         "dump_gencode": ("PYOP2_DUMP_GENCODE", bool, False, False),
-        "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str, "/tmp/%(kernel)s-%(time)s.cl.c", False),
+        "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str, os.path.join(tempfile.gettempdir(), "pyop2-gencode", "%(kernel)s-%(time)s.%(ext)s"), False),
     }
 
     def __init__(self, **kwargs):
