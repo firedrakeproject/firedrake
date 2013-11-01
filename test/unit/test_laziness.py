@@ -49,10 +49,7 @@ class TestLaziness:
     def iterset(cls):
         return op2.Set(nelems, name="iterset")
 
-    def test_stable(self, backend, lazy, iterset):
-        if not lazy:
-            pytest.skip()
-
+    def test_stable(self, backend, skip_greedy, iterset):
         a = op2.Global(1, 0, numpy.uint32, "a")
 
         kernel = """
@@ -68,10 +65,7 @@ count(unsigned int* x)
         assert a.data[0] == nelems
         assert a.data[0] == nelems
 
-    def test_reorder(self, backend, lazy, iterset):
-        if not lazy:
-            pytest.skip()
-
+    def test_reorder(self, backend, skip_greedy, iterset):
         a = op2.Global(1, 0, numpy.uint32, "a")
         b = op2.Global(1, 0, numpy.uint32, "b")
 
@@ -91,11 +85,8 @@ count(unsigned int* x)
         assert a._data[0] == 0
         assert a.data[0] == nelems
 
-    def test_ro_accessor(self, backend, lazy, iterset):
+    def test_ro_accessor(self, backend, skip_greedy, iterset):
         """Read-only access to a Dat should force computation that writes to it."""
-        if not lazy:
-            pytest.skip()
-
         op2.base._trace.clear()
         d = op2.Dat(iterset, numpy.zeros(iterset.total_size), dtype=numpy.float64)
         k = op2.Kernel('void k(double *x) { *x = 1.0; }', 'k')
@@ -103,12 +94,9 @@ count(unsigned int* x)
         assert all(d.data_ro == 1.0)
         assert len(op2.base._trace._trace) == 0
 
-    def test_rw_accessor(self, backend, lazy, iterset):
+    def test_rw_accessor(self, backend, skip_greedy, iterset):
         """Read-write access to a Dat should force computation that writes to it,
         and any pending computations that read from it."""
-        if not lazy:
-            pytest.skip()
-
         op2.base._trace.clear()
         d = op2.Dat(iterset, numpy.zeros(iterset.total_size), dtype=numpy.float64)
         d2 = op2.Dat(iterset, numpy.empty(iterset.total_size), dtype=numpy.float64)
@@ -119,10 +107,7 @@ count(unsigned int* x)
         assert all(d.data == 1.0)
         assert len(op2.base._trace._trace) == 0
 
-    def test_chain(self, backend, lazy, iterset):
-        if not lazy:
-            pytest.skip()
-
+    def test_chain(self, backend, skip_greedy, iterset):
         a = op2.Global(1, 0, numpy.uint32, "a")
         x = op2.Dat(iterset, numpy.zeros(nelems), numpy.uint32, "x")
         y = op2.Dat(iterset, numpy.zeros(nelems), numpy.uint32, "y")
