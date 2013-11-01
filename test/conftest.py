@@ -146,15 +146,17 @@ def pytest_generate_tests(metafunc):
         lazy = []
         # Skip greedy execution by passing skip_greedy as a parameter
         if not 'skip_greedy' in metafunc.fixturenames:
-            lazy.append(False)
+            lazy.append('greedy')
         # Skip lazy execution by passing skip_greedy as a parameter
         if not 'skip_lazy' in metafunc.fixturenames:
-            lazy.append(True)
+            lazy.append('lazy')
         # Allow skipping individual backends by passing skip_<backend> as a
         # parameter
         backend = [b for b in backend.difference(skip_backends)
                    if not 'skip_' + b in metafunc.fixturenames]
-        metafunc.parametrize('backend', product(backend, lazy), indirect=True)
+        params = list(product(backend, lazy))
+        metafunc.parametrize('backend', params, indirect=True,
+                             ids=['-'.join(p) for p in params])
 
 
 @pytest.fixture(scope='session')
@@ -162,7 +164,7 @@ def backend(request):
     backend, lazy = request.param
     # Initialise the backend
     try:
-        op2.init(backend=backend, lazy_evaluation=lazy)
+        op2.init(backend=backend, lazy_evaluation=(lazy == 'lazy'))
     # Skip test if initialisation failed
     except:
         pytest.skip('Backend %s is not available' % backend)
