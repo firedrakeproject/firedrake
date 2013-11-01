@@ -113,7 +113,8 @@ def init(**kwargs):
 @collective
 def exit():
     """Exit OP2 and clean up"""
-    base.configuration.reset()
+    if base.configuration:
+        base.configuration.reset()
 
     if backends.get_backend() != 'pyop2.void':
         backends.unset_backend()
