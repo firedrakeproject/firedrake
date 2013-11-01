@@ -6,60 +6,13 @@
 <![endif]-->
 
 <link rel="stylesheet" href="{{ pathto('_static/featured.css', 1) }}">
-<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.5.1/jquery.min.js"></script>
-<script src="{{ pathto('_static/slides.min.jquery.js', 1) }}"></script>
-  <script>
-	$(function(){
-		$('#products').slides({
-			preload: true,
-			preloadImage: 'img/loading.gif',
-			effect: 'slide, fade',
-			crossfade: true,
-			slideSpeed: 350,
-			fadeSpeed: 500,
-			generateNextPrev: false,
-			generatePagination: false,
-	                play: 5000,
-                        hoverPause: false,
-                        animationStart: function(current){
-				$('.caption').animate({
-					bottom:-35
-				},100);
-				if (window.console && console.log) {
-					// example return of current slide number
-					console.log('animationStart on slide: ', current);
-				};
-			},
-			animationComplete: function(current){
-				$('.caption').animate({
-					bottom:0
-				},200);
-				if (window.console && console.log) {
-					// example return of current slide number
-					console.log('animationComplete on slide: ', current);
-				};
-			},
-			slidesLoaded: function() {
-				$('.caption').animate({
-					bottom:0
-				},200);
-			}
-		});
-	});
-  </script>
-<script type="text/javascript">
-
-<!--  var _gaq = _gaq || [];
-  _gaq.push(['_setAccount', 'UA-31806773-1']);
-  _gaq.push(['_setDomainName', 'dolfin-adjoint.org']);
-  _gaq.push(['_trackPageview']);-->
-
-  (function() {
-    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
-    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
-    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
-  })();
-
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  ga('create', 'UA-45089752-1', 'firedrakeproject.org');
+  ga('send', 'pageview');
 </script>
 
 {% if theme_favicon %}
@@ -74,16 +27,12 @@
   <div id="access">
     <div class="menu">
       <ul>
-<!--          <li class="page_item"><a href="{{ pathto('maths/%s.%s' % ('index', 'html'), 1) }}" title="Mathematical background to adjoints">Background</a></li>
-          <li class="page_item"><a href="{{ pathto('features/%s.%s' % ('index', 'html'), 1) }}" title="Features of firedrake">Features</a></li>
-          <li class="page_item"><a href="{{ pathto('about/%s.%s' % ('index', 'html'), 1) }}" title="Find out more about firedrake">About</a></li>-->
           <li class="page_item"><a href="{{ pathto('download.html', 1) }}" title="Obtain the firedrake code">Download</a></li>
-          <!--
-              <li class="page_item"><a href="{{ pathto('documentation/%s.%s' % ('tutorial', 'html'), 1) }}" title="Get started with firedrake">Tutorial</a></li>
-          <li class="page_item"><a href="{{ pathto('documentation/%s.%s' % ('index', 'html'), 1) }}" title="Learn how to use firedrake">Documentation</a></li>
-          <li class="page_item"><a href="{{ pathto('citing/%s.%s' % ('index', 'html'), 1) }}" title="Learn how to cite the firedrake project">Citing</a></li>-->
-<li class="page_item"><a href="{{ pathto('%s.%s' % ('team', 'html'), 1) }}" title="The guilty parties">Team</a></li>
-          <!--<li class="page_item"><a href="{{ pathto('support/%s.%s' % ('index', 'html'), 1) }}" title="Where to go for more help">Support</a></li>-->
+          <li class="page_item"><a href="{{ pathto('%s.%s' % ('team', 'html'), 1) }}" title="The guilty parties">Team</a></li>
+          <li class="page_item"><a href="{{ pathto('publications.html', 1) }}" title="Publications">Publications</a></li>
+          <li class="page_item"><a href="{{ pathto('funding.html', 1) }}" title="Our financial supporters">Funding</a></li>
+          <li class="page_item"><a href="https://github.com/firedrakeproject/firedrake" title="GitHub">GitHub</a></li>
+          <li class="page_item"><a href="https://travis-ci.org/firedrakeproject/firedrake" title="Travis CI">Travis CI</a></li>
       </ul>
     </div><!-- .menu -->
   </div><!-- #access -->
@@ -96,4 +45,3 @@
 {# do not display sidebars #}
 {% block sidebar1 %}{% endblock %}
 {% block sidebar2 %}{% endblock %}
-
