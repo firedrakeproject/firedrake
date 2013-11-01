@@ -5,8 +5,8 @@ from firedrake import *
 def helmholtz_mixed(x, V1, V2):
     # Create mesh and define function space
     mesh = UnitSquareMesh(2**x, 2**x)
-    V1 = FunctionSpace(mesh, *V1)
-    V2 = FunctionSpace(mesh, *V2)
+    V1 = FunctionSpace(mesh, *V1, name="V")
+    V2 = FunctionSpace(mesh, *V2, name="P")
     W = V1 * V2
 
     # Define variational problem
@@ -21,7 +21,17 @@ def helmholtz_mixed(x, V1, V2):
 
     # Compute solution
     x = Function(W)
-    solve(a == L, x, solver_parameters={'pc_type': 'none'})
+
+    # Block system is:
+    # V Ct
+    # Ch P
+    # Eliminate V by forming a schur complement
+    solve(a == L, x, solver_parameters={'pc_type': 'fieldsplit',
+                                        'pc_fieldsplit_type': 'schur',
+                                        'ksp_type': 'cg',
+                                        'pc_fieldsplit_schur_fact_type': 'FULL',
+                                        'fieldsplit_V_ksp_type': 'cg',
+                                        'fieldsplit_P_ksp_type': 'cg'})
 
     # Analytical solution
     f.interpolate(Expression("sin(x[0]*pi*2)*sin(x[1]*pi*2)"))

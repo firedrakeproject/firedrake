@@ -50,6 +50,13 @@ class NonlinearVariationalProblem(object):
         :param J: the Jacobian J = dF/du (optional)
         :param dic form_compiler_parameters: parameters to pass to the form
             compiler (optional)
+
+        .. warning ::
+
+            Since this object contains a circular reference and a
+            custom __del__ attribute, you /must/ call :meth:`destroy`
+            on it when you are done, otherwise it will never be
+            garbage collected.
         """
 
         # Extract and check arguments
@@ -103,10 +110,25 @@ class NonlinearVariationalSolver(object):
         test = self._problem.F_ufl.compute_form_data().original_arguments[0]
         self._F_tensor = core_types.Function(test.function_space())
         self.snes = PETSc.SNES().create()
-        self._opt_prefix = 'firedrake_snes_%d' % NonlinearVariationalSolver._id
+        self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
         NonlinearVariationalSolver._id += 1
         self.snes.setOptionsPrefix(self._opt_prefix)
         self.parameters = kwargs.get('parameters', {})
+
+        ksp = self.snes.getKSP()
+        pc = ksp.getPC()
+        if self._jac_tensor.sparsity.shape != (1, 1):
+            offset = 0
+            rows, cols = self._jac_tensor.sparsity.shape
+            ises = []
+            for i in range(rows):
+                if i < cols:
+                    nrows = self._jac_tensor[i, i].sparsity.nrows
+                    name = test.function_space()[i].name
+                    name = name if name else '%d' % i
+                    ises.append((name, PETSc.IS().createStride(nrows, first=offset, step=1)))
+                    offset += nrows
+            pc.setFieldSplitIS(*ises)
 
         with self._F_tensor.dat.vec as v:
             self.snes.setFunction(self.form_function, v)
@@ -162,8 +184,23 @@ class NonlinearVariationalSolver(object):
             else:
                 opts[k] = v
         self.snes.setFromOptions()
+
+    def __del__(self):
+        # Remove stuff from the options database
+        # It's fixed size, so if we don't it gets too big.
+        opts = PETSc.Options(self._opt_prefix)
         for k in self.parameters.iterkeys():
             del opts[k]
+
+    def destroy(self):
+        """Destroy the SNES object inside the solver.
+
+        You must call this explicitly, because the SNES holds a
+        reference to the solver it lives inside, defeating the garbage
+        collector."""
+        if self.snes is not None:
+            self.snes.destroy()
+            self.snes = None
 
     @property
     def parameters(self):
@@ -184,14 +221,8 @@ class NonlinearVariationalSolver(object):
         # solve, ensure these are passed through to the snes.
         self._update_parameters()
 
-        # Solve into a temporary vector to not conflict with any vector
-        # contexts that might be floating around
-        tmp = core_types.Function(self._problem.u_ufl)
-        with tmp.dat.vec as v:
+        with self._problem.u_ufl.dat.vec as v:
             self.snes.solve(None, v)
-        # Copy back the result the Dat of the Function
-        for u, d in zip(self._problem.u_ufl.dat, tmp.dat):
-            u.data[:] = d.data_ro[:]
 
         # Only the local part of u gets updated by the petsc solve, so
         # we need to mark things as needing a halo update.
@@ -203,7 +234,7 @@ class NonlinearVariationalSolver(object):
         try:
             reason = reasons[r]
         except KeyError:
-            reason = 'unknown reason %d (petsc4py enum incomplete?)' % r
+            reason = 'unknown reason (petsc4py enum incomplete?)'
         if r < 0:
             raise RuntimeError("Nonlinear solve failed to converge after %d \
                                nonlinear iterations with reason: %s" %
@@ -580,6 +611,8 @@ def _solve_varproblem(*args, **kwargs):
         # Create solver and call solve
         solver = NonlinearVariationalSolver(problem, parameters=solver_parameters)
         solver.solve()
+    # destroy snes part of solver so everything can be gc'd
+    solver.destroy()
 
 
 def _extract_args(*args, **kwargs):
