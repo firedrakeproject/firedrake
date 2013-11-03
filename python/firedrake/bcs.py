@@ -28,6 +28,14 @@ class DirichletBC(object):
 
         return self._function_space
 
+    def homogenize(self):
+        '''Convert this boundary condition into a homogeneous one.
+
+        Set the value to zero.
+
+        '''
+        self.function_arg = 0
+
     @utils.cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
