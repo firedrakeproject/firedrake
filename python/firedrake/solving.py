@@ -429,7 +429,14 @@ def _assemble(f, tensor=None, bcs=None):
 
 
 def _la_solve(A, x, b, parameters={'ksp_type': 'gmres', 'pc_type': 'ilu'}):
-    """Solves a linear algebra problem. Usage:
+    """Solves a linear algebra problem.
+
+    :arg A: the assembled bilinear form, a :class:`pyop2.op2.Mat`.
+    :arg x: the :class:`Function` to write the solution into.
+    :arg b: the :class:`Function` defining the right hand side values.
+    :arg parameters: optional solver parameters.
+
+    Example usage:
 
     .. code-block:: python
 
@@ -440,7 +447,7 @@ def _la_solve(A, x, b, parameters={'ksp_type': 'gmres', 'pc_type': 'ilu'}):
     PyOP2 (see :var:`op2.DEFAULT_SOLVER_PARAMETERS`)."""
 
     solver = op2.Solver(parameters=parameters)
-    solver.solve(A, x.dat, b)
+    solver.solve(A, x.dat, b.dat)
     x.dat.halo_exchange_begin()
     x.dat.halo_exchange_end()
 
