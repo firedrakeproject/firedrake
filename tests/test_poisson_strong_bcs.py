@@ -64,6 +64,30 @@ def run_test_linear(x, degree, parameters={}):
     return sqrt(assemble(dot(u - f, u - f) * dx))
 
 
+def run_test_preassembled(x, degree, parameters={}):
+    mesh = UnitSquareMesh(2 ** x, 2 ** x)
+    V = FunctionSpace(mesh, "CG", degree)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = dot(grad(v), grad(u)) * dx
+    f = Function(V)
+    f.assign(0)
+    L = v*f*dx
+    bcs = [DirichletBC(V, 0, 1),
+           DirichletBC(V, 42, 2)]
+
+    u = Function(V)
+
+    A = assemble(a, bcs=bcs)
+    b = assemble(L)
+    solve(A, u, b, bcs=bcs, solver_parameters=parameters)
+
+    f.interpolate(Expression("42*x[1]"))
+
+    return sqrt(assemble(dot(u - f, u - f) * dx))
+
+
 @pytest.mark.parametrize(['params', 'degree'],
                          [(p, d)
                           for p in [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}]
@@ -78,6 +102,14 @@ def test_poisson_analytic(params, degree):
                           for d in (1, 2)])
 def test_poisson_analytic_linear(params, degree):
     assert (run_test_linear(2, degree, parameters=params) < 5.e-6)
+
+
+@pytest.mark.parametrize(['params', 'degree'],
+                         [(p, d)
+                          for p in [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}]
+                          for d in (1, 2)])
+def test_poisson_analytic_preassembled(params, degree):
+    assert (run_test_preassembled(2, degree, parameters=params) < 5.e-6)
 
 
 if __name__ == '__main__':
