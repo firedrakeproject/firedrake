@@ -145,14 +145,14 @@ class TestConfigurationAPI:
         """backend option is read only."""
         c = base.Configuration()
         c.reconfigure(backend='cuda')
-        with pytest.raises(RuntimeError):
+        with pytest.raises(exceptions.ConfigurationError):
             c['backend'] = 'other'
 
     def test_reconfigure_backend(self):
         """backend option is read only."""
         c = base.Configuration()
         c.reconfigure(backend='cuda')
-        with pytest.raises(RuntimeError):
+        with pytest.raises(exceptions.ConfigurationError):
             c.reconfigure(backend='other')
 
 

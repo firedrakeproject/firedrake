@@ -117,7 +117,7 @@ class Configuration(object):
            :attr:`Configuration.READONLY` for details of which.
         """
         if key in Configuration.READONLY and key in self._set and value != self[key]:
-            raise RuntimeError("%s is read only" % key)
+            raise ConfigurationError("%s is read only" % key)
         self._set.add(key)
         self._conf[key] = value
 
