@@ -7,7 +7,7 @@ from mpi4py import MPI
 import FIAT
 import numpy as np
 import utils
-import pyop2 as op2
+from pyop2 import op2
 import assemble_expressions
 from vector import Vector
 import cgen
