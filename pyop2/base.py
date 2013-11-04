@@ -73,7 +73,7 @@ class Configuration(object):
     DEFAULTS = {
         "backend": ("PYOP2_BACKEND", str, "sequential"),
         "debug": ("PYOP2_DEBUG", int, 0),
-        "log_level": ("PYOP2_LOG_LEVEL", str, "WARNING"),
+        "log_level": ("PYOP2_LOG_LEVEL", (int, str), "WARNING"),
         "lazy_evaluation": (None, bool, True),
         "lazy_max_trace_length": (None, int, 0),
         "dump_gencode": ("PYOP2_DUMP_GENCODE", bool, False),
@@ -118,6 +118,11 @@ class Configuration(object):
         """
         if key in Configuration.READONLY and key in self._set and value != self[key]:
             raise ConfigurationError("%s is read only" % key)
+        if key in Configuration.DEFAULTS:
+            valid_type = Configuration.DEFAULTS[key][1]
+            if not isinstance(value, valid_type):
+                raise ConfigurationError("Values for configuration key %s must be of type %r, not %r"
+                                         % (key, valid_type, type(value)))
         self._set.add(key)
         self._conf[key] = value
 

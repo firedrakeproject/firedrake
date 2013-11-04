@@ -155,6 +155,20 @@ class TestConfigurationAPI:
         with pytest.raises(exceptions.ConfigurationError):
             c.reconfigure(backend='other')
 
+    @pytest.mark.parametrize(('key', 'val'), [('backend', 0),
+                                              ('debug', 'illegal'),
+                                              ('log_level', 1.5),
+                                              ('lazy_evaluation', 'illegal'),
+                                              ('lazy_max_trace_length', 'illegal'),
+                                              ('dump_gencode', 'illegal'),
+                                              ('dump_gencode_path', 0)])
+    def test_configuration_illegal_types(self, key, val):
+        """Illegal types for configuration values should raise
+        ConfigurationError."""
+        c = base.Configuration()
+        with pytest.raises(exceptions.ConfigurationError):
+            c[key] = val
+
 
 class TestInitAPI:
 
