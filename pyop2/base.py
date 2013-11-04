@@ -101,9 +101,9 @@ class Configuration(object):
         self._conf = dct
         self._rst = copy.deepcopy(dct)
 
-        logger.set_log_level(getattr(logger, self['log_level']))
+        logger.set_log_level(self['log_level'])
         if self["debug"] > 0:
-            logger.set_log_level(getattr(logger, 'DEBUG'))
+            logger.set_log_level('DEBUG')
 
     def reset(self):
         """Reset the configuration parameters to the value used when
