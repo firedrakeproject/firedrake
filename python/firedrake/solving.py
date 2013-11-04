@@ -455,14 +455,15 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
 
     solver = op2.Solver(parameters=parameters)
     if bcs is not None:
-        tmp = core_types.Function(b.function_space())
+        # Solving A x = b - action(a, u_bc)
+        u_bc = core_types.Function(b.function_space())
         for bc in bcs:
-            bc.apply(tmp)
-        tmp.assign(assemble(ufl.action(A.a, tmp)))
+            bc.apply(u_bc)
+        u_bc.assign(assemble(ufl.action(A.a, u_bc)))
+        b -= u_bc
+        # Now we need to apply the boundary conditions to the "RHS"
         for bc in bcs:
-            bc.apply(tmp, b)
-        tmp *= -1
-        b = tmp
+            bc.apply(b)
     solver.solve(A.M, x.dat, b.dat)
     x.dat.halo_exchange_begin()
     x.dat.halo_exchange_end()
