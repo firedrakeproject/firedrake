@@ -2319,6 +2319,30 @@ class JITModule(Cached):
 
         return key
 
+    def _dump_generated_code(self, src, ext=None):
+        """Write the generated code to a file for debugging purposes.
+
+        :arg src: The source string to write
+        :arg ext: The file extension of the output file (if not `None`)
+
+        Output will only be written if the `dump_gencode`
+        configuration parameter is `True`.  The output file will be
+        written to the directory specified by the PyOP2 configuration
+        parameter `dump_gencode_path`.  See :class:`Configuration` for
+        more details.
+
+        """
+        if configuration['dump_gencode']:
+            import os
+            import hashlib
+            fname = "%s-%s.%s" % (self._kernel.name,
+                                  hashlib.md5(src).hexdigest(),
+                                  ext if ext is not None else "c")
+            output = os.path.abspath(os.path.join(configuration['dump_gencode_path'],
+                                                  fname))
+            with open(output, "w") as f:
+                f.write(src)
+
 
 class ParLoop(LazyComputation):
     """Represents the kernel, iteration space and arguments of a parallel loop

@@ -707,6 +707,7 @@ class JITModule(base.JITModule):
             argtypes += inttype  # number of colours in the block
 
         self._module = SourceModule(src, options=compiler_opts)
+        self._dump_generated_code(src, ext=".cu")
 
         # Upload Const data.
         for c in Const._definitions():

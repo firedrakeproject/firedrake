@@ -37,13 +37,10 @@ import collections
 from jinja2 import Environment, PackageLoader
 import math
 import numpy as np
-import os
 from pycparser import c_parser, c_ast, c_generator
 import pyopencl as cl
 from pyopencl import array
-import time
 
-from base import configuration as cfg
 import device
 from device import *
 from logger import warning
@@ -554,20 +551,10 @@ class JITModule(base.JITModule):
                                'codegen': {'amd': _AMD_fixes},
                                'op2const': Const._definitions()
                                }).encode("ascii")
-        self.dump_gen_code(src)
+        self._dump_generated_code(src, ext=".cl")
         prg = cl.Program(_ctx, src).build()
         self._fun = prg.__getattr__(self._parloop._stub_name)
         return self._fun
-
-    def dump_gen_code(self, src):
-        if cfg['dump_gencode']:
-            path = cfg['dump_gencode_path'] % {"kernel": self._parloop.kernel.name,
-                                               "time": time.strftime('%Y-%m-%d@%H:%M:%S'),
-                                               "ext": "cl"}
-
-            if not os.path.exists(path):
-                with open(path, "w") as f:
-                    f.write(src)
 
     def __call__(self, thread_count, work_group_size, *args):
         fun = self.compile()
