@@ -487,12 +487,13 @@ def _assemble(f, tensor=None, bcs=None):
     return result()
 
 
-def _la_solve(A, x, b, parameters={'ksp_type': 'gmres', 'pc_type': 'ilu'}):
+def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'ilu'}):
     """Solves a linear algebra problem.
 
     :arg A: the assembled bilinear form, a :class:`Matrix`.
     :arg x: the :class:`Function` to write the solution into.
     :arg b: the :class:`Function` defining the right hand side values.
+    :arg bcs: an optional list of :class:`DirichletBC`\s to apply.
     :arg parameters: optional solver parameters.
 
     Example usage:
@@ -506,6 +507,15 @@ def _la_solve(A, x, b, parameters={'ksp_type': 'gmres', 'pc_type': 'ilu'}):
     PyOP2 (see :var:`op2.DEFAULT_SOLVER_PARAMETERS`)."""
 
     solver = op2.Solver(parameters=parameters)
+    if bcs is not None:
+        tmp = core_types.Function(b.function_space())
+        for bc in bcs:
+            bc.apply(tmp)
+        tmp.assign(assemble(ufl.action(A.a, tmp)))
+        for bc in bcs:
+            bc.apply(tmp, b)
+        tmp *= -1
+        b = tmp
     solver.solve(A.M, x.dat, b.dat)
     x.dat.halo_exchange_begin()
     x.dat.halo_exchange_end()
@@ -520,14 +530,16 @@ def solve(*args, **kwargs):
 
     *1. Solving linear systems*
 
-    A linear system Ax = b may be solved by calling solve(A, x, b, solver_parameters={...}),
-    where A is a matrix and x and b are vectors.
-    You can pass parameters to the linear solver as described below.
+    A linear system Ax = b may be solved by calling
 
     .. code-block:: python
 
-        solve(A, x, b)
+        solve(A, x, b, bcs=bcs, solver_parameters={...})
 
+    where `A` is a :class:`Matrix` and `x` and `b` are :class:`Function`\s.
+    If present, `bcs` should be a list of :class:`DirichletBC`\s
+    specifying the strong boundary conditions to apply.  For the
+    format of `solver_parameters` see below.
 
     *2. Solving linear variational problems*
 
@@ -596,9 +608,11 @@ def solve(*args, **kwargs):
     # Default case, call PyOP2 linear solver
     else:
         parms = kwargs.pop('solver_parameters', None)
+        bcs = kwargs.pop('bcs', None)
+        _kwargs = {'bcs': bcs}
         if parms:
-            return _la_solve(*args, parameters=parms)
-        return _la_solve(*args)
+            _kwargs['parameters'] = parms
+        return _la_solve(*args, **_kwargs)
 
 
 def _solve_varproblem(*args, **kwargs):
