@@ -70,6 +70,11 @@ def init(**kwargs):
                     defaults to `MPI_COMM_WORLD`
     :arg log_level: The log level. Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
 
+    For debugging purposes, `init` accepts all keyword arguments
+    accepted by the PyOP2 :class:`Configuration` object, see
+    :meth:`Configuration.__init__` for details of further accepted
+    options.
+
     .. note::
        Calling ``init`` again with a different backend raises an exception.
        Changing the backend is not possible. Calling ``init`` again with the

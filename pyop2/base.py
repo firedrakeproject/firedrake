@@ -55,18 +55,37 @@ configuration = None
 
 
 class Configuration(object):
+    """PyOP2 configuration parameters"""
     # name, env variable, type, default, write once
     DEFAULTS = {
         "backend": ("PYOP2_BACKEND", str, "sequential", True),
         "debug": ("PYOP2_DEBUG", int, 0, False),
-        "log_level": ("PYOP2_LOG_LEVEL", str, "WARN", False),
+        "log_level": ("PYOP2_LOG_LEVEL", str, "WARNING", False),
         "lazy_evaluation": (None, bool, True, False),
         "lazy_max_trace_length": (None, int, 0, False),
         "dump_gencode": ("PYOP2_DUMP_GENCODE", bool, False, False),
-        "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str, os.path.join(tempfile.gettempdir(), "pyop2-gencode", "%(kernel)s-%(time)s.%(ext)s"), False),
+        "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str, os.path.join(tempfile.gettempdir(), "pyop2-gencode"), False),
     }
+    """Default values for PyOP2 configuration parameters"""
 
     def __init__(self, **kwargs):
+        """Initialise configuration parameters from `kwargs`.
+
+        :param backend: Select the PyOP2 backend (one of `cuda`,
+            `opencl`, `openmp` or `sequential`).
+        :param debug: Turn on debugging for generated code (turns off
+            compiler optimisations).
+        :param log_level: How chatty should PyOP2 be?  Valid values
+            are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
+        :param lazy_evaluation: Should lazy evaluation be on or off?
+        :param lazy_max_trace_length: How many :func:`par_loop`\s
+            should be queued lazily before forcing evaluation?  Pass
+            `0` for an unbounded length.
+        :param dump_gencode: Should PyOP2 write the generated code
+            somewhere for inspection?
+        :param dump_gencode_path: Where should the generated code be
+            written to?
+        """
         dct = {}
 
         # default values
@@ -85,16 +104,34 @@ class Configuration(object):
             warnings.simplefilter("always")
 
     def reset(self):
+        """Reset the configuration parameters to the value used when
+        first instantiating the object."""
         self._conf = copy.deepcopy(self._rst)
 
     def reconfigure(self, **kwargs):
+        """Update the configuration parameters with new values.
+
+        See :meth:`Configuration.__init__` for accepted values."""
         for k, v in kwargs.items():
             self[k] = v
 
     def __getitem__(self, key):
+        """Return the value of a configuration parameter.
+
+        :arg key: The parameter to query"""
         return self._conf[key]
 
     def __setitem__(self, key, value):
+        """Set the value of a configuration parameter.
+
+        :arg key: The parameter to set
+        :arg value: The value to set it to.
+
+        .. note::
+           Some configuration parameters are read-only in which case
+           attempting to set them raises an error, see
+           :attr:`Configuration.DEFAULTS` for details of which.
+        """
         if key in Configuration.DEFAULTS:
             _, _, _, ro = Configuration.DEFAULTS[key]
             if ro and value != self[key]:
