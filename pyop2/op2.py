@@ -98,7 +98,7 @@ def init(**kwargs):
     else:
         configuration.reconfigure(**kwargs)
 
-    set_log_level(base.configuration['log_level'])
+    set_log_level(configuration['log_level'])
     if backend == 'pyop2.void':
         try:
             backends.set_backend(base.configuration["backend"])
