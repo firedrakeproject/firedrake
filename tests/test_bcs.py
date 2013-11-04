@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from firedrake import *
 
 
@@ -41,6 +42,32 @@ def test_homogenize_doesnt_overwrite_function(a, u, V):
 
     solve(a == 0, u, bcs=[bc])
     assert max(abs(u.vector().array())) == 0.0
+
+
+def test_restore_bc_value(a, u, V):
+    f = Function(V)
+    f.assign(10)
+    bc = DirichletBC(V, f, 1)
+    bc.homogenize()
+
+    solve(a == 0, u, bcs=[bc])
+    assert max(abs(u.vector().array())) == 0.0
+
+    bc.restore()
+    solve(a == 0, u, bcs=[bc])
+    assert np.allclose(u.vector().array(), 10.0)
+
+
+def test_set_bc_value(a, u, V):
+    f = Function(V)
+    f.assign(10)
+    bc = DirichletBC(V, f, 1)
+
+    bc.set_value(7)
+
+    solve(a == 0, u, bcs=[bc])
+
+    assert np.allclose(u.vector().array(), 7.0)
 
 
 if __name__ == '__main__':
