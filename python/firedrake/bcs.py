@@ -20,6 +20,7 @@ class DirichletBC(object):
 
         self._function_space = V
         self.function_arg = g
+        self._original_arg = g
         self.sub_domain = sub_domain
 
     def function_space(self):
@@ -27,6 +28,28 @@ class DirichletBC(object):
         be applied.'''
 
         return self._function_space
+
+    def homogenize(self):
+        '''Convert this boundary condition into a homogeneous one.
+
+        Set the value to zero.
+
+        '''
+        self.function_arg = 0
+
+    def restore(self):
+        '''Restore the original value of this boundary condition.
+
+        This uses the value passed on instantiation of the object.'''
+        self.function_arg = self._original_arg
+
+    def set_value(self, val):
+        '''Set the value of this boundary condition.
+
+        :arg val: The boundary condition values.  See
+            :class:`DirichletBC` for valid values.
+        '''
+        self.function_arg = val
 
     @utils.cached_property
     def nodes(self):
