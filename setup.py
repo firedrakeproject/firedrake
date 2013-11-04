@@ -88,7 +88,6 @@ install_requires = [
     'instant>=1.2',
     'mpi4py',
     'numpy>=1.6',
-    'PyYAML',
 ]
 
 version = sys.version_info[:2]

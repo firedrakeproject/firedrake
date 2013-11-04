@@ -2,7 +2,6 @@ numpy>=1.6.1
 Cython>=0.17
 pytest>=2.3
 flake8>=2.1.0
-PyYAML>=3.0
 mpi4py
 git+https://bitbucket.org/fenics-project/instant.git#egg=instant
 git+https://bitbucket.org/mapdes/ufl.git#egg=ufl
