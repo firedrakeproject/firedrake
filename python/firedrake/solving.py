@@ -31,6 +31,7 @@ from ufl_expr import derivative
 from ufl.algorithms.signature import compute_form_signature
 from pyop2 import op2, ffc_interface
 import core_types
+import types
 from assemble_expressions import assemble_expression
 from petsc4py import PETSc
 
@@ -106,8 +107,8 @@ class NonlinearVariationalSolver(object):
                                  trial.function_space().dof_dset),
                                 (test.cell_node_map(), trial.cell_node_map()),
                                 "%s_%s_sparsity" % fs_names)
-        self._jac_tensor = op2.Mat(
-            sparsity, numpy.float64, "%s_%s_matrix" % fs_names)
+        self._jac_tensor = types.Matrix(self._problem.J_ufl, sparsity,
+                                        numpy.float64, "%s_%s_matrix" % fs_names)
         self._jac_ptensor = self._jac_tensor
         test = self._problem.F_ufl.compute_form_data().original_arguments[0]
         self._F_tensor = core_types.Function(test.function_space())
@@ -134,8 +135,8 @@ class NonlinearVariationalSolver(object):
 
         with self._F_tensor.dat.vec as v:
             self.snes.setFunction(self.form_function, v)
-        self.snes.setJacobian(self.form_jacobian, J=self._jac_tensor.handle,
-                              P=self._jac_ptensor.handle)
+        self.snes.setJacobian(self.form_jacobian, J=self._jac_tensor.M.handle,
+                              P=self._jac_ptensor.M.handle)
 
     def form_function(self, snes, X_, F_):
         with self._problem.u_ufl.dat.vec as v:
@@ -167,12 +168,12 @@ class NonlinearVariationalSolver(object):
         assemble(self._problem.J_ufl,
                  tensor=self._jac_ptensor,
                  bcs=self._problem.bcs)
-        self._jac_ptensor._force_evaluation()
+        self._jac_ptensor.M._force_evaluation()
         if J_ != P_:
             assemble(self._problem.J_ufl,
                      tensor=self._jac_tensor,
                      bcs=self._problem.bcs)
-            self._jac_tensor._force_evaluation()
+            self._jac_tensor.M._force_evaluation()
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 
     def _update_parameters(self):
@@ -287,9 +288,7 @@ def assemble(f, tensor=None, bcs=None):
 
     If f is a :class:`UFL.form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
-    :class:`Function` for 1-forms and a :class:`op2.Mat` for 2-forms. The
-    last of these may change to a native Firedrake type in a future
-    release.
+    :class:`Function` for 1-forms and a :class:`Matrix` for 2-forms.
 
     If f is an expression other than a form, it will be evaluated
     pointwise on the Functions in the expression. This will
@@ -363,14 +362,19 @@ def _assemble(f, tensor=None, bcs=None):
                                          trial.function_space().dof_dset),
                                         map_pairs,
                                         "%s_%s_sparsity" % fs_names)
-                tensor = op2.Mat(
-                    sparsity, numpy.float64, "%s_%s_matrix" % fs_names)
-                _mat_cache[key] = tensor
+                result_matrix = types.Matrix(f, sparsity, numpy.float64,
+                                             "%s_%s_matrix" % fs_names)
+                tensor = result_matrix.M
+                _mat_cache[key] = result_matrix
             else:
+                result_matrix = tensor
+                tensor = tensor.M
                 tensor.zero()
         else:
+            result_matrix = tensor
+            tensor = tensor.M
             tensor.zero()
-        result = lambda: tensor
+        result = lambda: result_matrix
     elif is_vec:
         test = fd.original_arguments[0]
         m = test.function_space().mesh()
@@ -486,7 +490,7 @@ def _assemble(f, tensor=None, bcs=None):
 def _la_solve(A, x, b, parameters={'ksp_type': 'gmres', 'pc_type': 'ilu'}):
     """Solves a linear algebra problem.
 
-    :arg A: the assembled bilinear form, a :class:`pyop2.op2.Mat`.
+    :arg A: the assembled bilinear form, a :class:`Matrix`.
     :arg x: the :class:`Function` to write the solution into.
     :arg b: the :class:`Function` defining the right hand side values.
     :arg parameters: optional solver parameters.
@@ -502,7 +506,7 @@ def _la_solve(A, x, b, parameters={'ksp_type': 'gmres', 'pc_type': 'ilu'}):
     PyOP2 (see :var:`op2.DEFAULT_SOLVER_PARAMETERS`)."""
 
     solver = op2.Solver(parameters=parameters)
-    solver.solve(A, x.dat, b.dat)
+    solver.solve(A.M, x.dat, b.dat)
     x.dat.halo_exchange_begin()
     x.dat.halo_exchange_end()
 

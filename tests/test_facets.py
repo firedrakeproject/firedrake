@@ -47,14 +47,14 @@ def test_bilinear_facet_integral(f):
     u = TrialFunction(V)
     v = TestFunction(V)
 
-    cell = assemble(u*v*dx).values
+    cell = assemble(u*v*dx).M.values
     # each diagonal entry should be volume of cell
     assert np.allclose(np.diag(cell), 0.5)
     # all off-diagonals should be zero
     cell[range(2), range(2)] = 0.0
     assert np.allclose(cell, 0.0)
 
-    outer_facet = assemble(u*v*ds).values
+    outer_facet = assemble(u*v*ds).M.values
     # each diagonal entry should be length of exterior facet in this
     # cell (2)
     assert np.allclose(np.diag(outer_facet), 2.0)
@@ -62,7 +62,7 @@ def test_bilinear_facet_integral(f):
     outer_facet[range(2), range(2)] = 0.0
     assert np.allclose(outer_facet, 0.0)
 
-    interior_facet = assemble(u('+')*v('+')*dS).values
+    interior_facet = assemble(u('+')*v('+')*dS).M.values
     # fully coupled, each entry should be length of interior facet
     # (sqrt(2))
     assert np.allclose(interior_facet, sqrt(2))
