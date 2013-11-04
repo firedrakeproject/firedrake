@@ -44,7 +44,6 @@ from pyop2 import op2
 from pyop2 import exceptions
 from pyop2 import sequential
 from pyop2 import base
-from pyop2 import configuration as cfg
 
 
 @pytest.fixture
@@ -153,6 +152,23 @@ class TestInitAPI:
         with pytest.raises(ImportError):
             op2.init(backend='invalid_backend')
 
+    def test_add_configuration_value(self):
+        """Defining an non default argument."""
+        c = base.Configuration(foo='bar')
+        assert c['foo'] == 'bar'
+
+    def test_change_backend(self):
+        """backend option is read only."""
+        c = base.Configuration(backend='cuda')
+        with pytest.raises(RuntimeError):
+            c['backend'] = 'other'
+
+    def test_reconfigure_backend(self):
+        """backend option is read only."""
+        c = base.Configuration(backend='cuda')
+        with pytest.raises(RuntimeError):
+            c.reconfigure(backend='other')
+
     def test_init(self, backend):
         "init should correctly set the backend."
         assert op2.backends.get_backend() == 'pyop2.' + backend
@@ -165,7 +181,7 @@ class TestInitAPI:
         "Calling init again with the same backend should update the configuration."
         op2.init(backend=backend, foo='bar')
         assert op2.backends.get_backend() == 'pyop2.' + backend
-        assert cfg.foo == 'bar'
+        assert op2.configuration['foo'] == 'bar'
 
     def test_change_backend_fails(self, backend):
         "Calling init again with a different backend should fail."

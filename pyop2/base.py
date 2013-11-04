@@ -39,14 +39,106 @@ subclass these as required to implement backend-specific features.
 import numpy as np
 import operator
 from hashlib import md5
+import copy
+import os
+import tempfile
+import logger
 
-import configuration as cfg
 from caching import Cached
 from exceptions import *
 from utils import *
 from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
 from sparsity import build_sparsity
+
+
+configuration = None
+
+
+class Configuration(object):
+    """PyOP2 configuration parameters"""
+    # name, env variable, type, default, write once
+    DEFAULTS = {
+        "backend": ("PYOP2_BACKEND", str, "sequential", True),
+        "debug": ("PYOP2_DEBUG", int, 0, False),
+        "log_level": ("PYOP2_LOG_LEVEL", str, "WARNING", False),
+        "lazy_evaluation": (None, bool, True, False),
+        "lazy_max_trace_length": (None, int, 0, False),
+        "dump_gencode": ("PYOP2_DUMP_GENCODE", bool, False, False),
+        "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str, os.path.join(tempfile.gettempdir(), "pyop2-gencode"), False),
+    }
+    """Default values for PyOP2 configuration parameters"""
+
+    def __init__(self, **kwargs):
+        """Initialise configuration parameters from `kwargs`.
+
+        :param backend: Select the PyOP2 backend (one of `cuda`,
+            `opencl`, `openmp` or `sequential`).
+        :param debug: Turn on debugging for generated code (turns off
+            compiler optimisations).
+        :param log_level: How chatty should PyOP2 be?  Valid values
+            are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
+        :param lazy_evaluation: Should lazy evaluation be on or off?
+        :param lazy_max_trace_length: How many :func:`par_loop`\s
+            should be queued lazily before forcing evaluation?  Pass
+            `0` for an unbounded length.
+        :param dump_gencode: Should PyOP2 write the generated code
+            somewhere for inspection?
+        :param dump_gencode_path: Where should the generated code be
+            written to?
+        """
+        dct = {}
+
+        # default values
+        for k, (kenv, t, v, ro) in Configuration.DEFAULTS.items():
+            dct[k] = v
+            if kenv and kenv in os.environ:
+                dct[k] = t(os.environ[kenv])
+
+        for k, v in kwargs.items():
+            dct[k] = v
+
+        self._conf = dct
+        self._rst = copy.deepcopy(dct)
+
+        logger.set_log_level(getattr(logger, self['log_level']))
+        if self["debug"] > 0:
+            logger.set_log_level(getattr(logger, 'DEBUG'))
+
+    def reset(self):
+        """Reset the configuration parameters to the value used when
+        first instantiating the object."""
+        self._conf = copy.deepcopy(self._rst)
+
+    def reconfigure(self, **kwargs):
+        """Update the configuration parameters with new values.
+
+        See :meth:`Configuration.__init__` for accepted values."""
+        for k, v in kwargs.items():
+            self[k] = v
+
+    def __getitem__(self, key):
+        """Return the value of a configuration parameter.
+
+        :arg key: The parameter to query"""
+        return self._conf[key]
+
+    def __setitem__(self, key, value):
+        """Set the value of a configuration parameter.
+
+        :arg key: The parameter to set
+        :arg value: The value to set it to.
+
+        .. note::
+           Some configuration parameters are read-only in which case
+           attempting to set them raises an error, see
+           :attr:`Configuration.DEFAULTS` for details of which.
+        """
+        if key in Configuration.DEFAULTS:
+            _, _, _, ro = Configuration.DEFAULTS[key]
+            if ro and value != self[key]:
+                raise RuntimeError("%s is read only" % key)
+        self._conf[key] = value
 
 
 class LazyComputation(object):
@@ -76,10 +168,11 @@ class ExecutionTrace(object):
         self._trace = list()
 
     def append(self, computation):
-        if not cfg['lazy_evaluation']:
+        if not configuration['lazy_evaluation']:
             assert not self._trace
             computation._run()
-        elif cfg['lazy_max_trace_length'] > 0 and cfg['lazy_max_trace_length'] == len(self._trace):
+        elif configuration['lazy_max_trace_length'] > 0 and \
+                configuration['lazy_max_trace_length'] == len(self._trace):
             self.evaluate(computation.reads, computation.writes)
             computation._run()
         else:
@@ -1100,7 +1193,7 @@ class Dat(DataCarrier):
         if data is None:
             self._dtype = np.dtype(dtype if dtype is not None else np.float64)
         else:
-            self._data = verify_reshape(data, dtype, self._shape, allow_none=True)
+            self._data = verify_reshape(data, dtype, self.shape, allow_none=True)
             self._dtype = self._data.dtype
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
@@ -1235,9 +1328,13 @@ class Dat(DataCarrier):
         np.save(filename, self.data_ro)
 
     @property
+    def shape(self):
+        return self._shape
+
+    @property
     def _data(self):
         if not self._is_allocated:
-            self._numpy_data = np.zeros(self._shape, dtype=self._dtype)
+            self._numpy_data = np.zeros(self.shape, dtype=self._dtype)
         return self._numpy_data
 
     @_data.setter
@@ -1288,8 +1385,8 @@ class Dat(DataCarrier):
                 }
             }""" % {'t': self.ctype, 'dim': self.cdim}
             self._copy_kernel = _make_object('Kernel', k, 'copy')
-        par_loop(self._copy_kernel, self.dataset.set,
-                 self(READ), other(WRITE))
+        _make_object('ParLoop', self._copy_kernel, self.dataset.set,
+                     self(READ), other(WRITE)).enqueue()
 
     def __eq__(self, other):
         """:class:`Dat`\s compare equal if defined on the same
@@ -1313,11 +1410,11 @@ class Dat(DataCarrier):
 
     def __str__(self):
         return "OP2 Dat: %s on (%s) with datatype %s" \
-               % (self._name, self._dataset, self._data.dtype.name)
+               % (self._name, self._dataset, self.dtype.name)
 
     def __repr__(self):
         return "Dat(%r, None, %r, %r)" \
-               % (self._dataset, self._data.dtype, self._name)
+               % (self._dataset, self.dtype, self._name)
 
     def _check_shape(self, other):
         if other.dataset != self.dataset:
@@ -1626,6 +1723,10 @@ class Global(DataCarrier):
     def __repr__(self):
         return "Global(%r, %r, %r, %r)" % (self._dim, self._data,
                                            self._data.dtype, self._name)
+
+    @property
+    def shape(self):
+        return self._data.shape
 
     @property
     def data(self):
@@ -2218,6 +2319,30 @@ class JITModule(Cached):
 
         return key
 
+    def _dump_generated_code(self, src, ext=None):
+        """Write the generated code to a file for debugging purposes.
+
+        :arg src: The source string to write
+        :arg ext: The file extension of the output file (if not `None`)
+
+        Output will only be written if the `dump_gencode`
+        configuration parameter is `True`.  The output file will be
+        written to the directory specified by the PyOP2 configuration
+        parameter `dump_gencode_path`.  See :class:`Configuration` for
+        more details.
+
+        """
+        if configuration['dump_gencode']:
+            import os
+            import hashlib
+            fname = "%s-%s.%s" % (self._kernel.name,
+                                  hashlib.md5(src).hexdigest(),
+                                  ext if ext is not None else "c")
+            output = os.path.abspath(os.path.join(configuration['dump_gencode_path'],
+                                                  fname))
+            with open(output, "w") as f:
+                f.write(src)
+
 
 class ParLoop(LazyComputation):
     """Represents the kernel, iteration space and arguments of a parallel loop
@@ -2282,7 +2407,7 @@ class ParLoop(LazyComputation):
 
     def maybe_set_dat_dirty(self):
         for arg in self.args:
-            if arg._is_dat:
+            if arg._is_dat and arg.data._is_allocated:
                 maybe_setflags(arg.data._data, write=False)
 
     @collective

@@ -250,10 +250,6 @@ def parser(description=None, group=False):
                    choices=['CRITICAL', 'ERROR', 'WARN', 'INFO', 'DEBUG'],
                    help='set logging level (default=WARN)' if group else
                    'set pyop2 logging level (default=WARN)')
-    g.add_argument('-c', '--config', default=argparse.SUPPRESS,
-                   type=argparse.FileType('r'),
-                   help='specify alternate configuration' if group
-                   else 'specify alternate pyop2 configuration')
 
     return parser
 

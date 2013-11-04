@@ -33,11 +33,11 @@
 
 import base
 from device import *
-import configuration as cfg
+from base import configuration as cfg
 import device as op2
 import plan
 import numpy as np
-from utils import verify_reshape, maybe_setflags
+from utils import verify_reshape
 import jinja2
 import pycuda.driver as driver
 import pycuda.gpuarray as gpuarray
@@ -154,9 +154,9 @@ class DeviceDataMixin(op2.DeviceDataMixin):
     def _allocate_device(self):
         if self.state is DeviceDataMixin.DEVICE_UNALLOCATED:
             if self.soa:
-                shape = self._data.T.shape
+                shape = tuple(reversed(self.shape))
             else:
-                shape = self._data.shape
+                shape = self.shape
             self._device_data = gpuarray.empty(shape=shape, dtype=self.dtype)
             self.state = DeviceDataMixin.HOST
 
@@ -178,7 +178,13 @@ class Dat(DeviceDataMixin, op2.Dat):
     @property
     def norm(self):
         """The L2-norm on the flattened vector."""
-        return np.sqrt(gpuarray.dot(self.array, self.array).get())
+        if self.state is DeviceDataMixin.DEVICE:
+            return np.sqrt(gpuarray.dot(self.array, self.array).get())
+        elif self.state in [DeviceDataMixin.DEVICE_UNALLOCATED,
+                            DeviceDataMixin.HOST, DeviceDataMixin.BOTH]:
+            return np.sqrt(np.dot(self.data_ro, self.data_ro))
+        else:
+            raise RuntimeError('Data neither on host nor device, oops!')
 
 
 class Sparsity(op2.Sparsity):
@@ -632,7 +638,7 @@ def _cusp_solver(M, parameters):
     nvcc_toolchain.cflags.append('-arch')
     nvcc_toolchain.cflags.append('sm_20')
     nvcc_toolchain.cflags.append('-O3')
-    module = nvcc_mod.compile(gcc_toolchain, nvcc_toolchain, debug=cfg.debug)
+    module = nvcc_mod.compile(gcc_toolchain, nvcc_toolchain, debug=cfg["debug"])
 
     _cusp_cache[cache_key(M.ctype, parameters)] = module
     return module
@@ -701,6 +707,7 @@ class JITModule(base.JITModule):
             argtypes += inttype  # number of colours in the block
 
         self._module = SourceModule(src, options=compiler_opts)
+        self._dump_generated_code(src, ext=".cu")
 
         # Upload Const data.
         for c in Const._definitions():
@@ -845,11 +852,10 @@ class ParLoop(op2.ParLoop):
                 arg.data._finalise_reduction_begin(max_grid_size, arg.access)
                 arg.data._finalise_reduction_end(max_grid_size, arg.access)
             elif not arg._is_mat:
-                # Set write state to False
-                maybe_setflags(arg.data._data, write=False)
                 # Data state is updated in finalise_reduction for Global
                 if arg.access is not op2.READ:
                     arg.data.state = DeviceDataMixin.DEVICE
+        self.maybe_set_dat_dirty()
 
     def assemble(self):
         for arg in self.args:

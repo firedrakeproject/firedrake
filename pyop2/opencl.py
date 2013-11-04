@@ -37,13 +37,10 @@ import collections
 from jinja2 import Environment, PackageLoader
 import math
 import numpy as np
-import os
 from pycparser import c_parser, c_ast, c_generator
 import pyopencl as cl
 from pyopencl import array
-import time
 
-import configuration as cfg
 import device
 from device import *
 from logger import warning
@@ -186,9 +183,9 @@ class DeviceDataMixin(device.DeviceDataMixin):
     def _allocate_device(self):
         if self.state is DeviceDataMixin.DEVICE_UNALLOCATED:
             if self.soa:
-                shape = self._data.T.shape
+                shape = tuple(reversed(self.shape))
             else:
-                shape = self._data.shape
+                shape = self.shape
             self._device_data = array.empty(_queue, shape=shape,
                                             dtype=self.dtype)
             self.state = DeviceDataMixin.HOST
@@ -233,7 +230,14 @@ class Dat(device.Dat, petsc_base.Dat, DeviceDataMixin):
     @property
     def norm(self):
         """The L2-norm on the flattened vector."""
-        return np.sqrt(array.dot(self.array, self.array).get())
+        """The L2-norm on the flattened vector."""
+        if self.state is DeviceDataMixin.DEVICE:
+            return np.sqrt(gpuarray.dot(self.array, self.array).get())
+        elif self.state in [DeviceDataMixin.DEVICE_UNALLOCATED,
+                            DeviceDataMixin.HOST, DeviceDataMixin.BOTH]:
+            return np.sqrt(np.dot(self.data_ro, self.data_ro))
+        else:
+            raise RuntimeError('Data neither on host nor device, oops!')
 
 
 class Sparsity(device.Sparsity):
@@ -547,19 +551,10 @@ class JITModule(base.JITModule):
                                'codegen': {'amd': _AMD_fixes},
                                'op2const': Const._definitions()
                                }).encode("ascii")
-        self.dump_gen_code(src)
+        self._dump_generated_code(src, ext=".cl")
         prg = cl.Program(_ctx, src).build()
         self._fun = prg.__getattr__(self._parloop._stub_name)
         return self._fun
-
-    def dump_gen_code(self, src):
-        if cfg['dump-gencode']:
-            path = cfg['dump-gencode-path'] % {"kernel": self._parloop.kernel.name,
-                                               "time": time.strftime('%Y-%m-%d@%H:%M:%S')}
-
-            if not os.path.exists(path):
-                with open(path, "w") as f:
-                    f.write(src)
 
     def __call__(self, thread_count, work_group_size, *args):
         fun = self.compile()
@@ -749,8 +744,7 @@ class ParLoop(device.ParLoop):
         for arg in self.args:
             if arg.access is not READ:
                 arg.data.state = DeviceDataMixin.DEVICE
-            if arg._is_dat:
-                maybe_setflags(arg.data._data, write=False)
+        self.maybe_set_dat_dirty()
 
         for a in self._all_global_reduction_args:
             a.data._post_kernel_reduction_task(conf['work_group_count'], a.access)

@@ -34,6 +34,7 @@
 """Global test configuration."""
 
 import os
+from itertools import product
 import pytest
 
 from pyop2 import op2
@@ -101,6 +102,16 @@ def skip_openmp():
     return None
 
 
+@pytest.fixture
+def skip_greedy():
+    return None
+
+
+@pytest.fixture
+def skip_lazy():
+    return None
+
+
 def pytest_generate_tests(metafunc):
     """Parametrize tests to run on all backends."""
 
@@ -130,20 +141,31 @@ def pytest_generate_tests(metafunc):
         # Restrict to set of backends specified on the class level
         if hasattr(metafunc.cls, 'backends'):
             backend = backend.intersection(set(metafunc.cls.backends))
+        # It is preferable to run in greedy mode first, in
+        # case some test create leftover computations
+        lazy = []
+        # Skip greedy execution by passing skip_greedy as a parameter
+        if not 'skip_greedy' in metafunc.fixturenames:
+            lazy.append('greedy')
+        # Skip lazy execution by passing skip_greedy as a parameter
+        if not 'skip_lazy' in metafunc.fixturenames:
+            lazy.append('lazy')
         # Allow skipping individual backends by passing skip_<backend> as a
         # parameter
         backend = [b for b in backend.difference(skip_backends)
                    if not 'skip_' + b in metafunc.fixturenames]
-        metafunc.parametrize("backend", backend, indirect=True)
+        params = list(product(backend, lazy))
+        metafunc.parametrize('backend', params, indirect=True,
+                             ids=['-'.join(p) for p in params])
 
 
 @pytest.fixture(scope='session')
 def backend(request):
+    backend, lazy = request.param
     # Initialise the backend
     try:
-        op2.init(backend=request.param)
+        op2.init(backend=backend, lazy_evaluation=(lazy == 'lazy'))
     # Skip test if initialisation failed
     except:
-        pytest.skip('Backend %s is not available' % request.param)
-    request.addfinalizer(op2.exit)
-    return request.param
+        pytest.skip('Backend %s is not available' % backend)
+    return backend

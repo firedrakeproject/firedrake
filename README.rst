@@ -122,7 +122,7 @@ using the package management system of your OS, or via ``pip``.
 
 Install the dependencies via the package manager (Debian based systems)::
 
-  sudo apt-get install cython python-decorator python-numpy python-yaml
+  sudo apt-get install cython python-decorator python-numpy
 
 **Note:** This may not give you recent enough versions of those packages
 (in particular the Cython version shipped with 12.04 is too old). You
@@ -130,7 +130,7 @@ can selectively upgrade packages via ``pip``, see below.
 
 Install dependencies via ``pip``::
 
-  pip install "Cython=>0.17" decorator "numpy>=1.6" pyyaml
+  pip install "Cython=>0.17" decorator "numpy>=1.6"
   pip install git+https://bitbucket.org/fenics-project/instant
 
 Additional Python 2.6 dependencies: 
