@@ -40,6 +40,7 @@ import math
 from exceptions import *
 from utils import *
 from petsc_base import *
+from logger import warning
 import host
 import device
 import plan as _plan
@@ -59,8 +60,7 @@ def _detect_openmp_flags():
     elif _version.find('Intel Corporation') != -1:
         return '-openmp', 'iomp5'
     else:
-        from warnings import warn
-        warn('Unknown mpicc version:\n%s' % _version)
+        warning('Unknown mpicc version:\n%s' % _version)
         return '', ''
 
 

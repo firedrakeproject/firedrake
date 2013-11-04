@@ -43,7 +43,7 @@ from petsc4py import PETSc
 import base
 from base import *
 from backends import _make_object
-from logger import debug
+from logger import debug, warning
 import mpi
 from mpi import collective
 
@@ -286,8 +286,7 @@ class Solver(base.Solver, PETSc.KSP):
                 pylab.savefig('%sreshist_%04d.png' %
                               (self.parameters['plot_prefix'], self._count))
             except ImportError:
-                from warnings import warn
-                warn("pylab not available, not plotting convergence history.")
+                warning("pylab not available, not plotting convergence history.")
         r = self.getConvergedReason()
         debug("Converged reason: %s" % self._reasons[r])
         debug("Iterations: %s" % self.getIterationNumber())
@@ -298,5 +297,4 @@ class Solver(base.Solver, PETSc.KSP):
             if self.parameters['error_on_nonconvergence']:
                 raise RuntimeError(msg)
             else:
-                from warnings import warn
-                warn(msg)
+                warning(msg)

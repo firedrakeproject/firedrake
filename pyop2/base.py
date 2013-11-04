@@ -42,6 +42,7 @@ from hashlib import md5
 import copy
 import os
 import tempfile
+import logger
 
 from caching import Cached
 from exceptions import *
@@ -100,8 +101,9 @@ class Configuration(object):
         self._conf = dct
         self._rst = copy.deepcopy(dct)
 
+        logger.set_log_level(getattr(logger, self['log_level']))
         if self["debug"] > 0:
-            warnings.simplefilter("always")
+            logger.set_log_level(getattr(logger, 'DEBUG'))
 
     def reset(self):
         """Reset the configuration parameters to the value used when
