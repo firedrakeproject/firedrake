@@ -132,6 +132,30 @@ class TestClassAPI:
         assert not issubclass(type(dat), op2.Set)
 
 
+class TestConfigurationAPI:
+    """Configuration API unit tests."""
+
+    def test_add_configuration_value(self):
+        """Defining an non default argument."""
+        c = base.Configuration()
+        c.reconfigure(foo='bar')
+        assert c['foo'] == 'bar'
+
+    def test_change_backend(self):
+        """backend option is read only."""
+        c = base.Configuration()
+        c.reconfigure(backend='cuda')
+        with pytest.raises(RuntimeError):
+            c['backend'] = 'other'
+
+    def test_reconfigure_backend(self):
+        """backend option is read only."""
+        c = base.Configuration()
+        c.reconfigure(backend='cuda')
+        with pytest.raises(RuntimeError):
+            c.reconfigure(backend='other')
+
+
 class TestInitAPI:
 
     """
@@ -151,23 +175,6 @@ class TestInitAPI:
         "init should not accept an invalid backend."
         with pytest.raises(ImportError):
             op2.init(backend='invalid_backend')
-
-    def test_add_configuration_value(self):
-        """Defining an non default argument."""
-        c = base.Configuration(foo='bar')
-        assert c['foo'] == 'bar'
-
-    def test_change_backend(self):
-        """backend option is read only."""
-        c = base.Configuration(backend='cuda')
-        with pytest.raises(RuntimeError):
-            c['backend'] = 'other'
-
-    def test_reconfigure_backend(self):
-        """backend option is read only."""
-        c = base.Configuration(backend='cuda')
-        with pytest.raises(RuntimeError):
-            c.reconfigure(backend='other')
 
     def test_init(self, backend):
         "init should correctly set the backend."

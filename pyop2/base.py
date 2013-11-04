@@ -41,7 +41,7 @@ import operator
 from hashlib import md5
 import copy
 import os
-import tempfile
+from tempfile import gettempdir
 
 from caching import Cached
 from exceptions import *
@@ -51,64 +51,51 @@ from mpi import MPI, _MPI, _check_comm, collective
 from sparsity import build_sparsity
 
 
-configuration = None
-
-
 class Configuration(object):
-    """PyOP2 configuration parameters"""
+    """PyOP2 configuration parameters
+
+    :param backend: Select the PyOP2 backend (one of `cuda`,
+        `opencl`, `openmp` or `sequential`).
+    :param debug: Turn on debugging for generated code (turns off
+        compiler optimisations).
+    :param log_level: How chatty should PyOP2 be?  Valid values
+        are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
+    :param lazy_evaluation: Should lazy evaluation be on or off?
+    :param lazy_max_trace_length: How many :func:`par_loop`\s
+        should be queued lazily before forcing evaluation?  Pass
+        `0` for an unbounded length.
+    :param dump_gencode: Should PyOP2 write the generated code
+        somewhere for inspection?
+    :param dump_gencode_path: Where should the generated code be
+        written to?
+    """
     # name, env variable, type, default, write once
     DEFAULTS = {
-        "backend": ("PYOP2_BACKEND", str, "sequential", True),
-        "debug": ("PYOP2_DEBUG", int, 0, False),
-        "log_level": ("PYOP2_LOG_LEVEL", str, "WARNING", False),
-        "lazy_evaluation": (None, bool, True, False),
-        "lazy_max_trace_length": (None, int, 0, False),
-        "dump_gencode": ("PYOP2_DUMP_GENCODE", bool, False, False),
-        "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str, os.path.join(tempfile.gettempdir(), "pyop2-gencode"), False),
+        "backend": ("PYOP2_BACKEND", str, "sequential"),
+        "debug": ("PYOP2_DEBUG", int, 0),
+        "log_level": ("PYOP2_LOG_LEVEL", str, "WARNING"),
+        "lazy_evaluation": (None, bool, True),
+        "lazy_max_trace_length": (None, int, 0),
+        "dump_gencode": ("PYOP2_DUMP_GENCODE", bool, False),
+        "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str,
+                              os.path.join(gettempdir(), "pyop2-gencode")),
     }
     """Default values for PyOP2 configuration parameters"""
+    READONLY = ['backend']
+    """List of read-only configuration keys."""
 
-    def __init__(self, **kwargs):
-        """Initialise configuration parameters from `kwargs`.
-
-        :param backend: Select the PyOP2 backend (one of `cuda`,
-            `opencl`, `openmp` or `sequential`).
-        :param debug: Turn on debugging for generated code (turns off
-            compiler optimisations).
-        :param log_level: How chatty should PyOP2 be?  Valid values
-            are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
-        :param lazy_evaluation: Should lazy evaluation be on or off?
-        :param lazy_max_trace_length: How many :func:`par_loop`\s
-            should be queued lazily before forcing evaluation?  Pass
-            `0` for an unbounded length.
-        :param dump_gencode: Should PyOP2 write the generated code
-            somewhere for inspection?
-        :param dump_gencode_path: Where should the generated code be
-            written to?
-        """
-        dct = {}
-
-        # default values
-        for k, (kenv, t, v, ro) in Configuration.DEFAULTS.items():
-            dct[k] = v
-            if kenv and kenv in os.environ:
-                dct[k] = t(os.environ[kenv])
-
-        for k, v in kwargs.items():
-            dct[k] = v
-
-        self._conf = dct
-        self._rst = copy.deepcopy(dct)
+    def __init__(self):
+        self._conf = dict((k, v) for k, (_, _, v) in Configuration.DEFAULTS.items())
+        self._set = set()
+        self._defaults = copy.copy(self._conf)
 
     def reset(self):
-        """Reset the configuration parameters to the value used when
-        first instantiating the object."""
-        self._conf = copy.deepcopy(self._rst)
+        """Reset the configuration parameters to the default values."""
+        self._conf = copy.copy(self._defaults)
+        self._set = set()
 
     def reconfigure(self, **kwargs):
-        """Update the configuration parameters with new values.
-
-        See :meth:`Configuration.__init__` for accepted values."""
+        """Update the configuration parameters with new values."""
         for k, v in kwargs.items():
             self[k] = v
 
@@ -127,13 +114,14 @@ class Configuration(object):
         .. note::
            Some configuration parameters are read-only in which case
            attempting to set them raises an error, see
-           :attr:`Configuration.DEFAULTS` for details of which.
+           :attr:`Configuration.READONLY` for details of which.
         """
-        if key in Configuration.DEFAULTS:
-            _, _, _, ro = Configuration.DEFAULTS[key]
-            if ro and value != self[key]:
-                raise RuntimeError("%s is read only" % key)
+        if key in Configuration.READONLY and key in self._set and value != self[key]:
+            raise RuntimeError("%s is read only" % key)
+        self._set.add(key)
         self._conf[key] = value
+
+configuration = Configuration()
 
 
 class LazyComputation(object):
