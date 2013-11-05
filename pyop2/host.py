@@ -353,7 +353,7 @@ class JITModule(base.JITModule):
         self._args = args
 
     def __call__(self, *args):
-        self.compile()(*args)
+        return self.compile()(*args)
 
     def compile(self):
         if hasattr(self, '_fun'):
