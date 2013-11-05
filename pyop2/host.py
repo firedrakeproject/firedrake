@@ -510,12 +510,12 @@ class JITModule(base.JITModule):
         if any(arg._is_soa for arg in self._args):
             kernel_code = """
             #define OP2_STRIDE(a, idx) a[idx]
-            inline %(code)s
+            %(code)s
             #undef OP2_STRIDE
             """ % {'code': self._kernel.code}
         else:
             kernel_code = """
-            inline %(code)s
+            %(code)s
             """ % {'code': self._kernel.code}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
         if configuration["debug"]:

@@ -399,18 +399,21 @@ class AVXSetZero(Statement):
         return "_mm256_setzero_pd ()" + semicolon(scope)
 
 
-### Extra ###
+# Extra ###
 
 class PreprocessNode(Node):
 
-    """Represent all strings which handled by the C's preprocessor. """
+    """Represent directives which are handled by the C's preprocessor. """
 
     def __init__(self, prep):
         Node.__init__(self)
         self.children.append(prep)
 
+    def gencode(self, scope=False):
+        return self.children[0]
 
-### Utility functions ###
+# Utility functions ###
+
 
 def indent(block):
     """Indent each row of the given string block with n*4 spaces."""

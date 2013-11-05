@@ -48,6 +48,8 @@ from caching import DiskCached
 from op2 import Kernel
 from mpi import MPI
 
+from ir.ast_base import PreprocessNode, Root
+
 _form_cache = {}
 
 # Silence FFC
@@ -56,6 +58,7 @@ set_level(ERROR)
 ffc_parameters = default_parameters()
 ffc_parameters['write_file'] = False
 ffc_parameters['format'] = 'pyop2'
+ffc_parameters['pyop2-ir'] = True
 
 # Include an md5 hash of pyop2_geometry.h in the cache key
 with open(os.path.join(os.path.dirname(__file__), 'pyop2_geometry.h')) as f:
@@ -91,8 +94,11 @@ class FFCKernel(DiskCached):
         if self._initialized:
             return
 
-        code = '#include "pyop2_geometry.h"\n'
-        code += ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
+        incl = PreprocessNode('#include "pyop2_geometry.h"\n')
+        ffc_tree = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
+        ast = Root([incl] + [subtree for subtree in ffc_tree])
+        code = ast.gencode()
+
         form_data = form.form_data()
 
         self.kernels = tuple([Kernel(code, '%s_%s_integral_0_%s' %
