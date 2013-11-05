@@ -16,8 +16,12 @@ def lsw_strang(test_mode):
 
     mesh = ExtrudedMesh(m, layers, layer_height=0.25)
 
-    W = FunctionSpace(mesh, "BDM", 1, vfamily="Lagrange", vdegree=1)
-    X = FunctionSpace(mesh, "DG", 0, vfamily="Lagrange", vdegree=1)
+    horiz = FiniteElement("BDM", "triangle", 1)
+    vert = FiniteElement("DG", "interval", 0)
+    prod = HDiv(OuterProductElement(horiz, vert))
+    W = FunctionSpace(mesh, prod)
+    #W = FunctionSpace(mesh, "BDM", 1, vfamily="Lagrange", vdegree=0)
+    X = FunctionSpace(mesh, "DG", 0, vfamily="DG", vdegree=0)
     if not test_mode:
         Xplot = FunctionSpace(mesh, "CG", 1, vfamily="Lagrange", vdegree=1)
 

@@ -17,7 +17,11 @@ def two_step():
     mesh = ExtrudedMesh(m, layers, layer_height=0.1)
 
     V = FunctionSpace(mesh, "Lagrange", 2, vfamily="DG", vdegree=0)
-    W = FunctionSpace(mesh, "BDM", 1, vfamily="DG", vdegree=0)
+
+    horiz = FiniteElement("BDM", "triangle", 1)
+    vert = FiniteElement("DG", "interval", 0)
+    prod = HDiv(OuterProductElement(horiz, vert))
+    W = FunctionSpace(mesh, prod)
     X = FunctionSpace(mesh, "DG", 0, vfamily="DG", vdegree=0)
 
     # Define starting field
