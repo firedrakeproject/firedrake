@@ -89,9 +89,8 @@ Dependencies
 
 To install dependencies system-wide use ``sudo -E pip install ...``, to
 install to a user site use ``pip install --user ...``. If you don't want
-PyOP2 or its dependencies interfering with your exisiting Pyhton
-environment, consider creating a
-`virtualenv <http://virtualenv.org/>`__.
+PyOP2 or its dependencies interfering with your existing Python environment,
+consider creating a `virtualenv <http://virtualenv.org/>`__.
 
 **Note:** In the following we will use ``pip install ...`` to mean any
 of the above options.
@@ -110,7 +109,6 @@ Common dependencies:
 * numpy >= 1.6 
 * PETSc_ >= 3.4 with Fortran interfaces
 * PETSc4py_ >= 3.4
-* PyYAML
 
 Testing dependencies (optional, required to run the tests):
 
@@ -130,7 +128,7 @@ can selectively upgrade packages via ``pip``, see below.
 
 Install dependencies via ``pip``::
 
-  pip install "Cython=>0.17" decorator "numpy>=1.6"
+  pip install "Cython>=0.17" decorator "numpy>=1.6"
   pip install git+https://bitbucket.org/fenics-project/instant
 
 Additional Python 2.6 dependencies: 
