@@ -317,34 +317,9 @@ necessary.
 FFC Interface
 -------------
 
-Solving UFL_ finite element equations requires a fork of FFC_ and dependencies:
+Solving UFL_ finite element equations requires a fork of FFC_, UFL_ and FIAT_.
 
-* UFL_
-* FIAT_
-
-Install via the package manager
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-On a supported platform, get all the dependencies for FFC_ by `installing
-the FEniCS toolchain packages <http://fenicsproject.org/download/>`__::
-
-  sudo apt-get install fenics
-
-Our FFC_ fork is required, and must be added to your ``$PYTHONPATH``::
-
-  git clone -b pyop2 https://bitbucket.org/mapdes/ffc.git $FFC_DIR 
-  export PYTHONPATH=$FFC_DIR:$PYTHONPATH
-
-This branch of FFC_ also requires the latest version of UFL_, also added to
-``$PYTHONPATH``::
-
-  git clone https://bitbucket.org/mapdes/ufl.git $UFL_DIR
-  export PYTHONPATH=$UFL_DIR:$PYTHONPATH
-
-Install via pip
-~~~~~~~~~~~~~~~
-
-Alternatively, install FFC_ and all dependencies via pip::
+Install FFC_ and all dependencies via pip::
 
   pip install \
     git+https://bitbucket.org/mapdes/ffc.git#egg=ffc
