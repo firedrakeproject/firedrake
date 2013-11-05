@@ -66,7 +66,7 @@ echo "*** Installing FEniCS dependencies ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
 
 ${PIP} \
-  git+https://bitbucket.org/mapdes/ffc@pyop2#egg=ffc \
+  git+https://bitbucket.org/mapdes/ffc#egg=ffc \
   git+https://bitbucket.org/mapdes/ufl#egg=ufl \
   git+https://bitbucket.org/mapdes/fiat#egg=fiat \
   git+https://bitbucket.org/fenics-project/instant#egg=instant \

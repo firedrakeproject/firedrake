@@ -349,7 +349,7 @@ Install via pip
 Alternatively, install FFC_ and all dependencies via pip::
 
   pip install \
-    git+https://bitbucket.org/mapdes/ffc.git@pyop2#egg=ffc   
+    git+https://bitbucket.org/mapdes/ffc.git#egg=ffc
     git+https://bitbucket.org/mapdes/ufl.git#egg=ufl
     git+https://bitbucket.org/mapdes/fiat.git#egg=fiat
     hg+https://bitbucket.org/khinsen/scientificpython

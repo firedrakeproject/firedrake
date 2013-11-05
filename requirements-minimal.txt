@@ -6,7 +6,7 @@ mpi4py
 git+https://bitbucket.org/fenics-project/instant.git#egg=instant
 git+https://bitbucket.org/mapdes/ufl.git#egg=ufl
 git+https://bitbucket.org/mapdes/fiat.git#egg=fiat
-git+https://bitbucket.org/mapdes/ffc.git@pyop2#egg=ffc
+git+https://bitbucket.org/mapdes/ffc.git#egg=ffc
 hg+https://bitbucket.org/khinsen/scientificpython
 h5py>=2.0.0
 petsc>=3.4
