@@ -1,7 +1,7 @@
 # This file contains the hierarchy of classes that implement a kernel's
 # Abstract Syntax Tree (ast)
 
-# This dictionary is used as a template generator for simple exprs and commands
+# This dictionary is used as a template for simple exprs and commands
 util = {}
 util.update({
     "point": lambda p: "[%s]" % p,
@@ -397,6 +397,17 @@ class AVXSetZero(Statement):
 
     def gencode(self, scope=True):
         return "_mm256_setzero_pd ()" + semicolon(scope)
+
+
+### Extra ###
+
+class PreprocessNode(Node):
+
+    """Represent all strings which handled by the C's preprocessor. """
+
+    def __init__(self, prep):
+        Node.__init__(self)
+        self.children.append(prep)
 
 
 ### Utility functions ###
