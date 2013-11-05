@@ -126,3 +126,8 @@ class SetValueError(ValueError):
 class MapValueError(ValueError):
 
     """Illegal value for :class:`pyop2.op2.Map`."""
+
+
+class ConfigurationError(RuntimeError):
+
+    """Illegal configuration value or type."""

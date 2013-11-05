@@ -37,7 +37,7 @@ import atexit
 
 import backends
 import base
-from base import Configuration, READ, WRITE, RW, INC, MIN, MAX, i
+from base import configuration, READ, WRITE, RW, INC, MIN, MAX, i
 from logger import debug, info, warning, error, critical, set_log_level
 from mpi import MPI, collective
 from utils import validate_type
@@ -48,9 +48,6 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'Subset', 'DataSet',
            'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map', 'Sparsity',
            'Solver', 'par_loop', 'solve']
-
-
-configuration = None
 
 
 def initialised():
@@ -91,20 +88,14 @@ def init(**kwargs):
             backend != "pyop2.%s" % kwargs["backend"]:
         raise RuntimeError("Calling init() for a different backend is illegal.")
 
-    global configuration
-    if configuration is None:
-        base.configuration = Configuration(**kwargs)
-        configuration = base.configuration
-    else:
-        configuration.reconfigure(**kwargs)
+    configuration.reconfigure(**kwargs)
 
-    set_log_level(base.configuration['log_level'])
+    set_log_level(configuration['log_level'])
     if backend == 'pyop2.void':
         try:
             backends.set_backend(base.configuration["backend"])
         except:
-            configuration = None
-            base.configuration = None
+            configuration.reset()
             raise
 
         backends._BackendSelector._backend._setup()
@@ -118,8 +109,7 @@ def init(**kwargs):
 @collective
 def exit():
     """Exit OP2 and clean up"""
-    if base.configuration:
-        base.configuration.reset()
+    configuration.reset()
 
     if backends.get_backend() != 'pyop2.void':
         backends.unset_backend()
