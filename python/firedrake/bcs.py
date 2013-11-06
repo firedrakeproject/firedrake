@@ -1,6 +1,7 @@
 # A module implementing strong (Dirichlet) boundary conditions.
 import utils
 import numpy as np
+import types
 import pyop2 as op2
 
 
@@ -70,15 +71,29 @@ class DirichletBC(object):
         return op2.Subset(self._function_space.node_set, self.nodes)
 
     def apply(self, r, u=None):
-        """Apply this boundary condition to the :class:`Function` ``r``.
+        """Apply this boundary condition to ``r``.
 
-        If a current state, ``u``, is supplied then ``r`` is taken to be a
-        residual and the boundary condition nodes are set to the value
-        ``u-bc``.
+        :arg r: a :class:`Function` or :class:`Matrix` to which the
+            boundary condition should be applied
 
-        If ``u`` is absent, then the boundary condition nodes of ``r`` are set
-        to the boundary condition values."""
+        :arg u: an optional current state.  If ``u`` is supplied then
+            ``r`` is taken to be a residual and the boundary condition
+            nodes are set to the value ``u-bc``.  Supplying ``u`` has
+            no effect if ``r`` is a :class:`Matrix` rather than a
+            :class:`Function`. If ``u`` is absent, then the boundary
+            condition nodes of ``r`` are set to the boundary condition
+            values.
 
+
+        If ``r`` is a :class:`Matrix`, it will be assembled with a 1
+        on diagonals where the boundary condition applies and 0 in the
+        corresponding rows and columns.
+
+        """
+
+        if isinstance(r, types.Matrix):
+            r.bcs.add(self)
+            return
         if u:
             r.assign(u-self.function_arg, subset=self.node_set)
         else:
