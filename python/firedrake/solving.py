@@ -98,8 +98,9 @@ class NonlinearVariationalSolver(object):
                                  trial.function_space().dof_dset),
                                 (test.cell_node_map(), trial.cell_node_map()),
                                 "%s_%s_sparsity" % fs_names)
-        self._jac_tensor = types.Matrix(self._problem.J_ufl, sparsity,
-                                        numpy.float64, "%s_%s_matrix" % fs_names)
+        self._jac_tensor = types.Matrix(self._problem.J_ufl, self._problem.bcs,
+                                        sparsity, numpy.float64,
+                                        "%s_%s_matrix" % fs_names)
         self._jac_ptensor = self._jac_tensor
         test = self._problem.F_ufl.compute_form_data().original_arguments[0]
         self._F_tensor = core_types.Function(test.function_space())
@@ -140,11 +141,13 @@ class NonlinearVariationalSolver(object):
         assemble(self._problem.J_ufl,
                  tensor=self._jac_ptensor,
                  bcs=self._problem.bcs)
+        self._jac_ptensor.assemble()
         self._jac_ptensor.M._force_evaluation()
         if J_ != P_:
             assemble(self._problem.J_ufl,
                      tensor=self._jac_tensor,
                      bcs=self._problem.bcs)
+            self._jac_tensor.assemble()
             self._jac_tensor.M._force_evaluation()
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 
@@ -264,9 +267,7 @@ def assemble(f, tensor=None, bcs=None):
 def _assemble(f, tensor=None, bcs=None):
     """Assemble the form f and return a raw PyOP2 object representing
     the result. This will be a :class:`float` for 0-forms, a
-    :class:`Function` for 1-forms and a :class:`op2.Mat` for 2-forms. The
-    last of these may change to a native Firedrake type in a future
-    release.
+    :class:`Function` for 1-forms and a :class:`Matrix` for 2-forms.
 
     :arg bcs: A tuple of :class`DirichletBC`\s to be applied.
     :arg tensor: An existing tensor object into which the form should be
@@ -309,7 +310,7 @@ def _assemble(f, tensor=None, bcs=None):
                                         (test.cell_node_map(),
                                          trial.cell_node_map()),
                                         "%s_%s_sparsity" % fs_names)
-                result_matrix = types.Matrix(f, sparsity, numpy.float64,
+                result_matrix = types.Matrix(f, bcs, sparsity, numpy.float64,
                                              "%s_%s_matrix" % fs_names)
                 tensor = result_matrix.M
                 _mat_cache[key] = result_matrix
@@ -345,93 +346,111 @@ def _assemble(f, tensor=None, bcs=None):
             tensor = op2.Global(1, [0.0])
         result = lambda: tensor.data[0]
 
-    for kernel, integral in zip(kernels, f.integrals()):
-        domain_type = integral.measure().domain_type()
-        if domain_type == 'cell':
-            if is_mat:
-                tensor_arg = tensor(op2.INC, (test.cell_node_map(bcs)[op2.i[0]],
-                                              trial.cell_node_map(bcs)[op2.i[1]]),
-                                    flatten=has_vec_fs(test))
-            elif is_vec:
-                tensor_arg = tensor(op2.INC, test.cell_node_map()[op2.i[0]],
-                                    flatten=has_vec_fs(test))
-            else:
-                tensor_arg = tensor(op2.INC)
+    # Since applying boundary conditions to a matrix changes the
+    # initial assembly, to support:
+    #     A = assemble(a)
+    #     bc.apply(A)
+    #     solve(A, ...)
+    # we need to defer actually assembling the matrix until just
+    # before we need it (when we know if there are any bcs to be
+    # applied).  To do so, we build a closure that carries out the
+    # assembly and stash that on the Matrix object.  When we hit a
+    # solve, we funcall the closure with any bcs the Matrix now has to
+    # assemble it.
+    def thunk(bcs):
+        for kernel, integral in zip(kernels, f.integrals()):
+            domain_type = integral.measure().domain_type()
+            if domain_type == 'cell':
+                if is_mat:
+                    tensor_arg = tensor(op2.INC, (test.cell_node_map(bcs)[op2.i[0]],
+                                                  trial.cell_node_map(bcs)[op2.i[1]]),
+                                        flatten=has_vec_fs(test))
+                elif is_vec:
+                    tensor_arg = tensor(op2.INC, test.cell_node_map()[op2.i[0]],
+                                        flatten=has_vec_fs(test))
+                else:
+                    tensor_arg = tensor(op2.INC)
 
-            itspace = m.cell_set
-            if itspace.layers > 1:
-                coords_xtr = m._coordinate_field
-                args = [kernel, itspace, tensor_arg,
-                        coords_xtr.dat(op2.READ, coords_xtr.cell_node_map(),
-                                       flatten=has_vec_fs(coords_xtr))]
-            else:
-                args = [kernel, itspace, tensor_arg,
-                        coords.dat(op2.READ, coords.cell_node_map(),
-                                   flatten=has_vec_fs(coords))]
+                itspace = m.cell_set
+                if itspace.layers > 1:
+                    coords_xtr = m._coordinate_field
+                    args = [kernel, itspace, tensor_arg,
+                            coords_xtr.dat(op2.READ, coords_xtr.cell_node_map(),
+                                           flatten=has_vec_fs(coords_xtr))]
+                else:
+                    args = [kernel, itspace, tensor_arg,
+                            coords.dat(op2.READ, coords.cell_node_map(),
+                                       flatten=has_vec_fs(coords))]
 
-            for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.cell_node_map(),
-                                  flatten=has_vec_fs(c)))
+                for c in fd.original_coefficients:
+                    args.append(c.dat(op2.READ, c.cell_node_map(),
+                                      flatten=has_vec_fs(c)))
 
-            op2.par_loop(*args)
-        if domain_type == 'exterior_facet':
-            if op2.MPI.parallel:
-                raise \
-                    NotImplementedError(
-                        "No support for facet integrals under MPI yet")
+                op2.par_loop(*args)
+            if domain_type == 'exterior_facet':
+                if op2.MPI.parallel:
+                    raise \
+                        NotImplementedError(
+                            "No support for facet integrals under MPI yet")
 
-            if is_mat:
-                tensor_arg = tensor(op2.INC,
-                                    (test.exterior_facet_node_map(bcs)[op2.i[0]],
-                                     trial.exterior_facet_node_map(bcs)[op2.i[1]]),
-                                    flatten=True)
-            elif is_vec:
-                tensor_arg = tensor(op2.INC,
-                                    test.exterior_facet_node_map()[op2.i[0]],
-                                    flatten=True)
-            else:
-                tensor_arg = tensor(op2.INC)
-            args = [kernel, m.exterior_facets.measure_set(integral.measure()), tensor_arg,
-                    coords.dat(op2.READ, coords.exterior_facet_node_map(),
-                               flatten=True)]
-            for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
-                                  flatten=True))
-            args.append(m.exterior_facets.local_facet_dat(op2.READ))
-            op2.par_loop(*args)
+                if is_mat:
+                    tensor_arg = tensor(op2.INC,
+                                        (test.exterior_facet_node_map(bcs)[op2.i[0]],
+                                         trial.exterior_facet_node_map(bcs)[op2.i[1]]),
+                                        flatten=True)
+                elif is_vec:
+                    tensor_arg = tensor(op2.INC,
+                                        test.exterior_facet_node_map()[op2.i[0]],
+                                        flatten=True)
+                else:
+                    tensor_arg = tensor(op2.INC)
+                args = [kernel, m.exterior_facets.measure_set(integral.measure()), tensor_arg,
+                        coords.dat(op2.READ, coords.exterior_facet_node_map(),
+                                   flatten=True)]
+                for c in fd.original_coefficients:
+                    args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
+                                      flatten=True))
+                args.append(m.exterior_facets.local_facet_dat(op2.READ))
+                op2.par_loop(*args)
 
-        if domain_type == 'interior_facet':
-            if op2.MPI.parallel:
-                raise \
-                    NotImplementedError(
-                        "No support for facet integrals under MPI yet")
+            if domain_type == 'interior_facet':
+                if op2.MPI.parallel:
+                    raise \
+                        NotImplementedError(
+                            "No support for facet integrals under MPI yet")
 
-            if is_mat:
-                tensor_arg = tensor(
-                    op2.INC, (test.interior_facet_node_map(bcs)[op2.i[0]],
-                              trial.interior_facet_node_map(bcs)[
-                                  op2.i[1]]),
-                    flatten=True)
-            elif is_vec:
-                tensor_arg = tensor(
-                    op2.INC, test.interior_facet_node_map()[op2.i[0]],
-                    flatten=True)
-            else:
-                tensor_arg = tensor(op2.INC)
-            args = [kernel, m.interior_facets.set, tensor_arg,
-                    coords.dat(op2.READ, coords.interior_facet_node_map(),
-                               flatten=True)]
-            for c in fd.original_coefficients:
-                args.append(c.dat(op2.READ, c.interior_facet_node_map(),
-                                  flatten=True))
-            args.append(m.interior_facets.local_facet_dat(op2.READ))
-            op2.par_loop(*args)
+                if is_mat:
+                    tensor_arg = tensor(
+                        op2.INC, (test.interior_facet_node_map(bcs)[op2.i[0]],
+                                  trial.interior_facet_node_map(bcs)[
+                                      op2.i[1]]),
+                        flatten=True)
+                elif is_vec:
+                    tensor_arg = tensor(
+                        op2.INC, test.interior_facet_node_map()[op2.i[0]],
+                        flatten=True)
+                else:
+                    tensor_arg = tensor(op2.INC)
+                args = [kernel, m.interior_facets.set, tensor_arg,
+                        coords.dat(op2.READ, coords.interior_facet_node_map(),
+                                   flatten=True)]
+                for c in fd.original_coefficients:
+                    args.append(c.dat(op2.READ, c.interior_facet_node_map(),
+                                      flatten=True))
+                args.append(m.interior_facets.local_facet_dat(op2.READ))
+                op2.par_loop(*args)
 
-    if bcs is not None and is_mat:
-        for bc in bcs:
-            tensor.zero_rows(bc.nodes)
+        if bcs is not None and is_mat:
+            for bc in bcs:
+                tensor.zero_rows(bc.nodes)
 
-    return result()
+        return result()
+
+    if is_mat:
+        result_matrix._assembly_callback = thunk
+        return result()
+    else:
+        return thunk(bcs)
 
 
 def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'ilu'}):
@@ -454,6 +473,15 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
     PyOP2 (see :var:`op2.DEFAULT_SOLVER_PARAMETERS`)."""
 
     solver = op2.Solver(parameters=parameters)
+    if A.has_bcs:
+        # Is this a problem with boundary conditions in the linear operator?
+        # If so, ensure that if any bcs have been specified in the
+        # solve, they are still the same.
+        if bcs is not None and (set(bcs) != A.bcs):
+            raise RuntimeError("""Inconsistent boundary conditions specified in _la_solve.
+
+            Matrix A has %s, but you passed in %s""" % (A.bcs, set(bcs)))
+        bcs = A.bcs
     if bcs is not None:
         # Solving A x = b - action(a, u_bc)
         u_bc = core_types.Function(b.function_space())
@@ -464,6 +492,8 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
         # Now we need to apply the boundary conditions to the "RHS"
         for bc in bcs:
             bc.apply(b)
+            bc.apply(A)
+    A.assemble()
     solver.solve(A.M, x.dat, b.dat)
     x.dat.halo_exchange_begin()
     x.dat.halo_exchange_end()
