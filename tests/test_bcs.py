@@ -70,6 +70,22 @@ def test_set_bc_value(a, u, V):
     assert np.allclose(u.vector().array(), 7.0)
 
 
+def test_preassembly_inconsistent_bcs(V):
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    a = u*v*dx
+    f = Function(V)
+    f.assign(10)
+    bc = DirichletBC(V, f, 1)
+
+    A = assemble(a, bcs=[bc])
+    L = v*f*dx
+    b = assemble(L)
+    bc = DirichletBC(V, f, 2)
+    with pytest.raises(RuntimeError):
+        solve(A, u, b, bcs=[bc])
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
