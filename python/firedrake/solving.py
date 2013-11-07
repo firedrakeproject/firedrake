@@ -513,6 +513,18 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
     :arg bcs: an optional list of :class:`DirichletBC`\s to apply.
     :arg parameters: optional solver parameters.
 
+    .. note::
+        Any boundary conditions passed in as an argument here override the
+        boundary conditions set when the bilinear form was assembled.
+        That is, in the following example:
+        .. code-block:: python
+
+           A = assemble(a, bcs=[bc1])
+           solve(A, x, b, bcs=[bc2])
+
+        The boundary conditions in `bc2` will be applied to the problem
+        while `bc1` will be ignored.
+
     Example usage:
 
     .. code-block:: python
@@ -524,15 +536,12 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
     PyOP2 (see :var:`op2.DEFAULT_SOLVER_PARAMETERS`)."""
 
     solver = op2.Solver(parameters=parameters)
-    if A.has_bcs:
-        # Is this a problem with boundary conditions in the linear operator?
-        # If so, ensure that if any bcs have been specified in the
-        # solve, they are still the same.
-        if bcs is not None and (set(bcs) != A.bcs):
-            raise RuntimeError("""Inconsistent boundary conditions specified in _la_solve.
-
-            Matrix A has %s, but you passed in %s""" % (A.bcs, set(bcs)))
+    if A.has_bcs and bcs is None:
+        # Pick up any BCs on the linear operator
         bcs = A.bcs
+    elif bcs is not None:
+        # Override using bcs from solve call
+        A.bcs = bcs
     if bcs is not None:
         # Solving A x = b - action(a, u_bc)
         u_bc = core_types.Function(b.function_space())
@@ -543,7 +552,6 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
         # Now we need to apply the boundary conditions to the "RHS"
         for bc in bcs:
             bc.apply(b)
-            bc.apply(A)
     solver.solve(A.M, x.dat, b.dat)
     x.dat.halo_exchange_begin()
     x.dat.halo_exchange_end()

@@ -115,7 +115,18 @@ def run_test_preassembled(x, degree, parameters={}):
         bc.apply(A)
     solve(A, u, b, solver_parameters=parameters)
     method_E = sqrt(assemble(dot(u - expected, u - expected) * dx))
-    return np.asarray([method_A, method_B, method_C, method_D, method_E])
+
+    A = assemble(a, bcs=[bcs[0]])
+    b = assemble(L)
+    # This will not give the right answer
+    solve(A, u, b, solver_parameters=parameters)
+    bcs[1].apply(A)
+    b = assemble(L)
+    # This will, because we reassemble using the new set of bcs
+    solve(A, u, b, solver_parameters=parameters)
+    method_F = sqrt(assemble(dot(u - expected, u - expected) * dx))
+
+    return np.asarray([method_A, method_B, method_C, method_D, method_E, method_F])
 
 
 @pytest.mark.parametrize(['params', 'degree'],
