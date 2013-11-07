@@ -43,6 +43,15 @@ def test_internal_integral_unit_tri():
     u.interpolate(Expression("x[0]"))
     assert abs(assemble(u('+') * dS)) < 1.0e-14
 
+
+def test_internal_integral_unit_tet():
+    t = UnitTetrahedronMesh()
+    V = FunctionSpace(t, 'CG', 1)
+    u = Function(V)
+    u.interpolate(Expression("x[0]"))
+    assert abs(assemble(u('+') * dS)) < 1.0e-14
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
