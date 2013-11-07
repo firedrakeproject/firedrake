@@ -131,3 +131,15 @@ class Matrix(object):
             wrapping, use :attr:`_M` instead."""
         self.assemble()
         return self._M
+
+    def __repr__(self):
+        return '%sassembled firedrake.Matrix(form=%r, bcs=%r)' % \
+            ('' if self._assembled else 'un',
+             self.a,
+             self.bcs)
+
+    def __str__(self):
+        return '%sassembled firedrake.Matrix(form=%s, bcs=%s)' % \
+            ('' if self._assembled else 'un',
+             self.a,
+             self.bcs)
