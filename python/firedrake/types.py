@@ -94,5 +94,12 @@ class Matrix(object):
 
     @property
     def M(self):
-        """The :class:`pyop2.op2.Mat` representing the assembled form"""
+        """The :class:`pyop2.op2.Mat` representing the assembled form
+
+        .. note ::
+
+        This property forces an actual assembly of the form, if you
+        just need a handle on the :class:`pyop2.op2.Mat` object it's
+        wrapping, use :attr:`_M` instead."""
+        self.assemble()
         return self._M
