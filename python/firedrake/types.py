@@ -1,4 +1,6 @@
 from pyop2 import op2
+from solving import _assemble
+import copy
 
 
 class Matrix(object):
@@ -16,9 +18,9 @@ class Matrix(object):
 
     .. note::
 
-    This object acts to the right on an assembled :class:`Function`
-    and to the left on an assembled co-Function (currently represented
-    by a :class:`Function`).
+        This object acts to the right on an assembled :class:`Function`
+        and to the left on an assembled co-Function (currently represented
+        by a :class:`Function`).
 
     """
 
@@ -28,6 +30,7 @@ class Matrix(object):
         self._thunk = None
         self._assembled = False
         self._bcs = set()
+        self._bcs_at_point_of_assembly = None
         if bcs is not None:
             for bc in bcs:
                 self._bcs.add(bc)
@@ -37,11 +40,31 @@ class Matrix(object):
 
         This calls the stashed assembly callback or does nothing if
         the matrix is already assembled.
+
+        .. note::
+
+            If the boundary conditions stashed on the :class:`Matrix` have
+            changed since the last time it was assembled, this will
+            necessitate reassembly.  So for example:
+
+            .. code-block:: python
+
+                A = assemble(a, bcs=[bc1])
+                solve(A, x, b)
+                bc2.apply(A)
+                solve(A, x, b)
+
+            will apply boundary conditions from `bc1` in the first
+            solve, but both `bc1` and `bc2` in the second solve.
         """
         if self._assembly_callback is None:
             raise RuntimeError('Trying to assemble a Matrix, but no thunk found')
         if self._assembled:
-            return
+            if self._bcs_at_point_of_assembly == self.bcs:
+                return
+            _assemble(self.a, tensor=self, bcs=self.bcs)
+            return self.assemble()
+        self._bcs_at_point_of_assembly = copy.copy(self.bcs)
         self._assembly_callback(self.bcs)
         self._assembled = True
 
@@ -87,6 +110,18 @@ class Matrix(object):
         or None."""
         return self._bcs
 
+    @bcs.setter
+    def bcs(self, bcs):
+        """Attach some boundary conditions to this :class:`Matrix`.
+
+        :arg bcs: a boundary condition, or an iterable of boundary conditions.
+        """
+        try:
+            self._bcs = set(bcs)
+        except TypeError:
+            # BC instance, not iterable
+            self._bcs = set([bcs])
+
     @property
     def a(self):
         """The bilinear form this :class:`Matrix` was assembled from"""
@@ -98,8 +133,8 @@ class Matrix(object):
 
         .. note ::
 
-        This property forces an actual assembly of the form, if you
-        just need a handle on the :class:`pyop2.op2.Mat` object it's
-        wrapping, use :attr:`_M` instead."""
+            This property forces an actual assembly of the form, if you
+            just need a handle on the :class:`pyop2.op2.Mat` object it's
+            wrapping, use :attr:`_M` instead."""
         self.assemble()
         return self._M
