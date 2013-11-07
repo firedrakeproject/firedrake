@@ -136,8 +136,8 @@ class NonlinearVariationalSolver(object):
 
         with self._F_tensor.dat.vec as v:
             self.snes.setFunction(self.form_function, v)
-        self.snes.setJacobian(self.form_jacobian, J=self._jac_tensor.M.handle,
-                              P=self._jac_ptensor.M.handle)
+        self.snes.setJacobian(self.form_jacobian, J=self._jac_tensor._M.handle,
+                              P=self._jac_ptensor._M.handle)
 
     def form_function(self, snes, X_, F_):
         with self._problem.u_ufl.dat.vec as v:
@@ -169,13 +169,11 @@ class NonlinearVariationalSolver(object):
         assemble(self._problem.J_ufl,
                  tensor=self._jac_ptensor,
                  bcs=self._problem.bcs)
-        self._jac_ptensor.assemble()
         self._jac_ptensor.M._force_evaluation()
         if J_ != P_:
             assemble(self._problem.J_ufl,
                      tensor=self._jac_tensor,
                      bcs=self._problem.bcs)
-            self._jac_tensor.assemble()
             self._jac_tensor.M._force_evaluation()
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 
@@ -365,15 +363,15 @@ def _assemble(f, tensor=None, bcs=None):
                                         "%s_%s_sparsity" % fs_names)
                 result_matrix = types.Matrix(f, bcs, sparsity, numpy.float64,
                                              "%s_%s_matrix" % fs_names)
-                tensor = result_matrix.M
+                tensor = result_matrix._M
                 _mat_cache[key] = result_matrix
             else:
                 result_matrix = tensor
-                tensor = tensor.M
+                tensor = tensor._M
                 tensor.zero()
         else:
             result_matrix = tensor
-            tensor = tensor.M
+            tensor = tensor._M
             tensor.zero()
         result = lambda: result_matrix
     elif is_vec:
@@ -546,7 +544,6 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
         for bc in bcs:
             bc.apply(b)
             bc.apply(A)
-    A.assemble()
     solver.solve(A.M, x.dat, b.dat)
     x.dat.halo_exchange_begin()
     x.dat.halo_exchange_end()
