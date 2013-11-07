@@ -1,6 +1,7 @@
 # A module implementing strong (Dirichlet) boundary conditions.
 import utils
 import numpy as np
+import types
 import pyop2 as op2
 
 
@@ -79,6 +80,9 @@ class DirichletBC(object):
         If ``u`` is absent, then the boundary condition nodes of ``r`` are set
         to the boundary condition values."""
 
+        if isinstance(r, types.Matrix):
+            r.bcs.add(self)
+            return
         if u:
             r.assign(u-self.function_arg, subset=self.node_set)
         else:

@@ -70,6 +70,32 @@ def test_set_bc_value(a, u, V):
     assert np.allclose(u.vector().array(), 7.0)
 
 
+def test_preassembly_change_bcs(V):
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    a = u*v*dx
+    f = Function(V)
+    f.assign(10)
+    bc = DirichletBC(V, f, 1)
+
+    A = assemble(a, bcs=[bc])
+    L = v*f*dx
+    b = assemble(L)
+
+    y = Function(V)
+    y.assign(7)
+    bc1 = DirichletBC(V, y, 1)
+    u = Function(V)
+
+    solve(A, u, b)
+    assert np.allclose(u.vector().array(), 10.0)
+
+    u.assign(0)
+    b = assemble(v*y*dx)
+    solve(A, u, b, bcs=[bc1])
+    assert np.allclose(u.vector().array(), 7.0)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
