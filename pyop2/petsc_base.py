@@ -39,7 +39,9 @@ required to implement backend-specific features.
 .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
 """
 
+from contextlib import contextmanager
 from petsc4py import PETSc
+
 import base
 from base import *
 from backends import _make_object
@@ -69,32 +71,39 @@ mpi.MPI = MPI
 
 class Dat(base.Dat):
 
-    @property
-    @collective
-    def vec(self):
-        """PETSc Vec appropriate for this Dat.
+    @contextmanager
+    def vec_context(self, readonly=True):
+        """A context manager for a :class:`PETSc.Vec` from a :class:`Dat`.
 
-        You're allowed to modify the data you get back from this view."""
+        :param readonly: Access the data read-only (use :meth:`Dat.data_ro`)
+                         or read-write (use :meth:`Dat.data`). Read-write
+                         access requires a halo update."""
+
+        acc = (lambda d: d.data_ro) if readonly else (lambda d: d.data)
         # Getting the Vec needs to ensure we've done all current computation.
         self._force_evaluation()
         if not hasattr(self, '_vec'):
             size = (self.dataset.size * self.cdim, None)
-            self._vec = PETSc.Vec().createWithArray(self.data, size=size)
-        self.needs_halo_update = True
-        return self._vec
+            self._vec = PETSc.Vec().createWithArray(acc(self), size=size)
+        yield self._vec
+        if not readonly:
+            self.needs_halo_update = True
+
+    @property
+    @collective
+    def vec(self):
+        """Context manager for a PETSc Vec appropriate for this Dat.
+
+        You're allowed to modify the data you get back from this view."""
+        return self.vec_context(readonly=False)
 
     @property
     @collective
     def vec_ro(self):
-        """PETSc Vec appropriate for this Dat.
+        """Context manager for a PETSc Vec appropriate for this Dat.
 
         You're not allowed to modify the data you get back from this view."""
-        # Getting the Vec needs to ensure we've done all current computation.
-        self._force_evaluation()
-        if not hasattr(self, '_vec'):
-            size = (self.dataset.size * self.cdim, None)
-            self._vec = PETSc.Vec().createWithArray(self.data_ro, size=size)
-        return self._vec
+        return self.vec_context()
 
     @collective
     def dump(self, filename):
@@ -102,6 +111,70 @@ class Dat(base.Dat):
         base._trace.evaluate(set([self]), set())
         vwr = PETSc.Viewer().createBinary(filename, PETSc.Viewer.Mode.WRITE)
         self.vec.view(vwr)
+
+
+class MixedDat(base.MixedDat):
+
+    @contextmanager
+    def vecscatter(self, readonly=True):
+        """A context manager scattering the arrays of all components of this
+        :class:`MixedDat` into a contiguous :class:`PETSc.Vec` and reverse
+        scattering to the original arrays when exiting the context.
+
+        :param readonly: Access the data read-only (use :meth:`Dat.data_ro`)
+                         or read-write (use :meth:`Dat.data`). Read-write
+                         access requires a halo update."""
+
+        acc = (lambda d: d.vec_ro) if readonly else (lambda d: d.vec)
+        # Allocate memory for the contiguous vector, create the scatter
+        # contexts and stash them on the object for later reuse
+        if not (hasattr(self, '_vec') and hasattr(self, '_sctxs')):
+            self._vec = PETSc.Vec().create()
+            self._vec.setSizes((self.dataset.set.size, None))
+            self._vec.setUp()
+            self._sctxs = []
+            offset = 0
+            # We need one scatter context per component. The entire array is
+            # scattered to the appropriate contiguous chunk of memory in the
+            # full vector
+            for d in self._dats:
+                sz = d.dataset.set.size
+                with acc(d) as v:
+                    vscat = PETSc.Scatter().create(v, None, self._vec,
+                                                   PETSc.IS().createStride(sz, offset, 1))
+                offset += sz
+                self._sctxs.append(vscat)
+        # Do the actual forward scatter to fill the full vector with values
+        for d, vscat in zip(self._dats, self._sctxs):
+            with acc(d) as v:
+                vscat.scatterBegin(v, self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
+                vscat.scatterEnd(v, self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
+        yield self._vec
+        if not readonly:
+            # Reverse scatter to get the values back to their original locations
+            for d, vscat in zip(self._dats, self._sctxs):
+                with acc(d) as v:
+                    vscat.scatterBegin(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
+                                       mode=PETSc.ScatterMode.REVERSE)
+                    vscat.scatterEnd(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
+                                     mode=PETSc.ScatterMode.REVERSE)
+            self.needs_halo_update = True
+
+    @property
+    @collective
+    def vec(self):
+        """Context manager for a PETSc Vec appropriate for this Dat.
+
+        You're allowed to modify the data you get back from this view."""
+        return self.vecscatter(readonly=False)
+
+    @property
+    @collective
+    def vec_ro(self):
+        """Context manager for a PETSc Vec appropriate for this Dat.
+
+        You're not allowed to modify the data you get back from this view."""
+        return self.vecscatter()
 
 
 class Mat(base.Mat):
@@ -114,6 +187,28 @@ class Mat(base.Mat):
         if not self.dtype == PETSc.ScalarType:
             raise RuntimeError("Can only create a matrix of type %s, %s is not supported"
                                % (PETSc.ScalarType, self.dtype))
+        # If the Sparsity is defined on MixedDataSets, we need to build a MatNest
+        if self.sparsity.shape > (1, 1):
+            self._init_nest()
+        else:
+            self._init_block()
+
+    def _init_nest(self):
+        mat = PETSc.Mat()
+        self._blocks = []
+        rows, cols = self.sparsity.shape
+        for i in range(rows):
+            row = []
+            for j in range(cols):
+                row.append(Mat(self.sparsity[i, j], self.dtype,
+                           '_'.join([self.name, str(i), str(j)])))
+            self._blocks.append(row)
+        # PETSc Mat.createNest wants a flattened list of Mats
+        mat.createNest([[m.handle for m in row] for row in self._blocks])
+        self._handle = mat
+
+    def _init_block(self):
+        self._blocks = [[self]]
         mat = PETSc.Mat()
         row_lg = PETSc.LGMap()
         col_lg = PETSc.LGMap()
@@ -157,6 +252,21 @@ class Mat(base.Mat):
         mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
         self._handle = mat
 
+    def __getitem__(self, idx):
+        """Return :class:`Mat` block with row and column given by ``idx``
+        or a given row of blocks."""
+        try:
+            i, j = idx
+            return self.blocks[i][j]
+        except TypeError:
+            return self.blocks[idx]
+
+    def __iter__(self):
+        """Iterate over all :class:`Mat` blocks by row and then by column."""
+        for row in self.blocks:
+            for s in row:
+                yield s
+
     @collective
     def dump(self, filename):
         """Dump the matrix to file ``filename`` in PETSc binary format."""
@@ -186,14 +296,37 @@ class Mat(base.Mat):
         """Add a vector to the diagonal of the matrix.
 
         :params vec: vector to add (:class:`Dat` or :class:`PETsc.Vec`)"""
-        if not isinstance(vec, (Dat, PETSc.Vec)):
+        if self.sparsity.shape != (1, 1):
+            if not isinstance(vec, base.MixedDat):
+                raise TypeError('Can only set diagonal of blocked Mat from MixedDat')
+            if vec.dataset != self.sparsity.dsets[1]:
+                raise TypeError('Mismatching datasets for MixedDat and Mat')
+            rows, cols = self.sparsity.shape
+            for i in range(rows):
+                if i < cols:
+                    self[i, i].set_diagonal(vec[i])
+            return
+        r, c = self.handle.getSize()
+        if r != c:
+            raise MatTypeError('Cannot set diagonal of non-square matrix')
+        if not isinstance(vec, (base.Dat, PETSc.Vec)):
             raise TypeError("Can only set diagonal from a Dat or PETSc Vec.")
-        v = vec if isinstance(vec, PETSc.Vec) else vec.vec_ro
-        self.handle.setDiagonal(v)
+        if isinstance(vec, PETSc.Vec):
+            self.handle.setDiagonal(vec)
+        else:
+            with vec.vec_ro as v:
+                self.handle.setDiagonal(v)
 
     @collective
     def _assemble(self):
         self.handle.assemble()
+
+    @property
+    def blocks(self):
+        """2-dimensional array of matrix blocks."""
+        if not hasattr(self, '_blocks'):
+            self._init()
+        return self._blocks
 
     @property
     def array(self):
@@ -217,11 +350,23 @@ class Mat(base.Mat):
 
     def __mul__(self, v):
         """Multiply this :class:`Mat` with the vector ``v``."""
-        if not isinstance(v, (Dat, PETSc.Vec)):
+        if not isinstance(v, (base.Dat, PETSc.Vec)):
             raise TypeError("Can only multiply Mat and Dat or PETSc Vec.")
-        y = self.handle * (v.vec_ro if isinstance(v, Dat) else v)
-        dat = _make_object('Dat', self.sparsity.dsets[0])
-        dat.data[:len(y.array)] = y.array[:]
+        if isinstance(v, base.Dat):
+            with v.vec_ro as vec:
+                y = self.handle * vec
+        else:
+            y = self.handle * v
+        if isinstance(v, base.MixedDat):
+            dat = _make_object('MixedDat', self.sparsity.dsets[0])
+            offset = 0
+            for d in dat:
+                sz = d.dataset.set.size
+                d.data[:] = y.getSubVector(PETSc.IS().createStride(sz, offset, 1)).array[:]
+                offset += sz
+        else:
+            dat = _make_object('Dat', self.sparsity.dsets[0])
+            dat.data[:] = y.array[:]
         dat.needs_halo_update = True
         return dat
 
@@ -273,8 +418,9 @@ class Solver(base.Solver, PETSc.KSP):
                 debug("%3d KSP Residual norm %14.12e" % (its, norm))
             self.setMonitor(monitor)
         # Not using super here since the MRO would call base.Solver.solve
-        PETSc.KSP.solve(self, b.vec, x.vec)
-        x.needs_halo_update = True
+        with b.vec_ro as bv:
+            with x.vec as xv:
+                PETSc.KSP.solve(self, bv, xv)
         if self.parameters['plot_convergence']:
             self.cancelMonitor()
             try:

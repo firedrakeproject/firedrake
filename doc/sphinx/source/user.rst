@@ -26,9 +26,15 @@ pyop2 user documentation
 
     .. autoclass:: Set
        :inherited-members:
+    .. autoclass:: MixedSet
+       :inherited-members:
     .. autoclass:: DataSet
        :inherited-members:
+    .. autoclass:: MixedDataSet
+       :inherited-members:
     .. autoclass:: Map
+       :inherited-members:
+    .. autoclass:: MixedMap
        :inherited-members:
     .. autoclass:: Sparsity
        :inherited-members:
@@ -38,6 +44,8 @@ pyop2 user documentation
     .. autoclass:: Global
        :inherited-members:
     .. autoclass:: Dat
+       :inherited-members:
+    .. autoclass:: MixedDat
        :inherited-members:
     .. autoclass:: Mat
        :inherited-members:

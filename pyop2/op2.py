@@ -45,9 +45,10 @@ from exceptions import MatTypeError, DatTypeError
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
-           'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'Subset', 'DataSet',
-           'Halo', 'Dat', 'Mat', 'Const', 'Global', 'Map', 'Sparsity',
-           'Solver', 'par_loop', 'solve']
+           'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'MixedSet',
+           'Subset', 'DataSet', 'MixedDataSet', 'Halo', 'Dat', 'MixedDat',
+           'Mat', 'Const', 'Global', 'Map', 'MixedMap', 'Sparsity', 'Solver',
+           'par_loop', 'solve']
 
 
 def initialised():
@@ -123,6 +124,10 @@ class Set(base.Set):
     __metaclass__ = backends._BackendSelector
 
 
+class MixedSet(base.MixedSet):
+    __metaclass__ = backends._BackendSelector
+
+
 class Subset(base.Subset):
     __metaclass__ = backends._BackendSelector
 
@@ -131,12 +136,19 @@ class DataSet(base.DataSet):
     __metaclass__ = backends._BackendSelector
 
 
-@collective
+class MixedDataSet(base.MixedDataSet):
+    __metaclass__ = backends._BackendSelector
+
+
 class Halo(base.Halo):
     __metaclass__ = backends._BackendSelector
 
 
 class Dat(base.Dat):
+    __metaclass__ = backends._BackendSelector
+
+
+class MixedDat(base.MixedDat):
     __metaclass__ = backends._BackendSelector
 
 
@@ -153,6 +165,10 @@ class Global(base.Global):
 
 
 class Map(base.Map):
+    __metaclass__ = backends._BackendSelector
+
+
+class MixedMap(base.MixedMap):
     __metaclass__ = backends._BackendSelector
 
 

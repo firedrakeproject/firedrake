@@ -61,6 +61,21 @@ def toset():
     return op2.Set(3, 'toset')
 
 
+@pytest.fixture
+def sets(set, iterset, toset):
+    return set, iterset, toset
+
+
+@pytest.fixture
+def mset(sets):
+    return op2.MixedSet(sets)
+
+
+@pytest.fixture(params=['sets', 'mset', 'gen'])
+def msets(sets, mset, request):
+    return {'sets': sets, 'mset': mset, 'gen': iter(sets)}[request.param]
+
+
 @pytest.fixture(params=[1, 2, (2, 3)])
 def dset(request, set):
     return op2.DataSet(set, request.param, 'dfoo')
@@ -77,13 +92,58 @@ def dtoset(toset):
 
 
 @pytest.fixture
-def dat(request, dtoset):
+def dsets(dset, diterset, dtoset):
+    return dset, diterset, dtoset
+
+
+@pytest.fixture
+def mdset(dsets):
+    return op2.MixedDataSet(dsets)
+
+
+@pytest.fixture
+def dat(dtoset):
     return op2.Dat(dtoset, np.arange(dtoset.cdim * dtoset.size, dtype=np.int32))
 
 
 @pytest.fixture
-def m(iterset, toset):
-    return op2.Map(iterset, toset, 2, [1] * 2 * iterset.size, 'm')
+def dats(dtoset, dset):
+    return op2.Dat(dtoset), op2.Dat(dset)
+
+
+@pytest.fixture
+def mdat(dats):
+    return op2.MixedDat(dats)
+
+
+@pytest.fixture
+def m_iterset_toset(iterset, toset):
+    return op2.Map(iterset, toset, 2, [1] * 2 * iterset.size, 'm_iterset_toset')
+
+
+@pytest.fixture
+def m_iterset_set(iterset, set):
+    return op2.Map(iterset, set, 2, [1] * 2 * iterset.size, 'm_iterset_set')
+
+
+@pytest.fixture
+def m_set_toset(set, toset):
+    return op2.Map(set, toset, 1, [1] * set.size, 'm_set_toset')
+
+
+@pytest.fixture
+def m_set_set(set):
+    return op2.Map(set, set, 1, [1] * set.size, 'm_set_set')
+
+
+@pytest.fixture
+def maps(m_iterset_toset, m_iterset_set):
+    return m_iterset_toset, m_iterset_set
+
+
+@pytest.fixture
+def mmap(maps):
+    return op2.MixedMap(maps)
 
 
 @pytest.fixture
@@ -94,8 +154,24 @@ def const(request):
 
 
 @pytest.fixture
-def sparsity(m, dtoset):
-    return op2.Sparsity((dtoset, dtoset), (m, m))
+def mds(dtoset, set):
+    return op2.MixedDataSet((dtoset, set))
+
+
+# pytest doesn't currently support using fixtures are paramters to tests
+# or other fixtures. We have to work around that by requesting fixtures
+# by name
+@pytest.fixture(params=[('mds', 'mds', 'mmap', 'mmap'),
+                        ('mds', 'dtoset', 'mmap', 'm_iterset_toset'),
+                        ('dtoset', 'mds', 'm_iterset_toset', 'mmap')])
+def ms(request):
+    rds, cds, rm, cm = [request.getfuncargvalue(p) for p in request.param]
+    return op2.Sparsity((rds, cds), (rm, cm))
+
+
+@pytest.fixture
+def sparsity(m_iterset_toset, dtoset):
+    return op2.Sparsity((dtoset, dtoset), (m_iterset_toset, m_iterset_toset))
 
 
 @pytest.fixture
@@ -106,6 +182,11 @@ def mat(sparsity):
 @pytest.fixture
 def diag_mat(toset):
     return op2.Mat(op2.Sparsity(toset, op2.Map(toset, toset, 1, np.arange(toset.size))))
+
+
+@pytest.fixture
+def mmat(ms):
+    return op2.Mat(ms)
 
 
 @pytest.fixture
@@ -269,36 +350,78 @@ class TestArgAPI:
     Arg API unit tests
     """
 
-    def test_arg_eq_dat(self, backend, dat, m):
-        assert dat(op2.READ, m) == dat(op2.READ, m)
-        assert dat(op2.READ, m[0]) == dat(op2.READ, m[0])
-        assert not dat(op2.READ, m) != dat(op2.READ, m)
-        assert not dat(op2.READ, m[0]) != dat(op2.READ, m[0])
+    def test_arg_mixed_dat_flatten(self, backend, mdat, mmap):
+        "Creating a flattened Arg on a MixedDat should fail."
+        with pytest.raises(exceptions.DatTypeError):
+            mdat(op2.READ, mmap, flatten=True)
 
-    def test_arg_ne_dat_idx(self, backend, dat, m):
-        assert dat(op2.READ, m[0]) != dat(op2.READ, m[1])
-        assert not dat(op2.READ, m[0]) == dat(op2.READ, m[1])
+    def test_arg_mixed_mat_flatten(self, backend, mmat):
+        "Creating a flattened Arg on a mixed Mat should fail."
+        mr, mc = mmat.sparsity.maps[0]
+        with pytest.raises(exceptions.MatTypeError):
+            mmat(op2.INC, (mr[op2.i[0]], mc[op2.i[1]]), flatten=True)
 
-    def test_arg_ne_dat_mode(self, backend, dat, m):
-        assert dat(op2.READ, m) != dat(op2.WRITE, m)
-        assert not dat(op2.READ, m) == dat(op2.WRITE, m)
+    def test_arg_split_dat(self, backend, dat, m_iterset_toset):
+        arg = dat(op2.READ, m_iterset_toset)
+        for a in arg.split:
+            assert a == arg
 
-    def test_arg_ne_dat_map(self, backend, dat, m):
-        m2 = op2.Map(m.iterset, m.toset, 1, np.ones(m.iterset.size))
-        assert dat(op2.READ, m) != dat(op2.READ, m2)
-        assert not dat(op2.READ, m) == dat(op2.READ, m2)
+    def test_arg_split_mdat(self, backend, mdat, mmap):
+        arg = mdat(op2.READ, mmap)
+        for a, d in zip(arg.split, mdat):
+            assert a.data == d
 
-    def test_arg_eq_mat(self, backend, mat, m):
-        assert mat(op2.INC, (m[0], m[0])) == mat(op2.INC, (m[0], m[0]))
-        assert not mat(op2.INC, (m[0], m[0])) != mat(op2.INC, (m[0], m[0]))
+    def test_arg_split_mat(self, backend, mat, m_iterset_toset):
+        arg = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
+        for a in arg.split:
+            assert a == arg
 
-    def test_arg_ne_mat_idx(self, backend, mat, m):
-        assert mat(op2.INC, (m[0], m[0])) != mat(op2.INC, (m[1], m[1]))
-        assert not mat(op2.INC, (m[0], m[0])) == mat(op2.INC, (m[1], m[1]))
+    def test_arg_split_global(self, backend, g):
+        arg = g(op2.READ)
+        for a in arg.split:
+            assert a == arg
 
-    def test_arg_ne_mat_mode(self, backend, mat, m):
-        assert mat(op2.INC, (m[0], m[0])) != mat(op2.WRITE, (m[0], m[0]))
-        assert not mat(op2.INC, (m[0], m[0])) == mat(op2.WRITE, (m[0], m[0]))
+    def test_arg_eq_dat(self, backend, dat, m_iterset_toset):
+        assert dat(op2.READ, m_iterset_toset) == dat(op2.READ, m_iterset_toset)
+        assert dat(op2.READ, m_iterset_toset[0]) == dat(op2.READ, m_iterset_toset[0])
+        assert not dat(op2.READ, m_iterset_toset) != dat(op2.READ, m_iterset_toset)
+        assert not dat(op2.READ, m_iterset_toset[0]) != dat(op2.READ, m_iterset_toset[0])
+
+    def test_arg_ne_dat_idx(self, backend, dat, m_iterset_toset):
+        a1 = dat(op2.READ, m_iterset_toset[0])
+        a2 = dat(op2.READ, m_iterset_toset[1])
+        assert a1 != a2
+        assert not a1 == a2
+
+    def test_arg_ne_dat_mode(self, backend, dat, m_iterset_toset):
+        a1 = dat(op2.READ, m_iterset_toset)
+        a2 = dat(op2.WRITE, m_iterset_toset)
+        assert a1 != a2
+        assert not a1 == a2
+
+    def test_arg_ne_dat_map(self, backend, dat, m_iterset_toset):
+        m2 = op2.Map(m_iterset_toset.iterset, m_iterset_toset.toset, 1,
+                     np.ones(m_iterset_toset.iterset.size))
+        assert dat(op2.READ, m_iterset_toset) != dat(op2.READ, m2)
+        assert not dat(op2.READ, m_iterset_toset) == dat(op2.READ, m2)
+
+    def test_arg_eq_mat(self, backend, mat, m_iterset_toset):
+        a1 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
+        a2 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
+        assert a1 == a2
+        assert not a1 != a2
+
+    def test_arg_ne_mat_idx(self, backend, mat, m_iterset_toset):
+        a1 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
+        a2 = mat(op2.INC, (m_iterset_toset[1], m_iterset_toset[1]))
+        assert a1 != a2
+        assert not a1 == a2
+
+    def test_arg_ne_mat_mode(self, backend, mat, m_iterset_toset):
+        a1 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
+        a2 = mat(op2.WRITE, (m_iterset_toset[0], m_iterset_toset[0]))
+        assert a1 != a2
+        assert not a1 == a2
 
 
 class TestSetAPI:
@@ -316,6 +439,15 @@ class TestSetAPI:
         "Set name should be string."
         with pytest.raises(exceptions.NameTypeError):
             op2.Set(1, 2)
+
+    def test_set_iter(self, backend, set):
+        "Set should be iterable and yield self."
+        for s in set:
+            assert s is set
+
+    def test_set_len(self, backend, set):
+        "Set len should be 1."
+        assert len(set) == 1
 
     def test_set_repr(self, backend, set):
         "Set repr should produce a Set object when eval'd."
@@ -409,6 +541,110 @@ class TestSubsetAPI:
         assert_equal(ss.indices, ss2.indices)
 
 
+class TestMixedSetAPI:
+
+    """
+    MixedSet API unit tests
+    """
+
+    def test_mixed_set_illegal_set(self, backend):
+        "MixedSet sets should be of type Set."
+        with pytest.raises(TypeError):
+            op2.MixedSet(('foo', 'bar'))
+
+    def test_mixed_set_getitem(self, backend, sets):
+        "MixedSet should return the corresponding Set when indexed."
+        mset = op2.MixedSet(sets)
+        for i, s in enumerate(sets):
+            assert mset[i] == s
+
+    def test_mixed_set_split(self, backend, sets):
+        "MixedSet split should return a tuple of the Sets."
+        assert op2.MixedSet(sets).split == sets
+
+    def test_mixed_set_core_size(self, backend, mset):
+        "MixedSet core_size should return the sum of the Set core_sizes."
+        assert mset.core_size == sum(s.core_size for s in mset)
+
+    def test_mixed_set_size(self, backend, mset):
+        "MixedSet size should return the sum of the Set sizes."
+        assert mset.size == sum(s.size for s in mset)
+
+    def test_mixed_set_exec_size(self, backend, mset):
+        "MixedSet exec_size should return the sum of the Set exec_sizes."
+        assert mset.exec_size == sum(s.exec_size for s in mset)
+
+    def test_mixed_set_total_size(self, backend, mset):
+        "MixedSet total_size should return the sum of the Set total_sizes."
+        assert mset.total_size == sum(s.total_size for s in mset)
+
+    def test_mixed_set_sizes(self, backend, mset):
+        "MixedSet sizes should return a tuple of the Set sizes."
+        assert mset.sizes == (mset.core_size, mset.size, mset.exec_size, mset.total_size)
+
+    def test_mixed_set_name(self, backend, mset):
+        "MixedSet name should return a tuple of the Set names."
+        assert mset.name == tuple(s.name for s in mset)
+
+    def test_mixed_set_halo(self, backend, mset):
+        "MixedSet halo should be None when running sequentially."
+        assert mset.halo is None
+
+    def test_mixed_set_layers(self, backend, mset):
+        "MixedSet layers should return the layers of the first Set."
+        assert mset.layers == mset[0].layers
+
+    def test_mixed_set_layers_must_match(self, backend, sets):
+        "All components of a MixedSet must have the same number of layers."
+        sets[1]._layers += 1
+        with pytest.raises(AssertionError):
+            op2.MixedSet(sets)
+
+    def test_mixed_set_iter(self, backend, mset, sets):
+        "MixedSet should be iterable and yield the Sets."
+        assert tuple(s for s in mset) == sets
+
+    def test_mixed_set_len(self, backend, sets):
+        "MixedSet should have length equal to the number of contained Sets."
+        assert len(op2.MixedSet(sets)) == len(sets)
+
+    def test_mixed_set_pow_int(self, backend, mset):
+        "MixedSet should implement ** operator returning a MixedDataSet."
+        assert mset ** 1 == op2.MixedDataSet([s ** 1 for s in mset])
+
+    def test_mixed_set_pow_seq(self, backend, mset):
+        "MixedSet should implement ** operator returning a MixedDataSet."
+        assert mset ** ((1,) * len(mset)) == op2.MixedDataSet([s ** 1 for s in mset])
+
+    def test_mixed_set_pow_gen(self, backend, mset):
+        "MixedSet should implement ** operator returning a MixedDataSet."
+        assert mset ** (1 for _ in mset) == op2.MixedDataSet([s ** 1 for s in mset])
+
+    def test_mixed_set_eq(self, backend, sets):
+        "MixedSets created from the same Sets should compare equal."
+        assert op2.MixedSet(sets) == op2.MixedSet(sets)
+        assert not op2.MixedSet(sets) != op2.MixedSet(sets)
+
+    def test_mixed_set_ne(self, backend, set, iterset, toset):
+        "MixedSets created from different Sets should not compare equal."
+        assert op2.MixedSet((set, iterset, toset)) != op2.MixedSet((set, toset, iterset))
+        assert not op2.MixedSet((set, iterset, toset)) == op2.MixedSet((set, toset, iterset))
+
+    def test_mixed_set_ne_set(self, backend, sets):
+        "A MixedSet should not compare equal to a Set."
+        assert op2.MixedSet(sets) != sets[0]
+        assert not op2.MixedSet(sets) == sets[0]
+
+    def test_mixed_set_repr(self, backend, mset):
+        "MixedSet repr should produce a MixedSet object when eval'd."
+        from pyop2.op2 import Set, MixedSet  # noqa: needed by eval
+        assert isinstance(eval(repr(mset)), base.MixedSet)
+
+    def test_mixed_set_str(self, backend, mset):
+        "MixedSet should have the expected string representation."
+        assert str(mset) == "OP2 MixedSet composed of Sets: %s" % (mset._sets,)
+
+
 class TestDataSetAPI:
     """
     DataSet API unit tests
@@ -448,6 +684,15 @@ class TestDataSetAPI:
         s = op2.DataSet(iterset, [2, 3])
         assert s.dim == (2, 3)
 
+    def test_dset_iter(self, backend, dset):
+        "DataSet should be iterable and yield self."
+        for s in dset:
+            assert s is dset
+
+    def test_dset_len(self, backend, dset):
+        "DataSet len should be 1."
+        assert len(dset) == 1
+
     def test_dset_repr(self, backend, dset):
         "DataSet repr should produce a Set object when eval'd."
         from pyop2.op2 import Set, DataSet  # noqa: needed by eval
@@ -483,6 +728,136 @@ class TestDataSetAPI:
     def test_dat_not_in_dset(self, backend, dset):
         "The in operator should indicate incompatibility of DataSet and Set"
         assert op2.Dat(dset) not in op2.DataSet(op2.Set(5, 'bar'))
+
+
+class TestMixedDataSetAPI:
+    """
+    MixedDataSet API unit tests
+    """
+
+    @pytest.mark.parametrize('arg', ['illegalarg', (set, 'illegalarg'),
+                                     iter((set, 'illegalarg'))])
+    def test_mixed_dset_illegal_arg(self, backend, arg):
+        """Constructing a MixedDataSet from anything other than a MixedSet or
+        an iterable of Sets and/or DataSets should fail."""
+        with pytest.raises(TypeError):
+            op2.MixedDataSet(arg)
+
+    @pytest.mark.parametrize('dims', ['illegaldim', (1, 2, 'illegaldim')])
+    def test_mixed_dset_dsets_illegal_dims(self, backend, dsets, dims):
+        """When constructing a MixedDataSet from an iterable of DataSets it is
+        an error to specify dims."""
+        with pytest.raises((TypeError, ValueError)):
+            op2.MixedDataSet(dsets, dims)
+
+    def test_mixed_dset_dsets_dims(self, backend, dsets):
+        """When constructing a MixedDataSet from an iterable of DataSets it is
+        an error to specify dims."""
+        with pytest.raises(TypeError):
+            op2.MixedDataSet(dsets, 1)
+
+    def test_mixed_dset_upcast_sets(self, backend, msets, mset):
+        """Constructing a MixedDataSet from an iterable/iterator of Sets or
+        MixedSet should upcast."""
+        assert op2.MixedDataSet(msets) == mset ** 1
+
+    def test_mixed_dset_sets_and_dsets(self, backend, set, dset):
+        """Constructing a MixedDataSet from an iterable with a mixture of
+        Sets and DataSets should upcast the Sets."""
+        assert op2.MixedDataSet((set, dset)).split == (set ** 1, dset)
+
+    def test_mixed_dset_sets_and_dsets_gen(self, backend, set, dset):
+        """Constructing a MixedDataSet from an iterable with a mixture of
+        Sets and DataSets should upcast the Sets."""
+        assert op2.MixedDataSet(iter((set, dset))).split == (set ** 1, dset)
+
+    def test_mixed_dset_dims_default_to_one(self, backend, msets, mset):
+        """Constructing a MixedDataSet from an interable/iterator of Sets or
+        MixedSet without dims should default them to 1."""
+        assert op2.MixedDataSet(msets).dim == ((1,),) * len(mset)
+
+    def test_mixed_dset_dims_int(self, backend, msets, mset):
+        """Construct a MixedDataSet from an iterator/iterable of Sets and a
+        MixedSet with dims as an int."""
+        assert op2.MixedDataSet(msets, 2).dim == ((2,),) * len(mset)
+
+    def test_mixed_dset_dims_gen(self, backend, msets, mset):
+        """Construct a MixedDataSet from an iterator/iterable of Sets and a
+        MixedSet with dims as a generator."""
+        dims = (2 for _ in mset)
+        assert op2.MixedDataSet(msets, dims).dim == ((2,),) * len(mset)
+
+    def test_mixed_dset_dims_iterable(self, backend, msets):
+        """Construct a MixedDataSet from an iterator/iterable of Sets and a
+        MixedSet with dims as an iterable."""
+        dims = ((2,), (2, 2), (1,))
+        assert op2.MixedDataSet(msets, dims).dim == dims
+
+    def test_mixed_dset_dims_mismatch(self, backend, msets, sets):
+        """Constructing a MixedDataSet from an iterable/iterator of Sets and a
+        MixedSet with mismatching number of dims should raise ValueError."""
+        with pytest.raises(ValueError):
+            op2.MixedDataSet(msets, range(1, len(sets)))
+
+    def test_mixed_dset_getitem(self, backend, mdset):
+        "MixedDataSet should return the corresponding DataSet when indexed."
+        for i, ds in enumerate(mdset):
+            assert mdset[i] == ds
+
+    def test_mixed_dset_split(self, backend, dsets):
+        "MixedDataSet split should return a tuple of the DataSets."
+        assert op2.MixedDataSet(dsets).split == dsets
+
+    def test_mixed_dset_dim(self, backend, mdset):
+        "MixedDataSet dim should return a tuple of the DataSet dims."
+        assert mdset.dim == tuple(s.dim for s in mdset)
+
+    def test_mixed_dset_cdim(self, backend, mdset):
+        "MixedDataSet cdim should return a tuple of the DataSet cdims."
+        assert mdset.cdim == tuple(s.cdim for s in mdset)
+
+    def test_mixed_dset_name(self, backend, mdset):
+        "MixedDataSet name should return a tuple of the DataSet names."
+        assert mdset.name == tuple(s.name for s in mdset)
+
+    def test_mixed_dset_set(self, backend, mset):
+        "MixedDataSet set should return a MixedSet."
+        assert op2.MixedDataSet(mset).set == mset
+
+    def test_mixed_dset_iter(self, backend, mdset, dsets):
+        "MixedDataSet should be iterable and yield the DataSets."
+        assert tuple(s for s in mdset) == dsets
+
+    def test_mixed_dset_len(self, backend, dsets):
+        """MixedDataSet should have length equal to the number of contained
+        DataSets."""
+        assert len(op2.MixedDataSet(dsets)) == len(dsets)
+
+    def test_mixed_dset_eq(self, backend, dsets):
+        "MixedDataSets created from the same DataSets should compare equal."
+        assert op2.MixedDataSet(dsets) == op2.MixedDataSet(dsets)
+        assert not op2.MixedDataSet(dsets) != op2.MixedDataSet(dsets)
+
+    def test_mixed_dset_ne(self, backend, dset, diterset, dtoset):
+        "MixedDataSets created from different DataSets should not compare equal."
+        mds1 = op2.MixedDataSet((dset, diterset, dtoset))
+        mds2 = op2.MixedDataSet((dset, dtoset, diterset))
+        assert mds1 != mds2
+        assert not mds1 == mds2
+
+    def test_mixed_dset_ne_dset(self, backend, diterset, dtoset):
+        "MixedDataSets should not compare equal to a scalar DataSet."
+        assert op2.MixedDataSet((diterset, dtoset)) != diterset
+        assert not op2.MixedDataSet((diterset, dtoset)) == diterset
+
+    def test_mixed_dset_repr(self, backend, mdset):
+        "MixedDataSet repr should produce a MixedDataSet object when eval'd."
+        from pyop2.op2 import Set, DataSet, MixedDataSet  # noqa: needed by eval
+        assert isinstance(eval(repr(mdset)), base.MixedDataSet)
+
+    def test_mixed_dset_str(self, backend, mdset):
+        "MixedDataSet should have the expected string representation."
+        assert str(mdset) == "OP2 MixedDataSet composed of DataSets: %s" % (mdset._dsets,)
 
 
 class TestDatAPI:
@@ -547,6 +922,11 @@ class TestDatAPI:
         assert type(d.dtype) == np.dtype
         d = op2.Dat(dset, [1.0] * dset.size * dset.cdim)
         assert type(d.dtype) == np.dtype
+
+    def test_dat_split(self, backend, dat):
+        "Splitting a Dat should yield a tuple with self"
+        for d in dat.split:
+            d == dat
 
     def test_dat_dtype(self, backend, dset):
         "Default data type should be numpy.float64."
@@ -619,6 +999,15 @@ class TestDatAPI:
         assert d1 != d2
         assert not d1 == d2
 
+    def test_dat_iter(self, backend, dat):
+        "Dat should be iterable and yield self."
+        for d in dat:
+            assert d is dat
+
+    def test_dat_len(self, backend, dat):
+        "Dat len should be 1."
+        assert len(dat) == 1
+
     def test_dat_repr(self, backend, dat):
         "Dat repr should produce a Dat object when eval'd."
         from pyop2.op2 import Dat, DataSet, Set  # noqa: needed by eval
@@ -653,6 +1042,129 @@ class TestDatAPI:
         assert not d._is_allocated
 
 
+class TestMixedDatAPI:
+
+    """
+    MixedDat API unit tests
+    """
+
+    def test_mixed_dat_illegal_arg(self, backend):
+        """Constructing a MixedDat from anything other than a MixedSet, a
+        MixedDataSet or an iterable of Dats should fail."""
+        with pytest.raises(exceptions.DataSetTypeError):
+            op2.MixedDat('illegalarg')
+
+    def test_mixed_dat_illegal_dtype(self, backend, set):
+        """Constructing a MixedDat from Dats of different dtype should fail."""
+        with pytest.raises(exceptions.DataValueError):
+            op2.MixedDat((op2.Dat(set, dtype=np.int), op2.Dat(set)))
+
+    def test_mixed_dat_dats(self, backend, dats):
+        """Constructing a MixedDat from an iterable of Dats should leave them
+        unchanged."""
+        assert op2.MixedDat(dats).split == dats
+
+    def test_mixed_dat_dsets(self, backend, mdset):
+        """Constructing a MixedDat from an iterable of DataSets should leave
+        them unchanged."""
+        assert op2.MixedDat(mdset).dataset == mdset
+
+    def test_mixed_dat_upcast_sets(self, backend, mset):
+        "Constructing a MixedDat from an iterable of Sets should upcast."
+        assert op2.MixedDat(mset).dataset == op2.MixedDataSet(mset)
+
+    def test_mixed_dat_sets_dsets_dats(self, backend, set, dset):
+        """Constructing a MixedDat from an iterable of Sets, DataSets and
+        Dats should upcast as necessary."""
+        dat = op2.Dat(op2.Set(3) ** 2)
+        assert op2.MixedDat((set, dset, dat)).split == (op2.Dat(set), op2.Dat(dset), dat)
+
+    def test_mixed_dat_getitem(self, backend, mdat):
+        "MixedDat should return the corresponding Dat when indexed."
+        for i, d in enumerate(mdat):
+            assert mdat[i] == d
+        assert mdat[:-1] == tuple(mdat)[:-1]
+
+    def test_mixed_dat_dim(self, backend, mdset):
+        "MixedDat dim should return a tuple of the DataSet dims."
+        assert op2.MixedDat(mdset).dim == mdset.dim
+
+    def test_mixed_dat_cdim(self, backend, mdset):
+        "MixedDat cdim should return a tuple of the DataSet cdims."
+        assert op2.MixedDat(mdset).cdim == mdset.cdim
+
+    def test_mixed_dat_soa(self, backend, mdat):
+        "MixedDat soa should return a tuple of the Dat soa flags."
+        assert mdat.soa == tuple(d.soa for d in mdat)
+
+    def test_mixed_dat_data(self, backend, mdat):
+        "MixedDat data should return a tuple of the Dat data arrays."
+        assert all((d1 == d2.data).all() for d1, d2 in zip(mdat.data, mdat))
+
+    def test_mixed_dat_data_ro(self, backend, mdat):
+        "MixedDat data_ro should return a tuple of the Dat data_ro arrays."
+        assert all((d1 == d2.data_ro).all() for d1, d2 in zip(mdat.data_ro, mdat))
+
+    def test_mixed_dat_data_with_halos(self, backend, mdat):
+        """MixedDat data_with_halos should return a tuple of the Dat
+        data_with_halos arrays."""
+        assert all((d1 == d2.data_with_halos).all() for d1, d2 in zip(mdat.data_with_halos, mdat))
+
+    def test_mixed_dat_data_ro_with_halos(self, backend, mdat):
+        """MixedDat data_ro_with_halos should return a tuple of the Dat
+        data_ro_with_halos arrays."""
+        assert all((d1 == d2.data_ro_with_halos).all() for d1, d2 in zip(mdat.data_ro_with_halos, mdat))
+
+    def test_mixed_dat_needs_halo_update(self, backend, mdat):
+        """MixedDat needs_halo_update should indicate if at least one contained
+        Dat needs a halo update."""
+        assert not mdat.needs_halo_update
+        mdat[0].needs_halo_update = True
+        assert mdat.needs_halo_update
+
+    def test_mixed_dat_needs_halo_update_setter(self, backend, mdat):
+        """Setting MixedDat needs_halo_update should set the property for all
+        contained Dats."""
+        assert not mdat.needs_halo_update
+        mdat.needs_halo_update = True
+        assert all(d.needs_halo_update for d in mdat)
+
+    def test_mixed_dat_iter(self, backend, mdat, dats):
+        "MixedDat should be iterable and yield the Dats."
+        assert tuple(s for s in mdat) == dats
+
+    def test_mixed_dat_len(self, backend, dats):
+        """MixedDat should have length equal to the number of contained Dats."""
+        assert len(op2.MixedDat(dats)) == len(dats)
+
+    def test_mixed_dat_eq(self, backend, dats):
+        "MixedDats created from the same Dats should compare equal."
+        assert op2.MixedDat(dats) == op2.MixedDat(dats)
+        assert not op2.MixedDat(dats) != op2.MixedDat(dats)
+
+    def test_mixed_dat_ne(self, backend, dats):
+        "MixedDats created from different Dats should not compare equal."
+        mdat1 = op2.MixedDat(dats)
+        mdat2 = op2.MixedDat(reversed(dats))
+        assert mdat1 != mdat2
+        assert not mdat1 == mdat2
+
+    def test_mixed_dat_ne_dat(self, backend, dats):
+        "A MixedDat should not compare equal to a Dat."
+        assert op2.MixedDat(dats) != dats[0]
+        assert not op2.MixedDat(dats) == dats[0]
+
+    def test_mixed_dat_repr(self, backend, mdat):
+        "MixedDat repr should produce a MixedDat object when eval'd."
+        from pyop2.op2 import Set, DataSet, MixedDataSet, Dat, MixedDat  # noqa: needed by eval
+        from numpy import dtype  # noqa: needed by eval
+        assert isinstance(eval(repr(mdat)), base.MixedDat)
+
+    def test_mixed_dat_str(self, backend, mdat):
+        "MixedDat should have the expected string representation."
+        assert str(mdat) == "OP2 MixedDat composed of Dats: %s" % (mdat.split,)
+
+
 class TestSparsityAPI:
 
     """
@@ -680,6 +1192,18 @@ class TestSparsityAPI:
     def dd(cls, dataset2):
         return op2.DataSet(dataset2, 1, 'dd')
 
+    @pytest.fixture
+    def s(cls, di, mi):
+        return op2.Sparsity(di, mi)
+
+    @pytest.fixture
+    def mixed_row_sparsity(cls, dtoset, mds, m_iterset_toset, mmap):
+        return op2.Sparsity((mds, dtoset), (mmap, m_iterset_toset))
+
+    @pytest.fixture
+    def mixed_col_sparsity(cls, dtoset, mds, m_iterset_toset, mmap):
+        return op2.Sparsity((dtoset, mds), (m_iterset_toset, mmap))
+
     def test_sparsity_illegal_rdset(self, backend, di, mi):
         "Sparsity rdset should be a DataSet"
         with pytest.raises(TypeError):
@@ -700,10 +1224,16 @@ class TestSparsityAPI:
         with pytest.raises(TypeError):
             op2.Sparsity((di, di), (mi, 'illegalcmap'))
 
+    def test_sparsity_illegal_name(self, backend, di, mi):
+        "Sparsity name should be a string."
+        with pytest.raises(TypeError):
+            op2.Sparsity(di, mi, 0)
+
     def test_sparsity_single_dset(self, backend, di, mi):
         "Sparsity constructor should accept single Map and turn it into tuple"
         s = op2.Sparsity(di, mi, "foo")
-        assert s.maps[0] == (mi, mi) and s.dims == (1, 1) and s.name == "foo" and s.dsets == (di, di)
+        assert (s.maps[0] == (mi, mi) and s.dims == (1, 1) and
+                s.name == "foo" and s.dsets == (di, di))
 
     def test_sparsity_set_not_dset(self, backend, di, mi):
         "If we pass a Set, not a DataSet, it default to dimension 1."
@@ -713,23 +1243,32 @@ class TestSparsityAPI:
     def test_sparsity_map_pair(self, backend, di, mi):
         "Sparsity constructor should accept a pair of maps"
         s = op2.Sparsity((di, di), (mi, mi), "foo")
-        assert s.maps[0] == (mi, mi) and s.dims == (1, 1) and s.name == "foo" and s.dsets == (di, di)
+        assert (s.maps[0] == (mi, mi) and s.dims == (1, 1) and
+                s.name == "foo" and s.dsets == (di, di))
 
-    def test_sparsity_map_pair_different_dataset(self, backend, mi, md, di, dd, m):
-        "Sparsity constructor should accept a pair of maps"
-        s = op2.Sparsity((di, dd), (m, md), "foo")
-        assert s.maps[0] == (m, md) and s.dims == (1, 1) and s.name == "foo" and s.dsets == (di, dd)
+    def test_sparsity_map_pair_different_dataset(self, backend, mi, md, di, dd, m_iterset_toset):
+        """Sparsity can be built from different row and column maps as long as
+        the tosets match the row and column DataSet."""
+        s = op2.Sparsity((di, dd), (m_iterset_toset, md), "foo")
+        assert (s.maps[0] == (m_iterset_toset, md) and s.dims == (1, 1) and
+                s.name == "foo" and s.dsets == (di, dd))
 
-    def test_sparsity_multiple_map_pairs(self, backend, mi, di):
-        "Sparsity constructor should accept tuple of pairs of maps"
+    def test_sparsity_unique_map_pairs(self, backend, mi, di):
+        "Sparsity constructor should filter duplicate tuples of pairs of maps."
         s = op2.Sparsity((di, di), ((mi, mi), (mi, mi)), "foo")
-        assert s.maps == [(mi, mi), (mi, mi)] and s.dims == (1, 1)
+        assert s.maps == [(mi, mi)] and s.dims == (1, 1)
 
-    def test_sparsity_map_pairs_different_itset(self, backend, mi, di, dd, m):
+    def test_sparsity_map_pairs_different_itset(self, backend, mi, di, dd, m_iterset_toset):
         "Sparsity constructor should accept maps with different iteration sets"
-        s = op2.Sparsity((di, di), ((m, m), (mi, mi)), "foo")
-        # Note the order of the map pairs is not guaranteed
-        assert len(s.maps) == 2 and s.dims == (1, 1)
+        maps = ((m_iterset_toset, m_iterset_toset), (mi, mi))
+        s = op2.Sparsity((di, di), maps, "foo")
+        assert s.maps == list(sorted(maps)) and s.dims == (1, 1)
+
+    def test_sparsity_map_pairs_sorted(self, backend, mi, di, dd, m_iterset_toset):
+        "Sparsity maps should have a deterministic order."
+        s1 = op2.Sparsity((di, di), [(m_iterset_toset, m_iterset_toset), (mi, mi)])
+        s2 = op2.Sparsity((di, di), [(mi, mi), (m_iterset_toset, m_iterset_toset)])
+        assert s1.maps == s2.maps
 
     def test_sparsity_illegal_itersets(self, backend, mi, md, di, dd):
         "Both maps in a (rmap,cmap) tuple must have same iteration set"
@@ -745,6 +1284,70 @@ class TestSparsityAPI:
         "All column maps must share the same data set"
         with pytest.raises(RuntimeError):
             op2.Sparsity((di, di), ((mi, mi), (mi, md)))
+
+    def test_sparsity_shape(self, backend, s):
+        "Sparsity shape of a single block should be (1, 1)."
+        assert s.shape == (1, 1)
+
+    def test_sparsity_iter(self, backend, s):
+        "Iterating over a Sparsity of a single block should yield self."
+        for bs in s:
+            assert bs == s
+
+    def test_sparsity_getitem(self, backend, s):
+        "Block 0, 0 of a Sparsity of a single block should be self."
+        assert s[0, 0] == s
+
+    def test_sparsity_mmap_iter(self, backend, ms):
+        "Iterating a Sparsity should yield the block by row."
+        cols = ms.shape[1]
+        for i, block in enumerate(ms):
+            assert block == ms[i / cols, i % cols]
+
+    def test_sparsity_mmap_getitem(self, backend, ms):
+        """Sparsity block i, j should be defined on the corresponding row and
+        column DataSets and Maps."""
+        for i, (rds, rm) in enumerate(zip(ms.dsets[0], ms.rmaps)):
+            for j, (cds, cm) in enumerate(zip(ms.dsets[1], ms.cmaps)):
+                block = ms[i, j]
+                # Indexing with a tuple and double index is equivalent
+                assert block == ms[i][j]
+                assert (block.dsets == (rds, cds) and
+                        block.maps == [(rm.split[i], cm.split[j])])
+
+    def test_sparsity_mmap_getrow(self, backend, ms):
+        """Indexing a Sparsity with a single index should yield a row of
+        blocks."""
+        for i, (rds, rm) in enumerate(zip(ms.dsets[0], ms.rmaps)):
+            for j, (s, cds, cm) in enumerate(zip(ms[i], ms.dsets[1], ms.cmaps)):
+                assert (s.dsets == (rds, cds) and
+                        s.maps == [(rm.split[i], cm.split[j])])
+
+    def test_sparsity_mmap_shape(self, backend, ms):
+        "Sparsity shape of should be the sizes of the mixed space."
+        assert ms.shape == (len(ms.dsets[0]), len(ms.dsets[1]))
+
+    def test_sparsity_mmap_illegal_itersets(self, backend, m_iterset_toset,
+                                            m_iterset_set, m_set_toset,
+                                            m_set_set, mds):
+        "Both maps in a (rmap,cmap) tuple must have same iteration set."
+        with pytest.raises(RuntimeError):
+            op2.Sparsity((mds, mds), (op2.MixedMap((m_iterset_toset, m_iterset_set)),
+                                      op2.MixedMap((m_set_toset, m_set_set))))
+
+    def test_sparsity_mmap_illegal_row_datasets(self, backend, m_iterset_toset,
+                                                m_iterset_set, m_set_toset, mds):
+        "All row maps must share the same data set."
+        with pytest.raises(RuntimeError):
+            op2.Sparsity((mds, mds), (op2.MixedMap((m_iterset_toset, m_iterset_set)),
+                                      op2.MixedMap((m_set_toset, m_set_toset))))
+
+    def test_sparsity_mmap_illegal_col_datasets(self, backend, m_iterset_toset,
+                                                m_iterset_set, m_set_toset, mds):
+        "All column maps must share the same data set."
+        with pytest.raises(RuntimeError):
+            op2.Sparsity((mds, mds), (op2.MixedMap((m_set_toset, m_set_toset)),
+                                      op2.MixedMap((m_iterset_toset, m_iterset_set))))
 
     def test_sparsity_repr(self, backend, sparsity):
         "Sparsity should have the expected repr."
@@ -787,22 +1390,26 @@ class TestMatAPI:
         assert m.sparsity == sparsity and  \
             m.dtype == np.float64 and m.name == 'bar'
 
-    def test_mat_arg_illegal_maps(self, backend, mat):
+    def test_mat_mixed(self, backend, mmat):
+        "Default data type should be numpy.float64."
+        assert mmat.dtype == np.double
+
+    def test_mat_illegal_maps(self, backend, mat):
         "Mat arg constructor should reject invalid maps."
         wrongmap = op2.Map(op2.Set(2), op2.Set(3), 2, [0, 0, 0, 0])
         with pytest.raises(exceptions.MapValueError):
             mat(op2.INC, (wrongmap[0], wrongmap[1]))
 
-    def test_mat_arg_nonindexed_maps(self, backend, mat, m):
+    def test_mat_arg_nonindexed_maps(self, backend, mat, m_iterset_toset):
         "Mat arg constructor should reject nonindexed maps."
         with pytest.raises(TypeError):
-            mat(op2.INC, (m, m))
+            mat(op2.INC, (m_iterset_toset, m_iterset_toset))
 
     @pytest.mark.parametrize("mode", [op2.READ, op2.RW, op2.MIN, op2.MAX])
-    def test_mat_arg_illegal_mode(self, backend, mat, mode, m):
+    def test_mat_arg_illegal_mode(self, backend, mat, mode, m_iterset_toset):
         """Mat arg constructor should reject illegal access modes."""
         with pytest.raises(exceptions.ModeValueError):
-            mat(mode, (m[op2.i[0]], m[op2.i[1]]))
+            mat(mode, (m_iterset_toset[op2.i[0]], m_iterset_toset[op2.i[1]]))
 
     def test_mat_set_diagonal(self, backend, diag_mat, dat, skip_cuda):
         """Setting the diagonal of a zero matrix."""
@@ -819,9 +1426,14 @@ class TestMatAPI:
     def test_mat_vec_mult(self, backend, diag_mat, dat, skip_cuda):
         """Mat multiplied with PETSc Vec should perform matrix-vector
         multiplication and yield a Dat."""
-        vec = dat.vec_ro
-        diag_mat.set_diagonal(vec)
-        assert np.allclose((diag_mat * vec).data_ro, np.multiply(dat.data_ro, dat.data_ro))
+        with dat.vec_ro as vec:
+            diag_mat.set_diagonal(vec)
+            assert np.allclose((diag_mat * vec).data_ro, np.multiply(dat.data_ro, dat.data_ro))
+
+    def test_mat_iter(self, backend, mat):
+        "Mat should be iterable and yield self."
+        for m in mat:
+            assert m is mat
 
     def test_mat_repr(self, backend, mat):
         "Mat should have the expected repr."
@@ -947,6 +1559,15 @@ class TestConstAPI:
         with pytest.raises(exceptions.DataValueError):
             c.data = [1, 2]
 
+    def test_const_iter(self, backend, const):
+        "Const should be iterable and yield self."
+        for c in const:
+            assert c is const
+
+    def test_const_len(self, backend, const):
+        "Const len should be 1."
+        assert len(const) == 1
+
     def test_const_repr(self, backend, const):
         "Const repr should produce a Const object when eval'd."
         from pyop2.op2 import Const  # noqa: needed by eval
@@ -1061,6 +1682,15 @@ class TestGlobalAPI:
         assert op2.Global(1, [1.0]) != op2.Global(1, [2.0])
         assert not op2.Global(1, [1.0]) == op2.Global(1, [2.0])
 
+    def test_global_iter(self, backend, g):
+        "Global should be iterable and yield self."
+        for g_ in g:
+            assert g_ is g
+
+    def test_global_len(self, backend, g):
+        "Global len should be 1."
+        assert len(g) == 1
+
     def test_global_repr(self, backend):
         "Global repr should produce a Global object when eval'd."
         from pyop2.op2 import Global  # noqa: needed by eval
@@ -1081,9 +1711,9 @@ class TestGlobalAPI:
         with pytest.raises(exceptions.ModeValueError):
             g(mode)
 
-    def test_global_arg_ignore_map(self, backend, g, m):
+    def test_global_arg_ignore_map(self, backend, g, m_iterset_toset):
         """Global __call__ should ignore the optional second argument."""
-        assert g(op2.READ, m).map is None
+        assert g(op2.READ, m_iterset_toset).map is None
 
 
 class TestMapAPI:
@@ -1137,61 +1767,184 @@ class TestMapAPI:
         m = op2.Map(iterset, toset, 2, [1] * 2 * iterset.size)
         assert m.arity == 2 and m.values.shape == (iterset.size, 2)
 
+    def test_map_split(self, backend, m_iterset_toset):
+        "Splitting a Map should yield a tuple with self"
+        for m in m_iterset_toset.split:
+            m == m_iterset_toset
+
     def test_map_properties(self, backend, iterset, toset):
         "Data constructor should correctly set attributes."
         m = op2.Map(iterset, toset, 2, [1] * 2 * iterset.size, 'bar')
-        assert m.iterset == iterset and m.toset == toset and m.arity == 2 \
-            and m.values.sum() == 2 * iterset.size and m.name == 'bar'
+        assert (m.iterset == iterset and m.toset == toset and m.arity == 2 and
+                m.arities == (2,) and m.arange == (0, 2) and
+                m.values.sum() == 2 * iterset.size and m.name == 'bar')
 
-    def test_map_indexing(self, backend, m):
+    def test_map_indexing(self, backend, m_iterset_toset):
         "Indexing a map should create an appropriate Arg"
-        assert m[0].idx == 0
+        assert m_iterset_toset[0].idx == 0
 
-    def test_map_slicing(self, backend, m):
+    def test_map_slicing(self, backend, m_iterset_toset):
         "Slicing a map is not allowed"
         with pytest.raises(NotImplementedError):
-            m[:]
+            m_iterset_toset[:]
 
-    def test_map_eq(self, backend, m):
+    def test_map_eq(self, backend, m_iterset_toset):
         """Maps should compare equal if defined on the identical iterset and
         toset and having the same arity and mapping values."""
-        mcopy = op2.Map(m.iterset, m.toset, m.arity, m.values)
-        assert m == mcopy
-        assert not m != mcopy
+        mcopy = op2.Map(m_iterset_toset.iterset, m_iterset_toset.toset,
+                        m_iterset_toset.arity, m_iterset_toset.values)
+        assert m_iterset_toset == mcopy
+        assert not m_iterset_toset != mcopy
 
-    def test_map_ne_iterset(self, backend, m):
+    def test_map_ne_iterset(self, backend, m_iterset_toset):
         """Maps that have copied but not equal iteration sets are not equal."""
-        assert m != op2.Map(op2.Set(m.iterset.size), m.toset, m.arity, m.values)
+        mcopy = op2.Map(op2.Set(m_iterset_toset.iterset.size),
+                        m_iterset_toset.toset, m_iterset_toset.arity,
+                        m_iterset_toset.values)
+        assert m_iterset_toset != mcopy
+        assert not m_iterset_toset == mcopy
 
-    def test_map_ne_toset(self, backend, m):
+    def test_map_ne_toset(self, backend, m_iterset_toset):
         """Maps that have copied but not equal to sets are not equal."""
-        mcopy = op2.Map(m.iterset, op2.Set(m.toset.size), m.arity, m.values)
-        assert m != mcopy
-        assert not m == mcopy
+        mcopy = op2.Map(m_iterset_toset.iterset, op2.Set(m_iterset_toset.toset.size),
+                        m_iterset_toset.arity, m_iterset_toset.values)
+        assert m_iterset_toset != mcopy
+        assert not m_iterset_toset == mcopy
 
-    def test_map_ne_arity(self, backend, m):
+    def test_map_ne_arity(self, backend, m_iterset_toset):
         """Maps that have different arities are not equal."""
-        mcopy = op2.Map(m.iterset, m.toset, m.arity * 2, list(m.values) * 2)
-        assert m != mcopy
-        assert not m == mcopy
+        mcopy = op2.Map(m_iterset_toset.iterset, m_iterset_toset.toset,
+                        m_iterset_toset.arity * 2, list(m_iterset_toset.values) * 2)
+        assert m_iterset_toset != mcopy
+        assert not m_iterset_toset == mcopy
 
-    def test_map_ne_values(self, backend, m):
+    def test_map_ne_values(self, backend, m_iterset_toset):
         """Maps that have different values are not equal."""
-        m2 = op2.Map(m.iterset, m.toset, m.arity, m.values.copy())
+        m2 = op2.Map(m_iterset_toset.iterset, m_iterset_toset.toset,
+                     m_iterset_toset.arity, m_iterset_toset.values.copy())
         m2.values[0] = 2
-        assert m != m2
-        assert not m == m2
+        assert m_iterset_toset != m2
+        assert not m_iterset_toset == m2
 
-    def test_map_repr(self, backend, m):
+    def test_map_iter(self, backend, m_iterset_toset):
+        "Map should be iterable and yield self."
+        for m_ in m_iterset_toset:
+            assert m_ is m_iterset_toset
+
+    def test_map_len(self, backend, m_iterset_toset):
+        "Map len should be 1."
+        assert len(m_iterset_toset) == 1
+
+    def test_map_repr(self, backend, m_iterset_toset):
         "Map should have the expected repr."
-        r = "Map(%r, %r, %r, None, %r)" % (m.iterset, m.toset, m.arity, m.name)
-        assert repr(m) == r
+        r = "Map(%r, %r, %r, None, %r)" % (m_iterset_toset.iterset, m_iterset_toset.toset,
+                                           m_iterset_toset.arity, m_iterset_toset.name)
+        assert repr(m_iterset_toset) == r
 
-    def test_map_str(self, backend, m):
+    def test_map_str(self, backend, m_iterset_toset):
         "Map should have the expected string representation."
         s = "OP2 Map: %s from (%s) to (%s) with arity %s" \
-            % (m.name, m.iterset, m.toset, m.arity)
-        assert str(m) == s
+            % (m_iterset_toset.name, m_iterset_toset.iterset, m_iterset_toset.toset, m_iterset_toset.arity)
+        assert str(m_iterset_toset) == s
+
+
+class TestMixedMapAPI:
+
+    """
+    MixedMap API unit tests
+    """
+
+    def test_mixed_map_illegal_arg(self, backend):
+        "Map iterset should be Set."
+        with pytest.raises(TypeError):
+            op2.MixedMap('illegalarg')
+
+    def test_mixed_map_split(self, backend, maps):
+        """Constructing a MixedDat from an iterable of Maps should leave them
+        unchanged."""
+        mmap = op2.MixedMap(maps)
+        assert mmap.split == maps
+        for i, m in enumerate(maps):
+            assert mmap.split[i] == m
+        assert mmap.split[:-1] == tuple(mmap)[:-1]
+
+    def test_mixed_map_nonunique_itset(self, backend, m_iterset_toset, m_set_toset):
+        "Map toset should be Set."
+        with pytest.raises(exceptions.MapTypeError):
+            op2.MixedMap((m_iterset_toset, m_set_toset))
+
+    def test_mixed_map_iterset(self, backend, mmap):
+        "MixedMap iterset should return the common iterset of all Maps."
+        for m in mmap:
+            assert mmap.iterset == m.iterset
+
+    def test_mixed_map_toset(self, backend, mmap):
+        "MixedMap toset should return a MixedSet of the Map tosets."
+        assert mmap.toset == op2.MixedSet(m.toset for m in mmap)
+
+    def test_mixed_map_arity(self, backend, mmap):
+        "MixedMap arity should return the sum of the Map arities."
+        assert mmap.arity == sum(m.arity for m in mmap)
+
+    def test_mixed_map_arities(self, backend, mmap):
+        "MixedMap arities should return a tuple of the Map arities."
+        assert mmap.arities == tuple(m.arity for m in mmap)
+
+    def test_mixed_map_arange(self, backend, mmap):
+        "MixedMap arities should return a tuple of the Map arities."
+        assert mmap.arange == (0,) + tuple(np.cumsum(mmap.arities))
+
+    def test_mixed_map_values(self, backend, mmap):
+        "MixedMap values should return a tuple of the Map values."
+        assert all((v == m.values).all() for v, m in zip(mmap.values, mmap))
+
+    def test_mixed_map_values_with_halo(self, backend, mmap):
+        "MixedMap values_with_halo should return a tuple of the Map values."
+        assert all((v == m.values_with_halo).all() for v, m in zip(mmap.values_with_halo, mmap))
+
+    def test_mixed_map_name(self, backend, mmap):
+        "MixedMap name should return a tuple of the Map names."
+        assert mmap.name == tuple(m.name for m in mmap)
+
+    def test_mixed_map_offset(self, backend, mmap):
+        "MixedMap offset should return a tuple of the Map offsets."
+        assert mmap.offset == tuple(m.offset for m in mmap)
+
+    def test_mixed_map_iter(self, backend, maps):
+        "MixedMap should be iterable and yield the Maps."
+        assert tuple(m for m in op2.MixedMap(maps)) == maps
+
+    def test_mixed_map_len(self, backend, maps):
+        """MixedMap should have length equal to the number of contained Maps."""
+        assert len(op2.MixedMap(maps)) == len(maps)
+
+    def test_mixed_map_eq(self, backend, maps):
+        "MixedMaps created from the same Maps should compare equal."
+        assert op2.MixedMap(maps) == op2.MixedMap(maps)
+        assert not op2.MixedMap(maps) != op2.MixedMap(maps)
+
+    def test_mixed_map_ne(self, backend, maps):
+        "MixedMaps created from different Maps should not compare equal."
+        mm1 = op2.MixedMap((maps[0], maps[1]))
+        mm2 = op2.MixedMap((maps[1], maps[0]))
+        assert mm1 != mm2
+        assert not mm1 == mm2
+
+    def test_mixed_map_ne_map(self, backend, maps):
+        "A MixedMap should not compare equal to a Map."
+        assert op2.MixedMap(maps) != maps[0]
+        assert not op2.MixedMap(maps) == maps[0]
+
+    def test_mixed_map_repr(self, backend, mmap):
+        "MixedMap should have the expected repr."
+        # Note: We can't actually reproduce a MixedMap from its repr because
+        # the iteration sets will not be identical, which is checked in the
+        # constructor
+        assert repr(mmap) == "MixedMap(%r)" % (mmap.split,)
+
+    def test_mixed_map_str(self, backend, mmap):
+        "MixedMap should have the expected string representation."
+        assert str(mmap) == "OP2 MixedMap composed of Maps: %s" % (mmap.split,)
 
 
 class TestIterationSpaceAPI:
@@ -1229,6 +1982,22 @@ class TestIterationSpaceAPI:
         "IterationSpace constructor should correctly set attributes."
         i = base.IterationSpace(set, (2, 3))
         assert i.iterset == set and i.extents == (2, 3)
+
+    def test_iteration_space_iter(self, backend, set):
+        "Iterating an empty IterationSpace should yield an empty shape."
+        for i, j, shape, offset in base.IterationSpace(set):
+            assert i == 0 and j == 0 and shape == () and offset == (0,)
+
+    @pytest.mark.parametrize(('shapes', 'offsets'),
+                             [((((1, 1), (1, 2)), ((2, 1), (2, 2))), ((0, 1), (0, 1))),
+                              ((((1, 2),), ((2, 1),)), ((0,), (1,)))])
+    def test_iteration_space_iter_blocks(self, backend, set, shapes, offsets):
+        """Iterating an IterationSpace should yield its blocks shapes and their
+        indices."""
+        for i, j, shape, offset in base.IterationSpace(set, block_shape=shapes,
+                                                       offsets=offsets):
+            assert shape == shapes[i][j]
+            assert offset == offsets[i][j]
 
     def test_iteration_space_eq(self, backend, set):
         """IterationSpaces should compare equal if defined on the same Set."""
@@ -1295,15 +2064,16 @@ class TestParLoopAPI:
     ParLoop API unit tests
     """
 
-    def test_illegal_kernel(self, backend, set, dat, m):
+    def test_illegal_kernel(self, backend, set, dat, m_iterset_toset):
         """The first ParLoop argument has to be of type op2.Kernel."""
         with pytest.raises(exceptions.KernelTypeError):
-            op2.par_loop('illegal_kernel', set, dat(op2.READ, m))
+            op2.par_loop('illegal_kernel', set, dat(op2.READ, m_iterset_toset))
 
-    def test_illegal_iterset(self, backend, dat, m):
+    def test_illegal_iterset(self, backend, dat, m_iterset_toset):
         """The first ParLoop argument has to be of type op2.Kernel."""
         with pytest.raises(exceptions.SetTypeError):
-            op2.par_loop(op2.Kernel("", "k"), 'illegal_set', dat(op2.READ, m))
+            op2.par_loop(op2.Kernel("", "k"), 'illegal_set',
+                         dat(op2.READ, m_iterset_toset))
 
     def test_illegal_dat_iterset(self, backend):
         """ParLoop should reject a Dat argument using a different iteration

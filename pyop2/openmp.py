@@ -69,11 +69,11 @@ class Arg(host.Arg):
     def c_vec_name(self, idx=None):
         return self.c_arg_name() + "_vec[%s]" % (idx or 'tid')
 
-    def c_kernel_arg_name(self, idx=None):
-        return "p_%s[%s]" % (self.c_arg_name(), idx or 'tid')
+    def c_kernel_arg_name(self, i, j, idx=None):
+        return "p_%s[%s]" % (self.c_arg_name(i, j), idx or 'tid')
 
-    def c_local_tensor_name(self):
-        return self.c_kernel_arg_name(str(_max_threads))
+    def c_local_tensor_name(self, i, j):
+        return self.c_kernel_arg_name(i, j, _max_threads)
 
     def c_vec_dec(self):
         cdim = self.data.dataset.cdim if self._flatten else 1
@@ -154,7 +154,6 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
 
   %(wrapper_decs)s;
   %(const_inits)s;
-  %(local_tensor_decs)s;
   %(off_inits)s;
   %(map_decl)s
 
@@ -180,17 +179,7 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
       {
         int i = %(index_expr)s;
         %(vec_inits)s;
-        %(map_init)s;
-        %(extr_loop)s
-        %(itspace_loops)s
-        %(zero_tmps)s;
-        %(kernel_name)s(%(kernel_args)s);
-        %(addtos_vector_field)s;
-        %(itspace_loop_close)s
-        %(ind)s%(addtos_scalar_field_extruded)s;
-        %(apply_offset)s
-        %(extr_loop_close)s
-        %(addtos_scalar_field)s;
+        %(itset_loop_body)s;
       }
     }
     %(interm_globals_writeback)s;

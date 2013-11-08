@@ -610,6 +610,41 @@ def expected_vec_rhs():
                       dtype=valuetype)
 
 
+@pytest.fixture
+def mset():
+    return op2.MixedSet((op2.Set(3), op2.Set(4)))
+
+
+rdata = lambda s: np.arange(1, s + 1, dtype=np.float64)
+
+
+@pytest.fixture
+def mdat(mset):
+    return op2.MixedDat(op2.Dat(s, rdata(s.size)) for s in mset)
+
+
+@pytest.fixture
+def mvdat(mset):
+    return op2.MixedDat(op2.Dat(s ** 2, zip(rdata(s.size), rdata(s.size))) for s in mset)
+
+
+@pytest.fixture
+def mmap(mset):
+    elem, node = mset
+    return op2.MixedMap((op2.Map(elem, elem, 1, [0, 1, 2]),
+                         op2.Map(elem, node, 2, [0, 1, 1, 2, 2, 3])))
+
+
+@pytest.fixture
+def msparsity(mset, mmap):
+    return op2.Sparsity(mset, mmap)
+
+
+@pytest.fixture
+def mvsparsity(mset, mmap):
+    return op2.Sparsity(mset ** 2, mmap)
+
+
 class TestSparsity:
 
     """
@@ -628,6 +663,40 @@ class TestSparsity:
         assert all(sparsity._colidx == [0, 1, 3, 4, 0, 1, 2, 4, 1, 2,
                                         3, 4, 0, 2, 3, 4, 0, 1, 2, 3, 4])
 
+    def test_build_mixed_sparsity(self, backend, msparsity):
+        """Building a sparsity from a pair of mixed maps should give the
+        expected rowptr and colidx for each block."""
+        assert all(msparsity._rowptr[0] == [0, 1, 2, 3])
+        assert all(msparsity._rowptr[1] == [0, 2, 4, 6])
+        assert all(msparsity._rowptr[2] == [0, 1, 3, 5, 6])
+        assert all(msparsity._rowptr[3] == [0, 2, 5, 8, 10])
+        assert all(msparsity._colidx[0] == [0, 1, 2])
+        assert all(msparsity._colidx[1] == [0, 1, 1, 2, 2, 3])
+        assert all(msparsity._colidx[2] == [0, 0, 1, 1, 2, 2])
+        assert all(msparsity._colidx[3] == [0, 1, 0, 1, 2, 1, 2, 3, 2, 3])
+
+    def test_build_mixed_sparsity_vector(self, backend, mvsparsity):
+        """Building a sparsity from a pair of mixed maps and a vector DataSet
+        should give the expected rowptr and colidx for each block."""
+        assert all(mvsparsity._rowptr[0] == [0, 2, 4, 6, 8, 10, 12])
+        assert all(mvsparsity._rowptr[1] == [0, 4, 8, 12, 16, 20, 24])
+        assert all(mvsparsity._rowptr[2] == [0, 2, 4, 8, 12, 16, 20, 22, 24])
+        assert all(mvsparsity._rowptr[3] == [0, 4, 8, 14, 20, 26, 32, 36, 40])
+        assert all(mvsparsity._colidx[0] == [0, 1, 0, 1,
+                                             2, 3, 2, 3,
+                                             4, 5, 4, 5])
+        assert all(mvsparsity._colidx[1] == [0, 1, 2, 3, 0, 1, 2, 3,
+                                             2, 3, 4, 5, 2, 3, 4, 5,
+                                             4, 5, 6, 7, 4, 5, 6, 7])
+        assert all(mvsparsity._colidx[2] == [0, 1, 0, 1,
+                                             0, 1, 2, 3, 0, 1, 2, 3,
+                                             2, 3, 4, 5, 2, 3, 4, 5,
+                                             4, 5, 4, 5])
+        assert all(mvsparsity._colidx[3] == [0, 1, 2, 3, 0, 1, 2, 3,
+                                             0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5,
+                                             2, 3, 4, 5, 6, 7, 2, 3, 4, 5, 6, 7,
+                                             4, 5, 6, 7, 4, 5, 6, 7])
+
     def test_sparsity_null_maps(self, backend):
         """Building sparsity from a pair of non-initialized maps should fail."""
         s = op2.Set(5)
@@ -640,7 +709,6 @@ class TestMatrices:
 
     """
     Matrix tests
-
     """
 
     @pytest.mark.parametrize("mode", [op2.READ, op2.RW, op2.MAX, op2.MIN])
@@ -858,6 +926,119 @@ void zero_mat(double local_mat[1][1], int i, int j)
         expected_matrix = np.zeros((8, 8), dtype=valuetype)
         eps = 1.e-14
         assert_allclose(vecmat.values, expected_matrix, eps)
+
+    @pytest.mark.xfail('config.getvalue("backend")[0] == "cuda"')
+    def test_set_diagonal(self, backend, x, mat):
+        mat.zero()
+        mat.set_diagonal(x)
+        for i, v in enumerate(x.data_ro):
+            assert mat.handle[i, i] == v
+
+
+class TestMixedMatrices:
+    """
+    Matrix tests for mixed spaces
+    """
+
+    # Only working for sequential so far
+    backends = ['sequential']
+
+    # off-diagonal blocks
+    od = np.array([[1.0, 2.0, 0.0, 0.0],
+                   [0.0, 4.0, 6.0, 0.0],
+                   [0.0, 0.0, 9.0, 12.0]])
+    # lower left block
+    ll = (np.diag([1.0, 8.0, 18.0, 16.0]) +
+          np.diag([2.0, 6.0, 12.0], -1) +
+          np.diag([2.0, 6.0, 12.0], 1))
+
+    @pytest.fixture
+    def mat(self, msparsity, mmap, mdat):
+        mat = op2.Mat(msparsity)
+        addone = op2.Kernel("""void addone_mat(double v[1][1], double ** d, int i, int j) {
+                            v[0][0] += d[i][0] * d[j][0]; }""", "addone_mat")
+        op2.par_loop(addone, mmap.iterset,
+                     mat(op2.INC, (mmap[op2.i[0]], mmap[op2.i[1]])),
+                     mdat(op2.READ, mmap))
+        return mat
+
+    @pytest.fixture
+    def dat(self, mset, mmap, mdat):
+        dat = op2.MixedDat(mset)
+        addone = op2.Kernel("""void addone_rhs(double v[1], double ** d, int i) {
+                            v[0] += d[i][0]; }""", "addone_rhs")
+        op2.par_loop(addone, mmap.iterset,
+                     dat(op2.INC, mmap[op2.i[0]]),
+                     mdat(op2.READ, mmap))
+        return dat
+
+    def test_assemble_mixed_mat(self, backend, mat):
+        """Assemble into a matrix declared on a mixed sparsity."""
+        eps = 1.e-12
+        assert_allclose(mat[0, 0].values, np.diag([1.0, 4.0, 9.0]), eps)
+        assert_allclose(mat[0, 1].values, self.od, eps)
+        assert_allclose(mat[1, 0].values, self.od.T, eps)
+        assert_allclose(mat[1, 1].values, self.ll, eps)
+
+    def test_assemble_mixed_mat_vector(self, backend, mvsparsity, mmap, mvdat):
+        """Assemble into a matrix declared on a mixed sparsity built from a
+        vector DataSet."""
+        mat = op2.Mat(mvsparsity)
+        addone = op2.Kernel("""void addone_mat_vec(double v[2][2], double ** d, int i, int j) {
+                            v[0][0] += d[i][0] * d[j][0];
+                            v[0][1] += d[i][0] * d[j][1];
+                            v[1][0] += d[i][1] * d[j][0];
+                            v[1][1] += d[i][1] * d[j][1]; }""", "addone_mat_vec")
+        op2.par_loop(addone, mmap.iterset,
+                     mat(op2.INC, (mmap[op2.i[0]], mmap[op2.i[1]])),
+                     mvdat(op2.READ, mmap))
+        eps = 1.e-12
+        b = np.ones((2, 2))
+        assert_allclose(mat[0, 0].values, np.kron(np.diag([1.0, 4.0, 9.0]), b), eps)
+        assert_allclose(mat[0, 1].values, np.kron(self.od, b), eps)
+        assert_allclose(mat[1, 0].values, np.kron(self.od.T, b), eps)
+        assert_allclose(mat[1, 1].values, np.kron(self.ll, b), eps)
+
+    def test_assemble_mixed_rhs(self, backend, dat):
+        """Assemble a simple right-hand side over a mixed space and check result."""
+        eps = 1.e-12
+        assert_allclose(dat[0].data_ro, rdata(3), eps)
+        assert_allclose(dat[1].data_ro, [1.0, 4.0, 6.0, 4.0], eps)
+
+    def test_assemble_mixed_rhs_vector(self, backend, mset, mmap, mvdat):
+        """Assemble a simple right-hand side over a mixed space and check result."""
+        dat = op2.MixedDat(mset ** 2)
+        addone = op2.Kernel("""void addone_rhs_vec(double v[1], double ** d, int i) {
+                            v[0] += d[i][0]; v[1] += d[i][1]; }""", "addone_rhs_vec")
+        op2.par_loop(addone, mmap.iterset,
+                     dat(op2.INC, mmap[op2.i[0]]),
+                     mvdat(op2.READ, mmap))
+        eps = 1.e-12
+        exp = np.kron(zip([1.0, 4.0, 6.0, 4.0]), np.ones(2))
+        assert_allclose(dat[0].data_ro, np.kron(zip(rdata(3)), np.ones(2)), eps)
+        assert_allclose(dat[1].data_ro, exp, eps)
+
+    def test_solve_mixed(self, backend, mat, dat):
+        x = op2.MixedDat(dat.dataset)
+        op2.solve(mat, x, dat)
+        b = mat * x
+        eps = 1.e-12
+        assert_allclose(dat[0].data_ro, b[0].data_ro, eps)
+        assert_allclose(dat[1].data_ro, b[1].data_ro, eps)
+
+    def test_set_diagonal(self, backend, mat, dat):
+        mat.zero()
+        mat.set_diagonal(dat)
+        rows, cols = mat.sparsity.shape
+        for i in range(rows):
+            if i < cols:
+                for j, v in enumerate(dat[i].data_ro):
+                    assert mat[i, i].handle[j, j] == v
+
+    def test_set_diagonal_invalid_dat(self, backend, mat, mset):
+        dat = op2.MixedDat(mset ** 4)
+        with pytest.raises(TypeError):
+            mat.set_diagonal(dat)
 
 
 if __name__ == '__main__':

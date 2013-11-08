@@ -135,8 +135,8 @@ class LazyComputation(object):
     """
 
     def __init__(self, reads, writes):
-        self.reads = reads
-        self.writes = writes
+        self.reads = set(flatten(reads))
+        self.writes = set(flatten(writes))
         self._scheduled = False
 
     def enqueue(self):
@@ -195,14 +195,14 @@ class ExecutionTrace(object):
 
         if reads is not None:
             try:
-                reads = set(reads)
+                reads = set(flatten(reads))
             except TypeError:       # not an iterable
                 reads = set([reads])
         else:
             reads = set()
         if writes is not None:
             try:
-                writes = set(writes)
+                writes = set(flatten(writes))
             except TypeError:
                 writes = set([writes])
         else:
@@ -324,18 +324,41 @@ class Arg(object):
         self._position = None
         self._indirect_position = None
 
+        if self._is_mixed_mat and flatten:
+            raise MatTypeError("A Mat Arg on a mixed space cannot be flattened!")
+        if self._is_mixed_dat and flatten:
+            raise DatTypeError("A MixedDat Arg cannot be flattened!")
+
         # Check arguments for consistency
-        if self._is_global or map is None:
-            return
-        for j, m in enumerate(map):
-            if m.iterset.total_size > 0 and len(m.values_with_halo) == 0:
-                raise MapValueError("%s is not initialized." % map)
-            if self._is_mat and m.toset != data.sparsity.dsets[j].set:
+        if not (self._is_global or map is None):
+            for j, m in enumerate(map):
+                if m.iterset.total_size > 0 and len(m.values_with_halo) == 0:
+                    raise MapValueError("%s is not initialized." % map)
+                if self._is_mat and m.toset != data.sparsity.dsets[j].set:
+                    raise MapValueError(
+                        "To set of %s doesn't match the set of %s." % (map, data))
+            if self._is_dat and map.toset != data.dataset.set:
                 raise MapValueError(
                     "To set of %s doesn't match the set of %s." % (map, data))
-            if self._is_dat and m._toset != data.dataset.set:
-                raise MapValueError(
-                    "To set of %s doesn't match the set of %s." % (map, data))
+
+        # Determine the iteration space extents, if any
+        if self._is_mat and flatten:
+            self._extents = (((map[0].arity * data.dims[0], map[1].arity * data.dims[1]),),)
+            self._offsets = (((0, 0),),)
+        elif self._is_mat:
+            self._extents = tuple(tuple((mr.arity, mc.arity) for mc in map[1])
+                                  for mr in map[0])
+            self._offsets = tuple(tuple((i, j) for j in map[1].arange)
+                                  for i in map[0].arange)
+        elif self._uses_itspace and flatten:
+            self._extents = (((map.arity * data.cdim,),),)
+            self._offsets = None
+        elif self._uses_itspace:
+            self._extents = tuple(((m.arity,),) for m in map)
+            self._offsets = tuple(((o,),) for o in map.arange)
+        else:
+            self._extents = None
+            self._offsets = None
 
     def __eq__(self, other):
         """:class:`Arg`\s compare equal of they are defined on the same data,
@@ -357,6 +380,15 @@ class Arg(object):
     def __repr__(self):
         return "Arg(%r, %r, %r, %r)" % \
             (self._dat, self._map, self._idx, self._access)
+
+    @property
+    def split(self):
+        """Split a mixed argument into a tuple of constituent arguments."""
+        if self._is_mixed_dat:
+            return tuple(_make_object('Arg', d, m, self._idx, self._access)
+                         for d, m in zip(self._dat, self._map))
+        else:
+            return (self,)
 
     @property
     def name(self):
@@ -423,6 +455,10 @@ class Arg(object):
         return isinstance(self._dat, Mat)
 
     @property
+    def _is_mixed_mat(self):
+        return self._is_mat and self._dat.sparsity.shape > (1, 1)
+
+    @property
     def _is_global(self):
         return isinstance(self._dat, Global)
 
@@ -433,6 +469,14 @@ class Arg(object):
     @property
     def _is_dat(self):
         return isinstance(self._dat, Dat)
+
+    @property
+    def _is_mixed_dat(self):
+        return isinstance(self._dat, MixedDat)
+
+    @property
+    def _is_mixed(self):
+        return self._is_mixed_dat or self._is_mixed_mat
 
     @property
     def _is_INC(self):
@@ -650,6 +694,14 @@ class Set(object):
         """Set the partition size"""
         self._partition_size = partition_value
 
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
+
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
+
     def __str__(self):
         return "OP2 Set: %s with size %s" % (self._name, self._size)
 
@@ -778,6 +830,99 @@ class SetPartition(object):
         self.size = size
 
 
+class MixedSet(Set):
+    """A container for a bag of :class:`Set`\s."""
+
+    def __init__(self, sets):
+        """:param iterable sets: Iterable of :class:`Set`\s"""
+        self._sets = as_tuple(sets, Set)
+        assert all(s.layers == self._sets[0].layers for s in self._sets), \
+            "All components of a MixedSet must have the same number of layers."
+
+    def __getitem__(self, idx):
+        """Return :class:`Set` with index ``idx`` or a given slice of sets."""
+        return self._sets[idx]
+
+    @property
+    def split(self):
+        """The underlying tuple of :class:`Set`\s."""
+        return self._sets
+
+    @property
+    def core_size(self):
+        """Core set size. Owned elements not touching halo elements."""
+        return sum(s.core_size for s in self._sets)
+
+    @property
+    def size(self):
+        """Set size, owned elements."""
+        return sum(s.size for s in self._sets)
+
+    @property
+    def exec_size(self):
+        """Set size including execute halo elements."""
+        return sum(s.exec_size for s in self._sets)
+
+    @property
+    def total_size(self):
+        """Total set size, including halo elements."""
+        return sum(s.total_size for s in self._sets)
+
+    @property
+    def sizes(self):
+        """Set sizes: core, owned, execute halo, total."""
+        return (self.core_size, self.size, self.exec_size, self.total_size)
+
+    @property
+    def name(self):
+        """User-defined labels."""
+        return tuple(s.name for s in self._sets)
+
+    @property
+    def halo(self):
+        """:class:`Halo`\s associated with these :class:`Set`\s."""
+        halos = tuple(s.halo for s in self._sets)
+        return halos if any(halos) else None
+
+    @property
+    def layers(self):
+        """Numbers of layers in the extruded mesh."""
+        return self._sets[0].layers
+
+    def __iter__(self):
+        """Yield all :class:`Set`\s when iterated over."""
+        for s in self._sets:
+            yield s
+
+    def __len__(self):
+        """Return number of contained :class:`Set`s."""
+        return len(self._sets)
+
+    def __pow__(self, e):
+        """Derive a :class:`MixedDataSet` with dimensions ``e``"""
+        return MixedDataSet(self._sets, e)
+
+    def __eq__(self, other):
+        """:class:`MixedSet`\s are equivalent if all their contained
+        :class:`Set`\s are and the order is the same."""
+        try:
+            return self._sets == other._sets
+        # Deal with the case of comparing to a different type
+        except AttributeError:
+            return False
+
+    def __ne__(self, other):
+        """:class:`MixedSet`\s are equivalent if all their contained
+        :class:`Set`\s are."""
+        return not self == other
+
+    def __str__(self):
+        return "OP2 MixedSet composed of Sets: %s" % (self._sets,)
+
+    def __repr__(self):
+        return "MixedSet(%r)" % (self._sets,)
+
+
 class DataSet(object):
     """PyOP2 Data Set
 
@@ -841,6 +986,14 @@ class DataSet(object):
         :class:`Set` and have the same ``dim``."""
         return not self == other
 
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
+
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
+
     def __str__(self):
         return "OP2 DataSet: %s on set %s, with dim %s" % \
             (self._name, self._set, self._dim)
@@ -851,6 +1004,129 @@ class DataSet(object):
     def __contains__(self, dat):
         """Indicate whether a given Dat is compatible with this DataSet."""
         return dat.dataset == self
+
+
+class MixedDataSet(DataSet):
+    """A container for a bag of :class:`DataSet`\s.
+
+    Initialized either from a :class:`MixedSet` and an iterable or iterator of
+    ``dims`` of corresponding length ::
+
+        mdset = op2.MixedDataSet(mset, [dim1, ..., dimN])
+
+    or from a tuple of :class:`Set`\s and an iterable of ``dims`` of
+    corresponding length ::
+
+        mdset = op2.MixedDataSet([set1, ..., setN], [dim1, ..., dimN])
+
+    If all ``dims`` are to be the same, they can also be given as an
+    :class:`int` for either of above invocations ::
+
+        mdset = op2.MixedDataSet(mset, dim)
+        mdset = op2.MixedDataSet([set1, ..., setN], dim)
+
+    Initialized from a :class:`MixedSet` without explicitly specifying ``dims``
+    they default to 1 ::
+
+        mdset = op2.MixedDataSet(mset)
+
+    Initialized from an iterable or iterator of :class:`DataSet`\s and/or
+    :class:`Set`\s, where :class:`Set`\s are implicitly upcast to
+    :class:`DataSet`\s of dim 1 ::
+
+        mdset = op2.MixedDataSet([dset1, ..., dsetN])
+    """
+
+    def __init__(self, arg, dims=None):
+        """
+        :param arg:  a :class:`MixedSet` or an iterable or a generator
+                     expression of :class:`Set`\s or :class:`DataSet`\s or a
+                     mixture of both
+        :param dims: `None` (the default) or an :class:`int` or an iterable or
+                     generator expression of :class:`int`\s, which **must** be
+                     of same length as `arg`
+
+        .. Warning ::
+            When using generator expressions for ``arg`` or ``dims``, these
+            **must** terminate or else will cause an infinite loop.
+        """
+        # If the second argument is not None it is expect to be a scalar dim
+        # or an iterable of dims and the first is expected to be a MixedSet or
+        # an iterable of Sets
+        if dims is not None:
+            # If arg is a MixedSet, get its Sets tuple
+            sets = arg.split if isinstance(arg, MixedSet) else tuple(arg)
+            # If dims is a scalar, turn it into a tuple of right length
+            dims = (dims,) * len(sets) if isinstance(dims, int) else tuple(dims)
+            if len(sets) != len(dims):
+                raise ValueError("Got MixedSet of %d Sets but %s dims" %
+                                 (len(sets), len(dims)))
+            self._dsets = tuple(s ** d for s, d in zip(sets, dims))
+        # Otherwise expect the first argument to be an iterable of Sets and/or
+        # DataSets and upcast Sets to DataSets as necessary
+        else:
+            arg = [s if isinstance(s, DataSet) else s ** 1 for s in arg]
+            self._dsets = as_tuple(arg, type=DataSet)
+
+    def __getitem__(self, idx):
+        """Return :class:`DataSet` with index ``idx`` or a given slice of datasets."""
+        return self._dsets[idx]
+
+    @property
+    def split(self):
+        """The underlying tuple of :class:`DataSet`\s."""
+        return self._dsets
+
+    @property
+    def dim(self):
+        """The shape tuple of the values for each element of the sets."""
+        return tuple(s.dim for s in self._dsets)
+
+    @property
+    def cdim(self):
+        """The scalar number of values for each member of the sets. This is
+        the product of the dim tuples."""
+        return tuple(s.cdim for s in self._dsets)
+
+    @property
+    def name(self):
+        """Returns the name of the data sets."""
+        return tuple(s.name for s in self._dsets)
+
+    @property
+    def set(self):
+        """Returns the :class:`MixedSet` this :class:`MixedDataSet` is
+        defined on."""
+        return MixedSet(s.set for s in self._dsets)
+
+    def __iter__(self):
+        """Yield all :class:`DataSet`\s when iterated over."""
+        for ds in self._dsets:
+            yield ds
+
+    def __len__(self):
+        """Return number of contained :class:`DataSet`s."""
+        return len(self._dsets)
+
+    def __eq__(self, other):
+        """:class:`MixedDataSet`\s are equivalent if all their contained
+        :class:`DataSet`\s are."""
+        try:
+            return self._dsets == other._dsets
+        # Deal with the case of comparing to a different type
+        except AttributeError:
+            return False
+
+    def __ne__(self, other):
+        """:class:`MixedDataSet`\s are equivalent if all their contained
+        :class:`DataSet`\s are."""
+        return not self == other
+
+    def __str__(self):
+        return "OP2 MixedDataSet composed of DataSets: %s" % (self._dsets,)
+
+    def __repr__(self):
+        return "MixedDataSet(%r)" % (self._dsets,)
 
 
 class Halo(object):
@@ -997,9 +1273,11 @@ class IterationSpace(object):
         :func:`pyop2.op2.par_loop`."""
 
     @validate_type(('iterset', Set, SetTypeError))
-    def __init__(self, iterset, extents=()):
+    def __init__(self, iterset, extents=(), block_shape=None, offsets=None):
         self._iterset = iterset
         self._extents = as_tuple(extents, int)
+        self._block_shape = block_shape or ((self._extents,),)
+        self._offsets = offsets or (((0,),),)
 
     @property
     def iterset(self):
@@ -1055,6 +1333,13 @@ class IterationSpace(object):
     def _extent_ranges(self):
         return [e for e in self.extents]
 
+    def __iter__(self):
+        """Yield all block shapes with their indices as i, j, shape, offsets
+        tuples."""
+        for i, row in enumerate(self._block_shape):
+            for j, shape in enumerate(row):
+                yield i, j, shape, self._offsets[i][j]
+
     def __eq__(self, other):
         """:class:`IterationSpace`s compare equal if they are defined on the
         same :class:`Set` and have the same ``extent``."""
@@ -1074,7 +1359,7 @@ class IterationSpace(object):
     @property
     def cache_key(self):
         """Cache key used to uniquely identify the object in the cache."""
-        return self._extents, self.iterset.layers, isinstance(self._iterset, Subset)
+        return self._extents, self._block_shape, self.iterset.layers, isinstance(self._iterset, Subset)
 
 
 class DataCarrier(object):
@@ -1209,6 +1494,11 @@ class Dat(DataCarrier):
         if path and path.toset != self.dataset.set:
             raise MapValueError("To Set of Map does not match Set of Dat.")
         return _make_object('Arg', data=self, map=path, access=access, flatten=flatten)
+
+    @property
+    def split(self):
+        """Tuple containing only this :class:`Dat`."""
+        return (self,)
 
     @property
     def dataset(self):
@@ -1375,6 +1665,14 @@ class Dat(DataCarrier):
             self._copy_kernel = _make_object('Kernel', k, 'copy')
         _make_object('ParLoop', self._copy_kernel, self.dataset.set,
                      self(READ), other(WRITE)).enqueue()
+
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
+
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
 
     def __eq__(self, other):
         """:class:`Dat`\s compare equal if defined on the same
@@ -1587,6 +1885,121 @@ class Dat(DataCarrier):
         return ret
 
 
+class MixedDat(Dat):
+    """A container for a bag of :class:`Dat`\s.
+
+    Initialized either from a :class:`MixedDataSet`, a :class:`MixedSet`, or
+    an iterable of :class:`DataSet`\s and/or :class:`Set`\s, where all the
+    :class:`Set`\s are implcitly upcast to :class:`DataSet`\s ::
+
+        mdat = op2.MixedDat(mdset)
+        mdat = op2.MixedDat([dset1, ..., dsetN])
+
+    or from an iterable of :class:`Dat`\s ::
+
+        mdat = op2.MixedDat([dat1, ..., datN])
+    """
+
+    def __init__(self, mdset_or_dats):
+        self._dats = tuple(d if isinstance(d, Dat) else _make_object('Dat', d)
+                           for d in mdset_or_dats)
+        if not all(d.dtype == self._dats[0].dtype for d in self._dats):
+            raise DataValueError('MixedDat with different dtypes is not supported')
+
+    def __getitem__(self, idx):
+        """Return :class:`Dat` with index ``idx`` or a given slice of Dats."""
+        return self._dats[idx]
+
+    @property
+    def dtype(self):
+        """The NumPy dtype of the data."""
+        return self._dats[0].dtype
+
+    @property
+    def split(self):
+        """The underlying tuple of :class:`Dat`\s."""
+        return self._dats
+
+    @property
+    def dataset(self):
+        """:class:`MixedDataSet`\s this :class:`MixedDat` is defined on."""
+        return MixedDataSet(tuple(s.dataset for s in self._dats))
+
+    @property
+    def soa(self):
+        """Are the data in SoA format?"""
+        return tuple(s.soa for s in self._dats)
+
+    @property
+    @collective
+    def data(self):
+        """Numpy arrays containing the data excluding halos."""
+        return tuple(s.data for s in self._dats)
+
+    @property
+    @collective
+    def data_with_halos(self):
+        """Numpy arrays containing the data including halos."""
+        return tuple(s.data_with_halos for s in self._dats)
+
+    @property
+    @collective
+    def data_ro(self):
+        """Numpy arrays with read-only data excluding halos."""
+        return tuple(s.data_ro for s in self._dats)
+
+    @property
+    @collective
+    def data_ro_with_halos(self):
+        """Numpy arrays with read-only data including halos."""
+        return tuple(s.data_ro_with_halos for s in self._dats)
+
+    @property
+    def needs_halo_update(self):
+        """Has this Dat been written to since the last halo exchange?"""
+        return any(s.needs_halo_update for s in self._dats)
+
+    @needs_halo_update.setter
+    def needs_halo_update(self, val):
+        """Indictate whether this Dat requires a halo update"""
+        for d in self._dats:
+            d.needs_halo_update = val
+
+    def zero(self):
+        """Zero the data associated with this :class:`MixedDat`."""
+        for d in self._dats:
+            d.zero()
+
+    def __iter__(self):
+        """Yield all :class:`Dat`\s when iterated over."""
+        for d in self._dats:
+            yield d
+
+    def __len__(self):
+        """Return number of contained :class:`Dats`\s."""
+        return len(self._dats)
+
+    def __eq__(self, other):
+        """:class:`MixedDat`\s are equal if all their contained :class:`Dat`\s
+        are."""
+        try:
+            return self._dats == other._dats
+        # Deal with the case of comparing to a different type
+        except AttributeError:
+            return False
+
+    def __ne__(self, other):
+        """:class:`MixedDat`\s are equal if all their contained :class:`Dat`\s
+        are."""
+        return not self == other
+
+    def __str__(self):
+        return "OP2 MixedDat composed of Dats: %s" % (self._dats,)
+
+    def __repr__(self):
+        return "MixedDat(%r)" % (self._dats,)
+
+
 class Const(DataCarrier):
 
     """Data that is constant for any element of any set."""
@@ -1621,6 +2034,14 @@ class Const(DataCarrier):
     @data.setter
     def data(self, value):
         self._data = verify_reshape(value, self.dtype, self.dim)
+
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
+
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
 
     def __str__(self):
         return "OP2 Const: %s of dim %s and type %s with value %s" \
@@ -1704,6 +2125,14 @@ class Global(DataCarrier):
         ``data``."""
         return not self == other
 
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
+
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
+
     def __str__(self):
         return "OP2 Global Argument: %s with dim %s and value %s" \
             % (self._name, self._dim, self._data)
@@ -1723,6 +2152,11 @@ class Global(DataCarrier):
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
+
+    @property
+    def data_ro(self):
+        """Data array."""
+        return self.data
 
     @data.setter
     def data(self, value):
@@ -1767,6 +2201,7 @@ class IterationIndex(object):
     # tuple.  Because, __getitem__ returns a new IterationIndex
     # we have to explicitly provide an iterable interface
     def __iter__(self):
+        """Yield self when iterated over."""
         yield self
 
 i = IterationIndex()
@@ -1816,7 +2251,7 @@ class Map(object):
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
     def __getitem__(self, index):
-        if isinstance(index, int) and not (0 <= index < self._arity):
+        if isinstance(index, int) and not (0 <= index < self.arity):
             raise IndexValueError("Index must be in interval [0,%d]" % (self._arity - 1))
         if isinstance(index, IterationIndex) and index.index not in [0, 1]:
             raise IndexValueError("IterationIndex must be in interval [0,1]")
@@ -1826,10 +2261,19 @@ class Map(object):
     # (needed in as_tuple).  Because, __getitem__ no longer returns a
     # Map we have to explicitly provide an iterable interface
     def __iter__(self):
+        """Yield self when iterated over."""
         yield self
+
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
 
     def __getslice__(self, i, j):
         raise NotImplementedError("Slicing maps is not currently implemented")
+
+    @property
+    def split(self):
+        return (self,)
 
     @property
     def iterset(self):
@@ -1846,6 +2290,19 @@ class Map(object):
         """Arity of the mapping: number of toset elements mapped to per
         iterset element."""
         return self._arity
+
+    @property
+    def arities(self):
+        """Arity of the mapping: number of toset elements mapped to per
+        iterset element.
+
+        :rtype: tuple"""
+        return (self._arity,)
+
+    @property
+    def arange(self):
+        """Tuple of arity offsets for each constituent :class:`Map`."""
+        return (0, self._arity)
 
     @property
     def values(self):
@@ -1910,6 +2367,107 @@ class Map(object):
         return cls(iterset, toset, arity[0], values, name)
 
 
+class MixedMap(Map):
+    """A container for a bag of :class:`Map`\s."""
+
+    def __init__(self, maps):
+        """:param iterable maps: Iterable of :class:`Map`\s"""
+        self._maps = as_tuple(maps, type=Map)
+        # Make sure all itersets are identical
+        if not all(m.iterset == self._maps[0].iterset for m in self._maps):
+            raise MapTypeError("All maps in a MixedMap need to share the same iterset")
+
+    @property
+    def split(self):
+        """The underlying tuple of :class:`Map`\s."""
+        return self._maps
+
+    @property
+    def iterset(self):
+        """:class:`MixedSet` mapped from."""
+        return self._maps[0].iterset
+
+    @property
+    def toset(self):
+        """:class:`MixedSet` mapped to."""
+        return MixedSet(tuple(m.toset for m in self._maps))
+
+    @property
+    def arity(self):
+        """Arity of the mapping: total number of toset elements mapped to per
+        iterset element."""
+        return sum(m.arity for m in self._maps)
+
+    @property
+    def arities(self):
+        """Arity of the mapping: number of toset elements mapped to per
+        iterset element.
+
+        :rtype: tuple"""
+        return tuple(m.arity for m in self._maps)
+
+    @property
+    def arange(self):
+        """Tuple of arity offsets for each constituent :class:`Map`."""
+        return (0,) + tuple(np.cumsum(self.arities))
+
+    @property
+    def values(self):
+        """Mapping arrays excluding data for halos.
+
+        This only returns the map values for local points, to see the
+        halo points too, use :meth:`values_with_halo`."""
+        return tuple(m.values for m in self._maps)
+
+    @property
+    def values_with_halo(self):
+        """Mapping arrays including data for halos.
+
+        This returns all map values (including halo points), see
+        :meth:`values` if you only need to look at the local
+        points."""
+        return tuple(m.values_with_halo for m in self._maps)
+
+    @property
+    def name(self):
+        """User-defined labels"""
+        return tuple(m.name for m in self._maps)
+
+    @property
+    def offset(self):
+        """Vertical offsets."""
+        return tuple(m.offset for m in self._maps)
+
+    def __iter__(self):
+        """Yield all :class:`Map`\s when iterated over."""
+        for m in self._maps:
+            yield m
+
+    def __len__(self):
+        """Number of contained :class:`Map`\s."""
+        return len(self._maps)
+
+    def __eq__(self, other):
+        """:class:`MixedMap`\s are equal if all their contained :class:`Map`\s
+        are."""
+        try:
+            return self._maps == other._maps
+        # Deal with the case of comparing to a different type
+        except AttributeError:
+            return False
+
+    def __ne__(self, other):
+        """:class:`MixedMap`\s are equal if all their contained :class:`Map`\s
+        are."""
+        return not self == other
+
+    def __str__(self):
+        return "OP2 MixedMap composed of Maps: %s" % (self._maps,)
+
+    def __repr__(self):
+        return "MixedMap(%r)" % (self._maps,)
+
+
 class Sparsity(Cached):
 
     """OP2 Sparsity, the non-zero structure a matrix derived from the union of
@@ -1929,20 +2487,19 @@ class Sparsity(Cached):
     _globalcount = 0
 
     @classmethod
-    @validate_type(('dsets', (Set, DataSet, tuple), DataSetTypeError),
-                   ('maps', (Map, tuple), MapTypeError),
+    @validate_type(('dsets', (Set, DataSet, tuple, list), DataSetTypeError),
+                   ('maps', (Map, tuple, list), MapTypeError),
                    ('name', str, NameTypeError))
     def _process_args(cls, dsets, maps, name=None, *args, **kwargs):
         "Turn maps argument into a canonical tuple of pairs."
 
         # A single data set becomes a pair of identical data sets
         dsets = [dsets, dsets] if isinstance(dsets, (Set, DataSet)) else list(dsets)
+        # Upcast Sets to DataSets
+        dsets = [s ** 1 if isinstance(s, Set) else s for s in dsets]
 
         # Check data sets are valid
-        for i, _ in enumerate(dsets):
-            if type(dsets[i]) is Set:
-                dsets[i] = (dsets[i]) ** 1
-            dset = dsets[i]
+        for dset in dsets:
             if not isinstance(dset, DataSet):
                 raise DataSetTypeError("All data sets must be of type DataSet, not type %r" % type(dset))
 
@@ -1960,8 +2517,31 @@ class Sparsity(Cached):
                 if len(m.values_with_halo) == 0 and m.iterset.total_size > 0:
                     raise MapValueError(
                         "Unpopulated map values when trying to build sparsity.")
+            # Make sure that the "to" Set of each map in a pair is the set of
+            # the corresponding DataSet set
+            if not (pair[0].toset == dsets[0].set and
+                    pair[1].toset == dsets[1].set):
+                raise RuntimeError("Map to set must be the same as corresponding DataSet set")
+
+            # Each pair of maps must have the same from-set (iteration set)
+            if not pair[0].iterset == pair[1].iterset:
+                raise RuntimeError("Iterset of both maps in a pair must be the same")
+
+        rmaps, cmaps = zip(*maps)
+
+        if not len(rmaps) == len(cmaps):
+            raise RuntimeError("Must pass equal number of row and column maps")
+
+        # Each row map must have the same to-set (data set)
+        if not all(m.toset == rmaps[0].toset for m in rmaps):
+            raise RuntimeError("To set of all row maps must be the same")
+
+        # Each column map must have the same to-set (data set)
+        if not all(m.toset == cmaps[0].toset for m in cmaps):
+            raise RuntimeError("To set of all column maps must be the same")
+
         # Need to return a list of args and dict of kwargs (empty in this case)
-        return [tuple(dsets), tuple(sorted(maps)), name], {}
+        return [tuple(dsets), tuple(sorted(uniquify(maps))), name], {}
 
     @classmethod
     def _cache_key(cls, dsets, maps, *args, **kwargs):
@@ -1981,38 +2561,10 @@ class Sparsity(Cached):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
+
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
-
-        # Default to a dataset dimension of 1 if we got a Set instead.
-        for i, _ in enumerate(dsets):
-            if type(dsets[i]) is Set:
-                dsets[i] = (dsets[i]) ** 1
-
         self._dsets = dsets
-
-        assert len(self._rmaps) == len(self._cmaps), \
-            "Must pass equal number of row and column maps"
-
-        # Make sure that the "to" Set of each map in a pair is the set of the
-        # corresponding DataSet set
-        for pair in maps:
-            if not (pair[0].toset == dsets[0].set and
-                    pair[1].toset == dsets[1].set):
-                raise RuntimeError("Map to set must be the same as corresponding DataSet set")
-
-        # Each pair of maps must have the same from-set (iteration set)
-        for pair in maps:
-            if not pair[0].iterset == pair[1].iterset:
-                raise RuntimeError("Iterset of both maps in a pair must be the same")
-
-        # Each row map must have the same to-set (data set)
-        if not all(m.toset == self._rmaps[0].toset for m in self._rmaps):
-            raise RuntimeError("To set of all row maps must be the same")
-
-        # Each column map must have the same to-set (data set)
-        if not all(m.toset == self._cmaps[0].toset for m in self._cmaps):
-            raise RuntimeError("To set of all column maps must be the same")
 
         # All rmaps and cmaps have the same data set - just use the first.
         self._nrows = self._rmaps[0].toset.size
@@ -2021,12 +2573,35 @@ class Sparsity(Cached):
 
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         Sparsity._globalcount += 1
-        build_sparsity(self, parallel=MPI.parallel)
+
+        # If the Sparsity is defined on MixedDataSets, we need to build each
+        # block separately
+        if isinstance(dsets[0], MixedDataSet) or isinstance(dsets[1], MixedDataSet):
+            self._blocks = []
+            for i, rds in enumerate(dsets[0]):
+                row = []
+                for j, cds in enumerate(dsets[1]):
+                    row.append(Sparsity((rds, cds), [(rm.split[i], cm.split[j]) for rm, cm in maps]))
+                self._blocks.append(row)
+            self._rowptr = tuple(s._rowptr for s in self)
+            self._colidx = tuple(s._colidx for s in self)
+            self._d_nnz = tuple(s._d_nnz for s in self)
+            self._o_nnz = tuple(s._o_nnz for s in self)
+            self._d_nz = sum(s._d_nz for s in self)
+            self._o_nz = sum(s._o_nz for s in self)
+        else:
+            build_sparsity(self, parallel=MPI.parallel)
+            self._blocks = [[self]]
         self._initialized = True
 
-    @property
-    def _nmaps(self):
-        return len(self._rmaps)
+    def __getitem__(self, idx):
+        """Return :class:`Sparsity` block with row and column given by ``idx``
+        or a given row of blocks."""
+        try:
+            i, j = idx
+            return self._blocks[i][j]
+        except TypeError:
+            return self._blocks[idx]
 
     @property
     def dsets(self):
@@ -2064,6 +2639,11 @@ class Sparsity(Cached):
         return self._dims
 
     @property
+    def shape(self):
+        """Number of block rows and columns."""
+        return len(self._dsets[0]), len(self._dsets[1])
+
+    @property
     def nrows(self):
         """The number of rows in the ``Sparsity``."""
         return self._nrows
@@ -2077,6 +2657,12 @@ class Sparsity(Cached):
     def name(self):
         """A user-defined label."""
         return self._name
+
+    def __iter__(self):
+        """Iterate over all :class:`Sparsity`\s by row and then by column."""
+        for row in self._blocks:
+            for s in row:
+                yield s
 
     def __str__(self):
         return "OP2 Sparsity: dsets %s, rmaps %s, cmaps %s, name %s" % \
@@ -2217,6 +2803,10 @@ class Mat(DataCarrier):
     def dtype(self):
         """The Python type of the data."""
         return self._datatype
+
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
 
     def __mul__(self, other):
         """Multiply this :class:`Mat` with the vector ``other``."""
@@ -2365,7 +2955,7 @@ class ParLoop(LazyComputation):
                     if arg2.data is arg1.data and arg2.map is arg1.map:
                         arg2.indirect_position = arg1.indirect_position
 
-        self._it_space = IterationSpace(iterset, self.check_args(iterset))
+        self._it_space = self.build_itspace(iterset)
 
     def _run(self):
         return self.compute()
@@ -2396,7 +2986,8 @@ class ParLoop(LazyComputation):
     def maybe_set_dat_dirty(self):
         for arg in self.args:
             if arg._is_dat and arg.data._is_allocated:
-                maybe_setflags(arg.data._data, write=False)
+                for d in arg.data:
+                    maybe_setflags(d._data, write=False)
 
     @collective
     def halo_exchange_begin(self):
@@ -2444,7 +3035,7 @@ class ParLoop(LazyComputation):
             if arg._is_mat:
                 arg.data._assemble()
 
-    def check_args(self, iterset):
+    def build_itspace(self, iterset):
         """Checks that the iteration set of the :class:`ParLoop` matches the
         iteration set of all its arguments. A :class:`MapValueError` is raised
         if this condition is not met.
@@ -2452,22 +3043,27 @@ class ParLoop(LazyComputation):
         Also determines the size of the local iteration space and checks all
         arguments using an :class:`IterationIndex` for consistency.
 
-        :return: size of the local iteration space"""
-        iterset = iterset.superset if isinstance(iterset, Subset) else iterset
+        :return: class:`IterationSpace` for this :class:`ParLoop`"""
+
+        _iterset = iterset.superset if isinstance(iterset, Subset) else iterset
         itspace = ()
+        extents = None
+        offsets = None
         for i, arg in enumerate(self._actual_args):
             if arg._is_global or arg.map is None:
                 continue
             for j, m in enumerate(arg._map):
-                if m.iterset != iterset:
+                if m.iterset != _iterset:
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
             if arg._uses_itspace:
-                _itspace = tuple(m.arity for m in arg._map)
-                if itspace and itspace != _itspace:
+                _extents = arg._extents
+                itspace = tuple(m.arity for m in arg.map)
+                if extents and extents != _extents:
                     raise IndexValueError("Mismatching iteration space size for argument %d" % i)
-                itspace = _itspace
-        return itspace
+                extents = _extents
+                offsets = arg._offsets
+        return IterationSpace(iterset, itspace, extents, offsets)
 
     def offset_args(self):
         """The offset args that need to be added to the argument list."""

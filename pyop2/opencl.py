@@ -572,12 +572,12 @@ class ParLoop(device.ParLoop):
 
     @property
     def _unique_matrix(self):
-        return uniquify(a.data for a in self._matrix_args)
+        return list(uniquify(a.data for a in self._matrix_args))
 
     @property
     def _matrix_entry_maps(self):
         """Set of all mappings used in matrix arguments."""
-        return uniquify(m for arg in self.args if arg._is_mat for m in arg.map)
+        return list(uniquify(m for arg in self.args if arg._is_mat for m in arg.map))
 
     @property
     def _requires_matrix_coloring(self):

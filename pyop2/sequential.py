@@ -52,24 +52,13 @@ void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end,
   int end = (int)PyInt_AsLong(_end);
   %(ssinds_dec)s
   %(wrapper_decs)s;
-  %(local_tensor_decs)s;
   %(const_inits)s;
   %(off_inits)s;
   %(map_decl)s
   for ( int n = start; n < end; n++ ) {
     int i = %(index_expr)s;
     %(vec_inits)s;
-    %(map_init)s;
-    %(extr_loop)s
-    %(itspace_loops)s
-    %(ind)s%(zero_tmps)s;
-    %(ind)s%(kernel_name)s(%(kernel_args)s);
-    %(ind)s%(addtos_vector_field)s;
-    %(itspace_loop_close)s
-    %(ind)s%(addtos_scalar_field_extruded)s;
-    %(apply_offset)s
-    %(extr_loop_close)s
-    %(addtos_scalar_field)s;
+    %(itset_loop_body)s
   }
 }
 """
@@ -90,12 +79,16 @@ class ParLoop(host.ParLoop):
                 if arg._is_mat:
                     self._jit_args.append(arg.data.handle.handle)
                 else:
-                    self._jit_args.append(arg.data._data)
+                    for d in arg.data:
+                        # Cannot access a property of the Dat or we will force
+                        # evaluation of the trace
+                        self._jit_args.append(d._data)
 
                 if arg._is_indirect or arg._is_mat:
                     maps = as_tuple(arg.map, Map)
                     for map in maps:
-                        self._jit_args.append(map.values_with_halo)
+                        for m in map:
+                            self._jit_args.append(m.values_with_halo)
 
             for c in Const._definitions():
                 self._jit_args.append(c.data)
