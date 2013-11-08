@@ -50,6 +50,13 @@ class NonlinearVariationalProblem(object):
         :param J: the Jacobian J = dF/du (optional)
         :param dic form_compiler_parameters: parameters to pass to the form
             compiler (optional)
+
+        .. warning ::
+
+            Since this object contains a circular reference and a
+            custom __del__ attribute, you /must/ call :meth:`destroy`
+            on it when you are done, otherwise it will never be
+            garbage collected.
         """
 
         # Extract and check arguments
@@ -103,18 +110,35 @@ class NonlinearVariationalSolver(object):
         test = self._problem.F_ufl.compute_form_data().original_arguments[0]
         self._F_tensor = core_types.Function(test.function_space())
         self.snes = PETSc.SNES().create()
-        self._opt_prefix = 'firedrake_snes_%d' % NonlinearVariationalSolver._id
+        self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
         NonlinearVariationalSolver._id += 1
         self.snes.setOptionsPrefix(self._opt_prefix)
         self.parameters = kwargs.get('parameters', {})
 
-        self.snes.setFunction(self.form_function, self._F_tensor.dat.vec)
+        ksp = self.snes.getKSP()
+        pc = ksp.getPC()
+        if self._jac_tensor.sparsity.shape != (1, 1):
+            offset = 0
+            rows, cols = self._jac_tensor.sparsity.shape
+            ises = []
+            for i in range(rows):
+                if i < cols:
+                    nrows = self._jac_tensor[i, i].sparsity.nrows
+                    name = test.function_space()[i].name
+                    name = name if name else '%d' % i
+                    ises.append((name, PETSc.IS().createStride(nrows, first=offset, step=1)))
+                    offset += nrows
+            pc.setFieldSplitIS(*ises)
+
+        with self._F_tensor.dat.vec as v:
+            self.snes.setFunction(self.form_function, v)
         self.snes.setJacobian(self.form_jacobian, J=self._jac_tensor.handle,
                               P=self._jac_ptensor.handle)
 
     def form_function(self, snes, X_, F_):
-        if self._problem.u_ufl.dat.vec != X_:
-            X_.copy(self._problem.u_ufl.dat.vec)
+        with self._problem.u_ufl.dat.vec as v:
+            if v != X_:
+                X_.copy(v)
         # PETSc doesn't know about the halo regions in our dats, so
         # when it updates the guess it only does so on the local
         # portion. So ensure we do a halo update before assembling.
@@ -125,15 +149,17 @@ class NonlinearVariationalSolver(object):
         for bc in self._problem.bcs:
             bc.apply(self._F_tensor, self._problem.u_ufl)
 
-        if F_ != self._F_tensor.dat.vec:
-            # For some reason, self._F_tensor.dat.vec.copy(F_) gives
-            # me diverged line searches in the SNES solver.  So do
-            # aypx with alpha == 0, which is the same thing.  This works!
-            F_.aypx(0, self._F_tensor.dat.vec)
+        with self._F_tensor.dat.vec_ro as v:
+            if F_ != v:
+                # For some reason, self._F_tensor.dat.vec.copy(F_) gives
+                # me diverged line searches in the SNES solver.  So do
+                # aypx with alpha == 0, which is the same thing.  This works!
+                F_.aypx(0, v)
 
     def form_jacobian(self, snes, X_, J_, P_):
-        if self._problem.u_ufl.dat.vec != X_:
-            X_.copy(self._problem.u_ufl.dat.vec)
+        with self._problem.u_ufl.dat.vec as v:
+            if v != X_:
+                X_.copy(v)
         # Ensure guess has correct halo data.
         self._problem.u_ufl.dat.needs_halo_update = True
         assemble(self._problem.J_ufl,
@@ -158,8 +184,23 @@ class NonlinearVariationalSolver(object):
             else:
                 opts[k] = v
         self.snes.setFromOptions()
+
+    def __del__(self):
+        # Remove stuff from the options database
+        # It's fixed size, so if we don't it gets too big.
+        opts = PETSc.Options(self._opt_prefix)
         for k in self.parameters.iterkeys():
             del opts[k]
+
+    def destroy(self):
+        """Destroy the SNES object inside the solver.
+
+        You must call this explicitly, because the SNES holds a
+        reference to the solver it lives inside, defeating the garbage
+        collector."""
+        if self.snes is not None:
+            self.snes.destroy()
+            self.snes = None
 
     @property
     def parameters(self):
@@ -180,7 +221,9 @@ class NonlinearVariationalSolver(object):
         # solve, ensure these are passed through to the snes.
         self._update_parameters()
 
-        self.snes.solve(None, self._problem.u_ufl.dat.vec)
+        with self._problem.u_ufl.dat.vec as v:
+            self.snes.solve(None, v)
+
         # Only the local part of u gets updated by the petsc solve, so
         # we need to mark things as needing a halo update.
         self._problem.u_ufl.dat.needs_halo_update = True
@@ -568,6 +611,8 @@ def _solve_varproblem(*args, **kwargs):
         # Create solver and call solve
         solver = NonlinearVariationalSolver(problem, parameters=solver_parameters)
         solver.solve()
+    # destroy snes part of solver so everything can be gc'd
+    solver.destroy()
 
 
 def _extract_args(*args, **kwargs):

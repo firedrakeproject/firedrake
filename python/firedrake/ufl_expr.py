@@ -2,6 +2,7 @@ import ufl
 import ufl.argument
 from ufl.assertions import ufl_assert
 from ufl.finiteelement import FiniteElementBase
+from ufl.split_functions import split
 from ufl.algorithms.analysis import extract_arguments
 import core_types
 
@@ -46,6 +47,14 @@ def TestFunction(function_space):
 
 def TrialFunction(function_space):
     return Argument(function_space.ufl_element(), function_space, -1)
+
+
+def TestFunctions(function_space):
+    return split(TestFunction(function_space))
+
+
+def TrialFunctions(function_space):
+    return split(TrialFunction(function_space))
 
 
 def derivative(form, u, du=None):

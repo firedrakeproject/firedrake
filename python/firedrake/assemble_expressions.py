@@ -265,13 +265,13 @@ def evaluate_preprocessed_expression(expr, args, subset=None):
 
     kernel = expression_kernel(expr, args)
 
-    fs = args[0].function._function_space
+    # We need to splice the args according to the components of the
+    # MixedFunctionSpace if we have one
+    for j, dats in enumerate(zip(*tuple(a.function.dat for a in args))):
 
-    parloop_args = [kernel, subset or fs.node_set] +\
-        [arg.function.dat(arg.intent)
-         for arg in args]
-
-    op2.par_loop(*parloop_args)
+        itset = subset or args[0].function._function_space[j].node_set
+        parloop_args = [dat(args[i].intent) for i, dat in enumerate(dats)]
+        op2.par_loop(kernel, itset, *parloop_args)
 
 
 def evaluate_expression(expr, subset=None):

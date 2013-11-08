@@ -1,6 +1,11 @@
 import pytest
 from firedrake import *
 from numpy.linalg import norm
+import gc
+
+
+def howmany(cls):
+    return len([x for x in gc.get_objects() if isinstance(x, cls)])
 
 
 @pytest.fixture
@@ -35,6 +40,49 @@ def test_linear_solver_api(a_L_out):
     assert solver.parameters['ksp_rtol'] == 1e-8
     rtol, _, _, _ = solver.snes.getKSP().getTolerances()
     assert rtol == solver.parameters['ksp_rtol']
+
+
+def test_petsc_options_cleared(a_L_out):
+    a, L, out = a_L_out
+    from petsc4py import PETSc
+    opts = PETSc.Options()
+    original = {}
+    original.update(opts.getAll())
+
+    solve(a == L, out, solver_parameters={'foo': 'bar'})
+
+    assert original == opts.getAll()
+
+
+def test_linear_solver_gced(a_L_out):
+    a, L, out = a_L_out
+
+    gc.collect()
+    before = howmany(LinearVariationalSolver)
+
+    solve(a == L, out)
+    out.dat.data_ro  # force evaluation
+
+    gc.collect()
+    after = howmany(LinearVariationalSolver)
+
+    assert before == after
+
+
+def test_nonlinear_solver_gced(a_L_out):
+    a, L, out = a_L_out
+
+    gc.collect()
+    before = howmany(NonlinearVariationalSolver)
+
+    F = action(a, out) - L
+    solve(F == 0, out)
+    out.dat.data_ro  # force evaluation
+
+    gc.collect()
+    after = howmany(NonlinearVariationalSolver)
+
+    assert before == after
 
 
 def test_nonlinear_solver_api(a_L_out):
