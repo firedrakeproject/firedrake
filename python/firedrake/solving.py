@@ -65,7 +65,9 @@ class NonlinearVariationalProblem(object):
 
         # Store input UFL forms and solution Function
         self.F_ufl = F
-        self.J_ufl = J
+        # Use the user-provided Jacobian. If none is provided, derive
+        # the Jacobian from the residual.
+        self.J_ufl = J or derivative(F, u)
         self.u_ufl = u
         self.bcs = bcs
 
@@ -599,13 +601,8 @@ def _solve_varproblem(*args, **kwargs):
     # Solve nonlinear variational problem
     else:
 
-        # Create Jacobian if missing
-        if J is None:
-            F = eq.lhs
-            J = derivative(F, u)
-
         # Create problem
-        problem = NonlinearVariationalProblem(eq.lhs, u, bcs, J,
+        problem = NonlinearVariationalProblem(eq.lhs, u, bcs,
                                               form_compiler_parameters=form_compiler_parameters)
 
         # Create solver and call solve
