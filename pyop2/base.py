@@ -2102,13 +2102,21 @@ class Global(DataCarrier):
     def __init__(self, dim, data=None, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
         self._cdim = np.asscalar(np.prod(self._dim))
-        self._data = verify_reshape(data, dtype, self._dim, allow_none=True)
+        if data is None:
+            self._dtype = np.dtype(dtype if dtype is not None else np.float64)
+        else:
+            self._data = verify_reshape(data, dtype, self._dim, allow_none=True)
+            self._dtype = self._data.dtype
+
         self._buf = np.empty_like(self._data)
         self._name = name or "global_%d" % Global._globalcount
         Global._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, access, path=None):
+    def __call__(self, access, path=None, flatten=False):
+        """Note that the flatten argument is only passed in order to
+        have the same interface as :class:`Dat`. Its value is
+        ignored."""
         return _make_object('Arg', data=self, access=access)
 
     def __eq__(self, other):
@@ -2143,7 +2151,7 @@ class Global(DataCarrier):
 
     @property
     def shape(self):
-        return self._data.shape
+        return self._dim
 
     @property
     def data(self):
@@ -2152,6 +2160,24 @@ class Global(DataCarrier):
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
+
+    @property
+    def _data(self):
+        if not self._is_allocated:
+            self._numpy_data = np.zeros(self.shape, dtype=self._dtype)
+        return self._numpy_data
+
+    @_data.setter
+    def _data(self, value):
+        self._numpy_data = value
+
+    @property
+    def _is_allocated(self):
+        return hasattr(self, '_numpy_data')
+
+    @property
+    def dtype(self):
+        return self._dtype
 
     @property
     def data_ro(self):
