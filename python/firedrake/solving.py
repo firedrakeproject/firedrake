@@ -602,7 +602,7 @@ def _solve_varproblem(*args, **kwargs):
     else:
 
         # Create problem
-        problem = NonlinearVariationalProblem(eq.lhs, u, bcs,
+        problem = NonlinearVariationalProblem(eq.lhs, u, bcs, J,
                                               form_compiler_parameters=form_compiler_parameters)
 
         # Create solver and call solve
