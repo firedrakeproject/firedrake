@@ -337,9 +337,20 @@ def _assemble(f, tensor=None, bcs=None):
                 raise NotImplementedError(
                     "It is not yet possible to assemble VectorFunctionSpaces in parallel")
         m = test.function_space().mesh()
+        map_pairs = []
+        for integral in f.integrals():
+            domain_type = integral.measure().domain_type()
+            if domain_type == "cell":
+                map_pairs.append((test.cell_node_map(), trial.cell_node_map()))
+            if domain_type == "exterior_facet":
+                map_pairs.append((test.exterior_facet_node_map(),
+                                  trial.exterior_facet_node_map()))
+            if domain_type == "interior_facet":
+                map_pairs.append((test.interior_facet_node_map(),
+                                  trial.interior_facet_node_map()))
+        map_pairs = tuple(map_pairs)
         key = (compute_form_signature(f), test.function_space().dof_dset,
-               trial.function_space().dof_dset,
-               test.cell_node_map(), trial.cell_node_map())
+               trial.function_space().dof_dset,) + map_pairs
         if tensor is None:
             tensor = _mat_cache.get(key)
             if not tensor:
@@ -348,8 +359,7 @@ def _assemble(f, tensor=None, bcs=None):
                     test.function_space().name, trial.function_space().name)
                 sparsity = op2.Sparsity((test.function_space().dof_dset,
                                          trial.function_space().dof_dset),
-                                        (test.cell_node_map(),
-                                         trial.cell_node_map()),
+                                        map_pairs,
                                         "%s_%s_sparsity" % fs_names)
                 tensor = op2.Mat(
                     sparsity, numpy.float64, "%s_%s_matrix" % fs_names)

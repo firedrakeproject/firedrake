@@ -41,7 +41,6 @@ def test_facet_integral_with_argument(f):
     assert np.allclose(assemble(f*v*ds).dat.data_ro.sum(), 2.0)
 
 
-@pytest.mark.xfail
 def test_bilinear_facet_integral(f):
     m = UnitSquareMesh(1, 1)
     V = FunctionSpace(m, "DG", 0)
