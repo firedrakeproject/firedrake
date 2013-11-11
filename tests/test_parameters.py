@@ -43,5 +43,5 @@ def test_nested():
     assert p0["sub0"]["monitor_convergence"] is True
 
 if __name__ == "__main__":
-    test_simple()
-    test_nested()
+    import os
+    pytest.main(os.path.abspath(__file__))

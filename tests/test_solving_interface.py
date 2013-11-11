@@ -133,7 +133,7 @@ def test_linear_solves_equivalent():
 
     # Solve the system using preassembled objects
     sol3 = Function(V)
-    solve(assemble(a), sol3, assemble(L).dat)
+    solve(assemble(a), sol3, assemble(L))
     assert norm(sol.vector()[:] - sol3.vector()[:]) == 0
 
 
