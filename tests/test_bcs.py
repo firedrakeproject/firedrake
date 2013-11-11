@@ -96,6 +96,28 @@ def test_preassembly_change_bcs(V):
     assert np.allclose(u.vector().array(), 7.0)
 
 
+@pytest.mark.xfail
+def test_preassembly_doesnt_modify_assembled_rhs(V):
+    v = TestFunction(V)
+    u = TrialFunction(V)
+    a = u*v*dx
+    f = Function(V)
+    f.assign(10)
+    bc = DirichletBC(V, f, 1)
+
+    A = assemble(a, bcs=[bc])
+    L = v*f*dx
+    b = assemble(L)
+
+    b_vals = b.vector().array()
+
+    u = Function(V)
+    solve(A, u, b)
+    assert np.allclose(u.vector().array(), 10.0)
+
+    assert np.allclose(b_vals, b.vector().array())
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
