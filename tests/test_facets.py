@@ -1,5 +1,5 @@
 import pytest
-
+import numpy as np
 from firedrake import *
 
 
@@ -34,6 +34,11 @@ def test_right_external_integral(f):
 
 def test_internal_integral(f):
     assert abs(assemble(f('+') * dS) - 1.0 / (2.0 ** 0.5)) < 1.0e-14
+
+
+def test_facet_integral_with_argument(f):
+    v = TestFunction(f.function_space())
+    assert np.allclose(assemble(f*v*ds).dat.data_ro.sum(), 2.0)
 
 
 def test_internal_integral_unit_tri():

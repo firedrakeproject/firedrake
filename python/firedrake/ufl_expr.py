@@ -17,6 +17,14 @@ class Argument(ufl.argument.Argument):
     def cell_node_map(self):
         return self._function_space.cell_node_map
 
+    @property
+    def interior_facet_node_map(self):
+        return self._function_space.interior_facet_node_map
+
+    @property
+    def exterior_facet_node_map(self):
+        return self._function_space.exterior_facet_node_map
+
     def function_space(self):
         return self._function_space
 
