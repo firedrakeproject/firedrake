@@ -39,102 +39,14 @@ subclass these as required to implement backend-specific features.
 import numpy as np
 import operator
 from hashlib import md5
-import copy
-import os
-from tempfile import gettempdir
 
 from caching import Cached
+from configuration import configuration
 from exceptions import *
 from utils import *
 from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
 from sparsity import build_sparsity
-
-
-class Configuration(object):
-    """PyOP2 configuration parameters
-
-    :param backend: Select the PyOP2 backend (one of `cuda`,
-        `opencl`, `openmp` or `sequential`).
-    :param debug: Turn on debugging for generated code (turns off
-        compiler optimisations).
-    :param log_level: How chatty should PyOP2 be?  Valid values
-        are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
-    :param lazy_evaluation: Should lazy evaluation be on or off?
-    :param lazy_max_trace_length: How many :func:`par_loop`\s
-        should be queued lazily before forcing evaluation?  Pass
-        `0` for an unbounded length.
-    :param dump_gencode: Should PyOP2 write the generated code
-        somewhere for inspection?
-    :param dump_gencode_path: Where should the generated code be
-        written to?
-    """
-    # name, env variable, type, default, write once
-    DEFAULTS = {
-        "backend": ("PYOP2_BACKEND", str, "sequential"),
-        "debug": ("PYOP2_DEBUG", int, 0),
-        "log_level": ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),
-        "lazy_evaluation": ("PYOP2_LAZY", bool, True),
-        "lazy_max_trace_length": ("PYOP2_MAX_TRACE_LENGTH", int, 0),
-        "dump_gencode": ("PYOP2_DUMP_GENCODE", bool, False),
-        "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str,
-                              os.path.join(gettempdir(), "pyop2-gencode")),
-    }
-    """Default values for PyOP2 configuration parameters"""
-    READONLY = ['backend']
-    """List of read-only configuration keys."""
-
-    def __init__(self):
-        def convert(env, typ, v):
-            if not isinstance(typ, type):
-                typ = typ[0]
-            try:
-                return typ(os.environ.get(env, v))
-            except ValueError:
-                raise ValueError("Cannot convert value of environment variable %s to %r" % (env, typ))
-        self._conf = dict((k, convert(env, typ, v))
-                          for k, (env, typ, v) in Configuration.DEFAULTS.items())
-        self._set = set()
-        self._defaults = copy.copy(self._conf)
-
-    def reset(self):
-        """Reset the configuration parameters to the default values."""
-        self._conf = copy.copy(self._defaults)
-        self._set = set()
-
-    def reconfigure(self, **kwargs):
-        """Update the configuration parameters with new values."""
-        for k, v in kwargs.items():
-            self[k] = v
-
-    def __getitem__(self, key):
-        """Return the value of a configuration parameter.
-
-        :arg key: The parameter to query"""
-        return self._conf[key]
-
-    def __setitem__(self, key, value):
-        """Set the value of a configuration parameter.
-
-        :arg key: The parameter to set
-        :arg value: The value to set it to.
-
-        .. note::
-           Some configuration parameters are read-only in which case
-           attempting to set them raises an error, see
-           :attr:`Configuration.READONLY` for details of which.
-        """
-        if key in Configuration.READONLY and key in self._set and value != self[key]:
-            raise ConfigurationError("%s is read only" % key)
-        if key in Configuration.DEFAULTS:
-            valid_type = Configuration.DEFAULTS[key][1]
-            if not isinstance(value, valid_type):
-                raise ConfigurationError("Values for configuration key %s must be of type %r, not %r"
-                                         % (key, valid_type, type(value)))
-        self._set.add(key)
-        self._conf[key] = value
-
-configuration = Configuration()
 
 
 class LazyComputation(object):

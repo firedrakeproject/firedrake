@@ -33,7 +33,7 @@
 
 import base
 from device import *
-from base import configuration as cfg
+from configuration import configuration
 import device as op2
 import plan
 import numpy as np
@@ -638,7 +638,7 @@ def _cusp_solver(M, parameters):
     nvcc_toolchain.cflags.append('-arch')
     nvcc_toolchain.cflags.append('sm_20')
     nvcc_toolchain.cflags.append('-O3')
-    module = nvcc_mod.compile(gcc_toolchain, nvcc_toolchain, debug=cfg["debug"])
+    module = nvcc_mod.compile(gcc_toolchain, nvcc_toolchain, debug=configuration["debug"])
 
     _cusp_cache[cache_key(M.ctype, parameters)] = module
     return module
