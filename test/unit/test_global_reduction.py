@@ -273,6 +273,15 @@ void kernel_max(double* x, double* g)
 
         assert g.data == d1.data.sum()
 
+    @pytest.mark.xfail
+    def test_1d_inc_no_data(self, backend, k1_inc_to_global, set, d1):
+        g = op2.Global(1, dtype=numpy.uint32)
+        op2.par_loop(k1_inc_to_global, set,
+                     d1(op2.READ),
+                     g(op2.INC))
+
+        assert g.data == d1.data.sum()
+
     def test_1d_min_dat_is_min(self, backend, k1_min_to_global, set, d1):
         val = d1.data.min() + 1
         g = op2.Global(1, val, dtype=numpy.uint32)
