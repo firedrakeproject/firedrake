@@ -257,6 +257,16 @@ void kernel_max(double* x, double* g)
 
         assert all(d1.data == g.data)
 
+    def test_1d_read_no_init(self, backend, k1_write_to_dat, set, d1):
+        g = op2.Global(1, dtype=numpy.uint32)
+        d1.data[:] = 100
+        op2.par_loop(k1_write_to_dat, set,
+                     d1(op2.WRITE),
+                     g(op2.READ))
+
+        assert all(g.data == 0)
+        assert all(d1.data == 0)
+
     def test_2d_read(self, backend, k2_write_to_dat, set, d1):
         g = op2.Global(2, (1, 2), dtype=numpy.uint32)
         op2.par_loop(k2_write_to_dat, set,
