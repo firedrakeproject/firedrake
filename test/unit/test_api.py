@@ -213,44 +213,6 @@ class TestClassAPI:
         assert not issubclass(type(dat), op2.Set)
 
 
-class TestConfigurationAPI:
-    """Configuration API unit tests."""
-
-    def test_add_configuration_value(self):
-        """Defining an non default argument."""
-        c = base.Configuration()
-        c.reconfigure(foo='bar')
-        assert c['foo'] == 'bar'
-
-    def test_change_backend(self):
-        """backend option is read only."""
-        c = base.Configuration()
-        c.reconfigure(backend='cuda')
-        with pytest.raises(exceptions.ConfigurationError):
-            c['backend'] = 'other'
-
-    def test_reconfigure_backend(self):
-        """backend option is read only."""
-        c = base.Configuration()
-        c.reconfigure(backend='cuda')
-        with pytest.raises(exceptions.ConfigurationError):
-            c.reconfigure(backend='other')
-
-    @pytest.mark.parametrize(('key', 'val'), [('backend', 0),
-                                              ('debug', 'illegal'),
-                                              ('log_level', 1.5),
-                                              ('lazy_evaluation', 'illegal'),
-                                              ('lazy_max_trace_length', 'illegal'),
-                                              ('dump_gencode', 'illegal'),
-                                              ('dump_gencode_path', 0)])
-    def test_configuration_illegal_types(self, key, val):
-        """Illegal types for configuration values should raise
-        ConfigurationError."""
-        c = base.Configuration()
-        with pytest.raises(exceptions.ConfigurationError):
-            c[key] = val
-
-
 class TestInitAPI:
 
     """

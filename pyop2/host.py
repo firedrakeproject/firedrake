@@ -38,6 +38,7 @@ from textwrap import dedent
 
 import base
 from base import *
+from configuration import configuration
 from utils import as_tuple, flatten
 
 
@@ -392,7 +393,7 @@ class JITModule(base.JITModule):
             inline %(code)s
             """ % {'code': self._kernel.code}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
-        if base.configuration["debug"]:
+        if configuration["debug"]:
             self._wrapper_code = code_to_compile
 
         _const_decs = '\n'.join([const._format_declaration()
@@ -405,7 +406,7 @@ class JITModule(base.JITModule):
         self._fun = inline_with_numpy(
             code_to_compile, additional_declarations=kernel_code,
             additional_definitions=_const_decs + kernel_code,
-            cppargs=self._cppargs + (['-O0', '-g'] if base.configuration["debug"] else []),
+            cppargs=self._cppargs + (['-O0', '-g'] if configuration["debug"] else []),
             include_dirs=[d + '/include' for d in get_petsc_dir()],
             source_directory=os.path.dirname(os.path.abspath(__file__)),
             wrap_headers=["mat_utils.h"],
@@ -413,7 +414,7 @@ class JITModule(base.JITModule):
             library_dirs=[d + '/lib' for d in get_petsc_dir()],
             libraries=['petsc'] + self._libraries,
             sources=["mat_utils.cxx"],
-            modulename=self._kernel.name if base.configuration["debug"] else None)
+            modulename=self._kernel.name if configuration["debug"] else None)
         if cc:
             os.environ['CC'] = cc
         else:

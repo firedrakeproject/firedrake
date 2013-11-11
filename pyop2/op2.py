@@ -37,7 +37,8 @@ import atexit
 
 import backends
 import base
-from base import configuration, READ, WRITE, RW, INC, MIN, MAX, i
+from base import READ, WRITE, RW, INC, MIN, MAX, i
+from configuration import configuration
 from logger import debug, info, warning, error, critical, set_log_level
 from mpi import MPI, collective
 from utils import validate_type
@@ -94,7 +95,7 @@ def init(**kwargs):
     set_log_level(configuration['log_level'])
     if backend == 'pyop2.void':
         try:
-            backends.set_backend(base.configuration["backend"])
+            backends.set_backend(configuration["backend"])
         except:
             configuration.reset()
             raise
