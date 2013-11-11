@@ -85,7 +85,8 @@ class Configuration(object):
     """List of read-only configuration keys."""
 
     def __init__(self):
-        self._conf = dict((k, v) for k, (_, _, v) in Configuration.DEFAULTS.items())
+        self._conf = dict((k, os.environ.get(env, v))
+                          for k, (env, _, v) in Configuration.DEFAULTS.items())
         self._set = set()
         self._defaults = copy.copy(self._conf)
 
