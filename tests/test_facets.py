@@ -41,6 +41,34 @@ def test_facet_integral_with_argument(f):
     assert np.allclose(assemble(f*v*ds).dat.data_ro.sum(), 2.0)
 
 
+@pytest.mark.xfail
+def test_bilinear_facet_integral(f):
+    m = UnitSquareMesh(1, 1)
+    V = FunctionSpace(m, "DG", 0)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    cell = assemble(u*v*dx).values
+    # each diagonal entry should be volume of cell
+    assert np.allclose(np.diag(cell), 0.5)
+    # all off-diagonals should be zero
+    cell[range(2), range(2)] = 0.0
+    assert np.allclose(cell, 0.0)
+
+    outer_facet = assemble(u*v*ds).values
+    # each diagonal entry should be length of exterior facet in this
+    # cell (2)
+    assert np.allclose(np.diag(outer_facet), 2.0)
+    # all off-diagonals should be zero
+    outer_facet[range(2), range(2)] = 0.0
+    assert np.allclose(outer_facet, 0.0)
+
+    interior_facet = assemble(u('+')*v('+')*dS).values
+    # fully coupled, each entry should be length of interior facet
+    # (sqrt(2))
+    assert np.allclose(interior_facet, sqrt(2))
+
+
 def test_internal_integral_unit_tri():
     t = UnitTriangleMesh()
     V = FunctionSpace(t, 'CG', 1)
