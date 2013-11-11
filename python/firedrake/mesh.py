@@ -83,7 +83,7 @@ def _build_msh_file(input, output, dimension):
                 raise e
 
 
-def _get_msh_file(source, name, dimension):
+def _get_msh_file(source, name, dimension, meshed=False):
     """Given a source code, name and dimension  of the mesh,
     returns the name of the file that contains necessary information to build
     a mesh class. The mesh class would call _from_file method on this file
@@ -92,14 +92,19 @@ def _get_msh_file(source, name, dimension):
 
     if MPI.comm.rank == 0:
         input = os.path.join(_cachedir, name + '.geo')
-        if not os.path.exists(input):
-            with open(input, 'w') as f:
-                f.write(source)
+        if not meshed:
+            if not os.path.exists(input):
+                with open(input, 'w') as f:
+                    f.write(source)
 
         output = os.path.join(_cachedir, name)
 
         if not os.path.exists(output + '.msh'):
-            _build_msh_file(input, output, dimension)
+            if meshed:
+                with file(output + '.msh', 'w') as f:
+                    f.write(source)
+            else:
+                _build_msh_file(input, output, dimension)
         if MPI.parallel:
             if dimension == 2:
                 exts = _exts + _2dexts
@@ -275,31 +280,38 @@ class UnitTetrahedronMesh(Mesh):
 
     def __init__(self):
         source = """
-            cl1 = 1;
-            Point(1) = {0, 0, 0, 1};
-            Point(2) = {1, 0, 0, 1};
-            Point(3) = {0, 1, 0, 1};
-            Point(4) = {0, 0, 1, 1};
-            Line(1) = {3, 1};
-            Line(2) = {1, 4};
-            Line(3) = {4, 3};
-            Line(4) = {3, 2};
-            Line(5) = {2, 4};
-            Line(6) = {2, 1};
-            Line Loop(8) = {4, 5, 3};
-            Plane Surface(8) = {8};
-            Line Loop(10) = {1, 2, 3};
-            Plane Surface(10) = {10};
-            Line Loop(12) = {6, -1, 4};
-            Plane Surface(12) = {12};
-            Line Loop(14) = {6, 2, -5};
-            Plane Surface(14) = {14};
-            Surface Loop(16) = {12, 14, 10, 8};
-            Volume(16) = {16};
+$MeshFormat
+2.2 0 8
+$EndMeshFormat
+$Nodes
+4
+1 0 0 0
+2 1 0 0
+3 0 1 0
+4 0 0 1
+$EndNodes
+$Elements
+15
+1 15 2 0 1 1
+2 15 2 0 2 2
+3 15 2 0 3 3
+4 15 2 0 4 4
+5 1 2 0 1 3 1
+6 1 2 0 2 1 4
+7 1 2 0 3 4 3
+8 1 2 0 4 3 2
+9 1 2 0 5 2 4
+10 1 2 0 6 2 1
+11 2 2 0 8 4 3 2
+12 2 2 0 10 4 3 1
+13 2 2 0 12 3 2 1
+14 2 2 0 14 4 2 1
+15 4 2 0 16 2 1 4 3
+$EndElements
             """
         name = "unittetra"
 
-        output = _get_msh_file(source, name, 3)
+        output = _get_msh_file(source, name, 3, meshed=True)
         super(UnitTetrahedronMesh, self).__init__(output)
 
 
@@ -309,16 +321,26 @@ class UnitTriangleMesh(Mesh):
 
     def __init__(self):
         source = """
-            cl1 = 1;
-            Point(1) = {0, 0, 0, 1};
-            Point(2) = {1, 0, 0, 1};
-            Point(3) = {0, 1, 0, 1};
-            Line(1) = {2, 3};
-            Line(2) = {3, 1};
-            Line(3) = {1, 2};
-            Line Loop(5) = {1, 2, 3};
-            Plane Surface(5) = {5};
-            """
+$MeshFormat
+2.2 0 8
+$EndMeshFormat
+$Nodes
+3
+1 0 0 0
+2 1 0 0
+3 0 1 0
+$EndNodes
+$Elements
+7
+1 15 2 0 1 1
+2 15 2 0 2 2
+3 15 2 0 3 3
+4 1 2 0 1 2 3
+5 1 2 0 2 3 1
+6 1 2 0 3 1 2
+7 2 2 0 5 2 3 1
+$EndElements
+"""
         name = "unittri"
-        output = _get_msh_file(source, name, 2)
+        output = _get_msh_file(source, name, 2, meshed=True)
         super(UnitTriangleMesh, self).__init__(output)
