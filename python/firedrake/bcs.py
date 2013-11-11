@@ -92,7 +92,7 @@ class DirichletBC(object):
         """
 
         if isinstance(r, types.Matrix):
-            r.bcs.add(self)
+            r.add_bc(self)
             return
         if u:
             r.assign(u-self.function_arg, subset=self.node_set)

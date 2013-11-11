@@ -60,10 +60,10 @@ class Matrix(object):
         if self._assembly_callback is None:
             raise RuntimeError('Trying to assemble a Matrix, but no thunk found')
         if self._assembled:
-            if self._bcs_at_point_of_assembly == self.bcs:
-                return
-            _assemble(self.a, tensor=self, bcs=self.bcs)
-            return self.assemble()
+            if self._needs_reassembly:
+                _assemble(self.a, tensor=self, bcs=self.bcs)
+                return self.assemble()
+            return
         self._bcs_at_point_of_assembly = copy.copy(self.bcs)
         self._assembly_callback(self.bcs)
         self._assembled = True
@@ -131,6 +131,39 @@ class Matrix(object):
             wrapping, use :attr:`_M` instead."""
         self.assemble()
         return self._M
+
+    @property
+    def _needs_reassembly(self):
+        """Does this :class:`Matrix` needs reassembly.
+
+        The :class:`Matrix` needs reassembling if the subdomains over
+        which boundary conditions were applied the last time it was
+        assembled are different from the subdomains of the current set
+        of boundary conditions.
+        """
+        old_subdomains = set([bc.sub_domain for bc in self._bcs_at_point_of_assembly])
+        new_subdomains = set([bc.sub_domain for bc in self.bcs])
+        return old_subdomains != new_subdomains
+
+    def add_bc(self, bc):
+        """Add a boundary condition to this :class:`Matrix`.
+
+        :arg bc: the :class:`DirichletBC` to add.
+
+        If the subdomain this boundary condition is applied over is
+        the same as the subdomain of an existing boundary condition on
+        the :class:`Matrix`, the existing boundary condition is
+        replaced with this new one.  Otherwise, this boundary
+        condition is added to the set of boundary conditions on the
+        :class:`Matrix`.
+
+        """
+        new_bcs = set([bc])
+        for existing_bc in self.bcs:
+            # New BC doesn't override existing one, so keep it.
+            if bc.sub_domain != existing_bc.sub_domain:
+                new_bcs.add(existing_bc)
+        self.bcs = new_bcs
 
     def __repr__(self):
         return '%sassembled firedrake.Matrix(form=%r, bcs=%r)' % \
