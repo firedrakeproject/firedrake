@@ -547,11 +547,13 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
         u_bc = core_types.Function(b.function_space())
         for bc in bcs:
             bc.apply(u_bc)
-        u_bc.assign(assemble(ufl.action(A.a, u_bc)))
-        b -= u_bc
+        # rhs = b - action(A, u_bc)
+        u_bc.assign(b - assemble(ufl.action(A.a, u_bc)))
         # Now we need to apply the boundary conditions to the "RHS"
         for bc in bcs:
-            bc.apply(b)
+            bc.apply(u_bc)
+        # don't want to write into b itself, because that would confuse user
+        b = u_bc
     solver.solve(A.M, x.dat, b.dat)
     x.dat.halo_exchange_begin()
     x.dat.halo_exchange_end()

@@ -96,7 +96,6 @@ def test_preassembly_change_bcs(V):
     assert np.allclose(u.vector().array(), 7.0)
 
 
-@pytest.mark.xfail
 def test_preassembly_doesnt_modify_assembled_rhs(V):
     v = TestFunction(V)
     u = TrialFunction(V)
