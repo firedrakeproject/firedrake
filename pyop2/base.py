@@ -73,7 +73,7 @@ class Configuration(object):
     DEFAULTS = {
         "backend": ("PYOP2_BACKEND", str, "sequential"),
         "debug": ("PYOP2_DEBUG", int, 0),
-        "log_level": ("PYOP2_LOG_LEVEL", (int, str), "WARNING"),
+        "log_level": ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),
         "lazy_evaluation": ("PYOP2_LAZY", bool, True),
         "lazy_max_trace_length": ("PYOP2_MAX_TRACE_LENGTH", int, 0),
         "dump_gencode": ("PYOP2_DUMP_GENCODE", bool, False),
@@ -85,8 +85,15 @@ class Configuration(object):
     """List of read-only configuration keys."""
 
     def __init__(self):
-        self._conf = dict((k, os.environ.get(env, v))
-                          for k, (env, _, v) in Configuration.DEFAULTS.items())
+        def convert(env, typ, v):
+            if not isinstance(typ, type):
+                typ = typ[0]
+            try:
+                return typ(os.environ.get(env, v))
+            except ValueError:
+                raise ValueError("Cannot convert value of environment variable %s to %r" % (env, typ))
+        self._conf = dict((k, convert(env, typ, v))
+                          for k, (env, typ, v) in Configuration.DEFAULTS.items())
         self._set = set()
         self._defaults = copy.copy(self._conf)
 
