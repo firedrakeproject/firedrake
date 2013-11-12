@@ -1394,6 +1394,9 @@ class Function(ufl.Coefficient):
         if expression.rank() != self.function_space().rank:
             raise RuntimeError('Rank mismatch between Expression and FunctionSpace')
 
+        if expression.shape() != self.function_space().ufl_element().value_shape():
+            raise RuntimeError('Shape mismatch between Expression and FunctionSpace')
+
         i = 0
         for fs, dat in zip(self.function_space(), self.dat):
             self._interpolate(fs, dat, Expression(expression.code[i:i+fs.dim]))
