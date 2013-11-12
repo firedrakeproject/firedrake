@@ -1371,6 +1371,12 @@ class Function(ufl.Coefficient):
         if isinstance(function_space, Function):
           self.assign(function_space)
 
+    def split(self):
+        """Extract any sub :class:`Function`\s defined on the component spaces
+        of this this :class:`Function`'s :class:`FunctionSpace`."""
+        return tuple(Function(fs, dat)
+                     for fs, dat in zip(self._function_space, self.dat))
+
     @property
     def cell_set(self):
         """The :class:`pyop2.Set` of cells for the mesh on which this
