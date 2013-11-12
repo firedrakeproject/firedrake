@@ -1337,7 +1337,14 @@ class Function(ufl.Coefficient):
     the :class:`FunctionSpace`.
     """
 
-    def __init__(self, function_space, val = None, name = None):
+    def __init__(self, function_space, val=None, name=None):
+        """
+        :param function_space: the :class:`FunctionSpaceBase` or another
+            :class:`Function` to build this :class:`Function` on
+        :param val: NumPy array-like with initial values or a :class:`op2.Dat`
+            (optional)
+        :param name: user-defined name of this :class:`Function` (optional)
+        """
 
         if isinstance(function_space, Function):
             self._function_space = function_space._function_space
@@ -1353,8 +1360,11 @@ class Function(ufl.Coefficient):
         self.uid = _new_uid()
         self._name = name or 'function_%d' % self.uid
 
-        self.dat = self._function_space.make_dat(val, valuetype, self._name,
-                                                 uid=self.uid)
+        if isinstance(val, op2.Dat):
+            self.dat = val
+        else:
+            self.dat = self._function_space.make_dat(val, valuetype,
+                                                     self._name, uid=self.uid)
 
         self._repr = None
 
