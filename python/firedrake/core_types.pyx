@@ -1299,6 +1299,13 @@ class IndexedFunctionSpace(FunctionSpaceBase):
     it has as part of a :class:`MixedFunctionSpace`."""
 
     def __init__(self, fs, index):
+        # This is really just a wrapper for the given function space with an
+        # index attached. See also: http://stackoverflow.com/a/1445289/396967
+        self.__dict__ = fs.__dict__
+        # Override the __class__ to make instance checks on the type of the
+        # wrapped function space work as expected
+        self.__class__ = type(fs.__class__.__name__,
+                              (self.__class__, fs.__class__), {})
         self._fs = fs
         self._index = index
 
@@ -1307,9 +1314,6 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         """Position of this :class:`FunctionSpaceBase` in the
         :class:`MixedFunctionSpace` it was extracted from."""
         return self._index
-
-    def __getattr__(self, name):
-        getattr(self._fs, name)
 
 
 class Function(ufl.Coefficient):
