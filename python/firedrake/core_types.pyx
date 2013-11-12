@@ -1429,7 +1429,7 @@ class Function(ufl.Coefficient):
 
         assign_expression = ";\n".join(["A[%(i)d] = %(code)s" % { 'i': i, 'code': code } for i, code in enumerate(expression.code)])
         _expression_template = """
-void expression_kernel(double A[%(rank)d], double **x_, int k)
+void expression_kernel(double A[%(assign_dim)d], double **x_, int k)
 {
   const double X[%(ndof)d][%(xndof)d] = %(x_array)s;
 
@@ -1451,7 +1451,8 @@ void expression_kernel(double A[%(rank)d], double **x_, int k)
                                                      "xndof" : coords_element.space_dimension(),
                                                      "ndof" : to_element.space_dimension(),
                                                      "assign_expression" : assign_expression,
-                                                     "rank" : expression.rank() },
+                                                     "assign_dim" : np.prod(expression.shape(),
+                                                                            dtype=int) },
                             "expression_kernel")
 
         op2.par_loop(kernel, self.cell_set,
