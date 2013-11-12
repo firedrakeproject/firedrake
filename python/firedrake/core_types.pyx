@@ -1162,7 +1162,8 @@ class MixedFunctionSpace(FunctionSpaceBase):
             ME  = MixedFunctionSpace([P2v, P1, P1, P1])
         """
 
-        self._spaces = list(flatten(spaces))
+        self._spaces = [IndexedFunctionSpace(s, i)
+                        for i, s in enumerate(flatten(spaces))]
         self._mesh = self._spaces[0]._mesh
         self._ufl_element = ufl.MixedElement(*[fs.ufl_element() for fs in self._spaces])
         self.name = '_'.join(str(s.name) for s in self._spaces)
@@ -1291,6 +1292,24 @@ class MixedFunctionSpace(FunctionSpaceBase):
             val = [None for _ in self]
         return op2.MixedDat(s.make_dat(v, valuetype, name, _new_uid())
                             for s, v in zip(self._spaces, val))
+
+
+class IndexedFunctionSpace(FunctionSpaceBase):
+    """A :class:`FunctionSpaceBase` with an index to indicate which position
+    it has as part of a :class:`MixedFunctionSpace`."""
+
+    def __init__(self, fs, index):
+        self._fs = fs
+        self._index = index
+
+    @property
+    def index(self):
+        """Position of this :class:`FunctionSpaceBase` in the
+        :class:`MixedFunctionSpace` it was extracted from."""
+        return self._index
+
+    def __getattr__(self, name):
+        getattr(self._fs, name)
 
 
 class Function(ufl.Coefficient):
