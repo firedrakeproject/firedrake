@@ -56,8 +56,8 @@ def M(fs):
 def test_one_form(M, f):
     one_form = assemble(action(M, f))
     assert isinstance(one_form, Function)
-    for d, fs in zip(one_form.dat, f.function_space()):
-        assert abs(d.data.sum() - 0.5*fs.dim) < 1.0e-12
+    for f in one_form.split():
+        assert abs(f.dat.data.sum() - 0.5*f.function_space().dim) < 1.0e-12
 
 
 def test_zero_form(M, f, one):
