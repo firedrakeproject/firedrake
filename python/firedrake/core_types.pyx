@@ -1315,6 +1315,9 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         :class:`MixedFunctionSpace` it was extracted from."""
         return self._index
 
+    def __repr__(self):
+        return "<IndexFunctionSpace: %r at %d>" % (FunctionSpaceBase.__repr__(self._fs), self._index)
+
 
 class Function(ufl.Coefficient):
     """A :class:`Function` represents a discretised field over the
