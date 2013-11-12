@@ -4,6 +4,10 @@ import pytest
 
 from firedrake import *
 
+CG = [("CG", 1), ("CG", 2)]
+DG = [("DG", 0), ("DG", 1)]
+hdiv = [("RT", 1), ("RT", 2), ("RT", 3), ("BDM", 1)]
+
 
 def identity_test_scalar(family, degree, vfamily, vdegree):
     m = UnitSquareMesh(4, 4)
@@ -64,15 +68,14 @@ def identity_test_hcurl(family, degree, vfamily, vdegree):
 
 
 def test_scalar_assembly():
-    testcases = [("CG", 1), ("CG", 2), ("DG", 0), ("DG", 1)]
-    error = [identity_test_scalar(f, d, vfam, fdeg) for (vfam, fdeg) in testcases for (f, d) in testcases]
+    error = [identity_test_scalar(f, d, vfam, fdeg) for (vfam, fdeg) in CG for (f, d) in CG]
+    error += [identity_test_scalar(f, d, vfam, fdeg) for (vfam, fdeg) in CG for (f, d) in DG]
+    error += [identity_test_scalar(f, d, vfam, fdeg) for (vfam, fdeg) in DG for (f, d) in CG]
+    error += [identity_test_scalar(f, d, vfam, fdeg) for (vfam, fdeg) in DG for (f, d) in DG]
     assert (np.array(error) < 1.0e-7).all()
 
 
 def test_hdiv_assembly():
-    CG = [("CG", 1), ("CG", 2)]
-    DG = [("DG", 0), ("DG", 1)]
-    hdiv = [("RT", 1), ("RT", 2), ("RT", 3), ("BDM", 1)]
     # two valid combinations for hdiv
     # 1) BDM/RT x DG
     # 2) DG x CG
@@ -82,9 +85,6 @@ def test_hdiv_assembly():
 
 
 def test_hcurl_assembly():
-    CG = [("CG", 1), ("CG", 2)]
-    DG = [("DG", 0), ("DG", 1)]
-    hdiv = [("RT", 1), ("RT", 2), ("RT", 3), ("BDM", 1)]
     # two valid combinations for hcurl
     # 1) BDM/RT x CG
     # 2) CG x DG
