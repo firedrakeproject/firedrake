@@ -274,11 +274,14 @@ class Arg(base.Arg):
             raise RuntimeError("Don't know how to zero temp array for %s" % self)
 
     def c_add_offset(self):
-        return '\n'.join(["%(name)s[%(j)d] += _off%(num)s[%(j)d] * %(dim)s;" %
+        return '\n'.join(["%(name)s[%(j)d] += _off%(num)s[%(i)d] * %(dim)s;" %
                           {'name': self.c_vec_name(),
-                           'j': j,
+                           'j': self.map.arity*j + i,
+                           'i': i,
                            'num': self.c_offset(),
-                           'dim': self.data.cdim} for j in range(self.map.arity)])
+                           'dim': self.data.cdim}
+                          for j in range(self.data.cdim)
+                          for i in range(self.map.arity)])
 
     # New globals generation which avoids false sharing.
     def c_intermediate_globals_decl(self, count):
