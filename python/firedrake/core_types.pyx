@@ -1394,6 +1394,9 @@ class Function(ufl.Coefficient):
         if expression.rank() != self.function_space().rank:
             raise RuntimeError('Rank mismatch between Expression and FunctionSpace')
 
+        if expression.shape() != self.function_space().ufl_element().value_shape():
+            raise RuntimeError('Shape mismatch between Expression and FunctionSpace')
+
         i = 0
         for fs, dat in zip(self.function_space(), self.dat):
             self._interpolate(fs, dat, Expression(expression.code[i:i+fs.dim]))
@@ -1429,7 +1432,7 @@ class Function(ufl.Coefficient):
 
         assign_expression = ";\n".join(["A[%(i)d] = %(code)s" % { 'i': i, 'code': code } for i, code in enumerate(expression.code)])
         _expression_template = """
-void expression_kernel(double A[%(rank)d], double **x_, int k)
+void expression_kernel(double A[%(assign_dim)d], double **x_, int k)
 {
   const double X[%(ndof)d][%(xndof)d] = %(x_array)s;
 
@@ -1451,7 +1454,8 @@ void expression_kernel(double A[%(rank)d], double **x_, int k)
                                                      "xndof" : coords_element.space_dimension(),
                                                      "ndof" : to_element.space_dimension(),
                                                      "assign_expression" : assign_expression,
-                                                     "rank" : expression.rank() },
+                                                     "assign_dim" : np.prod(expression.shape(),
+                                                                            dtype=int) },
                             "expression_kernel")
 
         op2.par_loop(kernel, self.cell_set,
