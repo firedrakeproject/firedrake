@@ -117,11 +117,11 @@ class Arg(base.Arg):
              'off': ' + %d' % j if j else ''}
 
     def c_ind_data_xtr(self, idx, i, j=0):
-        return "%(name)s + xtr_%(map_name)s[%(idx)s]%(off)s" % \
+        return "%(name)s + xtr_%(map_name)s[%(idx)s]*%(dim)s%(off)s" % \
             {'name': self.c_arg_name(),
              'map_name': self.c_map_name(0, i),
              'idx': idx,
-             'dim': 1,
+             'dim': 1 if self._flatten else str(self.data.cdim),
              'off': ' + %d' % j if j else ''}
 
     def c_kernel_arg_name(self, i, j):
@@ -331,7 +331,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         nrows = map.arity
         return "int xtr_%(name)s[%(dim_row)s];\n" % \
             {'name': self.c_map_name(0, 0),
-             'dim_row': str(nrows * self.data.cdim)}
+             'dim_row': str(nrows * self.data.cdim) if self._flatten else str(nrows)}
 
     def c_map_init_flattened(self):
         return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] = %(dat_dim)s * (*(%(name)s + i * %(dim)s + %(ind)s))%(offset)s;"
@@ -430,8 +430,6 @@ class JITModule(base.JITModule):
         # We need to build with mpicc since that's required by PETSc
         cc = os.environ.get('CC')
         os.environ['CC'] = 'mpicc'
-        print code_to_compile
-        print self._kernel.code
         self._fun = inline_with_numpy(
             code_to_compile, additional_declarations=kernel_code,
             additional_definitions=_const_decs + kernel_code,
