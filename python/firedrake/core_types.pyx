@@ -1304,6 +1304,10 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         :param index: the position in the parent :class:`MixedFunctionSpace`
         :param parent: the parent :class:`MixedFunctionSpace`
         """
+        # If the function space was extracted from a mixed function space,
+        # extract the underlying component space
+        if isinstance(fs, IndexedFunctionSpace):
+            fs = fs._fs
         # Override the __class__ to make instance checks on the type of the
         # wrapped function space work as expected
         self.__class__ = type(fs.__class__.__name__,
