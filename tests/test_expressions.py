@@ -99,35 +99,25 @@ def idivtest(f, expr, x):
 @pytest.fixture(params=range(1, 12))
 def alltests(request, functions):
     f, one, two, minusthree = functions
+    tests = {
+        1: exprtest(one + two, 3),
+        2: assigntest(f, one + two, 3),
+        3: iaddtest(f, two, 5),
+        4: iaddtest(f, 2, 7),
+        5: isubtest(f, 2, 5),
+        6: imultest(f, 2, 10),
+        7: idivtest(f, 2, 5),
+    }
     # Not all test cases work for vector function spaces
-    if isinstance(one.function_space(), (VectorFunctionSpace, MixedFunctionSpace)):
-        return {
-            1: exprtest(one + two, 3),
-            2: (None, None, True),
-            3: (None, None, True),
-            4: (None, None, True),
-            5: (None, None, True),
-            6: assigntest(f, one + two, 3),
-            7: iaddtest(f, two, 5),
-            8: iaddtest(f, 2, 7),
-            9: isubtest(f, 2, 5),
-            10: imultest(f, 2, 10),
-            11: idivtest(f, 2, 5),
-        }[request.param]
-    else:
-        return {
-            1: exprtest(one + two, 3),
-            2: exprtest(ufl.ln(one), 0),
-            3: exprtest(two ** minusthree, 0.125),
-            4: exprtest(ufl.sign(minusthree), -1),
-            5: exprtest(one + two / two ** minusthree, 17),
-            6: assigntest(f, one + two, 3),
-            7: iaddtest(f, two, 5),
-            8: iaddtest(f, 2, 7),
-            9: isubtest(f, 2, 5),
-            10: imultest(f, 2, 10),
-            11: idivtest(f, 2, 5),
-        }[request.param]
+    if isinstance(one.function_space(), FunctionSpace):
+        tests[8] = exprtest(ufl.ln(one), 0)
+        tests[9] = exprtest(two ** minusthree, 0.125)
+        tests[10] = exprtest(ufl.sign(minusthree), -1)
+        tests[11] = exprtest(one + two / two ** minusthree, 17)
+    try:
+        return tests[request.param]
+    except KeyError:
+        pytest.skip()
 
 
 def test_expressions(alltests):
