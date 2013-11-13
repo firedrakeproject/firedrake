@@ -184,6 +184,9 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
         %(map_init)s;
         %(extr_loop)s
         %(map_bcs_m)s;
+        %(buffer_decl)s;
+        %(buffer_gather)s
+        %(kernel_name)s(%(kernel_args)s);
         %(itset_loop_body)s;
         %(map_bcs_p)s;
         %(apply_offset)s;

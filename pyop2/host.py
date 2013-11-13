@@ -141,17 +141,16 @@ class Arg(base.Arg):
     def c_local_tensor_name(self, i, j):
         return self.c_kernel_arg_name(i, j)
 
-    def c_kernel_arg(self, count, i, j):
+    def c_kernel_arg(self, count, i=0, j=0, shape=(0,)):
         if self._uses_itspace:
             if self._is_mat:
                 if self.data._is_vector_field:
                     return self.c_kernel_arg_name(i, j)
                 elif self.data._is_scalar_field:
-                    idx = ''.join(["[i_%d]" % n for n in range(len(self.data.dims))])
-                    return "(%(t)s (*)[1])&%(name)s%(idx)s" % \
+                    return "(%(t)s (*)[%(dim)d])&%(name)s" % \
                         {'t': self.ctype,
-                         'name': self.c_kernel_arg_name(i, j),
-                         'idx': idx}
+                         'dim': shape[0],
+                         'name': self.c_kernel_arg_name(i, j)}
                 else:
                     raise RuntimeError("Don't know how to pass kernel arg %s" % self)
             else:
@@ -208,7 +207,7 @@ class Arg(base.Arg):
 
         return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
             {'mat': self.c_arg_name(i, j),
-             'vals': self.c_kernel_arg_name(i, j),
+             'vals': 'buffer_' + self.c_arg_name(),
              'nrows': nrows,
              'ncols': ncols,
              'rows': rows_str,
@@ -262,16 +261,11 @@ class Arg(base.Arg):
         return ';\n'.join(s)
 
     def c_local_tensor_dec(self, extents, i, j):
-        t = self.data.ctype
-        if self.data._is_scalar_field:
-            dims = ''.join(["[%d]" % d for d in extents])
-        elif self.data._is_vector_field:
-            dims = ''.join(["[%d]" % d for d in self.data[i, j].dims])
-            if self._flatten:
-                dims = '[1][1]'
+        if self._is_mat:
+            size = 1
         else:
-            raise RuntimeError("Don't know how to declare temp array for %s" % self)
-        return "%s %s%s" % (t, self.c_local_tensor_name(i, j), dims)
+            size = self.data.split[i].cdim
+        return tuple([d * size for d in extents])
 
     def c_zero_tmp(self, i, j):
         t = self.ctype
@@ -482,6 +476,36 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                            {'cnt': self.c_offset_name(i, j)})
         return ";\n".join(val)
 
+    def c_buffer_decl(self, size, idx):
+        buf_type = self.data.ctype
+        buf_name = "buffer_" + self.c_arg_name(idx)
+        dim = len(size)
+        return (buf_name, "%(typ)s %(name)s%(dim)s%(init)s" %
+                {"typ": buf_type,
+                 "name": buf_name,
+                 "dim": "".join(["[%d]" % d for d in size]),
+                 "init": " = " + "{" * dim + "0" + "}" * dim if self.access._mode in ['WRITE', 'INC'] else ""})
+
+    def c_buffer_gather(self, size, idx):
+        buf_name = "buffer_" + self.c_arg_name(idx)
+        dim = 1 if self._flatten else self.data.cdim
+        return ";\n".join(["%(name)s[i_0*%(dim)d%(ofs)s] = *(%(ind)s%(ofs)s);\n" %
+                           {"name": buf_name,
+                            "dim": dim,
+                            "ind": self.c_kernel_arg(idx),
+                            "ofs": " + %s" % j if j else ""} for j in range(dim)])
+
+    def c_buffer_scatter(self, count, i, j, mxofs):
+        dim = 1 if self._flatten else self.data.split[i].cdim
+        return ";\n".join(["*(%(ind)s%(nfofs)s) %(op)s %(name)s[i_0*%(dim)d%(nfofs)s%(mxofs)s]" %
+                           {"ind": self.c_kernel_arg(count, i, j),
+                            "op": "=" if self._access._mode == "WRITE" else "+=",
+                            "name": "buffer_" + self.c_arg_name(count),
+                            "dim": dim,
+                            "nfofs": " + %d" % o if o else "",
+                            "mxofs": " + %d" % mxofs if mxofs else ""}
+                           for o in range(dim)])
+
 
 class JITModule(base.JITModule):
 
@@ -647,18 +671,49 @@ class JITModule(base.JITModule):
             _off_args = ""
             _off_inits = ""
 
+        # Build kernel invokation s.t. a variable X that depends on the kernels's iteration
+        # space is replaced by a temporary array BUFFER.
+        # * if X is written or incremented in the kernel, then BUFFER is initialized to 0
+        # * if X in read in the kernel, then BUFFER gathers all of the read data
+        _itspace_args = [(count, arg)
+                         for count, arg in enumerate(self._args) if arg._uses_itspace]
+        _buf_gather = ""
+        _buf_decl = {}
+        for count, arg in _itspace_args:
+            _buf_size = [arg.c_local_tensor_dec(shape, i, j)
+                         for i, j, shape, offsets in self._itspace]
+            _buf_size = [sum(x) for x in zip(*_buf_size)]
+            if arg.access._mode not in ['WRITE', 'INC']:
+                _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e)
+                                           for n, e in enumerate(_buf_size)])
+                _buf_gather = arg.c_buffer_gather(_buf_size, count)
+                _itspace_loop_close = '\n'.join(
+                    '  ' * n + '}' for n in range(len(_buf_size) - 1, -1, -1))
+                _buf_gather = "\n".join(
+                    [_itspace_loops, _buf_gather, _itspace_loop_close])
+            _buf_decl[arg] = arg.c_buffer_decl(_buf_size, count)
+        _kernel_args = ', '.join([arg.c_kernel_arg(count) if not arg._uses_itspace else _buf_decl[arg][0]
+                                  for count, arg in enumerate(self._args)])
+        _buf_decl = ";\n".join([decl for name, decl in _buf_decl.values()])
+
         def itset_loop_body(i, j, shape, offsets):
             nloops = len(shape)
-            _local_tensor_decs = ';\n'.join(
-                [arg.c_local_tensor_dec(shape, i, j) for arg in self._args if arg._is_mat])
             _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e)
                                        for n, e in enumerate(shape)])
-            _zero_tmps = ';\n'.join([arg.c_zero_tmp(i, j) for arg in self._args if arg._is_mat])
-            _kernel_it_args = ["i_%d + %d" % (d, offsets[d]) for d in range(len(shape))]
-            _kernel_user_args = [arg.c_kernel_arg(count, i, j)
-                                 for count, arg in enumerate(self._args)]
-            _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
-            _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
+            _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j) for arg in self._args
+                                               if arg._is_mat and arg.data._is_vector_field])
+            _apply_offset = ""
+            _itspace_args = [(count, arg) for count, arg in enumerate(self._args)
+                             if arg.access._mode in ['WRITE', 'INC'] and arg._uses_itspace and not arg._is_mat]
+            _buf_scatter = ""
+            for count, arg in _itspace_args:
+                _buf_scatter = arg.c_buffer_scatter(count, i, j, offsets[0])
+
+            _itspace_loop_close = '\n'.join(
+                '  ' * n + '}' for n in range(nloops - 1, -1, -1))
+            if not _addtos_vector_field and not _buf_scatter:
+                _itspace_loops = ''
+                _itspace_loop_close = ''
             if self._itspace.layers > 1:
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, "xtr_") for arg in self._args
                                                             if arg._is_mat and arg.data._is_scalar_field])
@@ -673,10 +728,10 @@ class JITModule(base.JITModule):
                                                   if arg._is_mat and arg.data._is_vector_field])
 
             template = """
-    %(local_tensor_decs)s;
+    %(map_init)s;
+    %(extr_loop)s
     %(itspace_loops)s
-    %(ind)s%(zero_tmps)s;
-    %(ind)s%(kernel_name)s(%(kernel_args)s);
+    %(ind)s%(buffer_scatter)s;
     %(ind)s%(addtos_vector_field)s;
     %(itspace_loop_close)s
     %(ind)s%(addtos_scalar_field_extruded)s;
@@ -685,15 +740,16 @@ class JITModule(base.JITModule):
 
             return template % {
                 'ind': '  ' * nloops,
-                'local_tensor_decs': indent(_local_tensor_decs, 1),
+                'map_init': indent(_map_init, 5),
+                'extr_loop': indent(_extr_loop, 5),
                 'itspace_loops': indent(_itspace_loops, 2),
-                'zero_tmps': indent(_zero_tmps, 2 + nloops),
-                'kernel_name': self._kernel.name,
-                'kernel_args': _kernel_args,
+                'buffer_scatter': _buf_scatter,
                 'addtos_vector_field': indent(_addtos_vector_field, 2 + nloops),
                 'itspace_loop_close': indent(_itspace_loop_close, 2),
-                'addtos_scalar_field': indent(_addtos_scalar_field, 2),
                 'addtos_scalar_field_extruded': indent(_addtos_scalar_field_extruded, 2 + nloops),
+                'apply_offset': indent(_apply_offset, 3),
+                'extr_loop_close': indent(_extr_loop_close, 2),
+                'addtos_scalar_field': indent(_addtos_scalar_field, 2)
             }
 
         return {'kernel_name': self._kernel.name,
@@ -719,4 +775,7 @@ class JITModule(base.JITModule):
                 'interm_globals_decl': indent(_intermediate_globals_decl, 3),
                 'interm_globals_init': indent(_intermediate_globals_init, 3),
                 'interm_globals_writeback': indent(_intermediate_globals_writeback, 3),
+                'buffer_decl': _buf_decl,
+                'buffer_gather': _buf_gather,
+                'kernel_args': _kernel_args,
                 'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape, offsets) for i, j, shape, offsets in self._itspace])}
