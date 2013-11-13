@@ -117,7 +117,7 @@ class Arg(base.Arg):
              'off': ' + %d' % j if j else ''}
 
     def c_ind_data_xtr(self, idx, i, j=0):
-        return "%(name)s + xtr_%(map_name)s[%(idx)s] * %(dim)s%(off)s" % \
+        return "%(name)s + xtr_%(map_name)s[%(idx)s]%(off)s" % \
             {'name': self.c_arg_name(),
              'map_name': self.c_map_name(0, i),
              'idx': idx,
@@ -333,7 +333,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             {'name': self.c_map_name(0, 0),
              'dim_row': str(nrows * self.data.cdim)}
 
-    def c_map_init(self):
+    def c_map_init_flattened(self):
         return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] = %(dat_dim)s * (*(%(name)s + i * %(dim)s + %(ind)s))%(offset)s;"
                                    % {'name': self.c_map_name(i, 0),
                                       'dim': map.arity,
@@ -345,7 +345,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                    for idx in range(map.arity)]
                                   for i, map in enumerate(as_tuple(self.map, Map))]))
 
-    def c_map_init_mat(self):
+    def c_map_init(self):
         return '\n'.join(flatten([["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);"
                                    % {'name': self.c_map_name(i, 0),
                                       'dim': map.arity,
@@ -356,7 +356,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
     def c_offset(self, idx=0):
         return "%s%s" % (self.position, idx)
 
-    def c_add_offset_map(self):
+    def c_add_offset_map_flatten(self):
         return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] += _off%(off)s[%(ind)s] * %(dim)s;"
                                    % {'name': self.c_map_name(i, 0),
                                       'off': self.c_offset(i),
@@ -368,7 +368,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                    for idx in range(map.arity)]
                                   for i, map in enumerate(as_tuple(self.map, Map))]))
 
-    def c_add_offset_map_mat(self):
+    def c_add_offset_map(self):
         return '\n'.join(flatten([["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];"
                                    % {'name': self.c_map_name(i, 0),
                                       'off': self.c_offset(i),
@@ -430,6 +430,8 @@ class JITModule(base.JITModule):
         # We need to build with mpicc since that's required by PETSc
         cc = os.environ.get('CC')
         os.environ['CC'] = 'mpicc'
+        print code_to_compile
+        print self._kernel.code
         self._fun = inline_with_numpy(
             code_to_compile, additional_declarations=kernel_code,
             additional_definitions=_const_decs + kernel_code,
@@ -535,19 +537,19 @@ class JITModule(base.JITModule):
             _apply_offset = ""
             _map_init = ""
             if self._itspace.layers > 1:
+                _map_init += ';\n'.join([arg.c_map_init_flattened() for arg in self._args
+                                        if arg._uses_itspace and arg._flatten])
                 _map_init += ';\n'.join([arg.c_map_init() for arg in self._args
-                                        if arg._uses_itspace and not arg._is_mat])
-                _map_init += ';\n'.join([arg.c_map_init_mat() for arg in self._args
-                                        if arg._uses_itspace and arg._is_mat])
+                                        if arg._uses_itspace and not arg._flatten])
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, "xtr_") for arg in self._args
                                                             if arg._is_mat and arg.data._is_scalar_field])
                 _addtos_scalar_field = ""
                 _extr_loop = '\n' + extrusion_loop(self._itspace.layers - 1)
                 _extr_loop_close = '}\n'
+                _apply_offset += ';\n'.join([arg.c_add_offset_map_flatten() for arg in self._args
+                                            if arg._uses_itspace and arg._flatten])
                 _apply_offset += ';\n'.join([arg.c_add_offset_map() for arg in self._args
-                                            if arg._uses_itspace and not arg._is_mat])
-                _apply_offset += ';\n'.join([arg.c_add_offset_map_mat() for arg in self._args
-                                            if arg._uses_itspace and arg._is_mat])
+                                            if arg._uses_itspace and not arg._flatten])
                 _apply_offset += ';\n'.join([arg.c_add_offset() for arg in self._args
                                              if arg._is_vec_map])
             else:
