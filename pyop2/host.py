@@ -121,14 +121,8 @@ class Arg(base.Arg):
             {'name': self.c_arg_name(),
              'map_name': self.c_map_name(0, i),
              'idx': idx,
-             'dim': self.data.cdim,
+             'dim': 1,
              'off': ' + %d' % j if j else ''}
-
-    def c_ind_data_xtr_rhs(self, i):
-        return "%(name)s + xtr_%(map_name)s[i_1] * %(dim)s + i_0" % \
-            {'name': self.c_arg_name(),
-             'map_name': self.c_map_name(0, i),
-             'dim': self.data.cdim}
 
     def c_kernel_arg_name(self, i, j):
         return "p_%s" % self.c_arg_name(i, j)
@@ -154,7 +148,7 @@ class Arg(base.Arg):
                     raise RuntimeError("Don't know how to pass kernel arg %s" % self)
             else:
                 if self.data is not None and self.data.dataset.set.layers > 1:
-                    return self.c_ind_data_xtr_rhs(i)
+                    return self.c_ind_data_xtr("i_%d" % self.idx.index, i)
                 elif self._flatten:
                     return "%(name)s + %(map_name)s[i * %(arity)s + i_0 %% %(arity)d] * %(dim)s + (i_0 / %(arity)d)" % \
                         {'name': self.c_arg_name(),
@@ -337,21 +331,17 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         nrows = map.arity
         return "int xtr_%(name)s[%(dim_row)s];\n" % \
             {'name': self.c_map_name(0, 0),
-             'dim_row': str(nrows)}
-
-    def xtr_itspace_loops(self, n):
-            return """for (int i_%(i)s=0; i_%(i)s<%(dim)d; ++i_%(i)s) {
-    for (int i_%(j)s=0; i_%(j)s<%(arity)d;++i_%(j)s) {""" % {
-                'dim': self.data.cdim,
-                'arity': self.map.arity,
-                'i': str(n),
-                'j': str(n+1)}
+             'dim_row': str(nrows * self.data.cdim)}
 
     def c_map_init(self):
-        return '\n'.join(flatten([["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);"
+        return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] = %(dat_dim)s * (*(%(name)s + i * %(dim)s + %(ind)s))%(offset)s;"
                                    % {'name': self.c_map_name(i, 0),
                                       'dim': map.arity,
-                                      'ind': idx}
+                                      'ind': idx,
+                                      'dat_dim': str(self.data.cdim),
+                                      'ind_flat': str(map.arity * j + idx),
+                                      'offset': ' + '+str(j) if j > 0 else ''}
+                                   for j in range(self.data.cdim)
                                    for idx in range(map.arity)]
                                   for i, map in enumerate(as_tuple(self.map, Map))]))
 
@@ -359,10 +349,14 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         return "%s%s" % (self.position, idx)
 
     def c_add_offset_map(self):
-        return '\n'.join(flatten([["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];"
+        return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] += _off%(off)s[%(ind)s] * %(dim)s;"
                                    % {'name': self.c_map_name(i, 0),
                                       'off': self.c_offset(i),
-                                      'ind': idx}
+                                      'ind': idx,
+                                      'ind_flat': str(map.arity * j + idx),
+                                      'j': str(j),
+                                      'dim': str(self.data.cdim)}
+                                   for j in range(self.data.cdim)
                                    for idx in range(map.arity)]
                                   for i, map in enumerate(as_tuple(self.map, Map))]))
 
@@ -518,20 +512,12 @@ class JITModule(base.JITModule):
             _kernel_it_args = ["i_%d + %d" % (d, offsets[d]) for d in range(len(shape))]
             _kernel_user_args = [arg.c_kernel_arg(count, i, j)
                                  for count, arg in enumerate(self._args)]
+            _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
             _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j) for arg in self._args
                                                if arg._is_mat and arg.data._is_vector_field])
             _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
             _apply_offset = ""
             if self._itspace.layers > 1:
-                n = 0
-                _itspace_loops = ""
-                _itspace_loop_close = ""
-                for arg in self._args:
-                    if arg._uses_itspace:
-                        _itspace_loops += arg.xtr_itspace_loops(n) + '\n'
-                        _itspace_loop_close += "}\n}\n"
-                        _kernel_it_args = ["i_1*%(dim)s + i_0" % {'dim': arg.data.cdim}]
-                        n += 2
                 _map_init = ';\n'.join([arg.c_map_init() for arg in self._args
                                         if arg._uses_itspace])
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, "xtr_") for arg in self._args
@@ -550,8 +536,6 @@ class JITModule(base.JITModule):
                                                    if arg._is_mat and arg.data._is_scalar_field])
                 _extr_loop = ""
                 _extr_loop_close = ""
-
-            _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
 
             template = """
     %(local_tensor_decs)s;
