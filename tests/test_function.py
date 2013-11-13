@@ -25,6 +25,23 @@ def test_firedrake_function(V):
     assert (g.dat.data_ro == 1.0).all()
 
 
+def test_mismatching_rank_interpolation(V):
+    f = Function(V)
+    with pytest.raises(RuntimeError):
+        f.interpolate(Expression(('1', '2')))
+    VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
+    f = Function(VV)
+    with pytest.raises(RuntimeError):
+        f.interpolate(Expression('1'))
+
+
+def test_mismatching_shape_interpolation(V):
+    VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
+    f = Function(VV)
+    with pytest.raises(RuntimeError):
+        f.interpolate(Expression(['1'] * (VV.ufl_element().value_shape()[0] + 1)))
+
+
 def test_function_name(V):
     f = Function(V, name="foo")
     assert f.name() == "foo"
