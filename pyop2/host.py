@@ -273,7 +273,7 @@ class Arg(base.Arg):
         else:
             raise RuntimeError("Don't know how to zero temp array for %s" % self)
 
-    def c_add_offset(self):
+    def c_add_offset_flatten(self):
         return '\n'.join(["%(name)s[%(j)d] += _off%(num)s[%(i)d] * %(dim)s;" %
                           {'name': self.c_vec_name(),
                            'j': self.map.arity*j + i,
@@ -281,6 +281,14 @@ class Arg(base.Arg):
                            'num': self.c_offset(),
                            'dim': self.data.cdim}
                           for j in range(self.data.cdim)
+                          for i in range(self.map.arity)])
+
+    def c_add_offset(self):
+        return '\n'.join(["%(name)s[%(i)d] += _off%(num)s[%(i)d] * %(dim)s;" %
+                          {'name': self.c_vec_name(),
+                           'i': i,
+                           'num': self.c_offset(),
+                           'dim': self.data.cdim}
                           for i in range(self.map.arity)])
 
     # New globals generation which avoids false sharing.
@@ -548,8 +556,10 @@ class JITModule(base.JITModule):
                                             if arg._uses_itspace and arg._flatten])
                 _apply_offset += ';\n'.join([arg.c_add_offset_map() for arg in self._args
                                             if arg._uses_itspace and not arg._flatten])
+                _apply_offset += ';\n'.join([arg.c_add_offset_flatten() for arg in self._args
+                                             if arg._is_vec_map and arg._flatten])
                 _apply_offset += ';\n'.join([arg.c_add_offset() for arg in self._args
-                                             if arg._is_vec_map])
+                                             if arg._is_vec_map and not arg._flatten])
             else:
                 _addtos_scalar_field_extruded = ""
                 _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(i, j) for arg in self._args
