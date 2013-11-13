@@ -74,7 +74,9 @@ def _init():
         op2.init()
 
 def fiat_from_ufl_element(ufl_element):
-    if isinstance(ufl_element, ufl.HDiv):
+    if isinstance(ufl_element, ufl.EnrichedElement):
+        return FIAT.EnrichedElement(fiat_from_ufl_element(ufl_element._elements[0]), fiat_from_ufl_element(ufl_element._elements[1]))
+    elif isinstance(ufl_element, ufl.HDiv):
         return FIAT.Hdiv(fiat_from_ufl_element(ufl_element._element))
     elif isinstance(ufl_element, ufl.HCurl):
         return FIAT.Hcurl(fiat_from_ufl_element(ufl_element._element))
