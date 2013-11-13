@@ -1311,9 +1311,6 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         self._fs = fs
         self._index = index
         self._parent = parent
-        self.name = fs.name
-        self.rank = fs.rank
-        self.fiat_element = fs.fiat_element
 
     @property
     def index(self):
@@ -1321,23 +1318,11 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         :class:`MixedFunctionSpace` it was extracted from."""
         return self._index
 
+    def __getattr__(self, name):
+        return getattr(self._fs, name)
+
     def __repr__(self):
         return "<IndexFunctionSpace: %r at %d>" % (FunctionSpaceBase.__repr__(self._fs), self._index)
-
-    @property
-    def node_count(self):
-        """The number of global nodes in the function space. For a
-        plain :class:`FunctionSpace` this is equal to
-        :attr:`dof_count`, however for a :class:`VectorFunctionSpace`,
-        the :attr:`dof_count`, is :attr:`dim` times the
-        :attr:`node_count`."""
-        return self._fs.node_count
-
-    @property
-    def dof_count(self):
-        """The number of global degrees of freedom in the function
-        space. Cf. :attr:`node_count`."""
-        return self._fs.dof_count
 
     @property
     def node_set(self):
@@ -1346,43 +1331,11 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         of freedom are stored at each node."""
         return self._fs.node_set
 
-    @utils.cached_property
+    @property
     def dof_dset(self):
         """A :class:`pyop2.Set` containing the degrees of freedom of
         this :class:`FunctionSpace`."""
         return self._fs.dof_dset
-
-    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
-        """Return a newly allocated :class:`pyop2.Dat` defined on the
-        :attr:`dof.dset` of this :class:`Function`."""
-        return self._fs.make_dat(val, valuetype, name, uid)
-
-    def cell_node_map(self, bcs=None):
-        """Return the :class:`pyop2.Map` from interior facets to
-        function space nodes. If present, bcs must be a tuple of
-        :class:`DirichletBC`\s. In this case, the facet_node_map will return
-        negative node indices where boundary conditions should be
-        applied. Where a PETSc matrix is employed, this will cause the
-        corresponding values to be discarded during matrix assembly."""
-        return self._fs.cell_node_map(bcs)
-
-    def interior_facet_node_map(self, bcs=None):
-        """Return the :class:`pyop2.Map` from interior facets to
-        function space nodes. If present, bcs must be a tuple of
-        :class:`DirichletBC`\s. In this case, the facet_node_map will return
-        negative node indices where boundary conditions should be
-        applied. Where a PETSc matrix is employed, this will cause the
-        corresponding values to be discarded during matrix assembly."""
-        return self._fs.interior_facet_node_map(bcs)
-
-    def exterior_facet_node_map(self, bcs=None):
-        """Return the :class:`pyop2.Map` from exterior facets to
-        function space nodes. If present, bcs must be a tuple of
-        :class:`DirichletBC`\s. In this case, the facet_node_map will return
-        negative node indices where boundary conditions should be
-        applied. Where a PETSc matrix is employed, this will cause the
-        corresponding values to be discarded during matrix assembly."""
-        return self._fs.exterior_facet_node_map(bcs)
 
     @property
     def exterior_facet_boundary_node_map(self):
@@ -1391,37 +1344,6 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         :meth:`exterior_facet_node_map` in that only surface nodes
         are referenced, not all nodes in cells touching the surface.'''
         return self._fs.exterior_facet_boundary_node_map
-
-    @property
-    def dim(self):
-        """The vector dimension of the :class:`FunctionSpace`. For a
-        :class:`FunctionSpace` this is always one. For a
-        :class:`VectorFunctionSpace` it is the value given to the
-        constructor, and defaults to the geometric dimension of the :class:`Mesh`. """
-        return self._fs.dim
-
-    cdim = dim
-
-    def ufl_element(self):
-        """The :class:`ufl.FiniteElement` used to construct this
-        :class:`FunctionSpace`."""
-        return self._fs.ufl_element()
-
-    def mesh(self):
-        """The :class:`Mesh` used to construct this :class:`FunctionSpace`."""
-        return self._fs.mesh()
-
-    def __iter__(self):
-        yield self._fs
-
-    def __getitem__(self, i):
-        """Return ``self`` if ``i`` is 0 or raise an exception."""
-        return self._fs[i]
-
-    def __mul__(self, other):
-        """Create a :class:`MixedFunctionSpace` composed of this
-        :class:`FunctionSpace` and other"""
-        return MixedFunctionSpace((self._fs, other))
 
 
 class Function(ufl.Coefficient):
