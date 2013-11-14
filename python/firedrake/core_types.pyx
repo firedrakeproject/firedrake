@@ -750,46 +750,47 @@ class FunctionSpace(object):
     """
 
     def __init__(self, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
-        if isinstance(mesh, ExtrudedMesh):
-            # The function space must adapt to the extrusion
-            # accordingly.
-            # The bottom layer maps  will come from lement_dof_list
-            # dof_count is the total number of dofs in the extruded mesh
-
-            if isinstance(family, ufl.OuterProductElement):
-
-                a = family._A
-                b = family._B
-
-                la = ufl.FiniteElement(a.family(),
-                                       domain=mesh._old_mesh._ufl_cell,
-                                       degree=a.degree())
-
-                lb = ufl.FiniteElement(b.family(),
-                                       domain=ufl.Cell("interval",1),
-                                       degree=b.degree())
-
-            else:
+        # Two choices:
+        # 1) pass in mesh, family, degree to generate a simple function space
+        # 2) set up the function space using FiniteElement, EnrichedElement,
+        #       OuterProductElement and so on
+        if isinstance(family, ufl.FiniteElementBase):
+            # Second case...
+            self._ufl_element = family
+        else:
+            # First case...
+            if isinstance(mesh, ExtrudedMesh):
+                # if extruded mesh, make the OPE
                 la = ufl.FiniteElement(family,
                                        domain=mesh._old_mesh._ufl_cell,
                                        degree=degree)
-                # FIAT version of the extrusion
                 if vfamily is None or vdegree is None:
+                    # if second element was not passed in, assume same as first
+                    # (only makes sense for CG or DG)
                     lb = ufl.FiniteElement(family,
                                            domain=ufl.Cell("interval",1),
                                            degree=degree)
                 else:
+                    # if second element was passed in, use in
                     lb = ufl.FiniteElement(vfamily,
                                            domain=ufl.Cell("interval",1),
                                            degree=vdegree)
+                # now make the OPE
+                self._ufl_element = ufl.OuterProductElement(la, lb)
+            else:
+                # if not an extruded mesh, just make the element
+                self._ufl_element = ufl.FiniteElement(family,
+                                                      domain=mesh._ufl_cell,
+                                                      degree=degree)
 
-            # Create the Function Space element
-            self._ufl_element = ufl.OuterProductElement(la, lb)
+        self.fiat_element = fiat_from_ufl_element(self._ufl_element)
 
-            # Compute the FIAT version of the UFL element above
-            self.fiat_element = fiat_from_ufl_element(self._ufl_element)
+        if isinstance(mesh, ExtrudedMesh):
+            # Set up some extrusion-specific things
+            # The bottom layer maps will come from element_dof_list
+            # dof_count is the total number of dofs in the extruded mesh
 
-            # Get the flattened version of the 3D FIAT element
+            # Get the flattened version of the FIAT element
             flat_temp = self.fiat_element.flattened_element()
 
             # Compute the dofs per column
@@ -802,20 +803,10 @@ class FunctionSpace(object):
                                          flat_temp.entity_dofs(),
                                          self.fiat_element.space_dimension())
         else:
-            if isinstance(family, ufl.OuterProductElement):
-                raise RuntimeError("You can't build an extruded element on an unextruded Mesh")
-            if degree is None:
-                raise RuntimeError("The function space requires a degree")
-
+            # If not extruded specific, set things to None/False, etc.
             self.offset = None
             self.dofs_per_column = np.zeros(1, np.int32)
             self.extruded = False
-
-            self._ufl_element = ufl.FiniteElement(family,
-                                                  domain=mesh._ufl_cell,
-                                                  degree=degree)
-
-            self.fiat_element = fiat_from_ufl_element(self._ufl_element)
 
         # Create the extruded function space
         cdef ft.element_t element_f = as_element(self.fiat_element)
