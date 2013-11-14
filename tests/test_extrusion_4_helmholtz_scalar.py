@@ -1,4 +1,4 @@
-"""Tests for Galerkin projection convergence on extruded meshes"""
+"""Tests for scalar Helmholtz convergence on extruded meshes"""
 import numpy as np
 import pytest
 
