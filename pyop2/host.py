@@ -207,7 +207,7 @@ class Arg(base.Arg):
              'cols': cols_str,
              'insert': self.access == WRITE}
 
-    def c_addto_vector_field(self, i, j):
+    def c_addto_vector_field(self, i, j, xtr=""):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].split[i].arity
         ncols = maps[1].split[j].arity
@@ -216,30 +216,38 @@ class Arg(base.Arg):
         if self._flatten:
             idx = '[0][0]'
             val = "&%s%s" % (self.c_kernel_arg_name(i, j), idx)
-            row = "%(m)s * %(map)s[i * %(dim)s + i_0 %% %(dim)s] + (i_0 / %(dim)s)" % \
+            row = "%(m)s * %(xtr)s%(map)s[%(elem_idx)si_0 %% %(dim)s] + (i_0 / %(dim)s)" % \
                   {'m': rmult,
                    'map': self.c_map_name(0, i),
-                   'dim': nrows}
-            col = "%(m)s * %(map)s[i * %(dim)s + i_1 %% %(dim)s] + (i_1 / %(dim)s)" % \
+                   'dim': nrows,
+                   'elem_idx': "i * %d +" % (nrows) if xtr == "" else "",
+                   'xtr': xtr}
+            col = "%(m)s * %(xtr)s%(map)s[%(elem_idx)si_1 %% %(dim)s] + (i_1 / %(dim)s)" % \
                   {'m': cmult,
                    'map': self.c_map_name(1, j),
-                   'dim': ncols}
+                   'dim': ncols,
+                   'elem_idx': "i * %d +" % (ncols) if xtr == "" else "",
+                   'xtr': xtr}
             return 'addto_scalar(%s, %s, %s, %s, %d)' \
                 % (self.c_arg_name(i, j), val, row, col, self.access == WRITE)
         for r in xrange(rmult):
             for c in xrange(cmult):
                 idx = '[%d][%d]' % (r, c)
                 val = "&%s%s" % (self.c_kernel_arg_name(i, j), idx)
-                row = "%(m)s * %(map)s[i * %(dim)s + i_0] + %(r)s" % \
+                row = "%(m)s * %(xtr)s%(map)s[%(elem_idx)si_0] + %(r)s" % \
                       {'m': rmult,
                        'map': self.c_map_name(0, i),
                        'dim': nrows,
-                       'r': r}
-                col = "%(m)s * %(map)s[i * %(dim)s + i_1] + %(c)s" % \
+                       'r': r,
+                       'elem_idx': "i * %d +" % (nrows) if xtr == "" else "",
+                       'xtr': xtr}
+                col = "%(m)s * %(xtr)s%(map)s[%(elem_idx)si_1] + %(c)s" % \
                       {'m': cmult,
                        'map': self.c_map_name(1, j),
                        'dim': ncols,
-                       'c': c}
+                       'c': c,
+                       'elem_idx': "i * %d +" % (ncols) if xtr == "" else "",
+                       'xtr': xtr}
 
                 s.append('addto_scalar(%s, %s, %s, %s, %d)'
                          % (self.c_arg_name(i, j), val, row, col, self.access == WRITE))
@@ -329,10 +337,10 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         maps = as_tuple(self.map, Map)
         nrows = maps[0].arity
         ncols = maps[1].arity
-        return '\n'.join(["int xtr_%(name)s[%(dim_row)s];" %
+        return '\n'.join(["int xtr_%(name)s[%(dim)s];" %
                           {'name': self.c_map_name(idx, 0),
-                           'dim_row': nrows,
-                           'dim_col': ncols} for idx in range(2)])
+                           'dim': nrows if idx == 0 else ncols}
+                          for idx in range(2)])
 
     def c_map_decl_itspace(self):
         map = self.map
@@ -438,6 +446,7 @@ class JITModule(base.JITModule):
         # We need to build with mpicc since that's required by PETSc
         cc = os.environ.get('CC')
         os.environ['CC'] = 'mpicc'
+        print code_to_compile
         self._fun = inline_with_numpy(
             code_to_compile, additional_declarations=kernel_code,
             additional_definitions=_const_decs + kernel_code,
@@ -522,6 +531,8 @@ class JITModule(base.JITModule):
                                      if arg._is_mat and arg.data._is_scalar_field])
             _map_decl += ';\n'.join([arg.c_map_decl_itspace() for arg in self._args
                                      if arg._uses_itspace and not arg._is_mat])
+            _map_decl += ';\n'.join([arg.c_map_decl() for arg in self._args
+                                     if arg._is_mat and arg.data._is_vector_field])
         else:
             _off_args = ""
             _off_inits = ""
@@ -537,33 +548,35 @@ class JITModule(base.JITModule):
             _kernel_user_args = [arg.c_kernel_arg(count, i, j)
                                  for count, arg in enumerate(self._args)]
             _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
-            _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j) for arg in self._args
-                                               if arg._is_mat and arg.data._is_vector_field])
             _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
             _apply_offset = ""
             _map_init = ""
             if self._itspace.layers > 1:
                 _map_init += ';\n'.join([arg.c_map_init_flattened() for arg in self._args
-                                        if arg._uses_itspace and arg._flatten])
+                                        if arg._uses_itspace and arg._flatten and not arg._is_mat])
                 _map_init += ';\n'.join([arg.c_map_init() for arg in self._args
-                                        if arg._uses_itspace and not arg._flatten])
+                                        if arg._uses_itspace and (not arg._flatten or arg._is_mat)])
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, "xtr_") for arg in self._args
                                                             if arg._is_mat and arg.data._is_scalar_field])
+                _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, "xtr_") for arg in self._args
+                                                  if arg._is_mat and arg.data._is_vector_field])
                 _addtos_scalar_field = ""
                 _extr_loop = '\n' + extrusion_loop(self._itspace.layers - 1)
                 _extr_loop_close = '}\n'
                 _apply_offset += ';\n'.join([arg.c_add_offset_map_flatten() for arg in self._args
-                                            if arg._uses_itspace and arg._flatten])
+                                            if arg._uses_itspace and arg._flatten and not arg._is_mat])
                 _apply_offset += ';\n'.join([arg.c_add_offset_map() for arg in self._args
-                                            if arg._uses_itspace and not arg._flatten])
+                                            if arg._uses_itspace and (not arg._flatten or arg._is_mat)])
                 _apply_offset += ';\n'.join([arg.c_add_offset_flatten() for arg in self._args
-                                             if arg._is_vec_map and arg._flatten])
+                                            if arg._is_vec_map and arg._flatten])
                 _apply_offset += ';\n'.join([arg.c_add_offset() for arg in self._args
-                                             if arg._is_vec_map and not arg._flatten])
+                                            if arg._is_vec_map and not arg._flatten])
             else:
                 _addtos_scalar_field_extruded = ""
                 _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(i, j) for arg in self._args
                                                    if arg._is_mat and arg.data._is_scalar_field])
+                _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j) for arg in self._args
+                                                  if arg._is_mat and arg.data._is_vector_field])
                 _extr_loop = ""
                 _extr_loop_close = ""
 
