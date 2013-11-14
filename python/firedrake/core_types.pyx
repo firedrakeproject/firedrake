@@ -796,6 +796,7 @@ class FunctionSpaceBase(object):
         self.name = name
 
         self._dim = dim
+        self._index = None
 
         if not isinstance(mesh, ExtrudedMesh):
             if mesh.interior_facets.count > 0:
@@ -818,6 +819,12 @@ class FunctionSpaceBase(object):
         self._cell_node_map_cache = {}
         self._exterior_facet_map_cache = {}
         self._interior_facet_map_cache = {}
+
+    @property
+    def index(self):
+        """Position of this :class:`FunctionSpaceBase` in the
+        :class:`MixedFunctionSpace` it was extracted from."""
+        return self._index
 
     @property
     def node_count(self):
@@ -1168,6 +1175,7 @@ class MixedFunctionSpace(FunctionSpaceBase):
         self._ufl_element = ufl.MixedElement(*[fs.ufl_element() for fs in self._spaces])
         self.name = '_'.join(str(s.name) for s in self._spaces)
         self.rank = 1
+        self._index = None
 
     def split(self):
         """The list of :class:`FunctionSpace`\s of which this
@@ -1315,12 +1323,6 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         self._fs = fs
         self._index = index
         self._parent = parent
-
-    @property
-    def index(self):
-        """Position of this :class:`FunctionSpaceBase` in the
-        :class:`MixedFunctionSpace` it was extracted from."""
-        return self._index
 
     def __getattr__(self, name):
         return getattr(self._fs, name)
