@@ -1045,6 +1045,9 @@ class FunctionSpaceBase(object):
         """The :class:`Mesh` used to construct this :class:`FunctionSpace`."""
         return self._mesh
 
+    def __len__(self):
+        return 1
+
     def __iter__(self):
         yield self
 
