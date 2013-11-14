@@ -102,7 +102,6 @@ def test_assemble_with_bcs(a, V):
     assert not A._needs_reassembly
 
 
-@pytest.mark.xfail
 def test_assemble_with_bcs_then_not(a, V):
     bc1 = DirichletBC(V, 0, 1)
     A = assemble(a, bcs=[bc1])
