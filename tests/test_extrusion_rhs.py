@@ -16,8 +16,8 @@ def integrate_rhs(family, degree):
 
     mesh = firedrake.ExtrudedMesh(m, layers, layer_height=0.1)
 
-    horiz = ufl.FiniteElement(family, None, degree)
-    vert = ufl.FiniteElement(family, None, degree)
+    horiz = ufl.FiniteElement(family, "triangle", degree)
+    vert = ufl.FiniteElement(family, "interval", degree)
     prod = ufl.OuterProductElement(horiz, vert)
 
     fs = firedrake.FunctionSpace(mesh, prod, name="fs")
