@@ -107,8 +107,13 @@ class Matrix(object):
     def bcs(self, bcs):
         """Attach some boundary conditions to this :class:`Matrix`.
 
-        :arg bcs: a boundary condition, or an iterable of boundary conditions.
+        :arg bcs: a boundary condition, or an iterable of boundary
+            conditions.  If bcs is None, erase all boundary conditions
+            on the :class:`Matrix`.
         """
+        if bcs is None:
+            self._bcs = set()
+            return
         try:
             self._bcs = set(bcs)
         except TypeError:

@@ -102,6 +102,25 @@ def test_assemble_with_bcs(a, V):
     assert not A._needs_reassembly
 
 
+def test_assemble_with_bcs_then_not(a, V):
+    bc1 = DirichletBC(V, 0, 1)
+    A = assemble(a, bcs=[bc1])
+    Abcs = A.M.values
+
+    A = assemble(a)
+    assert not A.has_bcs
+    Anobcs = A.M.values
+
+    assert (Anobcs != Abcs).any()
+
+    A = assemble(a, bcs=[bc1])
+    Abcs = A.M.values
+    assemble(a, tensor=A)
+    Anobcs = A.M.values
+    assert not A.has_bcs
+    assert (Anobcs != Abcs).any()
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

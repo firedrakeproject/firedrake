@@ -367,10 +367,15 @@ def _assemble(f, tensor=None, bcs=None):
                 _mat_cache[key] = result_matrix
             else:
                 result_matrix = tensor
+                # We pulled the matrix from the cache, so it might
+                # have bcs attached, replace them with those from this call.
+                result_matrix.bcs = bcs
                 tensor = tensor._M
                 tensor.zero()
         else:
             result_matrix = tensor
+            # Replace any bcs on the tensor we passed in
+            result_matrix.bcs = bcs
             tensor = tensor._M
             tensor.zero()
         result = lambda: result_matrix
