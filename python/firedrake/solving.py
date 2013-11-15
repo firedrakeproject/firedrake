@@ -27,7 +27,7 @@ __all__ = ["LinearVariationalProblem",
 import numpy
 
 import ufl
-from ufl_expr import derivative
+from ufl_expr import derivative, Action
 from pyop2 import op2, ffc_interface
 from pyop2.logger import progress, INFO
 import core_types
@@ -333,6 +333,9 @@ def assemble(f, tensor=None, bcs=None):
     integral(s) and returns a :class:`float` for 0-forms, a
     :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
 
+    If f is a :class:`Action` then this assembles the corresponding
+    action and returns a :class:`Function`.
+
     If f is an expression other than a form, it will be evaluated
     pointwise on the :class:`.Function`\s in the expression. This will
     only succeed if all the Functions are on the same
@@ -344,7 +347,9 @@ def assemble(f, tensor=None, bcs=None):
 
     """
 
-    if isinstance(f, ufl.form.Form):
+    if isinstance(f, Action):
+        return f.assemble()
+    elif isinstance(f, ufl.form.Form):
         return _assemble(f, tensor=tensor, bcs=_extract_bcs(bcs))
     elif isinstance(f, ufl.expr.Expr):
         return assemble_expression(f)

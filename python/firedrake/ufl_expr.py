@@ -5,6 +5,7 @@ from ufl.finiteelement import FiniteElementBase
 from ufl.split_functions import split
 from ufl.algorithms.analysis import extract_arguments
 import core_types
+import solving
 
 
 class Argument(ufl.argument.Argument):
@@ -61,6 +62,38 @@ class Argument(ufl.argument.Argument):
         ufl_assert(element.value_shape() == self._element.value_shape(),
                    "Cannot reconstruct an Argument with a different value shape.")
         return Argument(element, function_space, count)
+
+
+class Action(object):
+    """A representation of the action of a bilinear form on a coefficient.
+
+    Because application of boundary conditions is not a right-action,
+    we cannot use a :class:`ufl.Form` to represent the action in the
+    presence of boundary conditions, since there is nowhere on the
+    form to stash them.
+    """
+    def __init__(self, a, x, bcs=None):
+        """
+        :arg a: a bilinear form.
+        :arg x: a :class:`Function`
+        :kwarg bcs: optional boundary conditions (an iterable of
+            :class:`DirichletBC`\s) to apply when computing the action
+        """
+        self._a = a
+        self._x = x
+        self._bcs = bcs
+
+    def assemble(self):
+        """Assemble this :class:`Action` to produce a :class:`Function`."""
+        if self._bcs is None:
+            return solving.assemble(ufl.action(self._a, self._x))
+        out = core_types.Function(self._x)
+        for bc in self._bcs:
+            out.assign(0, subset=bc.node_set)
+        out.assign(solving.assemble(ufl.action(self._a, out)))
+        for bc in self._bcs:
+            out.assign(self._x, subset=bc.node_set)
+        return out
 
 
 def TestFunction(function_space):
@@ -166,3 +199,20 @@ def FacetNormal(mesh):
     :arg mesh: the mesh over which the normal should be represented.
     """
     return ufl.FacetNormal(mesh.ufl_cell())
+
+
+def action(form, coefficient=None, bcs=None):
+    """Given a bilinear form, return a :class:`ufl.Form` or
+    :class:`Action` representing the action of `form` on a coefficient.
+
+    :arg form: a bilinear form
+    :arg coefficient: a :class:`Function` to act on.
+    :arg bcs: optional boundary conditions to apply when computing the
+        action.
+
+    This returns a :class:`ufl.Form` if bcs is None, a :class:`Action`
+    otherwise.
+    """
+    if bcs is None:
+        return ufl.action(form, coefficient)
+    return Action(form, coefficient, bcs=bcs)
