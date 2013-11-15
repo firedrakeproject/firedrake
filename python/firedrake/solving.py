@@ -426,15 +426,9 @@ def _assemble(f, tensor=None, bcs=None):
 
                 itspace = m.cell_set
                 itspace._extruded_bcs = extruded_bcs
-                if itspace.layers > 1:
-                    coords_xtr = m._coordinate_field
-                    args = [kernel, itspace, tensor_arg,
-                            coords_xtr.dat(op2.READ, coords_xtr.cell_node_map(),
-                                           flatten=has_vec_fs(coords_xtr))]
-                else:
-                    args = [kernel, itspace, tensor_arg,
-                            coords.dat(op2.READ, coords.cell_node_map(),
-                                       flatten=has_vec_fs(coords))]
+                args = [kernel, itspace, tensor_arg,
+                        coords.dat(op2.READ, coords.cell_node_map(),
+                                   flatten=has_vec_fs(coords))]
 
                 for c in fd.original_coefficients:
                     args.append(c.dat(op2.READ, c.cell_node_map(),
