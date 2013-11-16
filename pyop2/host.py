@@ -423,12 +423,12 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                              for idx in range(map.arity)])
             res += '\n'
         else:
-            map = maps[0]
-            res = '\n'.join(["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
-                             {'name': self.c_map_name(i, j),
-                              'dim': map.arity,
-                              'ind': idx}
-                             for idx in range(map.arity)])
+            res = '\n'.join(flatten([["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
+                                     {'name': self.c_map_name(mi, 0),
+                                      'dim': map.arity,
+                                      'ind': idx}
+                                    for idx in range(map.arity)]
+                            for mi, map in enumerate(maps)]))
             res += '\n'
         return res
 
@@ -482,12 +482,12 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                              for idx in range(map.arity)])
             res += '\n'
         else:
-            map = maps[0]
-            res = '\n'.join(["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
-                            {'name': self.c_map_name(i, j),
-                             'off': self.c_offset(i),
-                             'ind': idx}
-                            for idx in range(map.arity)])
+            res = '\n'.join(flatten([["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
+                                     {'name': self.c_map_name(mi, 0),
+                                      'off': self.c_offset(i),
+                                      'ind': idx}
+                                    for idx in range(map.arity)]
+                            for mi, map in enumerate(maps)]))
             res += '\n'
         return res
 
