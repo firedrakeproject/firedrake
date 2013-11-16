@@ -45,7 +45,7 @@ TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex
 
 GENERATED_FILES = source/teamgrid.rst source/obtaining_pyop2.rst
 
-$(TARGETS): $(GENERATED_FILES)
+$(TARGETS): $(GENERATED_FILES) copy_demos
 
 publish: html
 # Note that godaddy don't currently do rsync, unfortunately.
@@ -55,6 +55,11 @@ publish: html
 
 serve: html
 	cd $(BUILDDIR)/html; python -m SimpleHTTPServer $(PORT)
+
+.PHONY: copy_demos
+
+copy_demos:
+	cp ../../demos/*/*.rst source
 
 source/teamgrid.rst: source/team.py
 	cd source; python team.py
