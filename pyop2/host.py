@@ -117,11 +117,15 @@ class Arg(base.Arg):
              'off': ' + %d' % j if j else ''}
 
     def c_ind_data_xtr(self, idx, i, j=0):
+        if isinstance(self.data.cdim, tuple):
+            cdim = self.data.cdim[0] * self.data.cdim[1]
+        else:
+            cdim = self.data.cdim
         return "%(name)s + xtr_%(map_name)s[%(idx)s]*%(dim)s%(off)s" % \
             {'name': self.c_arg_name(),
-             'map_name': self.c_map_name(0, i),
+             'map_name': self.c_map_name(i, 0),
              'idx': idx,
-             'dim': 1 if self._flatten else str(self.data.cdim),
+             'dim': 1 if self._flatten else str(cdim),
              'off': ' + %d' % j if j else ''}
 
     def c_kernel_arg_name(self, i, j):
@@ -282,22 +286,33 @@ class Arg(base.Arg):
             raise RuntimeError("Don't know how to zero temp array for %s" % self)
 
     def c_add_offset_flatten(self):
-        return '\n'.join(["%(name)s[%(j)d] += _off%(num)s[%(i)d] * %(dim)s;" %
-                          {'name': self.c_vec_name(),
-                           'j': self.map.arity*j + i,
-                           'i': i,
-                           'num': self.c_offset(),
-                           'dim': self.data.cdim}
-                          for j in range(self.data.cdim)
-                          for i in range(self.map.arity)])
+        if isinstance(self.data.cdim, tuple):
+            cdim = self.data.cdim[0] * self.data.cdim[1]
+        else:
+            cdim = self.data.cdim
+        return '\n'.join(flatten([["%(name)s[%(j)d] += _off%(num)s[%(i)d] * %(dim)s;" %
+                                  {'name': self.c_vec_name(),
+                                   'j': map.arity*j + i,
+                                   'i': i,
+                                   'num': self.c_offset(k),
+                                   'dim': cdim}
+                                  for j in range(cdim)
+                                  for i in range(map.arity)]
+                                 for k, map in enumerate(as_tuple(self.map, Map))]))
 
     def c_add_offset(self):
-        return '\n'.join(["%(name)s[%(i)d] += _off%(num)s[%(i)d] * %(dim)s;" %
-                          {'name': self.c_vec_name(),
-                           'i': i,
-                           'num': self.c_offset(),
-                           'dim': self.data.cdim}
-                          for i in range(self.map.arity)])
+        if isinstance(self.data.cdim, tuple):
+            cdim = self.data.cdim[0] * self.data.cdim[1]
+        else:
+            cdim = self.data.cdim
+        return '\n'.join(flatten([["%(name)s[%(j)d] += _off%(num)s[%(i)d] * %(dim)s;" %
+                                  {'name': self.c_vec_name(),
+                                   'i': i,
+                                   'j': map.arity*k + i,
+                                   'num': self.c_offset(k),
+                                   'dim': cdim}
+                                  for i in range(map.arity)]
+                                 for k, map in enumerate(as_tuple(self.map, Map))]))
 
     # New globals generation which avoids false sharing.
     def c_intermediate_globals_decl(self, count):
@@ -335,68 +350,163 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 
     def c_map_decl(self):
         maps = as_tuple(self.map, Map)
-        nrows = maps[0].arity
-        ncols = maps[1].arity
+        length = 1
+        if isinstance(maps[0], MixedMap):
+            length = len(maps[0].split)
         return '\n'.join(["int xtr_%(name)s[%(dim)s];" %
-                          {'name': self.c_map_name(idx, 0),
-                           'dim': nrows if idx == 0 else ncols}
-                          for idx in range(2)])
+                         {'name': self.c_map_name(idx, k),
+                          'dim': maps[idx].split[k].arity if length > 1 else maps[idx].arity}
+                         for idx in range(2)
+                         for k in range(length)])
 
     def c_map_decl_itspace(self):
-        map = self.map
-        nrows = map.arity
-        return "int xtr_%(name)s[%(dim_row)s];\n" % \
-            {'name': self.c_map_name(0, 0),
-             'dim_row': str(nrows * self.data.cdim) if self._flatten else str(nrows)}
+        if isinstance(self.data.cdim, tuple):
+            cdim = self.data.cdim[0] * self.data.cdim[1]
+        else:
+            cdim = self.data.cdim
+        maps = as_tuple(self.map, Map)
+        if isinstance(maps[0], MixedMap):
+            return '\n'.join(["int xtr_%(name)s[%(dim_row)s];\n" %
+                             {'name': self.c_map_name(i, j),
+                              'dim_row': str(map.arity * cdim) if self._flatten else str(map.arity)}
+                             for i in range(len(maps))
+                             for j, map in enumerate(maps[i].split)])
+        return '\n'.join(["int xtr_%(name)s[%(dim_row)s];\n" %
+                         {'name': self.c_map_name(i, 0),
+                          'dim_row': str(map.arity * cdim) if self._flatten else str(map.arity)}
+                         for i, map in enumerate(as_tuple(self.map, Map))])
 
     def c_map_init_flattened(self):
-        return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] = %(dat_dim)s * (*(%(name)s + i * %(dim)s + %(ind)s))%(offset)s;"
-                                   % {'name': self.c_map_name(i, 0),
+        if isinstance(self.data.cdim, tuple):
+            cdim = self.data.cdim[0] * self.data.cdim[1]
+        else:
+            cdim = self.data.cdim
+        maps = as_tuple(self.map, Map)
+        if isinstance(maps[0], MixedMap):
+            return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] = %(dat_dim)s * (*(%(name)s + i * %(dim)s + %(ind)s))%(offset)s;" %
+                                     {'name': self.c_map_name(i, k),
                                       'dim': map.arity,
                                       'ind': idx,
-                                      'dat_dim': str(self.data.cdim),
+                                      'dat_dim': str(cdim),
                                       'ind_flat': str(map.arity * j + idx),
                                       'offset': ' + '+str(j) if j > 0 else ''}
-                                   for j in range(self.data.cdim)
-                                   for idx in range(map.arity)]
-                                  for i, map in enumerate(as_tuple(self.map, Map))]))
+                                     for j in range(cdim)
+                                     for idx in range(map.arity)]
+                             for i in range(len(maps))
+                             for k, map in enumerate(maps[i].split)]))
+        return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] = %(dat_dim)s * (*(%(name)s + i * %(dim)s + %(ind)s))%(offset)s;" %
+                                 {'name': self.c_map_name(i, 0),
+                                  'dim': map.arity,
+                                  'ind': idx,
+                                  'dat_dim': str(cdim),
+                                  'ind_flat': str(map.arity * j + idx),
+                                  'offset': ' + '+str(j) if j > 0 else ''}
+                                 for j in range(cdim)
+                                 for idx in range(map.arity)]
+                         for i, map in enumerate(as_tuple(self.map, Map))]))
 
-    def c_map_init(self):
-        return '\n'.join(flatten([["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);"
-                                   % {'name': self.c_map_name(i, 0),
-                                      'dim': map.arity,
-                                      'ind': idx}
-                                   for idx in range(map.arity)]
-                                  for i, map in enumerate(as_tuple(self.map, Map))]))
+    def c_map_init(self, i, j):
+        maps = as_tuple(self.map, Map)
+        if isinstance(maps[0], MixedMap):
+            map = maps[0].split[i]
+            res = '\n'.join(["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
+                             {'name': self.c_map_name(0, i),
+                              'dim': map.arity,
+                              'ind': idx}
+                            for idx in range(map.arity)])
+            res += '\n'
+            map = maps[1].split[j]
+            res += '\n'.join(["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
+                             {'name': self.c_map_name(1, j),
+                              'dim': map.arity,
+                              'ind': idx}
+                             for idx in range(map.arity)])
+            res += '\n'
+        else:
+            map = maps[0]
+            res = '\n'.join(["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
+                             {'name': self.c_map_name(i, j),
+                              'dim': map.arity,
+                              'ind': idx}
+                             for idx in range(map.arity)])
+            res += '\n'
+        return res
 
     def c_offset(self, idx=0):
         return "%s%s" % (self.position, idx)
 
     def c_add_offset_map_flatten(self):
-        return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] += _off%(off)s[%(ind)s] * %(dim)s;"
-                                   % {'name': self.c_map_name(i, 0),
-                                      'off': self.c_offset(i),
-                                      'ind': idx,
-                                      'ind_flat': str(map.arity * j + idx),
-                                      'j': str(j),
-                                      'dim': str(self.data.cdim)}
-                                   for j in range(self.data.cdim)
+        if isinstance(self.data.cdim, tuple):
+            cdim = self.data.cdim[0] * self.data.cdim[1]
+        else:
+            cdim = self.data.cdim
+        maps = as_tuple(self.map, Map)
+        if isinstance(maps[0], MixedMap):
+            return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] += _off%(off)s[%(ind)s] * %(dim)s;" %
+                                       {'name': self.c_map_name(i, k),
+                                        'off': self.c_offset(i * len(maps[i].split + k)),
+                                        'ind': idx,
+                                        'ind_flat': str(map.arity * j + idx),
+                                        'j': str(j),
+                                        'dim': str(cdim)}
+                                     for j in range(cdim)
+                                     for idx in range(map.arity)]
+                             for i in range(len(maps))
+                             for k, map in enumerate(maps[i].split)]))
+        return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] += _off%(off)s[%(ind)s] * %(dim)s;" %
+                                   {'name': self.c_map_name(i, 0),
+                                    'off': self.c_offset(i),
+                                    'ind': idx,
+                                    'ind_flat': str(map.arity * j + idx),
+                                    'j': str(j),
+                                    'dim': str(cdim)}
+                                   for j in range(cdim)
                                    for idx in range(map.arity)]
-                                  for i, map in enumerate(as_tuple(self.map, Map))]))
+                         for i, map in enumerate(as_tuple(self.map, Map))]))
 
-    def c_add_offset_map(self):
-        return '\n'.join(flatten([["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];"
-                                   % {'name': self.c_map_name(i, 0),
-                                      'off': self.c_offset(i),
-                                      'ind': idx}
-                                   for idx in range(map.arity)]
-                                  for i, map in enumerate(as_tuple(self.map, Map))]))
+    def c_add_offset_map(self, i, j):
+        maps = as_tuple(self.map, Map)
+        if isinstance(maps[0], MixedMap):
+            map = maps[0].split[i]
+            res = '\n'.join(["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
+                             {'name': self.c_map_name(0, i),
+                              'off': self.c_offset(i),
+                              'ind': idx}
+                            for idx in range(map.arity)])
+            res += '\n'
+            map = maps[1].split[j]
+            res += '\n'.join(["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
+                              {'name': self.c_map_name(1, j),
+                               'off': self.c_offset(len(maps[1].split) + j),
+                               'ind': idx}
+                             for idx in range(map.arity)])
+            res += '\n'
+        else:
+            map = maps[0]
+            res = '\n'.join(["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
+                            {'name': self.c_map_name(i, j),
+                             'off': self.c_offset(i),
+                             'ind': idx}
+                            for idx in range(map.arity)])
+            res += '\n'
+        return res
 
     def c_offset_init(self):
+        maps = as_tuple(self.map, Map)
+        if isinstance(maps[0], MixedMap):
+            return ''.join([", PyObject *off%s" % self.c_offset(i*len(maps[i].split) + j)
+                            for i in range(len(maps))
+                            for j in range(len(maps[i].split))])
         return ''.join([", PyObject *off%s" % self.c_offset(i)
                         for i in range(len(as_tuple(self.map, Map)))])
 
     def c_offset_decl(self):
+        maps = as_tuple(self.map, Map)
+        if isinstance(maps[0], MixedMap):
+            return ';\n'.join(['int * _off%(cnt)s = (int *)(((PyArrayObject *)off%(cnt)s)->data)' %
+                               {'cnt': self.c_offset(i*len(maps[i].split) + j)}
+                              for i in range(len(maps))
+                              for j in range(len(maps[i].split))])
         return ';\n'.join(['int * _off%(cnt)s = (int *)(((PyArrayObject *)off%(cnt)s)->data)'
                            % {'cnt': self.c_offset(i)}
                            for i in range(len(as_tuple(self.map, Map)))])
@@ -527,12 +637,11 @@ class JITModule(base.JITModule):
                                  if arg._uses_itspace or arg._is_vec_map])
             _off_inits = ';\n'.join([arg.c_offset_decl() for arg in self._args
                                      if arg._uses_itspace or arg._is_vec_map])
-            _map_decl += ';\n'.join([arg.c_map_decl() for arg in self._args
-                                     if arg._is_mat and arg.data._is_scalar_field])
             _map_decl += ';\n'.join([arg.c_map_decl_itspace() for arg in self._args
                                      if arg._uses_itspace and not arg._is_mat])
             _map_decl += ';\n'.join([arg.c_map_decl() for arg in self._args
-                                     if arg._is_mat and arg.data._is_vector_field])
+                                     if arg._is_mat])
+
         else:
             _off_args = ""
             _off_inits = ""
@@ -554,7 +663,7 @@ class JITModule(base.JITModule):
             if self._itspace.layers > 1:
                 _map_init += ';\n'.join([arg.c_map_init_flattened() for arg in self._args
                                         if arg._uses_itspace and arg._flatten and not arg._is_mat])
-                _map_init += ';\n'.join([arg.c_map_init() for arg in self._args
+                _map_init += ';\n'.join([arg.c_map_init(i, j) for arg in self._args
                                         if arg._uses_itspace and (not arg._flatten or arg._is_mat)])
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, "xtr_") for arg in self._args
                                                             if arg._is_mat and arg.data._is_scalar_field])
@@ -565,7 +674,7 @@ class JITModule(base.JITModule):
                 _extr_loop_close = '}\n'
                 _apply_offset += ';\n'.join([arg.c_add_offset_map_flatten() for arg in self._args
                                             if arg._uses_itspace and arg._flatten and not arg._is_mat])
-                _apply_offset += ';\n'.join([arg.c_add_offset_map() for arg in self._args
+                _apply_offset += ';\n'.join([arg.c_add_offset_map(i, j) for arg in self._args
                                             if arg._uses_itspace and (not arg._flatten or arg._is_mat)])
                 _apply_offset += ';\n'.join([arg.c_add_offset_flatten() for arg in self._args
                                             if arg._is_vec_map and arg._flatten])
