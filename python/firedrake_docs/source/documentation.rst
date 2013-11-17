@@ -31,7 +31,7 @@ dependencies. For full instructions, see :doc:`obtaining Firedrake
 Once you've built Firedrake, you'll want to actually solve some
 PDEs. Below are a few tutorial examples to get you started.
 
-*  :doc:`A basic Helmholtz equation <helmholtz>`
+*  :doc:`A basic Helmholtz equation <demos/helmholtz.py>`
 
 
 API documentation

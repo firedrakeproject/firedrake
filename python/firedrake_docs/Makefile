@@ -43,7 +43,7 @@ help:
 
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
-GENERATED_FILES = source/teamgrid.rst source/obtaining_pyop2.rst
+GENERATED_FILES = source/teamgrid.rst source/obtaining_pyop2.rst source/demos
 
 $(TARGETS): $(GENERATED_FILES) copy_demos
 
@@ -59,7 +59,9 @@ serve: html
 .PHONY: copy_demos
 
 copy_demos:
-	cp ../../demos/*/*.rst source
+	install -d source/demos
+	cp ../../demos/*/*.rst source/demos
+	for file in source/demos/*.py.rst; do ../pylit/pylit.py $$file; done
 
 source/teamgrid.rst: source/team.py
 	cd source; python team.py
@@ -74,10 +76,11 @@ apidoc:
 
 clean:
 	-rm -rf $(BUILDDIR)/*
-	-rm -f $(GENERATED_FILES)
+	-rm -rf $(GENERATED_FILES)
 
 html: apidoc
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
+	cp source/demos/*.py $(BUILDDIR)/html/demos
 	@echo
 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
 
