@@ -19,9 +19,9 @@ parts. The variational problem so derived reads: find :math:`u\in V` such that:
 
 .. math::
 
-   \int_\Omega \nabla u\cdot\nabla v  + uv\ \mathrm{d}x = \int_\Omega vf\ \mathrm{d}x
-
-.. if I could do strikout I would put - \sout{\int_\Gamma v\nabla u \cdot \vec{n}} \mathrm{d}s in
+   \require{cancel}
+   \int_\Omega \nabla u\cdot\nabla v  + uv\ \mathrm{d}x = \int_\Omega
+   vf\ \mathrm{d}x + \cancel{\int_\Gamma v \nabla u \cdot \vec{n} \mathrm{d}s}
 
 Note that the boundary condition has been enforced weakly by removing
 the surface term resulting from the integration by parts.
