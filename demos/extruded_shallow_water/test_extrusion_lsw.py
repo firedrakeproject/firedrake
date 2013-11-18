@@ -18,7 +18,7 @@ horiz = FiniteElement("BDM", "triangle", 1)
 vert = FiniteElement("DG", "interval", 0)
 prod = HDiv(OuterProductElement(horiz, vert))
 W = FunctionSpace(mesh, prod)
-#W = FunctionSpace(mesh, "BDM", 1, vfamily="Lagrange", vdegree=0)
+
 X = FunctionSpace(mesh, "DG", 0, vfamily="DG", vdegree=0)
 Xplot = FunctionSpace(mesh, "CG", 1, vfamily="Lagrange", vdegree=1)
 
