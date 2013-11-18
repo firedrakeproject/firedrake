@@ -171,6 +171,22 @@ class Ln(ufl.mathfunctions.Ln):
         return "log(%s)" % str(self._argument)
 
 
+class ComponentTensor(ufl.tensors.ComponentTensor):
+    """Subclass of :class:`ufl.tensors.ComponentTensor` which only prints the
+    first operand."""
+
+    def __str__(self):
+        return str(self.operands()[0])
+
+
+class Indexed(ufl.indexed.Indexed):
+    """Subclass of :class:`ufl.indexed.Indexed` which only prints the first
+    operand."""
+
+    def __str__(self):
+        return str(self.operands()[0])
+
+
 class ExpressionWalker(ReuseTransformer):
 
     def __init__(self):
@@ -218,6 +234,14 @@ class ExpressionWalker(ReuseTransformer):
     def ln(self, o, *operands):
         # Need to convert notation to c.
         return Ln(*operands)
+
+    def component_tensor(self, o, *operands):
+        """Override string representation to only print first operand."""
+        return ComponentTensor(*operands)
+
+    def indexed(self, o, *operands):
+        """Override string representation to only print first operand."""
+        return Indexed(*operands)
 
     def operator(self, o):
 
