@@ -85,6 +85,21 @@ def test_nonlinear_solver_gced(a_L_out):
     assert before == after
 
 
+def test_mf_gced(a_L_out):
+    a, L, out = a_L_out
+    gc.collect()
+    before = howmany(MatrixFree)
+
+    mf = MatrixFree(a)
+    mf.solve(L, out)
+    out.dat.data_ro
+    del mf
+    gc.collect()
+    after = howmany(MatrixFree)
+
+    assert before == after
+
+
 def test_nonlinear_solver_api(a_L_out):
     a, L, out = a_L_out
     J = a
