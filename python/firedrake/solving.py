@@ -348,7 +348,7 @@ def assemble(f, tensor=None, bcs=None):
     """
 
     if isinstance(f, Action):
-        return f.assemble()
+        return f.assemble(tensor=tensor)
     elif isinstance(f, ufl.form.Form):
         return _assemble(f, tensor=tensor, bcs=_extract_bcs(bcs))
     elif isinstance(f, ufl.expr.Expr):

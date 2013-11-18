@@ -83,11 +83,18 @@ class Action(object):
         self._x = x
         self._bcs = bcs
 
-    def assemble(self):
-        """Assemble this :class:`Action` to produce a :class:`Function`."""
+    def assemble(self, tensor=None):
+        """Assemble this :class:`Action` to produce a :class:`Function`.
+
+        :arg tensor: an optional :class:`Function` to place the result in."""
         if self._bcs is None:
-            return solving.assemble(ufl.action(self._a, self._x))
-        out = core_types.Function(self._x)
+            return solving.assemble(ufl.action(self._a, self._x),
+                                    tensor=tensor)
+        if tensor is None:
+            out = core_types.Function(self._x)
+        else:
+            out = tensor
+            out.assign(self._x)
         for bc in self._bcs:
             out.assign(0, subset=bc.node_set)
         out.assign(solving.assemble(ufl.action(self._a, out)))
