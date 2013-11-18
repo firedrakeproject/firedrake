@@ -109,13 +109,17 @@ def idivtest(f, expr, x):
 
 
 common_tests = [
+    'exprtest(one + one, 2)',
+    'exprtest(3 * one, 3)',
     'exprtest(one + two, 3)',
     'assigntest(f, one + two, 3)',
-    'iaddtest(f, two, 5)',
-    'iaddtest(f, 2, 7)',
-    'isubtest(f, 2, 5)',
+    'iaddtest(f, f, 6)',
+    'iaddtest(f, two, 8)',
+    'iaddtest(f, 2, 10)',
+    'isubtest(f, 5, 5)',
     'imultest(f, 2, 10)',
-    'idivtest(f, 2, 5)']
+    'idivtest(f, 2, 5)',
+    'isubtest(f, f, 0)']
 
 scalar_tests = common_tests + [
     'exprtest(ufl.ln(one), 0)',
