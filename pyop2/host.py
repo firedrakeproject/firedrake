@@ -405,22 +405,22 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                  for idx in range(map.arity)]
                          for i, map in enumerate(as_tuple(self.map, Map))]))
 
-    def c_map_init(self, i, j):
+    def c_map_init(self):
         maps = as_tuple(self.map, Map)
         if isinstance(maps[0], MixedMap):
-            map = maps[0].split[i]
-            res = '\n'.join(["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
-                             {'name': self.c_map_name(0, i),
-                              'dim': map.arity,
-                              'ind': idx}
-                            for idx in range(map.arity)])
+            res = '\n'.join(flatten([["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
+                                     {'name': self.c_map_name(0, i),
+                                      'dim': map.arity,
+                                      'ind': idx}
+                                     for idx in range(map.arity)]
+                            for i, map in enumerate(maps[0].split)]))
             res += '\n'
-            map = maps[1].split[j]
-            res += '\n'.join(["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
-                             {'name': self.c_map_name(1, j),
-                              'dim': map.arity,
-                              'ind': idx}
-                             for idx in range(map.arity)])
+            res += '\n'.join(flatten([["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
+                                      {'name': self.c_map_name(1, j),
+                                       'dim': map.arity,
+                                       'ind': idx}
+                                      for idx in range(map.arity)]
+                             for j, map in enumerate(maps[1].split)]))
             res += '\n'
         else:
             res = '\n'.join(flatten([["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
@@ -464,27 +464,27 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                    for idx in range(map.arity)]
                          for i, map in enumerate(as_tuple(self.map, Map))]))
 
-    def c_add_offset_map(self, i, j):
+    def c_add_offset_map(self):
         maps = as_tuple(self.map, Map)
         if isinstance(maps[0], MixedMap):
-            map = maps[0].split[i]
-            res = '\n'.join(["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
-                             {'name': self.c_map_name(0, i),
-                              'off': self.c_offset(i),
-                              'ind': idx}
-                            for idx in range(map.arity)])
+            res = '\n'.join(flatten([["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
+                                     {'name': self.c_map_name(0, i),
+                                      'off': self.c_offset(i),
+                                      'ind': idx}
+                                     for idx in range(map.arity)]
+                            for i, map in enumerate(maps[0].split)]))
             res += '\n'
-            map = maps[1].split[j]
-            res += '\n'.join(["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
-                              {'name': self.c_map_name(1, j),
-                               'off': self.c_offset(len(maps[1].split) + j),
-                               'ind': idx}
-                             for idx in range(map.arity)])
+            res += '\n'.join(flatten([["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
+                                      {'name': self.c_map_name(1, j),
+                                       'off': self.c_offset(len(maps[1].split) + j),
+                                       'ind': idx}
+                                     for idx in range(map.arity)]
+                             for j, map in enumerate(maps[1].split)]))
             res += '\n'
         else:
             res = '\n'.join(flatten([["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
                                      {'name': self.c_map_name(mi, 0),
-                                      'off': self.c_offset(i),
+                                      'off': self.c_offset(mi),
                                       'ind': idx}
                                     for idx in range(map.arity)]
                             for mi, map in enumerate(maps)]))
@@ -556,7 +556,6 @@ class JITModule(base.JITModule):
         # We need to build with mpicc since that's required by PETSc
         cc = os.environ.get('CC')
         os.environ['CC'] = 'mpicc'
-        print code_to_compile
         self._fun = inline_with_numpy(
             code_to_compile, additional_declarations=kernel_code,
             additional_definitions=_const_decs + kernel_code,
@@ -632,6 +631,10 @@ class JITModule(base.JITModule):
         indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
 
         _map_decl = ""
+        _apply_offset = ""
+        _map_init = ""
+        _extr_loop = ""
+        _extr_loop_close = ""
         if self._itspace.layers > 1:
             _off_args = ''.join([arg.c_offset_init() for arg in self._args
                                  if arg._uses_itspace or arg._is_vec_map])
@@ -641,6 +644,20 @@ class JITModule(base.JITModule):
                                      if arg._uses_itspace and not arg._is_mat])
             _map_decl += ';\n'.join([arg.c_map_decl() for arg in self._args
                                      if arg._is_mat])
+            _map_init += ';\n'.join([arg.c_map_init_flattened() for arg in self._args
+                                     if arg._uses_itspace and arg._flatten and not arg._is_mat])
+            _map_init += ';\n'.join([arg.c_map_init() for arg in self._args
+                                     if arg._uses_itspace and (not arg._flatten or arg._is_mat)])
+            _apply_offset += ';\n'.join([arg.c_add_offset_map_flatten() for arg in self._args
+                                         if arg._uses_itspace and arg._flatten and not arg._is_mat])
+            _apply_offset += ';\n'.join([arg.c_add_offset_map() for arg in self._args
+                                         if arg._uses_itspace and (not arg._flatten or arg._is_mat)])
+            _apply_offset += ';\n'.join([arg.c_add_offset_flatten() for arg in self._args
+                                         if arg._is_vec_map and arg._flatten])
+            _apply_offset += ';\n'.join([arg.c_add_offset() for arg in self._args
+                                         if arg._is_vec_map and not arg._flatten])
+            _extr_loop = '\n' + extrusion_loop(self._itspace.layers - 1)
+            _extr_loop_close = '}\n'
 
         else:
             _off_args = ""
@@ -658,64 +675,38 @@ class JITModule(base.JITModule):
                                  for count, arg in enumerate(self._args)]
             _kernel_args = ', '.join(_kernel_user_args + _kernel_it_args)
             _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
-            _apply_offset = ""
-            _map_init = ""
             if self._itspace.layers > 1:
-                _map_init += ';\n'.join([arg.c_map_init_flattened() for arg in self._args
-                                        if arg._uses_itspace and arg._flatten and not arg._is_mat])
-                _map_init += ';\n'.join([arg.c_map_init(i, j) for arg in self._args
-                                        if arg._uses_itspace and (not arg._flatten or arg._is_mat)])
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, "xtr_") for arg in self._args
                                                             if arg._is_mat and arg.data._is_scalar_field])
                 _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, "xtr_") for arg in self._args
                                                   if arg._is_mat and arg.data._is_vector_field])
                 _addtos_scalar_field = ""
-                _extr_loop = '\n' + extrusion_loop(self._itspace.layers - 1)
-                _extr_loop_close = '}\n'
-                _apply_offset += ';\n'.join([arg.c_add_offset_map_flatten() for arg in self._args
-                                            if arg._uses_itspace and arg._flatten and not arg._is_mat])
-                _apply_offset += ';\n'.join([arg.c_add_offset_map(i, j) for arg in self._args
-                                            if arg._uses_itspace and (not arg._flatten or arg._is_mat)])
-                _apply_offset += ';\n'.join([arg.c_add_offset_flatten() for arg in self._args
-                                            if arg._is_vec_map and arg._flatten])
-                _apply_offset += ';\n'.join([arg.c_add_offset() for arg in self._args
-                                            if arg._is_vec_map and not arg._flatten])
             else:
                 _addtos_scalar_field_extruded = ""
                 _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(i, j) for arg in self._args
                                                    if arg._is_mat and arg.data._is_scalar_field])
                 _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j) for arg in self._args
                                                   if arg._is_mat and arg.data._is_vector_field])
-                _extr_loop = ""
-                _extr_loop_close = ""
 
             template = """
     %(local_tensor_decs)s;
-    %(map_init)s;
-    %(extr_loop)s
     %(itspace_loops)s
     %(ind)s%(zero_tmps)s;
     %(ind)s%(kernel_name)s(%(kernel_args)s);
     %(ind)s%(addtos_vector_field)s;
     %(itspace_loop_close)s
     %(ind)s%(addtos_scalar_field_extruded)s;
-    %(apply_offset)s
-    %(extr_loop_close)s
     %(addtos_scalar_field)s;
 """
 
             return template % {
                 'ind': '  ' * nloops,
                 'local_tensor_decs': indent(_local_tensor_decs, 1),
-                'map_init': indent(_map_init, 5),
                 'itspace_loops': indent(_itspace_loops, 2),
-                'extr_loop': indent(_extr_loop, 5),
                 'zero_tmps': indent(_zero_tmps, 2 + nloops),
                 'kernel_name': self._kernel.name,
                 'kernel_args': _kernel_args,
                 'addtos_vector_field': indent(_addtos_vector_field, 2 + nloops),
-                'apply_offset': indent(_apply_offset, 3),
-                'extr_loop_close': indent(_extr_loop_close, 2),
                 'itspace_loop_close': indent(_itspace_loop_close, 2),
                 'addtos_scalar_field': indent(_addtos_scalar_field, 2),
                 'addtos_scalar_field_extruded': indent(_addtos_scalar_field_extruded, 2 + nloops),
@@ -733,6 +724,10 @@ class JITModule(base.JITModule):
                 'off_args': _off_args,
                 'off_inits': indent(_off_inits, 1),
                 'map_decl': indent(_map_decl, 1),
+                'map_init': indent(_map_init, 5),
+                'apply_offset': indent(_apply_offset, 3),
+                'extr_loop': indent(_extr_loop, 5),
+                'extr_loop_close': indent(_extr_loop_close, 2),
                 'interm_globals_decl': indent(_intermediate_globals_decl, 3),
                 'interm_globals_init': indent(_intermediate_globals_init, 3),
                 'interm_globals_writeback': indent(_intermediate_globals_writeback, 3),

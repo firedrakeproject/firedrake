@@ -179,7 +179,11 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
       {
         int i = %(index_expr)s;
         %(vec_inits)s;
+        %(map_init)s;
+        %(extr_loop)s
         %(itset_loop_body)s;
+        %(apply_offset)s;
+        %(extr_loop_close)s
       }
     }
     %(interm_globals_writeback)s;
