@@ -316,17 +316,24 @@ class MatrixFree(object):
         The bilinear form defining the left hand side is in
         :attr:`_a`."""
         ksp = PETSc.KSP().create()
+        ksp.setOptionsPrefix(self._opt_prefix)
         opts = PETSc.Options()
         opts.prefix = self._opt_prefix
         ksp.setOperators(A=self._Mat)
         if solver_parameters is not None:
-            for k, v in solver_parameters:
-                opts[k] = v
+            solver_parameters.setdefault('ksp_rtol', 1e-7)
+        else:
+            solver_parameters = {'ksp_rtol': 1e-7}
+        for k, v in solver_parameters.iteritems():
+            if type(v) is bool and v:
+                opts[k] = None
+                continue
+            opts[k] = v
         ksp.setFromOptions()
+        for k, v in solver_parameters.iteritems():
+            del opts[k]
+
         ksp.setPC(self._PC)
-        if solver_parameters is not None:
-            for k, v in solver_parameters:
-                del opts[k]
 
         if self._bcs is None:
             b = assemble(L)
