@@ -226,9 +226,8 @@ class ExpressionWalker(ReuseTransformer):
             operands = [operands[0], self.visit(operands[1])]
 
         else:
-
             # For all other operators, just visit the children.
-            operands = map(self.visit, o._operands)
+            operands = map(self.visit, o.operands())
 
         return o.reconstruct(*operands)
 
