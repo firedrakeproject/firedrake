@@ -50,6 +50,10 @@ class AssignmentBase(Operator):
                 or isinstance(lhs, DummyFunction)):
             raise TypeError("Can only assign to a Function")
 
+    def operands(self):
+        """Return the list of operands."""
+        return self._operands
+
     def __str__(self):
         return (" %s " % self._symbol).join(map(str, self._operands))
 
