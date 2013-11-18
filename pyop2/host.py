@@ -122,7 +122,7 @@ class Arg(base.Arg):
         else:
             cdim = self.data.cdim
         return "%(name)s + xtr_%(map_name)s[%(idx)s]*%(dim)s%(off)s" % \
-            {'name': self.c_arg_name(),
+            {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
              'idx': idx,
              'dim': 1 if self._flatten else str(cdim),
