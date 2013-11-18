@@ -1330,9 +1330,16 @@ class DataCarrier(object):
         the product of the dim tuple."""
         return self._cdim
 
-    def _force_evaluation(self):
-        """Force the evaluation of any outstanding computation to ensure that this DataCarrier is up to date"""
-        _trace.evaluate(set([self]), set([self]))
+    def _force_evaluation(self, read=True, write=True):
+        """Force the evaluation of any outstanding computation to ensure that this DataCarrier is up to date.
+
+        Arguments read and write specify the intent you wish to observe the data with.
+
+        :arg read: if `True` force evaluation that writes to this DataCarrier.
+        :arg write: if `True` force evaluation that reads from this DataCarrier."""
+        reads = self if read else None
+        writes = self if write else None
+        _trace.evaluate(reads, writes)
 
 
 class Dat(DataCarrier):
