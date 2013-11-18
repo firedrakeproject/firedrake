@@ -2,29 +2,34 @@
 import pytest
 
 from firedrake import *
+from common import *
+
+CG = [("CG", 1), ("CG", 2)]
+DG = [("DG", 0), ("DG", 1)]
+hdiv = [("RT", 1), ("RT", 2), ("RT", 3), ("BDM", 1)]
 
 
-def assembly_test_scalar(family, degree, vfamily, vdegree):
-    m = UnitSquareMesh(4, 4)
-    layers = 3
-    mesh = ExtrudedMesh(m, layers, layer_height=0.5)
-
-    fspace = FunctionSpace(mesh, family, degree, vfamily=vfamily, vdegree=vdegree)
+@pytest.mark.parametrize(('hfamily', 'hdegree', 'vfamily', 'vdegree'),
+                         [(f, d, vf, vd) for (vf, vd) in CG + DG for (f, d) in CG + DG])
+def test_scalar_assembly(hfamily, hdegree, vfamily, vdegree):
+    mesh = extmesh(4, 4, 2)
+    fspace = FunctionSpace(mesh, hfamily, hdegree, vfamily=vfamily, vdegree=vdegree)
 
     u = TrialFunction(fspace)
     v = TestFunction(fspace)
 
-    assemble(u*v*dx)
-    assemble(dot(grad(u), grad(v))*dx)
-    return
+    assemble(u*v*dx).M._force_evaluation()
+    assemble(dot(grad(u), grad(v))*dx).M._force_evaluation()
 
 
-def assembly_test_hdiv(family, degree, vfamily, vdegree):
-    m = UnitSquareMesh(4, 4)
-    layers = 3
-    mesh = ExtrudedMesh(m, layers, layer_height=0.5)
+# two valid combinations for hdiv: 1) BDM/RT x DG, 2) DG x CG
+@pytest.mark.parametrize(('hfamily', 'hdegree', 'vfamily', 'vdegree'),
+                         [(f, d, vf, vd) for (vf, vd) in DG for (f, d) in hdiv]
+                         + [(f, d, vf, vd) for (vf, vd) in CG for (f, d) in DG])
+def test_hdiv_assembly(hfamily, hdegree, vfamily, vdegree):
+    mesh = extmesh(4, 4, 2)
 
-    horiz_elt = FiniteElement(family, "triangle", degree)
+    horiz_elt = FiniteElement(hfamily, "triangle", hdegree)
     vert_elt = FiniteElement(vfamily, "interval", vdegree)
     product_elt = HDiv(OuterProductElement(horiz_elt, vert_elt))
     fspace = FunctionSpace(mesh, product_elt)
@@ -32,17 +37,18 @@ def assembly_test_hdiv(family, degree, vfamily, vdegree):
     u = TrialFunction(fspace)
     v = TestFunction(fspace)
 
-    assemble(dot(u, v)*dx)
-    assemble(inner(grad(u), grad(v))*dx)
-    return
+    assemble(dot(u, v)*dx).M._force_evaluation()
+    assemble(inner(grad(u), grad(v))*dx).M._force_evaluation()
 
 
-def assembly_test_hcurl(family, degree, vfamily, vdegree):
-    m = UnitSquareMesh(4, 4)
-    layers = 3
-    mesh = ExtrudedMesh(m, layers, layer_height=0.5)
+# two valid combinations for hcurl: 1) BDM/RT x CG, 2) CG x DG
+@pytest.mark.parametrize(('hfamily', 'hdegree', 'vfamily', 'vdegree'),
+                         [(f, d, vf, vd) for (vf, vd) in CG for (f, d) in hdiv]
+                         + [(f, d, vf, vd) for (vf, vd) in DG for (f, d) in CG])
+def test_hcurl_assembly(hfamily, hdegree, vfamily, vdegree):
+    mesh = extmesh(4, 4, 2)
 
-    horiz_elt = FiniteElement(family, "triangle", degree)
+    horiz_elt = FiniteElement(hfamily, "triangle", hdegree)
     vert_elt = FiniteElement(vfamily, "interval", vdegree)
     product_elt = HCurl(OuterProductElement(horiz_elt, vert_elt))
     fspace = FunctionSpace(mesh, product_elt)
@@ -50,39 +56,8 @@ def assembly_test_hcurl(family, degree, vfamily, vdegree):
     u = TrialFunction(fspace)
     v = TestFunction(fspace)
 
-    assemble(dot(u, v)*dx)
-    assemble(inner(grad(u), grad(v))*dx)
-    return
-
-
-def test_scalar_assembly():
-    testcases = [("CG", 1), ("CG", 2), ("DG", 0), ("DG", 1)]
-    [assembly_test_scalar(f, d, vfam, fdeg) for (vfam, fdeg) in testcases for (f, d) in testcases]
-    assert True
-
-
-def test_hdiv_assembly():
-    CG = [("CG", 1), ("CG", 2)]
-    DG = [("DG", 0), ("DG", 1)]
-    hdiv = [("RT", 1), ("RT", 2), ("RT", 3), ("BDM", 1)]
-    # two valid combinations for hdiv
-    # 1) BDM/RT x DG
-    # 2) DG x CG
-    [assembly_test_hdiv(f, d, vfam, fdeg) for (vfam, fdeg) in DG for (f, d) in hdiv]
-    [assembly_test_hdiv(f, d, vfam, fdeg) for (vfam, fdeg) in CG for (f, d) in DG]
-    assert True
-
-
-def test_hcurl_assembly():
-    CG = [("CG", 1), ("CG", 2)]
-    DG = [("DG", 0), ("DG", 1)]
-    hdiv = [("RT", 1), ("RT", 2), ("RT", 3), ("BDM", 1)]
-    # two valid combinations for hcurl
-    # 1) BDM/RT x CG
-    # 2) CG x DG
-    [assembly_test_hcurl(f, d, vfam, fdeg) for (vfam, fdeg) in CG for (f, d) in hdiv]
-    [assembly_test_hcurl(f, d, vfam, fdeg) for (vfam, fdeg) in DG for (f, d) in CG]
-    assert True
+    assemble(dot(u, v)*dx).M._force_evaluation()
+    assemble(inner(grad(u), grad(v))*dx).M._force_evaluation()
 
 if __name__ == '__main__':
     import os
