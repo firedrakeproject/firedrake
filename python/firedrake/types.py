@@ -205,89 +205,106 @@ class MatrixFree(object):
         """
         self._a = a
         self._bcs = bcs
-        self._M = PETSc.Mat().create()
+        M = MatrixFree.Mat(a, bcs)
+        self._Mat = PETSc.Mat().create()
+        self._Mat.setSizes([(M.nrows, None), (M.ncols, None)])
+        self._Mat.setType('python')
+        self._Mat.setPythonContext(M)
+        self._Mat.setUp()
         self._PC = PETSc.PC().create()
-        test, trial = a.compute_form_data().original_arguments
-
-        self._test = test
-        self._trial = trial
-        nrows = test.function_space().dof_count
-        ncols = trial.function_space().dof_count
-
-        self._M.setSizes([(nrows, None), (ncols, None)])
-        self._M.setType('python')
-
-        self._M.setPythonContext(self)
-        self._M.setUp()
-        self._PC.setOperators(A=self._M, P=self._M,
-                              structure=self._M.Structure.SAME_NZ)
+        self._PC.setOperators(A=self._Mat, P=self._Mat,
+                              structure=self._Mat.Structure.SAME_NZ)
         self._PC.setType('python')
-        self._PC.setPythonContext(self)
-        self._diagonal = None
+        self._PC.setPythonContext(M)
         self._opt_prefix = 'firedrake_matrix_free_%d_' % MatrixFree._count
         MatrixFree._count += 1
 
-    @property
-    def diagonal(self):
-        """Return the diagonal of the matrix."""
-        if self._diagonal is None:
-            self._diagonal = _matrix_diagonal(self._a, bcs=self._bcs)
-        return self._diagonal
+    class Mat(object):
+        """Class implementing matrix free operations
 
-    def mult(self, A, x, y):
-        """Compute the action of A on x.
+        These definitions need to be in a different class to
+        :class:`MatrixFree` so that the latter does not contain
+        circular references from PETSc objects back to itself
+        (defeating the python garbage collector)."""
+        def __init__(self, a, bcs=None):
+            self._a = a
+            self._bcs = bcs
+            test, trial = a.compute_form_data().original_arguments
+            self._test = test
+            self._trial = trial
+            self._nrows = test.function_space().dof_count
+            self._ncols = trial.function_space().dof_count
+            self._diagonal = None
 
-        :arg A: a :class:`PETSc.Mat` (ignored).
-        :arg x: a :class:`PETSc.Vec` to be multiplied by A.
-        :arg y: a :class:`PETSc.Vec` to place the result in.
+        @property
+        def nrows(self):
+            return self._nrows
 
-        .. note::
-            `A` is ignored because the information used to construct
-            the matrix-vector multiply lives in :attr:`_a`.
-        """
-        xx = core_types.Function(self._trial.function_space(), val=x.array)
-        yy = core_types.Function(self._test.function_space(), val=y.array)
-        assemble(action(self._a, xx, bcs=self._bcs), tensor=yy)
-        yy.dat._force_evaluation(read=True, write=False)
+        @property
+        def ncols(self):
+            return self._ncols
 
-    def getDiagonal(self, A, D):
-        """Compute the diagonal of A and place it in D.
-        :arg A: a :class:`PETSc.Mat` (ignored).
-        :arg D: a :class:`PETSc.Vec` to place the result in.
+        @property
+        def diagonal(self):
+            """Return the diagonal of the matrix."""
+            if self._diagonal is None:
+                self._diagonal = _matrix_diagonal(self._a, bcs=self._bcs)
+            return self._diagonal
 
-        .. note::
-            `A` is ignored because the information used to construct
-            `D` lives in :attr:`_a`, see also :attr:`diagonal`.
-        """
-        D.array = self.diagonal.dat.data_ro
+        def mult(self, A, x, y):
+            """Compute the action of A on x.
 
-    def apply(self, PC, r, y):
-        """Apply Jacobi preconditioning to residual r, writing the
-        result into y.
+            :arg A: a :class:`PETSc.Mat` (ignored).
+            :arg x: a :class:`PETSc.Vec` to be multiplied by A.
+            :arg y: a :class:`PETSc.Vec` to place the result in.
 
-        :arg PC: a :class:`PETSc.PC` (ignored).
-        :arg r: a :class:`PETSc.Vec` containing the unpreconditioned
-            residual.
-        :arg y: a :class:`PETSc.Vec` to write the preconditioned
-            residual into.
+            .. note::
+                `A` is ignored because the information used to construct
+                the matrix-vector multiply lives in :attr:`_a`.
+            """
+            xx = core_types.Function(self._trial.function_space(), val=x.array)
+            yy = core_types.Function(self._test.function_space(), val=y.array)
+            assemble(action(self._a, xx, bcs=self._bcs), tensor=yy)
+            yy.dat._force_evaluation(read=True, write=False)
 
-        .. note::
-            `PC` is ignored because the information to construct the
-            preconditioner lives elsewhere.  Specifically, the
-            diagonal can be obtained by accessing the :attr:`diagonal`
-            property."""
-        rr = core_types.Function(self._trial.function_space(), val=r.array)
-        yy = core_types.Function(self._test.function_space(), val=y.array)
+        def getDiagonal(self, A, D):
+            """Compute the diagonal of A and place it in D.
+            :arg A: a :class:`PETSc.Mat` (ignored).
+            :arg D: a :class:`PETSc.Vec` to place the result in.
 
-        # r = b - Ax
-        # Jacobi iteration is:
-        # x_new = x_old + diag(A)^{-1} (b - A x_old)
-        # So if we use Richardson iterations:
-        # x_new = x_old + scale_factor * P (b - A x_old)
-        # where P is the application of the preconditioner, then
-        # Jacobi iterations just require dividing through by the diagonal.
-        yy.assign(rr / self.diagonal)
-        yy.dat._force_evaluation(read=True, write=False)
+            .. note::
+                `A` is ignored because the information used to construct
+                `D` lives in :attr:`_a`, see also :attr:`diagonal`.
+            """
+            D.array = self.diagonal.dat.data_ro
+
+        def apply(self, PC, r, y):
+            """Apply Jacobi preconditioning to residual r, writing the
+            result into y.
+
+            :arg PC: a :class:`PETSc.PC` (ignored).
+            :arg r: a :class:`PETSc.Vec` containing the unpreconditioned
+                residual.
+            :arg y: a :class:`PETSc.Vec` to write the preconditioned
+                residual into.
+
+            .. note::
+                `PC` is ignored because the information to construct the
+                preconditioner lives elsewhere.  Specifically, the
+                diagonal can be obtained by accessing the :attr:`diagonal`
+                property."""
+            rr = core_types.Function(self._trial.function_space(), val=r.array)
+            yy = core_types.Function(self._test.function_space(), val=y.array)
+
+            # r = b - Ax
+            # Jacobi iteration is:
+            # x_new = x_old + diag(A)^{-1} (b - A x_old)
+            # So if we use Richardson iterations:
+            # x_new = x_old + scale_factor * P (b - A x_old)
+            # where P is the application of the preconditioner, then
+            # Jacobi iterations just require dividing through by the diagonal.
+            yy.assign(rr / self.diagonal)
+            yy.dat._force_evaluation(read=True, write=False)
 
     def solve(self, L, x, solver_parameters=None):
         """Solve a == L placing the result in x.
@@ -301,14 +318,15 @@ class MatrixFree(object):
         ksp = PETSc.KSP().create()
         opts = PETSc.Options()
         opts.prefix = self._opt_prefix
-        ksp.setOperators(A=self._M)
+        ksp.setOperators(A=self._Mat)
         if solver_parameters is not None:
             for k, v in solver_parameters:
                 opts[k] = v
         ksp.setFromOptions()
         ksp.setPC(self._PC)
-        for k, v in solver_parameters:
-            del opts[k]
+        if solver_parameters is not None:
+            for k, v in solver_parameters:
+                del opts[k]
 
         if self._bcs is None:
             b = assemble(L)
