@@ -1335,7 +1335,41 @@ class DataCarrier(object):
         _trace.evaluate(set([self]), set([self]))
 
 
-class Dat(DataCarrier):
+class _EmptyDataMixin(object):
+    """A mixin for :class:`Dat` and :class:`Global` objects that takes
+    care of allocating data on demand if the user has passed nothing
+    in.
+
+    Accessing the :attr:`_data` property allocates a zeroed data array
+    if it does not already exist.
+    """
+    def __init__(self, data, dtype, shape):
+        if data is None:
+            self._dtype = np.dtype(dtype if dtype is not None else np.float64)
+        else:
+            self._data = verify_reshape(data, dtype, shape, allow_none=True)
+            self._dtype = self._data.dtype
+
+    @property
+    def _data(self):
+        """Return the user-provided data buffer, or a zeroed buffer of
+        the correct size if none was provided."""
+        if not self._is_allocated:
+            self._numpy_data = np.zeros(self.shape, dtype=self._dtype)
+        return self._numpy_data
+
+    @_data.setter
+    def _data(self, value):
+        """Set the data buffer to `value`."""
+        self._numpy_data = value
+
+    @property
+    def _is_allocated(self):
+        """Return True if the data buffer has been allocated."""
+        return hasattr(self, '_numpy_data')
+
+
+class Dat(DataCarrier, _EmptyDataMixin):
 
     """OP2 vector data. A :class:`Dat` holds values on every element of a
     :class:`DataSet`.
@@ -1346,6 +1380,14 @@ class Dat(DataCarrier):
 
     If a :class:`Dat` is passed as the ``dataset`` argument, a copy is
     returned.
+
+    It is permissible to pass `None` as the `data` argument.  In this
+    case, allocation of the data buffer is postponed until it is
+    accessed.
+
+    .. note::
+        If the data buffer is not passed in, it is implicitly
+        initialised to be zero.
 
     When a :class:`Dat` is passed to :func:`pyop2.op2.par_loop`, the map via
     which indirection occurs and the access descriptor are passed by
@@ -1382,12 +1424,8 @@ class Dat(DataCarrier):
             # a dataset dimension of 1.
             dataset = dataset ** 1
         self._shape = (dataset.total_size,) + (() if dataset.cdim == 1 else dataset.dim)
+        _EmptyDataMixin.__init__(self, data, dtype, self._shape)
         self._dataset = dataset
-        if data is None:
-            self._dtype = np.dtype(dtype if dtype is not None else np.float64)
-        else:
-            self._data = verify_reshape(data, dtype, self.shape, allow_none=True)
-            self._dtype = self._data.dtype
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
         self._needs_halo_update = False
@@ -1528,20 +1566,6 @@ class Dat(DataCarrier):
     @property
     def shape(self):
         return self._shape
-
-    @property
-    def _data(self):
-        if not self._is_allocated:
-            self._numpy_data = np.zeros(self.shape, dtype=self._dtype)
-        return self._numpy_data
-
-    @_data.setter
-    def _data(self, value):
-        self._numpy_data = value
-
-    @property
-    def _is_allocated(self):
-        return hasattr(self, '_numpy_data')
 
     @property
     def dtype(self):
@@ -2003,7 +2027,7 @@ class Const(DataCarrier):
         return cls(dim, data, name)
 
 
-class Global(DataCarrier):
+class Global(DataCarrier, _EmptyDataMixin):
 
     """OP2 global value.
 
@@ -2013,6 +2037,14 @@ class Global(DataCarrier):
     accomplished by::
 
       G(pyop2.READ)
+
+    It is permissible to pass `None` as the `data` argument.  In this
+    case, allocation of the data buffer is postponed until it is
+    accessed.
+
+    .. note::
+        If the data buffer is not passed in, it is implicitly
+        initialised to be zero.
     """
 
     _globalcount = 0
@@ -2022,13 +2054,16 @@ class Global(DataCarrier):
     def __init__(self, dim, data=None, dtype=None, name=None):
         self._dim = as_tuple(dim, int)
         self._cdim = np.asscalar(np.prod(self._dim))
-        self._data = verify_reshape(data, dtype, self._dim, allow_none=True)
-        self._buf = np.empty_like(self._data)
+        _EmptyDataMixin.__init__(self, data, dtype, self._dim)
+        self._buf = np.empty(self.shape, dtype=self.dtype)
         self._name = name or "global_%d" % Global._globalcount
         Global._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, access, path=None):
+    def __call__(self, access, path=None, flatten=False):
+        """Note that the flatten argument is only passed in order to
+        have the same interface as :class:`Dat`. Its value is
+        ignored."""
         return _make_object('Arg', data=self, access=access)
 
     def __eq__(self, other):
@@ -2063,7 +2098,7 @@ class Global(DataCarrier):
 
     @property
     def shape(self):
-        return self._data.shape
+        return self._dim
 
     @property
     def data(self):
@@ -2072,6 +2107,10 @@ class Global(DataCarrier):
         if len(self._data) is 0:
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
+
+    @property
+    def dtype(self):
+        return self._dtype
 
     @property
     def data_ro(self):
