@@ -78,6 +78,11 @@ def mfunctions(request, mfs):
 
 
 @pytest.fixture
+def msfunctions(request, mfs):
+    return Function(mfs), Function(mfs[0]).assign(1), Function(mfs[1]).assign(2)
+
+
+@pytest.fixture
 def sf(cg1):
     return Function(cg1, name="sf")
 
@@ -156,6 +161,14 @@ mixed_tests = common_tests + [
     'iaddtest(one, one[1], (1, 2))',
     'assigntest(f, 2 * two[1] + 2 * minusthree[0], (-6, 4))']
 
+indexed_fs_tests = [
+    'assigntest(f, one, (1, 0))',
+    'assigntest(f, two, (0, 2))',
+    'iaddtest(f, one, (1, 0))',
+    'iaddtest(f, two, (0, 2))',
+    'isubtest(f, one, (-1, 0))',
+    'isubtest(f, two, (0, -2))']
+
 
 @pytest.mark.parametrize('expr', scalar_tests)
 def test_scalar_expressions(expr, functions):
@@ -172,6 +185,12 @@ def test_vector_expressions(expr, vfunctions):
 @pytest.mark.parametrize('expr', mixed_tests)
 def test_mixed_expressions(expr, mfunctions):
     f, one, two, minusthree = mfunctions
+    assert eval(expr)
+
+
+@pytest.mark.parametrize('expr', indexed_fs_tests)
+def test_mixed_expressions_indexed_fs(expr, msfunctions):
+    f, one, two = msfunctions
     assert eval(expr)
 
 
