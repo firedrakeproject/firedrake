@@ -1,5 +1,6 @@
 from operator import iadd, isub, imul, idiv
 from functools import partial
+from itertools import permutations
 
 import pytest
 
@@ -86,6 +87,17 @@ def vf(vcg1):
     return Function(vcg1, name="vf")
 
 
+@pytest.fixture
+def mf(cg1, vcg1):
+    return Function(cg1 * vcg1, name="mf")
+
+
+@pytest.fixture(params=permutations(['sf', 'vf', 'mf'], 2))
+def fs_combinations(sf, vf, mf, request):
+    funcs = {'sf': sf, 'vf': vf, 'mf': mf}
+    return [funcs[p] for p in request.param]
+
+
 def evaluate(v, x):
     try:
         assert len(v) == len(x)
@@ -163,14 +175,12 @@ def test_mixed_expressions(expr, mfunctions):
     assert eval(expr)
 
 
-def test_vf_assign_f(sf, vf):
+def test_different_fs_asign_fails(fs_combinations):
+    """Assigning to a Function on a different function space should raise
+    ValueError."""
+    f1, f2 = fs_combinations
     with pytest.raises(ValueError):
-        vf.assign(sf)
-
-
-def test_f_assign_vf(sf, vf):
-    with pytest.raises(ValueError):
-        sf.assign(vf)
+        f1.assign(f2)
 
 if __name__ == '__main__':
     import os
