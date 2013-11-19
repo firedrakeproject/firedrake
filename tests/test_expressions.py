@@ -13,7 +13,8 @@ from common import *
 @pytest.fixture(scope='module', params=['cg1', 'cg1cg1[0]', 'cg1cg1[1]',
                                         'cg1vcg1[0]', 'cg1dg0[0]', 'cg1dg0[1]',
                                         'cg2dg1[0]', 'cg2dg1[1]'])
-def sfs(request, cg1, vcg1, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
+def sfs(request, cg1, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
+    """A parametrized fixture for scalar function spaces."""
     return {'cg1': cg1,
             'cg1cg1[0]': cg1cg1[0],
             'cg1cg1[1]': cg1cg1[1],
@@ -24,13 +25,18 @@ def sfs(request, cg1, vcg1, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
             'cg2dg1[1]': cg2dg1[1]}[request.param]
 
 
-@pytest.fixture(scope='module', params=['vcg1', 'cg1cg1', 'cg1vcg1',
-                                        'cg1vcg1[1]', 'cg1dg0', 'cg2dg1'])
-def mfs(request, cg1, vcg1, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
+@pytest.fixture(scope='module', params=['vcg1', 'cg1vcg1[1]'])
+def vfs(request, vcg1, cg1vcg1):
+    """A parametrized fixture for vector function spaces."""
     return {'vcg1': vcg1,
-            'cg1cg1': cg1cg1,
+            'cg1vcg1[1]': cg1vcg1[1]}[request.param]
+
+
+@pytest.fixture(scope='module', params=['cg1cg1', 'cg1vcg1', 'cg1dg0', 'cg2dg1'])
+def mfs(request, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
+    """A parametrized fixture for mixed function spaces."""
+    return {'cg1cg1': cg1cg1,
             'cg1vcg1': cg1vcg1,
-            'cg1vcg1[1]': cg1vcg1[1],
             'cg1dg0': cg1dg0,
             'cg2dg1': cg2dg1}[request.param]
 
@@ -58,6 +64,11 @@ def func_factory(fs, method):
 @pytest.fixture(params=['assign', 'interpolate'])
 def functions(request, sfs):
     return func_factory(sfs, method=request.param)
+
+
+@pytest.fixture(params=['assign', 'interpolate'])
+def vfunctions(request, vfs):
+    return func_factory(vfs, method=request.param)
 
 
 @pytest.fixture(params=['assign', 'interpolate'])
@@ -121,6 +132,12 @@ scalar_tests = common_tests + [
 @pytest.mark.parametrize('expr', scalar_tests)
 def test_scalar_expressions(expr, functions):
     f, one, two, minusthree = functions
+    assert eval(expr)
+
+
+@pytest.mark.parametrize('expr', common_tests)
+def test_vector_expressions(expr, vfunctions):
+    f, one, two, minusthree = vfunctions
     assert eval(expr)
 
 
