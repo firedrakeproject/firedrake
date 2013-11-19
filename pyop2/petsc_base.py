@@ -130,7 +130,9 @@ class MixedDat(base.MixedDat):
         # contexts and stash them on the object for later reuse
         if not (hasattr(self, '_vec') and hasattr(self, '_sctxs')):
             self._vec = PETSc.Vec().create()
-            self._vec.setSizes((self.dataset.set.size, None))
+            # Size of flattened vector is product of size and cdim of each dat
+            sz = sum(d.dataset.size * d.dataset.cdim for d in self._dats)
+            self._vec.setSizes((sz, None))
             self._vec.setUp()
             self._sctxs = []
             offset = 0
@@ -138,7 +140,7 @@ class MixedDat(base.MixedDat):
             # scattered to the appropriate contiguous chunk of memory in the
             # full vector
             for d in self._dats:
-                sz = d.dataset.set.size
+                sz = d.dataset.size * d.dataset.cdim
                 with acc(d) as v:
                     vscat = PETSc.Scatter().create(v, None, self._vec,
                                                    PETSc.IS().createStride(sz, offset, 1))
