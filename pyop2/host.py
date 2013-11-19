@@ -286,10 +286,7 @@ class Arg(base.Arg):
             raise RuntimeError("Don't know how to zero temp array for %s" % self)
 
     def c_add_offset_flatten(self):
-        if isinstance(self.data.cdim, tuple):
-            cdim = self.data.cdim[0] * self.data.cdim[1]
-        else:
-            cdim = self.data.cdim
+        cdim = np.prod(self.data.cdim)
         return '\n'.join(flatten([["%(name)s[%(j)d] += _off%(num)s[%(i)d] * %(dim)s;" %
                                   {'name': self.c_vec_name(),
                                    'j': map.arity*j + i,
@@ -301,18 +298,17 @@ class Arg(base.Arg):
                                  for k, map in enumerate(as_tuple(self.map, Map))]))
 
     def c_add_offset(self):
-        if isinstance(self.data.cdim, tuple):
-            cdim = self.data.cdim[0] * self.data.cdim[1]
-        else:
-            cdim = self.data.cdim
-        return '\n'.join(flatten([["%(name)s[%(j)d] += _off%(num)s[%(i)d] * %(dim)s;" %
-                                  {'name': self.c_vec_name(),
-                                   'i': i,
-                                   'j': map.arity*k + i,
-                                   'num': self.c_offset(k),
-                                   'dim': cdim}
-                                  for i in range(map.arity)]
-                                 for k, map in enumerate(as_tuple(self.map, Map))]))
+        cdim = np.prod(self.data.cdim)
+        val = []
+        for (k, offset), arity in zip(enumerate(self.map.arange[:-1]), self.map.arities):
+            for i in range(arity):
+                val.append("%(name)s[%(j)d] += _off%(num)s[%(i)d] * %(dim)s;" %
+                           {'name': self.c_vec_name(),
+                            'i': i,
+                            'j': offset + i,
+                            'num': self.c_offset(k),
+                            'dim': cdim})
+        return '\n'.join(val)+'\n'
 
     # New globals generation which avoids false sharing.
     def c_intermediate_globals_decl(self, count):
@@ -360,10 +356,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                          for k in range(length)])
 
     def c_map_decl_itspace(self):
-        if isinstance(self.data.cdim, tuple):
-            cdim = self.data.cdim[0] * self.data.cdim[1]
-        else:
-            cdim = self.data.cdim
+        cdim = np.prod(self.data.cdim)
         maps = as_tuple(self.map, Map)
         if isinstance(maps[0], MixedMap):
             return '\n'.join(["int xtr_%(name)s[%(dim_row)s];\n" %
@@ -377,10 +370,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                          for i, map in enumerate(as_tuple(self.map, Map))])
 
     def c_map_init_flattened(self):
-        if isinstance(self.data.cdim, tuple):
-            cdim = self.data.cdim[0] * self.data.cdim[1]
-        else:
-            cdim = self.data.cdim
+        cdim = np.prod(self.data.cdim)
         maps = as_tuple(self.map, Map)
         if isinstance(maps[0], MixedMap):
             return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] = %(dat_dim)s * (*(%(name)s + i * %(dim)s + %(ind)s))%(offset)s;" %
@@ -407,44 +397,26 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 
     def c_map_init(self):
         maps = as_tuple(self.map, Map)
-        if isinstance(maps[0], MixedMap):
-            res = '\n'.join(flatten([["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
-                                     {'name': self.c_map_name(0, i),
-                                      'dim': map.arity,
-                                      'ind': idx}
-                                     for idx in range(map.arity)]
-                            for i, map in enumerate(maps[0].split)]))
-            res += '\n'
-            res += '\n'.join(flatten([["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
-                                      {'name': self.c_map_name(1, j),
-                                       'dim': map.arity,
-                                       'ind': idx}
-                                      for idx in range(map.arity)]
-                             for j, map in enumerate(maps[1].split)]))
-            res += '\n'
-        else:
-            res = '\n'.join(flatten([["xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
-                                     {'name': self.c_map_name(mi, 0),
-                                      'dim': map.arity,
-                                      'ind': idx}
-                                    for idx in range(map.arity)]
-                            for mi, map in enumerate(maps)]))
-            res += '\n'
-        return res
+        val = []
+        for i, map in enumerate(maps):
+            for j, m in enumerate(as_tuple(map, Map)):
+                for idx in range(m.arity):
+                    val.append("xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
+                               {'name': self.c_map_name(i, j),
+                                'dim': m.arity,
+                                'ind': idx})
+        return '\n'.join(val)+'\n'
 
     def c_offset(self, idx=0):
         return "%s%s" % (self.position, idx)
 
     def c_add_offset_map_flatten(self):
-        if isinstance(self.data.cdim, tuple):
-            cdim = self.data.cdim[0] * self.data.cdim[1]
-        else:
-            cdim = self.data.cdim
+        cdim = np.prod(self.data.cdim)
         maps = as_tuple(self.map, Map)
         if isinstance(maps[0], MixedMap):
             return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] += _off%(off)s[%(ind)s] * %(dim)s;" %
                                        {'name': self.c_map_name(i, k),
-                                        'off': self.c_offset(i * len(maps[i].split + k)),
+                                        'off': self.c_offset(i * len(maps[i].split) + k),
                                         'ind': idx,
                                         'ind_flat': str(map.arity * j + idx),
                                         'j': str(j),
