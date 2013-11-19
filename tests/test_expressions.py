@@ -1,3 +1,6 @@
+from operator import iadd, isub, imul, idiv
+from functools import partial
+
 import pytest
 
 import numpy as np
@@ -72,40 +75,27 @@ def vf(vcg1):
     return Function(vcg1, name="vf")
 
 
-def to_bool(v):
+def evaluate(v, x):
     try:
-        return np.all(v)
+        assert len(v) == len(x)
+    except TypeError:
+        x = (x,) * len(v)
+    try:
+        return all(np.all(v_ == x_) for v_, x_ in zip(v, x))
     except:
-        return v
-
-exprtest = lambda expr, x: (expr, x, to_bool(d == x for d in assemble(expr).dat.data))
-
-assigntest = lambda f, expr, x: (str(f) + " = " + str(expr) + ", " + str(f), x,
-                                 to_bool(d == x for d in f.assign(expr).dat.data))
+        return v == x
 
 
-def iaddtest(f, expr, x):
-    f += expr
-    return (str(f) + " += " + str(expr) + ", " + str(f), x,
-            to_bool(d == x for d in f.dat.data))
+def ioptest(f, expr, x, op):
+    return evaluate(op(f, expr).dat.data, x)
 
 
-def isubtest(f, expr, x):
-    f -= expr
-    return (str(f) + " -= " + str(expr) + ", " + str(f), x,
-            to_bool(d == x for d in f.dat.data))
-
-
-def imultest(f, expr, x):
-    f *= expr
-    return (str(f) + " *= " + str(expr) + ", " + str(f), x,
-            to_bool(d == x for d in f.dat.data))
-
-
-def idivtest(f, expr, x):
-    f /= expr
-    return (str(f) + " /= " + str(expr) + ", " + str(f), x,
-            to_bool(d == x for d in f.dat.data))
+exprtest = lambda expr, x: evaluate(assemble(expr).dat.data, x)
+assigntest = lambda f, expr, x: evaluate(f.assign(expr).dat.data, x)
+iaddtest = partial(ioptest, op=iadd)
+isubtest = partial(ioptest, op=isub)
+imultest = partial(ioptest, op=imul)
+idivtest = partial(ioptest, op=idiv)
 
 
 common_tests = [
@@ -113,13 +103,13 @@ common_tests = [
     'exprtest(3 * one, 3)',
     'exprtest(one + two, 3)',
     'assigntest(f, one + two, 3)',
-    'iaddtest(f, f, 6)',
-    'iaddtest(f, two, 8)',
-    'iaddtest(f, 2, 10)',
-    'isubtest(f, 5, 5)',
-    'imultest(f, 2, 10)',
-    'idivtest(f, 2, 5)',
-    'isubtest(f, f, 0)']
+    'iaddtest(one, one, 2)',
+    'iaddtest(one, two, 3)',
+    'iaddtest(f, 2, 2)',
+    'isubtest(two, 1, 1)',
+    'imultest(one, 2, 2)',
+    'idivtest(two, 2, 1)',
+    'isubtest(one, one, 0)']
 
 scalar_tests = common_tests + [
     'exprtest(ufl.ln(one), 0)',
@@ -131,13 +121,13 @@ scalar_tests = common_tests + [
 @pytest.mark.parametrize('expr', scalar_tests)
 def test_scalar_expressions(expr, functions):
     f, one, two, minusthree = functions
-    assert eval(expr)[2]
+    assert eval(expr)
 
 
 @pytest.mark.parametrize('expr', common_tests)
 def test_mixed_expressions(expr, mfunctions):
     f, one, two, minusthree = mfunctions
-    assert eval(expr)[2]
+    assert eval(expr)
 
 
 def test_vf_assign_f(sf, vf):
