@@ -128,6 +128,22 @@ scalar_tests = common_tests + [
     'exprtest(ufl.sign(minusthree), -1)',
     'exprtest(one + two / two ** minusthree, 17)']
 
+mixed_tests = common_tests + [
+    'exprtest(one[0] + one[1], (1, 1))',
+    'exprtest(one[1] + two[0], (2, 1))',
+    'exprtest(one[0] - one[1], (1, -1))',
+    'exprtest(one[1] - two[0], (-2, 1))',
+    'assigntest(f, one[0], (1, 0))',
+    'assigntest(f, one[1], (0, 1))',
+    'assigntest(two, one[0], (1, 0))',
+    'assigntest(two, one[1], (0, 1))',
+    'assigntest(two, one[0] + two[0], (3, 0))',
+    'assigntest(two, two[1] - one[1], (0, 1))',
+    'assigntest(f, one[0] + two[1], (1, 2))',
+    'iaddtest(one, one[0], (2, 1))',
+    'iaddtest(one, one[1], (1, 2))',
+    'assigntest(f, 2 * two[1] + 2 * minusthree[0], (-6, 4))']
+
 
 @pytest.mark.parametrize('expr', scalar_tests)
 def test_scalar_expressions(expr, functions):
@@ -141,7 +157,7 @@ def test_vector_expressions(expr, vfunctions):
     assert eval(expr)
 
 
-@pytest.mark.parametrize('expr', common_tests)
+@pytest.mark.parametrize('expr', mixed_tests)
 def test_mixed_expressions(expr, mfunctions):
     f, one, two, minusthree = mfunctions
     assert eval(expr)
