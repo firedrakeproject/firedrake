@@ -346,14 +346,13 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 
     def c_map_decl(self):
         maps = as_tuple(self.map, Map)
-        length = 1
-        if isinstance(maps[0], MixedMap):
-            length = len(maps[0].split)
-        return '\n'.join(["int xtr_%(name)s[%(dim)s];" %
-                         {'name': self.c_map_name(idx, k),
-                          'dim': maps[idx].split[k].arity if length > 1 else maps[idx].arity}
-                         for idx in range(2)
-                         for k in range(length)])
+        val = []
+        for i, map in enumerate(maps):
+            for j, m in enumerate(as_tuple(map, Map)):
+                val.append("int xtr_%(name)s[%(dim)s];" %
+                           {'name': self.c_map_name(i, j),
+                            'dim': m.arity})
+        return '\n'.join(val)+'\n'
 
     def c_map_decl_itspace(self):
         cdim = np.prod(self.data.cdim)
