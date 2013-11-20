@@ -68,7 +68,6 @@ def test_firedrake_identity_parallel():
     assert (error < np.array([1.0e-11, 1.0e-6, 1.0e-6, 1.0e-5])).all()
 
 
-@pytest.mark.xfail(reason="Parallel vector function space assembly needs BAIJ matrices")
 @pytest.mark.parallel(nprocs=2)
 def test_vector_identity_parallel():
     from mpi4py import MPI
