@@ -424,12 +424,11 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 
     def c_offset_init(self):
         maps = as_tuple(self.map, Map)
-        if isinstance(maps[0], MixedMap):
-            return ''.join([", PyObject *off%s" % self.c_offset(i*len(maps[i].split) + j)
-                            for i in range(len(maps))
-                            for j in range(len(maps[i].split))])
-        return ''.join([", PyObject *off%s" % self.c_offset(i)
-                        for i in range(len(as_tuple(self.map, Map)))])
+        val = []
+        for i, map in enumerate(maps):
+            for j, m in enumerate(map):
+                val.append("PyObject *off%s" % self.c_offset(i * len(map) + j))
+        return ", " + ", ".join(val)
 
     def c_offset_decl(self):
         maps = as_tuple(self.map, Map)
