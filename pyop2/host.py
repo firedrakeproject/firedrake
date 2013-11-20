@@ -39,7 +39,7 @@ from textwrap import dedent
 import base
 from base import *
 from configuration import configuration
-from utils import as_tuple, flatten
+from utils import as_tuple
 
 
 class Arg(base.Arg):
