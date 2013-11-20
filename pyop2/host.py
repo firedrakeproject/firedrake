@@ -372,28 +372,19 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
     def c_map_init_flattened(self):
         cdim = np.prod(self.data.cdim)
         maps = as_tuple(self.map, Map)
-        if isinstance(maps[0], MixedMap):
-            return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] = %(dat_dim)s * (*(%(name)s + i * %(dim)s + %(ind)s))%(offset)s;" %
-                                     {'name': self.c_map_name(i, k),
-                                      'dim': map.arity,
-                                      'ind': idx,
-                                      'dat_dim': str(cdim),
-                                      'ind_flat': str(map.arity * j + idx),
-                                      'offset': ' + '+str(j) if j > 0 else ''}
-                                     for j in range(cdim)
-                                     for idx in range(map.arity)]
-                             for i in range(len(maps))
-                             for k, map in enumerate(maps[i].split)]))
-        return '\n'.join(flatten([["xtr_%(name)s[%(ind_flat)s] = %(dat_dim)s * (*(%(name)s + i * %(dim)s + %(ind)s))%(offset)s;" %
-                                 {'name': self.c_map_name(i, 0),
-                                  'dim': map.arity,
-                                  'ind': idx,
-                                  'dat_dim': str(cdim),
-                                  'ind_flat': str(map.arity * j + idx),
-                                  'offset': ' + '+str(j) if j > 0 else ''}
-                                 for j in range(cdim)
-                                 for idx in range(map.arity)]
-                         for i, map in enumerate(as_tuple(self.map, Map))]))
+        val = []
+        for i, map in enumerate(maps):
+            for j, m in enumerate(as_tuple(map, Map)):
+                for idx in range(m.arity):
+                    for k in range(cdim):
+                        val.append("xtr_%(name)s[%(ind_flat)s] = %(dat_dim)s * (*(%(name)s + i * %(dim)s + %(ind)s))%(offset)s;" %
+                                   {'name': self.c_map_name(i, j),
+                                    'dim': m.arity,
+                                    'ind': idx,
+                                    'dat_dim': str(cdim),
+                                    'ind_flat': str(m.arity * k + idx),
+                                    'offset': ' + '+str(k) if k > 0 else ''})
+        return '\n'.join(val)+'\n'
 
     def c_map_init(self):
         maps = as_tuple(self.map, Map)
@@ -422,9 +413,8 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                    {'name': self.c_map_name(i, j),
                                     'off': self.c_offset(i * len(map) + j),
                                     'ind': idx,
-                                    'ind_flat': str(map.arity * k + idx),
+                                    'ind_flat': str(m.arity * k + idx),
                                     'dim': str(cdim)})
-
         return '\n'.join(val)+'\n'
 
     def c_add_offset_map(self):
