@@ -2748,7 +2748,9 @@ class Mat(DataCarrier):
 
     @property
     def _is_scalar_field(self):
-        return np.prod(self.dims) == 1
+        # Sparsity from Dat to MixedDat has a shape like (1, (1, 1))
+        # (which you can't take the product of)
+        return all(np.prod(d) == 1 for d in self.dims)
 
     @property
     def _is_vector_field(self):
