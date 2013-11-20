@@ -345,7 +345,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         maps = as_tuple(self.map, Map)
         val = []
         for i, map in enumerate(maps):
-            for j, m in enumerate(as_tuple(map, Map)):
+            for j, m in enumerate(map):
                 val.append("int xtr_%(name)s[%(dim)s];" %
                            {'name': self.c_map_name(i, j),
                             'dim': m.arity})
@@ -356,7 +356,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         maps = as_tuple(self.map, Map)
         val = []
         for i, map in enumerate(maps):
-            for j, m in enumerate(as_tuple(map, Map)):
+            for j, m in enumerate(map):
                 val.append("int xtr_%(name)s[%(dim_row)s];\n" %
                            {'name': self.c_map_name(i, j),
                             'dim_row': str(m.arity * cdim) if self._flatten else str(m.arity)})
@@ -367,7 +367,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         maps = as_tuple(self.map, Map)
         val = []
         for i, map in enumerate(maps):
-            for j, m in enumerate(as_tuple(map, Map)):
+            for j, m in enumerate(map):
                 for idx in range(m.arity):
                     for k in range(cdim):
                         val.append("xtr_%(name)s[%(ind_flat)s] = %(dat_dim)s * (*(%(name)s + i * %(dim)s + %(ind)s))%(offset)s;" %
@@ -383,7 +383,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         maps = as_tuple(self.map, Map)
         val = []
         for i, map in enumerate(maps):
-            for j, m in enumerate(as_tuple(map, Map)):
+            for j, m in enumerate(map):
                 for idx in range(m.arity):
                     val.append("xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
                                {'name': self.c_map_name(i, j),
@@ -399,7 +399,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         maps = as_tuple(self.map, Map)
         val = []
         for i, map in enumerate(maps):
-            for j, m in enumerate(as_tuple(map)):
+            for j, m in enumerate(map):
                 for idx in range(m.arity):
                     for k in range(cdim):
                         val.append("xtr_%(name)s[%(ind_flat)s] += _off%(off)s[%(ind)s] * %(dim)s;" %
@@ -414,7 +414,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         maps = as_tuple(self.map, Map)
         val = []
         for i, map in enumerate(maps):
-            for j, m in enumerate(as_tuple(map)):
+            for j, m in enumerate(map):
                 for idx in range(m.arity):
                     val.append("xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
                                {'name': self.c_map_name(i, j),
