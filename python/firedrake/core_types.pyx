@@ -730,8 +730,23 @@ class Halo(object):
 
 
 class FunctionSpaceBase(object):
+    """Base class for :class:`FunctionSpace`, :class:`VectorFunctionSpace` and
+    :class:`MixedFunctionSpace`.
+
+    .. note ::
+
+        Users should not directly create objects of this class, but one of its
+        derived types.
+    """
 
     def __init__(self, mesh, element, name=None, dim=1, rank=0):
+        """
+        :param mesh: :class:`Mesh` to build this space on
+        :param element: :class:`ufl.FiniteElementBase` to build this space from
+        :param name: user-defined name for this space
+        :param dim: vector space dimension of a :class:`VectorFunctionSpace`
+        :param rank: rank of the space, not the value rank
+        """
 
         self._ufl_element = element
 
