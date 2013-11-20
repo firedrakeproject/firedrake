@@ -1,3 +1,4 @@
+# FIXME: document properly
 """Demo of Linear Shallow Water, with Strang timestepping and silly BCs, but
 a sin(x)*sin(y) solution that doesn't care about the silly BCs"""
 
@@ -74,5 +75,5 @@ while t < T:
     print t
 
 E_1 = assemble(0.5 * p_0 * p_0 * dx + 0.5 * dot(u_0, u_0) * dx)
-print E_0
-print E_1
+print 'Initial energy', E_0
+print 'Final energy', E_1
