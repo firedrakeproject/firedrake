@@ -358,16 +358,13 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
     def c_map_decl_itspace(self):
         cdim = np.prod(self.data.cdim)
         maps = as_tuple(self.map, Map)
-        if isinstance(maps[0], MixedMap):
-            return '\n'.join(["int xtr_%(name)s[%(dim_row)s];\n" %
-                             {'name': self.c_map_name(i, j),
-                              'dim_row': str(map.arity * cdim) if self._flatten else str(map.arity)}
-                             for i in range(len(maps))
-                             for j, map in enumerate(maps[i].split)])
-        return '\n'.join(["int xtr_%(name)s[%(dim_row)s];\n" %
-                         {'name': self.c_map_name(i, 0),
-                          'dim_row': str(map.arity * cdim) if self._flatten else str(map.arity)}
-                         for i, map in enumerate(as_tuple(self.map, Map))])
+        val = []
+        for i, map in enumerate(maps):
+            for j, m in enumerate(as_tuple(map, Map)):
+                val.append("int xtr_%(name)s[%(dim_row)s];\n" %
+                           {'name': self.c_map_name(i, j),
+                            'dim_row': str(m.arity * cdim) if self._flatten else str(m.arity)})
+        return '\n'.join(val)+'\n'
 
     def c_map_init_flattened(self):
         cdim = np.prod(self.data.cdim)
