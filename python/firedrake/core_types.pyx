@@ -71,7 +71,11 @@ def _init():
         op2.init()
 
 def fiat_from_ufl_element(ufl_element):
-    if isinstance(ufl_element, ufl.OuterProductElement):
+    if isinstance(ufl_element, ufl.HDiv):
+        return FIAT.Hdiv(fiat_from_ufl_element(ufl_element._element))
+    elif isinstance(ufl_element, ufl.HCurl):
+        return FIAT.Hcurl(fiat_from_ufl_element(ufl_element._element))
+    elif isinstance(ufl_element, ufl.OuterProductElement):
         a = FIAT.supported_elements[ufl_element._A.family()]\
             (_FIAT_cells[ufl_element._A.cell().cellname()](), ufl_element._A.degree())
 
