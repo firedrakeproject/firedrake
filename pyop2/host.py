@@ -284,15 +284,17 @@ class Arg(base.Arg):
 
     def c_add_offset_flatten(self):
         cdim = np.prod(self.data.cdim)
-        return '\n'.join(flatten([["%(name)s[%(j)d] += _off%(num)s[%(i)d] * %(dim)s;" %
-                                  {'name': self.c_vec_name(),
-                                   'j': map.arity*j + i,
-                                   'i': i,
-                                   'num': self.c_offset(k),
-                                   'dim': cdim}
-                                  for j in range(cdim)
-                                  for i in range(map.arity)]
-                                 for k, map in enumerate(as_tuple(self.map, Map))]))
+        val = []
+        for (k, offset), arity in zip(enumerate(self.map.arange[:-1]), self.map.arities):
+            for idx in range(cdim):
+                for i in range(arity):
+                    val.append("%(name)s[%(j)d] += _off%(num)s[%(i)d] * %(dim)s;" %
+                               {'name': self.c_vec_name(),
+                                'i': i,
+                                'j': offset + idx * arity + i,
+                                'num': self.c_offset(k),
+                                'dim': cdim})
+        return '\n'.join(val)+'\n'
 
     def c_add_offset(self):
         cdim = np.prod(self.data.cdim)
