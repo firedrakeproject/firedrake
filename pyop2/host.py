@@ -438,30 +438,15 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 
     def c_add_offset_map(self):
         maps = as_tuple(self.map, Map)
-        if isinstance(maps[0], MixedMap):
-            res = '\n'.join(flatten([["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
-                                     {'name': self.c_map_name(0, i),
-                                      'off': self.c_offset(i),
-                                      'ind': idx}
-                                     for idx in range(map.arity)]
-                            for i, map in enumerate(maps[0].split)]))
-            res += '\n'
-            res += '\n'.join(flatten([["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
-                                      {'name': self.c_map_name(1, j),
-                                       'off': self.c_offset(len(maps[1].split) + j),
-                                       'ind': idx}
-                                     for idx in range(map.arity)]
-                             for j, map in enumerate(maps[1].split)]))
-            res += '\n'
-        else:
-            res = '\n'.join(flatten([["xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
-                                     {'name': self.c_map_name(mi, 0),
-                                      'off': self.c_offset(mi),
-                                      'ind': idx}
-                                    for idx in range(map.arity)]
-                            for mi, map in enumerate(maps)]))
-            res += '\n'
-        return res
+        val = []
+        for i, map in enumerate(maps):
+            for j, m in enumerate(as_tuple(map)):
+                for idx in range(m.arity):
+                    val.append("xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
+                                {'name': self.c_map_name(i, j),
+                                 'off': self.c_offset(i*len(map) + j),
+                                 'ind': idx})
+        return '\n'.join(val)+'\n'
 
     def c_offset_init(self):
         maps = as_tuple(self.map, Map)
