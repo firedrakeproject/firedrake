@@ -3039,16 +3039,11 @@ class ParLoop(LazyComputation):
         for arg in self.args:
             if arg._is_indirect or arg._is_mat:
                 maps = as_tuple(arg.map, Map)
-                if isinstance(maps[0], MixedMap):
-                    for i in range(len(maps)):
-                        for map in maps[i].split:
-                            if map.iterset.layers is not None and \
-                               map.iterset.layers > 1:
-                                _args.append(map.offset)
-                else:
-                    for map in maps:
-                        if map.iterset.layers is not None and map.iterset.layers > 1:
-                            _args.append(map.offset)
+                for map in maps:
+                    for m in map:
+                        if m.iterset.layers is not None and \
+                           m.iterset.layers > 1:
+                            _args.append(m.offset)
         return _args
 
     @property
