@@ -432,14 +432,12 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 
     def c_offset_decl(self):
         maps = as_tuple(self.map, Map)
-        if isinstance(maps[0], MixedMap):
-            return ';\n'.join(['int * _off%(cnt)s = (int *)(((PyArrayObject *)off%(cnt)s)->data)' %
-                               {'cnt': self.c_offset(i*len(maps[i].split) + j)}
-                              for i in range(len(maps))
-                              for j in range(len(maps[i].split))])
-        return ';\n'.join(['int * _off%(cnt)s = (int *)(((PyArrayObject *)off%(cnt)s)->data)'
-                           % {'cnt': self.c_offset(i)}
-                           for i in range(len(as_tuple(self.map, Map)))])
+        val = []
+        for i, map in enumerate(maps):
+            for j, _ in enumerate(map):
+                val.append("int *_off%(cnt)s = (int *)(((PyArrayObject *)off%(cnt)s)->data)" %
+                           {'cnt': self.c_offset(i*len(map) + j)})
+        return ";\n".join(val)
 
 
 class JITModule(base.JITModule):
