@@ -60,6 +60,9 @@ class Arg(base.Arg):
     def c_map_name(self, i, j):
         return self.c_arg_name() + "_map%d_%d" % (i, j)
 
+    def c_offset_name(self, i, j):
+        return self.c_arg_name() + "_off%d_%d" % (i, j)
+
     def c_wrapper_arg(self):
         if self._is_mat:
             val = "PyObject *_%s" % self.c_arg_name()
@@ -288,11 +291,11 @@ class Arg(base.Arg):
         for (k, offset), arity in zip(enumerate(self.map.arange[:-1]), self.map.arities):
             for idx in range(cdim):
                 for i in range(arity):
-                    val.append("%(name)s[%(j)d] += _off%(num)s[%(i)d] * %(dim)s;" %
+                    val.append("%(name)s[%(j)d] += _%(offset)s[%(i)d] * %(dim)s;" %
                                {'name': self.c_vec_name(),
                                 'i': i,
                                 'j': offset + idx * arity + i,
-                                'num': self.c_offset(k),
+                                'offset': self.c_offset_name(k, 0),
                                 'dim': cdim})
         return '\n'.join(val)+'\n'
 
@@ -301,11 +304,11 @@ class Arg(base.Arg):
         val = []
         for (k, offset), arity in zip(enumerate(self.map.arange[:-1]), self.map.arities):
             for i in range(arity):
-                val.append("%(name)s[%(j)d] += _off%(num)s[%(i)d] * %(dim)s;" %
+                val.append("%(name)s[%(j)d] += _%(offset)s[%(i)d] * %(dim)s;" %
                            {'name': self.c_vec_name(),
                             'i': i,
                             'j': offset + i,
-                            'num': self.c_offset(k),
+                            'offset': self.c_offset_name(k, 0),
                             'dim': cdim})
         return '\n'.join(val)+'\n'
 
@@ -393,9 +396,6 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                 'ind': idx})
         return '\n'.join(val)+'\n'
 
-    def c_offset(self, idx=0):
-        return "%s%s" % (self.position, idx)
-
     def c_add_offset_map_flatten(self):
         cdim = np.prod(self.data.cdim)
         maps = as_tuple(self.map, Map)
@@ -404,9 +404,9 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             for j, m in enumerate(map):
                 for idx in range(m.arity):
                     for k in range(cdim):
-                        val.append("xtr_%(name)s[%(ind_flat)s] += _off%(off)s[%(ind)s] * %(dim)s;" %
+                        val.append("xtr_%(name)s[%(ind_flat)s] += _%(off)s[%(ind)s] * %(dim)s;" %
                                    {'name': self.c_map_name(i, j),
-                                    'off': self.c_offset(i * len(map) + j),
+                                    'off': self.c_offset_name(i, j),
                                     'ind': idx,
                                     'ind_flat': str(m.arity * k + idx),
                                     'dim': str(cdim)})
@@ -418,9 +418,9 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         for i, map in enumerate(maps):
             for j, m in enumerate(map):
                 for idx in range(m.arity):
-                    val.append("xtr_%(name)s[%(ind)s] += _off%(off)s[%(ind)s];" %
+                    val.append("xtr_%(name)s[%(ind)s] += _%(off)s[%(ind)s];" %
                                {'name': self.c_map_name(i, j),
-                                'off': self.c_offset(i*len(map) + j),
+                                'off': self.c_offset_name(i, j),
                                 'ind': idx})
         return '\n'.join(val)+'\n'
 
@@ -429,7 +429,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         val = []
         for i, map in enumerate(maps):
             for j, m in enumerate(map):
-                val.append("PyObject *off%s" % self.c_offset(i * len(map) + j))
+                val.append("PyObject *%s" % self.c_offset_name(i, j))
         return ", " + ", ".join(val)
 
     def c_offset_decl(self):
@@ -437,8 +437,8 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         val = []
         for i, map in enumerate(maps):
             for j, _ in enumerate(map):
-                val.append("int *_off%(cnt)s = (int *)(((PyArrayObject *)off%(cnt)s)->data)" %
-                           {'cnt': self.c_offset(i*len(map) + j)})
+                val.append("int *_%(cnt)s = (int *)(((PyArrayObject *)%(cnt)s)->data)" %
+                           {'cnt': self.c_offset_name(i, j)})
         return ";\n".join(val)
 
 
