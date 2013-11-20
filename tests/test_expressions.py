@@ -201,6 +201,14 @@ def test_different_fs_asign_fails(fs_combinations):
     with pytest.raises(ValueError):
         f1.assign(f2)
 
+
+def test_asign_to_nonindexed_subspace_fails(mfs):
+    """Assigning a Function on a non-indexed sub space of a mixed function
+    space to a function on the mixed function space should fail."""
+    for fs in mfs:
+        with pytest.raises(ValueError):
+            Function(mfs).assign(Function(fs._fs))
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
