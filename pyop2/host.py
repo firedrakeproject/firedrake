@@ -117,10 +117,7 @@ class Arg(base.Arg):
              'off': ' + %d' % j if j else ''}
 
     def c_ind_data_xtr(self, idx, i, j=0):
-        if isinstance(self.data.cdim, tuple):
-            cdim = self.data.cdim[0] * self.data.cdim[1]
-        else:
-            cdim = self.data.cdim
+        cdim = np.prod(self.data.cdim)
         return "%(name)s + xtr_%(map_name)s[%(idx)s]*%(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
