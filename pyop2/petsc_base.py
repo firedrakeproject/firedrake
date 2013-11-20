@@ -236,6 +236,15 @@ class Mat(base.Mat):
                           0].toset.halo.global_to_petsc_numbering)
             col_lg.create(indices=self.sparsity.cmaps[
                           0].toset.halo.global_to_petsc_numbering)
+            # PETSc has utility for turning a local to global map into
+            # a blocked one and vice versa, if rdim or cdim are > 1,
+            # the global_to_petsc_numbering we have is a blocked map,
+            # however, we can't currently generate the correct code
+            # for that case, so build the unblocked map and use that.
+            # This is a temporary fix until we do things properly.
+            row_lg = row_lg.unblock(rdim)
+            col_lg = col_lg.unblock(cdim)
+
             mat.createAIJ(size=((self.sparsity.nrows * rdim, None),
                                 (self.sparsity.ncols * cdim, None)),
                           nnz=(self.sparsity.nnz, self.sparsity.onnz))
