@@ -90,11 +90,11 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
                 for i in range(rowmap.arity):
                     for r in range(rmult):
                         for l in range(rowmap.layers - 1):
-                            row = rmult * rowmap.values[i + e*rowmap.arity] + r + l * rowmap.offset[i]
+                            row = rmult * (rowmap.values[i + e*rowmap.arity] + l * rowmap.offset[i]) + r
                             for d in range(colmap.arity):
                                 for c in range(cmult):
-                                    s_diag[row].insert(cmult * colmap.values[d + e * colmap.arity] +
-                                                       c + l * colmap.offset[d])
+                                    s_diag[row].insert(cmult * (colmap.values[d + e * colmap.arity] +
+                                                       l * colmap.offset[d]) + c)
         else:
             for e in range(rsize):
                 for i in range(rowmap.arity):
@@ -149,12 +149,12 @@ cdef build_sparsity_pattern_mpi(int rmult, int cmult, int nrows, list maps):
                 for i in range(rowmap.arity):
                     for r in range(rmult):
                         for l in range(rowmap.layers - 1):
-                            row = rmult * rowmap.values[i + e*rowmap.arity] + r + l * rowmap.offset[i]
+                            row = rmult * (rowmap.values[i + e*rowmap.arity] + l * rowmap.offset[i]) + r
                             # NOTE: this hides errors due to invalid map entries
                             if row < lsize:
                                 for d in range(colmap.arity):
                                     for c in range(cmult):
-                                        entry = cmult * colmap.values[d + e * colmap.arity] + c + l * colmap.offset[d]
+                                        entry = cmult * (colmap.values[d + e * colmap.arity] + l * colmap.offset[d]) + c
                                         if entry < lsize:
                                             s_diag[row].insert(entry)
                                         else:

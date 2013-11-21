@@ -3040,8 +3040,10 @@ class ParLoop(LazyComputation):
             if arg._is_indirect or arg._is_mat:
                 maps = as_tuple(arg.map, Map)
                 for map in maps:
-                    if map.iterset.layers is not None and map.iterset.layers > 1:
-                        _args.append(map.offset)
+                    for m in map:
+                        if m.iterset.layers is not None and \
+                           m.iterset.layers > 1:
+                            _args.append(m.offset)
         return _args
 
     @property
