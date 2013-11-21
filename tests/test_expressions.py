@@ -42,39 +42,27 @@ def mfs(request, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
             'cg2dg1': cg2dg1}[request.param]
 
 
-def func_factory(fs, method):
+def func_factory(fs):
     f = Function(fs, name="f")
-    one = Function(fs, name="one")
-    two = Function(fs, name="two")
-    minusthree = Function(fs, name="minusthree")
-    if method == 'assign':
-        one.assign(1)
-        two.assign(2)
-        minusthree.assign(-3)
-    elif isinstance(fs, (MixedFunctionSpace, VectorFunctionSpace)):
-        one.interpolate(Expression(("1",)*one.function_space().cdim))
-        two.interpolate(Expression(("2",)*two.function_space().cdim))
-        minusthree.interpolate(Expression(("-3",)*minusthree.function_space().cdim))
-    else:
-        one.interpolate(Expression("1"))
-        two.interpolate(Expression("2"))
-        minusthree.interpolate(Expression("-3"))
+    one = Function(fs, name="one").assign(1)
+    two = Function(fs, name="two").assign(2)
+    minusthree = Function(fs, name="minusthree").assign(-3)
     return f, one, two, minusthree
 
 
-@pytest.fixture(params=['assign', 'interpolate'])
+@pytest.fixture()
 def functions(request, sfs):
-    return func_factory(sfs, method=request.param)
+    return func_factory(sfs)
 
 
-@pytest.fixture(params=['assign', 'interpolate'])
+@pytest.fixture()
 def vfunctions(request, vfs):
-    return func_factory(vfs, method=request.param)
+    return func_factory(vfs)
 
 
-@pytest.fixture(params=['assign', 'interpolate'])
+@pytest.fixture()
 def mfunctions(request, mfs):
-    return func_factory(mfs, method=request.param)
+    return func_factory(mfs)
 
 
 @pytest.fixture
