@@ -117,7 +117,13 @@ class NonlinearVariationalSolver(object):
         self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
         NonlinearVariationalSolver._id += 1
         self.snes.setOptionsPrefix(self._opt_prefix)
-        self.parameters = kwargs.get('parameters', {})
+
+        parameters = kwargs.get('parameters', {})
+        # Mixed problem, use jacobi pc if user has not supplied one.
+        if self._jac_tensor._M.sparsity.shape != (1, 1):
+            parameters.setdefault('pc_type', 'jacobi')
+
+        self.parameters = parameters
 
         ksp = self.snes.getKSP()
         pc = ksp.getPC()
@@ -532,6 +538,9 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
     the parameters dict, if it is empty, the defaults are taken from
     PyOP2 (see :var:`op2.DEFAULT_SOLVER_PARAMETERS`)."""
 
+    # Mixed problem, use jacobi pc if user has not supplied one.
+    if A._M.sparsity.shape != (1, 1):
+        parameters.setdefault('pc_type', 'jacobi')
     solver = op2.Solver(parameters=parameters)
     if A.has_bcs and bcs is None:
         # Pick up any BCs on the linear operator
