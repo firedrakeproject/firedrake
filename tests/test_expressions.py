@@ -127,6 +127,7 @@ idivtest = partial(ioptest, op=idiv)
 
 
 common_tests = [
+    'assigntest(f, 1, 1)',
     'exprtest(one + one, 2)',
     'exprtest(3 * one, 3)',
     'exprtest(one + two, 3)',
