@@ -78,7 +78,6 @@ def run_test(x, degree):
     return sqrt(assemble(dot(u - f, u - f)*dx))
 
 
-@pytest.mark.xfail
 @pytest.mark.parametrize('degree', (1, 2))
 def test_poisson_nitsche(degree):
     assert run_test(2, degree) < 1e-3
