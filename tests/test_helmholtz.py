@@ -43,7 +43,7 @@ def helmholtz(x, degree=2):
 
 def test_firedrake_helmholtz():
     import numpy as np
-    diff = np.array([helmholtz(i)[0] for i in range(3, 7)])
+    diff = np.array([helmholtz(i)[0] for i in range(3, 6)])
     print "l2 error norms:", diff
     conv = np.log2(diff[:-1] / diff[1:])
     print "convergence order:", conv

@@ -40,7 +40,7 @@ def run_test(x, parameters={}):
 
 def run_convergence_test(parameters={}):
     import numpy as np
-    diff = np.array([run_test(i, parameters) for i in range(3, 7)])
+    diff = np.array([run_test(i, parameters) for i in range(3, 6)])
     return np.log2(diff[:-1] / diff[1:])
 
 

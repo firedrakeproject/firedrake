@@ -52,7 +52,7 @@ def run_test(x, degree=1, family='CG'):
     (1, 'DG', 1.8),
     (2, 'DG', 2.8)])
 def test_convergence(degree, family, expected_convergence):
-    l2_diff = np.array([run_test(x, degree, family) for x in range(2, 7)])
+    l2_diff = np.array([run_test(x, degree, family) for x in range(2, 5)])
     conv = np.log2(l2_diff[:-1] / l2_diff[1:])
     assert (conv > expected_convergence).all()
 
@@ -65,7 +65,7 @@ def test_convergence(degree, family, expected_convergence):
     (1, 'DG', 1.8),
     (2, 'DG', 2.8)])
 def test_vector_convergence(degree, family, expected_convergence):
-    l2_diff = np.array([run_vector_test(x, degree, family) for x in range(2, 7)])
+    l2_diff = np.array([run_vector_test(x, degree, family) for x in range(2, 5)])
     conv = np.log2(l2_diff[:-1] / l2_diff[1:])
     assert (conv > expected_convergence).all()
 
@@ -79,7 +79,7 @@ def test_vector_convergence(degree, family, expected_convergence):
     (3, 'BDM', 3.8)])
 def test_vector_valued_convergence(degree, family, expected_convergence):
     l2_diff = np.array([run_vector_valued_test(x, degree, family)
-                        for x in range(2, 7)])
+                        for x in range(2, 6)])
     conv = np.log2(l2_diff[:-1] / l2_diff[1:])
     assert (conv > expected_convergence).all()
 

@@ -44,7 +44,7 @@ def helmholtz_mixed(x, V1, V2):
                           (('BDFM', 2), ('DG', 1), 1.9)])
 def test_firedrake_helmholtz(V1, V2, threshold):
     import numpy as np
-    diff = np.array([helmholtz_mixed(i, V1, V2) for i in range(3, 7)])
+    diff = np.array([helmholtz_mixed(i, V1, V2) for i in range(3, 6)])
     print "l2 error norms:", diff
     conv = np.log2(diff[:-1] / diff[1:])
     print "convergence order:", conv

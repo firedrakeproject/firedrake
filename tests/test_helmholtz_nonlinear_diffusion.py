@@ -60,7 +60,7 @@ def helmholtz(x, parameters={}):
 
 def run_convergence_test(parameters={}):
     import numpy as np
-    l2_diff = np.array([helmholtz(i, parameters) for i in range(3, 8)])
+    l2_diff = np.array([helmholtz(i, parameters) for i in range(3, 6)])
     return np.log2(l2_diff[:-1] / l2_diff[1:])
 
 
