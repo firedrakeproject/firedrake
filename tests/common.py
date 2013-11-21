@@ -8,6 +8,10 @@ def mesh():
     return UnitSquareMesh(5, 5)
 
 
+def extmesh(nx, ny, nz):
+    return ExtrudedMesh(UnitSquareMesh(nx, ny), nz+1, layer_height=1.0/nz)
+
+
 @pytest.fixture(scope='module')
 def cg1(mesh):
     return FunctionSpace(mesh, "CG", 1)
