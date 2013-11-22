@@ -170,6 +170,13 @@ class UnitSquareMesh(Mesh):
 
     The number of the elements in a mesh can be computed from 2 * nx * ny,
     and the number of vertices from (nx+1) * (ny+1).
+
+    The boundary edges are numbered as follows:
+
+    * 1: plane y == 0
+    * 2: plane y == 1
+    * 3: plane x == 1
+    * 4: plane x == 0
     """
 
     def __init__(self, nx, ny):
