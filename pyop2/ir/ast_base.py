@@ -222,6 +222,17 @@ class EmptyStatement(Statement):
         return ""
 
 
+class FlatBlock(Statement):
+    """Treat a chunk of code as a single statement, i.e. a C string"""
+
+    def __init__(self, code, pragma=None):
+        Statement.__init__(self, pragma)
+        self.children.append(code)
+
+    def gencode(self, scope=False):
+        return self.children[0]
+
+
 class Assign(Statement):
 
     """Assign an expression to a symbol."""
