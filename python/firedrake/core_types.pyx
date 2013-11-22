@@ -1484,7 +1484,10 @@ class Function(ufl.Coefficient):
             return super(Function, self).__str__()
 
     def interpolate(self, expression):
-        """Interpolate expression onto the :class:`Function`."""
+        """Interpolate an expression onto this :class:`Function`.
+
+        :param expression: :class:`Expression` to interpolate
+        :returns: this :class:`Function` object"""
 
         if expression.rank() != self.function_space().rank:
             raise RuntimeError('Rank mismatch between Expression and FunctionSpace')
@@ -1496,6 +1499,7 @@ class Function(ufl.Coefficient):
         for fs, dat in zip(self.function_space(), self.dat):
             self._interpolate(fs, dat, Expression(expression.code[i:i+fs.dim]))
             i += fs.dim
+        return self
 
     def _interpolate(self, fs, dat, expression):
         """Interpolate expression onto a :class:`FunctionSpace`.
