@@ -1501,7 +1501,7 @@ class Function(ufl.Coefficient):
         else:
             return super(Function, self).__str__()
 
-    def interpolate(self, expression):
+    def interpolate(self, expression, subset=None):
         """Interpolate an expression onto this :class:`Function`.
 
         :param expression: :class:`Expression` to interpolate
@@ -1515,11 +1515,11 @@ class Function(ufl.Coefficient):
 
         i = 0
         for fs, dat in zip(self.function_space(), self.dat):
-            self._interpolate(fs, dat, Expression(expression.code[i:i+fs.dim]))
+            self._interpolate(fs, dat, Expression(expression.code[i:i+fs.dim]), subset)
             i += fs.dim
         return self
 
-    def _interpolate(self, fs, dat, expression):
+    def _interpolate(self, fs, dat, expression, subset):
         """Interpolate expression onto a :class:`FunctionSpace`.
 
         :param fs: :class:`FunctionSpace`
@@ -1575,7 +1575,7 @@ void expression_kernel(double A[%(assign_dim)d], double **x_, int k)
                                                                             dtype=int) },
                             "expression_kernel")
 
-        op2.par_loop(kernel, self.cell_set,
+        op2.par_loop(kernel, subset or self.cell_set,
                      dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
                      coords.dat(op2.READ, coords.cell_node_map())
                      )
