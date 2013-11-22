@@ -48,6 +48,8 @@ from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
 from sparsity import build_sparsity
 
+from ir.ast_base import Node
+
 
 class LazyComputation(object):
 
@@ -2874,15 +2876,18 @@ class Kernel(Cached):
     @classmethod
     @validate_type(('name', str, NameTypeError))
     def _cache_key(cls, code, name):
+        if isinstance(code, Node):
+            code = code.gencode()
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
         return md5(code + name).hexdigest()
 
-    def __init__(self, code, name):
+    def __init__(self, ast, name):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
         self._name = name or "kernel_%d" % Kernel._globalcount
+        code = self._transform_ast(ast)
         self._code = preprocess(code)
         Kernel._globalcount += 1
         self._initialized = True
@@ -2897,6 +2902,11 @@ class Kernel(Cached):
         """String containing the c code for this kernel routine. This
         code must conform to the OP2 user kernel API."""
         return self._code
+
+    def _transform_ast(self, ast):
+        if not isinstance(ast, Node):
+            return ast
+        return ast.gencode()
 
     def __str__(self):
         return "OP2 Kernel: %s" % self._name

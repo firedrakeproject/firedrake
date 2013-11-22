@@ -12,6 +12,7 @@ class LoopOptimiser(object):
         self.loop_nest = loop_nest
         self.pre_header = pre_header
         self.out_prods = {}
+        self.itspace = {}
         fors_loc, self.decls, self.sym = self._visit_nest(loop_nest)
         self.fors, self.for_parents = zip(*fors_loc)
 
@@ -38,12 +39,12 @@ class LoopOptimiser(object):
                         # Find outer product iteration variables and store the
                         # parent for future manipulation
                         self.out_prods[node] = ([opt_par[1], opt_par[3]], parent)
+                    elif opt_name == "itspace":
+                        self.itspace[node] = ([opt_par[1], opt_par[3]], parent)
                     else:
-                        # TODO: return a proper error
-                        print "Unrecognised opt %s - skipping it", opt_name
+                        raise RuntimeError("Unrecognised opt %s - skipping it", opt_name)
                 else:
-                    # TODO: return a proper error
-                    print "Unrecognised pragma - skipping it"
+                    raise RuntimeError("Unrecognised pragma found '%s'", node.pragma)
 
         def inspect(node, parent, fors, decls, symbols):
             if isinstance(node, Block):
@@ -52,6 +53,7 @@ class LoopOptimiser(object):
                     inspect(n, node, fors, decls, symbols)
                 return (fors, decls, symbols)
             elif isinstance(node, For):
+                check_opts(node, parent)
                 fors.append((node, parent))
                 return inspect(node.children[0], node, fors, decls, symbols)
             elif isinstance(node, Par):
@@ -76,3 +78,8 @@ class LoopOptimiser(object):
                 return (fors, decls, symbols)
 
         return inspect(node, None, [], {}, [])
+
+    def extract_itspace(self):
+        """Remove fully-parallel loop from the iteration space. These are
+        the loops that were marked by the user/higher layer with a pragma."""
+        pass

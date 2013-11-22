@@ -1,6 +1,6 @@
 # Transform the kernel's ast depending on the backend we are executing over
 
-from ir.ast_base import *
+from pyop2.ir.ast_base import *
 
 
 class ASTKernel(object):
@@ -29,3 +29,10 @@ class ASTKernel(object):
             self._visit_ast(c, node, fors, decls)
 
         return (decls, fors)
+
+    def plan_gpu(self):
+        """Transform the kernel suitably for GPU execution. """
+
+        lo = [LoopOptimiser(l, pre_l) for l, pre_l in self.fors]
+        for nest in lo:
+            nest.extract_itspace()
