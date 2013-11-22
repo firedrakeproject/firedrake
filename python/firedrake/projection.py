@@ -19,7 +19,7 @@ def project(v, V, bcs=None, mesh=None,
     :arg form_compiler_parameters: parameters to the form compiler
 
     Currently, `bcs`, `mesh` and `form_compiler_parameters` are ignored."""
-    if not isinstance(V, FunctionSpace):
+    if not isinstance(V, FunctionSpaceBase):
         raise RuntimeError('Can only project into function spaces, not %r' % type(V))
 
     if isinstance(v, Expression):

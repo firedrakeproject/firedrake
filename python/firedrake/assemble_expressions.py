@@ -1,5 +1,7 @@
 import ufl
 from ufl.algorithms import ReuseTransformer
+from ufl.constantvalue import ConstantValue, Zero
+from ufl.indexing import MultiIndex
 from ufl.operatorbase import Operator
 from pyop2 import op2
 import core_types
@@ -49,6 +51,10 @@ class AssignmentBase(Operator):
         if not (isinstance(lhs, core_types.Function)
                 or isinstance(lhs, DummyFunction)):
             raise TypeError("Can only assign to a Function")
+
+    def operands(self):
+        """Return the list of operands."""
+        return self._operands
 
     def __str__(self):
         return (" %s " % self._symbol).join(map(str, self._operands))
@@ -167,6 +173,82 @@ class Ln(ufl.mathfunctions.Ln):
         return "log(%s)" % str(self._argument)
 
 
+class ComponentTensor(ufl.tensors.ComponentTensor):
+    """Subclass of :class:`ufl.tensors.ComponentTensor` which only prints the
+    first operand."""
+
+    def __str__(self):
+        return str(self.operands()[0])
+
+
+class Indexed(ufl.indexed.Indexed):
+    """Subclass of :class:`ufl.indexed.Indexed` which only prints the first
+    operand."""
+
+    def __str__(self):
+        return str(self.operands()[0])
+
+
+class ExpressionSplitter(ReuseTransformer):
+    """Split an expression tree into a subtree for each component of the
+    appropriate :class:`core_types.FunctionSpaceBase`."""
+
+    def split(self, expr):
+        """Split the given expression."""
+        self._trees = None
+        lhs, rhs = expr.operands()
+        # If the expression is not an assignment, the function spaces for both
+        # operands have to match
+        if not isinstance(expr, AssignmentBase) and \
+                lhs.function_space() != rhs.function_space():
+            raise ValueError("Operands of %r must have the same FunctionSpace" % expr)
+        self._function_space = lhs.function_space()
+        return [expr.reconstruct(*ops) for ops in zip(*map(self.visit, (lhs, rhs)))]
+
+    def indexed(self, o, *operands):
+        """Reconstruct the :class:`ufl.indexed.Indexed` only if the coefficient
+        is defined on a :class:`core_types.VectorFunctionSpace`."""
+        def reconstruct_if_vec(coeff, idx, i):
+            # If the MultiIndex contains a FixedIndex we only want to return
+            # the indexed coefficient if its position matches the FixedIndex
+            if isinstance(idx._indices[0], ufl.indexing.FixedIndex) and \
+                    idx._indices[0]._value != i:
+                return Zero()
+            elif isinstance(coeff.function_space(), core_types.VectorFunctionSpace):
+                return o.reconstruct(coeff, idx)
+            else:
+                return coeff
+        return [reconstruct_if_vec(*ops, i=i)
+                for i, ops in enumerate(zip(*operands))]
+
+    def component_tensor(self, o, *operands):
+        """Only return the first operand."""
+        return operands[0]
+
+    def terminal(self, o):
+        if isinstance(o, core_types.Function):
+            # A function must either be defined on the same function space
+            # we're assigning to, in which case we split it into components
+            if o.function_space() == self._function_space:
+                return o.split()
+            # Otherwise the function space must be indexed and we return the
+            # Function for the indexed component and Zero for every other
+            else:
+                idx = o.function_space().index
+                if idx is None:
+                    raise ValueError("Coefficient %r is not indexed" % o)
+                return [o if i == idx else Zero()
+                        for i, _ in enumerate(self._function_space)]
+        # We replicate ConstantValue and MultiIndex for each component
+        elif isinstance(o, (ConstantValue, MultiIndex)):
+            return [o for _ in self._function_space]
+        raise NotImplementedError("Don't know what to do with %r" % o)
+
+    def operator(self, o, *operands):
+        """Reconstruct an operator on each of the component spaces."""
+        return [o.reconstruct(*ops) for ops in zip(*operands)]
+
+
 class ExpressionWalker(ReuseTransformer):
 
     def __init__(self):
@@ -215,6 +297,14 @@ class ExpressionWalker(ReuseTransformer):
         # Need to convert notation to c.
         return Ln(*operands)
 
+    def component_tensor(self, o, *operands):
+        """Override string representation to only print first operand."""
+        return ComponentTensor(*operands)
+
+    def indexed(self, o, *operands):
+        """Override string representation to only print first operand."""
+        return Indexed(*operands)
+
     def operator(self, o):
 
         # Need pre-traversal of operators so as to correctly set the
@@ -226,9 +316,8 @@ class ExpressionWalker(ReuseTransformer):
             operands = [operands[0], self.visit(operands[1])]
 
         else:
-
             # For all other operators, just visit the children.
-            operands = map(self.visit, o._operands)
+            operands = map(self.visit, o.operands())
 
         return o.reconstruct(*operands)
 
@@ -277,10 +366,9 @@ def evaluate_preprocessed_expression(expr, args, subset=None):
 def evaluate_expression(expr, subset=None):
     """Evaluates UFL expressions on Functions."""
 
-    e = ExpressionWalker()
-    processed_expr = e.visit(expr)
-
-    evaluate_preprocessed_expression(processed_expr, e._args.values(), subset)
+    for tree in ExpressionSplitter().split(expr):
+        e = ExpressionWalker()
+        evaluate_preprocessed_expression(e.visit(tree), e._args.values(), subset)
 
 
 def assemble_expression(expr, subset=None):
@@ -288,15 +376,7 @@ def assemble_expression(expr, subset=None):
     into a new :class:`Function`."""
 
     e = ExpressionWalker()
-    assign_expr = e.visit(expr)
-
+    e.visit(expr)
     result = core_types.Function(e._function_space)
-
-    assign_expr = Assign(result, assign_expr)
-
-    # Revisit to process the Assign.
-    assign_expr = e.visit(assign_expr)
-
-    evaluate_preprocessed_expression(assign_expr, e._args.values(), subset)
-
+    evaluate_expression(Assign(result, expr), subset)
     return result

@@ -15,9 +15,14 @@ class Expression(ufl.Coefficient):
             self.code = [code]
         else:
             self.code = code
-        self.element = element
         self.cell = cell
         self.degree = degree
+        # These attributes are required by ufl.Coefficient to render the repr
+        # of an Expression. Since we don't call the ufl.Coefficient constructor
+        # (since we don't yet know the element) we need to set them ourselves
+        self._element = element
+        self._repr = None
+        self._count = 0
 
     def rank(self):
         return self._rank

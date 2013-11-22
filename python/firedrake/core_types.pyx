@@ -1,26 +1,29 @@
 # cython: embedsignature=True
 # Re-implementation of state_types for firedrake.
 import os
-import ufl
-from ufl import *
 from mpi4py import MPI
-import FIAT
 import numpy as np
-import utils
-from pyop2 import op2
-from pyop2.utils import flatten
-import assemble_expressions
-from vector import Vector
 import cgen
 
 from libc.stdlib cimport malloc, free
-from libc.string cimport strcmp
 # Necessary so that we can use memoryviews
 from cython cimport view
 cimport numpy as np
 cimport cpython as py
-cimport fluidity_types as ft
+
+import ufl
+from ufl import *
+import FIAT
+
+from pyop2 import op2
+from pyop2.utils import flatten
+
+import assemble_expressions
 from expression import Expression
+import utils
+from vector import Vector
+
+cimport fluidity_types as ft
 
 cdef extern from "capsulethunk.h": pass
 
@@ -75,7 +78,7 @@ def fiat_from_ufl_element(ufl_element):
         return FIAT.Hdiv(fiat_from_ufl_element(ufl_element._element))
     elif isinstance(ufl_element, ufl.HCurl):
         return FIAT.Hcurl(fiat_from_ufl_element(ufl_element._element))
-    elif isinstance(ufl_element, ufl.OuterProductElement):
+    elif isinstance(ufl_element, (ufl.OuterProductElement, ufl.OuterProductVectorElement)):
         a = FIAT.supported_elements[ufl_element._A.family()]\
             (_FIAT_cells[ufl_element._A.cell().cellname()](), ufl_element._A.degree())
 
@@ -726,68 +729,29 @@ class Halo(object):
         return self._global_to_universal_number
 
 
-class FunctionSpace(object):
-    """Create a function space
+class FunctionSpaceBase(object):
+    """Base class for :class:`FunctionSpace`, :class:`VectorFunctionSpace` and
+    :class:`MixedFunctionSpace`.
 
-    :arg mesh: mesh to build the function space on
-    :arg family: string describing function space family, or a
-        :class:`ufl.OuterProductElement`
-    :arg degree: degree of the function space
-    :arg name: (optional) name of the function space
-    :arg vfamily: family of function space in vertical dimension
-        (:class:`ExtrudedMesh`\es only)
-    :arg vdegree: degree of function space in vertical dimension
-        (:class:`ExtrudedMesh`\es only)
+    .. note ::
 
-    If the mesh is an :class:`ExtrudedMesh`, and the `family` argument
-    is a :class:`ufl.OuterProductElement`, `degree`, `vfamily` and
-    `vdegree` are ignored, since the `family` provides all necessary
-    information, otherwise a :class:`ufl.OuterProductElement` is built
-    from the (`family`, `degree`) and (`vfamily`, `vdegree`) pair.  If
-    the `vfamily` and `vdegree` are not provided, the vertical element
-    will be the same as the provided (`family`, `degree`) pair.
-
-    If the mesh is not an :class:`ExtrudedMesh`, the `family` must be
-    a string describing the finite element family to use, and the
-    `degree` must be provided, `vfamily` and `vdegree` are ignored in
-    this case.
+        Users should not directly create objects of this class, but one of its
+        derived types.
     """
 
-    def __init__(self, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
-        # Two choices:
-        # 1) pass in mesh, family, degree to generate a simple function space
-        # 2) set up the function space using FiniteElement, EnrichedElement,
-        #       OuterProductElement and so on
-        if isinstance(family, ufl.FiniteElementBase):
-            # Second case...
-            self._ufl_element = family
-        else:
-            # First case...
-            if isinstance(mesh, ExtrudedMesh):
-                # if extruded mesh, make the OPE
-                la = ufl.FiniteElement(family,
-                                       domain=mesh._old_mesh._ufl_cell,
-                                       degree=degree)
-                if vfamily is None or vdegree is None:
-                    # if second element was not passed in, assume same as first
-                    # (only makes sense for CG or DG)
-                    lb = ufl.FiniteElement(family,
-                                           domain=ufl.Cell("interval",1),
-                                           degree=degree)
-                else:
-                    # if second element was passed in, use in
-                    lb = ufl.FiniteElement(vfamily,
-                                           domain=ufl.Cell("interval",1),
-                                           degree=vdegree)
-                # now make the OPE
-                self._ufl_element = ufl.OuterProductElement(la, lb)
-            else:
-                # if not an extruded mesh, just make the element
-                self._ufl_element = ufl.FiniteElement(family,
-                                                      domain=mesh._ufl_cell,
-                                                      degree=degree)
+    def __init__(self, mesh, element, name=None, dim=1, rank=0):
+        """
+        :param mesh: :class:`Mesh` to build this space on
+        :param element: :class:`ufl.FiniteElementBase` to build this space from
+        :param name: user-defined name for this space
+        :param dim: vector space dimension of a :class:`VectorFunctionSpace`
+        :param rank: rank of the space, not the value rank
+        """
 
-        self.fiat_element = fiat_from_ufl_element(self._ufl_element)
+        self._ufl_element = element
+
+        # Compute the FIAT version of the UFL element above
+        self.fiat_element = fiat_from_ufl_element(element)
 
         if isinstance(mesh, ExtrudedMesh):
             # Set up some extrusion-specific things
@@ -795,17 +759,18 @@ class FunctionSpace(object):
             # dof_count is the total number of dofs in the extruded mesh
 
             # Get the flattened version of the FIAT element
-            flat_temp = self.fiat_element.flattened_element()
+            flattened_element = self.fiat_element.flattened_element()
 
             # Compute the dofs per column
             self.dofs_per_column = compute_extruded_dofs(self.fiat_element,
-                                                         flat_temp.entity_dofs(),
+                                                         flattened_element.entity_dofs(),
                                                          mesh._layers)
 
             # Compute the offset for the extrusion process
             self.offset = compute_offset(self.fiat_element.entity_dofs(),
-                                         flat_temp.entity_dofs(),
+                                         flattened_element.entity_dofs(),
                                          self.fiat_element.space_dimension())
+            self.extruded = True
         else:
             # If not extruded specific, set things to None/False, etc.
             self.offset = None
@@ -845,23 +810,23 @@ class FunctionSpace(object):
 
         self.name = name
 
-        self._dim = 1
+        self._dim = dim
+        self._index = None
 
-        if not isinstance(self._mesh, ExtrudedMesh):
-            if self._mesh.interior_facets.count > 0:
+        if not isinstance(mesh, ExtrudedMesh):
+            if mesh.interior_facets.count > 0:
                 self.interior_facet_node_list = \
-                    np.array(<int[:self._mesh.interior_facets.count,:2*element_f.ndof]>
+                    np.array(<int[:mesh.interior_facets.count,:2*element_f.ndof]>
                              function_space.interior_facet_node_list)
             else:
                 self.interior_facet_node_list = None
 
             self.exterior_facet_node_list = \
-                np.array(<int[:self._mesh.exterior_facets.count,:element_f.ndof]>
+                np.array(<int[:mesh.exterior_facets.count,:element_f.ndof]>
                          function_space.exterior_facet_node_list)
 
-        # Note that this is the function space rank and is therefore
-        # always 0. The value rank may be different.
-        self.rank = 0
+        # Note: this is the function space rank. The value rank may be different.
+        self.rank = rank
 
         # Empty map caches. This is a sui generis cache
         # implementation because of the need to support boundary
@@ -869,6 +834,12 @@ class FunctionSpace(object):
         self._cell_node_map_cache = {}
         self._exterior_facet_map_cache = {}
         self._interior_facet_map_cache = {}
+
+    @property
+    def index(self):
+        """Position of this :class:`FunctionSpaceBase` in the
+        :class:`MixedFunctionSpace` it was extracted from."""
+        return self._index
 
     @property
     def node_count(self):
@@ -1089,6 +1060,9 @@ class FunctionSpace(object):
         """The :class:`Mesh` used to construct this :class:`FunctionSpace`."""
         return self._mesh
 
+    def __len__(self):
+        return 1
+
     def __iter__(self):
         yield self
 
@@ -1104,15 +1078,76 @@ class FunctionSpace(object):
         return MixedFunctionSpace((self, other))
 
 
-class VectorFunctionSpace(FunctionSpace):
-    def __init__(self, mesh, family, degree, dim=None, name=None, vfamily=None, vdegree=None):
-        super(VectorFunctionSpace, self).__init__(mesh, family, degree, name, vfamily=vfamily, vdegree=vdegree)
-        self.rank = 1
-        if dim is None:
-            # VectorFunctionSpace dimension defaults to the geometric dimension of the mesh.
-            self._dim = self._mesh.ufl_cell().geometric_dimension()
+class FunctionSpace(FunctionSpaceBase):
+    """Create a function space
+
+    :arg mesh: mesh to build the function space on
+    :arg family: string describing function space family, or a
+        :class:`ufl.OuterProductElement`
+    :arg degree: degree of the function space
+    :arg name: (optional) name of the function space
+    :arg vfamily: family of function space in vertical dimension
+        (:class:`ExtrudedMesh`\es only)
+    :arg vdegree: degree of function space in vertical dimension
+        (:class:`ExtrudedMesh`\es only)
+
+    If the mesh is an :class:`ExtrudedMesh`, and the `family` argument
+    is a :class:`ufl.OuterProductElement`, `degree`, `vfamily` and
+    `vdegree` are ignored, since the `family` provides all necessary
+    information, otherwise a :class:`ufl.OuterProductElement` is built
+    from the (`family`, `degree`) and (`vfamily`, `vdegree`) pair.  If
+    the `vfamily` and `vdegree` are not provided, the vertical element
+    will be the same as the provided (`family`, `degree`) pair.
+
+    If the mesh is not an :class:`ExtrudedMesh`, the `family` must be
+    a string describing the finite element family to use, and the
+    `degree` must be provided, `vfamily` and `vdegree` are ignored in
+    this case.
+    """
+
+    def __init__(self, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
+        # Two choices:
+        # 1) pass in mesh, family, degree to generate a simple function space
+        # 2) set up the function space using FiniteElement, EnrichedElement,
+        #       OuterProductElement and so on
+        if isinstance(family, ufl.FiniteElementBase):
+            # Second case...
+            element = family
         else:
-            self._dim = dim
+            # First case...
+            if isinstance(mesh, ExtrudedMesh):
+                # if extruded mesh, make the OPE
+                la = ufl.FiniteElement(family,
+                                       domain=mesh._old_mesh._ufl_cell,
+                                       degree=degree)
+                if vfamily is None or vdegree is None:
+                    # if second element was not passed in, assume same as first
+                    # (only makes sense for CG or DG)
+                    lb = ufl.FiniteElement(family,
+                                           domain=ufl.Cell("interval",1),
+                                           degree=degree)
+                else:
+                    # if second element was passed in, use in
+                    lb = ufl.FiniteElement(vfamily,
+                                           domain=ufl.Cell("interval",1),
+                                           degree=vdegree)
+                # now make the OPE
+                element = ufl.OuterProductElement(la, lb)
+            else:
+                # if not an extruded mesh, just make the element
+                element = ufl.FiniteElement(family,
+                                            domain=mesh._ufl_cell,
+                                            degree=degree)
+
+        super(FunctionSpace, self).__init__(mesh, element, name, dim=1)
+
+
+class VectorFunctionSpace(FunctionSpaceBase):
+    """A vector finite element :class:`FunctionSpace`."""
+
+    def __init__(self, mesh, family, degree, dim=None, name=None, vfamily=None, vdegree=None):
+        # VectorFunctionSpace dimension defaults to the geometric dimension of the mesh.
+        dim = dim or mesh.ufl_cell().geometric_dimension()
 
         if isinstance(mesh, ExtrudedMesh):
             if isinstance(family, ufl.OuterProductElement):
@@ -1121,22 +1156,19 @@ class VectorFunctionSpace(FunctionSpace):
                                    domain=mesh._old_mesh._ufl_cell,
                                    degree=degree)
             if vfamily is None or vdegree is None:
-                lb = ufl.FiniteElement(family,
-                                       domain=ufl.Cell("interval", 1),
+                lb = ufl.FiniteElement(family, domain=ufl.Cell("interval", 1),
                                        degree=degree)
             else:
-                lb = ufl.FiniteElement(vfamily,
-                                       domain=ufl.Cell("interval", 1),
+                lb = ufl.FiniteElement(vfamily, domain=ufl.Cell("interval", 1),
                                        degree=vdegree)
-            self._ufl_element = ufl.OuterProductVectorElement(la, lb)
+            element = ufl.OuterProductVectorElement(la, lb)
         else:
-            self._ufl_element = VectorElement(family,
-                                              domain=mesh._ufl_cell,
-                                              degree=degree,
-                                              dim=self._dim)
+            element = VectorElement(family, domain=mesh.ufl_cell(),
+                                    degree=degree, dim=dim)
+        super(VectorFunctionSpace, self).__init__(mesh, element, name, dim=dim, rank=1)
 
 
-class MixedFunctionSpace(FunctionSpace):
+class MixedFunctionSpace(FunctionSpaceBase):
     """A mixed finite element :class:`FunctionSpace`."""
 
     def __init__(self, spaces, name=None):
@@ -1155,11 +1187,13 @@ class MixedFunctionSpace(FunctionSpace):
             ME  = MixedFunctionSpace([P2v, P1, P1, P1])
         """
 
-        self._spaces = list(flatten(spaces))
-        self._mesh = self._spaces[0]._mesh
+        self._spaces = [IndexedFunctionSpace(s, i, self)
+                        for i, s in enumerate(flatten(spaces))]
+        self._mesh = self._spaces[0].mesh()
         self._ufl_element = ufl.MixedElement(*[fs.ufl_element() for fs in self._spaces])
         self.name = '_'.join(str(s.name) for s in self._spaces)
         self.rank = 1
+        self._index = None
 
     def split(self):
         """The list of :class:`FunctionSpace`\s of which this
@@ -1286,6 +1320,56 @@ class MixedFunctionSpace(FunctionSpace):
                             for s, v in zip(self._spaces, val))
 
 
+class IndexedFunctionSpace(FunctionSpaceBase):
+    """A :class:`FunctionSpaceBase` with an index to indicate which position
+    it has as part of a :class:`MixedFunctionSpace`."""
+
+    def __init__(self, fs, index, parent):
+        """
+        :param fs: the :class:`FunctionSpaceBase` that was extracted
+        :param index: the position in the parent :class:`MixedFunctionSpace`
+        :param parent: the parent :class:`MixedFunctionSpace`
+        """
+        # If the function space was extracted from a mixed function space,
+        # extract the underlying component space
+        if isinstance(fs, IndexedFunctionSpace):
+            fs = fs._fs
+        # Override the __class__ to make instance checks on the type of the
+        # wrapped function space work as expected
+        self.__class__ = type(fs.__class__.__name__,
+                              (self.__class__, fs.__class__), {})
+        self._fs = fs
+        self._index = index
+        self._parent = parent
+
+    def __getattr__(self, name):
+        return getattr(self._fs, name)
+
+    def __repr__(self):
+        return "<IndexFunctionSpace: %r at %d>" % (FunctionSpaceBase.__repr__(self._fs), self._index)
+
+    @property
+    def node_set(self):
+        """A :class:`pyop2.Set` containing the nodes of this
+        :class:`FunctionSpace`. One or (for VectorFunctionSpaces) more degrees
+        of freedom are stored at each node."""
+        return self._fs.node_set
+
+    @property
+    def dof_dset(self):
+        """A :class:`pyop2.Set` containing the degrees of freedom of
+        this :class:`FunctionSpace`."""
+        return self._fs.dof_dset
+
+    @property
+    def exterior_facet_boundary_node_map(self):
+        '''The :class:`pyop2.Map` from exterior facets to the nodes on
+        those facets. Note that this differs from
+        :meth:`exterior_facet_node_map` in that only surface nodes
+        are referenced, not all nodes in cells touching the surface.'''
+        return self._fs.exterior_facet_boundary_node_map
+
+
 class Function(ufl.Coefficient):
     """A :class:`Function` represents a discretised field over the
     domain defined by the underlying :class:`Mesh`. Functions are
@@ -1304,11 +1388,18 @@ class Function(ufl.Coefficient):
     the :class:`FunctionSpace`.
     """
 
-    def __init__(self, function_space, val = None, name = None):
+    def __init__(self, function_space, val=None, name=None):
+        """
+        :param function_space: the :class:`FunctionSpaceBase` or another
+            :class:`Function` to build this :class:`Function` on
+        :param val: NumPy array-like with initial values or a :class:`op2.Dat`
+            (optional)
+        :param name: user-defined name of this :class:`Function` (optional)
+        """
 
         if isinstance(function_space, Function):
             self._function_space = function_space._function_space
-        elif isinstance(function_space, FunctionSpace):
+        elif isinstance(function_space, FunctionSpaceBase):
             self._function_space = function_space
         else:
             raise NotImplementedError("Can't make a Function defined on a "
@@ -1320,13 +1411,22 @@ class Function(ufl.Coefficient):
         self.uid = _new_uid()
         self._name = name or 'function_%d' % self.uid
 
-        self.dat = self._function_space.make_dat(val, valuetype, self._name,
-                                                 uid=self.uid)
+        if isinstance(val, op2.Dat):
+            self.dat = val
+        else:
+            self.dat = self._function_space.make_dat(val, valuetype,
+                                                     self._name, uid=self.uid)
 
         self._repr = None
 
         if isinstance(function_space, Function):
           self.assign(function_space)
+
+    def split(self):
+        """Extract any sub :class:`Function`\s defined on the component spaces
+        of this this :class:`Function`'s :class:`FunctionSpace`."""
+        return tuple(Function(fs, dat)
+                     for fs, dat in zip(self._function_space, self.dat))
 
     @property
     def cell_set(self):
@@ -1384,7 +1484,10 @@ class Function(ufl.Coefficient):
             return super(Function, self).__str__()
 
     def interpolate(self, expression):
-        """Interpolate expression onto the :class:`Function`."""
+        """Interpolate an expression onto this :class:`Function`.
+
+        :param expression: :class:`Expression` to interpolate
+        :returns: this :class:`Function` object"""
 
         if expression.rank() != self.function_space().rank:
             raise RuntimeError('Rank mismatch between Expression and FunctionSpace')
@@ -1396,6 +1499,7 @@ class Function(ufl.Coefficient):
         for fs, dat in zip(self.function_space(), self.dat):
             self._interpolate(fs, dat, Expression(expression.code[i:i+fs.dim]))
             i += fs.dim
+        return self
 
     def _interpolate(self, fs, dat, expression):
         """Interpolate expression onto a :class:`FunctionSpace`.
