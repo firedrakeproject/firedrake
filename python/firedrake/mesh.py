@@ -212,6 +212,15 @@ class UnitCubeMesh(Mesh):
 
     The number of the elements in a mesh can be computed from 6 * nx * ny * nz,
     and the number of the vertices from (nx+1) * (ny+1) * (nz+1).
+
+    The boundary surface are numbered as follows:
+
+    * 1: plane z == 0
+    * 2: plane z == 1
+    * 3: plane y == 0
+    * 4: plane x == 1
+    * 5: plane y == 1
+    * 6: plane x == 0
     """
 
     def __init__(self, nx, ny, nz):
