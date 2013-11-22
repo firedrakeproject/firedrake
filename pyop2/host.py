@@ -194,7 +194,7 @@ class Arg(base.Arg):
                                 'data': self.c_ind_data(mi, i)})
         return ";\n".join(val)
 
-    def c_addto_scalar_field(self, i, j, extruded=None):
+    def c_addto_scalar_field(self, i, j, offsets, extruded=None):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].split[i].arity
         ncols = maps[1].split[j].arity
@@ -207,7 +207,7 @@ class Arg(base.Arg):
 
         return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
             {'mat': self.c_arg_name(i, j),
-             'vals': 'buffer_' + self.c_arg_name(),
+             'vals': '&buffer_' + self.c_arg_name() + "".join(["[%d]" % d for d in offsets]),
              'nrows': nrows,
              'ncols': ncols,
              'rows': rows_str,
@@ -682,6 +682,8 @@ class JITModule(base.JITModule):
         for count, arg in _itspace_args:
             _buf_size = [arg.c_local_tensor_dec(shape, i, j)
                          for i, j, shape, offsets in self._itspace]
+            if len(_buf_size) > 1:
+                _buf_size = [_buf_size[0], _buf_size[-1]]
             _buf_size = [sum(x) for x in zip(*_buf_size)]
             if arg.access._mode not in ['WRITE', 'INC']:
                 _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e)
@@ -715,14 +717,14 @@ class JITModule(base.JITModule):
                 _itspace_loops = ''
                 _itspace_loop_close = ''
             if self._itspace.layers > 1:
-                _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, "xtr_") for arg in self._args
+                _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, offsets, "xtr_") for arg in self._args
                                                             if arg._is_mat and arg.data._is_scalar_field])
                 _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, "xtr_") for arg in self._args
                                                   if arg._is_mat and arg.data._is_vector_field])
                 _addtos_scalar_field = ""
             else:
                 _addtos_scalar_field_extruded = ""
-                _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(i, j) for arg in self._args
+                _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(i, j, offsets) for arg in self._args
                                                    if arg._is_mat and arg.data._is_scalar_field])
                 _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j) for arg in self._args
                                                   if arg._is_mat and arg.data._is_vector_field])

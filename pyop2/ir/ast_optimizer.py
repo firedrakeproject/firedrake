@@ -12,7 +12,7 @@ class LoopOptimiser(object):
         self.loop_nest = loop_nest
         self.pre_header = pre_header
         self.out_prods = {}
-        self.itspace = {}
+        self.itspace = []
         fors_loc, self.decls, self.sym = self._visit_nest(loop_nest)
         self.fors, self.for_parents = zip(*fors_loc)
 
@@ -31,16 +31,17 @@ class LoopOptimiser(object):
                 if len(opts) < 3:
                     return
                 if opts[1] == "pyop2":
+                    if opts[2] == "itspace":
+                        # Found high-level optimisation
+                        self.itspace.append((node, parent))
+                        return
                     delim = opts[2].find('(')
                     opt_name = opts[2][:delim].replace(" ", "")
                     opt_par = opts[2][delim:].replace(" ", "")
-                    # Found high-level optimisation
                     if opt_name == "outerproduct":
-                        # Find outer product iteration variables and store the
-                        # parent for future manipulation
+                        # Found high-level optimisation
+                        # Store outer product iteration variables and parent
                         self.out_prods[node] = ([opt_par[1], opt_par[3]], parent)
-                    elif opt_name == "itspace":
-                        self.itspace[node] = ([opt_par[1], opt_par[3]], parent)
                     else:
                         raise RuntimeError("Unrecognised opt %s - skipping it", opt_name)
                 else:
@@ -82,4 +83,11 @@ class LoopOptimiser(object):
     def extract_itspace(self):
         """Remove fully-parallel loop from the iteration space. These are
         the loops that were marked by the user/higher layer with a pragma."""
-        pass
+
+        itspace_vars = []
+        for node, parent in reversed(self.itspace):
+            parent.children.extend(node.children[0].children)
+            parent.children.remove(node)
+            itspace_vars.append(node.it_var())
+
+        return itspace_vars

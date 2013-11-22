@@ -452,6 +452,7 @@ class AVXSetZero(Statement):
 
 # Extra ###
 
+
 class PreprocessNode(Node):
 
     """Represent directives which are handled by the C's preprocessor. """
@@ -461,6 +462,7 @@ class PreprocessNode(Node):
 
     def gencode(self, scope=False):
         return self.children[0]
+
 
 # Utility functions ###
 
@@ -480,6 +482,23 @@ def semicolon(scope):
 
 def c_sym(const):
     return Symbol(const, ())
+
+
+def c_for(var, to, code):
+    i = c_sym(var)
+    end = c_sym(to)
+    if type(code) == str:
+        code = FlatBlock(code)
+    return For(Decl("int", i, c_sym(0)), Less(i, end), Incr(i, c_sym(1)),
+               Block([code], open_scope=True),
+               "#pragma pyop2 itspace")
+
+
+def c_flat_for(code, parent):
+    new_block = Block([], open_scope=True)
+    parent.children.append(FlatBlock(code))
+    parent.children.append(new_block)
+    return new_block
 
 
 def perf_stmt(node):

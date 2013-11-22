@@ -44,7 +44,7 @@ from ffc import default_parameters, compile_form as ffc_compile_form
 from ffc import constants
 from ffc.log import set_level, ERROR
 
-from caching import DiskCached
+from caching import DiskCached, KernelCached
 from op2 import Kernel
 from mpi import MPI
 
@@ -77,7 +77,7 @@ def _check_version():
                        % (version, getattr(constants, 'PYOP2_VERSION', 'unknown')))
 
 
-class FFCKernel(DiskCached):
+class FFCKernel(DiskCached, KernelCached):
 
     _cache = {}
     _cachedir = os.path.join(tempfile.gettempdir(),
