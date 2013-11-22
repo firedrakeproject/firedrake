@@ -106,6 +106,11 @@ def ioptest(f, expr, x, op):
     return evaluate(op(f, expr).dat.data, x)
 
 
+def interpolatetest(f, expr, x):
+    if f.function_space().cdim > 1:
+        expr = (expr,) * f.function_space().cdim
+    return evaluate(f.interpolate(Expression(expr)).dat.data, x)
+
 exprtest = lambda expr, x: evaluate(assemble(expr).dat.data, x)
 assigntest = lambda f, expr, x: evaluate(f.assign(expr).dat.data, x)
 iaddtest = partial(ioptest, op=iadd)
@@ -129,12 +134,14 @@ common_tests = [
     'isubtest(one, one, 0)']
 
 scalar_tests = common_tests + [
+    'interpolatetest(f, "sin(pi/2)", 1)',
     'exprtest(ufl.ln(one), 0)',
     'exprtest(two ** minusthree, 0.125)',
     'exprtest(ufl.sign(minusthree), -1)',
     'exprtest(one + two / two ** minusthree, 17)']
 
 mixed_tests = common_tests + [
+    'interpolatetest(f, "sin(pi/2)", (1, 1))',
     'exprtest(one[0] + one[1], (1, 1))',
     'exprtest(one[1] + two[0], (2, 1))',
     'exprtest(one[0] - one[1], (1, -1))',
