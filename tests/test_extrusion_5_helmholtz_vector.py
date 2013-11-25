@@ -6,14 +6,13 @@ from firedrake import *
 from common import *
 
 
-@pytest.mark.xfail(reason="Diagnosis or reason unknown")
 @pytest.mark.parametrize(('testcase', 'convrate'),
-                         [(("RT", 1, "DG", 0, "h", "DG", 0, (1, 4)), 0.9),
-                          (("RT", 2, "DG", 0, "h", "DG", 1, (1, 4)), 1.9),
-                          (("RT", 3, "DG", 0, "h", "DG", 2, (1, 4)), 2.9),
-                          (("BDM", 1, "DG", 0, "h", "DG", 0, (1, 4)), 0.9),
-                          (("DG", 0, "CG", 1, "v", "DG", 0, (1, 4)), 0.9),
-                          (("DG", 0, "CG", 2, "v", "DG", 1, (1, 4)), 1.9)])
+                         [(("RT", 1, "DG", 0, "h", "DG", 0, (2, 5)), 0.9),
+                          (("RT", 2, "DG", 0, "h", "DG", 1, (2, 5)), 1.65),
+                          (("RT", 3, "DG", 0, "h", "DG", 2, (2, 4)), 2.6),
+                          (("BDM", 1, "DG", 0, "h", "DG", 0, (2, 5)), 0.9),
+                          (("DG", 0, "CG", 1, "v", "DG", 0, (2, 5)), 0.9),
+                          (("DG", 0, "CG", 2, "v", "DG", 1, (2, 5)), 1.9)])
 def test_scalar_convergence(testcase, convrate):
     hfamily, hdegree, vfamily, vdegree, ori, altfamily, altdegree, (start, end) = testcase
     l2err = np.zeros(end - start)
@@ -53,9 +52,15 @@ def test_scalar_convergence(testcase, convrate):
         L = f*q*dx
 
         out = Function(W)
-        solve(a == L, out, solver_parameters={'ksp_type': 'gmres'})
-        l2err[ii - start] = sqrt(assemble((out[2]-exact)*(out[2]-exact)*dx))
+        solve(a == L, out, solver_parameters={'pc_type': 'fieldsplit',
+                                              'pc_fieldsplit_type': 'schur',
+                                              'ksp_type': 'cg',
+                                              'pc_fieldsplit_schur_fact_type': 'FULL',
+                                              'fieldsplit_0_ksp_type': 'cg',
+                                              'fieldsplit_1_ksp_type': 'cg'})
+        l2err[ii - start] = sqrt(assemble((out[3]-exact)*(out[3]-exact)*dx))
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
+
 
 if __name__ == '__main__':
     import os
