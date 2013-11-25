@@ -3018,7 +3018,12 @@ class ParLoop(LazyComputation):
         extents = None
         offsets = None
         for i, arg in enumerate(self._actual_args):
-            if arg._is_global or arg.map is None:
+            if arg._is_global:
+                continue
+            if arg._is_direct:
+                if arg.data.dataset.set != _iterset:
+                    raise MapValueError(
+                        "Iterset of direct arg %s doesn't match ParLoop iterset." % i)
                 continue
             for j, m in enumerate(arg._map):
                 if m.iterset != _iterset:

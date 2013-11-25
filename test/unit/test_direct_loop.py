@@ -35,6 +35,7 @@ import pytest
 import numpy as np
 
 from pyop2 import op2
+from pyop2.exceptions import MapValueError
 
 # Large enough that there is more than one block and more than one
 # thread per element in device backends
@@ -95,6 +96,13 @@ class TestDirectLoop:
         op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"),
                      elems, x(op2.WRITE))
         assert all(map(lambda x: x == 42, x.data))
+
+    def test_mismatch_set_raises_error(self, backend, elems, x):
+        """The iterset of the parloop should match the dataset of the direct dat."""
+        kernel_wo = """void kernel_wo(unsigned int* x) { *x = 42; }"""
+        with pytest.raises(MapValueError):
+            op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"),
+                         op2.Set(elems.size), x(op2.WRITE))
 
     def test_rw(self, backend, elems, x):
         """Increment each value of a Dat by one with op2.RW."""
