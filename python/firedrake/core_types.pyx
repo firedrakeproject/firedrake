@@ -79,13 +79,7 @@ def fiat_from_ufl_element(ufl_element):
     elif isinstance(ufl_element, ufl.HCurl):
         return FIAT.Hcurl(fiat_from_ufl_element(ufl_element._element))
     elif isinstance(ufl_element, (ufl.OuterProductElement, ufl.OuterProductVectorElement)):
-        a = FIAT.supported_elements[ufl_element._A.family()]\
-            (_FIAT_cells[ufl_element._A.cell().cellname()](), ufl_element._A.degree())
-
-        b = FIAT.supported_elements[ufl_element._B.family()]\
-            (_FIAT_cells[ufl_element._B.cell().cellname()](), ufl_element._B.degree())
-
-        return FIAT.TensorFiniteElement(a, b)
+        return FIAT.TensorFiniteElement(fiat_from_ufl_element(ufl_element._A), fiat_from_ufl_element(ufl_element._B))
     else:
         return FIAT.supported_elements[ufl_element.family()]\
             (_FIAT_cells[ufl_element.cell().cellname()](), ufl_element.degree())
@@ -252,7 +246,7 @@ cdef ft.element_t as_element(object fiat_element):
     descriptions.
     """
     cdef ft.element_t element
-    if isinstance(fiat_element, FIAT.tensor_finite_element.TensorFiniteElement):
+    if isinstance(fiat_element.get_reference_element(), FIAT.reference_element.two_product_cell):
         # Use the reference element of the horizontal element.
         f_element = fiat_element.flattened_element()
     else:
