@@ -1507,16 +1507,21 @@ class Function(ufl.Coefficient):
         :param expression: :class:`Expression` to interpolate
         :returns: this :class:`Function` object"""
 
-        if expression.rank() != self.function_space().rank:
-            raise RuntimeError('Rank mismatch between Expression and FunctionSpace')
+        # Make sure we have an expression of the right length i.e. a value for
+        # each component in the value shape of each function space
+        dims = [np.prod(fs.ufl_element().value_shape(), dtype=int)
+                for fs in self.function_space()]
+        if len(expression.code) != sum(dims):
+            raise RuntimeError('Expression of length %d required, got length %d'
+                               % (sum(dims), len(expression.code)))
 
-        if expression.shape() != self.function_space().ufl_element().value_shape():
-            raise RuntimeError('Shape mismatch between Expression and FunctionSpace')
-
-        i = 0
-        for fs, dat in zip(self.function_space(), self.dat):
-            self._interpolate(fs, dat, Expression(expression.code[i:i+fs.dim]), subset)
-            i += fs.dim
+        # Splice the expression and pass in the right number of values for
+        # each component function space of this function
+        d = 0
+        for fs, dat, dim in zip(self.function_space(), self.dat, dims):
+            idx = d if dim == 1 else slice(d, d+dim)
+            self._interpolate(fs, dat, Expression(expression.code[idx]), subset)
+            d += dim
         return self
 
     def _interpolate(self, fs, dat, expression, subset):
@@ -1526,28 +1531,34 @@ class Function(ufl.Coefficient):
         :param dat: :class:`op2.Dat`
         :param expression: :class:`Expression`
         """
-        coords = fs.mesh()._coordinate_field
-
-        coords_space = coords.function_space()
-
-        coords_element = coords_space.fiat_element
-
         to_element = fs.fiat_element
-
         to_pts = []
 
         for dual in to_element.dual_basis():
             if not isinstance(dual, FIAT.functional.PointEvaluation):
-                raise NotImplementedError("Can only interpolate onto point evaluation operators. Try projecting instead")
-
+                raise NotImplementedError("Can only interpolate onto point \
+                    evaluation operators. Try projecting instead")
             to_pts.append(dual.pt_dict.keys()[0])
+
+        if expression.rank() != fs.rank:
+            raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
+                               % (expression.rank(), fs.rank))
+
+        if expression.shape() != fs.ufl_element().value_shape():
+            raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
+                               % (expression.shape(), fs.ufl_element().value_shape()))
+
+        coords = fs.mesh()._coordinate_field
+        coords_space = coords.function_space()
+        coords_element = coords_space.fiat_element
 
         X=coords_element.tabulate(0, to_pts).values()[0]
 
         # Produce C array notation of X.
         X_str = "{{"+"},\n{".join([ ",".join(map(str,x)) for x in X.T])+"}}"
 
-        assign_expression = ";\n".join(["A[%(i)d] = %(code)s" % { 'i': i, 'code': code } for i, code in enumerate(expression.code)])
+        assign_expression = ";\n".join(["A[%(i)d] = %(code)s" % { 'i': i, 'code': code }
+                                        for i, code in enumerate(expression.code)])
         _expression_template = """
 void expression_kernel(double A[%(assign_dim)d], double **x_, int k)
 {
