@@ -323,10 +323,11 @@ class _Facets(object):
         either be for all the interior or exterior (as appropriate)
         facets, or for a particular numbered subdomain.'''
 
-        if measure.domain_id() == measure.DOMAIN_ID_EVERYWHERE:
+        if measure.domain_id() in [measure.DOMAIN_ID_EVERYWHERE,
+                                   measure.DOMAIN_ID_OTHERWISE]:
             return self.set
         else:
-            return self.subset(measure.domain_id().subdomain_ids()[0])
+            return self.subset(measure.domain_id())
 
     def subset(self, i):
         """Return the subset corresponding to a marker value of i."""

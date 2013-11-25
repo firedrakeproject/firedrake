@@ -328,8 +328,9 @@ def _assemble(f, tensor=None, bcs=None):
     is_mat = fd.rank == 2
     is_vec = fd.rank == 1
 
+    integrals = fd.preprocessed_form.integrals()
     # Extract coordinate field
-    coords = f.integrals()[0].measure().domain_data()
+    coords = integrals[0].measure().domain_data()
 
     def get_rank(arg):
         return arg.function_space().rank
@@ -340,7 +341,7 @@ def _assemble(f, tensor=None, bcs=None):
 
         m = test.function_space().mesh()
         map_pairs = []
-        for integral in f.integrals():
+        for integral in integrals:
             domain_type = integral.measure().domain_type()
             if domain_type == "cell":
                 map_pairs.append((test.cell_node_map(), trial.cell_node_map()))
@@ -412,7 +413,7 @@ def _assemble(f, tensor=None, bcs=None):
     # solve, we funcall the closure with any bcs the Matrix now has to
     # assemble it.
     def thunk(bcs):
-        for kernel, integral in zip(kernels, f.integrals()):
+        for kernel, integral in zip(kernels, integrals):
             domain_type = integral.measure().domain_type()
             if domain_type == 'cell':
                 if is_mat:
