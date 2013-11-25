@@ -50,6 +50,10 @@ def pytest_cmdline_preparse(config, args):
         args.insert(0, '-s')
     if 'PYTEST_TBNATIVE' in os.environ:
         args.insert(0, '--tb=native')
+    if 'PYTEST_LAZY' in os.environ:
+        args.insert(0, '--lazy')
+    if 'PYTEST_GREEDY' in os.environ:
+        args.insert(0, '--greedy')
 
 
 def pytest_addoption(parser):
