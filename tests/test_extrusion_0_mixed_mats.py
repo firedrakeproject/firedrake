@@ -28,7 +28,6 @@ def W(V, Q):
 
 # NOTE: these tests make little to no mathematical sense, they are
 # here to exercise corner cases in PyOP2's handling of mixed spaces.
-@xfail(reason='Not implemented correctly')
 def test_massVW0(V, W):
     u = TrialFunction(V)
     v = TestFunction(W)[0]
@@ -40,7 +39,6 @@ def test_massVW0(V, W):
     assert np.allclose(A.M[1, 0].values, 0.0)
 
 
-@xfail(reason='Not implemented correctly')
 def test_massVW1(V, W):
     u = TrialFunction(V)
     v = TestFunction(W)[1]
