@@ -101,15 +101,12 @@ class NonlinearVariationalSolver(object):
         """
         assert isinstance(args[0], NonlinearVariationalProblem)
         self._problem = args[0]
-        test, trial = self._problem.J_ufl.compute_form_data().original_arguments
-        fs_names = (test.function_space().name, trial.function_space().name)
-        sparsity = op2.Sparsity((test.function_space().dof_dset,
-                                 trial.function_space().dof_dset),
-                                (test.cell_node_map(), trial.cell_node_map()),
-                                "%s_%s_sparsity" % fs_names)
-        self._jac_tensor = types.Matrix(self._problem.J_ufl, self._problem.bcs,
-                                        sparsity, numpy.float64,
-                                        "%s_%s_matrix" % fs_names)
+        # Build the jacobian with the correct sparsity pattern.  Note
+        # that since matrix assembly is lazy this doesn't actually
+        # force an additional assembly of the matrix since in
+        # form_jacobian we call assemble again which drops this
+        # computation on the floor.
+        self._jac_tensor = assemble(self._problem.J_ufl, bcs=self._problem.bcs)
         self._jac_ptensor = self._jac_tensor
         test = self._problem.F_ufl.compute_form_data().original_arguments[0]
         self._F_tensor = core_types.Function(test.function_space())
