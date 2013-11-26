@@ -194,7 +194,7 @@ class Arg(base.Arg):
                                 'data': self.c_ind_data(mi, i)})
         return ";\n".join(val)
 
-    def c_addto_scalar_field(self, i, j, offsets, extruded=None):
+    def c_addto_scalar_field(self, count, i, j, offsets, extruded=None):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].split[i].arity
         ncols = maps[1].split[j].arity
@@ -207,7 +207,7 @@ class Arg(base.Arg):
 
         return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
             {'mat': self.c_arg_name(i, j),
-             'vals': '&buffer_' + self.c_arg_name() + "".join(["[%d]" % d for d in offsets]),
+             'vals': '&buffer_' + self.c_arg_name(count) + "".join(["[%d]" % d for d in offsets]),
              'nrows': nrows,
              'ncols': ncols,
              'rows': rows_str,
@@ -724,14 +724,13 @@ class JITModule(base.JITModule):
                 _addtos_scalar_field = ""
             else:
                 _addtos_scalar_field_extruded = ""
-                _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(i, j, offsets) for arg in self._args
+                _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(count, i, j, offsets) for count, arg in enumerate(self._args)
                                                    if arg._is_mat and arg.data._is_scalar_field])
                 _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j) for arg in self._args
                                                   if arg._is_mat and arg.data._is_vector_field])
 
             template = """
-    %(map_init)s;
-    %(extr_loop)s
+    %(buffer_decl_scatter)s;
     %(itspace_loops)s
     %(ind)s%(buffer_scatter)s;
     %(ind)s%(addtos_vector_field)s;
@@ -742,8 +741,6 @@ class JITModule(base.JITModule):
 
             return template % {
                 'ind': '  ' * nloops,
-                'map_init': indent(_map_init, 5),
-                'extr_loop': indent(_extr_loop, 5),
                 'itspace_loops': indent(_itspace_loops, 2),
                 'buffer_scatter': _buf_scatter,
                 'addtos_vector_field': indent(_addtos_vector_field, 2 + nloops),
