@@ -490,7 +490,9 @@ def _assemble(f, tensor=None, bcs=None):
 
         if bcs is not None and is_mat:
             for bc in bcs:
-                tensor.zero_rows(bc.nodes)
+                for i, fs in enumerate(bc.function_space()):
+                    if fs.index is None or fs.index == i:
+                        tensor[i, i].zero_rows(bc.nodes)
 
         return result()
 
