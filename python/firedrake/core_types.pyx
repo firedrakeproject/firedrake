@@ -16,7 +16,7 @@ from ufl import *
 import FIAT
 
 from pyop2 import op2
-from pyop2.utils import flatten
+from pyop2.utils import as_tuple, flatten
 
 import assemble_expressions
 from expression import Expression
@@ -331,17 +331,20 @@ class _Facets(object):
         else:
             return self.subset(measure.domain_id())
 
-    def subset(self, i):
-        """Return the subset corresponding to a marker value of i."""
+    def subset(self, markers):
+        """Return the subset corresponding to a given marker value.
 
-        if self.markers is not None and not self._subsets:
-            # Generate the subsets. One subset is created for each unique marker value.
-            self._subsets = dict(((i,op2.Subset(self.set, np.nonzero(self.markers==i)[0]))
-                                  for i in np.unique(self.markers)))
-        try:
-            return self._subsets[i]
-        except KeyError:
+        :param markers: integer marker id or an iterable of marker ids"""
+        if self.markers is None:
             return self._null_subset
+        markers = as_tuple(markers, int)
+        try:
+            return self._subsets[markers]
+        except KeyError:
+            indices = np.concatenate([np.nonzero(self.markers==i)[0]
+                                      for i in markers])
+            self._subsets[markers] = op2.Subset(self.set, indices)
+            return self._subsets[markers]
 
 
     @utils.cached_property
