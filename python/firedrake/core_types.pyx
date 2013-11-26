@@ -776,6 +776,7 @@ class FunctionSpaceBase(object):
         else:
             # If not extruded specific, set things to None/False, etc.
             self.offset = None
+            self.bt_masks = None
             self.dofs_per_column = np.zeros(1, np.int32)
             self.extruded = False
 
@@ -972,7 +973,7 @@ class FunctionSpaceBase(object):
             return cache[lbcs]
         except KeyError:
             # Cache miss.
-            if not lbcs:
+            if not lbcs or offset is not None:
                 new_entity_node_list = entity_node_list
             else:
                 bcids = reduce(np.union1d, [bc.nodes for bc in bcs])
@@ -984,7 +985,8 @@ class FunctionSpaceBase(object):
                                   new_entity_node_list,
                                   ("%s_"+name) % (self.name),
                                   offset,
-                                  parent)
+                                  parent,
+                                  self.bt_masks)
 
             return cache[lbcs]
 

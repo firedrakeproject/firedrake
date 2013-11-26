@@ -19,7 +19,6 @@ import pytest
 from firedrake import *
 
 
-@pytest.mark.xfail
 def run_test(layers):
     # Create mesh and define function space
     m = UnitSquareMesh(1, 1)

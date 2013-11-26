@@ -395,6 +395,11 @@ def _assemble(f, tensor=None, bcs=None):
     # solve, we funcall the closure with any bcs the Matrix now has to
     # assemble it.
     def thunk(bcs):
+        extruded_bcs = None
+        if bcs is not None:
+            bottom = any(bc.sub_domain == "bottom" for bc in bcs)
+            top = any(bc.sub_domain == "top" for bc in bcs)
+            extruded_bcs = (bottom, top)
         for kernel, integral in zip(kernels, integrals):
             domain_type = integral.measure().domain_type()
             if domain_type == 'cell':
@@ -409,6 +414,7 @@ def _assemble(f, tensor=None, bcs=None):
                     tensor_arg = tensor(op2.INC)
 
                 itspace = m.cell_set
+                itspace._extruded_bcs = extruded_bcs
                 if itspace.layers > 1:
                     coords_xtr = m._coordinate_field
                     args = [kernel, itspace, tensor_arg,
