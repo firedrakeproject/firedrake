@@ -194,7 +194,7 @@ class Arg(base.Arg):
                                 'data': self.c_ind_data(mi, i)})
         return ";\n".join(val)
 
-    def c_addto_scalar_field(self, count, i, j, extruded=None):
+    def c_addto_scalar_field(self, i, j, offsets, extruded=None):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].split[i].arity
         ncols = maps[1].split[j].arity
@@ -205,9 +205,10 @@ class Arg(base.Arg):
             rows_str = extruded + self.c_map_name(0, i)
             cols_str = extruded + self.c_map_name(1, j)
 
-        vals = 'scatter_buffer_' + \
-            self.c_arg_name(i, j) if self._is_mat and self._is_mixed else 'buffer_' + \
-            self.c_arg_name(count)
+        if self._is_mat and self._is_mixed:
+            vals = 'scatter_buffer_' + self.c_arg_name(i, j)
+        else:
+            vals = '&buffer_' + self.c_arg_name() + "".join(["[%d]" % d for d in offsets])
 
         return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
             {'mat': self.c_arg_name(i, j),
@@ -225,8 +226,8 @@ class Arg(base.Arg):
         rmult, cmult = self.data.sparsity[i, j].dims
         s = []
         if self._flatten:
-            idx = '[0][0]'
-            val = "&%s%s" % (self.c_kernel_arg_name(i, j), idx)
+            idx = '[i_0][i_1]'
+            val = "&%s%s" % ("buffer_" + self.c_arg_name(), idx)
             row = "%(m)s * %(xtr)s%(map)s[%(elem_idx)si_0 %% %(dim)s] + (i_0 / %(dim)s)" % \
                   {'m': rmult,
                    'map': self.c_map_name(0, i),
@@ -243,8 +244,8 @@ class Arg(base.Arg):
                 % (self.c_arg_name(i, j), val, row, col, self.access == WRITE)
         for r in xrange(rmult):
             for c in xrange(cmult):
-                idx = '[%d][%d]' % (r, c)
-                val = "&%s%s" % (self.c_kernel_arg_name(i, j), idx)
+                idx = '[i_0 + %d][i_1 + %d]' % (r, c)
+                val = "&%s%s" % ("buffer_" + self.c_arg_name(), idx)
                 row = "%(m)s * %(xtr)s%(map)s[%(elem_idx)si_0] + %(r)s" % \
                       {'m': rmult,
                        'map': self.c_map_name(0, i),
@@ -482,7 +483,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 
     def c_buffer_decl(self, size, idx):
         buf_type = self.data.ctype
-        buf_name = "buffer_" + self.c_arg_name(idx)
+        buf_name = "buffer_" + self.c_arg_name()
         dim = len(size)
         return (buf_name, "%(typ)s %(name)s%(dim)s%(init)s" %
                 {"typ": buf_type,
@@ -491,7 +492,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                  "init": " = " + "{" * dim + "0" + "}" * dim if self.access._mode in ['WRITE', 'INC'] else ""})
 
     def c_buffer_gather(self, size, idx):
-        buf_name = "buffer_" + self.c_arg_name(idx)
+        buf_name = "buffer_" + self.c_arg_name()
         dim = 1 if self._flatten else self.data.cdim
         return ";\n".join(["%(name)s[i_0*%(dim)d%(ofs)s] = *(%(ind)s%(ofs)s);\n" %
                            {"name": buf_name,
@@ -511,7 +512,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             return ";\n".join(["*(%(ind)s%(nfofs)s) %(op)s %(name)s[i_0*%(dim)d%(nfofs)s%(mxofs)s]" %
                                {"ind": self.c_kernel_arg(count, i, j),
                                 "op": "=" if self._access._mode == "WRITE" else "+=",
-                                "name": "buffer_" + self.c_arg_name(count),
+                                "name": "buffer_" + self.c_arg_name(),
                                 "dim": dim,
                                 "nfofs": " + %d" % o if o else "",
                                 "mxofs": " + %d" % (mxofs[0] * dim) if mxofs else ""}
@@ -741,7 +742,7 @@ class JITModule(base.JITModule):
                 _addtos_scalar_field = ""
             else:
                 _addtos_scalar_field_extruded = ""
-                _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(count, i, j) for count, arg in enumerate(self._args)
+                _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(i, j, offsets) for count, arg in enumerate(self._args)
                                                    if arg._is_mat and arg.data._is_scalar_field])
                 _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j) for arg in self._args
                                                   if arg._is_mat and arg.data._is_vector_field])
