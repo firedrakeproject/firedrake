@@ -796,8 +796,11 @@ class TestMixedMatrices:
     @pytest.fixture
     def dat(self, mset, mmap, mdat):
         dat = op2.MixedDat(mset)
-        addone = op2.Kernel("""void addone_rhs(double v[1], double ** d, int i) {
-                            v[0] += d[i][0]; }""", "addone_rhs")
+        kernel_code = FunDecl("void", "addone_rhs",
+                              [Decl("double", Symbol("v", (3,))),
+                               Decl("double**", c_sym("d"))],
+                              c_for("i", 3, Incr(Symbol("v", ("i")), FlatBlock("d[i][0]"))))
+        addone = op2.Kernel(kernel_code, "addone_rhs")
         op2.par_loop(addone, mmap.iterset,
                      dat(op2.INC, mmap[op2.i[0]]),
                      mdat(op2.READ, mmap))
@@ -811,25 +814,6 @@ class TestMixedMatrices:
         assert_allclose(mat[1, 0].values, self.od.T, eps)
         assert_allclose(mat[1, 1].values, self.ll, eps)
 
-    def test_assemble_mixed_mat_vector(self, backend, mvsparsity, mmap, mvdat):
-        """Assemble into a matrix declared on a mixed sparsity built from a
-        vector DataSet."""
-        mat = op2.Mat(mvsparsity)
-        addone = op2.Kernel("""void addone_mat_vec(double v[2][2], double ** d, int i, int j) {
-                            v[0][0] += d[i][0] * d[j][0];
-                            v[0][1] += d[i][0] * d[j][1];
-                            v[1][0] += d[i][1] * d[j][0];
-                            v[1][1] += d[i][1] * d[j][1]; }""", "addone_mat_vec")
-        op2.par_loop(addone, mmap.iterset,
-                     mat(op2.INC, (mmap[op2.i[0]], mmap[op2.i[1]])),
-                     mvdat(op2.READ, mmap))
-        eps = 1.e-12
-        b = np.ones((2, 2))
-        assert_allclose(mat[0, 0].values, np.kron(np.diag([1.0, 4.0, 9.0]), b), eps)
-        assert_allclose(mat[0, 1].values, np.kron(self.od, b), eps)
-        assert_allclose(mat[1, 0].values, np.kron(self.od.T, b), eps)
-        assert_allclose(mat[1, 1].values, np.kron(self.ll, b), eps)
-
     def test_assemble_mixed_rhs(self, backend, dat):
         """Assemble a simple right-hand side over a mixed space and check result."""
         eps = 1.e-12
@@ -839,8 +823,14 @@ class TestMixedMatrices:
     def test_assemble_mixed_rhs_vector(self, backend, mset, mmap, mvdat):
         """Assemble a simple right-hand side over a mixed space and check result."""
         dat = op2.MixedDat(mset ** 2)
-        addone = op2.Kernel("""void addone_rhs_vec(double v[1], double ** d, int i) {
-                            v[0] += d[i][0]; v[1] += d[i][1]; }""", "addone_rhs_vec")
+        assembly = Block(
+            [Incr(Symbol("v", ("i"), ((2, 0),)), FlatBlock("d[i][0]")),
+             Incr(Symbol("v", ("i"), ((2, 1),)), FlatBlock("d[i][1]"))], open_scope=False)
+        kernel_code = FunDecl("void", "addone_rhs_vec",
+                              [Decl("double", Symbol("v", (6,))),
+                               Decl("double**", c_sym("d"))],
+                              c_for("i", 3, assembly))
+        addone = op2.Kernel(kernel_code, "addone_rhs_vec")
         op2.par_loop(addone, mmap.iterset,
                      dat(op2.INC, mmap[op2.i[0]]),
                      mvdat(op2.READ, mmap))

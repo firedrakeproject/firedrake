@@ -3,6 +3,7 @@ Abstract Syntax Tree (ast)."""
 
 # Utilities for simple exprs and commands
 point = lambda p: "[%s]" % p
+point_ofs = lambda p, o: "[%s*%d+%d]" % (p, o[0], o[1])
 assign = lambda s, e: "%s = %s" % (s, e)
 incr = lambda s, e: "%s += %s" % (s, e)
 incr_by_1 = lambda s: "%s++" % s
@@ -136,13 +137,21 @@ class Symbol(Expr):
     depends on, or explicit numbers representing the entry of a tensor the
     symbol is accessing, or the size of the tensor itself. """
 
-    def __init__(self, symbol, rank):
+    def __init__(self, symbol, rank, offset=None):
         self.symbol = symbol
         self.rank = rank
+        self.offset = offset
         self.loop_dep = tuple([i for i in rank if not str(i).isdigit()])
 
     def gencode(self):
-        return str(self.symbol) + "".join([point(p) for p in self.rank])
+        points = ""
+        if not self.offset:
+            for p in self.rank:
+                points += point(p)
+        else:
+            for p, ofs in zip(self.rank, self.offset):
+                points += point_ofs(p, ofs)
+        return str(self.symbol) + points
 
 
 # Vector expression classes ###

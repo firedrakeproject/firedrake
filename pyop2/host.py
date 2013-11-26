@@ -514,7 +514,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                 "name": "buffer_" + self.c_arg_name(count),
                                 "dim": dim,
                                 "nfofs": " + %d" % o if o else "",
-                                "mxofs": " + %d" % mxofs[0] if mxofs else ""}
+                                "mxofs": " + %d" % (mxofs[0] * dim) if mxofs else ""}
                                for o in range(dim)])
         else:
             return ""
