@@ -333,9 +333,19 @@ def _assemble(f, tensor=None, bcs=None):
         return arg.function_space().rank
     has_vec_fs = lambda arg: isinstance(arg.function_space(), core_types.VectorFunctionSpace)
 
+    def mixed_plus_vfs_error(arg):
+        mfs = arg.function_space()
+        if not isinstance(mfs, core_types.MixedFunctionSpace):
+            return
+        if any(isinstance(fs, core_types.VectorFunctionSpace) for fs in mfs):
+            raise NotImplementedError(
+                "MixedFunctionSpaces containing a VectorFunctionSpace are currently unsupported")
+
     if is_mat:
         test, trial = fd.original_arguments
 
+        mixed_plus_vfs_error(test)
+        mixed_plus_vfs_error(trial)
         m = test.function_space().mesh()
         map_pairs = []
         for integral in integrals:
@@ -381,6 +391,7 @@ def _assemble(f, tensor=None, bcs=None):
         result = lambda: result_matrix
     elif is_vec:
         test = fd.original_arguments[0]
+        mixed_plus_vfs_error(test)
         m = test.function_space().mesh()
         if tensor is None:
             result_function = core_types.Function(test.function_space())
