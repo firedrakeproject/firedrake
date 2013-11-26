@@ -556,6 +556,7 @@ class Set(object):
         self._halo = halo
         self._layers = layers if layers is not None else 1
         self._partition_size = 1024
+        self._ext_tb_bcs = None
         if self.halo:
             self.halo.verify(self)
         Set._globalcount += 1
@@ -613,6 +614,23 @@ class Set(object):
     def partition_size(self, partition_value):
         """Set the partition size"""
         self._partition_size = partition_value
+
+    @property
+    def _extruded_bcs(self):
+        """A tuple indicating whether the extruded problem should have boundary conditions applied.
+
+        If the first entry is True, boundary conditions will be applied at the bottom.
+        If the second entry is True, boundary conditions will be applied at the top."""
+        return self._ext_tb_bcs
+
+    @_extruded_bcs.setter
+    def _extruded_bcs(self, value):
+        """Set the boundary conditions on the extruded problem.
+
+        :arg value: a tuple with of two boolean values.
+            The first entry indicates whether a boundary condition will be applied at the bottom.
+            The second entry indicates whether a boundary condition will be applied at the top."""
+        self._ext_tb_bcs = value
 
     def __iter__(self):
         """Yield self when iterated over."""
@@ -1279,7 +1297,8 @@ class IterationSpace(object):
     @property
     def cache_key(self):
         """Cache key used to uniquely identify the object in the cache."""
-        return self._extents, self._block_shape, self.iterset.layers, isinstance(self._iterset, Subset)
+        return self._extents, self._block_shape, self.iterset.layers, \
+            isinstance(self._iterset, Subset), self.iterset._extruded_bcs
 
 
 class DataCarrier(object):
@@ -2201,7 +2220,7 @@ class Map(object):
 
     @validate_type(('iterset', Set, SetTypeError), ('toset', Set, SetTypeError),
                   ('arity', int, ArityTypeError), ('name', str, NameTypeError))
-    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, parent=None):
+    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, parent=None, bt_masks=None):
         self._iterset = iterset
         self._toset = toset
         self._arity = arity
@@ -2213,6 +2232,11 @@ class Map(object):
         # where a boundary condition is imposed by setting some map
         # entries negative.
         self._parent = parent
+        self._bottom_mask = np.zeros(len(offset)) if offset is not None else []
+        self._top_mask = np.zeros(len(offset)) if offset is not None else []
+        if bt_masks is not None:
+            self._bottom_mask[bt_masks[0]] = -1
+            self._top_mask[bt_masks[1]] = -1
         Map._globalcount += 1
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
@@ -2296,6 +2320,16 @@ class Map(object):
     def offset(self):
         """The vertical offset."""
         return self._offset
+
+    @property
+    def top_mask(self):
+        """The top layer mask."""
+        return self._top_mask
+
+    @property
+    def bottom_mask(self):
+        """The bottom layer mask."""
+        return self._bottom_mask
 
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with arity %s" \

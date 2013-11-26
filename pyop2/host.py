@@ -396,6 +396,43 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                 'ind': idx})
         return '\n'.join(val)+'\n'
 
+    def c_map_bcs(self, top_bottom, layers, sign):
+        maps = as_tuple(self.map, Map)
+        val = []
+        if top_bottom is None:
+            return ""
+
+        # To throw away boundary condition values, we subtract a large
+        # value from the map to make it negative then add it on later to
+        # get back to the original
+        max_int = np.iinfo(np.int32).max
+        if top_bottom[0]:
+            # We need to apply the bottom bcs
+            val.append("if (j_0 == 0){")
+            for i, map in enumerate(maps):
+                for j, m in enumerate(map):
+                    for idx in range(m.arity):
+                        val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
+                                   {'name': self.c_map_name(i, j),
+                                    'val': max_int if m.bottom_mask[idx] < 0 else 0,
+                                    'ind': idx,
+                                    'sign': sign})
+            val.append("}")
+
+        if top_bottom[1]:
+            # We need to apply the top bcs
+            val.append("if (j_0 == layer-2){")
+            for i, map in enumerate(maps):
+                for j, m in enumerate(map):
+                    for idx in range(m.arity):
+                        val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
+                                   {'name': self.c_map_name(i, j),
+                                    'val': max_int if m.top_mask[idx] < 0 else 0,
+                                    'ind': idx,
+                                    'sign': sign})
+            val.append("}")
+        return '\n'.join(val)+'\n'
+
     def c_add_offset_map_flatten(self):
         cdim = np.prod(self.data.cdim)
         maps = as_tuple(self.map, Map)
@@ -568,9 +605,12 @@ class JITModule(base.JITModule):
         _map_init = ""
         _extr_loop = ""
         _extr_loop_close = ""
+        _map_bcs_m = ""
+        _map_bcs_p = ""
         _layer_arg = ""
         _layer_arg_init = ""
         if self._itspace.layers > 1:
+            a_bcs = self._itspace.iterset._extruded_bcs
             _layer_arg = ", PyObject *_layer"
             _layer_arg_init = "int layer = (int)PyInt_AsLong(_layer);"
             _off_args = ''.join([arg.c_offset_init() for arg in self._args
@@ -585,6 +625,10 @@ class JITModule(base.JITModule):
                                      if arg._uses_itspace and arg._flatten and not arg._is_mat])
             _map_init += ';\n'.join([arg.c_map_init() for arg in self._args
                                      if arg._uses_itspace and (not arg._flatten or arg._is_mat)])
+            _map_bcs_m += ';\n'.join([arg.c_map_bcs(a_bcs, self._itspace.layers, "-") for arg in self._args
+                                     if not arg._flatten and arg._is_mat])
+            _map_bcs_p += ';\n'.join([arg.c_map_bcs(a_bcs, self._itspace.layers, "+") for arg in self._args
+                                     if not arg._flatten and arg._is_mat])
             _apply_offset += ';\n'.join([arg.c_add_offset_map_flatten() for arg in self._args
                                          if arg._uses_itspace and arg._flatten and not arg._is_mat])
             _apply_offset += ';\n'.join([arg.c_add_offset_map() for arg in self._args
@@ -595,7 +639,6 @@ class JITModule(base.JITModule):
                                          if arg._is_vec_map and not arg._flatten])
             _extr_loop = '\n' + extrusion_loop()
             _extr_loop_close = '}\n'
-
         else:
             _off_args = ""
             _off_inits = ""
@@ -666,6 +709,8 @@ class JITModule(base.JITModule):
                 'map_init': indent(_map_init, 5),
                 'apply_offset': indent(_apply_offset, 3),
                 'extr_loop': indent(_extr_loop, 5),
+                'map_bcs_m': indent(_map_bcs_m, 5),
+                'map_bcs_p': indent(_map_bcs_p, 5),
                 'extr_loop_close': indent(_extr_loop_close, 2),
                 'interm_globals_decl': indent(_intermediate_globals_decl, 3),
                 'interm_globals_init': indent(_intermediate_globals_init, 3),
