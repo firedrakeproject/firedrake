@@ -194,7 +194,7 @@ class Arg(base.Arg):
                                 'data': self.c_ind_data(mi, i)})
         return ";\n".join(val)
 
-    def c_addto_scalar_field(self, count, i, j, offsets, extruded=None):
+    def c_addto_scalar_field(self, count, i, j, extruded=None):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].split[i].arity
         ncols = maps[1].split[j].arity
@@ -205,9 +205,13 @@ class Arg(base.Arg):
             rows_str = extruded + self.c_map_name(0, i)
             cols_str = extruded + self.c_map_name(1, j)
 
+        vals = 'scatter_buffer_' + \
+            self.c_arg_name(i, j) if self._is_mat and self._is_mixed else 'buffer_' + \
+            self.c_arg_name(count)
+
         return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
             {'mat': self.c_arg_name(i, j),
-             'vals': '&buffer_' + self.c_arg_name(count) + "".join(["[%d]" % d for d in offsets]),
+             'vals': vals,
              'nrows': nrows,
              'ncols': ncols,
              'rows': rows_str,
@@ -495,16 +499,25 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                             "ind": self.c_kernel_arg(idx),
                             "ofs": " + %s" % j if j else ""} for j in range(dim)])
 
-    def c_buffer_scatter(self, count, i, j, mxofs):
-        dim = 1 if self._flatten else self.data.split[i].cdim
-        return ";\n".join(["*(%(ind)s%(nfofs)s) %(op)s %(name)s[i_0*%(dim)d%(nfofs)s%(mxofs)s]" %
-                           {"ind": self.c_kernel_arg(count, i, j),
-                            "op": "=" if self._access._mode == "WRITE" else "+=",
-                            "name": "buffer_" + self.c_arg_name(count),
-                            "dim": dim,
-                            "nfofs": " + %d" % o if o else "",
-                            "mxofs": " + %d" % mxofs if mxofs else ""}
-                           for o in range(dim)])
+    def c_buffer_scatter(self, count, extents, i, j, mxofs):
+        if self._is_mat and self._is_mixed:
+            return "%(name_scat)s[i_0][i_1] = %(name_buf)s[%(row)d + i_0][%(col)d + i_1];" % \
+                {"name_scat": "scatter_buffer_" + self.c_arg_name(i, j),
+                 "name_buf": "buffer_" + self.c_arg_name(count),
+                 "row": mxofs[0],
+                 "col": mxofs[1]}
+        elif not self._is_mat:
+            dim = 1 if self._flatten else self.data.split[i].cdim
+            return ";\n".join(["*(%(ind)s%(nfofs)s) %(op)s %(name)s[i_0*%(dim)d%(nfofs)s%(mxofs)s]" %
+                               {"ind": self.c_kernel_arg(count, i, j),
+                                "op": "=" if self._access._mode == "WRITE" else "+=",
+                                "name": "buffer_" + self.c_arg_name(count),
+                                "dim": dim,
+                                "nfofs": " + %d" % o if o else "",
+                                "mxofs": " + %d" % mxofs[0] if mxofs else ""}
+                               for o in range(dim)])
+        else:
+            return ""
 
 
 class JITModule(base.JITModule):
@@ -706,15 +719,19 @@ class JITModule(base.JITModule):
                                                if arg._is_mat and arg.data._is_vector_field])
             _apply_offset = ""
             _itspace_args = [(count, arg) for count, arg in enumerate(self._args)
-                             if arg.access._mode in ['WRITE', 'INC'] and arg._uses_itspace and not arg._is_mat]
+                             if arg.access._mode in ['WRITE', 'INC'] and arg._uses_itspace]
             _buf_scatter = ""
             for count, arg in _itspace_args:
-                _buf_scatter = arg.c_buffer_scatter(count, i, j, offsets[0])
+                _buf_decl_scatter = arg.data.ctype + " scatter_buffer_" + \
+                    arg.c_arg_name(i, j) + "".join("[%d]" % d for d in shape)
+                _buf_scatter = arg.c_buffer_scatter(
+                    count, shape, i, j, offsets)
 
             _itspace_loop_close = '\n'.join(
                 '  ' * n + '}' for n in range(nloops - 1, -1, -1))
             if not _addtos_vector_field and not _buf_scatter:
                 _itspace_loops = ''
+                _buf_decl_scatter = ''
                 _itspace_loop_close = ''
             if self._itspace.layers > 1:
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, offsets, "xtr_") for arg in self._args
@@ -724,7 +741,7 @@ class JITModule(base.JITModule):
                 _addtos_scalar_field = ""
             else:
                 _addtos_scalar_field_extruded = ""
-                _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(count, i, j, offsets) for count, arg in enumerate(self._args)
+                _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(count, i, j) for count, arg in enumerate(self._args)
                                                    if arg._is_mat and arg.data._is_scalar_field])
                 _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j) for arg in self._args
                                                   if arg._is_mat and arg.data._is_vector_field])
@@ -742,6 +759,7 @@ class JITModule(base.JITModule):
             return template % {
                 'ind': '  ' * nloops,
                 'itspace_loops': indent(_itspace_loops, 2),
+                'buffer_decl_scatter': _buf_decl_scatter,
                 'buffer_scatter': _buf_scatter,
                 'addtos_vector_field': indent(_addtos_vector_field, 2 + nloops),
                 'itspace_loop_close': indent(_itspace_loop_close, 2),
