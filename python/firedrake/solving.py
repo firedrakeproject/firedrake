@@ -298,7 +298,7 @@ def assemble(f, tensor=None, bcs=None):
     """
 
     if isinstance(f, ufl.form.Form):
-        return _assemble(f, tensor=tensor, bcs=bcs)
+        return _assemble(f, tensor=tensor, bcs=_extract_bcs(bcs))
     elif isinstance(f, ufl.expr.Expr):
         return assemble_expression(f)
     else:
@@ -712,12 +712,7 @@ def _extract_args(*args, **kwargs):
     u = _extract_u(args[1])
 
     # Extract boundary conditions
-    if len(args) > 2:
-        bcs = _extract_bcs(args[2])
-    elif "bcs" in kwargs:
-        bcs = _extract_bcs(kwargs["bcs"])
-    else:
-        bcs = []
+    bcs = _extract_bcs(args[2] if len(args) > 2 else kwargs.get("bcs"))
 
     # Extract Jacobian
     J = kwargs.get("J", None)
@@ -753,7 +748,8 @@ def _extract_u(u):
 def _extract_bcs(bcs):
     "Extract and check argument bcs"
     if bcs is None:
-        bcs = []
-    elif not isinstance(bcs, (list, tuple)):
-        bcs = [bcs]
-    return bcs
+        return []
+    try:
+        return tuple(bcs)
+    except TypeError:
+        return (bcs,)
