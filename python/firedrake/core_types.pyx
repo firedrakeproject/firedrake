@@ -1300,7 +1300,12 @@ class MixedFunctionSpace(FunctionSpaceBase):
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
         # FIXME: these want caching of sorts
-        return op2.MixedMap(s.cell_node_map(bcs) for s in self._spaces)
+        bc_list = [[] for _ in self]
+        if bcs:
+            for bc in bcs:
+                bc_list[bc.function_space().index].append(bc)
+        return op2.MixedMap(s.cell_node_map(bc_list[i])
+                            for i, s in enumerate(self._spaces))
 
     def interior_facet_node_map(self, bcs=None):
         """Return the :class:`pyop2.MixedMap` from interior facets to
@@ -1310,7 +1315,12 @@ class MixedFunctionSpace(FunctionSpaceBase):
         applied. Where a PETSc matrix is employed, this will cause the
         corresponding values to be discarded during matrix assembly."""
         # FIXME: these want caching of sorts
-        return op2.MixedMap(s.interior_facet_node_map(bcs) for s in self._spaces)
+        bc_list = [[] for _ in self]
+        if bcs:
+            for bc in bcs:
+                bc_list[bc.function_space().index].append(bc)
+        return op2.MixedMap(s.interior_facet_node_map(bc_list[i])
+                            for i, s in enumerate(self._spaces))
 
     def exterior_facet_node_map(self, bcs=None):
         """Return the :class:`pyop2.Map` from exterior facets to
@@ -1320,7 +1330,12 @@ class MixedFunctionSpace(FunctionSpaceBase):
         applied. Where a PETSc matrix is employed, this will cause the
         corresponding values to be discarded during matrix assembly."""
         # FIXME: these want caching of sorts
-        return op2.MixedMap(s.exterior_facet_node_map(bcs) for s in self._spaces)
+        bc_list = [[] for _ in self]
+        if bcs:
+            for bc in bcs:
+                bc_list[bc.function_space().index].append(bc)
+        return op2.MixedMap(s.exterior_facet_node_map(bc_list[i])
+                            for i, s in enumerate(self._spaces))
 
     @utils.cached_property
     def exterior_facet_boundary_node_map(self):
