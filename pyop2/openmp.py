@@ -213,7 +213,7 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
 class ParLoop(device.ParLoop, host.ParLoop):
 
     def _compute(self, part):
-        fun = JITModule(self.kernel, self.it_space, *self.args)
+        fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct)
         if not hasattr(self, '_jit_args'):
             self._jit_args = [None] * 5
             if isinstance(self._it_space._iterset, Subset):
