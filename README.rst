@@ -212,7 +212,7 @@ manually. Make sure ``nvcc`` is in your ``$PATH`` and ``libcuda.so`` in
 your ``$LIBRARY_PATH`` if in a non-standard location::
 
   export CUDA_ROOT=/usr/local/cuda # change as appropriate 
-  git clone https://github.com/induce/pycuda.git 
+  git clone https://github.com/inducer/pycuda.git 
   cd pycuda 
   git submodule init 
   git submodule update 
