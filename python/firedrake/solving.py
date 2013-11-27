@@ -241,8 +241,7 @@ class NonlinearVariationalSolver(object):
             reason = 'unknown reason (petsc4py enum incomplete?)'
         if r < 0:
             raise RuntimeError("Nonlinear solve failed to converge after %d \
-                               nonlinear iterations with reason: %s" %
-                               (self.snes.getIterationNumber(), reason))
+nonlinear iterations with reason: %s" % (self.snes.getIterationNumber(), reason))
 
 
 class LinearVariationalProblem(NonlinearVariationalProblem):
