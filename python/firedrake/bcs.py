@@ -109,7 +109,14 @@ class DirichletBC(object):
         if isinstance(r, types.Matrix):
             r.add_bc(self)
             return
+        # If this BC is defined on a subspace of a mixed function space, make
+        # sure we only apply to the appropriate subspace of the Function r
+        fs = self._function_space
+        if fs.index is not None:
+            r = Function(self._function_space, r.dat[fs.index])
         if u:
+            if fs.index is not None:
+                u = Function(fs, u.dat[fs.index])
             r.assign(u - self.function_arg, subset=self.node_set)
         else:
             r.assign(self.function_arg, subset=self.node_set)
