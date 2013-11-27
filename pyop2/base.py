@@ -3041,6 +3041,7 @@ class ParLoop(LazyComputation):
                 offsets = arg._offsets
         return IterationSpace(iterset, itspace, extents, offsets)
 
+    @property
     def offset_args(self):
         """The offset args that need to be added to the argument list."""
         _args = []
