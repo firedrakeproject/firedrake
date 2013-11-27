@@ -3041,6 +3041,7 @@ class ParLoop(LazyComputation):
                 offsets = arg._offsets
         return IterationSpace(iterset, itspace, extents, offsets)
 
+    @property
     def offset_args(self):
         """The offset args that need to be added to the argument list."""
         _args = []
@@ -3053,6 +3054,13 @@ class ParLoop(LazyComputation):
                            m.iterset.layers > 1:
                             _args.append(m.offset)
         return _args
+
+    @property
+    def layer_arg(self):
+        """The layer arg that needs to be added to the argument list."""
+        if self._is_layered:
+            return [self._it_space.layers]
+        return []
 
     @property
     def it_space(self):

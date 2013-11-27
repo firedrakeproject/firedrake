@@ -143,7 +143,8 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
                             %(ssinds_arg)s
                             %(wrapper_args)s
                             %(const_args)s
-                            %(off_args)s) {
+                            %(off_args)s
+                            %(layer_arg)s) {
 
   int boffset = (int)PyInt_AsLong(_boffset);
   int nblocks = (int)PyInt_AsLong(_nblocks);
@@ -155,6 +156,7 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
   %(wrapper_decs)s;
   %(const_inits)s;
   %(off_inits)s;
+  %(layer_arg_init)s;
   %(map_decl)s
 
   #ifdef _OPENMP
@@ -233,7 +235,9 @@ class ParLoop(device.ParLoop, host.ParLoop):
                 self._jit_args.append(c.data)
 
             # offset_args returns an empty list if there are none
-            self._jit_args.extend(self.offset_args())
+            self._jit_args.extend(self.offset_args)
+
+            self._jit_args.extend(self.layer_arg)
 
         if part.size > 0:
             #TODO: compute partition size
