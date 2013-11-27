@@ -2319,7 +2319,6 @@ class Map(object):
 
     def __le__(self, o):
         """o<=self if o equals self or its parent equals self."""
-
         return self == o or (isinstance(self._parent, Map) and self._parent <= o)
 
     @classmethod
@@ -2426,6 +2425,10 @@ class MixedMap(Map):
         """:class:`MixedMap`\s are equal if all their contained :class:`Map`\s
         are."""
         return not self == other
+
+    def __le__(self, o):
+        """o<=self if o equals self or its parent equals self."""
+        return self == o or all(m <= om for m, om in zip(self, o))
 
     def __str__(self):
         return "OP2 MixedMap composed of Maps: %s" % (self._maps,)
