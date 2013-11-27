@@ -521,10 +521,10 @@ class JITModule(base.JITModule):
             tmp = '%(name)s[%%(i)s] = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[%%(i)s]' % d
             return ';\n'.join([tmp % {'i': i} for i in range(c.cdim)])
 
-        def extrusion_loop(d):
+        def extrusion_loop():
             if self._direct:
                 return "{"
-            return "for (int j_0=0; j_0<%d; ++j_0){" % d
+            return "for (int j_0=0; j_0<layer-1; ++j_0){"
 
         _ssinds_arg = ""
         _ssinds_dec = ""
@@ -568,7 +568,11 @@ class JITModule(base.JITModule):
         _map_init = ""
         _extr_loop = ""
         _extr_loop_close = ""
+        _layer_arg = ""
+        _layer_arg_init = ""
         if self._itspace.layers > 1:
+            _layer_arg = ", PyObject *_layer"
+            _layer_arg_init = "int layer = (int)PyInt_AsLong(_layer);"
             _off_args = ''.join([arg.c_offset_init() for arg in self._args
                                  if arg._uses_itspace or arg._is_vec_map])
             _off_inits = ';\n'.join([arg.c_offset_decl() for arg in self._args
@@ -589,7 +593,7 @@ class JITModule(base.JITModule):
                                          if arg._is_vec_map and arg._flatten])
             _apply_offset += ';\n'.join([arg.c_add_offset() for arg in self._args
                                          if arg._is_vec_map and not arg._flatten])
-            _extr_loop = '\n' + extrusion_loop(self._itspace.layers - 1)
+            _extr_loop = '\n' + extrusion_loop()
             _extr_loop_close = '}\n'
 
         else:
@@ -656,6 +660,8 @@ class JITModule(base.JITModule):
                 'vec_inits': indent(_vec_inits, 2),
                 'off_args': _off_args,
                 'off_inits': indent(_off_inits, 1),
+                'layer_arg': _layer_arg,
+                'layer_arg_init': indent(_layer_arg_init, 1),
                 'map_decl': indent(_map_decl, 1),
                 'map_init': indent(_map_init, 5),
                 'apply_offset': indent(_apply_offset, 3),

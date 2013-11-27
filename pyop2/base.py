@@ -3055,6 +3055,13 @@ class ParLoop(LazyComputation):
         return _args
 
     @property
+    def layer_arg(self):
+        """The layer arg that needs to be added to the argument list."""
+        if self._is_layered:
+            return [self._it_space.layers]
+        return []
+
+    @property
     def it_space(self):
         """Iteration space of the parallel loop."""
         return self._it_space
