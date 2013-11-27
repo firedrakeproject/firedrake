@@ -191,7 +191,7 @@ def mass():
     assembly = Block(
         [FlatBlock(
             "double ST0 = 0.0;\nST0 += CG1[i_r_0][i_g] * CG1[i_r_1][i_g] * (c_q0[i_g][0][0] * c_q0[i_g][1][1] + -1 * c_q0[i_g][0][1] * c_q0[i_g][1][0]);\n"),
-         assembly], open_scope=False)
+         assembly], open_scope=True)
     assembly = c_for("i_r_0", 3, c_for("i_r_1", 3, assembly))
     end = FlatBlock("}")
 
@@ -825,7 +825,7 @@ class TestMixedMatrices:
         dat = op2.MixedDat(mset ** 2)
         assembly = Block(
             [Incr(Symbol("v", ("i"), ((2, 0),)), FlatBlock("d[i][0]")),
-             Incr(Symbol("v", ("i"), ((2, 1),)), FlatBlock("d[i][1]"))], open_scope=False)
+             Incr(Symbol("v", ("i"), ((2, 1),)), FlatBlock("d[i][1]"))], open_scope=True)
         kernel_code = FunDecl("void", "addone_rhs_vec",
                               [Decl("double", Symbol("v", (6,))),
                                Decl("double**", c_sym("d"))],

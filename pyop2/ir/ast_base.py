@@ -498,9 +498,10 @@ def c_for(var, to, code):
     end = c_sym(to)
     if type(code) == str:
         code = FlatBlock(code)
+    if type(code) is not Block:
+        code = Block([code], open_scope=True)
     return For(Decl("int", i, c_sym(0)), Less(i, end), Incr(i, c_sym(1)),
-               Block([code], open_scope=True),
-               "#pragma pyop2 itspace")
+               code, "#pragma pyop2 itspace")
 
 
 def c_flat_for(code, parent):
