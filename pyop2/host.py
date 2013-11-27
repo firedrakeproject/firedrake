@@ -448,12 +448,13 @@ class JITModule(base.JITModule):
     _system_headers = []
     _libraries = []
 
-    def __init__(self, kernel, itspace, *args):
+    def __init__(self, kernel, itspace, *args, **kwargs):
         # No need to protect against re-initialization since these attributes
         # are not expensive to set and won't be used if we hit cache
         self._kernel = kernel
         self._itspace = itspace
         self._args = args
+        self._direct = kwargs.get('direct', False)
 
     def __call__(self, *args):
         return self.compile()(*args)
@@ -521,6 +522,8 @@ class JITModule(base.JITModule):
             return ';\n'.join([tmp % {'i': i} for i in range(c.cdim)])
 
         def extrusion_loop(d):
+            if self._direct:
+                return "{"
             return "for (int j_0=0; j_0<%d; ++j_0){" % d
 
         _ssinds_arg = ""

@@ -74,7 +74,7 @@ class ParLoop(host.ParLoop):
         host.ParLoop.__init__(self, *args, **kwargs)
 
     def _compute(self, part):
-        fun = JITModule(self.kernel, self.it_space, *self.args)
+        fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct)
         if not hasattr(self, '_jit_args'):
             self._jit_args = [0, 0]
             if isinstance(self._it_space._iterset, Subset):
