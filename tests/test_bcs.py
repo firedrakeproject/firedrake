@@ -117,7 +117,6 @@ def test_preassembly_doesnt_modify_assembled_rhs(V):
     assert np.allclose(b_vals, b.vector().array())
 
 
-@pytest.mark.xfail
 def test_preassembly_bcs_caching(V):
     bc1 = DirichletBC(V, 0, 1)
     bc2 = DirichletBC(V, 1, 2)
