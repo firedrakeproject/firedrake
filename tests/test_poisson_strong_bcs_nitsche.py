@@ -1,3 +1,4 @@
+# coding=utf-8
 """
   Solve
  - div grad u(x, y) = 0
