@@ -7,14 +7,14 @@ from common import *
 
 
 @pytest.mark.parametrize(('testcase', 'convrate'),
-                         [(("CG", 1, (3, 6)), 1.7),
-                          (("CG", 2, (2, 5)), 2.9),
-                          (("CG", 3, (0, 3)), 3.9)])
+                         [(("CG", 1, (4, 6)), 1.9),
+                          (("CG", 2, (3, 5)), 2.9),
+                          (("CG", 3, (1, 3)), 3.9)])
 def test_scalar_convergence(testcase, convrate):
     family, degree, (start, end) = testcase
     l2err = np.zeros(end - start)
     for ii in [i + start for i in range(len(l2err))]:
-        mesh = extmesh(2**(ii+1), 2**(ii+1), 2**(ii+1))
+        mesh = extmesh(2**ii, 2**ii, 2**ii)
 
         fspace = FunctionSpace(mesh, family, degree, vfamily=family, vdegree=degree)
 
