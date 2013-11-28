@@ -14,7 +14,9 @@ class DirichletBC(object):
         or an expression (such as a literal constant) which can be pointwise
         evaluated at the nodes of V.
     :arg sub_domain: the integer id of the boundary region over which the
-        boundary condition should be applied.
+        boundary condition should be applied. In the case of extrusion
+        the ``top`` and ``bottom`` strings are used to flag the bcs application on
+        the top and bottom boundaries of the extruded mesh respectively.
     '''
 
     def __init__(self, V, g, sub_domain):
@@ -57,11 +59,15 @@ class DirichletBC(object):
         '''The list of nodes at which this boundary condition applies.'''
 
         fs = self._function_space
-
-        return np.unique(
-            fs.exterior_facet_boundary_node_map.values_with_halo.take(
-                fs._mesh.exterior_facets.subset(self.sub_domain).indices,
-                axis=0))
+        if self.sub_domain == "bottom":
+            return fs.bottom_nodes()
+        elif self.sub_domain == "top":
+            return fs.top_nodes()
+        else:
+            return np.unique(
+                fs.exterior_facet_boundary_node_map.values_with_halo.take(
+                    fs._mesh.exterior_facets.subset(self.sub_domain).indices,
+                    axis=0))
 
     @utils.cached_property
     def node_set(self):
