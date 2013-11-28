@@ -2214,6 +2214,15 @@ class Map(object):
       will take each value from ``0`` to ``e-1`` where ``e`` is the
       ``n`` th extent passed to the iteration space for this
       :func:`pyop2.op2.par_loop`. See also :data:`i`.
+
+
+    For extruded problems (where `iterset.layers > 1`) with boundary
+    conditions applied at the top and bottom of the domain, one needs
+    to provide a list of which of the `arity` values in each map entry
+    correspond to values on the bottom boundary and which correspond
+    to the top.  This is done by supplying two lists of indices in
+    `bt_masks`, the first provides indices for the bottom, the second
+    for the top.
     """
 
     _globalcount = 0
@@ -2232,6 +2241,8 @@ class Map(object):
         # where a boundary condition is imposed by setting some map
         # entries negative.
         self._parent = parent
+        # Which indices in the extruded map should be masked out for
+        # the application of strong boundary conditions
         self._bottom_mask = np.zeros(len(offset)) if offset is not None else []
         self._top_mask = np.zeros(len(offset)) if offset is not None else []
         if bt_masks is not None:
@@ -2323,12 +2334,12 @@ class Map(object):
 
     @property
     def top_mask(self):
-        """The top layer mask."""
+        """The top layer mask to be applied on a mesh cell."""
         return self._top_mask
 
     @property
     def bottom_mask(self):
-        """The bottom layer mask."""
+        """The bottom layer mask to be applied on a mesh cell."""
         return self._bottom_mask
 
     def __str__(self):
