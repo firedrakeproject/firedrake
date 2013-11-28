@@ -42,3 +42,7 @@ class ASTKernel(object):
             self.fundecl.args.extend([Decl("int", c_sym("%s" % i)) for i in itspace_vars])
 
         # TODO: Need to change declaration of iteration space-dependent parameters
+
+        # TODO: Need to change indices of each iteration space-dependent
+        # variables which are accessed in the user-provided itspaces (no matter
+        # reads or writes or incrs)

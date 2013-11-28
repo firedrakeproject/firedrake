@@ -82,12 +82,16 @@ class LoopOptimiser(object):
 
     def extract_itspace(self):
         """Remove fully-parallel loop from the iteration space. These are
-        the loops that were marked by the user/higher layer with a pragma."""
+        the loops that were marked by the user/higher layer with a 'pragma
+        pyop2 itspace'."""
 
         itspace_vars = []
         for node, parent in reversed(self.itspace):
             parent.children.extend(node.children[0].children)
             parent.children.remove(node)
             itspace_vars.append(node.it_var())
+
+        # TODO: Need to change indices of each iteration space-dependent
+        # variable which is written or incremented
 
         return itspace_vars
