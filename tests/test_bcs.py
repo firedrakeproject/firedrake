@@ -117,6 +117,33 @@ def test_preassembly_doesnt_modify_assembled_rhs(V):
     assert np.allclose(b_vals, b.vector().array())
 
 
+@pytest.mark.xfail
+def test_preassembly_bcs_caching(V):
+    bc1 = DirichletBC(V, 0, 1)
+    bc2 = DirichletBC(V, 1, 2)
+
+    v = TestFunction(V)
+    u = TrialFunction(V)
+
+    a = u*v*dx
+
+    Aboth = assemble(a, bcs=[bc1, bc2])
+    Aneither = assemble(a)
+    A1 = assemble(a, bcs=[bc1])
+    A2 = assemble(a, bcs=[bc2])
+
+    assert not np.allclose(Aboth.M.values, Aneither.M.values)
+    assert not np.allclose(Aboth.M.values, A2.M.values)
+    assert not np.allclose(Aboth.M.values, A1.M.values)
+    assert not np.allclose(Aneither.M.values, A2.M.values)
+    assert not np.allclose(Aneither.M.values, A1.M.values)
+    assert not np.allclose(A2.M.values, A1.M.values)
+    # There should be no zeros on the diagonal
+    assert not any(A2.M.values.diagonal() == 0)
+    assert not any(A1.M.values.diagonal() == 0)
+    assert not any(Aneither.M.values.diagonal() == 0)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
