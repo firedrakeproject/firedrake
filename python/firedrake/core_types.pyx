@@ -952,11 +952,14 @@ class FunctionSpaceBase(object):
                                parent=parent)
 
     def bottom_nodes(self):
-        """Return a list of the bottom layer nodes of the extruded mesh."""
+        """Return a list of the bottom boundary nodes of the extruded mesh.
+        The bottom mask is applied to every bottom layer cell to get the
+        dof ids."""
         return np.unique(self.cell_node_list[:, self.bt_masks[0]])
 
     def top_nodes(self):
-        """Return a list of the top layer nodes of the extruded mesh."""
+        """Return a list of the top boundary nodes of the extruded mesh.
+        The top mask is applied to every top layer cell to get the dof ids."""
         voffs = self.offset.take(self.bt_masks[1])*(self._mesh.layers-2)
         return np.unique(self.cell_node_list[:, self.bt_masks[1]] + voffs)
 
