@@ -11,7 +11,7 @@ from common import *
                           (("DG", 0), 0.9), (("DG", 1), 1.98)])
 def test_scalar_convergence(testcase, convrate):
     family, degree = testcase
-    l2err = np.zeros(3)
+    l2err = np.zeros(2)
     for ii in range(len(l2err)):
         mesh = extmesh(2**(ii+1), 2**(ii+1), 2**ii)
 
@@ -39,7 +39,7 @@ def test_scalar_convergence(testcase, convrate):
                           (("DG", 2, "CG", 2, "v"), 2.98)])
 def test_hdiv_convergence(testcase, convrate):
     hfamily, hdegree, vfamily, vdegree, orientation = testcase
-    l2err = np.zeros(3)
+    l2err = np.zeros(2)
     for ii in range(len(l2err)):
         mesh = extmesh(2**(ii+1), 2**(ii+1), 2**(ii+1))
 
@@ -74,7 +74,7 @@ def test_hdiv_convergence(testcase, convrate):
                           (("CG", 2, "DG", 2, "v"), 2.7)])
 def test_hcurl_convergence(testcase, convrate):
     hfamily, hdegree, vfamily, vdegree, orientation = testcase
-    l2err = np.zeros(3)
+    l2err = np.zeros(2)
     for ii in range(len(l2err)):
         mesh = extmesh(2**(ii+1), 2**(ii+1), 2**(ii+1))
 
