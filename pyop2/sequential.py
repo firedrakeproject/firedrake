@@ -61,7 +61,9 @@ void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end,
     %(vec_inits)s;
     %(map_init)s;
     %(extr_loop)s
+    %(map_bcs_m)s;
     %(itset_loop_body)s
+    %(map_bcs_p)s;
     %(apply_offset)s;
     %(extr_loop_close)s
   }
