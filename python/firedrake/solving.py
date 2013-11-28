@@ -444,11 +444,11 @@ def _assemble(f, tensor=None, bcs=None):
                     tensor_arg = tensor(op2.INC,
                                         (test.exterior_facet_node_map(bcs)[op2.i[0]],
                                          trial.exterior_facet_node_map(bcs)[op2.i[1]]),
-                                        flatten=True)
+                                        flatten=has_vec_fs(test))
                 elif is_vec:
                     tensor_arg = tensor(op2.INC,
                                         test.exterior_facet_node_map()[op2.i[0]],
-                                        flatten=True)
+                                        flatten=has_vec_fs(test))
                 else:
                     tensor_arg = tensor(op2.INC)
                 args = [kernel, m.exterior_facets.measure_set(integral.measure()), tensor_arg,
@@ -456,7 +456,7 @@ def _assemble(f, tensor=None, bcs=None):
                                    flatten=True)]
                 for c in fd.original_coefficients:
                     args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
-                                      flatten=True))
+                                      flatten=has_vec_fs(c)))
                 args.append(m.exterior_facets.local_facet_dat(op2.READ))
                 op2.par_loop(*args)
 
