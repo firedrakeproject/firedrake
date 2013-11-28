@@ -9,5 +9,4 @@ git+https://bitbucket.org/mapdes/fiat.git#egg=fiat
 git+https://bitbucket.org/mapdes/ffc.git#egg=ffc
 hg+https://bitbucket.org/khinsen/scientificpython
 h5py>=2.0.0
-petsc>=3.4
 petsc4py>=3.4
