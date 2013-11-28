@@ -28,14 +28,11 @@ import numpy
 
 import ufl
 from ufl_expr import derivative
-from ufl.algorithms.signature import compute_form_signature
 from pyop2 import op2, ffc_interface
 import core_types
 import types
 from assemble_expressions import assemble_expression
 from petsc4py import PETSc
-
-_mat_cache = {}
 
 
 class NonlinearVariationalProblem(object):
@@ -349,29 +346,17 @@ def _assemble(f, tensor=None, bcs=None):
                 map_pairs.append((test.interior_facet_node_map(),
                                   trial.interior_facet_node_map()))
         map_pairs = tuple(map_pairs)
-        key = (compute_form_signature(f), test.function_space().dof_dset,
-               trial.function_space().dof_dset,) + map_pairs
         if tensor is None:
-            tensor = _mat_cache.get(key)
-            if not tensor:
-                # Construct OP2 Mat to assemble into
-                fs_names = (
-                    test.function_space().name, trial.function_space().name)
-                sparsity = op2.Sparsity((test.function_space().dof_dset,
-                                         trial.function_space().dof_dset),
-                                        map_pairs,
-                                        "%s_%s_sparsity" % fs_names)
-                result_matrix = types.Matrix(f, bcs, sparsity, numpy.float64,
-                                             "%s_%s_matrix" % fs_names)
-                tensor = result_matrix._M
-                _mat_cache[key] = result_matrix
-            else:
-                result_matrix = tensor
-                # We pulled the matrix from the cache, so it might
-                # have bcs attached, replace them with those from this call.
-                result_matrix.bcs = bcs
-                tensor = tensor._M
-                tensor.zero()
+            # Construct OP2 Mat to assemble into
+            fs_names = (
+                test.function_space().name, trial.function_space().name)
+            sparsity = op2.Sparsity((test.function_space().dof_dset,
+                                     trial.function_space().dof_dset),
+                                    map_pairs,
+                                    "%s_%s_sparsity" % fs_names)
+            result_matrix = types.Matrix(f, bcs, sparsity, numpy.float64,
+                                         "%s_%s_matrix" % fs_names)
+            tensor = result_matrix._M
         else:
             result_matrix = tensor
             # Replace any bcs on the tensor we passed in
@@ -410,6 +395,11 @@ def _assemble(f, tensor=None, bcs=None):
     # solve, we funcall the closure with any bcs the Matrix now has to
     # assemble it.
     def thunk(bcs):
+        extruded_bcs = None
+        if bcs is not None:
+            bottom = any(bc.sub_domain == "bottom" for bc in bcs)
+            top = any(bc.sub_domain == "top" for bc in bcs)
+            extruded_bcs = (bottom, top)
         for kernel, integral in zip(kernels, integrals):
             domain_type = integral.measure().domain_type()
             if domain_type == 'cell':
@@ -424,6 +414,7 @@ def _assemble(f, tensor=None, bcs=None):
                     tensor_arg = tensor(op2.INC)
 
                 itspace = m.cell_set
+                itspace._extruded_bcs = extruded_bcs
                 if itspace.layers > 1:
                     coords_xtr = m._coordinate_field
                     args = [kernel, itspace, tensor_arg,

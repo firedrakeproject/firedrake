@@ -57,11 +57,15 @@ class DirichletBC(object):
         '''The list of nodes at which this boundary condition applies.'''
 
         fs = self._function_space
-
-        return np.unique(
-            fs.exterior_facet_boundary_node_map.values_with_halo.take(
-                fs._mesh.exterior_facets.subset(self.sub_domain).indices,
-                axis=0))
+        if self.sub_domain == "bottom":
+            return fs.bottom_nodes()
+        elif self.sub_domain == "top":
+            return fs.top_nodes()
+        else:
+            return np.unique(
+                fs.exterior_facet_boundary_node_map.values_with_halo.take(
+                    fs._mesh.exterior_facets.subset(self.sub_domain).indices,
+                    axis=0))
 
     @utils.cached_property
     def node_set(self):
