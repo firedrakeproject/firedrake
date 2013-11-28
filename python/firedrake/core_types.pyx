@@ -361,6 +361,61 @@ def plex_closure_numbering(plex, vertex_numbering, closure, dofs_per_entity):
     local_numbering[offset:offset+len(cells)] = cells
     return local_numbering
 
+def plex_mark_entity_classes(plex):
+    """Mark all points in a given Plex according to the PyOP2 entity classes:
+    core      : owned and not in send halo
+    non_core  : owned and in send halo
+    exec_halo : in halo, but touch owned entity
+    """
+    plex.createLabel("op2_core")
+    plex.createLabel("op2_non_core")
+    plex.createLabel("op2_exec_halo")
+
+    if op2.MPI.comm.size > 1:
+        # Mark exec_halo from point overlap SF
+        point_sf = plex.getPointSF()
+        nroots, nleaves, local, remote = point_sf.getGraph()
+        for p in local:
+            depth = plex.getLabelValue("depth", p)
+            plex.setLabelValue("op2_exec_halo", p, depth)
+    else:
+        # If sequential mark all points as core
+        pStart, pEnd = plex.getChart()
+        for p in range(pStart, pEnd):
+            depth = plex.getLabelValue("depth", p)
+            plex.setLabelValue("op2_core", p, depth)
+        return
+
+    # Mark all unmarked points in the closure of adjacent cells as non_core
+    cStart, cEnd = plex.getHeightStratum(0)
+    vStart, vEnd = plex.getDepthStratum(0)
+    dim = plex.getDimension()
+    halo_cells = plex.getStratumIS("op2_exec_halo", dim).getIndices()
+    halo_vertices = plex.getStratumIS("op2_exec_halo", 0).getIndices()
+    adjacent_cells = []
+    for c in halo_cells:
+        halo_closure = plex.getTransitiveClosure(c)[0]
+        for vertex in filter(lambda x: x>=vStart and x<vEnd, halo_closure):
+            star = plex.getTransitiveClosure(vertex, useCone=False)[0]
+            for adj in filter(lambda x: x>=cStart and x<cEnd, star):
+                if plex.getLabelValue("op2_exec_halo", adj) < 0:
+                    adjacent_cells.append(adj)
+
+    for adj_cell in adjacent_cells:
+        for p in plex.getTransitiveClosure(adj_cell)[0]:
+            if plex.getLabelValue("op2_exec_halo", p) < 0:
+                depth = plex.getLabelValue("depth", p)
+                plex.setLabelValue("op2_non_core", p, depth)
+
+    # Mark all remaining points as core
+    pStart, pEnd = plex.getChart()
+    for p in range(pStart, pEnd):
+        exec_halo = plex.getLabelValue("op2_exec_halo", p)
+        non_core = plex.getLabelValue("op2_non_core", p)
+        if exec_halo < 0 and non_core < 0:
+            depth = plex.getLabelValue("depth", p)
+            plex.setLabelValue("op2_core", p, depth)
+
 class _Facets(object):
     """Wrapper class for facet interation information on a :class:`Mesh`"""
     def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None):
@@ -485,6 +540,12 @@ class Mesh(object):
 
         self._plex = plex
         self._dim  = plex.getDimension()
+
+        # Distribute the dm to all ranks
+        if op2.MPI.comm.size > 1:
+            self.parallel_sf = self._plex.distribute(overlap=1)
+
+        plex_mark_entity_classes(self._plex)
 
         cStart, cEnd = self._plex.getHeightStratum(0)  # cells
         fStart, fEnd = self._plex.getHeightStratum(1)  # facets
