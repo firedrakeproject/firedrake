@@ -223,6 +223,49 @@ class TestIndirectLoop:
         expected = np.arange(1, nedges * 2 + 1, 2)
         assert all(expected == edge_vals.data)
 
+
+@pytest.fixture
+def mset(indset, unitset):
+    return op2.MixedSet((indset, unitset))
+
+
+@pytest.fixture
+def mdat(mset):
+    return op2.MixedDat(mset)
+
+
+@pytest.fixture
+def mmap(iterset2indset, iterset2unitset):
+    return op2.MixedMap((iterset2indset, iterset2unitset))
+
+
+class TestMixedIndirectLoop:
+    """Mixed indirect loop tests."""
+
+    backends = ['sequential']
+
+    def test_mixed_non_mixed_dat(self, backend, mdat, mmap, iterset):
+        """Increment into a MixedDat from a non-mixed Dat."""
+        d = op2.Dat(iterset, np.ones(iterset.size))
+        kernel_inc = """void kernel_inc(double **d, double *x) {
+          d[0][0] += x[0]; d[1][0] += x[0];
+        }"""
+        op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"), iterset,
+                     mdat(op2.INC, mmap),
+                     d(op2.READ))
+        assert all(mdat[0].data == 1.0) and mdat[1].data == 4096.0
+
+    def test_mixed_non_mixed_dat_itspace(self, backend, mdat, mmap, iterset):
+        """Increment into a MixedDat from a Dat using iteration spaces."""
+        d = op2.Dat(iterset, np.ones(iterset.size))
+        kernel_inc = """void kernel_inc(double *d, double *x, int j) {
+          d[0] += x[0];
+        }"""
+        op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"), iterset,
+                     mdat(op2.INC, mmap[op2.i[0]]),
+                     d(op2.READ))
+        assert all(mdat[0].data == 1.0) and mdat[1].data == 4096.0
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
