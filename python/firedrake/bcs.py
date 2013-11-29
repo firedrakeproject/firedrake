@@ -1,6 +1,7 @@
 # A module implementing strong (Dirichlet) boundary conditions.
 import utils
 import numpy as np
+from ufl import as_ufl, UFLException
 import types
 from core_types import Function
 from expression import Expression
@@ -30,6 +31,11 @@ class DirichletBC(object):
             # Not a point evaluation space, need to project onto V
             except NotImplementedError:
                 g = project(g, V)
+        else:
+            try:
+                as_ufl(g)
+            except UFLException:
+                raise ValueError("%r is not a valid DirichletBC expression" % (g,))
         self._function_space = V
         self.function_arg = g
         self._original_arg = g
