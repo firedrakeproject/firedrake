@@ -163,7 +163,7 @@ def pytest_generate_tests(metafunc):
         backend = [b for b in backend.difference(skip_backends)
                    if not 'skip_' + b in metafunc.fixturenames]
         params = list(product(backend, lazy))
-        metafunc.parametrize('backend', params, indirect=True,
+        metafunc.parametrize('backend', params or [(None, None)], indirect=True,
                              ids=['-'.join(p) for p in params])
 
 
