@@ -45,18 +45,14 @@ def poisson_mixed(size):
 
     # Define variational form
     a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx
-    L = f*v*dx - 42*v*ds(2)
+    n = FacetNormal(mesh.ufl_cell())
+    L = -f*v*dx + 42*dot(tau, n)*ds(2)
 
     # Apply dot(sigma, n) == 0 on left and right boundaries strongly
     # (corresponding to Neumann condition du/dn = 0)
-    bcs = [DirichletBC(W.sub(0), (0, 0), 3),
-           DirichletBC(W.sub(0), (0, 0), 4)]
+    bcs = DirichletBC(W.sub(0), Expression(('0', '0')), (3, 4))
     # Compute solution
     w = Function(W)
-    A = assemble(a)
-    A.M._force_evaluation()
-    b = assemble(L)
-    b.dat.data
     solve(a == L, w, bcs=bcs)
     sigma, u = w.split()
 
@@ -65,14 +61,9 @@ def poisson_mixed(size):
     return sqrt(assemble(dot(u - f, u - f) * dx)), u, f
 
 
-@pytest.mark.xfail(reason="Bad generated code, local facet marker is not mixed")
 def test_poisson_mixed():
-    import numpy as np
-    diff = np.array([poisson_mixed(i)[0] for i in range(3, 6)])
-    print "l2 error norms:", diff
-    conv = np.log2(diff[:-1] / diff[1:])
-    print "convergence order:", conv
-    assert (np.array(conv) > 1.9).all()
+    assert poisson_mixed(3)[0] < 2e-5
+
 
 if __name__ == '__main__':
     import pytest
