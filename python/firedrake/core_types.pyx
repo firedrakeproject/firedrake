@@ -1558,9 +1558,9 @@ class Function(ufl.Coefficient):
                     evaluation operators. Try projecting instead")
             to_pts.append(dual.pt_dict.keys()[0])
 
-        if expression.rank() != fs.rank:
+        if expression.rank() != len(fs.ufl_element().value_shape()):
             raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
-                               % (expression.rank(), fs.rank))
+                               % (expression.rank(), len(fs.ufl_element().value_shape())))
 
         if expression.shape() != fs.ufl_element().value_shape():
             raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
