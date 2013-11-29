@@ -152,10 +152,13 @@ library and requires:
 If you have a suitable PETSc_ installed on your system, ``PETSC_DIR`` and
 ``PETSC_ARCH`` need to be set for the petsc4py_ installer to find it. On
 a Debian/Ubuntu system with PETSc_ 3.4 installed, this can be achieved
-via::
+via e.g. (adapt for your system) ::
 
   export PETSC_DIR=/usr/lib/petscdir/3.4
   export PETSC_ARCH=linux-gnu-c-opt
+
+If you are on Ubuntu 12.04 LTS, you can install the binary package for PETSc_
+3.4.2 from the PPA_ ``ppa:amcg/petsc3.4``.
 
 If not, make sure all PETSc_ dependencies (BLAS/LAPACK, MPI and a Fortran
 compiler) are installed. On a Debian based system, run::
@@ -397,6 +400,7 @@ from. To print the module search path, run::
 
  python -c 'from pprint import pprint; import sys; pprint(sys.path)'
 
+.. _PPA: https://launchpad.net/~amcg/+archive/petsc3.4/
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _petsc4py: http://pythonhosted.org/petsc4py/
 .. _FFC: https://bitbucket.org/mapdes/ffc
