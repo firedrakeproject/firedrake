@@ -33,7 +33,22 @@
 
 import base
 from base import *
+from pyop2.ir.ast_base import Node
+from pyop2.ir.ast_plan import ASTKernel
 from mpi import collective
+
+
+class Kernel(base.Kernel):
+
+    @classmethod
+    def _ast_to_c(cls, ast, name):
+        """Transform an Abstract Syntax Tree representing the kernel into a
+        string of code (C syntax) suitable to GPU execution."""
+        if not isinstance(ast, Node):
+            return ast
+        ast_handler = ASTKernel(ast)
+        ast_handler.plan_gpu()
+        return ast.gencode()
 
 
 class Arg(base.Arg):

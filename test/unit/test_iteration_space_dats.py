@@ -125,7 +125,7 @@ class TestIterationSpaceDats:
         vd1.data[:] = numpy.arange(nele)
         k = FunDecl("void", "k",
                     [Decl("int*", c_sym("d")), Decl("int*", c_sym("vd"))],
-                    c_for("i", 1, Incr(Symbol("d", (0,)), Symbol("vd", ("i",)))))
+                    c_for("i", 1, Assign(Symbol("d", (0,)), Symbol("vd", ("i",)))))
 
         op2.par_loop(op2.Kernel(k, 'k'), node,
                      d1(op2.WRITE),
@@ -163,8 +163,8 @@ class TestIterationSpaceDats:
     def test_read_2d_itspace_map(self, backend, d2, vd2, node2ele, node):
         vd2.data[:] = numpy.arange(nele * 2).reshape(nele, 2)
         reads = Block(
-            [Incr(Symbol("d", (0,)), Symbol("vd", ("i",), ((1, 0),))),
-             Incr(
+            [Assign(Symbol("d", (0,)), Symbol("vd", ("i",), ((1, 0),))),
+             Assign(
                  Symbol(
                      "d", (1,)), Symbol("vd", ("i",), ((1, 1),)))],
             open_scope=True)

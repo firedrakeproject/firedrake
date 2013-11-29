@@ -41,7 +41,8 @@ class LoopOptimiser(object):
                     if opt_name == "outerproduct":
                         # Found high-level optimisation
                         # Store outer product iteration variables and parent
-                        self.out_prods[node] = ([opt_par[1], opt_par[3]], parent)
+                        self.out_prods[node] = (
+                            [opt_par[1], opt_par[3]], parent)
                     else:
                         raise RuntimeError("Unrecognised opt %s - skipping it", opt_name)
                 else:
@@ -63,8 +64,7 @@ class LoopOptimiser(object):
                 decls[node.sym.symbol] = node
                 return (fors, decls, symbols)
             elif isinstance(node, Symbol):
-                if node.symbol not in symbols and node.rank:
-                    symbols.append(node.symbol)
+                symbols.add(node)
                 return (fors, decls, symbols)
             elif isinstance(node, BinExpr):
                 inspect(node.children[0], node, fors, decls, symbols)
@@ -78,20 +78,20 @@ class LoopOptimiser(object):
             else:
                 return (fors, decls, symbols)
 
-        return inspect(node, None, [], {}, [])
+        return inspect(node, self.pre_header, [], {}, set())
 
     def extract_itspace(self):
         """Remove fully-parallel loop from the iteration space. These are
         the loops that were marked by the user/higher layer with a 'pragma
         pyop2 itspace'."""
 
-        itspace_vars = []
+        itspace_vrs = []
         for node, parent in reversed(self.itspace):
             parent.children.extend(node.children[0].children)
             parent.children.remove(node)
-            itspace_vars.append(node.it_var())
+            itspace_vrs.append(node.it_var())
 
-        # TODO: Need to change indices of each iteration space-dependent
-        # variable which is written or incremented
+        any_in = lambda a, b: any(i in b for i in a)
+        accessed_vrs = [s for s in self.sym if any_in(s.rank, itspace_vrs)]
 
-        return itspace_vars
+        return (itspace_vrs, accessed_vrs)

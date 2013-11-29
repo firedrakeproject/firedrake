@@ -184,21 +184,17 @@ def mass():
     };
   };
   for(int i_g = 0; i_g < 6; i_g++)
-  {
 """)
     assembly = Incr(Symbol("localTensor", ("i_r_0", "i_r_1")),
                     FlatBlock("ST0 * w[i_g]"))
-    assembly = Block(
-        [FlatBlock(
-            "double ST0 = 0.0;\nST0 += CG1[i_r_0][i_g] * CG1[i_r_1][i_g] * (c_q0[i_g][0][0] * c_q0[i_g][1][1] + -1 * c_q0[i_g][0][1] * c_q0[i_g][1][0]);\n"),
-         assembly], open_scope=True)
+    assembly = Block([FlatBlock("double ST0 = 0.0;\nST0 += CG1[i_r_0][i_g] * CG1[i_r_1][i_g] * (c_q0[i_g][0][0] * \
+                                c_q0[i_g][1][1] + -1 * c_q0[i_g][0][1] * c_q0[i_g][1][0]);\n"), assembly], open_scope=True)
     assembly = c_for("i_r_0", 3, c_for("i_r_1", 3, assembly))
-    end = FlatBlock("}")
 
     kernel_code = FunDecl("void", "mass",
                           [Decl("double", Symbol("localTensor", (3, 3))),
                            Decl("double*", c_sym("c0[2]"))],
-                          Block([init, assembly, end], open_scope=False))
+                          Block([init, assembly], open_scope=False))
 
     return op2.Kernel(kernel_code, "mass")
 
@@ -286,17 +282,15 @@ double FE0[3][3] = \
 {0.166666666666667, 0.666666666666667, 0.166666666666667}};
 
 for (unsigned int ip = 0; ip < 3; ip++)
-{
 """)
     assembly = Incr(Symbol("A", ("j", "k")),
                     FlatBlock("FE0[ip][j]*FE0[ip][k]*W3[ip]*det"))
     assembly = c_for("j", 3, c_for("k", 3, assembly))
-    end = FlatBlock("}")
 
     kernel_code = FunDecl("void", "mass_ffc",
                           [Decl("double", Symbol("A", (3, 3))),
                            Decl("double*", c_sym("x[2]"))],
-                          Block([init, assembly, end], open_scope=False))
+                          Block([init, assembly], open_scope=False))
 
     return op2.Kernel(kernel_code, "mass_ffc")
 
