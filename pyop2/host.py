@@ -49,6 +49,10 @@ class Arg(base.Arg):
         if self._is_indirect and not (self._is_vec_map or self._uses_itspace):
             name = "%s_%d" % (name, self.idx)
         if i is not None:
+            # For a mixed ParLoop we can't necessarily assume all arguments are
+            # also mixed. If that's not the case we want index 0.
+            if not self._is_mat and len(self.data) == 1:
+                i = 0
             name += "_%d" % i
         if j is not None:
             name += "_%d" % j
