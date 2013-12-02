@@ -57,6 +57,10 @@ ffc_parameters = default_parameters()
 ffc_parameters['write_file'] = False
 ffc_parameters['format'] = 'pyop2'
 
+# Include an md5 hash of pyop2_geometry.h in the cache key
+with open(os.path.join(os.path.dirname(__file__), 'pyop2_geometry.h')) as f:
+    _pyop2_geometry_md5 = md5(f.read()).hexdigest()
+
 
 def _check_version():
     from version import __compatible_ffc_version_info__ as compatible_version, \
@@ -80,7 +84,8 @@ class FFCKernel(DiskCached):
     def _cache_key(cls, form, name):
         form_data = form.compute_form_data()
         return md5(form_data.signature + name + Kernel._backend.__name__ +
-                   constants.FFC_VERSION + constants.PYOP2_VERSION).hexdigest()
+                   _pyop2_geometry_md5 + constants.FFC_VERSION +
+                   constants.PYOP2_VERSION).hexdigest()
 
     def __init__(self, form, name):
         if self._initialized:
