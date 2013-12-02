@@ -18,7 +18,7 @@ before_install:
     libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran triangle-bin \
     libvtk5-dev python-vtk libparmetis-dev"
   - wget https://github.com/OP2/PyOP2/raw/master/requirements-minimal.txt
-  - pip install -r requirements-minimal.txt --use-mirrors
+  - pip install "petsc>=3.4" -r requirements-minimal.txt --use-mirrors
   - pip install git+https://github.com/OP2/PyOP2 cgen
   - if [[ $TRAVIS_PYTHON_VERSION == "2.6" ]]; then pip install argparse ordereddict; fi
 install:
