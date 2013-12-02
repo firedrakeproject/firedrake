@@ -124,7 +124,7 @@
   K[6] = d_02 / det; \
   K[7] = d_12 / det; \
   K[8] = d_22 / det;
-  
+
 /// Compute Jacobian inverse K for tensor product prism embedded in R^3 - identical to tet
 #define compute_jacobian_inverse_prism_3d(K, det, J) \
   const double d_00 = J[4]*J[8] - J[5]*J[7]; \
@@ -146,3 +146,33 @@
   K[6] = d_02 / det; \
   K[7] = d_12 / det; \
   K[8] = d_22 / det;
+
+///--- Compute facet edge lengths ---
+
+#define compute_facet_edge_length_tetrahedron_3d(facet, vertex_coordinates) \
+  const unsigned int tetrahedron_facet_edge_vertices[4][3][2] = { \
+    {{2, 3}, {1, 3}, {1, 2}}, \
+    {{2, 3}, {0, 3}, {0, 2}}, \
+    {{1, 3}, {0, 3}, {0, 1}}, \
+    {{1, 2}, {0, 2}, {0, 1}}, \
+    }; \
+  double edge_lengths_sqr[3]; \
+  for (unsigned int edge = 0; edge < 3; ++edge) \
+  { \
+    const unsigned int vertex0 = tetrahedron_facet_edge_vertices[facet][edge][0]; \
+    const unsigned int vertex1 = tetrahedron_facet_edge_vertices[facet][edge][1]; \
+    edge_lengths_sqr[edge] = (vertex_coordinates[vertex1 + 0][0] - vertex_coordinates[vertex0 + 0][0])*(vertex_coordinates[vertex1 + 0][0] - vertex_coordinates[vertex0 + 0][0]) \
+                           + (vertex_coordinates[vertex1 + 4][0] - vertex_coordinates[vertex0 + 4][0])*(vertex_coordinates[vertex1 + 4][0] - vertex_coordinates[vertex0 + 4][0]) \
+                           + (vertex_coordinates[vertex1 + 8][0] - vertex_coordinates[vertex0 + 8][0])*(vertex_coordinates[vertex1 + 8][0] - vertex_coordinates[vertex0 + 8][0]); \
+  }
+
+/// Compute min edge length in facet of tetrahedron embedded in R^3
+#define compute_min_facet_edge_length_tetrahedron_3d(min_edge_length, facet, vertex_coordinates) \
+  compute_facet_edge_length_tetrahedron_3d(facet, vertex_coordinates); \
+  min_edge_length = sqrt(fmin(fmin(edge_lengths_sqr[1], edge_lengths_sqr[1]), edge_lengths_sqr[2]));
+
+/// Compute max edge length in facet of tetrahedron embedded in R^3
+// FIXME: we can't call compute_facet_edge_length_tetrahedron_3d again, so we
+// rely on the fact that max is always computed after min
+#define compute_max_facet_edge_length_tetrahedron_3d(max_edge_length, facet, vertex_coordinates) \
+  max_edge_length = sqrt(fmax(fmax(edge_lengths_sqr[1], edge_lengths_sqr[1]), edge_lengths_sqr[2]));
