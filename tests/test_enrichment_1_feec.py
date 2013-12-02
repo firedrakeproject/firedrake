@@ -82,7 +82,7 @@ def test_feec(horiz_complex, vert_complex):
     y = Function(V3)
     solve(a == L, y, solver_parameters=parms)
     maxcoeff = max(abs(y.dat.data))
-    assert maxcoeff < 1e-12
+    assert maxcoeff < 2e-12
 
     ### TEST WEAKCURL(WEAKGRAD(y)) = 0, for y in V3 ###
 
@@ -123,7 +123,7 @@ def test_feec(horiz_complex, vert_complex):
     u = Function(V0)
     solve(a == L, u, solver_parameters=parms)
     maxcoeff = max(abs(u.dat.data))
-    assert maxcoeff < 4e-12
+    assert maxcoeff < 5e-12
 
 if __name__ == '__main__':
     import os
