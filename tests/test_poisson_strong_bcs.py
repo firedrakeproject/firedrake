@@ -29,8 +29,8 @@ def run_test(x, degree, parameters={}):
     v = TestFunction(V)
     a = dot(grad(v), grad(u)) * dx
 
-    bcs = [DirichletBC(V, 0, 1),
-           DirichletBC(V, 42, 2)]
+    bcs = [DirichletBC(V, 0, 3),
+           DirichletBC(V, 42, 4)]
 
     # Compute solution
     solve(a == 0, u, solver_parameters=parameters, bcs=bcs)
@@ -52,8 +52,8 @@ def run_test_linear(x, degree, parameters={}):
     a = dot(grad(v), grad(u)) * dx
     L = v*0*dx
 
-    bcs = [DirichletBC(V, 0, 1),
-           DirichletBC(V, 42, 2)]
+    bcs = [DirichletBC(V, 0, 3),
+           DirichletBC(V, 42, 4)]
 
     # Compute solution
     u = Function(V)
@@ -75,8 +75,8 @@ def run_test_preassembled(x, degree, parameters={}):
     f = Function(V)
     f.assign(0)
     L = v*f*dx
-    bcs = [DirichletBC(V, 0, 1),
-           DirichletBC(V, 42, 2)]
+    bcs = [DirichletBC(V, 0, 3),
+           DirichletBC(V, 42, 4)]
 
     u = Function(V)
 

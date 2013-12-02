@@ -12,15 +12,15 @@ def test_facet_normal_unit_square():
     y_hat = Function(V).interpolate(Expression(('0', '1')))
     n = FacetNormal(m.ufl_cell())
 
-    assert assemble(dot(x_hat, n)*ds(1)) == 0.0   # y = 0
-    assert assemble(dot(x_hat, n)*ds(2)) == 0.0   # y = 1
-    assert assemble(dot(x_hat, n)*ds(3)) == 1.0   # x = 1
-    assert assemble(dot(x_hat, n)*ds(4)) == -1.0  # x = 0
+    assert assemble(dot(x_hat, n)*ds(1)) == -1.0  # x = 0
+    assert assemble(dot(x_hat, n)*ds(2)) == 1.0   # x = 1
+    assert assemble(dot(x_hat, n)*ds(3)) == 0.0   # y = 0
+    assert assemble(dot(x_hat, n)*ds(4)) == 0.0   # y = 1
 
-    assert assemble(dot(y_hat, n)*ds(1)) == -1.0  # y = 0
-    assert assemble(dot(y_hat, n)*ds(2)) == 1.0   # y = 1
-    assert assemble(dot(y_hat, n)*ds(3)) == 0.0   # x = 1
-    assert assemble(dot(y_hat, n)*ds(4)) == 0.0   # x = 0
+    assert assemble(dot(y_hat, n)*ds(1)) == 0.0   # x = 0
+    assert assemble(dot(y_hat, n)*ds(2)) == 0.0   # x = 1
+    assert assemble(dot(y_hat, n)*ds(3)) == -1.0  # y = 0
+    assert assemble(dot(y_hat, n)*ds(4)) == 1.0   # y = 1
 
 
 def test_facet_normal_unit_cube():
@@ -33,26 +33,26 @@ def test_facet_normal_unit_cube():
     z_hat = Function(V).interpolate(Expression(('0', '0', '1')))
     n = FacetNormal(m.ufl_cell())
 
-    assert abs(assemble(dot(x_hat, n)*ds(1)) - 0.0) < 1e-14  # z = 0
-    assert abs(assemble(dot(x_hat, n)*ds(2)) - 0.0) < 1e-14  # z = 1
+    assert abs(assemble(dot(x_hat, n)*ds(1)) + 1.0) < 1e-14  # x = 0
+    assert abs(assemble(dot(x_hat, n)*ds(2)) - 1.0) < 1e-14  # x = 1
     assert abs(assemble(dot(x_hat, n)*ds(3)) - 0.0) < 1e-14  # y = 0
-    assert abs(assemble(dot(x_hat, n)*ds(4)) - 1.0) < 1e-14  # x = 1
-    assert abs(assemble(dot(x_hat, n)*ds(5)) - 0.0) < 1e-14  # y = 1
-    assert abs(assemble(dot(x_hat, n)*ds(6)) + 1.0) < 1e-14  # x = 0
+    assert abs(assemble(dot(x_hat, n)*ds(4)) - 0.0) < 1e-14  # y = 1
+    assert abs(assemble(dot(x_hat, n)*ds(5)) - 0.0) < 1e-14  # z = 0
+    assert abs(assemble(dot(x_hat, n)*ds(6)) - 0.0) < 1e-14  # z = 1
 
-    assert abs(assemble(dot(y_hat, n)*ds(1)) - 0.0) < 1e-14  # z = 0
-    assert abs(assemble(dot(y_hat, n)*ds(2)) - 0.0) < 1e-14  # z = 1
+    assert abs(assemble(dot(y_hat, n)*ds(1)) - 0.0) < 1e-14  # x = 0
+    assert abs(assemble(dot(y_hat, n)*ds(2)) - 0.0) < 1e-14  # x = 1
     assert abs(assemble(dot(y_hat, n)*ds(3)) + 1.0) < 1e-14  # y = 0
-    assert abs(assemble(dot(y_hat, n)*ds(4)) - 0.0) < 1e-14  # x = 1
-    assert abs(assemble(dot(y_hat, n)*ds(5)) - 1.0) < 1e-14  # y = 1
-    assert abs(assemble(dot(y_hat, n)*ds(6)) - 0.0) < 1e-14  # x = 0
+    assert abs(assemble(dot(y_hat, n)*ds(4)) - 1.0) < 1e-14  # y = 1
+    assert abs(assemble(dot(y_hat, n)*ds(5)) - 0.0) < 1e-14  # z = 0
+    assert abs(assemble(dot(y_hat, n)*ds(6)) - 0.0) < 1e-14  # z = 1
 
-    assert abs(assemble(dot(z_hat, n)*ds(1)) + 1.0) < 1e-14  # z = 0
-    assert abs(assemble(dot(z_hat, n)*ds(2)) - 1.0) < 1e-14  # z = 1
+    assert abs(assemble(dot(z_hat, n)*ds(1)) - 0.0) < 1e-14  # x = 0
+    assert abs(assemble(dot(z_hat, n)*ds(2)) - 0.0) < 1e-14  # x = 1
     assert abs(assemble(dot(z_hat, n)*ds(3)) - 0.0) < 1e-14  # y = 0
-    assert abs(assemble(dot(z_hat, n)*ds(4)) - 0.0) < 1e-14  # x = 1
-    assert abs(assemble(dot(z_hat, n)*ds(5)) - 0.0) < 1e-14  # y = 1
-    assert abs(assemble(dot(z_hat, n)*ds(6)) - 0.0) < 1e-14  # x = 0
+    assert abs(assemble(dot(z_hat, n)*ds(4)) - 0.0) < 1e-14  # y = 1
+    assert abs(assemble(dot(z_hat, n)*ds(5)) + 1.0) < 1e-14  # z = 0
+    assert abs(assemble(dot(z_hat, n)*ds(6)) - 1.0) < 1e-14  # z = 1
 
 
 if __name__ == '__main__':

@@ -46,11 +46,11 @@ def poisson_mixed(size):
     # Define variational form
     a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx
     n = FacetNormal(mesh.ufl_cell())
-    L = -f*v*dx + 42*dot(tau, n)*ds(2)
+    L = -f*v*dx + 42*dot(tau, n)*ds(4)
 
     # Apply dot(sigma, n) == 0 on left and right boundaries strongly
     # (corresponding to Neumann condition du/dn = 0)
-    bcs = DirichletBC(W.sub(0), Expression(('0', '0')), (3, 4))
+    bcs = DirichletBC(W.sub(0), Expression(('0', '0')), (1, 2))
     # Compute solution
     w = Function(W)
     solve(a == L, w, bcs=bcs)
