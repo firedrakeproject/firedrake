@@ -3,41 +3,56 @@ import pytest
 from firedrake import *
 
 
-def test_facet_normal():
+def test_facet_normal_unit_square():
+    """Compute facet normals on the sides of the unit square."""
 
     m = UnitSquareMesh(2, 2)
-
     V = VectorFunctionSpace(m, 'CG', 1)
-
-    y_hat = Function(V)
-
-    y_hat.interpolate(Expression(('0', '1')))
-
-    x_hat = Function(V)
-
-    x_hat.interpolate(Expression(('1', '0')))
-
+    x_hat = Function(V).interpolate(Expression(('1', '0')))
+    y_hat = Function(V).interpolate(Expression(('0', '1')))
     n = FacetNormal(m.ufl_cell())
 
-    y1 = assemble(dot(y_hat, n)*ds(1))   # -1
-    y2 = assemble(dot(y_hat, n)*ds(2))   # 1
-    y3 = assemble(dot(y_hat, n)*ds(3))   # 0
-    y4 = assemble(dot(y_hat, n)*ds(4))   # 0
+    assert assemble(dot(x_hat, n)*ds(1)) == 0.0   # y = 0
+    assert assemble(dot(x_hat, n)*ds(2)) == 0.0   # y = 1
+    assert assemble(dot(x_hat, n)*ds(3)) == 1.0   # x = 1
+    assert assemble(dot(x_hat, n)*ds(4)) == -1.0  # x = 0
 
-    x1 = assemble(dot(x_hat, n)*ds(1))   # 0
-    x2 = assemble(dot(x_hat, n)*ds(2))   # 0
-    x3 = assemble(dot(x_hat, n)*ds(3))   # 1
-    x4 = assemble(dot(x_hat, n)*ds(4))   # -1
+    assert assemble(dot(y_hat, n)*ds(1)) == -1.0  # y = 0
+    assert assemble(dot(y_hat, n)*ds(2)) == 1.0   # y = 1
+    assert assemble(dot(y_hat, n)*ds(3)) == 0.0   # x = 1
+    assert assemble(dot(y_hat, n)*ds(4)) == 0.0   # x = 0
 
-    assert y1 == -1.0
-    assert y2 == 1.0
-    assert y3 == 0.0
-    assert y4 == 0.0
 
-    assert x1 == 0.0
-    assert x2 == 0.0
-    assert x3 == 1.0
-    assert x4 == -1.0
+def test_facet_normal_unit_cube():
+    """Compute facet normals on the sides of the unit cube."""
+
+    m = UnitCubeMesh(1, 1, 1)
+    V = VectorFunctionSpace(m, 'CG', 1)
+    x_hat = Function(V).interpolate(Expression(('1', '0', '0')))
+    y_hat = Function(V).interpolate(Expression(('0', '1', '0')))
+    z_hat = Function(V).interpolate(Expression(('0', '0', '1')))
+    n = FacetNormal(m.ufl_cell())
+
+    assert abs(assemble(dot(x_hat, n)*ds(1)) - 0.0) < 1e-14  # z = 0
+    assert abs(assemble(dot(x_hat, n)*ds(2)) - 0.0) < 1e-14  # z = 1
+    assert abs(assemble(dot(x_hat, n)*ds(3)) - 0.0) < 1e-14  # y = 0
+    assert abs(assemble(dot(x_hat, n)*ds(4)) - 1.0) < 1e-14  # x = 1
+    assert abs(assemble(dot(x_hat, n)*ds(5)) - 0.0) < 1e-14  # y = 1
+    assert abs(assemble(dot(x_hat, n)*ds(6)) + 1.0) < 1e-14  # x = 0
+
+    assert abs(assemble(dot(y_hat, n)*ds(1)) - 0.0) < 1e-14  # z = 0
+    assert abs(assemble(dot(y_hat, n)*ds(2)) - 0.0) < 1e-14  # z = 1
+    assert abs(assemble(dot(y_hat, n)*ds(3)) + 1.0) < 1e-14  # y = 0
+    assert abs(assemble(dot(y_hat, n)*ds(4)) - 0.0) < 1e-14  # x = 1
+    assert abs(assemble(dot(y_hat, n)*ds(5)) - 1.0) < 1e-14  # y = 1
+    assert abs(assemble(dot(y_hat, n)*ds(6)) - 0.0) < 1e-14  # x = 0
+
+    assert abs(assemble(dot(z_hat, n)*ds(1)) + 1.0) < 1e-14  # z = 0
+    assert abs(assemble(dot(z_hat, n)*ds(2)) - 1.0) < 1e-14  # z = 1
+    assert abs(assemble(dot(z_hat, n)*ds(3)) - 0.0) < 1e-14  # y = 0
+    assert abs(assemble(dot(z_hat, n)*ds(4)) - 0.0) < 1e-14  # x = 1
+    assert abs(assemble(dot(z_hat, n)*ds(5)) - 0.0) < 1e-14  # y = 1
+    assert abs(assemble(dot(z_hat, n)*ds(6)) - 0.0) < 1e-14  # x = 0
 
 
 if __name__ == '__main__':
