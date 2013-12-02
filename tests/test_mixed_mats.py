@@ -120,3 +120,7 @@ def test_massWW(W):
     assert np.allclose(A.M[0, 1].values, 0.0)
     # RTxRT block
     assert not np.allclose(A.M[1, 1].values, 0.0)
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))
