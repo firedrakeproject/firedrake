@@ -1537,7 +1537,7 @@ class Function(ufl.Coefficient):
         # each component function space of this function
         d = 0
         for fs, dat, dim in zip(self.function_space(), self.dat, dims):
-            idx = d if dim == 1 else slice(d, d+dim)
+            idx = d if fs.rank == 0 else slice(d, d+dim)
             self._interpolate(fs, dat, Expression(expression.code[idx]), subset)
             d += dim
         return self
