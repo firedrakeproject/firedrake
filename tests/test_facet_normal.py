@@ -3,6 +3,18 @@ import pytest
 from firedrake import *
 
 
+def test_facet_normal_unit_interval():
+    """Compute facet normals on the sides of the unit square."""
+
+    m = UnitIntervalMesh(2)
+    V = VectorFunctionSpace(m, 'CG', 1)
+    x_hat = Function(V).interpolate(Expression(('1.0',)))
+    n = FacetNormal(m.ufl_cell())
+
+    assert assemble(dot(x_hat, n)*ds(1)) == -1.0   # x = 0
+    assert assemble(dot(x_hat, n)*ds(2)) == 1.0  # x = 1
+
+
 def test_facet_normal_unit_square():
     """Compute facet normals on the sides of the unit square."""
 
