@@ -350,12 +350,16 @@ class _Facets(object):
 
         self.markers = markers
         self._subsets = {}
+        self._layers = 1
 
     @utils.cached_property
     def set(self):
         # Currently no MPI parallel support
         size = self.count
         halo = None
+        if self._layers > 1:
+            return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind),
+                           halo=halo, layers=self._layers)
         return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo)
 
     @utils.cached_property
@@ -392,6 +396,13 @@ class _Facets(object):
             self._subsets[markers] = op2.Subset(self.set, indices)
             return self._subsets[markers]
 
+    @property
+    def layers(self):
+        return self._layers
+
+    @layers.setter
+    def layers(self, val):
+        self._layers = val
 
     @utils.cached_property
     def local_facet_dat(self):
@@ -654,6 +665,9 @@ class ExtrudedMesh(Mesh):
         self._coordinates = mesh._coordinates
         self.name = mesh.name
 
+        self._old_mesh.exterior_facets.layers = layers
+        self._old_mesh.interior_facets.layers = layers
+
         self.ufl_cell_element = ufl.FiniteElement("Lagrange",
                                                domain = mesh._ufl_cell,
                                                degree = 1)
@@ -718,6 +732,16 @@ class ExtrudedMesh(Mesh):
             halo = None
         return self.parent.cell_set if self.parent else \
             op2.Set(size, "%s_elements" % self.name, halo=halo, layers=self._layers)
+
+    @property
+    def exterior_facets(self):
+        return self._old_mesh.exterior_facets
+
+    @property
+    def interior_facets(self):
+        return self._old_mesh.interior_facets
+
+
 
 class Halo(object):
     """Fluidity Halo type"""
@@ -941,14 +965,15 @@ class FunctionSpaceBase(object):
         self._index = None
 
         if isinstance(mesh, ExtrudedMesh):
-            if mesh._old_mesh.interior_facets.count > 0:
+            if mesh.interior_facets.count > 0:
                 self.interior_facet_node_list = \
-                    np.array(<int[:mesh._old_mesh.interior_facets.count,:2*element_f.ndof]>
+                    np.array(<int[:mesh.interior_facets.count,:2*element_f.ndof]>
                              function_space.interior_facet_node_list)
             else:
                 self.interior_facet_node_list = None
-                self.exterior_facet_node_list = \
-                    np.array(<int[:mesh._old_mesh.exterior_facets.count,:element_f.ndof]>
+
+            self.exterior_facet_node_list = \
+                np.array(<int[:mesh.exterior_facets.count,:element_f.ndof]>
                              function_space.exterior_facet_node_list)
         if not isinstance(mesh, ExtrudedMesh):
             if mesh.interior_facets.count > 0:
@@ -1080,7 +1105,7 @@ class FunctionSpaceBase(object):
             parent = None
 
         if isinstance(self._mesh, ExtrudedMesh):
-            facet_set = self._mesh._old_mesh.exterior_facets.set
+            facet_set = self._mesh.exterior_facets.set
             name = "extruded_exterior_facet_node"
         else:
             facet_set = self._mesh.exterior_facets.set
@@ -1145,15 +1170,14 @@ class FunctionSpaceBase(object):
         el = self.fiat_element
         if isinstance(self._mesh, ExtrudedMesh):
             dim = (1,1)
-            nodes_per_facet = \
-                len(self.fiat_element.entity_closure_dofs()[dim][0])
-            facet_set = self._mesh._old_mesh.exterior_facets.set
         else:
             dim = len(el.get_reference_element().topology)-1
             dim = dim - 1
-            nodes_per_facet = \
-                len(self.fiat_element.entity_closure_dofs()[dim][0])
-            facet_set = self._mesh.exterior_facets.set
+
+        nodes_per_facet = \
+            len(self.fiat_element.entity_closure_dofs()[dim][0])
+
+        facet_set = self._mesh.exterior_facets.set
 
         fs_dat = op2.Dat(facet_set**el.space_dimension(),
                          data=self.exterior_facet_node_map().values_with_halo)
@@ -1196,10 +1220,7 @@ class FunctionSpaceBase(object):
                         )
                     )), "create_bc_node_map")
 
-        if isinstance(self._mesh, ExtrudedMesh):
-            local_facet_dat = self._mesh._old_mesh.exterior_facets.local_facet_dat
-        else:
-            local_facet_dat = self._mesh.exterior_facets.local_facet_dat
+        local_facet_dat = self._mesh.exterior_facets.local_facet_dat
         op2.par_loop(kernel, facet_set,
                      fs_dat(op2.READ),
                      facet_dat(op2.WRITE),
