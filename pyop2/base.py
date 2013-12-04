@@ -2271,7 +2271,7 @@ class Map(object):
         # the application of strong boundary conditions
         self._bottom_mask = np.zeros(len(offset)) if offset is not None else []
         self._top_mask = np.zeros(len(offset)) if offset is not None else []
-        if bt_masks is not None:
+        if offset is not None and bt_masks is not None:
             self._bottom_mask[bt_masks[0]] = -1
             self._top_mask[bt_masks[1]] = -1
         Map._globalcount += 1
