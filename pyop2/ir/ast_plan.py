@@ -128,3 +128,15 @@ class ASTKernel(object):
         if hasattr(self, 'fundecl'):
             self.fundecl.pred = [q for q in self.fundecl.pred
                                  if q not in ['static', 'inline']]
+
+    def plan_cpu(self, opts):
+        """Transform and optimize the kernel suitably for CPU execution."""
+
+        # Fetch user-provided options/hints on how to transform the kernel
+        licm = opts["licm"]
+
+        lo = [LoopOptimiser(l, pre_l) for l, pre_l in self.fors]
+        for nest in lo:
+            if licm:
+                inv_outer_loops = nest.licm()  # noqa
+                self.decl.update(nest.decls)

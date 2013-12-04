@@ -42,6 +42,22 @@ from configuration import configuration
 from logger import progress, INFO
 from utils import as_tuple
 
+from pyop2.ir.ast_base import Node
+from pyop2.ir.ast_plan import ASTKernel
+
+
+class Kernel(base.Kernel):
+
+    @classmethod
+    def _ast_to_c(cls, ast, name):
+        """Transform an Abstract Syntax Tree representing the kernel into a
+        string of code (C syntax) suitable to CPU execution."""
+        if not isinstance(ast, Node):
+            return ast
+        ast_handler = ASTKernel(ast)
+        ast_handler.plan_cpu({'licm': True})
+        return ast.gencode()
+
 
 class Arg(base.Arg):
 

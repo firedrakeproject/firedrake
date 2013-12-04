@@ -42,6 +42,7 @@ from utils import *
 from petsc_base import *
 from logger import warning
 import host
+from host import Kernel  # noqa: for inheritance
 import device
 import plan as _plan
 from subprocess import Popen, PIPE

@@ -37,7 +37,7 @@ from exceptions import *
 from utils import as_tuple
 from petsc_base import *
 import host
-from host import Arg  # noqa: needed by BackendSelector
+from host import Kernel, Arg  # noqa: needed by BackendSelector
 
 # Parallel loop API
 
