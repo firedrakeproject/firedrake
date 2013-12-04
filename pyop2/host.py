@@ -548,12 +548,12 @@ class JITModule(base.JITModule):
         if any(arg._is_soa for arg in self._args):
             kernel_code = """
             #define OP2_STRIDE(a, idx) a[idx]
-            inline static %(code)s
+            %(code)s
             #undef OP2_STRIDE
             """ % {'code': self._kernel.code}
         else:
             kernel_code = """
-            inline static %(code)s
+            %(code)s
             """ % {'code': self._kernel.code}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
         if configuration["debug"]:
@@ -685,21 +685,20 @@ class JITModule(base.JITModule):
             _off_args = ""
             _off_inits = ""
 
-        # Build kernel invokation s.t. a variable X that depends on the kernels's iteration
-        # space is replaced by a temporary array BUFFER.
+        # Build kernel invokation. Let X be a parameter of the kernel representing a tensor
+        # accessed in an iteration space. Let BUFFER be an array of the same size as X.
+        # BUFFER is declared and intialized in the wrapper function.
         # * if X is written or incremented in the kernel, then BUFFER is initialized to 0
-        # * if X in read in the kernel, then BUFFER gathers all of the read data
-        _itspace_args = [(count, arg)
-                         for count, arg in enumerate(self._args) if arg._uses_itspace]
+        # * if X in read in the kernel, then BUFFER gathers data expected by X
+        _itspace_args = [(count, arg) for count, arg in enumerate(self._args) if arg._uses_itspace]
         _buf_gather = ""
         _buf_decl = {}
         for count, arg in _itspace_args:
-            if arg._is_mat:
-                _buf_size = list(self._itspace._extents)
-            else:
+            _buf_size = list(self._itspace._extents)
+            if not arg._is_mat:
                 dim = arg.data.dim
-                size = [s[0] for s in dim] if len(arg.data.dim) > 1 else dim
-                _buf_size = [sum([e*d for e, d in zip(self._itspace._extents, size)])]
+                _dat_size = [s[0] for s in dim] if len(arg.data.dim) > 1 else dim
+                _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
             if arg.access._mode not in ['WRITE', 'INC']:
                 _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e)
                                            for n, e in enumerate(_buf_size)])
@@ -715,11 +714,7 @@ class JITModule(base.JITModule):
 
         def itset_loop_body(i, j, shape, offsets):
             nloops = len(shape)
-            _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e)
-                                       for n, e in enumerate(shape)])
-            _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j) for arg in self._args
-                                               if arg._is_mat and arg.data._is_vector_field])
-            _apply_offset = ""
+            _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e) for n, e in enumerate(shape)])
             _itspace_args = [(count, arg) for count, arg in enumerate(self._args)
                              if arg.access._mode in ['WRITE', 'INC'] and arg._uses_itspace]
             _buf_scatter = ""
@@ -728,13 +723,8 @@ class JITModule(base.JITModule):
                     arg.c_arg_name(i, j) + "".join("[%d]" % d for d in shape)
                 _buf_scatter = arg.c_buffer_scatter(
                     count, shape, i, j, offsets)
+            _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
 
-            _itspace_loop_close = '\n'.join(
-                '  ' * n + '}' for n in range(nloops - 1, -1, -1))
-            if not _addtos_vector_field and not _buf_scatter:
-                _itspace_loops = ''
-                _buf_decl_scatter = ''
-                _itspace_loop_close = ''
             if self._itspace.layers > 1:
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, offsets, "xtr_") for arg in self._args
                                                             if arg._is_mat and arg.data._is_scalar_field])
@@ -747,6 +737,11 @@ class JITModule(base.JITModule):
                                                    if arg._is_mat and arg.data._is_scalar_field])
                 _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j) for arg in self._args
                                                   if arg._is_mat and arg.data._is_vector_field])
+
+            if not _addtos_vector_field and not _buf_scatter:
+                _itspace_loops = ''
+                _buf_decl_scatter = ''
+                _itspace_loop_close = ''
 
             template = """
     %(buffer_decl_scatter)s;
