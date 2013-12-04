@@ -254,8 +254,8 @@ cdef ft.element_t as_element(object fiat_element):
     else:
         f_element = fiat_element
 
-    element.dimension = len(f_element.ref_el.topology) - 1
-    element.vertices = len(f_element.ref_el.vertices)
+    element.dimension = len(f_element.get_reference_element().topology) - 1
+    element.vertices = len(f_element.get_reference_element().vertices)
     element.ndof = f_element.space_dimension()
     element.degree = f_element.degree()
 
@@ -1003,7 +1003,7 @@ class FunctionSpaceBase(object):
         are referenced, not all nodes in cells touching the surface.'''
 
         el = self.fiat_element
-        dim = len(el.ref_el.topology)-1
+        dim = len(el.get_reference_element().topology)-1
         nodes_per_facet = \
             len(self.fiat_element.entity_closure_dofs()[dim-1][0])
 
@@ -1036,7 +1036,7 @@ class FunctionSpaceBase(object):
                                     cgen.ArrayOf(
                                         cgen.ArrayOf(
                                             cgen.Value("int", "l_nodes"),
-                                            str(len(el.ref_el.topology[dim-1]))),
+                                            str(len(el.get_reference_element().topology[dim-1]))),
                                         str(nodes_per_facet)),
                                     ),
                                 map(c_array, local_facet_nodes)
