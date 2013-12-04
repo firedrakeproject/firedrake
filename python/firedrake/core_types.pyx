@@ -88,6 +88,16 @@ def fiat_from_ufl_element(ufl_element):
             (_FIAT_cells[ufl_element.cell().cellname()](), ufl_element.degree())
 
 # Functions related to the extruded case
+def extract_offset(offset, facet_map, base_map):
+    """Starting from existing mappings for the """
+    res = np.zeros(len(facet_map), np.int32)
+    for i, facet_dof in enumerate(facet_map):
+        for j, base_dof in enumerate(base_map):
+            if base_dof == facet_dof:
+                res[i] = offset[j]
+                break
+    return res
+
 def compute_extruded_dofs(fiat_element, flat_dofs, layers):
     """Compute the number of dofs in a column"""
     size = len(flat_dofs)
@@ -1107,16 +1117,19 @@ class FunctionSpaceBase(object):
         if isinstance(self._mesh, ExtrudedMesh):
             facet_set = self._mesh.exterior_facets.set
             name = "extruded_exterior_facet_node"
+            offset = self.offset
         else:
             facet_set = self._mesh.exterior_facets.set
             name = "exterior_facet_node"
+            offset = None
         return self._map_cache(self._exterior_facet_map_cache,
                                facet_set,
                                self.exterior_facet_node_list,
                                self.fiat_element.space_dimension(),
                                bcs,
                                name,
-                               parent=parent)
+                               parent=parent,
+                               offset=offset)
 
     def bottom_nodes(self):
         """Return a list of the bottom boundary nodes of the extruded mesh.
@@ -1226,8 +1239,17 @@ class FunctionSpaceBase(object):
                      facet_dat(op2.WRITE),
                      local_facet_dat(op2.READ))
 
-        return op2.Map(facet_set, self.node_set, nodes_per_facet, 
-                       facet_dat.data_ro_with_halos, name="exterior_facet_boundary_node")
+        if isinstance(self._mesh, ExtrudedMesh):
+            offset = extract_offset(self.offset,
+                                    facet_dat.data_ro_with_halos[0],
+                                    self.cell_node_map().values[0])
+        else:
+            offset = None
+        return op2.Map(facet_set, self.node_set,
+                       nodes_per_facet,
+                       facet_dat.data_ro_with_halos,
+                       name="exterior_facet_boundary_node",
+                       offset=offset)
 
 
     @property
