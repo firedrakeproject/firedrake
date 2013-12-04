@@ -940,6 +940,16 @@ class FunctionSpaceBase(object):
         self._dim = dim
         self._index = None
 
+        if isinstance(mesh, ExtrudedMesh):
+            if mesh._old_mesh.interior_facets.count > 0:
+                self.interior_facet_node_list = \
+                    np.array(<int[:mesh._old_mesh.interior_facets.count,:2*element_f.ndof]>
+                             function_space.interior_facet_node_list)
+            else:
+                self.interior_facet_node_list = None
+                self.exterior_facet_node_list = \
+                    np.array(<int[:mesh._old_mesh.exterior_facets.count,:element_f.ndof]>
+                             function_space.exterior_facet_node_list)
         if not isinstance(mesh, ExtrudedMesh):
             if mesh.interior_facets.count > 0:
                 self.interior_facet_node_list = \
@@ -1069,12 +1079,18 @@ class FunctionSpaceBase(object):
         else:
             parent = None
 
+        if isinstance(self._mesh, ExtrudedMesh):
+            facet_set = self._mesh._old_mesh.exterior_facets.set
+            name = "extruded_exterior_facet_node"
+        else:
+            facet_set = self._mesh.exterior_facets.set
+            name = "exterior_facet_node"
         return self._map_cache(self._exterior_facet_map_cache,
-                               self._mesh.exterior_facets.set,
+                               facet_set,
                                self.exterior_facet_node_list,
                                self.fiat_element.space_dimension(),
                                bcs,
-                               "exterior_facet_node",
+                               name,
                                parent=parent)
 
     def bottom_nodes(self):
@@ -1127,11 +1143,17 @@ class FunctionSpaceBase(object):
         are referenced, not all nodes in cells touching the surface.'''
 
         el = self.fiat_element
-        dim = len(el.get_reference_element().topology)-1
-        nodes_per_facet = \
-            len(self.fiat_element.entity_closure_dofs()[dim-1][0])
-
-        facet_set = self._mesh.exterior_facets.set
+        if isinstance(self._mesh, ExtrudedMesh):
+            dim = (1,1)
+            nodes_per_facet = \
+                len(self.fiat_element.entity_closure_dofs()[dim][0])
+            facet_set = self._mesh._old_mesh.exterior_facets.set
+        else:
+            dim = len(el.get_reference_element().topology)-1
+            dim = dim - 1
+            nodes_per_facet = \
+                len(self.fiat_element.entity_closure_dofs()[dim][0])
+            facet_set = self._mesh.exterior_facets.set
 
         fs_dat = op2.Dat(facet_set**el.space_dimension(),
                          data=self.exterior_facet_node_map().values_with_halo)
@@ -1140,7 +1162,7 @@ class FunctionSpaceBase(object):
                             dtype=np.int32)
 
         local_facet_nodes = np.array(
-            [dofs for e, dofs in el.entity_closure_dofs()[dim-1].iteritems()])
+            [dofs for e, dofs in el.entity_closure_dofs()[dim].iteritems()])
 
         # Helper function to turn the inner index of an array into c
         # array literals.
@@ -1160,7 +1182,7 @@ class FunctionSpaceBase(object):
                                     cgen.ArrayOf(
                                         cgen.ArrayOf(
                                             cgen.Value("int", "l_nodes"),
-                                            str(len(el.get_reference_element().topology[dim-1]))),
+                                            str(len(el.get_reference_element().topology[dim]))),
                                         str(nodes_per_facet)),
                                     ),
                                 map(c_array, local_facet_nodes)
@@ -1174,10 +1196,14 @@ class FunctionSpaceBase(object):
                         )
                     )), "create_bc_node_map")
 
+        if isinstance(self._mesh, ExtrudedMesh):
+            local_facet_dat = self._mesh._old_mesh.exterior_facets.local_facet_dat
+        else:
+            local_facet_dat = self._mesh.exterior_facets.local_facet_dat
         op2.par_loop(kernel, facet_set,
                      fs_dat(op2.READ),
                      facet_dat(op2.WRITE),
-                     self._mesh.exterior_facets.local_facet_dat(op2.READ))
+                     local_facet_dat(op2.READ))
 
         return op2.Map(facet_set, self.node_set, nodes_per_facet, 
                        facet_dat.data_ro_with_halos, name="exterior_facet_boundary_node")

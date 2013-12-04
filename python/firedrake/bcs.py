@@ -79,6 +79,11 @@ class DirichletBC(object):
         elif self.sub_domain == "top":
             return fs.top_nodes()
         else:
+            if fs.extruded:
+                return np.unique(
+                    fs.exterior_facet_boundary_node_map.values_with_halo.take(
+                        fs._mesh._old_mesh.exterior_facets.subset(self.sub_domain).indices,
+                        axis=0))
             return np.unique(
                 fs.exterior_facet_boundary_node_map.values_with_halo.take(
                     fs._mesh.exterior_facets.subset(self.sub_domain).indices,
