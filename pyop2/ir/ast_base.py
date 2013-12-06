@@ -1,21 +1,16 @@
 """This file contains the hierarchy of classes that implement a kernel's
 Abstract Syntax Tree (ast)."""
 
-# This dictionary is used as a template for simple exprs and commands
-util = {
-    "point": lambda p: "[%s]" % p,
-    "assign": lambda s, e: "%s = %s" % (s, e),
-    "incr": lambda s, e: "%s += %s" % (s, e),
-    "incr++": lambda s: "%s++" % s,
-    "wrap": lambda e: "(%s)" % e,
-    "bracket": lambda s: "{%s}" % s,
-    "decl": lambda q, t, s, a: "%s%s %s %s" % (q, t, s, a),
-    "decl_init": lambda q, t, s, a, e: "%s%s %s %s = %s" % (q, t, s, a, e),
-    "for": lambda s1, e, s2, s3: "for (%s; %s; %s)\n%s" % (s1, e, s2, s3)
-}
-
-# This dictionary is used to store type and qualifiers of declared variables
-decl = {}
+# Utilities for simple exprs and commands
+point = lambda p: "[%s]" % p
+assign = lambda s, e: "%s = %s" % (s, e)
+incr = lambda s, e: "%s += %s" % (s, e)
+incr_by_1 = lambda s: "%s++" % s
+wrap = lambda e: "(%s)" % e
+bracket = lambda s: "{%s}" % s
+decl = lambda q, t, s, a: "%s%s %s %s" % (q, t, s, a)
+decl_init = lambda q, t, s, a, e: "%s%s %s %s = %s" % (q, t, s, a, e)
+for_loop = lambda s1, e, s2, s3: "for (%s; %s; %s)\n%s" % (s1, e, s2, s3)
 
 # Base classes of the AST ###
 
@@ -91,7 +86,7 @@ class Par(UnaryExpr):
     """Parenthesis object."""
 
     def gencode(self):
-        return util["wrap"](self.children[0].gencode())
+        return wrap(self.children[0].gencode())
 
 
 class Sum(BinExpr):
@@ -147,10 +142,7 @@ class Symbol(Expr):
         self.loop_dep = tuple([i for i in rank if not str(i).isdigit()])
 
     def gencode(self):
-        points = ""
-        for p in self.rank:
-            points += util["point"](p)
-        return str(self.symbol) + points
+        return str(self.symbol) + "".join([point(p) for p in self.rank])
 
 
 # Vector expression classes ###
@@ -200,7 +192,7 @@ class AVXLoad(Symbol):
         mem_access = False
         points = ""
         for p in self.rank:
-            points += util["point"](p)
+            points += point(p)
             mem_access = mem_access or not p.isdigit()
         symbol = str(self.symbol) + points
         if mem_access:
@@ -238,8 +230,8 @@ class Assign(Statement):
         super(Assign, self).__init__([sym, exp], pragma)
 
     def gencode(self, scope=False):
-        return util["assign"](self.children[0].gencode(),
-                              self.children[1].gencode()) + semicolon(scope)
+        return assign(self.children[0].gencode(),
+                      self.children[1].gencode()) + semicolon(scope)
 
 
 class Incr(Statement):
@@ -252,10 +244,9 @@ class Incr(Statement):
     def gencode(self, scope=False):
         sym, exp = self.children
         if isinstance(exp, Symbol) and exp.symbol == 1:
-            return util["incr++"](sym.gencode())
+            return incr_by_1(sym.gencode())
         else:
-            return util["incr"](sym.gencode(),
-                                exp.gencode()) + semicolon(scope)
+            return incr(sym.gencode(), exp.gencode()) + semicolon(scope)
 
 
 class Decl(Statement):
@@ -265,6 +256,8 @@ class Decl(Statement):
     Syntax: [qualifiers] typ sym [attributes] [= init];
     E.g.: static const double FE0[3][3] __attribute__(align(32)) = {{...}};"""
 
+    declared = {}
+
     def __init__(self, typ, sym, init=None, qualifiers=None, attributes=None):
         super(Decl, self).__init__()
         self.typ = typ
@@ -272,7 +265,7 @@ class Decl(Statement):
         self.qual = qualifiers or []
         self.attr = attributes or []
         self.init = init or EmptyStatement()
-        decl[sym.symbol] = self
+        self.declared[sym.symbol] = self
 
     def gencode(self, scope=False):
 
@@ -283,12 +276,11 @@ class Decl(Statement):
                 return ""
 
         if isinstance(self.init, EmptyStatement):
-            return util["decl"](spacer(self.qual), self.typ,
-                                self.sym.gencode(), spacer(self.attr)) + semicolon(scope)
+            return decl(spacer(self.qual), self.typ, self.sym.gencode(),
+                        spacer(self.attr)) + semicolon(scope)
         else:
-            return util["decl_init"](spacer(self.qual), self.typ,
-                                     self.sym.gencode(), spacer(self.attr),
-                                     self.init.gencode()) + semicolon(scope)
+            return decl_init(spacer(self.qual), self.typ, self.sym.gencode(),
+                             spacer(self.attr), self.init.gencode()) + semicolon(scope)
 
 
 class Block(Statement):
@@ -327,9 +319,9 @@ class For(Statement):
         return self.cond.children[1].symbol - self.init.init.symbol
 
     def gencode(self, scope=False):
-        return self.pragma + "\n" + util["for"](self.init.gencode(True),
-                                                self.cond.gencode(), self.incr.gencode(True),
-                                                self.children[0].gencode())
+        return self.pragma + "\n" + for_loop(self.init.gencode(True),
+                                             self.cond.gencode(), self.incr.gencode(True),
+                                             self.children[0].gencode())
 
 
 class FunCall(Statement):
@@ -359,7 +351,7 @@ class FunDecl(Statement):
 
     def gencode(self):
         sign_list = self.pred + [self.ret, self.name,
-                                 util["wrap"](", ".join([arg.gencode(True) for arg in self.args]))]
+                                 wrap(", ".join([arg.gencode(True) for arg in self.args]))]
         return " ".join(sign_list) + \
                "\n{\n%s\n}" % indent(self.children[0].gencode())
 
