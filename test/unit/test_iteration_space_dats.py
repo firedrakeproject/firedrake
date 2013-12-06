@@ -136,7 +136,7 @@ class TestIterationSpaceDats:
     def test_write_1d_itspace_map(self, backend, node, vd1, node2ele):
         k = FunDecl("void", "k",
                     [Decl("int*", c_sym("vd"))],
-                    c_for("i", 1, Incr(Symbol("vd", ("i",)), c_sym(2))))
+                    c_for("i", 1, Assign(Symbol("vd", ("i",)), c_sym(2))))
 
         op2.par_loop(op2.Kernel(k, 'k'), node,
                      vd1(op2.WRITE, node2ele[op2.i[0]]))
@@ -180,8 +180,8 @@ class TestIterationSpaceDats:
         assert all(d2.data[1::2, 1] == vd2.data[:, 1])
 
     def test_write_2d_itspace_map(self, backend, vd2, node2ele, node):
-        writes = Block([Incr(Symbol("vd", ("i",), ((1, 0),)), c_sym(2)),
-                        Incr(Symbol("vd", ("i",), ((1, 1),)), c_sym(3))],
+        writes = Block([Assign(Symbol("vd", ("i",), ((1, 0),)), c_sym(2)),
+                        Assign(Symbol("vd", ("i",), ((1, 1),)), c_sym(3))],
                        open_scope=True)
         k = FunDecl("void", "k",
                     [Decl("int*", c_sym("vd"))],
