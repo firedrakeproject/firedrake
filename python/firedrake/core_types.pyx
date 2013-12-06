@@ -1150,14 +1150,21 @@ class FunctionSpaceBase(object):
         else:
             # Ensure bcs is a tuple in a canonical order for the hash key.
             lbcs = tuple(sorted(bcs, key=lambda bc: bc.__hash__()))
-
         try:
             # Cache hit
             return cache[lbcs]
         except KeyError:
             # Cache miss.
-            if not lbcs or offset is not None:
+            if not lbcs:
                 new_entity_node_list = entity_node_list
+            elif offset is not None:
+                l = [bc.nodes for bc in bcs if bc.sub_domain!='top' and bc.sub_domain!='bottom']
+                if l != []:
+                    bcids = reduce(np.union1d, [bc.nodes for bc in bcs if bc.sub_domain!='top' and bc.sub_domain!='bottom'])
+                    nl = entity_node_list.ravel()
+                    new_entity_node_list = np.where(np.in1d(nl, bcids), -10000000, nl)
+                else:
+                    new_entity_node_list = entity_node_list
             else:
                 bcids = reduce(np.union1d, [bc.nodes for bc in bcs])
                 nl = entity_node_list.ravel()
