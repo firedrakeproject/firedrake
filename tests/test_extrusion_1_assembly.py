@@ -6,7 +6,7 @@ from common import *
 
 CG = [("CG", 1), ("CG", 2)]
 DG = [("DG", 0), ("DG", 1)]
-hdiv = [("RT", 1), ("RT", 2), ("RT", 3), ("BDM", 1)]
+hdiv = [("RT", 1), ("RT", 2), ("RT", 3), ("BDM", 1), ("BDM", 2), ("BDFM", 2)]
 
 
 @pytest.mark.parametrize(('hfamily', 'hdegree', 'vfamily', 'vdegree'),

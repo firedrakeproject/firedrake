@@ -10,7 +10,8 @@ from common import *
                          [((("CG", 1), ("RT", 1), ("DG", 0)), (("CG", 3), ("DG", 2))),
                           ((("CG", 2), ("RT", 2), ("DG", 1)), (("CG", 2), ("DG", 1))),
                           ((("CG", 3), ("RT", 3), ("DG", 2)), (("CG", 1), ("DG", 0))),
-                          ((("CG", 2), ("BDM", 1), ("DG", 0)), (("CG", 1), ("DG", 0)))])
+                          ((("CG", 2), ("BDM", 1), ("DG", 0)), (("CG", 1), ("DG", 0))),
+                          ((("CG", 3), ("BDM", 2), ("DG", 1)), (("CG", 2), ("DG", 1)))])
 def test_feec(horiz_complex, vert_complex):
     hcV0, hcV1, hcV2 = horiz_complex
     vcV0, vcV1 = vert_complex
@@ -103,7 +104,7 @@ def test_feec(horiz_complex, vert_complex):
     v = Function(V1)
     solve(a == L, v, solver_parameters=parms)
     maxcoeff = max(abs(v.dat.data))
-    assert maxcoeff < 1.5e-12
+    assert maxcoeff < 2e-12
 
     ### TEST WEAKDIV(WEAKCURL(w)) = 0, for w in V2 ###
 
