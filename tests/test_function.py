@@ -32,7 +32,7 @@ def test_mismatching_rank_interpolation(V):
     VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VV)
     with pytest.raises(RuntimeError):
-        f.interpolate(Expression('1'))
+        f.interpolate(Expression(('1', '2')))
 
 
 def test_mismatching_shape_interpolation(V):

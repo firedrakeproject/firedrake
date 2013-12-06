@@ -16,7 +16,7 @@ from ufl import *
 import FIAT
 
 from pyop2 import op2
-from pyop2.utils import flatten
+from pyop2.utils import as_tuple, flatten
 
 import assemble_expressions
 from expression import Expression
@@ -331,17 +331,20 @@ class _Facets(object):
         else:
             return self.subset(measure.domain_id())
 
-    def subset(self, i):
-        """Return the subset corresponding to a marker value of i."""
+    def subset(self, markers):
+        """Return the subset corresponding to a given marker value.
 
-        if self.markers is not None and not self._subsets:
-            # Generate the subsets. One subset is created for each unique marker value.
-            self._subsets = dict(((i,op2.Subset(self.set, np.nonzero(self.markers==i)[0]))
-                                  for i in np.unique(self.markers)))
-        try:
-            return self._subsets[i]
-        except KeyError:
+        :param markers: integer marker id or an iterable of marker ids"""
+        if self.markers is None:
             return self._null_subset
+        markers = as_tuple(markers, int)
+        try:
+            return self._subsets[markers]
+        except KeyError:
+            indices = np.concatenate([np.nonzero(self.markers==i)[0]
+                                      for i in markers])
+            self._subsets[markers] = op2.Subset(self.set, indices)
+            return self._subsets[markers]
 
 
     @utils.cached_property
@@ -1297,7 +1300,12 @@ class MixedFunctionSpace(FunctionSpaceBase):
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
         # FIXME: these want caching of sorts
-        return op2.MixedMap(s.cell_node_map(bcs) for s in self._spaces)
+        bc_list = [[] for _ in self]
+        if bcs:
+            for bc in bcs:
+                bc_list[bc.function_space().index].append(bc)
+        return op2.MixedMap(s.cell_node_map(bc_list[i])
+                            for i, s in enumerate(self._spaces))
 
     def interior_facet_node_map(self, bcs=None):
         """Return the :class:`pyop2.MixedMap` from interior facets to
@@ -1307,7 +1315,12 @@ class MixedFunctionSpace(FunctionSpaceBase):
         applied. Where a PETSc matrix is employed, this will cause the
         corresponding values to be discarded during matrix assembly."""
         # FIXME: these want caching of sorts
-        return op2.MixedMap(s.interior_facet_node_map(bcs) for s in self._spaces)
+        bc_list = [[] for _ in self]
+        if bcs:
+            for bc in bcs:
+                bc_list[bc.function_space().index].append(bc)
+        return op2.MixedMap(s.interior_facet_node_map(bc_list[i])
+                            for i, s in enumerate(self._spaces))
 
     def exterior_facet_node_map(self, bcs=None):
         """Return the :class:`pyop2.Map` from exterior facets to
@@ -1317,7 +1330,12 @@ class MixedFunctionSpace(FunctionSpaceBase):
         applied. Where a PETSc matrix is employed, this will cause the
         corresponding values to be discarded during matrix assembly."""
         # FIXME: these want caching of sorts
-        return op2.MixedMap(s.exterior_facet_node_map(bcs) for s in self._spaces)
+        bc_list = [[] for _ in self]
+        if bcs:
+            for bc in bcs:
+                bc_list[bc.function_space().index].append(bc)
+        return op2.MixedMap(s.exterior_facet_node_map(bc_list[i])
+                            for i, s in enumerate(self._spaces))
 
     @utils.cached_property
     def exterior_facet_boundary_node_map(self):
@@ -1501,53 +1519,64 @@ class Function(ufl.Coefficient):
         else:
             return super(Function, self).__str__()
 
-    def interpolate(self, expression):
+    def interpolate(self, expression, subset=None):
         """Interpolate an expression onto this :class:`Function`.
 
         :param expression: :class:`Expression` to interpolate
         :returns: this :class:`Function` object"""
 
-        if expression.rank() != self.function_space().rank:
-            raise RuntimeError('Rank mismatch between Expression and FunctionSpace')
+        # Make sure we have an expression of the right length i.e. a value for
+        # each component in the value shape of each function space
+        dims = [np.prod(fs.ufl_element().value_shape(), dtype=int)
+                for fs in self.function_space()]
+        if len(expression.code) != sum(dims):
+            raise RuntimeError('Expression of length %d required, got length %d'
+                               % (sum(dims), len(expression.code)))
 
-        if expression.shape() != self.function_space().ufl_element().value_shape():
-            raise RuntimeError('Shape mismatch between Expression and FunctionSpace')
-
-        i = 0
-        for fs, dat in zip(self.function_space(), self.dat):
-            self._interpolate(fs, dat, Expression(expression.code[i:i+fs.dim]))
-            i += fs.dim
+        # Splice the expression and pass in the right number of values for
+        # each component function space of this function
+        d = 0
+        for fs, dat, dim in zip(self.function_space(), self.dat, dims):
+            idx = d if fs.rank == 0 else slice(d, d+dim)
+            self._interpolate(fs, dat, Expression(expression.code[idx]), subset)
+            d += dim
         return self
 
-    def _interpolate(self, fs, dat, expression):
+    def _interpolate(self, fs, dat, expression, subset):
         """Interpolate expression onto a :class:`FunctionSpace`.
 
         :param fs: :class:`FunctionSpace`
         :param dat: :class:`op2.Dat`
         :param expression: :class:`Expression`
         """
-        coords = fs.mesh()._coordinate_field
-
-        coords_space = coords.function_space()
-
-        coords_element = coords_space.fiat_element
-
         to_element = fs.fiat_element
-
         to_pts = []
 
         for dual in to_element.dual_basis():
             if not isinstance(dual, FIAT.functional.PointEvaluation):
-                raise NotImplementedError("Can only interpolate onto point evaluation operators. Try projecting instead")
-
+                raise NotImplementedError("Can only interpolate onto point \
+                    evaluation operators. Try projecting instead")
             to_pts.append(dual.pt_dict.keys()[0])
+
+        if expression.rank() != len(fs.ufl_element().value_shape()):
+            raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
+                               % (expression.rank(), len(fs.ufl_element().value_shape())))
+
+        if expression.shape() != fs.ufl_element().value_shape():
+            raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
+                               % (expression.shape(), fs.ufl_element().value_shape()))
+
+        coords = fs.mesh()._coordinate_field
+        coords_space = coords.function_space()
+        coords_element = coords_space.fiat_element
 
         X=coords_element.tabulate(0, to_pts).values()[0]
 
         # Produce C array notation of X.
         X_str = "{{"+"},\n{".join([ ",".join(map(str,x)) for x in X.T])+"}}"
 
-        assign_expression = ";\n".join(["A[%(i)d] = %(code)s" % { 'i': i, 'code': code } for i, code in enumerate(expression.code)])
+        assign_expression = ";\n".join(["A[%(i)d] = %(code)s" % { 'i': i, 'code': code }
+                                        for i, code in enumerate(expression.code)])
         _expression_template = """
 void expression_kernel(double A[%(assign_dim)d], double **x_, int k)
 {
@@ -1575,7 +1604,7 @@ void expression_kernel(double A[%(assign_dim)d], double **x_, int k)
                                                                             dtype=int) },
                             "expression_kernel")
 
-        op2.par_loop(kernel, self.cell_set,
+        op2.par_loop(kernel, subset or self.cell_set,
                      dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
                      coords.dat(op2.READ, coords.cell_node_map())
                      )

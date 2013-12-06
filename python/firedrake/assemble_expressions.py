@@ -244,6 +244,10 @@ class ExpressionSplitter(ReuseTransformer):
             return [o for _ in self._function_space]
         raise NotImplementedError("Don't know what to do with %r" % o)
 
+    def product(self, o, *operands):
+        """Reconstruct a product on each of the component spaces."""
+        return [op0 * op1 for op0, op1 in zip(*operands)]
+
     def operator(self, o, *operands):
         """Reconstruct an operator on each of the component spaces."""
         return [o.reconstruct(*ops) for ops in zip(*operands)]

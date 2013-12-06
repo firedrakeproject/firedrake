@@ -1,7 +1,11 @@
 # A module implementing strong (Dirichlet) boundary conditions.
 import utils
 import numpy as np
+from ufl import as_ufl, UFLException
 import types
+from core_types import Function
+from expression import Expression
+from projection import project
 import pyop2 as op2
 
 
@@ -10,9 +14,10 @@ class DirichletBC(object):
 
     :arg V: the :class:`FunctionSpace` on which the boundary condition
         should be applied.
-    :arg g: the boundary condition values. This can be a :class:`Function` on V,
-        or an expression (such as a literal constant) which can be pointwise
-        evaluated at the nodes of V.
+    :arg g: the boundary condition values. This can be a :class:`Function` on
+        ``V``, a :class:`Expression` or a literal constant which can be
+        pointwise evaluated at the nodes of ``V``. :class:`Expression`\s are
+        projected onto ``V`` if it does not support pointwise evaluation.
     :arg sub_domain: the integer id of the boundary region over which the
         boundary condition should be applied. In the case of extrusion
         the ``top`` and ``bottom`` strings are used to flag the bcs application on
@@ -20,7 +25,17 @@ class DirichletBC(object):
     '''
 
     def __init__(self, V, g, sub_domain):
-
+        if isinstance(g, Expression):
+            try:
+                g = Function(V).interpolate(g)
+            # Not a point evaluation space, need to project onto V
+            except NotImplementedError:
+                g = project(g, V)
+        else:
+            try:
+                as_ufl(g)
+            except UFLException:
+                raise ValueError("%r is not a valid DirichletBC expression" % (g,))
         self._function_space = V
         self.function_arg = g
         self._original_arg = g
@@ -100,7 +115,14 @@ class DirichletBC(object):
         if isinstance(r, types.Matrix):
             r.add_bc(self)
             return
+        # If this BC is defined on a subspace of a mixed function space, make
+        # sure we only apply to the appropriate subspace of the Function r
+        fs = self._function_space
+        if fs.index is not None:
+            r = Function(self._function_space, r.dat[fs.index])
         if u:
-            r.assign(u-self.function_arg, subset=self.node_set)
+            if fs.index is not None:
+                u = Function(fs, u.dat[fs.index])
+            r.assign(u - self.function_arg, subset=self.node_set)
         else:
             r.assign(self.function_arg, subset=self.node_set)

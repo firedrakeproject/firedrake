@@ -170,6 +170,13 @@ class UnitSquareMesh(Mesh):
 
     The number of the elements in a mesh can be computed from 2 * nx * ny,
     and the number of vertices from (nx+1) * (ny+1).
+
+    The boundary edges are numbered as follows:
+
+    * 1: plane x == 0
+    * 2: plane x == 1
+    * 3: plane y == 0
+    * 4: plane y == 1
     """
 
     def __init__(self, nx, ny):
@@ -182,10 +189,10 @@ class UnitSquareMesh(Mesh):
             extrusion[] = Extrude {0, 1, 0}{
                 Line{1}; Layers{%d};
             };
-            Physical Line(1) = { line[1] };
-            Physical Line(2) = { extrusion[0] };
-            Physical Line(3) = { extrusion[2] };
-            Physical Line(4) = { extrusion[3] };
+            Physical Line(1) = { extrusion[3] };
+            Physical Line(2) = { extrusion[2] };
+            Physical Line(3) = { line[1] };
+            Physical Line(4) = { extrusion[0] };
             Physical Surface(1) = { extrusion[1] };
             """ % (nx, ny)
         name = "unitsquare_%d_%d" % (nx, ny)
@@ -205,6 +212,15 @@ class UnitCubeMesh(Mesh):
 
     The number of the elements in a mesh can be computed from 6 * nx * ny * nz,
     and the number of the vertices from (nx+1) * (ny+1) * (nz+1).
+
+    The boundary surface are numbered as follows:
+
+    * 1: plane x == 0
+    * 2: plane x == 1
+    * 3: plane y == 0
+    * 4: plane y == 1
+    * 5: plane z == 0
+    * 6: plane z == 1
     """
 
     def __init__(self, nx, ny, nz):
@@ -220,12 +236,12 @@ class UnitCubeMesh(Mesh):
             extrusion[] = Extrude {0, 0, 1}{
                 Surface{5}; Layers{%d};
             };
-            Physical Surface(1) = { face[1] };
-            Physical Surface(2) = { extrusion[0] };
+            Physical Surface(1) = { extrusion[5] };
+            Physical Surface(2) = { extrusion[3] };
             Physical Surface(3) = { extrusion[2] };
-            Physical Surface(4) = { extrusion[3] };
-            Physical Surface(5) = { extrusion[4] };
-            Physical Surface(6) = { extrusion[5] };
+            Physical Surface(4) = { extrusion[4] };
+            Physical Surface(5) = { face[1] };
+            Physical Surface(6) = { extrusion[0] };
             Physical Volume(1) = { extrusion[1] };
             """ % (nx, ny, nz)
         name = "unitcube_%d_%d_%d" % (nx, ny, nz)

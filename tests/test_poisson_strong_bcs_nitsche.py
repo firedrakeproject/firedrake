@@ -56,9 +56,9 @@ def run_test(x, degree):
     n = FacetNormal(mesh.ufl_cell())
 
     B = a - \
-        inner(dot(grad(u), n), v)*(ds(1) + ds(2)) - \
-        inner(u, dot(grad(v), n))*(ds(1) + ds(2)) + \
-        (1.0/(h*gamma))*u*v*(ds(1) + ds(2))
+        inner(dot(grad(u), n), v)*(ds(3) + ds(4)) - \
+        inner(u, dot(grad(v), n))*(ds(3) + ds(4)) + \
+        (1.0/(h*gamma))*u*v*(ds(3) + ds(4))
 
     u_0 = Function(V)
     u_0.assign(0)
@@ -66,10 +66,10 @@ def run_test(x, degree):
     u_1.assign(42)
 
     F = L - \
-        inner(u_0, dot(grad(v), n))*ds(1) - \
-        inner(u_1, dot(grad(v), n))*ds(2) + \
-        (1.0/(h*gamma))*u_0*v*ds(1) + \
-        (1.0/(h*gamma))*u_1*v*ds(2)
+        inner(u_0, dot(grad(v), n))*ds(3) - \
+        inner(u_1, dot(grad(v), n))*ds(4) + \
+        (1.0/(h*gamma))*u_0*v*ds(3) + \
+        (1.0/(h*gamma))*u_1*v*ds(4)
 
     u = Function(V)
     solve(B == F, u)

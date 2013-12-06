@@ -241,8 +241,7 @@ class NonlinearVariationalSolver(object):
             reason = 'unknown reason (petsc4py enum incomplete?)'
         if r < 0:
             raise RuntimeError("Nonlinear solve failed to converge after %d \
-                               nonlinear iterations with reason: %s" %
-                               (self.snes.getIterationNumber(), reason))
+nonlinear iterations with reason: %s" % (self.snes.getIterationNumber(), reason))
 
 
 class LinearVariationalProblem(NonlinearVariationalProblem):
@@ -298,7 +297,7 @@ def assemble(f, tensor=None, bcs=None):
     """
 
     if isinstance(f, ufl.form.Form):
-        return _assemble(f, tensor=tensor, bcs=bcs)
+        return _assemble(f, tensor=tensor, bcs=_extract_bcs(bcs))
     elif isinstance(f, ufl.expr.Expr):
         return assemble_expression(f)
     else:
@@ -445,11 +444,11 @@ def _assemble(f, tensor=None, bcs=None):
                     tensor_arg = tensor(op2.INC,
                                         (test.exterior_facet_node_map(bcs)[op2.i[0]],
                                          trial.exterior_facet_node_map(bcs)[op2.i[1]]),
-                                        flatten=True)
+                                        flatten=has_vec_fs(test))
                 elif is_vec:
                     tensor_arg = tensor(op2.INC,
                                         test.exterior_facet_node_map()[op2.i[0]],
-                                        flatten=True)
+                                        flatten=has_vec_fs(test))
                 else:
                     tensor_arg = tensor(op2.INC)
                 args = [kernel, m.exterior_facets.measure_set(integral.measure()), tensor_arg,
@@ -457,7 +456,7 @@ def _assemble(f, tensor=None, bcs=None):
                                    flatten=True)]
                 for c in fd.original_coefficients:
                     args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
-                                      flatten=True))
+                                      flatten=has_vec_fs(c)))
                 args.append(m.exterior_facets.local_facet_dat(op2.READ))
                 op2.par_loop(*args)
 
@@ -490,7 +489,9 @@ def _assemble(f, tensor=None, bcs=None):
 
         if bcs is not None and is_mat:
             for bc in bcs:
-                tensor.zero_rows(bc.nodes)
+                for i, fs in enumerate(bc.function_space()):
+                    if fs.index is None or fs.index == i:
+                        tensor[i, i].zero_rows(bc.nodes)
 
         return result()
 
@@ -712,12 +713,7 @@ def _extract_args(*args, **kwargs):
     u = _extract_u(args[1])
 
     # Extract boundary conditions
-    if len(args) > 2:
-        bcs = _extract_bcs(args[2])
-    elif "bcs" in kwargs:
-        bcs = _extract_bcs(kwargs["bcs"])
-    else:
-        bcs = []
+    bcs = _extract_bcs(args[2] if len(args) > 2 else kwargs.get("bcs"))
 
     # Extract Jacobian
     J = kwargs.get("J", None)
@@ -753,7 +749,8 @@ def _extract_u(u):
 def _extract_bcs(bcs):
     "Extract and check argument bcs"
     if bcs is None:
-        bcs = []
-    elif not isinstance(bcs, (list, tuple)):
-        bcs = [bcs]
-    return bcs
+        return []
+    try:
+        return tuple(bcs)
+    except TypeError:
+        return (bcs,)

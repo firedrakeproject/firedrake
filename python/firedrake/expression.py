@@ -6,8 +6,7 @@ class Expression(ufl.Coefficient):
 
     def __init__(self, code=None, element=None, cell=None, degree=None, **kwargs):
 
-        tmp = np.array(code)
-        shape = tmp.shape
+        shape = np.array(code).shape
         self._rank = len(shape)
         self._shape = shape
         if self._rank == 0:
