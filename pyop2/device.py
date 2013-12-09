@@ -340,7 +340,7 @@ class ParLoop(base.ParLoop):
                 if arg._is_indirect:
                     # Needed for indexing into ind_map/loc_map
                     arg._which_indirect = c
-                    if arg._is_vec_map:
+                    if arg._is_vec_map or arg._flatten:
                         c += arg.map.arity
                     elif arg._uses_itspace:
                         c += self._it_space.extents[arg.idx.index]
