@@ -342,7 +342,7 @@ cdef ft.element_t as_element(object fiat_element):
 
 class _Facets(object):
     """Wrapper class for facet interation information on a Mesh"""
-    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None):
+    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None, layers=1):
 
         self.mesh = mesh
 
@@ -361,7 +361,7 @@ class _Facets(object):
 
         self.markers = markers
         self._subsets = {}
-        self._layers = 1
+        self._layers = layers
 
     @utils.cached_property
     def set(self):
@@ -408,10 +408,6 @@ class _Facets(object):
     def layers(self):
         return self._layers
 
-    @layers.setter
-    def layers(self, val):
-        self._layers = val
-
     @utils.cached_property
     def local_facet_dat(self):
         """Dat indicating which local facet of each adjacent
@@ -419,6 +415,7 @@ class _Facets(object):
 
         return op2.Dat(op2.DataSet(self.set, self._rank), self.local_facet_number,
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
+
 
 class Mesh(object):
     """A representation of mesh topology and geometry."""
@@ -673,8 +670,19 @@ class ExtrudedMesh(Mesh):
         self._coordinates = mesh._coordinates
         self.name = mesh.name
 
-        self._old_mesh.exterior_facets.layers = layers
-        self._old_mesh.interior_facets.layers = layers
+        interior_f = self._old_mesh.interior_facets
+        self._interior_facets = _Facets(self, interior_f.count,
+                                       "interior",
+                                       interior_f.facet_cell,
+                                       interior_f.local_facet_number,
+                                       layers=layers)
+        exterior_f = self._old_mesh.exterior_facets
+        self._exterior_facets = _Facets(self, exterior_f.count,
+                                           "exterior",
+                                           exterior_f.facet_cell,
+                                           exterior_f.local_facet_number,
+                                           exterior_f.markers,
+                                           layers=layers)
 
         self.ufl_cell_element = ufl.FiniteElement("Lagrange",
                                                domain = mesh._ufl_cell,
@@ -743,11 +751,11 @@ class ExtrudedMesh(Mesh):
 
     @property
     def exterior_facets(self):
-        return self._old_mesh.exterior_facets
+        return self._exterior_facets
 
     @property
     def interior_facets(self):
-        return self._old_mesh.interior_facets
+        return self._interior_facets
 
 
 
