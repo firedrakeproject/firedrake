@@ -7,12 +7,12 @@ from firedrake import *
 
 def run_test(x, degree, parameters={}, test_mode=False):
     # Create mesh and define function space
-    m = UnitSquareMesh(1, 1)
+    m = UnitSquareMesh(2, 2)
     layers = 11
     mesh = ExtrudedMesh(m, layers, layer_height=1.0 / (layers - 1))
 
     # Define variational problem
-    V = FunctionSpace(mesh, "CG", 2)
+    V = FunctionSpace(mesh, "CG", 1)
     bcs = [DirichletBC(V, Expression("x[0]*x[0] - x[1]*x[1]"), "bottom"),
            DirichletBC(V, Expression("x[0]*x[0] - x[1]*x[1] - 1"), "top"),
            DirichletBC(V, Expression("-x[1]*x[1] - x[2]*x[2]"), 1),
