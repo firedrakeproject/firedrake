@@ -84,10 +84,8 @@ class DirichletBC(object):
                     fs._mesh._old_mesh.exterior_facets.subset(self.sub_domain).indices,
                     axis=0)
                 facet_offset = fs.exterior_facet_boundary_node_map.offset
-                return np.unique(np.array([base_maps[j] + i*facet_offset
-                                           for j in range(len(base_maps))
-                                           for i in range(fs._mesh.layers-1)]
-                                          ).flatten())
+                return np.unique(np.concatenate([base_maps + i * facet_offset
+                                                 for i in range(fs._mesh.layers - 1)]))
             return np.unique(
                 fs.exterior_facet_boundary_node_map.values_with_halo.take(
                     fs._mesh.exterior_facets.subset(self.sub_domain).indices,

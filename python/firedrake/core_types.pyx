@@ -89,7 +89,8 @@ def fiat_from_ufl_element(ufl_element):
 
 # Functions related to the extruded case
 def extract_offset(offset, facet_map, base_map):
-    """Starting from existing mappings for the """
+    """Starting from existing mappings for base and facets extract
+    the sub-offset corresponding to the facet map."""
     res = np.zeros(len(facet_map), np.int32)
     for i, facet_dof in enumerate(facet_map):
         for j, base_dof in enumerate(base_map):
@@ -367,10 +368,7 @@ class _Facets(object):
         # Currently no MPI parallel support
         size = self.count
         halo = None
-        if self._layers > 1:
-            return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind),
-                           halo=halo, layers=self._layers)
-        return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo)
+        return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo, layers=self._layers)
 
     @utils.cached_property
     def _null_subset(self):
@@ -974,31 +972,16 @@ class FunctionSpaceBase(object):
         self._dim = dim
         self._index = None
 
-        if isinstance(mesh, ExtrudedMesh):
-            if mesh.interior_facets.count > 0:
-                self.interior_facet_node_list = \
-                    np.array(<int[:mesh.interior_facets.count,:2*element_f.ndof]>
-                             function_space.interior_facet_node_list)
-            else:
-                self.interior_facet_node_list = None
+        if mesh.interior_facets.count > 0:
+            self.interior_facet_node_list = \
+                np.array(<int[:mesh.interior_facets.count,:2*element_f.ndof]>
+                         function_space.interior_facet_node_list)
+        else:
+            self.interior_facet_node_list = None
 
-            self.exterior_facet_node_list = \
-                np.array(<int[:mesh.exterior_facets.count,:element_f.ndof]>
-                             function_space.exterior_facet_node_list)
-        if not isinstance(mesh, ExtrudedMesh):
-            if mesh.interior_facets.count > 0:
-                self.interior_facet_node_list = \
-                    np.array(<int[:mesh.interior_facets.count,:2*element_f.ndof]>
-                             function_space.interior_facet_node_list)
-            else:
-                self.interior_facet_node_list = None
-
-            if mesh.exterior_facets.count > 0:
-                self.exterior_facet_node_list = \
-                    np.array(<int[:mesh.exterior_facets.count,:element_f.ndof]>
-                             function_space.exterior_facet_node_list)
-            else:
-                self.exterior_facet_node_list = None
+        self.exterior_facet_node_list = \
+            np.array(<int[:mesh.exterior_facets.count,:element_f.ndof]>
+                     function_space.exterior_facet_node_list)
 
         # Note: this is the function space rank. The value rank may be different.
         self.rank = rank
@@ -1114,12 +1097,11 @@ class FunctionSpaceBase(object):
         else:
             parent = None
 
+        facet_set = self._mesh.exterior_facets.set
         if isinstance(self._mesh, ExtrudedMesh):
-            facet_set = self._mesh.exterior_facets.set
             name = "extruded_exterior_facet_node"
             offset = self.offset
         else:
-            facet_set = self._mesh.exterior_facets.set
             name = "exterior_facet_node"
             offset = None
         return self._map_cache(self._exterior_facet_map_cache,
