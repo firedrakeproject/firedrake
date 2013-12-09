@@ -36,6 +36,8 @@
 from ast_base import *
 from ast_optimizer import LoopOptimiser
 
+R_TILE = 4  # Register tiling based on autovectorization
+
 
 class ASTKernel(object):
 
@@ -133,10 +135,15 @@ class ASTKernel(object):
         """Transform and optimize the kernel suitably for CPU execution."""
 
         # Fetch user-provided options/hints on how to transform the kernel
-        licm = opts["licm"]
+        licm = opts.get("licm")
+        tile = opts.get("tile")
 
         lo = [LoopOptimiser(l, pre_l) for l, pre_l in self.fors]
         for nest in lo:
+            # 1) Loop-invariant code motion
             if licm:
-                inv_outer_loops = nest.licm()  # noqa
+                inv_outer_loops = nest.op_licm()  # noqa
                 self.decl.update(nest.decls)
+
+            if tile == R_TILE:
+                nest.op_tiling()

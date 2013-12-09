@@ -49,6 +49,7 @@ from op2 import Kernel
 from mpi import MPI
 
 from ir.ast_base import PreprocessNode, Root
+from ir.ast_plan import R_TILE
 
 _form_cache = {}
 
@@ -98,10 +99,14 @@ class FFCKernel(DiskCached, KernelCached):
         ffc_tree = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
         ast = Root([incl] + [subtree for subtree in ffc_tree])
 
+        # Set optimization options
+        opts = {'licm': True,
+                'tile': R_TILE}
+
         form_data = form.form_data()
 
         self.kernels = tuple([Kernel(ast, '%s_%s_integral_0_%s' %
-                            (name, ida.domain_type, ida.domain_id))
+                            (name, ida.domain_type, ida.domain_id), opts)
             for ida in form_data.integral_data])
         self._initialized = True
 

@@ -113,7 +113,7 @@ class KernelCached(Cached):
     def __new__(cls, *args, **kwargs):
         args, kwargs = cls._process_args(*args, **kwargs)
         code = cls._ast_to_c(*args, **kwargs)
-        args = (code,) + args[1:]
+        args = (code, args[1]) if len(args) > 1 else (code,)
         obj = super(KernelCached, cls).__new__(cls, *args, **kwargs)
         return obj
 

@@ -140,7 +140,7 @@ class LoopOptimiser(object):
 
         return (itspace_vrs, accessed_vrs)
 
-    def licm(self):
+    def op_licm(self):
         """Perform loop-invariant code motion.
 
         Invariant expressions found in the loop nest are moved "after" the
@@ -290,3 +290,42 @@ class LoopOptimiser(object):
                     ext_loops.append(inv_for)
 
         return ext_loops
+
+    def op_tiling(self, tile_sz=None):
+        """Perform tiling at the register level for this nest.
+        This function slices the iteration space, and relies on the backend
+        compiler for unrolling and vector-promoting the tiled loops.
+        By default, it slices the inner outer-product loop."""
+
+        if not tile_sz:
+            tile_sz = 20  # Actually, should be determined for each form
+
+        for loop_vars in set([tuple(x) for x, y in self.out_prods.values()]):
+            # First, find outer product loops in the nest
+            loops = [l for l in self.fors if l.it_var() in loop_vars]
+
+            # Build tiled loops
+            tiled_loops = []
+            n_loops = loops[1].cond.children[1].symbol / tile_sz
+            rem_loop_sz = loops[1].cond.children[1].symbol
+            init = 0
+            for i in range(n_loops):
+                loop = dcopy(loops[1])
+                loop.init.init = Symbol(init, ())
+                loop.cond.children[1] = Symbol(tile_sz * (i + 1), ())
+                init += tile_sz
+                tiled_loops.append(loop)
+
+            # Build remainder loop
+            if rem_loop_sz > 0:
+                init = tile_sz * n_loops
+                loop = dcopy(loops[1])
+                loop.init.init = Symbol(init, ())
+                loop.cond.children[1] = Symbol(rem_loop_sz, ())
+                tiled_loops.append(loop)
+
+            # Append tiled loops at the right point in the nest
+            par_block = self.for_parents[self.fors.index(loops[1])]
+            pb = par_block.children
+            idx = pb.index(loops[1])
+            par_block.children = pb[:idx] + tiled_loops + pb[idx + 1:]

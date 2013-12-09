@@ -49,13 +49,13 @@ from pyop2.ir.ast_plan import ASTKernel
 class Kernel(base.Kernel):
 
     @classmethod
-    def _ast_to_c(cls, ast, name):
+    def _ast_to_c(cls, ast, name, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of code (C syntax) suitable to CPU execution."""
         if not isinstance(ast, Node):
             return ast
         ast_handler = ASTKernel(ast)
-        ast_handler.plan_cpu({'licm': True})
+        ast_handler.plan_cpu(opts)
         return ast.gencode()
 
 
