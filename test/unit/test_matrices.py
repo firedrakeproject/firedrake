@@ -751,6 +751,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
     def test_assemble_rhs(self, backend, rhs, elements, b, coords, f,
                           elem_node, expected_rhs):
         """Assemble a simple finite-element right-hand side and check result."""
+        b.zero()
         op2.par_loop(rhs, elements,
                      b(op2.INC, elem_node),
                      coords(op2.READ, elem_node),
@@ -864,6 +865,7 @@ void zero_mat(double local_mat[1][1], int i, int j)
                             coords, f_vec, elem_node,
                             expected_vec_rhs, nodes):
         """Test that the FFC vector rhs assembly assembles the correct values."""
+        b_vec.zero()
         op2.par_loop(rhs_ffc_vector, elements,
                      b_vec(op2.INC, elem_node),
                      coords(op2.READ, elem_node),
