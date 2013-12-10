@@ -942,8 +942,8 @@ class TestMixedMatrices:
     Matrix tests for mixed spaces
     """
 
-    # Only working for sequential so far
-    backends = ['sequential']
+    # Only working for sequential and OpenMP so far
+    backends = ['sequential', 'openmp']
 
     # off-diagonal blocks
     od = np.array([[1.0, 2.0, 0.0, 0.0],
