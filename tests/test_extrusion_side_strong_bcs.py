@@ -1,5 +1,6 @@
-"""This demo program sets the top and bottom boundaries
-of an extruded unit square to 42.
+"""This demo program sets the top, bottom and side boundaries
+of an extruded unit square. We then check against the actual solution
+of the equation.
 """
 import pytest
 from firedrake import *

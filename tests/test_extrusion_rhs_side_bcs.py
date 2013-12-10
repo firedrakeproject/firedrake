@@ -1,5 +1,5 @@
-"""This demo program sets the top and bottom boundaries
-of an extruded unit square to 42.
+"""This demo program sets opposite boundary sides to 0 and 42 and
+then checks that the exact result has bee achieved.
 """
 import pytest
 from firedrake import *
@@ -17,20 +17,20 @@ def run_test(x, degree, parameters={}, test_mode=False):
     # Define variational problem
     u = Function(V)
     bcs = [DirichletBC(V, 10, 1),
-           DirichletBC(V, 11, 2)]
+           DirichletBC(V, 42, 2)]
     for bc in bcs:
         bc.apply(u)
     v = Function(V)
-    v.interpolate(Expression("x[0] < 0.05 ? 10.0 : x[0] > 0.95 ? 11.0 : 0.0"))
+    v.interpolate(Expression("x[0] < 0.05 ? 10.0 : x[0] > 0.95 ? 42.0 : 0.0"))
     res = sqrt(assemble(dot(u - v, u - v) * dx))
 
     u1 = Function(V)
     bcs1 = [DirichletBC(V, 10, 3),
-            DirichletBC(V, 11, 4)]
+            DirichletBC(V, 42, 4)]
     for bc in bcs1:
         bc.apply(u1)
     v1 = Function(V)
-    v1.interpolate(Expression("x[1] < 0.05 ? 10.0 : x[1] > 0.95 ? 11.0 : 0.0"))
+    v1.interpolate(Expression("x[1] < 0.05 ? 10.0 : x[1] > 0.95 ? 42.0 : 0.0"))
     res1 = sqrt(assemble(dot(u1 - v1, u1 - v1) * dx))
 
     if not test_mode:
