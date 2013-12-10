@@ -311,6 +311,12 @@ class Arg(object):
         if self._is_mixed_dat:
             return tuple(_make_object('Arg', d, m, self._idx, self._access)
                          for d, m in zip(self._dat, self._map))
+        elif self._is_mixed_mat:
+            s = self.data.sparsity.shape
+            mr, mc = self.map
+            return tuple(_make_object('Arg', self.data[i, j], (mr.split[i], mc.split[j]),
+                                      self._idx, self._access)
+                         for j in range(s[1]) for i in range(s[0]))
         else:
             return (self,)
 
