@@ -45,8 +45,8 @@ __global__ void {{ parloop._stub_name }} (
     {%- endfor %}
 
     {%- for arg in parloop._all_inc_vec_like_args %}
-    {% for i in range(arg.map.arity) %}
-    {{arg.ctype}} {{arg._local_name(idx=i)}}[{{arg.data.cdim}}];
+    {%- for i in range(parloop._it_space._extent_ranges[0] if arg._flatten else arg.map.arity) %}
+    {{arg.ctype}} {{arg._local_name(idx=i)}}[{{1 if arg._flatten else arg.data.cdim}}];
     {%- endfor %}
     {%- endfor %}
 
@@ -55,9 +55,9 @@ __global__ void {{ parloop._stub_name }} (
     {% endfor %}
 
     {%- for arg in parloop._all_inc_vec_like_args %}
-    {{arg.ctype}} *{{arg._vec_name}}[{{arg.map.arity}}] = {
+    {{arg.ctype}} *{{arg._vec_name}}[{{parloop._it_space._extent_ranges[0] if arg._flatten else arg.map.arity}}] = {
         {%- set comma = joiner(", ") -%}
-        {%- for i in range(arg.map.arity) %}
+        {%- for i in range(parloop._it_space._extent_ranges[0] if arg._flatten else arg.map.arity) %}
         {{- comma() }}
         {{ arg._local_name(idx=i) }}
         {%- endfor %}
@@ -144,25 +144,25 @@ __global__ void {{ parloop._stub_name }} (
             {%- for i in range(arg.map.arity) %}
             {{arg._vec_name}}[{{i}}] = {{arg._shared_name}} + loc_map[{{arg._which_indirect + i}}*set_size + idx + offset_b]*{{arg.data.cdim}};
             {%- endfor -%}
-            {% endif %}
+            {%- endif %}
             {%- endfor %}
             // initialise locals
-            {% for arg in parloop._all_inc_non_vec_map_indirect_dat_args %}
+            {%- for arg in parloop._all_inc_non_vec_map_indirect_dat_args %}
             for ( int idx2 = 0; idx2 < {{arg.data.cdim}}; ++idx2 ) {
                 {{arg._local_name()}}[idx2] = ({{arg.ctype}})0;
             }
-            {% endfor %}
+            {%- endfor %}
 
-            {% for arg in parloop._all_inc_vec_like_args %}
-            for ( int idx2 = 0; idx2 < {{arg.data.cdim}}; ++idx2 ) {
-                {%- for i in range(arg.map.arity) %}
+            {%- for arg in parloop._all_inc_vec_like_args %}
+            for ( int idx2 = 0; idx2 < {{arg.data.cdim if not arg._flatten else 1}}; ++idx2 ) {
+                {%- for i in range(parloop._it_space._extent_ranges[0] if arg._flatten else arg.map.arity) %}
                 {{arg._local_name(idx=i)}}[idx2] = ({{arg.ctype}})0;
                 {%- endfor %}
             }
-            {% endfor %}
-            {% for r in parloop._it_space.extents %}
+            {%- endfor %}
+            {%- for r in parloop._it_space.extents %}
             for ( int i{{loop.index0}} = 0; i{{loop.index0}} < {{r}}; ++i{{loop.index0}} ) {
-            {% endfor %}
+            {%- endfor %}
 
             {{parloop.kernel.name}}(
                 {%- set comma = joiner(",") -%}
@@ -175,27 +175,28 @@ __global__ void {{ parloop._stub_name }} (
                 {% endfor -%}
                 );
 
-            {% for r in parloop._it_space._extents %}
+            {%- for r in parloop._it_space._extents %}
             }
-            {% endfor %}
+            {%- endfor %}
         {%- if parloop._all_inc_indirect_dat_args %}
             col2 = thrcol[idx + offset_b];
         }
-        {% endif -%}
+        {%- endif -%}
         {%- if parloop._all_inc_indirect_dat_args %}
         for ( int col = 0; col < ncolor; ++col ) {
             if ( col2 == col ) {
                 {%- for arg in parloop._all_inc_non_vec_map_indirect_dat_args %}
-                {% set tmp = 'loc_map[' ~ arg._which_indirect ~ ' * set_size + idx + offset_b]' -%}
+                {%- set tmp = 'loc_map[' ~ arg._which_indirect ~ ' * set_size + idx + offset_b]' -%}
                 for ( int idx2 = 0; idx2 < {{arg.data.cdim}}; ++idx2) {
                     {{arg._shared_name}}[idx2 + {{tmp}}*{{arg.data.cdim}}] += {{arg._local_name()}}[idx2];
                 }
                 {%- endfor %}
                 {%- for arg in parloop._all_inc_vec_like_args %}
-                for ( int idx2 = 0; idx2 < {{arg.data.cdim}}; ++idx2) {
-                    {%- for i in range(arg.map.arity) %}
-                    {%- set tmp = 'loc_map[' ~ (arg._which_indirect + i) ~ ' * set_size + idx + offset_b]' %}
-                    {{arg._shared_name}}[idx2 + {{tmp}} * {{arg.data.cdim}}] += {{arg._local_name(idx=i)}}[idx2];
+                for ( int idx2 = 0; idx2 < {{1 if arg._flatten else arg.data.cdim}}; ++idx2) {
+                    {%- for i in range(parloop._it_space._extent_ranges[0] if arg._flatten else arg.map.arity) %}
+                    {%- set tmp = 'loc_map[' ~ (arg._which_indirect + i % arg.map.arity) ~ ' * set_size + idx + offset_b]' %}
+                    {%- set offs = i // arg.map.arity if arg._flatten else 'idx2' %}
+                    {{arg._shared_name}}[{{offs}} + {{tmp}} * {{arg.data.cdim}}] += {{arg._local_name(idx=i)}}[idx2];
                     {%- endfor %}
                 }
                 {%- endfor %}
