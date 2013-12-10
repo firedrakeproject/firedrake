@@ -406,6 +406,7 @@ class _Facets(object):
 
     @property
     def layers(self):
+        """Returns the number of layers in the mesh."""
         return self._layers
 
     @utils.cached_property
@@ -1149,8 +1150,8 @@ class FunctionSpaceBase(object):
                 new_entity_node_list = entity_node_list
             elif offset is not None:
                 l = [bc.nodes for bc in bcs if bc.sub_domain!='top' and bc.sub_domain!='bottom']
-                if l != []:
-                    bcids = reduce(np.union1d, [bc.nodes for bc in bcs if bc.sub_domain!='top' and bc.sub_domain!='bottom'])
+                if l:
+                    bcids = reduce(np.union1d, l)
                     nl = entity_node_list.ravel()
                     new_entity_node_list = np.where(np.in1d(nl, bcids), -10000000, nl)
                 else:
