@@ -301,6 +301,10 @@ class Arg(object):
         return "Arg(%r, %r, %r, %r)" % \
             (self._dat, self._map, self._idx, self._access)
 
+    def __iter__(self):
+        for arg in self.split:
+            yield arg
+
     @property
     def split(self):
         """Split a mixed argument into a tuple of constituent arguments."""
