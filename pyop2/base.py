@@ -1911,6 +1911,12 @@ class MixedDat(Dat):
         return tuple(s.soa for s in self._dats)
 
     @property
+    def _data(self):
+        """Return the user-provided data buffer, or a zeroed buffer of
+        the correct size if none was provided."""
+        return tuple(d._data for d in self)
+
+    @property
     @collective
     def data(self):
         """Numpy arrays containing the data excluding halos."""
