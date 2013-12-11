@@ -49,7 +49,7 @@ from op2 import Kernel
 from mpi import MPI
 
 from ir.ast_base import PreprocessNode, Root
-from ir.ast_plan import R_TILE
+from ir.ast_plan import R_TILE, V_TILE  # noqa
 
 _form_cache = {}
 
@@ -101,7 +101,8 @@ class FFCKernel(DiskCached, KernelCached):
 
         # Set optimization options
         opts = {'licm': True,
-                'tile': R_TILE}
+                'tile': None,
+                'vect': (V_TILE, 'avx', 'intel')}
 
         form_data = form.form_data()
 

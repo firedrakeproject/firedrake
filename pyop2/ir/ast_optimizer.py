@@ -39,19 +39,19 @@ from pyop2.ir.ast_base import *
 
 class LoopOptimiser(object):
 
-    """ Loops optimiser:
-        * Loop Invariant Code Motion (LICM)
-        Backend compilers apply LICM to innermost loops only. In addition,
-        hoisted expressions are usually not vectorized. Here, we apply LICM to
-        terms which are known to be constant (i.e. they are declared const)
-        and all of the loops in the nest are searched for sub-expressions
-        involving such const terms only. Also, hoisted terms are wrapped
-        within loops to exploit compiler autovectorization. This has proved to
-        be beneficial for loop nests in which the bounds of all loops are
-        relatively small (let's say less than 50-60).
+    """Loops optimiser:
 
-        * register tiling:
-        * interchange: """
+    * Loop Invariant Code Motion (LICM)
+      Backend compilers apply LICM to innermost loops only. In addition,
+      hoisted expressions are usually not vectorized. Here, we apply LICM to
+      terms which are known to be constant (i.e. they are declared const)
+      and all of the loops in the nest are searched for sub-expressions
+      involving such const terms only. Also, hoisted terms are wrapped
+      within loops to exploit compiler autovectorization. This has proved to
+      be beneficial for loop nests in which the bounds of all loops are
+      relatively small (let's say less than 50-60).
+    * register tiling
+    * loop interchange"""
 
     def __init__(self, loop_nest, pre_header):
         self.loop_nest = loop_nest
