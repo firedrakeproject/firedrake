@@ -8,3 +8,4 @@ delivers performance-portability across a range of platforms:
 
 from op2 import *
 from version import __version__, __version_info__  # noqa: we just want to expose these
+from ffc_interface import clear_cache as clear_ffc_cache  # noqa: expose to user
