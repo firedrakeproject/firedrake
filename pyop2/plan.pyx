@@ -257,6 +257,8 @@ cdef class _Plan:
             flat_race_args[i].mip = <map_idx_t*> malloc(flat_race_args[i].count * sizeof(map_idx_t))
             for j, mi in enumerate(race_args[ra]):
                 map, idx = mi
+                if map._parent is not None:
+                    map = map._parent
                 flat_race_args[i].mip[j].map_base = <int *> numpy.PyArray_DATA(map.values_with_halo)
                 flat_race_args[i].mip[j].arity = map.arity
                 flat_race_args[i].mip[j].idx = idx
