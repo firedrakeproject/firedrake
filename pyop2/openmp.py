@@ -70,9 +70,6 @@ def _detect_openmp_flags():
 
 class Arg(host.Arg):
 
-    def c_vec_name(self, idx=None):
-        return self.c_arg_name() + "_vec[%s]" % (idx or 'tid')
-
     def c_kernel_arg_name(self, i, j, idx=None):
         return "p_%s[%s]" % (self.c_arg_name(i, j), idx or 'tid')
 
@@ -83,7 +80,7 @@ class Arg(host.Arg):
         cdim = self.data.dataset.cdim if self._flatten else 1
         return ";\n%(type)s *%(vec_name)s[%(arity)s]" % \
             {'type': self.ctype,
-             'vec_name': self.c_vec_name(str(_max_threads)),
+             'vec_name': self.c_vec_name(),
              'arity': self.map.arity * cdim * (2 if is_facet else 1)}
 
     def padding(self):
@@ -158,6 +155,7 @@ void %(wrapper_name)s(int boffset,
     int tid = omp_get_thread_num();
     %(interm_globals_decl)s;
     %(interm_globals_init)s;
+    %(vec_decs)s;
 
     #pragma omp for schedule(static)
     for ( int __b = boffset; __b < boffset + nblocks; __b++ )
