@@ -35,10 +35,15 @@
 
 from ast_base import *
 from ast_optimizer import LoopOptimiser
-from ast_vectorizer import LoopVectoriser
+from ast_vectorizer import init_vectorizer, LoopVectoriser
 
+# Possibile optimizations
 V_TILE = 1  # Intrinsics vectorization
 R_TILE = 4  # Register tiling based on autovectorization
+
+# Track the scope of a variable in the kernel
+LOCAL_VAR = 0  # Variable declared and used within the kernel
+PARAM_VAR = 1  # Variable is a kernel parameter (ie declared in the signature)
 
 
 class ASTKernel(object):
@@ -51,7 +56,7 @@ class ASTKernel(object):
 
     def __init__(self, ast):
         self.ast = ast
-        self.decl, self.fors = self._visit_ast(ast, fors=[], decls={})
+        self.decls, self.fors = self._visit_ast(ast, fors=[], decls={})
 
     def _visit_ast(self, node, parent=None, fors=None, decls=None):
         """Return lists of:
@@ -61,13 +66,15 @@ class ASTKernel(object):
         that will be exploited at plan creation time."""
 
         if isinstance(node, Decl):
-            decls[node.sym.symbol] = node
+            decls[node.sym.symbol] = (node, LOCAL_VAR)
             return (decls, fors)
         elif isinstance(node, For):
             fors.append((node, parent))
             return (decls, fors)
         elif isinstance(node, FunDecl):
             self.fundecl = node
+            for d in node.args:
+                decls[d.sym.symbol] = (d, PARAM_VAR)
         elif isinstance(node, (FlatBlock, PreprocessNode, Symbol)):
             return (decls, fors)
 
@@ -101,7 +108,7 @@ class ASTKernel(object):
         }
         """
 
-        lo = [LoopOptimiser(l, pre_l) for l, pre_l in self.fors]
+        lo = [LoopOptimiser(l, pre_l, self.decls) for l, pre_l in self.fors]
         for nest in lo:
             itspace_vrs, accessed_vrs = nest.extract_itspace()
 
@@ -126,7 +133,8 @@ class ASTKernel(object):
                                      for i in itspace_vrs])
 
         # Clean up the kernel removing variable qualifiers like 'static'
-        for d in self.decl.values():
+        for decl in self.decls.values():
+            d, place = decl
             d.qual = [q for q in d.qual if q not in ['static', 'const']]
 
         if hasattr(self, 'fundecl'):
@@ -140,17 +148,24 @@ class ASTKernel(object):
         licm = opts.get('licm')
         tile = opts.get('tile')
         vect = opts.get('vect')
+        ap = opts.get('ap')
 
-        lo = [LoopOptimiser(l, pre_l) for l, pre_l in self.fors]
+        lo = [LoopOptimiser(l, pre_l, self.decls) for l, pre_l in self.fors]
         for nest in lo:
             # 1) Loop-invariant code motion
+            inv_outer_loops = []
             if licm:
                 inv_outer_loops = nest.op_licm()  # noqa
-                self.decl.update(nest.decls)
+                self.decls.update(nest.decls)
 
+            # 2) Register tiling
             if tile == R_TILE:
                 nest.op_tiling()
 
+            # 3) Vectorization
             v_opt, isa, compiler = vect if vect else (None, None, None)
             if v_opt == V_TILE:
-                v_opt = LoopVectoriser(nest, isa, compiler)
+                init_vectorizer(isa, compiler)
+                v_opt = LoopVectoriser(nest)
+                if ap:
+                    v_opt.align_and_pad(self.decls)

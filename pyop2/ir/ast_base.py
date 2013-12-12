@@ -309,8 +309,6 @@ class Decl(Statement):
     Syntax: [qualifiers] typ sym [attributes] [= init];
     E.g.: static const double FE0[3][3] __attribute__(align(32)) = {{...}};"""
 
-    declared = {}
-
     def __init__(self, typ, sym, init=None, qualifiers=None, attributes=None):
         super(Decl, self).__init__()
         self.typ = typ
@@ -318,7 +316,6 @@ class Decl(Statement):
         self.qual = qualifiers or []
         self.attr = attributes or []
         self.init = init or EmptyStatement()
-        self.declared[sym.symbol] = self
 
     def gencode(self, scope=False):
 

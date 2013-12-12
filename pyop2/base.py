@@ -2884,7 +2884,7 @@ class Kernel(KernelCached):
 
     @classmethod
     @validate_type(('name', str, NameTypeError))
-    def _cache_key(cls, code, name):
+    def _cache_key(cls, code, name, opts={}):
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
         # Also include the PyOP2 version, since the Kernel class might change
@@ -2896,8 +2896,9 @@ class Kernel(KernelCached):
             return
         self._name = name or "kernel_%d" % Kernel._globalcount
         self._code = preprocess(code)
-        self._opts = opts
         Kernel._globalcount += 1
+        # Record used optimisations
+        self._opt_is_padded = opts.get('ap')
         self._initialized = True
 
     @property

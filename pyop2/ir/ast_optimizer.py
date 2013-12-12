@@ -35,6 +35,7 @@ from collections import defaultdict
 from copy import deepcopy as dcopy
 
 from pyop2.ir.ast_base import *
+import ast_plan
 
 
 class LoopOptimiser(object):
@@ -53,9 +54,10 @@ class LoopOptimiser(object):
     * register tiling
     * loop interchange"""
 
-    def __init__(self, loop_nest, pre_header):
+    def __init__(self, loop_nest, pre_header, kernel_decls):
         self.loop_nest = loop_nest
         self.pre_header = pre_header
+        self.kernel_decls = kernel_decls
         self.out_prods = {}
         self.itspace = []
         fors_loc, self.decls, self.sym = self._visit_nest(loop_nest)
@@ -105,7 +107,7 @@ class LoopOptimiser(object):
             elif isinstance(node, Par):
                 return inspect(node.children[0], node, fors, decls, symbols)
             elif isinstance(node, Decl):
-                decls[node.sym.symbol] = node
+                decls[node.sym.symbol] = (node, ast_plan.LOCAL_VAR)
                 return (fors, decls, symbols)
             elif isinstance(node, Symbol):
                 symbols.add(node)
@@ -223,7 +225,7 @@ class LoopOptimiser(object):
         for s, op in self.out_prods.items():
             expr_dep = defaultdict(list)
             if isinstance(s, (Assign, Incr)):
-                typ = Decl.declared[s.children[0].symbol].typ
+                typ = self.kernel_decls[s.children[0].symbol][0].typ
                 extract_const(s.children[1], expr_dep)
 
             for dep, expr in expr_dep.items():
@@ -274,8 +276,9 @@ class LoopOptimiser(object):
 
                 # Update the lists of symbols accessed and of decls
                 self.sym.update([d.sym for d in var_decl])
+                lv = ast_plan.LOCAL_VAR
                 self.decls.update(dict(zip([d.sym.symbol for d in var_decl],
-                                       var_decl)))
+                                           [(v, lv) for v in var_decl])))
 
                 # 3) Append the new node at the right level in the loop nest
                 new_block = var_decl + [inv_for] + place.children[ofs:]
