@@ -157,7 +157,6 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
   %(const_inits)s;
   %(off_inits)s;
   %(layer_arg_init)s;
-  %(map_decl)s
 
   #ifdef _OPENMP
   int nthread = omp_get_max_threads();
@@ -167,6 +166,7 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
 
   #pragma omp parallel shared(boffset, nblocks, nelems, blkmap)
   {
+    %(map_decl)s
     int tid = omp_get_thread_num();
     %(interm_globals_decl)s;
     %(interm_globals_init)s;

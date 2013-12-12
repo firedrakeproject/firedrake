@@ -709,7 +709,7 @@ class JITModule(base.JITModule):
                 'off_inits': indent(_off_inits, 1),
                 'layer_arg': _layer_arg,
                 'layer_arg_init': indent(_layer_arg_init, 1),
-                'map_decl': indent(_map_decl, 1),
+                'map_decl': indent(_map_decl, 2),
                 'map_init': indent(_map_init, 5),
                 'apply_offset': indent(_apply_offset, 3),
                 'extr_loop': indent(_extr_loop, 5),
