@@ -233,7 +233,7 @@ cdef class _Plan:
                 race_args[k] = l
             elif matrix_coloring and arg._is_mat:
                 k = arg.data
-                rowmap = k.sparsity.maps[0][0]
+                rowmap = arg.map[0]
                 l = race_args.get(k, [])
                 for i in range(rowmap.arity):
                     l.append((rowmap, i))
