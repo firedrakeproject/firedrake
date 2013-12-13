@@ -46,7 +46,7 @@ _file_extensions = {
 _cells = {
     1 : { 2 : "interval"},
     2 : { 3 : "triangle"},
-    3 : { 4 : "tetrahedron"}
+    3 : { 3: "triangle", 4 : "tetrahedron"}
     }
 
 _FIAT_cells = {
