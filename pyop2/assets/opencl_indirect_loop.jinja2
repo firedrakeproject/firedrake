@@ -28,9 +28,9 @@
 {%- macro populate_vec_map(arg) -%}
 // populate vec map
 {%- if(arg._is_indirect_reduction) -%}
-  {%- for i in range(arg.map.arity) %}
+  {%- for i in range(parloop._it_space._extent_ranges[0] if arg._flatten else arg.map.arity) %}
 {{ arg._vec_name }}[{{ i }}] = {{ arg._local_name(idx=i) }};
-  {% endfor -%}
+  {%- endfor -%}
 {%- else -%}
   {%- if arg._flatten %}
     {%- for j in range(arg.data.dataset.cdim) %}
@@ -47,9 +47,9 @@
 {%- endmacro -%}
 
 {%- macro staged_arg_local_variable_zeroing(arg) -%}
-for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2) {
+for (i_2 = 0; i_2 < {{ arg.data.cdim if not arg._flatten else 1 }}; ++i_2) {
     {%- if (arg._is_vec_map or arg._uses_itspace) -%}
-    {% for i in range(arg.map.arity) %}
+    {% for i in range(parloop._it_space._extent_ranges[0] if arg._flatten else arg.map.arity) %}
     {{ arg._local_name(idx=i) }}[i_2] = {{arg.data._cl_type_zero}};
     {% endfor %}
     {% else %}
@@ -62,25 +62,30 @@ for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2) {
 for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2) {
    {%- if(arg._is_INC) %}
    {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect}}*set_size] * {{ arg.data.cdim }}] += {{ arg._local_name() }}[i_2];
-   {% elif(arg._is_MIN) %}
+   {%- elif(arg._is_MIN) %}
    {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {(arg._which_indirect}}*set_size] * {{ arg.data.cdim }}] = min({{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect}}*set_size] * {{ arg.data.cdim }}], {{ arg._local_name() }}[i_2]);
-   {% elif(arg._is_MAX) %}
+   {%- elif(arg._is_MAX) %}
    {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect}}*set_size] * {{ arg.data.cdim }}] = max({{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect}}*set_size] * {{ arg.data.cdim }}], {{ arg._local_name() }}[i_2]);
-   {% endif %}
+   {%- endif %}
 }
 {%- endmacro -%}
 
 {%- macro color_reduction_vec_map(arg) -%}
-for (i_2 = 0; i_2 < {{ arg.data.cdim }}; ++i_2) {
-    {% for i in range(arg.map.arity) %}
-   {%- if(arg._is_INC) %}
-   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}] += {{ arg._local_name(idx=i) }}[i_2];
-   {% elif(arg._is_MIN) %}
-   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {(arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}] = min({{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}], {{ arg._local_name(idx=i) }}[i_2]);
-   {% elif(arg._is_MAX) %}
-   {{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}] = max({{ arg._shared_name }}[i_2 + p_loc_map[i_1 + offset_b + {{arg._which_indirect + i}}*set_size] * {{ arg.data.cdim }}], {{ arg._local_name(idx=i) }}[i_2]);
-   {% endif %}
-   {% endfor %}
+for (i_2 = 0; i_2 < {{ arg.data.cdim if not arg._flatten else 1 }}; ++i_2) {
+  {%- for i in range(parloop._it_space._extent_ranges[0] if arg._flatten else arg.map.arity) %}
+    {%- if(arg._flatten) %}
+    {%- set offs = i // arg.map.arity %}
+    {%- else %}
+    {%- set offs = 'i_2' %}
+    {%- endif %}
+    {%- if(arg._is_INC) %}
+    {{ arg._shared_name }}[{{offs}} + p_loc_map[i_1 + offset_b + {{arg._which_indirect + i % arg.map.arity}}*set_size] * {{ arg.data.cdim }}] += {{ arg._local_name(idx=i) }}[i_2];
+    {%- elif(arg._is_MIN) %}
+    {{ arg._shared_name }}[{{offs}} + p_loc_map[i_1 + offset_b + {(arg._which_indirect + i % arg.map.arity}}*set_size] * {{ arg.data.cdim }}] = min({{ arg._shared_name }}[{{offs}} + p_loc_map[i_1 + offset_b + {{arg._which_indirect + i % arg.map.arity}}*set_size] * {{ arg.data.cdim }}], {{ arg._local_name(idx=i) }}[i_2]);
+    {%- elif(arg._is_MAX) %}
+    {{ arg._shared_name }}[{{offs}} + p_loc_map[i_1 + offset_b + {{arg._which_indirect + i % arg.map.arity}}*set_size] * {{ arg.data.cdim }}] = max({{ arg._shared_name }}[{{offs}} + p_loc_map[i_1 + offset_b + {{arg._which_indirect + i % arg.map.arity}}*set_size] * {{ arg.data.cdim }}], {{ arg._local_name(idx=i) }}[i_2]);
+    {%- endif %}
+  {%- endfor %}
 }
 {%- endmacro -%}
 
@@ -159,23 +164,23 @@ void {{ parloop._stub_name }}(
   int color_1;
   int color_2;
   int i_2;
-{% endif %}
+{%- endif %}
 
 {%- if(parloop._unique_indirect_dat_args) %}
   // reduction args
 {%- for arg in parloop._all_inc_non_vec_map_indirect_dat_args %}
-  {{ arg.data._cl_type }} {{ arg._local_name() }}[{{ arg.data.cdim }}];
+  {{ arg.data._cl_type }} {{ arg._local_name() }}[{{ arg.data.cdim if not arg._flatten else 1 }}];
 {%- endfor %}
 
-{%- for arg in parloop._all_inc_vec_map_args %}
+{%- for arg in parloop._all_inc_vec_map_args if not arg._flatten %}
 {% for i in range(arg.map.arity) %}
 {{arg.data._cl_type}} {{arg._local_name(idx=i)}}[{{arg.data.cdim}}];
 {%- endfor %}
 {%- endfor %}
 
 {%- for arg in parloop._all_inc_itspace_dat_args %}
-{% for i in range(arg.map.arity) %}
-{{arg.data._cl_type}} {{arg._local_name(idx=i)}}[{{arg.data.cdim}}];
+{%- for i in range(parloop._it_space._extent_ranges[0] if arg._flatten else arg.map.arity) %}
+{{arg.data._cl_type}} {{arg._local_name(idx=i)}}[{{arg.data.cdim if not arg._flatten or 1}}];
 {%- endfor %}
 {%- endfor %}
 {%- endif %}
@@ -192,7 +197,7 @@ void {{ parloop._stub_name }}(
   {% for arg in parloop._matrix_args %}
   __private {{ arg.data._cl_type }} {{ arg.name }}_entry
   {%- for it in parloop._it_space._extent_ranges -%}[{{ it }}]{%- endfor -%}
-  {%- for dim in arg.data.sparsity.dims %}[{{ dim }}]{% endfor %};
+  {%- for dim in (arg.data.sparsity.dims if not arg._flatten else (1,1)) %}[{{ dim }}]{% endfor %};
   {% endfor %}
 {% endif %}
 
@@ -214,7 +219,7 @@ void {{ parloop._stub_name }}(
   __local {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.arity * cdim }}];
 {%- endfor %}
 {% for arg in parloop._all_inc_itspace_dat_args %}
-  {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ arg.map.arity }}];
+  {{ arg.data._cl_type }}* {{ arg._vec_name }}[{{ parloop._it_space._extent_ranges[0] }}];
 {%- endfor %}
 
   if (get_local_id(0) == 0) {
@@ -226,7 +231,7 @@ void {{ parloop._stub_name }}(
 {%- endif %}
     offset_b_abs = p_offset[block_id];
     offset_b = offset_b_abs - set_offset;
-    {% for arg in parloop._unique_indirect_dat_args -%}
+    {%- for arg in parloop._unique_indirect_dat_args -%}
     {{ arg._size_name }} = p_ind_sizes[{{loop.index0}} + block_id * {{ loop.length }}];
     {{ arg._map_name }} = &p_ind_map[{{arg._which_indirect}} * set_size] + p_ind_offsets[{{loop.index0}} + block_id * {{loop.length}}];
 {%- endfor %}
@@ -266,7 +271,7 @@ void {{ parloop._stub_name }}(
   for (i_1 = get_local_id(0); i_1 < active_threads_count_ceiling; i_1 += get_local_size(0)) {
     color_2 = -1;
     if (i_1 < active_threads_count) {
-      {% for arg in parloop._all_inc_indirect_dat_args %}
+      {%- for arg in parloop._all_inc_indirect_dat_args %}
       {{ staged_arg_local_variable_zeroing(arg) | indent(6) }}
       {%- endfor %}
 
@@ -276,15 +281,15 @@ void {{ parloop._stub_name }}(
     for (color_1 = 0; color_1 < colors_count; ++color_1) {
       // should there be a if + barrier pattern for each indirect reduction argument ?
       if (color_2 == color_1) {
-        {% for arg in parloop._all_inc_non_vec_map_indirect_dat_args %}
+        {%- for arg in parloop._all_inc_non_vec_map_indirect_dat_args %}
         {{ color_reduction(arg) | indent(8) }}
-        {% endfor %}
-        {% for arg in parloop._all_inc_vec_map_args %}
+        {%- endfor %}
+        {%- for arg in parloop._all_inc_vec_map_args %}
         {{ color_reduction_vec_map(arg) | indent(8) }}
-        {% endfor %}
-        {% for arg in parloop._all_inc_itspace_dat_args %}
+        {%- endfor %}
+        {%- for arg in parloop._all_inc_itspace_dat_args %}
         {{ color_reduction_vec_map(arg) | indent(8) }}
-        {% endfor %}
+        {%- endfor %}
         {%- if(parloop._requires_matrix_coloring) %}
         // IterationSpace index loops ({{ parloop._it_space._extent_ranges }})
         {%- for it in parloop._it_space._extent_ranges %}
@@ -303,7 +308,7 @@ void {{ parloop._stub_name }}(
 {%- endif %}
 
 {%- if(parloop._unique_inc_indirect_dat_args) %}
-  {% for arg in parloop._unique_inc_indirect_dat_args %}
+  {%- for arg in parloop._unique_inc_indirect_dat_args %}
   {{ work_group_reduction(arg) | indent(2) }}
   {%- endfor %}
 {%- endif %}
@@ -333,10 +338,10 @@ void {{ parloop._stub_name }}(
 for (int idx_{{ loop.index0 }} = 0; idx_{{ loop.index0 }} < {{ it }}; ++idx_{{ loop.index0 }}) {
 {%- endfor %}
 {% for arg in parloop._matrix_args %}
-{% for dim in arg.data.sparsity.dims %}
+{%- for dim in (arg.data.sparsity.dims if not arg._flatten else (1,1)) %}
 for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }})
 {%- endfor %}
-  {{ arg.name }}_entry[idx_0][idx_1][i0][i1] = {{ arg.data._cl_type_zero }};
+{{ arg.name }}_entry[idx_0][idx_1][i0][i1] = {{ arg.data._cl_type_zero }};
 {% endfor %}
 {{ parloop._kernel.name }}(
   {% filter trim|replace("\n", ",\n") -%}
@@ -361,7 +366,7 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
 
 {%- macro matrix_insert() -%}
 {% for arg in parloop._matrix_args -%}
-{% for dim in arg.data.sparsity.dims %}
+{%- for dim in (arg.data.sparsity.dims if not arg._flatten else (1,1)) %}
 for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }})
 {%- endfor %}
   {% if(arg._is_INC) -%}
@@ -375,7 +380,12 @@ for (int i{{ loop.index0 }}=0; i{{ loop.index0 }}<{{ dim }}; ++i{{ loop.index0 }
     {%- for map in arg._map %}
     {% set ext = parloop._it_space._extent_ranges[loop.index0] -%}
     {% set dim = arg.data.sparsity.dims[loop.index0] -%}
-    {{ dim }}*{{ map.name }}[(i_1 + offset_b) * {{ ext }} + idx_{{ loop.index0 }}]+i{{ loop.index0 }},
+    {%- if arg._flatten %}
+    {%- set ext = ext // dim %}
+    {{ dim }}*{{ map.name }}[(i_1 + offset_b) * {{ ext }} + idx_{{ loop.index0 }} % {{ ext }}] + idx_{{ loop.index0 }} / {{ ext }},
+    {%- else %}
+    {{ dim }}*{{ map.name }}[(i_1 + offset_b) * {{ ext }} + idx_{{ loop.index0 }}] + i{{ loop.index0 }},
+    {%- endif %}
     {%- endfor %}
     {{ arg.name }}_entry[idx_0][idx_1][i0][i1]
   );
@@ -415,7 +425,7 @@ _ssinds[{{ idx }}]
 {%- endmacro -%}
 
 {%- macro kernel_call_arg(arg) -%}
-{% if(arg._is_direct) -%}
+{%- if(arg._is_direct) -%}
   {{ typecast("__global", arg.data._cl_type + "*", "__private") -}}
   ({{ arg.name }} + {{ subset_ind("i_1 + offset_b_abs") }} * {{ arg.data.cdim }})
 {%- elif(arg._is_mat) -%}

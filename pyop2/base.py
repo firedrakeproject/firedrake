@@ -263,21 +263,21 @@ class Arg(object):
 
         # Determine the iteration space extents, if any
         if self._is_mat and flatten:
-            self._extents = (((map[0].arity * data.dims[0], map[1].arity * data.dims[1]),),)
+            self._block_shape = (((map[0].arity * data.dims[0], map[1].arity * data.dims[1]),),)
             self._offsets = (((0, 0),),)
         elif self._is_mat:
-            self._extents = tuple(tuple((mr.arity, mc.arity) for mc in map[1])
-                                  for mr in map[0])
+            self._block_shape = tuple(tuple((mr.arity, mc.arity) for mc in map[1])
+                                      for mr in map[0])
             self._offsets = tuple(tuple((i, j) for j in map[1].arange)
                                   for i in map[0].arange)
         elif self._uses_itspace and flatten:
-            self._extents = (((map.arity * data.cdim,),),)
+            self._block_shape = (((map.arity * data.cdim,),),)
             self._offsets = None
         elif self._uses_itspace:
-            self._extents = tuple(((m.arity,),) for m in map)
+            self._block_shape = tuple(((m.arity,),) for m in map)
             self._offsets = tuple(((o,),) for o in map.arange)
         else:
-            self._extents = None
+            self._block_shape = None
             self._offsets = None
 
     def __eq__(self, other):
@@ -1221,9 +1221,18 @@ class IterationSpace(object):
         :func:`pyop2.op2.par_loop`."""
 
     @validate_type(('iterset', Set, SetTypeError))
-    def __init__(self, iterset, extents=(), block_shape=None, offsets=None):
+    def __init__(self, iterset, block_shape=None, offsets=None):
         self._iterset = iterset
-        self._extents = as_tuple(extents, int)
+        if block_shape:
+            # Try the Mat case first
+            try:
+                self._extents = (sum(b[0][0] for b in block_shape),
+                                 sum(b[1] for b in block_shape[0]))
+            # Otherwise it's a Dat and only has one extent
+            except IndexError:
+                self._extents = (sum(b[0][0] for b in block_shape),)
+        else:
+            self._extents = ()
         self._block_shape = block_shape or ((self._extents,),)
         self._offsets = offsets or (((0,),),)
 
@@ -3078,8 +3087,7 @@ class ParLoop(LazyComputation):
         :return: class:`IterationSpace` for this :class:`ParLoop`"""
 
         _iterset = iterset.superset if isinstance(iterset, Subset) else iterset
-        itspace = ()
-        extents = None
+        block_shape = None
         offsets = None
         for i, arg in enumerate(self._actual_args):
             if arg._is_global:
@@ -3094,13 +3102,12 @@ class ParLoop(LazyComputation):
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
             if arg._uses_itspace:
-                _extents = arg._extents
-                itspace = tuple(m.arity for m in arg.map)
-                if extents and extents != _extents:
+                _block_shape = arg._block_shape
+                if block_shape and block_shape != _block_shape:
                     raise IndexValueError("Mismatching iteration space size for argument %d" % i)
-                extents = _extents
+                block_shape = _block_shape
                 offsets = arg._offsets
-        return IterationSpace(iterset, itspace, extents, offsets)
+        return IterationSpace(iterset, block_shape, offsets)
 
     @property
     def offset_args(self):
