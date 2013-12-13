@@ -157,7 +157,6 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
   %(const_inits)s;
   %(off_inits)s;
   %(layer_arg_init)s;
-  %(map_decl)s
 
   #ifdef _OPENMP
   int nthread = omp_get_max_threads();
@@ -167,6 +166,7 @@ void wrap_%(kernel_name)s__(PyObject* _boffset,
 
   #pragma omp parallel shared(boffset, nblocks, nelems, blkmap)
   {
+    %(map_decl)s
     int tid = omp_get_thread_num();
     %(interm_globals_decl)s;
     %(interm_globals_init)s;
@@ -226,12 +226,16 @@ class ParLoop(device.ParLoop, host.ParLoop):
                 if arg._is_mat:
                     self._jit_args.append(arg.data.handle.handle)
                 else:
-                    self._jit_args.append(arg.data._data)
+                    for d in arg.data:
+                        # Cannot access a property of the Dat or we will force
+                        # evaluation of the trace
+                        self._jit_args.append(d._data)
 
                 if arg._is_indirect or arg._is_mat:
                     maps = as_tuple(arg.map, Map)
                     for map in maps:
-                        self._jit_args.append(map.values_with_halo)
+                        for m in map:
+                            self._jit_args.append(m.values_with_halo)
 
             for c in Const._definitions():
                 self._jit_args.append(c.data)

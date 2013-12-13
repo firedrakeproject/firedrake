@@ -301,12 +301,22 @@ class Arg(object):
         return "Arg(%r, %r, %r, %r)" % \
             (self._dat, self._map, self._idx, self._access)
 
+    def __iter__(self):
+        for arg in self.split:
+            yield arg
+
     @property
     def split(self):
         """Split a mixed argument into a tuple of constituent arguments."""
         if self._is_mixed_dat:
             return tuple(_make_object('Arg', d, m, self._idx, self._access)
                          for d, m in zip(self._dat, self._map))
+        elif self._is_mixed_mat:
+            s = self.data.sparsity.shape
+            mr, mc = self.map
+            return tuple(_make_object('Arg', self.data[i, j], (mr.split[i], mc.split[j]),
+                                      self._idx, self._access)
+                         for j in range(s[1]) for i in range(s[0]))
         else:
             return (self,)
 
@@ -1899,6 +1909,12 @@ class MixedDat(Dat):
     def soa(self):
         """Are the data in SoA format?"""
         return tuple(s.soa for s in self._dats)
+
+    @property
+    def _data(self):
+        """Return the user-provided data buffer, or a zeroed buffer of
+        the correct size if none was provided."""
+        return tuple(d._data for d in self)
 
     @property
     @collective

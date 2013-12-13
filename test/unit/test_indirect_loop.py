@@ -242,7 +242,7 @@ def mmap(iterset2indset, iterset2unitset):
 class TestMixedIndirectLoop:
     """Mixed indirect loop tests."""
 
-    backends = ['sequential']
+    backends = ['sequential', 'openmp']
 
     def test_mixed_non_mixed_dat(self, backend, mdat, mmap, iterset):
         """Increment into a MixedDat from a non-mixed Dat."""

@@ -322,20 +322,18 @@ class ParLoop(base.ParLoop):
         seen = set()
         c = 0
         for arg in self._actual_args:
-            if arg._is_vec_map:
-                for i in range(arg.map.arity):
-                    a = arg.data(arg.access, arg.map[i])
-                    a.position = arg.position
+            if arg._is_mat:
+                for a in arg:
                     self.__unwound_args.append(a)
-            elif arg._is_mat:
-                self.__unwound_args.append(arg)
-            elif arg._uses_itspace:
-                for i in range(self._it_space.extents[arg.idx.index]):
-                    a = arg.data(arg.access, arg.map[i])
-                    a.position = arg.position
-                    self.__unwound_args.append(a)
+            elif arg._is_vec_map or arg._uses_itspace:
+                for d, m in zip(arg.data, arg.map):
+                    for i in range(m.arity):
+                        a = d(arg.access, m[i])
+                        a.position = arg.position
+                        self.__unwound_args.append(a)
             else:
-                self.__unwound_args.append(arg)
+                for a in arg:
+                    self.__unwound_args.append(a)
 
             if arg._is_dat:
                 key = (arg.data, arg.map)
