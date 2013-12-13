@@ -116,6 +116,21 @@ def compile_form(form, name):
 
     return FFCKernel(form, name).kernels
 
+
+def clear_cache():
+    """Clear the PyOP2 FFC kernel cache."""
+    if MPI.comm.rank != 0:
+        return
+    if os.path.exists(FFCKernel._cachedir):
+        import shutil
+        shutil.rmtree(FFCKernel._cachedir, ignore_errors=True)
+        _ensure_cachedir()
+
+
+def _ensure_cachedir():
+    """Ensure that the FFC kernel cache directory exists."""
+    if not os.path.exists(FFCKernel._cachedir) and MPI.comm.rank == 0:
+        os.makedirs(FFCKernel._cachedir)
+
 _check_version()
-if not os.path.exists(FFCKernel._cachedir) and MPI.comm.rank == 0:
-    os.makedirs(FFCKernel._cachedir)
+_ensure_cachedir()
