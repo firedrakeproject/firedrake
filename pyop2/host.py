@@ -44,7 +44,7 @@ from utils import as_tuple
 
 from ir.ast_base import Node
 from ir.ast_plan import ASTKernel
-import ir.ast_vectorizer
+import ir.ast_vectorizer as irvect
 from ir.ast_vectorizer import vect_roundup
 
 
@@ -498,8 +498,8 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
     def c_buffer_decl(self, size, idx, buf_name):
         buf_type = self.data.ctype
         dim = len(size)
-        compiler = ir.ast_vectorizer.compiler
-        isa = ir.ast_vectorizer.intrinsics
+        compiler = irvect.compiler
+        isa = irvect.intrinsics
         return (buf_name, "%(typ)s %(name)s%(dim)s%(align)s%(init)s" %
                 {"typ": buf_type,
                  "name": buf_name,
@@ -561,11 +561,13 @@ class JITModule(base.JITModule):
         if any(arg._is_soa for arg in self._args):
             kernel_code = """
             #define OP2_STRIDE(a, idx) a[idx]
+            #include <immintrin.h>
             %(code)s
             #undef OP2_STRIDE
             """ % {'code': self._kernel.code}
         else:
             kernel_code = """
+            #include <immintrin.h>
             %(code)s
             """ % {'code': self._kernel.code}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
@@ -579,12 +581,18 @@ class JITModule(base.JITModule):
         # We need to build with mpicc since that's required by PETSc
         cc = os.environ.get('CC')
         os.environ['CC'] = 'mpicc'
-
+        vect_flag = irvect.compiler.get('vect_flag')
+        if configuration["debug"]:
+            extra_cppargs = ['-O0', '-g']
+        elif vect_flag:
+            extra_cppargs = [vect_flag]
+        else:
+            extra_cppargs = []
         with progress(INFO, 'Compiling kernel %s', self._kernel.name):
             self._fun = inline_with_numpy(
                 code_to_compile, additional_declarations=kernel_code,
                 additional_definitions=_const_decs + kernel_code,
-                cppargs=self._cppargs + (['-O0', '-g'] if configuration["debug"] else []),
+                cppargs=self._cppargs + extra_cppargs,
                 include_dirs=[d + '/include' for d in get_petsc_dir()],
                 source_directory=os.path.dirname(os.path.abspath(__file__)),
                 wrap_headers=["mat_utils.h"],

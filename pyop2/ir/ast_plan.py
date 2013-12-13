@@ -38,8 +38,11 @@ from ast_optimizer import LoopOptimiser
 from ast_vectorizer import init_vectorizer, LoopVectoriser
 
 # Possibile optimizations
-V_TILE = 1  # Intrinsics vectorization
-R_TILE = 4  # Register tiling based on autovectorization
+AUTOVECT = 1      # Auto-vectorization
+V_OP_PADONLY = 2  # Outer-product vectorization + extra operations
+V_OP_PEEL = 3     # Outer-product vectorization + peeling
+V_OP_UAJ = 4      # Outer-product vectorization + unroll-and-jam
+R_TILE = 5        # Register tiling based on autovectorization
 
 # Track the scope of a variable in the kernel
 LOCAL_VAR = 0  # Variable declared and used within the kernel
@@ -150,6 +153,9 @@ class ASTKernel(object):
         vect = opts.get('vect')
         ap = opts.get('ap')
 
+        v_opt, isa, compiler = vect if vect else ((None, None), None, None)
+        v_type, v_param = v_opt
+
         lo = [LoopOptimiser(l, pre_l, self.decls) for l, pre_l in self.fors]
         for nest in lo:
             # 1) Loop-invariant code motion
@@ -159,13 +165,14 @@ class ASTKernel(object):
                 self.decls.update(nest.decls)
 
             # 2) Register tiling
-            if tile == R_TILE:
+            if tile == R_TILE and v_type == AUTOVECT:
                 nest.op_tiling()
 
             # 3) Vectorization
-            v_opt, isa, compiler = vect if vect else (None, None, None)
-            if v_opt == V_TILE:
+            if v_type in [AUTOVECT, V_OP_PADONLY, V_OP_PEEL, V_OP_UAJ]:
                 init_vectorizer(isa, compiler)
-                v_opt = LoopVectoriser(nest)
+                vect = LoopVectoriser(nest)
                 if ap:
-                    v_opt.align_and_pad(self.decls)
+                    vect.align_and_pad(self.decls)
+                if v_type != AUTOVECT:
+                    vect.outer_product(v_type, v_param)
