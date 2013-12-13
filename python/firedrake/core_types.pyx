@@ -440,7 +440,7 @@ class Mesh(object):
         self._cells = np.array(<int[:mesh.cell_count, :mesh.cell_vertices:1]>mesh.element_vertex_list)
         self._ufl_cell = ufl.Cell(
             _cells[mesh.geometric_dimension][mesh.cell_vertices],
-            mesh.topological_dimension)
+            geometric_dimension=mesh.geometric_dimension)
 
         self._entities = np.zeros(mesh.topological_dimension + 1, dtype=np.int)
         self._entities[:] = -1 # Ensure that 3d edges get an out of band value.
