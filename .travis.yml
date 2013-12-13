@@ -8,7 +8,14 @@ notifications:
 language: python
 # We're not Python 2.6 compatible at the moment
 python: "2.7"
-env: C_INCLUDE_PATH=/usr/lib/openmpi/include PETSC_CONFIGURE_OPTIONS="--with-fortran-interfaces=1 --with-c++-support"
+env:
+  global:
+    - C_INCLUDE_PATH=/usr/lib/openmpi/include
+    - PETSC_CONFIGURE_OPTIONS="--with-fortran-interfaces=1 --with-c++-support"
+  matrix:
+    - PYOP2_BACKEND=sequential
+    - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp
+    - OMP_NUM_THREADS=4 PYOP2_BACKEND=openmp
 # command to install dependencies
 before_install:
   - sudo add-apt-repository -y ppa:amcg/backports
