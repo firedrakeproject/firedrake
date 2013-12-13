@@ -415,22 +415,26 @@ class Mesh(object):
         if len(args)==0:
             return
 
+        if len(args)==2:
+            dim = int(args[1])
+        else:
+            dim = 0
+
         if isinstance(args[0], str):
-            self._from_file(args[0])
+            self._from_file(args[0], dim)
 
         else:
             raise NotImplementedError(
                 "Unknown argument types for Mesh constructor")
 
-    def _from_file(self, filename):
+    def _from_file(self, filename, dim=0):
         """Read a mesh from `filename`
 
         The extension of the filename determines the mesh type."""
         basename, ext = os.path.splitext(filename)
 
         # Retrieve mesh struct from Fluidity
-        cdef ft.mesh_t mesh = ft.read_mesh_f(basename, _file_extensions[ext])
-
+        cdef ft.mesh_t mesh = ft.read_mesh_f(basename, _file_extensions[ext], dim)
         self.name = filename
 
         self._cells = np.array(<int[:mesh.cell_count, :mesh.cell_vertices:1]>mesh.element_vertex_list)
