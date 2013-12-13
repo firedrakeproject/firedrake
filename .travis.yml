@@ -14,7 +14,8 @@ env:
     - PETSC_CONFIGURE_OPTIONS="--with-fortran-interfaces=1 --with-c++-support"
   matrix:
     - PYOP2_BACKEND=sequential
-    - PYOP2_BACKEND=openmp
+    - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp
+    - OMP_NUM_THREADS=4 PYOP2_BACKEND=openmp
 # command to install dependencies
 before_install:
   - sudo add-apt-repository -y ppa:amcg/backports
