@@ -5,6 +5,13 @@ import subprocess
 from pyop2.mpi import MPI
 import os
 from shutil import rmtree
+import numpy as np
+from math import sqrt
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from StringIO import StringIO
+
 
 import firedrake
 
@@ -367,3 +374,170 @@ $EndElements
         name = "unittri"
         output = _get_msh_file(source, name, 2, meshed=True)
         super(UnitTriangleMesh, self).__init__(output)
+
+
+class IcosahedralSphereMesh(Mesh):
+
+    """An icosahedral mesh of the surface of the sphere"""
+    phi = (1 + sqrt(5)) / 2
+    # vertices of an icosahedron with an edge length of 2
+    _base_vertices = np.array([[-1, phi, 0],
+                               [1, phi, 0],
+                               [-1, -phi, 0],
+                               [1, -phi, 0],
+                               [0, -1, phi],
+                               [0, 1, phi],
+                               [0, -1, -phi],
+                               [0, 1, -phi],
+                               [phi, 0, -1],
+                               [phi, 0, 1],
+                               [-phi, 0, -1],
+                               [-phi, 0, 1]])
+    del phi
+    # faces of the base icosahedron
+    _base_faces = np.array([[0, 11, 5],
+                            [0, 5, 1],
+                            [0, 1, 7],
+                            [0, 7, 10],
+                            [0, 10, 11],
+                            [1, 5, 9],
+                            [5, 11, 4],
+                            [11, 10, 2],
+                            [10, 7, 6],
+                            [7, 1, 8],
+                            [3, 9, 4],
+                            [3, 4, 2],
+                            [3, 2, 6],
+                            [3, 6, 8],
+                            [3, 8, 9],
+                            [4, 9, 5],
+                            [2, 4, 11],
+                            [6, 2, 10],
+                            [8, 6, 7],
+                            [9, 8, 1]], dtype=int)
+
+    def __init__(self, radius=1, refinement_level=0):
+        """
+        :arg radius: the radius of the sphere to approximate.
+             For a radius R the edge length of the underlying
+             icosahedron will be.
+             .. math::
+                 a = \frac{R}{\sin(2 \pi / 5)}
+
+        :arg refinement_level: how many levels of refinement, zero
+                               corresponds to an icosahedron."""
+
+        name = "icosahedralspheremesh_%d_%g" % (refinement_level, radius)
+
+        self._R = radius
+        self._refinement = refinement_level
+
+        self._vertices = np.empty_like(IcosahedralSphereMesh._base_vertices)
+        self._faces = np.copy(IcosahedralSphereMesh._base_faces)
+        # Rescale so that vertices live on sphere of specified radius
+        for i, vtx in enumerate(IcosahedralSphereMesh._base_vertices):
+            self._vertices[i] = self._force_to_sphere(vtx)
+
+        # check if output exists before refining
+        if not _msh_exists(name):
+            for i in range(refinement_level):
+                self._refine()
+        output = _get_msh_file(self._gmshify(), name, 3, meshed=True)
+        super(IcosahedralSphereMesh, self).__init__(output, 3)
+
+    def _force_to_sphere(self, vtx):
+        """
+        Scale `vtx` such that it sits on surface of the sphere this mesh
+        represents.
+
+        """
+        scale = self._R / np.linalg.norm(vtx)
+        return vtx * scale
+
+    def _gmshify(self):
+        out = StringIO()
+        out.write("""$MeshFormat
+2.2 0 8
+$EndMeshFormat
+$Nodes
+""")
+        out.write("%d\n" % len(self._vertices))
+        for i, (x, y, z) in enumerate(self._vertices):
+            out.write("%d %.15g %.15g %.15g\n" % (i + 1, x, y, z))
+        out.write("$EndNodes\n")
+        out.write("$Elements\n")
+        out.write("%d\n" % len(self._faces))
+        for i, (v1, v2, v3) in enumerate(self._faces):
+            out.write("%d 2 0 %d %d %d\n" % (i + 1, v1 + 1, v2 + 1, v3 + 1))
+        out.write("$EndElements\n")
+
+        return out.getvalue()
+
+    def _refine(self):
+        """Refine mesh by one level.
+
+        This increases the number of faces in the mesh by a factor of four."""
+        cache = {}
+        new_faces = np.empty((4 * len(self._faces), 3), dtype=int)
+        # Dividing each face adds 1.5 extra vertices (each vertex on
+        # the midpoint is shared two ways).
+        new_vertices = np.empty((len(self._vertices) + 3 * len(self._faces) / 2, 3))
+        f_idx = 0
+        v_idx = len(self._vertices)
+        new_vertices[:v_idx] = self._vertices
+
+        def midpoint(v1, v2):
+            return self._force_to_sphere((self._vertices[v1] + self._vertices[v2])/2)
+
+        # Walk old faces, splitting into 4
+        for (v1, v2, v3) in self._faces:
+            a = midpoint(v1, v2)
+            b = midpoint(v2, v3)
+            c = midpoint(v3, v1)
+            ka = tuple(sorted((v1, v2)))
+            kb = tuple(sorted((v2, v3)))
+            kc = tuple(sorted((v3, v1)))
+            if ka not in cache:
+                cache[ka] = v_idx
+                new_vertices[v_idx] = a
+                v_idx += 1
+            va = cache[ka]
+            if kb not in cache:
+                cache[kb] = v_idx
+                new_vertices[v_idx] = b
+                v_idx += 1
+            vb = cache[kb]
+            if kc not in cache:
+                cache[kc] = v_idx
+                new_vertices[v_idx] = c
+                v_idx += 1
+            vc = cache[kc]
+            #
+            #         v1
+            #        /  \
+            #       /    \
+            #      v2----v3
+            #
+            #         v1
+            #        /  \
+            #       a--- c
+            #      / \  / \
+            #     /   \/   \
+            #   v2----b----v3
+            #
+            new_faces[f_idx][:] = (v1, va, vc)
+            new_faces[f_idx+1][:] = (v2, vb, va)
+            new_faces[f_idx+2][:] = (v3, vc, vb)
+            new_faces[f_idx+3][:] = (va, vb, vc)
+            f_idx += 4
+        self._vertices = new_vertices
+        self._faces = new_faces
+
+
+class UnitIcosahedralSphereMesh(IcosahedralSphereMesh):
+    """An icosahedral approximation to the unit sphere."""
+    def __init__(self, refinement_level=0):
+        """
+        :arg refinement_level: how many levels to refine the mesh.
+        """
+        super(UnitIcosahedralSphereMesh, self).__init__(1, refinement_level)
