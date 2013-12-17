@@ -39,6 +39,11 @@ _3dexts = [".face"]
 _pexts = [".halo"]
 
 
+def _msh_exists(name):
+    f = os.path.join(_cachedir, name)
+    return os.path.exists(f + '.msh')
+
+
 def _build_msh_file(input, output, dimension):
     if gmshpy:
         # We've got the gmsh python interface available, so
@@ -99,7 +104,7 @@ def _get_msh_file(source, name, dimension, meshed=False):
 
         output = os.path.join(_cachedir, name)
 
-        if not os.path.exists(output + '.msh'):
+        if not _msh_exists(name):
             if meshed:
                 with file(output + '.msh', 'w') as f:
                     f.write(source)
