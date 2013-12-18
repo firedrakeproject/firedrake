@@ -427,6 +427,11 @@ class Mesh(object):
             raise NotImplementedError(
                 "Unknown argument types for Mesh constructor")
 
+        self._cell_orientations = op2.Dat(self.cell_set, dtype=np.int32,
+                                          name="cell_orientations")
+        # -1 is uninitialised.
+        self._cell_orientations.data[:] = -1
+
     def _from_file(self, filename, dim=0):
         """Read a mesh from `filename`
 
@@ -518,6 +523,58 @@ class Mesh(object):
     @property
     def layers(self):
         return self._layers
+
+    def cell_orientations(self):
+        """Return the orientation of each cell in the mesh.
+
+        Use :fn:`init_cell_orientations` to initialise this data."""
+        return self._cell_orientations.data_ro
+
+    def init_cell_orientations(self, expr):
+        """Compute and initialise `cell_orientations` relative to a specified orientation.
+
+        :arg expr: an :class:`Expression` evaluated to produce a
+        reference normal direction.
+
+        """
+        if expr.shape()[0] != 3:
+            raise NotImplementedError('Only implemented for 3-vectors')
+        if self.ufl_cell() != ufl.Cell('triangle', 3):
+            raise NotImplementedError('Only implemented for triangles embedded in 3d')
+
+        body = cgen.Block()
+        body.extend([cgen.ArrayOf(v, 3) for v in [cgen.Value("double", "v0"),
+                                                 cgen.Value("double", "v1"),
+                                                 cgen.Value("double", "n"),
+                                                 cgen.Value("double", "x")]])
+        body.append(cgen.Initializer(cgen.Value("double", "dot"), "0.0"))
+        body.append(cgen.Value("int", "i"))
+        body.append(cgen.For("i = 0", "i < 3", "i++",
+                             cgen.Block([cgen.Assign("v0[i]", "coords[1][i] - coords[0][i]"),
+                                         cgen.Assign("v1[i]", "coords[2][i] - coords[0][i]"),
+                                         cgen.Assign("x[i]", "0.0")])))
+        body.append(cgen.Assign("n[0]", "v0[1]*v1[2] - v0[2]*v1[1]"))
+        body.append(cgen.Assign("n[1]", "v0[2]*v1[0] - v0[0]*v1[2]"))
+        body.append(cgen.Assign("n[2]", "v0[0]*v1[1] - v0[1]*v1[0]"))
+
+        body.append(cgen.For("i = 0", "i < 3", "i++",
+                             cgen.Block([cgen.Line("x[0] += coords[i][0];"),
+                                         cgen.Line("x[1] += coords[i][1];"),
+                                         cgen.Line("x[2] += coords[i][2];")])))
+        body.extend([cgen.Line("dot += (%(x)s) * n[%(i)d];" % {"x": x, "i": i})
+                     for i, x in enumerate(expr.code)])
+        body.append(cgen.Assign("*orientation", "dot < 0 ? 1 : 0"))
+
+        fdecl = cgen.FunctionDeclaration(cgen.Value("void", "cell_orientations"),
+                                         [cgen.Pointer(cgen.Value("int", "orientation")),
+                                          cgen.Pointer(cgen.Pointer(cgen.Value("double", "coords")))])
+
+        fn = cgen.FunctionBody(fdecl, body)
+        kernel = op2.Kernel(str(fn), "cell_orientations")
+        op2.par_loop(kernel, self.cell_set,
+                     self._cell_orientations(op2.WRITE),
+                     self._coordinate_field.dat(op2.READ, self._coordinate_field.cell_node_map()))
+        self._cell_orientations._force_evaluation(read=True, write=False)
 
     def cells(self):
         return self._cells
