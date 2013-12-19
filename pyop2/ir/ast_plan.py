@@ -124,3 +124,7 @@ class ASTKernel(object):
         # Clean up the kernel removing variable qualifiers like 'static'
         for d in self.decl.values():
             d.qual = [q for q in d.qual if q not in ['static', 'const']]
+
+        if hasattr(self, 'fundecl'):
+            self.fundecl.pred = [q for q in self.fundecl.pred
+                                 if q not in ['static', 'inline']]
