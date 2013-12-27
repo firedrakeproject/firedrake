@@ -7,7 +7,7 @@ from common import *
 
 
 @pytest.mark.parametrize(('testcase', 'convrate'),
-                         [(("CG", 1), 1.95), (("CG", 2), 2.7),
+                         [(("CG", 1), 1.9), (("CG", 2), 2.6),
                           (("DG", 0), 0.9), (("DG", 1), 1.98)])
 def test_scalar_convergence(testcase, convrate):
     family, degree = testcase

@@ -26,11 +26,16 @@ def project(v, V, bcs=None, mesh=None,
         shape = v.shape()
         # Build a function space that supports PointEvaluation so that
         # we can interpolate into it.
+        if isinstance(V.ufl_element().degree(), tuple):
+            deg = max(V.ufl_element().degree())
+        else:
+            deg = V.ufl_element().degree()
+
         if v.rank() == 0:
-            fs = FunctionSpace(V.mesh(), 'CG', V.ufl_element().degree()+1)
+            fs = FunctionSpace(V.mesh(), 'CG', deg+1)
         elif v.rank() == 1:
             fs = VectorFunctionSpace(V.mesh(), 'CG',
-                                     V.ufl_element().degree()+1,
+                                     deg+1,
                                      dim=shape[0])
         else:
             raise NotImplementedError(
