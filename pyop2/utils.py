@@ -275,7 +275,7 @@ def preprocess(text):
     p = Popen(['cpp', '-E', '-I' + os.path.dirname(__file__)], stdin=PIPE,
               stdout=PIPE, universal_newlines=True)
     processed = '\n'.join(l for l in p.communicate(
-        text)[0].split('\n') if not l.startswith('#'))
+        text)[0].split('\n') if (not l.startswith('#') or l.startswith('#pragma')))
     return processed
 
 
