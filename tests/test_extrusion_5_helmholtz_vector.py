@@ -11,6 +11,8 @@ from common import *
                           (("RT", 2, "DG", 0, "h", "DG", 1, (2, 4)), 1.65),
                           (("RT", 3, "DG", 0, "h", "DG", 2, (2, 4)), 2.55),
                           (("BDM", 1, "DG", 0, "h", "DG", 0, (2, 5)), 0.9),
+                          (("BDM", 2, "DG", 0, "h", "DG", 1, (2, 4)), 1.7),
+                          (("BDFM", 2, "DG", 0, "h", "DG", 1, (2, 4)), 1.65),
                           (("DG", 0, "CG", 1, "v", "DG", 0, (2, 5)), 0.9),
                           (("DG", 0, "CG", 2, "v", "DG", 1, (2, 5)), 1.9)])
 def test_scalar_convergence(testcase, convrate):

@@ -35,6 +35,12 @@ def test_scalar_convergence(testcase, convrate):
                           (("RT", 2, "DG", 1, "h"), 1.95),
                           (("RT", 3, "DG", 2, "h"), 2.9),
                           (("BDM", 1, "DG", 1, "h"), 1.9),
+                          (("BDM", 2, "DG", 2, "h"), 2.9),
+                          (("BDFM", 2, "DG", 1, "h"), 1.95),
+                          (("N1curl", 1, "DG", 0, "h"), 0.9),
+                          (("N1curl", 2, "DG", 1, "h"), 1.95),
+                          (("N2curl", 1, "DG", 1, "h"), 1.9),
+                          (("N2curl", 2, "DG", 2, "h"), 2.9),
                           (("DG", 1, "CG", 1, "v"), 1.98),
                           (("DG", 2, "CG", 2, "v"), 2.98)])
 def test_hdiv_convergence(testcase, convrate):
@@ -68,8 +74,13 @@ def test_hdiv_convergence(testcase, convrate):
 
 @pytest.mark.parametrize(('testcase', 'convrate'),
                          [(("BDM", 1, "CG", 1, "h"), 1.9),
+                          (("BDM", 2, "CG", 2, "h"), 2.9),
                           (("RT", 2, "CG", 1, "h"), 1.95),
                           (("RT", 3, "CG", 2, "h"), 2.95),
+                          (("BDFM", 2, "CG", 1, "h"), 1.95),
+                          (("N1curl", 2, "CG", 1, "h"), 1.95),
+                          (("N2curl", 1, "CG", 1, "h"), 1.9),
+                          (("N2curl", 2, "CG", 2, "h"), 2.9),
                           (("CG", 1, "DG", 1, "v"), 1.95),
                           (("CG", 2, "DG", 2, "v"), 2.7)])
 def test_hcurl_convergence(testcase, convrate):
