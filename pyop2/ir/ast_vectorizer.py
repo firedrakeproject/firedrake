@@ -51,7 +51,7 @@ class LoopVectoriser(object):
         self.iloops = self._inner_loops(loop_optimiser.loop_nest)
         self.padded = []
 
-    def align_and_pad(self, decl_scope, autovect=False, only_align=False):
+    def align_and_pad(self, decl_scope, only_align=False):
         """Pad all data structures accessed in the loop nest to the nearest
         multiple of the vector length. Also align them to the size of the
         vector length in order to issue aligned loads and stores. Tell about
@@ -79,9 +79,10 @@ class LoopVectoriser(object):
             d, s = ds
             if d.sym.rank and s != ap.PARAM_VAR:
                 d.attr.append(self.comp["align"](self.intr["alignment"]))
-        if autovect:
-            for l in self.iloops:
-                l.pragma = self.comp["decl_aligned_for"]
+
+        # Add pragma alignment over innermost loops
+        for l in self.iloops:
+            l.pragma = self.comp["decl_aligned_for"]
 
         # Loop adjustment
         for l in self.iloops:
