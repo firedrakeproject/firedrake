@@ -38,11 +38,12 @@ from ast_optimizer import LoopOptimiser
 from ast_vectorizer import init_vectorizer, LoopVectoriser
 
 # Possibile optimizations
-AUTOVECT = 1      # Auto-vectorization
-V_OP_PADONLY = 2  # Outer-product vectorization + extra operations
-V_OP_PEEL = 3     # Outer-product vectorization + peeling
-V_OP_UAJ = 4      # Outer-product vectorization + unroll-and-jam
-R_TILE = 5        # Register tiling based on autovectorization
+AUTOVECT = 1        # Auto-vectorization
+V_OP_PADONLY = 2    # Outer-product vectorization + extra operations
+V_OP_PEEL = 3       # Outer-product vectorization + peeling
+V_OP_UAJ = 4        # Outer-product vectorization + unroll-and-jam
+V_OP_UAJ_EXTRA = 5  # Outer-product vectorization + unroll-and-jam + extra iters
+R_TILE = 6          # Register tiling based on autovectorization
 
 # Track the scope of a variable in the kernel
 LOCAL_VAR = 0  # Variable declared and used within the kernel
@@ -169,7 +170,7 @@ class ASTKernel(object):
                 nest.op_tiling()
 
             # 3) Vectorization
-            if v_type in [AUTOVECT, V_OP_PADONLY, V_OP_PEEL, V_OP_UAJ]:
+            if v_type in [AUTOVECT, V_OP_PADONLY, V_OP_PEEL, V_OP_UAJ, V_OP_UAJ_EXTRA]:
                 vect = LoopVectoriser(nest)
                 if ap:
                     vect.align_and_pad(self.decls)

@@ -97,6 +97,7 @@ class LoopVectoriser(object):
         opts = V_OP_PADONLY : no peeling, just use padding
         opts = V_OP_PEEL : peeling for autovectorisation
         opts = V_OP_UAJ : set unroll_and_jam factor
+        opts = V_OP_UAJ_EXTRA : as above, but exter iters avoid remainder loop
         factor is an additional parameter to specify things like unroll-and-
         jam factor. Note that factor is just a suggestion to the compiler,
         which can freely decide to use a higher or lower value."""
@@ -108,7 +109,7 @@ class LoopVectoriser(object):
 
             vect_len = self.intr["dp_reg"]
             rows = loops[0].size()
-            u_factor = factor if opts == ap.V_OP_UAJ else 1
+            u_factor = factor if opts in [ap.V_OP_UAJ, ap.V_OP_UAJ_EXTRA] else 1
 
             op = OuterProduct(stmt, loops, self.intr, self.lo)
 
@@ -120,13 +121,19 @@ class LoopVectoriser(object):
                 else:
                     # Unroll factor too big
                     body, layout = op.generate(vect_len)
+            elif opts == ap.V_OP_UAJ_EXTRA:
+                if rows <= rows_per_it or vect_roundup(rows) % rows_per_it > 0:
+                    # Cannot unroll too much
+                    body, layout = op.generate(vect_len)
+                else:
+                    body, layout = op.generate(rows_per_it)
             elif opts in [ap.V_OP_PADONLY, ap.V_OP_PEEL]:
                 body, layout = op.generate(vect_len)
             else:
                 raise RuntimeError("Don't know how to vectorize option %s" % opts)
 
             # Construct the remainder loop
-            if rows > rows_per_it and rows % rows_per_it > 0:
+            if opts != ap.V_OP_UAJ_EXTRA and rows > rows_per_it and rows % rows_per_it > 0:
                 # peel out
                 loop_peel = dcopy(loops)
                 # Adjust main, layout and remainder loops bound and trip
