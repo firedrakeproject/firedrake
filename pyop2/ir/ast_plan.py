@@ -170,9 +170,14 @@ class ASTKernel(object):
 
             # 3) Vectorization
             if v_type in [AUTOVECT, V_OP_PADONLY, V_OP_PEEL, V_OP_UAJ]:
-                init_vectorizer(isa, compiler)
                 vect = LoopVectoriser(nest)
                 if ap:
                     vect.align_and_pad(self.decls)
                 if v_type != AUTOVECT:
                     vect.outer_product(v_type, v_param)
+
+
+def init_ir(isa, compiler):
+    """Initialize the Intermediate Representation engine."""
+
+    init_vectorizer(isa, compiler)
