@@ -43,7 +43,6 @@ V_OP_PADONLY = 2    # Outer-product vectorization + extra operations
 V_OP_PEEL = 3       # Outer-product vectorization + peeling
 V_OP_UAJ = 4        # Outer-product vectorization + unroll-and-jam
 V_OP_UAJ_EXTRA = 5  # Outer-product vectorization + unroll-and-jam + extra iters
-R_TILE = 6          # Register tiling based on autovectorization
 
 # Track the scope of a variable in the kernel
 LOCAL_VAR = 0  # Variable declared and used within the kernel
@@ -157,6 +156,8 @@ class ASTKernel(object):
         v_opt, isa, compiler = vect if vect else ((None, None), None, None)
         v_type, v_param = v_opt
 
+        tile_opt, tile_sz = tile if tile else (False, -1)
+
         lo = [LoopOptimiser(l, pre_l, self.decls) for l, pre_l in self.fors]
         for nest in lo:
             # 1) Loop-invariant code motion
@@ -166,8 +167,8 @@ class ASTKernel(object):
                 self.decls.update(nest.decls)
 
             # 2) Register tiling
-            if tile == R_TILE and v_type == AUTOVECT:
-                nest.op_tiling()
+            if tile_opt and v_type == AUTOVECT:
+                nest.op_tiling(tile_sz)
 
             # 3) Vectorization
             if v_type in [AUTOVECT, V_OP_PADONLY, V_OP_PEEL, V_OP_UAJ, V_OP_UAJ_EXTRA]:

@@ -105,7 +105,7 @@ class FFCKernel(DiskCached, KernelCached):
             # Set optimization options
             opts = {} if ida.domain_type not in ['cell'] else \
                    {'licm': True,
-                    'tile': None,
+                    'tile': (None, -1),
                     'vect': ((ap.V_OP_UAJ_EXTRA, 2), 'avx', 'gnu'),
                     'ap': True}
             kernels.append(Kernel(Root([incl, ker]), '%s_%s_integral_0_%s' %

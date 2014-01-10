@@ -300,7 +300,7 @@ class LoopOptimiser(object):
         compiler for unrolling and vector-promoting the tiled loops.
         By default, it slices the inner outer-product loop."""
 
-        if not tile_sz:
+        if tile_sz == -1:
             tile_sz = 20  # Actually, should be determined for each form
 
         for loop_vars in set([tuple(x) for x, y in self.out_prods.values()]):
