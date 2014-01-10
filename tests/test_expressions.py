@@ -131,7 +131,9 @@ common_tests = [
     'isubtest(two, 1, 1)',
     'imultest(one, 2, 2)',
     'idivtest(two, 2, 1)',
-    'isubtest(one, one, 0)']
+    'isubtest(one, one, 0)',
+    'assigntest(f, 2 * one, 2)',
+    'assigntest(f, one - one, 0)']
 
 scalar_tests = common_tests + [
     'interpolatetest(f, "sin(pi/2)", 1)',

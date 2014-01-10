@@ -211,13 +211,14 @@ class ExpressionSplitter(ReuseTransformer):
         def reconstruct_if_vec(coeff, idx, i):
             # If the MultiIndex contains a FixedIndex we only want to return
             # the indexed coefficient if its position matches the FixedIndex
-            if isinstance(idx._indices[0], ufl.indexing.FixedIndex) and \
-                    idx._indices[0]._value != i:
-                return Zero()
-            elif isinstance(coeff.function_space(), core_types.VectorFunctionSpace):
-                return o.reconstruct(coeff, idx)
-            else:
-                return coeff
+            # Since we don't split VectorFunctionSpaces, we have to
+            # reconstruct the fixed index expression for those (and only those)
+            if isinstance(idx._indices[0], ufl.indexing.FixedIndex):
+                if idx._indices[0]._value != i:
+                    return Zero()
+                elif isinstance(coeff.function_space(), core_types.VectorFunctionSpace):
+                    return o.reconstruct(coeff, idx)
+            return coeff
         return [reconstruct_if_vec(*ops, i=i)
                 for i, ops in enumerate(zip(*operands))]
 
