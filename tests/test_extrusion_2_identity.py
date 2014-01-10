@@ -27,7 +27,6 @@ def test_identity_scalar(hfamily, hdegree, vfamily, vdegree):
     assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-14
 
 
-@pytest.mark.xfail(reason="No support for vector function spaces on extruded meshes")
 @pytest.mark.parametrize(('hfamily', 'hdegree', 'vfamily', 'vdegree'),
                          [(f, d, vf, vd) for (vf, vd) in CG + DG for (f, d) in CG + DG])
 def test_identity_vector(hfamily, hdegree, vfamily, vdegree):
@@ -40,7 +39,7 @@ def test_identity_vector(hfamily, hdegree, vfamily, vdegree):
     f = project(Expression(("x[2]-x[0]", "x[1] - x[2]", "x[0] - x[1]")), fspace)
 
     out = Function(fspace)
-    solve(u*v*dx == f*v*dx, out, solver_parameters=params)
+    solve(dot(u, v)*dx == dot(f, v)*dx, out, solver_parameters=params)
     assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-14
 
 
