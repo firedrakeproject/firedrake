@@ -60,3 +60,5 @@ void %(classname)s(%(arglist)s)
 {
 %(tabulate_tensor)s
 }"""
+
+point_integral_combined = ""

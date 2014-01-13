@@ -50,6 +50,7 @@ from form import *
 templates = {"cell_integral_combined": cell_integral_combined,
              "exterior_facet_integral_combined": exterior_facet_integral_combined,
              "interior_facet_integral_combined": interior_facet_integral_combined,
+             "point_integral_combined": point_integral_combined,
              "finite_element_combined": finite_element_combined,
              "dofmap_combined": dofmap_combined,
              "form_combined": form_combined}
