@@ -6,7 +6,8 @@ from common import *
 
 CG = [("CG", 1), ("CG", 2)]
 DG = [("DG", 0), ("DG", 1)]
-hdiv = [("RT", 1), ("RT", 2), ("RT", 3), ("BDM", 1)]
+hdiv = [("RT", 1), ("RT", 2), ("RT", 3), ("BDM", 1), ("BDM", 2), ("BDFM", 2)]
+hcurl = [("N1curl", 1), ("N1curl", 2), ("N2curl", 1), ("N2curl", 2)]
 
 
 @pytest.mark.parametrize(('hfamily', 'hdegree', 'vfamily', 'vdegree'),
@@ -22,9 +23,10 @@ def test_scalar_assembly(hfamily, hdegree, vfamily, vdegree):
     assemble(dot(grad(u), grad(v))*dx).M._force_evaluation()
 
 
-# two valid combinations for hdiv: 1) BDM/RT x DG, 2) DG x CG
+# three valid combinations for hdiv: 1) hdiv x DG, 2) hcurl x DG, 3) DG x CG
 @pytest.mark.parametrize(('hfamily', 'hdegree', 'vfamily', 'vdegree'),
                          [(f, d, vf, vd) for (vf, vd) in DG for (f, d) in hdiv]
+                         + [(f, d, vf, vd) for (vf, vd) in DG for (f, d) in hcurl]
                          + [(f, d, vf, vd) for (vf, vd) in CG for (f, d) in DG])
 def test_hdiv_assembly(hfamily, hdegree, vfamily, vdegree):
     mesh = extmesh(4, 4, 2)
@@ -41,9 +43,10 @@ def test_hdiv_assembly(hfamily, hdegree, vfamily, vdegree):
     assemble(inner(grad(u), grad(v))*dx).M._force_evaluation()
 
 
-# two valid combinations for hcurl: 1) BDM/RT x CG, 2) CG x DG
+# three valid combinations for hcurl: 1) hcurl x CG, 1) hdiv x CG, 3) CG x DG
 @pytest.mark.parametrize(('hfamily', 'hdegree', 'vfamily', 'vdegree'),
-                         [(f, d, vf, vd) for (vf, vd) in CG for (f, d) in hdiv]
+                         [(f, d, vf, vd) for (vf, vd) in CG for (f, d) in hcurl]
+                         + [(f, d, vf, vd) for (vf, vd) in CG for (f, d) in hdiv]
                          + [(f, d, vf, vd) for (vf, vd) in DG for (f, d) in CG])
 def test_hcurl_assembly(hfamily, hdegree, vfamily, vdegree):
     mesh = extmesh(4, 4, 2)
