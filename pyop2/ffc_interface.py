@@ -44,7 +44,7 @@ from ffc import default_parameters, compile_form as ffc_compile_form
 from ffc import constants
 from ffc.log import set_level, ERROR
 
-from caching import DiskCached
+from caching import DiskCached, KernelCached
 from op2 import Kernel
 from mpi import MPI
 
@@ -77,7 +77,7 @@ def _check_version():
                        % (version, getattr(constants, 'PYOP2_VERSION', 'unknown')))
 
 
-class FFCKernel(DiskCached):
+class FFCKernel(DiskCached, KernelCached):
 
     _cache = {}
     _cachedir = os.path.join(tempfile.gettempdir(),
@@ -97,11 +97,10 @@ class FFCKernel(DiskCached):
         incl = PreprocessNode('#include "pyop2_geometry.h"\n')
         ffc_tree = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
         ast = Root([incl] + [subtree for subtree in ffc_tree])
-        code = ast.gencode()
 
         form_data = form.form_data()
 
-        self.kernels = tuple([Kernel(code, '%s_%s_integral_0_%s' %
+        self.kernels = tuple([Kernel(ast, '%s_%s_integral_0_%s' %
                             (name, ida.domain_type, ida.domain_id))
             for ida in form_data.integral_data])
         self._initialized = True

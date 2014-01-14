@@ -37,6 +37,7 @@ import random
 
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, IndexValueError
+from pyop2.ir.ast_base import *
 
 
 # Large enough that there is more than one block and more than one
@@ -258,10 +259,13 @@ class TestMixedIndirectLoop:
     def test_mixed_non_mixed_dat_itspace(self, backend, mdat, mmap, iterset):
         """Increment into a MixedDat from a Dat using iteration spaces."""
         d = op2.Dat(iterset, np.ones(iterset.size))
-        kernel_inc = """void kernel_inc(double *d, double *x, int j) {
-          d[0] += x[0];
-        }"""
-        op2.par_loop(op2.Kernel(kernel_inc, "kernel_inc"), iterset,
+        assembly = Incr(Symbol("d", ("j",)), Symbol("x", (0,)))
+        assembly = c_for("j", 2, assembly)
+        kernel_code = FunDecl("void", "kernel_inc",
+                              [Decl("double", c_sym("*d")),
+                               Decl("double", c_sym("*x"))],
+                              Block([assembly], open_scope=False))
+        op2.par_loop(op2.Kernel(kernel_code, "kernel_inc"), iterset,
                      mdat(op2.INC, mmap[op2.i[0]]),
                      d(op2.READ))
         assert all(mdat[0].data == 1.0) and mdat[1].data == 4096.0

@@ -40,7 +40,7 @@ import numpy as np
 import operator
 from hashlib import md5
 
-from caching import Cached
+from caching import Cached, KernelCached
 from configuration import configuration
 from exceptions import *
 from utils import *
@@ -2864,7 +2864,7 @@ class Mat(DataCarrier):
 # Kernel API
 
 
-class Kernel(Cached):
+class Kernel(KernelCached):
 
     """OP2 kernel type."""
 

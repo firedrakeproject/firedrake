@@ -1,8 +1,42 @@
+# This file is part of PyOP2
+#
+# PyOP2 is Copyright (c) 2012, Imperial College London and
+# others. Please see the AUTHORS file in the main source directory for
+# a full list of copyright holders.  All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+#
+#     * Redistributions of source code must retain the above copyright
+#       notice, this list of conditions and the following disclaimer.
+#     * Redistributions in binary form must reproduce the above copyright
+#       notice, this list of conditions and the following disclaimer in the
+#       documentation and/or other materials provided with the distribution.
+#     * The name of Imperial College London or that of other
+#       contributors may not be used to endorse or promote products
+#       derived from this software without specific prior written
+#       permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTERS
+# ''AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+# LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+# FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+# COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+# INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+# STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+# OF THE POSSIBILITY OF SUCH DAMAGE.
+
 """This file contains the hierarchy of classes that implement a kernel's
 Abstract Syntax Tree (ast)."""
 
 # Utilities for simple exprs and commands
 point = lambda p: "[%s]" % p
+point_ofs = lambda p, o: "[%s*%d+%d]" % (p, o[0], o[1])
 assign = lambda s, e: "%s = %s" % (s, e)
 incr = lambda s, e: "%s += %s" % (s, e)
 incr_by_1 = lambda s: "%s++" % s
@@ -136,13 +170,21 @@ class Symbol(Expr):
     depends on, or explicit numbers representing the entry of a tensor the
     symbol is accessing, or the size of the tensor itself. """
 
-    def __init__(self, symbol, rank):
+    def __init__(self, symbol, rank, offset=None):
         self.symbol = symbol
         self.rank = rank
+        self.offset = offset
         self.loop_dep = tuple([i for i in rank if not str(i).isdigit()])
 
     def gencode(self):
-        return str(self.symbol) + "".join([point(p) for p in self.rank])
+        points = ""
+        if not self.offset:
+            for p in self.rank:
+                points += point(p)
+        else:
+            for p, ofs in zip(self.rank, self.offset):
+                points += point_ofs(p, ofs)
+        return str(self.symbol) + points
 
 
 # Vector expression classes ###
@@ -220,6 +262,17 @@ class EmptyStatement(Statement):
 
     def gencode(self):
         return ""
+
+
+class FlatBlock(Statement):
+    """Treat a chunk of code as a single statement, i.e. a C string"""
+
+    def __init__(self, code, pragma=None):
+        Statement.__init__(self, pragma)
+        self.children.append(code)
+
+    def gencode(self, scope=False):
+        return self.children[0]
 
 
 class Assign(Statement):
@@ -441,6 +494,7 @@ class AVXSetZero(Statement):
 
 # Extra ###
 
+
 class PreprocessNode(Node):
 
     """Represent directives which are handled by the C's preprocessor. """
@@ -450,6 +504,7 @@ class PreprocessNode(Node):
 
     def gencode(self, scope=False):
         return self.children[0]
+
 
 # Utility functions ###
 
@@ -469,6 +524,25 @@ def semicolon(scope):
 
 def c_sym(const):
     return Symbol(const, ())
+
+
+def c_for(var, to, code):
+    i = c_sym(var)
+    end = c_sym(to)
+    if type(code) == str:
+        code = FlatBlock(code)
+    if type(code) is not Block:
+        code = Block([code], open_scope=True)
+    return Block(
+        [For(Decl("int", i, c_sym(0)), Less(i, end), Incr(i, c_sym(1)),
+             code, "#pragma pyop2 itspace")], open_scope=True)
+
+
+def c_flat_for(code, parent):
+    new_block = Block([], open_scope=True)
+    parent.children.append(FlatBlock(code))
+    parent.children.append(new_block)
+    return new_block
 
 
 def perf_stmt(node):

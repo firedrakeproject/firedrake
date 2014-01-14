@@ -37,6 +37,8 @@ import cPickle
 import gzip
 import os
 
+from ir.ast_base import Node
+
 
 class Cached(object):
 
@@ -102,6 +104,26 @@ class Cached(object):
     def cache_key(self):
         """Cache key."""
         return self._key
+
+
+class KernelCached(Cached):
+
+    """Base class providing functionalities for cachable kernel objects."""
+
+    def __new__(cls, *args, **kwargs):
+        args, kwargs = cls._process_args(*args, **kwargs)
+        code = cls._ast_to_c(*args, **kwargs)
+        args = (code,) + args[1:]
+        obj = super(KernelCached, cls).__new__(cls, *args, **kwargs)
+        return obj
+
+    @classmethod
+    def _ast_to_c(cls, ast, name):
+        """Transform an Abstract Syntax Tree representing the kernel into a
+        string of C code."""
+        if isinstance(ast, Node):
+            return ast.gencode()
+        return ast
 
 
 class DiskCached(Cached):

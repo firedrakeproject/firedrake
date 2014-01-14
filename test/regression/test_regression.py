@@ -60,6 +60,9 @@ def test_mass_vector_ffc(backend):
     assert abs(f - x).sum() < 1e-12
 
 
+@pytest.mark.xfail('config.getvalue("backend")[0] in ("cuda", "opencl")',
+                   reason='Need to expose loops inside conditionals, \
+                           or to re-design to avoid conditionals')
 def test_weak_bcs_ffc(backend):
     from demo.weak_bcs_ffc import main, parser
     f, x = main(vars(parser.parse_args(['-r'])))

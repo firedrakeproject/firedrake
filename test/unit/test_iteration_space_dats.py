@@ -36,6 +36,8 @@ import numpy
 
 from pyop2 import op2
 
+from pyop2.ir.ast_base import *
+
 
 def _seed():
     return 0.02041724
@@ -105,10 +107,12 @@ class TestIterationSpaceDats:
                             for i in range(nedges)], dtype=numpy.uint32)
         edge2node = op2.Map(edges, nodes, 2, e_map, "edge2node")
 
-        kernel_sum = """
-void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
-{ *edge += nodes[0]; }
-"""
+        kernel_sum = FunDecl("void", "kernel_sum",
+                             [Decl(
+                                 "int*", c_sym("nodes"), qualifiers=["unsigned"]),
+                              Decl(
+                                  "int*", c_sym("edge"), qualifiers=["unsigned"])],
+                             c_for("i", 2, Incr(c_sym("*edge"), Symbol("nodes", ("i",)))))
 
         op2.par_loop(op2.Kernel(kernel_sum, "kernel_sum"), edges,
                      node_vals(op2.READ, edge2node[op2.i[0]]),
@@ -119,10 +123,10 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
 
     def test_read_1d_itspace_map(self, backend, node, d1, vd1, node2ele):
         vd1.data[:] = numpy.arange(nele)
-        k = """
-        void k(int *d, int *vd, int i) {
-        d[0] = vd[0];
-        }"""
+        k = FunDecl("void", "k",
+                    [Decl("int*", c_sym("d")), Decl("int*", c_sym("vd"))],
+                    c_for("i", 1, Assign(Symbol("d", (0,)), Symbol("vd", ("i",)))))
+
         op2.par_loop(op2.Kernel(k, 'k'), node,
                      d1(op2.WRITE),
                      vd1(op2.READ, node2ele[op2.i[0]]))
@@ -130,11 +134,9 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
         assert all(d1.data[1::2] == vd1.data)
 
     def test_write_1d_itspace_map(self, backend, node, vd1, node2ele):
-        k = """
-        void k(int *vd, int i) {
-        vd[0] = 2;
-        }
-        """
+        k = FunDecl("void", "k",
+                    [Decl("int*", c_sym("vd"))],
+                    c_for("i", 1, Assign(Symbol("vd", ("i",)), c_sym(2))))
 
         op2.par_loop(op2.Kernel(k, 'k'), node,
                      vd1(op2.WRITE, node2ele[op2.i[0]]))
@@ -144,10 +146,9 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
         vd1.data[:] = 3
         d1.data[:] = numpy.arange(nnodes).reshape(d1.data.shape)
 
-        k = """
-        void k(int *d, int *vd, int i) {
-        vd[0] += *d;
-        }"""
+        k = FunDecl("void", "k",
+                    [Decl("int*", c_sym("d")), Decl("int*", c_sym("vd"))],
+                    c_for("i", 1, Incr(Symbol("vd", ("i",)), c_sym("*d"))))
         op2.par_loop(op2.Kernel(k, 'k'), node,
                      d1(op2.READ),
                      vd1(op2.INC, node2ele[op2.i[0]]))
@@ -161,11 +162,15 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
 
     def test_read_2d_itspace_map(self, backend, d2, vd2, node2ele, node):
         vd2.data[:] = numpy.arange(nele * 2).reshape(nele, 2)
-        k = """
-        void k(int *d, int *vd, int i) {
-        d[0] = vd[0];
-        d[1] = vd[1];
-        }"""
+        reads = Block(
+            [Assign(Symbol("d", (0,)), Symbol("vd", ("i",), ((1, 0),))),
+             Assign(
+                 Symbol(
+                     "d", (1,)), Symbol("vd", ("i",), ((1, 1),)))],
+            open_scope=True)
+        k = FunDecl("void", "k",
+                    [Decl("int*", c_sym("d")), Decl("int*", c_sym("vd"))],
+                    c_for("i", 1, reads))
         op2.par_loop(op2.Kernel(k, 'k'), node,
                      d2(op2.WRITE),
                      vd2(op2.READ, node2ele[op2.i[0]]))
@@ -175,13 +180,12 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
         assert all(d2.data[1::2, 1] == vd2.data[:, 1])
 
     def test_write_2d_itspace_map(self, backend, vd2, node2ele, node):
-        k = """
-        void k(int *vd, int i) {
-        vd[0] = 2;
-        vd[1] = 3;
-        }
-        """
-
+        writes = Block([Assign(Symbol("vd", ("i",), ((1, 0),)), c_sym(2)),
+                        Assign(Symbol("vd", ("i",), ((1, 1),)), c_sym(3))],
+                       open_scope=True)
+        k = FunDecl("void", "k",
+                    [Decl("int*", c_sym("vd"))],
+                    c_for("i", 1, writes))
         op2.par_loop(op2.Kernel(k, 'k'), node,
                      vd2(op2.WRITE, node2ele[op2.i[0]]))
         assert all(vd2.data[:, 0] == 2)
@@ -192,11 +196,14 @@ void kernel_sum(unsigned int* nodes, unsigned int *edge, int i)
         vd2.data[:, 1] = 4
         d2.data[:] = numpy.arange(2 * nnodes).reshape(d2.data.shape)
 
-        k = """
-        void k(int *d, int *vd, int i) {
-        vd[0] += d[0];
-        vd[1] += d[1];
-        }"""
+        incs = Block([Incr(Symbol("vd", ("i",), ((1, 0),)), Symbol("d", (0,))),
+                      Incr(
+                          Symbol("vd", ("i",), ((1, 1),)), Symbol("d", (1,)))],
+                     open_scope=True)
+        k = FunDecl("void", "k",
+                    [Decl("int*", c_sym("d")), Decl("int*", c_sym("vd"))],
+                    c_for("i", 1, incs))
+
         op2.par_loop(op2.Kernel(k, 'k'), node,
                      d2(op2.READ),
                      vd2(op2.INC, node2ele[op2.i[0]]))
