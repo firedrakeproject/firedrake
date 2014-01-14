@@ -94,3 +94,12 @@ def adjoint(form, reordered_arguments=None):
         reordered_arguments = (Argument(u.element(), u.function_space()),
                                Argument(v.element(), v.function_space()))
     return ufl.adjoint(form, reordered_arguments)
+
+
+def CellSize(mesh):
+    """A symbolic representation of the cell size of a mesh.
+
+    :arg mesh: the mesh for which to calculate the cell size.
+    """
+    cell = mesh.ufl_cell()
+    return 2.0 * cell.circumradius
