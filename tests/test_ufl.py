@@ -7,6 +7,10 @@ def test_cellsize_1d():
     assert abs(assemble(CellSize(UnitIntervalMesh(1))*dx) - 1.0) < 1e-14
 
 
+def test_cellsize_1d_multiple_elements():
+    assert abs(assemble(CellSize(UnitIntervalMesh(3))*dx) - 1.0/3.0) < 1e-14
+
+
 def test_cellsize_2d():
     assert abs(assemble(CellSize(UnitSquareMesh(1, 1))*dx) - sqrt(2)) < 1e-14
 
