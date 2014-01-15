@@ -54,3 +54,4 @@ From the Firedrake directory, configure and build::
 
 You can build in parallel by using ``make -jn`` where ``n`` is the
 number of parallel build jobs to use.
+
