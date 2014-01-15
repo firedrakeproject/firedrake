@@ -1348,7 +1348,7 @@ class MixedFunctionSpace(FunctionSpaceBase):
     def exterior_facet_boundary_node_map(self):
         '''The :class:`pyop2.MixedMap` from exterior facets to the nodes on
         those facets. Note that this differs from
-        :method:`exterior_facet_node_map` in that only surface nodes
+        :meth:`exterior_facet_node_map` in that only surface nodes
         are referenced, not all nodes in cells touching the surface.'''
         return op2.MixedMap(s.exterior_facet_boundary_node_map for s in self._spaces)
 
