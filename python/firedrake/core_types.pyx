@@ -1071,7 +1071,13 @@ class FunctionSpaceBase(object):
         constructor, and defaults to the geometric dimension of the :class:`Mesh`. """
         return self._dim
 
-    cdim = dim
+    @property
+    def cdim(self):
+        """The sum of the vector dimensions of the :class:`FunctionSpace`. For a
+        :class:`FunctionSpace` this is always one. For a
+        :class:`VectorFunctionSpace` it is the value given to the
+        constructor, and defaults to the geometric dimension of the :class:`Mesh`. """
+        return self._dim
 
     def ufl_element(self):
         """The :class:`ufl.FiniteElement` used to construct this
@@ -1342,7 +1348,7 @@ class MixedFunctionSpace(FunctionSpaceBase):
     def exterior_facet_boundary_node_map(self):
         '''The :class:`pyop2.MixedMap` from exterior facets to the nodes on
         those facets. Note that this differs from
-        :method:`exterior_facet_node_map` in that only surface nodes
+        :meth:`exterior_facet_node_map` in that only surface nodes
         are referenced, not all nodes in cells touching the surface.'''
         return op2.MixedMap(s.exterior_facet_boundary_node_map for s in self._spaces)
 
