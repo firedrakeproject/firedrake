@@ -104,9 +104,12 @@ class UnaryExpr(Expr):
 class ArrayInit(Expr):
 
     """Array Initilizer. A n-dimensional array A can be statically initialized
-    to some values. For example, A[3][3] = {{0.0}} or A[3] = {1, 1, 1}.
-    At the moment, initial values like {{0.0}} and {1, 1, 1} are passed in as
-    simple strings."""
+    to some values. For example ::
+
+        A[3][3] = {{0.0}} or A[3] = {1, 1, 1}.
+
+    At the moment, initial values like ``{{0.0}}`` and ``{1, 1, 1}`` are passed
+    in as simple strings."""
 
     def __init__(self, values):
         self.values = values
@@ -157,7 +160,7 @@ class Div(BinExpr):
 
 class Less(BinExpr):
 
-    """Compare two expressions using the operand '<' ."""
+    """Compare two expressions using the operand ``<``."""
 
     def __init__(self, expr1, expr2):
         super(Less, self).__init__(expr1, expr2, "<")
@@ -165,10 +168,15 @@ class Less(BinExpr):
 
 class Symbol(Expr):
 
-    """A generic symbol. len(rank) = 0 => scalar, 1 => array, 2 => matrix, etc
-    rank is a tuple whose entries represent the iteration variables the symbol
-    depends on, or explicit numbers representing the entry of a tensor the
-    symbol is accessing, or the size of the tensor itself. """
+    """A generic symbol. The length of ``rank`` is the tensor rank:
+
+    * 0: scalar
+    * 1: array
+    * 2: matrix, etc.
+
+    :param tuple rank: entries represent the iteration variables the symbol
+        depends on, or explicit numbers representing the entry of a tensor the
+        symbol is accessing, or the size of the tensor itself. """
 
     def __init__(self, symbol, rank, offset=None):
         self.symbol = symbol
@@ -317,8 +325,13 @@ class Decl(Statement):
 
     """Declaration of a symbol.
 
-    Syntax: [qualifiers] typ sym [attributes] [= init];
-    E.g.: static const double FE0[3][3] __attribute__(align(32)) = {{...}};"""
+    Syntax: ::
+
+        [qualifiers] typ sym [attributes] [= init];
+
+    E.g.: ::
+
+        static const double FE0[3][3] __attribute__(align(32)) = {{...}};"""
 
     def __init__(self, typ, sym, init=None, qualifiers=None, attributes=None):
         super(Decl, self).__init__()
@@ -363,8 +376,9 @@ class For(Statement):
 
     """Represent the classic for loop of an imperative language, although
     some restrictions must be considered: only a single iteration variable
-    can be declared and modified (i.e. it is not supported something like
-    for (int i = 0, j = 0; ...)."""
+    can be declared and modified (i.e. it is not supported something like ::
+
+        for (int i = 0, j = 0; ...)"""
 
     def __init__(self, init, cond, incr, body, pragma=""):
         super(For, self).__init__([body], pragma)
@@ -400,8 +414,13 @@ class FunDecl(Statement):
 
     """Function declaration.
 
-    Syntax: [pred] ret name ([args]) {body};
-    E.g.: static inline void foo(int a, int b) {return;};"""
+    Syntax: ::
+
+        [pred] ret name ([args]) {body};
+
+    E.g.: ::
+
+        static inline void foo(int a, int b) {return;};"""
 
     def __init__(self, ret, name, args, body, pred=[], headers=None):
         super(FunDecl, self).__init__([body])
@@ -436,7 +455,7 @@ class AVXStore(Assign):
 class AVXLocalPermute(Statement):
 
     """Permutation of values in a vector register using AVX intrinsics.
-    The intrinsic function used is _mm256_permute_pd"""
+    The intrinsic function used is ``_mm256_permute_pd``."""
 
     def __init__(self, r, mask):
         self.r = r
@@ -451,7 +470,7 @@ class AVXLocalPermute(Statement):
 class AVXGlobalPermute(Statement):
 
     """Permutation of values in two vector registers using AVX intrinsics.
-    The intrinsic function used is _mm256_permute2f128_pd"""
+    The intrinsic function used is ``_mm256_permute2f128_pd``."""
 
     def __init__(self, r1, r2, mask):
         self.r1 = r1
@@ -468,7 +487,7 @@ class AVXGlobalPermute(Statement):
 class AVXUnpackHi(Statement):
 
     """Unpack of values in a vector register using AVX intrinsics.
-    The intrinsic function used is _mm256_unpackhi_pd"""
+    The intrinsic function used is ``_mm256_unpackhi_pd``."""
 
     def __init__(self, r1, r2):
         self.r1 = r1
@@ -483,7 +502,7 @@ class AVXUnpackHi(Statement):
 class AVXUnpackLo(Statement):
 
     """Unpack of values in a vector register using AVX intrinsics.
-    The intrinsic function used is _mm256_unpacklo_pd"""
+    The intrinsic function used is ``_mm256_unpacklo_pd``."""
 
     def __init__(self, r1, r2):
         self.r1 = r1
@@ -521,7 +540,7 @@ class PreprocessNode(Node):
 
 
 def indent(block):
-    """Indent each row of the given string block with n*2 spaces."""
+    """Indent each row of the given string block with ``n*2`` spaces."""
     indentation = " " * 2
     return indentation + ("\n" + indentation).join(block.split("\n"))
 

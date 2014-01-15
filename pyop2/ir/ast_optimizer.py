@@ -68,9 +68,10 @@ class LoopOptimiser(object):
 
     def _visit_nest(self, node):
         """Explore the loop nest and collect various info like:
-            - Loops
-            - Declarations and Symbols
-            - Optimisations requested by the higher layers via pragmas"""
+
+        * Loops
+        * Declarations and Symbols
+        * Optimisations requested by the higher layers via pragmas"""
 
         def check_opts(node, parent):
             """Check if node is associated some pragma. If that is the case,
@@ -131,8 +132,8 @@ class LoopOptimiser(object):
 
     def extract_itspace(self):
         """Remove fully-parallel loop from the iteration space. These are
-        the loops that were marked by the user/higher layer with a 'pragma
-        pyop2 itspace'."""
+        the loops that were marked by the user/higher layer with a ``pragma
+        pyop2 itspace``."""
 
         itspace_vrs = []
         for node, parent in reversed(self.itspace):
