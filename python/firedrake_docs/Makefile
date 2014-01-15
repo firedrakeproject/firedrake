@@ -58,6 +58,8 @@ serve: html
 
 .PHONY: copy_demos
 
+source/demos: copy_demos
+
 copy_demos:
 	install -d source/demos
 	cp ../../demos/*/*.rst source/demos
