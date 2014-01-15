@@ -12,10 +12,11 @@ Let's start by considering the Helmholtz equation on a unit square,
 
 for some known function :math:`f`. The solution to this equation will
 be some function :math:`u\in V` for some suitable function space
-:math:`V` such that satisfies these equations. We transform the
-equation into weak form by multiplying by an arbitrary test function
-in :math:`V`, integrating over the domain and then integrating by
-parts. The variational problem so derived reads: find :math:`u\in V` such that:
+:math:`V` that satisfies these equations. We transform the equation
+into weak form by multiplying by an arbitrary test function in
+:math:`V`, integrating over the domain and then integrating by
+parts. The variational problem so derived reads: find :math:`u\in V`
+such that:
 
 .. math::
 
@@ -39,7 +40,7 @@ which conveniently yields the analytic solution:
    u = \cos(2\pi x)\cos(2\pi y)
 
 However we wish to employ this as an example for the finite element
-method, so lets go ahead and produce numerical solution.
+method, so lets go ahead and produce a numerical solution.
 
 First, we always need a mesh. Let's have a :math:`10\times10` element unit square::
 
