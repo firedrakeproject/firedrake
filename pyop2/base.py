@@ -47,6 +47,7 @@ from utils import *
 from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
 from sparsity import build_sparsity
+from version import __version__ as version
 
 
 class LazyComputation(object):
@@ -2876,7 +2877,8 @@ class Kernel(KernelCached):
     def _cache_key(cls, code, name):
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
-        return md5(code + name).hexdigest()
+        # Also include the PyOP2 version, since the Kernel class might change
+        return md5(code + name + version).hexdigest()
 
     def __init__(self, code, name):
         # Protect against re-initialization when retrieved from cache
