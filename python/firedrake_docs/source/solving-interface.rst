@@ -272,6 +272,55 @@ iterations with:
    conditions is symmetric, it will continue to be so after the
    application of any boundary conditions.
 
+.. _linear_solver_tols:
+Setting solver tolerances
++++++++++++++++++++++++++
+
+In an iterative solver, such as Krylov method, we iterate until some
+specified tolerance is reached.  The measure of how much the current
+solution :math:`\vec{x}_i` differs from the true solution is called
+the residual and is calculated as:
+
+.. math::
+
+   r = |\vec{b} - A \vec{x}_i|
+
+PETSc allows us to set three different tolerance options for solving
+the system.  The *absolute tolerance* tells us we should stop if
+:math:`r` drops below some given value.  The *relative tolerance*
+tells us we should stop if :math:`\frac{r}{|\vec{b}|}` drops below
+some given value.  Finally, PETSc can detect divergence in a linear
+solve, :math:`r` increases above some specified value.  These values
+are set with the options ``'ksp_atol'`` for the absolute tolerance,
+``'ksp_rtol'`` for the relative tolerance, and ``'ksp_dtol'`` for the
+divergence tolerance.  The values provided to these options should be
+floats.  For example, to set the absolute tolerance to
+:math:`10^{-30}`, the relative tolerance to :math:`10^{-9}` and the
+divergence tolerance to :math:`10^4` you would use:
+
+.. code-block:: python
+
+   solver_parameters={'ksp_atol': 1e-30,
+                      'ksp_rtol': 1e-9,
+                      'ksp_dtol': 1e4}
+
+.. note::
+
+   By default, PETSc (and hence Firedrake) check for the convergence
+   in the preconditioned norm, that is, if the system is
+   preconditioned with a matrix :math:`P` the residual is calculated
+   as:
+
+   .. math::
+
+       r = |P^{-1}(\vec{b} - A \vec{x}_i)|
+
+   to check for convergence in the unpreconditioned norm set the
+   ``'ksp_norm_type'`` option to ``'unpreconditioned'``.
+
+
+Finally, we can set the maximum allowed number of iterations for the
+Krylov method by using the ``'ksp_max_it'`` option.
 
 Preconditioning mixed finite element systems
 ++++++++++++++++++++++++++++++++++++++++++++
@@ -382,6 +431,27 @@ to solve the linear system we would write:
    since some of them require extra information which we do not
    currently provide.
 
+
+Setting convergence criteria
+++++++++++++++++++++++++++++
+
+In addition to setting the tolerances for the inner, linear solve in a
+nonlinear system, which is done in exactly the same way as for
+:ref:`linear problems <linear_solver_tols>`, we can also set
+convergence tolerances on the outer SNES object.  These are the
+*absolute tolerance* (``'snes_atol'``), *relative tolerance*
+(``'snes_rtol'``), *step tolerance* (``'snes_stol'``) along with the
+maximum number of nonlinear iterations (``'snes_max_it'``) and the
+maximum number of allowed function evaluations (``'snes_max_func'``).
+The step tolerance checks for convergence due to:
+
+.. math::
+
+   |\Delta x_k| < \mathrm{stol} |x_k|
+
+The maximum number of allowed function evaluations limits the number
+of times the residual may be evaluated before returning a
+non-convergence error, and defaults to 1000.
 
 Debugging convergence failures
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
