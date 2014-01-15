@@ -1071,7 +1071,13 @@ class FunctionSpaceBase(object):
         constructor, and defaults to the geometric dimension of the :class:`Mesh`. """
         return self._dim
 
-    cdim = dim
+    @property
+    def cdim(self):
+        """The sum of the vector dimensions of the :class:`FunctionSpace`. For a
+        :class:`FunctionSpace` this is always one. For a
+        :class:`VectorFunctionSpace` it is the value given to the
+        constructor, and defaults to the geometric dimension of the :class:`Mesh`. """
+        return self._dim
 
     def ufl_element(self):
         """The :class:`ufl.FiniteElement` used to construct this
