@@ -1,0 +1,481 @@
+Solving PDEs
+============
+
+Introduction
+------------
+
+Now that we have learnt how to define weak variational problems, we
+will move on to how to actually solve them using Firedrake.  Let us
+consider a weak variational problem
+
+.. math::
+
+   a(u, v) = L(v) \; \forall v \in V \mathrm{on}\: \Omega
+
+   u = u_0 \; \mathrm{on}\: \partial\Omega
+
+we will call the bilinear and linear parts of this form ``a`` and
+``L`` respectively.  Strongly imposed boundary conditions, :math:`u =
+u_0` in the example here, are represented as ``DirichletBC`` objects:
+
+.. code-block:: python
+
+    bc = DirichletBC(V, u_0, subdomain)
+
+Where ``subdomain`` may either be an integer id describing the region over
+which the boundary condition should be applied, or, for extruded
+meshes, the strings ``"top"`` or ``"bottom"`` indicating that the
+condition applies at the top and bottom of the extruded column
+respectively.  ``u_0`` may either be a numeric value or an ``Expression``.
+
+Now that we have all the pieces of our variational problem, we can
+move forward to solving it.
+
+Solving the variational problem
+-------------------------------
+
+The function used to solve PDEs defined as above is ``solve``.  This is
+a unified interface for solving both linear and non-linear variational
+problems along with linear systems (where the arguments are already
+assembled matrices and vectors, rather than UFL forms).  We will treat
+the variational interface first.
+
+Linear variational problems
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If the problem is linear, that is ``a`` is linear in both the test and
+trial functions and ``L`` is linear in the test function, we can use the
+linear variational problem interface to ``solve``.  To start, we need a
+``Function`` to hold the value of the solution:
+
+.. code-block:: python
+
+   s = Function(V)
+
+We can then solve the problem, placing the solution in ``s`` with:
+
+.. code-block:: python
+
+   solve(a == L, s)
+
+To apply boundary conditions, one passes a list of ``DirichletBC``
+objects using the ``bcs`` keyword argument.  For example, if there are
+two boundary conditions, in ``bc1`` and ``bc2``, we write:
+
+.. code-block:: python
+
+   solve(a == L, s, bcs=[bc1, bc2])
+
+Nonlinear variational problems
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For nonlinear problems, the interface is similar.  In this case, we
+solve a problem:
+
+.. math::
+
+    F(u; v) = 0 \; \forall v \in V \mathrm{on}\: \Omega
+
+    u = u_0 \; \mathrm{on}\: \partial\Omega
+
+where the *residual* :math:`F(u; v)`` is linear in the test function
+:math:`v` but possibly non-linear in the unknown ``Function``
+:math:`u`.  To solve such a problem we write, if ``F`` is the residual
+form:
+
+.. code-block:: python
+
+   solve(F == 0, u)
+
+to apply strong boundary conditions, as before, we provide a list of
+``DirichletBC`` objects using the ``bcs`` keyword:
+
+.. code-block:: python
+
+   solve(F == 0, u, bcs=[bc1, bc2])
+
+nonlinear problems in Firedrake are solved using Newton-like methods.
+That is, we compute successive approximations to the solution using
+
+.. math::
+
+   u_{k+1} = u_{k} - J(u_k)^{-1} F(u_k) \; k = 0, 1, \dots
+
+where :math:`u_0` is an initial guess for the solution and
+:math:`J(u_k) = \frac{\partial F(u_k)}{\partial u_k}` is the
+*Jacobian* of the residual, which should be non-singular at each
+iteration.  Notice how in the above examples, we did not explicitly
+supply a Jacobian.  If it is not supplied, it will be computed by
+automatic differentiation of the residual form ``F`` with respect to the
+solution variable ``u``.  However, we may also supply the Jacobian
+explicitly, using the keyword argument ``J``:
+
+.. code-block:: python
+
+   solve(F == 0, u, J=user_supplied_jacobian_form)
+
+The initial guess for the Newton iterations is provided in ``u``, for
+example, to provide a non-zero guess that the solution is the value of
+the ``x`` coordinate everywhere:
+
+.. code-block:: python
+
+   u.interpolate(Expression('x[0]'))
+
+   solve(F = 0, u)
+
+Solving linear systems
+----------------------
+
+Often, we might be solving a time-dependent linear system.  In this
+case, the bilinear form ``a`` does not change between timesteps, whereas
+the linear form ``L`` does.  Since assembly of the bilinear form is a
+potentially costly process, Firedrake offers the ability to
+"pre-assemble" forms in such systems and then reuse the assembled
+operator in successive linear solves.  Again, we use the same ``solve``
+interface to do this, but must build slightly different objects to
+pass in.  In the pre-assembled case, we are solving a linear system:
+
+.. math::
+
+   A\vec{x} = \vec{b}
+
+Where :math:`A` is a known matrix, :math:`\vec{b}` is an unknown
+vector and :math:`\vec{x}` is the unknown solution.  In Firedrake,
+:math:`A` is represented as a `Matrix`, while :math:`\vec{b}` and
+:math:`\vec{x}` are both `Function`\s.  We build these values by
+calling ``assemble`` on the UFL forms that define our problem, which, as
+before are denoted ``a`` and ``L``.  Similarly to the linear variational
+case, we first need a function in which to place our solution:
+
+.. code-block:: python
+
+   x = Function(V)
+
+We then assemble the left hand side matrix ``A`` and known right hand
+side ``b`` from the bilinear and linear forms respectively:
+
+.. code-block:: python
+
+   A = assemble(a)
+   b = assemble(L)
+
+Finally, we can solve the problem placing the solution in ``x``:
+
+.. code-block:: python
+
+   solve(A, x, b)
+
+to apply boundary conditions to the problem, we can assemble
+the linear operator ``A`` with boundary conditions using the ``bcs``
+keyword argument to ``assemble`` (and then not supply
+them in solve call):
+
+.. code-block:: python
+
+   A = assemble(a, bcs=[bc1, bc2])
+   b = assemble(L)
+   solve(A, x, b)
+
+alternately, we can supply boundary conditions in ``solve`` as before:
+
+.. code-block:: python
+
+  A = assemble(a)
+  b = assemble(L)
+  solve(A, x, b, bcs=[bc1, bc2])
+
+If boundary conditions have been supplied both in the assemble and
+solve calls, then those provided for the solve take precedence, for
+example, in the following, the system is solved only applying ``bc1``:
+
+.. code-block:: python
+
+  A = assemble(a, bcs=[bc1, bc2])
+  b = assemble(L)
+  solve(A, x, b, bcs=[bc1])
+
+Note that after the call to solve, ``A`` will be an assembled system
+with only ``bc1`` applied, hence subsequent calls to ``solve`` that do
+not change the boundary conditions again will not require a further
+re-assembly.
+
+Specifying solution methods
+---------------------------
+
+Not all linear and non-linear systems defined by PDEs are created
+equal, and we therefore need ways of specifying which solvers to use
+and options to pass to them.  Firedrake uses PETSc to solve both
+linear and non-linear systems and presents a uniform interface in
+``solve`` to set PETSc solver options.  In all cases, we set options
+in the solve call by passing a dictionary in using the
+``solver_parameters``.  To set options we use the same names that
+PETSc uses in its command-line option setting interface (having
+removed the leading ``-``).  For more complete details on PETSc option
+naming we recommend looking in the `PETSc manual`_.  We describe some
+of the more common options here.
+
+Linear solver options
+~~~~~~~~~~~~~~~~~~~~~
+
+We use a PETSc `KSP`_ object to solve linear systems.  This is a
+uniform interface for solving linear systems using Krylov subspace
+methods.  By default, the solve call will use GMRES using an
+incomplete LU factorisation to precondition the problem.  To change
+the Krylov method used in solving the problem, we set the
+``'ksp_type'`` option.  For example, if we want to solve a Helmholtz
+equation, we know the operator is symmetric positive definite, and
+therefore can choose the conjugate gradient method, rather than
+GMRES.
+
+.. code-block:: python
+
+   solve(a == L, solver_parameters={'ksp_type': 'cg'})
+
+To change the preconditioner used, we set the ``'pc_type'`` option.
+For example, if PETSc has been installed with the Hypre package, we
+can use its algebraic multigrid preconditioner, BoomerAMG, to
+precondition the system with:
+
+.. code-block:: python
+
+   solve(a == L, 
+         solver_parameters={'pc_type': 'hypre', 
+                            'pc_hypre_type': 'boomeramg'})
+
+Although the `KSP` name suggests that only Krylov methods are
+supported, this is not the case.  We may, for example, solve the
+system directly by computing an LU factorisation of the problem.  To
+do this, we set the ``pc_type`` to ``'lu'`` and tell PETSc to use a
+"preconditioner only" Krylov method:
+
+.. code-block:: python
+
+   solve(a == L, 
+         solver_parameters={'ksp_type': 'preonly',
+                            'pc_type': 'lu})
+
+In a similar manner, we can use Jacobi preconditioned Richardson
+iterations with:
+
+.. code-block:: python
+
+   solve(a == L, 
+         solver_parameters={'ksp_type': 'richardson',
+                            'pc_type': 'jacobi'}
+
+.. note::
+
+   We note in passing that the method Firedrake utilises internally
+   for applying strong boundary conditions does not destroy the
+   symmetry of the linear operator.  If the system without boundary
+   conditions is symmetric, it will continue to be so after the
+   application of any boundary conditions.
+
+
+Preconditioning mixed finite element systems
+++++++++++++++++++++++++++++++++++++++++++++
+
+PETSc provides an interface to composing "physics-based"
+preconditioners for mixed systems which Firedrake exploits when it
+assembles linear systems.  In particular, for systems with two
+variables (for example Navier-Stokes where we solve for the velocity
+and pressure of the fluid), we can exploit PETSc's ability to build
+preconditioners from Schur complements.  This is one type of
+preconditioner based on PETSc's `fieldsplit`_ technology.  To take a
+concrete example, let us consider solving the dual form of the
+Helmholtz equation:
+
+.. math::
+
+   \langle p, q \rangle - \langle q, \mathrm{div} u \rangle + \lambda
+   \langle v, u \rangle + \langle \mathrm{div}v, p \rangle =
+   \langle f, q \rangle \; \forall v \in V_1, q \in V_2
+
+This has a stable solution if, for example, :math:`V_1` is the lowest order
+Raviart-Thomas space and :math:`V_2` is the lowest order discontinuous
+space.
+
+.. code-block:: python
+
+   V1 = FunctionSpace(mesh, 'RT', 1)
+   V2 = FunctionSpace(mesh, 'DG', 0)
+   W = V1 * V2
+   lmbda = 1
+   u, p = TrialFunctions(W)
+   v, q = TestFunctions(W)
+   f = Function(V2)
+   
+   a = (p*q - q*div(u) + lmbda*inner(v, u) + div(v)*p)*dx
+   L = f*q*dx
+
+   u = Function(W)
+   solve(a == L, u, 
+         solver_parameters={'ksp_type': 'cg'
+                            'pc_type': 'fieldsplit',
+                            'pc_fieldsplit_type': 'schur',
+                            'pc_fieldsplit_schur_fact_type': 'FULL',
+                            'fieldsplit_0_ksp_type': 'cg',
+                            'fieldsplit_1_ksp_type': 'cg'})
+
+We refer to section 4.5 of the `PETSc manual`_ for more complete
+details, but briefly describe the options in use here.  The monolithic
+system is conceptually a :math:`2\times2` block matrix:
+
+.. math::
+
+   \left(\begin{matrix}
+         \lambda \langle v, u \rangle & -\langle q, \mathrm{div} u \rangle \\
+         \langle \mathrm{div} v, p \rangle & \langle p, q \rangle
+         \end{matrix}
+   \right)
+
+Note that if we treat this as a monolithic system, it is not
+symmetric, and we must use a Krylov method such as GMRES to solve it.
+The example above, however, reduces the problem to a smaller system by
+eliminating the velocity block (top left) using a Schur complement.
+Both diagonal blocks are symmetric positive definite and so we can use
+the conjugate gradient method for both of them (set with
+``fieldsplit_0_ksp_type`` and ``fieldsplit_1_ksp_type``
+respectively).  This approach leads to significantly faster
+convergence, at the expense of a greater cost per outer Krylov
+iteration.
+
+.. note::
+
+   PETSc offers support for composing fieldsplit preconditioners
+   recursively.  That is, defining a :math:`3\times3` block system as
+   composed of a :math:`2\times2` piece and a :math:`1\times1` piece.
+   However, the Firedrake interface to the solver options does not
+   currently support this.  At present, we cannot tell PETSc that the
+   blocks should be split recursively.
+
+   Future versions of Firedrake may offer a symbolic language for
+   describing the composition of such physics-like preconditioners,
+   rather than having to specify everything using PETSc solver
+   options.
+
+
+Nonlinear solver options
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+As for linear systems, we use a PETSc object to solve nonlinear
+systems.  This time it is a `SNES`_.  This offers a uniform interface
+to Newton-like and quasi-Newton solution schemes.  To select the SNES
+type to use, we use the ``'snes_type'`` option.  Recall that each
+Newton iteration is the solution of a linear system, options for the
+inner linear solve may be set in the same way as described above for
+linear problems.  For example, to solve a nonlinear problem using
+Newton-Krylov iterations using a line search and direct factorisation
+to solve the linear system we would write:
+
+.. code-block:: python
+
+   solve(F == 0, u, 
+         solver_parameters={'snes_type': 'newtonls',
+                            'ksp_type': 'preonly',
+                            'pc_type': 'lu'}
+
+.. note::
+
+   Not all of PETSc's SNES types are currently supported by Firedrake,
+   since some of them require extra information which we do not
+   currently provide.
+
+
+Debugging convergence failures
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Occasionally, we will set up a problem and call solve only to be
+confronted with an error that the solve failed to converge.  Here, we
+discuss some useful techniques to try and understand the reason.  Much
+of the advice in the `PETSc FAQ`_ is useful here, especially the
+sections on `SNES nonconvergence`_ and `KSP nonconvergence`_.  We
+first consider linear problems.
+
+Linear convergence failures
++++++++++++++++++++++++++++
+
+If the linear operator is correct, but the solve fails to converge, it
+is likely the case that the problem is badly conditioned (leading to
+slow convergence) or a symmetric method is being used (such as
+conjugate gradient) where the problem is non-symmetric.  The first
+thing to check is what happened to the residual (error) term.  To
+monitor this in the solution we pass the "flag" options
+``'ksp_converged_reason'`` and ``'ksp_monitor_true_residual'``:
+
+.. code-block:: python
+
+   solver_parameters={'ksp_converged_reason': True,
+                      'ksp_monitor_true_residual': True}
+
+If the problem is converging, but only slowly, it may be that it is
+badly conditioned.  If the problem is small, we can try using a direct
+solve to see if the solution obtained is correct:
+
+.. code-block:: python
+   
+   solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'}
+
+If this approach fails with a "zero-pivot" error, it is likely that
+the equations are singular, or nearly so, check to see if boundary
+conditions have been imposed correctly.
+
+If the problem converges with a direct method to the correct solution
+but does not converge with a Krylov method, it's probable that the
+conditioning is bad.  If it's a mixed problem, try using a
+physics-based preconditioner as described above, if not maybe try
+using an algebraic multigrid preconditioner.  If PETSc was installed
+with Hypre use:
+
+.. code-block:: python
+   
+   solver_parameters={'pc_type': 'hypre', 'pc_hypre_type': 'boomeramg'}
+
+If you're using a symmetric method, such as conjugate gradient, check
+that the linear operator is actually symmetric, which you can compute
+with the following:
+
+.. code-block:: python
+
+   A = assemble(a)  # use bcs keyword if there are boundary conditions
+   print A.M.handle.isSymmetric(tol=1e-13)
+
+If the problem is not symmetric, try using a method such as GMRES
+instead.  PETSc uses restarted GMRES with a default restart of 30, for
+difficult problems this might be too low, in which case, you can
+increase the restart length with:
+
+.. code-block:: python
+   
+   solver_parameters={'ksp_gmres_restart': 100}
+
+
+Nonlinear convergence failures
+++++++++++++++++++++++++++++++
+
+Much of the advice for linear systems applies to nonlinear systems as
+well.  If you have a convergence failure for a nonlinear problem, the
+first thing to do is run with monitors to see what is going on:
+
+.. code-block:: python
+
+   solver_parameters={'snes_monitor': True,
+                      'ksp_monitor_true_residual': True,
+                      'snes_converged_reason': True,
+                      'ksp_converged_reason': True}
+
+If the linear solve fails to converge, debug the problem as above for
+linear systems.  If the linear solve converges but the outer Newton
+iterations do not, the problem is likely a bad Jacobian.  If you
+provided the Jacobian by hand, is it correct?  If no Jacobian was
+provided in the solve call, it is likely a bug in Firedrake and you
+should report it to us.
+
+.. _PETSc manual: http://www.mcs.anl.gov/petsc/petsc-current/docs/manual.pdf
+.. _KSP: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/KSP/
+.. _SNES: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/SNES/
+.. _fieldsplit: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/PC/PCFIELDSPLIT.html
+.. _PETSc FAQ: http://www.mcs.anl.gov/petsc/documentation/faq.html
+.. _SNES nonconvergence: http://www.mcs.anl.gov/petsc/documentation/faq.html#newton
+.. _KSP nonconvergence: http://www.mcs.anl.gov/petsc/documentation/faq.html#kspdiverged
