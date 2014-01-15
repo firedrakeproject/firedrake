@@ -81,6 +81,9 @@ symmetric, we instruct PETSc to employ the conjugate gradient method::
 
   solve(a == L, u, solver_parameters={'ksp_type': 'cg'})
 
+For more details on how to specify solver parameters, see the section
+of the manual on :doc:`solving PDEs <../solving-interface>`.
+
 Next, we might want to look at the result, so we output our solution
 to a file::
 
