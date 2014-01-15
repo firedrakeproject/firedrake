@@ -14,6 +14,7 @@ Contents:
    installation
    concepts
    kernels
+   ir
    backends
    linear_algebra
    user
