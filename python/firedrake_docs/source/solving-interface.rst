@@ -273,6 +273,7 @@ iterations with:
    application of any boundary conditions.
 
 .. _linear_solver_tols:
+
 Setting solver tolerances
 +++++++++++++++++++++++++
 
