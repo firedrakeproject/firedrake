@@ -17,6 +17,7 @@ import FIAT
 
 from pyop2 import op2
 from pyop2.utils import as_tuple, flatten
+from pyop2.ir.ast_base import *
 
 import assemble_expressions
 from expression import Expression
@@ -1575,34 +1576,37 @@ class Function(ufl.Coefficient):
         # Produce C array notation of X.
         X_str = "{{"+"},\n{".join([ ",".join(map(str,x)) for x in X.T])+"}}"
 
-        assign_expression = ";\n".join(["A[%(i)d] = %(code)s" % { 'i': i, 'code': code }
-                                        for i, code in enumerate(expression.code)])
-        _expression_template = """
-void expression_kernel(double A[%(assign_dim)d], double **x_, int k)
-{
-  const double X[%(ndof)d][%(xndof)d] = %(x_array)s;
+        ass_exp = [Assign(Symbol("A", ("k",), ((len(expression.code), i),)),
+                          FlatBlock("%s" % code)) for i, code in enumerate(expression.code)]
+        vals = {
+            "x_array" : X_str,
+            "dim" : coords_space.dim,
+            "xndof" : coords_element.space_dimension(),
+            "ndof" : to_element.space_dimension(),
+            "assign_dim" : np.prod(expression.shape(), dtype=int) 
+        }
+        init = FlatBlock("""
+const double X[%(ndof)d][%(xndof)d] = %(x_array)s;
 
-  double x[%(dim)d];
-  const double pi = 3.141592653589793;
+double x[%(dim)d];
+const double pi = 3.141592653589793;
 
-  for (unsigned int d=0; d < %(dim)d; d++) {
-    x[d] = 0;
-    for (unsigned int i=0; i < %(xndof)d; i++) {
-      x[d] += X[k][i] * x_[i][d];
-    };
+""" % vals)
+        block = FlatBlock("""
+for (unsigned int d=0; d < %(dim)d; d++) {
+  x[d] = 0;
+  for (unsigned int i=0; i < %(xndof)d; i++) {
+    x[d] += X[k][i] * x_[i][d];
   };
+};
 
-  %(assign_expression)s;
-}
-"""
-        kernel = op2.Kernel(_expression_template % { "x_array" : X_str,
-                                                     "dim" : coords_space.dim,
-                                                     "xndof" : coords_element.space_dimension(),
-                                                     "ndof" : to_element.space_dimension(),
-                                                     "assign_expression" : assign_expression,
-                                                     "assign_dim" : np.prod(expression.shape(),
-                                                                            dtype=int) },
-                            "expression_kernel")
+""" % vals)
+        loop = c_for("k", "%(ndof)d" % vals, Block([block] + ass_exp, open_scope=True))
+        kernel_code = FunDecl("void", "expression_kernel", \
+                        [Decl("double", Symbol("A", (int("%(ndof)d" % vals),))), \
+                         Decl("double**", c_sym("x_"))], \
+                        Block([init, loop], open_scope=False))
+        kernel = op2.Kernel(kernel_code, "expression_kernel")
 
         op2.par_loop(kernel, subset or self.cell_set,
                      dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
