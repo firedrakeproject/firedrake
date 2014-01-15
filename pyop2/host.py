@@ -581,7 +581,7 @@ class JITModule(base.JITModule):
         # We need to build with mpicc since that's required by PETSc
         cc = os.environ.get('CC')
         os.environ['CC'] = 'mpicc'
-        vect_flag = irvect.compiler.get('vect_flag')
+        vect_flag = irvect.compiler.get(irvect.intrinsics.get('inst_set'))
         if configuration["debug"]:
             extra_cppargs = ['-O0', '-g']
         elif vect_flag:

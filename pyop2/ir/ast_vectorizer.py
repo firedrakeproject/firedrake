@@ -439,6 +439,15 @@ def init_vectorizer(isa, comp):
 def _init_isa(isa):
     """Set the intrinsics instruction set. """
 
+    if isa == 'sse':
+        return {
+            'inst_set': 'SSE',
+            'avail_reg': 16,
+            'alignment': 16,
+            'dp_reg': 2,  # Number of double values per register
+            'reg': lambda n: 'xmm%s' % n
+        }
+
     if isa == 'avx':
         return {
             'inst_set': 'AVX',
@@ -471,7 +480,8 @@ def _init_compiler(compiler):
         return {
             'align': lambda o: '__attribute__((aligned(%s)))' % o,
             'decl_aligned_for': '#pragma vector aligned',
-            'vect_flag': '-xAVX',
+            'AVX': '-xAVX',
+            'SSE': '-xSSE',
             'vect_header': 'immintrin.h'
         }
 
@@ -479,7 +489,8 @@ def _init_compiler(compiler):
         return {
             'align': lambda o: '__attribute__((aligned(%s)))' % o,
             'decl_aligned_for': '#pragma vector aligned',
-            'vect_flag': '-mavx',
+            'AVX': '-mavx',
+            'SSE': '-msse',
             'vect_header': 'immintrin.h'
         }
 

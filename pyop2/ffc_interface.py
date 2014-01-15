@@ -49,7 +49,6 @@ from op2 import Kernel
 from mpi import MPI
 
 from ir.ast_base import PreprocessNode, Root
-import ir.ast_plan as ap
 
 _form_cache = {}
 
@@ -106,7 +105,7 @@ class FFCKernel(DiskCached, KernelCached):
             opts = {} if ida.domain_type not in ['cell'] else \
                    {'licm': True,
                     'tile': (None, -1),
-                    'vect': ((ap.V_OP_UAJ_EXTRA, 2), 'avx', 'gnu'),
+                    'vect': None,
                     'ap': True}
             kernels.append(Kernel(Root([incl, ker]), '%s_%s_integral_0_%s' %
                           (name, ida.domain_type, ida.domain_id), opts))
