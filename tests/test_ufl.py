@@ -3,20 +3,19 @@ import pytest
 from firedrake import *
 
 
-def test_cellsize_1d():
-    assert abs(assemble(CellSize(UnitIntervalMesh(1))*dx) - 1.0) < 1e-14
+@pytest.mark.parametrize('n', [1, 3, 16])
+def test_cellsize_1d(n):
+    assert abs(assemble(CellSize(UnitIntervalMesh(n))*dx) - 1.0/n) < 1e-14
 
 
-def test_cellsize_1d_multiple_elements():
-    assert abs(assemble(CellSize(UnitIntervalMesh(3))*dx) - 1.0/3.0) < 1e-14
+@pytest.mark.parametrize('n', [1, 3, 16])
+def test_cellsize_2d(n):
+    assert abs(assemble(CellSize(UnitSquareMesh(n, n))*dx) - sqrt(2)/n) < 1e-14
 
 
-def test_cellsize_2d():
-    assert abs(assemble(CellSize(UnitSquareMesh(1, 1))*dx) - sqrt(2)) < 1e-14
-
-
-def test_cellsize_3d():
-    assert abs(assemble(CellSize(UnitCubeMesh(1, 1, 1))*dx) - sqrt(3)) < 1e-14
+@pytest.mark.parametrize('n', [1, 3, 16])
+def test_cellsize_3d(n):
+    assert abs(assemble(CellSize(UnitCubeMesh(n, n, n))*dx) - sqrt(3)/n) < 5e-14
 
 if __name__ == '__main__':
     import os
