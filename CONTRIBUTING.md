@@ -50,6 +50,8 @@ Make sure the `pre-commit.sample` hook is still in place, since it is required.
 
 ## Submitting Changes
 
+* We can only accept your contribution if you have signed the Contributor
+  License Agreement (CLA).
 * Push your changes to a topic branch in your fork of the repository.
 * Submit a pull request to the repository in the OP2 organization.
 
