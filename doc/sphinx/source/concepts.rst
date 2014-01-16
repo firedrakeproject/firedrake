@@ -21,6 +21,15 @@ its incident vertices.
   e.g. a map from vertices to incident egdes or cells is only possible on a
   very regular mesh where the multiplicity of any vertex is constant.
 
+In the following we declare a :class:`Set <pyop2.Set>` ``vertices``, a
+:class:`Set <pyop2.Set>` ``edges`` and a :class:`Map <pyop2.Map>`
+``edges2vertices`` between them, which associates the two incident vertices
+with each edge: ::
+
+    vertices = op2.Set(4)
+    edges = op2.Set(3)
+    edges2vertices = op2.Map(edges, vertices, 2, [[0, 1], [1, 2], [2, 3]])
+
 Data
 ----
 
@@ -37,6 +46,13 @@ size of any :class:`Dat <pyop2.Dat>` declared on this :class:`DataSet
 implements the serialisation and deserialisation of that type into primitive
 data that can be handled by PyOP2.
 
+Declaring coordinate data on the ``vertices`` defined above, where two float
+coordinates are associated with each vertex, is done like this: ::
+
+    dvertices = op2.DataSet(vertices, 2)
+    coordinates = op2.Dat(dvertices,
+                          [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]])
+
 PyOP2 can also be used to assemble :class:`matrices <pyop2.Mat>`, which are
 defined on a :class:`sparsity pattern <pyop2.Sparsity>` which is built from a
 pair of :class:`DataSets <pyop2.DataSet>` defining the row and column spaces
@@ -45,6 +61,13 @@ one for the column space of the matrix respectively. The sparsity uniquely
 defines the non-zero structure of the sparse matrix and can be constructed
 purely from mappings. To declare a :class:`Mat <pyop2.Mat>` on a
 :class:`Sparsity <pyop2.Sparsity>` only the data type needs to be given.
+
+Defining a matrix of floats on a sparsity which spans from the space of
+vertices to the space of vertices via the edges is done as follows: ::
+
+    sparsity = op2.Sparsity((dvertices, dvertices),
+                            [(edges2vertices, edges2vertices)])
+    matrix = op2.Mat(sparsity, float)
 
 Parallel loops
 --------------
@@ -66,3 +89,16 @@ one of :data:`pyop2.READ` (read-only), :data:`pyop2.WRITE` (write-only),
 :data:`pyop2.RW` (read-write), :data:`pyop2.INC` (increment),
 :data:`pyop2.MIN` (minimum reduction) or :data:`pyop2.MAX` (maximum
 reduction).
+
+We declare a parallel loop assembling the ``matrix`` via a given ``kernel``
+which we'll assume has been defined before over the ``edges`` and with
+``coordinates`` as input data. The ``matrix`` is the output argument of this
+parallel loop and therefore has the access descriptor :data:`INC <pyop2.INC>`
+since the assembly accumulates contributions from different vertices via the
+``edges2vertices`` mapping. The ``coordinates`` are accessed via the same
+mapping, but are a read-only input argument to the kernel and therefore use
+the access descriptor :data:`READ <pyop2.READ>`: ::
+
+    op2.par_loop(kernel, edges,
+                 matrix(op2.INC, (edges2vertices, edges2vertices)),
+                 coordinates(op2.READ, edges2vertices))
