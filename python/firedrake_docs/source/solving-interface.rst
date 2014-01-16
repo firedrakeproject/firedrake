@@ -16,7 +16,8 @@ consider a weak variational problem
 
 we will call the bilinear and linear parts of this form ``a`` and
 ``L`` respectively.  Strongly imposed boundary conditions, :math:`u =
-u_0` in the example here, are represented as ``DirichletBC`` objects:
+u_0` in the example here, are represented as
+:py:class:`~firedrake.bcs.DirichletBC` objects:
 
 .. code-block:: python
 
@@ -26,7 +27,8 @@ Where ``subdomain`` may either be an integer id describing the region over
 which the boundary condition should be applied, or, for extruded
 meshes, the strings ``"top"`` or ``"bottom"`` indicating that the
 condition applies at the top and bottom of the extruded column
-respectively.  ``u_0`` may either be a numeric value or an ``Expression``.
+respectively.  ``u_0`` may either be a numeric value or an
+:py:class:`~firedrake.expression.Expression`.
 
 Now that we have all the pieces of our variational problem, we can
 move forward to solving it.
@@ -34,19 +36,21 @@ move forward to solving it.
 Solving the variational problem
 -------------------------------
 
-The function used to solve PDEs defined as above is ``solve``.  This is
-a unified interface for solving both linear and non-linear variational
-problems along with linear systems (where the arguments are already
-assembled matrices and vectors, rather than UFL forms).  We will treat
-the variational interface first.
+The function used to solve PDEs defined as above is
+:py:func:`~firedrake.solving.solve`.  This is a unified interface for
+solving both linear and non-linear variational problems along with
+linear systems (where the arguments are already assembled matrices and
+vectors, rather than `UFL`_ forms).  We will treat the variational
+interface first.
 
 Linear variational problems
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If the problem is linear, that is ``a`` is linear in both the test and
-trial functions and ``L`` is linear in the test function, we can use the
-linear variational problem interface to ``solve``.  To start, we need a
-``Function`` to hold the value of the solution:
+trial functions and ``L`` is linear in the test function, we can use
+the linear variational problem interface to ``solve``.  To start, we
+need a :py:class:`~firedrake.core_types.Function` to hold the value of
+the solution:
 
 .. code-block:: python
 
@@ -58,9 +62,10 @@ We can then solve the problem, placing the solution in ``s`` with:
 
    solve(a == L, s)
 
-To apply boundary conditions, one passes a list of ``DirichletBC``
-objects using the ``bcs`` keyword argument.  For example, if there are
-two boundary conditions, in ``bc1`` and ``bc2``, we write:
+To apply boundary conditions, one passes a list of
+:py:class:`~firedrake.bcs.DirichletBC` objects using the ``bcs``
+keyword argument.  For example, if there are two boundary conditions,
+in ``bc1`` and ``bc2``, we write:
 
 .. code-block:: python
 
@@ -79,9 +84,9 @@ solve a problem:
     u = u_0 \; \mathrm{on}\: \partial\Omega
 
 where the *residual* :math:`F(u; v)`` is linear in the test function
-:math:`v` but possibly non-linear in the unknown ``Function``
-:math:`u`.  To solve such a problem we write, if ``F`` is the residual
-form:
+:math:`v` but possibly non-linear in the unknown
+:py:class:`~firedrake.core_types.Function` :math:`u`.  To solve such a
+problem we write, if ``F`` is the residual form:
 
 .. code-block:: python
 
@@ -152,8 +157,9 @@ case, we first need a function in which to place our solution:
 
    x = Function(V)
 
-We then assemble the left hand side matrix ``A`` and known right hand
-side ``b`` from the bilinear and linear forms respectively:
+We then :py:func:`~firedrake.solving.assemble` the left hand side
+matrix ``A`` and known right hand side ``b`` from the bilinear and
+linear forms respectively:
 
 .. code-block:: python
 
@@ -166,10 +172,10 @@ Finally, we can solve the problem placing the solution in ``x``:
 
    solve(A, x, b)
 
-to apply boundary conditions to the problem, we can assemble
-the linear operator ``A`` with boundary conditions using the ``bcs``
-keyword argument to ``assemble`` (and then not supply
-them in solve call):
+to apply boundary conditions to the problem, we can assemble the
+linear operator ``A`` with boundary conditions using the ``bcs``
+keyword argument to :py:func:`~firedrake.solving.assemble` (and then
+not supply them in solve call):
 
 .. code-block:: python
 
@@ -177,7 +183,8 @@ them in solve call):
    b = assemble(L)
    solve(A, x, b)
 
-alternately, we can supply boundary conditions in ``solve`` as before:
+alternately, we can supply boundary conditions in
+:py:func:`~firedrake.solving.solve` as before:
 
 .. code-block:: python
 
@@ -205,15 +212,15 @@ Specifying solution methods
 
 Not all linear and non-linear systems defined by PDEs are created
 equal, and we therefore need ways of specifying which solvers to use
-and options to pass to them.  Firedrake uses PETSc to solve both
+and options to pass to them.  Firedrake uses `PETSc`_ to solve both
 linear and non-linear systems and presents a uniform interface in
 ``solve`` to set PETSc solver options.  In all cases, we set options
-in the solve call by passing a dictionary in using the
-``solver_parameters``.  To set options we use the same names that
-PETSc uses in its command-line option setting interface (having
-removed the leading ``-``).  For more complete details on PETSc option
-naming we recommend looking in the `PETSc manual`_.  We describe some
-of the more common options here.
+in the solve call by passing a dictionary to the ``solver_parameters``
+keyword argument.  To set options we use the same names that PETSc
+uses in its command-line option setting interface (having removed the
+leading ``-``).  For more complete details on PETSc option naming we
+recommend looking in the `PETSc manual`_.  We describe some of the
+more common options here.
 
 Linear solver options
 ~~~~~~~~~~~~~~~~~~~~~
@@ -233,7 +240,7 @@ GMRES.
    solve(a == L, solver_parameters={'ksp_type': 'cg'})
 
 To change the preconditioner used, we set the ``'pc_type'`` option.
-For example, if PETSc has been installed with the Hypre package, we
+For example, if PETSc has been installed with the `Hypre`_ package, we
 can use its algebraic multigrid preconditioner, BoomerAMG, to
 precondition the system with:
 
@@ -378,18 +385,79 @@ system is conceptually a :math:`2\times2` block matrix:
          \lambda \langle v, u \rangle & -\langle q, \mathrm{div} u \rangle \\
          \langle \mathrm{div} v, p \rangle & \langle p, q \rangle
          \end{matrix}
-   \right)
+   \right) = \left(\begin{matrix} A & B \\ C & D \end{matrix}\right).
 
-Note that if we treat this as a monolithic system, it is not
-symmetric, and we must use a Krylov method such as GMRES to solve it.
-The example above, however, reduces the problem to a smaller system by
-eliminating the velocity block (top left) using a Schur complement.
-Both diagonal blocks are symmetric positive definite and so we can use
-the conjugate gradient method for both of them (set with
-``fieldsplit_0_ksp_type`` and ``fieldsplit_1_ksp_type``
-respectively).  This approach leads to significantly faster
-convergence, at the expense of a greater cost per outer Krylov
-iteration.
+We can factor this block matrix in the following way:
+
+.. math::
+
+   \left(\begin{matrix} I & 0 \\ C A^{-1} & I\end{matrix}\right)
+   \left(\begin{matrix}A & 0 \\ 0 & S\end{matrix}\right)
+   \left(\begin{matrix} I & A^{-1} B \\ 0 & I\end{matrix}\right).
+
+This is the *Schur complement factorisation* of the block system, its
+inverse is:
+
+.. math::
+
+   P = \left(\begin{matrix} I & -A^{-1}B \\ 0 & I \end{matrix}\right)
+   \left(\begin{matrix} A^{-1} & 0 \\ 0 & S^{-1}\end{matrix}\right)
+   \left(\begin{matrix} I & 0 \\ -CA^{-1} & I\end{matrix}\right).
+
+Where :math:`S` is the *Schur complement*:
+
+.. math::
+
+   S = D - C A^{-1} B.
+
+The options in the example above use an approximation to :math:`P` to
+precondition the system.  To do so, we tell PETSc that the
+preconditioner should be of type ``'fieldsplit'``, and the the
+fieldsplit's type should be ``'schur'``.  We then select a
+factorisation type for the Schur complement.  The option ``'FULL'`` as
+used above preconditions using an approximation to :math:`P`.  We can
+also use ``'diag'`` which uses an approximation to:
+
+.. math::
+
+   \left(\begin{matrix} A^{-1} & 0 \\ 0 & -S^{-1} \end{matrix}\right).
+
+Note the minus sign in front of :math:`S^{-1}` which is there such
+that this preconditioner is positive definite.  Two other options are
+``'lower'``, where the preconditioner is an approximation to:
+
+.. math::
+
+   \left(\begin{matrix}A & 0 \\ C & S\end{matrix}\right)^{-1} =
+   \left(\begin{matrix}A^{-1} & 0 \\ 0 & S^{-1}\end{matrix}\right)
+   \left(\begin{matrix}I & 0 \\ -C A^{-1} & I\end{matrix}\right)
+
+and ``'upper'`` which uses:
+
+.. math::
+
+   \left(\begin{matrix}A & B \\ 0 & S\end{matrix}\right)^{-1} =
+   \left(\begin{matrix}I & -A^{-1}B \\ 0 & I\end{matrix}\right)
+   \left(\begin{matrix}A^{-1} & 0 \\ 0 & S^{-1}\end{matrix}\right).
+
+Note that the inverses of :math:`A` and :math:`S` are never formed
+explicitly by PETSc, instead their actions are computed approximately
+using a Krylov method.  The choice of method is selected using the
+``'fieldsplit_0_ksp_type'`` option (for the Krylov solver computing
+:math:`A^{-1}`) and ``'fieldsplit_1_ksp_type'`` (for the Krylov solver
+computing :math:`S^{-1}`).
+
+.. note::
+
+   If you have given your
+   :py:class:`~firedrake.core_types.FunctionSpace`\s names, then
+   instead of 0 and 1, you should use the name of the function space
+   in these options.
+
+By default PETSc uses an approximation to :math:`D^{-1}` to
+precondition the Krylov system solving for :math:`S`, you can also use
+a `least squares commutator <LSC_>`_, see the relevant section of the
+`PETSc manual pages <fieldsplit_>`_ for more details.
 
 .. note::
 
@@ -448,7 +516,7 @@ The step tolerance checks for convergence due to:
 
 .. math::
 
-   |\Delta x_k| < \mathrm{stol} |x_k|
+   |\Delta x_k| < \mathrm{stol} \. |x_k|
 
 The maximum number of allowed function evaluations limits the number
 of times the residual may be evaluated before returning a
@@ -543,6 +611,8 @@ provided the Jacobian by hand, is it correct?  If no Jacobian was
 provided in the solve call, it is likely a bug in Firedrake and you
 should report it to us.
 
+.. _Hypre: http://acts.nersc.gov/hypre/
+.. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _PETSc manual: http://www.mcs.anl.gov/petsc/petsc-current/docs/manual.pdf
 .. _KSP: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/KSP/
 .. _SNES: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/SNES/
@@ -550,3 +620,5 @@ should report it to us.
 .. _PETSc FAQ: http://www.mcs.anl.gov/petsc/documentation/faq.html
 .. _SNES nonconvergence: http://www.mcs.anl.gov/petsc/documentation/faq.html#newton
 .. _KSP nonconvergence: http://www.mcs.anl.gov/petsc/documentation/faq.html#kspdiverged
+.. _LSC: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/PC/PCLSC.html
+.. _UFL: http://fenicsproject.org/documentation/ufl/1.2.0/ufl.html
