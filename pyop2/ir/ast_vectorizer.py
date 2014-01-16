@@ -433,7 +433,8 @@ def init_vectorizer(isa, comp):
     global intrinsics, compiler, vectorizer_init
     intrinsics = _init_isa(isa)
     compiler = _init_compiler(comp)
-    vectorizer_init = True
+    if intrinsics and compiler:
+        vectorizer_init = True
 
 
 def _init_isa(isa):

@@ -35,7 +35,7 @@
 
 from ast_base import *
 from ast_optimizer import LoopOptimiser
-from ast_vectorizer import init_vectorizer, LoopVectoriser
+from ast_vectorizer import init_vectorizer, LoopVectoriser, vectorizer_init
 
 # Possibile optimizations
 AUTOVECT = 1        # Auto-vectorization
@@ -153,9 +153,7 @@ class ASTKernel(object):
         vect = opts.get('vect')
         ap = opts.get('ap')
 
-        v_opt, isa, compiler = vect if vect else ((None, None), None, None)
-        v_type, v_param = v_opt
-
+        v_type, v_param = vect if vect else (None, None)
         tile_opt, tile_sz = tile if tile else (False, -1)
 
         lo = [LoopOptimiser(l, pre_l, self.decls) for l, pre_l in self.fors]
@@ -171,7 +169,7 @@ class ASTKernel(object):
                 nest.op_tiling(tile_sz)
 
             # 3) Vectorization
-            if v_type in [AUTOVECT, V_OP_PADONLY, V_OP_PEEL, V_OP_UAJ, V_OP_UAJ_EXTRA]:
+            if vectorizer_init:
                 vect = LoopVectoriser(nest)
                 if ap:
                     vect.align_and_pad(self.decls)

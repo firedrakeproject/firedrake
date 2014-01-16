@@ -103,10 +103,10 @@ class FFCKernel(DiskCached, KernelCached):
         for ida, ker in zip(form_data.integral_data, ffc_tree):
             # Set optimization options
             opts = {} if ida.domain_type not in ['cell'] else \
-                   {'licm': True,
-                    'tile': (None, -1),
+                   {'licm': False,
+                    'tile': None,
                     'vect': None,
-                    'ap': True}
+                    'ap': False}
             kernels.append(Kernel(Root([incl, ker]), '%s_%s_integral_0_%s' %
                           (name, ida.domain_type, ida.domain_id), opts))
         self.kernels = tuple(kernels)
