@@ -210,8 +210,8 @@ void extrusion_kernel(double *xtr[], double *x[], int* j[])
         kernel_template = """
 void extrusion_kernel(double *xtr[], double *x[], int* j[])
 {
-    //Use the position vector of the current coordinate for
-    //outward extrusion.
+    //Use the position vector of the current coordinate as a
+    //base for outward extrusion.
     double norm = sqrt(%(norm)s);
     %(init)s
 }
