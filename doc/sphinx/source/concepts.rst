@@ -33,34 +33,84 @@ with each edge: ::
 Data
 ----
 
-Data can be declared on a set through a :class:`Dat <pyop2.Dat>` or globally
-through a :class:`Global <pyop2.Global>` and can be of arbitrary but constant
-shape. When declaring data on a set one can associate a scalar with each
-element of the set or a one- or higher-dimensional vector. Similar to the
-restriction on maps, the shape and therefore the size of the data associated
-which each element needs to be uniform. PyOP2 supports all common primitive
-data types. The shape and data type are defined through a :class:`DataSet
-<pyop2.DataSet>` declared on a given set, which fully describes the in-memory
-size of any :class:`Dat <pyop2.Dat>` declared on this :class:`DataSet
-<pyop2.DataSet>`. Custom datatypes are supported insofar as the user
-implements the serialisation and deserialisation of that type into primitive
-data that can be handled by PyOP2.
+PyOP2 distinguishes three kinds of user provided data: data that lives on a
+set (often referred to as a field) is represented by a :class:`Dat
+<pyop2.Dat>`, data that has no association with a set by a :class:`Global
+<pyop2.Global>` and data that is visible globally and referred to by a unique
+identifier is declared as :class:`Const <pyop2.Const>`.
+
+Dat
+~~~
+
+Since a set does not have any type but only a cardinality, data declared on a
+set through a :class:`Dat <pyop2.Dat>` needs additional metadata to allow
+PyOP2 to inpret the data and to specify how much memory is required to store
+it. This metadata is the *datatype* and the *shape* of the data associated
+with any given set element. The shape is not associated with the :class:`Dat
+<pyop2.Dat>` directly, but with a :class:`DataSet <pyop2.DataSet>`. One can
+associate a scalar with each element of the set or a one- or
+higher-dimensional vector. Similar to the restriction on maps, the shape and
+therefore the size of the data associated which each element needs to be
+uniform. PyOP2 supports all common primitive data types supported by `NumPy`_.
+Custom datatypes are supported insofar as the user implements the
+serialisation and deserialisation of that type into primitive data that can be
+handled by PyOP2.
 
 Declaring coordinate data on the ``vertices`` defined above, where two float
 coordinates are associated with each vertex, is done like this: ::
 
-    dvertices = op2.DataSet(vertices, 2)
+    dvertices = op2.DataSet(vertices, dim=2)
     coordinates = op2.Dat(dvertices,
-                          [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]])
+                          [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]],
+                          dtype=float)
 
-PyOP2 can also be used to assemble :class:`matrices <pyop2.Mat>`, which are
-defined on a :class:`sparsity pattern <pyop2.Sparsity>` which is built from a
-pair of :class:`DataSets <pyop2.DataSet>` defining the row and column spaces
-the sparsity maps between and one or more pairs of maps, one for the row and
-one for the column space of the matrix respectively. The sparsity uniquely
-defines the non-zero structure of the sparse matrix and can be constructed
-purely from mappings. To declare a :class:`Mat <pyop2.Mat>` on a
-:class:`Sparsity <pyop2.Sparsity>` only the data type needs to be given.
+Global
+~~~~~~
+
+In contrast to a :class:`Dat <pyop2.Dat>`, a :class:`Global <pyop2.Global>`
+has no association to a set and the shape and type of the data are declared
+directly on the :class:`Global <pyop2.Global>`. A 2x2 elasticity tensor would
+be defined as follows: ::
+
+    elasticity = op2.Global((2, 2), [[1.0, 0.0], [0.0, 1.0]], dtype=float)
+
+Const
+~~~~~
+
+Data that is globally visible and read-only to kernels is declared with a
+:class:`Const <pyop2.Const>` and needs to have a globally unique identifier.
+It does not need to be declared as an argument to a :func:`par_loop
+<pyop2.par_loop>`, but is accessible in a kernel by name. A globally visible
+parameter ``eps`` would be declared as follows: ::
+
+    eps = op2.Const(1, 1e-14, name="eps", dtype=float)
+
+Mat
+~~~
+
+In a PyOP2 context, a (sparse) matrix is a linear operator from one set to
+another. In other words, it is a linear function which takes a :class:`Dat
+<pyop2.Dat>` on one set :math:`A` and returns the value of a :class:`Dat
+<pyop2.Dat>` on another set :math:`B`. Of course, in particular, :math:`A` may
+be the same set as :math:`B`. This makes the operation of at least some
+matrices equivalent to the operation of a particular PyOP2 kernel.
+
+PyOP2 can be used to assemble :class:`matrices <pyop2.Mat>`, which are defined
+on a :class:`sparsity pattern <pyop2.Sparsity>` which is built from a pair of
+:class:`DataSets <pyop2.DataSet>` defining the row and column spaces the
+sparsity maps between and one or more pairs of maps, one for the row and one
+for the column space of the matrix respectively. The sparsity uniquely defines
+the non-zero structure of the sparse matrix and can be constructed purely from
+those mappings. To declare a :class:`Mat <pyop2.Mat>` on a :class:`Sparsity
+<pyop2.Sparsity>` only the data type needs to be given.
+
+Since the construction of large sparsity patterns is a very expensive
+operation, the decoupling of :class:`Mat <pyop2.Mat>` and :class:`Sparsity
+<pyop2.Sparsity>` allows the reuse of sparsity patterns for a number of
+matrices without recomputation. In fact PyOP2 takes care of caching sparsity
+patterns on behalf of the user, so declaring a sparsity on the same maps as a
+previously declared sparsity yields the cached object instead of building
+another one.
 
 Defining a matrix of floats on a sparsity which spans from the space of
 vertices to the space of vertices via the edges is done as follows: ::
@@ -102,3 +152,5 @@ the access descriptor :data:`READ <pyop2.READ>`: ::
     op2.par_loop(kernel, edges,
                  matrix(op2.INC, (edges2vertices, edges2vertices)),
                  coordinates(op2.READ, edges2vertices))
+
+.. _NumPy: http://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html
