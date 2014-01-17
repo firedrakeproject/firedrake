@@ -1,6 +1,20 @@
 Extruded Meshes in Firedrake
 ============================
 
+Introduction
+------------
+
+Solving Partial Differential Equations (PDEs) on high aspect ratio domains
+often leads to treating the short (or *vertical*) direction differently from a
+numerical point of view. This implies that certain properties of the domain
+can be easily exploited in the presence of a structured vertical direction.
+This allows for the numerical algorithms behind domain-wide mathematical
+operations (such as integration) to achieve good performance.
+
+Firedrake supports extruded meshes and aims to deliver an automatic way of
+exploiting the benefits exposed by these domain types.
+
+
 Types of Meshes
 ---------------
 
