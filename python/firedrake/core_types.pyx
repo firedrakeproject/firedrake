@@ -154,12 +154,14 @@ def make_extruded_coords(mesh, layers, kernel=None, layer_height=None, extrusion
     :arg layers: the number of layers in the extruded mesh
     :arg kernel: :class:`pyop2.Kernel` which produces the extruded coordinates
     :arg layer_height: if provided it creates coordinates for evenly
-                       spaced layers
+                       spaced layers, the default value is 1/(layers-1)
     :arg extrusion_type: refers to how the coodinate field is computed in the
                          extrusion process.
                          `uniform`: create equidistant layers in the (n+1)-direction
-                         `radial`: create equidistant layers in the direction
-                         of the outward normals on the surface of the manifold
+                         `radial`: create equidistant layers in the outward direction
+                         from the origin. For each extruded vertex the layer height is
+                         multiplied by the corresponding unit direction vector and
+                         then added to the position vector of the vertex
 
     Either the kernel or the layer_height must be provided. Should
     both be provided then the kernel takes precendence.
@@ -401,7 +403,10 @@ class _Facets(object):
 
 class Mesh(object):
     """Note that this is the mesh topology and geometry,
-    it is NOT a FunctionSpace."""
+    it is NOT a FunctionSpace.
+
+    The first argument is the name of the mesh file. The second
+    argument is the dimension of the coordinates, 2D or 3D."""
     def __init__(self, *args):
 
         _init()
@@ -622,11 +627,12 @@ class ExtrudedMesh(Mesh):
     """Build an extruded mesh from a 2D input mesh
 
     :arg mesh:         2D unstructured mesh
-    :arg layers:       number of structured layers in the "vertical"
-                       direction
+    :arg layers:       number of layers in the "vertical"
+                       direction representing the multiplicity of the
+                       base mesh
     :arg kernel:       pyop2 Kernel to produce 3D coordinates for the extruded
                        mesh see :func:`make_extruded_coords` for more details.
-    :arg layer_height: the height between two layers when all layers are
+    :arg layer_height: the height between layers when all layers are
                        evenly spaced."""
     def __init__(self, mesh, layers, kernel=None, layer_height=None, extrusion_type='uniform'):
         if kernel is None and layer_height is None:
@@ -665,6 +671,8 @@ class ExtrudedMesh(Mesh):
         self.dofs_per_column = compute_extruded_dofs(fiat_element, flat_temp.entity_dofs(), layers)
 
         #Compute Coordinates of the extruded mesh
+        if layer_height is None:
+            layer_height = 1.0 / (layers - 1)
         self._coordinates = make_extruded_coords(mesh, layers, kernel, layer_height,
                                                  extrusion_type=extrusion_type)
 
