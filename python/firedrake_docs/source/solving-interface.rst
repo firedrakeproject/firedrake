@@ -15,20 +15,9 @@ consider a weak variational problem
    u = u_0 \; \mathrm{on}\: \partial\Omega
 
 we will call the bilinear and linear parts of this form ``a`` and
-``L`` respectively.  Strongly imposed boundary conditions, :math:`u =
-u_0` in the example here, are represented as
-:py:class:`~firedrake.bcs.DirichletBC` objects:
-
-.. code-block:: python
-
-    bc = DirichletBC(V, u_0, subdomain)
-
-Where ``subdomain`` may either be an integer id describing the region over
-which the boundary condition should be applied, or, for extruded
-meshes, the strings ``"top"`` or ``"bottom"`` indicating that the
-condition applies at the top and bottom of the extruded column
-respectively.  ``u_0`` may either be a numeric value or an
-:py:class:`~firedrake.expression.Expression`.
+``L`` respectively.  The strongly imposed boundary condition, :math:`u
+= u_0 \;\mathrm{on}\:\partial\Omega` will be represented by a variable
+of type :py:class:`~firedrake.bcs.DirichletBC`, ``bc``.
 
 Now that we have all the pieces of our variational problem, we can
 move forward to solving it.
