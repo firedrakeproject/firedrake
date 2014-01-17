@@ -123,19 +123,28 @@ Parallel loops
 --------------
 
 Computations in PyOP2 are executed as :func:`parallel loops <pyop2.par_loop>`
-of a :class:`kernel <pyop2.Kernel>` over an *iteration set*. A parallel loop
-invocation requires as arguments, other than the iteration set and the kernel
-to operate on, the data the kernel reads and/or writes. A parallel loop
-argument is constructed by calling the underlying data object (i.e. the
-:class:`Dat <pyop2.Dat>` or :class:`Global <pyop2.Global>`) and passing an
-*access descriptor* and the mapping to be used when accessing the data. The
-mapping is required for an *indirectly accessed* :class:`Dat <pyop2.Dat>` not
-declared on the same set as the iteration set of the parallel loop. In the
-case of *directly accessed* data defined on the same set as the iteration set
-the map is omitted and only an access descriptor given.
+of a :class:`kernel <pyop2.Kernel>` over an *iteration set*. Parallel loops
+are the core construct of PyOP2 and hide most of its complexity such as
+parallel scheduling, partitioning, colouring and staging of the data into on
+chip memory. Computations in a parallel loop must be independent of the order
+in which they are executed over the set to allow PyOP2 maximum flexibility to
+schedule the computation in the most efficient way. Kernels are described in
+more detail in :doc:`pyop2_ir_user`.
 
-Access descriptors define how the data is accessed by the kernel and must be
-one of :data:`pyop2.READ` (read-only), :data:`pyop2.WRITE` (write-only),
+A parallel loop invocation requires as arguments, other than the iteration set
+and the kernel to operate on, the data the kernel reads and/or writes. A
+parallel loop argument is constructed by calling the underlying data object
+(i.e. the :class:`Dat <pyop2.Dat>` or :class:`Global <pyop2.Global>`) and
+passing an *access descriptor* and the mapping to be used when accessing the
+data. The mapping is required for an *indirectly accessed* :class:`Dat
+<pyop2.Dat>` not declared on the same set as the iteration set of the parallel
+loop. In the case of *directly accessed* data defined on the same set as the
+iteration set the map is omitted and only an access descriptor given.
+
+Access descriptors define how the data is accessed by the kernel and give
+PyOP2 crucial information as to how the data needs to be treated during
+staging in before and staging out after kernel execution. They must be one of
+:data:`pyop2.READ` (read-only), :data:`pyop2.WRITE` (write-only),
 :data:`pyop2.RW` (read-write), :data:`pyop2.INC` (increment),
 :data:`pyop2.MIN` (minimum reduction) or :data:`pyop2.MAX` (maximum
 reduction).
@@ -145,12 +154,15 @@ which we'll assume has been defined before over the ``edges`` and with
 ``coordinates`` as input data. The ``matrix`` is the output argument of this
 parallel loop and therefore has the access descriptor :data:`INC <pyop2.INC>`
 since the assembly accumulates contributions from different vertices via the
-``edges2vertices`` mapping. The ``coordinates`` are accessed via the same
+``edges2vertices`` mapping. Note that the mappings are being indexed with the
+:class:`iteration indices <pyop2.base.IterationIndex>` ``op2.i[0]`` and
+``op2.i[1]`` respectively. The ``coordinates`` are accessed via the same
 mapping, but are a read-only input argument to the kernel and therefore use
 the access descriptor :data:`READ <pyop2.READ>`: ::
 
     op2.par_loop(kernel, edges,
-                 matrix(op2.INC, (edges2vertices, edges2vertices)),
+                 matrix(op2.INC, (edges2vertices[op2.i[0]],
+                                  edges2vertices[op2.i[1]])),
                  coordinates(op2.READ, edges2vertices))
 
 .. _NumPy: http://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html
