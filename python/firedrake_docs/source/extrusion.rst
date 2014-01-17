@@ -151,3 +151,24 @@ origin.
 .. code-block:: python
 
 	extruded_mesh = ExtrudedMesh(mesh, layers, layer_height=layer_height, extrusion_type='radial')
+
+In order to perform the computation of the coordinates effeciently (because
+this is a mesh-wide operation), a PyOP2-style parallel loop is constructed
+by the Firedrake backend.
+
+The kernels to be used for this computation are either automatically generated
+(as in the examples presented above) or can be provided by the user as
+constant strings.
+
+.. code-block:: python
+
+	kernel = """
+	   void extrusion_kernel(double *extruded_coords[],
+                             double *two_d_coords[],
+                             int *layer_number[]) {
+           extruded_coords[0][0] = two_d_coords[0][0]; // X
+           extruded_coords[0][1] = two_d_coords[0][1]; // Y
+           extruded_coords[0][2] = 0.1 * layer_number[0][0]; // Z
+       }
+	"""
+	extruded_mesh = ExtrudedMesh(mesh, layers, kernel=kernel)
