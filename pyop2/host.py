@@ -408,7 +408,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         # To throw away boundary condition values, we subtract a large
         # value from the map to make it negative then add it on later to
         # get back to the original
-        max_int = np.iinfo(np.int32).max
+        max_int = 10000000
         if top_bottom[0]:
             # We need to apply the bottom bcs
             val.append("if (j_0 == 0){")
