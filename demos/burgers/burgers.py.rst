@@ -1,7 +1,9 @@
 Burgers equation
 ================
 
-The Burgers equation is a non-linear equation for the advection and diffusion of momentum. Here we choose to write the Burgers equation in two dimensions to demonstrate the use of vector function spaces:
+The Burgers equation is a non-linear equation for the advection and
+diffusion of momentum. Here we choose to write the Burgers equation in
+two dimensions to demonstrate the use of vector function spaces:
 
 .. math::
 
