@@ -74,14 +74,23 @@ system's evolution::
 
   timestep = 1.0/n
 
-
+Here we finally get to define the residual of the equation. Note once
+again that for a nonlinear problem, there are no trial functions in
+the formulation. These will be created automatically when the residual
+is differentiated by the nonlinear solver::
 
   F = (inner((u - u_)/timestep, v)
        + inner(u, dot(grad(u), v)) + nu*inner(grad(u), grad(v)))*dx
 
+To output the initial conditions, we project them into P1 and pipe
+them into the output file::
+
   outfile = File("burgers.pvd")
   u_out.assign(project(u, V_out))
   outfile << u_out
+
+Finally, we loop over the timesteps solving the equation each time and
+outputting each result::
 
   t = 0.0
   end = 0.5
@@ -92,3 +101,4 @@ system's evolution::
       u_out.assign(project(u, V_out))
       outfile << u_out
     
+A python script version of this demo can be found `here <burgers.py>`__.
