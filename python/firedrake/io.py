@@ -389,7 +389,7 @@ class _PVDFile(object):
 
         * In parallel: create a vtu file and update it with the function given.
           Then it will create a pvtu file that includes all the vtu file
-          produced in the paralell writing.
+          produced in the parallel writing.
         * In serial: a VTU file is created and is added to PVD file."""
         if not MPI.parallel:
             new_vtk_name = self._filename + "_" + str(self._child_index)
