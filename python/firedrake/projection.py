@@ -7,7 +7,8 @@ from ufl_expr import TrialFunction, TestFunction
 
 def project(v, V, bcs=None, mesh=None,
             solver_parameters={},
-            form_compiler_parameters=None):
+            form_compiler_parameters=None,
+            name=None):
     """Project an :class:`Expression` or :class:`Function` into a :class:`FunctionSpace`
 
     :arg v: the :class:`Expression` or :class:`Function` to project
@@ -17,6 +18,7 @@ def project(v, V, bcs=None, mesh=None,
     :arg solver_type: linear solver to use
     :arg preconditioner_type: preconditioner to use
     :arg form_compiler_parameters: parameters to the form compiler
+    :arg name: name of the resulting :class:`Function`
 
     Currently, `bcs`, `mesh` and `form_compiler_parameters` are ignored."""
     if not isinstance(V, FunctionSpaceBase):
@@ -44,7 +46,7 @@ def project(v, V, bcs=None, mesh=None,
         f.interpolate(v)
         v = f
 
-    ret = Function(V)
+    ret = Function(V, name=name)
     if v.shape() != ret.shape():
         raise RuntimeError('Shape mismatch between source %s and target function spaces %s in project' % (v.shape(), ret.shape()))
 

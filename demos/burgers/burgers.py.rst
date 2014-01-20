@@ -52,8 +52,6 @@ define trial functions::
 
   v = TestFunction(V)
 
-  u_out = Function(V_out, name="Velocity")
-
 For this problem we need an initial condition::
 
   ic = project(Expression(["sin(pi*x[0])", 0]), V)
@@ -88,8 +86,7 @@ To output the initial conditions, we project them into P1 and pipe
 them into the output file::
 
   outfile = File("burgers.pvd")
-  u_out.assign(project(u, V_out))
-  outfile << u_out
+  outfile << project(u, V_out, name="Velocity")
 
 Finally, we loop over the timesteps solving the equation each time and
 outputting each result::
@@ -100,7 +97,6 @@ outputting each result::
       solve(F == 0, u)
       u_.assign(u)
       t += timestep
-      u_out.assign(project(u, V_out))
-      outfile << u_out
+      outfile << project(u, V_out, name="Velocity")
     
 A python script version of this demo can be found `here <burgers.py>`__.
