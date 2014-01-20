@@ -32,6 +32,7 @@ Once you've built Firedrake, you'll want to actually solve some
 PDEs. Below are a few tutorial examples to get you started.
 
 *  :doc:`A basic Helmholtz equation <demos/helmholtz.py>`
+*  :doc:`The Burgers equation <demos/burgers.py>`, a non-linear, unsteady example.
 
 A more in-depth description of how to customise the solution methods
 for PDEs is given in the full user documentation.

@@ -278,9 +278,11 @@ class UnitCircleMesh(Mesh):
 
 class UnitIntervalMesh(Mesh):
 
-    """Class that represents a structured interval mesh a line.
+    """Generate a uniform mesh of the interval [0,1].
 
     :arg nx: The number of the cells over the interval.
+
+    The left hand (:math:`x=0`) boundary point has boundary marker 1, while the right hand (:math:`x=1`) point has marker 2.
     """
 
     def __init__(self, nx):

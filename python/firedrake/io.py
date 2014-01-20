@@ -128,7 +128,7 @@ class _VTUFile(object):
             num_cells = mesh._entities[-1] * (mesh.layers - 1)
 
         # In firedrake, the indexing of the points starts from 1, instead of 0.
-        # However the paraview expect them to have indexing starting from 0.
+        # However paraview expects them to have indexing starting from 0.
 
         if not (e.family() == "OuterProductElement"):
             connectivity = mesh._cells.flatten() - 1
@@ -255,13 +255,18 @@ class _VTUFile(object):
     def _fd_to_evtk_coord(self, fdcoord):
         """In firedrake function, the coordinates are represented by the
         array."""
+        if len(fdcoord.shape) == 1:
+            # 1D case.
+            return (fdcoord,
+                    np.zeros(fdcoord.shape[0]),
+                    np.zeros(fdcoord.shape[0]))
         if len(fdcoord[0]) == 3:
-            return (fdcoord[:, 0].flatten(),
-                    fdcoord[:, 1].flatten(),
-                    fdcoord[:, 2].flatten())
+            return (fdcoord[:, 0].ravel(),
+                    fdcoord[:, 1].ravel(),
+                    fdcoord[:, 2].ravel())
         else:
-            return (fdcoord[:, 0].flatten(),
-                    fdcoord[:, 1].flatten(),
+            return (fdcoord[:, 0].ravel(),
+                    fdcoord[:, 1].ravel(),
                     np.zeros(fdcoord.shape[0]))
 
 
@@ -384,7 +389,7 @@ class _PVDFile(object):
 
         * In parallel: create a vtu file and update it with the function given.
           Then it will create a pvtu file that includes all the vtu file
-          produced in the paralell writing.
+          produced in the parallel writing.
         * In serial: a VTU file is created and is added to PVD file."""
         if not MPI.parallel:
             new_vtk_name = self._filename + "_" + str(self._child_index)
