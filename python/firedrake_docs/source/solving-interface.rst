@@ -289,7 +289,7 @@ tells us we should stop if :math:`\frac{r}{|\vec{b}|}` drops below
 some given value.  Finally, PETSc can detect divergence in a linear
 solve, :math:`r` increases above some specified value.  These values
 are set with the options ``'ksp_atol'`` for the absolute tolerance,
-``'ksp_rtol'`` for the relative tolerance, and ``'ksp_dtol'`` for the
+``'ksp_rtol'`` for the relative tolerance, and ``'ksp_divtol'`` for the
 divergence tolerance.  The values provided to these options should be
 floats.  For example, to set the absolute tolerance to
 :math:`10^{-30}`, the relative tolerance to :math:`10^{-9}` and the
@@ -299,7 +299,7 @@ divergence tolerance to :math:`10^4` you would use:
 
    solver_parameters={'ksp_atol': 1e-30,
                       'ksp_rtol': 1e-9,
-                      'ksp_dtol': 1e4}
+                      'ksp_divtol': 1e4}
 
 .. note::
 
@@ -511,6 +511,53 @@ The maximum number of allowed function evaluations limits the number
 of times the residual may be evaluated before returning a
 non-convergence error, and defaults to 1000.
 
+
+Default solver options
+~~~~~~~~~~~~~~~~~~~~~~
+
+If no parameters are passed to a solve call, we use, in most cases,
+the defaults that PETSc supplies for solving the linear or nonlinear
+system.  However, there are some slight variations which we describe
+here.  For linear variational solves we use:
+
+* ``ksp_type``: GMRES, with a restart (``ksp_gmres_restart``) of 30
+* ``ksp_rtol``: 1e-7
+* ``ksp_atol``: 1e-50
+* ``ksp_divtol`` 1e4
+* ``ksp_max_it``: 10000
+* ``pc_type``: ILU (Jacobi preconditioning for mixed problems)
+
+For nonlinear variational solves we have:
+
+* ``snes_type``: Newton linesearch
+* ``ksp_type``: GMRES, with a restart (``ksp_gmres_restart``) of 30
+* ``snes_rtol``: 1e-8
+* ``snes_atol``: 1e-50
+* ``snes_stol``: 1e-8
+* ``snes_max_it``: 50
+* ``ksp_rtol``: 1e-5
+* ``ksp_atol``: 1e-50
+* ``ksp_divtol``: 1e4
+* ``ksp_max_it``: 10000
+* ``pc_type``: ILU (Jacobi preconditioning for mixed problems)
+
+To see the full view that PETSc has of solver objects, you can pass a
+view flag to the solve call.  For linear solves pass:
+
+.. code-block:: python
+
+   solver_parameters={'ksp_view': True}
+
+For nonlinear solves use:
+
+.. code-block:: python
+
+   solver_parameters={'snes_view': True}
+
+PETSc will then print its view of the solver objects that Firedrake
+has constructed.  This is especially useful for debugging complicated
+preconditioner setups for mixed problems.
+
 Debugging convergence failures
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -530,12 +577,16 @@ slow convergence) or a symmetric method is being used (such as
 conjugate gradient) where the problem is non-symmetric.  The first
 thing to check is what happened to the residual (error) term.  To
 monitor this in the solution we pass the "flag" options
-``'ksp_converged_reason'`` and ``'ksp_monitor_true_residual'``:
+``'ksp_converged_reason'`` and ``'ksp_monitor_true_residual'``,
+additionally, we pass ``ksp_view`` so that PETSc prints its idea of
+what the solver object contains (this is useful to debug the where
+options are not being passed in correctly):
 
 .. code-block:: python
 
    solver_parameters={'ksp_converged_reason': True,
-                      'ksp_monitor_true_residual': True}
+                      'ksp_monitor_true_residual': True,
+                      'ksp_view': True}
 
 If the problem is converging, but only slowly, it may be that it is
 badly conditioned.  If the problem is small, we can try using a direct
@@ -584,11 +635,14 @@ Nonlinear convergence failures
 
 Much of the advice for linear systems applies to nonlinear systems as
 well.  If you have a convergence failure for a nonlinear problem, the
-first thing to do is run with monitors to see what is going on:
+first thing to do is run with monitors to see what is going on, and
+view the SNES object with ``snes_view`` to ensure that PETSc is seeing
+the correct options:
 
 .. code-block:: python
 
    solver_parameters={'snes_monitor': True,
+                      'snes_view': True,
                       'ksp_monitor_true_residual': True,
                       'snes_converged_reason': True,
                       'ksp_converged_reason': True}
@@ -598,7 +652,7 @@ linear systems.  If the linear solve converges but the outer Newton
 iterations do not, the problem is likely a bad Jacobian.  If you
 provided the Jacobian by hand, is it correct?  If no Jacobian was
 provided in the solve call, it is likely a bug in Firedrake and you
-should report it to us.
+should `report it to us <firedrake_bugs_>`_.
 
 .. _Hypre: http://acts.nersc.gov/hypre/
 .. _PETSc: http://www.mcs.anl.gov/petsc/
@@ -611,3 +665,4 @@ should report it to us.
 .. _KSP nonconvergence: http://www.mcs.anl.gov/petsc/documentation/faq.html#kspdiverged
 .. _LSC: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/PC/PCLSC.html
 .. _UFL: http://fenicsproject.org/documentation/ufl/1.2.0/ufl.html
+.. _firedrake_bugs: mailto:firedrake@imperial.ac.uk
