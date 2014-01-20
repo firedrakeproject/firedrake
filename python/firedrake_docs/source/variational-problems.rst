@@ -7,7 +7,7 @@ since we use the *finite* element method, is approximated by a finite
 tesselation of the domain.  Firedrake represents this tesselation by a
 :py:class:`~firedrake.core_types.Mesh` which holds the geometric
 and topological information of the tesselation.  On top of this mesh,
-we build :py:class:`~firedrake.core_types.FunctionSpaces`\s which
+we build :py:class:`~firedrake.core_types.FunctionSpace`\s which
 define the space in which our solutions to our equation live.
 
 Constructing meshes
@@ -40,17 +40,17 @@ of standard shapes.  The simplest is a
 :py:class:`~firedrake.mesh.UnitIntervalMesh` which is a regularly
 subdivided unit line.  We may also build square meshes with the
 :py:class:`~firedrake.mesh.UnitSquareMesh` constructor, and cube
-meshes with :py:class:`~UnitTetrahedronMesh`.
+meshes with :py:class:`~firedrake.mesh.UnitTetrahedronMesh`.
 
-Embedded manifolds
+Immersed manifolds
 ~~~~~~~~~~~~~~~~~~
 
 In addition to the simple meshes described above, Firedrake also has
-support for solving problems on embedded manifolds.  That is, meshes
-in which the entities are *embedded* in a higher dimensional space.
-For example, the surface of a sphere in 3D.
+support for solving problems on `immersed manifolds <submanifold_>`_.
+That is, meshes in which the entities are *immersed* in a higher
+dimensional space.  For example, the surface of a sphere in 3D.
 
-If your mesh is an such embedded manifold, you need tell Firedrake
+If your mesh is an such immersed manifold, you need tell Firedrake
 that the geometric dimension of the coordinate field (defining where
 the points in mesh are) is not the same as the topological dimension
 of the mesh entities.  This is done by passing an optional second
@@ -62,7 +62,7 @@ use:
    
    sphere_mesh = Mesh('sphere_mesh.node', 3)
 
-Firedrake provides utility meshes for the surfaces of spheres embedded
+Firedrake provides utility meshes for the surfaces of spheres immersed
 in 3D that are approximated using an `icosahedral mesh`_.  You can
 either build a mesh of the unit sphere with
 :py:class:`~firedrake.mesh.UnitIcosahedralSphereMesh`, or a mesh of a
@@ -110,18 +110,17 @@ polynomials we write:
 
 Firedrake supports all function spaces that are allowed by `FIAT`_.
 
-Function spaces on embedded manifolds
+Function spaces on immersed manifolds
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 By default the number of components of each vector in a vector
 function space is the geometric dimension of the mesh (e.g. 3, if the
-mesh is 3D).  However, sometimes (for example when solving problems on
-embedded manifolds) we might want that the number of components in the
-vector differs from the geometric dimension of the mesh.  We can do
-this by passing a value for the ``dim`` argument to the
-:py:class:`VectorFunctionSpace` constructor.  For example, if we
-wanted a 2D vector-valued function space on the surface of a unit
-sphere mesh we might write:
+mesh is 3D).  However, sometimes we might want that the number of
+components in the vector differs from the geometric dimension of the
+mesh.  We can do this by passing a value for the ``dim`` argument to
+the :py:class:`~firedrake.core_types.VectorFunctionSpace` constructor.
+For example, if we wanted a 2D vector-valued function space on the
+surface of a unit sphere mesh we might write:
 
 .. code-block:: python
 
@@ -135,11 +134,10 @@ Mixed function spaces
 Many PDEs are posed in terms of more than one, coupled, variable.  The
 function space for the variational problem for such a PDE is termed a
 *mixed* function space.  The object representing such a space in
-Firedrake is the
-:py:class:`~firedrake.core_types.MixedFunctionSpace`.  We can either
-build such a space by invoking the constructor directly, or, more
-readably by taking existing function spaces and multiplying them
-together using the ``*`` operator.  For example:
+Firedrake is the :py:class:`~firedrake.core_types.MixedFunctionSpace`.
+We can either build such a space by invoking the constructor directly,
+or, more readably, by taking existing function spaces and multiplying
+them together using the ``*`` operator.  For example:
 
 .. code-block:: python
 
@@ -254,7 +252,7 @@ function space on it:
    mesh = UnitSquareMesh(10, 10)
    V = FunctionSpace(mesh, "CG", 1)
 
-now we need a test function, and, since ``u`` is unknown, a trial
+now we need a test function, and since ``u`` is unknown, a trial
 function:
 
 .. code-block:: python
@@ -368,3 +366,4 @@ wider variety of different problems.
 .. _UFL: http://arxiv.org/abs/1211.4047
 .. _UFL_package: http://fenicsproject.org/documentation/ufl/1.2.0/ufl.html
 .. _FIAT: https://bitbucket.org/mapdes/fiat
+.. _submanifold: http://en.wikipedia.org/wiki/Submanifold
