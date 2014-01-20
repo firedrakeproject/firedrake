@@ -64,8 +64,7 @@ class LoopVectoriser(object):
 
         # Padding
         if not only_align:
-            for ad in acc_decls:
-                d, s = ad
+            for d, s in acc_decls:
                 if d.sym.rank:
                     if s == ap.PARAM_VAR:
                         d.sym.rank = tuple([vect_roundup(r) for r in d.sym.rank])
@@ -75,8 +74,7 @@ class LoopVectoriser(object):
                     self.padded.append(d.sym)
 
         # Alignment
-        for ds in decl_scope.values():
-            d, s = ds
+        for d, s in decl_scope.values():
             if d.sym.rank and s != ap.PARAM_VAR:
                 d.attr.append(self.comp["align"](self.intr["alignment"]))
 
@@ -97,7 +95,7 @@ class LoopVectoriser(object):
         opts = V_OP_PADONLY : no peeling, just use padding
         opts = V_OP_PEEL : peeling for autovectorisation
         opts = V_OP_UAJ : set unroll_and_jam factor
-        opts = V_OP_UAJ_EXTRA : as above, but exter iters avoid remainder loop
+        opts = V_OP_UAJ_EXTRA : as above, but extra iters avoid remainder loop
         factor is an additional parameter to specify things like unroll-and-
         jam factor. Note that factor is just a suggestion to the compiler,
         which can freely decide to use a higher or lower value."""
@@ -109,12 +107,12 @@ class LoopVectoriser(object):
 
             vect_len = self.intr["dp_reg"]
             rows = loops[0].size()
-            u_factor = factor if opts in [ap.V_OP_UAJ, ap.V_OP_UAJ_EXTRA] else 1
+            unroll_factor = factor if opts in [ap.V_OP_UAJ, ap.V_OP_UAJ_EXTRA] else 1
 
             op = OuterProduct(stmt, loops, self.intr, self.lo)
 
             # Vectorisation
-            rows_per_it = vect_len*u_factor
+            rows_per_it = vect_len*unroll_factor
             if opts == ap.V_OP_UAJ:
                 if rows_per_it <= rows:
                     body, layout = op.generate(rows_per_it)
@@ -236,10 +234,17 @@ class OuterProduct():
         elif step == 3:
             return []
 
-    def _vect_mem(self, node, vrs, decls):
-        """Return a list of vector variables declarations representing
-        loads, sets, broadcasts. Also return dicts of allocated inner
-        and outer variables. """
+    def _vect_mem(self, vrs, decls):
+        """Return a list of vector variable declarations representing
+        loads, sets, broadcasts.
+
+        :arg vrs:   Dictionary that associates scalar variables to vector.
+                    variables, for which it will be generated a corresponding
+                    intrinsics load/set/broadcast.
+        :arg decls: List of scalar variables for which an intrinsics load/
+                    set/broadcast has already been generated. Used to avoid
+                    regenerating the same line. Can be updated.
+        """
         stmt = []
         for node, reg in vrs.items():
             if node.rank and node.rank[-1] in [i.it_var() for i in self.loops]:
@@ -251,11 +256,22 @@ class OuterProduct():
                 stmt.append(Decl(self.intr["decl_var"], reg, exp))
         return stmt
 
-        return (decls, in_vrs, out_vrs)
-
     def _vect_expr(self, node, ofs, regs, decls, vrs):
         """Turn a scalar expression into its intrinsics equivalent.
-        Also return dicts of allocated vector variables. """
+        Also return dicts of allocated vector variables.
+
+        :arg node:  AST Expression which is inspected to generate an equivalent
+                    intrinsics-based representation.
+        :arg ofs:   Contains the offset of the entry in the left hand side that
+                    is being computed.
+        :arg regs:  Register allocator.
+        :arg decls: List of scalar variables for which an intrinsics load/
+                    set/broadcast has already been generated. Used to determine
+                    which vector variable contains a certain scalar, if any.
+        :arg vrs:   Dictionary that associates scalar variables to vector
+                    variables. Updated every time a new scalar variable is
+                    encountered.
+        """
 
         if isinstance(node, Symbol):
             if node.rank and self.loops[0].it_var() == node.rank[-1]:
@@ -287,7 +303,19 @@ class OuterProduct():
                 return self.intr["div"](left, right)
 
     def _incr_tensor(self, tensor, ofs, regs, out_reg, mode):
-        """Add the right hand side contained in out_reg to tensor."""
+        """Add the right hand side contained in out_reg to tensor.
+
+        :arg tensor:  The left hand side of the expression being vectorized.
+        :arg ofs:     Contains the offset of the entry in the left hand side that
+                      is being computed.
+        :arg regs:    Register allocator.
+        :arg out_reg: Register variable containing the left hand side.
+        :arg mode:    It can be either `OP_STORE_IN_MEM`, for which stores in
+                      memory are performed, or `OP_REGISTER_INC`, by means of
+                      which left hand side's values are accumulated in a register.
+                      Usually, `OP_REGISTER_INC` is not recommended unless the
+                      loop sizes are extremely small.
+        """
         if mode == self.OP_STORE_IN_MEM:
             # Store in memory
             sym = tensor.symbol
@@ -302,7 +330,14 @@ class OuterProduct():
             return Assign(reg, self.intr["add"](reg, out_reg))
 
     def _restore_layout(self, regs, tensor, mode):
-        """Restore the storage layout of the tensor. """
+        """Restore the storage layout of the tensor.
+
+        :arg regs:    Register allocator.
+        :arg tensor:  The left hand side of the expression being vectorized.
+        :arg mode:    It can be either `OP_STORE_IN_MEM`, for which load/stores in
+                      memory are performed, or `OP_REGISTER_INC`, by means of
+                      which left hand side's values are read from registers.
+        """
 
         code = []
         t_regs = [Symbol(r, ()) for r in regs.get_tensor()]
@@ -396,7 +431,7 @@ class OuterProduct():
                 # Vectorize, declare allocated variables, increment tensor
                 ofs = j * cols
                 v_expr = self._vect_expr(expr, ofs, regs, decls, vrs)
-                stmt.extend(self._vect_mem(expr, vrs, decls))
+                stmt.extend(self._vect_mem(vrs, decls))
                 incr = self._incr_tensor(tensor, i + ofs, regs, v_expr, mode)
                 stmt.append(incr)
             # Register shuffles
@@ -483,7 +518,7 @@ def _init_compiler(compiler):
             'decl_aligned_for': '#pragma vector aligned',
             'AVX': '-xAVX',
             'SSE': '-xSSE',
-            'vect_header': 'immintrin.h'
+            'vect_header': '#include <immintrin.h>'
         }
 
     if compiler == 'gnu':
@@ -492,7 +527,7 @@ def _init_compiler(compiler):
             'decl_aligned_for': '#pragma vector aligned',
             'AVX': '-mavx',
             'SSE': '-msse',
-            'vect_header': 'immintrin.h'
+            'vect_header': '#include <immintrin.h>'
         }
 
 

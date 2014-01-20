@@ -44,7 +44,7 @@ from utils import as_tuple
 
 from ir.ast_base import Node
 from ir.ast_plan import ASTKernel
-import ir.ast_vectorizer as irvect
+import ir.ast_vectorizer
 from ir.ast_vectorizer import vect_roundup
 
 
@@ -498,8 +498,8 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
     def c_buffer_decl(self, size, idx, buf_name):
         buf_type = self.data.ctype
         dim = len(size)
-        compiler = irvect.compiler
-        isa = irvect.intrinsics
+        compiler = ir.ast_vectorizer.compiler
+        isa = ir.ast_vectorizer.intrinsics
         return (buf_name, "%(typ)s %(name)s%(dim)s%(align)s%(init)s" %
                 {"typ": buf_type,
                  "name": buf_name,
@@ -558,18 +558,23 @@ class JITModule(base.JITModule):
         strip = lambda code: '\n'.join([l for l in code.splitlines()
                                         if l.strip() and l.strip() != ';'])
 
+        compiler = ir.ast_vectorizer.compiler
+        vect_flag = compiler.get(ir.ast_vectorizer.intrinsics.get('inst_set')) if compiler else None
+
         if any(arg._is_soa for arg in self._args):
             kernel_code = """
             #define OP2_STRIDE(a, idx) a[idx]
-            #include <immintrin.h>
+            %(header)s
             %(code)s
             #undef OP2_STRIDE
-            """ % {'code': self._kernel.code}
+            """ % {'code': self._kernel.code,
+                   'header': compiler.get('vect_header') if vect_flag else ""}
         else:
             kernel_code = """
-            #include <immintrin.h>
+            %(header)s
             %(code)s
-            """ % {'code': self._kernel.code}
+            """ % {'code': self._kernel.code,
+                   'header': compiler.get('vect_header') if vect_flag else ""}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
         if configuration["debug"]:
             self._wrapper_code = code_to_compile
@@ -581,8 +586,6 @@ class JITModule(base.JITModule):
         # We need to build with mpicc since that's required by PETSc
         cc = os.environ.get('CC')
         os.environ['CC'] = 'mpicc'
-        compiler = irvect.compiler
-        vect_flag = compiler.get(irvect.intrinsics.get('inst_set')) if compiler else None
         if configuration["debug"]:
             extra_cppargs = ['-O0', '-g']
         elif vect_flag:
@@ -709,7 +712,7 @@ class JITModule(base.JITModule):
             _off_args = ""
             _off_inits = ""
 
-        # Build kernel invokation. Let X be a parameter of the kernel representing a tensor
+        # Build kernel invocation. Let X be a parameter of the kernel representing a tensor
         # accessed in an iteration space. Let BUFFER be an array of the same size as X.
         # BUFFER is declared and intialized in the wrapper function.
         # * if X is written or incremented in the kernel, then BUFFER is initialized to 0
