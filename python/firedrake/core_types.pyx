@@ -532,7 +532,7 @@ class Mesh(object):
     def cell_orientations(self):
         """Return the orientation of each cell in the mesh.
 
-        Use :fn:`init_cell_orientations` to initialise this data."""
+        Use :func:`init_cell_orientations` to initialise this data."""
         return self._cell_orientations.data_ro
 
     def init_cell_orientations(self, expr):
