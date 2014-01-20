@@ -255,7 +255,7 @@ class _VTUFile(object):
     def _fd_to_evtk_coord(self, fdcoord):
         """In firedrake function, the coordinates are represented by the
         array."""
-        if  len(fdcoord.shape) == 1:
+        if len(fdcoord.shape) == 1:
             # 1D case.
             return (fdcoord,
                     np.zeros(fdcoord.shape[0]),
