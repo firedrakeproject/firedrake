@@ -42,6 +42,8 @@ An *extruded mesh* in the current Firedrake implementation, combines the two
 types of meshes: an unstructured mesh is used to specify the topology of the
 widest part of the domain while the short (*vertical*) is structured.
 
+More details on the meshes Firedrake can handle can be found in the
+:doc:`Variational Problems<variational-problems>` section.
 
 The Extrusion Process
 ---------------------
@@ -61,6 +63,11 @@ The following code creates a unit square triangle mesh.
 .. code-block:: python
 
 	mesh = UnitSquareMesh(2, 2)
+
+This is one of the built-in functions which creates a mesh. A more detailed
+descritpion of other meshes available in Firedrake can be found in the
+:doc:`Variational Problems<variational-problems>` section on mesh
+construction.
 
 The size of the mesh is given by the number of cells on the sides of the
 square, in this case two cells on each side.
