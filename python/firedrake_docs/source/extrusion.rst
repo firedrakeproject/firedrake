@@ -24,25 +24,24 @@ The characteristic of the two types of meshes which has the biggest impact on
 performance is the way the topology is specified.
 
 In the *structured* case, the identifiers of mesh components can be inferred
-(computed) based on the current location in the mesh (given the identifier of
+(computed) based on the current location in the mesh. Given the identifier of
 the current component (cell), the identifiers of some neighbouring components
-(vertices) can be computed using a closed form mathematical formula). This is
+(vertices) can be computed using a closed form mathematical formula. This is
 known as direct addressing (A[i]).
 
 In the *unstructured* case, the mesh components have to be explicitly
-enumerated in the form of maps, from one mesh component type to another (from
-cells to vertices for example, for each cell the map will contain a list of
-vertices). This is known as indirect addressing (A[B[i]]).
+enumerated in the form of maps from one mesh component type to another (from
+cells to vertices for example). For each cell the map will contain a list of
+vertices. This is known as indirect addressing (A[B[i]]).
 
 Memory latency makes indirect addressing more expensive than direct addressing
-(as it is often more effecient to compute than to perform a fetch from
-memory).
+as it is often more effecient to compute than to perform a fetch from memory.
 
-An *extruded mesh* in the current Firedrake implementation, combines the two
+An *extruded mesh* in the current Firedrake implementation combines the two
 types of meshes: an unstructured mesh is used to specify the topology of the
 widest part of the domain while the short (*vertical*) is structured.
 
-More details on the meshes Firedrake can handle can be found in the
+More details on the meshes supported by Firedrake can be found in the
 :doc:`Variational Problems<variational-problems>` section.
 
 Implementation of the Extrusion Process in Firedrake
@@ -52,7 +51,7 @@ Non-extruded meshes
 ~~~~~~~~~~~~~~~~~~~
 
 A Firedrake :py:class:`~firedrake.core_types.Mesh` object contains the topolgy
-and geometric data required to fully define a mesh. In Firedrake this means:
+and geometric data required to define a mesh. In Firedrake this means:
 
 - the mesh knows about the shape of the cells (interval, triangle, etc).
 - the vertices of the mesh have a coordinate field associated to them (2D or
@@ -61,10 +60,10 @@ and geometric data required to fully define a mesh. In Firedrake this means:
   numbering).
 - a map is needed to define the connectivity of the mesh (cell to vertices).
 
-The size of the mesh is given by the number of cells on the sides of the
-square, in this case two cells on each side.
-
 <INSERT PICTURE HERE OF 2D MESH>
+
+Extruded Meshes
+~~~~~~~~~~~~~~~
 
 Conceptually, an extruded mesh requires a generic base mesh and a number of
 layers. The number of layers specifies the multiplicity of the base mesh in
@@ -99,7 +98,7 @@ In Firedrake, an :py:class:`~firedrake.core_types.ExtrudedMesh` object is a
 subclass of :py:class:`~firedrake.core_types.Mesh`. It mimics the
 :py:class:`~firedrake.core_types.Mesh` object behaviour in the presence of an
 extra inferred dimension (we call this the *vertical*). If direct addressing
-techqniues are to be used in the *vertical* then the mesh topology need not be
+techniques are to be used in the *vertical* then the mesh topology need not be
 explicit for all the elements of the *vertical* direction.
 
 Let the *base layer* be the bottom-most layer of extruded cells.
@@ -136,10 +135,13 @@ The following code creates a unit square mesh with triangular cells.
 
 	mesh = UnitSquareMesh(2, 2)
 
+The size of the mesh is given by the number of cells on the sides of the
+square, in this case two cells on each side.
+
 This is one of the built-in functions which can be used to create Firedrake
 pre-defined meshes of different sizes. A more detailed descritpion of other
-meshes available in Firedrake can be found in the :doc:`Variational
-Problems<variational-problems>` section on mesh construction.
+meshes available in Firedrake can be found in the :doc: Variational
+Problems<variational-problems> section on mesh construction.
 
 Based on the assumptions in the section above, the construction of an
 :py:class:`~firedrake.core_types.ExtrudedMesh` object:
@@ -158,7 +160,7 @@ equals 1).
 Uniform Extrusion
 ~~~~~~~~~~~~~~~~~
 
-Uniform extrusion is a form of extrusion which adds another dimesnion to the
+Uniform extrusion is a form of extrusion which adds another dimension to the
 coordinate field (2D coordinates become 3D for example). The computation of
 the coordinates in the new direction is based on the assumption that the
 layers are evenly spaced (hence the word uniform).
@@ -235,4 +237,35 @@ Function Spaces on Extruded Meshes
 ----------------------------------
 
 Building a :py:class:`~firedrake.core_types.FunctionSpace` or
-:py:class:`~firedrake.core_types.VectorFunctionSpace` on extruded meshes
+:py:class:`~firedrake.core_types.VectorFunctionSpace` on extruded meshes is
+similar to the non-extruded case.
+
+The main difference is the type of elements that are being used. Extruded
+elements are a tensor product of two space types: the *horizontal* pertaining
+to the *base mesh* and the *vertical* pertaining to the extrusion direction.
+
+For example, creating a :py:class:`~firedrake.core_types.FunctionSpace` from
+any of the ``extruded_mesh`` objects defined above can be done in the
+following way:
+
+.. code-block:: python
+
+	fspace = FunctionSpace(extruded_mesh, "Lagrange", 1)
+
+This creates a :py:class:`~firedrake.core_types.FunctionSpace` with both the
+*horizontal* and the *vertical* spaces set to *Lagrange P1*. This is
+equivalent to the following invokation:
+
+.. code-block:: python
+
+	fspace = FunctionSpace(extruded_mesh, "Lagrange", 1, vfamily="Lagrange", vdegree=1)
+
+In the more general case we only use the second variant when we want the two
+spaces to be different.
+
+.. code-block:: python
+
+	fspace = FunctionSpace(mesh, "BDFM", 2, vfamily="Lagrange", vdegree=1)
+
+A :py:class:`~firedrake.core_types.VectorFunctionSpace` can be constructed in
+a similar way.
