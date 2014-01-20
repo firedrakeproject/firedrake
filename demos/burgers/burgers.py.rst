@@ -47,7 +47,7 @@ We also need solution functions for the current and the next
 timestep. Note that, since this is a nonlinear problem, we don't
 define trial functions::
 
-  u_ = Function(ic, name="Velocity")
+  u_ = Function(V, name="Velocity")
   u = Function(V, name="VelocityNext")
 
   v = TestFunction(V)
