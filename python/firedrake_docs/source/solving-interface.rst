@@ -520,8 +520,9 @@ Default solver options
 
 If no parameters are passed to a solve call, we use, in most cases,
 the defaults that PETSc supplies for solving the linear or nonlinear
-system.  However, there are some slight variations which we describe
-here.  For linear variational solves we use:
+system.  We describe the most commonly modified options (along with
+their defaults in Firedrake) here.  For linear variational solves we
+use:
 
 * ``ksp_type``: GMRES, with a restart (``ksp_gmres_restart``) of 30
 * ``ksp_rtol``: 1e-7
