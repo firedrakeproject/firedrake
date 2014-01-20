@@ -35,9 +35,11 @@ PDEs. Below are a few tutorial examples to get you started.
 *  :doc:`The Burgers equation <demos/burgers.py>`, a non-linear, unsteady example.
 *  :doc:`A mixed formulation of the Poisson equation <demos/poisson_mixed.py>`
 
-A more in-depth description of how to customise the solution methods
-for PDEs is given in the full user documentation.
+Once you have worked through the tutorials, the user manual is the
+next step.  It goes in to more detail on how to set up and solve
+finite element problems in Firedrake.
 
+*  :doc:`Defining variational problems <variational-problems>`
 *  :doc:`Solving PDEs <solving-interface>`
 
 API documentation
