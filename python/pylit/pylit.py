@@ -17,7 +17,7 @@
 
 """pylit: bidirectional text <-> code converter
 
-Convert between a *text document* with embedded code 
+Convert between a *text document* with embedded code
 and *source code* with embedded documentation.
 """
 
@@ -808,8 +808,10 @@ class Text2Code(TextCodeConverter):
             # do not comment blank lines preceding a code block
             if self.state == "code_block" and not line.rstrip():
                 yield line
-            else:
+            elif line.rstrip():
                 yield self.comment_string + line
+            else:
+                yield self.comment_string.rstrip() + '\n'
 
 
 
