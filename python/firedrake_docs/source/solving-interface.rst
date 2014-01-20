@@ -72,7 +72,7 @@ solve a problem:
 
     u = u_0 \; \mathrm{on}\: \partial\Omega
 
-where the *residual* :math:`F(u; v)`` is linear in the test function
+where the *residual* :math:`F(u; v)` is linear in the test function
 :math:`v` but possibly non-linear in the unknown
 :py:class:`~firedrake.core_types.Function` :math:`u`.  To solve such a
 problem we write, if ``F`` is the residual form:
@@ -88,7 +88,7 @@ to apply strong boundary conditions, as before, we provide a list of
 
    solve(F == 0, u, bcs=[bc1, bc2])
 
-nonlinear problems in Firedrake are solved using Newton-like methods.
+Nonlinear problems in Firedrake are solved using Newton-like methods.
 That is, we compute successive approximations to the solution using
 
 .. math::
@@ -116,7 +116,7 @@ the ``x`` coordinate everywhere:
 
    u.interpolate(Expression('x[0]'))
 
-   solve(F = 0, u)
+   solve(F == 0, u)
 
 Solving linear systems
 ----------------------
@@ -134,13 +134,15 @@ pass in.  In the pre-assembled case, we are solving a linear system:
 
    A\vec{x} = \vec{b}
 
-Where :math:`A` is a known matrix, :math:`\vec{b}` is an unknown
-vector and :math:`\vec{x}` is the unknown solution.  In Firedrake,
-:math:`A` is represented as a `Matrix`, while :math:`\vec{b}` and
-:math:`\vec{x}` are both `Function`\s.  We build these values by
-calling ``assemble`` on the UFL forms that define our problem, which, as
-before are denoted ``a`` and ``L``.  Similarly to the linear variational
-case, we first need a function in which to place our solution:
+Where :math:`A` is a known matrix, :math:`\vec{b}` is a known right
+hand side vector and :math:`\vec{x}` is the unknown solution vector.
+In Firedrake, :math:`A` is represented as a
+:py:class:`~firedrake.types.Matrix`, while :math:`\vec{b}` and
+:math:`\vec{x}` are both :py:class:`~firedrake.core_types.Function`\s.
+We build these values by calling ``assemble`` on the UFL forms that
+define our problem, which, as before are denoted ``a`` and ``L``.
+Similarly to the linear variational case, we first need a function in
+which to place our solution:
 
 .. code-block:: python
 
@@ -287,13 +289,14 @@ the system.  The *absolute tolerance* tells us we should stop if
 :math:`r` drops below some given value.  The *relative tolerance*
 tells us we should stop if :math:`\frac{r}{|\vec{b}|}` drops below
 some given value.  Finally, PETSc can detect divergence in a linear
-solve, :math:`r` increases above some specified value.  These values
-are set with the options ``'ksp_atol'`` for the absolute tolerance,
-``'ksp_rtol'`` for the relative tolerance, and ``'ksp_divtol'`` for the
-divergence tolerance.  The values provided to these options should be
-floats.  For example, to set the absolute tolerance to
-:math:`10^{-30}`, the relative tolerance to :math:`10^{-9}` and the
-divergence tolerance to :math:`10^4` you would use:
+solve, that is, if :math:`r` increases above some specified value.
+These values are set with the options ``'ksp_atol'`` for the absolute
+tolerance, ``'ksp_rtol'`` for the relative tolerance, and
+``'ksp_divtol'`` for the divergence tolerance.  The values provided to
+these options should be floats.  For example, to set the absolute
+tolerance to :math:`10^{-30}`, the relative tolerance to
+:math:`10^{-9}` and the divergence tolerance to :math:`10^4` we would
+use:
 
 .. code-block:: python
 
@@ -505,7 +508,7 @@ The step tolerance checks for convergence due to:
 
 .. math::
 
-   |\Delta x_k| < \mathrm{stol} \. |x_k|
+   |\Delta x_k| < \mathrm{stol} \, |x_k|
 
 The maximum number of allowed function evaluations limits the number
 of times the residual may be evaluated before returning a
