@@ -46,9 +46,10 @@ Immersed manifolds
 ~~~~~~~~~~~~~~~~~~
 
 In addition to the simple meshes described above, Firedrake also has
-support for solving problems on `immersed manifolds <submanifold_>`_.
-That is, meshes in which the entities are *immersed* in a higher
-dimensional space.  For example, the surface of a sphere in 3D.
+support for solving problems on orientable `immersed manifolds
+<submanifold_>`_.  That is, meshes in which the entities are
+*immersed* in a higher dimensional space.  For example, the surface of
+a sphere in 3D.
 
 If your mesh is an such immersed manifold, you need tell Firedrake
 that the geometric dimension of the coordinate field (defining where
@@ -78,6 +79,30 @@ icosahedron 7 times we would write:
 .. code-block:: python
 
    earth = IcosahedralSphereMesh(radius=6371, refinement_level=7)
+
+Ensuring consistent cell orientations
++++++++++++++++++++++++++++++++++++++
+
+Variational forms that contain facet normals, for example problems
+where a non-zero boundary condition is applied to the normal
+derivative of the solution, require information about the orientation
+of the cells.  For normal meshes, this is does not pose a problem,
+however for immersed meshes we must tell Firedrake about the
+orientation of each cell relative to some global orientation.  This
+information is used by Firedrake to ensure that the facet normal on,
+say, the surface of a sphere, uniformly points outwards.  To do this,
+after constructing an immersed mesh, we must initialise the cell
+orientation information.  This is carried out with the function
+:py:meth:`~firedrake.core_types.Mesh.init_cell_orientations`, which
+takes an :py:class:`~firedrake.expression.Expression` used to produce
+the reference normal direction.  For example, on the sphere mesh of
+the earth defined above we can initialise the cell orientations
+relative to vector pointing out from the origin:
+
+.. code-block:: python
+
+   earth.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
+
 
 Semi-structured extruded meshes
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
