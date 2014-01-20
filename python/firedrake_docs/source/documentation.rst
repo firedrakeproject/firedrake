@@ -33,6 +33,10 @@ PDEs. Below are a few tutorial examples to get you started.
 
 *  :doc:`A basic Helmholtz equation <demos/helmholtz.py>`
 
+A more in-depth description of how to customise the solution methods
+for PDEs is given in the full user documentation.
+
+*  :doc:`Solving PDEs <solving-interface>`
 
 API documentation
 =================
