@@ -402,12 +402,20 @@ class _Facets(object):
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
 
 class Mesh(object):
-    """Note that this is the mesh topology and geometry,
-    it is NOT a FunctionSpace.
-
-    The first argument is the name of the mesh file. The second
-    argument is the dimension of the coordinates, 2D or 3D."""
-    def __init__(self, *args):
+    """A representation of mesh topology and geometry."""
+    def __init__(self, filename, dim=None):
+        """
+        :param filename: the mesh file to read.  Supported mesh formats
+               are Gmsh (extension ``msh``) and triangle (extension
+               ``node``).
+        :param dim: optional dimension of the coordinates in the
+               supplied mesh.  If not supplied, the coordinate
+               dimension is determined from the type of topological
+               entities in the mesh file.  In particular, you will
+               need to supply a value for ``dim`` if the mesh is an
+               immersed manifold (where the geometric and topological
+               dimensions of entities are not the same).
+        """
 
         _init()
 
@@ -417,20 +425,11 @@ class Mesh(object):
         self.vertex_halo = None
         self.parent = None
 
-        if len(args)==0:
-            return
-
-        if len(args)==2:
-            dim = int(args[1])
-        else:
+        if dim is None:
+            # Mesh reading in Fluidity level considers 0 to be None.
             dim = 0
 
-        if isinstance(args[0], str):
-            self._from_file(args[0], dim)
-
-        else:
-            raise NotImplementedError(
-                "Unknown argument types for Mesh constructor")
+        self._from_file(filename, dim)
 
         self._cell_orientations = op2.Dat(self.cell_set, dtype=np.int32,
                                           name="cell_orientations")
