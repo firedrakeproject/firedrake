@@ -122,7 +122,6 @@ def test_massWW(W):
     assert not np.allclose(A.M[1, 1].values, 0.0)
 
 
-@pytest.mark.xfail
 def test_bcs_ordering():
     """Check that application of boundary conditions zeros the correct
     rows and columns of a mixed matrix.
