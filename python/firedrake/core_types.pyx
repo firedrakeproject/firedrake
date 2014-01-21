@@ -1154,7 +1154,7 @@ class FunctionSpaceBase(object):
             if not lbcs:
                 new_entity_node_list = entity_node_list
             elif offset is not None:
-                l = [bc.nodes for bc in bcs if bc.sub_domain!='top' and bc.sub_domain!='bottom']
+                l = [bc.nodes for bc in bcs if bc.sub_domain not in ['top', 'bottom']]
                 if l:
                     bcids = reduce(np.union1d, l)
                     nl = entity_node_list.ravel()
