@@ -93,8 +93,8 @@ def run_test_2D(parameters={}, test_mode=False):
 def test_extrusion_side_strong_bcs():
     assert (run_test_3D(test_mode=True) < 1.e-13)
 
-#def test_extrusion_side_strong_bcs_2D():
-#    assert (run_test_2D(test_mode=True) < 1.e-13)
+def test_extrusion_side_strong_bcs_2D():
+    assert (run_test_2D(test_mode=True) < 1.e-13)
 
 if __name__ == '__main__':
     import os
