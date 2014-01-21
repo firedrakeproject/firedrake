@@ -49,7 +49,6 @@ def run_test(x, degree, parameters={}, test_mode=False):
     return res
 
 
-@pytest.mark.xfail
 def test_extrusion_side_strong_bcs():
     assert (run_test(1, 1, test_mode=True) < 1.e-13)
 
