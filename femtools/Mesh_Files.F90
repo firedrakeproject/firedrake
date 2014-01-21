@@ -83,7 +83,7 @@ contains
   ! --------------------------------------------------------------------------
 
   function read_mesh_simple(filename, format, quad_degree, &
-       quad_ngi, quad_family, mdim) &
+       quad_ngi, quad_family, mdim, coord_dim) &
        result (field)
 
     ! A simpler mechanism for reading a mesh file into a field.
@@ -98,6 +98,8 @@ contains
     integer, intent(in), optional :: quad_family
     ! Dimension of mesh
     integer, intent(in), optional :: mdim
+    ! Force dimension of mesh in the case of manifolds
+    integer, intent(in), optional :: coord_dim
 
     type(vector_field) :: field
 
@@ -111,7 +113,7 @@ contains
          FLExit("Cannot specify dimension for gmsh format")
        end if
        field = read_gmsh_file(filename, quad_degree=quad_degree, quad_ngi=quad_ngi, &
-            quad_family=quad_family)
+            quad_family=quad_family, coord_dim=coord_dim)
 
     case("exodusii")
 #ifdef HAVE_LIBEXOIIV2C

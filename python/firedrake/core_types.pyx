@@ -46,7 +46,7 @@ _file_extensions = {
 _cells = {
     1 : { 2 : "interval"},
     2 : { 3 : "triangle"},
-    3 : { 4 : "tetrahedron"}
+    3 : { 3: "triangle", 4 : "tetrahedron"}
     }
 
 _FIAT_cells = {
@@ -146,15 +146,22 @@ def make_flat_fiat_element(ufl_cell_element, ufl_cell, flattened_entity_dofs):
 
     return base_element
 
-def make_extruded_coords(mesh, layers, kernel=None, layer_height=None):
+def make_extruded_coords(mesh, layers, kernel=None, layer_height=None, extrusion_type='uniform'):
     """Given a kernel or height between layers, use it to generate the
     extruded coordinates.
 
-    :arg mesh: the 2d mesh to extrude
+    :arg mesh: the base nD (1D, 2D, etc) mesh to extrude
     :arg layers: the number of layers in the extruded mesh
     :arg kernel: :class:`pyop2.Kernel` which produces the extruded coordinates
     :arg layer_height: if provided it creates coordinates for evenly
-                       spaced layers
+                       spaced layers, the default value is 1/(layers-1)
+    :arg extrusion_type: refers to how the coodinate field is computed in the
+                         extrusion process.
+                         `uniform`: create equidistant layers in the (n+1)-direction
+                         `radial`: create equidistant layers in the outward direction
+                         from the origin. For each extruded vertex the layer height is
+                         multiplied by the corresponding unit direction vector and
+                         then added to the position vector of the vertex
 
     Either the kernel or the layer_height must be provided. Should
     both be provided then the kernel takes precendence.
@@ -175,19 +182,57 @@ def make_extruded_coords(mesh, layers, kernel=None, layer_height=None):
            extruded_coords[0][2] = 0.1 * layer_number[0][0]; // Z
        }
     """
+    # The dimension of the space the coordinates are in
+    coords_dim = mesh.ufl_cell().geometric_dimension()
 
-    if kernel is None and layer_height is not None:
-        kernel = op2.Kernel("""
+    # Start code generation
+    _height = str(layer_height)+" * j[0][0];"
+    _extruded_direction = ""
+    _norm = ""
+
+    if extrusion_type == 'uniform':
+        coords_xtr_dim = coords_dim + 1
+        kernel_template = """
 void extrusion_kernel(double *xtr[], double *x[], int* j[])
 {
-    //Only the Z-coord is increased, the others stay the same
-    xtr[0][0] = x[0][0];
-    xtr[0][1] = x[0][1];
-    xtr[0][2] = %(height)s*j[0][0];
-}""" % {"height" : str(layer_height)} , "extrusion_kernel")
+    //Only the appropriate (n+1)th coordinate is increased
+    %(init)s
+    %(extruded_direction)s
+}
+        """
+        _init = "\n".join(["xtr[0][%(i)s] = x[0][%(i)s];" % {"i": str(i)}
+                           for i in range(coords_dim)]) + "\n"
+        _extruded_direction = "xtr[0][%(i)s] = %(height)s" % \
+                          {"i": str(coords_xtr_dim - 1),
+                           "height": _height}
+    elif extrusion_type == 'radial':
+        coords_xtr_dim = coords_dim
+        kernel_template = """
+void extrusion_kernel(double *xtr[], double *x[], int* j[])
+{
+    //Use the position vector of the current coordinate as a
+    //base for outward extrusion.
+    double norm = sqrt(%(norm)s);
+    %(init)s
+}
+        """
+        _norm = " + ".join(["x[0][%(i)d]*x[0][%(i)d]" %
+                            {"i": i} for i in range(coords_dim)])
+        _init = "\n".join(["xtr[0][%(i)s] = x[0][%(i)s] + (x[0][%(i)s] / norm) * %(height)s;" %
+                           {"i": str(i),
+                            "height": _height}
+                           for i in range(coords_dim)]) + "\n"
+    else:
+        raise NotImplementedError("Unsupported extrusion type.")
 
-    coords_dim = len(mesh._coordinates[0])
-    coords_xtr_dim = 3 #dimension
+    kernel_template = kernel_template % {"init": _init,
+                                         "extruded_direction": _extruded_direction,
+                                         "height": _height,
+                                         "norm": _norm}
+
+    kernel = op2.Kernel(kernel_template, "extrusion_kernel")
+
+    #dimension
     # BIG TRICK HERE:
     # We need the +1 in order to include the entire column of vertices.
     # Extrusion is meant to iterate over the 3D cells which are layer - 1 in number.
@@ -357,9 +402,20 @@ class _Facets(object):
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
 
 class Mesh(object):
-    """Note that this is the mesh topology and geometry,
-    it is NOT a FunctionSpace."""
-    def __init__(self, *args):
+    """A representation of mesh topology and geometry."""
+    def __init__(self, filename, dim=None):
+        """
+        :param filename: the mesh file to read.  Supported mesh formats
+               are Gmsh (extension ``msh``) and triangle (extension
+               ``node``).
+        :param dim: optional dimension of the coordinates in the
+               supplied mesh.  If not supplied, the coordinate
+               dimension is determined from the type of topological
+               entities in the mesh file.  In particular, you will
+               need to supply a value for ``dim`` if the mesh is an
+               immersed manifold (where the geometric and topological
+               dimensions of entities are not the same).
+        """
 
         _init()
 
@@ -369,31 +425,31 @@ class Mesh(object):
         self.vertex_halo = None
         self.parent = None
 
-        if len(args)==0:
-            return
+        if dim is None:
+            # Mesh reading in Fluidity level considers 0 to be None.
+            dim = 0
 
-        if isinstance(args[0], str):
-            self._from_file(args[0])
+        self._from_file(filename, dim)
 
-        else:
-            raise NotImplementedError(
-                "Unknown argument types for Mesh constructor")
+        self._cell_orientations = op2.Dat(self.cell_set, dtype=np.int32,
+                                          name="cell_orientations")
+        # -1 is uninitialised.
+        self._cell_orientations.data[:] = -1
 
-    def _from_file(self, filename):
+    def _from_file(self, filename, dim=0):
         """Read a mesh from `filename`
 
         The extension of the filename determines the mesh type."""
         basename, ext = os.path.splitext(filename)
 
         # Retrieve mesh struct from Fluidity
-        cdef ft.mesh_t mesh = ft.read_mesh_f(basename, _file_extensions[ext])
-
+        cdef ft.mesh_t mesh = ft.read_mesh_f(basename, _file_extensions[ext], dim)
         self.name = filename
 
         self._cells = np.array(<int[:mesh.cell_count, :mesh.cell_vertices:1]>mesh.element_vertex_list)
         self._ufl_cell = ufl.Cell(
             _cells[mesh.geometric_dimension][mesh.cell_vertices],
-            mesh.topological_dimension)
+            geometric_dimension=mesh.geometric_dimension)
 
         self._entities = np.zeros(mesh.topological_dimension + 1, dtype=np.int)
         self._entities[:] = -1 # Ensure that 3d edges get an out of band value.
@@ -472,6 +528,58 @@ class Mesh(object):
     def layers(self):
         return self._layers
 
+    def cell_orientations(self):
+        """Return the orientation of each cell in the mesh.
+
+        Use :func:`init_cell_orientations` to initialise this data."""
+        return self._cell_orientations.data_ro
+
+    def init_cell_orientations(self, expr):
+        """Compute and initialise `cell_orientations` relative to a specified orientation.
+
+        :arg expr: an :class:`Expression` evaluated to produce a
+        reference normal direction.
+
+        """
+        if expr.shape()[0] != 3:
+            raise NotImplementedError('Only implemented for 3-vectors')
+        if self.ufl_cell() != ufl.Cell('triangle', 3):
+            raise NotImplementedError('Only implemented for triangles embedded in 3d')
+
+        body = cgen.Block()
+        body.extend([cgen.ArrayOf(v, 3) for v in [cgen.Value("double", "v0"),
+                                                 cgen.Value("double", "v1"),
+                                                 cgen.Value("double", "n"),
+                                                 cgen.Value("double", "x")]])
+        body.append(cgen.Initializer(cgen.Value("double", "dot"), "0.0"))
+        body.append(cgen.Value("int", "i"))
+        body.append(cgen.For("i = 0", "i < 3", "i++",
+                             cgen.Block([cgen.Assign("v0[i]", "coords[1][i] - coords[0][i]"),
+                                         cgen.Assign("v1[i]", "coords[2][i] - coords[0][i]"),
+                                         cgen.Assign("x[i]", "0.0")])))
+        body.append(cgen.Assign("n[0]", "v0[1]*v1[2] - v0[2]*v1[1]"))
+        body.append(cgen.Assign("n[1]", "v0[2]*v1[0] - v0[0]*v1[2]"))
+        body.append(cgen.Assign("n[2]", "v0[0]*v1[1] - v0[1]*v1[0]"))
+
+        body.append(cgen.For("i = 0", "i < 3", "i++",
+                             cgen.Block([cgen.Line("x[0] += coords[i][0];"),
+                                         cgen.Line("x[1] += coords[i][1];"),
+                                         cgen.Line("x[2] += coords[i][2];")])))
+        body.extend([cgen.Line("dot += (%(x)s) * n[%(i)d];" % {"x": x, "i": i})
+                     for i, x in enumerate(expr.code)])
+        body.append(cgen.Assign("*orientation", "dot < 0 ? 1 : 0"))
+
+        fdecl = cgen.FunctionDeclaration(cgen.Value("void", "cell_orientations"),
+                                         [cgen.Pointer(cgen.Value("int", "orientation")),
+                                          cgen.Pointer(cgen.Pointer(cgen.Value("double", "coords")))])
+
+        fn = cgen.FunctionBody(fdecl, body)
+        kernel = op2.Kernel(str(fn), "cell_orientations")
+        op2.par_loop(kernel, self.cell_set,
+                     self._cell_orientations(op2.WRITE),
+                     self._coordinate_field.dat(op2.READ, self._coordinate_field.cell_node_map()))
+        self._cell_orientations._force_evaluation(read=True, write=False)
+
     def cells(self):
         return self._cells
 
@@ -517,14 +625,21 @@ class Mesh(object):
 class ExtrudedMesh(Mesh):
     """Build an extruded mesh from a 2D input mesh
 
-    :arg mesh:         2D unstructured mesh
-    :arg layers:       number of structured layers in the "vertical"
-                       direction
-    :arg kernel:       pyop2 Kernel to produce 3D coordinates for the extruded
-                       mesh see :func:`make_extruded_coords` for more details.
-    :arg layer_height: the height between two layers when all layers are
-                       evenly spaced."""
-    def __init__(self, mesh, layers, kernel=None, layer_height=None):
+    :arg mesh:           2D unstructured mesh
+    :arg layers:         number of layers in the "vertical"
+                         direction representing the multiplicity of the
+                         base mesh
+    :arg kernel:         pyop2 Kernel to produce 3D coordinates for the extruded
+                         mesh see :func:`make_extruded_coords` for more details.
+    :arg layer_height:   the height between layers when all layers are
+                         evenly spaced.
+    :arg extrusion_type: refers to how the coordinates are computed for the
+                         evenly spaced layers:
+                         `uniform`: layers are computed in the extra dimension
+                         generated by the extrusion process
+                         `radial`: radially extrudes the mesh points in the
+                         outwards direction from the origin."""
+    def __init__(self, mesh, layers, kernel=None, layer_height=None, extrusion_type='uniform'):
         if kernel is None and layer_height is None:
             raise RuntimeError("Please provide a kernel or a fixed layer height")
         self._old_mesh = mesh
@@ -561,7 +676,10 @@ class ExtrudedMesh(Mesh):
         self.dofs_per_column = compute_extruded_dofs(fiat_element, flat_temp.entity_dofs(), layers)
 
         #Compute Coordinates of the extruded mesh
-        self._coordinates = make_extruded_coords(mesh, layers, kernel, layer_height)
+        if layer_height is None:
+            layer_height = 1.0 / (layers - 1)
+        self._coordinates = make_extruded_coords(mesh, layers, kernel, layer_height,
+                                                 extrusion_type=extrusion_type)
 
         # Now we need to produce the extruded mesh using
         # techqniues employed when computing the
@@ -830,9 +948,12 @@ class FunctionSpaceBase(object):
             else:
                 self.interior_facet_node_list = None
 
-            self.exterior_facet_node_list = \
-                np.array(<int[:mesh.exterior_facets.count,:element_f.ndof]>
-                         function_space.exterior_facet_node_list)
+            if mesh.exterior_facets.count > 0:
+                self.exterior_facet_node_list = \
+                    np.array(<int[:mesh.exterior_facets.count,:element_f.ndof]>
+                             function_space.exterior_facet_node_list)
+            else:
+                self.exterior_facet_node_list = None
 
         # Note: this is the function space rank. The value rank may be different.
         self.rank = rank
@@ -889,7 +1010,6 @@ class FunctionSpaceBase(object):
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.Dat` defined on the
         :attr:`dof.dset` of this :class:`Function`."""
-
         return op2.Dat(self.dof_dset, val, valuetype, name, uid=uid)
 
 

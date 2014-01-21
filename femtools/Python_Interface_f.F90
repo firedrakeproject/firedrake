@@ -289,8 +289,9 @@ contains
     halo_f%fluidity_halo = c_loc(halo)
   end function halo_f
 
-  function read_mesh_f(filename, file_format) result(mesh) bind(c)
+  function read_mesh_f(filename, file_format, dim) result(mesh) bind(c)
     character(kind=c_char), intent(in) :: filename(*), file_format(*)
+    integer(kind=c_int), value, intent(in) :: dim
     type(mesh_t) :: mesh
 
     type(vector_field), pointer :: coordinate_field
@@ -303,7 +304,7 @@ contains
     allocate(canonical_numbering)
 
     coordinate_field = read_mesh_files(fstring(filename),&
-         & fstring(file_format), quad_degree=1)
+         & fstring(file_format), quad_degree=1, coord_dim=dim)
 
     if (isparallel()) then
        call read_halos(fstring(filename), coordinate_field)

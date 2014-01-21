@@ -57,7 +57,7 @@ contains
   ! The main function for reading GMSH files
 
   function read_gmsh_simple( filename, quad_degree, &
-       quad_ngi, quad_family ) &
+       quad_ngi, quad_family, coord_dim ) &
        result (field)
     !!< Read a GMSH file into a coordinate field.
     !!< In parallel the filename must *not* include the process number.
@@ -69,6 +69,8 @@ contains
     integer, intent(in), optional, target :: quad_ngi
     !! What quadrature family to use
     integer, intent(in), optional :: quad_family
+    !! Actual coordinate size, useful for manifolds
+    integer, intent(in), optional :: coord_dim
     !! result: a coordinate field
     type(vector_field) :: field
 
@@ -89,7 +91,6 @@ contains
 
     type(GMSHnode), pointer :: nodes(:)
     type(GMSHelement), pointer :: elements(:), faces(:)
-
 
     ! If running in parallel, add the process number
     if(isparallel()) then
@@ -128,7 +129,6 @@ contains
 
     ! NOTE:  similar function 'boundaries' variable in Read_Triangle.F90
     ! ie. flag for boundaries and internal boundaries (period mesh bounds)
-
     if (numFaces>0) then
       ! do we have physical surface ids?
       haveBounds= faces(1)%numTags>0
@@ -175,6 +175,12 @@ contains
       coordinate_dim  = 3
     else
       coordinate_dim  = dim
+    end if
+
+    if (present(coord_dim)) then
+      if (coord_dim > 0) then
+        coordinate_dim = coord_dim
+      end if
     end if
 
     loc = size( elements(1)%nodeIDs )
@@ -379,7 +385,6 @@ contains
        end if
        ! Set column ID to -1: this will be changed later if $NodeData exists
        nodes(i)%columnID = -1
-
     end do
 
     ! Skip newline character when in binary mode

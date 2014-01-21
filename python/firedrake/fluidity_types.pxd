@@ -62,7 +62,7 @@ ctypedef struct function_space_t:
 # Fluidity's old python caching, we want to turn this off
 cdef extern bint python_cache
 cdef extern function_space_t function_space_f(void *, element_t *)
-cdef extern mesh_t read_mesh_f(char *, char *)
+cdef extern mesh_t read_mesh_f(char *, char *, int)
 cdef extern halo_t halo_f(void *, halo_entity)
 cdef extern void function_space_destructor_f(void *)
 cdef extern void vector_field_destructor_f(void *)
