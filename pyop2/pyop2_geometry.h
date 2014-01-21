@@ -119,6 +119,12 @@
   K[4] = (J[3]*c_0 - J[2]*c_2) / den; \
   K[5] = (J[5]*c_0 - J[4]*c_2) / den;
 
+/// Compute Jacobian (pseudo)inverse K for quad embedded in R^2
+#define compute_jacobian_inverse_quad_2d compute_jacobian_inverse_triangle_2d
+
+/// Compute Jacobian (pseudo)inverse K for quad embedded in R^3
+#define compute_jacobian_inverse_quad_3d compute_jacobian_inverse_triangle_3d
+
 /// Compute Jacobian inverse K for tetrahedron embedded in R^3
 #define compute_jacobian_inverse_tetrahedron_3d(K, det, J) \
   const double d_00 = J[4]*J[8] - J[5]*J[7]; \
