@@ -1,0 +1,34 @@
+import pytest
+
+from firedrake import *
+
+
+def integrate_spherical_annulus_volume(radius=1000, refinement=2):
+    m = IcosahedralSphereMesh(radius=radius, refinement_level=refinement)
+    layers = 11
+    layer_height = 1.0 / (radius * (layers - 1))
+
+    mesh = ExtrudedMesh(m, layers, layer_height=layer_height, extrusion_type='radial')
+
+    fs = FunctionSpace(mesh, 'CG', 1, name="fs")
+
+    f = Function(fs)
+
+    f.assign(1)
+
+    exact = 4 * pi * ((radius + 1.0/radius)**3 - radius**3) / 3
+    return np.abs(assemble(f * dx) - exact) / exact
+
+
+@pytest.mark.parametrize(('radius', 'refinement', 'error'),
+                         [(1000, 2, 0.04),
+                          (10000, 2, 0.04),
+                          (1000, 5, 0.0006),
+                          (10000, 5, 0.0006)])
+def test_volume_spherical_annulus(radius, refinement, error):
+    assert integrate_spherical_annulus_volume(radius=radius, refinement=refinement) < error
+
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))
