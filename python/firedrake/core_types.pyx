@@ -543,6 +543,8 @@ class Mesh(object):
 
     @property
     def layers(self):
+        """Return the number of layers of the extruded mesh
+        represented by the number of occurences of the base mesh."""
         return self._layers
 
     def cell_orientations(self):
