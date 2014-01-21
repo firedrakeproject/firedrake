@@ -758,6 +758,9 @@ class ExtrudedMesh(Mesh):
     def interior_facets(self):
         return self._interior_facets
 
+    @property
+    def geometric_dimension(self):
+        return self._ufl_cell.geometric_dimension()
 
 
 class Halo(object):
@@ -1179,9 +1182,21 @@ class FunctionSpaceBase(object):
         are referenced, not all nodes in cells touching the surface.'''
 
         el = self.fiat_element
+
         if isinstance(self._mesh, ExtrudedMesh):
-            dim = (1,1)
+            # The facet is indexed by (base-ele-codim 1, 1) for
+            # extruded meshes.
+            # e.g. for the two supported options of
+            # triangle x interval interval x interval it's (1, 1) and
+            # (0, 1) respectively.
+            if self._mesh.geometric_dimension == 3:
+                dim = (1,1)
+            elif self._mesh.geometric_dimension == 2:
+                dim = (0,1)
+            else:
+                raise RuntimeError("Dimension computation for other than 2D or 3D extruded meshes not supported.")
         else:
+            # Facets have co-dimension 1
             dim = len(el.get_reference_element().topology)-1
             dim = dim - 1
 
