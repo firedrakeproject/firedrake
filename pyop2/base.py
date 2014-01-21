@@ -1539,7 +1539,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
 
         """
         _trace.evaluate(set([self]), set([self]))
-        if self.dataset.total_size > 0 and self._data.size == 0:
+        if self.dataset.total_size > 0 and self._data.size == 0 and self.cdim > 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
         maybe_setflags(self._data, write=True)
         v = self._data[:self.dataset.size].view()
@@ -1577,7 +1577,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
 
         """
         _trace.evaluate(set([self]), set())
-        if self.dataset.total_size > 0 and self._data.size == 0:
+        if self.dataset.total_size > 0 and self._data.size == 0 and self.cdim > 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
         v = self._data[:self.dataset.size].view()
         v.setflags(write=False)

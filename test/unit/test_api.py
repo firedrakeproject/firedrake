@@ -1003,7 +1003,6 @@ class TestDatAPI:
         d = op2.Dat(dset)
         assert not d._is_allocated
 
-    @pytest.mark.xfail
     def test_dat_zero_cdim(self, backend, set):
         "A Dat built on a DataSet with zero dim should be allowed."
         dset = set**0
