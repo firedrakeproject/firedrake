@@ -993,9 +993,12 @@ class FunctionSpaceBase(object):
         else:
             self.interior_facet_node_list = None
 
-        self.exterior_facet_node_list = \
-            np.array(<int[:mesh.exterior_facets.count,:element_f.ndof]>
-                     function_space.exterior_facet_node_list)
+        if mesh.exterior_facets.count > 0:
+            self.exterior_facet_node_list = \
+                np.array(<int[:mesh.exterior_facets.count,:element_f.ndof]>
+                         function_space.exterior_facet_node_list)
+        else:
+            self.exterior_facet_node_list = None
 
         # Note: this is the function space rank. The value rank may be different.
         self.rank = rank
