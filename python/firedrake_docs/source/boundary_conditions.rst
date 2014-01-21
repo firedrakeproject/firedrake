@@ -35,7 +35,7 @@ When we impose a strong (Dirichlet, essential) boundary condition on
 
 .. math::
 
-  u = g(x) \ \textrm{on}\ \Gamma_D
+  u = g(x) \ \text{on}\ \Gamma_D
 
 for the original equation on `\Gamma_D`, where `\Gamma_D`
 is some subset of the domain boundary. To impose this constraint, we
@@ -127,5 +127,62 @@ rows of `J`:
 
 .. math::
 
-   J_{ij} = \begin{cases} 1 & i=j\ \textrm{and}\ \phi_j\in \phi^\Gamma\\
-   0 & i\neq j\ \textrm{and}\ \phi_j\in \phi^\Gamma\end{cases}
+   J_{ij} = \begin{cases} 1 & i=j\ \text{and}\ \phi_j\in \phi^\Gamma\\
+   0 & i\neq j\ \text{and}\ \phi_j\in \phi^\Gamma\end{cases}
+
+In other words, the rows of `J` corresponding to the boundary
+condition nodes are replaced by the corresponding rows of the identity
+matrix. Note that this does not depend on the *value* that the
+boundary condition takes, only on the set of nodes to which it
+applies.
+
+This means that if, as in Newton's method, we are solving the system:
+
+.. math::
+
+   J\hat{\mathrm{U}} = \mathrm{F}(u)
+
+then we can immediately write that part of the solution corresponding
+to the boundary condition rows:
+
+.. math:: 
+
+   \hat{\mathrm{U}}_i = \mathrm{F}(u)_i \quad \forall i\ \text{such that}\
+   \phi_i\in\phi^\Gamma.
+
+Based on this, define:
+
+.. math:: 
+
+   \hat{\mathrm{U}}^\Gamma_i = \begin{cases} 
+   \mathrm{F}(u)_i & \phi_i\in\phi^\Gamma\\
+   0 & otherwise.
+   \end{cases}
+
+Next, let's consider a 4-way decomposition of J. Define:
+
+.. math::
+
+   J^{00}_{ij} = \begin{cases} J_{ij} & \phi_i,\phi_j\in \phi^0\\
+   0 & \text{otherwise}\end{cases}
+
+   J^{0\Gamma}_{ij} = \begin{cases} J_{ij} = 0 & \phi_i\in\phi^0,\phi_j\in \phi^\Gamma\\
+   0 & \text{otherwise}\end{cases} = 0
+
+   J^{\Gamma0}_{ij} = \begin{cases} J_{ij} & \phi_i\in\phi^\Gamma,\phi_j\in \phi^0\\
+   0 & \text{otherwise}\end{cases}
+
+   J^{\Gamma\Gamma}_{ij} = \begin{cases} J_{ij} = \delta_{ij} & \phi_i,\phi_j\in \phi^\Gamma\\
+   0 & \text{otherwise}\end{cases}
+
+Clearly we may write:
+
+.. math::
+
+   J = J^{00} + \underbrace{J^{0\Gamma}}_{=0} + J^{\Gamma0} + J^{\Gamma\Gamma} 
+
+Using forward substitution, this enables us to rewrite the linear system as:
+
+.. math:: 
+
+   (J^{00} + J^{\Gamma\Gamma})\hat{\mathrm{U}} = \mathrm{F}(u) - J^{\Gamma0}\hat{\mathrm{U}}^\Gamma
