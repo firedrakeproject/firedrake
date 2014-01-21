@@ -9,6 +9,22 @@
   J[0] = vertex_coordinates[1][0] - vertex_coordinates[0][0]; \
   J[1] = vertex_coordinates[3][0] - vertex_coordinates[2][0];
 
+/// Compute Jacobian J for quad embedded in R^2
+#define compute_jacobian_quad_2d(J, vertex_coordinates) \
+  J[0] = vertex_coordinates[1][0] - vertex_coordinates[0][0]; \
+  J[1] = vertex_coordinates[2][0] - vertex_coordinates[0][0]; \
+  J[2] = vertex_coordinates[5][0] - vertex_coordinates[4][0]; \
+  J[3] = vertex_coordinates[6][0] - vertex_coordinates[4][0];
+
+/// Compute Jacobian J for quad embedded in R^3
+#define compute_jacobian_quad_3d(J, vertex_coordinates) \
+  J[0] = vertex_coordinates[1] [0] - vertex_coordinates[0][0]; \
+  J[1] = vertex_coordinates[2] [0] - vertex_coordinates[0][0]; \
+  J[2] = vertex_coordinates[5] [0] - vertex_coordinates[4][0]; \
+  J[3] = vertex_coordinates[6] [0] - vertex_coordinates[4][0]; \
+  J[4] = vertex_coordinates[9] [0] - vertex_coordinates[8][0]; \
+  J[5] = vertex_coordinates[10][0] - vertex_coordinates[8][0];
+
 /// Compute Jacobian J for interval embedded in R^3
 #define compute_jacobian_interval_3d(J, vertex_coordinates) \
   J[0] = vertex_coordinates[3][0] - vertex_coordinates[0][0]; \
