@@ -9,7 +9,9 @@ Mailing list
 ------------
 
 You can contact the entire development team on the Firedrake mailing
-list: firedrake@imperial.ac.uk.
+list: firedrake@imperial.ac.uk.  Note that you must be subscribed to
+this list to post to it.  To do so, visit `this page
+<mailing_list_>`_.
 
 Issues and feature requests
 ---------------------------
@@ -30,3 +32,4 @@ on `IRC`_.  You can find us in the ``#firedrake`` channel on
 .. _contributing: http://github.com/firedrakeproject/firedrake/master/blob/CONTRIBUTING.md
 .. _IRC: http://www.irchelp.org/
 .. _Freenode: http://freenode.net
+.. _mailing_list: https://mailman.ic.ac.uk/mailman/listinfo/firedrake
