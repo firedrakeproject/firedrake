@@ -1,5 +1,7 @@
 Solving PDEs
 ============
+.. contents::
+
 
 Introduction
 ------------
@@ -563,7 +565,7 @@ has constructed.  This is especially useful for debugging complicated
 preconditioner setups for mixed problems.
 
 Debugging convergence failures
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+------------------------------
 
 Occasionally, we will set up a problem and call solve only to be
 confronted with an error that the solve failed to converge.  Here, we
@@ -573,7 +575,7 @@ sections on `SNES nonconvergence`_ and `KSP nonconvergence`_.  We
 first consider linear problems.
 
 Linear convergence failures
-+++++++++++++++++++++++++++
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If the linear operator is correct, but the solve fails to converge, it
 is likely the case that the problem is badly conditioned (leading to
@@ -635,7 +637,7 @@ increase the restart length with:
 
 
 Nonlinear convergence failures
-++++++++++++++++++++++++++++++
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Much of the advice for linear systems applies to nonlinear systems as
 well.  If you have a convergence failure for a nonlinear problem, the
