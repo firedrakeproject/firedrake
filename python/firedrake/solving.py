@@ -489,9 +489,15 @@ def _assemble(f, tensor=None, bcs=None):
 
         if bcs is not None and is_mat:
             for bc in bcs:
-                for i, fs in enumerate(bc.function_space()):
-                    if fs.index is None or fs.index == i:
-                        tensor[i, i].zero_rows(bc.nodes)
+                fs = bc.function_space()
+                if isinstance(fs, core_types.MixedFunctionSpace):
+                    raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
+                if fs.index is None:
+                    # Non-mixed case
+                    tensor.zero_rows(bc.nodes)
+                else:
+                    # Mixed case with indexed FS, zero appropriate block
+                    tensor[fs.index, fs.index].zero_rows(bc.nodes)
 
         return result()
 
