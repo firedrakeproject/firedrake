@@ -1003,6 +1003,14 @@ class TestDatAPI:
         d = op2.Dat(dset)
         assert not d._is_allocated
 
+    def test_dat_zero_cdim(self, backend, set):
+        "A Dat built on a DataSet with zero dim should be allowed."
+        dset = set**0
+        d = op2.Dat(dset)
+        assert d.shape == (set.total_size, 0)
+        assert d.data.size == 0
+        assert d.data.shape == (set.total_size, 0)
+
 
 class TestMixedDatAPI:
 
