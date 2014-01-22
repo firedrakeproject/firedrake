@@ -121,6 +121,35 @@ def test_massWW(W):
     # RTxRT block
     assert not np.allclose(A.M[1, 1].values, 0.0)
 
+
+def test_bcs_ordering():
+    """Check that application of boundary conditions zeros the correct
+    rows and columns of a mixed matrix.
+
+    The diagonal blocks should get a 1 in the diagonal entries
+    corresponding to the boundary condition nodes, the corresponding
+    rows and columns in the whole system should be zeroed."""
+    m = UnitIntervalMesh(5)
+    V = FunctionSpace(m, 'CG', 1)
+    W = V*V
+    u, p = TrialFunctions(W)
+    v, q = TestFunctions(W)
+
+    bc1 = DirichletBC(W.sub(0), 0, 1)
+    bc2 = DirichletBC(W.sub(1), 1, 2)
+
+    a = (u*v + u*q + p*v + p*q)*dx
+
+    A = assemble(a, bcs=[bc1, bc2])
+
+    assert np.allclose(A.M[0, 0].values.diagonal()[bc1.nodes], 1.0)
+    assert np.allclose(A.M[1, 1].values.diagonal()[bc2.nodes], 1.0)
+    assert np.allclose(A.M[0, 1].values[bc1.nodes, :], 0.0)
+    assert np.allclose(A.M[1, 0].values[:, bc1.nodes], 0.0)
+    assert np.allclose(A.M[1, 0].values[bc2.nodes, :], 0.0)
+    assert np.allclose(A.M[0, 1].values[:, bc2.nodes], 0.0)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
