@@ -1,7 +1,8 @@
 # Contributing to Firedrake
 
 We value third-party contributions. To keep things simple for you and us,
-please adhere to the following contributing guidelines.
+please adhere to the following contributing guidelines. We are happy
+to help if you have any [questions][4].
 
 ## Getting Started
 
@@ -59,3 +60,4 @@ Make sure the `pre-commit.sample` hook is still in place, since it is required.
 [1]: http://tbaggery.com/2008/04/19/a-note-about-git-commit-messages.html
 [2]: http://www.python.org/dev/peps/pep-0008/
 [3]: http://pep8.readthedocs.org/en/latest/intro.html#error-codes
+[4]: http://www.firedrakeproject.org/contact.html
