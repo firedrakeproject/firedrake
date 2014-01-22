@@ -1,6 +1,14 @@
 PyOP2 Concepts
 ==============
 
+Many numerical algorithms and scientific computations on unstructured meshes
+can be viewed as the *independent application* of a *local operation*
+everywhere on a mesh. This local operation is often called a computational
+*kernel* and its independent application lends itself naturally to parallel
+computation. An unstructured mesh can be described by *sets of entities*
+(vertices, edges, cells) and the connectivity between those sets forming the
+topology of the mesh.
+
 PyOP2 is a domain-specific language (DSL) for the parallel executions of
 computational kernels on unstructured meshes or graphs.
 
@@ -9,9 +17,13 @@ Sets and mappings
 
 A mesh is defined by :class:`sets <pyop2.Set>` of entities and
 :class:`mappings <pyop2.Map>` between these sets. Sets are used to represent
-entities in the mesh (nodes in the graph) while maps define the connectivity
-between entities (links in the graph), for example associating an edge with
-its incident vertices.
+entities in the mesh (nodes in the graph) or degrees of freedom of data
+(fields) living "on" the mesh (graph), while maps define the connectivity
+between entities (links in the graph) or degrees of freedom, for example
+associating an edge with its incident vertices. Sets of mesh entities may
+coincide with sets of degrees of freedom, but this is not necessarily the case
+e.g. the set of degrees of freedom for a field may be defined on the vertices
+of the mesh and the midpoints of edges connecting the vertices.
 
 .. note ::
   There is a requirement for the map to be of *constant arity*, that is each
