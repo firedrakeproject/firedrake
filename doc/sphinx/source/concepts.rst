@@ -141,6 +141,16 @@ data. The mapping is required for an *indirectly accessed* :class:`Dat
 loop. In the case of *directly accessed* data defined on the same set as the
 iteration set the map is omitted and only an access descriptor given.
 
+Consider a parallel loop that translates the ``coordinate`` field by a
+constant offset. This loop is direct and the argument is read and written: ::
+
+    translate = op2.Kernel("""void translate(double * coords) {
+      coords[0] += 1.0;
+      coords[1] += 1.0;
+    }""", "translate")
+
+    op2.par_loop(translate, vertices, coordinates(op2.RW))
+
 Access descriptors define how the data is accessed by the kernel and give
 PyOP2 crucial information as to how the data needs to be treated during
 staging in before and staging out after kernel execution. They must be one of
@@ -149,6 +159,13 @@ staging in before and staging out after kernel execution. They must be one of
 :data:`pyop2.MIN` (minimum reduction) or :data:`pyop2.MAX` (maximum
 reduction).
 
+Not all of these descriptors apply to all PyOP2 data types. A :class:`Dat
+<pyop2.Dat>` can have modes :data:`pyop2.READ`, :data:`pyop2.WRITE`,
+:data:`pyop2.RW` and :data:`pyop2.INC`. For a :class:`Global <pyop2.Global>`
+the valid modes are data:`pyop2.READ`, :data:`pyop2.INC`,
+:data:`pyop2.MIN` and :data:`pyop2.MAX` and for a :class:`Mat <pyop2.Mat>`
+only :data:`pyop2.WRITE` and :data:`pyop2.INC` are allowed.
+
 We declare a parallel loop assembling the ``matrix`` via a given ``kernel``
 which we'll assume has been defined before over the ``edges`` and with
 ``coordinates`` as input data. The ``matrix`` is the output argument of this
@@ -156,9 +173,14 @@ parallel loop and therefore has the access descriptor :data:`INC <pyop2.INC>`
 since the assembly accumulates contributions from different vertices via the
 ``edges2vertices`` mapping. Note that the mappings are being indexed with the
 :class:`iteration indices <pyop2.base.IterationIndex>` ``op2.i[0]`` and
-``op2.i[1]`` respectively. The ``coordinates`` are accessed via the same
-mapping, but are a read-only input argument to the kernel and therefore use
-the access descriptor :data:`READ <pyop2.READ>`: ::
+``op2.i[1]`` respectively. This means that PyOP2 generates a *local iteration
+space* of size ``arity * arity`` with the ``arity`` of the :class:`Map
+<pyop2.Map>` ``edges2vertices`` for any given element of the iteration set.
+This local iteration spaces is then iterated over using the iteration indices
+on the maps.  The kernel is assumed to only apply to a single point in that
+local iteration space. The ``coordinates`` are accessed via the same mapping,
+but are a read-only input argument to the kernel and therefore use the access
+descriptor :data:`READ <pyop2.READ>`: ::
 
     op2.par_loop(kernel, edges,
                  matrix(op2.INC, (edges2vertices[op2.i[0]],
