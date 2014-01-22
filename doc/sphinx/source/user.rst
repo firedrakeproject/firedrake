@@ -26,6 +26,8 @@ pyop2 user documentation
 
     .. autoclass:: Set
        :inherited-members:
+    .. autoclass:: Subset
+       :inherited-members:
     .. autoclass:: MixedSet
        :inherited-members:
     .. autoclass:: DataSet
