@@ -6,10 +6,10 @@ import pytest
 from firedrake import *
 
 
-def run_test_3D(parameters={}, test_mode=False):
+def run_test_3D(size, parameters={}, test_mode=False):
     # Create mesh and define function space
-    m = UnitSquareMesh(2, 2)
-    layers = 3
+    m = UnitSquareMesh(size, size)
+    layers = size + 1
     mesh = ExtrudedMesh(m, layers, layer_height=1.0 / (layers - 1))
 
     # Define variational problem
@@ -49,15 +49,15 @@ def run_test_3D(parameters={}, test_mode=False):
     return res
 
 
-def run_test_2D(parameters={}, test_mode=False):
+def run_test_2D(intervals, parameters={}, test_mode=False):
     # Create mesh and define function space
-    m = UnitIntervalMesh(2)
-    layers = 3
+    m = UnitIntervalMesh(intervals)
+    layers = intervals+1
     mesh = ExtrudedMesh(m, layers, layer_height=1.0 / (layers - 1))
 
     # Define variational problem
     V = FunctionSpace(mesh, "CG", 1)
-    exp = Expression('x[0]*x[0] - x[1]*x[1] - x[2]*x[2]')
+    exp = Expression('x[0]*x[0] - 2*x[1]*x[1]')
     bcs = [DirichletBC(V, exp, "bottom"),
            DirichletBC(V, exp, "top"),
            DirichletBC(V, exp, 1),
@@ -91,11 +91,19 @@ def run_test_2D(parameters={}, test_mode=False):
 
 
 def test_extrusion_side_strong_bcs():
-    assert (run_test_3D(test_mode=True) < 1.e-13)
+    assert (run_test_3D(3, test_mode=True) < 1.e-13)
+
+
+def test_extrusion_side_strong_bcs_large():
+    assert (run_test_3D(6, test_mode=True) < 1.e-08)
 
 
 def test_extrusion_side_strong_bcs_2D():
-    assert (run_test_2D(test_mode=True) < 1.e-13)
+    assert (run_test_2D(2, test_mode=True) < 1.e-13)
+
+
+def test_extrusion_side_strong_bcs_2D_large():
+    assert (run_test_2D(4, test_mode=True) < 1.e-12)
 
 if __name__ == '__main__':
     import os
