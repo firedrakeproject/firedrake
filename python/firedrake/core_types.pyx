@@ -67,9 +67,9 @@ def _new_uid():
     return _current_uid
 
 def _init():
-    """Cause op2.init() to be called in case the user has not done it
+    """Cause :func:`pyop2.init` to be called in case the user has not done it
     for themselves. The result of this is that the user need only call
-    op2.init if (s)he wants to set a non-default option, for example
+    :func:`pyop2.init` if she wants to set a non-default option, for example
     to switch the backend or the debug or log level."""
     if not op2.initialised():
         op2.init()
@@ -161,7 +161,7 @@ def make_extruded_coords(mesh, layers, kernel=None, layer_height=None, extrusion
     """Given a kernel or height between layers, use it to generate the
     extruded coordinates.
 
-    :arg mesh: the base nD (1D, 2D, etc) mesh to extrude
+    :arg mesh: the base nD (1D, 2D, etc) :class:`Mesh` to extrude
     :arg layers: the number of layers in the extruded mesh
     :arg kernel: :class:`pyop2.Kernel` which produces the extruded coordinates
     :arg layer_height: if provided it creates coordinates for evenly
@@ -341,7 +341,7 @@ cdef ft.element_t as_element(object fiat_element):
     return element
 
 class _Facets(object):
-    """Wrapper class for facet interation information on a Mesh"""
+    """Wrapper class for facet interation information on a :class:`Mesh`"""
     def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None, layers=1):
 
         self.mesh = mesh
@@ -556,8 +556,8 @@ class Mesh(object):
     def init_cell_orientations(self, expr):
         """Compute and initialise `cell_orientations` relative to a specified orientation.
 
-        :arg expr: an :class:`Expression` evaluated to produce a
-        reference normal direction.
+        :arg expr: an :class:`.Expression` evaluated to produce a
+             reference normal direction.
 
         """
         if expr.shape()[0] != 3:
@@ -648,7 +648,7 @@ class ExtrudedMesh(Mesh):
     :arg layers:         number of layers in the "vertical"
                          direction representing the multiplicity of the
                          base mesh
-    :arg kernel:         pyop2 Kernel to produce 3D coordinates for the extruded
+    :arg kernel:         a :class:`pyop2.Kernel` to produce coordinates for the extruded
                          mesh see :func:`make_extruded_coords` for more details.
     :arg layer_height:   the height between layers when all layers are
                          evenly spaced.
@@ -1048,20 +1048,20 @@ class FunctionSpaceBase(object):
 
     @utils.cached_property
     def dof_dset(self):
-        """A :class:`pyop2.Set` containing the degrees of freedom of
+        """A :class:`pyop2.DataSet` containing the degrees of freedom of
         this :class:`FunctionSpace`."""
         return op2.DataSet(self.node_set, self.dim)
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.Dat` defined on the
-        :attr:`dof.dset` of this :class:`Function`."""
+        :attr:`dof_dset` of this :class:`Function`."""
         return op2.Dat(self.dof_dset, val, valuetype, name, uid=uid)
 
 
     def cell_node_map(self, bcs=None):
         """Return the :class:`pyop2.Map` from interior facets to
         function space nodes. If present, bcs must be a tuple of
-        :class:`DirichletBC`\s. In this case, the facet_node_map will return
+        :class:`.DirichletBC`\s. In this case, the facet_node_map will return
         negative node indices where boundary conditions should be
         applied. Where a PETSc matrix is employed, this will cause the
         corresponding values to be discarded during matrix assembly."""
@@ -1083,7 +1083,7 @@ class FunctionSpaceBase(object):
     def interior_facet_node_map(self, bcs=None):
         """Return the :class:`pyop2.Map` from interior facets to
         function space nodes. If present, bcs must be a tuple of
-        :class:`DirichletBC`\s. In this case, the facet_node_map will return
+        :class:`.DirichletBC`\s. In this case, the facet_node_map will return
         negative node indices where boundary conditions should be
         applied. Where a PETSc matrix is employed, this will cause the
         corresponding values to be discarded during matrix assembly."""
@@ -1104,7 +1104,7 @@ class FunctionSpaceBase(object):
     def exterior_facet_node_map(self, bcs=None):
         """Return the :class:`pyop2.Map` from exterior facets to
         function space nodes. If present, bcs must be a tuple of
-        :class:`DirichletBC`\s. In this case, the facet_node_map will return
+        :class:`.DirichletBC`\s. In this case, the facet_node_map will return
         negative node indices where boundary conditions should be
         applied. Where a PETSc matrix is employed, this will cause the
         corresponding values to be discarded during matrix assembly."""
@@ -1316,7 +1316,7 @@ class FunctionSpaceBase(object):
 class FunctionSpace(FunctionSpaceBase):
     """Create a function space
 
-    :arg mesh: mesh to build the function space on
+    :arg mesh: :class:`Mesh` to build the function space on
     :arg family: string describing function space family, or a
         :class:`ufl.OuterProductElement`
     :arg degree: degree of the function space
@@ -1408,7 +1408,7 @@ class MixedFunctionSpace(FunctionSpaceBase):
 
     def __init__(self, spaces, name=None):
         """
-        :param spaces: a list (or tuple) of :class:`FunctionSpace`s
+        :param spaces: a list (or tuple) of :class:`FunctionSpace`\s
 
         The function space may be created as ::
 
@@ -1499,7 +1499,7 @@ class MixedFunctionSpace(FunctionSpaceBase):
 
     @utils.cached_property
     def dof_dset(self):
-        """A :class:`pyop2.MixedSet` containing the degrees of freedom of
+        """A :class:`pyop2.MixedDataSet` containing the degrees of freedom of
         this :class:`MixedFunctionSpace`. This is composed of the
         :attr:`FunctionSpace.dof_dset`\s of the underlying
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
@@ -1509,7 +1509,7 @@ class MixedFunctionSpace(FunctionSpaceBase):
     def cell_node_map(self, bcs=None):
         """A :class:`pyop2.MixedMap` from the :attr:`Mesh.cell_set` of the
         underlying mesh to the :attr:`node_set` of this
-        :class:MixedFunctionSpace. This is composed of the
+        :class:`MixedFunctionSpace`. This is composed of the
         :attr:`FunctionSpace.cell_node_map`\s of the underlying
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
@@ -1524,7 +1524,7 @@ class MixedFunctionSpace(FunctionSpaceBase):
     def interior_facet_node_map(self, bcs=None):
         """Return the :class:`pyop2.MixedMap` from interior facets to
         function space nodes. If present, bcs must be a tuple of
-        :class:`DirichletBC`\s. In this case, the facet_node_map will return
+        :class:`.DirichletBC`\s. In this case, the facet_node_map will return
         negative node indices where boundary conditions should be
         applied. Where a PETSc matrix is employed, this will cause the
         corresponding values to be discarded during matrix assembly."""
@@ -1539,7 +1539,7 @@ class MixedFunctionSpace(FunctionSpaceBase):
     def exterior_facet_node_map(self, bcs=None):
         """Return the :class:`pyop2.Map` from exterior facets to
         function space nodes. If present, bcs must be a tuple of
-        :class:`DirichletBC`\s. In this case, the facet_node_map will return
+        :class:`.DirichletBC`\s. In this case, the facet_node_map will return
         negative node indices where boundary conditions should be
         applied. Where a PETSc matrix is employed, this will cause the
         corresponding values to be discarded during matrix assembly."""
@@ -1561,7 +1561,7 @@ class MixedFunctionSpace(FunctionSpaceBase):
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.MixedDat` defined on the
-        :attr:`dof.dset` of this :class:`MixedFunctionSpace`."""
+        :attr:`dof_dset` of this :class:`MixedFunctionSpace`."""
         if val is not None:
             assert len(val) == len(self)
         else:
@@ -1607,7 +1607,7 @@ class IndexedFunctionSpace(FunctionSpaceBase):
 
     @property
     def dof_dset(self):
-        """A :class:`pyop2.Set` containing the degrees of freedom of
+        """A :class:`pyop2.DataSet` containing the degrees of freedom of
         this :class:`FunctionSpace`."""
         return self._fs.dof_dset
 
@@ -1736,7 +1736,7 @@ class Function(ufl.Coefficient):
     def interpolate(self, expression, subset=None):
         """Interpolate an expression onto this :class:`Function`.
 
-        :param expression: :class:`Expression` to interpolate
+        :param expression: :class:`.Expression` to interpolate
         :returns: this :class:`Function` object"""
 
         # Make sure we have an expression of the right length i.e. a value for
@@ -1760,8 +1760,8 @@ class Function(ufl.Coefficient):
         """Interpolate expression onto a :class:`FunctionSpace`.
 
         :param fs: :class:`FunctionSpace`
-        :param dat: :class:`op2.Dat`
-        :param expression: :class:`Expression`
+        :param dat: :class:`pyop2.Dat`
+        :param expression: :class:`.Expression`
         """
         to_element = fs.fiat_element
         to_pts = []
@@ -1841,7 +1841,7 @@ for (unsigned int d=0; d < %(dim)d; d++) {
         will add twice `g` to `f`.
 
         If present, subset must be an :class:`pyop2.Subset` of
-        :attr:`self.node_set`. The expression will then only be assigned
+        :attr:`node_set`. The expression will then only be assigned
         to the nodes on that subset.
         """
 

@@ -13,14 +13,14 @@ class Matrix(object):
         conditions to apply.
 
 
-    A :class:`pyop2.op2.Mat` will be built from the remaining
-    arguments, for valid values, see :class:`pyop2.op2.Mat`.
+    A :class:`pyop2.Mat` will be built from the remaining
+    arguments, for valid values, see :class:`pyop2.Mat`.
 
     .. note::
 
-        This object acts to the right on an assembled :class:`Function`
-        and to the left on an assembled co-Function (currently represented
-        by a :class:`Function`).
+        This object acts to the right on an assembled :class:`.Function`
+        and to the left on an assembled cofunction (currently represented
+        by a :class:`.Function`).
 
     """
 
@@ -107,9 +107,11 @@ class Matrix(object):
     def bcs(self, bcs):
         """Attach some boundary conditions to this :class:`Matrix`.
 
-        :arg bcs: a boundary condition, or an iterable of boundary
+        :arg bcs: a boundary condition (of type
+            :class:`.DirichletBC`), or an iterable of boundary
             conditions.  If bcs is None, erase all boundary conditions
             on the :class:`Matrix`.
+
         """
         if bcs is None:
             self._bcs = set()
@@ -127,19 +129,19 @@ class Matrix(object):
 
     @property
     def M(self):
-        """The :class:`pyop2.op2.Mat` representing the assembled form
+        """The :class:`pyop2.Mat` representing the assembled form
 
         .. note ::
 
             This property forces an actual assembly of the form, if you
-            just need a handle on the :class:`pyop2.op2.Mat` object it's
+            just need a handle on the :class:`pyop2.Mat` object it's
             wrapping, use :attr:`_M` instead."""
         self.assemble()
         return self._M
 
     @property
     def _needs_reassembly(self):
-        """Does this :class:`Matrix` needs reassembly.
+        """Does this :class:`Matrix` need reassembly.
 
         The :class:`Matrix` needs reassembling if the subdomains over
         which boundary conditions were applied the last time it was
@@ -153,7 +155,7 @@ class Matrix(object):
     def add_bc(self, bc):
         """Add a boundary condition to this :class:`Matrix`.
 
-        :arg bc: the :class:`DirichletBC` to add.
+        :arg bc: the :class:`.DirichletBC` to add.
 
         If the subdomain this boundary condition is applied over is
         the same as the subdomain of an existing boundary condition on

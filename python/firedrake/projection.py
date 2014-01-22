@@ -9,16 +9,16 @@ def project(v, V, bcs=None, mesh=None,
             solver_parameters={},
             form_compiler_parameters=None,
             name=None):
-    """Project an :class:`Expression` or :class:`Function` into a :class:`FunctionSpace`
+    """Project an :class:`.Expression` or :class:`.Function` into a :class:`.FunctionSpace`
 
-    :arg v: the :class:`Expression` or :class:`Function` to project
-    :arg V: the :class:`FunctionSpace` to project into
+    :arg v: the :class:`.Expression` or :class:`.Function` to project
+    :arg V: the :class:`.FunctionSpace` to project into
     :arg bcs: boundary conditions to apply in the projection
     :arg mesh: the mesh to project into
     :arg solver_type: linear solver to use
     :arg preconditioner_type: preconditioner to use
     :arg form_compiler_parameters: parameters to the form compiler
-    :arg name: name of the resulting :class:`Function`
+    :arg name: name of the resulting :class:`.Function`
 
     Currently, `bcs`, `mesh` and `form_compiler_parameters` are ignored."""
     if not isinstance(V, FunctionSpaceBase):

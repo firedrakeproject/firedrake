@@ -294,7 +294,8 @@ class UnitIntervalMesh(Mesh):
 
     :arg nx: The number of the cells over the interval.
 
-    The left hand (:math:`x=0`) boundary point has boundary marker 1, while the right hand (:math:`x=1`) point has marker 2.
+    The left hand (:math:`x=0`) boundary point has boundary marker 1,
+    while the right hand (:math:`x=1`) point has marker 2.
     """
 
     def __init__(self, nx):
@@ -421,11 +422,14 @@ class IcosahedralSphereMesh(Mesh):
         :arg radius: the radius of the sphere to approximate.
              For a radius R the edge length of the underlying
              icosahedron will be.
+
              .. math::
-                 a = \frac{R}{\sin(2 \pi / 5)}
+
+                a = \\frac{R}{\\sin(2 \\pi / 5)}
 
         :arg refinement_level: how many levels of refinement, zero
-                               corresponds to an icosahedron."""
+                               corresponds to an icosahedron.
+        """
 
         name = "icosahedralspheremesh_%d_%g" % (refinement_level, radius)
 

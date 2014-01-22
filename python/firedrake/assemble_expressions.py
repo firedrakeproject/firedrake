@@ -10,9 +10,11 @@ import cgen
 
 class DummyFunction(ufl.Coefficient):
 
-    """A dummy object to take the place of a Function in the expression. This
-    has the sole role of producing the right strings when the expression is
-    unparsed and when the arguments are formatted."""
+    """A dummy object to take the place of a :class:`.Function` in the
+    expression. This has the sole role of producing the right strings
+    when the expression is unparsed and when the arguments are
+    formatted.
+    """
 
     def __init__(self, function, argnum, intent=op2.READ):
         ufl.Coefficient.__init__(self, function._element)
@@ -191,7 +193,7 @@ class Indexed(ufl.indexed.Indexed):
 
 class ExpressionSplitter(ReuseTransformer):
     """Split an expression tree into a subtree for each component of the
-    appropriate :class:`core_types.FunctionSpaceBase`."""
+    appropriate :class:`.FunctionSpaceBase`."""
 
     def split(self, expr):
         """Split the given expression."""
@@ -207,7 +209,7 @@ class ExpressionSplitter(ReuseTransformer):
 
     def indexed(self, o, *operands):
         """Reconstruct the :class:`ufl.indexed.Indexed` only if the coefficient
-        is defined on a :class:`core_types.VectorFunctionSpace`."""
+        is defined on a :class:`.VectorFunctionSpace`."""
         def reconstruct_if_vec(coeff, idx, i):
             # If the MultiIndex contains a FixedIndex we only want to return
             # the indexed coefficient if its position matches the FixedIndex
@@ -328,7 +330,7 @@ class ExpressionWalker(ReuseTransformer):
 
 
 def expression_kernel(expr, args):
-    """Produce a :class:`PyOP2.Kernel` from the processed UFL expression
+    """Produce a :class:`pyop2.Kernel` from the processed UFL expression
     expr and the corresponding args."""
 
     fs = args[0].function.function_space()
@@ -369,7 +371,7 @@ def evaluate_preprocessed_expression(expr, args, subset=None):
 
 
 def evaluate_expression(expr, subset=None):
-    """Evaluates UFL expressions on Functions."""
+    """Evaluates UFL expressions on :class:`.Function`\s."""
 
     for tree in ExpressionSplitter().split(expr):
         e = ExpressionWalker()
@@ -377,8 +379,8 @@ def evaluate_expression(expr, subset=None):
 
 
 def assemble_expression(expr, subset=None):
-    """Evaluates UFL expressions on Functions pointwise and assigns
-    into a new :class:`Function`."""
+    """Evaluates UFL expressions on :class:`.Function`\s pointwise and assigns
+    into a new :class:`.Function`."""
 
     e = ExpressionWalker()
     e.visit(expr)
