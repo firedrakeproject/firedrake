@@ -1,3 +1,5 @@
+.. _concepts:
+
 PyOP2 Concepts
 ==============
 
@@ -11,6 +13,8 @@ topology of the mesh.
 
 PyOP2 is a domain-specific language (DSL) for the parallel executions of
 computational kernels on unstructured meshes or graphs.
+
+.. _sets:
 
 Sets and mappings
 -----------------
@@ -41,6 +45,8 @@ between them, which associates the two incident vertices with each edge: ::
     edges = op2.Set(3)
     edges2vertices = op2.Map(edges, vertices, 2, [[0, 1], [1, 2], [2, 3]])
 
+.. _data:
+
 Data
 ----
 
@@ -50,6 +56,8 @@ data that has no association with a set by a :class:`~pyop2.Global` and data
 that is visible globally and referred to by a unique identifier is declared as
 :class:`~pyop2.Const`. Examples of the use of these data types are given in
 the :ref:`par_loops` section below.
+
+.. _data_dat:
 
 Dat
 ~~~
@@ -75,6 +83,8 @@ coordinates are associated with each vertex, is done like this: ::
                           [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]],
                           dtype=float)
 
+.. _data_global:
+
 Global
 ~~~~~~
 
@@ -84,6 +94,8 @@ on the :class:`~pyop2.Global`. A 2x2 elasticity tensor would be defined as
 follows: ::
 
     elasticity = op2.Global((2, 2), [[1.0, 0.0], [0.0, 1.0]], dtype=float)
+
+.. _data_const:
 
 Const
 ~~~~~
@@ -95,6 +107,8 @@ accessible in a kernel by name. A globally visible parameter ``eps`` would be
 declared as follows: ::
 
     eps = op2.Const(1, 1e-14, name="eps", dtype=float)
+
+.. _data_mat:
 
 Mat
 ~~~
