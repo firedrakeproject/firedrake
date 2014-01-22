@@ -218,6 +218,8 @@ contains
 
     fluidity_function_space = make_mesh(mesh, element, dofs_per_column=dofs_per_column, with_faces=.false.)
 
+    call populate_facet_maps(fluidity_function_space)
+
     extruded_mesh_f%fluidity_mesh = c_loc(fluidity_function_space)
 
     extruded_mesh_f%element_dof_list = fluidity_function_space%ndglno_c
@@ -227,6 +229,56 @@ contains
     extruded_mesh_f%dof_count = fluidity_function_space%nodes
 
     extruded_mesh_f%dof_classes = c_loc(fluidity_function_space%node_classes)
+
+    extruded_mesh_f%interior_facet_dof_list = &
+         fluidity_function_space%interior_facet_dof_list
+
+    extruded_mesh_f%exterior_facet_dof_list = &
+         fluidity_function_space%exterior_facet_dof_list
+
+  contains
+
+    subroutine populate_facet_maps(fs)
+      ! Populate the firedrake facet maps for interior and exterior facets.
+      type(mesh_type), intent(inout) :: fs
+
+      integer, pointer :: map(:,:), facet_cells(:,:), facet_cell(:)
+
+      integer :: dofs, facets, ifacets, efacets, f
+
+      facets = face_count(fs%topology)
+      efacets = surface_element_count(fs%topology)
+      ifacets = (facets - efacets)/2
+      assert(2*ifacets == facets - efacets)
+      dofs = ele_loc(fs,1)
+
+      ! Populate interior facet map.
+      fs%interior_facet_dof_list = malloc(2*dofs*ifacets*c_sizeof(1_c_int))
+
+      call c_f_pointer(fs%interior_facet_dof_list, map, [2*dofs,ifacets])
+
+      call c_f_pointer(fs%topology%faces%interior_facet_cell, &
+           facet_cells, [2, ifacets])
+
+      do f = 1, ifacets
+         ! +1 and -1 to change numbering systems between c and Fortran
+         map(1:dofs, f) = ele_nodes(fs, facet_cells(1, f)+1) - 1
+         map(dofs+1:, f) = ele_nodes(fs, facet_cells(2, f)+1) - 1
+      end do
+
+      ! Populate exterior facet map.
+      fs%exterior_facet_dof_list = malloc(2*dofs*efacets*c_sizeof(1_c_int))
+
+      call c_f_pointer(fs%exterior_facet_dof_list, map, [dofs,efacets])
+
+      call c_f_pointer(fs%topology%faces%exterior_facet_cell, &
+           facet_cell, [efacets])
+
+      do f = 1, efacets
+         map(:, f) = ele_nodes(fs, facet_cell(f) + 1) - 1
+      end do
+
+    end subroutine populate_facet_maps
 
   end function extruded_mesh_f
 

@@ -88,6 +88,17 @@ def fiat_from_ufl_element(ufl_element):
             (_FIAT_cells[ufl_element.cell().cellname()](), ufl_element.degree())
 
 # Functions related to the extruded case
+def extract_offset(offset, facet_map, base_map):
+    """Starting from existing mappings for base and facets extract
+    the sub-offset corresponding to the facet map."""
+    res = np.zeros(len(facet_map), np.int32)
+    for i, facet_dof in enumerate(facet_map):
+        for j, base_dof in enumerate(base_map):
+            if base_dof == facet_dof:
+                res[i] = offset[j]
+                break
+    return res
+
 def compute_extruded_dofs(fiat_element, flat_dofs, layers):
     """Compute the number of dofs in a column"""
     size = len(flat_dofs)
@@ -331,7 +342,7 @@ cdef ft.element_t as_element(object fiat_element):
 
 class _Facets(object):
     """Wrapper class for facet interation information on a Mesh"""
-    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None):
+    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None, layers=1):
 
         self.mesh = mesh
 
@@ -350,13 +361,14 @@ class _Facets(object):
 
         self.markers = markers
         self._subsets = {}
+        self._layers = layers
 
     @utils.cached_property
     def set(self):
         # Currently no MPI parallel support
         size = self.count
         halo = None
-        return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo)
+        return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo, layers=self._layers)
 
     @utils.cached_property
     def _null_subset(self):
@@ -392,6 +404,10 @@ class _Facets(object):
             self._subsets[markers] = op2.Subset(self.set, indices)
             return self._subsets[markers]
 
+    @property
+    def layers(self):
+        """Returns the number of layers in the mesh."""
+        return self._layers
 
     @utils.cached_property
     def local_facet_dat(self):
@@ -400,6 +416,7 @@ class _Facets(object):
 
         return op2.Dat(op2.DataSet(self.set, self._rank), self.local_facet_number,
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
+
 
 class Mesh(object):
     """A representation of mesh topology and geometry."""
@@ -526,6 +543,8 @@ class Mesh(object):
 
     @property
     def layers(self):
+        """Return the number of layers of the extruded mesh
+        represented by the number of occurences of the base mesh."""
         return self._layers
 
     def cell_orientations(self):
@@ -654,6 +673,20 @@ class ExtrudedMesh(Mesh):
         self._coordinates = mesh._coordinates
         self.name = mesh.name
 
+        interior_f = self._old_mesh.interior_facets
+        self._interior_facets = _Facets(self, interior_f.count,
+                                       "interior",
+                                       interior_f.facet_cell,
+                                       interior_f.local_facet_number,
+                                       layers=layers)
+        exterior_f = self._old_mesh.exterior_facets
+        self._exterior_facets = _Facets(self, exterior_f.count,
+                                           "exterior",
+                                           exterior_f.facet_cell,
+                                           exterior_f.local_facet_number,
+                                           exterior_f.markers,
+                                           layers=layers)
+
         self.ufl_cell_element = ufl.FiniteElement("Lagrange",
                                                domain = mesh._ufl_cell,
                                                degree = 1)
@@ -718,6 +751,19 @@ class ExtrudedMesh(Mesh):
             halo = None
         return self.parent.cell_set if self.parent else \
             op2.Set(size, "%s_elements" % self.name, halo=halo, layers=self._layers)
+
+    @property
+    def exterior_facets(self):
+        return self._exterior_facets
+
+    @property
+    def interior_facets(self):
+        return self._interior_facets
+
+    @property
+    def geometric_dimension(self):
+        return self._ufl_cell.geometric_dimension()
+
 
 class Halo(object):
     """Fluidity Halo type"""
@@ -940,20 +986,19 @@ class FunctionSpaceBase(object):
         self._dim = dim
         self._index = None
 
-        if not isinstance(mesh, ExtrudedMesh):
-            if mesh.interior_facets.count > 0:
-                self.interior_facet_node_list = \
-                    np.array(<int[:mesh.interior_facets.count,:2*element_f.ndof]>
-                             function_space.interior_facet_node_list)
-            else:
-                self.interior_facet_node_list = None
+        if mesh.interior_facets.count > 0:
+            self.interior_facet_node_list = \
+                np.array(<int[:mesh.interior_facets.count,:2*element_f.ndof]>
+                         function_space.interior_facet_node_list)
+        else:
+            self.interior_facet_node_list = None
 
-            if mesh.exterior_facets.count > 0:
-                self.exterior_facet_node_list = \
-                    np.array(<int[:mesh.exterior_facets.count,:element_f.ndof]>
-                             function_space.exterior_facet_node_list)
-            else:
-                self.exterior_facet_node_list = None
+        if mesh.exterior_facets.count > 0:
+            self.exterior_facet_node_list = \
+                np.array(<int[:mesh.exterior_facets.count,:element_f.ndof]>
+                         function_space.exterior_facet_node_list)
+        else:
+            self.exterior_facet_node_list = None
 
         # Note: this is the function space rank. The value rank may be different.
         self.rank = rank
@@ -1069,13 +1114,21 @@ class FunctionSpaceBase(object):
         else:
             parent = None
 
+        facet_set = self._mesh.exterior_facets.set
+        if isinstance(self._mesh, ExtrudedMesh):
+            name = "extruded_exterior_facet_node"
+            offset = self.offset
+        else:
+            name = "exterior_facet_node"
+            offset = None
         return self._map_cache(self._exterior_facet_map_cache,
-                               self._mesh.exterior_facets.set,
+                               facet_set,
                                self.exterior_facet_node_list,
                                self.fiat_element.space_dimension(),
                                bcs,
-                               "exterior_facet_node",
-                               parent=parent)
+                               name,
+                               parent=parent,
+                               offset=offset)
 
     def bottom_nodes(self):
         """Return a list of the bottom boundary nodes of the extruded mesh.
@@ -1096,14 +1149,21 @@ class FunctionSpaceBase(object):
         else:
             # Ensure bcs is a tuple in a canonical order for the hash key.
             lbcs = tuple(sorted(bcs, key=lambda bc: bc.__hash__()))
-
         try:
             # Cache hit
             return cache[lbcs]
         except KeyError:
             # Cache miss.
-            if not lbcs or offset is not None:
+            if not lbcs:
                 new_entity_node_list = entity_node_list
+            elif offset is not None:
+                l = [bc.nodes for bc in bcs if bc.sub_domain not in ['top', 'bottom']]
+                if l:
+                    bcids = reduce(np.union1d, l)
+                    nl = entity_node_list.ravel()
+                    new_entity_node_list = np.where(np.in1d(nl, bcids), -10000000, nl)
+                else:
+                    new_entity_node_list = entity_node_list
             else:
                 bcids = reduce(np.union1d, [bc.nodes for bc in bcs])
                 nl = entity_node_list.ravel()
@@ -1127,9 +1187,26 @@ class FunctionSpaceBase(object):
         are referenced, not all nodes in cells touching the surface.'''
 
         el = self.fiat_element
-        dim = len(el.get_reference_element().topology)-1
+
+        if isinstance(self._mesh, ExtrudedMesh):
+            # The facet is indexed by (base-ele-codim 1, 1) for
+            # extruded meshes.
+            # e.g. for the two supported options of
+            # triangle x interval interval x interval it's (1, 1) and
+            # (0, 1) respectively.
+            if self._mesh.geometric_dimension == 3:
+                dim = (1,1)
+            elif self._mesh.geometric_dimension == 2:
+                dim = (0,1)
+            else:
+                raise RuntimeError("Dimension computation for other than 2D or 3D extruded meshes not supported.")
+        else:
+            # Facets have co-dimension 1
+            dim = len(el.get_reference_element().topology)-1
+            dim = dim - 1
+
         nodes_per_facet = \
-            len(self.fiat_element.entity_closure_dofs()[dim-1][0])
+            len(self.fiat_element.entity_closure_dofs()[dim][0])
 
         facet_set = self._mesh.exterior_facets.set
 
@@ -1140,7 +1217,7 @@ class FunctionSpaceBase(object):
                             dtype=np.int32)
 
         local_facet_nodes = np.array(
-            [dofs for e, dofs in el.entity_closure_dofs()[dim-1].iteritems()])
+            [dofs for e, dofs in el.entity_closure_dofs()[dim].iteritems()])
 
         # Helper function to turn the inner index of an array into c
         # array literals.
@@ -1160,7 +1237,7 @@ class FunctionSpaceBase(object):
                                     cgen.ArrayOf(
                                         cgen.ArrayOf(
                                             cgen.Value("int", "l_nodes"),
-                                            str(len(el.get_reference_element().topology[dim-1]))),
+                                            str(len(el.get_reference_element().topology[dim]))),
                                         str(nodes_per_facet)),
                                     ),
                                 map(c_array, local_facet_nodes)
@@ -1174,13 +1251,23 @@ class FunctionSpaceBase(object):
                         )
                     )), "create_bc_node_map")
 
+        local_facet_dat = self._mesh.exterior_facets.local_facet_dat
         op2.par_loop(kernel, facet_set,
                      fs_dat(op2.READ),
                      facet_dat(op2.WRITE),
-                     self._mesh.exterior_facets.local_facet_dat(op2.READ))
+                     local_facet_dat(op2.READ))
 
-        return op2.Map(facet_set, self.node_set, nodes_per_facet, 
-                       facet_dat.data_ro_with_halos, name="exterior_facet_boundary_node")
+        if isinstance(self._mesh, ExtrudedMesh):
+            offset = extract_offset(self.offset,
+                                    facet_dat.data_ro_with_halos[0],
+                                    self.cell_node_map().values[0])
+        else:
+            offset = None
+        return op2.Map(facet_set, self.node_set,
+                       nodes_per_facet,
+                       facet_dat.data_ro_with_halos,
+                       name="exterior_facet_boundary_node",
+                       offset=offset)
 
 
     @property
