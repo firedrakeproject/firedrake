@@ -37,7 +37,8 @@ PyOP2 distinguishes three kinds of user provided data: data that lives on a
 set (often referred to as a field) is represented by a :class:`Dat
 <pyop2.Dat>`, data that has no association with a set by a :class:`Global
 <pyop2.Global>` and data that is visible globally and referred to by a unique
-identifier is declared as :class:`Const <pyop2.Const>`.
+identifier is declared as :class:`Const <pyop2.Const>`. Examples of the use of
+these data types are given in the :ref:`par_loops` section below.
 
 Dat
 ~~~
@@ -119,6 +120,8 @@ vertices to the space of vertices via the edges is done as follows: ::
                             [(edges2vertices, edges2vertices)])
     matrix = op2.Mat(sparsity, float)
 
+.. _par_loops:
+
 Parallel loops
 --------------
 
@@ -142,11 +145,16 @@ loop. In the case of *directly accessed* data defined on the same set as the
 iteration set the map is omitted and only an access descriptor given.
 
 Consider a parallel loop that translates the ``coordinate`` field by a
-constant offset. This loop is direct and the argument is read and written: ::
+constant offset given by the :class:`Const <pyop2.Const>` ``offset``. Note how
+the kernel has access to the local variable ``offset`` even though it has not
+been passed as an argument to the :func:`par_loop <pyop2.par_loop>`. This loop
+is direct and the argument ``coordinates`` is read and written: ::
+
+    op2.Const(2, [1.0, 1.0], dtype=float, name="offset");
 
     translate = op2.Kernel("""void translate(double * coords) {
-      coords[0] += 1.0;
-      coords[1] += 1.0;
+      coords[0] += offset[0];
+      coords[1] += offset[1];
     }""", "translate")
 
     op2.par_loop(translate, vertices, coordinates(op2.RW))
@@ -187,4 +195,25 @@ descriptor :data:`READ <pyop2.READ>`: ::
                                   edges2vertices[op2.i[1]])),
                  coordinates(op2.READ, edges2vertices))
 
+:class:`Globals <pyop2.Global>` are used primarily for reductions where a
+given quantity on a field is reduced to a single number by summation or
+finding the minimum or maximum. Consider a kernel computing the `L2 norm`_ of
+the ``pressure`` field defined on the set of ``vertices`` as ``l2norm``. Note
+that the :class:`Dat <pyop2.Dat>` constructor automatically creates an
+anonymous :class:`DataSet <pyop2.DataSet>` of dimension 1 if a :class:`Set
+<pyop2.Set>` is passed as the first argument. We assume ``pressure`` is the
+result of some prior computation and only give the declaration for context. ::
+
+    pressure = op2.Dat(vertices, [...], dtype=float)
+    l2norm = op2.Global(dim=1, data=[0.0])
+
+    norm = op2.Kernel("""void norm(double * out, double * field) {
+      *out += field[0] * field[0];
+    }""", "norm")
+
+    op2.par_loop(pressure, vertices,
+                 l2norm(op2.INC),
+                 vertices(op2.READ))
+
 .. _NumPy: http://docs.scipy.org/doc/numpy/reference/arrays.dtypes.html
+.. _L2 norm: https://en.wikipedia.org/wiki/L2_norm#Euclidean_norm
