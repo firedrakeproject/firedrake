@@ -370,7 +370,11 @@ of boundary condition objects:
    solve(a == L, bcs=[bc])
 
 See the :doc:`next section <solving-interface>` for a more complete
-description of the interface Firedrake provides to solve PDEs.
+description of the interface Firedrake provides to solve PDEs.  The
+details of how Firedrake applies strong boundary conditions are
+slightly involved and therefore have :doc:`their own section
+<boundary_conditions>` in the manual.
+
 
 More complicated forms
 ~~~~~~~~~~~~~~~~~~~~~~
