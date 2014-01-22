@@ -33,6 +33,7 @@ PDEs. Below are a few tutorial examples to get you started.
 
 *  :doc:`A basic Helmholtz equation <demos/helmholtz.py>`
 *  :doc:`The Burgers equation <demos/burgers.py>`, a non-linear, unsteady example.
+*  :doc:`A mixed formulation of the Poisson equation <demos/poisson_mixed.py>`
 
 A more in-depth description of how to customise the solution methods
 for PDEs is given in the full user documentation.
