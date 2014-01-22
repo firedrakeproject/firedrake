@@ -363,9 +363,9 @@ END SUBROUTINE NODELE
 
              if (ele/=ele2) then
                 if (any(ele_nodes(1)==ele2_nodes)) then
-                   EEMark=1
-                else
                    EEMark=2
+                else
+                   EEMark=1
                 end if
                 EEList((ele-1)*nloc+EEMark)=ele2
              end if

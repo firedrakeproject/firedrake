@@ -217,10 +217,8 @@ contains
     call allocate(cell%vertices2entity)
 
     ! Vertices
-    ! Note that this numbering treats interval vertices as facets rather
-    !  than vertices. This violates UFC. Fix it when the time comes.
-    call map_vertices_entity(cell, [1], [0,2])
-    call map_vertices_entity(cell, [2], [0,1])
+    call map_vertices_entity(cell, [1], [0,1])
+    call map_vertices_entity(cell, [2], [0,2])
     ! Edge
     call map_vertices_entity(cell, [1,2], [1,1])
 

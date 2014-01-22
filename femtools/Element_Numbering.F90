@@ -1685,6 +1685,13 @@ contains
 
     k=0
 
+    ! 1D elements are the exception. For these elements, the vertices and
+    ! the facets coincide.
+    if (ele_num%dimension==1) then
+       numbering(1) = facet
+       return
+    end if
+
     do i=1,ele_num%nodes
        if (ele_num%number2count(ele_num%facet_coord(facet),i)==&
             & ele_num%facet_val(facet)) then
