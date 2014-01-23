@@ -6,7 +6,6 @@ from pyop2.mpi import MPI
 import os
 from shutil import rmtree
 import numpy as np
-from math import sqrt
 try:
     from cStringIO import StringIO
 except ImportError:
@@ -378,6 +377,8 @@ $EndElements
 
 
 class IcosahedralSphereMesh(Mesh):
+
+    from math import sqrt
 
     """An icosahedral mesh of the surface of the sphere"""
     phi = (1 + sqrt(5)) / 2
