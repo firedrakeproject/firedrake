@@ -366,12 +366,14 @@ def _assemble(f, tensor=None, bcs=None):
             domain_type = integral.measure().domain_type()
             if domain_type == "cell":
                 map_pairs.append((test.cell_node_map(), trial.cell_node_map()))
-            if domain_type == "exterior_facet":
+            elif domain_type == "exterior_facet":
                 map_pairs.append((test.exterior_facet_node_map(),
                                   trial.exterior_facet_node_map()))
-            if domain_type == "interior_facet":
+            elif domain_type == "interior_facet":
                 map_pairs.append((test.interior_facet_node_map(),
                                   trial.interior_facet_node_map()))
+            else:
+                raise RuntimeError('Unknown domain type "%s"' % domain_type)
         map_pairs = tuple(map_pairs)
         if tensor is None:
             # Construct OP2 Mat to assemble into
@@ -452,7 +454,7 @@ def _assemble(f, tensor=None, bcs=None):
                                       flatten=has_vec_fs(c)))
 
                 op2.par_loop(*args)
-            if domain_type == 'exterior_facet':
+            elif domain_type == 'exterior_facet':
                 if op2.MPI.parallel:
                     raise \
                         NotImplementedError(
@@ -478,7 +480,7 @@ def _assemble(f, tensor=None, bcs=None):
                 args.append(m.exterior_facets.local_facet_dat(op2.READ))
                 op2.par_loop(*args)
 
-            if domain_type == 'interior_facet':
+            elif domain_type == 'interior_facet':
                 if op2.MPI.parallel:
                     raise \
                         NotImplementedError(
@@ -504,6 +506,8 @@ def _assemble(f, tensor=None, bcs=None):
                                       flatten=True))
                 args.append(m.interior_facets.local_facet_dat(op2.READ))
                 op2.par_loop(*args)
+            else:
+                raise RuntimeError('Unknown domain type "%s"' % domain_type)
 
         if bcs is not None and is_mat:
             for bc in bcs:
