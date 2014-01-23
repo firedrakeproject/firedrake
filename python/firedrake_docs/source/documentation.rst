@@ -39,8 +39,11 @@ Once you have worked through the tutorials, the user manual is the
 next step.  It goes in to more detail on how to set up and solve
 finite element problems in Firedrake.
 
-*  :doc:`Defining variational problems <variational-problems>`
-*  :doc:`Solving PDEs <solving-interface>`
+.. toctree::
+   :maxdepth: 2
+
+   variational-problems
+   solving-interface
 
 API documentation
 =================
