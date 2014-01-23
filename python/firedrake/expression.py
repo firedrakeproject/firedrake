@@ -3,9 +3,45 @@ import numpy as np
 
 
 class Expression(ufl.Coefficient):
+    """A code snippet that may be evaluated on a :class:`.FunctionSpace`.
 
+    The code in an :class:`Expression` has access to the coordinates
+    in the variable ``x``, with ``x[0]`` corresponding to the x
+    component, ``x[1]`` to the y component and so forth.  You can use
+    mathematical functions from the C library, along with the variable
+    ``pi`` for :math:`\\pi`.
+
+    For example, to build an expression corresponding to
+
+    .. math::
+
+       \\sin(\\pi x)\\sin(\\pi y)\\sin(\\pi z)
+
+    we use:
+
+    .. code-block:: python
+
+       expr = Expression('sin(pi*x[0])*sin(pi*x[1])*sin(pi*x[2])')
+
+    To use an Expression, we can either :meth:`~Function.interpolate`
+    it onto a :class:`.Function`, or :func:`.project` it into a
+    :class:`.FunctionSpace`.  Note that not all
+    :class:`.FunctionSpace`\s support interpolation, but all do
+    support projection.
+
+    If the :class:`FunctionSpace` the expression will be applied to is
+    vector valued, the length of the code snippets provided must match
+    the number of components in the function space.
+    """
     def __init__(self, code=None, element=None, cell=None, degree=None, **kwargs):
-
+        """
+        :param code: a string C statement, or list of statements.
+        :param element: a :class:`~ufl.finiteelement.finiteelement.FiniteElement`, optional
+              (currently ignored)
+        :param cell: a :class:`~ufl.geometry.Cell`, optional (currently ignored)
+        :param degree: the degree of quadrature to use for evaluation (currently ignored)
+        :param kwargs: currently ignored
+        """
         shape = np.array(code).shape
         self._rank = len(shape)
         self._shape = shape
@@ -24,7 +60,14 @@ class Expression(ufl.Coefficient):
         self._count = 0
 
     def rank(self):
+        """Return the rank of this :class:`Expression`"""
         return self._rank
 
     def shape(self):
+        """Return the shape of this :class:`Expression`.
+
+        This is the number of values the code snippet in the
+        expression contains.
+
+        """
         return self._shape

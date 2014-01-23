@@ -6,10 +6,10 @@ from mpi4py import MPI
 
 class Vector(object):
     def __init__(self, x):
-        """Build a `Vector` that wraps an :class:`op2.Dat` for Dolfin compatibilty.
+        """Build a `Vector` that wraps a :class:`pyop2.Dat` for Dolfin compatibilty.
 
-        :arg x: an :class:`op2.Dat` to wrap or a :class:`Vector` to copy.
-                This copies the underlying data in the :class:`op2.Dat`
+        :arg x: an :class:`pyop2.Dat` to wrap or a :class:`Vector` to copy.
+                This copies the underlying data in the :class:`pyop2.Dat`.
         """
         if isinstance(x, Vector):
             self.dat = op2.Dat(x.dat)
@@ -22,7 +22,7 @@ class Vector(object):
         """Add a*x to self.
 
         :arg a: a scalar
-        :arg x: a :class:`Vector` or :class:`firedrake.Function`"""
+        :arg x: a :class:`Vector` or :class:`.Function`"""
         self.dat += a*x.dat
 
     def _scale(self, a):

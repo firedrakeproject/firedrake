@@ -8,8 +8,22 @@ import core_types
 
 
 class Argument(ufl.argument.Argument):
-
+    """Representation of the argument to a form,"""
     def __init__(self, element, function_space, count=None):
+        """
+        :arg element: the :class:`ufl.element.FiniteElementBase` this
+             argument corresponds to.
+        :arg function_space: the :class:`.FunctionSpace` the argument
+             corresponds to.
+        :arg count: the number of the argument being constructed.
+
+        .. note::
+
+           an :class:`Argument` with a count of ``-2`` is used as a
+           :class:`TestFunction`, with a count of ``-1`` it is used as
+           a :class:`TrialFunction`.
+
+        """
         super(Argument, self).__init__(element, count)
         self._function_space = function_space
 
@@ -50,22 +64,63 @@ class Argument(ufl.argument.Argument):
 
 
 def TestFunction(function_space):
+    """Build a test function on the specified function space.
+
+    :arg function_space: the :class:`.FunctionSpaceBase` to build the test
+         function on."""
     return Argument(function_space.ufl_element(), function_space, -2)
 
 
 def TrialFunction(function_space):
+    """Build a trial function on the specified function space.
+
+    :arg function_space: the :class:`.FunctionSpaceBase` to build the trial
+         function on."""
     return Argument(function_space.ufl_element(), function_space, -1)
 
 
 def TestFunctions(function_space):
+    """Return a tuple of test functions on the specified function space.
+
+    :arg function_space: the :class:`.FunctionSpaceBase` to build the test
+         functions on.
+
+    This returns ``len(function_space)`` test functions, which, if the
+    function space is a :class:`.MixedFunctionSpace`, are indexed
+    appropriately.
+    """
     return split(TestFunction(function_space))
 
 
 def TrialFunctions(function_space):
+    """Return a tuple of trial functions on the specified function space.
+
+    :arg function_space: the :class:`.FunctionSpaceBase` to build the trial
+         functions on.
+
+    This returns ``len(function_space)`` trial functions, which, if the
+    function space is a :class:`.MixedFunctionSpace`, are indexed
+    appropriately.
+    """
     return split(TrialFunction(function_space))
 
 
 def derivative(form, u, du=None):
+    """Compute the derivative of a form.
+
+    Given a form, this computes its linearization with respect to the
+    provided :class:`.Function`.  The resulting form has one
+    additional :class:`Argument` in the same finite element space as
+    the Function.
+
+    :arg form: a :class:`ufl.Form` to compute the derivative of.
+    :arg u: a :class:`.Function` to compute the derivative with
+         respect to.
+    :arg du: an optional :class:`Argument` to use as the replacement
+         in the new form (constructed automatically if not provided).
+
+    See also :func:`ufl.derivative`.
+    """
     if du is None:
         if isinstance(u, core_types.Function):
             V = u.function_space()
