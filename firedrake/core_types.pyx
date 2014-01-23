@@ -270,6 +270,11 @@ class _Facets(object):
         return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo)
 
 
+    @property
+    def bottom_set(self):
+        # Currently no MPI parallel support
+        return self._b_set
+
     @utils.cached_property
     def _null_subset(self):
         '''Empty subset for the case in which there are no facets with
@@ -283,9 +288,18 @@ class _Facets(object):
         either be for all the interior or exterior (as appropriate)
         facets, or for a particular numbered subdomain.'''
 
-        if measure.domain_id() in [measure.DOMAIN_ID_EVERYWHERE,
-                                   measure.DOMAIN_ID_OTHERWISE]:
-            return self.set
+        dom_id = measure.domain_id()
+        if dom_id in [measure.DOMAIN_ID_EVERYWHERE,
+                      measure.DOMAIN_ID_OTHERWISE]:
+            if measure.domain_type() == "exterior_facet_horiz":
+                return [(0, self.bottom_set, self._local_facet_top_bottom(0)),
+                        (1, self.bottom_set, self._local_facet_top_bottom(1))]
+            else:
+                return self.set
+        elif dom_id == measure.DOMAIN_ID_BOTTOM:
+            return [(0, self.bottom_set, self._local_facet_top_bottom(0))]
+        elif dom_id == measure.DOMAIN_ID_TOP:
+            return [(1, self.bottom_set, self._local_facet_top_bottom(1))]
         else:
             return self.subset(measure.domain_id())
 
@@ -312,6 +326,14 @@ class _Facets(object):
         return op2.Dat(op2.DataSet(self.set, self._rank), self.local_facet_number,
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
 
+    def _local_facet_top_bottom(self, value):
+        """Global indicating which facet, top or bottom,
+        corresponds to the current facet in the case of exterior facets
+        on extrruded meshes. 0 is for bottom and 1 for top (ffc convention)."""
+        if value in [0, 1]:
+            return op2.Global(1, [value], dtype=np.uintc)
+        else:
+            raise RuntimeError("Invalid domain id for top and bottom exterior facets.")
 
 class Mesh(object):
     """A representation of mesh topology and geometry."""
@@ -787,7 +809,7 @@ class ExtrudedMesh(Mesh):
         self._ds = Measure('exterior_facet', domain_data=self.coordinates)
         self._dS = Measure('interior_facet', domain_data=self.coordinates)
         # Set the domain_data on all the default measures to this coordinate field.
-        for measure in [ufl.dx, ufl.ds, ufl.dS]:
+        for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_h, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
             measure._domain_data = self.coordinates
 
     @property
