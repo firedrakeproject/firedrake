@@ -12,11 +12,11 @@ import pyop2 as op2
 class DirichletBC(object):
     '''Implementation of a strong Dirichlet boundary condition.
 
-    :arg V: the :class:`FunctionSpace` on which the boundary condition
+    :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
-    :arg g: the boundary condition values. This can be a :class:`Function` on
-        ``V``, a :class:`Expression` or a literal constant which can be
-        pointwise evaluated at the nodes of ``V``. :class:`Expression`\s are
+    :arg g: the boundary condition values. This can be a :class:`.Function` on
+        ``V``, an :class:`.Expression` or a literal constant which can be
+        pointwise evaluated at the nodes of ``V``. :class:`.Expression`\s are
         projected onto ``V`` if it does not support pointwise evaluation.
     :arg sub_domain: the integer id of the boundary region over which the
         boundary condition should be applied. In the case of extrusion
@@ -42,7 +42,7 @@ class DirichletBC(object):
         self.sub_domain = sub_domain
 
     def function_space(self):
-        '''The :class:`FunctionSpace` on which this boundary condition should
+        '''The :class:`.FunctionSpace` on which this boundary condition should
         be applied.'''
 
         return self._function_space
@@ -65,7 +65,7 @@ class DirichletBC(object):
         '''Set the value of this boundary condition.
 
         :arg val: The boundary condition values.  See
-            :class:`DirichletBC` for valid values.
+            :class:`.DirichletBC` for valid values.
         '''
         self.function_arg = val
 
@@ -101,19 +101,19 @@ class DirichletBC(object):
     def apply(self, r, u=None):
         """Apply this boundary condition to ``r``.
 
-        :arg r: a :class:`Function` or :class:`Matrix` to which the
+        :arg r: a :class:`.Function` or :class:`.Matrix` to which the
             boundary condition should be applied
 
         :arg u: an optional current state.  If ``u`` is supplied then
             ``r`` is taken to be a residual and the boundary condition
             nodes are set to the value ``u-bc``.  Supplying ``u`` has
-            no effect if ``r`` is a :class:`Matrix` rather than a
-            :class:`Function`. If ``u`` is absent, then the boundary
+            no effect if ``r`` is a :class:`.Matrix` rather than a
+            :class:`.Function`. If ``u`` is absent, then the boundary
             condition nodes of ``r`` are set to the boundary condition
             values.
 
 
-        If ``r`` is a :class:`Matrix`, it will be assembled with a 1
+        If ``r`` is a :class:`.Matrix`, it will be assembled with a 1
         on diagonals where the boundary condition applies and 0 in the
         corresponding rows and columns.
 

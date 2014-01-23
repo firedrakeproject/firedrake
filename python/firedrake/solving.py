@@ -42,19 +42,11 @@ class NonlinearVariationalProblem(object):
                  form_compiler_parameters=None):
         """
         :param F: the nonlinear form
-        :param u: the :class:`Function <firedrake.core_types.Function>` to
-            solve for
+        :param u: the :class:`.Function` to solve for
         :param bcs: the boundary conditions (optional)
         :param J: the Jacobian J = dF/du (optional)
-        :param dic form_compiler_parameters: parameters to pass to the form
+        :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
-
-        .. warning ::
-
-            Since this object contains a circular reference and a
-            custom __del__ attribute, you /must/ call :meth:`destroy`
-            on it when you are done, otherwise it will never be
-            garbage collected.
         """
 
         # Extract and check arguments
@@ -81,6 +73,7 @@ class NonlinearVariationalSolver(object):
 
     def __init__(self, *args, **kwargs):
         """
+        :arg problem: A :class:`NonlinearVariationalProblem` to solve.
         :kwarg parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.  For
             example, to set the nonlinear solver type to just use a linear
@@ -95,6 +88,14 @@ class NonlinearVariationalSolver(object):
         .. code-block:: python
 
             {'snes_monitor': True}
+
+        .. warning ::
+
+            Since this object contains a circular reference and a
+            custom ``__del__`` attribute, you *must* call :meth:`.destroy`
+            on it when you are done, otherwise it will never be
+            garbage collected.
+
         """
         assert isinstance(args[0], NonlinearVariationalProblem)
         self._problem = args[0]
@@ -252,8 +253,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         """
         :param a: the bilinear form
         :param L: the linear form
-        :param u: the :class:`Function <firedrake.core_types.Function>` to
-            solve for
+        :param u: the :class:`.Function` to solve for
         :param bcs: the boundary conditions (optional)
         :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
@@ -275,6 +275,13 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         :arg problem: A :class:`LinearVariationalProblem` to solve.
         :kwarg parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.
+
+        .. warning ::
+
+            Since this object contains a circular reference and a
+            custom ``__del__`` attribute, you *must* call :meth:`.destroy`
+            on it when you are done, otherwise it will never be
+            garbage collected.
         """
         super(LinearVariationalSolver, self).__init__(*args, **kwargs)
 
@@ -286,14 +293,24 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
 def assemble(f, tensor=None, bcs=None):
     """Evaluate f.
 
-    If f is a :class:`UFL.form` then this evaluates the corresponding
+    :arg f: a :class:`ufl.Form` or :class:`ufl.expr.Expr`.
+    :arg tensor: an existing tensor object to place the result in
+         (optional).
+    :arg bcs: a list of boundary conditions to apply (optional).
+
+    If f is a :class:`ufl.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
-    :class:`Function` for 1-forms and a :class:`Matrix` for 2-forms.
+    :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
 
     If f is an expression other than a form, it will be evaluated
-    pointwise on the Functions in the expression. This will
-    only succeed if the Functions are on the same
-    :class:`FunctionSpace`
+    pointwise on the :class:`.Function`\s in the expression. This will
+    only succeed if all the Functions are on the same
+    :class:`.FunctionSpace`
+
+    If ``tensor`` is supplied, the assembled result will be placed
+    there, otherwise a new object of the appropriate type will be
+    returned.
+
     """
 
     if isinstance(f, ufl.form.Form):
@@ -305,14 +322,15 @@ def assemble(f, tensor=None, bcs=None):
 
 
 def _assemble(f, tensor=None, bcs=None):
-    """Assemble the form f and return a raw PyOP2 object representing
-    the result. This will be a :class:`float` for 0-forms, a
-    :class:`Function` for 1-forms and a :class:`Matrix` for 2-forms.
+    """Assemble the form f and return a Firedrake object representing the
+    result. This will be a :class:`float` for 0-forms, a
+    :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
 
-    :arg bcs: A tuple of :class`DirichletBC`\s to be applied.
+    :arg bcs: A tuple of :class`.DirichletBC`\s to be applied.
     :arg tensor: An existing tensor object into which the form should be
         assembled. If this is not supplied, a new tensor will be created for
         the purpose.
+
     """
 
     kernels = ffc_interface.compile_form(f, "form")
@@ -511,10 +529,10 @@ def _assemble(f, tensor=None, bcs=None):
 def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'ilu'}):
     """Solves a linear algebra problem.
 
-    :arg A: the assembled bilinear form, a :class:`Matrix`.
-    :arg x: the :class:`Function` to write the solution into.
-    :arg b: the :class:`Function` defining the right hand side values.
-    :arg bcs: an optional list of :class:`DirichletBC`\s to apply.
+    :arg A: the assembled bilinear form, a :class:`.Matrix`.
+    :arg x: the :class:`.Function` to write the solution into.
+    :arg b: the :class:`.Function` defining the right hand side values.
+    :arg bcs: an optional list of :class:`.DirichletBC`\s to apply.
     :arg parameters: optional solver parameters.
 
     .. note::
@@ -526,7 +544,7 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
            A = assemble(a, bcs=[bc1])
            solve(A, x, b, bcs=[bc2])
 
-        The boundary conditions in `bc2` will be applied to the problem
+        the boundary conditions in `bc2` will be applied to the problem
         while `bc1` will be ignored.
 
     Example usage:
@@ -537,7 +555,7 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
 
     The linear solver and preconditioner are selected by looking at
     the parameters dict, if it is empty, the defaults are taken from
-    PyOP2 (see :var:`op2.DEFAULT_SOLVER_PARAMETERS`)."""
+    PyOP2 (see :var:`pyop2.DEFAULT_SOLVER_PARAMETERS`)."""
 
     # Mixed problem, use jacobi pc if user has not supplied one.
     if A._M.sparsity.shape != (1, 1):
@@ -581,8 +599,8 @@ def solve(*args, **kwargs):
 
         solve(A, x, b, bcs=bcs, solver_parameters={...})
 
-    where `A` is a :class:`Matrix` and `x` and `b` are :class:`Function`\s.
-    If present, `bcs` should be a list of :class:`DirichletBC`\s
+    where `A` is a :class:`.Matrix` and `x` and `b` are :class:`.Function`\s.
+    If present, `bcs` should be a list of :class:`.DirichletBC`\s
     specifying the strong boundary conditions to apply.  For the
     format of `solver_parameters` see below.
 
@@ -590,9 +608,9 @@ def solve(*args, **kwargs):
 
     A linear variational problem a(u, v) = L(v) for all v may be
     solved by calling solve(a == L, u, ...), where a is a bilinear
-    form, L is a linear form, u is a Function (the solution). Optional
-    arguments may be supplied to specify boundary conditions or solver
-    parameters. Some examples are given below:
+    form, L is a linear form, u is a :class:`.Function` (the
+    solution). Optional arguments may be supplied to specify boundary
+    conditions or solver parameters. Some examples are given below:
 
     .. code-block:: python
 
@@ -601,8 +619,7 @@ def solve(*args, **kwargs):
         solve(a == L, u, bcs=[bc1, bc2])
 
         solve(a == L, u, bcs=bcs,
-              solver_parameters={"ksp_type": "gmres"},
-              form_compiler_parameters={"optimize": True})
+              solver_parameters={"ksp_type": "gmres"})
 
     The linear solver uses PETSc under the hood and accepts all PETSc
     options as solver parameters.  For example, to solve the system
@@ -618,11 +635,12 @@ def solve(*args, **kwargs):
     A nonlinear variational problem F(u; v) = 0 for all v may be
     solved by calling solve(F == 0, u, ...), where the residual F is a
     linear form (linear in the test function v but possibly nonlinear
-    in the unknown u) and u is a Function (the solution). Optional
-    arguments may be supplied to specify boundary conditions, the
-    Jacobian form or solver parameters. If the Jacobian is not
-    supplied, it will be computed by automatic differentiation of the
-    residual form. Some examples are given below:
+    in the unknown u) and u is a :class:`.Function` (the
+    solution). Optional arguments may be supplied to specify boundary
+    conditions, the Jacobian form or solver parameters. If the
+    Jacobian is not supplied, it will be computed by automatic
+    differentiation of the residual form. Some examples are given
+    below:
 
     The nonlinear solver uses a PETSc SNES object under the hood. To
     pass options to it, use the same options names as you would for
