@@ -1,7 +1,7 @@
-Solving PDEs
-============
 .. contents::
 
+Solving PDEs
+============
 
 Introduction
 ------------
