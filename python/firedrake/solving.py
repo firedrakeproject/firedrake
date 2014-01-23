@@ -541,6 +541,49 @@ def _assemble(f, tensor=None, bcs=None):
                                       flatten=has_vec_fs(c)))
                 args.append(m.exterior_facets.local_facet_dat(op2.READ))
                 op2.par_loop(*args)
+            if domain_type == 'exterior_facet_horiz':
+                if op2.MPI.parallel:
+                    raise \
+                        NotImplementedError(
+                            "No support for facet integrals under MPI yet")
+
+                if is_mat:
+                    tensor_arg = tensor(op2.INC,
+                                        (test.cell_node_map(bcs)[op2.i[0]],
+                                         trial.cell_node_map(bcs)[op2.i[1]]),
+                                        flatten=has_vec_fs(test))
+                elif is_vec:
+                    tensor_arg = tensor(op2.INC,
+                                        test.cell_node_map()[op2.i[0]],
+                                        flatten=has_vec_fs(test))
+                else:
+                    tensor_arg = tensor(op2.INC)
+
+                #In the case of extruded meshes with horizontal facet integrals, two
+                #parallel loops will (potentially) get created and called based on the
+                #domain id: everywhere, bottom or top.
+
+                #Get the list of sets and globals required for parallel loop constuction.
+                set_global_list = m.exterior_facets.measure_set(integral.measure())
+
+                #Iterate over the list and assemble all the args of the parallel loop
+                for (index, set, facet_global) in set_global_list:
+                    #Set the extruded_tb flag tu True as this is a top or bottom horzontal integral
+                    kwargs = {}
+                    if index == 1:
+                        kwargs["iterate"] = op2.ON_TOP
+                    else:
+                        kwargs["iterate"] = op2.ON_BOTTOM
+
+                    # Add the kernel, iteration set and coordinate fields to the loop args
+                    args = [kernel, set, tensor_arg,
+                            coords.dat(op2.READ, coords.cell_node_map(),
+                                       flatten=True)]
+                    for c in fd.original_coefficients:
+                        args.append(c.dat(op2.READ, c.cell_node_map(),
+                                          flatten=has_vec_fs(c)))
+                    args.append(facet_global(op2.READ))
+                    op2.par_loop(*args, **kwargs)
 
             elif domain_type == 'interior_facet':
                 if op2.MPI.parallel:
