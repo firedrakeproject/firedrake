@@ -1,19 +1,23 @@
+.. contents::
+
 Defining variational problems
 =============================
 
-Firedrake's interface uses a high-level language, `UFL`_, to describe
-variational problems.  We solve a PDE on a particular domain, which,
-since we use the *finite* element method, is approximated by a finite
-tesselation of the domain.  Firedrake represents this tesselation by a
-:py:class:`~firedrake.core_types.Mesh` which holds the geometric
-and topological information of the tesselation.  On top of this mesh,
-we build :py:class:`~firedrake.core_types.FunctionSpace`\s which
-define the space in which our solutions to our equation live.
+Firedrake uses a high-level language, `UFL`_, to describe variational
+problems.  To do this, we need a number of pieces.  We need a
+tesselation of the domain we're solving the :abbr:`PDE (partial
+differential equation)` on.  Firedrake represents this tesselation by
+a :py:class:`~firedrake.core_types.Mesh` which holds the geometric and
+topological information of the tesselation.  On top of this mesh, we
+build :py:class:`~firedrake.core_types.FunctionSpace`\s which define
+the space in which our solutions to our equation live.  Finally we
+define :py:class:`~firedrake.core_types.Function`\s in those function
+spaces to actually hold the solutions.
 
 Constructing meshes
 -------------------
 
-Firedrake can read meshes in `Gmsh`_ and `triangle`_ format, to build
+Firedrake can read meshes in `Gmsh`_ and `triangle`_ format.  To build
 a mesh one uses the :py:class:`~firedrake.core_types.Mesh`
 constructor, passing the name of the file as an argument.  If your
 mesh is in triangle format, you should pass the name of ``node`` file,
@@ -51,7 +55,7 @@ support for solving problems on orientable `immersed manifolds
 *immersed* in a higher dimensional space.  For example, the surface of
 a sphere in 3D.
 
-If your mesh is an such immersed manifold, you need tell Firedrake
+If your mesh is an such immersed manifold, you need to tell Firedrake
 that the geometric dimension of the coordinate field (defining where
 the points in mesh are) is not the same as the topological dimension
 of the mesh entities.  This is done by passing an optional second
@@ -71,10 +75,10 @@ sphere with specified radius using
 :py:class:`~firedrake.mesh.IcosahedralSphereMesh`.  The meshes are
 constructed by recursively refining a `regular icosahedron
 <icosahedron_>`_, you can specify the refinement level by passing a
-non-zero value of the ``'refinement_level'`` to the constructor.  For
-example, to build a sphere mesh that approximates the surface of the
-Earth (with a radius of 6371 km) that has subdivided the original
-icosahedron 7 times we would write:
+non-zero ``refinement_level`` to the constructor.  For example, to
+build a sphere mesh that approximates the surface of the Earth (with a
+radius of 6371 km) that has subdivided the original icosahedron 7
+times we would write:
 
 .. code-block:: python
 
