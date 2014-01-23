@@ -581,6 +581,7 @@ def _assemble(f, tensor=None, bcs=None):
                     op2.par_loop(*args)
                 except MapValueError:
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
+
             elif domain_type in ['exterior_facet_top', 'exterior_facet_bottom']:
                 if op2.MPI.parallel:
                     raise \
@@ -615,7 +616,10 @@ def _assemble(f, tensor=None, bcs=None):
                     for c in fd.original_coefficients:
                         args.append(c.dat(op2.READ, c.cell_node_map(),
                                           flatten=has_vec_fs(c)))
-                    op2.par_loop(*args, iterate=index)
+                    try:
+                        op2.par_loop(*args, iterate=index)
+                    except MapValueError:
+                        raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
             elif domain_type == 'exterior_facet_vert':
                 if op2.MPI.parallel:
@@ -642,7 +646,10 @@ def _assemble(f, tensor=None, bcs=None):
                     args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
                                       flatten=has_vec_fs(c)))
                 args.append(m.exterior_facets.local_facet_dat(op2.READ))
-                op2.par_loop(*args)
+                try:
+                    op2.par_loop(*args)
+                except MapValueError:
+                    raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
             elif domain_type == 'interior_facet':
                 if op2.MPI.parallel:
@@ -673,6 +680,7 @@ def _assemble(f, tensor=None, bcs=None):
                     op2.par_loop(*args)
                 except MapValueError:
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
+
             elif domain_type == 'interior_facet_horiz':
                 if op2.MPI.parallel:
                     raise \
@@ -697,7 +705,10 @@ def _assemble(f, tensor=None, bcs=None):
                 for c in fd.original_coefficients:
                     args.append(c.dat(op2.READ, c.cell_node_map(),
                                       flatten=has_vec_fs(c)))
-                op2.par_loop(*args, iterate=op2.ON_INTERIOR_FACETS)
+                try:
+                    op2.par_loop(*args, iterate=op2.ON_INTERIOR_FACETS)
+                except MapValueError:
+                    raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
             elif domain_type == 'interior_facet_vert':
                 if op2.MPI.parallel:
@@ -724,7 +735,10 @@ def _assemble(f, tensor=None, bcs=None):
                     args.append(c.dat(op2.READ, c.interior_facet_node_map(),
                                       flatten=has_vec_fs(c)))
                 args.append(m.interior_facets.local_facet_dat(op2.READ))
-                op2.par_loop(*args)
+                try:
+                    op2.par_loop(*args)
+                except MapValueError:
+                    raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
             else:
                 raise RuntimeError('Unknown domain type "%s"' % domain_type)
