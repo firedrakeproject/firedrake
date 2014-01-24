@@ -242,7 +242,7 @@ example, if we write:
 .. code-block:: python
 
    V = FunctionSpace(mesh, 'RT', 1)
-   Q = FunctionSpace(mesh, 'DG", 0)
+   Q = FunctionSpace(mesh, 'DG', 0)
    W = V * Q
 
    u, p = TrialFunctions(W)
