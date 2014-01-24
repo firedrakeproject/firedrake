@@ -5,14 +5,13 @@ Defining variational problems
 
 Firedrake uses a high-level language, `UFL`_, to describe variational
 problems.  To do this, we need a number of pieces.  We need a
-tesselation of the domain we're solving the :abbr:`PDE (partial
-differential equation)` on.  Firedrake represents this tesselation by
-a :py:class:`~firedrake.core_types.Mesh` which holds the geometric and
-topological information of the tesselation.  On top of this mesh, we
-build :py:class:`~firedrake.core_types.FunctionSpace`\s which define
-the space in which our solutions to our equation live.  Finally we
-define :py:class:`~firedrake.core_types.Function`\s in those function
-spaces to actually hold the solutions.
+representation of the domain we're solving the :abbr:`PDE (partial
+differential equation)` on: Firedrake uses a
+:py:class:`~firedrake.core_types.Mesh` for this.  On top of this mesh,
+we build :py:class:`~firedrake.core_types.FunctionSpace`\s which
+define the space in which the solutions to our equation live.  Finally
+we define :py:class:`~firedrake.core_types.Function`\s in those
+function spaces to actually hold the solutions.
 
 Constructing meshes
 -------------------
@@ -55,7 +54,7 @@ support for solving problems on orientable `immersed manifolds
 *immersed* in a higher dimensional space.  For example, the surface of
 a sphere in 3D.
 
-If your mesh is an such immersed manifold, you need to tell Firedrake
+If your mesh is such an immersed manifold, you need to tell Firedrake
 that the geometric dimension of the coordinate field (defining where
 the points in mesh are) is not the same as the topological dimension
 of the mesh entities.  This is done by passing an optional second
@@ -121,10 +120,10 @@ Building function spaces
 ------------------------
 
 Now that we have a mesh of our domain, we need to build the function
-spaces the solution to our PDE will live in, along with the spaces for
-the trial and test functions.  To do so, we use the
-:py:class:`~firedrake.core_types.FunctionSpace` or
-:py:class:`~firedrake.core_types.VectorFunctionSpace` constructors.
+spaces the solution to our :abbr:`PDE (partial differential equation)`
+will live in, along with the spaces for the trial and test functions.
+To do so, we use the :py:class:`~firedrake.core_types.FunctionSpace`
+or :py:class:`~firedrake.core_types.VectorFunctionSpace` constructors.
 The former may be used to define a function space for a scalar
 variable, for example pressure, which has a single value at each point
 in the domain; the latter is for vector-valued variables, such as
@@ -160,13 +159,14 @@ surface of a unit sphere mesh we might write:
 Mixed function spaces
 ~~~~~~~~~~~~~~~~~~~~~
 
-Many PDEs are posed in terms of more than one, coupled, variable.  The
-function space for the variational problem for such a PDE is termed a
-*mixed* function space.  The object representing such a space in
-Firedrake is the :py:class:`~firedrake.core_types.MixedFunctionSpace`.
-We can either build such a space by invoking the constructor directly,
-or, more readably, by taking existing function spaces and multiplying
-them together using the ``*`` operator.  For example:
+Many :abbr:`PDE (partial differential equation)`\s are posed in terms
+of more than one, coupled, variable.  The function space for the
+variational problem for such a PDE is termed a *mixed* function space.
+Such a space is represented in Firedrake by a
+:py:class:`~firedrake.core_types.MixedFunctionSpace`.  We can either
+build such a space by invoking the constructor directly, or, more
+readably, by taking existing function spaces and multiplying them
+together using the ``*`` operator.  For example:
 
 .. code-block:: python
 
@@ -202,7 +202,7 @@ complete documentation, we refer the reader to `the UFL package
 documentation <UFL_package_>`_ and the description of the language in
 `TOMS <UFL_>`_.  We present a brief overview of the syntax here,
 for a more didactic introduction, we refer the reader to the
-:doc:`Firedrake demos <demos>`.
+:doc:`Firedrake tutorial examples <documentation>`.
 
 Building test and trial spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -339,13 +339,13 @@ Incorporating boundary conditions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Boundary conditions enter the variational problem in one of two ways.
-`Natural` (often termed `Neumann`) boundary conditions, which
-prescribe values of the derivative of the solution, are incorporated
-into the variational form.  `Essential` (often termed `Dirichlet` or
-`strong`) boundary conditions, which prescribe values of the solution,
-become prescriptions on the function space.  In Firedrake, the former
-are naturally expressed as part of the formulation of the variational
-problem, the latter are represented as
+`Natural` (often termed `Neumann` or `weak`) boundary conditions,
+which prescribe values of the derivative of the solution, are
+incorporated into the variational form.  `Essential` (often termed
+`Dirichlet` or `strong`) boundary conditions, which prescribe values
+of the solution, become prescriptions on the function space.  In
+Firedrake, the former are naturally expressed as part of the
+formulation of the variational problem, the latter are represented as
 :py:class:`~firedrake.bcs.DirichletBC` objects and are applied when
 solving the variational problem.  Construction of such a strong
 boundary condition requires a function space (to impose the boundary
