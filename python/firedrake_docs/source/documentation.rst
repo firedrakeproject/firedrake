@@ -28,12 +28,20 @@ The first step is to download and install Firedrake and its
 dependencies. For full instructions, see :doc:`obtaining Firedrake
 <download>`.
 
+.. _firedrake_tutorials:
+
+Tutorials
+=========
+
 Once you've built Firedrake, you'll want to actually solve some
 PDEs. Below are a few tutorial examples to get you started.
 
 *  :doc:`A basic Helmholtz equation <demos/helmholtz.py>`
 *  :doc:`The Burgers equation <demos/burgers.py>`, a non-linear, unsteady example.
 *  :doc:`A mixed formulation of the Poisson equation <demos/poisson_mixed.py>`
+
+Manual
+======
 
 Once you have worked through the tutorials, the user manual is the
 next step.  It goes in to more detail on how to set up and solve
