@@ -307,6 +307,28 @@ cdef ft.element_t as_element(object fiat_element):
 
     return element
 
+# DMPlex related utility functions
+def plex_facet_numbering(plex, vertex_numbering, facet):
+    """Derive local facet number according to Fenics"""
+    cells = plex.getSupport(facet)
+    local_facet = []
+    for c in cells:
+        closure = plex.getTransitiveClosure(c)[0]
+
+        # Local vertex numbering according to universal vertex numbering
+        vStart, vEnd = plex.getDepthStratum(0)   # vertices
+        is_vertex = lambda v: vStart <= v and v < vEnd
+        vertices = filter(is_vertex, closure)
+        v_glbl = [vertex_numbering.getOffset(v) for v in vertices]
+        v_glbl = [v if v >= 0 else -(v+1) for v in v_glbl]
+        vertices, v_glbl = zip(*sorted(zip(vertices, v_glbl), key=itemgetter(1)))
+
+        # Local facet nuymber := local number of non-incident vertex
+        v_incident = filter(is_vertex, plex.getTransitiveClosure(facet)[0])
+        v_non_incident = [v for v in vertices if v not in v_incident ][0]
+        local_facet.append(np.where(vertices==v_non_incident)[0][0])
+    return local_facet
+
 def plex_closure_numbering(plex, vertex_numbering, closure, dofs_per_entity):
     """Apply Fenics local numbering to a cell closure.
 
@@ -645,6 +667,14 @@ class Mesh(object):
         self._plex = plex
         self._dim  = plex.getDimension()
 
+        # Mark exterior and interior facets
+        self._plex.markBoundaryFaces("exterior_facets")
+        self._plex.createLabel("interior_facets")
+        fStart,fEnd = self._plex.getHeightStratum(1)  # facets
+        for face in range(fStart, fEnd):
+            if self._plex.getLabelValue("exterior_facets", face) == -1:
+                self._plex.setLabelValue("interior_facets", face, 1)
+
         # Distribute the dm to all ranks
         if op2.MPI.comm.size > 1:
             self.parallel_sf = self._plex.distribute(overlap=1)
@@ -663,11 +693,47 @@ class Mesh(object):
 
         self._ufl_cell = ufl.Cell(_cells[self._dim][self._dim+1], self._dim)
         self._cells = np.array([self._plex.getCone(c) for c in range(cStart, cEnd)])
+        self._vertex_numbering = None
 
-        # TODO: Add facet and boundary ID support
+        # TODO: Add boundary ID support
         boundary_ids = None
-        self.exterior_facets = _Facets(self, 0, "exterior", None, None)
-        self.interior_facets = _Facets(self, 0, "interior", None, None)
+
+        # Exterior facets
+        if self._plex.getStratumSize("exterior_facets", 1) > 0:
+            # OP2 facet numbering requires a universal vertex numbering
+            if not self._vertex_numbering:
+                vertex_fs = types.FunctionSpace(self, "CG", 1)
+                self._vertex_numbering = vertex_fs._universal_numbering
+
+            exterior_facets = self._plex.getStratumIS("exterior_facets", 1).getIndices()
+            exterior_facet_cell = np.array([self._plex.getSupport(f) for f in exterior_facets])
+            get_f_no = lambda f: plex_facet_numbering(self._plex, self._vertex_numbering, f)
+            exterior_local_facet_number = np.array([get_f_no(f) for f in exterior_facets])
+            self.exterior_facets = _Facets(self, exterior_facets.size,
+                                           "exterior",
+                                           exterior_facet_cell,
+                                           exterior_local_facet_number,
+                                           boundary_ids)
+        else:
+            self.exterior_facets = _Facets(self, 0, "exterior", None, None)
+
+        # Interior facets
+        if self._plex.getStratumSize("interior_facets", 1) > 0:
+            # OP2 facet numbering requires a universal vertex numbering
+            if not self._vertex_numbering:
+                vertex_fs = types.FunctionSpace(self, "CG", 1)
+                self._vertex_numbering = vertex_fs._universal_numbering
+
+            interior_facets = self._plex.getStratumIS("interior_facets", 1).getIndices()
+            interior_facet_cell = np.array([ self._plex.getSupport(f) for f in interior_facets ])
+            get_f_no = lambda f: plex_facet_numbering(self._plex, self._vertex_numbering, f)
+            interior_local_facet_number = np.array([get_f_no(f) for f in interior_facets])
+            self.interior_facets = _Facets(self, interior_facets.size,
+                                           "interior",
+                                           interior_facet_cell,
+                                           interior_local_facet_number)
+        else:
+            self.interior_facets = _Facets(self, 0, "interior", None, None)
 
         # Note that for bendy elements, this needs to change.
         if periodic_coords is not None:
@@ -680,7 +746,6 @@ class Mesh(object):
                                                     name="Coordinates")
         else:
             self._coordinate_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
-            self._vertex_numbering = self._coordinate_fs._global_numbering
 
             plex_coords = self._plex.getCoordinatesLocal().getArray()
             self._coordinates = np.reshape(plex_coords, (vEnd - vStart, self._dim))
@@ -1138,8 +1203,19 @@ class FunctionSpaceBase(Cached):
         cStart,cEnd = mesh._plex.getHeightStratum(0)  # cells
         self.cell_node_list = np.array([self._get_cell_nodes(c) for c in range(cStart, cEnd)])
 
-        self.interior_facet_node_list = None
-        self.exterior_facet_node_list = None
+        if mesh._plex.getStratumSize("interior_facets", 1) > 0:
+            interior_facets = mesh._plex.getStratumIS("interior_facets", 1).getIndices()
+            interior_facet_eles = np.array([mesh._plex.getSupport(f) for f in interior_facets])
+            self.interior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in interior_facet_eles])
+        else:
+            self.interior_facet_node_list = None
+
+        if mesh._plex.getStratumSize("exterior_facets", 1) > 0:
+            exterior_facets = mesh._plex.getStratumIS("exterior_facets", 1).getIndices()
+            exterior_facet_eles = np.array([mesh._plex.getSupport(f) for f in exterior_facets])
+            self.exterior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in exterior_facet_eles])
+        else:
+            self.exterior_facet_node_list = None
 
         # Note: this is the function space rank. The value rank may be different.
         self.rank = rank
