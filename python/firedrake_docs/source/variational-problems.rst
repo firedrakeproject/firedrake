@@ -194,7 +194,7 @@ an extruded mesh.  We refer the reader to the :doc:`manual section on
 extrusion <extruded-meshes>` for details.
 
 
-Defining the variational problem
+Expressing a variational problem
 --------------------------------
 
 Firedrake uses the UFL language to express variational problems.  For
@@ -202,7 +202,7 @@ complete documentation, we refer the reader to `the UFL package
 documentation <UFL_package_>`_ and the description of the language in
 `TOMS <UFL_>`_.  We present a brief overview of the syntax here,
 for a more didactic introduction, we refer the reader to the
-:doc:`Firedrake tutorial examples <documentation>`.
+:ref:`Firedrake tutorial examples <firedrake_tutorials>`.
 
 Building test and trial spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -388,8 +388,9 @@ and hence has operators for all appropriate vector calculus operations
 along with special support for discontinuous galerkin methods in the
 form of symbolic expressions for facet averages and jumps.  For an
 introduction to these concepts we refer the user to the `UFL manual
-<UFL_package_>`_ as well as the Firedrake tutorials which cover a
-wider variety of different problems.
+<UFL_package_>`_ as well as the :ref:`Firedrake tutorials
+<firedrake_tutorials>` which cover a wider variety of different
+problems.
 
 
 .. _icosahedral mesh: http://en.wikipedia.org/wiki/Geodesic_grid
