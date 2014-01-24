@@ -679,12 +679,19 @@ class Mesh(object):
                                                     val=periodic_coords,
                                                     name="Coordinates")
         else:
-
             self._coordinate_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
             self._vertex_numbering = self._coordinate_fs._global_numbering
 
-            plex_coords = self._plex.getCoordinates().getArray()
+            plex_coords = self._plex.getCoordinatesLocal().getArray()
             self._coordinates = np.reshape(plex_coords, (vEnd - vStart, self._dim))
+
+            # Use the inverse of the section permutation to re-order
+            # the coordinates from the Plex
+            perm = filter(lambda x: x>=0, self._coordinate_fs.perm)
+            perm_is = PETSc.IS().createGeneral(perm, comm=MPI.COMM_SELF)
+            perm_is.setPermutation()
+            inv_perm = perm_is.invertPermutation().getIndices()
+            self._coordinates = np.array([self._coordinates[p] for p in inv_perm])
 
             self._coordinate_field = types.Function(self._coordinate_fs,
                                                     val=self._coordinates,
@@ -949,112 +956,87 @@ class ExtrudedMesh(Mesh):
 
 
 class Halo(object):
-    """Fluidity Halo type"""
-    # Enum corresponding to halo entity types
-    _ENTITY_TYPES = {
-        'vertex' : 0,
-        'cell' : 1
-    }
+    """Build a Halo associated with the appropriate FunctionSpace.
 
-    def __init__(self, mesh_capsule, entity_type='vertex', entity_classes=None):
-        """Build a Halo associated with the appropriate Fluidity mesh.
+    The Halo is derived from a PetscSF object and builds the global
+    to universal numbering map from the respective PetscSections."""
 
-        `mesh_capsule` should be a PyCapsule containing the Fluidity
-        mesh to pull the halos out of.  The two halo types are
-        `vertex` and `cell`.  The appropriate mesh `entity_classes`
-        must be passed in to correct set up global to universal
-        numbering maps.
-        """
-        assert type(entity_type) is str, 'Entity type should be a string'
-        entity_type = entity_type.lower()
-
-        # Convert from char * to str.
-        capsule_name = <bytes>py.PyCapsule_GetName(mesh_capsule)
-
-        if capsule_name not in [_function_space_name, _mesh_name]:
-            raise RuntimeError("Passed a capsule that didn't contain a mesh pointer")
-
-        cdef void *fluidity_mesh = py.PyCapsule_GetPointer(mesh_capsule, capsule_name)
-        cdef ft.halo_t halo = ft.halo_f(fluidity_mesh, Halo._ENTITY_TYPES[entity_type])
-
-        if halo.nprocs == -1:
-            # Build empty halo, this is probably right
-            self._nprocs = 1
-            self._sends = {}
-            self._receives = {}
-            self._entity_type = entity_type
-            self._nowned_nodes = entity_classes[1]
-            self._fluidity_halo = None
-            self._universal_offset = 0
-            self._comm = None
-            self._global_to_universal_number = None
-            return
-        self._nprocs = halo.nprocs
-        self._entity_type = entity_type
-
+    def __init__(self, petscsf, global_numbering, universal_numbering):
+        self._tag = _new_uid()
+        self._comm = op2.MPI.comm
+        self._nprocs = self.comm.size
         self._sends = {}
         self._receives = {}
+        self._gnn2unn = None
+        remote_sends = {}
 
-        cdef int i
-        # These come in with Fortran numbering, but we want C
-        # numbering, so fix them up on creation
-        for i in range(halo.nprocs):
-            dim = halo.nsends[i]
-            if dim > 0:
-                self._sends[i] = np.array(<int[:dim]>halo.sends[i]) - 1
-            dim = halo.nreceives[i]
-            if dim > 0:
-                self._receives[i] = np.array(<int[:dim]>halo.receives[i]) - 1
-        # These were allocated in Python_Interface_f.F90, but only used to
-        # pass size information, and we don't have a destructor, so free
-        # them here.
-        free(halo.nsends)
-        free(halo.nreceives)
-        self._nowned_nodes = halo.nowned_nodes
-        # No destructor, since Fluidity owns a reference.
-        self._fluidity_halo = py.PyCapsule_New(halo.fluidity_halo, _halo_name, NULL)
-        self._universal_offset = halo.universal_offset
-        self._comm = MPI.Comm.f2py(halo.comm)
-        assert self._comm.size == self._nprocs, \
-            "Communicator size does not match specified number of processes for halo"
+        if op2.MPI.comm.size <= 1:
+            return
 
-        assert self._comm.rank not in self._sends.keys(), "Halos should contain no self-sends"
-        assert self._comm.rank not in self._receives.keys(), "Halos should contain no self-receives"
+        # Sort the SF by local indices
+        nroots, nleaves, local, remote = petscsf.getGraph()
+        local_new, remote_new = (list(x) for x in zip(*sorted(zip(local, remote), key=lambda x: x[0])))
+        petscsf.setGraph(nroots, nleaves, local_new, remote_new)
 
-        # Fluidity gives us the global to universal mapping for dofs
-        # in the halo, but for matrix assembly we need to mapping for
-        # all dofs.  Fortunately, for owned dofs we just need to add
-        # the appropriate offset
-        tmp = np.arange(0, entity_classes[3], dtype=np.int32)
-        dim = halo.receives_global_to_universal_len
-        if dim > 0:
-            # Can't make a memoryview of a zero-length array hence the
-            # check
-            recv_map = np.array(<int[:dim]>halo.receives_global_to_universal)
-            tmp[entity_classes[1]:entity_classes[2]] = recv_map[tmp[entity_classes[1]:entity_classes[2]] \
-                                                                - entity_classes[1]] - 1
-        tmp[:entity_classes[1]] = tmp[:entity_classes[1]] + self._universal_offset
-        tmp[entity_classes[2]:] = -1
-        self._global_to_universal_number = tmp
+        # Derive local receives and according remote sends
+        nroots, nleaves, local, remote = petscsf.getGraph()
+        for local, (rank, index) in zip(local, remote):
+            if rank != self.comm.rank:
+                if not self._receives.has_key(rank):
+                    self._receives[rank] = []
+                self._receives[rank].append(local)
+
+                if not remote_sends.has_key(rank):
+                    remote_sends[rank] = []
+                remote_sends[rank].append(index)
+
+        # Propagate remote send lists to the actual sender
+        for p in range(self.comm.size):
+            if p == self.comm.rank: continue
+            if remote_sends.has_key(p):
+                send_buf = np.array(remote_sends[p], dtype=np.int32)
+                self.comm.send(send_buf, dest=p, tag=self.tag)
+
+        for p in range(self.comm.size):
+            if p == self.comm.rank: continue
+            local_sends = self.comm.recv(source=p, tag=self.tag)
+            if len(local_sends) > 0:
+                self._sends[p] = list(local_sends)
+
+        """PETSc's LGMap cannot be used here directly, because:
+        1) DMGetLocalToGlobalMapping assumes that the local section
+        is numbered consecutively.
+        2) DMGetLocalToGlobalMapping returns a cached LGMap, but
+        there is no way to invalidate/re-initialise it."""
+        pStart, pEnd = global_numbering.getChart()
+        self._gnn2unn = np.zeros(global_numbering.getStorageSize(), dtype=np.int32)
+        for p in range(pStart, pEnd):
+            dof = global_numbering.getDof(p)
+            goff = global_numbering.getOffset(p)
+            uoff = universal_numbering.getOffset(p)
+            if uoff < 0:
+                uoff = (-1*uoff)-1
+            for c in range(dof):
+                self._gnn2unn[goff+c] = uoff+c
 
     @utils.cached_property
     def op2_halo(self):
         if not self.sends and not self.receives:
             return None
         return op2.Halo(self.sends, self.receives,
-                        comm=self.comm, gnn2unn=self.global_to_universal_number)
+                        comm=self.comm, gnn2unn=self.gnn2unn)
 
     @property
     def comm(self):
         return self._comm
 
     @property
-    def nprocs(self):
-        return self._nprocs
+    def tag(self):
+        return self._tag
 
     @property
-    def entity_type(self):
-        return self._entity_type
+    def nprocs(self):
+        return self._nprocs
 
     @property
     def sends(self):
@@ -1065,16 +1047,8 @@ class Halo(object):
         return self._receives
 
     @property
-    def nowned_nodes(self):
-        return self._nowned_nodes
-
-    @property
-    def universal_offset(self):
-        return self._universal_offset
-
-    @property
-    def global_to_universal_number(self):
-        return self._global_to_universal_number
+    def gnn2unn(self):
+        return self._gnn2unn
 
 
 class FunctionSpaceBase(Cached):
@@ -1147,16 +1121,18 @@ class FunctionSpaceBase(Cached):
         self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
         self._global_numbering = self._plex.createSection(1, [1], self._dofs_per_entity)
 
+        # Reorder global and universal node numberings
         self._plex.setDefaultSection(self._global_numbering)
         self.dof_classes, self.perm = plex_permute_global_numbering(self._plex)
+        self._global_numbering = self._plex.getDefaultSection()
+        self._universal_numbering = self._plex.getDefaultGlobalSection()
 
-        # Re-initialise the DefaultSF
-        lsection = self._plex.getDefaultSection()
-        gsection = self._plex.getDefaultGlobalSection()
-        self._plex.createDefaultSF(lsection, gsection)
-
-        # TODO: Derive Halo from DMPlex
-        self._halo = None
+        # Re-initialise the PetscSF and build Halo from it
+        self._plex.createDefaultSF(self._global_numbering,
+                                   self._universal_numbering)
+        self._halo = Halo(self._plex.getDefaultSF(),
+                          self._global_numbering,
+                          self._universal_numbering)
 
         self._node_count = self._global_numbering.getStorageSize()
         cStart,cEnd = mesh._plex.getHeightStratum(0)  # cells
@@ -1179,7 +1155,7 @@ class FunctionSpaceBase(Cached):
         plex = self._mesh._plex
         closure = plex.getTransitiveClosure(cell)[0]
         if self._dofs_per_entity[0] > 0:
-            vertex_numbering = self._global_numbering
+            vertex_numbering = self._universal_numbering
         else:
             vertex_numbering = self._mesh._vertex_numbering
         numbering = plex_closure_numbering(plex, vertex_numbering, closure,
