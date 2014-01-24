@@ -5,6 +5,13 @@
 Dirichlet boundary conditions
 =============================
 
+Strong Dirichlet boundary conditions are imposed by providing a list
+of :class:`~firedrake.bcs.DirichletBC` objects. The class
+documentation provides the syntax, this document explains the
+mathematical formulation of the boundary conditions in Firedrake, and
+their implementation.
+
+
 Mathematical background
 -----------------------
 
@@ -96,7 +103,7 @@ solver. Firedrake applies this solution strategy to linear equations
 too, although in that case only one iteration of the nonlinear solver
 will ever be required or executed.
 
-We write `u = u_i\phi_i` as the current interation of the
+We write `u = u_i\phi_i` as the current interaction of the
 solution and write `\mathrm{U}` for the vector whose components
 are the coefficients `u_i`. Similarly, we write `u^*` for
 the next iterate and `\mathrm{U}^*` for the vector of its
@@ -231,7 +238,7 @@ Both linear and nonlinear PDEs are solved in residual form in
 Firedrake using the PETSc SNES interface. In the case of linear
 systems, a single step of Newton is employed. 
 
-In the following we will use ``F`` for the residual :class:`~ufl.Form`
+In the following we will use ``F`` for the residual :class:`~ufl.form.Form`
 and ``J`` for the Jacobian :class:`~ufl.form.Form`. In both cases these
 forms do not include the Dirichlet boundary conditions. Additionally
 ``u`` will be the solution :class:`~firedrake.core_types.Function`.
