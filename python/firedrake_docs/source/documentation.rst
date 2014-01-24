@@ -28,6 +28,11 @@ The first step is to download and install Firedrake and its
 dependencies. For full instructions, see :doc:`obtaining Firedrake
 <download>`.
 
+.. _firedrake_tutorials:
+
+Tutorials
+=========
+
 Once you've built Firedrake, you'll want to actually solve some
 PDEs. Below are a few tutorial examples to get you started.
 
@@ -35,10 +40,18 @@ PDEs. Below are a few tutorial examples to get you started.
 *  :doc:`The Burgers equation <demos/burgers.py>`, a non-linear, unsteady example.
 *  :doc:`A mixed formulation of the Poisson equation <demos/poisson_mixed.py>`
 
-A more in-depth description of how to customise the solution methods
-for PDEs is given in the full user documentation.
+Manual
+======
 
-*  :doc:`Solving PDEs <solving-interface>`
+Once you have worked through the tutorials, the user manual is the
+next step.  It goes in to more detail on how to set up and solve
+finite element problems in Firedrake.
+
+.. toctree::
+   :maxdepth: 2
+
+   variational-problems
+   solving-interface
 
 API documentation
 =================
