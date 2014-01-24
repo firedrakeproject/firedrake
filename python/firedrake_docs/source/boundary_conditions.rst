@@ -1,7 +1,9 @@
 .. default-role:: math
 
-Boundary conditions
-===================
+.. contents::
+
+Dirichlet boundary conditions
+=============================
 
 Mathematical background
 -----------------------
@@ -127,8 +129,8 @@ rows of `J`:
 
 .. math::
 
-   J_{ij} = \begin{cases} 1 & i=j\ \text{and}\ \phi_j\in \phi^\Gamma\\
-   0 & i\neq j\ \text{and}\ \phi_j\in \phi^\Gamma\end{cases}
+   J_{ij} = \begin{cases} 1 & i=j\ \text{and}\ \phi_i\in \phi^\Gamma\\
+   0 & i\neq j\ \text{and}\ \phi_i\in \phi^\Gamma\end{cases}
 
 In other words, the rows of `J` corresponding to the boundary
 condition nodes are replaced by the corresponding rows of the identity
@@ -167,10 +169,10 @@ Next, let's consider a 4-way decomposition of J. Define:
    0 & \text{otherwise}\end{cases}
 
    J^{0\Gamma}_{ij} = \begin{cases} J_{ij} = 0 & \phi_i\in\phi^0,\phi_j\in \phi^\Gamma\\
-   0 & \text{otherwise}\end{cases} = 0
+   0 & \text{otherwise}\end{cases} 
 
    J^{\Gamma0}_{ij} = \begin{cases} J_{ij} & \phi_i\in\phi^\Gamma,\phi_j\in \phi^0\\
-   0 & \text{otherwise}\end{cases}
+   0 & \text{otherwise}\end{cases} = 0
 
    J^{\Gamma\Gamma}_{ij} = \begin{cases} J_{ij} = \delta_{ij} & \phi_i,\phi_j\in \phi^\Gamma\\
    0 & \text{otherwise}\end{cases}
@@ -179,10 +181,85 @@ Clearly we may write:
 
 .. math::
 
-   J = J^{00} + \underbrace{J^{0\Gamma}}_{=0} + J^{\Gamma0} + J^{\Gamma\Gamma} 
+   J = J^{00} + J^{0\Gamma} + \underbrace{J^{\Gamma0}}_{=0} + J^{\Gamma\Gamma} 
+
+As an illustration, assume in some example that the nodes are numbered first in the global system, followed by the remaining nodes. Then (disregarding parts of the matrices which are zero), we can write:
+
+.. math::
+
+   J  = \begin{bmatrix} J^{\Gamma\Gamma} & J^{\Gamma0} \\
+   J^{0\Gamma} & J^{00} \end{bmatrix}
+   =
+   \begin{bmatrix} \mathrm{I} & 0 \\
+   J^{0\Gamma} & J^{00} \end{bmatrix}
+
+Note again that this is merely illustrative: the decomposition of J
+works in exactly the same way for any numbering of the nodes.
 
 Using forward substitution, this enables us to rewrite the linear system as:
 
 .. math:: 
 
    (J^{00} + J^{\Gamma\Gamma})\hat{\mathrm{U}} = \mathrm{F}(u) - J^{\Gamma0}\hat{\mathrm{U}}^\Gamma
+
+We can now make two observations. First, the matrix $J^{00} + J^{\Gamma\Gamma}$ preserves the symmetry of $J$. That is to say, if $J$ has any of the following properties, then $J^{00} + J^{\Gamma\Gamma}$ will too:
+
+ * symmetry
+ * positive (semi-)definiteness
+ * skew-symmetry
+ * diagonally dominance
+
+Second, if the initial value of $u$ passed into the Newton iteration
+satisfies the Dirichlet boundary conditions, then
+`\hat{\mathrm{U}}^\Gamma=0` at every stage of the algorithm. Hence the
+system to be solved at each iteration is:
+
+.. math:: 
+
+   (J^{00} + J^{\Gamma\Gamma})\hat{\mathrm{U}} = \mathrm{F}(u)
+
+A similar argument applies to other nonlinear solution algorithms such
+as line search Newton. 
+
+Implementation
+--------------
+
+Variational problems
+~~~~~~~~~~~~~~~~~~~~
+
+Both linear and nonlinear PDEs are solved in residual form in
+Firedrake using the PETSc SNES interface. In the case of linear
+systems, a single step of Newton is employed. 
+
+In the following we will use ``F`` for the residual :class:`~ufl.Form`
+and ``J`` for the Jacobian :class:`~ufl.form.Form`. In both cases these
+forms do not include the Dirichlet boundary conditions. Additionally
+``u`` will be the solution :class:`~firedrake.core_types.Function`.
+
+Strong boundary conditions are applied as follows:
+
+1. Before the solver starts, the initial value ``u`` provided by the
+   user is modified at the boundary condition nodes to satisfy the
+   boundary conditions.
+
+2. Each time the solver assembles the Jacobian matrix, the following happens. 
+
+   a) ``J`` is assembled using modified indirection maps in which the
+      boundary condition node indices have been replaced by negative
+      values. PETSc interprets these negative indices as an
+      instruction to drop the corresponding entry. The result is the matrix `J^{00}`.
+
+   b) The boundary node row diagonal entries of ``J`` are set
+      to 1. This produces the matrix `J^{00} + J^{\Gamma\Gamma}`
+   
+3. Each time the solver assembles the residual, the following happens.
+   
+   a) ``F`` is assembled using unmodified indirection maps taking no
+      account of the boundary conditions. This results in an assembled
+      residual which is correct on the non-boundary condition nodes but
+      contains spurious values in the non-boundary condition entries.
+
+   b) The entries of ``F`` corresponding to boundary condition nodes
+      are set to zero.
+
+
