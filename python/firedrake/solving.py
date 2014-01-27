@@ -29,6 +29,7 @@ import numpy
 import ufl
 from ufl_expr import derivative
 from pyop2 import op2, ffc_interface
+from pyop2.logger import progress, INFO
 import core_types
 import types
 from assemble_expressions import assemble_expression
@@ -583,7 +584,8 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
             bc.apply(u_bc)
         # don't want to write into b itself, because that would confuse user
         b = u_bc
-    solver.solve(A.M, x.dat, b.dat)
+    with progress(INFO, 'Solving linear system'):
+        solver.solve(A.M, x.dat, b.dat)
     x.dat.halo_exchange_begin()
     x.dat.halo_exchange_end()
 
@@ -698,7 +700,8 @@ def _solve_varproblem(*args, **kwargs):
 
         # Create solver and call solve
         solver = LinearVariationalSolver(problem, parameters=solver_parameters)
-        solver.solve()
+        with progress(INFO, 'Solving linear variational problem'):
+            solver.solve()
 
     # Solve nonlinear variational problem
     else:
@@ -709,7 +712,9 @@ def _solve_varproblem(*args, **kwargs):
 
         # Create solver and call solve
         solver = NonlinearVariationalSolver(problem, parameters=solver_parameters)
-        solver.solve()
+        with progress(INFO, 'Solving nonlinear variational problem'):
+            solver.solve()
+
     # destroy snes part of solver so everything can be gc'd
     solver.destroy()
 
