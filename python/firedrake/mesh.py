@@ -202,6 +202,25 @@ class UnitSquareMesh(Mesh):
         boundary.setDimension(1)
         boundary.createSquareBoundary([0., 0.], [1., 1.], [nx, ny])
         dmplex = PETSc.DMPlex().generate(boundary)
+
+        # Apply boundary IDs
+        dmplex.createLabel("boundary_ids")
+        dmplex.markBoundaryFaces("boundary_faces")
+        coords = dmplex.getCoordinates()
+        coord_sec = dmplex.getCoordinateSection()
+        if dmplex.getStratumSize("boundary_faces", 1) > 0:
+            boundary_faces = dmplex.getStratumIS("boundary_faces", 1).getIndices()
+            for face in boundary_faces:
+                face_coords = dmplex.vecGetClosure(coord_sec, coords, face)
+                if face_coords[0] == 0. and face_coords[2] == 0.:
+                    dmplex.setLabelValue("boundary_ids", face, 1)
+                if face_coords[0] == 1. and face_coords[2] == 1.:
+                    dmplex.setLabelValue("boundary_ids", face, 2)
+                if face_coords[1] == 0. and face_coords[3] == 0.:
+                    dmplex.setLabelValue("boundary_ids", face, 3)
+                if face_coords[1] == 1. and face_coords[3] == 1.:
+                    dmplex.setLabelValue("boundary_ids", face, 4)
+
         super(UnitSquareMesh, self).__init__(self.name, plex=dmplex)
 
 
@@ -235,6 +254,29 @@ class UnitCubeMesh(Mesh):
         boundary.setDimension(2)
         boundary.createCubeBoundary([0., 0., 0.], [1., 1., 1.], [nx, ny, nz])
         dmplex = PETSc.DMPlex().generate(boundary)
+
+        # Apply boundary IDs
+        dmplex.createLabel("boundary_ids")
+        dmplex.markBoundaryFaces("boundary_faces")
+        coords = dmplex.getCoordinates()
+        coord_sec = dmplex.getCoordinateSection()
+        if dmplex.getStratumSize("boundary_faces", 1) > 0:
+            boundary_faces = dmplex.getStratumIS("boundary_faces", 1).getIndices()
+            for face in boundary_faces:
+                face_coords = dmplex.vecGetClosure(coord_sec, coords, face)
+                if face_coords[0] == 0. and face_coords[3] == 0. and face_coords[6] == 0.:
+                    dmplex.setLabelValue("boundary_ids", face, 1)
+                if face_coords[0] == 1. and face_coords[3] == 1. and face_coords[6] == 1.:
+                    dmplex.setLabelValue("boundary_ids", face, 2)
+                if face_coords[1] == 0. and face_coords[4] == 0. and face_coords[7] == 0.:
+                    dmplex.setLabelValue("boundary_ids", face, 3)
+                if face_coords[1] == 1. and face_coords[4] == 1. and face_coords[7] == 1.:
+                    dmplex.setLabelValue("boundary_ids", face, 4)
+                if face_coords[2] == 0. and face_coords[5] == 0. and face_coords[8] == 0.:
+                    dmplex.setLabelValue("boundary_ids", face, 5)
+                if face_coords[2] == 1. and face_coords[5] == 1. and face_coords[8] == 1.:
+                    dmplex.setLabelValue("boundary_ids", face, 6)
+
         super(UnitCubeMesh, self).__init__(self.name, plex=dmplex)
 
 

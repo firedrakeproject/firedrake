@@ -695,9 +695,6 @@ class Mesh(object):
         self._cells = np.array([self._plex.getCone(c) for c in range(cStart, cEnd)])
         self._vertex_numbering = None
 
-        # TODO: Add boundary ID support
-        boundary_ids = None
-
         # Exterior facets
         if self._plex.getStratumSize("exterior_facets", 1) > 0:
             # OP2 facet numbering requires a universal vertex numbering
@@ -706,6 +703,15 @@ class Mesh(object):
                 self._vertex_numbering = vertex_fs._universal_numbering
 
             exterior_facets = self._plex.getStratumIS("exterior_facets", 1).getIndices()
+
+            # Derive attached boundary IDs
+            if self._plex.hasLabel("boundary_ids"):
+                boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
+                for i, facet in enumerate(exterior_facets):
+                    boundary_ids[i] = self._plex.getLabelValue("boundary_ids", facet)
+            else:
+                boundary_ids = None
+
             exterior_facet_cell = np.array([self._plex.getSupport(f) for f in exterior_facets])
             get_f_no = lambda f: plex_facet_numbering(self._plex, self._vertex_numbering, f)
             exterior_local_facet_number = np.array([get_f_no(f) for f in exterior_facets])
