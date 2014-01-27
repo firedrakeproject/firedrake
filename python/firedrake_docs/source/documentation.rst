@@ -52,6 +52,7 @@ finite element problems in Firedrake.
 
    variational-problems
    solving-interface
+   boundary_conditions
 
 API documentation
 =================
