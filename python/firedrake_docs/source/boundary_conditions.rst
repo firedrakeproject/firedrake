@@ -209,14 +209,14 @@ Using forward substitution, this enables us to rewrite the linear system as:
 
    (J^{00} + J^{\Gamma\Gamma})\hat{\mathrm{U}} = \mathrm{F}(u) - J^{\Gamma0}\hat{\mathrm{U}}^\Gamma
 
-We can now make two observations. First, the matrix $J^{00} + J^{\Gamma\Gamma}$ preserves the symmetry of $J$. That is to say, if $J$ has any of the following properties, then $J^{00} + J^{\Gamma\Gamma}$ will too:
+We can now make two observations. First, the matrix `J^{00} + J^{\Gamma\Gamma}` preserves the symmetry of `J`. That is to say, if `J` has any of the following properties, then `J^{00} + J^{\Gamma\Gamma}` will too:
 
  * symmetry
  * positive (semi-)definiteness
  * skew-symmetry
  * diagonally dominance
 
-Second, if the initial value of $u$ passed into the Newton iteration
+Second, if the initial value of `u` passed into the Newton iteration
 satisfies the Dirichlet boundary conditions, then
 `\hat{\mathrm{U}}^\Gamma=0` at every stage of the algorithm. Hence the
 system to be solved at each iteration is:
@@ -269,4 +269,34 @@ Strong boundary conditions are applied as follows:
    b) The entries of ``F`` corresponding to boundary condition nodes
       are set to zero.
 
+Linear systems
+~~~~~~~~~~~~~~
 
+Linear systems (ie systems in which the matrix is pre-assembled) are
+solved with boundary conditions as follows:
+
+1. When the user calls ``assemble(a)`` to assemble the bilinear form
+   ``a``, no actual assembly takes place. Instead, Firedrake returns a
+   :class:`~firedrake.types.Matrix` object that records the fact that it is
+   intended to be assembled from ``a``.
+
+2. At the :func:`~firedrake.solving.solve` call, Firedrake determines which
+   boundary conditions to apply in the following priority order:
+   first, boundary conditions supplied to the
+   :func:`~firedrake.solving.solve` call. If no boundary conditions are
+   supplied to the :func:`~firedrake.solving.solve` call, then any boundary
+   conditions applied when :func:`~firedrake.solving.assemble` was called
+   on A.
+
+3. In the linear system case, the Jacobian :class:`~ufl.form.Form` is
+   ``a``. Using this and the boundary conditions, Firedrake assembles
+   and solves:
+
+.. math::
+
+   (J^{00} + J^{\Gamma\Gamma})\hat{\mathrm{U}} = \mathrm{F}(u) - J^{\Gamma0}\hat{\mathrm{U}}^\Gamma
+
+4. The matrix assembled is then stored in the
+   :class:`~firedrake.types.Matrix` so that reassembly is avoided if the
+   matrix is used in another :func:`~firedrake.solving.solve` call with
+   the same boundary conditions.
