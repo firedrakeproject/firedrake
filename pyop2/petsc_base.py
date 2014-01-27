@@ -123,7 +123,14 @@ class MixedDat(base.MixedDat):
 
         :param readonly: Access the data read-only (use :meth:`Dat.data_ro`)
                          or read-write (use :meth:`Dat.data`). Read-write
-                         access requires a halo update."""
+                         access requires a halo update.
+
+        .. note::
+
+           The :class:`~PETSc.Vec` obtained from this context is in
+           the correct order to be left multiplied by a compatible
+           :class:`MixedMat`.  In parallel it is *not* just a
+           concatenation of the underlying :class:`Dat`\s."""
 
         acc = (lambda d: d.vec_ro) if readonly else (lambda d: d.vec)
         # Allocate memory for the contiguous vector, create the scatter
@@ -135,10 +142,18 @@ class MixedDat(base.MixedDat):
             self._vec.setSizes((sz, None))
             self._vec.setUp()
             self._sctxs = []
-            offset = 0
-            # We need one scatter context per component. The entire array is
-            # scattered to the appropriate contiguous chunk of memory in the
-            # full vector
+            # To be compatible with a MatNest (from a MixedMat) the
+            # ordering of a MixedDat constructed of Dats (x_0, ..., x_k)
+            # on P processes is:
+            # (x_0_0, x_1_0, ..., x_k_0, x_0_1, x_1_1, ..., x_k_1, ..., x_k_P)
+            # That is, all the Dats from rank 0, followed by those of
+            # rank 1, ...
+            # Hence the offset into the global Vec is the exclusive
+            # prefix sum of the local size of the mixed dat.
+            offset = MPI.comm.exscan(sz)
+            if offset is None:
+                offset = 0
+
             for d in self._dats:
                 sz = d.dataset.size * d.dataset.cdim
                 with acc(d) as v:
