@@ -194,6 +194,7 @@ class Mat(base.Mat):
             self._init_nest()
         else:
             self._init_block()
+        self._ever_assembled = False
 
     def _init_nest(self):
         mat = PETSc.Mat()
@@ -252,8 +253,6 @@ class Mat(base.Mat):
         # Do not stash entries destined for other processors, just drop them
         # (we take care of those in the halo)
         mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, True)
-        # Do not create a zero location when adding a zero value
-        mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
         # Any add or insertion that would generate a new entry that has not
         # been preallocated will raise an error
         mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
@@ -330,6 +329,20 @@ class Mat(base.Mat):
 
     @collective
     def _assemble(self):
+        if not self._ever_assembled and MPI.parallel:
+            # add zero to diagonal entries (so they're not compressed out
+            # in the assembly).  This is necessary for parallel where we
+            # currently don't give an exact sparsity pattern.
+            rows, cols = self.sparsity.shape
+            for i in range(rows):
+                if i < cols:
+                    v = self[i, i].handle.createVecLeft()
+                    self[i, i].handle.setDiagonal(v, addv=PETSc.InsertMode.ADD_VALUES)
+            self._ever_assembled = True
+        # Now that we've filled up the sparsity pattern, we can ignore
+        # zero entries for MatSetValues calls.
+        # Do not create a zero location when adding a zero value
+        self._handle.setOption(self._handle.Option.IGNORE_ZERO_ENTRIES, True)
         self.handle.assemble()
 
     @property
