@@ -108,6 +108,12 @@ class NonlinearVariationalSolver(object):
         self._jac_ptensor = self._jac_tensor
         test = self._problem.F_ufl.compute_form_data().original_arguments[0]
         self._F_tensor = core_types.Function(test.function_space())
+        # Function to hold current guess
+        self._x = core_types.Function(self._problem.u_ufl)
+        self._problem.F_ufl = ufl.replace(self._problem.F_ufl, {self._problem.u_ufl:
+                                                                self._x})
+        self._problem.J_ufl = ufl.replace(self._problem.J_ufl, {self._problem.u_ufl:
+                                                                self._x})
         self.snes = PETSc.SNES().create()
         self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
         NonlinearVariationalSolver._id += 1
@@ -141,32 +147,38 @@ class NonlinearVariationalSolver(object):
                               P=self._jac_ptensor._M.handle)
 
     def form_function(self, snes, X_, F_):
-        with self._problem.u_ufl.dat.vec as v:
+        # X_ may not be the same vector as the vec behind self._x, so
+        # copy guess in from X_.
+        with self._x.dat.vec as v:
             if v != X_:
-                X_.copy(v)
+                with v as _v, X_ as _x:
+                    _v[:] = _x[:]
         # PETSc doesn't know about the halo regions in our dats, so
         # when it updates the guess it only does so on the local
         # portion. So ensure we do a halo update before assembling.
         # Note that this happens even when the u_ufl vec is aliased to
         # X_, hence this not being inside the if above.
-        self._problem.u_ufl.dat.needs_halo_update = True
+        self._x.dat.needs_halo_update = True
         assemble(self._problem.F_ufl, tensor=self._F_tensor)
         for bc in self._problem.bcs:
             bc.apply(self._F_tensor, self._problem.u_ufl)
 
+        # F_ may not be the same vector as self._F_tensor, so copy
+        # residual out to F_.
         with self._F_tensor.dat.vec_ro as v:
             if F_ != v:
-                # For some reason, self._F_tensor.dat.vec.copy(F_) gives
-                # me diverged line searches in the SNES solver.  So do
-                # aypx with alpha == 0, which is the same thing.  This works!
-                F_.aypx(0, v)
+                with v as _v, F_ as _f:
+                    _f[:] = _v[:]
 
     def form_jacobian(self, snes, X_, J_, P_):
-        with self._problem.u_ufl.dat.vec as v:
+        # X_ may not be the same vector as the vec behind self._x, so
+        # copy guess in from X_.
+        with self._x.dat.vec as v:
             if v != X_:
-                X_.copy(v)
+                with v as _v, X_ as _x:
+                    _v[:] = _x[:]
         # Ensure guess has correct halo data.
-        self._problem.u_ufl.dat.needs_halo_update = True
+        self._x.dat.needs_halo_update = True
         assemble(self._problem.J_ufl,
                  tensor=self._jac_ptensor,
                  bcs=self._problem.bcs)

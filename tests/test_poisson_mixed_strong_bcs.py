@@ -24,7 +24,6 @@ the weak formulation of the right hand side as
     42*dot(tau, n)*ds
 """
 
-import pytest
 from firedrake import *
 
 
@@ -66,7 +65,6 @@ def test_poisson_mixed():
     assert poisson_mixed(3)[0] < 2e-5
 
 
-@pytest.mark.xfail
 def test_poisson_mixed_monitor():
     assert poisson_mixed(3, parameters={'snes_monitor': True})[0] < 2e-5
 
