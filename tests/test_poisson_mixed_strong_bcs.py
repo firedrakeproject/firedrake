@@ -24,10 +24,11 @@ the weak formulation of the right hand side as
     42*dot(tau, n)*ds
 """
 
+import pytest
 from firedrake import *
 
 
-def poisson_mixed(size):
+def poisson_mixed(size, parameters={}):
     # Create mesh
     mesh = UnitSquareMesh(2 ** size, 2 ** size)
 
@@ -53,7 +54,7 @@ def poisson_mixed(size):
     bcs = DirichletBC(W.sub(0), Expression(('0', '0')), (1, 2))
     # Compute solution
     w = Function(W)
-    solve(a == L, w, bcs=bcs)
+    solve(a == L, w, bcs=bcs, solver_parameters=parameters)
     sigma, u = w.split()
 
     # Analytical solution
@@ -63,6 +64,11 @@ def poisson_mixed(size):
 
 def test_poisson_mixed():
     assert poisson_mixed(3)[0] < 2e-5
+
+
+@pytest.mark.xfail
+def test_poisson_mixed_monitor():
+    assert poisson_mixed(3, parameters={'snes_monitor': True})[0] < 2e-5
 
 
 if __name__ == '__main__':
