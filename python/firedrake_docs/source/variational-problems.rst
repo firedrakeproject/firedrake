@@ -43,7 +43,7 @@ of standard shapes.  The simplest is a
 :py:class:`~firedrake.mesh.UnitIntervalMesh` which is a regularly
 subdivided unit line.  We may also build square meshes with the
 :py:class:`~firedrake.mesh.UnitSquareMesh` constructor, and cube
-meshes with :py:class:`~firedrake.mesh.UnitTetrahedronMesh`.
+meshes with :py:class:`~firedrake.mesh.UnitCubeMesh`.
 
 Immersed manifolds
 ~~~~~~~~~~~~~~~~~~
