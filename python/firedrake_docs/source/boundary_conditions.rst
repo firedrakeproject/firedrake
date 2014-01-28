@@ -40,7 +40,7 @@ In the general case, `F` will be always linear in `v` but
 may be nonlinear in `u`.
 
 When we impose a strong (Dirichlet, essential) boundary condition on
-`u`, we are substituting constraint:
+`u`, we are substituting the constraint:
 
 .. math::
 
@@ -56,11 +56,11 @@ first split the function space `V`:
 
 where `V_\Gamma` is the space spanned by those functions in the
 basis of `V` which are non-zero on `\Gamma_D`, and
-`V_0` is the space spanned by the remaining basis functions (ie
+`V_0` is the space spanned by the remaining basis functions (i.e.
 those basis functions which vanish on `\Gamma_D`).
 
 In Firedrake we always have a nodal basis for `V`, `\phi_V
-= \{\phi_i\}` and we will write `\phi^0` and
+= \{\phi_i\}`, and we will write `\phi^0` and
 `\phi^\Gamma` for the subsets of that basis which span
 `V_0` and `V_\Gamma` respectively.
 
@@ -103,7 +103,7 @@ solver. Firedrake applies this solution strategy to linear equations
 too, although in that case only one iteration of the nonlinear solver
 will ever be required or executed.
 
-We write `u = u_i\phi_i` as the current interaction of the
+We write `u = u_i\phi_i` as the current iteration of the
 solution and write `\mathrm{U}` for the vector whose components
 are the coefficients `u_i`. Similarly, we write `u^*` for
 the next iterate and `\mathrm{U}^*` for the vector of its
@@ -113,7 +113,7 @@ coefficients. Then a single step of Newton is given by:
 
    \mathrm{U}^* = \mathrm{U} - J^{-1} \mathrm{F}(u)
 
-where `\mathrm{F}(u)_i = \hat F(u; \phi_i)` and where
+where `\mathrm{F}(u)_i = \hat F(u; \phi_i)` and
 `J` is the Jacobian matrix defined by the Gâteaux derivative of
 `F`:
 
@@ -127,7 +127,7 @@ The actual Jacobian matrix is given by:
  
 .. math::
 
-   J_{ij} = dF(u, \phi_i, \phi_j)
+   J_{ij} = dF(u; \phi_i, \phi_j)
 
 where `\phi_i`, `\phi_j` are the ith and jth 
 basis functions of `V`. Our definition of the modified residual
@@ -178,8 +178,8 @@ Next, let's consider a 4-way decomposition of J. Define:
    J^{0\Gamma}_{ij} = \begin{cases} J_{ij} = 0 & \phi_i\in\phi^0,\phi_j\in \phi^\Gamma\\
    0 & \text{otherwise}\end{cases} 
 
-   J^{\Gamma0}_{ij} = \begin{cases} J_{ij} & \phi_i\in\phi^\Gamma,\phi_j\in \phi^0\\
-   0 & \text{otherwise}\end{cases} = 0
+   J^{\Gamma0}_{ij} = \begin{cases} J_{ij}  & \phi_i\in\phi^\Gamma,\phi_j\in \phi^0\\
+   0 & \text{otherwise}\end{cases} 
 
    J^{\Gamma\Gamma}_{ij} = \begin{cases} J_{ij} = \delta_{ij} & \phi_i,\phi_j\in \phi^\Gamma\\
    0 & \text{otherwise}\end{cases}
@@ -190,7 +190,10 @@ Clearly we may write:
 
    J = J^{00} + J^{0\Gamma} + \underbrace{J^{\Gamma0}}_{=0} + J^{\Gamma\Gamma} 
 
-As an illustration, assume in some example that the nodes are numbered first in the global system, followed by the remaining nodes. Then (disregarding parts of the matrices which are zero), we can write:
+As an illustration, assume in some example that the boundary nodes are
+numbered first in the global system, followed by the remaining
+nodes. Then (disregarding parts of the matrices which are zero), we
+can write:
 
 .. math::
 
@@ -207,14 +210,17 @@ Using forward substitution, this enables us to rewrite the linear system as:
 
 .. math:: 
 
-   (J^{00} + J^{\Gamma\Gamma})\hat{\mathrm{U}} = \mathrm{F}(u) - J^{\Gamma0}\hat{\mathrm{U}}^\Gamma
+   (J^{00} + J^{\Gamma\Gamma})\hat{\mathrm{U}} = \mathrm{F}(u) - J^{0\Gamma}\hat{\mathrm{U}}^\Gamma
 
-We can now make two observations. First, the matrix `J^{00} + J^{\Gamma\Gamma}` preserves the symmetry of `J`. That is to say, if `J` has any of the following properties, then `J^{00} + J^{\Gamma\Gamma}` will too:
+We can now make two observations. First, the matrix `J^{00} +
+J^{\Gamma\Gamma}` preserves the symmetry of `J`. That is to say, if
+`J` has any of the following properties, then `J^{00} +
+J^{\Gamma\Gamma}` will too:
 
  * symmetry
  * positive (semi-)definiteness
  * skew-symmetry
- * diagonally dominance
+ * diagonal dominance
 
 Second, if the initial value of `u` passed into the Newton iteration
 satisfies the Dirichlet boundary conditions, then
@@ -264,7 +270,7 @@ Strong boundary conditions are applied as follows:
    a) ``F`` is assembled using unmodified indirection maps taking no
       account of the boundary conditions. This results in an assembled
       residual which is correct on the non-boundary condition nodes but
-      contains spurious values in the non-boundary condition entries.
+      contains spurious values in the boundary condition entries.
 
    b) The entries of ``F`` corresponding to boundary condition nodes
       are set to zero.
@@ -280,13 +286,15 @@ solved with boundary conditions as follows:
    :class:`~firedrake.types.Matrix` object that records the fact that it is
    intended to be assembled from ``a``.
 
-2. At the :func:`~firedrake.solving.solve` call, Firedrake determines which
-   boundary conditions to apply in the following priority order:
+2. At the :func:`~firedrake.solving.solve` call, Firedrake determines
+   which boundary conditions to apply in the following priority order:
    first, boundary conditions supplied to the
-   :func:`~firedrake.solving.solve` call. If no boundary conditions are
-   supplied to the :func:`~firedrake.solving.solve` call, then any boundary
-   conditions applied when :func:`~firedrake.solving.assemble` was called
-   on A.
+   :func:`~firedrake.solving.solve` call. If no boundary conditions
+   are supplied to the :func:`~firedrake.solving.solve` call, then any
+   boundary conditions applied when
+   :func:`~firedrake.solving.assemble` was called on A are used, as
+   are any boundary conditions subsequently added with
+   :meth:`~firedrake.bcs.DiricletBC.apply`.
 
 3. In the linear system case, the Jacobian :class:`~ufl.form.Form` is
    ``a``. Using this and the boundary conditions, Firedrake assembles
