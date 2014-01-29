@@ -123,7 +123,14 @@ class MixedDat(base.MixedDat):
 
         :param readonly: Access the data read-only (use :meth:`Dat.data_ro`)
                          or read-write (use :meth:`Dat.data`). Read-write
-                         access requires a halo update."""
+                         access requires a halo update.
+
+        .. note::
+
+           The :class:`~PETSc.Vec` obtained from this context is in
+           the correct order to be left multiplied by a compatible
+           :class:`MixedMat`.  In parallel it is *not* just a
+           concatenation of the underlying :class:`Dat`\s."""
 
         acc = (lambda d: d.vec_ro) if readonly else (lambda d: d.vec)
         # Allocate memory for the contiguous vector, create the scatter
@@ -135,10 +142,18 @@ class MixedDat(base.MixedDat):
             self._vec.setSizes((sz, None))
             self._vec.setUp()
             self._sctxs = []
-            offset = 0
-            # We need one scatter context per component. The entire array is
-            # scattered to the appropriate contiguous chunk of memory in the
-            # full vector
+            # To be compatible with a MatNest (from a MixedMat) the
+            # ordering of a MixedDat constructed of Dats (x_0, ..., x_k)
+            # on P processes is:
+            # (x_0_0, x_1_0, ..., x_k_0, x_0_1, x_1_1, ..., x_k_1, ..., x_k_P)
+            # That is, all the Dats from rank 0, followed by those of
+            # rank 1, ...
+            # Hence the offset into the global Vec is the exclusive
+            # prefix sum of the local size of the mixed dat.
+            offset = MPI.comm.exscan(sz)
+            if offset is None:
+                offset = 0
+
             for d in self._dats:
                 sz = d.dataset.size * d.dataset.cdim
                 with acc(d) as v:
@@ -194,6 +209,7 @@ class Mat(base.Mat):
             self._init_nest()
         else:
             self._init_block()
+        self._ever_assembled = False
 
     def _init_nest(self):
         mat = PETSc.Mat()
@@ -252,8 +268,6 @@ class Mat(base.Mat):
         # Do not stash entries destined for other processors, just drop them
         # (we take care of those in the halo)
         mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, True)
-        # Do not create a zero location when adding a zero value
-        mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
         # Any add or insertion that would generate a new entry that has not
         # been preallocated will raise an error
         mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
@@ -329,7 +343,42 @@ class Mat(base.Mat):
                 self.handle.setDiagonal(v)
 
     @collective
+    def inc_local_diagonal_entries(self, rows, diag_val=1.0):
+        """Increment the diagonal entry in ``rows`` by a particular value.
+
+        :param rows: a :class:`Subset` or an iterable.
+        :param diag_val: the value to add
+
+        The indices in ``rows`` should index the process-local rows of
+        the matrix (no mapping to global indexes is applied).
+
+        The diagonal entries corresponding to the complement of rows
+        are incremented by zero.
+        """
+        base._trace.evaluate(set([self]), set([self]))
+        vec = self.handle.createVecLeft()
+        vec.setOption(vec.Option.IGNORE_OFF_PROC_ENTRIES, True)
+        with vec as array:
+            rows = rows[rows < self.sparsity.rmaps[0].toset.size]
+            array[rows] = diag_val
+        self.handle.setDiagonal(vec, addv=PETSc.InsertMode.ADD_VALUES)
+
+    @collective
     def _assemble(self):
+        if not self._ever_assembled and MPI.parallel:
+            # add zero to diagonal entries (so they're not compressed out
+            # in the assembly).  This is necessary for parallel where we
+            # currently don't give an exact sparsity pattern.
+            rows, cols = self.sparsity.shape
+            for i in range(rows):
+                if i < cols:
+                    v = self[i, i].handle.createVecLeft()
+                    self[i, i].handle.setDiagonal(v, addv=PETSc.InsertMode.ADD_VALUES)
+            self._ever_assembled = True
+        # Now that we've filled up the sparsity pattern, we can ignore
+        # zero entries for MatSetValues calls.
+        # Do not create a zero location when adding a zero value
+        self._handle.setOption(self._handle.Option.IGNORE_ZERO_ENTRIES, True)
         self.handle.assemble()
 
     @property

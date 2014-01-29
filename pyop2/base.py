@@ -1961,6 +1961,16 @@ class MixedDat(Dat):
         for d in self._dats:
             d.needs_halo_update = val
 
+    @collective
+    def halo_exchange_begin(self):
+        for s in self._dats:
+            s.halo_exchange_begin()
+
+    @collective
+    def halo_exchange_end(self):
+        for s in self._dats:
+            s.halo_exchange_end()
+
     def zero(self):
         """Zero the data associated with this :class:`MixedDat`."""
         for d in self._dats:
