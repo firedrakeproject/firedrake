@@ -158,3 +158,6 @@ def CellSize(mesh):
     """
     cell = mesh.ufl_cell()
     return 2.0 * cell.circumradius
+
+def FacetNormal(mesh):
+    return ufl.FacetNormal(mesh.ufl_cell())

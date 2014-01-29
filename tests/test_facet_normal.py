@@ -9,7 +9,7 @@ def test_facet_normal_unit_interval():
     m = UnitIntervalMesh(2)
     V = VectorFunctionSpace(m, 'CG', 1)
     x_hat = Function(V).interpolate(Expression(('1.0',)))
-    n = FacetNormal(m.ufl_cell())
+    n = FacetNormal(m)
 
     assert assemble(dot(x_hat, n)*ds(1)) == -1.0   # x = 0
     assert assemble(dot(x_hat, n)*ds(2)) == 1.0  # x = 1
@@ -22,7 +22,7 @@ def test_facet_normal_unit_square():
     V = VectorFunctionSpace(m, 'CG', 1)
     x_hat = Function(V).interpolate(Expression(('1', '0')))
     y_hat = Function(V).interpolate(Expression(('0', '1')))
-    n = FacetNormal(m.ufl_cell())
+    n = FacetNormal(m)
 
     assert assemble(dot(x_hat, n)*ds(1)) == -1.0  # x = 0
     assert assemble(dot(x_hat, n)*ds(2)) == 1.0   # x = 1
@@ -43,7 +43,7 @@ def test_facet_normal_unit_cube():
     x_hat = Function(V).interpolate(Expression(('1', '0', '0')))
     y_hat = Function(V).interpolate(Expression(('0', '1', '0')))
     z_hat = Function(V).interpolate(Expression(('0', '0', '1')))
-    n = FacetNormal(m.ufl_cell())
+    n = FacetNormal(m)
 
     assert abs(assemble(dot(x_hat, n)*ds(1)) + 1.0) < 1e-14  # x = 0
     assert abs(assemble(dot(x_hat, n)*ds(2)) - 1.0) < 1e-14  # x = 1
