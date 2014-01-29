@@ -72,7 +72,7 @@ def _init():
     :func:`pyop2.init` if she wants to set a non-default option, for example
     to switch the backend or the debug or log level."""
     if not op2.initialised():
-        op2.init()
+        op2.init(log_level='INFO')
 
 def fiat_from_ufl_element(ufl_element):
     if isinstance(ufl_element, ufl.EnrichedElement):
