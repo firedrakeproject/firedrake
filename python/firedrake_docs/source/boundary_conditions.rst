@@ -294,7 +294,7 @@ solved with boundary conditions as follows:
    boundary conditions applied when
    :func:`~firedrake.solving.assemble` was called on A are used, as
    are any boundary conditions subsequently added with
-   :meth:`~firedrake.bcs.DiricletBC.apply`.
+   :meth:`~firedrake.bcs.DirichletBC.apply`.
 
 3. In the linear system case, the Jacobian :class:`~ufl.form.Form` is
    ``a``. Using this and the boundary conditions, Firedrake assembles
