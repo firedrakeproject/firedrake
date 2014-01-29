@@ -159,5 +159,10 @@ def CellSize(mesh):
     cell = mesh.ufl_cell()
     return 2.0 * cell.circumradius
 
+
 def FacetNormal(mesh):
+    """A symbolic representation of the facet normal on a cell in a mesh.
+
+    :arg mesh: the mesh over which the normal should be represented.
+    """
     return ufl.FacetNormal(mesh.ufl_cell())
