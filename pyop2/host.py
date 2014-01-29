@@ -39,6 +39,7 @@ from textwrap import dedent
 import base
 from base import *
 from configuration import configuration
+from logger import progress, INFO
 from utils import as_tuple
 
 
@@ -566,18 +567,20 @@ class JITModule(base.JITModule):
         # We need to build with mpicc since that's required by PETSc
         cc = os.environ.get('CC')
         os.environ['CC'] = 'mpicc'
-        self._fun = inline_with_numpy(
-            code_to_compile, additional_declarations=kernel_code,
-            additional_definitions=_const_decs + kernel_code,
-            cppargs=self._cppargs + (['-O0', '-g'] if configuration["debug"] else []),
-            include_dirs=[d + '/include' for d in get_petsc_dir()],
-            source_directory=os.path.dirname(os.path.abspath(__file__)),
-            wrap_headers=["mat_utils.h"],
-            system_headers=self._system_headers,
-            library_dirs=[d + '/lib' for d in get_petsc_dir()],
-            libraries=['petsc'] + self._libraries,
-            sources=["mat_utils.cxx"],
-            modulename=self._kernel.name if configuration["debug"] else None)
+
+        with progress(INFO, 'Compiling kernel %s', self._kernel.name):
+            self._fun = inline_with_numpy(
+                code_to_compile, additional_declarations=kernel_code,
+                additional_definitions=_const_decs + kernel_code,
+                cppargs=self._cppargs + (['-O0', '-g'] if configuration["debug"] else []),
+                include_dirs=[d + '/include' for d in get_petsc_dir()],
+                source_directory=os.path.dirname(os.path.abspath(__file__)),
+                wrap_headers=["mat_utils.h"],
+                system_headers=self._system_headers,
+                library_dirs=[d + '/lib' for d in get_petsc_dir()],
+                libraries=['petsc'] + self._libraries,
+                sources=["mat_utils.cxx"],
+                modulename=self._kernel.name if configuration["debug"] else None)
         if cc:
             os.environ['CC'] = cc
         else:

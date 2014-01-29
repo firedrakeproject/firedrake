@@ -33,6 +33,7 @@
 
 """The PyOP2 logger, based on the Python standard library logging module."""
 
+from contextlib import contextmanager
 import logging
 from mpi import MPI
 
@@ -95,3 +96,26 @@ def log(level, msg, *args, **kwargs):
     :arg msg: the message '''
 
     logger.log(level, msg, *args, **kwargs)
+
+
+_indent = 0
+
+
+@contextmanager
+def progress(level, msg, *args, **kwargs):
+    """A context manager to print a progress message.
+
+    The block is wrapped in ``msg...``, ``msg...done`` log messages
+    with an appropriate indent (to distinguish nested message).
+
+    :arg level: the log level.  See :func:`log` for valid values
+    :arg msg: the message.
+
+    See :func:`log` for more details.
+    """
+    global _indent
+    log(level, (' ' * _indent) + msg + '...', *args, **kwargs)
+    _indent += 2
+    yield
+    _indent -= 2
+    log(level, (' ' * _indent) + msg + '...done', *args, **kwargs)
