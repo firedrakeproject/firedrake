@@ -527,12 +527,13 @@ def _assemble(f, tensor=None, bcs=None):
                 fs = bc.function_space()
                 if isinstance(fs, core_types.MixedFunctionSpace):
                     raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
+                # Set diagonal entries on bc nodes to 1.
                 if fs.index is None:
                     # Non-mixed case
-                    tensor.zero_rows(bc.nodes)
+                    tensor.inc_local_diagonal_entries(bc.nodes)
                 else:
                     # Mixed case with indexed FS, zero appropriate block
-                    tensor[fs.index, fs.index].zero_rows(bc.nodes)
+                    tensor[fs.index, fs.index].inc_local_diagonal_entries(bc.nodes)
 
         return result()
 
