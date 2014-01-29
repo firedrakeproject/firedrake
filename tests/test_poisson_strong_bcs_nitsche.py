@@ -53,7 +53,7 @@ def run_test(x, degree):
     h = 0.25
     gamma = 0.00001
 
-    n = FacetNormal(mesh.ufl_cell())
+    n = FacetNormal(mesh)
 
     B = a - \
         inner(dot(grad(u), n), v)*(ds(3) + ds(4)) - \

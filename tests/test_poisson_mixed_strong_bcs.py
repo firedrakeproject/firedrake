@@ -45,7 +45,7 @@ def poisson_mixed(size, parameters={}):
 
     # Define variational form
     a = (dot(sigma, tau) + div(tau)*u + div(sigma)*v)*dx
-    n = FacetNormal(mesh.ufl_cell())
+    n = FacetNormal(mesh)
     L = -f*v*dx + 42*dot(tau, n)*ds(4)
 
     # Apply dot(sigma, n) == 0 on left and right boundaries strongly
