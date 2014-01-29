@@ -35,6 +35,8 @@ def test_unit_cube():
     assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
 
 
+# Requires improved Gmsh support for DMPlex in PETSc
+@pytest.mark.xfail
 def test_unit_circle():
     assert abs(integrate_one(UnitCircleMesh(15)) - pi * 0.5 ** 2) < 1e-3
 

@@ -1,6 +1,6 @@
 import tempfile
 from core_types import Mesh
-from interval import get_interval_mesh, periodic_interval_mesh
+from interval import periodic_interval_mesh
 import subprocess
 from pyop2.mpi import MPI
 import os
@@ -12,7 +12,8 @@ except ImportError:
     from StringIO import StringIO
 
 
-import petsc4py, sys
+import petsc4py
+import sys
 petsc4py.init(sys.argv)
 from petsc4py import PETSc
 
@@ -300,9 +301,9 @@ class UnitCircleMesh(Mesh):
             };
             Physical Surface(2) = { surface[1] };
             """ % (0.5 / resolution, resolution * 4)
-        name = "unitcircle_%d" % resolution
+        self.name = "unitcircle_%d" % resolution
 
-        output = _get_msh_file(source, name, 2)
+        output = _get_msh_file(source, self.name, 2)
         super(UnitCircleMesh, self).__init__(output)
 
 
@@ -317,8 +318,26 @@ class IntervalMesh(Mesh):
     while the right hand (:math:`x=L`) point has marker 2.
     """
     def __init__(self, ncells, length):
-        with get_interval_mesh(ncells, length) as output:
-            super(IntervalMesh, self).__init__(output)
+        self.name = "interval"
+        dx = length / ncells
+        # This ensures the rightmost point is actually present.
+        coords = [[x] for x in np.arange(0, length + 0.01 * dx, dx)]
+        cells = [[c, c+1] for c in range(len(coords)-1)]
+        dmplex = PETSc.DMPlex().createFromCellList(1, cells, coords)
+
+        # Apply boundary IDs
+        dmplex.createLabel("boundary_ids")
+        coords = dmplex.getCoordinates()
+        coord_sec = dmplex.getCoordinateSection()
+        vStart, vEnd = dmplex.getDepthStratum(0)  # vertices
+        for v in range(vStart, vEnd):
+            vcoord = dmplex.vecGetClosure(coord_sec, coords, v)
+            if vcoord[0] == 0.:
+                dmplex.setLabelValue("boundary_ids", v, 1)
+            if vcoord[0] == 1.:
+                dmplex.setLabelValue("boundary_ids", v, 2)
+
+        super(IntervalMesh, self).__init__(self.name, plex=dmplex)
 
 
 class UnitIntervalMesh(IntervalMesh):
@@ -331,6 +350,7 @@ class UnitIntervalMesh(IntervalMesh):
     while the right hand (:math:`x=1`) point has marker 2.
     """
     def __init__(self, ncells):
+        self.name = "unitinterval"
         IntervalMesh.__init__(self, ncells, length=1.0)
 
 
@@ -382,40 +402,11 @@ class UnitTetrahedronMesh(Mesh):
     """
 
     def __init__(self):
-        source = """
-$MeshFormat
-2.2 0 8
-$EndMeshFormat
-$Nodes
-4
-1 0 0 0
-2 1 0 0
-3 0 1 0
-4 0 0 1
-$EndNodes
-$Elements
-15
-1 15 2 0 1 1
-2 15 2 0 2 2
-3 15 2 0 3 3
-4 15 2 0 4 4
-5 1 2 0 1 3 1
-6 1 2 0 2 1 4
-7 1 2 0 3 4 3
-8 1 2 0 4 3 2
-9 1 2 0 5 2 4
-10 1 2 0 6 2 1
-11 2 2 0 8 4 3 2
-12 2 2 0 10 4 3 1
-13 2 2 0 12 3 2 1
-14 2 2 0 14 4 2 1
-15 4 2 0 16 2 1 4 3
-$EndElements
-            """
-        name = "unittetra"
-
-        output = _get_msh_file(source, name, 3, meshed=True)
-        super(UnitTetrahedronMesh, self).__init__(output)
+        self.name = "unittetra"
+        coords = [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
+        cells = [[1, 0, 3, 2]]
+        dmplex = PETSc.DMPlex().createFromCellList(3, cells, coords)
+        super(UnitTetrahedronMesh, self).__init__(self.name, plex=dmplex)
 
 
 class UnitTriangleMesh(Mesh):
@@ -423,30 +414,11 @@ class UnitTriangleMesh(Mesh):
     """Class that represents a triangle mesh composed of one element."""
 
     def __init__(self):
-        source = """
-$MeshFormat
-2.2 0 8
-$EndMeshFormat
-$Nodes
-3
-1 0 0 0
-2 1 0 0
-3 0 1 0
-$EndNodes
-$Elements
-7
-1 15 2 0 1 1
-2 15 2 0 2 2
-3 15 2 0 3 3
-4 1 2 0 1 2 3
-5 1 2 0 2 3 1
-6 1 2 0 3 1 2
-7 2 2 0 5 2 3 1
-$EndElements
-"""
-        name = "unittri"
-        output = _get_msh_file(source, name, 2, meshed=True)
-        super(UnitTriangleMesh, self).__init__(output)
+        self.name = "unittri"
+        coords = [[0., 0.], [1., 0.], [0., 1.]]
+        cells = [[1, 2, 0]]
+        dmplex = PETSc.DMPlex().createFromCellList(2, cells, coords)
+        super(UnitTriangleMesh, self).__init__(self.name, plex=dmplex)
 
 
 class IcosahedralSphereMesh(Mesh):

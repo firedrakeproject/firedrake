@@ -783,17 +783,13 @@ class Mesh(object):
         The extension of the filename determines the mesh type."""
         basename, ext = os.path.splitext(filename)
 
-        # Retrieve mesh struct from Fluidity
-        cdef ft.mesh_t mesh = ft.read_mesh_f(basename, _file_extensions[ext], dim)
-        self.name = filename
+        # Create a read-only PETSc.Viewer
+        gmsh_viewer = PETSc.Viewer().create()
+        gmsh_viewer.setType("ascii")
+        gmsh_viewer.setFileMode("r")
+        gmsh_viewer.setFileName(filename)
 
-        # Create DMPlex object from Fluidity struct
-        dim = mesh.topological_dimension
-        coords = np.array(<double[:mesh.vertex_count, :mesh.geometric_dimension:1]>mesh.coordinates)
-        cells = np.array(<int[:mesh.cell_count, :mesh.cell_vertices:1]>mesh.element_vertex_list)
-        cells = np.array([ c-1 for c in cells ])  # Non-Fortran numbering...
-        dmplex = PETSc.DMPlex().createFromCellList(dim, cells, coords)
-
+        gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer, interpolate=False)
         self._from_dmplex(dmplex, periodic_coords)
 
     @property
