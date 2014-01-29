@@ -153,7 +153,6 @@ def test_poisson_analytic_preassembled(params, degree):
     assert (run_test_preassembled(2, degree, parameters=params) < 5.e-6).all()
 
 
-@pytest.mark.xfail
 @pytest.mark.parallel(nprocs=2)
 def test_poisson_analytic_linear_parallel():
     from mpi4py import MPI
