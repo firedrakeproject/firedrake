@@ -247,9 +247,12 @@ class ParLoop(device.ParLoop, host.ParLoop):
                 self._argtypes.append(ndpointer(a.dtype, shape=a.shape))
                 self._jit_args.append(a)
 
-            for a in self.layer_arg:
+            if self._it_space._iterset._extruded_tb:
                 self._argtypes.append(ctypes.c_int)
-                self._jit_args.append(a)
+                self._jit_args.extend([2])
+            else:
+                self._argtypes.append(ctypes.c_int)
+                self._jit_args.extend(self.layer_arg)
 
         if part.size > 0:
             #TODO: compute partition size

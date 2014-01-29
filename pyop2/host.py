@@ -124,21 +124,23 @@ class Arg(base.Arg):
             val += self.c_vec_dec()
         return val
 
-    def c_ind_data(self, idx, i, j=0):
-        return "%(name)s + %(map_name)s[i * %(arity)s + %(idx)s] * %(dim)s%(off)s" % \
+    def c_ind_data(self, idx, i, j=0, is_top=False, layers=1):
+        return "%(name)s + (%(map_name)s[i * %(arity)s + %(idx)s]%(top)s)* %(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
              'arity': self.map.split[i].arity,
              'idx': idx,
+             'top': ' + '+str(layers - 2) if is_top else '',
              'dim': self.data.split[i].cdim,
              'off': ' + %d' % j if j else ''}
 
-    def c_ind_data_xtr(self, idx, i, j=0):
+    def c_ind_data_xtr(self, idx, i, j=0, is_top=False, layers=1):
         cdim = np.prod(self.data.cdim)
-        return "%(name)s + xtr_%(map_name)s[%(idx)s]*%(dim)s%(off)s" % \
+        return "%(name)s + (xtr_%(map_name)s[%(idx)s]%(top)s)*%(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
              'idx': idx,
+             'top': ' + '+str(layers - 2) if is_top else '',
              'dim': 1 if self._flatten else str(cdim),
              'off': ' + %d' % j if j else ''}
 
@@ -151,7 +153,7 @@ class Arg(base.Arg):
     def c_local_tensor_name(self, i, j):
         return self.c_kernel_arg_name(i, j)
 
-    def c_kernel_arg(self, count, i=0, j=0, shape=(0,)):
+    def c_kernel_arg(self, count, i=0, j=0, shape=(0,), is_top=False, layers=1):
         if self._uses_itspace:
             if self._is_mat:
                 if self.data._is_vector_field:
@@ -165,7 +167,7 @@ class Arg(base.Arg):
                     raise RuntimeError("Don't know how to pass kernel arg %s" % self)
             else:
                 if self.data is not None and self.data.dataset._extruded:
-                    return self.c_ind_data_xtr("i_%d" % self.idx.index, i)
+                    return self.c_ind_data_xtr("i_%d" % self.idx.index, i, is_top=is_top, layers=layers)
                 elif self._flatten:
                     return "%(name)s + %(map_name)s[i * %(arity)s + i_0 %% %(arity)d] * %(dim)s + (i_0 / %(arity)d)" % \
                         {'name': self.c_arg_name(),
@@ -186,7 +188,7 @@ class Arg(base.Arg):
             return "%(name)s + i * %(dim)s" % {'name': self.c_arg_name(i),
                                                'dim': self.data.cdim}
 
-    def c_vec_init(self):
+    def c_vec_init(self, is_top, layers):
         val = []
         if self._flatten:
             for d in range(self.data.dataset.cdim):
@@ -194,14 +196,14 @@ class Arg(base.Arg):
                     val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                {'vec_name': self.c_vec_name(),
                                 'idx': d * self.map.arity + idx,
-                                'data': self.c_ind_data(idx, 0, d)})
+                                'data': self.c_ind_data(idx, 0, d, is_top=is_top, layers=layers)})
         else:
             for i, rng in enumerate(zip(self.map.arange[:-1], self.map.arange[1:])):
                 for mi, idx in enumerate(range(*rng)):
                     val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                {'vec_name': self.c_vec_name(),
                                 'idx': idx,
-                                'data': self.c_ind_data(mi, i)})
+                                'data': self.c_ind_data(mi, i, is_top=is_top, layers=layers)})
         return ";\n".join(val)
 
     def c_addto_scalar_field(self, i, j, buf_name, extruded=None):
@@ -672,7 +674,8 @@ class JITModule(base.JITModule):
              for count, arg in enumerate(self._args)
              if arg._is_global_reduction])
 
-        _vec_inits = ';\n'.join([arg.c_vec_init() for arg in self._args
+        is_top = self._itspace.iterset._is_top
+        _vec_inits = ';\n'.join([arg.c_vec_init(is_top, self._itspace.layers) for arg in self._args
                                  if not arg._is_mat and arg._is_vec_map])
 
         indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
