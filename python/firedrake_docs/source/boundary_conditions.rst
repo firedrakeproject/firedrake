@@ -278,7 +278,7 @@ Strong boundary conditions are applied as follows:
 Linear systems
 ~~~~~~~~~~~~~~
 
-Linear systems (ie systems in which the matrix is pre-assembled) are
+Linear systems (i.e. systems in which the matrix is pre-assembled) are
 solved with boundary conditions as follows:
 
 1. When the user calls ``assemble(a)`` to assemble the bilinear form
