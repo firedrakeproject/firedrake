@@ -35,6 +35,18 @@
 
 from ast_base import *
 from ast_optimizer import LoopOptimiser
+from ast_vectorizer import init_vectorizer, LoopVectoriser, vectorizer_init
+
+# Possibile optimizations
+AUTOVECT = 1        # Auto-vectorization
+V_OP_PADONLY = 2    # Outer-product vectorization + extra operations
+V_OP_PEEL = 3       # Outer-product vectorization + peeling
+V_OP_UAJ = 4        # Outer-product vectorization + unroll-and-jam
+V_OP_UAJ_EXTRA = 5  # Outer-product vectorization + unroll-and-jam + extra iters
+
+# Track the scope of a variable in the kernel
+LOCAL_VAR = 0  # Variable declared and used within the kernel
+PARAM_VAR = 1  # Variable is a kernel parameter (ie declared in the signature)
 
 
 class ASTKernel(object):
@@ -47,7 +59,7 @@ class ASTKernel(object):
 
     def __init__(self, ast):
         self.ast = ast
-        self.decl, self.fors = self._visit_ast(ast, fors=[], decls={})
+        self.decls, self.fors = self._visit_ast(ast, fors=[], decls={})
 
     def _visit_ast(self, node, parent=None, fors=None, decls=None):
         """Return lists of:
@@ -57,13 +69,15 @@ class ASTKernel(object):
         that will be exploited at plan creation time."""
 
         if isinstance(node, Decl):
-            decls[node.sym.symbol] = node
+            decls[node.sym.symbol] = (node, LOCAL_VAR)
             return (decls, fors)
         elif isinstance(node, For):
             fors.append((node, parent))
             return (decls, fors)
         elif isinstance(node, FunDecl):
             self.fundecl = node
+            for d in node.args:
+                decls[d.sym.symbol] = (d, PARAM_VAR)
         elif isinstance(node, (FlatBlock, PreprocessNode, Symbol)):
             return (decls, fors)
 
@@ -97,7 +111,7 @@ class ASTKernel(object):
         }
         """
 
-        lo = [LoopOptimiser(l, pre_l) for l, pre_l in self.fors]
+        lo = [LoopOptimiser(l, pre_l, self.decls) for l, pre_l in self.fors]
         for nest in lo:
             itspace_vrs, accessed_vrs = nest.extract_itspace()
 
@@ -122,9 +136,48 @@ class ASTKernel(object):
                                      for i in itspace_vrs])
 
         # Clean up the kernel removing variable qualifiers like 'static'
-        for d in self.decl.values():
+        for decl in self.decls.values():
+            d, place = decl
             d.qual = [q for q in d.qual if q not in ['static', 'const']]
 
         if hasattr(self, 'fundecl'):
             self.fundecl.pred = [q for q in self.fundecl.pred
                                  if q not in ['static', 'inline']]
+
+    def plan_cpu(self, opts):
+        """Transform and optimize the kernel suitably for CPU execution."""
+
+        # Fetch user-provided options/hints on how to transform the kernel
+        licm = opts.get('licm')
+        tile = opts.get('tile')
+        vect = opts.get('vect')
+        ap = opts.get('ap')
+
+        v_type, v_param = vect if vect else (None, None)
+        tile_opt, tile_sz = tile if tile else (False, -1)
+
+        lo = [LoopOptimiser(l, pre_l, self.decls) for l, pre_l in self.fors]
+        for nest in lo:
+            # 1) Loop-invariant code motion
+            inv_outer_loops = []
+            if licm:
+                inv_outer_loops = nest.op_licm()  # noqa
+                self.decls.update(nest.decls)
+
+            # 2) Register tiling
+            if tile_opt and v_type == AUTOVECT:
+                nest.op_tiling(tile_sz)
+
+            # 3) Vectorization
+            if vectorizer_init:
+                vect = LoopVectoriser(nest)
+                if ap:
+                    vect.align_and_pad(self.decls)
+                if v_type != AUTOVECT:
+                    vect.outer_product(v_type, v_param)
+
+
+def init_ir(isa, compiler):
+    """Initialize the Intermediate Representation engine."""
+
+    init_vectorizer(isa, compiler)

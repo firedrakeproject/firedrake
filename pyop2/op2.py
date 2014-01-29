@@ -43,6 +43,7 @@ from logger import debug, info, warning, error, critical, set_log_level
 from mpi import MPI, collective
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
+from ir.ast_plan import init_ir
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
@@ -105,6 +106,8 @@ def init(**kwargs):
             backends._BackendSelector._backend.MPI.comm = kwargs['comm']
         global MPI
         MPI = backends._BackendSelector._backend.MPI  # noqa: backend override
+
+    init_ir(configuration['simd_isa'], configuration['compiler'])
 
 
 @atexit.register

@@ -37,7 +37,7 @@ from exceptions import *
 from utils import as_tuple
 from petsc_base import *
 import host
-from host import Arg  # noqa: needed by BackendSelector
+from host import Kernel, Arg  # noqa: needed by BackendSelector
 
 # Parallel loop API
 
@@ -65,6 +65,10 @@ void wrap_%(kernel_name)s__(PyObject *_start, PyObject *_end,
     %(buffer_decl)s;
     %(buffer_gather)s
     %(kernel_name)s(%(kernel_args)s);
+    %(layout_decl)s;
+    %(layout_loop)s
+        %(layout_assign)s;
+    %(layout_loop_close)s
     %(itset_loop_body)s
     %(map_bcs_p)s;
     %(apply_offset)s;

@@ -183,7 +183,7 @@ class Symbol(Expr):
                 points += point(p)
         else:
             for p, ofs in zip(self.rank, self.offset):
-                points += point_ofs(p, ofs)
+                points += point_ofs(p, ofs) if ofs != (1, 0) else point(p)
         return str(self.symbol) + points
 
 
@@ -231,17 +231,28 @@ class AVXLoad(Symbol):
     """Load of values in a vector register using AVX intrinsics."""
 
     def gencode(self):
-        mem_access = False
+        points = ""
+        if not self.offset:
+            for p in self.rank:
+                points += point(p)
+        else:
+            for p, ofs in zip(self.rank, self.offset):
+                points += point_ofs(p, ofs) if ofs != (1, 0) else point(p)
+        symbol = str(self.symbol) + points
+        return "_mm256_load_pd (&%s)" % symbol
+
+
+class AVXSet(Symbol):
+
+    """Replicate the symbol's value in all slots of a vector register
+    using AVX intrinsics."""
+
+    def gencode(self):
         points = ""
         for p in self.rank:
             points += point(p)
-            mem_access = mem_access or not p.isdigit()
         symbol = str(self.symbol) + points
-        if mem_access:
-            return "_mm256_load_pd (%s)" % symbol
-        else:
-            # TODO: maybe need to differentiate with broadcasts
-            return "_mm256_set1_pd (%s)" % symbol
+        return "_mm256_set1_pd (%s)" % symbol
 
 
 # Statements ###
@@ -309,8 +320,6 @@ class Decl(Statement):
     Syntax: [qualifiers] typ sym [attributes] [= init];
     E.g.: static const double FE0[3][3] __attribute__(align(32)) = {{...}};"""
 
-    declared = {}
-
     def __init__(self, typ, sym, init=None, qualifiers=None, attributes=None):
         super(Decl, self).__init__()
         self.typ = typ
@@ -318,7 +327,6 @@ class Decl(Statement):
         self.qual = qualifiers or []
         self.attr = attributes or []
         self.init = init or EmptyStatement()
-        self.declared[sym.symbol] = self
 
     def gencode(self, scope=False):
 
@@ -395,18 +403,21 @@ class FunDecl(Statement):
     Syntax: [pred] ret name ([args]) {body};
     E.g.: static inline void foo(int a, int b) {return;};"""
 
-    def __init__(self, ret, name, args, body, pred=[]):
+    def __init__(self, ret, name, args, body, pred=[], headers=None):
         super(FunDecl, self).__init__([body])
         self.pred = pred
         self.ret = ret
         self.name = name
         self.args = args
+        self.headers = headers or []
 
     def gencode(self):
+        headers = "" if not self.headers else \
+                  "\n".join(["#include <%s>" % h for h in self.headers])
         sign_list = self.pred + [self.ret, self.name,
                                  wrap(", ".join([arg.gencode(True) for arg in self.args]))]
-        return " ".join(sign_list) + \
-               "\n{\n%s\n}" % indent(self.children[0].gencode())
+        return headers + "\n" + " ".join(sign_list) + \
+            "\n{\n%s\n}" % indent(self.children[0].gencode())
 
 
 # Vector statements classes
@@ -419,7 +430,7 @@ class AVXStore(Assign):
     def gencode(self, scope=False):
         op1 = self.children[0].gencode()
         op2 = self.children[1].gencode()
-        return "_mm256_store_pd (%s, %s)" % (op1, op2) + semicolon(scope)
+        return "_mm256_store_pd (&%s, %s)" % (op1, op2) + semicolon(scope)
 
 
 class AVXLocalPermute(Statement):
