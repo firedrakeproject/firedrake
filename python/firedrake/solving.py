@@ -161,7 +161,7 @@ class NonlinearVariationalSolver(object):
         self._x.dat.needs_halo_update = True
         assemble(self._problem.F_ufl, tensor=self._F_tensor)
         for bc in self._problem.bcs:
-            bc.apply(self._F_tensor, self._problem.u_ufl)
+            bc.zero(self._F_tensor)
 
         # F_ may not be the same vector as self._F_tensor, so copy
         # residual out to F_.

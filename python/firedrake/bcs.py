@@ -102,7 +102,7 @@ class DirichletBC(object):
         """Apply this boundary condition to ``r``.
 
         :arg r: a :class:`.Function` or :class:`.Matrix` to which the
-            boundary condition should be applied
+            boundary condition should be applied.
 
         :arg u: an optional current state.  If ``u`` is supplied then
             ``r`` is taken to be a residual and the boundary condition
@@ -133,3 +133,17 @@ class DirichletBC(object):
             r.assign(u - self.function_arg, subset=self.node_set)
         else:
             r.assign(self.function_arg, subset=self.node_set)
+
+    def zero(self, r):
+        """Zero the boundary condition nodes on ``r``.
+
+        :arg r: a :class:`.Function` to which the
+            boundary condition should be applied.
+
+        """
+        if isinstance(r, types.Matrix):
+            raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
+
+        self.homogenize()
+        self.apply(r)
+        self.restore()
