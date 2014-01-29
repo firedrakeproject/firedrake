@@ -343,6 +343,27 @@ class Mat(base.Mat):
                 self.handle.setDiagonal(v)
 
     @collective
+    def inc_local_diagonal_entries(self, rows, diag_val=1.0):
+        """Increment the diagonal entry in ``rows`` by a particular value.
+
+        :param rows: a :class:`Subset` or an iterable.
+        :param diag_val: the value to add
+
+        The indices in ``rows`` should index the process-local rows of
+        the matrix (no mapping to global indexes is applied).
+
+        The diagonal entries corresponding to the complement of rows
+        are incremented by zero.
+        """
+        base._trace.evaluate(set([self]), set([self]))
+        vec = self.handle.createVecLeft()
+        vec.setOption(vec.Option.IGNORE_OFF_PROC_ENTRIES, True)
+        with vec as array:
+            rows = rows[rows < self.sparsity.rmaps[0].toset.size]
+            array[rows] = diag_val
+        self.handle.setDiagonal(vec, addv=PETSc.InsertMode.ADD_VALUES)
+
+    @collective
     def _assemble(self):
         if not self._ever_assembled and MPI.parallel:
             # add zero to diagonal entries (so they're not compressed out
