@@ -289,17 +289,18 @@ class _Facets(object):
         facets, or for a particular numbered subdomain.'''
 
         dom_id = measure.domain_id()
+        dom_type = measure.domain_type()
         if dom_id in [measure.DOMAIN_ID_EVERYWHERE,
                       measure.DOMAIN_ID_OTHERWISE]:
-            if measure.domain_type() == "exterior_facet_horiz":
+            if dom_type == "exterior_facet_topbottom":
                 return [(0, self.bottom_set, self._local_facet_top_bottom(0)),
                         (1, self.bottom_set, self._local_facet_top_bottom(1))]
+            elif dom_type == "exterior_facet_bottom":
+                return [(0, self.bottom_set, self._local_facet_top_bottom(0))]
+            elif dom_type == "exterior_facet_top":
+                return [(1, self.bottom_set, self._local_facet_top_bottom(1))]
             else:
                 return self.set
-        elif dom_id == measure.DOMAIN_ID_BOTTOM:
-            return [(0, self.bottom_set, self._local_facet_top_bottom(0))]
-        elif dom_id == measure.DOMAIN_ID_TOP:
-            return [(1, self.bottom_set, self._local_facet_top_bottom(1))]
         else:
             return self.subset(measure.domain_id())
 
@@ -809,7 +810,7 @@ class ExtrudedMesh(Mesh):
         self._ds = Measure('exterior_facet', domain_data=self.coordinates)
         self._dS = Measure('interior_facet', domain_data=self.coordinates)
         # Set the domain_data on all the default measures to this coordinate field.
-        for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_h, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
+        for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_tb, ufl.ds_t, ufl.ds_b, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
             measure._domain_data = self.coordinates
 
     @property
