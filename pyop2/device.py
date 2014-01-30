@@ -294,8 +294,10 @@ class Global(DeviceDataMixin, base.Global):
 
 class Map(base.Map):
 
-    def __init__(self, iterset, dataset, arity, values=None, name=None):
-        base.Map.__init__(self, iterset, dataset, arity, values, name)
+    def __init__(self, iterset, dataset, arity, values=None, name=None,
+                 offset=None, parent=None, bt_masks=None):
+        base.Map.__init__(self, iterset, dataset, arity, values, name, offset,
+                          parent, bt_masks)
         # The base.Map base class allows not passing values. We do not allow
         # that on the device, but want to keep the API consistent. So if the
         # user doesn't pass values, we fail with MapValueError rather than
