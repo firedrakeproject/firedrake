@@ -53,8 +53,8 @@ class Kernel(device.Kernel):
 
     """OP2 OpenCL kernel type."""
 
-    def __init__(self, code, name, opts={}):
-        device.Kernel.__init__(self, code, name, opts)
+    def __init__(self, code, name, opts={}, include_dirs=[]):
+        device.Kernel.__init__(self, code, name, opts, include_dirs)
 
     class Instrument(c_ast.NodeVisitor):
 

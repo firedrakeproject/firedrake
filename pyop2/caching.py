@@ -118,7 +118,7 @@ class KernelCached(Cached):
         return obj
 
     @classmethod
-    def _ast_to_c(cls, ast, name):
+    def _ast_to_c(cls, ast, name, opts={}, include_dirs=[]):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of C code."""
         if isinstance(ast, Node):
