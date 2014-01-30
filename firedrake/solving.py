@@ -28,11 +28,12 @@ import numpy
 
 import ufl
 from ufl_expr import derivative
-from pyop2 import op2, ffc_interface
+from pyop2 import op2
 from pyop2.exceptions import MapValueError
 from pyop2.logger import progress, INFO
 import core_types
 import types
+from ffc_interface import compile_form
 from assemble_expressions import assemble_expression
 from petsc import PETSc
 
@@ -380,7 +381,7 @@ def _assemble(f, tensor=None, bcs=None):
 
     """
 
-    kernels = ffc_interface.compile_form(f, "form")
+    kernels = compile_form(f, "form")
 
     fd = f.form_data()
 
