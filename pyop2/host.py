@@ -547,6 +547,7 @@ class JITModule(base.JITModule):
         self._itspace = itspace
         self._args = args
         self._direct = kwargs.get('direct', False)
+        self._iterate = kwargs.get('iterate', False)
 
     @collective
     def __call__(self, *args, **kwargs):
@@ -674,7 +675,7 @@ class JITModule(base.JITModule):
              for count, arg in enumerate(self._args)
              if arg._is_global_reduction])
 
-        is_top = self._itspace.iterset._is_top
+        is_top = (self._iterate == ON_TOP)
         _vec_inits = ';\n'.join([arg.c_vec_init(is_top, self._itspace.layers) for arg in self._args
                                  if not arg._is_mat and arg._is_vec_map])
 

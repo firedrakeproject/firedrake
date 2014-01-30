@@ -118,6 +118,11 @@ class ModeValueError(ValueError):
     """Illegal value for mode."""
 
 
+class IterateValueError(ValueError):
+
+    """Illegal value for iterate."""
+
+
 class SetValueError(ValueError):
 
     """Illegal value for :class:`pyop2.op2.Set`."""

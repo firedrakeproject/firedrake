@@ -41,6 +41,7 @@ import host
 import ctypes
 from numpy.ctypeslib import ndpointer
 from host import Kernel, Arg  # noqa: needed by BackendSelector
+from base import ON_BOTTOM, ON_TOP
 
 # Parallel loop API
 
@@ -86,7 +87,7 @@ class ParLoop(host.ParLoop):
 
     @collective
     def _compute(self, part):
-        fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct)
+        fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct, iterate=self.iterate)
         if not hasattr(self, '_jit_args'):
             self._argtypes = [ctypes.c_int, ctypes.c_int]
             self._jit_args = [0, 0]
@@ -119,7 +120,7 @@ class ParLoop(host.ParLoop):
                 self._argtypes.append(ndpointer(a.dtype, shape=a.shape))
                 self._jit_args.append(a)
 
-            if self._it_space._iterset._extruded_tb:
+            if self.iterate in [ON_TOP, ON_BOTTOM]:
                 self._argtypes.append(ctypes.c_int)
                 self._jit_args.extend([2])
             else:

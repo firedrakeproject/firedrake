@@ -38,6 +38,7 @@ import atexit
 import backends
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, i
+from base import ON_BOTTOM, ON_TOP, ON_COLUMN, ON_INTERIOR_FACETS
 from configuration import configuration
 from logger import debug, info, warning, error, critical, set_log_level
 from mpi import MPI, collective
@@ -47,6 +48,7 @@ from ir.ast_plan import init_ir
 from versioning import modifies_arguments
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
+           'ON_BOTTOM', 'ON_TOP', 'ON_COLUMN', 'ON_INTERIOR_FACETS',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'ExtrudedSet',
            'MixedSet', 'Subset', 'DataSet', 'MixedDataSet', 'Halo', 'Dat',
@@ -191,7 +193,7 @@ class Solver(base.Solver):
 
 @modifies_arguments
 @collective
-def par_loop(kernel, iterset, *args):
+def par_loop(kernel, iterset, *args, **kwargs):
     """Invocation of an OP2 kernel
 
     :arg kernel: The :class:`Kernel` to be executed.
@@ -243,7 +245,7 @@ def par_loop(kernel, iterset, *args):
     ``elem_node`` for the relevant member of ``elements`` will be
     passed to the kernel as a vector.
     """
-    return backends._BackendSelector._backend.par_loop(kernel, iterset, *args)
+    return backends._BackendSelector._backend.par_loop(kernel, iterset, *args, **kwargs)
 
 
 @collective
