@@ -541,7 +541,8 @@ def _assemble(f, tensor=None, bcs=None):
                                       flatten=has_vec_fs(c)))
                 args.append(m.exterior_facets.local_facet_dat(op2.READ))
                 op2.par_loop(*args)
-            if domain_type == 'exterior_facet_horiz':
+
+            if domain_type in ['exterior_facet_topbottom', 'exterior_facet_top', 'exterior_facet_bottom']:
                 if op2.MPI.parallel:
                     raise \
                         NotImplementedError(
@@ -585,7 +586,34 @@ def _assemble(f, tensor=None, bcs=None):
                     args.append(facet_global(op2.READ))
                     op2.par_loop(*args, **kwargs)
 
-            elif domain_type == 'interior_facet':
+            if domain_type == 'exterior_facet_vert':
+                if op2.MPI.parallel:
+                    raise \
+                        NotImplementedError(
+                            "No support for facet integrals under MPI yet")
+
+                if is_mat:
+                    tensor_arg = tensor(op2.INC,
+                                        (test.exterior_facet_node_map(bcs)[op2.i[0]],
+                                         trial.exterior_facet_node_map(bcs)[op2.i[1]]),
+                                        flatten=has_vec_fs(test))
+                elif is_vec:
+                    tensor_arg = tensor(op2.INC,
+                                        test.exterior_facet_node_map()[op2.i[0]],
+                                        flatten=has_vec_fs(test))
+                else:
+                    tensor_arg = tensor(op2.INC)
+
+                args = [kernel, m.exterior_facets.measure_set(integral.measure()), tensor_arg,
+                        coords.dat(op2.READ, coords.exterior_facet_node_map(),
+                                   flatten=True)]
+                for c in fd.original_coefficients:
+                    args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
+                                      flatten=has_vec_fs(c)))
+                args.append(m.exterior_facets.local_facet_dat(op2.READ))
+                op2.par_loop(*args)
+
+            if domain_type == 'interior_facet':
                 if op2.MPI.parallel:
                     raise \
                         NotImplementedError(
