@@ -28,7 +28,7 @@ with open(os.path.join(os.path.dirname(__file__), 'firedrake_geometry.h')) as f:
 
 
 def _check_version():
-    from pyop2.version import __compatible_ffc_version_info__ as compatible_version, \
+    from version import __compatible_ffc_version_info__ as compatible_version, \
         __compatible_ffc_version__ as version
     try:
         if constants.PYOP2_VERSION_INFO[:2] == compatible_version[:2]:
