@@ -55,6 +55,8 @@ def pytest_cmdline_preparse(config, args):
         args.insert(0, '--tb=short')
     if 'PYTEST_NPROCS' in os.environ and not '-n' in args:
         args.insert(0, '-n ' + os.environ['PYTEST_NPROCS'])
+    if 'PYTEST_WATCH' in os.environ and '-f' not in args:
+        args.insert(0, '-f')
     if 'PYTEST_LAZY' in os.environ:
         args.insert(0, '--lazy')
     if 'PYTEST_GREEDY' in os.environ:
