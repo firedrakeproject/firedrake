@@ -48,8 +48,11 @@ def pytest_cmdline_preparse(config, args):
         args.insert(0, '-x')
     if 'PYTEST_NOCAPTURE' in os.environ and '-s' not in args:
         args.insert(0, '-s')
-    if 'PYTEST_TBNATIVE' in os.environ:
-        args.insert(0, '--tb=native')
+    if 'PYTEST_TB' in os.environ and not any('--tb' in a for a in args):
+        args.insert(0, '--tb=' + os.environ['PYTEST_TB'])
+    else:
+        # Default to short tracebacks
+        args.insert(0, '--tb=short')
     if 'PYTEST_LAZY' in os.environ:
         args.insert(0, '--lazy')
     if 'PYTEST_GREEDY' in os.environ:
