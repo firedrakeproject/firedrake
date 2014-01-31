@@ -274,8 +274,9 @@ def parse_args(*args, **kwargs):
 def preprocess(text):
     p = Popen(['cpp', '-E', '-I' + os.path.dirname(__file__)], stdin=PIPE,
               stdout=PIPE, universal_newlines=True)
-    processed = '\n'.join(l for l in p.communicate(
-        text)[0].split('\n') if (not l.startswith('#') or l.startswith('#pragma')))
+    # Strip empty lines and any preprocessor instructions other than pragmas
+    processed = '\n'.join(l for l in p.communicate(text)[0].split('\n')
+                          if l.strip() and (not l.startswith('#') or l.startswith('#pragma')))
     return processed
 
 
