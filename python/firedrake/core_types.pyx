@@ -649,10 +649,9 @@ class Mesh(object):
             # Mesh reading in Fluidity level considers 0 to be None.
             dim = 0
 
-        self._plex = plex
-
-        if self._plex:
-            self._from_dmplex(self._plex, periodic_coords)
+        if plex is not None:
+            self._from_dmplex(plex, geometric_dim=dim,
+                              periodic_coords=periodic_coords)
         else:
             self._from_file(filename, dim, periodic_coords)
 
@@ -661,11 +660,13 @@ class Mesh(object):
         # -1 is uninitialised.
         self._cell_orientations.data[:] = -1
 
-    def _from_dmplex(self, plex, periodic_coords=None):
+    def _from_dmplex(self, plex, geometric_dim=0, periodic_coords=None):
         """ Create mesh from DMPlex object """
 
         self._plex = plex
-        self._dim  = plex.getDimension()
+
+        if geometric_dim == 0:
+            geometric_dim = self._plex.getDimension()
 
         # Mark exterior and interior facets
         self._plex.markBoundaryFaces("exterior_facets")
@@ -684,14 +685,16 @@ class Mesh(object):
         cStart, cEnd = self._plex.getHeightStratum(0)  # cells
         fStart, fEnd = self._plex.getHeightStratum(1)  # facets
         vStart, vEnd = self._plex.getDepthStratum(0)   # vertices
-        self._entities = np.zeros(self._dim+1, dtype=np.int)
+        self._entities = np.zeros(topological_dim+1, dtype=np.int)
         self._entities[:] = -1 # Ensure that 3d edges get an out of band value.
         self._entities[0]  = vEnd - vStart  # vertex count
         self._entities[-1] = cEnd - cStart  # cell count
         self._entities[-2] = fEnd - fStart  # facet count
         self.uid = _new_uid()
 
-        self._ufl_cell = ufl.Cell(_cells[self._dim][self._dim+1], self._dim)
+        cell_vertices = self._plex.getConeSize(cStart)
+        self._ufl_cell = ufl.Cell(_cells[geometric_dim][cell_vertices],
+                                  geometric_dimension = geometric_dim)
         self._cells = np.array([self._plex.getCone(c) for c in range(cStart, cEnd)])
         self._vertex_numbering = None
 
@@ -754,7 +757,7 @@ class Mesh(object):
             self._coordinate_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
 
             plex_coords = self._plex.getCoordinatesLocal().getArray()
-            self._coordinates = np.reshape(plex_coords, (vEnd - vStart, self._dim))
+            self._coordinates = np.reshape(plex_coords, (vEnd - vStart, geometric_dim))
 
             # Use the inverse of the section permutation to re-order
             # the coordinates from the Plex

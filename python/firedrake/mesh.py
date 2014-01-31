@@ -6,11 +6,6 @@ from pyop2.mpi import MPI
 import os
 from shutil import rmtree
 import numpy as np
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from StringIO import StringIO
-
 
 import petsc4py
 import sys
@@ -462,7 +457,7 @@ class IcosahedralSphereMesh(Mesh):
                             [2, 4, 11],
                             [6, 2, 10],
                             [8, 6, 7],
-                            [9, 8, 1]], dtype=int)
+                            [9, 8, 1]], dtype=np.int32)
 
     def __init__(self, radius=1, refinement_level=0):
         """
@@ -478,7 +473,7 @@ class IcosahedralSphereMesh(Mesh):
                                corresponds to an icosahedron.
         """
 
-        name = "icosahedralspheremesh_%d_%g" % (refinement_level, radius)
+        self.name = "icosahedralspheremesh_%d_%g" % (refinement_level, radius)
 
         self._R = radius
         self._refinement = refinement_level
@@ -489,12 +484,11 @@ class IcosahedralSphereMesh(Mesh):
         for i, vtx in enumerate(IcosahedralSphereMesh._base_vertices):
             self._vertices[i] = self._force_to_sphere(vtx)
 
-        # check if output exists before refining
-        if not _msh_exists(name):
-            for i in range(refinement_level):
-                self._refine()
-        output = _get_msh_file(self._gmshify(), name, 3, meshed=True)
-        super(IcosahedralSphereMesh, self).__init__(output, 3)
+        for i in range(refinement_level):
+            self._refine()
+
+        dmplex = PETSc.DMPlex().createFromCellList(2, self._faces, self._vertices)
+        super(IcosahedralSphereMesh, self).__init__(self.name, plex=dmplex, dim=3)
 
     def _force_to_sphere(self, vtx):
         """
@@ -505,31 +499,12 @@ class IcosahedralSphereMesh(Mesh):
         scale = self._R / np.linalg.norm(vtx)
         return vtx * scale
 
-    def _gmshify(self):
-        out = StringIO()
-        out.write("""$MeshFormat
-2.2 0 8
-$EndMeshFormat
-$Nodes
-""")
-        out.write("%d\n" % len(self._vertices))
-        for i, (x, y, z) in enumerate(self._vertices):
-            out.write("%d %.15g %.15g %.15g\n" % (i + 1, x, y, z))
-        out.write("$EndNodes\n")
-        out.write("$Elements\n")
-        out.write("%d\n" % len(self._faces))
-        for i, (v1, v2, v3) in enumerate(self._faces):
-            out.write("%d 2 0 %d %d %d\n" % (i + 1, v1 + 1, v2 + 1, v3 + 1))
-        out.write("$EndElements\n")
-
-        return out.getvalue()
-
     def _refine(self):
         """Refine mesh by one level.
 
         This increases the number of faces in the mesh by a factor of four."""
         cache = {}
-        new_faces = np.empty((4 * len(self._faces), 3), dtype=int)
+        new_faces = np.empty((4 * len(self._faces), 3), dtype=np.int32)
         # Dividing each face adds 1.5 extra vertices (each vertex on
         # the midpoint is shared two ways).
         new_vertices = np.empty((len(self._vertices) + 3 * len(self._faces) / 2, 3))
