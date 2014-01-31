@@ -617,31 +617,31 @@ class TestDataSetAPI:
         with pytest.raises(exceptions.SetTypeError):
             op2.DataSet('illegalset', 1)
 
-    def test_dset_illegal_dim(self, iterset, backend):
+    def test_dset_illegal_dim(self, backend, iterset):
         "DataSet dim should be int or int tuple."
         with pytest.raises(TypeError):
             op2.DataSet(iterset, 'illegaldim')
 
-    def test_dset_illegal_dim_tuple(self, iterset, backend):
+    def test_dset_illegal_dim_tuple(self, backend, iterset):
         "DataSet dim should be int or int tuple."
         with pytest.raises(TypeError):
             op2.DataSet(iterset, (1, 'illegaldim'))
 
-    def test_dset_illegal_name(self, iterset, backend):
+    def test_dset_illegal_name(self, backend, iterset):
         "DataSet name should be string."
         with pytest.raises(exceptions.NameTypeError):
             op2.DataSet(iterset, 1, 2)
 
-    def test_dset_default_dim(self, iterset, backend):
+    def test_dset_default_dim(self, backend, iterset):
         "DataSet constructor should default dim to (1,)."
         assert op2.DataSet(iterset).dim == (1,)
 
-    def test_dset_dim(self, iterset, backend):
+    def test_dset_dim(self, backend, iterset):
         "DataSet constructor should create a dim tuple."
         s = op2.DataSet(iterset, 1)
         assert s.dim == (1,)
 
-    def test_dset_dim_list(self, iterset, backend):
+    def test_dset_dim_list(self, backend, iterset):
         "DataSet constructor should create a dim tuple from a list."
         s = op2.DataSet(iterset, [2, 3])
         assert s.dim == (2, 3)
