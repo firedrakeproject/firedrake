@@ -47,10 +47,10 @@ from pycparser import c_parser, c_ast, c_generator
 
 class Kernel(op2.Kernel):
 
-    def __init__(self, code, name):
+    def __init__(self, code, name, opts={}):
         if self._initialized:
             return
-        op2.Kernel.__init__(self, code, name)
+        op2.Kernel.__init__(self, code, name, opts)
         self._code = self.instrument()
 
     def instrument(self):
