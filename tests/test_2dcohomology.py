@@ -8,6 +8,10 @@ from firedrake import *
 
 
 def test_betti0():
+    """
+    Verify that the 0-form Hodge Laplacian has kernel of dimension
+    equal to the 0th Betti number of the annulus mesh, i.e. 1.
+    """
     mesh = Mesh("annulus.msh")
     V0 = FunctionSpace(mesh, "CG", 1)
 
@@ -23,6 +27,10 @@ def test_betti0():
 
 
 def test_betti1():
+    """
+    Verify that the 1-form Hodge Laplacian has kernel of dimension
+    equal to the 1st Betti number of the annulus mesh, i.e. 1.
+    """
     mesh = Mesh("annulus.msh")
     V0 = FunctionSpace(mesh, "CG", 1)
     V1 = FunctionSpace(mesh, "RT", 1)
@@ -50,6 +58,10 @@ def test_betti1():
 
 
 def test_betti2():
+    """
+    Verify that the 2-form Hodge Laplacian has kernel of dimension
+    equal to the 2nd Betti number of the annulus mesh, i.e. 0.
+    """
     mesh = Mesh("annulus.msh")
     V1 = FunctionSpace(mesh, "RT", 1)
     V2 = FunctionSpace(mesh, "DG", 0)
