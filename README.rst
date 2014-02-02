@@ -179,6 +179,8 @@ Install petsc4py_ via ``pip``::
 
   pip install "petsc4py >= 3.4"
 
+.. _cuda-installation:
+
 CUDA backend:
 ~~~~~~~~~~~~~
 
@@ -225,6 +227,8 @@ your ``$LIBRARY_PATH`` if in a non-standard location::
   python setup.py build 
   sudo python setup.py install 
   sudo cp siteconf.py /etc/aksetup-defaults.py
+
+.. _opencl-installation:
 
 OpenCL backend:
 ~~~~~~~~~~~~~~~
