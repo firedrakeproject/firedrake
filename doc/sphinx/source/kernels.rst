@@ -79,3 +79,86 @@ could have interchangibly used a kernel signature with plain pointers:
 .. code-block:: c
 
   void midpoint(double * p, double ** coords)
+  
+.. _local-iteration-spaces:
+
+Local iteration spaces
+----------------------
+
+PyOP2 supports complex kernels with large local working set sizes, which may
+not run very efficiently on architectures with a limited amount of registers
+and on-chip resources. In many cases the resource usage is proportional to the
+size of the *local iteration space* the kernel operates on.
+
+Consider a finite-element local assembly kernel for a mass matrix from linear
+basis functions on triangles. For each element in the iteration set, the
+kernel computes a 3x3 local tensor:
+
+.. code-block:: c
+
+  void mass(double A[3][3], double **vertex_coordinates) {
+    double J[4];
+    J[0] = vertex_coordinates[1][0] - vertex_coordinates[0][0];
+    J[1] = vertex_coordinates[2][0] - vertex_coordinates[0][0];
+    J[2] = vertex_coordinates[4][0] - vertex_coordinates[3][0];
+    J[3] = vertex_coordinates[5][0] - vertex_coordinates[3][0];
+    double detJ;
+    detJ = J[0]*J[3] - J[1]*J[2];
+    const double det = fabs(detJ);
+
+    double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
+    double FE0[3][3] = {{0.666666666666667, 0.166666666666667, 0.166666666666667},
+                        {0.166666666666667, 0.166666666666667, 0.666666666666667},
+                        {0.166666666666667, 0.666666666666667, 0.166666666666667}};
+
+    for (int ip = 0; ip<3; ip++) {
+      for (int j = 0; j<3; j++) {
+        for (int k = 0; k<3; k++) {
+          A[j][k] += (det*W3[ip]*FE0[ip][k]*FE0[ip][j]);
+        }
+      }
+    }
+  }
+
+This kernel is the simplest commonly found in finite-element computations and
+only serves to illustrate the concept. To improve the efficiency of executing
+complex kernels on manycore platforms, their operation can be distributed
+among several threads which each compute a single point in this local
+iteration space to increase the level of parallelism and to lower the amount
+of resources required per thread. In the case of the ``mass`` kernel from
+above we obtain:
+
+.. code-block:: c
+
+  void mass(double A[1][1], double **vertex_coordinates, int j, int k) {
+    double J[4];
+    J[0] = vertex_coordinates[1][0] - vertex_coordinates[0][0];
+    J[1] = vertex_coordinates[2][0] - vertex_coordinates[0][0];
+    J[2] = vertex_coordinates[4][0] - vertex_coordinates[3][0];
+    J[3] = vertex_coordinates[5][0] - vertex_coordinates[3][0];
+    double detJ;
+    detJ = J[0]*J[3] - J[1]*J[2];
+    const double det = fabs(detJ);
+
+    double W3[3] = {0.166666666666667, 0.166666666666667, 0.166666666666667};
+    double FE0[3][3] = {{0.666666666666667, 0.166666666666667, 0.166666666666667},
+                        {0.166666666666667, 0.166666666666667, 0.666666666666667},
+                        {0.166666666666667, 0.666666666666667, 0.166666666666667}};
+
+    for (int ip = 0; ip<3; ip++) {
+      A[0][0] += (det*W3[ip]*FE0[ip][k]*FE0[ip][j]);
+    }
+  }
+
+Note how the doubly nested loop over basis function is hoisted out of the
+kernel, which receives its position in the local iteration space to compute as
+additional arguments j and k. PyOP2 needs to be told to loop over this local
+iteration space by indexing the corresponding maps with an
+:class:`~pyop2.base.IterationIndex` :data:`~pyop2.i`. The
+:func:`~pyop2.par_loop` over ``elements`` to assemble the matrix ``mat`` with
+``coordinates`` as read-only coefficient both indirectly accessed via
+``ele2nodes`` is defined as follows: ::
+
+  op2.par_loop(mass, elements,
+               mat(op2.INC, (ele2nodes[op2.i[0]], ele2nodes[op2.i[1]])),
+               coordinates(op2.READ, ele2nodes))
