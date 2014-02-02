@@ -1488,6 +1488,7 @@ class _EmptyDataMixin(object):
     def __init__(self, data, dtype, shape):
         if data is None:
             self._dtype = np.dtype(dtype if dtype is not None else np.float64)
+            self.vcache_version_set_zero()
         else:
             self._data = verify_reshape(data, dtype, shape, allow_none=True)
             self._dtype = self._data.dtype
@@ -1587,7 +1588,6 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
             dataset = dataset ** 1
         self._shape = (dataset.total_size,) + (() if dataset.cdim == 1 else dataset.dim)
         _EmptyDataMixin.__init__(self, data, dtype, self._shape)
-        self.vcache_version_set_zero()
 
         self._dataset = dataset
         # Are these data to be treated as SoA on the device?
