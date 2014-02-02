@@ -91,5 +91,69 @@ consecutively in memory. Note that for both arguments, the pointers are to two
 consecutive double values, since the :class:`~pyop2.DataSet` is of dimension
 two in either case.
 
+OpenMP backend
+--------------
+
+The OpenMP uses the same infrastructure for code generation and JIT
+compilation as the sequential backend described above. In contrast however,
+the ``for`` loop is annotated with OpenMP pragmas to make it execute in
+parallel with multiple threads. To avoid race conditions on data access, the
+iteration set is coloured and a thread safe execution plan is computed as
+described in :doc:`colouring`.
+
+The JIT compiled code for the parallel loop from above changes as follows: ::
+
+  void wrap_midpoint__(PyObject* _boffset,
+                       PyObject* _nblocks,
+                       PyObject* _blkmap,
+                       PyObject* _offset,
+                       PyObject* _nelems,
+                       PyObject *_arg0_0,
+                       PyObject *_arg1_0, PyObject *_arg1_0_map0_0) {
+    int boffset = (int)PyInt_AsLong(_boffset);
+    int nblocks = (int)PyInt_AsLong(_nblocks);
+    int* blkmap = (int *)(((PyArrayObject *)_blkmap)->data);
+    int* offset = (int *)(((PyArrayObject *)_offset)->data);
+    int* nelems = (int *)(((PyArrayObject *)_nelems)->data);
+    double *arg0_0 = (double *)(((PyArrayObject *)_arg0_0)->data);
+    double *arg1_0 = (double *)(((PyArrayObject *)_arg1_0)->data);
+    int *arg1_0_map0_0 = (int *)(((PyArrayObject *)_arg1_0_map0_0)->data);
+    double *arg1_0_vec[32][3];
+    #ifdef _OPENMP
+    int nthread = omp_get_max_threads();
+    #else
+    int nthread = 1;
+    #endif
+    #pragma omp parallel shared(boffset, nblocks, nelems, blkmap)
+    {
+      int tid = omp_get_thread_num();
+      #pragma omp for schedule(static)
+      for (int __b = boffset; __b < boffset + nblocks; __b++)
+      {
+        int bid = blkmap[__b];
+        int nelem = nelems[bid];
+        int efirst = offset[bid];
+        for (int n = efirst; n < efirst+ nelem; n++ )
+        {
+          int i = n;
+          arg1_0_vec[tid][0] = arg1_0 + arg1_0_map0_0[i * 3 + 0] * 2;
+          arg1_0_vec[tid][1] = arg1_0 + arg1_0_map0_0[i * 3 + 1] * 2;
+          arg1_0_vec[tid][2] = arg1_0 + arg1_0_map0_0[i * 3 + 2] * 2;
+          midpoint(arg0_0 + i * 2, arg1_0_vec[tid]);
+        }
+      }
+    }
+  }
+
+Computation is split in ``nblocks`` blocks which start at an initial offset
+``boffset`` and correspond to colours that can be executed conflict free in
+parallel. This loop over colours is therefore wrapped in an OpenMP parallel
+region and is annotated with an ``omp for`` pragma. The block id ``bid`` for
+each of these blocks is given by the block map ``blkmap`` and is the index
+into the arrays ``nelems`` and ``offset`` provided as part of the execution
+plan. These are the number of elements that are part of the given block and
+its starting index. Note that each thread needs its own staging array
+``arg1_0_vec``, which is therefore scoped by the thread id.
+
 .. _Instant: https://bitbucket.org/fenics-project/instant
 .. _FEniCS project: http://fenicsproject.org
