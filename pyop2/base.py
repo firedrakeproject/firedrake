@@ -1644,6 +1644,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         return self._soa
 
     @property
+    @modifies
     @collective
     def data(self):
         """Numpy array containing the data values.
