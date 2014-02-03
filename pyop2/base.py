@@ -1488,7 +1488,7 @@ class _EmptyDataMixin(object):
     def __init__(self, data, dtype, shape):
         if data is None:
             self._dtype = np.dtype(dtype if dtype is not None else np.float64)
-            self.vcache_version_set_zero()
+            self._version_set_zero()
         else:
             self._data = verify_reshape(data, dtype, shape, allow_none=True)
             self._dtype = self._data.dtype
@@ -1522,12 +1522,12 @@ class SetAssociated(DataCarrier):
 
         def __init__(self, obj):
             self._original = weakref.ref(obj)
-            self._snapshot_version = obj.vcache_get_version()
+            self._snapshot_version = obj._version
 
         def is_valid(self):
             objref = self._original()
             if objref is not None:
-                return self._snapshot_version == objref.vcache_get_version()
+                return self._snapshot_version == objref._version
             return False
 
 
@@ -1803,7 +1803,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         :class:`DataSet` and containing the same data."""
         return not self == other
 
-        self.vcache_version_set_zero()
+        self._version_set_zero()
 
     def _cow_actual_copy(self, src):
         # Naive copy() method

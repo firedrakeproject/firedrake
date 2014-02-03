@@ -9,19 +9,19 @@ class Versioned(object):
         obj = super(Versioned, cls).__new__(cls)
         obj._version = 1
         obj._version_before_zero = 1
-        #obj.__init__(*args, **kwargs)
         return obj
 
-    def vcache_get_version(self):
-        return self._version
+    def _version_bump(self):
+        """Increase the data._version associated with this object. It should
+        rarely, if ever, be necessary for a user to call this manually."""
 
-    def vcache_version_bump(self):
         self._version_before_zero += 1
-        # Undo version = 0
+        # Undo_version = 0
         self._version = self._version_before_zero
 
-    def vcache_version_set_zero(self):
-        # Set version to 0 (usually when zero() is called)
+    def _version_set_zero(self):
+        """Set the data version of this object to zero (usually when
+        self.zero() is called)."""
         self._version = 0
 
 
@@ -46,7 +46,7 @@ def modifies(method):
 
         retval = method(self, *args, **kwargs)
 
-        self.vcache_version_bump()
+        self._version_bump()
 
         return retval
 
@@ -59,7 +59,7 @@ def modifies_arguments(func):
         retval = func(*args, **kwargs)
         for a in args:
             if hasattr(a, 'access') and a.access != op2.READ:
-                a.data.vcache_version_bump()
+                a.data._version_bump()
         return retval
     return inner
 

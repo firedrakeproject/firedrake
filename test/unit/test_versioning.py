@@ -111,27 +111,27 @@ class TestVersioning:
         return op2.Mat(sparsity, 'float64', "mat")
 
     def test_initial_version(self, backend, mat, g, x):
-        test = mat.vcache_get_version() == 1
-        test &= g.vcache_get_version() == 1
-        test &= x.vcache_get_version() == 1
+        test = mat._version == 1
+        test &= g._version == 1
+        test &= x._version == 1
         c = op2.Const(1, 1, name='c2', dtype=numpy.uint32)
-        test &= c.vcache_get_version() == 1
+        test &= c._version == 1
         c.remove_from_namespace()
         assert test
 
     def test_dat_modified(self, backend, x):
         x += 1
-        assert x.vcache_get_version() == 2
+        assert x._version == 2
 
     def test_zero(self, backend, mat):
         mat.zero()
-        assert mat.vcache_get_version() == 0
+        assert mat._version == 0
 
     def test_version_after_zero(self, backend, mat):
         mat.zero_rows([1], 1.0)  # 2
         mat.zero()  # 0
         mat.zero_rows([2], 1.0)  # 3
-        assert mat.vcache_get_version() == 3
+        assert mat._version == 3
 
     def test_valid_snapshot(self, backend, x):
         s = x.create_snapshot()

@@ -281,7 +281,7 @@ class Mat(base.Mat, CopyOnWrite):
         mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
         self._handle = mat
         # Matrices start zeroed.
-        self.vcache_version_set_zero()
+        self._version_set_zero()
 
     def __getitem__(self, idx):
         """Return :class:`Mat` block with row and column given by ``idx``
@@ -310,7 +310,7 @@ class Mat(base.Mat, CopyOnWrite):
         """Zero the matrix."""
         base._trace.evaluate(set(), set([self]))
         self.handle.zeroEntries()
-        self.vcache_version_set_zero()
+        self._version_set_zero()
 
     @modifies
     @collective
