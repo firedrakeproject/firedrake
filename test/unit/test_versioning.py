@@ -148,6 +148,15 @@ class TestCopyOnWrite:
         sparsity = op2.Sparsity(iter2ind1.toset, iter2ind1, "sparsity")
         return op2.Mat(sparsity, 'float64', "mat")
 
+    @staticmethod
+    def same_data(a, b):
+        """Check if Datacarriers a and b point to the same data. This
+        is not the same as identiy of the data arrays since multiple
+        array objects can point at the same underlying address."""
+    
+        return a.data_ro.__array_interface__['data'][0] == \
+            b.data_ro.__array_interface__['data'][0]
+
     def test_duplicate_mat(self, backend, mat):
         mat.zero_rows([0], 1)
         mat3 = mat.duplicate()
@@ -155,17 +164,17 @@ class TestCopyOnWrite:
 
     def test_duplicate_dat(self, backend, x):
         x_dup = x.duplicate()
-        assert x_dup.data is x.data
+        assert self.same_data(x_dup, x)
 
     def test_CoW_dat_duplicate_original_changes(self, backend, x):
         x_dup = x.duplicate()
         x += 1
-        assert x.data is not x_dup.data
+        assert not self.same_data(x, x_dup)
 
     def test_CoW_dat_duplicate_copy_changes(self, backend, x):
         x_dup = x.duplicate()
         x_dup += 1
-        assert x.data is not x_dup.data
+        assert not self.same_data(x, x_dup)
 
     def test_CoW_mat_duplicate_original_changes(self, backend, mat):
         mat_dup = mat.duplicate()
