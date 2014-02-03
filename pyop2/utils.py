@@ -54,7 +54,7 @@ def as_tuple(item, type=None, length=None):
         try:
             t = tuple(item)
         # ... or create a list of a single item
-        except TypeError:
+        except (TypeError, NotImplementedError):
             t = (item,) * (length or 1)
     if length and not len(t) == length:
         raise ValueError("Tuple needs to be of length %d" % length)
