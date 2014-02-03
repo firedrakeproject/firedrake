@@ -27,7 +27,6 @@ before_install:
   - wget https://github.com/OP2/PyOP2/raw/master/requirements-minimal.txt
   - pip install "petsc>=3.4" -r requirements-minimal.txt --use-mirrors
   - pip install git+https://github.com/OP2/PyOP2 cgen
-  - pip install pytest-xdist
   - if [[ $TRAVIS_PYTHON_VERSION == "2.6" ]]; then pip install argparse ordereddict; fi
 install:
   - ./configure
@@ -36,4 +35,4 @@ install:
 script:
   - export PYTHONPATH=`pwd`/python:$PYTHONPATH
   - flake8
-  - py.test -n 2 -v tests
+  - py.test -v tests
