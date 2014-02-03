@@ -1760,6 +1760,8 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         _make_object('ParLoop', self._zero_kernel, self.dataset.set,
                      self(WRITE)).enqueue()
 
+        self._version_set_zero()
+
     @collective
     def copy(self, other):
         """Copy the data in this :class:`Dat` into another.
@@ -1802,8 +1804,6 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         """:class:`Dat`\s compare equal if defined on the same
         :class:`DataSet` and containing the same data."""
         return not self == other
-
-        self._version_set_zero()
 
     def _cow_actual_copy(self, src):
         # Naive copy() method
