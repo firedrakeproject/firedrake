@@ -116,6 +116,7 @@ class TestVersioning:
         test &= x.vcache_get_version() == 1
         c = op2.Const(1, 1, name='c2', dtype=numpy.uint32)
         test &= c.vcache_get_version() == 1
+        c.remove_from_namespace()
         assert test
 
     def test_dat_modified(self, backend, x):
@@ -153,7 +154,7 @@ class TestCopyOnWrite:
         """Check if Datacarriers a and b point to the same data. This
         is not the same as identiy of the data arrays since multiple
         array objects can point at the same underlying address."""
-    
+
         return a.data_ro.__array_interface__['data'][0] == \
             b.data_ro.__array_interface__['data'][0]
 
