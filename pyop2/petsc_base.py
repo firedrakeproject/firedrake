@@ -40,7 +40,7 @@ required to implement backend-specific features.
 """
 
 from contextlib import contextmanager
-from petsc4py import PETSc
+from petsc4py import PETSc, __version__ as petsc4py_version
 
 import base
 from base import *
@@ -48,6 +48,10 @@ from backends import _make_object
 from logger import debug, warning
 import mpi
 from mpi import collective
+
+if petsc4py_version < '3.4':
+    raise RuntimeError("Incompatible petsc4py version %s. At least version 3.4 is required."
+                       % petsc4py_version)
 
 
 class MPIConfig(mpi.MPIConfig):
