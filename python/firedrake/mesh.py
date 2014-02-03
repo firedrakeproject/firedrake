@@ -382,6 +382,7 @@ class IcosahedralSphereMesh(Mesh):
 
     """An icosahedral mesh of the surface of the sphere"""
     phi = (1 + sqrt(5)) / 2
+    del sqrt
     # vertices of an icosahedron with an edge length of 2
     _base_vertices = np.array([[-1, phi, 0],
                                [1, phi, 0],
