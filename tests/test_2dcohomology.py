@@ -32,8 +32,13 @@ def test_betti0(space):
     """
     mesh = Mesh("annulus.msh")
     V0tag, V1tag, V2tag = space
-    V0 = FunctionSpace(mesh, V0tag[0], V0tag[1])
 
+    if(len(V0tag) == 2):
+        V0 = FunctionSpace(mesh, V0tag[0], V0tag[1])
+    else:
+        V0a = FiniteElement(V0tag[0], "triangle", V0tag[1])
+        V0b = FiniteElement(V0tag[2], "triangle", V0tag[3])
+        V0 = FunctionSpace(mesh, V0a + V0b)
 #V0 Hodge Laplacian
     u = TrialFunction(V0)
     v = TestFunction(V0)
