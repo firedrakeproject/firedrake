@@ -71,3 +71,20 @@ class Expression(ufl.Coefficient):
 
         """
         return self._shape
+
+
+def to_expression(val, **kwargs):
+    """Convert val to an :class:`Expression`.
+
+    :arg val: an iterable of values suitable for a code snippet in an
+         :class:`Expression`.
+    :arg \*\*kwargs: keyword arguments passed to the
+         :class:`Expression` constructor (which see).
+    """
+    try:
+        expr = ["%s" % v for v in val]
+    except TypeError:
+        # Not iterable
+        expr = "%s" % val
+
+    return Expression(code=expr, **kwargs)
