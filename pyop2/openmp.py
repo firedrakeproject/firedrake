@@ -48,7 +48,7 @@ from host import Kernel  # noqa: for inheritance
 import device
 import plan as _plan
 from subprocess import Popen, PIPE
-from base import ON_BOTTOM, ON_TOP
+from base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS
 
 # hard coded value to max openmp threads
 _max_threads = 32
@@ -251,6 +251,8 @@ class ParLoop(device.ParLoop, host.ParLoop):
             if self.iterate in [ON_TOP, ON_BOTTOM]:
                 self._argtypes.append(ctypes.c_int)
                 self._jit_args.extend([2])
+            elif self.iterate in [ON_INTERIOR_FACETS]:
+                self._jit_args.extend([self._it_space.layers - 1])
             else:
                 self._argtypes.append(ctypes.c_int)
                 self._jit_args.extend(self.layer_arg)
