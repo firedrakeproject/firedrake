@@ -123,6 +123,19 @@ class FormSplitter(ReuseTransformer):
         """Reconstruct a dot product on each of the component spaces."""
         return self._binop(o, l, r)
 
+    def _index(self, o, arg, idx):
+        """Reconstruct an index if the rank matches, otherwise yield the
+        argument. If the argument is a tuple, go over each entry."""
+        build = lambda a: o.reconstruct(a, idx) if a.rank() == len(idx.free_indices()) else a
+        if isinstance(arg, tuple):
+            return tuple(build(a) for a in arg)
+        else:
+            return build(arg)
+
+    def index_sum(self, o, arg, idx):
+        """Reconstruct an index sum on each of the component spaces."""
+        return self._index(o, arg, idx)
+
     def indexed(self, o, arg, idx):
         """Apply fixed indices where they point on a scalar subspace.
         Reconstruct fixed indices on a component vector and any other index."""
@@ -146,8 +159,7 @@ class FormSplitter(ReuseTransformer):
                 # Otherwise update the position in the index space
                 pos += size
             raise NotImplementedError("No idea what to in %r with %r" % (o, arg))
-        else:
-            return o.reconstruct(arg, idx)
+        return self._index(o, arg, idx)
 
     def argument(self, o):
         """Split an argument into its constituent spaces."""
