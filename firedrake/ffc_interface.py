@@ -2,6 +2,7 @@
 generated code in order to make it suitable for passing to the backends."""
 
 from hashlib import md5
+from operator import add
 import os
 import tempfile
 import numpy as np
@@ -44,6 +45,12 @@ def _check_version():
                        % (version, getattr(constants, 'PYOP2_VERSION', 'unknown')))
 
 
+def sum_integrands(form):
+    """Produce a form with the integrands on the same measure summed."""
+    return Form([it[0].reconstruct(reduce(add, [i.integrand() for i in it]))
+                 for d, it in form.integral_groups().items()])
+
+
 class FormSplitter(ReuseTransformer):
     """Split a form into a subtree for each component of the mixed space it is
     built on. This is a no-op on forms over non-mixed spaces."""
@@ -53,10 +60,10 @@ class FormSplitter(ReuseTransformer):
         fd = form.compute_form_data()
         # If there is no mixed element involved, return a form per integral
         if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
-            return [[Form([i])] for i in form.integrals()]
+            return [[Form([i])] for i in sum_integrands(form).integrals()]
         # Otherwise visit each integrand and obtain the tuple of sub forms
         return [[f * i.measure() for f in as_tuple(self.visit(i.integrand()))]
-                for i in form.integrals()]
+                for i in sum_integrands(form).integrals()]
 
     def sum(self, o, l, r):
         """Take the sum of operands on the same block and return a tuple of
