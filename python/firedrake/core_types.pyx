@@ -365,6 +365,8 @@ class _Facets(object):
                 return [(0, self.bottom_set, self._local_facet_top_bottom(0))]
             elif dom_type == "exterior_facet_top":
                 return [(1, self.bottom_set, self._local_facet_top_bottom(1))]
+            elif dom_type == "interior_facet_horiz":
+                return self.bottom_set
             else:
                 return self.set
         else:
@@ -392,6 +394,11 @@ class _Facets(object):
 
         return op2.Dat(op2.DataSet(self.set, self._rank), self.local_facet_number,
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
+
+    def _local_facet_interior_horiz(self):
+        """Global for indicating the orientation of the cells in the vertical
+        direction of an extruded mesh."""
+        return op2.Global(2, [1, 0], dtype=np.uintc)
 
     def _local_facet_top_bottom(self, value):
         """Global indicating which facet, top or bottom,
