@@ -43,7 +43,7 @@ from hashlib import md5
 
 from configuration import configuration
 from caching import Cached, KernelCached
-from versioning import Versioned, modifies, CopyOnWrite
+from versioning import Versioned, modifies, CopyOnWrite, shallow_copy
 from exceptions import *
 from utils import *
 from backends import _make_object
@@ -1767,6 +1767,12 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         """Copy the data in this :class:`Dat` into another.
 
         :arg other: The destination :class:`Dat`"""
+
+        self._copy_parloop(other).enqueue()
+
+    @collective
+    def _copy_parloop(self, other):
+        """Create the :class:`ParLoop` implementing copy."""
         if not hasattr(self, '_copy_kernel'):
             k = """void copy(%(t)s *self, %(t)s *other) {
                 for (int n = 0; n < %(dim)s; ++n) {
@@ -1774,8 +1780,8 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                 }
             }""" % {'t': self.ctype, 'dim': self.cdim}
             self._copy_kernel = _make_object('Kernel', k, 'copy')
-        _make_object('ParLoop', self._copy_kernel, self.dataset.set,
-                     self(READ), other(WRITE)).enqueue()
+        return _make_object('ParLoop', self._copy_kernel, self.dataset.set,
+                            self(READ), other(WRITE))
 
     def __iter__(self):
         """Yield self when iterated over."""
@@ -1806,8 +1812,27 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         return not self == other
 
     def _cow_actual_copy(self, src):
-        # Naive copy() method
-        self._data = src._data.copy()
+
+        # Force the execution of the copy parloop
+        self._cow_parloop._run()
+        if configuration['lazy_evaluation']:
+            _trace._trace.remove(self._cow_parloop)
+
+    def _cow_shallow_copy(self):
+
+        other = shallow_copy(self)
+
+        # Set up the copy to happen when required.
+        other._cow_parloop = self._copy_parloop(other)
+        # Remove the write dependency of the copy (in order to
+        # prevent premature execution of the loop).
+        other._cow_parloop.writes = set()
+        if configuration['lazy_evaluation']:
+            # In the lazy case, we enqueue now to ensure we are at the
+            # right point in the trace.
+            other._cow_parloop.enqueue()
+
+        return other
 
     def __str__(self):
         return "OP2 Dat: %s on (%s) with datatype %s" \
