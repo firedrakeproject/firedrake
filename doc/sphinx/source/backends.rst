@@ -155,5 +155,121 @@ plan. These are the number of elements that are part of the given block and
 its starting index. Note that each thread needs its own staging array
 ``arg1_0_vec``, which is therefore scoped by the thread id.
 
+CUDA backend
+------------
+
+The CUDA backend makes extensive use of PyCUDA_ and its infrastructure for
+just-in-time compilation of CUDA kernels. Linear solvers and sparse matrix
+data structures are implemented on top of the `CUSP library`_ and are
+described in greater detail in :doc:`linear_algebra`. Code generation uses a
+template based approach, where a ``__global__`` stub routine to be called from
+the host is generated, which takes care of data marshaling and calling the
+user kernel as an inline ``__device__`` function.
+
+When the :func:`~pyop2.par_loop` is called, PyOP2 uses the access descriptors
+to determine which data needs to be transfered from host host to device prior
+to launching the kernel and which data needs to brought back to the host
+afterwards. All data transfer is triggered lazily i.e. the actual copy only
+occurs once the data is requested. Flags indicate the state of a given
+:class:`~pyop2.Dat` at any point in time:
+
+* ``DEVICE_UNALLOCATED``: no data is allocated on the device
+* ``HOST_UNALLOCATED``: no data is allocated on the host
+* ``DEVICE``: data is up-to-date (valid) on the device, but invalid on the
+  host
+* ``HOST``: data is up-to-date (valid) on the host, but invalid on the device
+* ``BOTH``: data is up-to-date (valid) on both the host and device
+
+We consider the same ``midpoint`` kernel as in the previous examples, which
+requires no modification and is automatically annonated with a ``__device__``
+qualifier. PyCUDA_ takes care of generating a host stub for the generated
+kernel stub ``__midpoint_stub`` given a list of parameter types. It takes care
+of translating Python objects to plain C data types and pointers, such that a
+CUDA kernel can be launched straight from Python. The entire CUDA code PyOP2
+generates is as follows: ::
+
+  __device__ void midpoint(double p[2], double *coords[2])
+  {
+    p[0] = ((coords[0][0] + coords[1][0]) + coords[2][0]) / 3.0;
+    p[1] = ((coords[0][1] + coords[1][1]) + coords[2][1]) / 3.0;
+  }
+
+  __global__ void __midpoint_stub(int set_size, int set_offset,
+      double *arg0,
+      double *ind_arg1,
+      int *ind_map,
+      short *loc_map,
+      int *ind_sizes,
+      int *ind_offs,
+      int block_offset,
+      int *blkmap,
+      int *offset,
+      int *nelems,
+      int *nthrcol,
+      int *thrcol,
+      int nblocks) {
+    extern __shared__ char shared[];
+    __shared__ int *ind_arg1_map;
+    __shared__ int ind_arg1_size;
+    __shared__ double * ind_arg1_shared;
+    __shared__ int nelem, offset_b, offset_b_abs;
+
+    double *ind_arg1_vec[3];
+
+    if (blockIdx.x + blockIdx.y * gridDim.x >= nblocks) return;
+    if (threadIdx.x == 0) {
+      int blockId = blkmap[blockIdx.x + blockIdx.y * gridDim.x + block_offset];
+      nelem = nelems[blockId];
+      offset_b_abs = offset[blockId];
+      offset_b = offset_b_abs - set_offset;
+
+      ind_arg1_size = ind_sizes[0 + blockId * 1];
+      ind_arg1_map = &ind_map[0 * set_size] + ind_offs[0 + blockId * 1];
+
+      int nbytes = 0;
+      ind_arg1_shared = (double *) &shared[nbytes];
+    }
+
+    __syncthreads();
+
+    // Copy into shared memory
+    for ( int idx = threadIdx.x; idx < ind_arg1_size * 2; idx += blockDim.x ) {
+      ind_arg1_shared[idx] = ind_arg1[idx % 2 + ind_arg1_map[idx / 2] * 2];
+    }
+
+    __syncthreads();
+
+    // process set elements
+    for ( int idx = threadIdx.x; idx < nelem; idx += blockDim.x ) {
+      ind_arg1_vec[0] = ind_arg1_shared + loc_map[0*set_size + idx + offset_b]*2;
+      ind_arg1_vec[1] = ind_arg1_shared + loc_map[1*set_size + idx + offset_b]*2;
+      ind_arg1_vec[2] = ind_arg1_shared + loc_map[2*set_size + idx + offset_b]*2;
+
+      midpoint(arg0 + 2 * (idx + offset_b_abs), ind_arg1_vec);
+    }
+  }
+
+The CUDA kernel ``__midpoint_stub`` is launched on the GPU for a specific
+number of threads. Each thread is identified inside the kernel by its thread
+id ``threadIdx`` within a block of threads identified by a two dimensional
+block id ``blockIdx`` within a grid of blocks.
+
+As for OpenMP, there is the potential for data races, which are prevented by
+colouring the iteration set and computing a parallel execution plan, where all
+elements of the same colour can be modified simultaneously. Each colour is
+computed by a block of threads in parallel. All threads of a thread block have
+access to a shared memory, which is used as a shared staging area initialised
+by thread 0 of each block, see lines 30-41 above. A call to
+``__syncthreads()`` makes sure these initial values are visible to all threads
+of the block. Afterwards, all threads cooperatively gather data from the
+indirectly accessed :class:`~pyop2.Dat` via the :class:`~pyop2.Map`, followed
+by another synchronisation. Following that, each thread stages pointers to
+coordinate data in a thread-private array which is then passed to the
+``midpoint`` kernel. As for other backends, the first argument, which is
+written directly, is passed as a pointer to global device memory with a
+suitable offset.
+
 .. _Instant: https://bitbucket.org/fenics-project/instant
 .. _FEniCS project: http://fenicsproject.org
+.. _PyCUDA: http://mathema.tician.de/software/pycuda/
+.. _CUSP library: http://cusplibrary.github.io
