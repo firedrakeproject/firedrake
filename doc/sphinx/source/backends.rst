@@ -159,19 +159,20 @@ CUDA backend
 ------------
 
 The CUDA backend makes extensive use of PyCUDA_ and its infrastructure for
-just-in-time compilation of CUDA kernels. Linear solvers and sparse matrix
-data structures are implemented on top of the `CUSP library`_ and are
-described in greater detail in :doc:`linear_algebra`. Code generation uses a
-template based approach, where a ``__global__`` stub routine to be called from
-the host is generated, which takes care of data marshaling and calling the
-user kernel as an inline ``__device__`` function.
+just-in-time compilation of CUDA kernels and interfacing them to Python.
+Linear solvers and sparse matrix data structures are implemented on top of the
+`CUSP library`_ and are described in greater detail in :doc:`linear_algebra`.
+Code generation uses a template based approach, where a ``__global__`` stub
+routine to be called from the host is generated, which takes care of data
+marshalling and calling the user kernel as an inline ``__device__`` function.
 
-When the :func:`~pyop2.par_loop` is called, PyOP2 uses the access descriptors
-to determine which data needs to be transfered from host host to device prior
-to launching the kernel and which data needs to brought back to the host
-afterwards. All data transfer is triggered lazily i.e. the actual copy only
-occurs once the data is requested. Flags indicate the state of a given
-:class:`~pyop2.Dat` at any point in time:
+When the :func:`~pyop2.par_loop` is called, PyOP2 uses the
+:ref:`access-descriptors` to determine which data needs to be allocated or
+transferred from host to device prior to launching the kernel and which data
+needs to be brought back to the host afterwards. Data is only transferred if
+it is out of date at the target location and all data transfer is triggered
+lazily i.e. the actual copy only occurs once the data is requested. Flags
+indicate the present state of a given :class:`~pyop2.Dat`:
 
 * ``DEVICE_UNALLOCATED``: no data is allocated on the device
 * ``HOST_UNALLOCATED``: no data is allocated on the host
@@ -181,12 +182,12 @@ occurs once the data is requested. Flags indicate the state of a given
 * ``BOTH``: data is up-to-date (valid) on both the host and device
 
 We consider the same ``midpoint`` kernel as in the previous examples, which
-requires no modification and is automatically annonated with a ``__device__``
-qualifier. PyCUDA_ takes care of generating a host stub for the generated
-kernel stub ``__midpoint_stub`` given a list of parameter types. It takes care
-of translating Python objects to plain C data types and pointers, such that a
-CUDA kernel can be launched straight from Python. The entire CUDA code PyOP2
-generates is as follows: ::
+requires no CUDA-specific modifications and is automatically annotated with a
+``__device__`` qualifier. PyCUDA_ automatically generates a host stub for the
+generated kernel stub ``__midpoint_stub`` given a list of parameter types. It
+takes care of translating Python objects to plain C data types and pointers,
+such that a CUDA kernel can be launched straight from Python. The entire CUDA
+code PyOP2 generates is as follows: ::
 
   __device__ void midpoint(double p[2], double *coords[2])
   {
@@ -250,9 +251,9 @@ generates is as follows: ::
   }
 
 The CUDA kernel ``__midpoint_stub`` is launched on the GPU for a specific
-number of threads. Each thread is identified inside the kernel by its thread
-id ``threadIdx`` within a block of threads identified by a two dimensional
-block id ``blockIdx`` within a grid of blocks.
+number of threads in parallel. Each thread is identified inside the kernel by
+its thread id ``threadIdx`` within a block of threads identified by a two
+dimensional block id ``blockIdx`` within a grid of blocks.
 
 As for OpenMP, there is the potential for data races, which are prevented by
 colouring the iteration set and computing a parallel execution plan, where all
@@ -260,14 +261,15 @@ elements of the same colour can be modified simultaneously. Each colour is
 computed by a block of threads in parallel. All threads of a thread block have
 access to a shared memory, which is used as a shared staging area initialised
 by thread 0 of each block, see lines 30-41 above. A call to
-``__syncthreads()`` makes sure these initial values are visible to all threads
-of the block. Afterwards, all threads cooperatively gather data from the
+``__syncthreads()`` ensures these initial values are visible to all threads of
+the block. After this barrier, all threads cooperatively gather data from the
 indirectly accessed :class:`~pyop2.Dat` via the :class:`~pyop2.Map`, followed
-by another synchronisation. Following that, each thread stages pointers to
-coordinate data in a thread-private array which is then passed to the
-``midpoint`` kernel. As for other backends, the first argument, which is
-written directly, is passed as a pointer to global device memory with a
-suitable offset.
+by another synchronisation. Following that, each thread loops over the
+elements in the partition with an increment of the block size. In each
+iteration a thread-private array of pointers to coordinate data in shared
+memory is built which is then passed to the ``midpoint`` kernel. As for other
+backends, the first, directly accessed, argument, is passed as a pointer to
+global device memory with a suitable offset.
 
 .. _Instant: https://bitbucket.org/fenics-project/instant
 .. _FEniCS project: http://fenicsproject.org
