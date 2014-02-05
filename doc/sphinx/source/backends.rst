@@ -271,7 +271,111 @@ memory is built which is then passed to the ``midpoint`` kernel. As for other
 backends, the first, directly accessed, argument, is passed as a pointer to
 global device memory with a suitable offset.
 
+OpenCL backend
+--------------
+
+The other device backend OpenCL is structurally very similar to the CUDA
+backend. It uses PyOpenCL_ to interface to the OpenCL drivers and runtime.
+Linear algebra operations are handled by PETSc_ as described in
+:doc:`linear_algebra`. PyOP2 generates a kernel stub from a template similar
+to the CUDA case.
+
+Consider the ``midpoint`` kernel from previous examples, whose parameters in
+the kernel signature are automatically annotated with OpenCL storage
+qualifiers. PyOpenCL_ provides Python wrappers for OpenCL runtime functions to
+build a kernel from a code string, set its arguments and enqueue the kernel
+for execution. It takes care of the necessary conversion from Python objects
+to plain C data types. PyOP2 generates the following code for the ``midpoint``
+example: ::
+
+  /* Launch configuration:
+   *   work group size     : 668
+   *   partition size      : 668
+   *   local memory size   : 64
+   *   local memory offset :
+   *   warpsize            : 1
+   */
+
+  #if defined(cl_khr_fp64)
+  #if defined(cl_amd_fp64)
+  #pragma OPENCL EXTENSION cl_amd_fp64 : enable
+  #else
+  #pragma OPENCL EXTENSION cl_khr_fp64 : enable
+  #endif
+  #elif defined(cl_amd_fp64)
+  #pragma OPENCL EXTENSION cl_amd_fp64 : enable
+  #endif
+
+  #define ROUND_UP(bytes) (((bytes) + 15) & ~15)
+
+  void midpoint(__global double p[2], __local double *coords[2]);
+  void midpoint(__global double p[2], __local double *coords[2])
+  {
+    p[0] = ((coords[0][0] + coords[1][0]) + coords[2][0]) / 3.0;
+    p[1] = ((coords[0][1] + coords[1][1]) + coords[2][1]) / 3.0;
+  }
+
+  __kernel __attribute__((reqd_work_group_size(668, 1, 1)))
+  void __midpoint_stub(
+      __global double* arg0,
+      __global double* ind_arg1,
+      int set_size,
+      int set_offset,__global int* p_ind_map,
+      __global short *p_loc_map,
+      __global int* p_ind_sizes,
+      __global int* p_ind_offsets,
+      __global int* p_blk_map,
+      __global int* p_offset,
+      __global int* p_nelems,
+      __global int* p_nthrcol,
+      __global int* p_thrcol,
+      __private int block_offset) {
+    __local char shared [64] __attribute__((aligned(sizeof(long))));
+    __local int offset_b;
+    __local int offset_b_abs;
+    __local int active_threads_count;
+
+    int nbytes;
+    int block_id;
+
+    int i_1;
+    // shared indirection mappings
+    __global int* __local ind_arg1_map;
+    __local int ind_arg1_size;
+    __local double* __local ind_arg1_shared;
+    __local double* ind_arg1_vec[3];
+
+    if (get_local_id(0) == 0) {
+      block_id = p_blk_map[get_group_id(0) + block_offset];
+      active_threads_count = p_nelems[block_id];
+      offset_b_abs = p_offset[block_id];
+      offset_b = offset_b_abs - set_offset;ind_arg1_size = p_ind_sizes[0 + block_id * 1];
+      ind_arg1_map = &p_ind_map[0 * set_size] + p_ind_offsets[0 + block_id * 1];
+
+      nbytes = 0;
+      ind_arg1_shared = (__local double*) (&shared[nbytes]);
+      nbytes += ROUND_UP(ind_arg1_size * 2 * sizeof(double));
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    // staging in of indirect dats
+    for (i_1 = get_local_id(0); i_1 < ind_arg1_size * 2; i_1 += get_local_size(0)) {
+      ind_arg1_shared[i_1] = ind_arg1[i_1 % 2 + ind_arg1_map[i_1 / 2] * 2];
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    for (i_1 = get_local_id(0); i_1 < active_threads_count; i_1 += get_local_size(0)) {
+      ind_arg1_vec[0] = ind_arg1_shared + p_loc_map[i_1 + 0*set_size + offset_b] * 2;
+      ind_arg1_vec[1] = ind_arg1_shared + p_loc_map[i_1 + 1*set_size + offset_b] * 2;
+      ind_arg1_vec[2] = ind_arg1_shared + p_loc_map[i_1 + 2*set_size + offset_b] * 2;
+
+      midpoint((__global double* __private)(arg0 + (i_1 + offset_b_abs) * 2), ind_arg1_vec);
+    }
+  }
+
 .. _Instant: https://bitbucket.org/fenics-project/instant
 .. _FEniCS project: http://fenicsproject.org
 .. _PyCUDA: http://mathema.tician.de/software/pycuda/
 .. _CUSP library: http://cusplibrary.github.io
+.. _PyOpenCL: http://mathema.tician.de/software/pyopencl/
+.. _PETSc: http://www.mcs.anl.gov/petsc/petsc-as/
