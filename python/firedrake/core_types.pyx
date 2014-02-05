@@ -752,7 +752,7 @@ class ExtrudedMesh(Mesh):
         self._ds = Measure('exterior_facet', domain_data=self._coordinate_field)
         self._dS = Measure('interior_facet', domain_data=self._coordinate_field)
         # Set the domain_data on all the default measures to this coordinate field.
-        for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_tb, ufl.ds_t, ufl.ds_b, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
+        for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_t, ufl.ds_b, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
             measure._domain_data = self._coordinate_field
         # if measure in [ufl.ds, ufl.dS]:
         #     raise RuntimeError("Facet integrals on extruded meshes must be split into horizontal and vertical parts.")
@@ -1125,6 +1125,7 @@ class FunctionSpaceBase(Cached):
                                2*self.fiat_element.space_dimension(),
                                bcs,
                                "interior_facet_node",
+                               offset=self.cell_node_map().offset,
                                parent=parent)
 
     def exterior_facet_node_map(self, bcs=None):
