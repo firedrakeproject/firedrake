@@ -278,7 +278,8 @@ The other device backend OpenCL is structurally very similar to the CUDA
 backend. It uses PyOpenCL_ to interface to the OpenCL drivers and runtime.
 Linear algebra operations are handled by PETSc_ as described in
 :doc:`linear_algebra`. PyOP2 generates a kernel stub from a template similar
-to the CUDA case.
+to the CUDA case. The OpenCL backend shares the same semantics for data
+transfer described for CUDA above.
 
 Consider the ``midpoint`` kernel from previous examples, whose parameters in
 the kernel signature are automatically annotated with OpenCL storage
@@ -287,24 +288,6 @@ build a kernel from a code string, set its arguments and enqueue the kernel
 for execution. It takes care of the necessary conversion from Python objects
 to plain C data types. PyOP2 generates the following code for the ``midpoint``
 example: ::
-
-  /* Launch configuration:
-   *   work group size     : 668
-   *   partition size      : 668
-   *   local memory size   : 64
-   *   local memory offset :
-   *   warpsize            : 1
-   */
-
-  #if defined(cl_khr_fp64)
-  #if defined(cl_amd_fp64)
-  #pragma OPENCL EXTENSION cl_amd_fp64 : enable
-  #else
-  #pragma OPENCL EXTENSION cl_khr_fp64 : enable
-  #endif
-  #elif defined(cl_amd_fp64)
-  #pragma OPENCL EXTENSION cl_amd_fp64 : enable
-  #endif
 
   #define ROUND_UP(bytes) (((bytes) + 15) & ~15)
 
@@ -320,7 +303,8 @@ example: ::
       __global double* arg0,
       __global double* ind_arg1,
       int set_size,
-      int set_offset,__global int* p_ind_map,
+      int set_offset,
+      __global int* p_ind_map,
       __global short *p_loc_map,
       __global int* p_ind_sizes,
       __global int* p_ind_offsets,
@@ -372,6 +356,24 @@ example: ::
       midpoint((__global double* __private)(arg0 + (i_1 + offset_b_abs) * 2), ind_arg1_vec);
     }
   }
+
+Parallel computations in OpenCL are executed by *work items* organised into
+*work groups*. OpenCL requires annotating all pointer arguments with the
+memory region they point to: ``__global`` memory is visible to any work item,
+``__local`` memory to any work item within the same work group and
+``__private`` memory is private to a work item. Local memory therefore
+corresponds to CUDA's shared memory and private memory is called local memory
+in CUDA. The work item id within the work group is accessed via the OpenCL
+runtime call ``get_local_id(0)``, the work group id via ``get_group_id(0)``. A
+barrier synchronisation across all work items of a work group is enforced with
+a call to ``barrier(CLK_LOCAL_MEM_FENCE)``. Bearing these differences in mind,
+the OpenCL kernel stub is structurally almost identical to the corresponding
+CUDA version above.
+
+The required local memory size per work group ``reqd_work_group_size`` is
+computed as part of the execution plan. In CUDA this value is a launch
+parameter to the kernel, whereas in OpenCL it needs to be hard coded as a
+kernel attribute.
 
 .. _Instant: https://bitbucket.org/fenics-project/instant
 .. _FEniCS project: http://fenicsproject.org
