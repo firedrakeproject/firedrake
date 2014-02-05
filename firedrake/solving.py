@@ -678,6 +678,34 @@ def _assemble(f, tensor=None, bcs=None):
                                       flatten=True))
                 args.append(m.interior_facets._local_facet_interior_horiz()(op2.READ))
                 op2.par_loop(*args, **kwargs)
+
+            elif domain_type == 'interior_facet_vert':
+                if op2.MPI.parallel:
+                    raise \
+                        NotImplementedError(
+                            "No support for facet integrals under MPI yet")
+
+                if is_mat:
+                    tensor_arg = tensor(
+                        op2.INC, (test.interior_facet_node_map(bcs)[op2.i[0]],
+                                  trial.interior_facet_node_map(bcs)[
+                                      op2.i[1]]),
+                        flatten=True)
+                elif is_vec:
+                    tensor_arg = tensor(
+                        op2.INC, test.interior_facet_node_map()[op2.i[0]],
+                        flatten=True)
+                else:
+                    tensor_arg = tensor(op2.INC)
+                args = [kernel, m.interior_facets.set, tensor_arg,
+                        coords.dat(op2.READ, coords.interior_facet_node_map(),
+                                   flatten=True)]
+                for c in fd.original_coefficients:
+                    args.append(c.dat(op2.READ, c.interior_facet_node_map(),
+                                      flatten=True))
+                args.append(m.interior_facets.local_facet_dat(op2.READ))
+                op2.par_loop(*args)
+
             else:
                 raise RuntimeError('Unknown domain type "%s"' % domain_type)
 
