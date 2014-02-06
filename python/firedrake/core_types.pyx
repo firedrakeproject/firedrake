@@ -302,7 +302,7 @@ cdef ft.element_t as_element(object fiat_element):
 
 class _Facets(object):
     """Wrapper class for facet interation information on a :class:`Mesh`"""
-    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None):
+    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None, bottom_set=None):
 
         self.mesh = mesh
 
@@ -320,6 +320,7 @@ class _Facets(object):
         self.local_facet_number = local_facet_number
 
         self.markers = markers
+        self._b_set = bottom_set
         self._subsets = {}
 
     @utils.cached_property
@@ -688,13 +689,15 @@ class ExtrudedMesh(Mesh):
         self._interior_facets = _Facets(self, interior_f.count,
                                        "interior",
                                        interior_f.facet_cell,
-                                       interior_f.local_facet_number)
+                                       interior_f.local_facet_number,
+                                       bottom_set=self.cell_set)
         exterior_f = self._old_mesh.exterior_facets
         self._exterior_facets = _Facets(self, exterior_f.count,
                                            "exterior",
                                            exterior_f.facet_cell,
                                            exterior_f.local_facet_number,
-                                           exterior_f.markers)
+                                           exterior_f.markers,
+                                           bottom_set=self.cell_set)
 
         self.ufl_cell_element = ufl.FiniteElement("Lagrange",
                                                domain = mesh._ufl_cell,
@@ -1119,13 +1122,14 @@ class FunctionSpaceBase(Cached):
         else:
             parent = None
 
+        offset = self.cell_node_map().offset
         return self._map_cache(self._interior_facet_map_cache,
                                self._mesh.interior_facets.set,
                                self.interior_facet_node_list,
                                2*self.fiat_element.space_dimension(),
                                bcs,
                                "interior_facet_node",
-                               offset=self.cell_node_map().offset,
+                               offset=np.append(offset, offset),
                                parent=parent)
 
     def exterior_facet_node_map(self, bcs=None):

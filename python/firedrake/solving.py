@@ -400,6 +400,8 @@ def _assemble(f, tensor=None, bcs=None):
     is_vec = fd.rank == 1
 
     integrals = fd.preprocessed_form.integrals()
+    #Uncomment once UFL is fixed: integrals = fd.integral_data
+
     # Extract coordinate field
     coords = integrals[0].measure().domain_data()
 
@@ -490,6 +492,9 @@ def _assemble(f, tensor=None, bcs=None):
             bottom = any(bc.sub_domain == "bottom" for bc in bcs)
             top = any(bc.sub_domain == "top" for bc in bcs)
             extruded_bcs = (bottom, top)
+        # ker_int = [(ker, integral) for ker in kernels for integral in integrals
+        #            if integral.domain_type() == ker.domain_type]
+        # for kernel, integral in ker_int:
         for kernel, integral in zip(kernels, integrals):
             domain_type = integral.measure().domain_type()
             if domain_type == 'cell':
@@ -542,7 +547,7 @@ def _assemble(f, tensor=None, bcs=None):
                 args.append(m.exterior_facets.local_facet_dat(op2.READ))
                 op2.par_loop(*args)
 
-            elif domain_type in ['exterior_facet_topbottom', 'exterior_facet_top', 'exterior_facet_bottom']:
+            elif domain_type in ['exterior_facet_top', 'exterior_facet_bottom']:
                 if op2.MPI.parallel:
                     raise \
                         NotImplementedError(
@@ -583,7 +588,6 @@ def _assemble(f, tensor=None, bcs=None):
                     for c in fd.original_coefficients:
                         args.append(c.dat(op2.READ, c.cell_node_map(),
                                           flatten=has_vec_fs(c)))
-                    args.append(facet_global(op2.READ))
                     op2.par_loop(*args, **kwargs)
 
             elif domain_type == 'exterior_facet_vert':
@@ -668,7 +672,6 @@ def _assemble(f, tensor=None, bcs=None):
                 for c in fd.original_coefficients:
                     args.append(c.dat(op2.READ, c.cell_node_map(),
                                       flatten=True))
-                args.append(m.interior_facets._local_facet_interior_horiz()(op2.READ))
                 op2.par_loop(*args, **kwargs)
 
             elif domain_type == 'interior_facet_vert':
