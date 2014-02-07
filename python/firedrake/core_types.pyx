@@ -926,9 +926,11 @@ class ExtrudedMesh(Mesh):
         self._entities = mesh._entities
         self.parent = mesh.parent
         self.uid = mesh.uid
-        self.region_ids = mesh.region_ids
+        #self.region_ids = mesh.region_ids
         self._coordinates = mesh._coordinates
+        self._vertex_numbering = mesh._vertex_numbering
         self.name = mesh.name
+        self._plex = mesh._plex
 
         interior_f = self._old_mesh.interior_facets
         self._interior_facets = _Facets(self, interior_f.count,
@@ -967,22 +969,6 @@ class ExtrudedMesh(Mesh):
         if layer_height is None:
             # Default to unit
             layer_height = 1.0 / layers
-        # Now we need to produce the extruded mesh using
-        # techqniues employed when computing the
-        # function space.
-        cdef ft.element_t element_f = as_element(fiat_element)
-        cdef void *fluidity_mesh = py.PyCapsule_GetPointer(mesh._fluidity_mesh, _mesh_name)
-        if fluidity_mesh == NULL:
-            raise RuntimeError("Didn't find fluidity mesh pointer in mesh %s" % mesh)
-
-        cdef int *dofs_per_column = <int *>np.PyArray_DATA(self.dofs_per_column)
-
-        extruded_mesh = ft.extruded_mesh_f(fluidity_mesh, &element_f, dofs_per_column)
-
-        #Assign the newly computed extruded mesh as the fluidity mesh
-        self._fluidity_mesh = py.PyCapsule_New(extruded_mesh.fluidity_mesh,
-                                                         _mesh_name,
-                                                         NULL)
 
         self._coordinate_fs = types.VectorFunctionSpace(self, mesh._coordinate_fs.ufl_element().family(),
                                                         mesh._coordinate_fs.ufl_element().degree(),
@@ -1153,16 +1139,24 @@ class FunctionSpaceBase(Cached):
             # dof_count is the total number of dofs in the extruded mesh
 
             # Get the flattened version of the FIAT element
-            flattened_element = self.fiat_element.flattened_element()
+            self.flattened_element = self.fiat_element.flattened_element()
+            entity_dofs = self.flattened_element.entity_dofs()
+            self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
+
+            # Compute the number of DoFs per dimension on top/bottom and sides
+            entity_dofs = self.fiat_element.entity_dofs()
+            top_dim = mesh._plex.getDimension()
+            self._xtr_hdofs = [len(entity_dofs[(d,0)][0]) for d in range(top_dim+1)]
+            self._xtr_vdofs = [len(entity_dofs[(d,1)][0]) for d in range(top_dim+1)]
 
             # Compute the dofs per column
             self.dofs_per_column = compute_extruded_dofs(self.fiat_element,
-                                                         flattened_element.entity_dofs(),
+                                                         self.flattened_element.entity_dofs(),
                                                          mesh._layers)
 
             # Compute the offset for the extrusion process
             self.offset = compute_offset(self.fiat_element.entity_dofs(),
-                                         flattened_element.entity_dofs(),
+                                         self.flattened_element.entity_dofs(),
                                          self.fiat_element.space_dimension())
 
             # Compute the top and bottom masks to identify boundary dofs
@@ -1172,6 +1166,8 @@ class FunctionSpaceBase(Cached):
             self.bt_masks = (b_mask, t_mask)
 
             self.extruded = True
+
+            self._dofs_per_entity = self.dofs_per_column
         else:
             # If not extruded specific, set things to None/False, etc.
             self.offset = None
@@ -1179,16 +1175,18 @@ class FunctionSpaceBase(Cached):
             self.dofs_per_column = np.zeros(1, np.int32)
             self.extruded = False
 
+            entity_dofs = self.fiat_element.entity_dofs()
+            self._dofs_per_entity = [len(entity[0]) for d, entity in entity_dofs.iteritems()]
+            self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
+
         self.name = name
         self._dim = dim
         self._mesh = mesh
         self._index = None
 
-        # Create the PetscSection mapping topological entities to DoFs
         self._plex = mesh._plex.clone()
-        entity_dofs = self.fiat_element.entity_dofs()
-        self._dofs_per_entity = [len(entity[0]) for d, entity in entity_dofs.iteritems()]
-        self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
+
+        # Create the PetscSection mapping topological entities to DoFs
         self._global_numbering = self._plex.createSection(1, [1], self._dofs_per_entity)
 
         # Reorder global and universal node numberings
@@ -1244,12 +1242,56 @@ class FunctionSpaceBase(Cached):
 
         offset = 0
         cell_nodes = np.empty(sum(self._dofs_per_cell), dtype=np.int32)
-        for n in numbering:
-            dof = self._global_numbering.getDof(n)
-            off = self._global_numbering.getOffset(n)
-            for i in range(dof):
-                cell_nodes[offset+i] = off+i
-            offset += dof
+        if isinstance(self._mesh, ExtrudedMesh):
+            """Instead of using the numbering directly, we step through
+            all points and build the numbering for each entity
+            according to the extrusion rules."""
+            dim = self._plex.getDimension()
+            flat_entity_dofs = self.flattened_element.entity_dofs()
+            hdofs = self._xtr_hdofs
+            vdofs = self._xtr_vdofs
+
+            for d in range(dim+1):
+                pStart, pEnd = self._plex.getDepthStratum(d)
+                points = filter(lambda x: pStart<=x and x<pEnd, numbering)
+                for i in range(len(points)):
+                    p = points[i]
+                    if self._global_numbering.getDof(p) > 0:
+                        glbl = self._global_numbering.getOffset(p)
+
+                        """ For extruded entities the numberings are:
+                        Global: [bottom[:], top[:], side[:]]
+                        Local:  [bottom[i], top[i], side[i] for i in bottom[:]]
+
+                        eg. extruded P3 facet:
+                              Local            Global
+                         --1---6---11--   --12---13---14--
+                         | 4   9   14 |   |  5    8   11 |
+                         | 3   8   13 |   |  4    7   10 |
+                         | 2   7   12 |   |  3    6    9 |
+                         --0---5---10--   ---0----1----2--
+
+                        cell_nodes = [0,12,3,4,5,1,13,6,7,8,2,14,9,10,11]
+                        """
+                        lcl_dofs = flat_entity_dofs[d][i]
+                        glbl_dofs = np.zeros(len(lcl_dofs), dtype=np.int32)
+                        glbl_dofs[:hdofs[d]] = range(glbl,glbl+hdofs[d])
+                        glbl_sides = glbl + hdofs[d]
+                        glbl_dofs[hdofs[d]:hdofs[d]+vdofs[d]] = range(glbl_sides, glbl_sides + vdofs[d])
+                        glbl_top = glbl + hdofs[d] + vdofs[d]
+                        glbl_dofs[vdofs[d]+hdofs[d]:vdofs[d]+2*hdofs[d]] = range(glbl_top, glbl_top+hdofs[d])
+                        for l, g in zip(lcl_dofs, glbl_dofs):
+                            cell_nodes[l] = g
+
+                        offset += 2*hdofs[d] + vdofs[d]
+
+        else:
+            for n in numbering:
+                dof = self._global_numbering.getDof(n)
+                off = self._global_numbering.getOffset(n)
+                for i in range(dof):
+                    cell_nodes[offset+i] = off+i
+                offset += dof
         return cell_nodes
 
     @property
