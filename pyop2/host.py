@@ -125,7 +125,7 @@ class Arg(base.Arg):
         return val
 
     def c_ind_data(self, idx, i, j=0, is_top=False, layers=1, offset=None):
-        return "%(name)s + (%(map_name)s[i * %(arity)s + %(idx)s]%(top)s%(offset)s)* %(dim)s%(off)s" % \
+        return "%(name)s + (%(map_name)s[i * %(arity)s + %(idx)s]%(top)s%(off_mul)s%(off_add)s)* %(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
              'arity': self.map.split[i].arity,
@@ -133,17 +133,19 @@ class Arg(base.Arg):
              'top': ' + '+str(layers - 2) if is_top else '',
              'dim': self.data.split[i].cdim,
              'off': ' + %d' % j if j else '',
-             'offset': ' + %d' % offset if offset is not None else ''}
+             'off_mul': ' * %d' % offset if is_top and offset is not None else '',
+             'off_add': ' + %d' % offset if not is_top and offset is not None else ''}
 
     def c_ind_data_xtr(self, idx, i, j=0, is_top=False, layers=1):
         cdim = np.prod(self.data.cdim)
-        return "%(name)s + (xtr_%(map_name)s[%(idx)s]%(top)s)*%(dim)s%(off)s" % \
+        return "%(name)s + (xtr_%(map_name)s[%(idx)s]%(top)s%(offset)s)*%(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
              'idx': idx,
              'top': ' + '+str(layers - 2) if is_top else '',
              'dim': 1 if self._flatten else str(cdim),
-             'off': ' + %d' % j if j else ''}
+             'off': ' + %d' % j if j else '',
+             'offset': ' * _'+self.c_offset_name(i, 0)+'['+idx+']' if is_top else ''}
 
     def c_kernel_arg_name(self, i, j):
         return "p_%s" % self.c_arg_name(i, j)
@@ -198,7 +200,8 @@ class Arg(base.Arg):
                     val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                {'vec_name': self.c_vec_name(),
                                 'idx': d * arity + idx,
-                                'data': self.c_ind_data(idx, 0, d, is_top=is_top, layers=layers)})
+                                'data': self.c_ind_data(idx, 0, d, is_top=is_top, layers=layers,
+                                                        offset=self.map.offset[idx] if is_top else None)})
             if is_facet:
                 for d in range(self.data.dataset.cdim):
                     for idx in range(arity):
@@ -213,7 +216,8 @@ class Arg(base.Arg):
                     val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                {'vec_name': self.c_vec_name(),
                                 'idx': idx,
-                                'data': self.c_ind_data(mi, i, is_top=is_top, layers=layers)})
+                                'data': self.c_ind_data(mi, i, is_top=is_top, layers=layers,
+                                                        offset=self.map.offset[idx] if is_top else None)})
             if is_facet:
                 for i, rng in enumerate(zip(self.map.arange[:-1], self.map.arange[1:])):
                     for mi, idx in enumerate(range(*rng)):
@@ -413,7 +417,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                             'dim_row': str(m.arity * cdim) if self._flatten else str(m.arity)})
         return '\n'.join(val)+'\n'
 
-    def c_map_init_flattened(self):
+    def c_map_init_flattened(self, is_top=False, layers=1):
         cdim = np.prod(self.data.cdim)
         maps = as_tuple(self.map, Map)
         val = []
@@ -421,25 +425,27 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             for j, m in enumerate(map):
                 for idx in range(m.arity):
                     for k in range(cdim):
-                        val.append("xtr_%(name)s[%(ind_flat)s] = %(dat_dim)s * (*(%(name)s + i * %(dim)s + %(ind)s))%(offset)s;" %
+                        val.append("xtr_%(name)s[%(ind_flat)s] = %(dat_dim)s * (*(%(name)s + i * %(dim)s + %(ind)s)%(off_top)s)%(offset)s;" %
                                    {'name': self.c_map_name(i, j),
                                     'dim': m.arity,
                                     'ind': idx,
                                     'dat_dim': str(cdim),
                                     'ind_flat': str(m.arity * k + idx),
-                                    'offset': ' + '+str(k) if k > 0 else ''})
+                                    'offset': ' + '+str(k) if k > 0 else '',
+                                    'off_top': ' + '+str(layers - 2) if is_top else ''})
         return '\n'.join(val)+'\n'
 
-    def c_map_init(self):
+    def c_map_init(self, is_top=False, layers=1):
         maps = as_tuple(self.map, Map)
         val = []
         for i, map in enumerate(maps):
             for j, m in enumerate(map):
                 for idx in range(m.arity):
-                    val.append("xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s);" %
+                    val.append("xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind)s)%(off_top)s;" %
                                {'name': self.c_map_name(i, j),
                                 'dim': m.arity,
-                                'ind': idx})
+                                'ind': idx,
+                                'off_top': ' + '+str(layers - 2) if is_top else ''})
         return '\n'.join(val)+'\n'
 
     def c_map_bcs(self, top_bottom, layers, sign):
@@ -734,9 +740,9 @@ class JITModule(base.JITModule):
                                      if arg._uses_itspace and not arg._is_mat])
             _map_decl += ';\n'.join([arg.c_map_decl() for arg in self._args
                                      if arg._is_mat])
-            _map_init += ';\n'.join([arg.c_map_init_flattened() for arg in self._args
+            _map_init += ';\n'.join([arg.c_map_init_flattened(is_top=is_top, layers=self._itspace.layers) for arg in self._args
                                      if arg._uses_itspace and arg._flatten and not arg._is_mat])
-            _map_init += ';\n'.join([arg.c_map_init() for arg in self._args
+            _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, layers=self._itspace.layers) for arg in self._args
                                      if arg._uses_itspace and (not arg._flatten or arg._is_mat)])
             _map_bcs_m += ';\n'.join([arg.c_map_bcs(a_bcs, self._itspace.layers, "-") for arg in self._args
                                      if not arg._flatten and arg._is_mat])
