@@ -1,3 +1,4 @@
+.. title:: The Firedrake project
 .. sidebar:: Latest commits to the Firedrake master branch on Github
 
   .. raw:: html
