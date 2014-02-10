@@ -105,7 +105,7 @@ class FormSplitter(ReuseTransformer):
                 res.append(a)
         # All remaining tuples in the right operand list had no matches, so we
         # append them to the results list
-        return tuple(res + r)
+        return tuple(res + r) if len(res + r) > 1 else (res + r)[0]
 
     def _binop(self, o, l, r):
         if isinstance(l, tuple) and isinstance(r, tuple):
