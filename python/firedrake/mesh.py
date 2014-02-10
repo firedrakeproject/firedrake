@@ -1,6 +1,6 @@
 import tempfile
 from core_types import Mesh
-from interval import get_interval_mesh
+from interval import get_interval_mesh, periodic_interval_mesh
 import subprocess
 from pyop2.mpi import MPI
 import os
@@ -300,6 +300,37 @@ class UnitIntervalMesh(Mesh):
     def __init__(self, nx):
         with get_interval_mesh(nx) as output:
             super(UnitIntervalMesh, self).__init__(output)
+
+
+class PeriodicUnitIntervalMesh(Mesh):
+    """Generate a periodic uniform mesh of the interval [0, 1].
+
+    :arg nx: The number of cells over the interval."""
+    def __init__(self, nx):
+        with periodic_interval_mesh(nx) as output:
+            # Coordinate values need to be replaced by the appropriate
+            # DG coordinate field.
+            dx = 1.0 / nx
+            # Two per cell
+            coords = np.empty(2 * nx, dtype=float)
+            # For an interval
+            #
+            # 0---1---2---3 ... n-1---n
+            # |                       |
+            # `-----------------------'
+            #
+            # The element (0,1) is numbered first
+            coords[0] = 0.0
+            coords[1] = dx
+            # Then the element (n, 0)
+            coords[2] = 1.0
+            coords[3] = 1.0 - dx
+            # Then the rest in order (1, 2), (2, 3) ... (n-1, n)
+            if len(coords) > 4:
+                coords[4] = dx
+                coords[5:] = np.repeat(np.arange(dx * 2, 1 - dx + dx*0.01, dx), 2)[:-1]
+            super(PeriodicUnitIntervalMesh, self).__init__(output,
+                                                           periodic_coords=coords)
 
 
 class UnitTetrahedronMesh(Mesh):

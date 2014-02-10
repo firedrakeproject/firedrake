@@ -424,7 +424,7 @@ class _Facets(object):
 
 class Mesh(object):
     """A representation of mesh topology and geometry."""
-    def __init__(self, filename, dim=None):
+    def __init__(self, filename, dim=None, periodic_coords=None):
         """
         :param filename: the mesh file to read.  Supported mesh formats
                are Gmsh (extension ``msh``) and triangle (extension
@@ -436,6 +436,10 @@ class Mesh(object):
                need to supply a value for ``dim`` if the mesh is an
                immersed manifold (where the geometric and topological
                dimensions of entities are not the same).
+        :param periodic_coords: optional numpy array of coordinates
+               used to replace those read from the mesh file.  These
+               are only supported in 1D and must have enough entries
+               to be used as a DG1 field on the mesh.
         """
 
         _init()
@@ -450,14 +454,14 @@ class Mesh(object):
             # Mesh reading in Fluidity level considers 0 to be None.
             dim = 0
 
-        self._from_file(filename, dim)
+        self._from_file(filename, dim, periodic_coords)
 
         self._cell_orientations = op2.Dat(self.cell_set, dtype=np.int32,
                                           name="cell_orientations")
         # -1 is uninitialised.
         self._cell_orientations.data[:] = -1
 
-    def _from_file(self, filename, dim=0):
+    def _from_file(self, filename, dim=0, periodic_coords=None):
         """Read a mesh from `filename`
 
         The extension of the filename determines the mesh type."""
@@ -536,10 +540,18 @@ class Mesh(object):
         self.cell_halo = Halo(self._fluidity_mesh, 'cell', self.cell_classes)
         self.vertex_halo = Halo(self._fluidity_mesh, 'vertex', self.vertex_classes)
         # Note that for bendy elements, this needs to change.
-        self._coordinate_fs = VectorFunctionSpace(self, "Lagrange", 1)
+        if periodic_coords is not None:
+            if self.ufl_cell().geometric_dimension() != 1:
+                raise NotImplementedError("Periodic coordinates in more than 1D are unsupported")
+            # We've been passed a periodic coordinate field, so use that.
+            self._coordinate_fs = VectorFunctionSpace(self, "DG", 1)
+            self._coordinate_field = Function(self._coordinate_fs,
+                                              val=periodic_coords)
+        else:
+            self._coordinate_fs = VectorFunctionSpace(self, "Lagrange", 1)
 
-        self._coordinate_field = Function(self._coordinate_fs,
-                                          val = self._coordinates)
+            self._coordinate_field = Function(self._coordinate_fs,
+                                              val = self._coordinates)
 
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
