@@ -161,138 +161,93 @@ def make_flat_fiat_element(ufl_cell_element, ufl_cell, flattened_entity_dofs):
 
     return base_element
 
-def make_extruded_coords(mesh, layers, kernel=None, layer_height=None, extrusion_type='uniform'):
-    """Given a kernel or height between layers, use it to generate the
-    extruded coordinates.
-
-    :arg mesh: the base nD (1D, 2D, etc) :class:`Mesh` to extrude
-    :arg layers: the number of layers in the extruded mesh
-    :arg kernel: :class:`pyop2.Kernel` which produces the extruded coordinates
-    :arg layer_height: if provided it creates coordinates for evenly
-                       spaced layers, the default value is 1/(layers-1)
-    :arg extrusion_type: refers to how the coodinate field is computed in the
-                         extrusion process.
-                         `uniform`: create equidistant layers in the (n+1)-direction
-                         `radial`: create equidistant layers in the outward direction
-                         from the origin. For each extruded vertex the layer height is
-                         multiplied by the corresponding unit direction vector and
-                         then added to the position vector of the vertex
-
-    Either the kernel or the layer_height must be provided. Should
-    both be provided then the kernel takes precendence.
-    Its calling signature is::
-
-        void extrusion_kernel(double *extruded_coords[],
-                              double *two_d_coords[],
-                              int *layer_number[])
-
-    So for example to build an evenly-spaced extruded mesh with eleven
-    layers and height 1 in the vertical you would write::
-
-       void extrusion_kernel(double *extruded_coords[],
-                             double *two_d_coords[],
-                             int *layer_number[]) {
-           extruded_coords[0][0] = two_d_coords[0][0]; // X
-           extruded_coords[0][1] = two_d_coords[0][1]; // Y
-           extruded_coords[0][2] = 0.1 * layer_number[0][0]; // Z
-       }
+def make_extruded_coords(extruded_mesh, layer_height,
+                         extrusion_type='uniform', kernel=None):
     """
-    # The dimension of the space the coordinates are in
-    coords_dim = mesh.ufl_cell().geometric_dimension()
+    Given either a kernel or a (fixed) layer_height, compute an
+    extruded coordinate field for an extruded mesh.
 
-    # Start code generation
-    _height = str(layer_height)+" * j[0][0];"
-    _extruded_direction = ""
-    _norm = ""
+    :arg extruded_mesh: an :class:`ExtrudedMesh` to extrude a
+         coordinate field for.
+    :arg layer_height: an equi-spaced height for each layer.
+    :arg extrusion_type: the type of extrusion to use.  Predefined
+         options are either "uniform" (creating equi-spaced layers by
+         extruding in the (n+1)dth direction) or "radial" (creating
+         equi-spaced layers by extruding in the outward direction from
+         the origin).
+    :arg kernel: an optional kernel to carry out coordinate extrusion.
 
-    if extrusion_type == 'uniform':
-        coords_xtr_dim = coords_dim + 1
-        kernel_template = """
-void extrusion_kernel(double *xtr[], double *x[], int* j[])
-{
-    //Only the appropriate (n+1)th coordinate is increased
-    %(init)s
-    %(extruded_direction)s
-}
-        """
-        _init = "\n".join(["xtr[0][%(i)s] = x[0][%(i)s];" % {"i": str(i)}
-                           for i in range(coords_dim)]) + "\n"
-        _extruded_direction = "xtr[0][%(i)s] = %(height)s" % \
-                          {"i": str(coords_xtr_dim - 1),
-                           "height": _height}
+    The kernel signature (if provided) is::
+
+        void kernel(double **base_coords, double **ext_coords,
+                    int **layer, double *layer_height)
+
+    The kernel iterates over the cells of the mesh and receives as
+    arguments the coordinates of the base cell (to read), the
+    coordinates on the extruded cell (to write to), the layer number
+    of each cell and the fixed layer height.
+    """
+    base_coords = extruded_mesh._old_mesh._coordinate_field
+    ext_coords = extruded_mesh._coordinate_field
+    vert_space = ext_coords.function_space().ufl_element()._B
+    if kernel is None and not (vert_space.degree() == 1 and vert_space.family() == 'Lagrange'):
+        raise RuntimeError('Extrusion of coordinates is only possible for P1 interval unless a custom kernel is provided')
+    if kernel is not None:
+        pass
+    elif extrusion_type == 'uniform':
+        kernel = op2.Kernel("""
+        void uniform_extrusion_kernel(double **base_coords,
+                    double **ext_coords,
+                    int **layer,
+                    double *layer_height) {
+            for ( int d = 0; d < %(base_map_arity)d; d++ ) {
+                for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
+                    ext_coords[2*d][c] = base_coords[d][c];
+                    ext_coords[2*d+1][c] = base_coords[d][c];
+                }
+                ext_coords[2*d][%(base_coord_dim)d] = *layer_height * (layer[0][0]);
+                ext_coords[2*d+1][%(base_coord_dim)d] = *layer_height * (layer[0][0] + 1);
+            }
+        }""" % {'base_map_arity': base_coords.cell_node_map().arity,
+                'base_coord_dim': base_coords.function_space().cdim},
+                            "uniform_extrusion_kernel")
     elif extrusion_type == 'radial':
-        coords_xtr_dim = coords_dim
-        kernel_template = """
-void extrusion_kernel(double *xtr[], double *x[], int* j[])
-{
-    //Use the position vector of the current coordinate as a
-    //base for outward extrusion.
-    double norm = sqrt(%(norm)s);
-    %(init)s
-}
-        """
-        _norm = " + ".join(["x[0][%(i)d]*x[0][%(i)d]" %
-                            {"i": i} for i in range(coords_dim)])
-        _init = "\n".join(["xtr[0][%(i)s] = x[0][%(i)s] + (x[0][%(i)s] / norm) * %(height)s;" %
-                           {"i": str(i),
-                            "height": _height}
-                           for i in range(coords_dim)]) + "\n"
+        kernel = op2.Kernel("""
+        void radial_extrusion_kernel(double **base_coords,
+                   double **ext_coords,
+                   int **layer,
+                   double *layer_height) {
+            for ( int d = 0; d < %(base_map_arity)d; d++ ) {
+                double norm = 0.0;
+                for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
+                    norm += base_coords[d][c] * base_coords[d][c];
+                }
+                norm = sqrt(norm);
+                for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
+                    ext_coords[2*d][c] = base_coords[d][c] * (1 + (*layer_height * layer[0][0])/norm);
+                    ext_coords[2*d+1][c] = base_coords[d][c] * (1 + (*layer_height * (layer[0][0]+1))/norm);
+                }
+            }
+        }""" % {'base_map_arity': base_coords.cell_node_map().arity,
+                'base_coord_dim': base_coords.function_space().cdim},
+                            "radial_extrusion_kernel")
     else:
-        raise NotImplementedError("Unsupported extrusion type.")
+        raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
-    kernel_template = kernel_template % {"init": _init,
-                                         "extruded_direction": _extruded_direction,
-                                         "height": _height,
-                                         "norm": _norm}
+    # Dat to hold layer number
+    layer_fs = FunctionSpace(extruded_mesh, 'DG', 0)
+    layers = extruded_mesh.layers
+    layer = op2.Dat(layer_fs.dof_dset,
+                    np.repeat(np.arange(layers-1, dtype=np.int32),
+                              extruded_mesh.cell_set.total_size).reshape(layers-1, extruded_mesh.cell_set.total_size).T.ravel(), dtype=np.int32)
+    height = op2.Global(1, layer_height, dtype=float)
+    op2.par_loop(kernel,
+                 ext_coords.cell_set,
+                 base_coords.dat(op2.READ, base_coords.cell_node_map()),
+                 ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
+                 layer(op2.READ, layer_fs.cell_node_map()),
+                 height(op2.READ))
 
-    kernel = op2.Kernel(kernel_template, "extrusion_kernel")
-
-    #dimension
-    # BIG TRICK HERE:
-    # We need the +1 in order to include the entire column of vertices.
-    # Extrusion is meant to iterate over the 3D cells which are layer - 1 in number.
-    # The +1 correction helps in the case of iteration over vertices which need
-    # one extra layer.
-    num_base_coords = mesh._coordinate_fs.node_count
-    iterset = op2.ExtrudedSet(op2.Set(mesh.num_vertices(), "verts1"), layers=(layers+1))
-    vnodes = op2.DataSet(iterset, coords_dim)
-    lnodes = op2.DataSet(iterset, 1)
-    nodes_xtr = op2.Set(mesh.num_vertices()*layers, "verts_xtr")
-    d_nodes_xtr = op2.DataSet(nodes_xtr, coords_xtr_dim)
-    d_lnodes_xtr = op2.DataSet(nodes_xtr, 1)
-
-    # Create an op2.Dat with the base mesh coordinates
-    coords_vec = mesh._coordinates.flatten()
-    coords = op2.Dat(vnodes, coords_vec, np.float64, "dat1")
-
-    # Create an op2.Dat with slots for the extruded coordinates
-    coords_new = np.empty(layers * mesh.num_vertices() * coords_xtr_dim, dtype=np.float64)
-    coords_xtr = op2.Dat(d_nodes_xtr, coords_new, np.float64, "dat_xtr")
-
-    # Creat an op2.Dat to hold the layer number
-    layer_vec = np.tile(np.arange(0, layers), mesh.num_vertices())
-    layer = op2.Dat(d_lnodes_xtr, layer_vec, np.int32, "dat_layer")
-
-    # Map a map for the bottom of the mesh.
-    vertex_to_coords = [ i for i in range(0, mesh.num_vertices()) ]
-    v2coords_offset = np.zeros(1, np.int32)
-    map_2d = op2.Map(iterset, iterset, 1, vertex_to_coords, "v2coords", v2coords_offset)
-
-    # Create Map for extruded vertices
-    vertex_to_xtr_coords = [ layers * i for i in range(0, mesh.num_vertices()) ]
-    v2xtr_coords_offset = np.array([1], np.int32)
-    map_xtr = op2.Map(iterset, nodes_xtr, 1, vertex_to_xtr_coords, "v2xtr_coords", v2xtr_coords_offset)
-
-    # Create Map for layer number
-    v2xtr_layer_offset = np.array([1], np.int32)
-    layer_xtr = op2.Map(iterset, nodes_xtr, 1, vertex_to_xtr_coords, "v2xtr_layer", v2xtr_layer_offset)
-
-    op2.par_loop(kernel, iterset,
-                 coords_xtr(op2.INC, map_xtr),
-                 coords(op2.READ, map_2d),
-                 layer(op2.READ, layer_xtr))
-
-    return coords_xtr.data
 
 # C utility functions, not seen in python module
 cdef void function_space_destructor(object capsule):
@@ -552,7 +507,6 @@ class Mesh(object):
 
             self._coordinate_field = Function(self._coordinate_fs,
                                               val = self._coordinates)
-
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._domain_data = self._coordinate_field
@@ -719,9 +673,6 @@ class ExtrudedMesh(Mesh):
         #Compute Coordinates of the extruded mesh
         if layer_height is None:
             layer_height = 1.0 / (layers - 1)
-        self._coordinates = make_extruded_coords(mesh, layers, kernel, layer_height,
-                                                 extrusion_type=extrusion_type)
-
         # Now we need to produce the extruded mesh using
         # techqniues employed when computing the
         # function space.
@@ -739,10 +690,15 @@ class ExtrudedMesh(Mesh):
                                                          _mesh_name,
                                                          NULL)
 
-        self._coordinate_fs = VectorFunctionSpace(self, "Lagrange", 1)
+        self._coordinate_fs = VectorFunctionSpace(self, mesh._coordinate_fs.ufl_element().family(),
+                                                  mesh._coordinate_fs.ufl_element().degree(),
+                                                  vfamily="CG",
+                                                  vdegree=1)
 
-        self._coordinate_field = Function(self._coordinate_fs,
-                                          val = self._coordinates)
+        self._coordinate_field = Function(self._coordinate_fs)
+        make_extruded_coords(self, layer_height, extrusion_type=extrusion_type,
+                             kernel=kernel)
+        self._coordinates = self._coordinate_field.dat.data_ro_with_halos
 
 
         # Set the domain_data on all the default measures to this coordinate field.
