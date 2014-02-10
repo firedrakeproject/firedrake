@@ -14,13 +14,13 @@ def identity(family, degree):
     u = TrialFunction(fs)
     v = TestFunction(fs)
 
-    assemble(u * v * dx)
+    a = u * v * dx
 
     f.interpolate(Expression("x[0]"))
 
-    assemble(f * v * dx)
+    L = f * v * dx
 
-    solve(u * v * dx == f * v * dx, out)
+    solve(a == L, out)
 
     return np.max(np.abs(out.dat.data - f.dat.data))
 
