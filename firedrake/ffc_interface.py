@@ -136,7 +136,11 @@ class FormSplitter(ReuseTransformer):
 
     def index_sum(self, o, arg, idx):
         """Reconstruct an index sum on each of the component spaces."""
-        return self._index(o, arg, idx)
+        build = lambda a: o.reconstruct(a, idx) if len(a.free_indices()) == len(idx.free_indices()) else a
+        if isinstance(arg, tuple):
+            return tuple(build(a) for a in arg)
+        else:
+            return build(arg)
 
     def indexed(self, o, arg, idx):
         """Apply fixed indices where they point on a scalar subspace.
