@@ -125,6 +125,13 @@ class FormSplitter(ReuseTransformer):
         """Reconstruct a dot product on each of the component spaces."""
         return self._binop(o, l, r)
 
+    def grad(self, o, arg):
+        """Reconstruct a grad on each of the component spaces."""
+        if isinstance(arg, tuple):
+            return tuple(o.reconstruct(a) for a in arg)
+        else:
+            return o.reconstruct(arg)
+
     def _index(self, o, arg, idx):
         """Reconstruct an index if the rank matches, otherwise yield the
         argument. If the argument is a tuple, go over each entry."""
