@@ -15,7 +15,7 @@ from ufl_expr import Argument
 from ffc import default_parameters, compile_form as ffc_compile_form
 from ffc import constants
 
-from pyop2.caching import Cached
+from pyop2.caching import DiskCached
 from pyop2.op2 import Kernel
 from pyop2.mpi import MPI
 from pyop2.ir.ast_base import PreprocessNode, Root
@@ -181,7 +181,7 @@ class FormSplitter(ReuseTransformer):
         return o
 
 
-class FFCKernel(Cached):
+class FFCKernel(DiskCached):
 
     _cache = {}
     _cachedir = os.path.join(tempfile.gettempdir(),
@@ -194,44 +194,25 @@ class FFCKernel(Cached):
                    _firedrake_geometry_md5 + constants.FFC_VERSION +
                    constants.PYOP2_VERSION).hexdigest()
 
-    def __init__(self, original_form, name):
+    def __init__(self, form, name):
         if self._initialized:
             return
 
         incl = PreprocessNode('#include "firedrake_geometry.h"\n')
         inc = [os.path.dirname(__file__)]
+        ffc_tree = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
 
         kernels = []
-        # Note that split forms are batched by integral i.e. they will only
-        # ever contain a single integral. We therefore always return the first
-        # element of any lists that contain different integrals.
-        for forms in FormSplitter().split(original_form):
-            for i, form in enumerate(forms):
-                tree, = ffc_compile_form(form, prefix=name + str(i),
-                                         parameters=ffc_parameters)
-
-                fd = form.form_data()
-                ida = fd.integral_data[0]
-                # Set optimization options
-                opts = {} if ida.domain_type not in ['cell'] else \
-                       {'licm': False,
-                        'tile': None,
-                        'vect': None,
-                        'ap': False,
-                        'split': None}
-
-                fname = '%s%d_%s_integral_0_%s' % (name, i, ida.domain_type,
-                                                   ida.domain_id)
-
-                if len(forms) == 1:
-                    idx = (0, 0)
-                else:
-                    t = tuple(a.function_space().index or 0
-                              for a in fd.original_arguments) or (i, 0)
-                    idx = t if len(t) == 2 else t + (0,) * (2 - len(t))
-                kernels.append((idx, ida.integrals[0].measure(),
-                                fd.original_coefficients,
-                                Kernel(Root([incl, tree]), fname, opts, inc)))
+        for ida, kernel in zip(form.form_data().integral_data, ffc_tree):
+            # Set optimization options
+            opts = {} if ida.domain_type not in ['cell'] else \
+                   {'licm': False,
+                    'tile': None,
+                    'vect': None,
+                    'ap': False,
+                    'split': None}
+            kernels.append(Kernel(Root([incl, kernel]), '%s_%s_integral_0_%s' %
+                           (name, ida.domain_type, ida.domain_id), opts, inc))
         self.kernels = tuple(kernels)
         self._initialized = True
 
@@ -244,7 +225,22 @@ def compile_form(form, name):
     if not isinstance(form, Form):
         form = as_form(form)
 
-    return FFCKernel(form, name).kernels
+    kernels = []
+    for forms in FormSplitter().split(form):
+        for i, form in enumerate(forms):
+            kernel, = FFCKernel(form, name + str(i)).kernels
+
+            fd = form.form_data()
+            ida = fd.integral_data[0]
+            if len(forms) == 1 and fd.rank == 0:
+                idx = (0, 0)
+            else:
+                t = tuple(a.function_space().index or 0
+                          for a in fd.original_arguments) or (i, 0)
+                idx = t if len(t) == 2 else t + (0,) * (2 - len(t))
+            kernels.append((idx, ida.integrals[0].measure(),
+                            fd.original_coefficients, kernel))
+    return kernels
 
 
 def clear_cache():
