@@ -5,11 +5,10 @@ from hashlib import md5
 from operator import add
 import os
 import tempfile
-import numpy as np
 
-from ufl import Form, FiniteElement, VectorElement
-from ufl.algorithms import as_form, traverse_terminals, ReuseTransformer
-from ufl.indexing import FixedIndex, MultiIndex
+from ufl import Form, FiniteElement, VectorElement, as_vector
+from ufl.algorithms import as_form, ReuseTransformer
+from ufl.constantvalue import Zero
 from ufl_expr import Argument
 
 from ffc import default_parameters, compile_form as ffc_compile_form
@@ -19,7 +18,6 @@ from pyop2.caching import DiskCached
 from pyop2.op2 import Kernel
 from pyop2.mpi import MPI
 from pyop2.ir.ast_base import PreprocessNode, Root
-from pyop2.utils import as_tuple
 
 import types
 
@@ -62,129 +60,44 @@ class FormSplitter(ReuseTransformer):
         fd = form.compute_form_data()
         # If there is no mixed element involved, return a form per integral
         if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
-            return [[Form([i])] for i in sum_integrands(form).integrals()]
+            return [[((0, 0), Form([i]))] for i in sum_integrands(form).integrals()]
         # Otherwise visit each integrand and obtain the tuple of sub forms
-        return [[f * i.measure() for f in as_tuple(self.visit(i.integrand()))]
-                for i in sum_integrands(form).integrals()]
-
-    def sum(self, o, l, r):
-        """Take the sum of operands on the same block and return a tuple of
-        partial sums for each block."""
-
-        def find_idx(e):
-            """Find the block index of an expression given by the indices of
-            the function spaces of the arguments (test and trial function)."""
-            row, col = None, None
-            for t in traverse_terminals(e):
-                if isinstance(t, Argument):
-                    if t.count() == -2:  # Test function gives the row
-                        row = t.function_space().index
-                    elif t.count() == -1:  # Trial function gives the column
-                        col = t.function_space().index
-            return (row, col)
-
-        as_list = lambda o: list(o) if isinstance(o, (list, tuple)) else [o]
-        res = []
-        # For each (index, argument) tuple in the left operand list, look for
-        # a tuple with corresponding index in the right operand list. If
-        # there is one, append the sum of the arguments with that index to the
-        # results list, otherwise just the tuple from the left operand list
-        l = as_list(l)
-        r = as_list(r)
-        idx_r = [find_idx(i) for i in r]
-        # Go over all the operands in the left operand list
-        for a, i in zip(l, [find_idx(i) for i in l]):
-            # If there is any operand in the right operand list on the same
-            # block, take their sum
-            try:
-                j = idx_r.index(i)
-                idx_r.pop(j)
-                res.append(o.reconstruct(a, r.pop(j)))
-            # Otherwise just append the operand from the left operand list
-            except ValueError:
-                res.append(a)
-        # All remaining tuples in the right operand list had no matches, so we
-        # append them to the results list
-        return tuple(res + r) if len(res + r) > 1 else (res + r)[0]
-
-    def _binop(self, o, l, r):
-        if isinstance(l, tuple) and isinstance(r, tuple):
-            return tuple(o.reconstruct(op1, op2) for op1, op2 in zip(l, r))
-        else:
-            return o.reconstruct(l, r)
-
-    def inner(self, o, l, r):
-        """Reconstruct an inner product on each of the component spaces."""
-        return self._binop(o, l, r)
-
-    def product(self, o, l, r):
-        """Reconstruct a product on each of the component spaces."""
-        return self._binop(o, l, r)
-
-    def dot(self, o, l, r):
-        """Reconstruct a dot product on each of the component spaces."""
-        return self._binop(o, l, r)
-
-    def grad(self, o, arg):
-        """Reconstruct a grad on each of the component spaces."""
-        if isinstance(arg, tuple):
-            return tuple(o.reconstruct(a) for a in arg)
-        else:
-            return o.reconstruct(arg)
-
-    def _index(self, o, arg, idx):
-        """Reconstruct an index if the rank matches, otherwise yield the
-        argument. If the argument is a tuple, go over each entry."""
-        build = lambda a: o.reconstruct(a, idx) if a.rank() == len(idx.free_indices()) else a
-        if isinstance(arg, tuple):
-            return tuple(build(a) for a in arg)
-        else:
-            return build(arg)
-
-    def index_sum(self, o, arg, idx):
-        """Reconstruct an index sum on each of the component spaces."""
-        build = lambda a: o.reconstruct(a, idx) if len(a.free_indices()) == len(idx.free_indices()) else a
-        if isinstance(arg, tuple):
-            return tuple(build(a) for a in arg)
-        else:
-            return build(arg)
-
-    def indexed(self, o, arg, idx):
-        """Apply fixed indices where they point on a scalar subspace.
-        Reconstruct fixed indices on a component vector and any other index."""
-        if isinstance(idx._indices[0], FixedIndex):
-            # Find the element to which the FixedIndex points. We might deal
-            # with coefficients on vector elements, in which case we need to
-            # reconstruct the indexed with an adjusted index space. Otherwise
-            # we can just return the coefficient.
-            i = idx._indices[0]._value
-            pos = 0
-            for op in arg:
-                # If the FixedIndex points at a scalar (shapeless) operand,
-                # return it
-                if not op.shape() and i == pos:
-                    return op
-                size = np.prod(op.shape() or 1)
-                # If the FixedIndex points at a component of the current
-                # operand, reconstruct an Indexed with an adjusted index space
-                if i < pos + size:
-                    return o.reconstruct(op, MultiIndex(FixedIndex(i - pos), {}))
-                # Otherwise update the position in the index space
-                pos += size
-            raise NotImplementedError("No idea what to in %r with %r" % (o, arg))
-        return self._index(o, arg, idx)
+        shape = tuple(len(a.function_space()) for a in fd.original_arguments)
+        forms_list = []
+        for it in sum_integrands(form).integrals():
+            forms = []
+            for i in range(shape[0] if len(shape) > 0 else 1):
+                for j in range(shape[1] if len(shape) > 1 else 1):
+                    self._idx = {-2: i, -1: j}
+                    integrand = self.visit(it.integrand())
+                    if not isinstance(integrand, Zero):
+                        forms.append([((i, j), integrand * it.measure())])
+            forms_list += forms
+        return forms_list
 
     def argument(self, o):
         """Split an argument into its constituent spaces."""
         if isinstance(o.function_space(), types.MixedFunctionSpace):
-            return tuple(Argument(fs.ufl_element(), fs, o.count())
-                         for fs in o.function_space().split())
+            args = []
+            for i, fs in enumerate(o.function_space().split()):
+                a = Argument(fs.ufl_element(), fs, o.count())
+                if a.shape():
+                    if self._idx[o.count()] == i:
+                        args += [a[j] for j in range(a.shape()[0])]
+                    else:
+                        args += [Zero() for j in range(a.shape()[0])]
+                else:
+                    if self._idx[o.count()] == i:
+                        args.append(a)
+                    else:
+                        args.append(Zero())
+            return as_vector(args)
         return o
 
     def coefficient(self, o):
         """Split a coefficient into its constituent spaces."""
         if isinstance(o.function_space(), types.MixedFunctionSpace):
-            return o.split()
+            return as_vector(list(o.split()))
         return o
 
 
@@ -234,18 +147,11 @@ def compile_form(form, name):
 
     kernels = []
     for forms in FormSplitter().split(form):
-        for i, form in enumerate(forms):
-            kernel, = FFCKernel(form, name + str(i)).kernels
-
-            fd = form.form_data()
+        for (i, j), form in forms:
+            fd = form.compute_form_data()
+            kernel, = FFCKernel(form, name + str(i) + str(j)).kernels
             ida = fd.integral_data[0]
-            if len(forms) == 1 and fd.rank == 0:
-                idx = (0, 0)
-            else:
-                t = tuple(a.function_space().index or 0
-                          for a in fd.original_arguments) or (i, 0)
-                idx = t if len(t) == 2 else t + (0,) * (2 - len(t))
-            kernels.append((idx, ida.integrals[0].measure(),
+            kernels.append(((i, j), ida.integrals[0].measure(),
                             fd.original_coefficients, kernel))
     return kernels
 
