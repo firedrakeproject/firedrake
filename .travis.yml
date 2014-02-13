@@ -18,7 +18,8 @@ before_install:
     cmake cmake-curses-gui libmed1 gmsh python-pip swig libhdf5-openmpi-7 \
     libhdf5-openmpi-dev libopenmpi-dev openmpi-bin libblas-dev liblapack-dev \
     gfortran triangle-bin libpetsc3.4.2 libpetsc3.4.2-dev"
-  - "pip install -r requirements-minimal.txt --use-mirrors"
+  - "pip install -r requirements-minimal.txt --allow-all-external \
+    --allow-unverified petsc4py --allow-unverified mpi4py"
   - if [[ $TRAVIS_PYTHON_VERSION == "2.6" ]]; then pip install argparse ordereddict; fi
 install: "python setup.py develop"
 # command to run tests
