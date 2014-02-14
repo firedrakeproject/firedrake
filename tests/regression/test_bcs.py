@@ -9,6 +9,11 @@ def V():
 
 
 @pytest.fixture
+def VV():
+    return VectorFunctionSpace(UnitSquareMesh(10, 10), "CG", 1)
+
+
+@pytest.fixture
 def u(V):
     return Function(V)
 
@@ -18,6 +23,25 @@ def a(u, V):
     v = TestFunction(V)
     a = dot(grad(v), grad(u)) * dx
     return a
+
+
+@pytest.mark.parametrize('v', [0, 1.0])
+def test_init_bcs(V, v):
+    "Initialise a DirichletBC."
+    assert DirichletBC(V, v, 0).function_arg == v
+
+
+@pytest.mark.parametrize('v', [(0, 0), 'foo'])
+def test_init_bcs_illegal(V, v):
+    "Initialise a DirichletBC with illegal values."
+    with pytest.raises(RuntimeError):
+        DirichletBC(V, v, 0)
+
+
+@pytest.mark.parametrize('v', [[0.0, 0.0], (1.0, 1.0)])
+def test_init_vector_bcs(VV, v):
+    "Initialise a DirichletBC on a VectorFunctionSpace."
+    assert DirichletBC(VV, v, 0).function_arg
 
 
 @pytest.mark.parametrize('measure', [dx, ds])
