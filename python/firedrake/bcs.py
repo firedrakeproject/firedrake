@@ -129,9 +129,15 @@ class DirichletBC(object):
         if isinstance(r, types.Matrix):
             r.add_bc(self)
             return
+        fs = self._function_space
+        # Check if the FunctionSpace of the Function r to apply is compatible.
+        # If fs is an IndexedFunctionSpace and r is defined on a
+        # MixedFunctionSpace, we need to compare the parent of fs
+        if not (fs == r.function_space() or (hasattr(fs, "_parent") and
+                                             fs._parent == r.function_space())):
+            raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
         # If this BC is defined on a subspace of a mixed function space, make
         # sure we only apply to the appropriate subspace of the Function r
-        fs = self._function_space
         if fs.index is not None:
             r = Function(self._function_space, r.dat[fs.index])
         if u:
