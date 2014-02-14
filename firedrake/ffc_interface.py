@@ -1,6 +1,7 @@
 """Provides the interface to FFC for compiling a form, and transforms the FFC-
 generated code in order to make it suitable for passing to the backends."""
 
+from collections import defaultdict
 from hashlib import md5
 from operator import add
 import os
@@ -47,8 +48,11 @@ def _check_version():
 
 def sum_integrands(form):
     """Produce a form with the integrands on the same measure summed."""
+    integrals = defaultdict(list)
+    for integral in form.integrals():
+        integrals[integral.measure()].append(integral)
     return Form([it[0].reconstruct(reduce(add, [i.integrand() for i in it]))
-                 for d, it in form.integral_groups().items()])
+                 for it in integrals.values()])
 
 
 class FormSplitter(ReuseTransformer):
