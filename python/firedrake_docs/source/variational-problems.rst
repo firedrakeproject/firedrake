@@ -364,7 +364,14 @@ respective constructor documentation.  For externally generated
 meshes, Firedrake just uses whichever ids the mesh generator
 provided.  The ``value`` may be either a scalar, or more generally an
 :py:class:`~firedrake.expression.Expression` of the appropriate
-shape.
+shape.  You may also supply an iterable of literal constants, which
+will be converted to an :py:class:`~firedrake.expression.Expression`.
+Hence the following two are equivalent:
+
+.. code-block:: python
+
+   bc1 = DirichletBC(V, Expression(('1.0', '2.0')), 1)
+   bc2 = DirichletBC(V, (1.0, 2.0), 1)
 
 Strong boundary conditions are applied in the solve by passing a list
 of boundary condition objects:

@@ -4,7 +4,7 @@ import numpy as np
 from ufl import as_ufl, UFLException
 import types
 from core_types import Function
-from expression import Expression
+from expression import Expression, to_expression
 from projection import project
 import pyop2 as op2
 
@@ -15,9 +15,11 @@ class DirichletBC(object):
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
     :arg g: the boundary condition values. This can be a :class:`.Function` on
-        ``V``, an :class:`.Expression` or a literal constant which can be
-        pointwise evaluated at the nodes of ``V``. :class:`.Expression`\s are
-        projected onto ``V`` if it does not support pointwise evaluation.
+        ``V``, an :class:`.Expression`, an iterable of literal constants
+        (converted to an :class:`.Expression`), or a literal constant
+        which can be pointwise evaluated at the nodes of
+        ``V``. :class:`.Expression`\s are projected onto ``V`` if it
+        does not support pointwise evaluation.
     :arg sub_domain: the integer id of the boundary region over which the
         boundary condition should be applied. In the case of extrusion
         the ``top`` and ``bottom`` strings are used to flag the bcs application on
@@ -25,17 +27,22 @@ class DirichletBC(object):
     '''
 
     def __init__(self, V, g, sub_domain):
+        if not isinstance(g, Expression):
+            try:
+                # Bare constant?
+                as_ufl(g)
+            except UFLException:
+                try:
+                    # List of bare constants? Convert to Expression
+                    g = to_expression(g)
+                except:
+                    raise ValueError("%r is not a valid DirichletBC expression" % (g,))
         if isinstance(g, Expression):
             try:
                 g = Function(V).interpolate(g)
             # Not a point evaluation space, need to project onto V
             except NotImplementedError:
                 g = project(g, V)
-        else:
-            try:
-                as_ufl(g)
-            except UFLException:
-                raise ValueError("%r is not a valid DirichletBC expression" % (g,))
         self._function_space = V
         self.function_arg = g
         self._original_arg = g
