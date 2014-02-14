@@ -5,9 +5,7 @@ from firedrake import *
 
 @pytest.fixture
 def V():
-    mesh = UnitSquareMesh(10, 10)
-    V = FunctionSpace(mesh, "CG", 1)
-    return V
+    return FunctionSpace(UnitSquareMesh(10, 10), "CG", 1)
 
 
 @pytest.fixture
@@ -20,6 +18,26 @@ def a(u, V):
     v = TestFunction(V)
     a = dot(grad(v), grad(u)) * dx
     return a
+
+
+@pytest.mark.parametrize('measure', [dx, ds])
+def test_assemble_bcs_wrong_fs(V, measure):
+    "Assemble a Matrix with a DirichletBC on an incompatible FunctionSpace."
+    u, v = TestFunction(V), TrialFunction(V)
+    W = FunctionSpace(V.mesh(), "CG", 2)
+    A = assemble(u*v*measure, bcs=[DirichletBC(W, 32, 1)])
+    with pytest.raises(RuntimeError):
+        A.M.values
+
+
+def test_assemble_bcs_wrong_fs_interior(V):
+    "Assemble a Matrix with a DirichletBC on an incompatible FunctionSpace."
+    u, v = TestFunction(V), TrialFunction(V)
+    W = FunctionSpace(V.mesh(), "CG", 2)
+    n = FacetNormal(V.mesh())
+    A = assemble(inner(jump(u, n), jump(v, n))*dS, bcs=[DirichletBC(W, 32, 1)])
+    with pytest.raises(RuntimeError):
+        A.M.values
 
 
 def test_homogeneous_bcs(a, u, V):
