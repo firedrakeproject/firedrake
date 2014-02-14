@@ -94,12 +94,6 @@ class FormSplitter(ReuseTransformer):
             return as_vector(args)
         return o
 
-    def coefficient(self, o):
-        """Split a coefficient into its constituent spaces."""
-        if isinstance(o.function_space(), types.MixedFunctionSpace):
-            return as_vector(list(o.split()))
-        return o
-
 
 class FFCKernel(DiskCached):
 
