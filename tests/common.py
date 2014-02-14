@@ -12,6 +12,10 @@ def extmesh(nx, ny, nz):
     return ExtrudedMesh(UnitSquareMesh(nx, ny), nz+1, layer_height=1.0/nz)
 
 
+def extmesh_2D(nx, ny):
+    return ExtrudedMesh(UnitIntervalMesh(nx), ny+1, layer_height=1.0/ny)
+
+
 @pytest.fixture(scope='module')
 def cg1(mesh):
     return FunctionSpace(mesh, "CG", 1)
