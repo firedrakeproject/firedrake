@@ -13,9 +13,12 @@ env:
     - C_INCLUDE_PATH=/usr/lib/openmpi/include
     - PETSC_CONFIGURE_OPTIONS="--with-fortran-interfaces=1 --with-c++-support"
   matrix:
-    - PYOP2_BACKEND=sequential
-    - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp
-    - OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp
+    - PYOP2_BACKEND=sequential PYOP2_TESTS=regression
+    - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
+    - OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
+    - PYOP2_BACKEND=sequential PYOP2_TESTS=extrusion
+    - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion
+    - OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion
 # command to install dependencies
 before_install:
   - sudo add-apt-repository -y ppa:amcg/backports
@@ -37,4 +40,4 @@ install:
 script:
   - export PYTHONPATH=`pwd`/python:$PYTHONPATH
   - flake8
-  - py.test -v tests
+  - py.test -v tests/${PYOP2_TESTS}
