@@ -61,12 +61,9 @@ class FormSplitter(ReuseTransformer):
 
     def split(self, form):
         """Split the given form."""
-        fd = form.compute_form_data()
-        # If there is no mixed element involved, return a form per integral
-        if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
-            return [[((0, 0), Form([i]))] for i in sum_integrands(form).integrals()]
-        # Otherwise visit each integrand and obtain the tuple of sub forms
-        shape = tuple(len(a.function_space()) for a in fd.original_arguments)
+        # Visit each integrand and obtain the tuple of sub forms
+        shape = tuple(len(a.function_space())
+                      for a in form.form_data().original_arguments)
         forms_list = []
         for it in sum_integrands(form).integrals():
             forms = []
@@ -143,13 +140,18 @@ def compile_form(form, name):
     if not isinstance(form, Form):
         form = as_form(form)
 
+    fd = form.compute_form_data()
+    # If there is no mixed element involved, return the kernels FFC produces
+    if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
+        return [((0, 0), ida.integrals[0].measure(), fd.original_coefficients, kernel)
+                for ida, kernel in zip(fd.integral_data, FFCKernel(form, name).kernels)]
+    # Otherwise pre-split the form into mixed blocks before calling FFC
     kernels = []
     for forms in FormSplitter().split(form):
         for (i, j), form in forms:
-            fd = form.compute_form_data()
             kernel, = FFCKernel(form, name + str(i) + str(j)).kernels
-            ida = fd.integral_data[0]
-            kernels.append(((i, j), ida.integrals[0].measure(),
+            fd = form.form_data()
+            kernels.append(((i, j), fd.integral_data[0].integrals[0].measure(),
                             fd.original_coefficients, kernel))
     return kernels
 
