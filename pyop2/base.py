@@ -2884,21 +2884,22 @@ class Kernel(KernelCached):
 
     @classmethod
     @validate_type(('name', str, NameTypeError))
-    def _cache_key(cls, code, name, opts={}):
+    def _cache_key(cls, code, name, opts={}, include_dirs=[]):
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
         # Also include the PyOP2 version, since the Kernel class might change
-        return md5(code + name + str(opts) + version).hexdigest()
+        return md5(code + name + str(opts) + str(include_dirs) + version).hexdigest()
 
-    def __init__(self, code, name, opts={}):
+    def __init__(self, code, name, opts={}, include_dirs=[]):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
         self._name = name or "kernel_%d" % Kernel._globalcount
-        self._code = preprocess(code)
+        self._code = preprocess(code, include_dirs)
         Kernel._globalcount += 1
         # Record used optimisations
         self._opt_is_padded = opts.get('ap', False)
+        self._include_dirs = include_dirs
         self._initialized = True
 
     @property

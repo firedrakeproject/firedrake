@@ -51,7 +51,7 @@ from ir.ast_vectorizer import vect_roundup
 class Kernel(base.Kernel):
 
     @classmethod
-    def _ast_to_c(cls, ast, name, opts={}):
+    def _ast_to_c(cls, ast, name, opts={}, include_dirs=[]):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of code (C syntax) suitable to CPU execution."""
         if not isinstance(ast, Node):
@@ -597,7 +597,8 @@ class JITModule(base.JITModule):
                 code_to_compile, additional_declarations=kernel_code,
                 additional_definitions=_const_decs + kernel_code,
                 cppargs=self._cppargs + extra_cppargs,
-                include_dirs=[d + '/include' for d in get_petsc_dir()],
+                include_dirs=([d + '/include' for d in get_petsc_dir()] +
+                              self._kernel._include_dirs),
                 source_directory=os.path.dirname(os.path.abspath(__file__)),
                 wrap_headers=["mat_utils.h"],
                 system_headers=self._system_headers,
