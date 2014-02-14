@@ -1,3 +1,8 @@
+--allow-external mpi4py
+--allow-unverified mpi4py
+--allow-external petsc4py
+--allow-unverified petsc4py
+
 numpy>=1.6.1
 Cython>=0.17
 pytest>=2.3
