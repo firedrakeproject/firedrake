@@ -40,6 +40,22 @@ def test_assemble_bcs_wrong_fs_interior(V):
         A.M.values
 
 
+def test_apply_bcs_wrong_fs(V):
+    "Applying a DirichletBC to a Function on an incompatible FunctionSpace."
+    bc = DirichletBC(V, 32, 1)
+    f = Function(FunctionSpace(V.mesh(), "CG", 2))
+    with pytest.raises(RuntimeError):
+        bc.apply(f)
+
+
+def test_zero_bcs_wrong_fs(V):
+    "Zeroing a DirichletBC on a Function on an incompatible FunctionSpace."
+    bc = DirichletBC(V, 32, 1)
+    f = Function(FunctionSpace(V.mesh(), "CG", 2))
+    with pytest.raises(RuntimeError):
+        bc.zero(f)
+
+
 def test_homogeneous_bcs(a, u, V):
     bcs = [DirichletBC(V, 32, 1)]
 
