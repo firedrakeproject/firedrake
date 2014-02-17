@@ -301,10 +301,10 @@ lint:
 	@flake8
 
 serialtest:
-	@cd tests; py.test $(PYTEST_ARGS)
+	@py.test tests $(PYTEST_ARGS)
 
 shorttest: python_build lint
-	@cd tests; py.test --short $(PYTEST_ARGS)
+	@py.test tests --short $(PYTEST_ARGS)
 
 .PHONY: spudtools
 
