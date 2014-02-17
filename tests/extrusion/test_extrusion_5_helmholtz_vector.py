@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from firedrake import *
-from common import *
+from tests.common import *
 
 
 @pytest.mark.parametrize(('testcase', 'convrate'),

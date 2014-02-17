@@ -1,6 +1,6 @@
 import pytest
 from firedrake import *
-from common import *
+from tests.common import *
 
 
 @pytest.fixture(scope='module', params=['cg1cg1', 'cg1vcg1', 'cg1dg0', 'cg2dg1'])

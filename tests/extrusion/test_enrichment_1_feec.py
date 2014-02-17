@@ -3,7 +3,7 @@
 import pytest
 
 from firedrake import *
-from common import *
+from tests.common import *
 
 
 @pytest.mark.parametrize(('horiz_complex', 'vert_complex'),

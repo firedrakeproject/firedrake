@@ -8,7 +8,7 @@ import numpy as np
 import ufl  # noqa: used in eval'd expressions
 
 from firedrake import *
-from common import *
+from tests.common import *
 
 
 @pytest.fixture(scope='module', params=['cg1', 'cg1cg1[0]', 'cg1cg1[1]',

@@ -2,7 +2,7 @@
 import pytest
 
 from firedrake import *
-from common import *
+from tests.common import *
 
 
 @pytest.mark.xfail(reason="waiting for extruded facet changes")

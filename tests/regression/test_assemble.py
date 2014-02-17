@@ -1,6 +1,6 @@
 import pytest
 from firedrake import *
-from common import *
+from tests.common import *
 
 
 # FIXME: cg1vcg1 is not supported yet

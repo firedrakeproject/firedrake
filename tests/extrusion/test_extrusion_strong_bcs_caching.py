@@ -1,4 +1,4 @@
-from common import extmesh
+from tests.common import extmesh
 import numpy as np
 
 from firedrake import *

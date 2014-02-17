@@ -14,7 +14,7 @@ import numpy.linalg as linalg
 import numpy
 from firedrake import *
 import pytest
-from common import *
+from tests.common import *
 
 cwd = abspath(dirname(__file__))
 
