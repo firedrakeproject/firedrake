@@ -15,25 +15,28 @@ backends are
 * ``opencl``: offloads computation to an OpenCL device, either a multi-core
   CPU or a GPU (requires :ref:`OpenCL and pyopencl <opencl-installation>`)
 
-The ``sequential`` and ``openmp`` backends also support distributed parallel
-computations using MPI. For OpenMP this means a hybrid parallel execution
-with ``OMP_NUM_THREADS`` threads per MPI rank. Datastructures must be suitably
-partitioned in this case with overlapping regions, so called halos. These are
+The ``sequential`` and ``openmp`` backends fully support distributed
+parallel computations using MPI, the ``cuda`` and ``opencl`` backends
+only support parallel loops on :class:`Dats <pyop2.Dat>` with MPI. For
+OpenMP this means a hybrid parallel execution with ``OMP_NUM_THREADS``
+threads per MPI rank. Datastructures must be suitably partitioned in
+this case with overlapping regions, so called halos. These are
 described in detail in :doc:`mpi`.
 
 Sequential backend
 ------------------
 
-Any computation in PyOP2 requires generating code at runtime specific to each
-individual :func:`~pyop2.par_loop`. The sequential backend generates code via
-the `Instant`_ utility from the `FEniCS project`_. Since there is no parallel
-computation for the sequential backend, the generated code is a C wrapper
-function with a ``for`` loop calling the kernel for the respective
-:func:`~pyop2.par_loop`. This wrapper also takes care of staging in and out
-the data as requested by the access descriptors requested in the parallel
-loop. Both the kernel and the wrapper function are just-in-time compiled in a
-single compilation unit such that the kernel call can be inlined and does not
-incur any function call overhead.
+Any computation in PyOP2 requires the generation of code at runtime
+specific to each individual :func:`~pyop2.par_loop`. The sequential
+backend generates code via the `Instant`_ utility from the `FEniCS
+project`_. Since there is no parallel computation for the sequential
+backend, the generated code is a C wrapper function with a ``for``
+loop calling the kernel for the respective :func:`~pyop2.par_loop`.
+This wrapper also takes care of staging in and out the data as
+requested by the access descriptors requested in the parallel loop.
+Both the kernel and the wrapper function are just-in-time compiled in
+a single compilation unit such that the kernel call can be inlined and
+does not incur any function call overhead.
 
 Recall the :func:`~pyop2.par_loop` calling the ``midpoint`` kernel from
 :doc:`kernels`: ::
@@ -80,16 +83,17 @@ corresponding to a :class:`~pyop2.Dat` or :class:`~pyop2.Map` passed to the
 clashes.
 
 The first :func:`~pyop2.par_loop` argument ``midpoints`` is direct and
-therefore no corresponding :class:`~pyop2.Map` is passed to the wrapper
-function and the data pointer is passed straight to the kernel with an
-appropriate offset. The second argument ``coordinates`` is indirect and hence
-a :class:`~pyop2.Dat`-:class:`~pyop2.Map` pair is passed. Pointers to the data
-are gathered via the :class:`~pyop2.Map` of arity 3 and staged in the array
-``arg1_0_vec``, which is passed to kernel. The coordinate data can therefore
-be accessed in the kernel via double indirection as if it was stored
-consecutively in memory. Note that for both arguments, the pointers are to two
-consecutive double values, since the :class:`~pyop2.DataSet` is of dimension
-two in either case.
+therefore no corresponding :class:`~pyop2.Map` is passed to the
+wrapper function and the data pointer is passed straight to the kernel
+with an appropriate offset. The second argument ``coordinates`` is
+indirect and hence a :class:`~pyop2.Dat`-:class:`~pyop2.Map` pair is
+passed. Pointers to the data are gathered via the :class:`~pyop2.Map`
+of arity 3 and staged in the array ``arg1_0_vec``, which is passed to
+the kernel. The coordinate data can therefore be accessed in the
+kernel via double indirection with the :class:`~pyop2.Map` already
+applied. Note that for both arguments, the pointers are to two
+consecutive double values, since the :class:`~pyop2.DataSet` is of
+dimension two in either case.
 
 OpenMP backend
 --------------
@@ -357,18 +361,20 @@ example: ::
     }
   }
 
-Parallel computations in OpenCL are executed by *work items* organised into
-*work groups*. OpenCL requires annotating all pointer arguments with the
-memory region they point to: ``__global`` memory is visible to any work item,
-``__local`` memory to any work item within the same work group and
-``__private`` memory is private to a work item. Local memory therefore
-corresponds to CUDA's shared memory and private memory is called local memory
-in CUDA. The work item id within the work group is accessed via the OpenCL
-runtime call ``get_local_id(0)``, the work group id via ``get_group_id(0)``. A
-barrier synchronisation across all work items of a work group is enforced with
-a call to ``barrier(CLK_LOCAL_MEM_FENCE)``. Bearing these differences in mind,
-the OpenCL kernel stub is structurally almost identical to the corresponding
-CUDA version above.
+Parallel computations in OpenCL are executed by *work items* organised
+into *work groups*. OpenCL requires annotating all pointer arguments
+with the memory region they point to: ``__global`` memory is visible
+to any work item, ``__local`` memory to any work item within the same
+work group and ``__private`` memory is private to a work item. PyOP2
+does this annotation automatically for the user kernel if the OpenCL
+backend is used. Local memory therefore corresponds to CUDA's shared
+memory and private memory is called local memory in CUDA. The work
+item id within the work group is accessed via the OpenCL runtime call
+``get_local_id(0)``, the work group id via ``get_group_id(0)``. A
+barrier synchronisation across all work items of a work group is
+enforced with a call to ``barrier(CLK_LOCAL_MEM_FENCE)``. Bearing
+these differences in mind, the OpenCL kernel stub is structurally
+almost identical to the corresponding CUDA version above.
 
 The required local memory size per work group ``reqd_work_group_size`` is
 computed as part of the execution plan. In CUDA this value is a launch
