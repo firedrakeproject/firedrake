@@ -558,7 +558,7 @@ class TestMixedSetAPI:
 
     def test_mixed_set_layers_must_match(self, backend, sets):
         "All components of a MixedSet must have the same number of layers."
-        sets[1]._layers += 1
+        sets = [op2.ExtrudedSet(s, layers=i+4) for i, s in enumerate(sets)]
         with pytest.raises(AssertionError):
             op2.MixedSet(sets)
 

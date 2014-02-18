@@ -173,7 +173,7 @@ class Arg(base.Arg):
                 else:
                     raise RuntimeError("Don't know how to pass kernel arg %s" % self)
             else:
-                if self.data is not None and self.data.dataset.set.layers > 1:
+                if self.data is not None and self.data.dataset._extruded:
                     return self.c_ind_data_xtr("i_%d" % self.idx.index, i)
                 elif self._flatten:
                     return "%(name)s + %(map_name)s[i * %(arity)s + i_0 %% %(arity)d] * %(dim)s + (i_0 / %(arity)d)" % \
@@ -679,7 +679,7 @@ class JITModule(base.JITModule):
         _map_bcs_p = ""
         _layer_arg = ""
         _layer_arg_init = ""
-        if self._itspace.layers > 1:
+        if self._itspace._extruded:
             a_bcs = self._itspace.iterset._extruded_bcs
             _layer_arg = ", PyObject *_layer"
             _layer_arg_init = "int layer = (int)PyInt_AsLong(_layer);"
@@ -775,7 +775,7 @@ class JITModule(base.JITModule):
                     _buf_scatter = ""
             _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
             _addto_buf_name = _buf_scatter_name or _buf_name
-            if self._itspace.layers > 1:
+            if self._itspace._extruded:
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, _addto_buf_name, "xtr_") for arg in self._args
                                                             if arg._is_mat and arg.data._is_scalar_field])
                 _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, "xtr_") for arg in self._args

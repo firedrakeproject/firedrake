@@ -142,7 +142,8 @@ def iterset2indset(iterset, indset):
 
 @pytest.fixture
 def elements():
-    return op2.Set(nelems, "elems", layers=layers)
+    s = op2.Set(nelems)
+    return op2.ExtrudedSet(s, layers=layers)
 
 
 @pytest.fixture
@@ -243,12 +244,14 @@ def field_map(elements, elem_set1):
 
 @pytest.fixture
 def xtr_elements():
-    return op2.Set(NUM_ELE, "xtr_elements", layers=layers)
+    eset = op2.Set(NUM_ELE)
+    return op2.ExtrudedSet(eset, layers=layers)
 
 
 @pytest.fixture
 def xtr_nodes():
-    return op2.Set(NUM_NODES * layers, "xtr_nodes", layers=layers)
+    nset = op2.Set(NUM_NODES * layers)
+    return op2.ExtrudedSet(nset, layers=layers)
 
 
 @pytest.fixture
@@ -435,7 +438,8 @@ void comp_vol(double A[1], double *x[], double *y[])
         # Extrusion is meant to iterate over the 3D cells which are layer - 1 in number.
         # The +1 correction helps in the case of iteration over vertices which need
         # one extra layer.
-        iterset = op2.Set(NUM_NODES, "verts1", layers=(layers + 1))
+        iterset = op2.Set(NUM_NODES, "verts1")
+        iterset = op2.ExtrudedSet(iterset, layers=(layers + 1))
         vnodes = op2.DataSet(iterset, coords_dim)
 
         d_nodes_xtr = op2.DataSet(xtr_nodes, coords_xtr_dim)

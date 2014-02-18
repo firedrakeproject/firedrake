@@ -62,7 +62,10 @@ cdef cmap init_map(omap):
     out.arity = omap.arity
     out.values = <int *>np.PyArray_DATA(omap.values_with_halo)
     out.offset = <int *>np.PyArray_DATA(omap.offset)
-    out.layers = omap.iterset.layers
+    if omap.iterset._extruded:
+        out.layers = omap.iterset.layers
+    else:
+        out.layers = 0
     return out
 
 @cython.boundscheck(False)
