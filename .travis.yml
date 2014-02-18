@@ -19,6 +19,8 @@ env:
     - PYOP2_BACKEND=sequential PYOP2_TESTS=extrusion
     - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion
     - OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion
+virtualenv:
+  system_site_packages: true
 # command to install dependencies
 before_install:
   - sudo add-apt-repository -y ppa:amcg/backports
