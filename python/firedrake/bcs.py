@@ -27,6 +27,21 @@ class DirichletBC(object):
     '''
 
     def __init__(self, V, g, sub_domain):
+        self._function_space = V
+        self.function_arg = g
+        self._original_arg = self.function_arg
+        self.sub_domain = sub_domain
+
+    @property
+    def function_arg(self):
+        '''The value of this boundary condition.'''
+        return self._function_arg
+
+    @function_arg.setter
+    def function_arg(self, g):
+        '''Set the value of this boundary condition.'''
+        if isinstance(g, Function) and g.function_space() != self._function_space:
+            raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
         if not isinstance(g, Expression):
             try:
                 # Bare constant?
@@ -39,14 +54,11 @@ class DirichletBC(object):
                     raise ValueError("%r is not a valid DirichletBC expression" % (g,))
         if isinstance(g, Expression):
             try:
-                g = Function(V).interpolate(g)
+                g = Function(self._function_space).interpolate(g)
             # Not a point evaluation space, need to project onto V
             except NotImplementedError:
-                g = project(g, V)
-        self._function_space = V
-        self.function_arg = g
-        self._original_arg = g
-        self.sub_domain = sub_domain
+                g = project(g, self._function_space)
+        self._function_arg = g
 
     def function_space(self):
         '''The :class:`.FunctionSpace` on which this boundary condition should
@@ -66,7 +78,7 @@ class DirichletBC(object):
         '''Restore the original value of this boundary condition.
 
         This uses the value passed on instantiation of the object.'''
-        self.function_arg = self._original_arg
+        self._function_arg = self._original_arg
 
     def set_value(self, val):
         '''Set the value of this boundary condition.
@@ -129,9 +141,15 @@ class DirichletBC(object):
         if isinstance(r, types.Matrix):
             r.add_bc(self)
             return
+        fs = self._function_space
+        # Check if the FunctionSpace of the Function r to apply is compatible.
+        # If fs is an IndexedFunctionSpace and r is defined on a
+        # MixedFunctionSpace, we need to compare the parent of fs
+        if not (fs == r.function_space() or (hasattr(fs, "_parent") and
+                                             fs._parent == r.function_space())):
+            raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
         # If this BC is defined on a subspace of a mixed function space, make
         # sure we only apply to the appropriate subspace of the Function r
-        fs = self._function_space
         if fs.index is not None:
             r = Function(self._function_space, r.dat[fs.index])
         if u:

@@ -1151,6 +1151,8 @@ class FunctionSpaceBase(object):
         if bcs is None:
             lbcs = None
         else:
+            if not all(bc.function_space() == self for bc in bcs):
+              raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
             # Ensure bcs is a tuple in a canonical order for the hash key.
             lbcs = tuple(sorted(bcs, key=lambda bc: bc.__hash__()))
         try:
