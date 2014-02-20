@@ -79,7 +79,46 @@ could have interchangibly used a kernel signature with plain pointers:
 .. code-block:: c
 
   void midpoint(double * p, double ** coords)
-  
+
+.. _data-layout:
+
+Data layout
+-----------
+
+Data for a :class:`~pyop2.Dat` declared on a :class:`~pyop2.Set` is
+stored contiguously for all elements of the set. For each element,
+this is a contiguous chunk of data of a shape given by the
+:class:`~pyop2.DataSet` ``dim`` and the datatype of the
+:class:`~pyop2.Dat`.  The size of this chunk is the product of the
+extents of the ``dim`` tuple times the size of the datatype.
+
+During execution of the :func:`~pyop2.par_loop`, the kernel is called
+for each element of the iteration set and passed data for each of its
+arguments corresponding to the current set element ``i`` only.
+
+For a directly accessed argument such as ``midpoints`` above, the
+kernel is passed a pointer to the beginning of the chunk of data for
+the element ``i`` the kernel is currently called for. In CUDA/OpenCL
+``i`` is the global thread id since the kernel is launched in parallel
+for all elements.
+
+For an indirectly accessed argument such as ``coordinates`` above,
+PyOP2 gathers pointers to the data via the :class:`~pyop2.Map`
+``cell2vertex`` used for the indirection. The kernel is passed a list
+of pointers of length corresponding to the *arity* of the
+:class:`~pyop2.Map`, in the example above 3. Each of these points to
+the data chunk for the element in the target :class:`~pyop2.Set` given
+by :class:`~pyop2.Map` entries ``(i, 0)``, ``(i, 1)`` and ``(i, 2)``.
+
+If the argument is created with the keyword argument ``flatten`` set
+to ``True``, a flattened vector of pointers is passed to the kernel.
+This vector is of length ``dim * arity`` (where ``dim`` is the product
+of the extents of the ``dim`` tuple), which is 6 in the example above.
+Each entry points to a single data value of the :class:`~pyop2.Dat`.
+The ordering is by component of ``dim`` i.e. the first component of
+each data item for each element in the target set pointed to by the
+map followed by the second component etc.
+
 .. _local-iteration-spaces:
 
 Local iteration spaces
