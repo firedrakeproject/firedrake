@@ -748,6 +748,13 @@ class Subset(Set):
         """Derive a :class:`DataSet` with dimension ``e``"""
         raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
 
+    def __str__(self):
+        return "OP2 Subset: %s with size %s" % \
+            (self._name, self._size)
+
+    def __repr__(self):
+        return "Subset(%r, %r)" % (self._superset, self._indices)
+
     def __call__(self, *indices):
         """Build a :class:`Subset` from this :class:`Subset`
 
