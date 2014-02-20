@@ -507,6 +507,9 @@ class Mesh(object):
 
             self._coordinate_field = Function(self._coordinate_fs,
                                               val = self._coordinates)
+        self._dx = Measure('cell', domain_data=self._coordinate_field)
+        self._ds = Measure('exterior_facet', domain_data=self._coordinate_field)
+        self._dS = Measure('interior_facet', domain_data=self._coordinate_field)
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._domain_data = self._coordinate_field
@@ -700,7 +703,9 @@ class ExtrudedMesh(Mesh):
                              kernel=kernel)
         self._coordinates = self._coordinate_field.dat.data_ro_with_halos
 
-
+        self._dx = Measure('cell', domain_data=self._coordinate_field)
+        self._ds = Measure('exterior_facet', domain_data=self._coordinate_field)
+        self._dS = Measure('interior_facet', domain_data=self._coordinate_field)
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._domain_data = self._coordinate_field
