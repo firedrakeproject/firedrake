@@ -3181,7 +3181,11 @@ class ParLoop(LazyComputation):
                         "Iterset of direct arg %s doesn't match ParLoop iterset." % i)
                 continue
             for j, m in enumerate(arg._map):
-                if m.iterset != _iterset:
+                if isinstance(_iterset, ExtrudedSet):
+                    if m.iterset != _iterset and m.iterset not in _iterset:
+                        raise MapValueError(
+                            "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
+                elif m.iterset != _iterset:
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
             if arg._uses_itspace:

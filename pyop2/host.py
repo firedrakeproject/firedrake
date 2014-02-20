@@ -305,6 +305,8 @@ class Arg(base.Arg):
     def c_add_offset_flatten(self):
         cdim = np.prod(self.data.cdim)
         val = []
+        if not self.map.iterset._extruded:
+            return ""
         for (k, offset), arity in zip(enumerate(self.map.arange[:-1]), self.map.arities):
             for idx in range(cdim):
                 for i in range(arity):
@@ -319,6 +321,8 @@ class Arg(base.Arg):
     def c_add_offset(self):
         cdim = np.prod(self.data.cdim)
         val = []
+        if not self.map.iterset._extruded:
+            return ""
         for (k, offset), arity in zip(enumerate(self.map.arange[:-1]), self.map.arities):
             for i in range(arity):
                 val.append("%(name)s[%(j)d] += _%(offset)s[%(i)d] * %(dim)s;" %
@@ -427,6 +431,8 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             # We need to apply the bottom bcs
             val.append("if (j_0 == 0){")
             for i, map in enumerate(maps):
+                if not map.iterset._extruded:
+                    continue
                 for j, m in enumerate(map):
                     for idx in range(m.arity):
                         val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
@@ -440,6 +446,8 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             # We need to apply the top bcs
             val.append("if (j_0 == layer-2){")
             for i, map in enumerate(maps):
+                if not map.iterset._extruded:
+                    continue
                 for j, m in enumerate(map):
                     for idx in range(m.arity):
                         val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
@@ -455,6 +463,8 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         maps = as_tuple(self.map, Map)
         val = []
         for i, map in enumerate(maps):
+            if not map.iterset._extruded:
+                continue
             for j, m in enumerate(map):
                 for idx in range(m.arity):
                     for k in range(cdim):
@@ -470,6 +480,8 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         maps = as_tuple(self.map, Map)
         val = []
         for i, map in enumerate(maps):
+            if not map.iterset._extruded:
+                continue
             for j, m in enumerate(map):
                 for idx in range(m.arity):
                     val.append("xtr_%(name)s[%(ind)s] += _%(off)s[%(ind)s];" %
@@ -482,14 +494,20 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         maps = as_tuple(self.map, Map)
         val = []
         for i, map in enumerate(maps):
+            if not map.iterset._extruded:
+                continue
             for j, m in enumerate(map):
                 val.append("PyObject *%s" % self.c_offset_name(i, j))
+        if len(val) == 0:
+            return ""
         return ", " + ", ".join(val)
 
     def c_offset_decl(self):
         maps = as_tuple(self.map, Map)
         val = []
         for i, map in enumerate(maps):
+            if not map.iterset._extruded:
+                continue
             for j, _ in enumerate(map):
                 val.append("int *_%(cnt)s = (int *)(((PyArrayObject *)%(cnt)s)->data)" %
                            {'cnt': self.c_offset_name(i, j)})
