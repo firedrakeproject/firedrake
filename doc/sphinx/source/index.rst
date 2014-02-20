@@ -13,6 +13,7 @@ Contents:
 
    installation
    concepts
+   backends
    user
    pyop2
 

@@ -157,6 +157,11 @@ which they are executed over the set to allow PyOP2 maximum flexibility to
 schedule the computation in the most efficient way. Kernels are described in
 more detail in :doc:`pyop2_ir_user`.
 
+.. _loop-invocations:
+
+Loop invocations
+~~~~~~~~~~~~~~~~
+
 A parallel loop invocation requires as arguments, other than the iteration set
 and the kernel to operate on, the data the kernel reads and/or writes. A
 parallel loop argument is constructed by calling the underlying data object
@@ -182,6 +187,11 @@ the argument ``coordinates`` is read and written: ::
 
     op2.par_loop(translate, vertices, coordinates(op2.RW))
 
+.. _access-descriptors:
+
+Access descriptors
+~~~~~~~~~~~~~~~~~~
+
 Access descriptors define how the data is accessed by the kernel and give
 PyOP2 crucial information as to how the data needs to be treated during
 staging in before and staging out after kernel execution. They must be one of
@@ -196,6 +206,11 @@ Not all of these descriptors apply to all PyOP2 data types. A
 valid modes are :data:`~pyop2.READ`, :data:`~pyop2.INC`, :data:`~pyop2.MIN` and
 :data:`~pyop2.MAX` and for a :class:`~pyop2.Mat` only :data:`~pyop2.WRITE` and
 :data:`~pyop2.INC` are allowed.
+
+.. _matrix-loops:
+
+Loops assembling matrices
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 We declare a parallel loop assembling the ``matrix`` via a given ``kernel``
 which we'll assume has been defined before over the ``edges`` and with
@@ -217,6 +232,11 @@ descriptor :data:`~pyop2.READ`: ::
                  matrix(op2.INC, (edges2vertices[op2.i[0]],
                                   edges2vertices[op2.i[1]])),
                  coordinates(op2.READ, edges2vertices))
+
+.. _reduction-loops:
+
+Loops with global reductions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 :class:`Globals <pyop2.Global>` are used primarily for reductions where a
 given quantity on a field is reduced to a single number by summation or
