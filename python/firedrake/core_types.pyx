@@ -253,7 +253,8 @@ void extrusion_kernel(double *xtr[], double *x[], int* j[])
     # Extrusion is meant to iterate over the 3D cells which are layer - 1 in number.
     # The +1 correction helps in the case of iteration over vertices which need
     # one extra layer.
-    iterset = op2.Set(mesh.num_vertices(), "verts1", layers=(layers+1))
+    num_base_coords = mesh._coordinate_fs.node_count
+    iterset = op2.ExtrudedSet(op2.Set(mesh.num_vertices(), "verts1"), layers=(layers+1))
     vnodes = op2.DataSet(iterset, coords_dim)
     lnodes = op2.DataSet(iterset, 1)
     nodes_xtr = op2.Set(mesh.num_vertices()*layers, "verts_xtr")
@@ -346,7 +347,7 @@ cdef ft.element_t as_element(object fiat_element):
 
 class _Facets(object):
     """Wrapper class for facet interation information on a :class:`Mesh`"""
-    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None, layers=1):
+    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None):
 
         self.mesh = mesh
 
@@ -365,14 +366,20 @@ class _Facets(object):
 
         self.markers = markers
         self._subsets = {}
-        self._layers = layers
 
     @utils.cached_property
     def set(self):
         # Currently no MPI parallel support
         size = self.count
         halo = None
-        return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo, layers=self._layers)
+        if isinstance(self.mesh, ExtrudedMesh):
+            if self.kind == "interior":
+                base = self.mesh._old_mesh.interior_facets.set
+            else:
+                base = self.mesh._old_mesh.exterior_facets.set
+            return op2.ExtrudedSet(base, layers=self.mesh.layers)
+        return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo)
+
 
     @utils.cached_property
     def _null_subset(self):
@@ -408,11 +415,6 @@ class _Facets(object):
             self._subsets[markers] = op2.Subset(self.set, indices)
             return self._subsets[markers]
 
-    @property
-    def layers(self):
-        """Returns the number of layers in the mesh."""
-        return self._layers
-
     @utils.cached_property
     def local_facet_dat(self):
         """Dat indicating which local facet of each adjacent
@@ -443,8 +445,6 @@ class Mesh(object):
         """
 
         _init()
-
-        self._layers = 1
 
         self.cell_halo = None
         self.vertex_halo = None
@@ -556,12 +556,6 @@ class Mesh(object):
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._domain_data = self._coordinate_field
-
-    @property
-    def layers(self):
-        """Return the number of layers of the extruded mesh
-        represented by the number of occurences of the base mesh."""
-        return self._layers
 
     def cell_orientations(self):
         """Return the orientation of each cell in the mesh.
@@ -693,15 +687,13 @@ class ExtrudedMesh(Mesh):
         self._interior_facets = _Facets(self, interior_f.count,
                                        "interior",
                                        interior_f.facet_cell,
-                                       interior_f.local_facet_number,
-                                       layers=layers)
+                                       interior_f.local_facet_number)
         exterior_f = self._old_mesh.exterior_facets
         self._exterior_facets = _Facets(self, exterior_f.count,
                                            "exterior",
                                            exterior_f.facet_cell,
                                            exterior_f.local_facet_number,
-                                           exterior_f.markers,
-                                           layers=layers)
+                                           exterior_f.markers)
 
         self.ufl_cell_element = ufl.FiniteElement("Lagrange",
                                                domain = mesh._ufl_cell,
@@ -757,16 +749,16 @@ class ExtrudedMesh(Mesh):
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._domain_data = self._coordinate_field
 
+    @property
+    def layers(self):
+        """Return the number of layers of the extruded mesh
+        represented by the number of occurences of the base mesh."""
+        return self._layers
+
     @utils.cached_property
     def cell_set(self):
-        if self.cell_halo:
-            size = self.cell_classes
-            halo = self.cell_halo.op2_halo
-        else:
-            size = self.num_cells()
-            halo = None
         return self.parent.cell_set if self.parent else \
-            op2.Set(size, "%s_elements" % self.name, halo=halo, layers=self._layers)
+            op2.ExtrudedSet(self._old_mesh.cell_set, layers=self._layers)
 
     @property
     def exterior_facets(self):
@@ -1057,10 +1049,16 @@ class FunctionSpaceBase(object):
 
         name = "%s_nodes" % self.name
         if self._halo:
-            return op2.Set(self.dof_classes, name,
-                           halo=self._halo.op2_halo, layers=self._mesh.layers)
+            s = op2.Set(self.dof_classes, name,
+                        halo=self._halo.op2_halo)
+            if self.extruded:
+                return op2.ExtrudedSet(s, layers=self._mesh.layers)
+            return s
         else:
-            return op2.Set(self.node_count, name, layers=self._mesh.layers)
+            s = op2.Set(self.node_count, name)
+            if self.extruded:
+                return op2.ExtrudedSet(s, layers=self._mesh.layers)
+            return s
 
     @utils.cached_property
     def dof_dset(self):
