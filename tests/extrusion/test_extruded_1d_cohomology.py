@@ -47,8 +47,8 @@ def test_betti0(horiz_complex, vert_complex):
     nharmonic = sum(s < 1.0e-5)
     assert(nharmonic == 1)
 
-    bc0 = DirichletBC(W0, 0., [1, 2])
-    L = assemble(inner(grad(u), grad(v))*dx, bcs=[bc0])
+    bcs = [DirichletBC(W0, 0., x) for x in ["top", "bottom", 1, 2]]
+    L = assemble(inner(grad(u), grad(v))*dx, bcs=bcs)
     uvecs, s, vvecs = linalg.svd(L.M.values)
     nharmonic = sum(s < 1.0e-5)
     assert(nharmonic == 0)
