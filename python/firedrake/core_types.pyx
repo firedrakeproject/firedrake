@@ -612,9 +612,8 @@ class ExtrudedMesh(Mesh):
     """Build an extruded mesh from a 2D input mesh
 
     :arg mesh:           2D unstructured mesh
-    :arg layers:         number of layers in the "vertical"
-                         direction representing the multiplicity of the
-                         base mesh
+    :arg layers:         number of extruded cell layers in the "vertical"
+                         direction.
     :arg kernel:         a :class:`pyop2.Kernel` to produce coordinates for the extruded
                          mesh see :func:`make_extruded_coords` for more details.
     :arg layer_height:   the height between layers when all layers are
@@ -629,7 +628,10 @@ class ExtrudedMesh(Mesh):
         if kernel is None and layer_height is None:
             raise RuntimeError("Please provide a kernel or a fixed layer height")
         self._old_mesh = mesh
-        self._layers = layers
+        if layers < 1:
+            raise RuntimeError("Must have at least one layer of extruded cells (not %d)" % layers)
+        # All internal logic works with layers of base mesh (not layers of cells)
+        self._layers = layers + 1
         self._cells = mesh._cells
         self.cell_halo = mesh.cell_halo
         self._entities = mesh._entities
@@ -675,7 +677,7 @@ class ExtrudedMesh(Mesh):
 
         #Compute Coordinates of the extruded mesh
         if layer_height is None:
-            layer_height = 1.0 / (layers - 1)
+            layer_height = 1.0 / layers
         # Now we need to produce the extruded mesh using
         # techqniues employed when computing the
         # function space.

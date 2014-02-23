@@ -8,7 +8,7 @@ import ufl
 def integrate_rhs(family, degree):
     power = 5
     m = UnitSquareMesh(2 ** power, 2 ** power)
-    layers = 11
+    layers = 10
 
     # Populate the coordinates of the extruded mesh by providing the
     # coordinates as a field.

@@ -8,7 +8,7 @@ from pyop2.profiling import *
 def integrate_unit_square(family, degree):
     power = 5
     m = UnitIntervalMesh(2 ** power)
-    layers = 11
+    layers = 10
 
     # Populate the coordinates of the extruded mesh by providing the
     # coordinates as a field.

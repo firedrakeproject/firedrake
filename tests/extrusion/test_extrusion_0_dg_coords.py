@@ -19,7 +19,7 @@ def test_extruded_interval_area():
 
     assert abs(assemble(u*dx) - 1.0) < 1e-12
 
-    e = ExtrudedMesh(m, layers=5, layer_height=0.25)
+    e = ExtrudedMesh(m, layers=4, layer_height=0.25)
 
     V = FunctionSpace(e, 'CG', 1)
     u = Function(V)
@@ -36,7 +36,7 @@ def test_extruded_periodic_interval_area():
     u.assign(1)
     assert abs(assemble(u*dx) - 1.0) < 1e-12
 
-    e = ExtrudedMesh(m, layers=5, layer_height=0.25)
+    e = ExtrudedMesh(m, layers=4, layer_height=0.25)
     V = FunctionSpace(e, 'CG', 1)
     u = Function(V)
     u.assign(1)

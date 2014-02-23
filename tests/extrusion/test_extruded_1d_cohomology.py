@@ -31,7 +31,7 @@ def test_betti0(horiz_complex, vert_complex):
     V0, V1 = vert_complex
 
     m = UnitIntervalMesh(5)
-    mesh = ExtrudedMesh(m, layers=5, layer_height=0.25)
+    mesh = ExtrudedMesh(m, layers=4, layer_height=0.25)
     U0 = FiniteElement(U0[0], "interval", U0[1])
     V0 = FiniteElement(V0[0], "interval", V0[1])
 
@@ -68,7 +68,7 @@ def test_betti0_periodic(horiz_complex, vert_complex):
     V0, V1 = vert_complex
 
     m = PeriodicUnitIntervalMesh(5)
-    mesh = ExtrudedMesh(m, layers=5, layer_height=0.25)
+    mesh = ExtrudedMesh(m, layers=4, layer_height=0.25)
     U0 = FiniteElement(U0[0], "interval", U0[1])
     V0 = FiniteElement(V0[0], "interval", V0[1])
 
@@ -105,7 +105,7 @@ def test_betti1(horiz_complex, vert_complex):
     V0, V1 = vert_complex
 
     m = UnitIntervalMesh(5)
-    mesh = ExtrudedMesh(m, layers=5, layer_height=0.25)
+    mesh = ExtrudedMesh(m, layers=4, layer_height=0.25)
     U0 = FiniteElement(U0[0], "interval", U0[1])
     U1 = FiniteElement(U1[0], "interval", U1[1])
     V0 = FiniteElement(V0[0], "interval", V0[1])
@@ -174,7 +174,7 @@ def test_betti1_periodic(horiz_complex, vert_complex):
     V0, V1 = vert_complex
 
     m = PeriodicUnitIntervalMesh(5)
-    mesh = ExtrudedMesh(m, layers=5, layer_height=0.25)
+    mesh = ExtrudedMesh(m, layers=4, layer_height=0.25)
     U0 = FiniteElement(U0[0], "interval", U0[1])
     U1 = FiniteElement(U1[0], "interval", U1[1])
     V0 = FiniteElement(V0[0], "interval", V0[1])
@@ -242,7 +242,7 @@ def test_betti2(horiz_complex, vert_complex):
     V0, V1 = vert_complex
 
     m = UnitIntervalMesh(5)
-    mesh = ExtrudedMesh(m, layers=5, layer_height=0.25)
+    mesh = ExtrudedMesh(m, layers=4, layer_height=0.25)
     U0 = FiniteElement(U0[0], "interval", U0[1])
     U1 = FiniteElement(U1[0], "interval", U1[1])
     V0 = FiniteElement(V0[0], "interval", V0[1])
@@ -309,7 +309,7 @@ def test_betti2_periodic(horiz_complex, vert_complex):
     V0, V1 = vert_complex
 
     m = PeriodicUnitIntervalMesh(5)
-    mesh = ExtrudedMesh(m, layers=5, layer_height=0.25)
+    mesh = ExtrudedMesh(m, layers=4, layer_height=0.25)
     U0 = FiniteElement(U0[0], "interval", U0[1])
     U1 = FiniteElement(U1[0], "interval", U1[1])
     V0 = FiniteElement(V0[0], "interval", V0[1])
