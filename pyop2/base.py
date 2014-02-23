@@ -698,11 +698,17 @@ class ExtrudedSet(Set):
     :type parent: a :class:`Set`.
     :param layers: The number of layers in this :class:`ExtrudedSet`.
     :type layers: an integer.
+
+    The number of layers indicates the number of time the base set is
+    extruded in the direction of the :class:`ExtrudedSet`.  As a
+    result, there are ``layers-1`` extruded "cells" in an extruded set.
     """
 
     @validate_type(('parent', Set, TypeError))
     def __init__(self, parent, layers):
         self._parent = parent
+        if layers < 2:
+            raise SizeTypeError("Number of layers must be > 1 (not %s)" % layers)
         self._layers = layers
         self._ext_tb_bcs = None
 
@@ -1331,7 +1337,9 @@ class IterationSpace(object):
 
     @property
     def layers(self):
-        """Number of layers in the extruded mesh"""
+        """Number of layers in the extruded set (or None if this is not an
+        extruded iteration space)
+        """
         return self._iterset.layers
 
     @property
