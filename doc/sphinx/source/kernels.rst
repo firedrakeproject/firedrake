@@ -80,6 +80,19 @@ could have interchangibly used a kernel signature with plain pointers:
 
   void midpoint(double * p, double ** coords)
 
+Argument creation supports an optional flag ``flatten``, which is used
+for kernels which expect data to be laid out by component: ::
+
+  midpoint = op2.Kernel("""
+  void midpoint(double p[2], double *coords[1]) {
+    p[0] = (coords[0][0] + coords[1][0] + coords[2][0]) / 3.0;
+    p[1] = (coords[3][0] + coords[4][0] + coords[5][0]) / 3.0;
+  }""", "midpoint")
+
+  op2.par_loop(midpoint, cells,
+               midpoints(op2.WRITE),
+               coordinates(op2.READ, cell2vertex, flatten=True))
+
 .. _data-layout:
 
 Data layout
