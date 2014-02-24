@@ -564,6 +564,63 @@ PETSc will then print its view of the solver objects that Firedrake
 has constructed.  This is especially useful for debugging complicated
 preconditioner setups for mixed problems.
 
+Solving singular systems
+------------------------
+
+Some systems of PDEs, for example the Poisson equation with pure
+Neumann boundary conditions, have an operator which is singular.  That
+is, we have :math:`Ae = 0` with :math:`e \neq 0`.  The vector space
+spanned by the set of vectors :math:`{e}` for which :math:`Ae = 0` is
+termed the *null space* of :math:`A`.  If we wish to solve such a
+system, we must remove the null space from the solution.  To do this
+in Firedrake, we first must define the null space, and then inform the
+solver of its existance.  We use a
+:class:`~firedrake.nullspace.VectorSpaceBasis` to hold the vectors
+which span the null space.  We must provide a list of
+:class:`~firedrake.core_types.Function`\s or
+:class:`~firedrake.vector.Vector`\s spanning the space.  Additionally,
+since removing a constant null space is such a common operation, we
+can pass ``constant=True`` to the constructor (rather than
+constructing the constant vector by hand).  Note that the vectors we
+pass in must be *orthonormal*.  Once the null space is built, we just
+need to inform the solve about it (using the ``nullspace`` keyword
+argument).
+
+As an example, consider the Poisson equation with pure Neumann
+boundary conditions:
+
+.. math::
+
+   -\nabla^2 u = 0 \quad \mathrm{in} \Omega
+   \nabla u \cdot n = g \quad \mathrm{on} \Gamma.
+
+We will solve this problem on the unit square applying homogeneous
+Neumann boundary conditions on the planes :math:`x = 0` and :math:`x =
+1`.  On :math:`y = 0` we set :math:`g = -1` while on :math:`y = 1` we
+set :math:`g = 1`.  The null space of the operator we form is the set
+of constant functions, and thus the problem has solution
+:math:`u(x, y) = y + c` where :math:`c` is a constant.  To solve the
+problem, we will inform the solver of this constant null space, fixing
+the solution to be :math:`u(x, y) = y - 0.5`.
+
+.. code-block:: python
+
+   m = UnitSquareMesh(25, 25)
+   V = FunctionSpace(m, 'CG', 1)
+   u = TrialFunction(V)
+   v = TestFunction(V)
+
+   a = inner(grad(u), grad(v))*dx
+   L = -v*ds(3) + v*ds(4)
+
+   nullspace = VectorSpaceBasis(constant=True)
+   u = Function(V)
+   solve(a == L, u, nullspace=nullspace)
+   exact = Function(V)
+   exact.interpolate(Expression('x[1] - 0.5'))
+   print sqrt(assemble((u - exact)*(u - exact)*dx))
+
+
 Debugging convergence failures
 ------------------------------
 
