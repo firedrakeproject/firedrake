@@ -75,6 +75,8 @@ class NonlinearVariationalSolver(object):
     def __init__(self, *args, **kwargs):
         """
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
+        :kwarg nullspace: an optional :class:`.VectorSpaceBasis`
+               spanning the null space of the operator.
         :kwarg parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.  For
             example, to set the nonlinear solver type to just use a linear
@@ -146,6 +148,20 @@ class NonlinearVariationalSolver(object):
             self.snes.setFunction(self.form_function, v)
         self.snes.setJacobian(self.form_jacobian, J=self._jac_tensor._M.handle,
                               P=self._jac_ptensor._M.handle)
+        nullspace = kwargs.get('nullspace', None)
+        if nullspace is not None:
+            self.set_nullspace(nullspace)
+
+    def set_nullspace(self, nullspace):
+        """Set the null space for this solver.
+
+        :arg nullspace: a :class:`.VectorSpaceBasis` spanning the null
+             space of the operator.
+
+        This overwrites any existing null space."""
+        self._jac_ptensor._M.handle.setNullSpace(nullspace.nullspace)
+        if self._jac_ptensor._M.handle != self._jac_tensor._M.handle:
+            self._jac_tensor._M.handle.setNullSpace(nullspace.nullspace)
 
     def form_function(self, snes, X_, F_):
         # X_ may not be the same vector as the vec behind self._x, so
@@ -288,6 +304,8 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         :arg problem: A :class:`LinearVariationalProblem` to solve.
         :kwarg parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.
+        :kwarg nullspace: an optional :class:`.VectorSpaceBasis`
+               spanning the null space of the operator.
 
         .. warning ::
 
@@ -544,7 +562,8 @@ def _assemble(f, tensor=None, bcs=None):
         return thunk(bcs)
 
 
-def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'ilu'}):
+def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'ilu'},
+              nullspace=None):
     """Solves a linear algebra problem.
 
     :arg A: the assembled bilinear form, a :class:`.Matrix`.
@@ -552,7 +571,8 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
     :arg b: the :class:`.Function` defining the right hand side values.
     :arg bcs: an optional list of :class:`.DirichletBC`\s to apply.
     :arg parameters: optional solver parameters.
-
+    :arg nullspace: an optional :class:`.VectorSpaceBasis`
+         spanning the null space of the operator.
     .. note::
         Any boundary conditions passed in as an argument here override the
         boundary conditions set when the bilinear form was assembled.
@@ -597,6 +617,8 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
             bc.apply(u_bc)
         # don't want to write into b itself, because that would confuse user
         b = u_bc
+    if nullspace is not None:
+        A._M.handle.setNullSpace(nullspace.nullspace)
     with progress(INFO, 'Solving linear system'):
         solver.solve(A.M, x.dat, b.dat)
     x.dat.halo_exchange_begin()
@@ -679,6 +701,9 @@ def solve(*args, **kwargs):
                                  "ksp_type" : "preonly",
                                  "pc_type" : "lu"})
 
+    In all three cases, if the operator is singular you can pass a
+    :class:`.VectorSpaceBasis` spanning the null space of the operator
+    to the solve call using the ``nullspace`` keyword argument.
     """
 
     assert(len(args) > 0)
@@ -691,7 +716,8 @@ def solve(*args, **kwargs):
     else:
         parms = kwargs.pop('solver_parameters', None)
         bcs = kwargs.pop('bcs', None)
-        _kwargs = {'bcs': bcs}
+        nullspace = kwargs.pop('nullspace', None)
+        _kwargs = {'bcs': bcs, 'nullspace': nullspace}
         if parms:
             _kwargs['parameters'] = parms
         return _la_solve(*args, **_kwargs)
@@ -701,7 +727,7 @@ def _solve_varproblem(*args, **kwargs):
     "Solve variational problem a == L or F == 0"
 
     # Extract arguments
-    eq, u, bcs, J, M, form_compiler_parameters, solver_parameters \
+    eq, u, bcs, J, M, form_compiler_parameters, solver_parameters, nullspace \
         = _extract_args(*args, **kwargs)
 
     # Solve linear variational problem
@@ -712,7 +738,8 @@ def _solve_varproblem(*args, **kwargs):
                                            form_compiler_parameters=form_compiler_parameters)
 
         # Create solver and call solve
-        solver = LinearVariationalSolver(problem, parameters=solver_parameters)
+        solver = LinearVariationalSolver(problem, parameters=solver_parameters,
+                                         nullspace=nullspace)
         with progress(INFO, 'Solving linear variational problem'):
             solver.solve()
 
@@ -724,7 +751,8 @@ def _solve_varproblem(*args, **kwargs):
                                               form_compiler_parameters=form_compiler_parameters)
 
         # Create solver and call solve
-        solver = NonlinearVariationalSolver(problem, parameters=solver_parameters)
+        solver = NonlinearVariationalSolver(problem, parameters=solver_parameters,
+                                            nullspace=nullspace)
         with progress(INFO, 'Solving nonlinear variational problem'):
             solver.solve()
 
@@ -737,7 +765,8 @@ def _extract_args(*args, **kwargs):
 
     # Check for use of valid kwargs
     valid_kwargs = ["bcs", "J", "M",
-                    "form_compiler_parameters", "solver_parameters"]
+                    "form_compiler_parameters", "solver_parameters",
+                    "nullspace"]
     for kwarg in kwargs.iterkeys():
         if not kwarg in valid_kwargs:
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords \
@@ -771,11 +800,12 @@ def _extract_args(*args, **kwargs):
     if M is not None and not isinstance(M, ufl.Form):
         raise RuntimeError("Expecting goal functional M to be a UFL Form")
 
+    nullspace = kwargs.get("nullspace", None)
     # Extract parameters
     form_compiler_parameters = kwargs.get("form_compiler_parameters", {})
     solver_parameters = kwargs.get("solver_parameters", {})
 
-    return eq, u, bcs, J, M, form_compiler_parameters, solver_parameters
+    return eq, u, bcs, J, M, form_compiler_parameters, solver_parameters, nullspace
 
 
 def _extract_eq(eq):
