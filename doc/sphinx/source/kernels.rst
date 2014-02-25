@@ -115,6 +115,8 @@ the element ``i`` the kernel is currently called for. In CUDA/OpenCL
 ``i`` is the global thread id since the kernel is launched in parallel
 for all elements.
 
+  .. image:: images/direct_arg.svg
+
 For an indirectly accessed argument such as ``coordinates`` above,
 PyOP2 gathers pointers to the data via the :class:`~pyop2.Map`
 ``cell2vertex`` used for the indirection. The kernel is passed a list
@@ -122,6 +124,8 @@ of pointers of length corresponding to the *arity* of the
 :class:`~pyop2.Map`, in the example above 3. Each of these points to
 the data chunk for the element in the target :class:`~pyop2.Set` given
 by :class:`~pyop2.Map` entries ``(i, 0)``, ``(i, 1)`` and ``(i, 2)``.
+
+  .. image:: images/indirect_arg.svg
 
 If the argument is created with the keyword argument ``flatten`` set
 to ``True``, a flattened vector of pointers is passed to the kernel.
@@ -131,6 +135,8 @@ Each entry points to a single data value of the :class:`~pyop2.Dat`.
 The ordering is by component of ``dim`` i.e. the first component of
 each data item for each element in the target set pointed to by the
 map followed by the second component etc.
+
+  .. image:: images/indirect_arg_flattened.svg
 
 .. _local-iteration-spaces:
 
