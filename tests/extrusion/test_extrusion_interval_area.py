@@ -5,8 +5,8 @@ from firedrake import *
 
 def integrate_one(intervals):
     m = UnitIntervalMesh(intervals)
-    layers = intervals + 1
-    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / (layers - 1))
+    layers = intervals
+    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / layers)
 
     V = FunctionSpace(mesh, 'CG', 1)
 

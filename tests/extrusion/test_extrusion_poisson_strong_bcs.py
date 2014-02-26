@@ -22,7 +22,7 @@ from firedrake import *
 def run_test(layers):
     # Create mesh and define function space
     m = UnitSquareMesh(1, 1)
-    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / (layers - 1))
+    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / layers)
 
     V = FunctionSpace(mesh, "CG", 1)
     bcs = [DirichletBC(V, 0, "bottom"),
@@ -43,7 +43,7 @@ def run_test(layers):
 
 
 def test_extrusion_poisson_strong_bcs():
-    for layers in [2, 3, 11]:
+    for layers in [1, 2, 10]:
         assert (run_test(layers) < 1.e-6)
 
 

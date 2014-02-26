@@ -8,8 +8,8 @@ from firedrake import *
 def run_test(x, degree, parameters={}, test_mode=False):
     # Create mesh and define function space
     m = UnitSquareMesh(1, 1)
-    layers = 11
-    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / (layers - 1))
+    layers = 10
+    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / layers)
     V = FunctionSpace(mesh, "CG", degree)
 
     boundary = 42
@@ -25,7 +25,7 @@ def run_test(x, degree, parameters={}, test_mode=False):
     v = TestFunction(V)
 
     res = abs(sum(assemble(u * v * dx).dat.data)
-              - (boundary * 1.0 / (layers - 1)))
+              - (boundary * 1.0 / layers))
 
     if not test_mode:
         print "The error is ", res

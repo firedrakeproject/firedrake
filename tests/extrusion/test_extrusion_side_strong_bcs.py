@@ -9,8 +9,8 @@ from firedrake import *
 def run_test_3D(size, parameters={}, test_mode=False):
     # Create mesh and define function space
     m = UnitSquareMesh(size, size)
-    layers = size + 1
-    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / (layers - 1))
+    layers = size
+    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / layers)
 
     # Define variational problem
     V = FunctionSpace(mesh, "CG", 1)
@@ -52,8 +52,8 @@ def run_test_3D(size, parameters={}, test_mode=False):
 def run_test_2D(intervals, parameters={}, test_mode=False):
     # Create mesh and define function space
     m = UnitIntervalMesh(intervals)
-    layers = intervals+1
-    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / (layers - 1))
+    layers = intervals
+    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / layers)
 
     # Define variational problem
     V = FunctionSpace(mesh, "CG", 1)

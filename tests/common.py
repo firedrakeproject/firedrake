@@ -9,11 +9,11 @@ def mesh():
 
 
 def extmesh(nx, ny, nz):
-    return ExtrudedMesh(UnitSquareMesh(nx, ny), nz+1, layer_height=1.0/nz)
+    return ExtrudedMesh(UnitSquareMesh(nx, ny), nz, layer_height=1.0/nz)
 
 
 def extmesh_2D(nx, ny):
-    return ExtrudedMesh(UnitIntervalMesh(nx), ny+1, layer_height=1.0/ny)
+    return ExtrudedMesh(UnitIntervalMesh(nx), ny, layer_height=1.0/ny)
 
 
 @pytest.fixture(scope='module')

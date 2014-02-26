@@ -8,8 +8,8 @@ from firedrake import *
 def run_test(x, degree, parameters={}, test_mode=False):
     # Create mesh and define function space
     m = UnitSquareMesh(3, 3)
-    layers = 11
-    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / (layers - 1))
+    layers = 10
+    mesh = ExtrudedMesh(m, layers, layer_height=1.0 / layers)
 
     # Define variational problem
     V = FunctionSpace(mesh, "CG", degree)
