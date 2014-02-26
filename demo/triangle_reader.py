@@ -37,7 +37,7 @@ from pyop2 import op2
 import numpy as np
 
 
-def read_triangle(f, layers=1):
+def read_triangle(f, layers=None):
     """Read the triangle file with prefix f into OP2 data strctures. Presently
     only .node and .ele files are read, attributes are ignored, and there may
     be bugs. The dat structures are returned as:
@@ -74,7 +74,10 @@ def read_triangle(f, layers=1):
             vals = [int(x) - 1 for x in line.split()]
             map_values[vals[0], :] = vals[1:nodes_per_tri + 1]
 
-    elements = op2.Set(num_tri, "elements", layers=layers)
+    if layers is not None:
+        elements = op2.ExtrudedSet(op2.Set(num_tri, "elements"), layers=layers)
+    else:
+        elements = op2.Set(num_tri, "elements")
     elem_node = op2.Map(elements, nodes, nodes_per_tri, map_values, "elem_node")
 
     return nodes, coords, elements, elem_node

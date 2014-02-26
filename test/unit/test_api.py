@@ -449,6 +449,44 @@ class TestSetAPI:
         assert dset.cdim == 3
 
 
+class TestExtrudedSetAPI:
+    """
+    ExtrudedSet API tests
+    """
+    def test_illegal_layers_arg(self, backend, set):
+        """Must pass at least 2 as a layers argument"""
+        with pytest.raises(exceptions.SizeTypeError):
+            op2.ExtrudedSet(set, 1)
+
+    def test_illegal_set_arg(self, backend):
+        """Extuded Set should be build on a Set"""
+        with pytest.raises(TypeError):
+            op2.ExtrudedSet(1, 3)
+
+    def test_set_compatiblity(self, backend, set, iterset):
+        """The set an extruded set was built on should be contained in it"""
+        e = op2.ExtrudedSet(set, 5)
+        assert set in e
+        assert iterset not in e
+
+    def test_iteration_compatibility(self, backend, iterset, m_iterset_toset, m_iterset_set, dats):
+        """It should be possible to iterate over an extruded set reading dats
+           defined on the base set (indirectly)."""
+        e = op2.ExtrudedSet(iterset, 5)
+        k = op2.Kernel('void k() { }', 'k')
+        dat1, dat2 = dats
+        base.ParLoop(k, e, dat1(op2.READ, m_iterset_toset))
+        base.ParLoop(k, e, dat2(op2.READ, m_iterset_set))
+
+    def test_iteration_incompatibility(self, backend, set, m_iterset_toset, dat):
+        """It should not be possible to iteratve over an extruded set reading
+           dats not defined on the base set (indirectly)."""
+        e = op2.ExtrudedSet(set, 5)
+        k = op2.Kernel('void k() { }', 'k')
+        with pytest.raises(exceptions.MapValueError):
+            base.ParLoop(k, e, dat(op2.READ, m_iterset_toset))
+
+
 class TestSubsetAPI:
     """
     Subset API unit tests
@@ -558,7 +596,7 @@ class TestMixedSetAPI:
 
     def test_mixed_set_layers_must_match(self, backend, sets):
         "All components of a MixedSet must have the same number of layers."
-        sets[1]._layers += 1
+        sets = [op2.ExtrudedSet(s, layers=i+4) for i, s in enumerate(sets)]
         with pytest.raises(AssertionError):
             op2.MixedSet(sets)
 

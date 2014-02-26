@@ -47,10 +47,10 @@ from ir.ast_plan import init_ir
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
-           'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'MixedSet',
-           'Subset', 'DataSet', 'MixedDataSet', 'Halo', 'Dat', 'MixedDat',
-           'Mat', 'Const', 'Global', 'Map', 'MixedMap', 'Sparsity', 'Solver',
-           'par_loop', 'solve']
+           'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'ExtrudedSet',
+           'MixedSet', 'Subset', 'DataSet', 'MixedDataSet', 'Halo', 'Dat',
+           'MixedDat', 'Mat', 'Const', 'Global', 'Map', 'MixedMap', 'Sparsity',
+           'Solver', 'par_loop', 'solve']
 
 
 def initialised():
@@ -125,6 +125,10 @@ class Kernel(base.Kernel):
 
 
 class Set(base.Set):
+    __metaclass__ = backends._BackendSelector
+
+
+class ExtrudedSet(base.Set):
     __metaclass__ = backends._BackendSelector
 
 

@@ -552,7 +552,7 @@ class Set(object):
 
     @validate_type(('size', (int, tuple, list, np.ndarray), SizeTypeError),
                    ('name', str, NameTypeError))
-    def __init__(self, size=None, name=None, halo=None, layers=None):
+    def __init__(self, size=None, name=None, halo=None):
         if type(size) is int:
             size = [size] * 4
         size = as_tuple(size, int, 4)
@@ -565,9 +565,7 @@ class Set(object):
         self._inh_size = size[Set._IMPORT_NON_EXEC_SIZE]
         self._name = name or "set_%d" % Set._globalcount
         self._halo = halo
-        self._layers = layers if layers is not None else 1
         self._partition_size = 1024
-        self._ext_tb_bcs = None
         if self.halo:
             self.halo.verify(self)
         Set._globalcount += 1
@@ -612,11 +610,6 @@ class Set(object):
         return self._halo
 
     @property
-    def layers(self):
-        """Number of layers in the extruded mesh"""
-        return self._layers
-
-    @property
     def partition_size(self):
         """Default partition size"""
         return self._partition_size
@@ -625,23 +618,6 @@ class Set(object):
     def partition_size(self, partition_value):
         """Set the partition size"""
         self._partition_size = partition_value
-
-    @property
-    def _extruded_bcs(self):
-        """A tuple indicating whether the extruded problem should have boundary conditions applied.
-
-        If the first entry is True, boundary conditions will be applied at the bottom.
-        If the second entry is True, boundary conditions will be applied at the top."""
-        return self._ext_tb_bcs
-
-    @_extruded_bcs.setter
-    def _extruded_bcs(self, value):
-        """Set the boundary conditions on the extruded problem.
-
-        :arg value: a tuple with of two boolean values.
-            The first entry indicates whether a boundary condition will be applied at the bottom.
-            The second entry indicates whether a boundary condition will be applied at the top."""
-        self._ext_tb_bcs = value
 
     def __iter__(self):
         """Yield self when iterated over."""
@@ -678,6 +654,16 @@ class Set(object):
         """Derive a :class:`DataSet` with dimension ``e``"""
         return DataSet(self, dim=e)
 
+    @property
+    def layers(self):
+        """Return None (not an :class:`ExtrudedSet`)."""
+        return None
+
+    @property
+    def _extruded(self):
+        """Is this :class:`Set` an :class:`ExtrudedSet`?"""
+        return isinstance(self, ExtrudedSet)
+
     @classmethod
     def fromhdf5(cls, f, name):
         """Construct a :class:`Set` from set named ``name`` in HDF5 data ``f``"""
@@ -704,6 +690,69 @@ class Set(object):
         return SetPartition(self, 0, self.exec_size)
 
 
+class ExtrudedSet(Set):
+
+    """OP2 ExtrudedSet.
+
+    :param parent: The parent :class:`Set` to build this :class:`ExtrudedSet` on top of
+    :type parent: a :class:`Set`.
+    :param layers: The number of layers in this :class:`ExtrudedSet`.
+    :type layers: an integer.
+
+    The number of layers indicates the number of time the base set is
+    extruded in the direction of the :class:`ExtrudedSet`.  As a
+    result, there are ``layers-1`` extruded "cells" in an extruded set.
+    """
+
+    @validate_type(('parent', Set, TypeError))
+    def __init__(self, parent, layers):
+        self._parent = parent
+        if layers < 2:
+            raise SizeTypeError("Number of layers must be > 1 (not %s)" % layers)
+        self._layers = layers
+        self._ext_tb_bcs = None
+
+    def __getattr__(self, name):
+        """Returns a :class:`Set` specific attribute."""
+        return getattr(self._parent, name)
+
+    def __contains__(self, set):
+        return set is self.parent
+
+    def __str__(self):
+        return "OP2 ExtrudedSet: %s with size %s (%s layers)" % \
+            (self._name, self._size, self._layers)
+
+    def __repr__(self):
+        return "ExtrudedSet(%r, %r)" % (self._parent, self._layers)
+
+    @property
+    def parent(self):
+        return self._parent
+
+    @property
+    def layers(self):
+        """The number of layers in this extruded set."""
+        return self._layers
+
+    @property
+    def _extruded_bcs(self):
+        """A tuple indicating whether the extruded problem should have boundary conditions applied.
+
+        If the first entry is True, boundary conditions will be applied at the bottom.
+        If the second entry is True, boundary conditions will be applied at the top."""
+        return self._ext_tb_bcs
+
+    @_extruded_bcs.setter
+    def _extruded_bcs(self, value):
+        """Set the boundary conditions on the extruded problem.
+
+        :arg value: a tuple with of two boolean values.
+            The first entry indicates whether a boundary condition will be applied at the bottom.
+            The second entry indicates whether a boundary condition will be applied at the top."""
+        self._ext_tb_bcs = value
+
+
 class Subset(Set):
 
     """OP2 subset.
@@ -723,7 +772,8 @@ class Subset(Set):
             # Unroll indices to point to those in the parent
             indices = superset.indices[indices]
             superset = superset.superset
-        assert type(superset) is Set, 'Subset construction failed, should not happen'
+        assert type(superset) is Set or type(superset) is ExtrudedSet, \
+            'Subset construction failed, should not happen'
 
         self._superset = superset
         self._indices = verify_reshape(indices, np.int32, (len(indices),))
@@ -747,6 +797,13 @@ class Subset(Set):
     def __pow__(self, e):
         """Derive a :class:`DataSet` with dimension ``e``"""
         raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
+
+    def __str__(self):
+        return "OP2 Subset: %s with size %s" % \
+            (self._name, self._size)
+
+    def __repr__(self):
+        return "Subset(%r, %r)" % (self._superset, self._indices)
 
     def __call__(self, *indices):
         """Build a :class:`Subset` from this :class:`Subset`
@@ -783,9 +840,13 @@ class MixedSet(Set):
     """A container for a bag of :class:`Set`\s."""
 
     def __init__(self, sets):
-        """:param iterable sets: Iterable of :class:`Set`\s"""
-        self._sets = as_tuple(sets, Set)
-        assert all(s.layers == self._sets[0].layers for s in self._sets), \
+        """:param iterable sets: Iterable of :class:`Set`\s or :class:`ExtrudedSet`\s"""
+        sets = [s for s in sets]
+        try:
+            self._sets = as_tuple(sets, ExtrudedSet)
+        except TypeError:
+            self._sets = as_tuple(sets, Set)
+        assert all(s.layers == self._sets[0].layers for s in sets), \
             "All components of a MixedSet must have the same number of layers."
 
     def __getitem__(self, idx):
@@ -834,8 +895,12 @@ class MixedSet(Set):
         return halos if any(halos) else None
 
     @property
+    def _extruded(self):
+        return isinstance(self._sets[0], ExtrudedSet)
+
+    @property
     def layers(self):
-        """Numbers of layers in the extruded mesh."""
+        """Numbers of layers in the extruded mesh (or None if this MixedSet is not extruded)."""
         return self._sets[0].layers
 
     def __iter__(self):
@@ -1272,8 +1337,14 @@ class IterationSpace(object):
 
     @property
     def layers(self):
-        """Number of layers in the extruded mesh"""
+        """Number of layers in the extruded set (or None if this is not an
+        extruded iteration space)
+        """
         return self._iterset.layers
+
+    @property
+    def _extruded(self):
+        return self._iterset._extruded
 
     @property
     def partition_size(self):
@@ -1317,8 +1388,12 @@ class IterationSpace(object):
     @property
     def cache_key(self):
         """Cache key used to uniquely identify the object in the cache."""
-        return self._extents, self._block_shape, self.iterset.layers, \
-            isinstance(self._iterset, Subset), self.iterset._extruded_bcs
+        if self.iterset._extruded:
+            ext_key = self.iterset._extruded_bcs
+        else:
+            ext_key = None
+        return self._extents, self._block_shape, self.iterset._extruded, \
+            isinstance(self._iterset, Subset), ext_key
 
 
 class DataCarrier(object):
@@ -1465,7 +1540,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
                           name="copy_of_%s" % dataset.name, soa=dataset.soa)
             dataset.copy(self)
             return
-        if type(dataset) is Set:
+        if type(dataset) is Set or type(dataset) is ExtrudedSet:
             # If a Set, rather than a dataset is passed in, default to
             # a dataset dimension of 1.
             dataset = dataset ** 1
@@ -2252,13 +2327,14 @@ class Map(object):
       :func:`pyop2.op2.par_loop`. See also :data:`i`.
 
 
-    For extruded problems (where `iterset.layers > 1`) with boundary
-    conditions applied at the top and bottom of the domain, one needs
-    to provide a list of which of the `arity` values in each map entry
-    correspond to values on the bottom boundary and which correspond
-    to the top.  This is done by supplying two lists of indices in
-    `bt_masks`, the first provides indices for the bottom, the second
-    for the top.
+    For extruded problems (where ``iterset`` is an
+    :class:`ExtrudedSet`) with boundary conditions applied at the top
+    and bottom of the domain, one needs to provide a list of which of
+    the `arity` values in each map entry correspond to values on the
+    bottom boundary and which correspond to the top.  This is done by
+    supplying two lists of indices in `bt_masks`, the first provides
+    indices for the bottom, the second for the top.
+
     """
 
     _globalcount = 0
@@ -2997,7 +3073,7 @@ class ParLoop(LazyComputation):
         # Always use the current arguments, also when we hit cache
         self._actual_args = args
         self._kernel = kernel
-        self._is_layered = iterset.layers > 1
+        self._is_layered = iterset._extruded
 
         for i, arg in enumerate(self._actual_args):
             arg.position = i
@@ -3113,7 +3189,11 @@ class ParLoop(LazyComputation):
                         "Iterset of direct arg %s doesn't match ParLoop iterset." % i)
                 continue
             for j, m in enumerate(arg._map):
-                if m.iterset != _iterset:
+                if isinstance(_iterset, ExtrudedSet):
+                    if m.iterset != _iterset and m.iterset not in _iterset:
+                        raise MapValueError(
+                            "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
+                elif m.iterset != _iterset:
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
             if arg._uses_itspace:
@@ -3133,8 +3213,7 @@ class ParLoop(LazyComputation):
                 maps = as_tuple(arg.map, Map)
                 for map in maps:
                     for m in map:
-                        if m.iterset.layers is not None and \
-                           m.iterset.layers > 1:
+                        if m.iterset._extruded:
                             _args.append(m.offset)
         return _args
 
