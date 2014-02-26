@@ -7,7 +7,7 @@ import pyop2 as op2
 def integrate_var_p0(family, degree):
     power = 5
     m = UnitSquareMesh(2 ** power, 2 ** power)
-    layers = 11
+    layers = 10
 
     # Populate the coordinates of the extruded mesh by providing the
     # coordinates as a field.

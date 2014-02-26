@@ -8,7 +8,7 @@ xfail = pytest.mark.xfail
 
 @pytest.fixture(scope='module')
 def m(request):
-    return ExtrudedMesh(UnitTriangleMesh(), layers=3, layer_height=0.5)
+    return ExtrudedMesh(UnitTriangleMesh(), layers=2, layer_height=0.5)
 
 
 @pytest.fixture(scope='module')

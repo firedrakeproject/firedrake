@@ -9,7 +9,7 @@ def two_step():
     power = 4
     # Create mesh and define function space
     m = UnitSquareMesh(2 ** power, 2 ** power)
-    layers = 11
+    layers = 10
 
     # Populate the coordinates of the extruded mesh by providing the
     # coordinates as a field.

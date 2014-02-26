@@ -6,7 +6,7 @@ import numpy as np
 
 @pytest.fixture(scope='module')
 def u_v():
-    m = ExtrudedMesh(UnitTriangleMesh(), layers=2, layer_height=1)
+    m = ExtrudedMesh(UnitTriangleMesh(), layers=1, layer_height=1)
     V = FunctionSpace(m, 'CG', 1)
     u = TrialFunction(V)
     v = TestFunction(V)

@@ -55,8 +55,8 @@ def project(v, V, bcs=None, mesh=None,
 
     p = TestFunction(V)
     q = TrialFunction(V)
-    a = inner(p, q) * dx
-    L = inner(p, v) * dx
+    a = inner(p, q) * V.mesh()._dx
+    L = inner(p, v) * V.mesh()._dx
 
     solve(a == L, ret, bcs=bcs,
           solver_parameters=solver_parameters,

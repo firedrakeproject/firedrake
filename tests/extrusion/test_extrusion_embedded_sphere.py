@@ -5,8 +5,8 @@ from firedrake import *
 
 def integrate_spherical_annulus_volume(radius=1000, refinement=2):
     m = IcosahedralSphereMesh(radius=radius, refinement_level=refinement)
-    layers = 11
-    layer_height = 1.0 / (radius * (layers - 1))
+    layers = 10
+    layer_height = 1.0 / (radius * layers)
 
     mesh = ExtrudedMesh(m, layers, layer_height=layer_height, extrusion_type='radial')
 
