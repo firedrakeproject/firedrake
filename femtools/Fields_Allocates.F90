@@ -511,16 +511,16 @@ contains
     call free(mesh%faces%boundary_ids_c)
     mesh%faces%boundary_ids => null()
 
-    if (.not.c_associated(mesh%faces%interior_local_facet_number)) then
+    if (c_associated(mesh%faces%interior_local_facet_number)) then
        call free(mesh%faces%interior_local_facet_number)
     end if
-    if (.not.c_associated(mesh%faces%exterior_local_facet_number)) then
+    if (c_associated(mesh%faces%exterior_local_facet_number)) then
        call free(mesh%faces%exterior_local_facet_number)
     end if
-    if (.not.c_associated(mesh%faces%exterior_facet_cell)) then
+    if (c_associated(mesh%faces%exterior_facet_cell)) then
        call free(mesh%faces%exterior_facet_cell)
     end if
-    if (.not.c_associated(mesh%faces%interior_facet_cell)) then
+    if (c_associated(mesh%faces%interior_facet_cell)) then
        call free(mesh%faces%interior_facet_cell)
     end if
 
@@ -614,10 +614,10 @@ contains
        deallocate(mesh%colourings)
     end if
 
-    if (.not.c_associated(mesh%interior_facet_dof_list)) then
+    if (c_associated(mesh%interior_facet_dof_list)) then
        call free(mesh%interior_facet_dof_list)
     end if
-    if (.not.c_associated(mesh%exterior_facet_dof_list)) then
+    if (c_associated(mesh%exterior_facet_dof_list)) then
        call free(mesh%exterior_facet_dof_list)
     end if
 
