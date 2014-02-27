@@ -16,6 +16,7 @@ from ufl import *
 import FIAT
 
 from pyop2 import op2
+from pyop2.caching import Cached
 from pyop2.utils import as_tuple, flatten
 from pyop2.ir.ast_base import *
 
@@ -874,7 +875,7 @@ class Halo(object):
         return self._global_to_universal_number
 
 
-class FunctionSpaceBase(object):
+class FunctionSpaceBase(Cached):
     """Base class for :class:`FunctionSpace`, :class:`VectorFunctionSpace` and
     :class:`MixedFunctionSpace`.
 
@@ -883,6 +884,8 @@ class FunctionSpaceBase(object):
         Users should not directly create objects of this class, but one of its
         derived types.
     """
+
+    _cache = {}
 
     def __init__(self, mesh, element, name=None, dim=1, rank=0):
         """
@@ -1329,6 +1332,8 @@ class FunctionSpace(FunctionSpaceBase):
     """
 
     def __init__(self, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
+        if self._initialized:
+            return
         # Two choices:
         # 1) pass in mesh, family, degree to generate a simple function space
         # 2) set up the function space using FiniteElement, EnrichedElement,
@@ -1363,12 +1368,19 @@ class FunctionSpace(FunctionSpaceBase):
                                             degree=degree)
 
         super(FunctionSpace, self).__init__(mesh, element, name, dim=1)
+        self._initialized = True
+
+    @classmethod
+    def _cache_key(cls, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
+        return mesh, family, degree, vfamily, vdegree
 
 
 class VectorFunctionSpace(FunctionSpaceBase):
     """A vector finite element :class:`FunctionSpace`."""
 
     def __init__(self, mesh, family, degree, dim=None, name=None, vfamily=None, vdegree=None):
+        if self._initialized:
+            return
         # VectorFunctionSpace dimension defaults to the geometric dimension of the mesh.
         dim = dim or mesh.ufl_cell().geometric_dimension()
 
@@ -1389,6 +1401,11 @@ class VectorFunctionSpace(FunctionSpaceBase):
             element = VectorElement(family, domain=mesh.ufl_cell(),
                                     degree=degree, dim=dim)
         super(VectorFunctionSpace, self).__init__(mesh, element, name, dim=dim, rank=1)
+        self._initialized = True
+
+    @classmethod
+    def _cache_key(cls, mesh, family, degree=None, dim=None, name=None, vfamily=None, vdegree=None):
+        return mesh, family, degree, dim, vfamily, vdegree
 
 
 class MixedFunctionSpace(FunctionSpaceBase):
