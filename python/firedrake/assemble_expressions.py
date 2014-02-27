@@ -265,6 +265,14 @@ class ExpressionWalker(ReuseTransformer):
         self._function_space = None
         self._result = None
 
+    def walk(self, expr):
+        """Walk the given expression and return a tuple of the transformed
+        expression, the list of arguments sorted by their count and the
+        function space the expression is defined on."""
+        return (self.visit(expr),
+                sorted(self._args.values(), key=lambda c: c.count()),
+                self._function_space)
+
     def coefficient(self, o):
 
         if isinstance(o, core_types.Function):
@@ -374,16 +382,14 @@ def evaluate_expression(expr, subset=None):
     """Evaluates UFL expressions on :class:`.Function`\s."""
 
     for tree in ExpressionSplitter().split(expr):
-        e = ExpressionWalker()
-        evaluate_preprocessed_expression(e.visit(tree), e._args.values(), subset)
+        e, args, _ = ExpressionWalker().walk(tree)
+        evaluate_preprocessed_expression(e, args, subset)
 
 
 def assemble_expression(expr, subset=None):
     """Evaluates UFL expressions on :class:`.Function`\s pointwise and assigns
     into a new :class:`.Function`."""
 
-    e = ExpressionWalker()
-    e.visit(expr)
-    result = core_types.Function(e._function_space)
+    result = core_types.Function(ExpressionWalker().walk(expr)[2])
     evaluate_expression(Assign(result, expr), subset)
     return result
