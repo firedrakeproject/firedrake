@@ -7,8 +7,8 @@ from tests.common import *
 
 
 @pytest.mark.parametrize(('testcase', 'convrate'),
-                         [(("CG", 1), 1.9), (("CG", 2), 2.6),
-                          (("DG", 0), 0.9), (("DG", 1), 1.98)])
+                         [(("CG", 1), 1.5), (("CG", 2), 2.6),
+                          (("DG", 0), 0.9), (("DG", 1), 1.7)])
 def test_scalar_convergence(testcase, convrate):
     family, degree = testcase
     l2err = np.zeros(2)
@@ -32,16 +32,16 @@ def test_scalar_convergence(testcase, convrate):
 
 @pytest.mark.parametrize(('testcase', 'convrate'),
                          [(("RT", 1, "DG", 0, "h"), 0.9),
-                          (("RT", 2, "DG", 1, "h"), 1.95),
+                          (("RT", 2, "DG", 1, "h"), 1.94),
                           (("RT", 3, "DG", 2, "h"), 2.9),
-                          (("BDM", 1, "DG", 1, "h"), 1.9),
-                          (("BDM", 2, "DG", 2, "h"), 2.9),
+                          (("BDM", 1, "DG", 1, "h"), 1.8),
+                          (("BDM", 2, "DG", 2, "h"), 2.8),
                           (("BDFM", 2, "DG", 1, "h"), 1.95),
                           (("N1curl", 1, "DG", 0, "h"), 0.9),
-                          (("N1curl", 2, "DG", 1, "h"), 1.95),
-                          (("N2curl", 1, "DG", 1, "h"), 1.9),
-                          (("N2curl", 2, "DG", 2, "h"), 2.9),
-                          (("DG", 1, "CG", 1, "v"), 1.98),
+                          (("N1curl", 2, "DG", 1, "h"), 1.9),
+                          (("N2curl", 1, "DG", 1, "h"), 1.8),
+                          (("N2curl", 2, "DG", 2, "h"), 2.85),
+                          (("DG", 1, "CG", 1, "v"), 1.84),
                           (("DG", 2, "CG", 2, "v"), 2.98)])
 def test_hdiv_convergence(testcase, convrate):
     hfamily, hdegree, vfamily, vdegree, orientation = testcase
@@ -73,15 +73,15 @@ def test_hdiv_convergence(testcase, convrate):
 
 
 @pytest.mark.parametrize(('testcase', 'convrate'),
-                         [(("BDM", 1, "CG", 1, "h"), 1.9),
+                         [(("BDM", 1, "CG", 1, "h"), 1.82),
                           (("BDM", 2, "CG", 2, "h"), 2.9),
-                          (("RT", 2, "CG", 1, "h"), 1.95),
+                          (("RT", 2, "CG", 1, "h"), 1.87),
                           (("RT", 3, "CG", 2, "h"), 2.95),
-                          (("BDFM", 2, "CG", 1, "h"), 1.95),
-                          (("N1curl", 2, "CG", 1, "h"), 1.95),
-                          (("N2curl", 1, "CG", 1, "h"), 1.9),
+                          (("BDFM", 2, "CG", 1, "h"), 1.77),
+                          (("N1curl", 2, "CG", 1, "h"), 1.87),
+                          (("N2curl", 1, "CG", 1, "h"), 1.82),
                           (("N2curl", 2, "CG", 2, "h"), 2.9),
-                          (("CG", 1, "DG", 1, "v"), 1.95),
+                          (("CG", 1, "DG", 1, "v"), 1.6),
                           (("CG", 2, "DG", 2, "v"), 2.7)])
 def test_hcurl_convergence(testcase, convrate):
     hfamily, hdegree, vfamily, vdegree, orientation = testcase

@@ -25,7 +25,7 @@ def test_identity_scalar(hfamily, hdegree, vfamily, vdegree):
 
     out = Function(fspace)
     solve(u*v*dx == f*v*dx, out, solver_parameters=params)
-    assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-14
+    assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-13
 
 
 @pytest.mark.parametrize(('hfamily', 'hdegree', 'vfamily', 'vdegree'),
@@ -41,7 +41,7 @@ def test_identity_vector(hfamily, hdegree, vfamily, vdegree):
 
     out = Function(fspace)
     solve(dot(u, v)*dx == dot(f, v)*dx, out, solver_parameters=params)
-    assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-14
+    assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-13
 
 
 # three valid combinations for hdiv: 1) hdiv x DG, 2) hcurl x DG, 3) DG x CG
@@ -64,7 +64,7 @@ def test_identity_hdiv(hfamily, hdegree, vfamily, vdegree):
 
     out = Function(fspace)
     solve(dot(u, v)*dx == dot(f, v)*dx, out, solver_parameters=params)
-    assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-14
+    assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-13
 
 
 # three valid combinations for hcurl: 1) hcurl x CG, 1) hdiv x CG, 3) CG x DG
@@ -87,7 +87,7 @@ def test_identity_hcurl(hfamily, hdegree, vfamily, vdegree):
 
     out = Function(fspace)
     solve(dot(u, v)*dx == dot(f, v)*dx, out, solver_parameters=params)
-    assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-14
+    assert np.max(np.abs(out.dat.data - f.dat.data)) < 1.0e-13
 
 if __name__ == '__main__':
     import os
