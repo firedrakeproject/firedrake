@@ -653,7 +653,16 @@ class Mesh(object):
             self._from_dmplex(plex, geometric_dim=dim,
                               periodic_coords=periodic_coords)
         else:
-            self._from_file(filename, dim, periodic_coords)
+            basename, ext = os.path.splitext(filename)
+
+            if ext in ['.e', '.exo', '.E', '.EXO']:
+                self._from_exodus(filename, dim)
+            elif ext in ['.cgns', '.CGNS']:
+                self._from_cgns(filename, dim)
+            elif ext in ['.msh']:
+                self._from_gmsh(filename, dim, periodic_coords)
+            else:
+                raise RuntimeError("Unknown mesh file format.")
 
         self._cell_orientations = op2.Dat(self.cell_set, dtype=np.int32,
                                           name="cell_orientations")
@@ -780,10 +789,8 @@ class Mesh(object):
         # TODO: Add region ID support
         self.region_ids = None
 
-    def _from_file(self, filename, dim=0, periodic_coords=None):
-        """Read a mesh from `filename`
-
-        The extension of the filename determines the mesh type."""
+    def _from_gmsh(self, filename, dim=0, periodic_coords=None):
+        """Read a Gmsh .msh file from `filename`"""
         basename, ext = os.path.splitext(filename)
 
         # Create a read-only PETSc.Viewer
@@ -791,9 +798,30 @@ class Mesh(object):
         gmsh_viewer.setType("ascii")
         gmsh_viewer.setFileMode("r")
         gmsh_viewer.setFileName(filename)
-
         gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer, interpolate=False)
-        self._from_dmplex(dmplex, periodic_coords)
+
+        #TODO: Add boundary IDs
+        self._from_dmplex(gmsh_plex, periodic_coords)
+
+    def _from_exodus(self, filename, dim=0):
+        self.name = filename
+        dmplex = PETSc.DMPlex().createExodusFromFile(filename)
+
+        boundary_ids = dmplex.getLabelIdIS("Face Sets").getIndices()
+        dmplex.createLabel("boundary_ids")
+        for bid in boundary_ids:
+            faces = dmplex.getStratumIS("Face Sets", bid).getIndices()
+            for f in faces:
+                dmplex.setLabelValue("boundary_ids", f, bid)
+
+        self._from_dmplex(dmplex)
+
+    def _from_cgns(self, filename, dim=0):
+        self.name = filename
+        dmplex = PETSc.DMPlex().createCGNSFromFile(filename)
+
+        #TODO: Add boundary IDs
+        self._from_dmplex(dmplex)
 
     @property
     def layers(self):
