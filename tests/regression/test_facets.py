@@ -68,7 +68,6 @@ def test_bilinear_facet_integral(f):
     assert np.allclose(interior_facet, sqrt(2))
 
 
-@pytest.mark.skipif("True", reason="kernel does not compile due to hardcoded variable name, fixed in FFC/PyOP2 pull requests. marking skip to avoid needing to instant-clean buildbot")
 @pytest.mark.parametrize('space', ["RT", "BDM"])
 def test_contravariant_piola_facet_integral(space):
     m = UnitSquareMesh(1, 1)
@@ -79,7 +78,6 @@ def test_contravariant_piola_facet_integral(space):
     assert abs(assemble(dot(u('+'), u('-'))*dS) - sqrt(2)) < 1.0e-13
 
 
-@pytest.mark.skipif("True", reason="kernel does not compile due to hardcoded variable name, fixed in FFC/PyOP2 pull requests. marking skip to avoid needing to instant-clean buildbot")
 @pytest.mark.parametrize('space', ["N1curl", "N2curl"])
 def test_covariant_piola_facet_integral(space):
     m = UnitSquareMesh(1, 1)
