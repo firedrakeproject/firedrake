@@ -151,11 +151,11 @@ Parallel loops
 Computations in PyOP2 are executed as :func:`parallel loops <pyop2.par_loop>`
 of a :class:`~pyop2.Kernel` over an *iteration set*. Parallel loops are the
 core construct of PyOP2 and hide most of its complexity such as parallel
-scheduling, partitioning, colouring and staging of the data into on chip
-memory. Computations in a parallel loop must be independent of the order in
-which they are executed over the set to allow PyOP2 maximum flexibility to
-schedule the computation in the most efficient way. Kernels are described in
-more detail in :doc:`pyop2_ir_user`.
+scheduling, partitioning, colouring, data transfer from and to device and
+staging of the data into on chip memory. Computations in a parallel loop must
+be independent of the order in which they are executed over the set to allow
+PyOP2 maximum flexibility to schedule the computation in the most efficient
+way. Kernels are described in more detail in :doc:`kernels`.
 
 .. _loop-invocations:
 
@@ -222,7 +222,7 @@ the assembly accumulates contributions from different vertices via the
 ``op2.i[1]`` respectively. This means that PyOP2 generates a *local iteration
 space* of size ``arity * arity`` with the ``arity`` of the :class:`~pyop2.Map`
 ``edges2vertices`` for any given element of the iteration set.  This local
-iteration spaces is then iterated over using the iteration indices on the
+iteration space is then iterated over using the iteration indices on the
 maps.  The kernel is assumed to only apply to a single point in that local
 iteration space. The ``coordinates`` are accessed via the same mapping, but
 are a read-only input argument to the kernel and therefore use the access

@@ -149,7 +149,7 @@ The JIT compiled code for the parallel loop from above changes as follows: ::
     }
   }
 
-Computation is split in ``nblocks`` blocks which start at an initial offset
+Computation is split into ``nblocks`` blocks which start at an initial offset
 ``boffset`` and correspond to colours that can be executed conflict free in
 parallel. This loop over colours is therefore wrapped in an OpenMP parallel
 region and is annotated with an ``omp for`` pragma. The block id ``bid`` for
@@ -361,20 +361,19 @@ example: ::
     }
   }
 
-Parallel computations in OpenCL are executed by *work items* organised
-into *work groups*. OpenCL requires annotating all pointer arguments
-with the memory region they point to: ``__global`` memory is visible
-to any work item, ``__local`` memory to any work item within the same
-work group and ``__private`` memory is private to a work item. PyOP2
-does this annotation automatically for the user kernel if the OpenCL
-backend is used. Local memory therefore corresponds to CUDA's shared
-memory and private memory is called local memory in CUDA. The work
-item id within the work group is accessed via the OpenCL runtime call
-``get_local_id(0)``, the work group id via ``get_group_id(0)``. A
-barrier synchronisation across all work items of a work group is
-enforced with a call to ``barrier(CLK_LOCAL_MEM_FENCE)``. Bearing
-these differences in mind, the OpenCL kernel stub is structurally
-almost identical to the corresponding CUDA version above.
+Parallel computations in OpenCL are executed by *work items* organised into
+*work groups*. OpenCL requires the annotation of all pointer arguments with
+the memory region they point to: ``__global`` memory is visible to any work
+item, ``__local`` memory to any work item within the same work group and
+``__private`` memory is private to a work item. PyOP2 does this annotation
+automatically for the user kernel if the OpenCL backend is used. Local memory
+therefore corresponds to CUDA's shared memory and private memory is called
+local memory in CUDA. The work item id within the work group is accessed via
+the OpenCL runtime call ``get_local_id(0)``, the work group id via
+``get_group_id(0)``. A barrier synchronisation across all work items of a work
+group is enforced with a call to ``barrier(CLK_LOCAL_MEM_FENCE)``. Bearing
+these differences in mind, the OpenCL kernel stub is structurally almost
+identical to the corresponding CUDA version above.
 
 The required local memory size per work group ``reqd_work_group_size`` is
 computed as part of the execution plan. In CUDA this value is a launch
