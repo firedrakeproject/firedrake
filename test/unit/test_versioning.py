@@ -111,13 +111,12 @@ class TestVersioning:
         return op2.Mat(sparsity, 'float64', "mat")
 
     def test_initial_version(self, backend, mat, g, x):
-        test = mat._version == 1
-        test &= g._version == 1
-        test &= x._version == 1
+        assert mat._version == 1
+        assert g._version == 1
+        assert x._version == 1
         c = op2.Const(1, 1, name='c2', dtype=numpy.uint32)
-        test &= c._version == 1
+        assert c._version == 1
         c.remove_from_namespace()
-        assert test
 
     def test_dat_modified(self, backend, x):
         x += 1
