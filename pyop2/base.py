@@ -1812,11 +1812,16 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         return not self == other
 
     def _cow_actual_copy(self, src):
-
         # Force the execution of the copy parloop
-        self._cow_parloop._run()
+
+        # We need to ensure that PyOP2 allocates fresh storage for this copy.
+        del self._numpy_data
+
         if configuration['lazy_evaluation']:
+            _trace.evaluate(self._cow_parloop.reads, self._cow_parloop.writes)
             _trace._trace.remove(self._cow_parloop)
+
+        self._cow_parloop._run()
 
     def _cow_shallow_copy(self):
 
@@ -1824,8 +1829,8 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
 
         # Set up the copy to happen when required.
         other._cow_parloop = self._copy_parloop(other)
-        # Remove the write dependency of the copy (in order to
-        # prevent premature execution of the loop).
+        # Remove the write dependency of the copy (in order to prevent
+        # premature execution of the loop).
         other._cow_parloop.writes = set()
         if configuration['lazy_evaluation']:
             # In the lazy case, we enqueue now to ensure we are at the
