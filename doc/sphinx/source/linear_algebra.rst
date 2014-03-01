@@ -55,6 +55,63 @@ matrix using the given :class:`Maps <pyop2.Map>`. At the end of the
 :func:`~pyop2.par_loop` PyOP2 automatically calls MatAssemblyBegin_ and
 MatAssemblyEnd_ to finalise matrix assembly.
 
+.. _sparsity_pattern:
+
+Building a sparsity pattern
+---------------------------
+
+The sparsity pattern of a matrix is uniquely defined by the dimensions of the
+:class:`DataSets <pyop2.DataSet>` forming its row and column space, and one or
+more pairs of :class:`Maps <pyop2.Map>` defining its non-zero structure. This
+is exploited in PyOP2 by caching sparsity patterns with these unique
+attributes as the cache key to save expensive recomputation. Whenever a
+:class:`Sparsity` is initialised, an already computed pattern with the same
+unique key is returned if it exists.
+
+For a valid sparsity, each row :class:`~pyop2.Map` must map to the set of the
+row :class:`~pyop2.DataSet`, each column :class:`~pyop2.Map` to that of the
+column :class:`~pyop2.DataSet` and the from sets of each pair must match. A
+matrix on a sparsity pattern built from more than one pair of maps is
+assembled by multiple parallel loops iterating over the corresponding
+iteration set for each pair.
+
+Sparsity construction proceeds by iterating each :class:`~pyop2.Map` pair and
+building a set of indices of the non-zero columns for each row. Each pair of
+entries in the row and column maps gives the row and column index of a
+non-zero entry in the matrix and therefore the column index is added to the
+set of non-zero entries for that particular row. The array of non-zero entries
+per row is then determined as the size of the set for each row and its
+exclusive scan yields the row pointer array. The column index array is the
+concatenation of all the sets. An algorithm for the sequential case is given
+below: ::
+
+  for rowmap, colmap in maps:
+    for e in range(rowmap.from_size):
+      for i in range(rowmap.arity):
+        for r in range(rowdim):
+          row = rowdim * rowmap.values[i + e*rowmap.arity] + r
+          for d in range(colmap.arity):
+            for c in range(coldim):
+              diag[row].insert(coldim * colmap.values[d + e * colmap.arity] + c)
+
+For the MPI parallel case a minor modification is required, since for each row
+a set of diagonal and off-diagonal column indices needs to be built as
+described in :ref:`matrix_storage`: ::
+
+  for rowmap, colmap in maps:
+    for e in range(rowmap.from_size):
+      for i in range(rowmap.arity):
+        for r in range(rowdim):
+          row = rowdim * rowmap.values[i + e*rowmap.arity] + r
+          if row < nrows * rowdim:
+            for d in range(colmap.arity):
+              for c in range(coldim):
+                col = coldim * (colmap.values[d + e*colmap.arity]) + c
+                if col < ncols * coldim:
+                    diag[row].insert(col)
+                else:
+                    odiag[row].insert(col)
+
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _petsc4py: http://pythonhosted.org/petsc4py/
 .. _MatSetValues: http://www.mcs.anl.gov/petsc/petsc-dev/docs/manualpages/Mat/MatSetValues.html
