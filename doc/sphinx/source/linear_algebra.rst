@@ -39,5 +39,24 @@ distribued evenly among the processors. Each row is then again divided into a
 columns ``i`` to ``j`` if ``i`` and ``j`` are the first and last row owned by
 a given processor, and the off-diagonal part all other rows.
 
+.. _matrix_assembly:
+
+Matrix assembly
+---------------
+
+Sparse matrices are assembled by adding up local contributions which are
+mapped to global matrix entries via a local-to-global mapping represented by a
+pair of :class:`Maps <pyop2.Map>` for the row and column space. 
+
+For each :func:`~pyop2.par_loop` that assembles a matrix, PyOP2 generates a
+call to PETSc_'s MatSetValues_ function for each element of the iteration set,
+adding the local contributions computed by the user kernel to the global
+matrix using the given :class:`Maps <pyop2.Map>`. At the end of the
+:func:`~pyop2.par_loop` PyOP2 automatically calls MatAssemblyBegin_ and
+MatAssemblyEnd_ to finalise matrix assembly.
+
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _petsc4py: http://pythonhosted.org/petsc4py/
+.. _MatSetValues: http://www.mcs.anl.gov/petsc/petsc-dev/docs/manualpages/Mat/MatSetValues.html
+.. _MatAssemblyBegin: http://www.mcs.anl.gov/petsc/petsc-dev/docs/manualpages/Mat/MatAssemblyBegin.html
+.. _MatAssemblyEnd: http://www.mcs.anl.gov/petsc/petsc-dev/docs/manualpages/Mat/MatAssemblyEnd.html
