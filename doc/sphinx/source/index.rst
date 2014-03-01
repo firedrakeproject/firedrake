@@ -15,6 +15,7 @@ Contents:
    concepts
    kernels
    backends
+   linear_algebra
    user
    pyop2
 
