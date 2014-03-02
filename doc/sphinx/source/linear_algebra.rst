@@ -149,8 +149,41 @@ described in :ref:`matrix_storage`: ::
                       else:
                           odiag[row].insert(colmap.values[d + e*colmap.arity])
 
+.. _solving:
+
+Solving a linear system
+-----------------------
+
+PyOP2 provides a :class:`~pyop2.Solver`, wrapping the PETSc_ KSP_ Krylov
+solvers which support various iterative methods such as Conjugate Gradients
+(CG), Generalized Minimal Residual (GMRES), a stabilized version of
+BiConjugate Gradient Squared (BiCGStab) and others. The solvers are
+complemented with a range of preconditioners from PETSc_'s PC_ collection,
+which includes Jacobi, incomplete Cholesky and LU decompositions and various
+multigrid based preconditioners.
+
+The choice of solver and preconditioner type and other parameters uses
+PETSc_'s configuration mechanism documented in the `PETSc manual`_. Options
+are pased to the :class:`~pyop2.Solver` via the keyword argument
+``parameters`` taking a dictionary of arguments or directly via keyword
+arguments. The solver type is chosen as ``ksp_type``, the preconditioner as
+``pc_type`` with the defaults ``cg`` and ``jacobi``.
+
+Solving a linear system of the matrix ``A`` assembled above and the right-hand
+side vector ``b`` for a solution vector ``x`` is done with a call to
+:meth:`~pyop2.Solver.solve`, where solver and preconditioner are chosen as
+``gmres`` and ``ilu``: ::
+
+  x = op2.Dat(nodes, dtype=np.float64)
+
+  solver = op2.Solver(ksp_type='gmres', pc_type='ilu')
+  solver.solve(A, x, b)
+
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _petsc4py: http://pythonhosted.org/petsc4py/
 .. _MatSetValues: http://www.mcs.anl.gov/petsc/petsc-dev/docs/manualpages/Mat/MatSetValues.html
 .. _MatAssemblyBegin: http://www.mcs.anl.gov/petsc/petsc-dev/docs/manualpages/Mat/MatAssemblyBegin.html
 .. _MatAssemblyEnd: http://www.mcs.anl.gov/petsc/petsc-dev/docs/manualpages/Mat/MatAssemblyEnd.html
+.. _KSP: http://www.mcs.anl.gov/petsc/petsc-dev/docs/manualpages/KSP/
+.. _PC: http://www.mcs.anl.gov/petsc/petsc-dev/docs/manualpages/PC/
+.. _PETSc manual: http://www.mcs.anl.gov/petsc/petsc-dev/docs/manual.pdf
