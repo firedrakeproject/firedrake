@@ -33,6 +33,11 @@ including ``row_ptr[i+1]`` in the column index and values arrays. For each
 row, entries are sorted by column index to allow for faster lookups using a
 binary search.
 
+.. figure:: images/csr.svg
+
+  *A sparse matrix and its corresponding CSR row pointer, column indices and
+  values arrays*
+
 For distributed parallel storage with MPI, the rows of the matrix are
 distribued evenly among the processors. Each row is then again divided into a
 *diagonal* and an *off-diagonal* part, where the diagonal part comprises
