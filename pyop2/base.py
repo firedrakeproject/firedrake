@@ -3290,22 +3290,22 @@ class Solver(object):
 
     Recognized parameters either as dictionary keys or keyword arguments are:
 
-    :arg linear_solver: the solver type ('cg')
-    :arg preconditioner: the preconditioner type ('jacobi')
-    :arg relative_tolerance: relative solver tolerance (1e-7)
-    :arg absolute_tolerance: absolute solver tolerance (1e-50)
-    :arg divergence_tolerance: factor by which the residual norm may exceed
-        the right-hand-side norm before the solve is considered to have
-        diverged: ``norm(r) >= dtol*norm(b)`` (1e4)
-    :arg maximum_iterations: maximum number of solver iterations (1000)
+    :arg ksp_type: the solver type ('cg')
+    :arg pc_type: the preconditioner type ('jacobi')
+    :arg ksp_rtol: relative solver tolerance (1e-7)
+    :arg ksp_atol: absolute solver tolerance (1e-50)
+    :arg ksp_divtol: factor by which the residual norm may exceed the
+        right-hand-side norm before the solve is considered to have diverged:
+        ``norm(r) >= dtol*norm(b)`` (1e4)
+    :arg ksp_max_it: maximum number of solver iterations (10000)
     :arg error_on_nonconvergence: abort if the solve does not converge in the
       maximum number of iterations (True, if False only a warning is printed)
-    :arg monitor_convergence: print the residual norm after each iteration
+    :arg ksp_monitor: print the residual norm after each iteration
         (False)
     :arg plot_convergence: plot a graph of the convergence history after the
-        solve has finished and save it to file (False, implies monitor_convergence)
+        solve has finished and save it to file (False, implies *ksp_monitor*)
     :arg plot_prefix: filename prefix for plot files ('')
-    :arg gmres_restart: restart period when using GMRES
+    :arg ksp_gmres_restart: restart period when using GMRES
 
     """
 
