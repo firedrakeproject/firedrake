@@ -10,11 +10,11 @@
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    width="240"
-   height="240"
+   height="210"
    id="svg4764"
    version="1.1"
    inkscape:version="0.48.4 r9939"
-   sodipodi:docname="New document 21">
+   sodipodi:docname="mpi_matrix.svg">
   <defs
      id="defs4766" />
   <sodipodi:namedview
@@ -93,7 +93,7 @@
      inkscape:label="matrix"
      inkscape:groupmode="layer"
      id="layer1"
-     transform="translate(0,-812.36218)"
+     transform="translate(0,-842.36218)"
      style="display:inline">
     <rect
        style="fill:#4e9a06;fill-opacity:1;fill-rule:nonzero;stroke:none"
@@ -189,7 +189,8 @@
   <g
      inkscape:groupmode="layer"
      id="layer9"
-     inkscape:label="labels">
+     inkscape:label="labels"
+     transform="translate(0,-30)">
     <text
        xml:space="preserve"
        style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;text-align:start;line-height:125%;letter-spacing:0px;word-spacing:0px;writing-mode:tb-rl;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;font-family:Ubuntu;-inkscape-font-specification:Ubuntu"
@@ -254,19 +255,8 @@
   <g
      inkscape:groupmode="layer"
      id="layer10"
-     inkscape:label="title">
-    <text
-       xml:space="preserve"
-       style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;text-align:start;line-height:125%;letter-spacing:0px;word-spacing:0px;writing-mode:tb-rl;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;font-family:Ubuntu;-inkscape-font-specification:Ubuntu"
-       x="10"
-       y="20"
-       id="text4805-7"
-       sodipodi:linespacing="125%"><tspan
-         sodipodi:role="line"
-         id="tspan4807-44"
-         x="10"
-         y="20"
-         style="font-weight:500;writing-mode:lr-tb;-inkscape-font-specification:Ubuntu Medium">Matrix distributed to 3 processors</tspan></text>
+     inkscape:label="title"
+     transform="translate(0,-30)">
     <text
        xml:space="preserve"
        style="font-size:14px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;text-align:start;line-height:125%;letter-spacing:0px;word-spacing:0px;writing-mode:tb-rl;text-anchor:start;fill:#000000;fill-opacity:1;stroke:none;font-family:Ubuntu;-inkscape-font-specification:Ubuntu"
