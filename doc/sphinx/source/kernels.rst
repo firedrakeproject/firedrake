@@ -207,6 +207,12 @@ each element of the local iteration space for each set element:
     }
   }
 
+On manycore platforms, the local iteration space does not translate into a
+loop nest, but rather into a larger number of threads being launched to
+compute each of its elements:
+
+.. image:: images/iteration_spaces.svg
+
 PyOP2 needs to be told to loop over this local iteration space by
 indexing the corresponding maps with an
 :class:`~pyop2.base.IterationIndex` :data:`~pyop2.i` in the
