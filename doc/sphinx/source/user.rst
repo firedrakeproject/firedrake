@@ -15,12 +15,6 @@ pyop2 user documentation
     .. autofunction:: init
     .. autofunction:: exit
 
-    Parallel loops and linear solves
-    ................................
-
-    .. autofunction:: par_loop
-    .. autofunction:: solve
-
     Data structures
     ...............
 
@@ -54,10 +48,15 @@ pyop2 user documentation
     .. autoclass:: Mat
        :inherited-members:
 
-    Kernels
-    .......
+    Parallel loops, kernels and linear solves
+    .........................................
+
+    .. autofunction:: par_loop
+    .. autofunction:: solve
 
     .. autoclass:: Kernel
+       :inherited-members:
+    .. autoclass:: Solver
        :inherited-members:
 
     .. autodata:: i
