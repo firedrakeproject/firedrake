@@ -44,6 +44,10 @@ distribued evenly among the processors. Each row is then again divided into a
 columns ``i`` to ``j`` if ``i`` and ``j`` are the first and last row owned by
 a given processor, and the off-diagonal part all other rows.
 
+.. figure:: images/mpi_matrix.svg
+
+  *Distribution of a sparse matrix among 3 MPI processes*
+
 .. _matrix_assembly:
 
 Matrix assembly
