@@ -245,8 +245,14 @@ def par_loop(kernel, iterset, *args):
 
 
 @collective
-@validate_type(('M', base.Mat, MatTypeError),
+@validate_type(('A', base.Mat, MatTypeError),
                ('x', base.Dat, DatTypeError),
                ('b', base.Dat, DatTypeError))
-def solve(M, x, b):
-    Solver().solve(M, x, b)
+def solve(A, x, b):
+    """Solve a matrix equation using the default :class:`Solver`
+
+    :arg A: The :class:`Mat` containing the matrix.
+    :arg x: The :class:`Dat` to receive the solution.
+    :arg b: The :class:`Dat` containing the RHS.
+    """
+    Solver().solve(A, x, b)
