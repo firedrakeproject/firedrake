@@ -57,6 +57,12 @@ Sparse matrices are assembled by adding up local contributions which are
 mapped to global matrix entries via a local-to-global mapping represented by a
 pair of :class:`Maps <pyop2.Map>` for the row and column space. 
 
+.. figure:: images/assembly.svg
+
+  Assembly of a local tensor :math:`A^K` into a global matrix :math:`A` using
+  the local-to-global mapping :math:`\iota_K^1` for rows and :math:`\iota_K^2`
+  for columns
+
 For each :func:`~pyop2.par_loop` that assembles a matrix, PyOP2 generates a
 call to PETSc_'s MatSetValues_ function for each element of the iteration set,
 adding the local contributions computed by the user kernel to the global
