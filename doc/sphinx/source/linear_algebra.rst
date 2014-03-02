@@ -179,6 +179,32 @@ side vector ``b`` for a solution vector ``x`` is done with a call to
   solver = op2.Solver(ksp_type='gmres', pc_type='ilu')
   solver.solve(A, x, b)
 
+.. _gpu_assembly:
+
+GPU matrix assembly
+-------------------
+
+Linear algebra on the GPU with the ``cuda`` backend uses the Cusp_ library,
+which does not support all solvers and preconditioners provided by PETSc_. The
+interface to the user is the same as for the ``sequential`` and ``openmp``
+backends, however an exception is raised if an unsupported solver or
+preconditioner type is requested.
+
+In a :func:`~pyop2.par_loop` assembling a :class:`~pyop2.Mat` on the GPU, the
+local contributions are first computed for all elements of the iteration set
+and stored in global memory in a structure-of-arrays (SoA) data layout such
+that all threads can write the data out in a coalesced manner. A separate CUDA
+kernel is launched afterwards to compress the data into a sparse matrix in CSR
+storage format. Only the values array needs to be computed, since the row
+pointer and column indices have already been computed when building the
+sparsity on the host and subsequently transferred to GPU memory. Memory for
+the local contributions and the values array only needs to be allocated on the
+GPU.
+
+.. note ::
+  Distributed parallel linear algebra operations with MPI are currently not
+  supported by the ``cuda`` backend.
+
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _petsc4py: http://pythonhosted.org/petsc4py/
 .. _MatSetValues: http://www.mcs.anl.gov/petsc/petsc-dev/docs/manualpages/Mat/MatSetValues.html
@@ -187,3 +213,4 @@ side vector ``b`` for a solution vector ``x`` is done with a call to
 .. _KSP: http://www.mcs.anl.gov/petsc/petsc-dev/docs/manualpages/KSP/
 .. _PC: http://www.mcs.anl.gov/petsc/petsc-dev/docs/manualpages/PC/
 .. _PETSc manual: http://www.mcs.anl.gov/petsc/petsc-dev/docs/manual.pdf
+.. _Cusp: http://cusplibrary.github.io
