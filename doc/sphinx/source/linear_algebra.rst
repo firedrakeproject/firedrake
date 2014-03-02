@@ -70,6 +70,33 @@ matrix using the given :class:`Maps <pyop2.Map>`. At the end of the
 :func:`~pyop2.par_loop` PyOP2 automatically calls MatAssemblyBegin_ and
 MatAssemblyEnd_ to finalise matrix assembly.
 
+Consider assembling a :class:`~pyop2.Mat` on a :class:`~pyop2.Sparsity` built
+from a :class:`~pyop2.Map` from ``elements`` to ``nodes``. The assembly is
+done in a :func:`~pyop2.par_loop` over ``elements``, where the
+:class:`~pyop2.Mat` ``A`` is accssed indirectly via the ``elem_node``
+:class:`~pyop2.Map` using the :class:`~pyop2.base.IterationIndex`
+:class:`~pyop2.i`: ::
+
+  nodes = op2.Set(NUM_NODES, "nodes")
+  elements = op2.Set(NUM_ELE, "elements")
+
+  elem_node = op2.Map(elements, nodes, 3, ...)
+
+  sparsity = op2.Sparsity((nodes, nodes), (elem_node, elem_node))
+  A = op2.Mat(sparsity, np.float64)
+
+  b = op2.Dat(nodes, dtype=np.float64)
+
+  # Assemble the matrix mat
+  op2.par_loop(mat_kernel, elements,
+               A(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
+               ...)
+
+  # Assemble the right-hand side vector b
+  op2.par_loop(rhs_kernel, elements,
+               b(op2.INC, elem_node[op2.i[0]]),
+               ...)
+
 .. _sparsity_pattern:
 
 Building a sparsity pattern
