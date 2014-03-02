@@ -101,31 +101,26 @@ concatenation of all the sets. An algorithm for the sequential case is given
 below: ::
 
   for rowmap, colmap in maps:
-    for e in range(rowmap.from_size):
-      for i in range(rowmap.arity):
-        for r in range(rowdim):
-          row = rowdim * rowmap.values[i + e*rowmap.arity] + r
-          for d in range(colmap.arity):
-            for c in range(coldim):
-              diag[row].insert(coldim * colmap.values[d + e * colmap.arity] + c)
+      for e in range(rowmap.from_size):
+          for i in range(rowmap.arity):
+              row = rowmap.values[i + e*rowmap.arity]
+              for d in range(colmap.arity):
+                  diag[row].insert(colmap.values[d + e * colmap.arity])
 
 For the MPI parallel case a minor modification is required, since for each row
 a set of diagonal and off-diagonal column indices needs to be built as
 described in :ref:`matrix_storage`: ::
 
   for rowmap, colmap in maps:
-    for e in range(rowmap.from_size):
-      for i in range(rowmap.arity):
-        for r in range(rowdim):
-          row = rowdim * rowmap.values[i + e*rowmap.arity] + r
-          if row < nrows * rowdim:
-            for d in range(colmap.arity):
-              for c in range(coldim):
-                col = coldim * (colmap.values[d + e*colmap.arity]) + c
-                if col < ncols * coldim:
-                    diag[row].insert(col)
-                else:
-                    odiag[row].insert(col)
+      for e in range(rowmap.from_size):
+          for i in range(rowmap.arity):
+              row = rowmap.values[i + e*rowmap.arity]
+              if row < nrows:
+                  for d in range(colmap.arity):
+                      if col < ncols:
+                          diag[row].insert(colmap.values[d + e*colmap.arity])
+                      else:
+                          odiag[row].insert(colmap.values[d + e*colmap.arity])
 
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _petsc4py: http://pythonhosted.org/petsc4py/
