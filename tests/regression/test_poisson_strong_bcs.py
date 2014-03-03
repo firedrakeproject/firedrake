@@ -65,6 +65,28 @@ def run_test_linear(x, degree, parameters={}):
     return sqrt(assemble(dot(u - f, u - f) * dx))
 
 
+def run_test_matrix_free(x, degree):
+    mesh = UnitSquareMesh(2 ** x, 2 ** x)
+    V = FunctionSpace(mesh, "CG", degree)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = dot(grad(v), grad(u)) * dx
+    f = Function(V)
+    f.assign(0)
+    L = v*f*dx
+    bcs = [DirichletBC(V, 0, 3),
+           DirichletBC(V, 42, 4)]
+
+    u = Function(V)
+    mf = MatrixFree(a, bcs=bcs)
+    mf.solve(L, u)
+    f = Function(V)
+    f.interpolate(Expression("42*x[1]"))
+
+    return sqrt(assemble(dot(u - f, u - f) * dx))
+
+
 def run_test_preassembled(x, degree, parameters={}):
     mesh = UnitSquareMesh(2 ** x, 2 ** x)
     V = FunctionSpace(mesh, "CG", degree)
@@ -159,6 +181,12 @@ def test_poisson_analytic_linear_parallel():
     error = run_test_linear(1, 1)
     print '[%d]' % MPI.COMM_WORLD.rank, 'error:', error
     assert error < 5e-6
+
+
+@pytest.mark.parametrize(['degree'],
+                         [(d, ) for d in (1, 2)])
+def test_poisson_analytic_matrix_free(degree):
+    assert run_test_matrix_free(2, degree) < 5.e-6
 
 
 if __name__ == '__main__':

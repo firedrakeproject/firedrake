@@ -39,6 +39,24 @@ def vector_identity(family, degree):
     return np.max(np.abs(out.dat.data - f.dat.data))
 
 
+def identity_matrix_free(family, degree):
+    mesh = UnitCubeMesh(1, 1, 1)
+    fs = FunctionSpace(mesh, family, degree)
+    f = Function(fs)
+    out = Function(fs)
+    u = TrialFunction(fs)
+    v = TestFunction(fs)
+    a = u*v*dx
+    f.interpolate(Expression("x[0]"))
+    L = f*v*dx
+
+    mf = MatrixFree(a)
+
+    mf.solve(L, out)
+
+    return np.max(np.abs(out.dat.data - f.dat.data))
+
+
 def run_test():
     family = "Lagrange"
     degree = range(1, 5)
@@ -51,8 +69,18 @@ def run_vector_test():
     return np.array([vector_identity(family, d) for d in degree])
 
 
+def run_matrix_free_test():
+    family = "Lagrange"
+    degree = range(1, 5)
+    return np.array([identity_matrix_free(family, d) for d in degree])
+
+
 def test_firedrake_identity():
     assert (run_test() < 1e-6).all()
+
+
+def test_matrix_free_identity():
+    assert (run_matrix_free_test() < 1e-5).all()
 
 
 def test_vector_identity():

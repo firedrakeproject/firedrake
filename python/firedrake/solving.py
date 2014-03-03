@@ -27,7 +27,7 @@ __all__ = ["LinearVariationalProblem",
 import numpy
 
 import ufl
-from ufl_expr import derivative
+from ufl_expr import derivative, Action
 from pyop2 import op2, ffc_interface
 from pyop2.logger import progress, INFO
 import core_types
@@ -333,6 +333,9 @@ def assemble(f, tensor=None, bcs=None):
     integral(s) and returns a :class:`float` for 0-forms, a
     :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
 
+    If f is a :class:`Action` then this assembles the corresponding
+    action and returns a :class:`Function`.
+
     If f is an expression other than a form, it will be evaluated
     pointwise on the :class:`.Function`\s in the expression. This will
     only succeed if all the Functions are on the same
@@ -344,7 +347,9 @@ def assemble(f, tensor=None, bcs=None):
 
     """
 
-    if isinstance(f, ufl.form.Form):
+    if isinstance(f, Action):
+        return f.assemble(tensor=tensor)
+    elif isinstance(f, ufl.form.Form):
         return _assemble(f, tensor=tensor, bcs=_extract_bcs(bcs))
     elif isinstance(f, ufl.expr.Expr):
         return assemble_expression(f)
@@ -376,7 +381,6 @@ def _assemble(f, tensor=None, bcs=None):
 
     def get_rank(arg):
         return arg.function_space().rank
-    has_vec_fs = lambda arg: isinstance(arg.function_space(), core_types.VectorFunctionSpace)
 
     def mixed_plus_vfs_error(arg):
         mfs = arg.function_space()
@@ -385,6 +389,11 @@ def _assemble(f, tensor=None, bcs=None):
         if any(isinstance(fs, core_types.VectorFunctionSpace) for fs in mfs):
             raise NotImplementedError(
                 "MixedFunctionSpaces containing a VectorFunctionSpace are currently unsupported")
+
+    # These get reset later on if we're assembling a linear or
+    # bilinear form, but we need them available to pass into
+    # do_assemble in a moment.
+    test = trial = None
 
     if is_mat:
         test, trial = fd.original_arguments
@@ -443,6 +452,40 @@ def _assemble(f, tensor=None, bcs=None):
         if tensor is None:
             tensor = op2.Global(1, [0.0])
         result = lambda: tensor.data[0]
+
+    return _do_assemble(result=result,
+                        result_matrix=result_matrix if is_mat else None,
+                        tensor=tensor,
+                        bcs=bcs,
+                        kernels=kernels,
+                        integrals=integrals,
+                        fd=fd,
+                        m=m,
+                        coords=coords,
+                        is_mat=is_mat,
+                        is_vec=is_vec,
+                        test=test,
+                        trial=trial)
+
+
+# Split from _assemble to allow building forms for assembling matrix
+# diagonals without reproducing code everywhere.
+def _do_assemble(**kwargs):
+    result = kwargs.get('result')
+    result_matrix = kwargs.get('result_matrix')
+    tensor = kwargs.get('tensor')
+    bcs = kwargs.get('bcs')
+    kernels = kwargs.get('kernels')
+    integrals = kwargs.get('integrals')
+    fd = kwargs.get('fd')
+    m = kwargs.get('m')
+    coords = kwargs.get('coords')
+    is_mat = kwargs.get('is_mat')
+    is_vec = kwargs.get('is_vec')
+    test = kwargs.get('test')
+    trial = kwargs.get('trial')
+
+    has_vec_fs = lambda arg: isinstance(arg.function_space(), core_types.VectorFunctionSpace)
 
     # Since applying boundary conditions to a matrix changes the
     # initial assembly, to support:

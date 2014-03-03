@@ -1,6 +1,10 @@
 from pyop2 import op2
-from solving import _assemble
+from solving import _assemble, assemble
+from matrix_free_utils import _matrix_diagonal
+from ufl_expr import action
+import core_types
 import copy
+from petsc4py import PETSc
 
 
 class Matrix(object):
@@ -183,3 +187,164 @@ class Matrix(object):
             ('' if self._assembled else 'un',
              self.a,
              self.bcs)
+
+
+class MatrixFree(object):
+    """A representation of an assembled bilinear form used for matrix free solves.
+
+    This class implements petsc4py callbacks and can therefore be used
+    for matrix free solves."""
+
+    _count = 0
+
+    def __init__(self, a, bcs=None):
+        """
+        :arg a: a bilinear form to represent
+        :arg bcs: optional boundary conditions to apply when forming
+            the matrix action.
+        """
+        self._a = a
+        self._bcs = bcs
+        M = MatrixFree.Mat(a, bcs)
+        self._Mat = PETSc.Mat().create()
+        self._Mat.setSizes([(M.nrows, None), (M.ncols, None)])
+        self._Mat.setType('python')
+        self._Mat.setPythonContext(M)
+        self._Mat.setUp()
+        self._PC = PETSc.PC().create()
+        self._PC.setOperators(A=self._Mat, P=self._Mat,
+                              structure=self._Mat.Structure.SAME_NZ)
+        self._PC.setType('python')
+        self._PC.setPythonContext(M)
+        self._opt_prefix = 'firedrake_matrix_free_%d_' % MatrixFree._count
+        MatrixFree._count += 1
+
+    class Mat(object):
+        """Class implementing matrix free operations
+
+        These definitions need to be in a different class to
+        :class:`MatrixFree` so that the latter does not contain
+        circular references from PETSc objects back to itself
+        (defeating the python garbage collector)."""
+        def __init__(self, a, bcs=None):
+            self._a = a
+            self._bcs = bcs
+            test, trial = a.compute_form_data().original_arguments
+            self._test = test
+            self._trial = trial
+            self._nrows = test.function_space().dof_count
+            self._ncols = trial.function_space().dof_count
+            self._diagonal = None
+
+        @property
+        def nrows(self):
+            return self._nrows
+
+        @property
+        def ncols(self):
+            return self._ncols
+
+        @property
+        def diagonal(self):
+            """Return the diagonal of the matrix."""
+            if self._diagonal is None:
+                self._diagonal = _matrix_diagonal(self._a, bcs=self._bcs)
+            return self._diagonal
+
+        def mult(self, A, x, y):
+            """Compute the action of A on x.
+
+            :arg A: a :class:`PETSc.Mat` (ignored).
+            :arg x: a :class:`PETSc.Vec` to be multiplied by A.
+            :arg y: a :class:`PETSc.Vec` to place the result in.
+
+            .. note::
+                `A` is ignored because the information used to construct
+                the matrix-vector multiply lives in :attr:`_a`.
+            """
+            xx = core_types.Function(self._trial.function_space(), val=x.array)
+            yy = core_types.Function(self._test.function_space(), val=y.array)
+            assemble(action(self._a, xx, bcs=self._bcs), tensor=yy)
+            yy.dat._force_evaluation(read=True, write=False)
+
+        def getDiagonal(self, A, D):
+            """Compute the diagonal of A and place it in D.
+            :arg A: a :class:`PETSc.Mat` (ignored).
+            :arg D: a :class:`PETSc.Vec` to place the result in.
+
+            .. note::
+                `A` is ignored because the information used to construct
+                `D` lives in :attr:`_a`, see also :attr:`diagonal`.
+            """
+            D.array = self.diagonal.dat.data_ro
+
+        def apply(self, PC, r, y):
+            """Apply Jacobi preconditioning to residual r, writing the
+            result into y.
+
+            :arg PC: a :class:`PETSc.PC` (ignored).
+            :arg r: a :class:`PETSc.Vec` containing the unpreconditioned
+                residual.
+            :arg y: a :class:`PETSc.Vec` to write the preconditioned
+                residual into.
+
+            .. note::
+                `PC` is ignored because the information to construct the
+                preconditioner lives elsewhere.  Specifically, the
+                diagonal can be obtained by accessing the :attr:`diagonal`
+                property."""
+            rr = core_types.Function(self._trial.function_space(), val=r.array)
+            yy = core_types.Function(self._test.function_space(), val=y.array)
+
+            # r = b - Ax
+            # Jacobi iteration is:
+            # x_new = x_old + diag(A)^{-1} (b - A x_old)
+            # So if we use Richardson iterations:
+            # x_new = x_old + scale_factor * P (b - A x_old)
+            # where P is the application of the preconditioner, then
+            # Jacobi iterations just require dividing through by the diagonal.
+            yy.assign(rr / self.diagonal)
+            yy.dat._force_evaluation(read=True, write=False)
+
+    def solve(self, L, x, solver_parameters=None):
+        """Solve a == L placing the result in x.
+
+        :arg L: a linear :class:`ufl.Form` defining the right hand
+            side.
+        :arg x: a :class:`Function` to place the result in.
+
+        The bilinear form defining the left hand side is in
+        :attr:`_a`."""
+        ksp = PETSc.KSP().create()
+        ksp.setOptionsPrefix(self._opt_prefix)
+        opts = PETSc.Options()
+        opts.prefix = self._opt_prefix
+        ksp.setOperators(A=self._Mat)
+        if solver_parameters is not None:
+            solver_parameters.setdefault('ksp_rtol', 1e-7)
+        else:
+            solver_parameters = {'ksp_rtol': 1e-7}
+        for k, v in solver_parameters.iteritems():
+            if type(v) is bool and v:
+                opts[k] = None
+                continue
+            opts[k] = v
+        ksp.setFromOptions()
+        for k, v in solver_parameters.iteritems():
+            del opts[k]
+
+        ksp.setPC(self._PC)
+
+        if self._bcs is None:
+            b = assemble(L)
+        else:
+            b = core_types.Function(x.function_space())
+            for bc in self._bcs:
+                bc.apply(b)
+                b.assign(assemble(L) - assemble(action(self._a, b)))
+            for bc in self._bcs:
+                bc.apply(b)
+
+        with b.dat.vec_ro as bv:
+            with x.dat.vec as xv:
+                ksp.solve(bv, xv)
