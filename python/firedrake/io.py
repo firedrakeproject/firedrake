@@ -5,7 +5,9 @@ from ufl import Cell, OuterProductCell
 import numpy as np
 import os
 from pyop2.mpi import *
-import types
+from types import FunctionSpace, VectorFunctionSpace
+from pyop2.logger import warning
+from projection import project
 
 
 # Dictionary used to translate the cellname of firedrake
@@ -45,7 +47,25 @@ class File(object):
     of a pvd file in the case of parallel writing.
 
     When there is no parallelism, the class will be created solely
-    according to the extension of the filename passed as an argument."""
+    according to the extension of the filename passed as an argument.
+
+    .. note::
+
+       A single :class:`File` object only supports output in a single
+       function space.  The supported function spaces for output are
+       CG1 or DG1; any functions which do not live in these spaces
+       will automatically be projected to one or the other as
+       appropriate.  The selection of which space is used for output
+       in this :class:`File` depends on both the continuity of the
+       coordinate field and the continuity of the output function.
+       The logic for selecting the output space is as follows:
+
+       * If the both the coordinate field and the output function are
+         in :math:`H^1`, the output will be in CG1.
+       * Otherwise, both the coordinate field and the output function
+         will be in DG1.
+
+    """
 
     def __init__(self, filename):
         # Parallel
@@ -112,71 +132,155 @@ class _VTUFile(object):
         else:
             function = data
 
-        # We have not supported the case where the degree of finite element
-        # is not 1.
+        def is_family1(e, family):
+            if e.family() == 'OuterProductElement':
+                if e.degree() == (1, 1):
+                    if e._A.family() == family \
+                       and e._B.family() == family:
+                        return True
+            elif e.family() == family and e.degree() == 1:
+                return True
+            return False
 
-        e = function.function_space().ufl_element()
-        # finite element supported : CG1 and DG0
-        if not ((e.family() == "Lagrange" and e.degree() == 1) or
-                (e.family() == "Discontinuous Lagrange" and e.degree() == 0) or
-                (e.family() == "OuterProductElement")):
-            raise ValueError("ufl element given is not supported.")
+        def is_cgN(e):
+            if e.family() == 'OuterProductElement':
+                if e._A.family() == 'Lagrange' \
+                   and e._B.family() == 'Lagrange':
+                    return True
+            elif e.family() == 'Lagrange':
+                return True
+            return False
+
         mesh = function.function_space().mesh()
-        if not (e.family() == "OuterProductElement"):
-            num_points = mesh._entities[0]
-            num_cells = mesh._entities[-1]
+        e = function.function_space().ufl_element()
+
+        if len(e.value_shape()) > 1:
+            raise RuntimeError("Can't output tensor valued functions")
+
+        ce = mesh._coordinate_field.function_space().ufl_element()
+
+        coords_p1 = is_family1(ce, 'Lagrange')
+        coords_p1dg = is_family1(ce, 'Discontinuous Lagrange')
+        coords_cgN = is_cgN(ce)
+        function_p1 = is_family1(e, 'Lagrange')
+        function_p1dg = is_family1(e, 'Discontinuous Lagrange')
+        function_cgN = is_cgN(e)
+
+        project_coords = False
+        project_function = False
+        discontinuous = False
+        # We either output in P1 or P1dg.
+        if coords_cgN and function_cgN:
+            family = 'CG'
+            project_coords = not coords_p1
+            project_function = not function_p1
         else:
-            num_points = mesh._entities[0] * mesh.layers
-            num_cells = mesh._entities[-1] * (mesh.layers - 1)
+            family = 'DG'
+            project_coords = not coords_p1dg
+            project_function = not function_p1dg
+            discontinuous = True
 
-        # In firedrake, the indexing of the points starts from 1, instead of 0.
-        # However paraview expects them to have indexing starting from 0.
+        if project_function:
+            if len(e.value_shape()) == 0:
+                Vo = FunctionSpace(mesh, family, 1)
+            elif len(e.value_shape()) == 1:
+                Vo = VectorFunctionSpace(mesh, family, 1, dim=e.value_shape()[0])
+            else:
+                # Never reached
+                Vo = None
+            warning("*** Projecting output function from %s to %s", e, Vo.ufl_element())
+            output = project(function, Vo)
+        else:
+            output = function
+            Vo = output.function_space()
+        if project_coords:
+            Vc = VectorFunctionSpace(mesh, family, 1, dim=mesh._coordinate_fs.dim)
+            warning("*** Projecting coordinates from %s to %s", ce, Vc.ufl_element())
+            coordinates = project(mesh._coordinate_field, Vc)
+        else:
+            coordinates = mesh._coordinate_field
+            Vc = coordinates.function_space()
+
+        num_points = Vo.node_count
 
         if not (e.family() == "OuterProductElement"):
-            connectivity = mesh._cells.flatten() - 1
+            num_cells = mesh.num_cells()
         else:
+            num_cells = mesh.num_cells() * (mesh.layers - 1)
 
+        if not (e.family() == "OuterProductElement"):
+            connectivity = Vc.cell_node_map().values_with_halo.flatten()
+        else:
             # Connectivity of bottom cell in extruded mesh
-            base = np.concatenate([mesh.layers * (mesh._cells - 1),
-                                   mesh.layers * (mesh._cells - 1) + 1],
-                                  axis=1)
+            base = Vc.cell_node_map().values_with_halo
             if _cells[mesh._ufl_cell] == VtkQuad:
-                # Quad numbering was:
+                # Quad is
                 #
                 # 1--3
                 # |  |
                 # 0--2
                 #
-                # Needs to be
+                # needs to be
                 #
                 # 3--2
                 # |  |
                 # 0--1
                 base = base[:, [0, 2, 3, 1]]
-
+                points_per_cell = 4
+            elif _cells[mesh._ufl_cell] == VtkWedge:
+                # Wedge is
+                #
+                #    5
+                #   /|\
+                #  / | \
+                # 1----3
+                # |  4 |
+                # | /\ |
+                # |/  \|
+                # 0----2
+                #
+                # needs to be
+                #
+                #    5
+                #   /|\
+                #  / | \
+                # 3----4
+                # |  2 |
+                # | /\ |
+                # |/  \|
+                # 0----1
+                #
+                base = base[:, [0, 2, 4, 1, 3, 5]]
+                points_per_cell = 6
             # Repeat up the column
             connectivity_temp = np.repeat(base, mesh.layers - 1, axis=0)
 
+            if discontinuous:
+                scale = points_per_cell
+            else:
+                scale = 1
+            offsets = np.arange(mesh.layers - 1) * scale
+
             # Add offsets going up the column
-            connectivity_temp += np.tile(np.arange(mesh.layers - 1).reshape(-1, 1), (mesh.num_cells(), 1))
+            connectivity_temp += np.tile(offsets.reshape(-1, 1), (mesh.num_cells(), 1))
 
-            connectivity = connectivity_temp.flatten()  # no need to subtract 1
+            connectivity = connectivity_temp.flatten()
 
-        if isinstance(function.function_space(), types.VectorFunctionSpace):
-            tmp = function.dat.data_ro_with_halos
+        if isinstance(output.function_space(), VectorFunctionSpace):
+            tmp = output.dat.data_ro_with_halos
             vdata = [None]*3
-            for i in range(function.dat.dim[0]):
+            for i in range(output.dat.dim[0]):
                 vdata[i] = tmp[:, i].flatten()
-            for i in range(function.dat.dim[0], 3):
+            for i in range(output.dat.dim[0], 3):
                 vdata[i] = np.zeros_like(vdata[0])
             data = tuple(vdata)
             # only for checking large file size
             flat_data = {function.name(): tmp.flatten()}
         else:
-            data = function.dat.data_ro_with_halos.flatten()
+            data = output.dat.data_ro_with_halos.flatten()
             flat_data = {function.name(): data}
 
-        coordinates = self._fd_to_evtk_coord(mesh._coordinates)
+        coordinates = self._fd_to_evtk_coord(coordinates.dat.data_ro_with_halos)
 
         cell_types = np.empty(num_cells, dtype="uint8")
 
@@ -187,41 +291,11 @@ class _VTUFile(object):
         # This tells which are the last nodes of each cell.
         offsets = np.arange(start=p_c, stop=p_c * (num_cells + 1), step=p_c,
                             dtype='int32')
-        if (e.family() == "Lagrange" and e.degree() == 1):     # if CG1
-            large_file_flag = _requiresLargeVTKFileSize("VtkUnstructuredGrid",
-                                                        numPoints=num_points,
-                                                        numCells=num_cells,
-                                                        pointData=flat_data,
-                                                        cellData=None)
-        # if DG0
-        elif (e.family() == "Discontinuous Lagrange" and e.degree() == 0):
-            large_file_flag = _requiresLargeVTKFileSize("VtkUnstructuredGrid",
-                                                        numPoints=num_points,
-                                                        numCells=num_cells,
-                                                        pointData=None,
-                                                        cellData=flat_data)
-        elif (e.family() == "OuterProductElement" and
-              e._A.family() == "Lagrange" and e._A.degree() == 1 and
-              e._B.family() == "Lagrange" and e._B.degree() == 1):
-            large_file_flag = _requiresLargeVTKFileSize("VtkUnstructuredGrid",
-                                                        numPoints=num_points,
-                                                        numCells=num_cells,
-                                                        pointData=flat_data,
-                                                        cellData=None)
-
-        elif (e.family() == "OuterProductElement" and
-              e._A.family() == "Discontinuous Lagrange" and
-              e._A.degree() == 0 and
-              e._B.family() == "Discontinuous Lagrange" and
-              e._B.degree() == 0):
-            large_file_flag = _requiresLargeVTKFileSize("VtkUnstructuredGrid",
-                                                        numPoints=num_points,
-                                                        numCells=num_cells,
-                                                        pointData=None,
-                                                        cellData=flat_data)
-        else:
-            raise ValueError("Only P1, P0, P1xP1, P0xP0 are supported.")
-
+        large_file_flag = _requiresLargeVTKFileSize("VtkUnstructuredGrid",
+                                                    numPoints=num_points,
+                                                    numCells=num_cells,
+                                                    pointData=flat_data,
+                                                    cellData=None)
         new_name = self._filename
 
         # When vtu file makes part of a parallel process, aggregated by a
@@ -249,20 +323,9 @@ class _VTUFile(object):
         self._writer.addData("types", cell_types)
         self._writer.closeElement("Cells")
 
-        # CG1
-        if (e.family() == 'OuterProductElement' and e.degree() == (1, 1)) or \
-           (e.family() == 'Lagrange' and e.degree() == 1):
-            self._writer.openData("Point", scalars=function.name())
-            self._writer.addData(function.name(), data)
-            self._writer.closeData("Point")
-        # DG0
-        elif (e.family() == 'OuterProductElement' and e.degree() == (0, 0)) or \
-             (e.family() == 'Discontinuous Lagrange' and e.degree() == 0):
-            self._writer.openData("Cell", scalars=function.name())
-            self._writer.addData(function.name(), data)
-            self._writer.closeData("Cell")
-        else:
-            raise ValueError("Only P1, P0, P1xP1, P0xP0 are supported.")
+        self._writer.openData("Point", scalars=function.name())
+        self._writer.addData(function.name(), data)
+        self._writer.closeData("Point")
         self._writer.closePiece()
         self._writer.closeGrid()
 
@@ -271,7 +334,6 @@ class _VTUFile(object):
         self._writer.appendData(connectivity)
         self._writer.appendData(offsets)
         self._writer.appendData(cell_types)
-        # CG1 or DG0
         self._writer.appendData(data)
         self._writer.save()
 
