@@ -135,29 +135,31 @@ class _VTUFile(object):
         if not (e.family() == "OuterProductElement"):
             connectivity = mesh._cells.flatten() - 1
         else:
-            # Horribly slow, hard-coded first attempt
-            connectivity_temp = np.empty(
-                [mesh.num_cells(), mesh.layers - 1, _points_per_cell[mesh._ufl_cell]], dtype="int32")
-            for (ii, verts) in enumerate(mesh._cells):
-                # number of vert cells = layers - 1
-                for nl in range(mesh.layers - 1):
-                    connectivity_temp[ii, nl] = np.concatenate(
-                        (mesh.layers * (mesh._cells[ii] - 1) + nl, mesh.layers * (mesh._cells[ii] - 1) + nl + 1))
+
+            # Connectivity of bottom cell in extruded mesh
+            base = np.concatenate([mesh.layers * (mesh._cells - 1),
+                                   mesh.layers * (mesh._cells - 1) + 1],
+                                  axis=1)
             if _cells[mesh._ufl_cell] == VtkQuad:
-                for i in range(mesh.num_cells()):
-                    for nl in range(mesh.layers - 1):
-                        # Quad numbering was:
-                        #
-                        # 1--3
-                        # |  |
-                        # 0--2
-                        #
-                        # Needs to be
-                        #
-                        # 3--2
-                        # |  |
-                        # 0--1
-                        connectivity_temp[i, nl] = (connectivity_temp[i, nl])[[0, 2, 3, 1]]
+                # Quad numbering was:
+                #
+                # 1--3
+                # |  |
+                # 0--2
+                #
+                # Needs to be
+                #
+                # 3--2
+                # |  |
+                # 0--1
+                base = base[:, [0, 2, 3, 1]]
+
+            # Repeat up the column
+            connectivity_temp = np.repeat(base, mesh.layers - 1, axis=0)
+
+            # Add offsets going up the column
+            connectivity_temp += np.tile(np.arange(mesh.layers - 1).reshape(-1, 1), (mesh.num_cells(), 1))
+
             connectivity = connectivity_temp.flatten()  # no need to subtract 1
 
         if isinstance(function.function_space(), core_types.VectorFunctionSpace):
