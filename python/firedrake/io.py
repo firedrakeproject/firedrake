@@ -18,6 +18,7 @@ _cells[Cell("triangle")] = VtkTriangle
 _cells[Cell("triangle", 3)] = VtkTriangle
 _cells[Cell("tetrahedron")] = VtkTetra
 _cells[OuterProductCell(Cell("triangle"), Cell("interval"))] = VtkWedge
+_cells[OuterProductCell(Cell("interval"), Cell("interval"))] = VtkQuad
 
 _points_per_cell = {}
 _points_per_cell[Cell("interval")] = 2
@@ -27,6 +28,7 @@ _points_per_cell[Cell("triangle")] = 3
 _points_per_cell[Cell("triangle", 3)] = 3
 _points_per_cell[Cell("tetrahedron")] = 4
 _points_per_cell[OuterProductCell(Cell("triangle"), Cell("interval"))] = 6
+_points_per_cell[OuterProductCell(Cell("interval"), Cell("interval"))] = 4
 
 
 class File(object):
