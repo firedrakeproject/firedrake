@@ -18,6 +18,7 @@ _cells[Cell("triangle")] = VtkTriangle
 _cells[Cell("triangle", 3)] = VtkTriangle
 _cells[Cell("tetrahedron")] = VtkTetra
 _cells[OuterProductCell(Cell("triangle"), Cell("interval"))] = VtkWedge
+_cells[OuterProductCell(Cell("interval"), Cell("interval"))] = VtkQuad
 
 _points_per_cell = {}
 _points_per_cell[Cell("interval")] = 2
@@ -27,6 +28,7 @@ _points_per_cell[Cell("triangle")] = 3
 _points_per_cell[Cell("triangle", 3)] = 3
 _points_per_cell[Cell("tetrahedron")] = 4
 _points_per_cell[OuterProductCell(Cell("triangle"), Cell("interval"))] = 6
+_points_per_cell[OuterProductCell(Cell("interval"), Cell("interval"))] = 4
 
 
 class File(object):
@@ -133,14 +135,31 @@ class _VTUFile(object):
         if not (e.family() == "OuterProductElement"):
             connectivity = mesh._cells.flatten() - 1
         else:
-            # Horribly slow, hard-coded first attempt
-            connectivity_temp = np.empty(
-                [mesh.num_cells(), mesh.layers - 1, _points_per_cell[mesh._ufl_cell]], dtype="int32")
-            for (ii, verts) in enumerate(mesh._cells):
-                # number of vert cells = layers - 1
-                for nl in range(mesh.layers - 1):
-                    connectivity_temp[ii, nl] = np.concatenate(
-                        (mesh.layers * (mesh._cells[ii] - 1) + nl, mesh.layers * (mesh._cells[ii] - 1) + nl + 1))
+
+            # Connectivity of bottom cell in extruded mesh
+            base = np.concatenate([mesh.layers * (mesh._cells - 1),
+                                   mesh.layers * (mesh._cells - 1) + 1],
+                                  axis=1)
+            if _cells[mesh._ufl_cell] == VtkQuad:
+                # Quad numbering was:
+                #
+                # 1--3
+                # |  |
+                # 0--2
+                #
+                # Needs to be
+                #
+                # 3--2
+                # |  |
+                # 0--1
+                base = base[:, [0, 2, 3, 1]]
+
+            # Repeat up the column
+            connectivity_temp = np.repeat(base, mesh.layers - 1, axis=0)
+
+            # Add offsets going up the column
+            connectivity_temp += np.tile(np.arange(mesh.layers - 1).reshape(-1, 1), (mesh.num_cells(), 1))
+
             connectivity = connectivity_temp.flatten()  # no need to subtract 1
 
         if isinstance(function.function_space(), core_types.VectorFunctionSpace):
@@ -231,15 +250,19 @@ class _VTUFile(object):
         self._writer.closeElement("Cells")
 
         # CG1
-        if e.degree() == 1:
+        if (e.family() == 'OuterProductElement' and e.degree() == (1, 1)) or \
+           (e.family() == 'Lagrange' and e.degree() == 1):
             self._writer.openData("Point", scalars=function.name())
             self._writer.addData(function.name(), data)
             self._writer.closeData("Point")
         # DG0
-        else:
+        elif (e.family() == 'OuterProductElement' and e.degree() == (0, 0)) or \
+             (e.family() == 'Discontinuous Lagrange' and e.degree() == 0):
             self._writer.openData("Cell", scalars=function.name())
             self._writer.addData(function.name(), data)
             self._writer.closeData("Cell")
+        else:
+            raise ValueError("Only P1, P0, P1xP1, P0xP0 are supported.")
         self._writer.closePiece()
         self._writer.closeGrid()
 
