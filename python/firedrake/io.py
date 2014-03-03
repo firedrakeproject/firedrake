@@ -143,6 +143,21 @@ class _VTUFile(object):
                 for nl in range(mesh.layers - 1):
                     connectivity_temp[ii, nl] = np.concatenate(
                         (mesh.layers * (mesh._cells[ii] - 1) + nl, mesh.layers * (mesh._cells[ii] - 1) + nl + 1))
+            if _cells[mesh._ufl_cell] == VtkQuad:
+                for i in range(mesh.num_cells()):
+                    for nl in range(mesh.layers - 1):
+                        # Quad numbering was:
+                        #
+                        # 1--3
+                        # |  |
+                        # 0--2
+                        #
+                        # Needs to be
+                        #
+                        # 3--2
+                        # |  |
+                        # 0--1
+                        connectivity_temp[i, nl] = (connectivity_temp[i, nl])[[0, 2, 3, 1]]
             connectivity = connectivity_temp.flatten()  # no need to subtract 1
 
         if isinstance(function.function_space(), core_types.VectorFunctionSpace):
