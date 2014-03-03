@@ -231,15 +231,19 @@ class _VTUFile(object):
         self._writer.closeElement("Cells")
 
         # CG1
-        if e.degree() == 1:
+        if (e.family() == 'OuterProductElement' and e.degree() == (1, 1)) or \
+           (e.family() == 'Lagrange' and e.degree() == 1):
             self._writer.openData("Point", scalars=function.name())
             self._writer.addData(function.name(), data)
             self._writer.closeData("Point")
         # DG0
-        else:
+        elif (e.family() == 'OuterProductElement' and e.degree() == (0, 0)) or \
+             (e.family() == 'Discontinuous Lagrange' and e.degree() == 0):
             self._writer.openData("Cell", scalars=function.name())
             self._writer.addData(function.name(), data)
             self._writer.closeData("Cell")
+        else:
+            raise ValueError("Only P1, P0, P1xP1, P0xP0 are supported.")
         self._writer.closePiece()
         self._writer.closeGrid()
 
