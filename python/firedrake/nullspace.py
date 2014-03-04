@@ -1,4 +1,5 @@
 from petsc4py import PETSc
+from core_types import IndexedFunctionSpace
 
 
 class VectorSpaceBasis(object):
@@ -66,3 +67,77 @@ class VectorSpaceBasis(object):
 
         :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should be set."""
         matrix.handle.setNullSpace(self.nullspace)
+
+    def __iter__(self):
+        """Yield self when iterated over"""
+        yield self
+
+
+class MixedVectorSpaceBasis(object):
+    """A basis for a mixed vector space
+
+    :arg bases: an iterable of bases for the null spaces of the
+         subspaces in the mixed space.
+
+    You can use this to express the null space of a singular operator
+    on a mixed space.  The bases you supply will be used to set null
+    spaces for each of the diagonal blocks in the operator.  If you
+    only care about the null space on one of the blocks, you can pass
+    an indexed function space as a placeholder in the positions you
+    don't care about.
+
+    For example, consider a mixed poisson discretisation with pure
+    Neumann boundary conditions::
+
+        V = FunctionSpace(mesh, "BDM", 1)
+        Q = FunctionSpace(mesh, "DG", 0)
+
+        W = V*Q
+
+        sigma, u = TrialFunctions(W)
+        tau, v = TestFunctions(W)
+
+        a = (inner(sigma, tau) + div(sigma)*v + div(tau)*u)*dx
+
+    The null space of this operator is a constant function in ``Q``.
+    If we solve the problem with a Schur complement, we only care
+    about projecting the null space out of the ``QxQ`` block.  We can
+    do this like so ::
+
+        nullspace = MixedVectorSpaceBasis([W[0], VectorSpaceBasis(constant=True)])
+        solve(a == ..., nullspace=nullspace)
+
+    """
+    def __init__(self, bases):
+        if not all(isinstance(basis, (VectorSpaceBasis, IndexedFunctionSpace))
+                   for basis in bases):
+            raise RuntimeError("MixedVectorSpaceBasis can only contain vector space bases or indexed function spaces")
+        for i, basis in enumerate(bases):
+            if isinstance(basis, IndexedFunctionSpace):
+                if i != basis.index:
+                    raise RuntimeError("FunctionSpace with index %d cannot appear at position %d" % (basis.index, i))
+        self._bases = bases
+
+    def _apply(self, matrix):
+        """Set this MixedVectorSpaceBasis as a nullspace for a matrix
+
+        :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should be set."""
+        rows, cols = matrix.sparsity.shape
+        if rows != cols:
+            raise RuntimeError("Can only apply nullspace to square operator")
+        if rows != len(self):
+            raise RuntimeError("Shape of matrix (%d, %d) does not match size of nullspace %d" %
+                               (rows, cols, len(self)))
+        for i, basis in enumerate(self):
+            if not isinstance(basis, VectorSpaceBasis):
+                continue
+            basis._apply(matrix[i, i])
+
+    def __iter__(self):
+        """Yield the individual bases making up this MixedVectorSpaceBasis"""
+        for basis in self._bases:
+            yield basis
+
+    def __len__(self):
+        """The number of bases in this MixedVectorSpaceBasis"""
+        return len(self._bases)
