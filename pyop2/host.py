@@ -55,6 +55,7 @@ class Kernel(base.Kernel):
         string of code (C syntax) suitable to CPU execution."""
         if not isinstance(ast, Node):
             return ast
+        self._ast = ast
         ast_handler = ASTKernel(ast)
         ast_handler.plan_cpu(opts)
         return ast.gencode()

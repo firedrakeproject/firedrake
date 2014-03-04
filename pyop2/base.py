@@ -3071,6 +3071,7 @@ class Kernel(Cached):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of C code."""
         if isinstance(ast, Node):
+            self._ast = ast
             return ast.gencode()
         return ast
 
