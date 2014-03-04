@@ -170,11 +170,15 @@ class TestCopyOnWrite:
         x_dup = x.duplicate()
         x += 1
         assert not self.same_data(x, x_dup)
+        assert all(x.data_ro == numpy.arange(nelems) + 1)
+        assert all(x_dup.data_ro == numpy.arange(nelems))
 
     def test_CoW_dat_duplicate_copy_changes(self, backend, x):
         x_dup = x.duplicate()
         x_dup += 1
         assert not self.same_data(x, x_dup)
+        assert all(x_dup.data_ro == numpy.arange(nelems) + 1)
+        assert all(x.data_ro == numpy.arange(nelems))
 
     def test_CoW_mat_duplicate_original_changes(self, backend, mat):
         mat_dup = mat.duplicate()
