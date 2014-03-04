@@ -324,6 +324,8 @@ use:
 Finally, we can set the maximum allowed number of iterations for the
 Krylov method by using the ``'ksp_max_it'`` option.
 
+.. _mixed_preconditioning:
+
 Preconditioning mixed finite element systems
 ++++++++++++++++++++++++++++++++++++++++++++
 
@@ -620,6 +622,36 @@ the solution to be :math:`u(x, y) = y - 0.5`.
    exact.interpolate(Expression('x[1] - 0.5'))
    print sqrt(assemble((u - exact)*(u - exact)*dx))
 
+Singular operators in mixed spaces
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you have an operator in a mixed space, you may well precondition
+the system using a `Schur complement <mixed_preconditioning>`_.  If
+the operator is singular, you will therefore have to tell the solver
+about the null space of each diagonal block separately.  To do this in
+Firedrake, we build a
+:class:`~firedrake.nullspace.MixedVectorSpaceBasis` instead of a
+:class:`~firedrake.nullspace.VectorSpaceBasis` and then inform the
+solver about it as before.  A
+:class:`~firedrake.nullspace.MixedVectorSpaceBasis` takes a list of
+:class:`~firedrake.nullspace.VectorSpaceBasis` objects defining the
+null spaces of each of the diagonal blocks in the mixed operator.  You
+do not have to provide a null space for all blocks.  For those you
+don't care about, you can pass an indexed function space at the
+appropriate position.  For example, imagine we have a mixed space
+:math:`W = V \times Q` and an operator which has a null space of
+constant functions in :math:`V` (this occurs, for example, for a
+discretisation of the mixed poisson problem on the surface of a
+sphere).  We can specify the null space (indicating that we only
+really care about the constant function) as:
+
+.. code-block:: python
+
+   V = ...
+   Q = ...
+   W = V*Q
+   v_basis = VectorSpaceBasis(constant=True)
+   nullspace = MixedVectorSpaceBasis([v_basis, W.sub(1)])
 
 Debugging convergence failures
 ------------------------------
