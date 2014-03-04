@@ -42,7 +42,7 @@ import operator
 from hashlib import md5
 
 from configuration import configuration
-from caching import Cached, KernelCached
+from caching import Cached
 from versioning import Versioned, modifies, CopyOnWrite, shallow_copy
 from exceptions import *
 from utils import *
@@ -50,6 +50,8 @@ from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
 from sparsity import build_sparsity
 from version import __version__ as version
+
+from ir.ast_base import Node
 
 
 class LazyComputation(object):
@@ -3049,7 +3051,7 @@ class Mat(SetAssociated):
 # Kernel API
 
 
-class Kernel(KernelCached):
+class Kernel(Cached):
 
     """OP2 kernel type."""
 
@@ -3062,14 +3064,22 @@ class Kernel(KernelCached):
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
         # Also include the PyOP2 version, since the Kernel class might change
-        return md5(code + name + str(opts) + str(include_dirs) + version).hexdigest()
+        return md5(str(hash(code)) + name + str(opts) + str(include_dirs) +
+                   version).hexdigest()
+
+    def _ast_to_c(self, ast, opts={}):
+        """Transform an Abstract Syntax Tree representing the kernel into a
+        string of C code."""
+        if isinstance(ast, Node):
+            return ast.gencode()
+        return ast
 
     def __init__(self, code, name, opts={}, include_dirs=[]):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
         self._name = name or "kernel_%d" % Kernel._globalcount
-        self._code = preprocess(code, include_dirs)
+        self._code = preprocess(self._ast_to_c(code, opts), include_dirs)
         Kernel._globalcount += 1
         # Record used optimisations
         self._opt_is_padded = opts.get('ap', False)

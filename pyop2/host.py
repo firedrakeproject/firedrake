@@ -50,8 +50,7 @@ from ir.ast_vectorizer import vect_roundup
 
 class Kernel(base.Kernel):
 
-    @classmethod
-    def _ast_to_c(cls, ast, name, opts={}, include_dirs=[]):
+    def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of code (C syntax) suitable to CPU execution."""
         if not isinstance(ast, Node):
