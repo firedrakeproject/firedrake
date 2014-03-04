@@ -60,3 +60,9 @@ class VectorSpaceBasis(object):
                 if abs(iv.dot(jv)) > 1e-14:
                     return False
         return True
+
+    def _apply(self, matrix):
+        """Set this VectorSpaceBasis as a nullspace for a matrix
+
+        :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should be set."""
+        matrix.handle.setNullSpace(self.nullspace)
