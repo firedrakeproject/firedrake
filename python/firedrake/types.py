@@ -393,6 +393,7 @@ class Function(ufl.Coefficient):
                                                      self._name, uid=self.uid)
 
         self._repr = None
+        self._split = None
 
         if isinstance(function_space, Function):
             self.assign(function_space)
@@ -400,8 +401,9 @@ class Function(ufl.Coefficient):
     def split(self):
         """Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`FunctionSpace`."""
-        return tuple(Function(fs, dat)
-                     for fs, dat in zip(self._function_space, self.dat))
+        if self._split is None:
+            self._split = tuple(Function(fs, dat) for fs, dat in zip(self._function_space, self.dat))
+        return self._split
 
     @property
     def cell_set(self):
