@@ -421,6 +421,17 @@ class Function(ufl.Coefficient):
     def exterior_facet_node_map(self, bcs=None):
         return self._function_space.exterior_facet_node_map(bcs)
 
+    def project(self, b, *args, **kwargs):
+        """Project ``b`` onto self. ``b`` must be a :class:`Function` or a
+        :class:`Expression`.
+
+        This is equivalent to :func:`~projection.project(b, self)`.
+        Any of the additional arguments to :func:`~projection.project`
+        may also be passed, and they will have their usual effect.
+        """
+        from projection import project
+        return project(b, self, *args, **kwargs)
+
     def vector(self):
         """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
         return Vector(self.dat)
