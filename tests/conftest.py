@@ -1,10 +1,19 @@
 """Global test configuration."""
 
+# Insert the parent directory into the module path so we can find the common
+# module whichever directory we are calling py.test from.
+#
+# Note that this will ONLY work when tests are run by calling py.test, not when
+# calling them as a module. In that case it is required to have the Firedrake
+# root directory on your PYTYHONPATH to be able to call tests from anywhere.
+import os
+import sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
+
 from subprocess import check_call
 from sys import executable
 from functools import wraps
 from inspect import getsourcefile
-import os
 from mpi4py import MPI
 
 
