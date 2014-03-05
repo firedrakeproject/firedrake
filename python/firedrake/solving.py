@@ -159,9 +159,9 @@ class NonlinearVariationalSolver(object):
              space of the operator.
 
         This overwrites any existing null space."""
-        self._jac_ptensor._M.handle.setNullSpace(nullspace.nullspace)
+        nullspace._apply(self._jac_tensor._M)
         if self._jac_ptensor._M.handle != self._jac_tensor._M.handle:
-            self._jac_tensor._M.handle.setNullSpace(nullspace.nullspace)
+            nullspace._apply(self._jac_tensor._M)
 
     def form_function(self, snes, X_, F_):
         # X_ may not be the same vector as the vec behind self._x, so
@@ -618,7 +618,7 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
         # don't want to write into b itself, because that would confuse user
         b = u_bc
     if nullspace is not None:
-        A._M.handle.setNullSpace(nullspace.nullspace)
+        nullspace._apply(A._M)
     with progress(INFO, 'Solving linear system'):
         solver.solve(A.M, x.dat, b.dat)
     x.dat.halo_exchange_begin()
