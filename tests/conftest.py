@@ -3,6 +3,7 @@
 from subprocess import check_call
 from sys import executable
 from functools import wraps
+from inspect import getsourcefile
 import os
 from mpi4py import MPI
 
@@ -23,7 +24,7 @@ def parallel(nprocs=3):
                 check_call(' '.join(['mpiexec', '-n', '%d' % nprocs, executable,
                                      '-c', '"import %s; %s.%s()"' %
                                      (fn.__module__, fn.__module__, fn.__name__)]),
-                           cwd=os.path.abspath(os.path.dirname(__file__)), shell=True)
+                           cwd=os.path.dirname(getsourcefile(fn)), shell=True)
         return wrapper
     return _parallel_test
 
