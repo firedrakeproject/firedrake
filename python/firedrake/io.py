@@ -99,9 +99,10 @@ class _VTUFile(object):
 
     """Class that represents a VTU file."""
 
-    def __init__(self, filename):
+    def __init__(self, filename, warnings=None):
         #_filename : full path to the file without extension.
         self._filename = filename
+        self._warnings = warnings
         if MPI.parallel:
             self._time_step = -1
             # If _generate_time, _time_step would be incremented by
@@ -188,14 +189,18 @@ class _VTUFile(object):
             else:
                 # Never reached
                 Vo = None
-            warning(RED % "*** Projecting output function from %s to %s", e, Vo.ufl_element())
+            if not self._warnings[0]:
+                warning(RED % "*** Projecting output function to %s1", family)
+                self._warnings[0] = True
             output = project(function, Vo, name=function.name())
         else:
             output = function
             Vo = output.function_space()
         if project_coords:
             Vc = VectorFunctionSpace(mesh, family, 1, dim=mesh._coordinate_fs.dim)
-            warning(RED % "*** Projecting coordinates from %s to %s", ce, Vc.ufl_element())
+            if not self._warnings[1]:
+                warning(RED % "*** Projecting coordinates to %s1", family)
+                self._warnings[1] = True
             coordinates = project(mesh._coordinate_field, Vc, name=mesh._coordinate_field.name())
         else:
             coordinates = mesh._coordinate_field
@@ -440,6 +445,7 @@ class _PVDFile(object):
         # Full path to the file without extension.
         self._filename = filename
         self._writer = VtkGroup(self._filename)
+        self._warnings = [False, False]
         # Keep the index of child file
         #(parallel -> pvtu, else vtu)
         self._child_index = 0
@@ -478,7 +484,7 @@ class _PVDFile(object):
         * In serial: a VTU file is created and is added to PVD file."""
         if not MPI.parallel:
             new_vtk_name = self._filename + "_" + str(self._child_index)
-            new_vtk = _VTUFile(new_vtk_name)
+            new_vtk = _VTUFile(new_vtk_name, warnings=self._warnings)
 
             new_vtk << function
             self._writer.addFile(new_vtk_name + ".vtu", self._time_step)
@@ -486,7 +492,7 @@ class _PVDFile(object):
 
         else:
             new_pvtu_name = self._filename + "_" + str(self._time_step)
-            new_vtk = _VTUFile(self._filename)
+            new_vtk = _VTUFile(self._filename, warnings=self._warnings)
             new_pvtu = _PVTUFile(new_pvtu_name)
             new_vtk << function
             new_pvtu._update(function.name())
