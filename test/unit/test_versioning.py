@@ -157,7 +157,7 @@ class TestCopyOnWrite:
         return a.data_ro.__array_interface__['data'][0] == \
             b.data_ro.__array_interface__['data'][0]
 
-    def test_duplicate_mat(self, backend, mat):
+    def test_duplicate_mat(self, backend, mat, skip_cuda):
         mat.zero_rows([0], 1)
         mat3 = mat.duplicate()
         assert mat3.handle is mat.handle
@@ -180,12 +180,12 @@ class TestCopyOnWrite:
         assert all(x_dup.data_ro == numpy.arange(nelems) + 1)
         assert all(x.data_ro == numpy.arange(nelems))
 
-    def test_CoW_mat_duplicate_original_changes(self, backend, mat):
+    def test_CoW_mat_duplicate_original_changes(self, backend, mat, skip_cuda):
         mat_dup = mat.duplicate()
         mat.zero_rows([0], 1.0)
         assert mat.handle is not mat_dup.handle
 
-    def test_CoW_mat_duplicate_copy_changes(self, backend, mat):
+    def test_CoW_mat_duplicate_copy_changes(self, backend, mat, skip_cuda):
         mat_dup = mat.duplicate()
         mat_dup.zero_rows([0], 1.0)
         assert mat.handle is not mat_dup.handle
