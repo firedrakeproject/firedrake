@@ -111,7 +111,7 @@ class VectorFunctionSpace(FunctionSpaceBase):
             else:
                 lb = ufl.FiniteElement(vfamily, domain=ufl.Cell("interval", 1),
                                        degree=vdegree)
-            element = ufl.OuterProductVectorElement(la, lb)
+            element = ufl.OuterProductVectorElement(la, lb, dim=dim)
         else:
             element = ufl.VectorElement(family, domain=mesh.ufl_cell(),
                                         degree=degree, dim=dim)
