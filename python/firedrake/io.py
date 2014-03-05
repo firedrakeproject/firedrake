@@ -6,7 +6,7 @@ import numpy as np
 import os
 from pyop2.mpi import *
 from types import FunctionSpace, VectorFunctionSpace
-from pyop2.logger import warning
+from pyop2.logger import warning, RED
 from projection import project
 
 
@@ -188,14 +188,14 @@ class _VTUFile(object):
             else:
                 # Never reached
                 Vo = None
-            warning("*** Projecting output function from %s to %s", e, Vo.ufl_element())
+            warning(RED % "*** Projecting output function from %s to %s", e, Vo.ufl_element())
             output = project(function, Vo, name=function.name())
         else:
             output = function
             Vo = output.function_space()
         if project_coords:
             Vc = VectorFunctionSpace(mesh, family, 1, dim=mesh._coordinate_fs.dim)
-            warning("*** Projecting coordinates from %s to %s", ce, Vc.ufl_element())
+            warning(RED % "*** Projecting coordinates from %s to %s", ce, Vc.ufl_element())
             coordinates = project(mesh._coordinate_field, Vc, name=mesh._coordinate_field.name())
         else:
             coordinates = mesh._coordinate_field
