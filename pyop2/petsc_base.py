@@ -46,6 +46,7 @@ import base
 from base import *
 from backends import _make_object
 from logger import debug, warning
+from versioning import CopyOnWrite
 import mpi
 from mpi import collective
 
@@ -198,8 +199,7 @@ class MixedDat(base.MixedDat):
         return self.vecscatter()
 
 
-class Mat(base.Mat):
-
+class Mat(base.Mat, CopyOnWrite):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`."""
 
@@ -280,6 +280,8 @@ class Mat(base.Mat):
         # the sparsity and render our sparsity caching useless.
         mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
         self._handle = mat
+        # Matrices start zeroed.
+        self._version_set_zero()
 
     def __getitem__(self, idx):
         """Return :class:`Mat` block with row and column given by ``idx``
@@ -308,7 +310,9 @@ class Mat(base.Mat):
         """Zero the matrix."""
         base._trace.evaluate(set(), set([self]))
         self.handle.zeroEntries()
+        self._version_set_zero()
 
+    @modifies
     @collective
     def zero_rows(self, rows, diag_val=1.0):
         """Zeroes the specified rows of the matrix, with the exception of the
@@ -345,6 +349,10 @@ class Mat(base.Mat):
         else:
             with vec.vec_ro as v:
                 self.handle.setDiagonal(v)
+
+    def _cow_actual_copy(self, src):
+        self._handle = src.handle.duplicate(copy=True)
+        return self
 
     @collective
     def inc_local_diagonal_entries(self, rows, diag_val=1.0):

@@ -36,7 +36,6 @@
 import cPickle
 import gzip
 import os
-
 from ir.ast_base import Node
 
 

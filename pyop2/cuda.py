@@ -335,6 +335,7 @@ class Mat(DeviceDataMixin, op2.Mat):
         base._trace.evaluate(set([self]), set([self]))
         return self._csrdata.get()
 
+    @modifies
     def zero_rows(self, rows, diag_val=1.0):
         """Zeroes the specified rows of the matrix, with the exception of the
         diagonal entry, which is set to diag_val. May be used for applying
@@ -356,6 +357,7 @@ class Mat(DeviceDataMixin, op2.Mat):
         base._trace.evaluate(set([]), set([self]))
         self._csrdata.fill(0)
         self._lmadata.fill(0)
+        self._version_set_zero()
 
 
 class Const(DeviceDataMixin, op2.Const):

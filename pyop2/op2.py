@@ -44,6 +44,7 @@ from mpi import MPI, collective
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
 from ir.ast_plan import init_ir
+from versioning import modifies_arguments
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
@@ -188,6 +189,7 @@ class Solver(base.Solver):
     __metaclass__ = backends._BackendSelector
 
 
+@modifies_arguments
 @collective
 def par_loop(kernel, iterset, *args):
     """Invocation of an OP2 kernel
