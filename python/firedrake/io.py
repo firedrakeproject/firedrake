@@ -189,14 +189,14 @@ class _VTUFile(object):
                 # Never reached
                 Vo = None
             warning("*** Projecting output function from %s to %s", e, Vo.ufl_element())
-            output = project(function, Vo)
+            output = project(function, Vo, name=function.name())
         else:
             output = function
             Vo = output.function_space()
         if project_coords:
             Vc = VectorFunctionSpace(mesh, family, 1, dim=mesh._coordinate_fs.dim)
             warning("*** Projecting coordinates from %s to %s", ce, Vc.ufl_element())
-            coordinates = project(mesh._coordinate_field, Vc)
+            coordinates = project(mesh._coordinate_field, Vc, name=mesh._coordinate_field.name())
         else:
             coordinates = mesh._coordinate_field
             Vc = coordinates.function_space()
