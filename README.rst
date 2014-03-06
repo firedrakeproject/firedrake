@@ -366,7 +366,7 @@ Testing your installation
 PyOP2 unit tests use `pytest <http://pytest.org>`__ >= 2.3. Install via package
 manager::
 
-  sudo apt-get install python-pytest 
+  sudo apt-get install python-pytest
 
 or pip::
 
@@ -383,6 +383,10 @@ following to ``~/.bashrc`` or ``.env``::
 
   # Add pytest binaries to the path
   export PATH=${PATH}:${HOME}/.local/bin
+
+The regression tests further require *gmsh* and *triangle*: ::
+
+  sudo apt-get install gmsh triangle-bin unzip
 
 If all tests in our test suite pass, you should be good to go::
 
