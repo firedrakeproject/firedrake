@@ -422,11 +422,11 @@ class Function(ufl.Coefficient):
         return self._function_space.exterior_facet_node_map(bcs)
 
     def project(self, b, *args, **kwargs):
-        """Project ``b`` onto self. ``b`` must be a :class:`Function` or a
+        """Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
         :class:`Expression`.
 
-        This is equivalent to :func:`~projection.project(b, self)`.
-        Any of the additional arguments to :func:`~projection.project`
+        This is equivalent to ``project(b, self)``.
+        Any of the additional arguments to :func:`~firedrake.projection.project`
         may also be passed, and they will have their usual effect.
         """
         from projection import project
