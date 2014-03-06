@@ -4,7 +4,7 @@ from ufl.constantvalue import ConstantValue, Zero
 from ufl.indexing import MultiIndex
 from ufl.operatorbase import Operator
 from pyop2 import op2
-import core_types
+import types
 import cgen
 
 
@@ -29,7 +29,7 @@ class DummyFunction(ufl.Coefficient):
 
     def __str__(self):
         if isinstance(self.function.function_space(),
-                      core_types.VectorFunctionSpace):
+                      types.VectorFunctionSpace):
             return "fn_%d[dim]" % self.argnum
         else:
             return "fn_%d[0]" % self.argnum
@@ -50,7 +50,7 @@ class AssignmentBase(Operator):
     def __init__(self, lhs, rhs):
         self._operands = map(ufl.as_ufl, (lhs, rhs))
 
-        if not (isinstance(lhs, core_types.Function)
+        if not (isinstance(lhs, types.Function)
                 or isinstance(lhs, DummyFunction)):
             raise TypeError("Can only assign to a Function")
 
@@ -218,7 +218,7 @@ class ExpressionSplitter(ReuseTransformer):
             if isinstance(idx._indices[0], ufl.indexing.FixedIndex):
                 if idx._indices[0]._value != i:
                     return Zero()
-                elif isinstance(coeff.function_space(), core_types.VectorFunctionSpace):
+                elif isinstance(coeff.function_space(), types.VectorFunctionSpace):
                     return o.reconstruct(coeff, idx)
             return coeff
         return [reconstruct_if_vec(*ops, i=i)
@@ -229,7 +229,7 @@ class ExpressionSplitter(ReuseTransformer):
         return operands[0]
 
     def terminal(self, o):
-        if isinstance(o, core_types.Function):
+        if isinstance(o, types.Function):
             # A function must either be defined on the same function space
             # we're assigning to, in which case we split it into components
             if o.function_space() == self._function_space:
@@ -275,7 +275,7 @@ class ExpressionWalker(ReuseTransformer):
 
     def coefficient(self, o):
 
-        if isinstance(o, core_types.Function):
+        if isinstance(o, types.Function):
             if self._function_space is None:
                 self._function_space = o._function_space
             elif self._function_space != o._function_space:
@@ -345,7 +345,7 @@ def expression_kernel(expr, args):
 
     body = cgen.Block()
 
-    if isinstance(fs, core_types.VectorFunctionSpace):
+    if isinstance(fs, types.VectorFunctionSpace):
         body.extend(
             [cgen.Value("int", "dim"),
              cgen.For("dim = 0",
@@ -390,6 +390,6 @@ def assemble_expression(expr, subset=None):
     """Evaluates UFL expressions on :class:`.Function`\s pointwise and assigns
     into a new :class:`.Function`."""
 
-    result = core_types.Function(ExpressionWalker().walk(expr)[2])
+    result = types.Function(ExpressionWalker().walk(expr)[2])
     evaluate_expression(Assign(result, expr), subset)
     return result

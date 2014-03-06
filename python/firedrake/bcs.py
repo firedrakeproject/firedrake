@@ -3,7 +3,7 @@ import utils
 import numpy as np
 from ufl import as_ufl, UFLException
 import types
-from core_types import Function
+from types import Function
 from expression import Expression, to_expression
 from projection import project
 import pyop2 as op2

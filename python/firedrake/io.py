@@ -5,7 +5,7 @@ from ufl import Cell, OuterProductCell
 import numpy as np
 import os
 from pyop2.mpi import *
-import core_types
+import types
 
 
 # Dictionary used to translate the cellname of firedrake
@@ -162,7 +162,7 @@ class _VTUFile(object):
 
             connectivity = connectivity_temp.flatten()  # no need to subtract 1
 
-        if isinstance(function.function_space(), core_types.VectorFunctionSpace):
+        if isinstance(function.function_space(), types.VectorFunctionSpace):
             tmp = function.dat.data_ro_with_halos
             vdata = [None]*3
             for i in range(function.dat.dim[0]):
