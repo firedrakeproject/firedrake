@@ -44,8 +44,14 @@ use quicksort
 use parallel_tools
 use vector_tools
 use iso_c_binding
-use global_parameters, only: c_sizeof, malloc
+use global_parameters, only: malloc
+
 implicit none
+
+#ifdef __INTEL_COMPILER
+intrinsic sizeof
+#define c_sizeof sizeof
+#endif
 
   private
 

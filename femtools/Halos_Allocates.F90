@@ -41,6 +41,11 @@ module halos_allocates
 
   implicit none
 
+#ifdef __INTEL_COMPILER
+  intrinsic sizeof
+#define c_sizeof sizeof
+#endif
+
   private
 
   public :: allocate, reallocate, deallocate, incref, has_references, &

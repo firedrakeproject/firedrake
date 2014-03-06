@@ -166,12 +166,6 @@ module global_parameters
   integer, parameter :: COLOURING_DG2 = 4
   integer, parameter :: NUM_COLOURINGS = 4
 
-#ifdef __INTEL_COMPILER
-  interface c_sizeof
-    module procedure c_sizeof_c_int, c_sizeof_c_double
-  end interface
-#endif
-
   ! Allow calls to c malloc for interoperability voodoo.
   interface
      function malloc(size) bind(c)
@@ -196,21 +190,5 @@ module global_parameters
 
     get_surface_radius = real(surface_radius, kind=c_double)
   end function get_surface_radius
-
-#ifdef __INTEL_COMPILER
-  pure function c_sizeof_c_int(x) result(c_sizeof)
-    integer(kind=c_int), intent(in) :: x
-    integer(kind=c_int) :: c_sizeof
-
-    c_sizeof = 4
-  end function
-
-  pure function c_sizeof_c_double(x) result(c_sizeof)
-    real(kind=c_double), intent(in) :: x
-    integer(kind=c_int) :: c_sizeof
-
-    c_sizeof = 8
-  end function
-#endif
 
 end module global_parameters

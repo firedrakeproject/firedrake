@@ -32,9 +32,6 @@ use fields_base
 use shape_functions, only: make_element_shape
 use global_parameters, only: PYTHON_FUNC_LEN, empty_path, empty_name, &
      topology_mesh_name, NUM_COLOURINGS, malloc, free
-#ifdef __INTEL_COMPILER
-use global_parameters, only: c_sizeof
-#endif
 use halo_data_types
 use halos_allocates
 use halos_repair
@@ -49,6 +46,11 @@ use python_utils
 use iso_c_binding
 
 implicit none
+
+#ifdef __INTEL_COMPILER
+intrinsic sizeof
+#define c_sizeof sizeof
+#endif
 
   private
 
