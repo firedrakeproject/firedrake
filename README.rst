@@ -114,6 +114,8 @@ Testing dependencies (optional, required to run the tests):
 
 * pytest >= 2.3
 * flake8 >= 2.1.0
+* gmsh
+* triangle
 
 With the exception of the PETSc_ dependencies, these can be installed
 using the package management system of your OS, or via ``pip``.
@@ -364,7 +366,7 @@ Testing your installation
 PyOP2 unit tests use `pytest <http://pytest.org>`__ >= 2.3. Install via package
 manager::
 
-  sudo apt-get install python-pytest 
+  sudo apt-get install python-pytest
 
 or pip::
 
@@ -381,6 +383,10 @@ following to ``~/.bashrc`` or ``.env``::
 
   # Add pytest binaries to the path
   export PATH=${PATH}:${HOME}/.local/bin
+
+The regression tests further require *gmsh* and *triangle*: ::
+
+  sudo apt-get install gmsh triangle-bin unzip
 
 If all tests in our test suite pass, you should be good to go::
 
@@ -403,6 +409,22 @@ Run ``pydoc <module>`` to find out where a module/package is loaded
 from. To print the module search path, run::
 
  python -c 'from pprint import pprint; import sys; pprint(sys.path)'
+
+Troubleshooting test failures
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Run the tests as follows, to abort after the first failed test:
+
+Start with the unit tests with the sequential backend ::
+
+  py.test test/unit -vsx --tb=short --backend=sequential
+
+Then move on to the regression tests with the sequential backend ::
+
+  py.test test/regression -vsx --tb=short --backend=sequential
+
+With all the sequential tests passing, move on to the next backend in the same
+manner as required.
 
 .. _PPA: https://launchpad.net/~amcg/+archive/petsc3.4/
 .. _PETSc: http://www.mcs.anl.gov/petsc/
