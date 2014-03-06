@@ -25,8 +25,11 @@ def run_vector_test(x, degree=1, family='CG'):
     exact = Function(VectorFunctionSpace(m, 'CG', 5))
     exact.interpolate(e)
 
-    # Solve to machine precision.
-    ret = project(e, V, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+    # Solve to machine precision.  This version of the test uses the
+    # alternate syntax in which the target Function is already
+    # available.
+    ret = Function(V)
+    project(e, ret, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
 
     return sqrt(assemble(inner((ret - exact), (ret - exact)) * dx))
 
@@ -38,8 +41,10 @@ def run_test(x, degree=1, family='CG'):
     exact = Function(FunctionSpace(m, 'CG', 5))
     exact.interpolate(e)
 
-    # Solve to machine precision.
-    ret = project(e, V, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+    # Solve to machine precision. This version of the test uses the
+    # method version of project.
+    ret = Function(V)
+    ret.project(e, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
 
     return sqrt(assemble((ret - exact) * (ret - exact) * dx))
 
