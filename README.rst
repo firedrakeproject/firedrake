@@ -410,6 +410,22 @@ from. To print the module search path, run::
 
  python -c 'from pprint import pprint; import sys; pprint(sys.path)'
 
+Troubleshooting test failures
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Run the tests as follows, to abort after the first failed test:
+
+Start with the unit tests with the sequential backend ::
+
+  py.test test/unit -vsx --tb=short --backend=sequential
+
+Then move on to the regression tests with the sequential backend ::
+
+  py.test test/regression -vsx --tb=short --backend=sequential
+
+With all the sequential tests passing, move on to the next backend in the same
+manner as required.
+
 .. _PPA: https://launchpad.net/~amcg/+archive/petsc3.4/
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _petsc4py: http://pythonhosted.org/petsc4py/
