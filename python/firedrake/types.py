@@ -22,17 +22,17 @@ valuetype = np.float64
 class FunctionSpace(FunctionSpaceBase):
     """Create a function space
 
-    :arg mesh: :class:`Mesh` to build the function space on
+    :arg mesh: :class:`.Mesh` to build the function space on
     :arg family: string describing function space family, or a
         :class:`ufl.OuterProductElement`
     :arg degree: degree of the function space
     :arg name: (optional) name of the function space
     :arg vfamily: family of function space in vertical dimension
-        (:class:`ExtrudedMesh`\es only)
+        (:class:`.ExtrudedMesh`\es only)
     :arg vdegree: degree of function space in vertical dimension
-        (:class:`ExtrudedMesh`\es only)
+        (:class:`.ExtrudedMesh`\es only)
 
-    If the mesh is an :class:`ExtrudedMesh`, and the `family` argument
+    If the mesh is an :class:`.ExtrudedMesh`, and the `family` argument
     is a :class:`ufl.OuterProductElement`, `degree`, `vfamily` and
     `vdegree` are ignored, since the `family` provides all necessary
     information, otherwise a :class:`ufl.OuterProductElement` is built
@@ -40,7 +40,7 @@ class FunctionSpace(FunctionSpaceBase):
     the `vfamily` and `vdegree` are not provided, the vertical element
     will be the same as the provided (`family`, `degree`) pair.
 
-    If the mesh is not an :class:`ExtrudedMesh`, the `family` must be
+    If the mesh is not an :class:`.ExtrudedMesh`, the `family` must be
     a string describing the finite element family to use, and the
     `degree` must be provided, `vfamily` and `vdegree` are ignored in
     this case.
@@ -291,12 +291,12 @@ class MixedFunctionSpace(FunctionSpaceBase):
 
 
 class IndexedFunctionSpace(FunctionSpaceBase):
-    """A :class:`FunctionSpaceBase` with an index to indicate which position
+    """A :class:`.FunctionSpaceBase` with an index to indicate which position
     it has as part of a :class:`MixedFunctionSpace`."""
 
     def __init__(self, fs, index, parent):
         """
-        :param fs: the :class:`FunctionSpaceBase` that was extracted
+        :param fs: the :class:`.FunctionSpaceBase` that was extracted
         :param index: the position in the parent :class:`MixedFunctionSpace`
         :param parent: the parent :class:`MixedFunctionSpace`
         """
@@ -342,7 +342,7 @@ class IndexedFunctionSpace(FunctionSpaceBase):
 
 class Function(ufl.Coefficient):
     """A :class:`Function` represents a discretised field over the
-    domain defined by the underlying :class:`Mesh`. Functions are
+    domain defined by the underlying :class:`.Mesh`. Functions are
     represented as sums of basis functions:
 
     .. math::
@@ -360,7 +360,7 @@ class Function(ufl.Coefficient):
 
     def __init__(self, function_space, val=None, name=None):
         """
-        :param function_space: the :class:`FunctionSpaceBase` or another
+        :param function_space: the :class:`.FunctionSpaceBase` or another
             :class:`Function` to build this :class:`Function` on
         :param val: NumPy array-like with initial values or a :class:`op2.Dat`
             (optional)
@@ -422,7 +422,7 @@ class Function(ufl.Coefficient):
         return self._function_space.exterior_facet_node_map(bcs)
 
     def vector(self):
-        """Return a :class:`Vector` wrapping the data in this :class:`Function`"""
+        """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
         return Vector(self.dat)
 
     def function_space(self):

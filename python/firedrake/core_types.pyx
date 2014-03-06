@@ -875,8 +875,8 @@ class Halo(object):
 
 
 class FunctionSpaceBase(Cached):
-    """Base class for :class:`FunctionSpace`, :class:`VectorFunctionSpace` and
-    :class:`MixedFunctionSpace`.
+    """Base class for :class:`.FunctionSpace`, :class:`.VectorFunctionSpace` and
+    :class:`.MixedFunctionSpace`.
 
     .. note ::
 
@@ -891,7 +891,7 @@ class FunctionSpaceBase(Cached):
         :param mesh: :class:`Mesh` to build this space on
         :param element: :class:`ufl.FiniteElementBase` to build this space from
         :param name: user-defined name for this space
-        :param dim: vector space dimension of a :class:`VectorFunctionSpace`
+        :param dim: vector space dimension of a :class:`.VectorFunctionSpace`
         :param rank: rank of the space, not the value rank
         """
 
@@ -995,14 +995,14 @@ class FunctionSpaceBase(Cached):
     @property
     def index(self):
         """Position of this :class:`FunctionSpaceBase` in the
-        :class:`MixedFunctionSpace` it was extracted from."""
+        :class:`.MixedFunctionSpace` it was extracted from."""
         return self._index
 
     @property
     def node_count(self):
         """The number of global nodes in the function space. For a
-        plain :class:`FunctionSpace` this is equal to
-        :attr:`dof_count`, however for a :class:`VectorFunctionSpace`,
+        plain :class:`.FunctionSpace` this is equal to
+        :attr:`dof_count`, however for a :class:`.VectorFunctionSpace`,
         the :attr:`dof_count`, is :attr:`dim` times the
         :attr:`node_count`."""
 
@@ -1018,8 +1018,10 @@ class FunctionSpaceBase(Cached):
     @utils.cached_property
     def node_set(self):
         """A :class:`pyop2.Set` containing the nodes of this
-        :class:`FunctionSpace`. One or (for VectorFunctionSpaces) more degrees
-        of freedom are stored at each node."""
+        :class:`.FunctionSpace`. One or (for
+        :class:`.VectorFunctionSpace`\s) more degrees of freedom are
+        stored at each node.
+        """
 
         name = "%s_nodes" % self.name
         if self._halo:
@@ -1037,12 +1039,12 @@ class FunctionSpaceBase(Cached):
     @utils.cached_property
     def dof_dset(self):
         """A :class:`pyop2.DataSet` containing the degrees of freedom of
-        this :class:`FunctionSpace`."""
+        this :class:`.FunctionSpace`."""
         return op2.DataSet(self.node_set, self.dim)
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.Dat` defined on the
-        :attr:`dof_dset` of this :class:`Function`."""
+        :attr:`dof_dset` of this :class:`.Function`."""
         return op2.Dat(self.dof_dset, val, valuetype, name, uid=uid)
 
 
@@ -1262,17 +1264,17 @@ class FunctionSpaceBase(Cached):
 
     @property
     def dim(self):
-        """The vector dimension of the :class:`FunctionSpace`. For a
-        :class:`FunctionSpace` this is always one. For a
-        :class:`VectorFunctionSpace` it is the value given to the
+        """The vector dimension of the :class:`.FunctionSpace`. For a
+        :class:`.FunctionSpace` this is always one. For a
+        :class:`.VectorFunctionSpace` it is the value given to the
         constructor, and defaults to the geometric dimension of the :class:`Mesh`. """
         return self._dim
 
     @property
     def cdim(self):
-        """The sum of the vector dimensions of the :class:`FunctionSpace`. For a
-        :class:`FunctionSpace` this is always one. For a
-        :class:`VectorFunctionSpace` it is the value given to the
+        """The sum of the vector dimensions of the :class:`.FunctionSpace`. For a
+        :class:`.FunctionSpace` this is always one. For a
+        :class:`.VectorFunctionSpace` it is the value given to the
         constructor, and defaults to the geometric dimension of the :class:`Mesh`. """
         return self._dim
 
@@ -1282,7 +1284,7 @@ class FunctionSpaceBase(Cached):
         return self._ufl_element
 
     def mesh(self):
-        """The :class:`Mesh` used to construct this :class:`FunctionSpace`."""
+        """The :class:`Mesh` used to construct this :class:`.FunctionSpace`."""
         return self._mesh
 
     def __len__(self):
@@ -1298,6 +1300,6 @@ class FunctionSpaceBase(Cached):
         return self
 
     def __mul__(self, other):
-        """Create a :class:`MixedFunctionSpace` composed of this
-        :class:`FunctionSpace` and other"""
+        """Create a :class:`.MixedFunctionSpace` composed of this
+        :class:`.FunctionSpace` and other"""
         return types.MixedFunctionSpace((self, other))
