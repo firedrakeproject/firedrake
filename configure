@@ -10876,6 +10876,9 @@ rm -f core conftest.err conftest.$ac_objext \
 fi
 
 if test "$mpi" = "yes" ; then
+  if test "$USING_GFORTRAN" = "yes"; then
+    LIBS="$LIBS -lmpi_f77"
+  fi
 cat >> confdefs.h << EOF
 #define HAVE_MPI 1
 #define HAVE_MPI_CXX 1
