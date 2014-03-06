@@ -13,7 +13,7 @@ def project(v, V, bcs=None, mesh=None,
     """Project an :class:`.Expression` or :class:`.Function` into a :class:`.FunctionSpace`
 
     :arg v: the :class:`.Expression` or :class:`.Function` to project
-    :arg V: the :class:`.FunctionSpace` to project into
+    :arg V: the :class:`.FunctionSpace` or :class:`.Function` to project into
     :arg bcs: boundary conditions to apply in the projection
     :arg mesh: the mesh to project into
     :arg solver_type: linear solver to use
@@ -21,9 +21,21 @@ def project(v, V, bcs=None, mesh=None,
     :arg form_compiler_parameters: parameters to the form compiler
     :arg name: name of the resulting :class:`.Function`
 
+    If ``V`` is a :class:`.Function` then ``v`` is projected into
+    ``V`` and ``V`` is returned. If `V` is a :class:`.FunctionSpace`
+    then ``v`` is projected into a new :class:`.Function` and that
+    :class:`.Function` is returned.
+
     Currently, `bcs`, `mesh` and `form_compiler_parameters` are ignored."""
-    if not isinstance(V, FunctionSpaceBase):
-        raise RuntimeError('Can only project into function spaces, not %r' % type(V))
+    if isinstance(V, FunctionSpaceBase):
+        ret = Function(V, name=name)
+    elif isinstance(V, Function):
+        ret = V
+        V = V.function_space()
+    else:
+        raise RuntimeError(
+            'Can only project into functions and function spaces, not %r'
+            % type(V))
 
     if isinstance(v, Expression):
         shape = v.shape()
@@ -47,7 +59,6 @@ def project(v, V, bcs=None, mesh=None,
         f.interpolate(v)
         v = f
 
-    ret = Function(V, name=name)
     if v.shape() != ret.shape():
         raise RuntimeError('Shape mismatch between source %s and target function spaces %s in project' % (v.shape(), ret.shape()))
 
