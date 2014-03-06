@@ -115,6 +115,7 @@ Testing dependencies (optional, required to run the tests):
 * pytest >= 2.3
 * flake8 >= 2.1.0
 * gmsh
+* triangle
 
 With the exception of the PETSc_ dependencies, these can be installed
 using the package management system of your OS, or via ``pip``.
