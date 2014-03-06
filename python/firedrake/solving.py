@@ -30,7 +30,6 @@ import ufl
 from ufl_expr import derivative
 from pyop2 import op2, ffc_interface
 from pyop2.logger import progress, INFO
-import core_types
 import types
 from assemble_expressions import assemble_expression
 from petsc4py import PETSc
@@ -110,9 +109,9 @@ class NonlinearVariationalSolver(object):
         self._jac_tensor = assemble(self._problem.J_ufl, bcs=self._problem.bcs)
         self._jac_ptensor = self._jac_tensor
         test = self._problem.F_ufl.compute_form_data().original_arguments[0]
-        self._F_tensor = core_types.Function(test.function_space())
+        self._F_tensor = types.Function(test.function_space())
         # Function to hold current guess
-        self._x = core_types.Function(self._problem.u_ufl)
+        self._x = types.Function(self._problem.u_ufl)
         self._problem.F_ufl = ufl.replace(self._problem.F_ufl, {self._problem.u_ufl:
                                                                 self._x})
         self._problem.J_ufl = ufl.replace(self._problem.J_ufl, {self._problem.u_ufl:
@@ -376,13 +375,13 @@ def _assemble(f, tensor=None, bcs=None):
 
     def get_rank(arg):
         return arg.function_space().rank
-    has_vec_fs = lambda arg: isinstance(arg.function_space(), core_types.VectorFunctionSpace)
+    has_vec_fs = lambda arg: isinstance(arg.function_space(), types.VectorFunctionSpace)
 
     def mixed_plus_vfs_error(arg):
         mfs = arg.function_space()
-        if not isinstance(mfs, core_types.MixedFunctionSpace):
+        if not isinstance(mfs, types.MixedFunctionSpace):
             return
-        if any(isinstance(fs, core_types.VectorFunctionSpace) for fs in mfs):
+        if any(isinstance(fs, types.VectorFunctionSpace) for fs in mfs):
             raise NotImplementedError(
                 "MixedFunctionSpaces containing a VectorFunctionSpace are currently unsupported")
 
@@ -429,7 +428,7 @@ def _assemble(f, tensor=None, bcs=None):
         mixed_plus_vfs_error(test)
         m = test.function_space().mesh()
         if tensor is None:
-            result_function = core_types.Function(test.function_space())
+            result_function = types.Function(test.function_space())
             tensor = result_function.dat
         else:
             result_function = tensor
@@ -543,7 +542,7 @@ def _assemble(f, tensor=None, bcs=None):
         if bcs is not None and is_mat:
             for bc in bcs:
                 fs = bc.function_space()
-                if isinstance(fs, core_types.MixedFunctionSpace):
+                if isinstance(fs, types.MixedFunctionSpace):
                     raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
                 # Set diagonal entries on bc nodes to 1.
                 if fs.index is None:
@@ -607,7 +606,7 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
         A.bcs = bcs
     if bcs is not None:
         # Solving A x = b - action(a, u_bc)
-        u_bc = core_types.Function(b.function_space())
+        u_bc = types.Function(b.function_space())
         for bc in bcs:
             bc.apply(u_bc)
         # rhs = b - action(A, u_bc)

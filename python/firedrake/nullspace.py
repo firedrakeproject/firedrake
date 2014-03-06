@@ -1,5 +1,5 @@
 from petsc4py import PETSc
-from core_types import IndexedFunctionSpace
+from types import IndexedFunctionSpace
 
 
 class VectorSpaceBasis(object):
