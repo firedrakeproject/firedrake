@@ -438,20 +438,26 @@ def plex_mark_entity_classes(plex):
             depth = plex.getLabelValue("depth", p)
             plex.setLabelValue("op2_core", p, depth)
 
-def plex_get_entities_by_class(plex, depth):
+def plex_get_entities_by_class(plex, depth, condition=None):
     """Get a list of Plex entities sorted by the PyOP2 entity classes"""
     entity_classes = [0, 0, 0 ,0]
     entities = np.array([], dtype=np.int32)
     if plex.getStratumSize("op2_core", depth) > 0:
         core = plex.getStratumIS("op2_core", depth).getIndices()
+        if condition:
+            core = filter(condition, core)
         entities = np.concatenate([entities, core])
     entity_classes[0] = entities.size
     if plex.getStratumSize("op2_non_core", depth) > 0:
         non_core = plex.getStratumIS("op2_non_core", depth).getIndices()
+        if condition:
+            non_core = filter(condition, non_core)
         entities = np.concatenate([entities, non_core])
     entity_classes[1] = entities.size
     if plex.getStratumSize("op2_exec_halo", depth) > 0:
         exec_halo = plex.getStratumIS("op2_exec_halo", depth).getIndices()
+        if condition:
+            exec_halo = filter(condition, exec_halo)
         entities = np.concatenate([entities, exec_halo])
     entity_classes[2] = entities.size
     entity_classes[3] = entities.size
@@ -735,7 +741,10 @@ class Mesh(object):
                 vertex_fs = types.FunctionSpace(self, "CG", 1)
                 self._vertex_numbering = vertex_fs._universal_numbering
 
-            exterior_facets = self._plex.getStratumIS("exterior_facets", 1).getIndices()
+            # Order exterior facets by OP2 entity class
+            ext_facet = lambda f: self._plex.getLabelValue("exterior_facets", f) == 1
+            exterior_facets, exterior_facet_classes = \
+                plex_get_entities_by_class(self._plex, dim-1, condition=ext_facet)
 
             # Derive attached boundary IDs
             if self._plex.hasLabel("boundary_ids"):
@@ -747,7 +756,8 @@ class Mesh(object):
 
             exterior_facet_cell = np.array([np.where(self._plex.getSupport(f)==self.cells())[0][0] for f in exterior_facets])
             get_f_no = lambda f: plex_facet_numbering(self._plex, self._vertex_numbering, f)
-            exterior_local_facet_number = np.array([get_f_no(f) for f in exterior_facets])
+            exterior_local_facet_number = np.array([get_f_no(f) for f in exterior_facets], dtype=np.int32)
+            # Note: Should use exterior_facet_classes here
             self.exterior_facets = _Facets(self, exterior_facets.size,
                                            "exterior",
                                            exterior_facet_cell,
@@ -763,10 +773,17 @@ class Mesh(object):
                 vertex_fs = types.FunctionSpace(self, "CG", 1)
                 self._vertex_numbering = vertex_fs._universal_numbering
 
-            interior_facets = self._plex.getStratumIS("interior_facets", 1).getIndices()
-            interior_facet_cell = np.array([ self._plex.getSupport(f) for f in interior_facets ])
+            int_facet = lambda f: self._plex.getLabelValue("interior_facets", f) == 1
+            interior_facets, interior_facet_classes = \
+                plex_get_entities_by_class(self._plex, dim-1, condition=int_facet)
+
+            interior_facet_cell = []
+            for f in interior_facets:
+                interior_facet_cell.append(np.concatenate([np.where(c==self.cells())[0] for c in self._plex.getSupport(f)]))
+            interior_facet_cell = np.array(interior_facet_cell)
             get_f_no = lambda f: plex_facet_numbering(self._plex, self._vertex_numbering, f)
             interior_local_facet_number = np.array([get_f_no(f) for f in interior_facets])
+            # Note: Should use interior_facet_classes here
             self.interior_facets = _Facets(self, interior_facets.size,
                                            "interior",
                                            interior_facet_cell,
@@ -1255,15 +1272,25 @@ class FunctionSpaceBase(Cached):
         self.cell_node_list = np.array([self._get_cell_nodes(c) for c in self._mesh.cells()])
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
-            interior_facets = mesh._plex.getStratumIS("interior_facets", 1).getIndices()
-            interior_facet_eles = np.array([mesh._plex.getSupport(f) for f in interior_facets])
+            dim = mesh._plex.getDimension()
+            int_facet = lambda f: mesh._plex.getLabelValue("interior_facets", f) == 1
+            interior_facets = plex_get_entities_by_class(mesh._plex, dim-1, condition=int_facet)[0]
+
+            interior_facet_eles = []
+            for f in interior_facets:
+                interior_facet_eles.append(np.concatenate([np.where(c==mesh.cells())[0] for c in mesh._plex.getSupport(f)]))
             self.interior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in interior_facet_eles])
         else:
             self.interior_facet_node_list = None
 
         if mesh._plex.getStratumSize("exterior_facets", 1) > 0:
-            exterior_facets = mesh._plex.getStratumIS("exterior_facets", 1).getIndices()
-            exterior_facet_eles = np.array([np.where(self._plex.getSupport(f)==self._mesh.cells())[0] for f in exterior_facets])
+            dim = mesh._plex.getDimension()
+            ext_facet = lambda f: mesh._plex.getLabelValue("exterior_facets", f) == 1
+            exterior_facets = plex_get_entities_by_class(mesh._plex, dim-1, condition=ext_facet)[0]
+
+            exterior_facet_eles = []
+            for f in exterior_facets:
+                exterior_facet_eles.append(np.concatenate([np.where(c==mesh.cells())[0] for c in mesh._plex.getSupport(f)]))
             self.exterior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in exterior_facet_eles])
         else:
             self.exterior_facet_node_list = None
