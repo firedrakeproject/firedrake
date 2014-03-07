@@ -23,6 +23,8 @@ threads per MPI rank. Datastructures must be suitably partitioned in
 this case with overlapping regions, so called halos. These are
 described in detail in :doc:`mpi`.
 
+.. _sequential_backend:
+
 Sequential backend
 ------------------
 
@@ -95,6 +97,8 @@ applied. Note that for both arguments, the pointers are to two
 consecutive double values, since the :class:`~pyop2.DataSet` is of
 dimension two in either case.
 
+.. _openmp_backend:
+
 OpenMP backend
 --------------
 
@@ -158,6 +162,8 @@ into the arrays ``nelems`` and ``offset`` provided as part of the execution
 plan. These are the number of elements that are part of the given block and
 its starting index. Note that each thread needs its own staging array
 ``arg1_0_vec``, which is therefore scoped by the thread id.
+
+.. _cuda_backend:
 
 CUDA backend
 ------------
@@ -274,6 +280,8 @@ iteration a thread-private array of pointers to coordinate data in shared
 memory is built which is then passed to the ``midpoint`` kernel. As for other
 backends, the first, directly accessed, argument, is passed as a pointer to
 global device memory with a suitable offset.
+
+.. _opencl_backend:
 
 OpenCL backend
 --------------
