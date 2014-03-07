@@ -150,6 +150,11 @@ class MixedFunctionSpace(FunctionSpaceBase):
         self.rank = 1
         self._index = None
 
+    @classmethod
+    def _process_args(cls, spaces, **kwargs):
+        """Convert list of spaces to tuple (to make it hashable)"""
+        return tuple(spaces), kwargs
+
     def split(self):
         """The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
