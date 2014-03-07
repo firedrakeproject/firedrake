@@ -438,6 +438,25 @@ def plex_mark_entity_classes(plex):
             depth = plex.getLabelValue("depth", p)
             plex.setLabelValue("op2_core", p, depth)
 
+def plex_get_entities_by_class(plex, depth):
+    """Get a list of Plex entities sorted by the PyOP2 entity classes"""
+    entity_classes = [0, 0, 0 ,0]
+    entities = np.array([], dtype=np.int32)
+    if plex.getStratumSize("op2_core", depth) > 0:
+        core = plex.getStratumIS("op2_core", depth).getIndices()
+        entities = np.concatenate([entities, core])
+    entity_classes[0] = entities.size
+    if plex.getStratumSize("op2_non_core", depth) > 0:
+        non_core = plex.getStratumIS("op2_non_core", depth).getIndices()
+        entities = np.concatenate([entities, non_core])
+    entity_classes[1] = entities.size
+    if plex.getStratumSize("op2_exec_halo", depth) > 0:
+        exec_halo = plex.getStratumIS("op2_exec_halo", depth).getIndices()
+        entities = np.concatenate([entities, exec_halo])
+    entity_classes[2] = entities.size
+    entity_classes[3] = entities.size
+    return entities, entity_classes
+
 def plex_permute_global_numbering(plex):
     """Permute the global/universal DoF numbering according to a
     depth-first traversal of the Plex graph."""
@@ -704,8 +723,10 @@ class Mesh(object):
         cell_vertices = self._plex.getConeSize(cStart)
         self._ufl_cell = ufl.Cell(_cells[geometric_dim][cell_vertices],
                                   geometric_dimension = geometric_dim)
-        self._cells = np.array([self._plex.getCone(c) for c in range(cStart, cEnd)])
         self._vertex_numbering = None
+
+        dim = self._plex.getDimension()
+        self._cells, self.cell_classes = plex_get_entities_by_class(self._plex, dim)
 
         # Exterior facets
         if self._plex.getStratumSize("exterior_facets", 1) > 0:
@@ -724,7 +745,7 @@ class Mesh(object):
             else:
                 boundary_ids = None
 
-            exterior_facet_cell = np.array([self._plex.getSupport(f) for f in exterior_facets])
+            exterior_facet_cell = np.array([np.where(self._plex.getSupport(f)==self.cells())[0][0] for f in exterior_facets])
             get_f_no = lambda f: plex_facet_numbering(self._plex, self._vertex_numbering, f)
             exterior_local_facet_number = np.array([get_f_no(f) for f in exterior_facets])
             self.exterior_facets = _Facets(self, exterior_facets.size,
@@ -910,7 +931,7 @@ class Mesh(object):
 
     @utils.cached_property
     def cell_set(self):
-        size = self.num_cells()
+        size = self.cell_classes
         return self.parent.cell_set if self.parent else \
             op2.Set(size, "%s_cells" % self.name)
 
@@ -1231,8 +1252,7 @@ class FunctionSpaceBase(Cached):
                           self._universal_numbering)
 
         self._node_count = self._global_numbering.getStorageSize()
-        cStart,cEnd = mesh._plex.getHeightStratum(0)  # cells
-        self.cell_node_list = np.array([self._get_cell_nodes(c) for c in range(cStart, cEnd)])
+        self.cell_node_list = np.array([self._get_cell_nodes(c) for c in self._mesh.cells()])
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
             interior_facets = mesh._plex.getStratumIS("interior_facets", 1).getIndices()
@@ -1243,7 +1263,7 @@ class FunctionSpaceBase(Cached):
 
         if mesh._plex.getStratumSize("exterior_facets", 1) > 0:
             exterior_facets = mesh._plex.getStratumIS("exterior_facets", 1).getIndices()
-            exterior_facet_eles = np.array([mesh._plex.getSupport(f) for f in exterior_facets])
+            exterior_facet_eles = np.array([np.where(self._plex.getSupport(f)==self._mesh.cells())[0] for f in exterior_facets])
             self.exterior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in exterior_facet_eles])
         else:
             self.exterior_facet_node_list = None
