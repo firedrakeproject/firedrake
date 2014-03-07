@@ -75,7 +75,9 @@ from a :class:`~pyop2.Map` from ``elements`` to ``nodes``. The assembly is
 done in a :func:`~pyop2.par_loop` over ``elements``, where the
 :class:`~pyop2.Mat` ``A`` is accssed indirectly via the ``elem_node``
 :class:`~pyop2.Map` using the :class:`~pyop2.base.IterationIndex`
-:class:`~pyop2.i`: ::
+:class:`~pyop2.i`:
+
+.. code-block:: python
 
   nodes = op2.Set(NUM_NODES, "nodes")
   elements = op2.Set(NUM_ELE, "elements")
@@ -96,6 +98,31 @@ done in a :func:`~pyop2.par_loop` over ``elements``, where the
   op2.par_loop(rhs_kernel, elements,
                b(op2.INC, elem_node[op2.i[0]]),
                ...)
+
+The code generated for the :func:`~pyop2.par_loop` assembling the
+:class:`~pyop2.Mat` for the sequential backend is similar to the following,
+where initialisation and staging code described in :ref:`sequential_backend`
+have been omitted for brevity. For each element of the iteration
+:class:`~pyop2.Set` a buffer for the local tensor is initialised to zero and
+passed to the user kernel performing the local assembly operation. The
+``addto_vector`` call subsequently adds this local contribution to the global
+sparse matrix.
+
+.. code-block:: c
+
+  void wrap_mat_kernel__(...) {
+    ...
+    for ( int n = start; n < end; n++ ) {
+      int i = n;
+      ...
+      double buffer_arg0_0[3][3] = {{0}};     // local tensor initialised to 0
+      mat_kernel(buffer_arg0_0, ...);         // local assembly kernel
+      addto_vector(arg0_0_0, buffer_arg0_0,   // Mat objet, local tensor
+                   3, arg0_0_map0_0 + i * 3,  // # rows, global row indices
+                   3, arg0_0_map1_0 + i * 3,  // # cols, global column indices
+                   0);                        // mode: 0 add, 1 insert
+    }
+  }
 
 .. _sparsity_pattern:
 
