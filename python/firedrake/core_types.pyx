@@ -501,12 +501,14 @@ class Mesh(object):
             # We've been passed a periodic coordinate field, so use that.
             self._coordinate_fs = types.VectorFunctionSpace(self, "DG", 1)
             self._coordinate_field = types.Function(self._coordinate_fs,
-                                                    val=periodic_coords)
+                                                    val=periodic_coords,
+                                                    name="Coordinates")
         else:
             self._coordinate_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
 
             self._coordinate_field = types.Function(self._coordinate_fs,
-                                                    val = self._coordinates)
+                                                    val=self._coordinates,
+                                                    name="Coordinates")
         self._dx = Measure('cell', domain_data=self._coordinate_field)
         self._ds = Measure('exterior_facet', domain_data=self._coordinate_field)
         self._dS = Measure('interior_facet', domain_data=self._coordinate_field)
