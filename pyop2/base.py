@@ -823,11 +823,6 @@ class Subset(Set):
         return _make_object('Subset', self, indices)
 
     @property
-    def _extruded(self):
-        """Is this superset of this :class:`Subset` an :class:`ExtrudedSet`?"""
-        return isinstance(self._superset, ExtrudedSet)
-
-    @property
     def superset(self):
         """Returns the superset Set"""
         return self._superset
