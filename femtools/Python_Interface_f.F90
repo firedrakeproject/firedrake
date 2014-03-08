@@ -29,7 +29,7 @@ module python_interface_f
   !  these to be called from Python.
   use iso_c_binding
   use elements
-  use global_parameters, only: malloc, free, c_sizeof
+  use global_parameters, only: malloc, free
   use fields_data_types
   use halo_data_types
   use fields_allocates
@@ -41,6 +41,11 @@ module python_interface_f
   use mesh_files
 
   implicit none
+
+#ifdef __INTEL_COMPILER
+  intrinsic sizeof
+#define c_sizeof sizeof
+#endif
 
   type, bind(c) :: element_t
      !! Type containing the essential information from a FIAT element to

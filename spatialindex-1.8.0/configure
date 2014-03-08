@@ -591,7 +591,7 @@ MAKEFLAGS=
 PACKAGE_NAME='spatialindex'
 PACKAGE_TARNAME='spatialindex-src'
 PACKAGE_VERSION='1.8.0'
-PACKAGE_STRING='spatialindex 1.8.0'
+PACKAGE_STRING='spatialindex-1.8.0'
 PACKAGE_BUGREPORT='mhadji@gmail.com'
 PACKAGE_URL=''
 
