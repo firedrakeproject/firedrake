@@ -211,12 +211,6 @@ side vector ``b`` for a solution vector ``x`` is done with a call to
 GPU matrix assembly
 -------------------
 
-Linear algebra on the GPU with the ``cuda`` backend uses the Cusp_ library,
-which does not support all solvers and preconditioners provided by PETSc_. The
-interface to the user is the same as for the ``sequential`` and ``openmp``
-backends, however an exception is raised if an unsupported solver or
-preconditioner type is requested.
-
 In a :func:`~pyop2.par_loop` assembling a :class:`~pyop2.Mat` on the GPU, the
 local contributions are first computed for all elements of the iteration set
 and stored in global memory in a structure-of-arrays (SoA) data layout such
@@ -276,6 +270,21 @@ be allocated on the GPU.
                      rowptr, colidx);
     __atomic_add(csrdata + offset, lmadata[n]);
   }
+
+.. _gpu_solve:
+
+GPU linear algebra
+------------------
+
+Linear algebra on the GPU with the ``cuda`` backend uses the Cusp_ library,
+which does not support all solvers and preconditioners provided by PETSc_. The
+interface to the user is the same as for the ``sequential`` and ``openmp``
+backends. Supported solver types are CG (``cg``), GMRES (``gmres``) and
+BiCGStab (``bicgstab``), with preconditioners of types Jacobi (``jacobi``),
+Bridson approximate inverse (``ainv``) and asymptotic multigrid (``amg``). An
+exception is raised if an unsupported solver or preconditioner type is
+requested.  A Cusp_ solver with the chosen parameters is automatically
+generated when :func:`~pyop2.solve` is called.
 
 .. note ::
   Distributed parallel linear algebra operations with MPI are currently not
