@@ -220,13 +220,62 @@ preconditioner type is requested.
 In a :func:`~pyop2.par_loop` assembling a :class:`~pyop2.Mat` on the GPU, the
 local contributions are first computed for all elements of the iteration set
 and stored in global memory in a structure-of-arrays (SoA) data layout such
-that all threads can write the data out in a coalesced manner. A separate CUDA
-kernel is launched afterwards to compress the data into a sparse matrix in CSR
-storage format. Only the values array needs to be computed, since the row
-pointer and column indices have already been computed when building the
-sparsity on the host and subsequently transferred to GPU memory. Memory for
-the local contributions and the values array only needs to be allocated on the
-GPU.
+that all threads can write the data out in a coalesced manner. For the example
+above, the generated CUDA wrapper code is as follows, again omitting
+initialisation and staging code described in :ref:`cuda_backend`.  The user
+kernel only computes a single element in the local iteration space as detailed
+in :ref:`local-iteration-spaces`.
+
+.. code-block:: c
+
+  __global__ void __mat_kernel_stub(...,
+                                    double *arg0,    // local matrix data array
+                                    int arg0_offset, // offset into the array
+                                    ... ) {
+    ... // omitted initialisation and shared memory staging code
+    for ( int idx = threadIdx.x; idx < nelem; idx += blockDim.x ) {
+      ... // omitted staging code
+      for ( int i0 = 0; i0 < 3; ++i0 ) {
+        for ( int i1 = 0; i1 < 3; ++i1 ) {
+          mass_cell_integral_0_otherwise(
+            (double (*)[1])(arg0 + arg0_offset + idx * 9 + i0 * 3 + i1 * 1),
+            ..., i0, i1);
+        }
+      }
+    }
+  }
+
+A separate CUDA kernel given below is launched afterwards to compress the data
+into a sparse matrix in CSR storage format. Only the values array needs to be
+computed, since the row pointer and column indices have already been computed
+when building the sparsity on the host and subsequently transferred to GPU
+memory. Memory for the local contributions and the values array only needs to
+be allocated on the GPU.
+
+.. code-block:: c
+
+  __global__ void __lma_to_csr(double *lmadata,  // local matrix data array
+                               double *csrdata,  // CSR values array
+                               int *rowptr,      // CSR row pointer array
+                               int *colidx,      // CSR column indices array
+                               int *rowmap,      // row map array
+                               int rowmapdim,    // row map arity
+                               int *colmap,      // column map array
+                               int colmapdim,    // column map arity
+                               int nelems) {
+    int nentries_per_ele = rowmapdim * colmapdim;
+    int n = threadIdx.x + blockIdx.x * blockDim.x;
+    if ( n >= nelems * nentries_per_ele ) return;
+
+    int e = n / nentries_per_ele;                        // set element
+    int i = (n - e * nentries_per_ele) / rowmapdim;      // local row
+    int j = (n - e * nentries_per_ele - i * colmapdim);  // local column
+
+    // Compute position in values array
+    int offset = pos(rowmap[e * rowmapdim + i], colmap[e * colmapdim + j],
+                     rowptr, colidx);
+    __atomic_add(csrdata + offset, lmadata[n]);
+  }
 
 .. note ::
   Distributed parallel linear algebra operations with MPI are currently not
