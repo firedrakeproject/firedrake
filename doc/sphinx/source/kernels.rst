@@ -115,7 +115,11 @@ the element ``i`` the kernel is currently called for. In CUDA/OpenCL
 ``i`` is the global thread id since the kernel is launched in parallel
 for all elements.
 
-  .. image:: images/direct_arg.svg
+.. figure:: images/direct_arg.svg
+  :align: center
+
+  Data layout for a directly accessed :class:`~pyop2.Dat` argument with
+  ``dim`` 2
 
 For an indirectly accessed argument such as ``coordinates`` above,
 PyOP2 gathers pointers to the data via the :class:`~pyop2.Map`
@@ -125,7 +129,11 @@ of pointers of length corresponding to the *arity* of the
 the data chunk for the element in the target :class:`~pyop2.Set` given
 by :class:`~pyop2.Map` entries ``(i, 0)``, ``(i, 1)`` and ``(i, 2)``.
 
-  .. image:: images/indirect_arg.svg
+.. figure:: images/indirect_arg.svg
+  :align: center
+
+  Data layout for a :class:`~pyop2.Dat` argument with ``dim`` 2 indirectly
+  accessed through a :class:`~pyop2.Map` of ``arity`` 3
 
 If the argument is created with the keyword argument ``flatten`` set
 to ``True``, a flattened vector of pointers is passed to the kernel.
@@ -136,7 +144,11 @@ The ordering is by component of ``dim`` i.e. the first component of
 each data item for each element in the target set pointed to by the
 map followed by the second component etc.
 
-  .. image:: images/indirect_arg_flattened.svg
+.. figure:: images/indirect_arg_flattened.svg
+  :align: center
+
+  Data layout for a flattened :class:`~pyop2.Dat` argument with ``dim`` 2
+  indirectly accessed through a :class:`~pyop2.Map` of ``arity`` 3
 
 .. _local-iteration-spaces:
 
@@ -211,7 +223,10 @@ On manycore platforms, the local iteration space does not translate into a
 loop nest, but rather into a larger number of threads being launched to
 compute each of its elements:
 
-.. image:: images/iteration_spaces.svg
+.. figure:: images/iteration_spaces.svg
+  :align: center
+
+  Local iteration space for a kernel computing a 12x12 local tensor
 
 PyOP2 needs to be told to loop over this local iteration space by
 indexing the corresponding maps with an
