@@ -34,9 +34,10 @@ row, entries are sorted by column index to allow for faster lookups using a
 binary search.
 
 .. figure:: images/csr.svg
+  :align: center
 
-  *A sparse matrix and its corresponding CSR row pointer, column indices and
-  values arrays*
+  A sparse matrix and its corresponding CSR row pointer, column indices and
+  values arrays
 
 For distributed parallel storage with MPI, the rows of the matrix are
 distribued evenly among the processors. Each row is then again divided into a
@@ -45,8 +46,9 @@ columns ``i`` to ``j`` if ``i`` and ``j`` are the first and last row owned by
 a given processor, and the off-diagonal part all other rows.
 
 .. figure:: images/mpi_matrix.svg
+  :align: center
 
-  *Distribution of a sparse matrix among 3 MPI processes*
+  Distribution of a sparse matrix among 3 MPI processes
 
 .. _matrix_assembly:
 
@@ -58,6 +60,7 @@ mapped to global matrix entries via a local-to-global mapping represented by a
 pair of :class:`Maps <pyop2.Map>` for the row and column space. 
 
 .. figure:: images/assembly.svg
+  :align: center
 
   Assembly of a local tensor :math:`A^K` into a global matrix :math:`A` using
   the local-to-global mapping :math:`\iota_K^1` for rows and :math:`\iota_K^2`
