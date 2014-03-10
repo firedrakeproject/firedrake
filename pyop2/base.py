@@ -1740,7 +1740,11 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         """Return an estimate of the size of the data associated with this
         :class:`Dat` in bytes. This will be the correct size of the data
         payload, but does not take into account the (presumably small)
-        overhead of the object and its metadata."""
+        overhead of the object and its metadata.
+
+        Note that this is the process local memory usage, not the sum
+        over all MPI processes.
+        """
 
         return self.dtype.itemsize * self.dataset.total_size * self.dataset.cdim
 
@@ -2145,7 +2149,11 @@ class MixedDat(Dat):
         """Return an estimate of the size of the data associated with this
         :class:`Dat` in bytes. This will be the correct size of the data
         payload, but does not take into account the (presumably small)
-        overhead of the object and its metadata."""
+        overhead of the object and its metadata.
+
+        Note that this is the process local memory usage, not the sum
+        over all MPI processes.
+        """
 
         return np.sum([d.nbytes for d in self._dats])
 
