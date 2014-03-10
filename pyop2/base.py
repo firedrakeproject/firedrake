@@ -570,6 +570,7 @@ class Set(object):
         self._name = name or "set_%d" % Set._globalcount
         self._halo = halo
         self._partition_size = 1024
+        self._extruded = False
         if self.halo:
             self.halo.verify(self)
         Set._globalcount += 1
@@ -663,11 +664,6 @@ class Set(object):
         """Return None (not an :class:`ExtrudedSet`)."""
         return None
 
-    @property
-    def _extruded(self):
-        """Is this :class:`Set` an :class:`ExtrudedSet`?"""
-        return isinstance(self, ExtrudedSet)
-
     @classmethod
     def fromhdf5(cls, f, name):
         """Construct a :class:`Set` from set named ``name`` in HDF5 data ``f``"""
@@ -715,6 +711,7 @@ class ExtrudedSet(Set):
             raise SizeTypeError("Number of layers must be > 1 (not %s)" % layers)
         self._layers = layers
         self._ext_tb_bcs = None
+        self._extruded = True
 
     def __getattr__(self, name):
         """Returns a :class:`Set` specific attribute."""
@@ -757,7 +754,7 @@ class ExtrudedSet(Set):
         self._ext_tb_bcs = value
 
 
-class Subset(Set):
+class Subset(ExtrudedSet):
 
     """OP2 subset.
 
