@@ -5,7 +5,7 @@ import ufl
 import FIAT
 
 from pyop2 import op2
-from pyop2.utils import flatten
+from pyop2.utils import flatten, as_tuple
 from pyop2.ir.ast_base import *
 
 import assemble_expressions
@@ -146,14 +146,15 @@ class MixedFunctionSpace(FunctionSpaceBase):
                         for i, s in enumerate(flatten(spaces))]
         self._mesh = self._spaces[0].mesh()
         self._ufl_element = ufl.MixedElement(*[fs.ufl_element() for fs in self._spaces])
-        self.name = '_'.join(str(s.name) for s in self._spaces)
+        self.name = name or '_'.join(str(s.name) for s in self._spaces)
         self.rank = 1
         self._index = None
 
     @classmethod
-    def _process_args(cls, spaces, **kwargs):
+    def _process_args(cls, *args, **kwargs):
         """Convert list of spaces to tuple (to make it hashable)"""
-        return tuple(spaces), kwargs
+        pargs = tuple(as_tuple(arg) for arg in args)
+        return pargs, kwargs
 
     def split(self):
         """The list of :class:`FunctionSpace`\s of which this
