@@ -66,8 +66,8 @@ regression_opencl:
 doc:
 	make -C $(SPHINX_DIR) $(SPHINX_TARGET)
 
-serve: doc
-	cd $(SPHINX_TARGET_DIR); python -m SimpleHTTPServer $(PORT)
+serve:
+	make -C $(SPHINX_DIR) livehtml
 
 update_docs:
 	if [ ! -d $(SPHINX_TARGET_DIR)/.git ]; then \
