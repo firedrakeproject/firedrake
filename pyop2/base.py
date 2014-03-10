@@ -1736,8 +1736,17 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         return self._dtype
 
     @property
+    def nbytes(self):
+        """Return an estimate of the size of the data associated with this
+        :class:`Dat` in bytes. This will be the correct size of the data
+        payload, but does not take into account the (presumably small)
+        overhead of the object and its metadata."""
+
+        return self.dtype.itemsize * self.dataset.total_size * self.dataset.cdim
+
+    @property
     def needs_halo_update(self):
-        '''Has this Dat been written to since the last halo exchange?'''
+        '''Has this :class:`Dat` been written to since the last halo exchange?'''
         return self._needs_halo_update
 
     @needs_halo_update.setter
@@ -2131,6 +2140,15 @@ class MixedDat(Dat):
         for d in self._dats:
             d.zero()
 
+    @property
+    def nbytes(self):
+        """Return an estimate of the size of the data associated with this
+        :class:`Dat` in bytes. This will be the correct size of the data
+        payload, but does not take into account the (presumably small)
+        overhead of the object and its metadata."""
+
+        return np.sum([d.nbytes for d in self._dats])
+
     def __iter__(self):
         """Yield all :class:`Dat`\s when iterated over."""
         for d in self._dats:
@@ -2356,6 +2374,18 @@ class Global(DataCarrier, _EmptyDataMixin):
     def data(self, value):
         _trace.evaluate(set(), set([self]))
         self._data = verify_reshape(value, self.dtype, self.dim)
+
+    @property
+    def nbytes(self):
+        """Return an estimate of the size of the data associated with this
+        :class:`Global` in bytes. This will be the correct size of the
+        data payload, but does not take into account the overhead of
+        the object and its metadata. This renders this method of
+        little statistical significance, however it is included to
+        make the interface consistent.
+        """
+
+        return self.dtype.itemsize * self._cdim
 
     @property
     def soa(self):
