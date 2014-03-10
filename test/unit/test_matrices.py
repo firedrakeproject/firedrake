@@ -744,6 +744,10 @@ class TestMatrices:
         eps = 1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
+    def test_mat_nbytes(self, backend, mat):
+        """Check that the matrix uses the amount of memory we expect."""
+        assert mat.nbytes == 14 * 8
+
     @pytest.mark.xfail('config.getvalue("backend")[0] == "cuda"')
     def test_set_diagonal(self, backend, x, mat):
         mat.zero()
