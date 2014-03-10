@@ -51,4 +51,26 @@ result is requested. At this point, the current execution trace is analyzed
 and computation is enforced according to the read and write dependencies of
 the requested result as described in :doc:`lazy`.
 
+.. _backend-support:
+
+Multiple Backend Support
+------------------------
+
+The backend is selected by passing the keyword argument ``backend`` to the
+:func:`~pyop2.init` function.  If omitted, the ``sequential`` backend is
+selected by default. This choice can be overridden by exporting the
+environment variable ``PYOP2_BACKEND``, which allows switching backends
+without having to touch the code. Once chosen, the backend cannot be changed
+for the duration of the running Python interpreter session.
+
+PyOP2 provides a single API to the user, regardless of which backend the
+computations are running on. All classes and functions that form the public
+API defined in :mod:`pyop2.op2` are interfaces, whose concrete implementations
+are initialised according to the chosen backend. A metaclass takes care of
+instantiating a backend-specific version of the requested class and setting
+the corresponding docstrings such that this process is entirely transparent to
+the user. The implementation of the PyOP2 backends is completely orthogonal to
+the backend selection process and free to use established practices of
+object-oriented design.
+
 .. _Cython: http://cython.org
