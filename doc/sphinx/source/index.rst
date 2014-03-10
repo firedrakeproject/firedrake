@@ -14,6 +14,7 @@ Contents:
    installation
    concepts
    kernels
+   architecture
    backends
    linear_algebra
    user
