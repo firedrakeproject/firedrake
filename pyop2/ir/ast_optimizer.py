@@ -72,7 +72,7 @@ class LoopOptimiser(object):
             - Declarations and Symbols
             - Optimisations requested by the higher layers via pragmas"""
 
-        def check_opts(node, parent):
+        def check_opts(node, parent, fors):
             """Check if node is associated some pragma. If that is the case,
             it saves this info so as to enable pyop2 optimising such node. """
             if node.pragma:
@@ -89,9 +89,11 @@ class LoopOptimiser(object):
                     opt_par = opts[2][delim:].replace(" ", "")
                     if opt_name == "outerproduct":
                         # Found high-level optimisation
-                        # Store outer product iteration variables and parent
-                        self.out_prods[node] = (
-                            [opt_par[1], opt_par[3]], parent)
+                        # Store outer product iteration variables, parent, loops
+                        it_vars = [opt_par[1], opt_par[3]]
+                        fors, fors_parents = zip(*fors)
+                        loops = [l for l in fors if l.it_var() in it_vars]
+                        self.out_prods[node] = (it_vars, parent, loops)
                     else:
                         raise RuntimeError("Unrecognised opt %s - skipping it", opt_name)
                 else:
@@ -104,7 +106,7 @@ class LoopOptimiser(object):
                     inspect(n, node, fors, decls, symbols)
                 return (fors, decls, symbols)
             elif isinstance(node, For):
-                check_opts(node, parent)
+                check_opts(node, parent, fors)
                 fors.append((node, parent))
                 return inspect(node.children[0], node, fors, decls, symbols)
             elif isinstance(node, Par):
@@ -120,7 +122,7 @@ class LoopOptimiser(object):
                 inspect(node.children[1], node, fors, decls, symbols)
                 return (fors, decls, symbols)
             elif perf_stmt(node):
-                check_opts(node, parent)
+                check_opts(node, parent, fors)
                 inspect(node.children[0], node, fors, decls, symbols)
                 inspect(node.children[1], node, fors, decls, symbols)
                 return (fors, decls, symbols)
@@ -305,9 +307,9 @@ class LoopOptimiser(object):
         if tile_sz == -1:
             tile_sz = 20  # Actually, should be determined for each form
 
-        for loop_vars in set([tuple(x) for x, y in self.out_prods.values()]):
+        for stmt, stmt_info in self.out_prods.items():
             # First, find outer product loops in the nest
-            loops = [l for l in self.fors if l.it_var() in loop_vars]
+            loops = self.op_loops[stmt]
 
             # Build tiled loops
             tiled_loops = []
@@ -330,7 +332,7 @@ class LoopOptimiser(object):
                 tiled_loops.append(loop)
 
             # Append tiled loops at the right point in the nest
-            par_block = self.for_parents[self.fors.index(loops[1])]
+            par_block = loops[0].children[0]
             pb = par_block.children
             idx = pb.index(loops[1])
             par_block.children = pb[:idx] + tiled_loops + pb[idx + 1:]

@@ -100,10 +100,13 @@ class LoopVectoriser(object):
         jam factor. Note that factor is just a suggestion to the compiler,
         which can freely decide to use a higher or lower value."""
 
+        if not self.lo.out_prods:
+            return
+
         for stmt, stmt_info in self.lo.out_prods.items():
             # First, find outer product loops in the nest
             it_vars, parent = stmt_info
-            loops = [l for l in self.lo.fors if l.it_var() in it_vars]
+            loops = self.lo.out_prods[stmt][2]
 
             vect_len = self.intr["dp_reg"]
             rows = loops[0].size()
