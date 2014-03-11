@@ -210,7 +210,8 @@ class AssemblyCache(object):
         for c in fd.original_coefficients:
             args.append(c.dat(c.cell_dof_map, op2.READ))
 
-        #from IPython import embed; embed()
+        obj = self.assemblyfunc(form)
+
         dependencies = tuple()
         for arg in args:
             if arg is None:
@@ -225,11 +226,9 @@ class AssemblyCache(object):
                 debug.deprint("Can't create snapshot for argument %r\n\
                               Object %r will not be cached" %
                               (arg, obj))
-                return func(form)
+                return obj
 
             dependencies += (dep,)
-
-        obj = self.assemblyfunc(form)
 
         cache_entry = CacheEntry(form_sig, obj, form, dependencies)
         self.cache[form_sig] = cache_entry
@@ -260,7 +259,7 @@ class AssemblyCache(object):
 
     @property
     def nbytes(self):
-        #TODO: DataCarrier subtypes should provide a 'bytes' property
+        #TODO: DataCarrier subtypes should provide an 'nbytes' property
         tot_bytes = 0
         for entry in self.cache.values():
             obj = entry.get_object()
