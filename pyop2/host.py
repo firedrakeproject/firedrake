@@ -753,6 +753,7 @@ class JITModule(base.JITModule):
                 dim = arg.data.dim
                 _dat_size = [s[0] for s in dim] if len(arg.data.dim) > 1 else dim
                 _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
+                _loop_size = [_buf_size[i]/_dat_size[i] for i in range(len(_buf_size))]
             if self._kernel._opt_is_padded:
                 if arg._is_mat:
                     # Layout of matrices must be restored prior to the invokation of addto_vector
@@ -766,9 +767,9 @@ class JITModule(base.JITModule):
             _buf_decl[arg] = arg.c_buffer_decl(_buf_size, count, _buf_name)
             _buf_name = _layout_name or _buf_name
             if arg.access._mode not in ['WRITE', 'INC']:
-                _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e) for n, e in enumerate(_buf_size)])
+                _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e) for n, e in enumerate(_loop_size)])
                 _buf_gather = arg.c_buffer_gather(_buf_size, count, _buf_name)
-                _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(len(_buf_size) - 1, -1, -1))
+                _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(len(_loop_size) - 1, -1, -1))
                 _buf_gather = "\n".join([_itspace_loops, _buf_gather, _itspace_loop_close])
         _kernel_args = ', '.join([arg.c_kernel_arg(count) if not arg._uses_itspace else _buf_decl[arg][0]
                                   for count, arg in enumerate(self._args)])
