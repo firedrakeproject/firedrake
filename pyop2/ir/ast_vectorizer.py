@@ -159,10 +159,10 @@ class LoopVectoriser(object):
             ofs = blk.index(stmt)
             parent.children = blk[:ofs] + body + blk[ofs + 1:]
 
-            # Append the layout code after the loop nest
-            if layout:
-                parent = self.lo.pre_header.children
-                parent.insert(parent.index(self.lo.loop_nest) + 1, layout)
+        # Append the layout code after the loop nest
+        if layout:
+            parent = self.lo.pre_header.children
+            parent.insert(parent.index(self.lo.loop_nest) + 1, layout)
 
     def _inner_loops(self, node):
         """Find inner loops in the subtree rooted in node."""

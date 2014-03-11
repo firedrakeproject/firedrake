@@ -152,6 +152,7 @@ class ASTKernel(object):
         tile = opts.get('tile')
         vect = opts.get('vect')
         ap = opts.get('ap')
+        split = opts.get('split')
 
         v_type, v_param = vect if vect else (None, None)
         tile_opt, tile_sz = tile if tile else (False, -1)
@@ -164,11 +165,15 @@ class ASTKernel(object):
                 inv_outer_loops = nest.op_licm()  # noqa
                 self.decls.update(nest.decls)
 
-            # 2) Register tiling
+            # 2) Splitting
+            if split:
+                nest.op_split(split[0], split[1])
+
+            # 3) Register tiling
             if tile_opt and v_type == AUTOVECT:
                 nest.op_tiling(tile_sz)
 
-            # 3) Vectorization
+            # 4) Vectorization
             if vectorizer_init:
                 vect = LoopVectoriser(nest)
                 if ap:
