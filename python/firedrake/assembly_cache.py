@@ -2,7 +2,7 @@ from collections import defaultdict
 import ufl
 from ufl.algorithms.signature import compute_form_signature
 from pyop2 import op2
-import fluidity.diagnostics.debug as debug
+from pyop2.logger import warning, RED
 import firedrake
 
 
@@ -223,9 +223,9 @@ class AssemblyCache(object):
             elif hasattr(arg.data, 'create_snapshot'):
                 dep = arg.data.create_snapshot()
             else:
-                debug.deprint("Can't create snapshot for argument %r\n\
-                              Object %r will not be cached" %
-                              (arg, obj))
+                warning(RED, "Can't create snapshot for argument %r\n\
+                             Object %r will not be cached" %
+                        (arg, obj))
                 return obj
 
             dependencies += (dep,)
