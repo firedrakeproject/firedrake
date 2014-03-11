@@ -69,6 +69,11 @@ class TestDat:
         from pyop2 import device
         assert d2.state is device.DeviceDataMixin.DEVICE
 
+    @pytest.mark.parametrize('dim', [1, 2])
+    def test_dat_nbytes(self, backend, dim):
+        """Nbytes computes the number of bytes occupied by a Dat."""
+        s = op2.Set(10)
+        assert op2.Dat(s**dim).nbytes == 10*8*dim
 
 if __name__ == '__main__':
     import os

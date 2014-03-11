@@ -1736,8 +1736,21 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         return self._dtype
 
     @property
+    def nbytes(self):
+        """Return an estimate of the size of the data associated with this
+        :class:`Dat` in bytes. This will be the correct size of the data
+        payload, but does not take into account the (presumably small)
+        overhead of the object and its metadata.
+
+        Note that this is the process local memory usage, not the sum
+        over all MPI processes.
+        """
+
+        return self.dtype.itemsize * self.dataset.total_size * self.dataset.cdim
+
+    @property
     def needs_halo_update(self):
-        '''Has this Dat been written to since the last halo exchange?'''
+        '''Has this :class:`Dat` been written to since the last halo exchange?'''
         return self._needs_halo_update
 
     @needs_halo_update.setter
@@ -2131,6 +2144,19 @@ class MixedDat(Dat):
         for d in self._dats:
             d.zero()
 
+    @property
+    def nbytes(self):
+        """Return an estimate of the size of the data associated with this
+        :class:`Dat` in bytes. This will be the correct size of the data
+        payload, but does not take into account the (presumably small)
+        overhead of the object and its metadata.
+
+        Note that this is the process local memory usage, not the sum
+        over all MPI processes.
+        """
+
+        return np.sum([d.nbytes for d in self._dats])
+
     def __iter__(self):
         """Yield all :class:`Dat`\s when iterated over."""
         for d in self._dats:
@@ -2356,6 +2382,18 @@ class Global(DataCarrier, _EmptyDataMixin):
     def data(self, value):
         _trace.evaluate(set(), set([self]))
         self._data = verify_reshape(value, self.dtype, self.dim)
+
+    @property
+    def nbytes(self):
+        """Return an estimate of the size of the data associated with this
+        :class:`Global` in bytes. This will be the correct size of the
+        data payload, but does not take into account the overhead of
+        the object and its metadata. This renders this method of
+        little statistical significance, however it is included to
+        make the interface consistent.
+        """
+
+        return self.dtype.itemsize * self._cdim
 
     @property
     def soa(self):
@@ -2925,20 +2963,14 @@ class Sparsity(Cached):
 
     @property
     def nz(self):
-        """Number of non-zeroes per row in diagonal portion of the local
-        submatrix.
-
-        This is the same as the parameter `d_nz` used for preallocation in
-        PETSc's MatMPIAIJSetPreallocation_."""
+        """Number of non-zeroes in the diagonal portion of the local
+        submatrix."""
         return int(self._d_nz)
 
     @property
     def onz(self):
-        """Number of non-zeroes per row in off-diagonal portion of the local
-        submatrix.
-
-        This is the same as the parameter o_nz used for preallocation in
-        PETSc's MatMPIAIJSetPreallocation_."""
+        """Number of non-zeroes in the off-diagonal portion of the local
+        submatrix."""
         return int(self._o_nz)
 
     def __contains__(self, other):
@@ -3028,6 +3060,21 @@ class Mat(SetAssociated):
     def dtype(self):
         """The Python type of the data."""
         return self._datatype
+
+    @property
+    def nbytes(self):
+        """Return an estimate of the size of the data associated with this
+        :class:`Mat` in bytes. This will be the correct size of the
+        data payload, but does not take into account the (presumably
+        small) overhead of the object and its metadata. The memory
+        associated with the sparsity pattern is also not recorded.
+
+        Note that this is the process local memory usage, not the sum
+        over all MPI processes.
+        """
+
+        return (self._sparsity.nz + self._sparsity.onz) \
+            * self.dtype.itemsize * np.prod(self._sparsity.dims)
 
     def __iter__(self):
         """Yield self when iterated over."""
