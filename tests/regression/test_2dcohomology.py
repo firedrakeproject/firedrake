@@ -33,7 +33,7 @@ def test_betti0(space):
     boundary conditions has kernel of dimension equal to the 2nd Betti
     number of the annulus mesh, i.e. 0.
     """
-    mesh = Mesh(join(cwd, "annulus.msh"))
+    mesh = Mesh(join(cwd, "annulus.node"))
     V0tag, V1tag, V2tag = space
 
     if(len(V0tag) == 2):
@@ -74,7 +74,7 @@ def test_betti1(space):
     boundary conditions has kernel of dimension equal to the 1st Betti
     number of the annulus mesh, i.e. 1.
     """
-    mesh = Mesh(join(cwd, "annulus.msh"))
+    mesh = Mesh(join(cwd, "annulus.node"))
     V0tag, V1tag, V2tag = space
 
     if(len(V0tag) == 2):
@@ -140,7 +140,7 @@ def test_betti2(space):
     boundary conditions has kernel of dimension equal to the 2nd Betti
     number of the annulus mesh, i.e. 1.
     """
-    mesh = Mesh(join(cwd, "annulus.msh"))
+    mesh = Mesh(join(cwd, "annulus.node"))
     V0tag, V1tag, V2tag = space
 
     V1 = FunctionSpace(mesh, V1tag[0], V1tag[1])
