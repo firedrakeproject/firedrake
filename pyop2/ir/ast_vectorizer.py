@@ -43,7 +43,7 @@ class LoopVectoriser(object):
     """ Loop vectorizer """
 
     def __init__(self, loop_optimiser):
-        if not vectorizer_init:
+        if not initialized:
             raise RuntimeError("Vectorizer must be initialized first.")
         self.lo = loop_optimiser
         self.intr = intrinsics
@@ -464,15 +464,15 @@ class OuterProduct():
 
 intrinsics = {}
 compiler = {}
-vectorizer_init = False
+initialized = False
 
 
 def init_vectorizer(isa, comp):
-    global intrinsics, compiler, vectorizer_init
+    global intrinsics, compiler, initialized
     intrinsics = _init_isa(isa)
     compiler = _init_compiler(comp)
     if intrinsics and compiler:
-        vectorizer_init = True
+        initialized = True
 
 
 def _init_isa(isa):
