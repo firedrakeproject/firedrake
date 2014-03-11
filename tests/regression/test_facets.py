@@ -12,6 +12,15 @@ def f():
     return f
 
 
+@pytest.fixture(scope='module')
+def dg_trial_test():
+    m = UnitSquareMesh(1, 1)
+    V = FunctionSpace(m, "DG", 0)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    return u, v
+
+
 def test_external_integral(f):
     assert abs(assemble(f * ds) - 2.0) < 1.0e-14
 
@@ -41,12 +50,8 @@ def test_facet_integral_with_argument(f):
     assert np.allclose(assemble(f*v*ds).dat.data_ro.sum(), 2.0)
 
 
-def test_bilinear_facet_integral(f):
-    m = UnitSquareMesh(1, 1)
-    V = FunctionSpace(m, "DG", 0)
-    u = TrialFunction(V)
-    v = TestFunction(V)
-
+def test_bilinear_cell_integral(dg_trial_test):
+    u, v = dg_trial_test
     cell = assemble(u*v*dx).M.values
     # each diagonal entry should be volume of cell
     assert np.allclose(np.diag(cell), 0.5)
@@ -54,6 +59,9 @@ def test_bilinear_facet_integral(f):
     cell[range(2), range(2)] = 0.0
     assert np.allclose(cell, 0.0)
 
+
+def test_bilinear_exterior_facet_integral(dg_trial_test):
+    u, v = dg_trial_test
     outer_facet = assemble(u*v*ds).M.values
     # each diagonal entry should be length of exterior facet in this
     # cell (2)
@@ -62,10 +70,44 @@ def test_bilinear_facet_integral(f):
     outer_facet[range(2), range(2)] = 0.0
     assert np.allclose(outer_facet, 0.0)
 
-    interior_facet = assemble(u('+')*v('+')*dS).M.values
-    # fully coupled, each entry should be length of interior facet
-    # (sqrt(2))
-    assert np.allclose(interior_facet, sqrt(2))
+
+@pytest.mark.parametrize('restrictions',
+                         # ((trial space restrictions), (test space restrictions))
+                         [(('+', ), ('+', )),
+                          (('+', ), ('-', )),
+                          (('-', ), ('+', )),
+                          (('-', '+'), ('+', '+')),
+                          (('-', '+'), ('-', '+')),
+                          (('-', '+'), ('+', '-')),
+                          (('-', '+'), ('-', '-')),
+                          (('+', '+'), ('+', '+')),
+                          (('+', '+'), ('-', '+')),
+                          (('+', '+'), ('+', '-')),
+                          (('+', '+'), ('-', '-')),
+                          (('-', '-'), ('+', '+')),
+                          (('-', '-'), ('-', '+')),
+                          (('-', '-'), ('+', '-')),
+                          (('-', '-'), ('-', '-')),
+                          (('+', '-'), ('+', '+')),
+                          (('+', '-'), ('-', '+')),
+                          (('+', '-'), ('+', '-')),
+                          (('+', '-'), ('-', '-')),
+                          (('+', '+', '-', '-'), ('+', '-', '+', '-'))])
+def test_bilinear_interior_facet_integral(dg_trial_test, restrictions):
+    u, v = dg_trial_test
+    trial_r, test_r = restrictions
+
+    idx = {'+': 0, '-': 1}
+    exact = np.zeros((2, 2), dtype=float)
+
+    form = 0
+    for u_r, v_r in zip(trial_r, test_r):
+        form = form + u(u_r)*v(v_r)*dS
+        exact[idx[v_r], idx[u_r]] += sqrt(2)
+
+    interior_facet = assemble(form).M.values
+
+    assert np.allclose(interior_facet - exact, 0.0)
 
 
 @pytest.mark.parametrize('space', ["RT", "BDM"])
