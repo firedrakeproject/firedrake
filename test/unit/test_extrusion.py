@@ -365,6 +365,10 @@ void comp_vol(double A[1], double *x[], double *y[])
 
         assert int(g.data[0]) == int((layers - 1) * 0.1 * (nelems / 2))
 
+    def test_extruded_nbytes(self, backend, dat_field):
+        """Nbytes computes the number of bytes occupied by an extruded Dat."""
+        assert dat_field.nbytes == nums[2] * wedges * 8
+
     def test_direct_loop_inc(self, backend, xtr_nodes):
         dat = op2.Dat(xtr_nodes)
         k = 'void k(double *x) { *x += 1.0; }'
