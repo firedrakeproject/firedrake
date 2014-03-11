@@ -686,6 +686,8 @@ class Mesh(object):
                 self._from_cgns(filename, dim)
             elif ext in ['.msh']:
                 self._from_gmsh(filename, dim, periodic_coords)
+            elif ext in ['.node']:
+                self._from_triangle(filename, dim, periodic_coords)
             else:
                 raise RuntimeError("Unknown mesh file format.")
 
@@ -860,6 +862,61 @@ class Mesh(object):
 
         #TODO: Add boundary IDs
         self._from_dmplex(dmplex)
+
+    def _from_triangle(self, filename, dim=0, periodic_coords=None):
+        """Read a set of triangle mesh files from `filename`"""
+        self.name = filename
+        basename, ext = os.path.splitext(filename)
+
+        try:
+            facetfile = open(basename+".face")
+            tdim = 3
+        except:
+            try:
+                facetfile = open(basename+".edge")
+                tdim = 2
+            except:
+                facetfile = None
+                tdim = 1
+        if dim == 0:
+            dim = tdim
+
+        with open(basename+".node") as nodefile:
+            header = np.fromfile(nodefile, dtype=np.int32, count=2, sep=' ')
+            nodecount = header[0]
+            nodedim = header[1]
+            coordinates = np.loadtxt(nodefile, usecols=range(1,dim+1), skiprows=1, delimiter=' ')
+            assert nodecount == coordinates.shape[0]
+
+        with open(basename+".ele") as elefile:
+            header = np.fromfile(elefile, dtype=np.int32, count=2, sep=' ')
+            elecount = header[0]
+            eledim = header[1]
+            eles = np.loadtxt(elefile, usecols=range(1,eledim+1), dtype=np.int32, skiprows=1, delimiter=' ')
+            assert elecount == eles.shape[0]
+
+        cells = map(lambda c: c-1, eles)
+        dmplex = PETSc.DMPlex().createFromCellList(tdim, cells, coordinates, comm=op2.MPI.comm)
+
+        # Apply boundary IDs
+        facets = None
+        try:
+            header = np.fromfile(facetfile, dtype=np.int32, count=2, sep=' ')
+            edgecount = header[0]
+            edgedim = header[1]
+            facets = np.loadtxt(facetfile, usecols=range(1,tdim+2), dtype=np.int32, skiprows=0, delimiter=' ')
+        finally:
+            facetfile.close()
+
+        if facets is not None:
+            vStart, vEnd = dmplex.getDepthStratum(0)   # vertices
+            for facet in facets:
+                bid = facet[-1]
+                vertices = map(lambda v: v + vStart - 1, facet[:-1])
+                join = dmplex.getJoin(vertices)
+                dmplex.setLabelValue("boundary_ids", join[0], bid)
+
+        self._from_dmplex(dmplex, dim, periodic_coords)
 
     @property
     def layers(self):
