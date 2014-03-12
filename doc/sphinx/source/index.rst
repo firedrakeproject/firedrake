@@ -16,6 +16,7 @@ Contents:
    kernels
    backends
    linear_algebra
+   mpi
    user
    pyop2
 
