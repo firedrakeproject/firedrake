@@ -68,3 +68,15 @@ not during computations on each section. This avoids branching in kernels or
 wrapper code and allows launching separate kernels for GPU execution of each
 section. The :func:`~pyop2.par_loop` execution above therefore applies to all
 backends.
+
+Halo exchange
+-------------
+
+Exchanging halo data is only required if the halo data is actually read, which
+is the case for :class:`~pyop2.Dat` arguments to a :func:`~pyop2.par_loop`
+used in :data:`pyop2.READ` or :data:`pyop2.RW` mode.  PyOP2 keeps track
+whether or not the halo region may have been modified. This is the case for
+:class:`Dats <pyop2.Dat>` used in :data:`pyop2.INC`, :data:`pyop2.WRITE` or
+:data:`pyop2.RW` mode or when a :class:`~pyop2.Solver` or a user requests
+access to the data. A halo exchange is triggered only for halos marked as out
+of date.
