@@ -29,7 +29,16 @@ must therefore be numbered such that core entities are first, followed by
 owned, exec halo and non-exec halo in that order. A good partitioning
 maximises the size of the core section and minimises the halo regions. We can
 therefore assume that the vast majority of local :class:`~pyop2.Set` entities
-are in the core section.
+are in the core section. The following diagram illustrates the four sections
+for a mesh distributed among two processors:
+
+.. figure:: images/pyop2_mpi_mesh.svg
+  :align: center
+
+  A mesh distributed among two processors with the entities of each mesh
+  partition divided into *core*, *owned*, *exec halo* and *non-exec halo*.
+  Matching halo sections are highlighted in matching colours. The owned
+  section of process 0 correspondonds to the non-exec section of process 1.
 
 Computation-communication Overlap
 ---------------------------------
