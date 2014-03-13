@@ -169,10 +169,34 @@ plan. These are the number of elements that are part of the given block and
 its starting index. Note that each thread needs its own staging array
 ``arg1_0_vec``, which is therefore scoped by the thread id.
 
+.. _device_backends:
+
+Device backends
+---------------
+
+As with the host backends, the device backends have most of the implementation
+in common. A :class:`~pyop2.Dat` has a data array in host memory and a
+separate array in device memory. Flags indicate the present state of a given
+:class:`~pyop2.Dat`:
+
+* ``DEVICE_UNALLOCATED``: no data is allocated on the device
+* ``HOST_UNALLOCATED``: no data is allocated on the host
+* ``DEVICE``: data is up-to-date (valid) on the device, but invalid on the
+  host
+* ``HOST``: data is up-to-date (valid) on the host, but invalid on the device
+* ``BOTH``: data is up-to-date (valid) on both the host and device
+
+When a :func:`~pyop2.par_loop` is called, PyOP2 uses the
+:ref:`access-descriptors` to determine which data needs to be allocated or
+transferred from host to device prior to launching the kernel and which data
+needs to be brought back to the host afterwards. Data is only transferred if
+it is out of date at the target location and all data transfer is triggered
+lazily i.e. the actual copy only occurs once the data is requested.
+
 .. _cuda_backend:
 
 CUDA backend
-------------
+~~~~~~~~~~~~
 
 The CUDA backend makes extensive use of PyCUDA_ and its infrastructure for
 just-in-time compilation of CUDA kernels and interfacing them to Python.
@@ -181,21 +205,6 @@ Linear solvers and sparse matrix data structures are implemented on top of the
 Code generation uses a template based approach, where a ``__global__`` stub
 routine to be called from the host is generated, which takes care of data
 marshalling and calling the user kernel as an inline ``__device__`` function.
-
-When the :func:`~pyop2.par_loop` is called, PyOP2 uses the
-:ref:`access-descriptors` to determine which data needs to be allocated or
-transferred from host to device prior to launching the kernel and which data
-needs to be brought back to the host afterwards. Data is only transferred if
-it is out of date at the target location and all data transfer is triggered
-lazily i.e. the actual copy only occurs once the data is requested. Flags
-indicate the present state of a given :class:`~pyop2.Dat`:
-
-* ``DEVICE_UNALLOCATED``: no data is allocated on the device
-* ``HOST_UNALLOCATED``: no data is allocated on the host
-* ``DEVICE``: data is up-to-date (valid) on the device, but invalid on the
-  host
-* ``HOST``: data is up-to-date (valid) on the host, but invalid on the device
-* ``BOTH``: data is up-to-date (valid) on both the host and device
 
 We consider the same ``midpoint`` kernel as in the previous examples, which
 requires no CUDA-specific modifications and is automatically annotated with a
@@ -290,14 +299,13 @@ global device memory with a suitable offset.
 .. _opencl_backend:
 
 OpenCL backend
---------------
+~~~~~~~~~~~~~~
 
 The other device backend OpenCL is structurally very similar to the CUDA
 backend. It uses PyOpenCL_ to interface to the OpenCL drivers and runtime.
 Linear algebra operations are handled by PETSc_ as described in
 :doc:`linear_algebra`. PyOP2 generates a kernel stub from a template similar
-to the CUDA case. The OpenCL backend shares the same semantics for data
-transfer described for CUDA above.
+to the CUDA case.
 
 Consider the ``midpoint`` kernel from previous examples, whose parameters in
 the kernel signature are automatically annotated with OpenCL storage
