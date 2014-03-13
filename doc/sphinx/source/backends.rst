@@ -23,22 +23,30 @@ MPI processes with overlapping regions, so called halos.  The host backends
 <pyop2.Dat>`. Hybrid parallel computations with OpenMP are possible, where
 ``OMP_NUM_THREADS`` threads are launched per MPI rank.
 
+.. _host_backends:
+
+Host backends
+-------------
+
+Any computation in PyOP2 requires the generation of code at runtime specific
+to each individual :func:`~pyop2.par_loop`. The host backends generate code
+which is just-in-time (JIT) compiled into a shared library callable as a
+Python module using the Instant_ utility from the `FEniCS project`_. Instant_
+also takes care of caching the modules on disk to save having to recompile the
+same code.
+
 .. _sequential_backend:
 
 Sequential backend
-------------------
+~~~~~~~~~~~~~~~~~~
 
-Any computation in PyOP2 requires the generation of code at runtime
-specific to each individual :func:`~pyop2.par_loop`. The sequential
-backend generates code via the `Instant`_ utility from the `FEniCS
-project`_. Since there is no parallel computation for the sequential
-backend, the generated code is a C wrapper function with a ``for``
-loop calling the kernel for the respective :func:`~pyop2.par_loop`.
-This wrapper also takes care of staging in and out the data as
-requested by the access descriptors requested in the parallel loop.
-Both the kernel and the wrapper function are just-in-time compiled in
-a single compilation unit such that the kernel call can be inlined and
-does not incur any function call overhead.
+Since there is no parallel computation for the sequential backend, the
+generated code is a C wrapper function with a ``for`` loop calling the kernel
+for the respective :func:`~pyop2.par_loop`.  This wrapper also takes care of
+staging in and out the data as requested by the access descriptors requested
+in the parallel loop.  Both the kernel and the wrapper function are
+just-in-time compiled in a single compilation unit such that the kernel call
+can be inlined and does not incur any function call overhead.
 
 Recall the :func:`~pyop2.par_loop` calling the ``midpoint`` kernel from
 :doc:`kernels`: ::
@@ -85,29 +93,27 @@ corresponding to a :class:`~pyop2.Dat` or :class:`~pyop2.Map` passed to the
 clashes.
 
 The first :func:`~pyop2.par_loop` argument ``midpoints`` is direct and
-therefore no corresponding :class:`~pyop2.Map` is passed to the
-wrapper function and the data pointer is passed straight to the kernel
-with an appropriate offset. The second argument ``coordinates`` is
-indirect and hence a :class:`~pyop2.Dat`-:class:`~pyop2.Map` pair is
-passed. Pointers to the data are gathered via the :class:`~pyop2.Map`
-of arity 3 and staged in the array ``arg1_0_vec``, which is passed to
-the kernel. The coordinate data can therefore be accessed in the
-kernel via double indirection with the :class:`~pyop2.Map` already
-applied. Note that for both arguments, the pointers are to two
-consecutive double values, since the :class:`~pyop2.DataSet` is of
-dimension two in either case.
+therefore no corresponding :class:`~pyop2.Map` is passed to the wrapper
+function and the data pointer is passed straight to the kernel with an
+appropriate offset. The second argument ``coordinates`` is indirect and hence
+a :class:`~pyop2.Dat`-:class:`~pyop2.Map` pair is passed. Pointers to the data
+are gathered via the :class:`~pyop2.Map` of arity 3 and staged in the array
+``arg1_0_vec``, which is passed to the kernel. The coordinate data can
+therefore be accessed in the kernel via double indirection with the
+:class:`~pyop2.Map` already applied. Note that for both arguments, the
+pointers are to two consecutive double values, since the
+:class:`~pyop2.DataSet` is of dimension two in either case.
 
 .. _openmp_backend:
 
 OpenMP backend
---------------
+~~~~~~~~~~~~~~
 
-The OpenMP uses the same infrastructure for code generation and JIT
-compilation as the sequential backend described above. In contrast however,
-the ``for`` loop is annotated with OpenMP pragmas to make it execute in
-parallel with multiple threads. To avoid race conditions on data access, the
-iteration set is coloured and a thread safe execution plan is computed as
-described in :doc:`colouring`.
+In contrast to the sequential backend, the outermost ``for`` loop in the
+OpenMP backend is annotated with OpenMP pragmas to execute in parallel with
+multiple threads. To avoid race conditions on data access, the iteration set
+is coloured and a thread safe execution plan is computed as described in
+:ref:`colouring`.
 
 The JIT compiled code for the parallel loop from above changes as follows: ::
 
