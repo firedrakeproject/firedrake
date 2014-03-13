@@ -175,9 +175,10 @@ Device backends
 ---------------
 
 As with the host backends, the device backends have most of the implementation
-in common. A :class:`~pyop2.Dat` has a data array in host memory and a
-separate array in device memory. Flags indicate the present state of a given
-:class:`~pyop2.Dat`:
+in common. The PyOP2 data carriers :class:`~pyop2.Dat`, :class:`~pyop2.Global`
+and :class:`~pyop2.Const` have a data array in host memory and a separate
+array in device memory. Flags indicate the present state of a given data
+carrier:
 
 * ``DEVICE_UNALLOCATED``: no data is allocated on the device
 * ``HOST_UNALLOCATED``: no data is allocated on the host
@@ -188,10 +189,57 @@ separate array in device memory. Flags indicate the present state of a given
 
 When a :func:`~pyop2.par_loop` is called, PyOP2 uses the
 :ref:`access-descriptors` to determine which data needs to be allocated or
-transferred from host to device prior to launching the kernel and which data
-needs to be brought back to the host afterwards. Data is only transferred if
-it is out of date at the target location and all data transfer is triggered
-lazily i.e. the actual copy only occurs once the data is requested.
+transferred from host to device prior to launching the kernel. Data is only
+transferred if it is out of date at the target location and all data transfer
+is triggered lazily i.e. the actual copy only occurs once the data is
+requested. In particular there is no automatic transfer back of data from
+device to host unless it is accessed on the host.
+
+A newly created device :class:`~pyop2.Dat` has no associated device data and
+starts out in the state ``DEVICE_UNALLOCATED``. The diagram below shows all
+actions that involve a state transition, which can be divided into three
+groups: calling explicit data transfer functions (red), access data on the
+host (black) and using the :class:`~pyop2.Dat` in a :func:`~pyop2.par_loop`
+(blue). There is no need for users to explicitly initiate data transfers and
+the tranfer functions are only given for completeness.
+
+.. figure:: images/pyop2_device_data_state.svg
+  :align: center
+
+  State transitions of a data carrier on PyOP2 device backends
+
+When a device :class:`~pyop2.Dat` is used in a :func:`~pyop2.par_loop` for the
+first time, data is allocated on the device. If the :class:`~pyop2.Dat` is
+only read, the host array is transferred to device if it was in state ``HOST``
+or ``DEVICE_UNALLOCATED`` before the :func:`~pyop2.par_loop` and the
+:class:`~pyop2.Dat` is in the state ``BOTH`` afterwards, unless it was in
+state ``DEVICE`` in which case it remains in that state. If the
+:class:`~pyop2.Dat` is written to, data transfer before the
+:func:`~pyop2.par_loop` is necessary unless the access descriptor is
+:data:`~pyop2.WRITE` and the host data is out of date afterwards and the
+:class:`~pyop2.Dat` is in the state ``DEVICE``. An overview of the state
+transitions and necessary memory allocations and data transfers for the two
+cases is given in the table below:
+
+======================  ==============================  ==================================================
+Initial state           :func:`~pyop2.par_loop` read    :func:`~pyop2.par_loop` written to
+======================  ==============================  ==================================================
+``DEVICE_UNALLOCATED``  ``BOTH`` (alloc, transfer h2d)  ``DEVICE`` (alloc, transfer h2d unless write-only)
+``DEVICE``              ``DEVICE``                      ``DEVICE``
+``HOST``                ``BOTH`` (transfer h2d)         ``DEVICE`` (transfer h2d unless write-only)
+``BOTH``                ``BOTH``                        ``DEVICE``
+======================  ==============================  ==================================================
+
+Accessing data on the host initiates a device to host data transfer if the
+:class:`~pyop2.Dat` is in state ``DEVICE`` and leaves it in state ``HOST``
+when using the :meth:`~pyop2.Dat.data` property and ``BOTH`` when using
+:meth:`~pyop2.Dat.data_ro`.
+
+The state transitions described above apply in the same way to a
+:class:`~pyop2.Global`. A :class:`~pyop2.Const` is read-only, never modified
+on device and therefore never out of date on the host. Hence there is no
+state ``DEVICE`` and it is not necessary to copy back :class:`~pyop2.Const`
+data from device to host.
 
 .. _cuda_backend:
 
