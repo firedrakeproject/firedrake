@@ -3,7 +3,7 @@
 PyOP2 Backends
 ==============
 
-PyOP2 supports a number of different backends to be able to run parallel
+PyOP2 provides a number of different backends to be able to run parallel
 computations on different hardware architectures. The currently supported
 backends are
 
@@ -15,13 +15,13 @@ backends are
 * ``opencl``: offloads computation to an OpenCL device, either a multi-core
   CPU or a GPU (requires :ref:`OpenCL and pyopencl <opencl-installation>`)
 
-The ``sequential`` and ``openmp`` backends fully support distributed
-parallel computations using MPI, the ``cuda`` and ``opencl`` backends
-only support parallel loops on :class:`Dats <pyop2.Dat>` with MPI. For
-OpenMP this means a hybrid parallel execution with ``OMP_NUM_THREADS``
-threads per MPI rank. Datastructures must be suitably partitioned in
-this case with overlapping regions, so called halos. These are
-described in detail in :doc:`mpi`.
+Distributed parallel computations using MPI are supported by PyOP2 and
+described in detail in :doc:`mpi`. Datastructures must be partitioned among
+MPI processes with overlapping regions, so called halos.  The host backends
+``sequential`` and ``openmp`` have full MPI support, the device backends
+``cuda`` and ``opencl`` only support parallel loops on :class:`Dats
+<pyop2.Dat>`. Hybrid parallel computations with OpenMP are possible, where
+``OMP_NUM_THREADS`` threads are launched per MPI rank.
 
 .. _sequential_backend:
 
