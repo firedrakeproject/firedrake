@@ -80,3 +80,27 @@ whether or not the halo region may have been modified. This is the case for
 :data:`pyop2.RW` mode or when a :class:`~pyop2.Solver` or a user requests
 access to the data. A halo exchange is triggered only for halos marked as out
 of date.
+
+Distributed Assembly
+--------------------
+
+For an MPI distributed matrix or vector, assembling owned entities at the
+boundary can contribute to off-process degrees of freedom and vice versa.
+
+There are different ways of accounting for these off-process contributions.
+PETSc_ supports insertion and subsequent communication of off-process matrix
+and vector entries, however its implementation is not thread safe. Concurrent
+insertion into PETSc_ MPI matrices *is* thread safe if off-process insertions
+are not cached and concurrent writes to rows are avoided, which is done
+through colouring as described in :ref:`colouring`.
+
+PyOP2 therefore disables PETSc_'s off-process insertion feature and instead
+redundantly computes over all off process entities that touch local dofs,
+which is the *exec halo* section described above. The price for this is
+maintaining a larger halo, since we also need halo data, the *non-exec halo*
+section, to perform the redundant computation. Halos grow by about a factor
+two, however in practice this is still small compared to the interior region
+of a partition and the main cost of halo exchange is the latency, which is
+independent of the exchanged data volume.
+
+.. _PETSc: http://www.mcs.anl.gov/petsc/
