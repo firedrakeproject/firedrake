@@ -408,71 +408,92 @@ cdef class _Plan:
 
     @property
     def nargs(self):
+        """Number of arguments."""
         return self._nargs
 
     @property
     def ninds(self):
+        """Number of indirect non-matrix arguments."""
         return self._ninds
 
     @property
     def nshared(self):
+        """Bytes of shared memory required per partition."""
         return self._nshared
 
     @property
     def nblocks(self):
+        """Number of partitions."""
         return self._nblocks
 
     @property
     def ncolors(self):
+        """Total number of block colours."""
         return self._ncolors
 
     @property
     def ncolblk(self):
+        """Array of numbers of block with any given colour."""
         return self._ncolblk
 
     @property
     def nindirect(self):
+        """Number of unique Dat/Map pairs in the argument list."""
         return self._nindirect
 
     @property
     def ind_map(self):
+        """Indirection map: array of arrays of indices into the Dat of all
+        indirect arguments (nblocks x nindirect x nvalues)."""
         return self._ind_map
 
     @property
     def ind_sizes(self):
+        """2D array of sizes of indirection maps for each block (nblocks x
+        nindirect)."""
         return self._ind_sizes
 
     @property
     def ind_offs(self):
+        """2D array of offsets into the indirection maps for each block
+        (nblocks x nindirect)."""
         return self._ind_offs
 
     @property
     def loc_map(self):
+        """Array of offsets of staged data in shared memory for each Dat/Map
+        pair for each partition (nblocks x nindirect x partition size)."""
         return self._loc_map
 
     @property
     def blkmap(self):
+        """List of blocks ordered by colour."""
         return self._blkmap
 
     @property
     def offset(self):
+        """List of offsets of each partition."""
         return self._offset
 
     @property
     def nelems(self):
+        """Array of numbers of elements for each partition."""
         return self._nelems
 
     @property
     def nthrcol(self):
+        """Array of numbers of thread colours for each partition."""
         return self._nthrcol
 
     @property
     def thrcol(self):
+        """Array of thread colours for each element of iteration space."""
         return self._thrcol
 
     #dummy values for now, to make it run with the cuda backend
     @property
     def nsharedCol(self):
+        """Array of shared memory sizes for each colour."""
         return numpy.array([self._nshared] * self._ncolors, dtype=numpy.int32)
 
 
