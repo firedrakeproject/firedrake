@@ -118,16 +118,16 @@ class FFCKernel(DiskCached):
         ffc_tree = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
 
         kernels = []
-        for ida, kernel in zip(form.form_data().integral_data, ffc_tree):
+        for it, kernel in zip(form.form_data().preprocessed_form.integrals(), ffc_tree):
             # Set optimization options
-            opts = {} if ida.domain_type not in ['cell'] else \
+            opts = {} if it.domain_type() not in ['cell'] else \
                    {'licm': False,
                     'tile': None,
                     'vect': None,
                     'ap': False,
                     'split': None}
             kernels.append(Kernel(Root([incl, kernel]), '%s_%s_integral_0_%s' %
-                           (name, ida.domain_type, ida.domain_id), opts, inc))
+                           (name, it.domain_type(), it.domain_id()), opts, inc))
         self.kernels = tuple(kernels)
         self._initialized = True
 
@@ -143,15 +143,16 @@ def compile_form(form, name):
     fd = form.compute_form_data()
     # If there is no mixed element involved, return the kernels FFC produces
     if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
-        return [((0, 0), ida.integrals[0].measure(), fd.original_coefficients, kernel)
-                for ida, kernel in zip(fd.integral_data, FFCKernel(form, name).kernels)]
+        return [((0, 0), it.measure(), fd.original_coefficients, kernel)
+                for it, kernel in zip(fd.preprocessed_form.integrals(),
+                                      FFCKernel(form, name).kernels)]
     # Otherwise pre-split the form into mixed blocks before calling FFC
     kernels = []
     for forms in FormSplitter().split(form):
         for (i, j), form in forms:
             kernel, = FFCKernel(form, name + str(i) + str(j)).kernels
             fd = form.form_data()
-            kernels.append(((i, j), fd.integral_data[0].integrals[0].measure(),
+            kernels.append(((i, j), fd.preprocessed_form.integrals()[0].measure(),
                             fd.original_coefficients, kernel))
     return kernels
 
