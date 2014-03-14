@@ -30,6 +30,7 @@ import ufl
 from ufl_expr import derivative
 from pyop2 import op2, ffc_interface
 from pyop2.logger import progress, INFO
+import core_types
 import types
 from assemble_expressions import assemble_expression
 from petsc4py import PETSc
@@ -381,6 +382,20 @@ def _assemble(f, tensor=None, bcs=None):
     kernels = ffc_interface.compile_form(f, "form")
 
     fd = f.form_data()
+
+    # Do we need to pass cell_orientations in to get the sign of detJ right?
+    needs_orientations = False
+    for e in fd.elements:
+        if isinstance(e, ufl.MixedElement):
+            if any("contravariant piola" in core_types.fiat_from_ufl_element(s).mapping()
+                   for s in e.sub_elements()):
+                needs_orientations = True
+                break
+        else:
+            if "contravariant piola" in core_types.fiat_from_ufl_element(e).mapping():
+                needs_orientations = True
+                break
+    needs_orientations = needs_orientations and fd.topological_dimension != fd.geometric_dimension
     is_mat = fd.rank == 2
     is_vec = fd.rank == 1
 
@@ -494,6 +509,8 @@ def _assemble(f, tensor=None, bcs=None):
                         coords.dat(op2.READ, coords.cell_node_map(),
                                    flatten=has_vec_fs(coords))]
 
+                if needs_orientations:
+                    args.append(coords.function_space().mesh()._cell_orientations(op2.READ))
                 for c in fd.original_coefficients:
                     args.append(c.dat(op2.READ, c.cell_node_map(),
                                       flatten=has_vec_fs(c)))
