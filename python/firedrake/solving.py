@@ -424,18 +424,40 @@ def _assemble(f, tensor=None, bcs=None):
         mixed_plus_vfs_error(trial)
         m = test.function_space().mesh()
         map_pairs = []
+        cell_domains = []
+        exterior_facet_domains = []
+        interior_facet_domains = []
         for integral in integrals:
             domain_type = integral.measure().domain_type()
             if domain_type == "cell":
-                map_pairs.append((test.cell_node_map(), trial.cell_node_map()))
+                cell_domains.append(op2.ALL)
             elif domain_type == "exterior_facet":
-                map_pairs.append((test.exterior_facet_node_map(),
-                                  trial.exterior_facet_node_map()))
+                exterior_facet_domains.append(op2.ALL)
             elif domain_type == "interior_facet":
-                map_pairs.append((test.interior_facet_node_map(),
-                                  trial.interior_facet_node_map()))
+                interior_facet_domains.append(op2.ALL)
+            elif domain_type == "exterior_facet_bottom":
+                cell_domains.append(op2.ON_BOTTOM)
+            elif domain_type == "exterior_facet_top":
+                cell_domains.append(op2.ON_TOP)
+            elif domain_type == "exterior_facet_vert":
+                exterior_facet_domains.append(op2.ALL)
+            elif domain_type == "interior_facet_horiz":
+                interior_facet_domains.append(op2.ALL)
+            elif domain_type == "interior_facet_vert":
+                cell_domains.append(op2.ON_INTERIOR_FACETS)
             else:
                 raise RuntimeError('Unknown domain type "%s"' % domain_type)
+
+        if cell_domains:
+            map_pairs.append((op2.SparsityMap(test.cell_node_map(), cell_domains),
+                              op2.SparsityMap(trial.cell_node_map(), cell_domains)))
+        if exterior_facet_domains:
+            map_pairs.append((op2.SparsityMap(test.exterior_facet_node_map(), exterior_facet_domains),
+                              op2.SparsityMap(trial.exterior_facet_node_map(), exterior_facet_domains)))
+        if interior_facet_domains:
+            map_pairs.append((op2.SparsityMap(test.interior_facet_node_map(), interior_facet_domains),
+                              op2.SparsityMap(trial.interior_facet_node_map(), interior_facet_domains)))
+
         map_pairs = tuple(map_pairs)
         if tensor is None:
             # Construct OP2 Mat to assemble into
