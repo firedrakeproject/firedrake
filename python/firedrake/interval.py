@@ -38,14 +38,15 @@ class get_interval_mesh(object):
     contains an interval mesh.
     It deletes the .msh file as soon as it is no longer required."""
 
-    def __init__(self, nx):
+    def __init__(self, nx, length):
         self._nx = nx
+        self._length = length
 
     def __enter__(self):
         name = tempfile.NamedTemporaryFile('w+r').name
-        dx = 1.0 / self._nx
+        dx = self._length / self._nx
         # This ensures the rightmost point is actually present.
-        nodes = arange(0, 1.0 + 0.01 * dx, dx)
+        nodes = arange(0, self._length + 0.01 * dx, dx)
         eles = [(i + 1, i + 2) for i in range(len(nodes) - 1)]
         dim = 1
 

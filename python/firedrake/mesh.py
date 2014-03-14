@@ -287,32 +287,47 @@ class UnitCircleMesh(Mesh):
         super(UnitCircleMesh, self).__init__(output)
 
 
-class UnitIntervalMesh(Mesh):
+class IntervalMesh(Mesh):
+    """
+    Generate a uniform mesh of the interval [0,L] for user specified L.
 
-    """Generate a uniform mesh of the interval [0,1].
+    :arg ncells: The number of the cells over the interval.
+    :arg length: The length of the interval.
 
-    :arg nx: The number of the cells over the interval.
+    The left hand (:math:`x=0`) boundary point has boundary marker 1,
+    while the right hand (:math:`x=L`) point has marker 2.
+    """
+    def __init__(self, ncells, length):
+        with get_interval_mesh(ncells, length) as output:
+            super(IntervalMesh, self).__init__(output)
+
+
+class UnitIntervalMesh(IntervalMesh):
+    """
+    Generate a uniform mesh of the interval [0,1].
+
+    :arg ncells: The number of the cells over the interval.
 
     The left hand (:math:`x=0`) boundary point has boundary marker 1,
     while the right hand (:math:`x=1`) point has marker 2.
     """
-
-    def __init__(self, nx):
-        with get_interval_mesh(nx) as output:
-            super(UnitIntervalMesh, self).__init__(output)
+    def __init__(self, ncells):
+        IntervalMesh.__init__(self, ncells, length=1.0)
 
 
-class PeriodicUnitIntervalMesh(Mesh):
-    """Generate a periodic uniform mesh of the interval [0, 1].
+class PeriodicIntervalMesh(Mesh):
+    """Generate a periodic uniform mesh of the interval [0, L], for
+    user specified L.
 
-    :arg nx: The number of cells over the interval."""
-    def __init__(self, nx):
-        with periodic_interval_mesh(nx) as output:
+    :arg ncells: The number of cells over the interval.
+    :arg length: The length the interval."""
+    def __init__(self, ncells, length):
+        with periodic_interval_mesh(ncells) as output:
             # Coordinate values need to be replaced by the appropriate
             # DG coordinate field.
-            dx = 1.0 / nx
+            dx = length / ncells
             # Two per cell
-            coords = np.empty(2 * nx, dtype=float)
+            coords = np.empty(2 * ncells, dtype=float)
             # For an interval
             #
             # 0---1---2---3 ... n-1---n
@@ -323,14 +338,22 @@ class PeriodicUnitIntervalMesh(Mesh):
             coords[0] = 0.0
             coords[1] = dx
             # Then the element (n, 0)
-            coords[2] = 1.0
-            coords[3] = 1.0 - dx
+            coords[2] = length
+            coords[3] = length - dx
             # Then the rest in order (1, 2), (2, 3) ... (n-1, n)
             if len(coords) > 4:
                 coords[4] = dx
-                coords[5:] = np.repeat(np.arange(dx * 2, 1 - dx + dx*0.01, dx), 2)[:-1]
-            super(PeriodicUnitIntervalMesh, self).__init__(output,
-                                                           periodic_coords=coords)
+                coords[5:] = np.repeat(np.arange(dx * 2, length - dx + dx*0.01, dx), 2)[:-1]
+
+            Mesh.__init__(self, output,
+                          periodic_coords=coords)
+
+
+class PeriodicUnitIntervalMesh(PeriodicIntervalMesh):
+    """Generate a periodic uniform mesh of the interval [0, 1].
+    :arg ncells: The number of cells over the interval."""
+    def __init__(self, ncells):
+        PeriodicIntervalMesh.__init__(self, ncells, length=1.0)
 
 
 class UnitTetrahedronMesh(Mesh):
