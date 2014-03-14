@@ -216,11 +216,11 @@ cdef class _Plan:
 
     def _compute_coloring(self, iset, partition_size, matrix_coloring, thread_coloring, args):
         """Constructs:
-            - thrcol
-            - nthrcol
-            - ncolors
-            - blkmap
-            - ncolblk
+            - thrcol  : Thread colours for each element of iteration space
+            - nthrcol : Array of numbers of thread colours for each partition
+            - ncolors : Total number of block colours
+            - blkmap  : List of blocks ordered by colour
+            - ncolblk : Array of numbers of block with any given colour
         """
         # args requiring coloring (ie, indirect reduction and matrix args)
         #  key: Dat
@@ -296,8 +296,9 @@ cdef class _Plan:
         cdef int * nelems = <int *> numpy.PyArray_DATA(self._nelems)
         cdef int * offset = <int *> numpy.PyArray_DATA(self._offset)
 
-
+        # Colour threads of each partition
         if thread_coloring:
+            # For each block
             for _p in range(self._nblocks):
                 _base_color = 0
                 terminated = False
@@ -314,23 +315,30 @@ cdef class _Plan:
                         if thrcol[_t] == -1:
                             _mask = 0
 
+                            # Find an available colour (the first colour not
+                            # touched by the current thread)
                             for _rai in range(n_race_args):
                                 for _mi in range(flat_race_args[_rai].count):
                                     _mask |= flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[iteridx[_t] * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]]
 
+                            # Check if colour is available i.e. mask isn't full
                             if _mask == 0xffffffffu:
                                 terminated = False
                             else:
+                                # Find the first available colour
                                 _color = 0
                                 while _mask & 0x1:
                                     _mask = _mask >> 1
                                     _color += 1
                                 thrcol[_t] = _base_color + _color
+                                # Mark everything touched by the current
+                                # thread with that colour
                                 _mask = 1 << _color
                                 for _rai in range(n_race_args):
                                     for _mi in range(flat_race_args[_rai].count):
                                         flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[iteridx[_t] * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]] |= _mask
 
+                    # We've run out of colours, so we start over and offset
                     _base_color += 32
 
             self._nthrcol = numpy.zeros(self._nblocks,dtype=numpy.int32)
@@ -354,29 +362,38 @@ cdef class _Plan:
                 for _i in range(flat_race_args[_rai].size):
                     flat_race_args[_rai].tmp[_i] = 0
 
+            # For each partition
             for _p in range(self._nblocks):
+                # If this partition doesn't already have a colour
                 if _pcolors[_p] == -1:
                     _mask = 0
+                    # Find an available colour (the first colour not touched
+                    # by the current partition)
                     for _t in range(offset[_p], offset[_p] + nelems[_p]):
                         for _rai in range(n_race_args):
                             for _mi in range(flat_race_args[_rai].count):
                                 _mask |= flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[iteridx[_t] * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]]
 
+                    # Check if a colour is available i.e. the mask isn't full
                     if _mask == 0xffffffffu:
                         terminated = False
                     else:
+                        # Find the first available colour
                         _color = 0
                         while _mask & 0x1:
                             _mask = _mask >> 1
                             _color += 1
                         _pcolors[_p] = _base_color + _color
 
+                        # Mark everything touched by the current partition with
+                        # that colour
                         _mask = 1 << _color
                         for _t in range(offset[_p], offset[_p] + nelems[_p]):
                             for _rai in range(n_race_args):
                                 for _mi in range(flat_race_args[_rai].count):
                                     flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[iteridx[_t] * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]] |= _mask
 
+            # We've run out of colours, so we start over and offset by 32
             _base_color += 32
 
         # memory free
