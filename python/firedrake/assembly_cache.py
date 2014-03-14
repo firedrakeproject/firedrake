@@ -4,6 +4,7 @@ from ufl.algorithms.signature import compute_form_signature
 from pyop2 import op2
 from pyop2.logger import warning, RED
 import firedrake
+import types
 
 
 class CacheEntry(object):
@@ -19,7 +20,10 @@ class CacheEntry(object):
         self.form_sig = form_sig
         self.form = form
         self.dependencies = dependencies
-        self.obj = obj.duplicate()
+        if isinstance(obj, float):
+            self.obj = obj
+        else:
+            self.obj = obj.duplicate()
 
     def is_valid(self):
         return all([d.is_valid() for d in self.dependencies])
@@ -42,6 +46,7 @@ class FragmentedCacheEntry(object):
         sum_parts = [p.get_object() for p in self.partial_forms]
 
         #XXX sum() won't work because Dats don't implement __radd__
+        # Check this, because Dats now do implement __radd__
         return reduce((lambda x, y: x+y), sum_parts)
 
     def is_valid(self):
@@ -140,7 +145,7 @@ class AssemblyCache(object):
             cls._instance.assemblyfunc = None
         return cls._instance
 
-    def lookup(self, form):
+    def lookup(self, form, bcs):
         form_sig = compute_form_signature(form)
         cache_entry = self.cache.get(form_sig, None)
 
@@ -193,7 +198,7 @@ class AssemblyCache(object):
         self.cache[form_sig] = frag
         return frag.get_object()
 
-    def store(self, form):
+    def store(self, obj, form, bcs):
         form_sig = compute_form_signature(form)
         fd = form.compute_form_data()
 
@@ -208,9 +213,7 @@ class AssemblyCache(object):
         else:
             args = [coords]
         for c in fd.original_coefficients:
-            args.append(c.dat(c.cell_dof_map, op2.READ))
-
-        obj = self.assemblyfunc(form)
+            args.append(c.dat(op2.READ, c.cell_node_map()))
 
         dependencies = tuple()
         for arg in args:
@@ -279,33 +282,83 @@ class AssemblyCache(object):
         return tot_bytes
 
 
+def cache_thunk(thunk, form, result):
+    """Wrap thunk so that thunk is only executed if its target is not in
+    the cache."""
+
+    def inner(bcs):
+        global result
+
+        cache = AssemblyCache()
+
+        if not cache.enabled:
+            return thunk(bcs)
+
+        obj = cache.lookup(form, bcs)
+        if obj is not None:
+            if isinstance(result, float):
+                # 0-form case
+                assert isinstance(obj, float)
+                result = obj
+            elif isinstance(result, types.Function):
+                # 1-form
+                result.dat = obj
+            elif isinstance(result, types.Matrix):
+                # 2-form
+                result._M = obj
+            else:
+                raise TypeError("Unknown result type")
+            return result
+
+        result = thunk(bcs)
+        if isinstance(result, float):
+            # 0-form case
+            cache.store(result, form, bcs)
+        elif isinstance(result, types.Function):
+            # 1-form
+            cache.store(result.dat, form, bcs)
+        elif isinstance(result, types.Matrix):
+            # 2-form
+            cache.store(result._M, form, bcs)
+        else:
+            raise TypeError("Unknown result type")
+        return result
+
+    return inner
+
+
 def assembly_cache(func):
     """This is the decorator interface to the assembly cache. It expects an
     assemble() type function that returns the assembled data object."""
 
-    def inner(form):
+    def inner(form, tensor=None, bcs=None):
+
+        # Disable this.
+        return func(form, tensor, bcs)
         cache = AssemblyCache()
         if not cache.assemblyfunc:
             cache.assemblyfunc = func
 
         if not cache.enabled:
-            return func(form)
+            return func(form, tensor, bcs)
 
         #form_sig = compute_form_signature(form)
         #if cache.invalid_count[form_sig] > 3:
         #    cache.do_not_cache.add(form_sig)
         #    return func(form)
 
-        obj = cache.lookup(form)
+        obj = cache.lookup(form, bcs)
         #debug.deprint(cache.cache_stats())
         if obj:
+            # Need to correctly copy into tensor argument here.
+
             #print "Cache hit"
             return obj
 
         #print "Cache miss"
         #from IPython import embed; embed()
 
-        obj = cache.store(form)
+        obj = cache.store(form, bcs)
         return obj
 
     return inner

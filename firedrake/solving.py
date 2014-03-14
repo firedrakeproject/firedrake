@@ -37,7 +37,7 @@ from copy import copy
 from ffc_interface import compile_form
 from assemble_expressions import assemble_expression
 from petsc import PETSc
-from assembly_cache import assembly_cache
+from assembly_cache import assembly_cache, cache_thunk
 
 
 class NonlinearVariationalProblem(object):
@@ -698,6 +698,8 @@ def _assemble(f, tensor=None, bcs=None):
             # Queue up matrix assembly (after we've done all the other operations)
             tensor.assemble()
         return result()
+
+    thunk = cache_thunk(thunk, f, result())
 
     if is_mat:
         result_matrix._assembly_callback = thunk
