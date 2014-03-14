@@ -187,13 +187,11 @@ cdef class _Plan:
                 yield sum(sizes[(dat,map,pi)] for pi in range(self._nblocks))
         self._nindirect = numpy.fromiter(nindirect_iter(), dtype=numpy.int32)
 
-        def loc_iter():
-            for dat,map in d.iterkeys():
-                for i in indices(dat, map):
-                    for pi in range(self._nblocks):
-                        yield locs[(dat,map,i,pi)].astype(numpy.int16)
-        t = tuple(loc_iter())
-        self._loc_map = numpy.concatenate(t) if t else numpy.array([], dtype=numpy.int16)
+        locs_t = tuple(locs[dat, map, i, pi].astype(numpy.int16)
+                       for dat, map in d.iterkeys()
+                       for i in indices(dat, map)
+                       for pi in range(self._nblocks))
+        self._loc_map = numpy.concatenate(locs_t) if locs_t else numpy.array([], dtype=numpy.int16)
 
         def off_iter():
             _off = dict()
