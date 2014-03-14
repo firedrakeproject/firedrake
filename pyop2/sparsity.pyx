@@ -75,7 +75,7 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
     from set, for each row pointed to by the row map, add all columns pointed
     to by the col map."""
     cdef:
-        int e, i, r, d, c
+        int e, i, r, d, c, layer
         int lsize, rsize, row
         cmap rowmap, colmap
         vector[set[int]] s_diag
@@ -83,21 +83,45 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
 
     lsize = nrows*rmult
     s_diag = vector[set[int]](lsize)
+    iterate = None
 
-    for rmap, cmap in maps:
+    for ind, (rmap, cmap) in enumerate(maps):
         rowmap = init_map(rmap)
         colmap = init_map(cmap)
         rsize = rowmap.from_size
         if rowmap.layers > 1:
-            for e in range(rsize):
-                for i in range(rowmap.arity):
-                    for r in range(rmult):
-                        for l in range(rowmap.layers - 1):
-                            row = rmult * (rowmap.values[i + e*rowmap.arity] + l * rowmap.offset[i]) + r
-                            for d in range(colmap.arity):
-                                for c in range(cmult):
-                                    s_diag[row].insert(cmult * (colmap.values[d + e * colmap.arity] +
-                                                       l * colmap.offset[d]) + c)
+            row_it_space = maps[ind][0].it_space
+            col_it_space = maps[ind][1].it_space
+            for it_sp in row_it_space:
+                if it_sp.where == 'ON_BOTTOM':
+                    for e in range(rsize):
+                        for i in range(rowmap.arity):
+                            for r in range(rmult):
+                                row = rmult * (rowmap.values[i + e*rowmap.arity]) + r
+                                for d in range(colmap.arity):
+                                    for c in range(cmult):
+                                        s_diag[row].insert(cmult * (colmap.values[d + e * colmap.arity]) + c)
+                elif it_sp.where == "ON_TOP":
+                    layer = rowmap.layers - 2
+                    for e in range(rsize):
+                        for i in range(rowmap.arity):
+                            for r in range(rmult):
+                                row = rmult * (rowmap.values[i + e*rowmap.arity] + layer * rowmap.offset[i]) + r
+                                for d in range(colmap.arity):
+                                    for c in range(cmult):
+                                        s_diag[row].insert(cmult * (colmap.values[d + e * colmap.arity] +
+                                                           layer * colmap.offset[d]) + c)
+                else:
+                    for e in range(rsize):
+                        for i in range(rowmap.arity):
+                            for r in range(rmult):
+                                for l in range(rowmap.layers - 1):
+                                    row = rmult * (rowmap.values[i + e*rowmap.arity] + l * rowmap.offset[i]) + r
+                                    for d in range(colmap.arity):
+                                        for c in range(cmult):
+                                            s_diag[row].insert(cmult * (colmap.values[d + e * colmap.arity] +
+                                                               l * colmap.offset[d]) + c)
+
         else:
             for e in range(rsize):
                 for i in range(rowmap.arity):

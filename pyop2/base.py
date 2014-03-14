@@ -2650,6 +2650,23 @@ class Map(object):
         return cls(iterset, toset, arity[0], values, name)
 
 
+class SparsityMap(Map):
+    """Augmented type for a map used in the case of building the sparsity
+    for horizontal facets."""
+
+    def __init__(self, map, it_space):
+        self._map = map
+        self._it_space = it_space
+
+    def __getattr__(self, name):
+        return getattr(self._map, name)
+
+    @property
+    def it_space(self):
+        """Returns the type of the iteration to be performed."""
+        return self._it_space
+
+
 class MixedMap(Map):
     """A container for a bag of :class:`Map`\s."""
 
@@ -2794,6 +2811,7 @@ class Sparsity(Cached):
         maps = (maps, maps) if isinstance(maps, Map) else maps
         # A single pair becomes a tuple of one pair
         maps = (maps,) if isinstance(maps[0], Map) else maps
+        # A list of maps where each map has a flag attached to it
 
         # Check maps are sane
         for pair in maps:
@@ -3249,11 +3267,15 @@ class Iterate(object):
     in the extrusion direction. The accesses to these elements are direct.
     """
 
-    _iterates = ["ON_COLUMN", "ON_BOTTOM", "ON_TOP", "ON_INTERIOR_FACETS"]
+    _iterates = ["ON_COLUMN", "ON_BOTTOM", "ON_TOP", "ON_INTERIOR_FACETS", "ALL"]
 
     @validate_in(('iterate', _iterates, IterateValueError))
     def __init__(self, iterate):
         self._iterate = iterate
+
+    @property
+    def where(self):
+        return self._iterate
 
     def __str__(self):
         return "OP2 Iterate: %s" % self._iterate
@@ -3271,6 +3293,9 @@ ON_TOP = Iterate("ON_TOP")
 """Iterate over the top cells in an extruded mesh."""
 
 ON_INTERIOR_FACETS = Iterate("ON_INTERIOR_FACETS")
+"""Iterate over the interior facets of an extruded mesh."""
+
+ALL = Iterate("ALL")
 """Iterate over the interior facets of an extruded mesh."""
 
 

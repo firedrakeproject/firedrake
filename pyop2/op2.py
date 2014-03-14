@@ -38,7 +38,7 @@ import atexit
 import backends
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, i
-from base import ON_BOTTOM, ON_TOP, ON_COLUMN, ON_INTERIOR_FACETS
+from base import ON_BOTTOM, ON_TOP, ON_COLUMN, ON_INTERIOR_FACETS, ALL
 from configuration import configuration
 from logger import debug, info, warning, error, critical, set_log_level
 from mpi import MPI, collective
@@ -48,7 +48,7 @@ from ir.ast_plan import init_ir
 from versioning import modifies_arguments
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
-           'ON_BOTTOM', 'ON_TOP', 'ON_COLUMN', 'ON_INTERIOR_FACETS',
+           'ON_BOTTOM', 'ON_TOP', 'ON_COLUMN', 'ON_INTERIOR_FACETS', 'ALL',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'ExtrudedSet',
            'MixedSet', 'Subset', 'DataSet', 'MixedDataSet', 'Halo', 'Dat',
@@ -176,6 +176,10 @@ class Global(base.Global):
 
 
 class Map(base.Map):
+    __metaclass__ = backends._BackendSelector
+
+
+class SparsityMap(base.SparsityMap):
     __metaclass__ = backends._BackendSelector
 
 
