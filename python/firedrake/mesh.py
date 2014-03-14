@@ -295,10 +295,10 @@ class IntervalMesh(Mesh):
     :arg length: The length of the interval.
 
     The left hand (:math:`x=0`) boundary point has boundary marker 1,
-    while the right hand (:math:`x=1`) point has marker 2.
+    while the right hand (:math:`x=L`) point has marker 2.
     """
-    def __init__(self, nx, length):
-        with get_interval_mesh(nx, length) as output:
+    def __init__(self, ncells, length):
+        with get_interval_mesh(ncells, length) as output:
             super(IntervalMesh, self).__init__(output)
 
 
@@ -306,7 +306,7 @@ class UnitIntervalMesh(IntervalMesh):
     """
     Generate a uniform mesh of the interval [0,1].
 
-    :arg nx: The number of the cells over the interval.
+    :arg ncells: The number of the cells over the interval.
 
     The left hand (:math:`x=0`) boundary point has boundary marker 1,
     while the right hand (:math:`x=1`) point has marker 2.
@@ -321,13 +321,13 @@ class PeriodicIntervalMesh(Mesh):
 
     :arg ncells: The number of cells over the interval.
     :arg length: The length the interval."""
-    def __init__(self, nx, length):
-        with periodic_interval_mesh(nx) as output:
+    def __init__(self, ncells, length):
+        with periodic_interval_mesh(ncells) as output:
             # Coordinate values need to be replaced by the appropriate
             # DG coordinate field.
-            dx = length / nx
+            dx = length / ncells
             # Two per cell
-            coords = np.empty(2 * nx, dtype=float)
+            coords = np.empty(2 * ncells, dtype=float)
             # For an interval
             #
             # 0---1---2---3 ... n-1---n
@@ -351,7 +351,7 @@ class PeriodicIntervalMesh(Mesh):
 
 class PeriodicUnitIntervalMesh(PeriodicIntervalMesh):
     """Generate a periodic uniform mesh of the interval [0, 1].
-    :arg nx: The number of cells over the interval."""
+    :arg ncells: The number of cells over the interval."""
     def __init__(self, ncells):
         PeriodicIntervalMesh.__init__(self, ncells, length=1.0)
 

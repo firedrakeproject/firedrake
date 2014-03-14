@@ -40,10 +40,12 @@ Utility mesh functions
 As well as offering the ability to read mesh information from a file,
 Firedrake also provides a number of built in mesh types for a number
 of standard shapes.  The simplest is a
-:py:class:`~firedrake.mesh.UnitIntervalMesh` which is a regularly
-subdivided unit line.  We may also build square meshes with the
-:py:class:`~firedrake.mesh.UnitSquareMesh` constructor, and cube
-meshes with :py:class:`~firedrake.mesh.UnitCubeMesh`.
+:py:class:`~firedrake.mesh.IntervalMesh` which is a regularly
+subdivided unit line of specified length.  We may also build square
+meshes with the :py:class:`~firedrake.mesh.UnitSquareMesh`
+constructor, and cube meshes with
+:py:class:`~firedrake.mesh.UnitCubeMesh`.  The API documentation for
+the :py:mod:`~firedrake.mesh` module has full usage descriptions.
 
 Immersed manifolds
 ~~~~~~~~~~~~~~~~~~
