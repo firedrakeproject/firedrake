@@ -403,9 +403,6 @@ def _assemble(f, tensor=None, bcs=None):
 
     integrals = fd.preprocessed_form.integrals()
 
-    # Extract coordinate field
-    coords = integrals[0].measure().domain_data()
-
     def get_rank(arg):
         return arg.function_space().rank
     has_vec_fs = lambda arg: isinstance(arg.function_space(), types.VectorFunctionSpace)
@@ -423,7 +420,6 @@ def _assemble(f, tensor=None, bcs=None):
 
         mixed_plus_vfs_error(test)
         mixed_plus_vfs_error(trial)
-        m = test.function_space().mesh()
         map_pairs = []
         cell_domains = []
         exterior_facet_domains = []
@@ -491,7 +487,6 @@ def _assemble(f, tensor=None, bcs=None):
     elif is_vec:
         test = fd.original_arguments[0]
         mixed_plus_vfs_error(test)
-        m = test.function_space().mesh()
         if tensor is None:
             result_function = types.Function(test.function_space())
             tensor = result_function.dat
@@ -501,8 +496,6 @@ def _assemble(f, tensor=None, bcs=None):
         tensor.zero()
         result = lambda: result_function
     else:
-        m = coords.function_space().mesh()
-
         # 0-forms are always scalar
         if tensor is None:
             tensor = op2.Global(1, [0.0])
@@ -526,6 +519,8 @@ def _assemble(f, tensor=None, bcs=None):
             top = any(bc.sub_domain == "top" for bc in bcs)
             extruded_bcs = (bottom, top)
         for (i, j), measure, coefficients, kernel in kernels:
+            coords = measure.domain_data()
+            m = coords.function_space().mesh()
             # Extract block from tensor and test/trial spaces
             # FIXME Ugly variable renaming required because functions are not
             # lexical closures in Python and we're writing to these variables
@@ -623,7 +618,7 @@ def _assemble(f, tensor=None, bcs=None):
                 #domain id: interior horizontal, bottom or top.
 
                 #Get the list of sets and globals required for parallel loop construction.
-                set_global_list = m.exterior_facets.measure_set(integral.measure())
+                set_global_list = m.exterior_facets.measure_set(measure)
 
                 #Iterate over the list and assemble all the args of the parallel loop
                 for (index, set) in set_global_list:
@@ -656,7 +651,7 @@ def _assemble(f, tensor=None, bcs=None):
                 else:
                     tensor_arg = t(op2.INC)
 
-                args = [kernel, m.exterior_facets.measure_set(integral.measure()), tensor_arg,
+                args = [kernel, m.exterior_facets.measure_set(measure), tensor_arg,
                         coords.dat(op2.READ, coords.exterior_facet_node_map(),
                                    flatten=True)]
                 for c in coefficients:
@@ -712,7 +707,7 @@ def _assemble(f, tensor=None, bcs=None):
                 else:
                     tensor_arg = t(op2.INC)
 
-                args = [kernel, m.interior_facets.measure_set(integral.measure()), tensor_arg,
+                args = [kernel, m.interior_facets.measure_set(measure), tensor_arg,
                         coords.dat(op2.READ, coords.cell_node_map(),
                                    flatten=True)]
                 for c in coefficients:
