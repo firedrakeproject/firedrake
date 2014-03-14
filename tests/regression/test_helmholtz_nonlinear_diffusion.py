@@ -68,9 +68,6 @@ def test_l2_conv():
     assert (run_convergence_test() > 1.8).all()
 
 
-def test_l2_conv_fail():
-    assert not (run_convergence_test(parameters={'snes_type': 'ksponly'}) > 1.8).all()
-
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
