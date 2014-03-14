@@ -115,62 +115,65 @@ cdef class _Plan:
 
     def _compute_staging_info(self, iset, partition_size, matrix_coloring, args):
         """Constructs:
-            - nindirect
-            - ind_map
-            - loc_map
-            - ind_sizes
-            - ind_offs
-            - offset
-            - nshared
+            - nindirect : Number of unique Dat/Map pairs in the argument list
+            - ind_map   : Indirection map - array of arrays of indices into the
+                          Dat of all indirect arguments
+            - loc_map   : Array of offsets of staged data in shared memory for
+                          each Dat/Map pair for each partition
+            - ind_sizes : array of sizes of indirection maps for each block
+            - ind_offs  : array of offsets into indirection maps for each block
+            - offset    : List of offsets of each partition
+            - nshared   : Bytes of shared memory required per partition
         """
-        # indices referenced for this dat-map pair
-        def indices(dat, map):
-            return [arg.idx for arg in args if arg.data is dat and arg.map is map]
+        indices = {}  # indices referenced for a given dat-map pair
 
         self._ninds = 0
         self._nargs = len([arg for arg in args if not arg._is_mat])
         d = OrderedDict()
-        for i, arg in enumerate([arg for arg in args if not arg._is_mat]):
-            if arg._is_indirect:
-                k = (arg.data,arg.map)
-                if not d.has_key(k):
-                    d[k] = i
+        for arg in args:
+            if arg._is_indirect and not arg._is_mat:
+                k = arg.data, arg.map
+                if not k in d:
+                    indices[k] = [a.idx for a in args
+                                  if a.data is arg.data and a.map is arg.map]
+                    d[k] = self._ninds
                     self._ninds += 1
 
-        inds = dict()
-        locs = dict()
-        sizes = dict()
+        inds = {}   # Indices referenced by dat via map in given partition
+        locs = {}   # Offset of staged data in shared memory by dat via map in
+                    # given partition
+        sizes = {}  # # of indices references by dat via map in given partition
 
         for pi in range(self._nblocks):
             start = self._offset[pi]
             end = start + self._nelems[pi]
 
             for dat,map in d.iterkeys():
-                ii = indices(dat,map)
+                ii = indices[dat, map]
                 l = len(ii)
 
                 if (isinstance(iset.set, base.Subset)):
-                    staged_values = map.values_with_halo[iset.set.indices[start:end]][:,ii]
+                    staged_values = map.values_with_halo[iset.set.indices[start:end]][:, ii]
                 else:
-                    staged_values = map.values_with_halo[start:end,ii]
+                    staged_values = map.values_with_halo[start:end, ii]
 
-                inds[(dat,map,pi)], inv = numpy.unique(staged_values, return_inverse=True)
-                sizes[(dat,map,pi)] = len(inds[(dat,map,pi)])
+                inds[dat, map, pi], inv = numpy.unique(staged_values, return_inverse=True)
+                sizes[dat, map, pi] = len(inds[dat, map, pi])
 
                 for i, ind in enumerate(sorted(ii)):
-                    locs[(dat,map,ind,pi)] = inv[i::l]
+                    locs[dat, map, ind, pi] = inv[i::l]
 
         def ind_iter():
             for dat,map in d.iterkeys():
                 cumsum = 0
                 for pi in range(self._nblocks):
-                    cumsum += len(inds[(dat,map,pi)])
-                    yield inds[(dat,map,pi)]
+                    cumsum += len(inds[dat, map, pi])
+                    yield inds[dat, map, pi]
                 # creates a padding to conform with op2 plan objects
                 # fills with -1 for debugging
                 # this should be removed and generated code changed
                 # once we switch to python plan only
-                pad = numpy.empty(len(indices(dat,map)) * iset.size - cumsum, dtype=numpy.int32)
+                pad = numpy.empty(len(indices[dat, map]) * iset.size - cumsum, dtype=numpy.int32)
                 pad.fill(-1)
                 yield pad
         t = tuple(ind_iter())
@@ -189,18 +192,18 @@ cdef class _Plan:
 
         locs_t = tuple(locs[dat, map, i, pi].astype(numpy.int16)
                        for dat, map in d.iterkeys()
-                       for i in indices(dat, map)
+                       for i in indices[dat, map]
                        for pi in range(self._nblocks))
         self._loc_map = numpy.concatenate(locs_t) if locs_t else numpy.array([], dtype=numpy.int16)
 
         def off_iter():
             _off = dict()
-            for dat,map in d.iterkeys():
-                _off[(dat,map)] = 0
+            for dat, map in d.iterkeys():
+                _off[dat, map] = 0
             for pi in range(self._nblocks):
-                for dat,map in d.iterkeys():
-                    yield _off[(dat,map)]
-                    _off[(dat,map)] += sizes[(dat,map,pi)]
+                for dat, map in d.iterkeys():
+                    yield _off[dat, map]
+                    _off[dat, map] += sizes[dat, map, pi]
         self._ind_offs = numpy.fromiter(off_iter(), dtype=numpy.int32)
 
         # max shared memory required by work groups
