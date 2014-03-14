@@ -793,6 +793,9 @@ class Mesh(object):
         else:
             self.interior_facets = _Facets(self, 0, "interior", None, None)
 
+        plex_coords = self._plex.getCoordinatesLocal().getArray()
+        self._coordinates = np.reshape(plex_coords, (vEnd - vStart, geometric_dim))
+
         # Note that for bendy elements, this needs to change.
         if periodic_coords is not None:
             if self.ufl_cell().geometric_dimension() != 1:
@@ -805,8 +808,6 @@ class Mesh(object):
         else:
             self._coordinate_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
 
-            plex_coords = self._plex.getCoordinatesLocal().getArray()
-            self._coordinates = np.reshape(plex_coords, (vEnd - vStart, geometric_dim))
 
             # Use the inverse of the section permutation to re-order
             # the coordinates from the Plex

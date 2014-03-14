@@ -1,6 +1,5 @@
 import tempfile
 from core_types import Mesh
-from interval import periodic_interval_mesh
 import subprocess
 from pyop2.mpi import MPI
 import os
@@ -356,37 +355,70 @@ class PeriodicIntervalMesh(Mesh):
     :arg ncells: The number of cells over the interval.
     :arg length: The length the interval."""
     def __init__(self, ncells, length):
-        with periodic_interval_mesh(ncells) as output:
-            # Coordinate values need to be replaced by the appropriate
-            # DG coordinate field.
-            dx = length / ncells
-            # Two per cell
-            coords = np.empty(2 * ncells, dtype=float)
-            # For an interval
-            #
-            # 0---1---2---3 ... n-1---n
-            # |                       |
-            # `-----------------------'
-            #
-            # The element (0,1) is numbered first
-            coords[0] = 0.0
-            coords[1] = dx
-            # Then the element (n, 0)
-            coords[2] = length
-            coords[3] = length - dx
-            # Then the rest in order (1, 2), (2, 3) ... (n-1, n)
-            if len(coords) > 4:
-                coords[4] = dx
-                coords[5:] = np.repeat(np.arange(dx * 2, length - dx + dx*0.01, dx), 2)[:-1]
+        self.name = "periodicinterval"
 
-            Mesh.__init__(self, output,
-                          periodic_coords=coords)
+        """Build the periodic Plex by hand"""
+        nvert = ncells
+        nedge = ncells
+        dmplex = PETSc.DMPlex().create()
+        dmplex.setDimension(1)
+        dmplex.setChart(0, nvert+nedge)
+        for e in range(nedge):
+            dmplex.setConeSize(e, 2)
+        dmplex.setUp()
+        for e in range(nedge-1):
+            dmplex.setCone(e, [nedge+e, nedge+e+1])
+            dmplex.setConeOrientation(e, [0, 0])
+        # Connect v_(n-1) with v_0
+        dmplex.setCone(nedge-1, [nedge+nvert-1, nedge])
+        dmplex.setConeOrientation(nedge-1, [0, 0])
+        dmplex.symmetrize()
+        dmplex.stratify()
+
+        # Build coordinate section
+        dx = length / ncells
+        coords = [x for x in np.arange(0, length + 0.01 * dx, dx)]
+
+        coordsec = dmplex.getCoordinateSection()
+        coordsec.setChart(nedge, nedge+nvert)
+        for v in range(nedge, nedge+nvert):
+            coordsec.setDof(v, 1)
+        coordsec.setUp()
+        size = coordsec.getStorageSize()
+        coordvec = PETSc.Vec().createWithArray(coords, size=size)
+        dmplex.setCoordinatesLocal(coordvec)
+
+        # Coordinate values need to be replaced by the appropriate
+        # DG coordinate field.
+        dx = length / ncells
+        # Two per cell
+        coords = np.empty(2 * ncells, dtype=float)
+        # For an interval
+        #
+        # 0---1---2---3 ... n-1---n
+        # |                       |
+        # `-----------------------'
+        #
+        # The element (0,1) is numbered first
+        coords[0] = 0.0
+        coords[1] = dx
+        # Then the element (n, 0)
+        coords[2] = length
+        coords[3] = length - dx
+        # Then the rest in order (1, 2), (2, 3) ... (n-1, n)
+        if len(coords) > 4:
+            coords[4] = dx
+            coords[5:] = np.repeat(np.arange(dx * 2, length - dx + dx*0.01, dx), 2)[:-1]
+
+        Mesh.__init__(self, self.name, plex=dmplex,
+                      periodic_coords=coords)
 
 
 class PeriodicUnitIntervalMesh(PeriodicIntervalMesh):
     """Generate a periodic uniform mesh of the interval [0, 1].
     :arg ncells: The number of cells over the interval."""
     def __init__(self, ncells):
+        self.name = "periodicunitinterval"
         PeriodicIntervalMesh.__init__(self, ncells, length=1.0)
 
 
