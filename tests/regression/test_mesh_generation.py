@@ -16,7 +16,7 @@ def test_unit_interval():
 
 
 def test_interval():
-    assert abs(integrate_one(IntervalMesh(3,5.0)) - 5.0) < 1e-3
+    assert abs(integrate_one(IntervalMesh(3, 5.0)) - 5.0) < 1e-3
 
 
 def test_periodic_unit_interval():
@@ -24,7 +24,7 @@ def test_periodic_unit_interval():
 
 
 def test_periodic_interval():
-    assert abs(integrate_one(PeriodicIntervalMesh(3,5.0)) - 5.0) < 1e-3
+    assert abs(integrate_one(PeriodicIntervalMesh(3, 5.0)) - 5.0) < 1e-3
 
 
 def test_unit_square():
