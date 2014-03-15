@@ -18,6 +18,7 @@ Contents:
    architecture
    backends
    linear_algebra
+   plan
    mixed
    mpi
    user
