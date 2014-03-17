@@ -3534,6 +3534,8 @@ class ParLoop(LazyComputation):
         :return: class:`IterationSpace` for this :class:`ParLoop`"""
 
         _iterset = iterset.superset if isinstance(iterset, Subset) else iterset
+        if isinstance(_iterset, MixedSet):
+            raise SetTypeError("Cannot iterate over MixedSets")
         block_shape = None
         for i, arg in enumerate(self._actual_args):
             if arg._is_global:
