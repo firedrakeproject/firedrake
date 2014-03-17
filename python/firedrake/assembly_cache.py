@@ -4,6 +4,7 @@ from ufl.algorithms.signature import compute_form_signature
 import firedrake
 import types
 import weakref
+from petsc4py import PETSc
 
 
 class DependencySnapshot(object):
@@ -37,8 +38,6 @@ class DependencySnapshot(object):
                 return False
 
         deps = form.compute_form_data().original_coefficients
-
-        print self.dependencies
 
         for original_d, dep in zip(self.dependencies[1:], deps):
             original_dep = original_d[0]()
@@ -201,8 +200,6 @@ class AssemblyCache(object):
             self._hits += 1
             self._hits_size += retval.nbytes
 
-            #debug.deprint('Object %s was retrieved from cache' % retval)
-            #debug.deprint('%d objects in cache' % self.num_objects)
         return retval
 
     def _store_fragmented(self, form):
@@ -300,8 +297,9 @@ def cache_thunk(thunk, form, result):
     """Wrap thunk so that thunk is only executed if its target is not in
     the cache."""
 
+    print str(form), type(result)
+
     def inner(bcs):
-        global result
 
         cache = AssemblyCache()
 
@@ -310,34 +308,36 @@ def cache_thunk(thunk, form, result):
 
         obj = cache.lookup(form, bcs)
         if obj is not None:
-            print "Cache hit for %s" % str(form)
             if isinstance(result, float):
                 # 0-form case
                 assert isinstance(obj, float)
-                result = obj
+                r = obj
             elif isinstance(result, types.Function):
                 # 1-form
                 result.dat = obj
+                r = result
             elif isinstance(result, types.Matrix):
                 # 2-form
-                result._M = obj
+                obj.handle.copy(result._M.handle,
+                                PETSc.Mat.Structure.SAME_NONZERO_PATTERN)
+                r = result
             else:
                 raise TypeError("Unknown result type")
-            return result
+            return r
 
-        result = thunk(bcs)
-        if isinstance(result, float):
+        r = thunk(bcs)
+        if isinstance(r, float):
             # 0-form case
-            cache.store(result, form, bcs)
-        elif isinstance(result, types.Function):
+            cache.store(r, form, bcs)
+        elif isinstance(r, types.Function):
             # 1-form
-            cache.store(result.dat, form, bcs)
-        elif isinstance(result, types.Matrix):
+            cache.store(r.dat, form, bcs)
+        elif isinstance(r, types.Matrix):
             # 2-form
-            cache.store(result._M, form, bcs)
+            cache.store(r._M, form, bcs)
         else:
             raise TypeError("Unknown result type")
-        return result
+        return r
 
     return inner
 
