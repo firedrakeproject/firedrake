@@ -1,5 +1,6 @@
 from petsc import PETSc
-from types import IndexedFunctionSpace
+from types import IndexedFunctionSpace, Function
+from numpy import prod
 
 
 __all__ = ['VectorSpaceBasis', 'MixedVectorSpaceBasis']
@@ -48,20 +49,22 @@ class VectorSpaceBasis(object):
 
     def is_orthonormal(self):
         """Is this vector space basis orthonormal?"""
-        for i, iv in enumerate(self._petsc_vecs):
-            for j, jv in enumerate(self._petsc_vecs):
+        for i, iv in enumerate(self._vecs):
+            for j, jv in enumerate(self._vecs):
                 dij = 1 if i == j else 0
-                if abs(iv.dot(jv) - dij) > 1e-14:
+                # scaled by size of function space
+                if abs(iv.dat.inner(jv.dat) - dij) / prod(iv.function_space().dof_count) > 1e-10:
                     return False
         return True
 
     def is_orthogonal(self):
         """Is this vector space basis orthogonal?"""
-        for i, iv in enumerate(self._petsc_vecs):
-            for j, jv in enumerate(self._petsc_vecs):
+        for i, iv in enumerate(self._vecs):
+            for j, jv in enumerate(self._vecs):
                 if i == j:
                     continue
-                if abs(iv.dot(jv)) > 1e-14:
+                # scaled by size of function space
+                if abs(iv.dat.inner(jv.dat)) / prod(iv.function_space().dof_count) > 1e-10:
                     return False
         return True
 
