@@ -2235,6 +2235,89 @@ class MixedDat(Dat):
     def __repr__(self):
         return "MixedDat(%r)" % (self._dats,)
 
+    def _op(self, other, op):
+        ret = []
+        if np.isscalar(other):
+            for s in self:
+                ret.append(op(s, other))
+        else:
+            self._check_shape(other)
+            for s, o in zip(self, other):
+                ret.append(op(s, o))
+        return _make_object('MixedDat', ret)
+
+    def _iop(self, other, op):
+        if np.isscalar(other):
+            for s in self:
+                op(s, other)
+        else:
+            self._check_shape(other)
+            for s, o in zip(self, other):
+                op(s, o)
+        return self
+
+    def __pos__(self):
+        ret = []
+        for s in self:
+            ret.append(s.__pos__())
+        return _make_object('MixedDat', ret)
+
+    def __neg__(self):
+        ret = []
+        for s in self:
+            ret.append(s.__neg__())
+        return _make_object('MixedDat', ret)
+
+    def __add__(self, other):
+        """Pointwise addition of fields."""
+        return self._op(other, operator.add)
+
+    def __radd__(self, other):
+        """Pointwise addition of fields.
+
+        self.__radd__(other) <==> other + self."""
+        return self._op(other, operator.add)
+
+    def __sub__(self, other):
+        """Pointwise subtraction of fields."""
+        return self._op(other, operator.sub)
+
+    def __rsub__(self, other):
+        """Pointwise subtraction of fields.
+
+        self.__rsub__(other) <==> other - self."""
+        return self._op(other, operator.sub)
+
+    def __mul__(self, other):
+        """Pointwise multiplication or scaling of fields."""
+        return self._op(other, operator.mul)
+
+    def __rmul__(self, other):
+        """Pointwise multiplication or scaling of fields.
+
+        self.__rmul__(other) <==> other * self."""
+        return self._op(other, operator.mul)
+
+    def __div__(self, other):
+        """Pointwise division or scaling of fields."""
+        return self._op(other, operator.div)
+
+    def __iadd__(self, other):
+        """Pointwise addition of fields."""
+        return self._iop(other, operator.iadd)
+
+    def __isub__(self, other):
+        """Pointwise subtraction of fields."""
+        return self._iop(other, operator.isub)
+
+    def __imul__(self, other):
+        """Pointwise multiplication or scaling of fields."""
+        return self._iop(other, operator.imul)
+
+    def __idiv__(self, other):
+        """Pointwise division or scaling of fields."""
+        return self._iop(other, operator.idiv)
+
 
 class Const(DataCarrier):
 
