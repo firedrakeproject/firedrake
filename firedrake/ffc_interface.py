@@ -62,17 +62,31 @@ class FormSplitter(ReuseTransformer):
     def split(self, form):
         """Split the given form."""
         # Visit each integrand and obtain the tuple of sub forms
-        shape = tuple(len(a.function_space())
-                      for a in form.form_data().original_arguments)
+        args = tuple((a.count(), len(a.function_space()))
+                     for a in form.form_data().original_arguments)
         forms_list = []
         for it in sum_integrands(form).integrals():
             forms = []
-            for i in range(shape[0] if len(shape) > 0 else 1):
-                for j in range(shape[1] if len(shape) > 1 else 1):
-                    self._idx = {-2: i, -1: j}
-                    integrand = self.visit(it.integrand())
-                    if not isinstance(integrand, Zero):
-                        forms.append([((i, j), integrand * it.measure())])
+
+            def visit(idx):
+                integrand = self.visit(it.integrand())
+                if not isinstance(integrand, Zero):
+                    forms.append([(idx, integrand * it.measure())])
+            # 0 form
+            if not args:
+                visit((0, 0))
+            # 1 form
+            elif len(args) == 1:
+                count, l = args[0]
+                for i in range(l):
+                    self._idx = {count: i}
+                    visit((i, 0))
+            # 2 form
+            elif len(args) == 2:
+                for i in range(args[0][1]):
+                    for j in range(args[1][1]):
+                        self._idx = {args[0][0]: i, args[1][0]: j}
+                        visit((i, j))
             forms_list += forms
         return forms_list
 
