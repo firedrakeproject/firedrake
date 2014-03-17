@@ -1959,6 +1959,28 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         par_loop(k, self.dataset.set, self(RW))
         return self
 
+    def inner(self, other):
+        """Compute the l2 inner product
+
+        :arg other: the other :class:`Dat` to compute the inner product against"""
+        self._check_shape(other)
+        ret = _make_object('Global', 1, data=0, dtype=float)
+        k = _make_object('Kernel',
+                         """void k(%(t)s *self, %(to)s *other, double *result) {
+                            for ( int n = 0; n < %(dim)s; ++n) {
+                                *result += self[n] * other[n];
+                            }
+                         }""" % {'t': self.ctype, 'to': other.ctype,
+                                 'dim': self.cdim})
+        par_loop(k, self.dataset.set, self(READ), other(READ), ret(INC))
+        return ret
+
+    @property
+    def norm(self):
+        """Compute the l2 norm of this :class:`Dat`"""
+        from math import sqrt
+        return sqrt(self.inner(self).data_ro[0])
+
     def __pos__(self):
         pos = _make_object('Dat', self)
         return pos
@@ -2051,11 +2073,6 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
             self._data[halo.receives[source]] = buf
         maybe_setflags(self._data, write=False)
         self._recv_buf.clear()
-
-    @property
-    def norm(self):
-        """The L2-norm on the flattened vector."""
-        return np.linalg.norm(self._data)
 
     @classmethod
     def fromhdf5(cls, dataset, f, name):
@@ -2234,6 +2251,15 @@ class MixedDat(Dat):
 
     def __repr__(self):
         return "MixedDat(%r)" % (self._dats,)
+
+    def inner(self, other):
+        """Compute the l2 inner product.
+
+        :arg other: the other :class:`MixedDat` to compute the inner product against"""
+        ret = 0
+        for s, o in zip(self, other):
+            ret += self.inner(other)
+        return ret
 
     def _op(self, other, op):
         ret = []

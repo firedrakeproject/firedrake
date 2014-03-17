@@ -223,21 +223,10 @@ class DeviceDataMixin(device.DeviceDataMixin):
         return DeviceDataMixin.CL_TYPES[self.dtype].max
 
 
+# Needs to be here to pick up correct mixin
 class Dat(device.Dat, petsc_base.Dat, DeviceDataMixin):
 
-    """OP2 OpenCL vector data type."""
-
-    @property
-    def norm(self):
-        """The L2-norm on the flattened vector."""
-        """The L2-norm on the flattened vector."""
-        if self.state is DeviceDataMixin.DEVICE:
-            return np.sqrt(gpuarray.dot(self.array, self.array).get())
-        elif self.state in [DeviceDataMixin.DEVICE_UNALLOCATED,
-                            DeviceDataMixin.HOST, DeviceDataMixin.BOTH]:
-            return np.sqrt(np.dot(self.data_ro, self.data_ro))
-        else:
-            raise RuntimeError('Data neither on host nor device, oops!')
+    pass
 
 
 class Sparsity(device.Sparsity):
