@@ -35,6 +35,7 @@ class VectorSpaceBasis(object):
             raise RuntimeError("Provided vectors must be orthonormal")
         self._nullspace = PETSc.NullSpace().create(constant=constant,
                                                    vectors=self._petsc_vecs)
+        self._constant = constant
 
     @property
     def nullspace(self):
@@ -44,8 +45,17 @@ class VectorSpaceBasis(object):
     def orthogonalize(self, b):
         """Orthogonalize ``b`` with respect to this :class:`.VectorSpaceBasis`.
 
-        :arg b: a :class:`.Function`"""
-        raise NotImplementedError
+        :arg b: a :class:`.Function`
+
+        .. note::
+
+            Modifies ``b`` in place."""
+        for v in self._vecs:
+            dot = b.dat.inner(v.dat)
+            b.dat -= dot * v.dat
+        if self._constant:
+            s = -b.dat.sum() / b.function_space().dof_count
+            b.dat += s
 
     def is_orthonormal(self):
         """Is this vector space basis orthonormal?"""
