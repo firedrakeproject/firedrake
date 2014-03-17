@@ -1,10 +1,52 @@
 from collections import defaultdict
 import ufl
 from ufl.algorithms.signature import compute_form_signature
-from pyop2 import op2
-from pyop2.logger import warning, RED
 import firedrake
 import types
+import weakref
+
+
+class DependencySnapshot(object):
+    """Record the dependencies of a form at a particular point in order to
+    establish whether a cached form is valid."""
+
+    def __init__(self, form):
+
+        # For each dependency, we store a weak reference and the
+        # current version number.
+        ref = lambda dep: (weakref.ref(dep), dep.dat._version)
+
+        deps = []
+
+        coords = form.integrals()[0].measure().domain_data()
+        deps.append(ref(coords))
+
+        for c in form.compute_form_data().original_coefficients:
+            deps.append(ref(c))
+
+        self.dependencies = tuple(deps)
+
+    def valid(self, form):
+        """Check whether form is valid with respect to this dependency snapshot."""
+
+        original_coords = self.dependencies[0][0]()
+        if original_coords:
+            coords = form.integrals()[0].measure().domain_data()
+            if coords != original_coords or \
+               coords.dat._version != self.dependencies[0][1]:
+                return False
+
+        deps = form.compute_form_data().original_coefficients
+
+        print self.dependencies
+
+        for original_d, dep in zip(self.dependencies[1:], deps):
+            original_dep = original_d[0]()
+            if original_dep:
+                if dep != original_dep or dep.dat._version != original_d[1]:
+                    return False
+
+        return True
 
 
 class CacheEntry(object):
@@ -16,17 +58,16 @@ class CacheEntry(object):
     The validity of each CacheEntry object depends on the validity of its
     dependencies (i.e., that none of the referred objects have changed)."""
 
-    def __init__(self, form_sig, obj, form, dependencies=tuple()):
-        self.form_sig = form_sig
+    def __init__(self, obj, form):
         self.form = form
-        self.dependencies = dependencies
+        self.dependencies = DependencySnapshot(form)
         if isinstance(obj, float):
             self.obj = obj
         else:
             self.obj = obj.duplicate()
 
-    def is_valid(self):
-        return all([d.is_valid() for d in self.dependencies])
+    def is_valid(self, form):
+        return self.dependencies.valid(form)
 
     def get_object(self):
         return self.obj
@@ -151,7 +192,7 @@ class AssemblyCache(object):
 
         retval = None
         if cache_entry is not None:
-            if not cache_entry.is_valid():
+            if not cache_entry.is_valid(form):
                 self.invalid_count[form_sig] += 1
                 del self.cache[form_sig]
                 return None
@@ -200,40 +241,14 @@ class AssemblyCache(object):
 
     def store(self, obj, form, bcs):
         form_sig = compute_form_signature(form)
-        fd = form.compute_form_data()
 
-        if self.invalid_count[form_sig] > 1:
-            #print "Storing fragmented form"
-            return self._store_fragmented(form)
+        print "Cache store for %s" % str(form)
 
-        coords = form.integrals()[0].measure().domain_data()
-        # XXX clean this up
-        if hasattr(coords, 'dat'):
-            args = [coords.dat]
-        else:
-            args = [coords]
-        for c in fd.original_coefficients:
-            args.append(c.dat(op2.READ, c.cell_node_map()))
+        # if self.invalid_count[form_sig] > 1:
+        #     #print "Storing fragmented form"
+        #     return self._store_fragmented(form)
 
-        dependencies = tuple()
-        for arg in args:
-            if arg is None:
-                continue
-
-            # XXX clean this up (maybe)
-            if hasattr(arg, 'create_snapshot'):
-                dep = arg.create_snapshot()
-            elif hasattr(arg.data, 'create_snapshot'):
-                dep = arg.data.create_snapshot()
-            else:
-                warning(RED, "Can't create snapshot for argument %r\n\
-                             Object %r will not be cached" %
-                        (arg, obj))
-                return obj
-
-            dependencies += (dep,)
-
-        cache_entry = CacheEntry(form_sig, obj, form, dependencies)
+        cache_entry = CacheEntry(obj, form)
         self.cache[form_sig] = cache_entry
 
         #for d in dependencies:
@@ -262,7 +277,6 @@ class AssemblyCache(object):
 
     @property
     def nbytes(self):
-        #TODO: DataCarrier subtypes should provide an 'nbytes' property
         tot_bytes = 0
         for entry in self.cache.values():
             obj = entry.get_object()
@@ -296,6 +310,7 @@ def cache_thunk(thunk, form, result):
 
         obj = cache.lookup(form, bcs)
         if obj is not None:
+            print "Cache hit for %s" % str(form)
             if isinstance(result, float):
                 # 0-form case
                 assert isinstance(obj, float)
