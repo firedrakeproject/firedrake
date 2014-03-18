@@ -28,24 +28,12 @@ import utils
 
 from operator import itemgetter
 
-cimport fluidity_types as ft
-
-cdef extern from "capsulethunk.h": pass
-
 np.import_array()
 
 cdef char *_function_space_name = "function_space"
 cdef char *_vector_field_name = "vector_field"
 cdef char *_mesh_name = "mesh_type"
 cdef char *_halo_name = "halo_type"
-ft.python_cache = False
-
-"""Mapping from mesh file extension to file format"""
-_file_extensions = {
-    ".node" : "triangle",
-    ".msh"  : "gmsh"
-    # Note: need to include the file extension for exodus.
-    }
 
 _cells = {
     1 : { 2 : "interval"},
@@ -255,57 +243,6 @@ def make_extruded_coords(extruded_mesh, layer_height,
                  layer(op2.READ, layer_fs.cell_node_map()),
                  height(op2.READ))
 
-
-# C utility functions, not seen in python module
-cdef void function_space_destructor(object capsule):
-    cdef void *fs = py.PyCapsule_GetPointer(capsule, _function_space_name)
-    ft.function_space_destructor_f(fs)
-
-cdef void vector_field_destructor(object capsule):
-    cdef void *vf = py.PyCapsule_GetPointer(capsule, _vector_field_name)
-    ft.vector_field_destructor_f(vf)
-
-cdef ft.element_t as_element(object fiat_element):
-    """Convert a FIAT element into a Fluidity element_t struct.
-
-    This is used to build Fluidity element_types from FIAT element
-    descriptions.
-    """
-    cdef ft.element_t element
-    if isinstance(fiat_element.get_reference_element(), FIAT.reference_element.two_product_cell):
-        # Use the reference element of the horizontal element.
-        f_element = fiat_element.flattened_element()
-    else:
-        f_element = fiat_element
-
-    element.dimension = len(f_element.get_reference_element().topology) - 1
-    element.vertices = len(f_element.get_reference_element().vertices)
-    element.ndof = f_element.space_dimension()
-    element.degree = f_element.degree()
-
-    # Need to free these when you're done
-    element.dofs_per = <int *>malloc((element.dimension + 1) * sizeof(int))
-    element.entity_dofs = <int *>malloc(3 * element.ndof * sizeof(int))
-
-    entity_dofs = f_element.entity_dofs()
-    cdef int d
-    cdef int e
-    cdef int dof
-    cdef int dof_pos = 0
-    for d, dim_entities in entity_dofs.iteritems():
-        element.dofs_per[d] = 0
-        for e, this_entity_dofs in dim_entities.iteritems():
-            # This overwrites the same data a few times, but all of
-            # this_entity_dofs are the same length for a given
-            # entity_dimension
-            element.dofs_per[d] = len(this_entity_dofs)
-            for dof in this_entity_dofs:
-                element.entity_dofs[dof_pos] = d
-                element.entity_dofs[dof_pos+1] = e
-                element.entity_dofs[dof_pos+2] = dof
-                dof_pos += 3
-
-    return element
 
 # DMPlex related utility functions
 def plex_facet_numbering(plex, vertex_numbering, facet):
@@ -700,6 +637,7 @@ class Mesh(object):
         """ Create mesh from DMPlex object """
 
         self._plex = plex
+        self.uid = _new_uid()
 
         if geometric_dim == 0:
             geometric_dim = self._plex.getDimension()
@@ -719,15 +657,6 @@ class Mesh(object):
         plex_mark_entity_classes(self._plex)
 
         cStart, cEnd = self._plex.getHeightStratum(0)  # cells
-        fStart, fEnd = self._plex.getHeightStratum(1)  # facets
-        vStart, vEnd = self._plex.getDepthStratum(0)   # vertices
-        self._entities = np.zeros(topological_dim+1, dtype=np.int)
-        self._entities[:] = -1 # Ensure that 3d edges get an out of band value.
-        self._entities[0]  = vEnd - vStart  # vertex count
-        self._entities[-1] = cEnd - cStart  # cell count
-        self._entities[-2] = fEnd - fStart  # facet count
-        self.uid = _new_uid()
-
         cell_vertices = self._plex.getConeSize(cStart)
         self._ufl_cell = ufl.Cell(_cells[geometric_dim][cell_vertices],
                                   geometric_dimension = geometric_dim)
@@ -794,7 +723,7 @@ class Mesh(object):
             self.interior_facets = _Facets(self, 0, "interior", None, None)
 
         plex_coords = self._plex.getCoordinatesLocal().getArray()
-        self._coordinates = np.reshape(plex_coords, (vEnd - vStart, geometric_dim))
+        self._coordinates = np.reshape(plex_coords, (self.num_vertices(), geometric_dim))
 
         # Note that for bendy elements, this needs to change.
         if periodic_coords is not None:
@@ -984,25 +913,31 @@ class Mesh(object):
         return self._ufl_cell
 
     def num_cells(self):
-        return self._entities[-1]
+        cStart, cEnd = self._plex.getHeightStratum(0)
+        return cEnd - cStart
 
     def num_facets(self):
-        return self._entities[-2]
+        fStart, fEnd = self._plex.getHeightStratum(1)
+        return fEnd - fStart
 
     def num_faces(self):
-        return self._entities[2]
+        fStart, fEnd = self._plex.getDepthStratum(2)
+        return fEnd - fStart
 
     def num_edges(self):
-        return self._entities[1]
+        eStart, eEnd = self._plex.getDepthStratum(1)
+        return eEnd - eStart
 
     def num_vertices(self):
-        return self._entities[0]
+        vStart, vEnd = self._plex.getDepthStratum(0)
+        return vEnd - vStart
 
     def num_entities(self, d):
-        return self._entities[d]
+        eStart, eEnd = self._plex.getDepthStratum(d)
+        return eEnd - eStart
 
     def size(self, d):
-        return self._entities[d]
+        return self.num_entities(d)
 
     @utils.cached_property
     def cell_set(self):
@@ -1047,7 +982,6 @@ class ExtrudedMesh(Mesh):
         # All internal logic works with layers of base mesh (not layers of cells)
         self._layers = layers + 1
         self._cells = mesh._cells
-        self._entities = mesh._entities
         self.parent = mesh.parent
         self.uid = mesh.uid
         #self.region_ids = mesh.region_ids
