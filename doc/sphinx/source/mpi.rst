@@ -50,15 +50,15 @@ local :class:`~pyop2.Set` entities are in the core section.
 Computation-communication Overlap
 ---------------------------------
 
-Entities that do not access any halo data can be processed immediately, before
-the exchange of halos has completed. Computation on those entities can
-therefore overlap communication of the halo data.
-
 The ordering of :class:`~pyop2.Set` entities into four sections allow for a
-very efficient overlap of computation and communication. Core entities can be
-processed entirely without access to halo data immediately after the halo
-exchange is initiated. Execution over the owned and exec halo regions requires
-up to date halo data and can only start once the halo exchange is completed.
+very efficient overlap of computation and communication. Core entities that do
+not access any halo data can be processed entirely without access to halo data
+immediately after the halo exchange has been initiated. Execution over the
+owned and exec halo regions requires up to date halo data and can only start
+once the halo exchange is completed.  Depending on the latency and bandwidth
+of communication and the size of the core section relative to the halo, the
+halo exchange may complete before the computation on the core section.
+
 The entire process is given below: ::
 
   halo_exchange_begin()                      # Initiate halo exchange
@@ -75,15 +75,18 @@ The entire process is given below: ::
 
 Any reductions depend on data from the core and owned sections and are
 initiated as soon as the owned section has been processed and execute
-concurrently with computation on the exec halo. If the :func:`~pyop2.par_loop`
-assembles a :class:`~pyop2.Mat`, the matrix assembly is finalised at the end.
+concurrently with computation on the exec halo. Similar to
+`halo_exchange_begin` and `halo_exchange_end`, `reduction_begin` and
+`reduction_end` do no work at all if none of the :func:`~pyop2.par_loop`
+arguments requires a reduction. If the :func:`~pyop2.par_loop` assembles a
+:class:`~pyop2.Mat`, the matrix assembly is finalised at the end.
 
 By dividing entities into sections according to their relation to the halo,
 there is no need to check whether or not a given entity touches the halo or
 not during computations on each section. This avoids branching in kernels or
 wrapper code and allows launching separate kernels for GPU execution of each
-section. The :func:`~pyop2.par_loop` execution above therefore applies to all
-backends.
+section. The :func:`~pyop2.par_loop` execution therefore has the above
+structure for all backends.
 
 Halo exchange
 -------------
