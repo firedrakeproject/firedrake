@@ -442,9 +442,9 @@ def _assemble(f, tensor=None, bcs=None):
             elif domain_type == "exterior_facet_vert":
                 exterior_facet_domains.append(op2.ALL)
             elif domain_type == "interior_facet_horiz":
-                interior_facet_domains.append(op2.ALL)
-            elif domain_type == "interior_facet_vert":
                 cell_domains.append(op2.ON_INTERIOR_FACETS)
+            elif domain_type == "interior_facet_vert":
+                interior_facet_domains.append(op2.ALL)
             else:
                 raise RuntimeError('Unknown domain type "%s"' % domain_type)
 
@@ -675,8 +675,7 @@ def _assemble(f, tensor=None, bcs=None):
                 if is_mat:
                     tensor_arg = tensor(
                         op2.INC, (test.cell_node_map(bcs)[op2.i[0]],
-                                  trial.cell_node_map(bcs)[
-                                      op2.i[1]]),
+                                  trial.cell_node_map(bcs)[op2.i[1]]),
                         flatten=True)
                 elif is_vec:
                     tensor_arg = tensor(
