@@ -199,7 +199,7 @@ class Arg(base.Arg):
                 for idx in range(arity):
                     val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                {'vec_name': self.c_vec_name(),
-                                'idx': d * arity + idx,
+                                'idx': d * arity * (2 if is_facet else 1) + idx,
                                 'data': self.c_ind_data(idx, 0, d, is_top=is_top, layers=layers,
                                                         offset=self.map.offset[idx] if is_top else None)})
             if is_facet:
@@ -207,7 +207,7 @@ class Arg(base.Arg):
                     for idx in range(arity):
                         val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                    {'vec_name': self.c_vec_name(),
-                                    'idx': (d + self.data.dataset.cdim) * arity + idx,
+                                    'idx': d * arity * 2 + arity + idx,
                                     'data': self.c_ind_data(idx, 0, d, is_top=is_top, layers=layers,
                                                             offset=self.map.offset[idx])})
         else:
