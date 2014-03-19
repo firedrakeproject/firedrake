@@ -9,7 +9,6 @@
 *.so
 *.vtu
 config.status
-Makefile
 !/tests/*/Makefile
 /bin
 /femtools/Reference_count_[a-z]*.F90
@@ -32,6 +31,5 @@ Makefile
 /python/firedrake_docs/build/
 /python/firedrake_docs/source/firedrake.rst
 /python/firedrake_docs/source/obtaining_pyop2.rst
-/python/setup.py
 /spatialindex-1.8.0
 /tools/version-info
