@@ -410,13 +410,13 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         cdim = np.prod(self.data.cdim)
         maps = as_tuple(self.map, Map)
         val = []
-        dim_row = m.arity
-        if self._flatten:
-            dim_row = m.arity * cdim
-        if is_facet:
-            dim_row *= 2
         for i, map in enumerate(maps):
             for j, m in enumerate(map):
+                dim_row = m.arity
+                if self._flatten:
+                    dim_row = m.arity * cdim
+                if is_facet:
+                    dim_row *= 2
                 val.append("int xtr_%(name)s[%(dim_row)s];\n" %
                            {'name': self.c_map_name(i, j),
                             'dim_row': str(dim_row)})
