@@ -228,7 +228,7 @@ class Arg(base.Arg):
                                                             offset=self.map.offset[idx])})
         return ";\n".join(val)
 
-    def c_addto_scalar_field(self, i, j, buf_name, extruded=None):
+    def c_addto_scalar_field(self, i, j, buf_name, extruded=None, is_facet=False):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].split[i].arity
         ncols = maps[1].split[j].arity
@@ -242,8 +242,8 @@ class Arg(base.Arg):
         return 'addto_vector(%(mat)s, %(vals)s, %(nrows)s, %(rows)s, %(ncols)s, %(cols)s, %(insert)d)' % \
             {'mat': self.c_arg_name(i, j),
              'vals': buf_name,
-             'nrows': nrows,
-             'ncols': ncols,
+             'nrows': nrows * (2 if is_facet else 1),
+             'ncols': ncols * (2 if is_facet else 1),
              'rows': rows_str,
              'cols': cols_str,
              'insert': self.access == WRITE}
@@ -396,28 +396,33 @@ class Arg(base.Arg):
 for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 """ % {'combine': combine, 'dim': self.data.cdim}
 
-    def c_map_decl(self):
+    def c_map_decl(self, is_facet=False):
         maps = as_tuple(self.map, Map)
         val = []
         for i, map in enumerate(maps):
             for j, m in enumerate(map):
                 val.append("int xtr_%(name)s[%(dim)s];" %
                            {'name': self.c_map_name(i, j),
-                            'dim': m.arity})
+                            'dim': m.arity * (2 if is_facet else 1)})
         return '\n'.join(val)+'\n'
 
-    def c_map_decl_itspace(self):
+    def c_map_decl_itspace(self, is_facet=False):
         cdim = np.prod(self.data.cdim)
         maps = as_tuple(self.map, Map)
         val = []
+        dim_row = m.arity
+        if self._flatten:
+            dim_row = m.arity * cdim
+        if is_facet:
+            dim_row *= 2
         for i, map in enumerate(maps):
             for j, m in enumerate(map):
                 val.append("int xtr_%(name)s[%(dim_row)s];\n" %
                            {'name': self.c_map_name(i, j),
-                            'dim_row': str(m.arity * cdim) if self._flatten else str(m.arity)})
+                            'dim_row': str(dim_row)})
         return '\n'.join(val)+'\n'
 
-    def c_map_init_flattened(self, is_top=False, layers=1):
+    def c_map_init_flattened(self, is_top=False, layers=1, is_facet=False):
         cdim = np.prod(self.data.cdim)
         maps = as_tuple(self.map, Map)
         val = []
@@ -433,9 +438,20 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                     'ind_flat': str(m.arity * k + idx),
                                     'offset': ' + '+str(k) if k > 0 else '',
                                     'off_top': ' + '+str(layers - 2) if is_top else ''})
+                if is_facet:
+                    for idx in range(m.arity):
+                        for k in range(cdim):
+                            val.append("xtr_%(name)s[%(ind_flat)s] = %(dat_dim)s * (*(%(name)s + i * %(dim)s + %(ind)s)%(off)s)%(offset)s;" %
+                                       {'name': self.c_map_name(i, j),
+                                        'dim': m.arity,
+                                        'ind': idx,
+                                        'dat_dim': str(cdim),
+                                        'ind_flat': str(m.arity * k + idx),
+                                        'offset': ' + '+str(k) if k > 0 else '',
+                                        'off': ' + ' + str(m.offset[idx])})
         return '\n'.join(val)+'\n'
 
-    def c_map_init(self, is_top=False, layers=1):
+    def c_map_init(self, is_top=False, layers=1, is_facet=False):
         maps = as_tuple(self.map, Map)
         val = []
         for i, map in enumerate(maps):
@@ -446,6 +462,16 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                 'dim': m.arity,
                                 'ind': idx,
                                 'off_top': ' + '+str(layers - 2) if is_top else ''})
+                if is_facet:
+                    for idx in range(m.arity):
+                        val.append("xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind_zero)s)%(off_top)s%(off)s;" %
+                                   {'name': self.c_map_name(i, j),
+                                    'dim': m.arity,
+                                    'ind': idx + m.arity,
+                                    'ind_zero': idx,
+                                    'off_top': ' + '+str(layers - 2) if is_top else '',
+                                    'off': ' + ' + str(m.offset[idx])})
+
         return '\n'.join(val)+'\n'
 
     def c_map_bcs(self, top_bottom, layers, sign):
@@ -489,7 +515,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             val.append("}")
         return '\n'.join(val)+'\n'
 
-    def c_add_offset_map_flatten(self):
+    def c_add_offset_map_flatten(self, is_facet=False):
         cdim = np.prod(self.data.cdim)
         maps = as_tuple(self.map, Map)
         val = []
@@ -505,9 +531,18 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                     'ind': idx,
                                     'ind_flat': str(m.arity * k + idx),
                                     'dim': str(cdim)})
+                if is_facet:
+                    for idx in range(m.arity):
+                        for k in range(cdim):
+                            val.append("xtr_%(name)s[%(ind_flat)s] += _%(off)s[%(ind)s] * %(dim)s;" %
+                                       {'name': self.c_map_name(i, j),
+                                        'off': self.c_offset_name(i, j),
+                                        'ind': idx,
+                                        'ind_flat': str(m.arity * (k + cdim) + idx),
+                                        'dim': str(cdim)})
         return '\n'.join(val)+'\n'
 
-    def c_add_offset_map(self):
+    def c_add_offset_map(self, is_facet=False):
         maps = as_tuple(self.map, Map)
         val = []
         for i, map in enumerate(maps):
@@ -519,6 +554,13 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                {'name': self.c_map_name(i, j),
                                 'off': self.c_offset_name(i, j),
                                 'ind': idx})
+                if is_facet:
+                    for idx in range(m.arity):
+                        val.append("xtr_%(name)s[%(ind)s] += _%(off)s[%(ind_zero)s];" %
+                                   {'name': self.c_map_name(i, j),
+                                    'off': self.c_offset_name(i, j),
+                                    'ind': m.arity + idx,
+                                    'ind_zero': idx})
         return '\n'.join(val)+'\n'
 
     def c_offset_init(self):
@@ -533,7 +575,18 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             return ""
         return ", " + ", ".join(val)
 
-    def c_buffer_decl(self, size, idx, buf_name):
+    def c_offset_decl(self):
+        maps = as_tuple(self.map, Map)
+        val = []
+        for i, map in enumerate(maps):
+            if not map.iterset._extruded:
+                continue
+            for j, _ in enumerate(map):
+                val.append("int *_%(cnt)s = (int *)(((PyArrayObject *)%(cnt)s)->data)" %
+                           {'cnt': self.c_offset_name(i, j)})
+        return ";\n".join(val)
+
+    def c_buffer_decl(self, size, idx, buf_name, is_facet=False):
         buf_type = self.data.ctype
         dim = len(size)
         compiler = ir.ast_vectorizer.compiler
@@ -541,7 +594,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         return (buf_name, "%(typ)s %(name)s%(dim)s%(align)s%(init)s" %
                 {"typ": buf_type,
                  "name": buf_name,
-                 "dim": "".join(["[%d]" % d for d in size]),
+                 "dim": "".join(["[%d]" % (d * (2 if is_facet else 1)) for d in size]),
                  "align": " " + compiler.get("align")(isa["alignment"]) if compiler else "",
                  "init": " = " + "{" * dim + "0" + "}" * dim if self.access._mode in ['WRITE', 'INC'] else ""})
 
@@ -736,21 +789,23 @@ class JITModule(base.JITModule):
             _layer_arg = ", int layer"
             _off_args = ''.join([arg.c_offset_init() for arg in self._args
                                  if arg._uses_itspace or arg._is_vec_map])
-            _map_decl += ';\n'.join([arg.c_map_decl_itspace() for arg in self._args
+            _off_inits = ';\n'.join([arg.c_offset_decl() for arg in self._args
+                                     if arg._uses_itspace or arg._is_vec_map])
+            _map_decl += ';\n'.join([arg.c_map_decl_itspace(is_facet=is_facet) for arg in self._args
                                      if arg._uses_itspace and not arg._is_mat])
-            _map_decl += ';\n'.join([arg.c_map_decl() for arg in self._args
+            _map_decl += ';\n'.join([arg.c_map_decl(is_facet=is_facet) for arg in self._args
                                      if arg._is_mat])
-            _map_init += ';\n'.join([arg.c_map_init_flattened(is_top=is_top, layers=self._itspace.layers) for arg in self._args
+            _map_init += ';\n'.join([arg.c_map_init_flattened(is_top=is_top, layers=self._itspace.layers, is_facet=is_facet) for arg in self._args
                                      if arg._uses_itspace and arg._flatten and not arg._is_mat])
-            _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, layers=self._itspace.layers) for arg in self._args
+            _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, layers=self._itspace.layers, is_facet=is_facet) for arg in self._args
                                      if arg._uses_itspace and (not arg._flatten or arg._is_mat)])
             _map_bcs_m += ';\n'.join([arg.c_map_bcs(a_bcs, self._itspace.layers, "-") for arg in self._args
                                      if not arg._flatten and arg._is_mat])
             _map_bcs_p += ';\n'.join([arg.c_map_bcs(a_bcs, self._itspace.layers, "+") for arg in self._args
                                      if not arg._flatten and arg._is_mat])
-            _apply_offset += ';\n'.join([arg.c_add_offset_map_flatten() for arg in self._args
+            _apply_offset += ';\n'.join([arg.c_add_offset_map_flatten(is_facet=is_facet) for arg in self._args
                                          if arg._uses_itspace and arg._flatten and not arg._is_mat])
-            _apply_offset += ';\n'.join([arg.c_add_offset_map() for arg in self._args
+            _apply_offset += ';\n'.join([arg.c_add_offset_map(is_facet=is_facet) for arg in self._args
                                          if arg._uses_itspace and (not arg._flatten or arg._is_mat)])
             _apply_offset += ';\n'.join([arg.c_add_offset_flatten(is_facet=is_facet) for arg in self._args
                                          if arg._is_vec_map and arg._flatten])
@@ -760,6 +815,7 @@ class JITModule(base.JITModule):
             _extr_loop_close = '}\n'
         else:
             _off_args = ""
+            _off_inits = ""
 
         # Build kernel invocation. Let X be a parameter of the kernel representing a tensor
         # accessed in an iteration space. Let BUFFER be an array of the same size as X.
@@ -789,12 +845,12 @@ class JITModule(base.JITModule):
                     # Layout of matrices must be restored prior to the invokation of addto_vector
                     # if padding was used
                     _layout_name = "buffer_layout_" + arg.c_arg_name(count)
-                    _layout_decl = arg.c_buffer_decl(_buf_size, count, _layout_name)[1]
+                    _layout_decl = arg.c_buffer_decl(_buf_size, count, _layout_name, is_facet=is_facet)[1]
                     _layout_loops = '\n'.join(['  ' * n + itspace_loop(n, e) for n, e in enumerate(_buf_size)])
                     _layout_assign = _layout_name + "[i_0][i_1]" + " = " + _buf_name + "[i_0][i_1]"
                     _layout_loops_close = '\n'.join('  ' * n + '}' for n in range(len(_buf_size) - 1, -1, -1))
                 _buf_size = [vect_roundup(s) for s in _buf_size]
-            _buf_decl[arg] = arg.c_buffer_decl(_buf_size, count, _buf_name)
+            _buf_decl[arg] = arg.c_buffer_decl(_buf_size, count, _buf_name, is_facet=is_facet)
             _buf_name = _layout_name or _buf_name
             if arg.access._mode not in ['WRITE', 'INC']:
                 _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e) for n, e in enumerate(_loop_size)])
@@ -805,7 +861,7 @@ class JITModule(base.JITModule):
                                   for count, arg in enumerate(self._args)])
         _buf_decl = ";\n".join([decl for name, decl in _buf_decl.values()])
 
-        def itset_loop_body(i, j, shape, offsets):
+        def itset_loop_body(i, j, shape, offsets, is_facet=False):
             nloops = len(shape)
             _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e) for n, e in enumerate(shape)])
             _itspace_args = [(count, arg) for count, arg in enumerate(self._args)
@@ -825,9 +881,9 @@ class JITModule(base.JITModule):
             _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
             _addto_buf_name = _buf_scatter_name or _buf_name
             if self._itspace._extruded:
-                _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, _addto_buf_name, "xtr_") for arg in self._args
+                _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, _addto_buf_name, "xtr_", is_facet=is_facet) for arg in self._args
                                                             if arg._is_mat and arg.data._is_scalar_field])
-                _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, "xtr_") for arg in self._args
+                _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, "xtr_", is_facet=is_facet) for arg in self._args
                                                   if arg._is_mat and arg.data._is_vector_field])
                 _addtos_scalar_field = ""
             else:
@@ -874,6 +930,7 @@ class JITModule(base.JITModule):
                 'const_inits': indent(_const_inits, 1),
                 'vec_inits': indent(_vec_inits, 2),
                 'off_args': _off_args,
+                'off_inits': indent(_off_inits, 1),
                 'layer_arg': _layer_arg,
                 'map_decl': indent(_map_decl, 2),
                 'map_init': indent(_map_init, 5),
@@ -892,4 +949,5 @@ class JITModule(base.JITModule):
                 'layout_assign': _layout_assign,
                 'layout_loop_close': _layout_loops_close,
                 'kernel_args': _kernel_args,
-                'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape, offsets) for i, j, shape, offsets in self._itspace])}
+                'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape, offsets, is_facet=(self._iterate == ON_INTERIOR_FACETS))
+                                              for i, j, shape, offsets in self._itspace])}
