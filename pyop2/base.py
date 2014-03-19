@@ -2654,6 +2654,11 @@ class SparsityMap(Map):
     """Augmented type for a map used in the case of building the sparsity
     for horizontal facets."""
 
+    def __new__(cls, map, it_space):
+        if isinstance(map, MixedMap):
+            return MixedMap([SparsityMap(m, it_space) for m in map])
+        return super(SparsityMap, cls).__new__(cls, map, it_space)
+
     def __init__(self, map, it_space):
         self._map = map
         self._it_space = it_space
