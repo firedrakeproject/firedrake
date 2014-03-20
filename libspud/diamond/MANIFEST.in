@@ -1,4 +1,0 @@
-include MANIFEST MANIFEST.in README.txt
-include setup.py
-include parse_rnc.py
-
