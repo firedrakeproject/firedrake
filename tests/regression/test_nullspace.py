@@ -77,7 +77,7 @@ def test_nullspace_mixed():
     assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 1e-7
 
     # Now using a Schur complement
-    nullspace = MixedVectorSpaceBasis([W.sub(0), VectorSpaceBasis(constant=True)])
+    nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True)])
 
     w.assign(0)
     solve(a == L, w, bcs=bcs, nullspace=nullspace,

@@ -635,15 +635,17 @@ Firedrake, we build a
 solver about it as before.  A
 :class:`~firedrake.nullspace.MixedVectorSpaceBasis` takes a list of
 :class:`~firedrake.nullspace.VectorSpaceBasis` objects defining the
-null spaces of each of the diagonal blocks in the mixed operator.  You
-do not have to provide a null space for all blocks.  For those you
-don't care about, you can pass an indexed function space at the
-appropriate position.  For example, imagine we have a mixed space
-:math:`W = V \times Q` and an operator which has a null space of
-constant functions in :math:`V` (this occurs, for example, for a
-discretisation of the mixed poisson problem on the surface of a
-sphere).  We can specify the null space (indicating that we only
-really care about the constant function) as:
+null spaces of each of the diagonal blocks in the mixed operator.  In
+addition, as a first argument, you must provide the
+:class:`~.MixedFunctionSpace` you're building a basis for.  You do not
+have to provide a null space for all blocks.  For those you don't care
+about, you can pass an indexed function space at the appropriate
+position.  For example, imagine we have a mixed space :math:`W = V
+\times Q` and an operator which has a null space of constant functions
+in :math:`V` (this occurs, for example, for a discretisation of the
+mixed poisson problem on the surface of a sphere).  We can specify the
+null space (indicating that we only really care about the constant
+function) as:
 
 .. code-block:: python
 
@@ -651,7 +653,7 @@ really care about the constant function) as:
    Q = ...
    W = V*Q
    v_basis = VectorSpaceBasis(constant=True)
-   nullspace = MixedVectorSpaceBasis([v_basis, W.sub(1)])
+   nullspace = MixedVectorSpaceBasis(W, [v_basis, W.sub(1)])
 
 Debugging convergence failures
 ------------------------------

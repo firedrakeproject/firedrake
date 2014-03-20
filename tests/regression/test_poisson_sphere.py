@@ -26,7 +26,7 @@ def run_hdiv_l2(refinement, hdiv_space, degree):
 
     w = Function(W)
 
-    nullspace = MixedVectorSpaceBasis([W[0], VectorSpaceBasis(constant=True)])
+    nullspace = MixedVectorSpaceBasis(W, [W[0], VectorSpaceBasis(constant=True)])
     solve(a == L, w, nullspace=nullspace, solver_parameters={'pc_type': 'fieldsplit',
                                                              'pc_fieldsplit_type': 'schur',
                                                              'fieldsplit_0_pc_type': 'lu',
