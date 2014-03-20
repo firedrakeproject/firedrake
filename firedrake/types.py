@@ -564,6 +564,14 @@ class Function(ufl.Coefficient):
             self._split = tuple(Function(fs, dat) for fs, dat in zip(self._function_space, self.dat))
         return self._split
 
+    def sub(self, i):
+        """Extract the ith sub :class:`Function` of this :class:`Function`.
+
+        :arg i: the index to extract
+
+        See also :meth:`split`"""
+        return self.split()[i]
+
     @property
     def cell_set(self):
         """The :class:`pyop2.Set` of cells for the mesh on which this
