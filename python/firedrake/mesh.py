@@ -5,11 +5,7 @@ from pyop2.mpi import MPI
 import os
 from shutil import rmtree
 import numpy as np
-
-import petsc4py
-import sys
-petsc4py.init(sys.argv)
-from petsc4py import PETSc
+from petsc import PETSc
 
 import firedrake
 
