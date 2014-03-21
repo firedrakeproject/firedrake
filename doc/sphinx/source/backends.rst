@@ -3,7 +3,7 @@
 PyOP2 Backends
 ==============
 
-PyOP2 supports a number of different backends to be able to run parallel
+PyOP2 provides a number of different backends to be able to run parallel
 computations on different hardware architectures. The currently supported
 backends are
 
@@ -15,30 +15,38 @@ backends are
 * ``opencl``: offloads computation to an OpenCL device, either a multi-core
   CPU or a GPU (requires :ref:`OpenCL and pyopencl <opencl-installation>`)
 
-The ``sequential`` and ``openmp`` backends fully support distributed
-parallel computations using MPI, the ``cuda`` and ``opencl`` backends
-only support parallel loops on :class:`Dats <pyop2.Dat>` with MPI. For
-OpenMP this means a hybrid parallel execution with ``OMP_NUM_THREADS``
-threads per MPI rank. Datastructures must be suitably partitioned in
-this case with overlapping regions, so called halos. These are
-described in detail in :doc:`mpi`.
+Distributed parallel computations using MPI are supported by PyOP2 and
+described in detail in :doc:`mpi`. Datastructures must be partitioned among
+MPI processes with overlapping regions, so called halos.  The host backends
+``sequential`` and ``openmp`` have full MPI support, the device backends
+``cuda`` and ``opencl`` only support parallel loops on :class:`Dats
+<pyop2.Dat>`. Hybrid parallel computations with OpenMP are possible, where
+``OMP_NUM_THREADS`` threads are launched per MPI rank.
+
+.. _host_backends:
+
+Host backends
+-------------
+
+Any computation in PyOP2 requires the generation of code at runtime specific
+to each individual :func:`~pyop2.par_loop`. The host backends generate code
+which is just-in-time (JIT) compiled into a shared library callable as a
+Python module using the Instant_ utility from the `FEniCS project`_. Instant_
+also takes care of caching the modules on disk to save having to recompile the
+same code.
 
 .. _sequential_backend:
 
 Sequential backend
-------------------
+~~~~~~~~~~~~~~~~~~
 
-Any computation in PyOP2 requires the generation of code at runtime
-specific to each individual :func:`~pyop2.par_loop`. The sequential
-backend generates code via the `Instant`_ utility from the `FEniCS
-project`_. Since there is no parallel computation for the sequential
-backend, the generated code is a C wrapper function with a ``for``
-loop calling the kernel for the respective :func:`~pyop2.par_loop`.
-This wrapper also takes care of staging in and out the data as
-requested by the access descriptors requested in the parallel loop.
-Both the kernel and the wrapper function are just-in-time compiled in
-a single compilation unit such that the kernel call can be inlined and
-does not incur any function call overhead.
+Since there is no parallel computation for the sequential backend, the
+generated code is a C wrapper function with a ``for`` loop calling the kernel
+for the respective :func:`~pyop2.par_loop`.  This wrapper also takes care of
+staging in and out the data as requested by the access descriptors requested
+in the parallel loop.  Both the kernel and the wrapper function are
+just-in-time compiled in a single compilation unit such that the kernel call
+can be inlined and does not incur any function call overhead.
 
 Recall the :func:`~pyop2.par_loop` calling the ``midpoint`` kernel from
 :doc:`kernels`: ::
@@ -85,29 +93,27 @@ corresponding to a :class:`~pyop2.Dat` or :class:`~pyop2.Map` passed to the
 clashes.
 
 The first :func:`~pyop2.par_loop` argument ``midpoints`` is direct and
-therefore no corresponding :class:`~pyop2.Map` is passed to the
-wrapper function and the data pointer is passed straight to the kernel
-with an appropriate offset. The second argument ``coordinates`` is
-indirect and hence a :class:`~pyop2.Dat`-:class:`~pyop2.Map` pair is
-passed. Pointers to the data are gathered via the :class:`~pyop2.Map`
-of arity 3 and staged in the array ``arg1_0_vec``, which is passed to
-the kernel. The coordinate data can therefore be accessed in the
-kernel via double indirection with the :class:`~pyop2.Map` already
-applied. Note that for both arguments, the pointers are to two
-consecutive double values, since the :class:`~pyop2.DataSet` is of
-dimension two in either case.
+therefore no corresponding :class:`~pyop2.Map` is passed to the wrapper
+function and the data pointer is passed straight to the kernel with an
+appropriate offset. The second argument ``coordinates`` is indirect and hence
+a :class:`~pyop2.Dat`-:class:`~pyop2.Map` pair is passed. Pointers to the data
+are gathered via the :class:`~pyop2.Map` of arity 3 and staged in the array
+``arg1_0_vec``, which is passed to the kernel. The coordinate data can
+therefore be accessed in the kernel via double indirection with the
+:class:`~pyop2.Map` already applied. Note that for both arguments, the
+pointers are to two consecutive double values, since the
+:class:`~pyop2.DataSet` is of dimension two in either case.
 
 .. _openmp_backend:
 
 OpenMP backend
---------------
+~~~~~~~~~~~~~~
 
-The OpenMP uses the same infrastructure for code generation and JIT
-compilation as the sequential backend described above. In contrast however,
-the ``for`` loop is annotated with OpenMP pragmas to make it execute in
-parallel with multiple threads. To avoid race conditions on data access, the
-iteration set is coloured and a thread safe execution plan is computed as
-described in :doc:`colouring`.
+In contrast to the sequential backend, the outermost ``for`` loop in the
+OpenMP backend is annotated with OpenMP pragmas to execute in parallel with
+multiple threads. To avoid race conditions on data access, the iteration set
+is coloured and a thread safe execution plan is computed as described in
+:ref:`colouring`.
 
 The JIT compiled code for the parallel loop from above changes as follows: ::
 
@@ -163,10 +169,82 @@ plan. These are the number of elements that are part of the given block and
 its starting index. Note that each thread needs its own staging array
 ``arg1_0_vec``, which is therefore scoped by the thread id.
 
+.. _device_backends:
+
+Device backends
+---------------
+
+As with the host backends, the device backends have most of the implementation
+in common. The PyOP2 data carriers :class:`~pyop2.Dat`, :class:`~pyop2.Global`
+and :class:`~pyop2.Const` have a data array in host memory and a separate
+array in device memory. Flags indicate the present state of a given data
+carrier:
+
+* ``DEVICE_UNALLOCATED``: no data is allocated on the device
+* ``HOST_UNALLOCATED``: no data is allocated on the host
+* ``DEVICE``: data is up-to-date (valid) on the device, but invalid on the
+  host
+* ``HOST``: data is up-to-date (valid) on the host, but invalid on the device
+* ``BOTH``: data is up-to-date (valid) on both the host and device
+
+When a :func:`~pyop2.par_loop` is called, PyOP2 uses the
+:ref:`access-descriptors` to determine which data needs to be allocated or
+transferred from host to device prior to launching the kernel. Data is only
+transferred if it is out of date at the target location and all data transfer
+is triggered lazily i.e. the actual copy only occurs once the data is
+requested. In particular there is no automatic transfer back of data from
+device to host unless it is accessed on the host.
+
+A newly created device :class:`~pyop2.Dat` has no associated device data and
+starts out in the state ``DEVICE_UNALLOCATED``. The diagram below shows all
+actions that involve a state transition, which can be divided into three
+groups: calling explicit data transfer functions (red), access data on the
+host (black) and using the :class:`~pyop2.Dat` in a :func:`~pyop2.par_loop`
+(blue). There is no need for users to explicitly initiate data transfers and
+the tranfer functions are only given for completeness.
+
+.. figure:: images/pyop2_device_data_state.svg
+  :align: center
+
+  State transitions of a data carrier on PyOP2 device backends
+
+When a device :class:`~pyop2.Dat` is used in a :func:`~pyop2.par_loop` for the
+first time, data is allocated on the device. If the :class:`~pyop2.Dat` is
+only read, the host array is transferred to device if it was in state ``HOST``
+or ``DEVICE_UNALLOCATED`` before the :func:`~pyop2.par_loop` and the
+:class:`~pyop2.Dat` is in the state ``BOTH`` afterwards, unless it was in
+state ``DEVICE`` in which case it remains in that state. If the
+:class:`~pyop2.Dat` is written to, data transfer before the
+:func:`~pyop2.par_loop` is necessary unless the access descriptor is
+:data:`~pyop2.WRITE` and the host data is out of date afterwards and the
+:class:`~pyop2.Dat` is in the state ``DEVICE``. An overview of the state
+transitions and necessary memory allocations and data transfers for the two
+cases is given in the table below:
+
+======================  ==============================  ==================================================
+Initial state           :func:`~pyop2.par_loop` read    :func:`~pyop2.par_loop` written to
+======================  ==============================  ==================================================
+``DEVICE_UNALLOCATED``  ``BOTH`` (alloc, transfer h2d)  ``DEVICE`` (alloc, transfer h2d unless write-only)
+``DEVICE``              ``DEVICE``                      ``DEVICE``
+``HOST``                ``BOTH`` (transfer h2d)         ``DEVICE`` (transfer h2d unless write-only)
+``BOTH``                ``BOTH``                        ``DEVICE``
+======================  ==============================  ==================================================
+
+Accessing data on the host initiates a device to host data transfer if the
+:class:`~pyop2.Dat` is in state ``DEVICE`` and leaves it in state ``HOST``
+when using the :meth:`~pyop2.Dat.data` property and ``BOTH`` when using
+:meth:`~pyop2.Dat.data_ro`.
+
+The state transitions described above apply in the same way to a
+:class:`~pyop2.Global`. A :class:`~pyop2.Const` is read-only, never modified
+on device and therefore never out of date on the host. Hence there is no
+state ``DEVICE`` and it is not necessary to copy back :class:`~pyop2.Const`
+data from device to host.
+
 .. _cuda_backend:
 
 CUDA backend
-------------
+~~~~~~~~~~~~
 
 The CUDA backend makes extensive use of PyCUDA_ and its infrastructure for
 just-in-time compilation of CUDA kernels and interfacing them to Python.
@@ -175,21 +253,6 @@ Linear solvers and sparse matrix data structures are implemented on top of the
 Code generation uses a template based approach, where a ``__global__`` stub
 routine to be called from the host is generated, which takes care of data
 marshalling and calling the user kernel as an inline ``__device__`` function.
-
-When the :func:`~pyop2.par_loop` is called, PyOP2 uses the
-:ref:`access-descriptors` to determine which data needs to be allocated or
-transferred from host to device prior to launching the kernel and which data
-needs to be brought back to the host afterwards. Data is only transferred if
-it is out of date at the target location and all data transfer is triggered
-lazily i.e. the actual copy only occurs once the data is requested. Flags
-indicate the present state of a given :class:`~pyop2.Dat`:
-
-* ``DEVICE_UNALLOCATED``: no data is allocated on the device
-* ``HOST_UNALLOCATED``: no data is allocated on the host
-* ``DEVICE``: data is up-to-date (valid) on the device, but invalid on the
-  host
-* ``HOST``: data is up-to-date (valid) on the host, but invalid on the device
-* ``BOTH``: data is up-to-date (valid) on both the host and device
 
 We consider the same ``midpoint`` kernel as in the previous examples, which
 requires no CUDA-specific modifications and is automatically annotated with a
@@ -284,14 +347,13 @@ global device memory with a suitable offset.
 .. _opencl_backend:
 
 OpenCL backend
---------------
+~~~~~~~~~~~~~~
 
 The other device backend OpenCL is structurally very similar to the CUDA
 backend. It uses PyOpenCL_ to interface to the OpenCL drivers and runtime.
 Linear algebra operations are handled by PETSc_ as described in
 :doc:`linear_algebra`. PyOP2 generates a kernel stub from a template similar
-to the CUDA case. The OpenCL backend shares the same semantics for data
-transfer described for CUDA above.
+to the CUDA case.
 
 Consider the ``midpoint`` kernel from previous examples, whose parameters in
 the kernel signature are automatically annotated with OpenCL storage
