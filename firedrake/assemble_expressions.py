@@ -1,6 +1,6 @@
 import ufl
 from ufl.algorithms import ReuseTransformer
-from ufl.constantvalue import ConstantValue, Zero
+from ufl.constantvalue import ConstantValue, Zero, IntValue
 from ufl.indexing import MultiIndex
 from ufl.operatorbase import Operator
 from ufl.mathfunctions import MathFunction
@@ -85,6 +85,8 @@ class AssignmentBase(Operator):
 
     """Base class for UFL augmented assignments."""
     __slots__ = ("_operands", "_symbol", "_ast", "_visit")
+
+    _identity = Zero()
 
     def __init__(self, lhs, rhs):
         self._operands = map(ufl.as_ufl, (lhs, rhs))
@@ -191,6 +193,7 @@ class IMul(AugmentedAssignment):
     """A UFL `*=` operator."""
     _symbol = "*="
     _ast = ast.IMul
+    _identity = IntValue(1)
 
 # UFL class mangling hack
 IMul._uflclass = IMul
@@ -201,6 +204,7 @@ class IDiv(AugmentedAssignment):
     """A UFL `/=` operator."""
     _symbol = "/="
     _ast = ast.IDiv
+    _identity = IntValue(1)
 
 # UFL class mangling hack
 IDiv._uflclass = IDiv
@@ -262,6 +266,7 @@ class ExpressionSplitter(ReuseTransformer):
 
     def split(self, expr):
         """Split the given expression."""
+        self._identity = expr._identity
         self._trees = None
         lhs, rhs = expr.operands()
         # If the expression is not an assignment, the function spaces for both
@@ -282,7 +287,7 @@ class ExpressionSplitter(ReuseTransformer):
             # reconstruct the fixed index expression for those (and only those)
             if isinstance(idx._indices[0], ufl.indexing.FixedIndex):
                 if idx._indices[0]._value != i:
-                    return Zero()
+                    return self._identity
                 elif isinstance(coeff.function_space(), types.VectorFunctionSpace):
                     return o.reconstruct(coeff, idx)
             return coeff
@@ -299,13 +304,14 @@ class ExpressionSplitter(ReuseTransformer):
             # we're assigning to, in which case we split it into components
             if o.function_space() == self._function_space:
                 return o.split()
-            # Otherwise the function space must be indexed and we return the
-            # Function for the indexed component and Zero for every other
+            # Otherwise the function space must be indexed and we
+            # return the Function for the indexed component and the
+            # identity for this assignment for every other
             else:
                 idx = o.function_space().index
                 if idx is None:
                     raise ValueError("Coefficient %r is not indexed" % o)
-                return [o if i == idx else Zero()
+                return [o if i == idx else self._identity
                         for i, _ in enumerate(self._function_space)]
         # We replicate ConstantValue and MultiIndex for each component
         elif isinstance(o, (types.Constant, ConstantValue, MultiIndex)):

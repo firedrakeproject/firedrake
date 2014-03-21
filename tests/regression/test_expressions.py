@@ -208,7 +208,6 @@ def test_asign_to_nonindexed_subspace_fails(mfs):
             Function(mfs).assign(Function(fs._fs))
 
 
-@pytest.mark.xfail
 def test_assign_mixed_no_nan(mfs):
     w = Function(mfs)
     vs = w.split()
@@ -219,7 +218,6 @@ def test_assign_mixed_no_nan(mfs):
         assert not np.isnan(v.dat.data_ro).any()
 
 
-@pytest.mark.xfail
 def test_assign_mixed_no_zero(mfs):
     w = Function(mfs)
     vs = w.split()
