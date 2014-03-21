@@ -38,13 +38,13 @@ a theta scheme with theta = 0.5.
 
 The domain read in from a triangle file.
 
-This demo requires the pyop2 branch of ffc, which can be obtained with:
+This demo requires the MAPDES forks of FFC, FIAT and UFL which are found at:
 
-bzr branch lp:~mapdes/ffc/pyop2
+    https://bitbucket.org/mapdes/ffc
+    https://bitbucket.org/mapdes/fiat
+    https://bitbucket.org/mapdes/ufl
 
-This may also depend on development trunk versions of other FEniCS programs.
-
-FEniCS Viper is also required and is used to visualise the solution.
+FEniCS Viper is optionally used to visualise the solution.
 """
 
 from pyop2 import op2, utils

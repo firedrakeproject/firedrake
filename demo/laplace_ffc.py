@@ -47,11 +47,11 @@ The domain is meshed as follows:
   |/|/|
   *-*-*
 
-This demo requires the pyop2 branch of ffc, which can be obtained with:
+This demo requires the MAPDES forks of FFC, FIAT and UFL which are found at:
 
-bzr branch lp:~mapdes/ffc/pyop2
-
-This may also depend on development trunk versions of other FEniCS programs.
+    https://bitbucket.org/mapdes/ffc
+    https://bitbucket.org/mapdes/fiat
+    https://bitbucket.org/mapdes/ufl
 """
 
 from pyop2 import op2, utils

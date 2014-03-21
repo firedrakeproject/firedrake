@@ -34,12 +34,13 @@
 """PyOP2 2D mass equation demo
 
 This is a demo of the use of ffc to generate kernels. It solves the identity
-equation on a quadrilateral domain. It requires the pyop2 branch of ffc,
-which can be obtained with:
+equation on a quadrilateral domain.
 
-bzr branch lp:~mapdes/ffc/pyop2
+This demo requires the MAPDES forks of FFC, FIAT and UFL which are found at:
 
-This may also depend on development trunk versions of other FEniCS programs.
+    https://bitbucket.org/mapdes/ffc
+    https://bitbucket.org/mapdes/fiat
+    https://bitbucket.org/mapdes/ufl
 """
 
 from pyop2 import op2, utils
