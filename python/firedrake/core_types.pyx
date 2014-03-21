@@ -7,9 +7,6 @@ import cgen
 
 from petsc import PETSc
 
-from libc.stdlib cimport malloc, free
-# Necessary so that we can use memoryviews
-from cython cimport view
 cimport numpy as np
 cimport cpython as py
 
@@ -25,11 +22,6 @@ import utils
 import dmplex
 
 np.import_array()
-
-cdef char *_function_space_name = "function_space"
-cdef char *_vector_field_name = "vector_field"
-cdef char *_mesh_name = "mesh_type"
-cdef char *_halo_name = "halo_type"
 
 _cells = {
     1 : { 2 : "interval"},
@@ -424,7 +416,8 @@ class Mesh(object):
             exterior_facet_cell = np.array([np.where(self._plex.getSupport(f)==self.cells())[0][0] for f in exterior_facets])
             get_f_no = lambda f: dmplex.facet_numbering(self._plex, self._vertex_numbering, f)
             exterior_local_facet_number = np.array([get_f_no(f) for f in exterior_facets], dtype=np.int32)
-            # Note: Should use exterior_facet_classes here
+            # Note: To implement facets correctly in parallel
+            # we need to pass exterior_facet_classes to _Facets()
             self.exterior_facets = _Facets(self, exterior_facets.size,
                                            "exterior",
                                            exterior_facet_cell,
@@ -450,7 +443,8 @@ class Mesh(object):
             interior_facet_cell = np.array(interior_facet_cell)
             get_f_no = lambda f: dmplex.facet_numbering(self._plex, self._vertex_numbering, f)
             interior_local_facet_number = np.array([get_f_no(f) for f in interior_facets])
-            # Note: Should use interior_facet_classes here
+            # Note: To implement facets correctly in parallel
+            # we need to pass interior_facet_classes to _Facets()
             self.interior_facets = _Facets(self, interior_facets.size,
                                            "interior",
                                            interior_facet_cell,
@@ -473,7 +467,6 @@ class Mesh(object):
         else:
             self._coordinate_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
 
-
             # Use the inverse of the section permutation to re-order
             # the coordinates from the Plex
             perm = filter(lambda x: x>=0, self._coordinate_fs.perm)
@@ -491,9 +484,6 @@ class Mesh(object):
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._domain_data = self._coordinate_field
-
-        # TODO: Add region ID support
-        self.region_ids = None
 
     def _from_gmsh(self, filename, dim=0, periodic_coords=None):
         """Read a Gmsh .msh file from `filename`"""
@@ -720,7 +710,6 @@ class ExtrudedMesh(Mesh):
         self._cells = mesh._cells
         self.parent = mesh.parent
         self.uid = mesh.uid
-        #self.region_ids = mesh.region_ids
         self._coordinates = mesh._coordinates
         self._vertex_numbering = mesh._vertex_numbering
         self.name = mesh.name
@@ -853,11 +842,7 @@ class Halo(object):
             if len(local_sends) > 0:
                 self._sends[p] = list(local_sends)
 
-        """PETSc's LGMap cannot be used here directly, because:
-        1) DMGetLocalToGlobalMapping assumes that the local section
-        is numbered consecutively.
-        2) DMGetLocalToGlobalMapping returns a cached LGMap, but
-        there is no way to invalidate/re-initialise it."""
+        # Build Global-To-Universal mapping
         pStart, pEnd = global_numbering.getChart()
         self._gnn2unn = np.zeros(global_numbering.getStorageSize(), dtype=np.int32)
         for p in range(pStart, pEnd):
