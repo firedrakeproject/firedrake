@@ -75,13 +75,13 @@ Preparing the system
 PyOP2 require a number of tools to be available: 
 
 * gcc, make, CMake 
-* bzr, Git, Mercurial 
+* Git, Mercurial
 * pip and the Python headers 
 * SWIG
 
 On a Debian-based system (Ubuntu, Mint, etc.) install them by running::
 
-  sudo apt-get install -y build-essential python-dev bzr git-core mercurial \
+  sudo apt-get install -y build-essential python-dev git-core mercurial \
   cmake cmake-curses-gui python-pip swig
 
 Dependencies
