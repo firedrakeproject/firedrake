@@ -207,6 +207,29 @@ def test_asign_to_nonindexed_subspace_fails(mfs):
         with pytest.raises(ValueError):
             Function(mfs).assign(Function(fs._fs))
 
+
+@pytest.mark.xfail
+def test_assign_mixed_no_nan(mfs):
+    w = Function(mfs)
+    vs = w.split()
+    vs[0].assign(2)
+    w /= vs[0]
+    assert np.allclose(vs[0].dat.data_ro, 1.0)
+    for v in vs[1:]:
+        assert not np.isnan(v.dat.data_ro).any()
+
+
+@pytest.mark.xfail
+def test_assign_mixed_no_zero(mfs):
+    w = Function(mfs)
+    vs = w.split()
+    w.assign(2)
+    w *= vs[0]
+    assert np.allclose(vs[0].dat.data_ro, 4.0)
+    for v in vs[1:]:
+        assert np.allclose(v.dat.data_ro, 2.0)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
