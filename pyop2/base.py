@@ -3515,7 +3515,10 @@ class ParLoop(LazyComputation):
 
     @property
     def iterate(self):
-        """Affects the iteration space of the parallel loop."""
+        """Specifies the part of the mesh the parallel loop will
+        be iterating over. The effect is the loop only iterates over
+        a certain part of an extruded mesh, for example on top cells, bottom cells or
+        interior facets."""
         return self._iterate
 
 DEFAULT_SOLVER_PARAMETERS = {'ksp_type': 'cg',

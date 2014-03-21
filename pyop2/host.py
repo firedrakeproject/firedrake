@@ -437,7 +437,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                     'dat_dim': str(cdim),
                                     'ind_flat': str(m.arity * k + idx),
                                     'offset': ' + '+str(k) if k > 0 else '',
-                                    'off_top': ' + '+str(layers - 2) if is_top else ''})
+                                    'off_top': ' + '+str((layers - 2) * m.offset[idx]) if is_top else ''})
                 if is_facet:
                     for idx in range(m.arity):
                         for k in range(cdim):
@@ -461,7 +461,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                {'name': self.c_map_name(i, j),
                                 'dim': m.arity,
                                 'ind': idx,
-                                'off_top': ' + '+str(layers - 2) if is_top else ''})
+                                'off_top': ' + '+str((layers - 2) * m.offset[idx]) if is_top else ''})
                 if is_facet:
                     for idx in range(m.arity):
                         val.append("xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind_zero)s)%(off_top)s%(off)s;" %
