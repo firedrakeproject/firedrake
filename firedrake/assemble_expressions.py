@@ -91,6 +91,10 @@ class AssignmentBase(Operator):
     def __init__(self, lhs, rhs):
         self._operands = map(ufl.as_ufl, (lhs, rhs))
 
+        # Sub function assignment, we've put a Zero in the lhs
+        # indicating we should do nothing.
+        if type(lhs) is Zero:
+            return
         if not (isinstance(lhs, types.Function)
                 or isinstance(lhs, DummyFunction)):
             raise TypeError("Can only assign to a Function")
@@ -275,6 +279,22 @@ class ExpressionSplitter(ReuseTransformer):
                 lhs.function_space() != rhs.function_space():
             raise ValueError("Operands of %r must have the same FunctionSpace" % expr)
         self._function_space = lhs.function_space()
+        idx = lhs.function_space().index
+        # If it is assignment, and the lhs is indexed (w.sub(idx)) we
+        # split the lhs and put the expression in the index position
+        # but zero otherwise.
+        # Thus, for example, if w is on a 2-component mixed space:
+        # w.sub(0).assign(1)
+        # is transformed into:
+        # [Assign(w.sub(0), 1), Zero]
+        if isinstance(expr, AssignmentBase) and idx is not None:
+            ret = []
+            for i, _ in enumerate(lhs.function_space()._parent):
+                if i == idx:
+                    ret.append(expr.reconstruct(*[ops for ops in zip(*map(self.visit, (lhs, rhs)))][idx]))
+                else:
+                    ret.append(Zero())
+            return ret
         return [expr.reconstruct(*ops) for ops in zip(*map(self.visit, (lhs, rhs)))]
 
     def indexed(self, o, *operands):
@@ -303,18 +323,52 @@ class ExpressionSplitter(ReuseTransformer):
             # A function must either be defined on the same function space
             # we're assigning to, in which case we split it into components
             if o.function_space() == self._function_space:
+                idx = o.function_space().index
+                # Is the lhs an indexed function on a mixed space?  If
+                # so, splat it out so that we have the right number of
+                # components.
+                if idx is not None:
+                    return [o if idx == i else self._identity
+                            for i, _ in enumerate(o.function_space()._parent)]
                 return o.split()
             # Otherwise the function space must be indexed and we
             # return the Function for the indexed component and the
             # identity for this assignment for every other
             else:
                 idx = o.function_space().index
+                vidx = self._function_space.index
+                if vidx is not None:
+                    # LHS is indexed
+                    if idx is not None:
+                        # RHS indexed, indexed RHS function space must match
+                        # indexed LHS function space.
+                        if self._function_space._fs != o.function_space()._fs:
+                            raise ValueError("Mismatching indexed function spaces")
+                    # RHS not indexed, RHS function space must match
+                    # indexed LHS function space
+                    elif self._function_space._fs != o.function_space():
+                        raise ValueError("Mismatching function spaces")
+                    # OK, everything checked out.  Return RHS in LHS
+                    # index slot in expression and identity otherwise.
+                    return [o if i == vidx else self._identity
+                            for i, _ in enumerate(self._function_space._parent)]
                 if idx is None:
+                    # LHS not indexed, RHS must be indexed and isn't
                     raise ValueError("Coefficient %r is not indexed" % o)
+                # RHS indexed, parent function space must match LHS function space
+                if self._function_space != o.function_space()._parent:
+                    raise ValueError("Mismatching function spaces")
+                # Return RHS in index slot in expression and
+                # identity otherwise.
                 return [o if i == idx else self._identity
                         for i, _ in enumerate(self._function_space)]
         # We replicate ConstantValue and MultiIndex for each component
         elif isinstance(o, (types.Constant, ConstantValue, MultiIndex)):
+            idx = self._function_space.index
+            if idx is not None:
+                # If LHS is indexed, replicate for each component of
+                # the parent.
+                return [o for _ in self._function_space._parent]
             return [o for _ in self._function_space]
         raise NotImplementedError("Don't know what to do with %r" % o)
 
@@ -324,7 +378,15 @@ class ExpressionSplitter(ReuseTransformer):
 
     def operator(self, o, *operands):
         """Reconstruct an operator on each of the component spaces."""
-        return [o.reconstruct(*ops) for ops in zip(*operands)]
+        ret = []
+        for ops in zip(*operands):
+            # Don't try to reconstruct if we've just got the identity
+            # Stops domain errors when calling Log on Zero (for example)
+            if len(ops) == 1 and type(ops[0]) is type(self._identity):
+                ret.append(ops[0])
+            else:
+                ret.append(o.reconstruct(*ops))
+        return ret
 
 
 class ExpressionWalker(ReuseTransformer):
@@ -349,6 +411,15 @@ class ExpressionWalker(ReuseTransformer):
         if isinstance(o, types.Function):
             if self._function_space is None:
                 self._function_space = o._function_space
+            elif self._function_space.index is not None:
+                # If the LHS is indexed, check compatibility with the
+                # underlying fs
+                sfs = self._function_space._fs
+                ofs = o._function_space
+                if o._function_space.index is not None:
+                    ofs = self._function_space._fs
+                if sfs != ofs:
+                    raise ValueError("Expression has incompatible function spaces")
             elif self._function_space != o._function_space:
                 raise ValueError("Expression has incompatible function spaces")
 
@@ -455,6 +526,9 @@ def expression_kernel(expr, args):
 
 def evaluate_preprocessed_expression(expr, args, subset=None):
 
+    # Empty slot indicating assignment to indexed LHS, so don't do anything
+    if type(expr) is Zero:
+        return
     kernel = expression_kernel(expr, args)
 
     # We need to splice the args according to the components of the

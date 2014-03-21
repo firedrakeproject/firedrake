@@ -228,6 +228,51 @@ def test_assign_mixed_no_zero(mfs):
         assert np.allclose(v.dat.data_ro, 2.0)
 
 
+def test_assign_to_mfs_sub(cg1, vcg1):
+    W = cg1*vcg1
+
+    w = Function(W)
+    u = Function(cg1)
+    v = Function(vcg1)
+    u.assign(4)
+    v.assign(10)
+
+    w.sub(0).assign(u)
+
+    assert np.allclose(w.sub(0).dat.data_ro, 4)
+    assert np.allclose(w.sub(1).dat.data_ro, 0)
+
+    w.sub(1).assign(v)
+    assert np.allclose(w.sub(0).dat.data_ro, 4)
+    assert np.allclose(w.sub(1).dat.data_ro, 10)
+
+    Q = vcg1*cg1
+    q = Function(Q)
+    q.assign(11)
+    w.sub(1).assign(q.sub(0))
+
+    assert np.allclose(w.sub(1).dat.data_ro, 11)
+    assert np.allclose(w.sub(0).dat.data_ro, 4)
+
+    with pytest.raises(ValueError):
+        w.sub(1).assign(q.sub(1))
+
+    with pytest.raises(ValueError):
+        w.sub(1).assign(w.sub(0))
+
+    with pytest.raises(ValueError):
+        w.sub(1).assign(u)
+
+    with pytest.raises(ValueError):
+        w.sub(0).assign(v)
+
+    w.sub(0).assign(ufl.ln(q.sub(1)))
+    assert np.allclose(w.sub(0).dat.data_ro, ufl.ln(11))
+
+    with pytest.raises(ValueError):
+        w.assign(q.sub(1))
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
