@@ -311,20 +311,20 @@ class IntervalMesh(Mesh):
         self.name = "interval"
         dx = length / ncells
         # This ensures the rightmost point is actually present.
-        coords = [[x] for x in np.arange(0, length + 0.01 * dx, dx)]
-        cells = [[c, c+1] for c in range(len(coords)-1)]
-        dmplex = PETSc.DMPlex().createFromCellList(1, cells, coords)
+        coords = np.arange(0, length + 0.01 * dx, dx).reshape(-1, 1)
+        cells = np.dstack((np.arange(0, len(coords) - 1), np.arange(1, len(coords)))).reshape(-1, 2)
+        dmplex = PETSc.DMPlex().createFromCellList(1, list(cells), coords)
 
         # Apply boundary IDs
         dmplex.createLabel("boundary_ids")
-        coords = dmplex.getCoordinates()
+        coordinates = dmplex.getCoordinates()
         coord_sec = dmplex.getCoordinateSection()
         vStart, vEnd = dmplex.getDepthStratum(0)  # vertices
         for v in range(vStart, vEnd):
-            vcoord = dmplex.vecGetClosure(coord_sec, coords, v)
-            if vcoord[0] == 0.:
+            vcoord = dmplex.vecGetClosure(coord_sec, coordinates, v)
+            if vcoord[0] == coords[0]:
                 dmplex.setLabelValue("boundary_ids", v, 1)
-            if vcoord[0] == 1.:
+            if vcoord[0] == coords[-1]:
                 dmplex.setLabelValue("boundary_ids", v, 2)
 
         super(IntervalMesh, self).__init__(self.name, plex=dmplex)
