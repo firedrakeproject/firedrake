@@ -20,6 +20,7 @@ from pyop2.utils import as_tuple
 
 import utils
 import dmplex
+from collections import defaultdict
 
 np.import_array()
 
@@ -804,10 +805,10 @@ class Halo(object):
         self._tag = _new_uid()
         self._comm = op2.MPI.comm
         self._nprocs = self.comm.size
-        self._sends = {}
-        self._receives = {}
+        self._sends = defaultdict(list)
+        self._receives = defaultdict(list)
         self._gnn2unn = None
-        remote_sends = {}
+        remote_sends = defaultdict(list)
 
         if op2.MPI.comm.size <= 1:
             return
@@ -821,26 +822,40 @@ class Halo(object):
         nroots, nleaves, local, remote = petscsf.getGraph()
         for local, (rank, index) in zip(local, remote):
             if rank != self.comm.rank:
-                if not self._receives.has_key(rank):
-                    self._receives[rank] = []
                 self._receives[rank].append(local)
-
-                if not remote_sends.has_key(rank):
-                    remote_sends[rank] = []
                 remote_sends[rank].append(index)
 
         # Propagate remote send lists to the actual sender
-        for p in range(self.comm.size):
-            if p == self.comm.rank: continue
-            if remote_sends.has_key(p):
-                send_buf = np.array(remote_sends[p], dtype=np.int32)
-                self.comm.send(send_buf, dest=p, tag=self.tag)
+        send_reqs = []
+        for p in remote_sends:
+            # send sizes
+            s = np.array(len(remote_sends[p]), dtype=np.int32)
+            send_reqs.append(self.comm.Isend(s, dest=p, tag=self.tag))
 
-        for p in range(self.comm.size):
-            if p == self.comm.rank: continue
-            local_sends = self.comm.recv(source=p, tag=self.tag)
-            if len(local_sends) > 0:
-                self._sends[p] = list(local_sends)
+        recv_reqs = []
+        sizes = [np.empty(1, dtype=np.int32) for _ in range(len(self._receives))]
+        for i, p in enumerate(self._receives):
+            # receive sizes
+            recv_reqs.append(self.comm.Irecv(sizes[i], source=p, tag=self.tag))
+
+        MPI.Request.Waitall(recv_reqs)
+        MPI.Request.Waitall(send_reqs)
+
+        for i, p in enumerate(self._receives):
+            # allocate buffers
+            self._sends[p] = np.empty(sizes[i], dtype=np.int32)
+
+        send_reqs = []
+        for p in remote_sends:
+            send_buf = np.array(remote_sends[p], dtype=np.int32)
+            send_reqs.append(self.comm.Isend(send_buf, dest=p, tag=self.tag))
+
+        recv_reqs = []
+        for p in self._receives:
+            recv_reqs.append(self.comm.Irecv(self._sends[p], source=p, tag=self.tag))
+
+        MPI.Request.Waitall(send_reqs)
+        MPI.Request.Waitall(recv_reqs)
 
         # Build Global-To-Universal mapping
         pStart, pEnd = global_numbering.getChart()
