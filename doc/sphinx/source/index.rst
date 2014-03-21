@@ -17,6 +17,7 @@ Contents:
    architecture
    backends
    linear_algebra
+   mixed
    mpi
    user
    pyop2
