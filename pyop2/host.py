@@ -37,9 +37,9 @@ common to backends executing on the host."""
 from textwrap import dedent
 
 import base
+import compilation
 from base import *
 from configuration import configuration
-from logger import progress, INFO
 from utils import as_tuple
 
 from ir.ast_base import Node
@@ -88,47 +88,37 @@ class Arg(base.Arg):
 
     def c_wrapper_arg(self):
         if self._is_mat:
-            val = "PyObject *_%s" % self.c_arg_name()
+            val = "Mat %s_" % self.c_arg_name()
         else:
-            val = ', '.join(["PyObject *_%s" % self.c_arg_name(i)
+            val = ', '.join(["%s *%s" % (self.ctype, self.c_arg_name(i))
                              for i in range(len(self.data))])
         if self._is_indirect or self._is_mat:
             for i, map in enumerate(as_tuple(self.map, Map)):
                 for j, m in enumerate(map):
-                    val += ", PyObject *_%s" % (self.c_map_name(i, j))
+                    val += ", int *%s" % self.c_map_name(i, j)
         return val
 
     def c_vec_dec(self):
         cdim = self.data.dataset.cdim if self._flatten else 1
-        return ";\n%(type)s *%(vec_name)s[%(arity)s]" % \
+        return "%(type)s *%(vec_name)s[%(arity)s];\n" % \
             {'type': self.ctype,
              'vec_name': self.c_vec_name(),
              'arity': self.map.arity * cdim}
 
     def c_wrapper_dec(self):
+        val = ""
         if self._is_mixed_mat:
-            val = "Mat %(name)s = (Mat)((uintptr_t)PyLong_AsUnsignedLong(_%(name)s))" % \
-                {"name": self.c_arg_name()}
             rows, cols = self._dat.sparsity.shape
             for i in range(rows):
                 for j in range(cols):
-                    val += ";\nMat %(iname)s; MatNestGetSubMat(%(name)s, %(i)d, %(j)d, &%(iname)s)" \
+                    val += "Mat %(iname)s; MatNestGetSubMat(%(name)s_, %(i)d, %(j)d, &%(iname)s);\n" \
                         % {'name': self.c_arg_name(),
                            'iname': self.c_arg_name(i, j),
                            'i': i,
                            'j': j}
         elif self._is_mat:
-            val = "Mat %s = (Mat)((uintptr_t)PyLong_AsUnsignedLong(_%s))" % \
-                (self.c_arg_name(0, 0), self.c_arg_name())
-        else:
-            val = ';\n'.join(["%(type)s *%(name)s = (%(type)s *)(((PyArrayObject *)_%(name)s)->data)"
-                             % {'name': self.c_arg_name(i), 'type': self.ctype}
-                             for i, _ in enumerate(self.data)])
-        if self._is_indirect or self._is_mat:
-            for i, map in enumerate(as_tuple(self.map, Map)):
-                for j in range(len(map)):
-                    val += ";\nint *%(name)s = (int *)(((PyArrayObject *)_%(name)s)->data)" \
-                        % {'name': self.c_map_name(i, j)}
+            val += "Mat %(iname)s = %(name)s_;\n" % {'name': self.c_arg_name(),
+                                                     'iname': self.c_arg_name(0, 0)}
         if self._is_vec_map:
             val += self.c_vec_dec()
         return val
@@ -310,7 +300,7 @@ class Arg(base.Arg):
         for (k, offset), arity in zip(enumerate(self.map.arange[:-1]), self.map.arities):
             for idx in range(cdim):
                 for i in range(arity):
-                    val.append("%(name)s[%(j)d] += _%(offset)s[%(i)d] * %(dim)s;" %
+                    val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
                                {'name': self.c_vec_name(),
                                 'i': i,
                                 'j': offset + idx * arity + i,
@@ -325,7 +315,7 @@ class Arg(base.Arg):
             return ""
         for (k, offset), arity in zip(enumerate(self.map.arange[:-1]), self.map.arities):
             for i in range(arity):
-                val.append("%(name)s[%(j)d] += _%(offset)s[%(i)d] * %(dim)s;" %
+                val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
                            {'name': self.c_vec_name(),
                             'i': i,
                             'j': offset + i,
@@ -468,7 +458,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             for j, m in enumerate(map):
                 for idx in range(m.arity):
                     for k in range(cdim):
-                        val.append("xtr_%(name)s[%(ind_flat)s] += _%(off)s[%(ind)s] * %(dim)s;" %
+                        val.append("xtr_%(name)s[%(ind_flat)s] += %(off)s[%(ind)s] * %(dim)s;" %
                                    {'name': self.c_map_name(i, j),
                                     'off': self.c_offset_name(i, j),
                                     'ind': idx,
@@ -484,7 +474,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                 continue
             for j, m in enumerate(map):
                 for idx in range(m.arity):
-                    val.append("xtr_%(name)s[%(ind)s] += _%(off)s[%(ind)s];" %
+                    val.append("xtr_%(name)s[%(ind)s] += %(off)s[%(ind)s];" %
                                {'name': self.c_map_name(i, j),
                                 'off': self.c_offset_name(i, j),
                                 'ind': idx})
@@ -497,21 +487,10 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             if not map.iterset._extruded:
                 continue
             for j, m in enumerate(map):
-                val.append("PyObject *%s" % self.c_offset_name(i, j))
+                val.append("int *%s" % self.c_offset_name(i, j))
         if len(val) == 0:
             return ""
         return ", " + ", ".join(val)
-
-    def c_offset_decl(self):
-        maps = as_tuple(self.map, Map)
-        val = []
-        for i, map in enumerate(maps):
-            if not map.iterset._extruded:
-                continue
-            for j, _ in enumerate(map):
-                val.append("int *_%(cnt)s = (int *)(((PyArrayObject *)%(cnt)s)->data)" %
-                           {'cnt': self.c_offset_name(i, j)})
-        return ";\n".join(val)
 
     def c_buffer_decl(self, size, idx, buf_name):
         buf_type = self.data.ctype
@@ -566,13 +545,20 @@ class JITModule(base.JITModule):
         self._args = args
         self._direct = kwargs.get('direct', False)
 
-    def __call__(self, *args):
-        return self.compile()(*args)
+    def __call__(self, *args, **kwargs):
+        argtypes = kwargs.get('argtypes', None)
+        restype = kwargs.get('restype', None)
+        return self.compile(argtypes, restype)(*args)
 
-    def compile(self):
+    @property
+    def _wrapper_name(self):
+        return 'wrap_%s' % self._kernel.name
+
+    def compile(self, argtypes=None, restype=None):
         if hasattr(self, '_fun'):
+            self._fun.argtypes = argtypes
+            self._fun.restype = restype
             return self._fun
-        from instant import inline_with_numpy
         strip = lambda code: '\n'.join([l for l in code.splitlines()
                                         if l.strip() and l.strip() != ';'])
 
@@ -594,40 +580,42 @@ class JITModule(base.JITModule):
             """ % {'code': self._kernel.code,
                    'header': compiler.get('vect_header') if vect_flag else ""}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
-        if configuration["debug"]:
-            self._wrapper_code = code_to_compile
 
         _const_decs = '\n'.join([const._format_declaration()
                                 for const in Const._definitions()]) + '\n'
 
+        code_to_compile = """
+        #include <mat_utils.h>
+        #include <stdbool.h>
+        #include <math.h>
+        %(sys_headers)s
+        %(consts)s
+
+        %(kernel)s
+
+        %(wrapper)s
+        """ % {'consts': _const_decs, 'kernel': kernel_code,
+               'wrapper': code_to_compile,
+               'sys_headers': '\n'.join(self._system_headers)}
+
         self._dump_generated_code(code_to_compile)
-        # We need to build with mpicc since that's required by PETSc
-        cc = os.environ.get('CC')
-        os.environ['CC'] = 'mpicc'
         if configuration["debug"]:
-            extra_cppargs = ['-O0', '-g']
-        elif vect_flag:
-            extra_cppargs = [vect_flag]
-        else:
-            extra_cppargs = []
-        with progress(INFO, 'Compiling kernel %s', self._kernel.name):
-            self._fun = inline_with_numpy(
-                code_to_compile, additional_declarations=kernel_code,
-                additional_definitions=_const_decs + kernel_code,
-                cppargs=self._cppargs + extra_cppargs,
-                include_dirs=([d + '/include' for d in get_petsc_dir()] +
-                              self._kernel._include_dirs),
-                source_directory=os.path.dirname(os.path.abspath(__file__)),
-                wrap_headers=["mat_utils.h"],
-                system_headers=self._system_headers,
-                library_dirs=[d + '/lib' for d in get_petsc_dir()],
-                libraries=['petsc'] + self._libraries,
-                sources=["mat_utils.cxx"],
-                modulename=self._kernel.name if configuration["debug"] else None)
-        if cc:
-            os.environ['CC'] = cc
-        else:
-            os.environ.pop('CC')
+            self._wrapper_code = code_to_compile
+
+        cppargs = ["-I%s/include" % d for d in get_petsc_dir()] + \
+                  ["-I%s" % d for d in self._kernel._include_dirs] + \
+                  ["-I%s" % os.path.abspath(os.path.dirname(__file__))]
+        if vect_flag:
+            cppargs += vect_flag
+        ldargs = ["-L%s/lib" % d for d in get_petsc_dir()] + \
+                 ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()] + \
+                 ["-lpetsc", "-lm"] + self._libraries
+        self._fun = compilation.load(code_to_compile,
+                                     self._wrapper_name,
+                                     cppargs=cppargs,
+                                     ldargs=ldargs,
+                                     argtypes=argtypes,
+                                     restype=restype)
         return self._fun
 
     def generate_code(self):
@@ -636,14 +624,14 @@ class JITModule(base.JITModule):
             return "for (int i_%d=0; i_%d<%d; ++i_%d) {" % (i, i, d, i)
 
         def c_const_arg(c):
-            return 'PyObject *_%s' % c.name
+            return '%s *%s_' % (c.ctype, c.name)
 
         def c_const_init(c):
             d = {'name': c.name,
                  'type': c.ctype}
             if c.cdim == 1:
-                return '%(name)s = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[0]' % d
-            tmp = '%(name)s[%%(i)s] = ((%(type)s *)(((PyArrayObject *)_%(name)s)->data))[%%(i)s]' % d
+                return '%(name)s = *%(name)s_' % d
+            tmp = '%(name)s[%%(i)s] = %(name)s_[%%(i)s]' % d
             return ';\n'.join([tmp % {'i': i} for i in range(c.cdim)])
 
         def extrusion_loop():
@@ -652,11 +640,9 @@ class JITModule(base.JITModule):
             return "for (int j_0=0; j_0<layer-1; ++j_0){"
 
         _ssinds_arg = ""
-        _ssinds_dec = ""
         _index_expr = "n"
         if isinstance(self._itspace._iterset, Subset):
-            _ssinds_arg = "PyObject* _ssinds,"
-            _ssinds_dec = "int* ssinds = (int*) (((PyArrayObject*) _ssinds)->data);"
+            _ssinds_arg = "int* ssinds,"
             _index_expr = "ssinds[n]"
 
         _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self._args])
@@ -696,15 +682,11 @@ class JITModule(base.JITModule):
         _map_bcs_m = ""
         _map_bcs_p = ""
         _layer_arg = ""
-        _layer_arg_init = ""
         if self._itspace._extruded:
             a_bcs = self._itspace.iterset._extruded_bcs
-            _layer_arg = ", PyObject *_layer"
-            _layer_arg_init = "int layer = (int)PyInt_AsLong(_layer);"
+            _layer_arg = ", int layer"
             _off_args = ''.join([arg.c_offset_init() for arg in self._args
                                  if arg._uses_itspace or arg._is_vec_map])
-            _off_inits = ';\n'.join([arg.c_offset_decl() for arg in self._args
-                                     if arg._uses_itspace or arg._is_vec_map])
             _map_decl += ';\n'.join([arg.c_map_decl_itspace() for arg in self._args
                                      if arg._uses_itspace and not arg._is_mat])
             _map_decl += ';\n'.join([arg.c_map_decl() for arg in self._args
@@ -729,7 +711,6 @@ class JITModule(base.JITModule):
             _extr_loop_close = '}\n'
         else:
             _off_args = ""
-            _off_inits = ""
 
         # Build kernel invocation. Let X be a parameter of the kernel representing a tensor
         # accessed in an iteration space. Let BUFFER be an array of the same size as X.
@@ -835,8 +816,8 @@ class JITModule(base.JITModule):
             }
 
         return {'kernel_name': self._kernel.name,
+                'wrapper_name': self._wrapper_name,
                 'ssinds_arg': _ssinds_arg,
-                'ssinds_dec': _ssinds_dec,
                 'index_expr': _index_expr,
                 'wrapper_args': _wrapper_args,
                 'wrapper_decs': indent(_wrapper_decs, 1),
@@ -844,9 +825,7 @@ class JITModule(base.JITModule):
                 'const_inits': indent(_const_inits, 1),
                 'vec_inits': indent(_vec_inits, 2),
                 'off_args': _off_args,
-                'off_inits': indent(_off_inits, 1),
                 'layer_arg': _layer_arg,
-                'layer_arg_init': indent(_layer_arg_init, 1),
                 'map_decl': indent(_map_decl, 2),
                 'map_init': indent(_map_init, 5),
                 'apply_offset': indent(_apply_offset, 3),

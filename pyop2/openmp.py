@@ -42,6 +42,8 @@ from utils import *
 from petsc_base import *
 from logger import warning
 import host
+import ctypes
+from numpy.ctypeslib import ndpointer
 from host import Kernel  # noqa: for inheritance
 import device
 import plan as _plan
@@ -57,9 +59,9 @@ def _detect_openmp_flags():
     p = Popen(['mpicc', '--version'], stdout=PIPE, shell=False)
     _version, _ = p.communicate()
     if _version.find('Free Software Foundation') != -1:
-        return '-fopenmp', 'gomp'
+        return '-fopenmp', '-lgomp'
     elif _version.find('Intel Corporation') != -1:
-        return '-openmp', 'iomp5'
+        return '-openmp', '-liomp5'
     else:
         warning('Unknown mpicc version:\n%s' % _version)
         return '', ''
@@ -132,39 +134,23 @@ class JITModule(host.JITModule):
 
     ompflag, omplib = _detect_openmp_flags()
     _cppargs = [os.environ.get('OMP_CXX_FLAGS') or ompflag]
-    _libraries = [os.environ.get('OMP_LIBS') or omplib]
-    _system_headers = ['omp.h']
+    _libraries = [ompflag] + [os.environ.get('OMP_LIBS') or omplib]
+    _system_headers = ['#include <omp.h>']
 
     _wrapper = """
-void wrap_%(kernel_name)s__(PyObject* _boffset,
-                            PyObject* _nblocks,
-                            PyObject* _blkmap,
-                            PyObject* _offset,
-                            PyObject* _nelems,
-                            %(ssinds_arg)s
-                            %(wrapper_args)s
-                            %(const_args)s
-                            %(off_args)s
-                            %(layer_arg)s) {
-
-  int boffset = (int)PyInt_AsLong(_boffset);
-  int nblocks = (int)PyInt_AsLong(_nblocks);
-  int* blkmap = (int *)(((PyArrayObject *)_blkmap)->data);
-  int* offset = (int *)(((PyArrayObject *)_offset)->data);
-  int* nelems = (int *)(((PyArrayObject *)_nelems)->data);
-  %(ssinds_dec)s
+void %(wrapper_name)s(int boffset,
+                      int nblocks,
+                      int *blkmap,
+                      int *offset,
+                      int *nelems,
+                      %(ssinds_arg)s
+                      %(wrapper_args)s
+                      %(const_args)s
+                      %(off_args)s
+                      %(layer_arg)s) {
 
   %(wrapper_decs)s;
   %(const_inits)s;
-  %(off_inits)s;
-  %(layer_arg_init)s;
-
-  #ifdef _OPENMP
-  int nthread = omp_get_max_threads();
-  #else
-  int nthread = 1;
-  #endif
-
   #pragma omp parallel shared(boffset, nblocks, nelems, blkmap)
   {
     %(map_decl)s
@@ -228,36 +214,51 @@ class ParLoop(device.ParLoop, host.ParLoop):
         fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct)
         if not hasattr(self, '_jit_args'):
             self._jit_args = [None] * 5
+            self._argtypes = [None] * 5
+            self._argtypes[0] = ctypes.c_int
+            self._argtypes[1] = ctypes.c_int
             if isinstance(self._it_space._iterset, Subset):
+                self._argtypes.append(self._it_space._iterset._argtype)
                 self._jit_args.append(self._it_space._iterset._indices)
             for arg in self.args:
                 if arg._is_mat:
+                    self._argtypes.append(arg.data._argtype)
                     self._jit_args.append(arg.data.handle.handle)
                 else:
                     for d in arg.data:
                         # Cannot access a property of the Dat or we will force
                         # evaluation of the trace
+                        self._argtypes.append(d._argtype)
                         self._jit_args.append(d._data)
 
                 if arg._is_indirect or arg._is_mat:
                     maps = as_tuple(arg.map, Map)
                     for map in maps:
                         for m in map:
+                            self._argtypes.append(m._argtype)
                             self._jit_args.append(m.values_with_halo)
 
             for c in Const._definitions():
+                self._argtypes.append(c._argtype)
                 self._jit_args.append(c.data)
 
             # offset_args returns an empty list if there are none
-            self._jit_args.extend(self.offset_args)
+            for a in self.offset_args:
+                self._argtypes.append(ndpointer(a.dtype, shape=a.shape))
+                self._jit_args.append(a)
 
-            self._jit_args.extend(self.layer_arg)
+            for a in self.layer_arg:
+                self._argtypes.append(ctypes.c_int)
+                self._jit_args.append(a)
 
         if part.size > 0:
             #TODO: compute partition size
             plan = self._get_plan(part, 1024)
+            self._argtypes[2] = ndpointer(plan.blkmap.dtype, shape=plan.blkmap.shape)
             self._jit_args[2] = plan.blkmap
+            self._argtypes[3] = ndpointer(plan.offset.dtype, shape=plan.offset.shape)
             self._jit_args[3] = plan.offset
+            self._argtypes[4] = ndpointer(plan.nelems.dtype, shape=plan.nelems.shape)
             self._jit_args[4] = plan.nelems
 
             boffset = 0
@@ -265,7 +266,7 @@ class ParLoop(device.ParLoop, host.ParLoop):
                 nblocks = plan.ncolblk[c]
                 self._jit_args[0] = boffset
                 self._jit_args[1] = nblocks
-                fun(*self._jit_args)
+                fun(*self._jit_args, argtypes=self._argtypes, restype=None)
                 boffset += nblocks
 
     def _get_plan(self, part, part_size):
