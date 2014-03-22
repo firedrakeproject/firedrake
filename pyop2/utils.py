@@ -272,7 +272,7 @@ def parse_args(*args, **kwargs):
 
 
 def preprocess(text, include_dirs=[]):
-    cmd = ['cpp', '-E', '-I' + os.path.dirname(__file__)] + ['-I' + d for d in include_dirs]
+    cmd = ['cpp', '-std=c99', '-E', '-I' + os.path.dirname(__file__)] + ['-I' + d for d in include_dirs]
     p = Popen(cmd, stdin=PIPE, stdout=PIPE, universal_newlines=True)
     # Strip empty lines and any preprocessor instructions other than pragmas
     processed = '\n'.join(l for l in p.communicate(text)[0].split('\n')
