@@ -829,6 +829,11 @@ class Subset(ExtrudedSet):
         """Returns the indices pointing in the superset."""
         return self._indices
 
+    @property
+    def _argtype(self):
+        """Ctypes argtype for this :class:`Subset`"""
+        return np.ctypeslib.ndpointer(self._indices.dtype, shape=self._indices.shape)
+
 
 class SetPartition(object):
     def __init__(self, set, offset, size):
@@ -1643,6 +1648,11 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         return self._soa
 
     @property
+    def _argtype(self):
+        """Ctypes argtype for this :class:`Dat`"""
+        return np.ctypeslib.ndpointer(self._data.dtype, shape=self._data.shape)
+
+    @property
     @modifies
     @collective
     def data(self):
@@ -2229,6 +2239,11 @@ class Const(DataCarrier):
         return type(self)(self.dim, data=self._data, dtype=self.dtype, name=self.name)
 
     @property
+    def _argtype(self):
+        """Ctypes argtype for this :class:`Const`"""
+        return np.ctypeslib.ndpointer(self._data.dtype, shape=self._data.shape)
+
+    @property
     def data(self):
         """Data array."""
         if len(self._data) is 0:
@@ -2355,6 +2370,11 @@ class Global(DataCarrier, _EmptyDataMixin):
     def __repr__(self):
         return "Global(%r, %r, %r, %r)" % (self._dim, self._data,
                                            self._data.dtype, self._name)
+
+    @property
+    def _argtype(self):
+        """Ctypes argtype for this :class:`Global`"""
+        return np.ctypeslib.ndpointer(self._data.dtype, shape=self._data.shape)
 
     @property
     def shape(self):
@@ -2519,6 +2539,11 @@ class Map(object):
 
     def __getslice__(self, i, j):
         raise NotImplementedError("Slicing maps is not currently implemented")
+
+    @property
+    def _argtype(self):
+        """Ctypes argtype for this :class:`Map`"""
+        return np.ctypeslib.ndpointer(self._values.dtype, shape=self._values.shape)
 
     @property
     def split(self):
@@ -3021,6 +3046,11 @@ class Mat(SetAssociated):
             raise MapValueError("Path maps not in sparsity maps")
         return _make_object('Arg', data=self, map=path_maps, access=access,
                             idx=path_idxs, flatten=flatten)
+
+    @property
+    def _argtype(self):
+        """Ctypes argtype for this :class:`Mat`"""
+        return np.ctypeslib.ctypes.c_voidp
 
     @property
     def dims(self):
