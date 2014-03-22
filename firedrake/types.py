@@ -519,7 +519,7 @@ class Function(ufl.Coefficient):
             raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
                                % (expression.shape(), fs.ufl_element().value_shape()))
 
-        coords = fs.mesh()._coordinate_field
+        coords = fs.mesh().coordinates
         coords_space = coords.function_space()
         coords_element = coords_space.fiat_element
 
