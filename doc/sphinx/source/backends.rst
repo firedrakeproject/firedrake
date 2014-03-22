@@ -30,10 +30,10 @@ Host backends
 
 Any computation in PyOP2 requires the generation of code at runtime specific
 to each individual :func:`~pyop2.par_loop`. The host backends generate code
-which is just-in-time (JIT) compiled into a shared library callable as a
-Python module using the Instant_ utility from the `FEniCS project`_. Instant_
-also takes care of caching the modules on disk to save having to recompile the
-same code.
+which is just-in-time (JIT) compiled into a shared library callable
+via :mod:`ctypes`.  The compilation procedure also takes care of
+caching the compiled library on disk, such that the compilation cost
+is not paid every time.
 
 .. _sequential_backend:
 
@@ -450,7 +450,6 @@ computed as part of the execution plan. In CUDA this value is a launch
 parameter to the kernel, whereas in OpenCL it needs to be hard coded as a
 kernel attribute.
 
-.. _Instant: https://bitbucket.org/fenics-project/instant
 .. _FEniCS project: http://fenicsproject.org
 .. _PyCUDA: http://mathema.tician.de/software/pycuda/
 .. _CUSP library: http://cusplibrary.github.io
