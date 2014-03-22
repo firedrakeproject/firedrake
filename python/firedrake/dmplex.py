@@ -4,6 +4,7 @@ from pyop2 import MPI
 import numpy as np
 from operator import itemgetter
 
+
 def facet_numbering(plex, vertex_numbering, facet):
     """Derive local facet number according to Fenics"""
     cells = plex.getSupport(facet)
@@ -21,9 +22,10 @@ def facet_numbering(plex, vertex_numbering, facet):
 
         # Local facet number := local number of non-incident vertex
         v_incident = filter(is_vertex, plex.getTransitiveClosure(facet)[0])
-        v_non_incident = [v for v in vertices if v not in v_incident ][0]
-        local_facet.append(np.where(vertices==v_non_incident)[0][0])
+        v_non_incident = [v for v in vertices if v not in v_incident][0]
+        local_facet.append(np.where(vertices == v_non_incident)[0][0])
     return local_facet
+
 
 def closure_numbering(plex, vertex_numbering, closure, dofs_per_entity):
     """Apply Fenics local numbering to a cell closure.
@@ -66,8 +68,8 @@ def closure_numbering(plex, vertex_numbering, closure, dofs_per_entity):
             for p in points:
                 p_closure = plex.getTransitiveClosure(p)[0]
                 v_incident = filter(is_vertex, p_closure)
-                v_non_inc = [v for v in vertices if v not in v_incident ]
-                v_lcl.append([np.where(vertices==v)[0][0] for v in v_non_inc])
+                v_non_inc = [v for v in vertices if v not in v_incident]
+                v_lcl.append([np.where(vertices == v)[0][0] for v in v_non_inc])
             points, v_lcl = zip(*sorted(zip(points, v_lcl), key=itemgetter(1)))
 
         local_numbering[offset:offset+len(points)] = points
@@ -78,6 +80,7 @@ def closure_numbering(plex, vertex_numbering, closure, dofs_per_entity):
     cells = filter(lambda c: cStart <= c < cEnd, closure)
     local_numbering[offset:offset+len(cells)] = cells
     return local_numbering
+
 
 def mark_entity_classes(plex):
     """Mark all points in a given Plex according to the PyOP2 entity classes:
@@ -109,13 +112,12 @@ def mark_entity_classes(plex):
     vStart, vEnd = plex.getDepthStratum(0)
     dim = plex.getDimension()
     halo_cells = plex.getStratumIS("op2_exec_halo", dim).getIndices()
-    halo_vertices = plex.getStratumIS("op2_exec_halo", 0).getIndices()
     adjacent_cells = []
     for c in halo_cells:
         halo_closure = plex.getTransitiveClosure(c)[0]
-        for vertex in filter(lambda x: x>=vStart and x<vEnd, halo_closure):
+        for vertex in filter(lambda x: x >= vStart and x < vEnd, halo_closure):
             star = plex.getTransitiveClosure(vertex, useCone=False)[0]
-            for adj in filter(lambda x: x>=cStart and x<cEnd, star):
+            for adj in filter(lambda x: x >= cStart and x < cEnd, star):
                 if plex.getLabelValue("op2_exec_halo", adj) < 0:
                     adjacent_cells.append(adj)
 
@@ -134,9 +136,10 @@ def mark_entity_classes(plex):
             depth = plex.getLabelValue("depth", p)
             plex.setLabelValue("op2_core", p, depth)
 
+
 def get_entities_by_class(plex, depth, condition=None):
     """Get a list of Plex entities sorted by the PyOP2 entity classes"""
-    entity_classes = [0, 0, 0 ,0]
+    entity_classes = [0, 0, 0, 0]
     entities = np.array([], dtype=np.int32)
     if plex.getStratumSize("op2_core", depth) > 0:
         core = plex.getStratumIS("op2_core", depth).getIndices()
@@ -158,6 +161,7 @@ def get_entities_by_class(plex, depth, condition=None):
     entity_classes[2] = entities.size
     entity_classes[3] = entities.size
     return entities, entity_classes
+
 
 def permute_global_numbering(plex):
     """Permute the global/universal DoF numbering according to a
@@ -187,11 +191,11 @@ def permute_global_numbering(plex):
 
     # Renumber core DoFs
     seen = set()
-    core_is = plex.getStratumIS("op2_core", dim)
     if plex.getStratumSize("op2_core", dim) > 0:
         for cell in plex.getStratumIS("op2_core", dim).getIndices():
             for p in plex.getTransitiveClosure(cell)[0]:
-                if p in seen: continue
+                if p in seen:
+                    continue
 
                 seen.add(p)
                 dof = glbl.getDof(p)
@@ -206,11 +210,11 @@ def permute_global_numbering(plex):
 
     # Renumber non-core DoFs
     seen = set()
-    non_core_is = plex.getStratumIS("op2_non_core", dim)
     if plex.getStratumSize("op2_non_core", dim) > 0:
         for cell in plex.getStratumIS("op2_non_core", dim).getIndices():
             for p in plex.getTransitiveClosure(cell)[0]:
-                if p in seen: continue
+                if p in seen:
+                    continue
 
                 seen.add(p)
                 dof = glbl.getDof(p)
@@ -227,7 +231,7 @@ def permute_global_numbering(plex):
     # all ranks to get the correct universal numbers (unn) for the halo.
     unn_global = plex.createGlobalVec()
     unn_global.assemblyBegin()
-    for p in range(pStart,pEnd):
+    for p in range(pStart, pEnd):
         if univ_new.getDof(p) > 0:
             unn_global.setValue(univ.getOffset(p), univ_new.getOffset(p))
     unn_global.assemblyEnd()
@@ -236,11 +240,11 @@ def permute_global_numbering(plex):
 
     # Renumber exec-halo DoFs
     seen = set()
-    halo_is = plex.getStratumIS("op2_exec_halo", dim)
     if plex.getStratumSize("op2_exec_halo", dim) > 0:
         for cell in plex.getStratumIS("op2_exec_halo", dim).getIndices():
             for p in plex.getTransitiveClosure(cell)[0]:
-                if p in seen: continue
+                if p in seen:
+                    continue
 
                 seen.add(p)
                 ldof = glbl.getDof(p)
@@ -250,7 +254,7 @@ def permute_global_numbering(plex):
                     glbl_new.setOffset(p, glbl_num)
                     univ_new.setDof(p, gdof)
                     remote_unn = unn_local.getValue(glbl.getOffset(p))
-                    univ_new.setOffset(p, -(remote_unn+1) )
+                    univ_new.setOffset(p, -(remote_unn+1))
                     permutation[p] = glbl_num
                     glbl_num += ldof
     entity_classes[2] = glbl_num
