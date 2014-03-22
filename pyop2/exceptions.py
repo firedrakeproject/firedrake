@@ -131,3 +131,8 @@ class MapValueError(ValueError):
 class ConfigurationError(RuntimeError):
 
     """Illegal configuration value or type."""
+
+
+class CompilationError(RuntimeError):
+
+    """Error during JIT compilation"""
