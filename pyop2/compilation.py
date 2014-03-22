@@ -145,7 +145,11 @@ class MacCompiler(Compiler):
     :arg ldargs: A list of arguments to pass to the linker (optional)."""
 
     def __init__(self, cppargs=[], ldargs=[]):
-        cppargs = ['-std=c99', '-fPIC', '-Wall', '-O3'] + cppargs
+        opt_flags = ['-O3']
+        if configuration['debug']:
+            opt_flags = ['-O0', '-g']
+
+        cppargs = ['-std=c99', '-fPIC', '-Wall'] + opt_flags + cppargs
         ldargs = ['-dynamiclib'] + ldargs
         super(MacCompiler, self).__init__("mpicc", cppargs=cppargs, ldargs=ldargs)
 
@@ -157,7 +161,11 @@ class LinuxCompiler(Compiler):
          (optional).
     :arg ldargs: A list of arguments to pass to the linker (optional)."""
     def __init__(self, cppargs=[], ldargs=[]):
-        cppargs = ['-std=c99', '-fPIC', '-Wall', '-O3'] + cppargs
+        opt_flags = ['-O3']
+        if configuration['debug']:
+            opt_flags = ['-O0', '-g']
+
+        cppargs = ['-std=c99', '-fPIC', '-Wall'] + opt_flags + cppargs
         ldargs = ['-shared'] + ldargs
         super(LinuxCompiler, self).__init__("mpicc", cppargs=cppargs, ldargs=ldargs)
 
