@@ -2,6 +2,7 @@
 #
 
 # You can set these variables from the command line.
+APIDOCOPTS    =
 SPHINXOPTS    =
 SPHINXBUILD   = OP2_DIR=. sphinx-build
 PAPER         =
@@ -41,7 +42,7 @@ help:
 	@echo "  doctest    to run all doctests embedded in the documentation (if enabled)"
 
 apidoc:
-	sphinx-apidoc ../../pyop2 -o source/ -T
+	sphinx-apidoc ../../pyop2 -o source/ -T $(APIDOCOPTS)
 
 clean:
 	-rm -rf $(BUILDDIR)/*
