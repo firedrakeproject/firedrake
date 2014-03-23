@@ -48,6 +48,22 @@ class DependencySnapshot(object):
         return True
 
 
+class BCSnapshot(object):
+    """Record the boundary conditions which were applied to a form."""
+
+    def __init__(self, bcs):
+
+        self.bcs = map(weakref.ref, bcs)
+
+    def valid(self, bcs):
+
+        for bc, wbc in zip(bcs, self.bcs):
+            if bc != wbc():
+                return False
+
+        return True
+
+
 class CacheEntry(object):
     """This is the basic caching unit. The form signature forms the key for
     each CacheEntry, while a reference to the main data object is kept.
@@ -57,16 +73,17 @@ class CacheEntry(object):
     The validity of each CacheEntry object depends on the validity of its
     dependencies (i.e., that none of the referred objects have changed)."""
 
-    def __init__(self, obj, form):
+    def __init__(self, obj, form, bcs):
         self.form = form
         self.dependencies = DependencySnapshot(form)
+        self.bcs = BCSnapshot(bcs)
         if isinstance(obj, float):
             self.obj = obj
         else:
             self.obj = obj.duplicate()
 
-    def is_valid(self, form):
-        return self.dependencies.valid(form)
+    def is_valid(self, form, bcs):
+        return self.dependencies.valid(form) and self.bcs.valid(bcs)
 
     def get_object(self):
         return self.obj
@@ -191,7 +208,7 @@ class AssemblyCache(object):
 
         retval = None
         if cache_entry is not None:
-            if not cache_entry.is_valid(form):
+            if not cache_entry.is_valid(form, bcs):
                 self.invalid_count[form_sig] += 1
                 del self.cache[form_sig]
                 return None
@@ -199,6 +216,8 @@ class AssemblyCache(object):
             retval = cache_entry.get_object()
             self._hits += 1
             self._hits_size += retval.nbytes
+
+        print "Cache hit"
 
         return retval
 
@@ -245,7 +264,7 @@ class AssemblyCache(object):
         #     #print "Storing fragmented form"
         #     return self._store_fragmented(form)
 
-        cache_entry = CacheEntry(obj, form)
+        cache_entry = CacheEntry(obj, form, bcs)
         self.cache[form_sig] = cache_entry
 
         #for d in dependencies:
