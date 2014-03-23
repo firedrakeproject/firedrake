@@ -45,15 +45,16 @@ from exceptions import CompilationError
 class Compiler(object):
     """A compiler for shared libraries.
 
-    :arg cc: The name of the C compiler.
-    :arg ld: The name of the linker (if ``None``, we assume the
-         compiler can build object files and link in a single
-         invocation).
+    :arg cc: C compiler executable (can be overriden by exporting the
+        environment variable ``CC``).
+    :arg ld: Linker executable (optional, if ``None``, we assume the compiler
+        can build object files and link in a single invocation, can be
+        overridden by exporting the environment variable ``LDSHARED``).
     :arg cppargs: A list of arguments to the C compiler (optional).
     :arg ldargs: A list of arguments to the linker (optional)."""
     def __init__(self, cc, ld=None, cppargs=[], ldargs=[]):
-        self._cc = cc
-        self._ld = ld
+        self._cc = os.environ.get('CC', cc)
+        self._ld = os.environ.get('LDSHARED', ld)
         self._cppargs = cppargs
         self._ldargs = ldargs
 
