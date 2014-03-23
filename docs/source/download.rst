@@ -21,6 +21,28 @@ In addition to PyOP2, you will need the Python cgen package::
 
   sudo pip install cgen
 
+You may also choose to install cgen for a single user::
+
+  pip install --user cgen
+
+Pip instructions for users
+..........................
+
+If you only wish to use Firedrake, and will not be contributing to
+development at all, you can install Firedrake using pip::
+
+  sudo pip install git+https://github.com/firedrakeproject/firedrake.git
+
+or::
+
+  pip install --user git+https://github.com/firedrakeproject/firedrake.git
+
+You're now ready to go. You might like to start with the tutorial
+examples on the :doc:`documentation page <documentation>`.
+
+Git instructions for developers
+...............................
+
 Next, obtain the Firedrake source from `Github
 <http://github.com/firedrakeproject/firedrake>`_: ::
 
