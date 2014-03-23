@@ -106,8 +106,8 @@ Common dependencies:
 * Cython >= 0.17 
 * decorator 
 * numpy >= 1.6 
-* PETSc_ >= 3.4 with Fortran interfaces
-* PETSc4py_ >= 3.4
+* PETSc_ current git master (see below)
+* PETSc4py_ current git master (see below)
 
 Testing dependencies (optional, required to run the tests):
 
@@ -147,18 +147,11 @@ PyOP2 uses petsc4py_, the Python bindings for the PETSc_ linear algebra
 library and requires:
 
 * an MPI implementation built with *shared libraries* 
-* PETSc_ 3.4 or later built with *shared libraries*
+* The current PETSc_ master branch built with *shared libraries*
 
-If you have a suitable PETSc_ installed on your system, ``PETSC_DIR`` and
-``PETSC_ARCH`` need to be set for the petsc4py_ installer to find it. On
-a Debian/Ubuntu system with PETSc_ 3.4 installed, this can be achieved
-via e.g. (adapt for your system) ::
-
-  export PETSC_DIR=/usr/lib/petscdir/3.4
-  export PETSC_ARCH=linux-gnu-c-opt
-
-If you are on Ubuntu 12.04 LTS, you can install the binary package for PETSc_
-3.4.2 from the PPA_ ``ppa:amcg/petsc3.4``.
+If you have a suitable PETSc_ installed on your system, ``PETSC_DIR``
+and ``PETSC_ARCH`` need to be set for the petsc4py_ installer to find
+it. Note that no current packaged version for any OS will suffice.
 
 If not, make sure all PETSc_ dependencies (BLAS/LAPACK, MPI and a Fortran
 compiler) are installed. On a Debian based system, run::
@@ -167,17 +160,20 @@ compiler) are installed. On a Debian based system, run::
 
 Then install PETSc_ via ``pip`` ::
 
-  PETSC_CONFIGURE_OPTIONS="--with-fortran-interfaces=1 --with-c++-support" \
-    pip install "petsc >= 3.4"
+  PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco" \
+    pip install -U git+https://bitbucket.org/petsc/petsc.git
   unset PETSC_DIR
   unset PETSC_ARCH
+
+The -U option forces the install in the case where you have a recent
+PETSc_ version already installed.
 
 If you built PETSc_ using ``pip``, ``PETSC_DIR`` and ``PETSC_ARCH``
 should be left unset when building petsc4py_.
 
 Install petsc4py_ via ``pip``::
 
-  pip install "petsc4py >= 3.4"
+  pip install -U git+https://bitbucket.org/petsc/petsc4py.git
 
 .. _cuda-installation:
 
