@@ -332,7 +332,7 @@ class Arg(base.Arg):
                                 'offset': self.c_offset_name(k, 0),
                                 'dim': cdim})
                     if is_facet:
-                        val.append("%(name)s[%(j)d] += _%(offset)s[%(i)d] * %(dim)s;" %
+                        val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
                                    {'name': self.c_vec_name(),
                                     'i': i,
                                     'j': offset + (idx + cdim) * arity + i,
@@ -354,7 +354,7 @@ class Arg(base.Arg):
                             'offset': self.c_offset_name(k, 0),
                             'dim': cdim})
                 if is_facet:
-                    val.append("%(name)s[%(j)d] += _%(offset)s[%(i)d] * %(dim)s;" %
+                    val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
                                {'name': self.c_vec_name(),
                                 'i': i,
                                 'j': offset + i + arity,
@@ -534,7 +534,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                 if is_facet:
                     for idx in range(m.arity):
                         for k in range(cdim):
-                            val.append("xtr_%(name)s[%(ind_flat)s] += _%(off)s[%(ind)s] * %(dim)s;" %
+                            val.append("xtr_%(name)s[%(ind_flat)s] += %(off)s[%(ind)s] * %(dim)s;" %
                                        {'name': self.c_map_name(i, j),
                                         'off': self.c_offset_name(i, j),
                                         'ind': idx,
@@ -556,7 +556,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                 'ind': idx})
                 if is_facet:
                     for idx in range(m.arity):
-                        val.append("xtr_%(name)s[%(ind)s] += _%(off)s[%(ind_zero)s];" %
+                        val.append("xtr_%(name)s[%(ind)s] += %(off)s[%(ind_zero)s];" %
                                    {'name': self.c_map_name(i, j),
                                     'off': self.c_offset_name(i, j),
                                     'ind': m.arity + idx,
