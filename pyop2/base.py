@@ -2550,6 +2550,11 @@ class Map(object):
         return (self,)
 
     @property
+    def it_space(self):
+        """:class:`Set` mapped from."""
+        return [ALL]
+
+    @property
     def iterset(self):
         """:class:`Set` mapped from."""
         return self._iterset
