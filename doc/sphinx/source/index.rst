@@ -14,6 +14,7 @@ Contents:
    installation
    concepts
    kernels
+   ir
    architecture
    backends
    linear_algebra
