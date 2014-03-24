@@ -7,38 +7,11 @@ set of the parallel loop. Here, we describe how to use the PyOP2 API to build
 a kernel and, also, we provide simple guidelines on how to write efficient
 kernels.
 
-Kernel API
-----------
-
-A :class:`~pyop2.Kernel` is composed of three parts:
-
-* The ``code`` implementing the actual computation
-* A ``name``, which has to be identical to that in the kernel signature
-* An optional set of parameters, ``opts``, to drive the optimization process
-
-For example, to build a PyOP2 kernel that initialises a certain dataset
-associated with the edges of the mesh to zero, one can write:
-
-.. code-block:: python
-
-  from op2 import Kernel
-
-  code = """void init(double* edge_weight) {
-    for (int i = 0; i < 3; i++)
-      edge_weight[i] = 0.0;
-  }"""
-  kernel = Kernel(code, "init")
-
-In this example, we assume the dataset has size 3, meaning that edge_weight is
-a pointer to an array of three doubles. The optional parameter ``opts`` is not
-specified, meaning that no optimizations are requested; this essentially means
-that PyOP2 will leave the kernel untouched. ``code`` will be compiled and run
-on the user-specified back-end using the default compiler. ``name`` is used
-for debugging and for outputing of meaningful information, e.g. run-times.
-
 Using the Intermediate Representation
 -------------------------------------
 
+In the :doc:`previous section <kernels>`, we described the API for
+PyOP2 kernels in terms of the C code that gets executed.
 Passing in a string of C code is the simplest way of creating a
 :class:`~pyop2.Kernel`.  Another possibility is to use PyOP2 Intermediate
 Representation (IR) objects to express the :class:`~pyop2.Kernel` semantics.
@@ -51,9 +24,23 @@ to inspect and transform the kernel, which is aimed at achieving performance
 portability among different architectures and, more in general, better execution
 times.
 
-Here, we describe how we can use PyOP2 IR objects to build an AST for the
-``init`` kernel shown previously. For example, the most basic AST one can come
-up with is
+For the purposes of exposition, let us consider a simple
+kernel ``init`` which initialises the members of a :class:`~pyop2.Dat`
+to zero.
+
+.. code-block:: python
+
+  from op2 import Kernel
+
+  code = """void init(double* edge_weight) {
+    for (int i = 0; i < 3; i++)
+      edge_weight[i] = 0.0;
+  }"""
+  kernel = Kernel(code, "init")
+
+Here, we describe how we can use PyOP2 IR objects to build an AST for
+the this kernel. For example, the most basic AST one can come up with
+is
 
 .. code-block:: python
 
@@ -66,13 +53,13 @@ up with is
   }""")
   kernel = Kernel(ast, "init")
 
-The :class:`~pyop2.ir.ast_base.FlatBlock` object encapsulates a ''flat'' block
+The :class:`~pyop2.ir.ast_base.FlatBlock` object encapsulates a "flat" block
 of code, which is not modified by the IR engine. A
 :class:`~pyop2.ir.ast_base.FlatBlock` is used to represent (possibly large)
 fragments of code for which we are not interested in any kind of
 transformations, so it may be particularly useful to speed up code development
 when writing, for example, test cases or non-expensive kernels.  On the other
-hand, time-demanding kernels should be properly represented using a ''real''
+hand, time-demanding kernels should be properly represented using a "real"
 AST. For example, an useful AST for ``init`` could be the following
 
 .. code-block:: python
@@ -147,7 +134,7 @@ language follows
 * ``pragma pyop2 simd``. This is added on top of the kernel signature. It is
   used to suggest PyOP2 to apply simd vectorization along the ParLoop's
   iteration set dimension. Such kind of vectorization is also known as
-  ''inter-kernel vectorization''. This feature is currently not supported
+  *inter-kernel vectorization*. This feature is currently not supported
   by PyOP2, and will be added only in a future release.
 
 The ``itspace`` pragma tells PyOP2 how to extract parallelism from the kernel.
@@ -312,7 +299,7 @@ If our kernel is computing an assembly-like operation, then we can ask PyOP2
 to optimize for register locality and register pressure, by resorting to a
 different vectorization technique. Early experiments show that this approach
 can be particularly useful when the amount of data movement in the assembly
-loops is ''significant''. Of course, this depends on kernel parameters (e.g.
+loops is "significant". Of course, this depends on kernel parameters (e.g.
 size of assembly loop, number and size of arrays involved in the assembly) as
 well as on architecture parameters (e.g. size of L1 cache, number of available
 registers). This strategy takes the name of *Outer-Product Vectorization*
@@ -330,7 +317,7 @@ along with data alignment and padding).
 
 ``UAJ`` in ``V_OP_UAJ`` stands for ``Unroll-and-Jam``. It has been proved that
 OP shows a much better performance when used in combination with unrolling the
-outer assembly loop and incorporating (''jamming'') the unrolled iterations
+outer assembly loop and incorporating (*jamming*) the unrolled iterations
 within the inner loop. The second parameter, therefore, specifies the unroll-
 and-jam factor: the higher it is, the larger is the number of iterations
 unrolled. A factor 1 means that no unroll-and-jam is performed. The optimal
