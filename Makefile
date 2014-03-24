@@ -28,3 +28,7 @@ test: modules
 	@py.test tests $(PYTEST_ARGS)
 
 alltest: modules lint test
+
+shorttest: modules lint
+	@echo "    Running short regression tests"
+	@py.test --short tests $(PYTEST_ARGS)
