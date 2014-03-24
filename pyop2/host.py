@@ -223,7 +223,7 @@ class Arg(base.Arg):
                     for mi, idx in enumerate(range(*rng)):
                         val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                    {'vec_name': self.c_vec_name(),
-                                    'idx': idx,
+                                    'idx': idx + arity,
                                     'data': self.c_ind_data(mi, i, is_top=is_top, layers=layers,
                                                             offset=self.map.offset[idx])})
         return ";\n".join(val)
