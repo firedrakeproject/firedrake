@@ -591,7 +591,7 @@ def _assemble(f, tensor=None, bcs=None):
                 #parallel loops will (potentially) get created and called based on the
                 #domain id: everywhere, bottom or top.
 
-                #Get the list of sets and globals required for parallel loop constuction.
+                #Get the list of sets and globals required for parallel loop construction.
                 set_global_list = m.exterior_facets.measure_set(integral.measure())
 
                 #Iterate over the list and assemble all the args of the parallel loop
@@ -677,16 +677,13 @@ def _assemble(f, tensor=None, bcs=None):
                 else:
                     tensor_arg = tensor(op2.INC)
 
-                kwargs = {}
-                kwargs["iterate"] = op2.ON_INTERIOR_FACETS
-
                 args = [kernel, m.interior_facets.measure_set(integral.measure()), tensor_arg,
                         coords.dat(op2.READ, coords.cell_node_map(),
                                    flatten=True)]
                 for c in fd.original_coefficients:
                     args.append(c.dat(op2.READ, c.cell_node_map(),
                                       flatten=True))
-                op2.par_loop(*args, **kwargs)
+                op2.par_loop(*args, iterate=op2.ON_INTERIOR_FACETS)
 
             elif domain_type == 'interior_facet_vert':
                 if op2.MPI.parallel:

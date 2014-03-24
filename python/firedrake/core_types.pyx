@@ -302,7 +302,7 @@ cdef ft.element_t as_element(object fiat_element):
 
 class _Facets(object):
     """Wrapper class for facet interation information on a :class:`Mesh`"""
-    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None, bottom_set=None):
+    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None):
 
         self.mesh = mesh
 
@@ -320,7 +320,7 @@ class _Facets(object):
         self.local_facet_number = local_facet_number
 
         self.markers = markers
-        self._b_set = bottom_set
+        self._b_set = mesh.cell_set
         self._subsets = {}
 
     @utils.cached_property
@@ -532,8 +532,6 @@ class Mesh(object):
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._domain_data = self._coordinate_field
-        # if measure in [ufl.ds_h, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
-        #     raise RuntimeError("Facet integrals on non-extruded meshes cannot be split into horizontal and vertical parts.")
 
     def cell_orientations(self):
         """Return the orientation of each cell in the mesh.
@@ -675,15 +673,13 @@ class ExtrudedMesh(Mesh):
         self._interior_facets = _Facets(self, interior_f.count,
                                        "interior",
                                        interior_f.facet_cell,
-                                       interior_f.local_facet_number,
-                                       bottom_set=self.cell_set)
+                                       interior_f.local_facet_number)
         exterior_f = self._old_mesh.exterior_facets
         self._exterior_facets = _Facets(self, exterior_f.count,
                                            "exterior",
                                            exterior_f.facet_cell,
                                            exterior_f.local_facet_number,
-                                           exterior_f.markers,
-                                           bottom_set=self.cell_set)
+                                           exterior_f.markers)
 
         self.ufl_cell_element = ufl.FiniteElement("Lagrange",
                                                domain = mesh._ufl_cell,
@@ -743,8 +739,6 @@ class ExtrudedMesh(Mesh):
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_t, ufl.ds_b, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
             measure._domain_data = self._coordinate_field
-        # if measure in [ufl.ds, ufl.dS]:
-        #     raise RuntimeError("Facet integrals on extruded meshes must be split into horizontal and vertical parts.")
 
     @property
     def layers(self):
