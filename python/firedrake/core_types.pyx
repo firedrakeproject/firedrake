@@ -235,7 +235,7 @@ def make_extruded_coords(extruded_mesh, layer_height,
 
 class _Facets(object):
     """Wrapper class for facet interation information on a :class:`Mesh`"""
-    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None):
+    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None, bottom_set=None):
 
         self.mesh = mesh
 
@@ -253,6 +253,7 @@ class _Facets(object):
         self.local_facet_number = local_facet_number
 
         self.markers = markers
+        self._b_set = bottom_set
         self._subsets = {}
 
     @utils.cached_property
@@ -269,6 +270,11 @@ class _Facets(object):
         return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo)
 
 
+    @property
+    def bottom_set(self):
+        # Currently no MPI parallel support
+        return self._b_set
+
     @utils.cached_property
     def _null_subset(self):
         '''Empty subset for the case in which there are no facets with
@@ -282,9 +288,21 @@ class _Facets(object):
         either be for all the interior or exterior (as appropriate)
         facets, or for a particular numbered subdomain.'''
 
-        if measure.domain_id() in [measure.DOMAIN_ID_EVERYWHERE,
-                                   measure.DOMAIN_ID_OTHERWISE]:
-            return self.set
+        dom_id = measure.domain_id()
+        dom_type = measure.domain_type()
+        if dom_id in [measure.DOMAIN_ID_EVERYWHERE,
+                      measure.DOMAIN_ID_OTHERWISE]:
+            if dom_type == "exterior_facet_topbottom":
+                return [(0, self.bottom_set, self._local_facet_top_bottom(0)),
+                        (1, self.bottom_set, self._local_facet_top_bottom(1))]
+            elif dom_type == "exterior_facet_bottom":
+                return [(0, self.bottom_set, self._local_facet_top_bottom(0))]
+            elif dom_type == "exterior_facet_top":
+                return [(1, self.bottom_set, self._local_facet_top_bottom(1))]
+            elif dom_type == "interior_facet_horiz":
+                return self.bottom_set
+            else:
+                return self.set
         else:
             return self.subset(measure.domain_id())
 
@@ -311,6 +329,19 @@ class _Facets(object):
         return op2.Dat(op2.DataSet(self.set, self._rank), self.local_facet_number,
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
 
+    def _local_facet_interior_horiz(self):
+        """Global for indicating the orientation of the cells in the vertical
+        direction of an extruded mesh."""
+        return op2.Global(2, [1, 0], dtype=np.uintc)
+
+    def _local_facet_top_bottom(self, value):
+        """Global indicating which facet, top or bottom,
+        corresponds to the current facet in the case of exterior facets
+        on extrruded meshes. 0 is for bottom and 1 for top (ffc convention)."""
+        if value in [0, 1]:
+            return op2.Global(1, [value], dtype=np.uintc)
+        else:
+            raise RuntimeError("Invalid domain id for top and bottom exterior facets.")
 
 class Mesh(object):
     """A representation of mesh topology and geometry."""
@@ -485,6 +516,8 @@ class Mesh(object):
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._domain_data = self._coordinate_field
+        # if measure in [ufl.ds_h, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
+        #     raise RuntimeError("Facet integrals on non-extruded meshes cannot be split into horizontal and vertical parts.")
 
     def _from_gmsh(self, filename, dim=0, periodic_coords=None):
         """Read a Gmsh .msh file from `filename`"""
@@ -720,13 +753,15 @@ class ExtrudedMesh(Mesh):
         self._interior_facets = _Facets(self, interior_f.count,
                                        "interior",
                                        interior_f.facet_cell,
-                                       interior_f.local_facet_number)
+                                       interior_f.local_facet_number,
+                                       bottom_set=self.cell_set)
         exterior_f = self._old_mesh.exterior_facets
         self._exterior_facets = _Facets(self, exterior_f.count,
                                            "exterior",
                                            exterior_f.facet_cell,
                                            exterior_f.local_facet_number,
-                                           exterior_f.markers)
+                                           exterior_f.markers,
+                                           bottom_set=self.cell_set)
 
         self.ufl_cell_element = ufl.FiniteElement("Lagrange",
                                                domain = mesh._ufl_cell,
@@ -768,8 +803,10 @@ class ExtrudedMesh(Mesh):
         self._ds = Measure('exterior_facet', domain_data=self._coordinate_field)
         self._dS = Measure('interior_facet', domain_data=self._coordinate_field)
         # Set the domain_data on all the default measures to this coordinate field.
-        for measure in [ufl.dx, ufl.ds, ufl.dS]:
+        for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_t, ufl.ds_b, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
             measure._domain_data = self._coordinate_field
+        # if measure in [ufl.ds, ufl.dS]:
+        #     raise RuntimeError("Facet integrals on extruded meshes must be split into horizontal and vertical parts.")
 
     @property
     def layers(self):
@@ -1188,12 +1225,14 @@ class FunctionSpaceBase(Cached):
         else:
             parent = None
 
+        offset = self.cell_node_map().offset
         return self._map_cache(self._interior_facet_map_cache,
                                self._mesh.interior_facets.set,
                                self.interior_facet_node_list,
                                2*self.fiat_element.space_dimension(),
                                bcs,
                                "interior_facet_node",
+                               offset=np.append(offset, offset),
                                parent=parent)
 
     def exterior_facet_node_map(self, bcs=None):
