@@ -124,8 +124,9 @@ class ParLoop(host.ParLoop):
                 self._argtypes.append(ctypes.c_int)
                 self._jit_args.extend([2])
             elif self.iterate in [ON_INTERIOR_FACETS]:
+                self._argtypes.append(ctypes.c_int)
                 self._jit_args.extend([self._it_space.layers - 1])
-            else:
+            elif self._it_space.layers > 1:
                 self._argtypes.append(ctypes.c_int)
                 self._jit_args.extend(self.layer_arg)
 
