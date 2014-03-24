@@ -15,11 +15,10 @@ the solution.
 
 Firedrake employs the Unifed Form Language (UFL) and FEniCS Form
 Compiler (FFC) from `the FEniCS Project <http://fenicsproject.org>`_
-and fields and meshes from `Fluidity
-<http://amcg.ese.ic.ac.uk/fluidity>`_. The parallel execution of FEM
-assembly is accomplished by the `PyOP2 <http://op2.github.io/PyOP2/>`_
-system while linear and non-linear solvers are provided by `PETSc
-<https://www.mcs.anl.gov/petsc/>`_.
+while the parallel execution of FEM assembly is accomplished by the
+`PyOP2 <http://op2.github.io/PyOP2/>`_ system. The global mesh data
+structures, as well as linear and non-linear solvers, are provided by
+`PETSc <https://www.mcs.anl.gov/petsc/>`_.
 
 .. container:: youtube
 
