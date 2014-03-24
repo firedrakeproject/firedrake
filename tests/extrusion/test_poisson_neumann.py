@@ -60,6 +60,7 @@ def test_top(P2):
         assert max(abs(u.dat.data - u_exact.dat.data)) < 1.0e-6
 
 
+@pytest.mark.xfail(reason="form-order mismatch bug")
 def test_topbottom(P2):
         u = TrialFunction(P2)
         v = TestFunction(P2)

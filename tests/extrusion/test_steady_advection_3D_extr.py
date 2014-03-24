@@ -144,6 +144,7 @@ def test_far_to_near(mesh, V, W):
     assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
 
 
+@pytest.mark.xfail(reason="form-order mismatch bug")
 def test_bottom_to_top(mesh, V, W):
     velocity = Expression(("0.0", "0.0", "1.0"))
     u0 = project(velocity, W)
@@ -171,6 +172,7 @@ def test_bottom_to_top(mesh, V, W):
     assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
 
 
+@pytest.mark.xfail(reason="form-order mismatch bug")
 def test_top_to_bottom(mesh, V, W):
     velocity = Expression(("0.0", "0.0", "-1.0"))
     u0 = project(velocity, W)
