@@ -48,20 +48,14 @@ echo | tee -a $LOGFILE
 if (( EUID != 0 )); then
   echo "PyOP2 requires the following packages to be installed:
   build-essential python-dev git-core mercurial cmake cmake-curses-gui libmed1
-  gmsh python-pip swig libhdf5-openmpi-7 libhdf5-openmpi-dev libopenmpi-dev
-  openmpi-bin libblas-dev liblapack-dev gfortran triangle-bin libpetsc3.4.2
-  libpetsc3.4.2-dev"
-  echo "Add the PPA ppa:amcg/petsc3.4, which contains the PETSc 3.4.2 package"
+  gmsh python-pip swig libhdf5-openmpi-dev libopenmpi-dev
+  openmpi-bin libblas-dev liblapack-dev gfortran"
 else
   apt-get update >> $LOGFILE 2>&1
   apt-get install -y python-software-properties >> $LOGFILE 2>&1
-  add-apt-repository -y ppa:amcg/petsc3.4 >> $LOGFILE 2>&1
-  apt-get update >> $LOGFILE 2>&1
-  apt-get install -y build-essential python-dev git-core mercurial \
-    cmake cmake-curses-gui libmed1 gmsh python-pip swig libhdf5-openmpi-7 \
-    libhdf5-openmpi-dev libopenmpi-dev openmpi-bin libblas-dev liblapack-dev \
-    gfortran triangle-bin libpetsc3.4.2 libpetsc3.4.2-dev >> $LOGFILE 2>&1
-  export PETSC_DIR=/usr/lib/petscdir/3.4.2
+  apt-get install -y build-essential python-dev git-core mercurial cmake \
+    cmake-curses-gui libmed1 gmsh python-pip swig libhdf5-openmpi-dev \
+    libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran >> $LOGFILE 2>&1
 fi
 
 echo "*** Installing dependencies ***" | tee -a $LOGFILE
@@ -69,8 +63,6 @@ echo | tee -a $LOGFILE
 
 # Install Cython so we can build PyOP2 from source
 ${PIP} Cython decorator numpy >> $LOGFILE 2>&1
-PETSC_CONFIGURE_OPTIONS="--with-fortran --with-fortran-interfaces --with-c++-support" \
-  ${PIP} "petsc4py>=3.4" >> $LOGFILE 2>&1
 
 echo "*** Installing FEniCS dependencies ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
@@ -81,6 +73,13 @@ ${PIP} \
   git+https://bitbucket.org/mapdes/fiat#egg=fiat \
   git+https://bitbucket.org/fenics-project/instant#egg=instant \
   hg+https://bitbucket.org/khinsen/scientificpython >> $LOGFILE 2>&1
+
+echo "*** Installing PETSc ***" | tee -a $LOGFILE
+echo | tee -a $LOGFILE
+
+PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco"
+${PIP} git+https://bitbucket.org/petsc/petsc.git >> $LOGFILE 2>&1
+${PIP} git+https://bitbucket.org/petsc/petsc4py.git >> $LOGFILE 2>&1
 
 echo "*** Installing PyOP2 ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE

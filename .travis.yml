@@ -9,18 +9,20 @@ language: python
 python:
   - "2.6"
   - "2.7"
-env: C_INCLUDE_PATH=/usr/lib/openmpi/include PETSC_DIR=/usr/lib/petscdir/3.4.2
+env:
+  global:
+    - C_INCLUDE_PATH=/usr/lib/openmpi/include
+    - PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco"
 virtualenv:
   system_site_packages: true
 # command to install dependencies
 before_install:
-  - sudo add-apt-repository -y ppa:amcg/petsc3.4
   - sudo add-apt-repository -y ppa:cython-dev/master-ppa
   - sudo apt-get update -qq
   - "sudo apt-get install -qq build-essential python-dev git-core mercurial \
-    cmake cmake-curses-gui libmed1 gmsh python-pip swig libhdf5-openmpi-7 \
-    libhdf5-openmpi-dev libopenmpi-dev openmpi-bin libblas-dev liblapack-dev \
-    gfortran triangle-bin libpetsc3.4.2 libpetsc3.4.2-dev cython"
+    cmake cmake-curses-gui libmed1 gmsh python-pip swig libhdf5-openmpi-dev \
+    libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran \
+    triangle-bin cython"
   - pip install -r requirements-minimal.txt
   - if [[ $TRAVIS_PYTHON_VERSION == "2.6" ]]; then pip install argparse ordereddict; fi
 install: "python setup.py develop"

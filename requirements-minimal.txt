@@ -1,5 +1,7 @@
 --allow-external mpi4py
 --allow-unverified mpi4py
+--allow-external petsc
+--allow-unverified petsc
 --allow-external petsc4py
 --allow-unverified petsc4py
 
@@ -7,6 +9,7 @@ numpy>=1.6.1
 Cython>=0.17
 pytest>=2.3
 flake8>=2.1.0
+pycparser>=2.10
 mpi4py>=1.3.1
 git+https://bitbucket.org/fenics-project/instant.git#egg=instant
 git+https://bitbucket.org/mapdes/ufl.git#egg=ufl
@@ -14,4 +17,5 @@ git+https://bitbucket.org/mapdes/fiat.git#egg=fiat
 git+https://bitbucket.org/mapdes/ffc.git#egg=ffc
 hg+https://bitbucket.org/khinsen/scientificpython
 h5py>=2.0.0
-petsc4py>=3.4
+git+https://bitbucket.org/petsc/petsc.git#egg=petsc
+git+https://bitbucket.org/petsc/petsc4py.git#egg=petsc4py
