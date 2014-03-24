@@ -171,8 +171,8 @@ def make_extruded_coords(extruded_mesh, layer_height,
     coordinates on the extruded cell (to write to), the layer number
     of each cell and the fixed layer height.
     """
-    base_coords = extruded_mesh._old_mesh._coordinate_field
-    ext_coords = extruded_mesh._coordinate_field
+    base_coords = extruded_mesh._old_mesh.coordinates
+    ext_coords = extruded_mesh.coordinates
     vert_space = ext_coords.function_space().ufl_element()._B
     if kernel is None and not (vert_space.degree() == 1 and vert_space.family() == 'Lagrange'):
         raise RuntimeError('Extrusion of coordinates is only possible for P1 interval unless a custom kernel is provided')
@@ -362,6 +362,15 @@ class Mesh(object):
         # -1 is uninitialised.
         self._cell_orientations.data[:] = -1
 
+    @property
+    def coordinates(self):
+        """The :class:`.Function` containing the coordinates of this mesh."""
+        return self._coordinate_function
+
+    @coordinates.setter
+    def coordinates(self, value):
+        self._coordinate_function = value
+
     def _from_dmplex(self, plex, geometric_dim=0, periodic_coords=None):
         """ Create mesh from DMPlex object """
 
@@ -374,7 +383,7 @@ class Mesh(object):
         # Mark exterior and interior facets
         self._plex.markBoundaryFaces("exterior_facets")
         self._plex.createLabel("interior_facets")
-        fStart,fEnd = self._plex.getHeightStratum(1)  # facets
+        fStart, fEnd = self._plex.getHeightStratum(1)  # facets
         for face in range(fStart, fEnd):
             if self._plex.getLabelValue("exterior_facets", face) == -1:
                 self._plex.setLabelValue("interior_facets", face, 1)
@@ -462,7 +471,7 @@ class Mesh(object):
                 raise NotImplementedError("Periodic coordinates in more than 1D are unsupported")
             # We've been passed a periodic coordinate field, so use that.
             self._coordinate_fs = types.VectorFunctionSpace(self, "DG", 1)
-            self._coordinate_field = types.Function(self._coordinate_fs,
+            self.coordinates = types.Function(self._coordinate_fs,
                                                     val=periodic_coords,
                                                     name="Coordinates")
         else:
@@ -476,15 +485,15 @@ class Mesh(object):
             inv_perm = perm_is.invertPermutation().getIndices()
             self._coordinates = np.array([self._coordinates[p] for p in inv_perm])
 
-            self._coordinate_field = types.Function(self._coordinate_fs,
+            self.coordinates = types.Function(self._coordinate_fs,
                                                     val=self._coordinates,
                                                     name="Coordinates")
-        self._dx = Measure('cell', domain_data=self._coordinate_field)
-        self._ds = Measure('exterior_facet', domain_data=self._coordinate_field)
-        self._dS = Measure('interior_facet', domain_data=self._coordinate_field)
+        self._dx = Measure('cell', domain_data=self.coordinates)
+        self._ds = Measure('exterior_facet', domain_data=self.coordinates)
+        self._dS = Measure('interior_facet', domain_data=self.coordinates)
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
-            measure._domain_data = self._coordinate_field
+            measure._domain_data = self.coordinates
 
     def _from_gmsh(self, filename, dim=0, periodic_coords=None):
         """Read a Gmsh .msh file from `filename`"""
@@ -630,7 +639,7 @@ class Mesh(object):
         kernel = op2.Kernel(str(fn), "cell_orientations")
         op2.par_loop(kernel, self.cell_set,
                      self._cell_orientations(op2.WRITE),
-                     self._coordinate_field.dat(op2.READ, self._coordinate_field.cell_node_map()))
+                     self.coordinates.dat(op2.READ, self.coordinates.cell_node_map()))
         self._cell_orientations._force_evaluation(read=True, write=False)
 
     def cells(self):
@@ -759,17 +768,17 @@ class ExtrudedMesh(Mesh):
                                                         vfamily="CG",
                                                         vdegree=1)
 
-        self._coordinate_field = types.Function(self._coordinate_fs)
+        self.coordinates = types.Function(self._coordinate_fs)
         make_extruded_coords(self, layer_height, extrusion_type=extrusion_type,
                              kernel=kernel)
-        self._coordinates = self._coordinate_field.dat.data_ro_with_halos
+        self._coordinates = self.coordinates.dat.data_ro_with_halos
 
-        self._dx = Measure('cell', domain_data=self._coordinate_field)
-        self._ds = Measure('exterior_facet', domain_data=self._coordinate_field)
-        self._dS = Measure('interior_facet', domain_data=self._coordinate_field)
+        self._dx = Measure('cell', domain_data=self.coordinates)
+        self._ds = Measure('exterior_facet', domain_data=self.coordinates)
+        self._dS = Measure('interior_facet', domain_data=self.coordinates)
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
-            measure._domain_data = self._coordinate_field
+            measure._domain_data = self.coordinates
 
     @property
     def layers(self):

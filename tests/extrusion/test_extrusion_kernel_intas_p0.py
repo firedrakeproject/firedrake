@@ -29,7 +29,7 @@ void populate_tracer(double *x[], double *c[])
   x[0][0] = (c[1][2] + c[0][2]) / 2;
 }""", "populate_tracer")
 
-    coords = f.function_space().mesh()._coordinate_field
+    coords = f.function_space().mesh().coordinates
 
     op2.par_loop(populate_p0, f.cell_set,
                  f.dat(op2.INC, f.cell_node_map()),
