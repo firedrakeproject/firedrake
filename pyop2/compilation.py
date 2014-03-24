@@ -81,6 +81,9 @@ class Compiler(object):
         cname = os.path.join(cachedir, "%s.c" % basename)
         oname = os.path.join(cachedir, "%s.o" % basename)
         soname = os.path.join(cachedir, "%s.so" % basename)
+        # Link into temporary file, then rename to shared library
+        # atomically (avoiding races).
+        tmpname = os.path.join(cachedir, "%s.so.tmp" % basename)
 
         try:
             # Are we in the cache?
@@ -99,7 +102,7 @@ class Compiler(object):
                     # Compiler also links
                     if self._ld is None:
                         cc = [self._cc] + self._cppargs + \
-                             ['-o', soname, cname] + self._ldargs
+                             ['-o', tmpname, cname] + self._ldargs
                         with file(logfile, "w") as log:
                             with file(errfile, "w") as err:
                                 log.write("Compilation command:\n")
@@ -115,7 +118,7 @@ Compile errors in %s""" % (logfile, errfile))
                     else:
                         cc = [self._cc] + self._cppargs + \
                              ['-c', oname, cname]
-                        ld = [self._ld] + ['-o', soname, oname] + self._ldargs
+                        ld = [self._ld] + ['-o', tmpname, oname] + self._ldargs
                         with file(logfile, "w") as log:
                             with file(errfile, "w") as err:
                                 log.write("Compilation command:\n")
@@ -132,6 +135,8 @@ Compile errors in %s""" % (logfile, errfile))
                                         """Unable to compile code
                                         Compile log in %s
                                         Compile errors in %s""" % (logfile, errfile))
+                    # Atomically ensure soname exists
+                    os.rename(tmpname, soname)
             # Wait for compilation to complete
             MPI.comm.barrier()
             # Load resulting library
