@@ -378,7 +378,7 @@ void comp_vol(double A[1], double *x[], double *y[])
         assert numpy.allclose(dat.data[:], 1.0)
 
     def test_write_data_field(self, backend, elements, dat_coords, dat_field, coords_map, field_map, dat_f):
-        kernel_wo = "void kernel_wo(double* x[]) { x[0][0] = double(42); }\n"
+        kernel_wo = "void kernel_wo(double* x[]) { x[0][0] = 42.0; }\n"
 
         op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"),
                      elements, dat_f(op2.WRITE, field_map))
@@ -387,12 +387,12 @@ void comp_vol(double A[1], double *x[], double *y[])
 
     def test_write_data_coords(self, backend, elements, dat_coords, dat_field, coords_map, field_map, dat_c):
         kernel_wo_c = """void kernel_wo_c(double* x[]) {
-                                                               x[0][0] = double(42); x[0][1] = double(42);
-                                                               x[1][0] = double(42); x[1][1] = double(42);
-                                                               x[2][0] = double(42); x[2][1] = double(42);
-                                                               x[3][0] = double(42); x[3][1] = double(42);
-                                                               x[4][0] = double(42); x[4][1] = double(42);
-                                                               x[5][0] = double(42); x[5][1] = double(42);
+                                                               x[0][0] = 42.0; x[0][1] = 42.0;
+                                                               x[1][0] = 42.0; x[1][1] = 42.0;
+                                                               x[2][0] = 42.0; x[2][1] = 42.0;
+                                                               x[3][0] = 42.0; x[3][1] = 42.0;
+                                                               x[4][0] = 42.0; x[4][1] = 42.0;
+                                                               x[5][0] = 42.0; x[5][1] = 42.0;
                                                             }\n"""
         op2.par_loop(op2.Kernel(kernel_wo_c, "kernel_wo_c"),
                      elements, dat_c(op2.WRITE, coords_map))

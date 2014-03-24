@@ -105,7 +105,6 @@ Common dependencies:
 
 * Cython >= 0.17 
 * decorator 
-* instant revision 7301ecb or newer
 * numpy >= 1.6 
 * PETSc_ >= 3.4 with Fortran interfaces
 * PETSc4py_ >= 3.4
@@ -131,7 +130,6 @@ can selectively upgrade packages via ``pip``, see below.
 Install dependencies via ``pip``::
 
   pip install "Cython>=0.17" decorator "numpy>=1.6"
-  pip install git+https://bitbucket.org/fenics-project/instant
 
 Additional Python 2.6 dependencies: 
 
@@ -326,7 +324,8 @@ necessary.
 FFC Interface
 -------------
 
-Solving UFL_ finite element equations requires a fork of FFC_, UFL_ and FIAT_.
+Solving UFL_ finite element equations requires a fork of FFC_, UFL_
+and FIAT_.  Note that FFC_ requires a version of Instant_.
 
 Install FFC_ and all dependencies via pip::
 
@@ -334,6 +333,7 @@ Install FFC_ and all dependencies via pip::
     git+https://bitbucket.org/mapdes/ffc.git#egg=ffc
     git+https://bitbucket.org/mapdes/ufl.git#egg=ufl
     git+https://bitbucket.org/mapdes/fiat.git#egg=fiat
+    git+https://bitbucket.org/fenics-project/instant.git#egg=instant
     hg+https://bitbucket.org/khinsen/scientificpython
 
 Setting up the environment
@@ -432,3 +432,4 @@ manner as required.
 .. _FFC: https://bitbucket.org/mapdes/ffc
 .. _FIAT: https://bitbucket.org/mapdes/fiat
 .. _UFL: https://bitbucket.org/mapdes/ufl
+.. _Instant: https://bitbucket.org/fenics-project/instant

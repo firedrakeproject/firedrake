@@ -516,8 +516,8 @@ def _init_compiler(compiler):
         return {
             'align': lambda o: '__attribute__((aligned(%s)))' % o,
             'decl_aligned_for': '#pragma vector aligned',
-            'AVX': '-xAVX',
-            'SSE': '-xSSE',
+            'AVX': ['-xAVX'],
+            'SSE': ['-xSSE'],
             'vect_header': '#include <immintrin.h>'
         }
 
@@ -525,8 +525,8 @@ def _init_compiler(compiler):
         return {
             'align': lambda o: '__attribute__((aligned(%s)))' % o,
             'decl_aligned_for': '#pragma vector aligned',
-            'AVX': '-mavx',
-            'SSE': '-msse',
+            'AVX': ['-mavx'],
+            'SSE': ['-msse'],
             'vect_header': '#include <immintrin.h>'
         }
 
