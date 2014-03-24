@@ -48,15 +48,14 @@ echo | tee -a $LOGFILE
 if (( EUID != 0 )); then
   echo "PyOP2 requires the following packages to be installed:
   build-essential python-dev git-core mercurial cmake cmake-curses-gui libmed1
-  gmsh python-pip swig libhdf5-openmpi-7 libhdf5-openmpi-dev libopenmpi-dev
+  gmsh python-pip swig libhdf5-openmpi-dev libopenmpi-dev
   openmpi-bin libblas-dev liblapack-dev gfortran"
 else
   apt-get update >> $LOGFILE 2>&1
   apt-get install -y python-software-properties >> $LOGFILE 2>&1
-  apt-get install -y build-essential python-dev git-core mercurial \
-    cmake cmake-curses-gui libmed1 gmsh python-pip swig libhdf5-openmpi-7 \
-    libhdf5-openmpi-dev libopenmpi-dev openmpi-bin libblas-dev liblapack-dev \
-    gfortran >> $LOGFILE 2>&1
+  apt-get install -y build-essential python-dev git-core mercurial cmake \
+    cmake-curses-gui libmed1 gmsh python-pip swig libhdf5-openmpi-dev \
+    libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran >> $LOGFILE 2>&1
 fi
 
 echo "*** Installing dependencies ***" | tee -a $LOGFILE
