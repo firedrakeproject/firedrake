@@ -3,6 +3,9 @@ import pytest
 from firedrake import *
 
 
+longtest = pytest.mark.skipif("config.option.short")
+
+
 @pytest.fixture(scope='module')
 def mesh():
     return UnitSquareMesh(5, 5)
