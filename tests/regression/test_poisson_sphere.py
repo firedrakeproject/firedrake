@@ -1,4 +1,5 @@
 import pytest
+from tests.common import longtest
 from firedrake import *
 import numpy as np
 
@@ -40,6 +41,7 @@ def run_hdiv_l2(refinement, hdiv_space, degree):
     return L2_error_u, h, assemble(u*dx)
 
 
+@longtest
 @pytest.mark.parametrize(('hdiv_space', 'degree', 'conv_order'),
                          [('RT', 1, 0.75),
                           ('BDM', 1, 0.8)])

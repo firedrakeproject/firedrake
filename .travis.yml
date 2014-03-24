@@ -11,7 +11,7 @@ python: "2.7"
 env:
   global:
     - C_INCLUDE_PATH=/usr/lib/openmpi/include
-    - PETSC_CONFIGURE_OPTIONS="--with-fortran-interfaces=1 --with-c++-support"
+    - PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco"
   matrix:
     - PYOP2_BACKEND=sequential PYOP2_TESTS=regression
     - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
@@ -30,16 +30,16 @@ before_install:
     cmake cmake-curses-gui gmsh python-gmsh python-pip swig libhdf5-openmpi-dev \
     libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran triangle-bin \
     libvtk5-dev python-vtk libparmetis-dev python-vtk cython"
+  - pip install git+https://bitbucket.org/petsc/petsc.git --allow-external petsc --allow-unverified petsc
+  - pip install git+https://bitbucket.org/petsc/petsc4py.git
   - wget https://github.com/OP2/PyOP2/raw/master/requirements-minimal.txt
-  - pip install "petsc>=3.4" --allow-external petsc --allow-unverified petsc
-    -r requirements-minimal.txt
   - pip install git+https://github.com/OP2/PyOP2 cgen
+    -r requirements-minimal.txt
   - if [[ $TRAVIS_PYTHON_VERSION == "2.6" ]]; then pip install argparse ordereddict; fi
 install:
-  - ./configure
-  - make python_build
+  - make
 # command to run tests
 script:
-  - export PYTHONPATH=`pwd`/python:$PYTHONPATH
+  - export PYTHONPATH=`pwd`:$PYTHONPATH
   - flake8
-  - py.test -v tests/${PYOP2_TESTS}
+  - py.test --short -v tests/${PYOP2_TESTS}

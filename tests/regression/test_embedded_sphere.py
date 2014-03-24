@@ -1,6 +1,6 @@
 # Test that integrals over the surface of a sphere do the right thing
 import pytest
-
+from tests.common import longtest
 from firedrake import *
 
 
@@ -16,6 +16,7 @@ def integrate_sphere_area(radius=1, refinement=2):
     return np.abs(assemble(f * dx) - exact) / exact
 
 
+@longtest
 @pytest.mark.parametrize(('radius', 'refinement', 'error'),
                          [(1, 2, 0.02),
                           (10, 2, 0.02),
