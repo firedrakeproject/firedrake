@@ -42,7 +42,7 @@ def test_no_manifold():
 
 
 def test_manifold():
-    mesh = Mesh(join(cwd, "unitsquare_in_3d.msh"), dim=3)
+    mesh = Mesh(join(cwd, "unitsquare_in_3d.node"), dim=3)
 
     mesh.init_cell_orientations(Expression(('0', '0', '1')))
     V0 = FunctionSpace(mesh, "RT", 2)

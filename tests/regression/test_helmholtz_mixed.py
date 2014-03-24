@@ -40,7 +40,7 @@ def helmholtz_mixed(x, V1, V2):
 
 @pytest.mark.parametrize(('V1', 'V2', 'threshold'),
                          [(('RT', 1), ('DG', 0), 1.9),
-                          (('BDM', 1), ('DG', 0), 1.9),
+                          (('BDM', 1), ('DG', 0), 1.89),
                           (('BDFM', 2), ('DG', 1), 1.9)])
 def test_firedrake_helmholtz(V1, V2, threshold):
     import numpy as np

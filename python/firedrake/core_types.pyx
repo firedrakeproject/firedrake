@@ -5,9 +5,8 @@ from mpi4py import MPI
 import numpy as np
 import cgen
 
-from libc.stdlib cimport malloc, free
-# Necessary so that we can use memoryviews
-from cython cimport view
+from petsc import PETSc
+
 cimport numpy as np
 cimport cpython as py
 
@@ -20,25 +19,10 @@ from pyop2.caching import Cached
 from pyop2.utils import as_tuple
 
 import utils
-
-cimport fluidity_types as ft
-
-cdef extern from "capsulethunk.h": pass
+import dmplex
+from collections import defaultdict
 
 np.import_array()
-
-cdef char *_function_space_name = "function_space"
-cdef char *_vector_field_name = "vector_field"
-cdef char *_mesh_name = "mesh_type"
-cdef char *_halo_name = "halo_type"
-ft.python_cache = False
-
-"""Mapping from mesh file extension to file format"""
-_file_extensions = {
-    ".node" : "triangle",
-    ".msh"  : "gmsh"
-    # Note: need to include the file extension for exodus.
-    }
 
 _cells = {
     1 : { 2 : "interval"},
@@ -249,57 +233,6 @@ def make_extruded_coords(extruded_mesh, layer_height,
                  height(op2.READ))
 
 
-# C utility functions, not seen in python module
-cdef void function_space_destructor(object capsule):
-    cdef void *fs = py.PyCapsule_GetPointer(capsule, _function_space_name)
-    ft.function_space_destructor_f(fs)
-
-cdef void vector_field_destructor(object capsule):
-    cdef void *vf = py.PyCapsule_GetPointer(capsule, _vector_field_name)
-    ft.vector_field_destructor_f(vf)
-
-cdef ft.element_t as_element(object fiat_element):
-    """Convert a FIAT element into a Fluidity element_t struct.
-
-    This is used to build Fluidity element_types from FIAT element
-    descriptions.
-    """
-    cdef ft.element_t element
-    if isinstance(fiat_element.get_reference_element(), FIAT.reference_element.two_product_cell):
-        # Use the reference element of the horizontal element.
-        f_element = fiat_element.flattened_element()
-    else:
-        f_element = fiat_element
-
-    element.dimension = len(f_element.get_reference_element().topology) - 1
-    element.vertices = len(f_element.get_reference_element().vertices)
-    element.ndof = f_element.space_dimension()
-    element.degree = f_element.degree()
-
-    # Need to free these when you're done
-    element.dofs_per = <int *>malloc((element.dimension + 1) * sizeof(int))
-    element.entity_dofs = <int *>malloc(3 * element.ndof * sizeof(int))
-
-    entity_dofs = f_element.entity_dofs()
-    cdef int d
-    cdef int e
-    cdef int dof
-    cdef int dof_pos = 0
-    for d, dim_entities in entity_dofs.iteritems():
-        element.dofs_per[d] = 0
-        for e, this_entity_dofs in dim_entities.iteritems():
-            # This overwrites the same data a few times, but all of
-            # this_entity_dofs are the same length for a given
-            # entity_dimension
-            element.dofs_per[d] = len(this_entity_dofs)
-            for dof in this_entity_dofs:
-                element.entity_dofs[dof_pos] = d
-                element.entity_dofs[dof_pos+1] = e
-                element.entity_dofs[dof_pos+2] = dof
-                dof_pos += 3
-
-    return element
-
 class _Facets(object):
     """Wrapper class for facet interation information on a :class:`Mesh`"""
     def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None):
@@ -381,7 +314,7 @@ class _Facets(object):
 
 class Mesh(object):
     """A representation of mesh topology and geometry."""
-    def __init__(self, filename, dim=None, periodic_coords=None):
+    def __init__(self, filename, dim=None, periodic_coords=None, plex=None):
         """
         :param filename: the mesh file to read.  Supported mesh formats
                are Gmsh (extension ``msh``) and triangle (extension
@@ -401,66 +334,92 @@ class Mesh(object):
 
         _init()
 
-        self.cell_halo = None
-        self.vertex_halo = None
         self.parent = None
 
         if dim is None:
             # Mesh reading in Fluidity level considers 0 to be None.
             dim = 0
 
-        self._from_file(filename, dim, periodic_coords)
+        if plex is not None:
+            self._from_dmplex(plex, geometric_dim=dim,
+                              periodic_coords=periodic_coords)
+        else:
+            basename, ext = os.path.splitext(filename)
+
+            if ext in ['.e', '.exo', '.E', '.EXO']:
+                self._from_exodus(filename, dim)
+            elif ext in ['.cgns', '.CGNS']:
+                self._from_cgns(filename, dim)
+            elif ext in ['.msh']:
+                self._from_gmsh(filename, dim, periodic_coords)
+            elif ext in ['.node']:
+                self._from_triangle(filename, dim, periodic_coords)
+            else:
+                raise RuntimeError("Unknown mesh file format.")
 
         self._cell_orientations = op2.Dat(self.cell_set, dtype=np.int32,
                                           name="cell_orientations")
         # -1 is uninitialised.
         self._cell_orientations.data[:] = -1
 
-    def _from_file(self, filename, dim=0, periodic_coords=None):
-        """Read a mesh from `filename`
+    def _from_dmplex(self, plex, geometric_dim=0, periodic_coords=None):
+        """ Create mesh from DMPlex object """
 
-        The extension of the filename determines the mesh type."""
-        basename, ext = os.path.splitext(filename)
+        self._plex = plex
+        self.uid = _new_uid()
 
-        # Retrieve mesh struct from Fluidity
-        cdef ft.mesh_t mesh = ft.read_mesh_f(basename, _file_extensions[ext], dim)
-        self.name = filename
+        if geometric_dim == 0:
+            geometric_dim = self._plex.getDimension()
 
-        self._cells = np.array(<int[:mesh.cell_count, :mesh.cell_vertices:1]>mesh.element_vertex_list)
-        self._ufl_cell = ufl.Cell(
-            _cells[mesh.geometric_dimension][mesh.cell_vertices],
-            geometric_dimension=mesh.geometric_dimension)
+        # Mark exterior and interior facets
+        self._plex.markBoundaryFaces("exterior_facets")
+        self._plex.createLabel("interior_facets")
+        fStart,fEnd = self._plex.getHeightStratum(1)  # facets
+        for face in range(fStart, fEnd):
+            if self._plex.getLabelValue("exterior_facets", face) == -1:
+                self._plex.setLabelValue("interior_facets", face, 1)
 
-        self._entities = np.zeros(mesh.topological_dimension + 1, dtype=np.int)
-        self._entities[:] = -1 # Ensure that 3d edges get an out of band value.
-        self._entities[0]  = mesh.vertex_count
-        self._entities[-1] = mesh.cell_count
-        self._entities[-2] = mesh.interior_facet_count + mesh.exterior_facet_count
-        self.uid = mesh.uid
+        # Distribute the dm to all ranks
+        if op2.MPI.comm.size > 1:
+            self.parallel_sf = self._plex.distribute(overlap=1)
 
-        if mesh.interior_facet_count > 0:
-            interior_facet_cell = \
-                np.array(<int[:mesh.interior_facet_count, :2]>mesh.interior_facet_cell)
-            interior_local_facet_number = \
-                np.array(<int[:mesh.interior_facet_count, :2]>mesh.interior_local_facet_number)
-            self.interior_facets = _Facets(self, mesh.interior_facet_count,
-                                           "interior",
-                                           interior_facet_cell,
-                                           interior_local_facet_number)
-        else:
-            self.interior_facets = _Facets(self, 0, "interior", None, None)
+        dmplex.mark_entity_classes(self._plex)
 
-        if mesh.exterior_facet_count > 0:
-            if mesh.boundary_ids != NULL:
-                boundary_ids = np.array(<int[:mesh.exterior_facet_count]>mesh.boundary_ids)
+        cStart, cEnd = self._plex.getHeightStratum(0)  # cells
+        cell_vertices = self._plex.getConeSize(cStart)
+        self._ufl_cell = ufl.Cell(_cells[geometric_dim][cell_vertices],
+                                  geometric_dimension = geometric_dim)
+        self._vertex_numbering = None
+
+        dim = self._plex.getDimension()
+        self._cells, self.cell_classes = dmplex.get_entities_by_class(self._plex, dim)
+
+        # Exterior facets
+        if self._plex.getStratumSize("exterior_facets", 1) > 0:
+            # OP2 facet numbering requires a universal vertex numbering
+            if not self._vertex_numbering:
+                vertex_fs = types.FunctionSpace(self, "CG", 1)
+                self._vertex_numbering = vertex_fs._universal_numbering
+
+            # Order exterior facets by OP2 entity class
+            ext_facet = lambda f: self._plex.getLabelValue("exterior_facets", f) == 1
+            exterior_facets, exterior_facet_classes = \
+                dmplex.get_entities_by_class(self._plex, dim-1, condition=ext_facet)
+
+            # Derive attached boundary IDs
+            if self._plex.hasLabel("boundary_ids"):
+                boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
+                for i, facet in enumerate(exterior_facets):
+                    boundary_ids[i] = self._plex.getLabelValue("boundary_ids", facet)
             else:
                 boundary_ids = None
 
-            exterior_facet_cell = \
-                np.array(<int[:mesh.exterior_facet_count, :1]>mesh.exterior_facet_cell)
-            exterior_local_facet_number = \
-                np.array(<int[:mesh.exterior_facet_count, :1]>mesh.exterior_local_facet_number)
-            self.exterior_facets = _Facets(self, mesh.exterior_facet_count,
+            exterior_facet_cell = np.array([np.where(self._plex.getSupport(f)==self.cells())[0][0] for f in exterior_facets])
+            get_f_no = lambda f: dmplex.facet_numbering(self._plex, self._vertex_numbering, f)
+            exterior_local_facet_number = np.array([get_f_no(f) for f in exterior_facets], dtype=np.int32)
+            # Note: To implement facets correctly in parallel
+            # we need to pass exterior_facet_classes to _Facets()
+            self.exterior_facets = _Facets(self, exterior_facets.size,
                                            "exterior",
                                            exterior_facet_cell,
                                            exterior_local_facet_number,
@@ -468,32 +427,35 @@ class Mesh(object):
         else:
             self.exterior_facets = _Facets(self, 0, "exterior", None, None)
 
-        if mesh.region_ids != NULL:
-            self.region_ids = np.array(<int[:mesh.cell_count]>mesh.region_ids)
+        # Interior facets
+        if self._plex.getStratumSize("interior_facets", 1) > 0:
+            # OP2 facet numbering requires a universal vertex numbering
+            if not self._vertex_numbering:
+                vertex_fs = types.FunctionSpace(self, "CG", 1)
+                self._vertex_numbering = vertex_fs._universal_numbering
+
+            int_facet = lambda f: self._plex.getLabelValue("interior_facets", f) == 1
+            interior_facets, interior_facet_classes = \
+                dmplex.get_entities_by_class(self._plex, dim-1, condition=int_facet)
+
+            interior_facet_cell = []
+            for f in interior_facets:
+                interior_facet_cell.append(np.concatenate([np.where(c==self.cells())[0] for c in self._plex.getSupport(f)]))
+            interior_facet_cell = np.array(interior_facet_cell)
+            get_f_no = lambda f: dmplex.facet_numbering(self._plex, self._vertex_numbering, f)
+            interior_local_facet_number = np.array([get_f_no(f) for f in interior_facets])
+            # Note: To implement facets correctly in parallel
+            # we need to pass interior_facet_classes to _Facets()
+            self.interior_facets = _Facets(self, interior_facets.size,
+                                           "interior",
+                                           interior_facet_cell,
+                                           interior_local_facet_number)
         else:
-            self.region_ids = None
+            self.interior_facets = _Facets(self, 0, "interior", None, None)
 
-        # Build these from the Fluidity data, then need to convert
-        # them from np.int32 to python int type which is what PyOP2 expects
-        self.cell_classes = np.array(<int[:4]>mesh.cell_classes)
-        self.cell_classes = self.cell_classes.astype(int)
-        self.vertex_classes = np.array(<int[:4]>mesh.vertex_classes)
-        self.vertex_classes = self.vertex_classes.astype(int)
+        plex_coords = self._plex.getCoordinatesLocal().getArray()
+        self._coordinates = np.reshape(plex_coords, (self.num_vertices(), geometric_dim))
 
-        self._coordinates = np.array(<double[:mesh.vertex_count, :mesh.geometric_dimension:1]>
-                                     mesh.coordinates)
-
-        self._fluidity_coordinate = py.PyCapsule_New(mesh.fluidity_coordinate,
-                                                     _vector_field_name,
-                                                     &vector_field_destructor)
-        # No destructor for the mesh, because we don't have a separate
-        # Fluidity reference for it.
-        self._fluidity_mesh = py.PyCapsule_New(mesh.fluidity_mesh,
-                                               _mesh_name,
-                                               NULL)
-
-        self.cell_halo = Halo(self._fluidity_mesh, 'cell', self.cell_classes)
-        self.vertex_halo = Halo(self._fluidity_mesh, 'vertex', self.vertex_classes)
         # Note that for bendy elements, this needs to change.
         if periodic_coords is not None:
             if self.ufl_cell().geometric_dimension() != 1:
@@ -506,6 +468,14 @@ class Mesh(object):
         else:
             self._coordinate_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
 
+            # Use the inverse of the section permutation to re-order
+            # the coordinates from the Plex
+            perm = filter(lambda x: x>=0, self._coordinate_fs.perm)
+            perm_is = PETSc.IS().createGeneral(perm, comm=MPI.COMM_SELF)
+            perm_is.setPermutation()
+            inv_perm = perm_is.invertPermutation().getIndices()
+            self._coordinates = np.array([self._coordinates[p] for p in inv_perm])
+
             self._coordinate_field = types.Function(self._coordinate_fs,
                                                     val=self._coordinates,
                                                     name="Coordinates")
@@ -515,6 +485,101 @@ class Mesh(object):
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._domain_data = self._coordinate_field
+
+    def _from_gmsh(self, filename, dim=0, periodic_coords=None):
+        """Read a Gmsh .msh file from `filename`"""
+        basename, ext = os.path.splitext(filename)
+
+        # Create a read-only PETSc.Viewer
+        gmsh_viewer = PETSc.Viewer().create()
+        gmsh_viewer.setType("ascii")
+        gmsh_viewer.setFileMode("r")
+        gmsh_viewer.setFileName(filename)
+        gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer, interpolate=False)
+
+        #TODO: Add boundary IDs
+        self._from_dmplex(gmsh_plex, periodic_coords)
+
+    def _from_exodus(self, filename, dim=0):
+        self.name = filename
+        dmplex = PETSc.DMPlex().createExodusFromFile(filename)
+
+        boundary_ids = dmplex.getLabelIdIS("Face Sets").getIndices()
+        dmplex.createLabel("boundary_ids")
+        for bid in boundary_ids:
+            faces = dmplex.getStratumIS("Face Sets", bid).getIndices()
+            for f in faces:
+                dmplex.setLabelValue("boundary_ids", f, bid)
+
+        self._from_dmplex(dmplex)
+
+    def _from_cgns(self, filename, dim=0):
+        self.name = filename
+        dmplex = PETSc.DMPlex().createCGNSFromFile(filename)
+
+        #TODO: Add boundary IDs
+        self._from_dmplex(dmplex)
+
+    def _from_triangle(self, filename, dim=0, periodic_coords=None):
+        """Read a set of triangle mesh files from `filename`"""
+        self.name = filename
+        basename, ext = os.path.splitext(filename)
+
+        try:
+            facetfile = open(basename+".face")
+            tdim = 3
+        except:
+            try:
+                facetfile = open(basename+".edge")
+                tdim = 2
+            except:
+                facetfile = None
+                tdim = 1
+        if dim == 0:
+            dim = tdim
+
+        with open(basename+".node") as nodefile:
+            header = np.fromfile(nodefile, dtype=np.int32, count=2, sep=' ')
+            nodecount = header[0]
+            nodedim = header[1]
+            coordinates = np.loadtxt(nodefile, usecols=range(1,dim+1), skiprows=1, delimiter=' ')
+            assert nodecount == coordinates.shape[0]
+
+        with open(basename+".ele") as elefile:
+            header = np.fromfile(elefile, dtype=np.int32, count=2, sep=' ')
+            elecount = header[0]
+            eledim = header[1]
+            eles = np.loadtxt(elefile, usecols=range(1,eledim+1), dtype=np.int32, skiprows=1, delimiter=' ')
+            assert elecount == eles.shape[0]
+
+        cells = map(lambda c: c-1, eles)
+        dmplex = PETSc.DMPlex().createFromCellList(tdim, cells, coordinates, comm=op2.MPI.comm)
+
+        # Apply boundary IDs
+        facets = None
+        try:
+            header = np.fromfile(facetfile, dtype=np.int32, count=2, sep=' ')
+            edgecount = header[0]
+            edgedim = header[1]
+            facets = np.loadtxt(facetfile, usecols=range(1,tdim+2), dtype=np.int32, skiprows=0, delimiter=' ')
+        finally:
+            facetfile.close()
+
+        if facets is not None:
+            vStart, vEnd = dmplex.getDepthStratum(0)   # vertices
+            for facet in facets:
+                bid = facet[-1]
+                vertices = map(lambda v: v + vStart - 1, facet[:-1])
+                join = dmplex.getJoin(vertices)
+                dmplex.setLabelValue("boundary_ids", join[0], bid)
+
+        self._from_dmplex(dmplex, dim, periodic_coords)
+
+    @property
+    def layers(self):
+        """Return the number of layers of the extruded mesh
+        represented by the number of occurences of the base mesh."""
+        return self._layers
 
     def cell_orientations(self):
         """Return the orientation of each cell in the mesh.
@@ -575,36 +640,37 @@ class Mesh(object):
         return self._ufl_cell
 
     def num_cells(self):
-        return self._entities[-1]
+        cStart, cEnd = self._plex.getHeightStratum(0)
+        return cEnd - cStart
 
     def num_facets(self):
-        return self._entities[-2]
+        fStart, fEnd = self._plex.getHeightStratum(1)
+        return fEnd - fStart
 
     def num_faces(self):
-        return self._entities[2]
+        fStart, fEnd = self._plex.getDepthStratum(2)
+        return fEnd - fStart
 
     def num_edges(self):
-        return self._entities[1]
+        eStart, eEnd = self._plex.getDepthStratum(1)
+        return eEnd - eStart
 
     def num_vertices(self):
-        return self._entities[0]
+        vStart, vEnd = self._plex.getDepthStratum(0)
+        return vEnd - vStart
 
     def num_entities(self, d):
-        return self._entities[d]
+        eStart, eEnd = self._plex.getDepthStratum(d)
+        return eEnd - eStart
 
     def size(self, d):
-        return self._entities[d]
+        return self.num_entities(d)
 
     @utils.cached_property
     def cell_set(self):
-        if self.cell_halo:
-            size = self.cell_classes
-            halo = self.cell_halo.op2_halo
-        else:
-            size = self.num_cells()
-            halo = None
+        size = self.cell_classes
         return self.parent.cell_set if self.parent else \
-            op2.Set(size, "%s_cells" % self.name, halo=halo)
+            op2.Set(size, "%s_cells" % self.name)
 
     def compute_boundaries(self):
         '''Currently a no-op for flop.py compatibility.'''
@@ -643,14 +709,12 @@ class ExtrudedMesh(Mesh):
         # All internal logic works with layers of base mesh (not layers of cells)
         self._layers = layers + 1
         self._cells = mesh._cells
-        self.cell_halo = mesh.cell_halo
-        self._entities = mesh._entities
         self.parent = mesh.parent
         self.uid = mesh.uid
-        self.region_ids = mesh.region_ids
-        self.cell_classes = mesh.cell_classes
         self._coordinates = mesh._coordinates
+        self._vertex_numbering = mesh._vertex_numbering
         self.name = mesh.name
+        self._plex = mesh._plex
 
         interior_f = self._old_mesh.interior_facets
         self._interior_facets = _Facets(self, interior_f.count,
@@ -689,22 +753,6 @@ class ExtrudedMesh(Mesh):
         if layer_height is None:
             # Default to unit
             layer_height = 1.0 / layers
-        # Now we need to produce the extruded mesh using
-        # techqniues employed when computing the
-        # function space.
-        cdef ft.element_t element_f = as_element(fiat_element)
-        cdef void *fluidity_mesh = py.PyCapsule_GetPointer(mesh._fluidity_mesh, _mesh_name)
-        if fluidity_mesh == NULL:
-            raise RuntimeError("Didn't find fluidity mesh pointer in mesh %s" % mesh)
-
-        cdef int *dofs_per_column = <int *>np.PyArray_DATA(self.dofs_per_column)
-
-        extruded_mesh = ft.extruded_mesh_f(fluidity_mesh, &element_f, dofs_per_column)
-
-        #Assign the newly computed extruded mesh as the fluidity mesh
-        self._fluidity_mesh = py.PyCapsule_New(extruded_mesh.fluidity_mesh,
-                                                         _mesh_name,
-                                                         NULL)
 
         self._coordinate_fs = types.VectorFunctionSpace(self, mesh._coordinate_fs.ufl_element().family(),
                                                         mesh._coordinate_fs.ufl_element().degree(),
@@ -748,112 +796,97 @@ class ExtrudedMesh(Mesh):
 
 
 class Halo(object):
-    """Fluidity Halo type"""
-    # Enum corresponding to halo entity types
-    _ENTITY_TYPES = {
-        'vertex' : 0,
-        'cell' : 1
-    }
+    """Build a Halo associated with the appropriate FunctionSpace.
 
-    def __init__(self, mesh_capsule, entity_type='vertex', entity_classes=None):
-        """Build a Halo associated with the appropriate Fluidity mesh.
+    The Halo is derived from a PetscSF object and builds the global
+    to universal numbering map from the respective PetscSections."""
 
-        `mesh_capsule` should be a PyCapsule containing the Fluidity
-        mesh to pull the halos out of.  The two halo types are
-        `vertex` and `cell`.  The appropriate mesh `entity_classes`
-        must be passed in to correct set up global to universal
-        numbering maps.
-        """
-        assert type(entity_type) is str, 'Entity type should be a string'
-        entity_type = entity_type.lower()
+    def __init__(self, petscsf, global_numbering, universal_numbering):
+        self._tag = _new_uid()
+        self._comm = op2.MPI.comm
+        self._nprocs = self.comm.size
+        self._sends = defaultdict(list)
+        self._receives = defaultdict(list)
+        self._gnn2unn = None
+        remote_sends = defaultdict(list)
 
-        # Convert from char * to str.
-        capsule_name = <bytes>py.PyCapsule_GetName(mesh_capsule)
-
-        if capsule_name not in [_function_space_name, _mesh_name]:
-            raise RuntimeError("Passed a capsule that didn't contain a mesh pointer")
-
-        cdef void *fluidity_mesh = py.PyCapsule_GetPointer(mesh_capsule, capsule_name)
-        cdef ft.halo_t halo = ft.halo_f(fluidity_mesh, Halo._ENTITY_TYPES[entity_type])
-
-        if halo.nprocs == -1:
-            # Build empty halo, this is probably right
-            self._nprocs = 1
-            self._sends = {}
-            self._receives = {}
-            self._entity_type = entity_type
-            self._nowned_nodes = entity_classes[1]
-            self._fluidity_halo = None
-            self._universal_offset = 0
-            self._comm = None
-            self._global_to_universal_number = None
+        if op2.MPI.comm.size <= 1:
             return
-        self._nprocs = halo.nprocs
-        self._entity_type = entity_type
 
-        self._sends = {}
-        self._receives = {}
+        # Sort the SF by local indices
+        nroots, nleaves, local, remote = petscsf.getGraph()
+        local_new, remote_new = (list(x) for x in zip(*sorted(zip(local, remote), key=lambda x: x[0])))
+        petscsf.setGraph(nroots, nleaves, local_new, remote_new)
 
-        cdef int i
-        # These come in with Fortran numbering, but we want C
-        # numbering, so fix them up on creation
-        for i in range(halo.nprocs):
-            dim = halo.nsends[i]
-            if dim > 0:
-                self._sends[i] = np.array(<int[:dim]>halo.sends[i]) - 1
-            dim = halo.nreceives[i]
-            if dim > 0:
-                self._receives[i] = np.array(<int[:dim]>halo.receives[i]) - 1
-        # These were allocated in Python_Interface_f.F90, but only used to
-        # pass size information, and we don't have a destructor, so free
-        # them here.
-        free(halo.nsends)
-        free(halo.nreceives)
-        self._nowned_nodes = halo.nowned_nodes
-        # No destructor, since Fluidity owns a reference.
-        self._fluidity_halo = py.PyCapsule_New(halo.fluidity_halo, _halo_name, NULL)
-        self._universal_offset = halo.universal_offset
-        self._comm = MPI.Comm.f2py(halo.comm)
-        assert self._comm.size == self._nprocs, \
-            "Communicator size does not match specified number of processes for halo"
+        # Derive local receives and according remote sends
+        nroots, nleaves, local, remote = petscsf.getGraph()
+        for local, (rank, index) in zip(local, remote):
+            if rank != self.comm.rank:
+                self._receives[rank].append(local)
+                remote_sends[rank].append(index)
 
-        assert self._comm.rank not in self._sends.keys(), "Halos should contain no self-sends"
-        assert self._comm.rank not in self._receives.keys(), "Halos should contain no self-receives"
+        # Propagate remote send lists to the actual sender
+        send_reqs = []
+        for p in remote_sends:
+            # send sizes
+            s = np.array(len(remote_sends[p]), dtype=np.int32)
+            send_reqs.append(self.comm.Isend(s, dest=p, tag=self.tag))
 
-        # Fluidity gives us the global to universal mapping for dofs
-        # in the halo, but for matrix assembly we need to mapping for
-        # all dofs.  Fortunately, for owned dofs we just need to add
-        # the appropriate offset
-        tmp = np.arange(0, entity_classes[3], dtype=np.int32)
-        dim = halo.receives_global_to_universal_len
-        if dim > 0:
-            # Can't make a memoryview of a zero-length array hence the
-            # check
-            recv_map = np.array(<int[:dim]>halo.receives_global_to_universal)
-            tmp[entity_classes[1]:entity_classes[2]] = recv_map[tmp[entity_classes[1]:entity_classes[2]] \
-                                                                - entity_classes[1]] - 1
-        tmp[:entity_classes[1]] = tmp[:entity_classes[1]] + self._universal_offset
-        tmp[entity_classes[2]:] = -1
-        self._global_to_universal_number = tmp
+        recv_reqs = []
+        sizes = [np.empty(1, dtype=np.int32) for _ in range(len(self._receives))]
+        for i, p in enumerate(self._receives):
+            # receive sizes
+            recv_reqs.append(self.comm.Irecv(sizes[i], source=p, tag=self.tag))
+
+        MPI.Request.Waitall(recv_reqs)
+        MPI.Request.Waitall(send_reqs)
+
+        for i, p in enumerate(self._receives):
+            # allocate buffers
+            self._sends[p] = np.empty(sizes[i], dtype=np.int32)
+
+        send_reqs = []
+        for p in remote_sends:
+            send_buf = np.array(remote_sends[p], dtype=np.int32)
+            send_reqs.append(self.comm.Isend(send_buf, dest=p, tag=self.tag))
+
+        recv_reqs = []
+        for p in self._receives:
+            recv_reqs.append(self.comm.Irecv(self._sends[p], source=p, tag=self.tag))
+
+        MPI.Request.Waitall(send_reqs)
+        MPI.Request.Waitall(recv_reqs)
+
+        # Build Global-To-Universal mapping
+        pStart, pEnd = global_numbering.getChart()
+        self._gnn2unn = np.zeros(global_numbering.getStorageSize(), dtype=np.int32)
+        for p in range(pStart, pEnd):
+            dof = global_numbering.getDof(p)
+            goff = global_numbering.getOffset(p)
+            uoff = universal_numbering.getOffset(p)
+            if uoff < 0:
+                uoff = (-1*uoff)-1
+            for c in range(dof):
+                self._gnn2unn[goff+c] = uoff+c
 
     @utils.cached_property
     def op2_halo(self):
         if not self.sends and not self.receives:
             return None
         return op2.Halo(self.sends, self.receives,
-                        comm=self.comm, gnn2unn=self.global_to_universal_number)
+                        comm=self.comm, gnn2unn=self.gnn2unn)
 
     @property
     def comm(self):
         return self._comm
 
     @property
-    def nprocs(self):
-        return self._nprocs
+    def tag(self):
+        return self._tag
 
     @property
-    def entity_type(self):
-        return self._entity_type
+    def nprocs(self):
+        return self._nprocs
 
     @property
     def sends(self):
@@ -864,16 +897,8 @@ class Halo(object):
         return self._receives
 
     @property
-    def nowned_nodes(self):
-        return self._nowned_nodes
-
-    @property
-    def universal_offset(self):
-        return self._universal_offset
-
-    @property
-    def global_to_universal_number(self):
-        return self._global_to_universal_number
+    def gnn2unn(self):
+        return self._gnn2unn
 
 
 class FunctionSpaceBase(Cached):
@@ -908,16 +933,24 @@ class FunctionSpaceBase(Cached):
             # dof_count is the total number of dofs in the extruded mesh
 
             # Get the flattened version of the FIAT element
-            flattened_element = self.fiat_element.flattened_element()
+            self.flattened_element = self.fiat_element.flattened_element()
+            entity_dofs = self.flattened_element.entity_dofs()
+            self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
+
+            # Compute the number of DoFs per dimension on top/bottom and sides
+            entity_dofs = self.fiat_element.entity_dofs()
+            top_dim = mesh._plex.getDimension()
+            self._xtr_hdofs = [len(entity_dofs[(d,0)][0]) for d in range(top_dim+1)]
+            self._xtr_vdofs = [len(entity_dofs[(d,1)][0]) for d in range(top_dim+1)]
 
             # Compute the dofs per column
             self.dofs_per_column = compute_extruded_dofs(self.fiat_element,
-                                                         flattened_element.entity_dofs(),
+                                                         self.flattened_element.entity_dofs(),
                                                          mesh._layers)
 
             # Compute the offset for the extrusion process
             self.offset = compute_offset(self.fiat_element.entity_dofs(),
-                                         flattened_element.entity_dofs(),
+                                         self.flattened_element.entity_dofs(),
                                          self.fiat_element.space_dimension())
 
             # Compute the top and bottom masks to identify boundary dofs
@@ -927,6 +960,8 @@ class FunctionSpaceBase(Cached):
             self.bt_masks = (b_mask, t_mask)
 
             self.extruded = True
+
+            self._dofs_per_entity = self.dofs_per_column
         else:
             # If not extruded specific, set things to None/False, etc.
             self.offset = None
@@ -934,53 +969,57 @@ class FunctionSpaceBase(Cached):
             self.dofs_per_column = np.zeros(1, np.int32)
             self.extruded = False
 
-        # Create the extruded function space
-        cdef ft.element_t element_f = as_element(self.fiat_element)
-
-        cdef void *fluidity_mesh = py.PyCapsule_GetPointer(mesh._fluidity_mesh, _mesh_name)
-        if fluidity_mesh == NULL:
-            raise RuntimeError("Didn't find fluidity mesh pointer in mesh %s" % mesh)
-
-        cdef int *dofs_per_column = <int *>np.PyArray_DATA(self.dofs_per_column)
-
-        if isinstance(mesh, ExtrudedMesh):
-            function_space = ft.extruded_mesh_f(fluidity_mesh, &element_f, dofs_per_column)
-        else:
-            function_space = ft.function_space_f(fluidity_mesh, &element_f)
-
-        free(element_f.dofs_per)
-        free(element_f.entity_dofs)
-
-        self._fluidity_function_space = py.PyCapsule_New(function_space.fluidity_mesh,
-                                                         _function_space_name,
-                                                         &function_space_destructor)
-
-        self._node_count = function_space.dof_count
-        self.cell_node_list = np.array(<int[:function_space.element_count, :element_f.ndof:1]>
-                                      function_space.element_dof_list)-1
-
-        self.dof_classes = np.array(<int[:4]>function_space.dof_classes)
-        self.dof_classes = self.dof_classes.astype(int)
-        self._mesh = mesh
-
-        self._halo = Halo(self._fluidity_function_space, 'vertex', self.dof_classes)
+            entity_dofs = self.fiat_element.entity_dofs()
+            self._dofs_per_entity = [len(entity[0]) for d, entity in entity_dofs.iteritems()]
+            self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
 
         self.name = name
-
         self._dim = dim
+        self._mesh = mesh
         self._index = None
 
-        if mesh.interior_facets.count > 0:
-            self.interior_facet_node_list = \
-                np.array(<int[:mesh.interior_facets.count,:2*element_f.ndof]>
-                         function_space.interior_facet_node_list)
+        self._plex = mesh._plex.clone()
+
+        # Create the PetscSection mapping topological entities to DoFs
+        self._global_numbering = self._plex.createSection(1, [1], self._dofs_per_entity)
+
+        # Reorder global and universal node numberings
+        self._plex.setDefaultSection(self._global_numbering)
+        self.dof_classes, self.perm = dmplex.permute_global_numbering(self._plex)
+        self._global_numbering = self._plex.getDefaultSection()
+        self._universal_numbering = self._plex.getDefaultGlobalSection()
+
+        # Re-initialise the PetscSF and build Halo from it
+        self._plex.createDefaultSF(self._global_numbering,
+                                   self._universal_numbering)
+        self._halo = Halo(self._plex.getDefaultSF(),
+                          self._global_numbering,
+                          self._universal_numbering)
+
+        self._node_count = self._global_numbering.getStorageSize()
+        self.cell_node_list = np.array([self._get_cell_nodes(c) for c in self._mesh.cells()])
+
+        if mesh._plex.getStratumSize("interior_facets", 1) > 0:
+            dim = mesh._plex.getDimension()
+            int_facet = lambda f: mesh._plex.getLabelValue("interior_facets", f) == 1
+            interior_facets = dmplex.get_entities_by_class(mesh._plex, dim-1, condition=int_facet)[0]
+
+            interior_facet_eles = []
+            for f in interior_facets:
+                interior_facet_eles.append(np.concatenate([np.where(c==mesh.cells())[0] for c in mesh._plex.getSupport(f)]))
+            self.interior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in interior_facet_eles])
         else:
             self.interior_facet_node_list = None
 
-        if mesh.exterior_facets.count > 0:
-            self.exterior_facet_node_list = \
-                np.array(<int[:mesh.exterior_facets.count,:element_f.ndof]>
-                         function_space.exterior_facet_node_list)
+        if mesh._plex.getStratumSize("exterior_facets", 1) > 0:
+            dim = mesh._plex.getDimension()
+            ext_facet = lambda f: mesh._plex.getLabelValue("exterior_facets", f) == 1
+            exterior_facets = dmplex.get_entities_by_class(mesh._plex, dim-1, condition=ext_facet)[0]
+
+            exterior_facet_eles = []
+            for f in exterior_facets:
+                exterior_facet_eles.append(np.concatenate([np.where(c==mesh.cells())[0] for c in mesh._plex.getSupport(f)]))
+            self.exterior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in exterior_facet_eles])
         else:
             self.exterior_facet_node_list = None
 
@@ -993,6 +1032,70 @@ class FunctionSpaceBase(Cached):
         self._cell_node_map_cache = {}
         self._exterior_facet_map_cache = {}
         self._interior_facet_map_cache = {}
+
+    def _get_cell_nodes(self, cell):
+        plex = self._mesh._plex
+        closure = plex.getTransitiveClosure(cell)[0]
+        if self._dofs_per_entity[0] > 0:
+            vertex_numbering = self._universal_numbering
+        else:
+            vertex_numbering = self._mesh._vertex_numbering
+        numbering = dmplex.closure_numbering(plex, vertex_numbering, closure,
+                                             self._dofs_per_entity)
+
+        offset = 0
+        cell_nodes = np.empty(sum(self._dofs_per_cell), dtype=np.int32)
+        if isinstance(self._mesh, ExtrudedMesh):
+            # Instead of using the numbering directly, we step through
+            # all points and build the numbering for each entity
+            # according to the extrusion rules.
+            dim = self._plex.getDimension()
+            flat_entity_dofs = self.flattened_element.entity_dofs()
+            hdofs = self._xtr_hdofs
+            vdofs = self._xtr_vdofs
+
+            for d in range(dim+1):
+                pStart, pEnd = self._plex.getDepthStratum(d)
+                points = filter(lambda x: pStart<=x and x<pEnd, numbering)
+                for i in range(len(points)):
+                    p = points[i]
+                    if self._global_numbering.getDof(p) > 0:
+                        glbl = self._global_numbering.getOffset(p)
+
+                        # For extruded entities the numberings are:
+                        # Global: [bottom[:], top[:], side[:]]
+                        # Local:  [bottom[i], top[i], side[i] for i in bottom[:]]
+                        #
+                        # eg. extruded P3 facet:
+                        #       Local            Global
+                        #  --1---6---11--   --12---13---14--
+                        #  | 4   9   14 |   |  5    8   11 |
+                        #  | 3   8   13 |   |  4    7   10 |
+                        #  | 2   7   12 |   |  3    6    9 |
+                        #  --0---5---10--   ---0----1----2--
+                        #
+                        # cell_nodes = [0,12,3,4,5,1,13,6,7,8,2,14,9,10,11]
+
+                        lcl_dofs = flat_entity_dofs[d][i]
+                        glbl_dofs = np.zeros(len(lcl_dofs), dtype=np.int32)
+                        glbl_dofs[:hdofs[d]] = range(glbl,glbl+hdofs[d])
+                        glbl_sides = glbl + hdofs[d]
+                        glbl_dofs[hdofs[d]:hdofs[d]+vdofs[d]] = range(glbl_sides, glbl_sides + vdofs[d])
+                        glbl_top = glbl + hdofs[d] + vdofs[d]
+                        glbl_dofs[vdofs[d]+hdofs[d]:vdofs[d]+2*hdofs[d]] = range(glbl_top, glbl_top+hdofs[d])
+                        for l, g in zip(lcl_dofs, glbl_dofs):
+                            cell_nodes[l] = g
+
+                        offset += 2*hdofs[d] + vdofs[d]
+
+        else:
+            for n in numbering:
+                dof = self._global_numbering.getDof(n)
+                off = self._global_numbering.getOffset(n)
+                for i in range(dof):
+                    cell_nodes[offset+i] = off+i
+                offset += dof
+        return cell_nodes
 
     @property
     def index(self):
