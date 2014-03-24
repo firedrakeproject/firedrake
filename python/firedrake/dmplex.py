@@ -13,7 +13,7 @@ def facet_numbering(plex, vertex_numbering, facet):
 
         # Local vertex numbering according to universal vertex numbering
         vStart, vEnd = plex.getDepthStratum(0)   # vertices
-        is_vertex = lambda v: vStart <= v and v < vEnd
+        is_vertex = lambda v: vStart <= v < vEnd
         vertices = filter(is_vertex, closure)
         v_glbl = [vertex_numbering.getOffset(v) for v in vertices]
         v_glbl = [v if v >= 0 else -(v+1) for v in v_glbl]
@@ -36,7 +36,7 @@ def closure_numbering(plex, vertex_numbering, closure, dofs_per_entity):
     dim = plex.getDimension()
     local_numbering = np.empty(len(closure), dtype=np.int32)
     vStart, vEnd = plex.getDepthStratum(0)   # vertice
-    is_vertex = lambda v: vStart <= v and v < vEnd
+    is_vertex = lambda v: vStart <= v < vEnd
 
     # Vertices := Ordered according to vertex numbering
     vertices = filter(is_vertex, closure)
@@ -58,7 +58,7 @@ def closure_numbering(plex, vertex_numbering, closure, dofs_per_entity):
 
     for d in range(1, dim):
         pStart, pEnd = plex.getDepthStratum(d)
-        points = filter(lambda p: pStart <= p and p < pEnd, closure)
+        points = filter(lambda p: pStart <= p < pEnd, closure)
 
         # Re-order edge/facet points only if they have DoFs associated
         if dofs_per_entity[d] > 0:
@@ -75,7 +75,7 @@ def closure_numbering(plex, vertex_numbering, closure, dofs_per_entity):
 
     # Add the cell itself
     cStart, cEnd = plex.getHeightStratum(0)  # cells
-    cells = filter(lambda c: cStart <= c and c < cEnd, closure)
+    cells = filter(lambda c: cStart <= c < cEnd, closure)
     local_numbering[offset:offset+len(cells)] = cells
     return local_numbering
 
@@ -223,9 +223,8 @@ def permute_global_numbering(plex):
                     glbl_num += dof
     entity_classes[1] = glbl_num
 
-    """We need to propagate the new global numbers for owned points to
-    all ranks to get the correct universal numbers (unn) for the halo.
-    """
+    # We need to propagate the new global numbers for owned points to
+    # all ranks to get the correct universal numbers (unn) for the halo.
     unn_global = plex.createGlobalVec()
     unn_global.assemblyBegin()
     for p in range(pStart,pEnd):

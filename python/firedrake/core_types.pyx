@@ -1046,9 +1046,9 @@ class FunctionSpaceBase(Cached):
         offset = 0
         cell_nodes = np.empty(sum(self._dofs_per_cell), dtype=np.int32)
         if isinstance(self._mesh, ExtrudedMesh):
-            """Instead of using the numbering directly, we step through
-            all points and build the numbering for each entity
-            according to the extrusion rules."""
+            # Instead of using the numbering directly, we step through
+            # all points and build the numbering for each entity
+            # according to the extrusion rules.
             dim = self._plex.getDimension()
             flat_entity_dofs = self.flattened_element.entity_dofs()
             hdofs = self._xtr_hdofs
@@ -1062,20 +1062,20 @@ class FunctionSpaceBase(Cached):
                     if self._global_numbering.getDof(p) > 0:
                         glbl = self._global_numbering.getOffset(p)
 
-                        """ For extruded entities the numberings are:
-                        Global: [bottom[:], top[:], side[:]]
-                        Local:  [bottom[i], top[i], side[i] for i in bottom[:]]
+                        # For extruded entities the numberings are:
+                        # Global: [bottom[:], top[:], side[:]]
+                        # Local:  [bottom[i], top[i], side[i] for i in bottom[:]]
+                        #
+                        # eg. extruded P3 facet:
+                        #       Local            Global
+                        #  --1---6---11--   --12---13---14--
+                        #  | 4   9   14 |   |  5    8   11 |
+                        #  | 3   8   13 |   |  4    7   10 |
+                        #  | 2   7   12 |   |  3    6    9 |
+                        #  --0---5---10--   ---0----1----2--
+                        #
+                        # cell_nodes = [0,12,3,4,5,1,13,6,7,8,2,14,9,10,11]
 
-                        eg. extruded P3 facet:
-                              Local            Global
-                         --1---6---11--   --12---13---14--
-                         | 4   9   14 |   |  5    8   11 |
-                         | 3   8   13 |   |  4    7   10 |
-                         | 2   7   12 |   |  3    6    9 |
-                         --0---5---10--   ---0----1----2--
-
-                        cell_nodes = [0,12,3,4,5,1,13,6,7,8,2,14,9,10,11]
-                        """
                         lcl_dofs = flat_entity_dofs[d][i]
                         glbl_dofs = np.zeros(len(lcl_dofs), dtype=np.int32)
                         glbl_dofs[:hdofs[d]] = range(glbl,glbl+hdofs[d])
