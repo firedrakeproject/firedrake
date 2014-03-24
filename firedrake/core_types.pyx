@@ -236,7 +236,7 @@ def make_extruded_coords(extruded_mesh, layer_height,
 
 class _Facets(object):
     """Wrapper class for facet interation information on a :class:`Mesh`"""
-    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None, bottom_set=None):
+    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None):
 
         self.mesh = mesh
 
@@ -254,7 +254,7 @@ class _Facets(object):
         self.local_facet_number = local_facet_number
 
         self.markers = markers
-        self._b_set = bottom_set
+        self._b_set = mesh.cell_set
         self._subsets = {}
 
     @utils.cached_property
@@ -756,15 +756,13 @@ class ExtrudedMesh(Mesh):
         self._interior_facets = _Facets(self, interior_f.count,
                                        "interior",
                                        interior_f.facet_cell,
-                                       interior_f.local_facet_number,
-                                       bottom_set=self.cell_set)
+                                       interior_f.local_facet_number)
         exterior_f = self._old_mesh.exterior_facets
         self._exterior_facets = _Facets(self, exterior_f.count,
                                            "exterior",
                                            exterior_f.facet_cell,
                                            exterior_f.local_facet_number,
-                                           exterior_f.markers,
-                                           bottom_set=self.cell_set)
+                                           exterior_f.markers)
 
         self.ufl_cell_element = ufl.FiniteElement("Lagrange",
                                                domain = mesh._ufl_cell,
