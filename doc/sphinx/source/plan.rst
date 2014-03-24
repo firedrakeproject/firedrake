@@ -68,6 +68,13 @@ made, where each newly allocated colour is offset by 32. Should another pass
 be required, the offset is increased to 64 and so on until all threads are
 coloured.
 
+.. figure:: images/pyop2_colouring.svg
+  :align: center
+
+  Thread colouring within a mini-partition for a :class:`~pyop2.Dat` on
+  vertices indirectly accessed in a computation over the edges. The edges are
+  coloured such that no two edges touch the same vertex within the partition.
+
 The colouring of mini-partitions is done in the same way, except that all
 :class:`~pyop2.Set` elements indirectly accessed by the entire partition are
 referenced, not only those accessed by a single thread.
