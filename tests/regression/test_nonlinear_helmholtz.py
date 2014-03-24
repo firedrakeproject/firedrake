@@ -46,7 +46,7 @@ def run_convergence_test(parameters={}):
 
 @pytest.mark.parametrize('params', [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}])
 def test_l2_conv(params):
-    assert (run_convergence_test(parameters=params) > 3.5).all()
+    assert (run_convergence_test(parameters=params) > 3.3).all()
 
 
 # This currently fails: https://github.com/firedrakeproject/firedrake/issues/1

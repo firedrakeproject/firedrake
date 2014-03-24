@@ -1,0 +1,30 @@
+all: modules
+
+modules:
+	@echo "    Building extension modules"
+	@cd python; python setup.py build_ext --inplace > build.log 2>&1 || cat build.log
+
+lint:
+	@echo "    Linting"
+	@flake8 python/firedrake
+
+THREADS=1
+ifeq ($(THREADS), 1)
+	PYTEST_ARGS=
+else
+	PYTEST_ARGS=-n $(THREADS)
+endif
+
+test_regression: modules
+	@echo "    Running non-extruded regression tests"
+	@py.test tests/regression $(PYTEST_ARGS)
+
+test_extrusion: modules
+	@echo "    Running extruded regression tests"
+	@py.test tests/extrusion $(PYTEST_ARGS)
+
+test: modules
+	@echo "    Running all regression tests"
+	@py.test tests $(PYTEST_ARGS)
+
+alltest: modules lint test
