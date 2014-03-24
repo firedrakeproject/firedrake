@@ -158,7 +158,7 @@ class _VTUFile(object):
         if len(e.value_shape()) > 1:
             raise RuntimeError("Can't output tensor valued functions")
 
-        ce = mesh._coordinate_field.function_space().ufl_element()
+        ce = mesh.coordinates.function_space().ufl_element()
 
         coords_p1 = is_family1(ce, 'Lagrange')
         coords_p1dg = is_family1(ce, 'Discontinuous Lagrange')
@@ -201,9 +201,9 @@ class _VTUFile(object):
             if not self._warnings[1]:
                 warning(RED % "*** Projecting coordinates to %s1", family)
                 self._warnings[1] = True
-            coordinates = project(mesh._coordinate_field, Vc, name=mesh._coordinate_field.name())
+            coordinates = project(mesh.coordinates, Vc, name=mesh.coordinates.name())
         else:
-            coordinates = mesh._coordinate_field
+            coordinates = mesh.coordinates
             Vc = coordinates.function_space()
 
         num_points = Vo.node_count

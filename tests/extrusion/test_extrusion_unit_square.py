@@ -31,7 +31,7 @@ void comp_area(double A[1], double *x[], double *y[])
 
     g = op2.Global(1, data=0.0, name='g')
 
-    coords = f.function_space().mesh()._coordinate_field
+    coords = f.function_space().mesh().coordinates
 
     op2.par_loop(area, f.cell_set,
                  g(op2.INC),
