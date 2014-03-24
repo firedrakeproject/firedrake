@@ -690,7 +690,7 @@ def _assemble(f, tensor=None, bcs=None):
                                    flatten=True)]
                 for c in fd.original_coefficients:
                     args.append(c.dat(op2.READ, c.cell_node_map(),
-                                      flatten=True))
+                                      flatten=has_vec_fs(c)))
                 op2.par_loop(*args, iterate=op2.ON_INTERIOR_FACETS)
 
             elif domain_type == 'interior_facet_vert':
@@ -716,7 +716,7 @@ def _assemble(f, tensor=None, bcs=None):
                                    flatten=True)]
                 for c in fd.original_coefficients:
                     args.append(c.dat(op2.READ, c.interior_facet_node_map(),
-                                      flatten=True))
+                                      flatten=has_vec_fs(c)))
                 args.append(m.interior_facets.local_facet_dat(op2.READ))
                 op2.par_loop(*args)
 
