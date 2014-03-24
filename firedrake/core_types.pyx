@@ -294,12 +294,12 @@ class _Facets(object):
         if dom_id in [measure.DOMAIN_ID_EVERYWHERE,
                       measure.DOMAIN_ID_OTHERWISE]:
             if dom_type == "exterior_facet_topbottom":
-                return [(0, self.bottom_set),
-                        (1, self.bottom_set)]
+                return [(op2.ON_BOTTOM, self.bottom_set),
+                        (op2.ON_TOP, self.bottom_set)]
             elif dom_type == "exterior_facet_bottom":
-                return [(0, self.bottom_set)]
+                return [(op2.ON_BOTTOM, self.bottom_set)]
             elif dom_type == "exterior_facet_top":
-                return [(1, self.bottom_set)]
+                return [(op2.ON_TOP, self.bottom_set)]
             elif dom_type == "interior_facet_horiz":
                 return self.bottom_set
             else:
