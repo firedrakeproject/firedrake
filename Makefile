@@ -2,11 +2,11 @@ all: modules
 
 modules:
 	@echo "    Building extension modules"
-	@cd python; python setup.py build_ext --inplace > build.log 2>&1 || cat build.log
+	@python setup.py build_ext --inplace > build.log 2>&1 || cat build.log
 
 lint:
 	@echo "    Linting"
-	@flake8 python/firedrake
+	@flake8 firedrake
 
 THREADS=1
 ifeq ($(THREADS), 1)
@@ -28,3 +28,7 @@ test: modules
 	@py.test tests $(PYTEST_ARGS)
 
 alltest: modules lint test
+
+shorttest: modules lint
+	@echo "    Running short regression tests"
+	@py.test --short tests $(PYTEST_ARGS)

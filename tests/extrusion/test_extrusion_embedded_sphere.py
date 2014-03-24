@@ -1,5 +1,5 @@
 import pytest
-
+from tests.common import longtest
 from firedrake import *
 
 
@@ -20,6 +20,7 @@ def integrate_spherical_annulus_volume(radius=1000, refinement=2):
     return np.abs(assemble(f * dx) - exact) / exact
 
 
+@longtest
 @pytest.mark.parametrize(('radius', 'refinement', 'error'),
                          [(1000, 2, 0.04),
                           (10000, 2, 0.04),
