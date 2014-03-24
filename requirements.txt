@@ -1,8 +1,5 @@
-git+https://bitbucket.org/mapdes/ffc.git#egg=ffc
-hg+https://bitbucket.org/khinsen/scientificpython
+-r requirements-minimal.txt
+
 codepy>=2013.1
 pycuda>=2013.1
 pyopencl>=2012.1
-h5py>=2.0.0
-petsc>=3.4
-petsc4py>=3.4
