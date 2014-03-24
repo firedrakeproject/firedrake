@@ -273,7 +273,7 @@ class _Facets(object):
 
     @property
     def bottom_set(self):
-        # Currently no MPI parallel support
+        '''Returns the bottom row of cells.'''
         return self._b_set
 
     @utils.cached_property
@@ -294,12 +294,12 @@ class _Facets(object):
         if dom_id in [measure.DOMAIN_ID_EVERYWHERE,
                       measure.DOMAIN_ID_OTHERWISE]:
             if dom_type == "exterior_facet_topbottom":
-                return [(0, self.bottom_set, self._local_facet_top_bottom(0)),
-                        (1, self.bottom_set, self._local_facet_top_bottom(1))]
+                return [(0, self.bottom_set),
+                        (1, self.bottom_set)]
             elif dom_type == "exterior_facet_bottom":
-                return [(0, self.bottom_set, self._local_facet_top_bottom(0))]
+                return [(0, self.bottom_set)]
             elif dom_type == "exterior_facet_top":
-                return [(1, self.bottom_set, self._local_facet_top_bottom(1))]
+                return [(1, self.bottom_set)]
             elif dom_type == "interior_facet_horiz":
                 return self.bottom_set
             else:
@@ -329,20 +329,6 @@ class _Facets(object):
 
         return op2.Dat(op2.DataSet(self.set, self._rank), self.local_facet_number,
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
-
-    def _local_facet_interior_horiz(self):
-        """Global for indicating the orientation of the cells in the vertical
-        direction of an extruded mesh."""
-        return op2.Global(2, [1, 0], dtype=np.uintc)
-
-    def _local_facet_top_bottom(self, value):
-        """Global indicating which facet, top or bottom,
-        corresponds to the current facet in the case of exterior facets
-        on extrruded meshes. 0 is for bottom and 1 for top (ffc convention)."""
-        if value in [0, 1]:
-            return op2.Global(1, [value], dtype=np.uintc)
-        else:
-            raise RuntimeError("Invalid domain id for top and bottom exterior facets.")
 
 class Mesh(object):
     """A representation of mesh topology and geometry."""
