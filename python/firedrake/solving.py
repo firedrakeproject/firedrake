@@ -595,14 +595,7 @@ def _assemble(f, tensor=None, bcs=None):
                 set_global_list = m.exterior_facets.measure_set(integral.measure())
 
                 #Iterate over the list and assemble all the args of the parallel loop
-                for (index, set, facet_global) in set_global_list:
-                    #Set the extruded_tb flag tu True as this is a top or bottom horzontal integral
-                    kwargs = {}
-                    if index == 1:
-                        kwargs["iterate"] = op2.ON_TOP
-                    else:
-                        kwargs["iterate"] = op2.ON_BOTTOM
-
+                for (index, set) in set_global_list:
                     # Add the kernel, iteration set and coordinate fields to the loop args
                     args = [kernel, set, tensor_arg,
                             coords.dat(op2.READ, coords.cell_node_map(),
@@ -610,7 +603,7 @@ def _assemble(f, tensor=None, bcs=None):
                     for c in fd.original_coefficients:
                         args.append(c.dat(op2.READ, c.cell_node_map(),
                                           flatten=has_vec_fs(c)))
-                    op2.par_loop(*args, **kwargs)
+                    op2.par_loop(*args, iterate=index)
 
             elif domain_type == 'exterior_facet_vert':
                 if op2.MPI.parallel:
