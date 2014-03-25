@@ -5,7 +5,7 @@ from ufl.indexing import MultiIndex
 from ufl.operatorbase import Operator
 from pyop2 import op2
 import types
-import cgen
+import pyop2.ir.ast_base as ast
 
 
 class DummyFunction(ufl.Coefficient):
@@ -39,7 +39,7 @@ class DummyFunction(ufl.Coefficient):
         argtype = self.function.dat.ctype + "*"
         name = " fn_%r" % self.argnum
 
-        return cgen.Value(argtype, name)
+        return ast.Decl(argtype, ast.Symbol(name, ()))
 
 
 class AssignmentBase(Operator):
@@ -343,26 +343,23 @@ def expression_kernel(expr, args):
 
     fs = args[0].function.function_space()
 
-    body = cgen.Block()
-
     if isinstance(fs, types.VectorFunctionSpace):
-        body.extend(
-            [cgen.Value("int", "dim"),
-             cgen.For("dim = 0",
-                      "dim < %s" % fs.dof_dset.cdim,
-                      "++dim",
-                      cgen.Line(str(expr) + ";")
-                      )
-             ]
+        d = ast.Symbol("dim", ())
+        body = ast.Block(
+            (
+                ast.Decl("int", d),
+                ast.For(ast.Assign(d, ast.Symbol(0, ())),
+                        ast.Less(d, ast.Symbol(fs.dof_dset.cdim, ())),
+                        ast.Incr(d, ast.Symbol(1, ())),
+                        ast.FlatBlock(str(expr) + ";"))
+            )
         )
     else:
-        body.append(cgen.Line(str(expr) + ";"))
+        body = ast.FlatBlock(str(expr) + ";")
 
-    fdecl = cgen.FunctionDeclaration(
-        cgen.Value("void", "expression"),
-        [arg.arg for arg in args])
-
-    return op2.Kernel(str(cgen.FunctionBody(fdecl, body)), "expression")
+    return op2.Kernel(ast.FunDecl("void", "expression",
+                                  [arg.arg for arg in args], body),
+                      "expression")
 
 
 def evaluate_preprocessed_expression(expr, args, subset=None):
