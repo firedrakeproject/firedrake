@@ -33,7 +33,7 @@ from pyop2.logger import progress, INFO
 import core_types
 import types
 from assemble_expressions import assemble_expression
-from petsc4py import PETSc
+from petsc import PETSc
 
 
 class NonlinearVariationalProblem(object):

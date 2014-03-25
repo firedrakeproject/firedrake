@@ -1,5 +1,5 @@
 # Utility functions to derive global and local numbering from DMPlex
-from petsc4py import PETSc
+from petsc import PETSc
 from pyop2 import MPI
 import numpy as np
 from operator import itemgetter
