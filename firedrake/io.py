@@ -102,7 +102,10 @@ class _VTUFile(object):
     def __init__(self, filename, warnings=None):
         #_filename : full path to the file without extension.
         self._filename = filename
-        self._warnings = warnings
+        if warnings:
+            self._warnings = warnings
+        else:
+            self._warnings = [None, None]
         if MPI.parallel:
             self._time_step = -1
             # If _generate_time, _time_step would be incremented by
