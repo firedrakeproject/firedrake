@@ -39,6 +39,7 @@ from textwrap import dedent
 import base
 import compilation
 from base import *
+from mpi import collective
 from configuration import configuration
 from utils import as_tuple
 
@@ -545,6 +546,7 @@ class JITModule(base.JITModule):
         self._args = args
         self._direct = kwargs.get('direct', False)
 
+    @collective
     def __call__(self, *args, **kwargs):
         argtypes = kwargs.get('argtypes', None)
         restype = kwargs.get('restype', None)
@@ -554,6 +556,7 @@ class JITModule(base.JITModule):
     def _wrapper_name(self):
         return 'wrap_%s' % self._kernel.name
 
+    @collective
     def compile(self, argtypes=None, restype=None):
         if hasattr(self, '_fun'):
             self._fun.argtypes = argtypes

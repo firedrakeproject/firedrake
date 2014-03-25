@@ -35,6 +35,7 @@
 
 from exceptions import *
 from utils import as_tuple
+from mpi import collective
 from petsc_base import *
 import host
 import ctypes
@@ -83,6 +84,7 @@ class ParLoop(host.ParLoop):
     def __init__(self, *args, **kwargs):
         host.ParLoop.__init__(self, *args, **kwargs)
 
+    @collective
     def _compute(self, part):
         fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct)
         if not hasattr(self, '_jit_args'):
@@ -121,10 +123,11 @@ class ParLoop(host.ParLoop):
                 self._argtypes.append(ctypes.c_int)
                 self._jit_args.append(a)
 
-        if part.size > 0:
-            self._jit_args[0] = part.offset
-            self._jit_args[1] = part.offset + part.size
-            fun(*self._jit_args, argtypes=self._argtypes, restype=None)
+        self._jit_args[0] = part.offset
+        self._jit_args[1] = part.offset + part.size
+        # Must call fun on all processes since this may trigger
+        # compilation.
+        fun(*self._jit_args, argtypes=self._argtypes, restype=None)
 
 
 def _setup():
