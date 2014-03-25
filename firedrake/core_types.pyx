@@ -1017,9 +1017,19 @@ class FunctionSpaceBase(Cached):
                           self._global_numbering,
                           self._universal_numbering)
 
+        # Compute entity class offsets
+        self.dof_classes = [0, 0, 0, 0]
+        for d in range(self._plex.getDimension()+1):
+            ncore = self._mesh._plex.getStratumSize("op2_core", d)
+            nowned = self._mesh._plex.getStratumSize("op2_non_core", d)
+            nhalo = self._mesh._plex.getStratumSize("op2_exec_halo", d)
+            ndofs = self._dofs_per_entity[d]
+            self.dof_classes[0] += ndofs * ncore
+            self.dof_classes[1] += ndofs * (ncore + nowned)
+            self.dof_classes[2] += ndofs * (ncore + nowned + nhalo)
+            self.dof_classes[3] += ndofs * (ncore + nowned + nhalo)
+
         self._node_count = self._global_numbering.getStorageSize()
-        ndof = self._global_numbering.getStorageSize()
-        self.dof_classes = [ndof, ndof, ndof, ndof]
         self.cell_node_list = np.array([self._get_cell_nodes(c) for c in self._mesh.cells()])
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
