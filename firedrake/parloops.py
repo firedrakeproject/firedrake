@@ -1,7 +1,7 @@
 """This module implements parallel loops reading and writing
 :class:`.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
-from pyop2 import READ, WRITE, READWRITE, INC  # NOQA get flake8 to ignore unused import.
+from pyop2 import READ, WRITE, RW, INC  # NOQA get flake8 to ignore unused import.
 import pyop2
 from pyop2.ir.ast_base import *
 
@@ -49,9 +49,9 @@ def par_loop(kernel, measure, args):
 
     mesh = measure.domain_data().function_space().mesh()
 
-    op2args = _form_kernel(kernel, measure, args)
+    op2args = [_form_kernel(kernel, measure, args)]
 
-    op2args += _map['itspace'](mesh, measure)
+    op2args.append(_map['itspace'](mesh, measure))
 
     op2args += [func.dat(intent, _map['nodes'](func))
                 for (func, intent) in args.itervalues()]
