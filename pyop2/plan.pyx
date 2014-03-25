@@ -115,62 +115,65 @@ cdef class _Plan:
 
     def _compute_staging_info(self, iset, partition_size, matrix_coloring, args):
         """Constructs:
-            - nindirect
-            - ind_map
-            - loc_map
-            - ind_sizes
-            - ind_offs
-            - offset
-            - nshared
+            - nindirect : Number of unique Dat/Map pairs in the argument list
+            - ind_map   : Indirection map - array of arrays of indices into the
+                          Dat of all indirect arguments
+            - loc_map   : Array of offsets of staged data in shared memory for
+                          each Dat/Map pair for each partition
+            - ind_sizes : array of sizes of indirection maps for each block
+            - ind_offs  : array of offsets into indirection maps for each block
+            - offset    : List of offsets of each partition
+            - nshared   : Bytes of shared memory required per partition
         """
-        # indices referenced for this dat-map pair
-        def indices(dat, map):
-            return [arg.idx for arg in args if arg.data is dat and arg.map is map]
+        indices = {}  # indices referenced for a given dat-map pair
 
         self._ninds = 0
         self._nargs = len([arg for arg in args if not arg._is_mat])
         d = OrderedDict()
-        for i, arg in enumerate([arg for arg in args if not arg._is_mat]):
-            if arg._is_indirect:
-                k = (arg.data,arg.map)
-                if not d.has_key(k):
-                    d[k] = i
+        for arg in args:
+            if arg._is_indirect and not arg._is_mat:
+                k = arg.data, arg.map
+                if not k in d:
+                    indices[k] = [a.idx for a in args
+                                  if a.data is arg.data and a.map is arg.map]
+                    d[k] = self._ninds
                     self._ninds += 1
 
-        inds = dict()
-        locs = dict()
-        sizes = dict()
+        inds = {}   # Indices referenced by dat via map in given partition
+        locs = {}   # Offset of staged data in shared memory by dat via map in
+                    # given partition
+        sizes = {}  # # of indices references by dat via map in given partition
 
         for pi in range(self._nblocks):
             start = self._offset[pi]
             end = start + self._nelems[pi]
 
             for dat,map in d.iterkeys():
-                ii = indices(dat,map)
+                ii = indices[dat, map]
                 l = len(ii)
 
                 if (isinstance(iset.set, base.Subset)):
-                    staged_values = map.values_with_halo[iset.set.indices[start:end]][:,ii]
+                    staged_values = map.values_with_halo[iset.set.indices[start:end]][:, ii]
                 else:
-                    staged_values = map.values_with_halo[start:end,ii]
+                    staged_values = map.values_with_halo[start:end, ii]
 
-                inds[(dat,map,pi)], inv = numpy.unique(staged_values, return_inverse=True)
-                sizes[(dat,map,pi)] = len(inds[(dat,map,pi)])
+                inds[dat, map, pi], inv = numpy.unique(staged_values, return_inverse=True)
+                sizes[dat, map, pi] = len(inds[dat, map, pi])
 
                 for i, ind in enumerate(sorted(ii)):
-                    locs[(dat,map,ind,pi)] = inv[i::l]
+                    locs[dat, map, ind, pi] = inv[i::l]
 
         def ind_iter():
             for dat,map in d.iterkeys():
                 cumsum = 0
                 for pi in range(self._nblocks):
-                    cumsum += len(inds[(dat,map,pi)])
-                    yield inds[(dat,map,pi)]
+                    cumsum += len(inds[dat, map, pi])
+                    yield inds[dat, map, pi]
                 # creates a padding to conform with op2 plan objects
                 # fills with -1 for debugging
                 # this should be removed and generated code changed
                 # once we switch to python plan only
-                pad = numpy.empty(len(indices(dat,map)) * iset.size - cumsum, dtype=numpy.int32)
+                pad = numpy.empty(len(indices[dat, map]) * iset.size - cumsum, dtype=numpy.int32)
                 pad.fill(-1)
                 yield pad
         t = tuple(ind_iter())
@@ -187,22 +190,20 @@ cdef class _Plan:
                 yield sum(sizes[(dat,map,pi)] for pi in range(self._nblocks))
         self._nindirect = numpy.fromiter(nindirect_iter(), dtype=numpy.int32)
 
-        def loc_iter():
-            for dat,map in d.iterkeys():
-                for i in indices(dat, map):
-                    for pi in range(self._nblocks):
-                        yield locs[(dat,map,i,pi)].astype(numpy.int16)
-        t = tuple(loc_iter())
-        self._loc_map = numpy.concatenate(t) if t else numpy.array([], dtype=numpy.int16)
+        locs_t = tuple(locs[dat, map, i, pi].astype(numpy.int16)
+                       for dat, map in d.iterkeys()
+                       for i in indices[dat, map]
+                       for pi in range(self._nblocks))
+        self._loc_map = numpy.concatenate(locs_t) if locs_t else numpy.array([], dtype=numpy.int16)
 
         def off_iter():
             _off = dict()
-            for dat,map in d.iterkeys():
-                _off[(dat,map)] = 0
+            for dat, map in d.iterkeys():
+                _off[dat, map] = 0
             for pi in range(self._nblocks):
-                for dat,map in d.iterkeys():
-                    yield _off[(dat,map)]
-                    _off[(dat,map)] += sizes[(dat,map,pi)]
+                for dat, map in d.iterkeys():
+                    yield _off[dat, map]
+                    _off[dat, map] += sizes[dat, map, pi]
         self._ind_offs = numpy.fromiter(off_iter(), dtype=numpy.int32)
 
         # max shared memory required by work groups
@@ -215,11 +216,11 @@ cdef class _Plan:
 
     def _compute_coloring(self, iset, partition_size, matrix_coloring, thread_coloring, args):
         """Constructs:
-            - thrcol
-            - nthrcol
-            - ncolors
-            - blkmap
-            - ncolblk
+            - thrcol  : Thread colours for each element of iteration space
+            - nthrcol : Array of numbers of thread colours for each partition
+            - ncolors : Total number of block colours
+            - blkmap  : List of blocks ordered by colour
+            - ncolblk : Array of numbers of block with any given colour
         """
         # args requiring coloring (ie, indirect reduction and matrix args)
         #  key: Dat
@@ -295,8 +296,9 @@ cdef class _Plan:
         cdef int * nelems = <int *> numpy.PyArray_DATA(self._nelems)
         cdef int * offset = <int *> numpy.PyArray_DATA(self._offset)
 
-
+        # Colour threads of each partition
         if thread_coloring:
+            # For each block
             for _p in range(self._nblocks):
                 _base_color = 0
                 terminated = False
@@ -313,23 +315,30 @@ cdef class _Plan:
                         if thrcol[_t] == -1:
                             _mask = 0
 
+                            # Find an available colour (the first colour not
+                            # touched by the current thread)
                             for _rai in range(n_race_args):
                                 for _mi in range(flat_race_args[_rai].count):
                                     _mask |= flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[iteridx[_t] * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]]
 
+                            # Check if colour is available i.e. mask isn't full
                             if _mask == 0xffffffffu:
                                 terminated = False
                             else:
+                                # Find the first available colour
                                 _color = 0
                                 while _mask & 0x1:
                                     _mask = _mask >> 1
                                     _color += 1
                                 thrcol[_t] = _base_color + _color
+                                # Mark everything touched by the current
+                                # thread with that colour
                                 _mask = 1 << _color
                                 for _rai in range(n_race_args):
                                     for _mi in range(flat_race_args[_rai].count):
                                         flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[iteridx[_t] * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]] |= _mask
 
+                    # We've run out of colours, so we start over and offset
                     _base_color += 32
 
             self._nthrcol = numpy.zeros(self._nblocks,dtype=numpy.int32)
@@ -353,29 +362,38 @@ cdef class _Plan:
                 for _i in range(flat_race_args[_rai].size):
                     flat_race_args[_rai].tmp[_i] = 0
 
+            # For each partition
             for _p in range(self._nblocks):
+                # If this partition doesn't already have a colour
                 if _pcolors[_p] == -1:
                     _mask = 0
+                    # Find an available colour (the first colour not touched
+                    # by the current partition)
                     for _t in range(offset[_p], offset[_p] + nelems[_p]):
                         for _rai in range(n_race_args):
                             for _mi in range(flat_race_args[_rai].count):
                                 _mask |= flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[iteridx[_t] * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]]
 
+                    # Check if a colour is available i.e. the mask isn't full
                     if _mask == 0xffffffffu:
                         terminated = False
                     else:
+                        # Find the first available colour
                         _color = 0
                         while _mask & 0x1:
                             _mask = _mask >> 1
                             _color += 1
                         _pcolors[_p] = _base_color + _color
 
+                        # Mark everything touched by the current partition with
+                        # that colour
                         _mask = 1 << _color
                         for _t in range(offset[_p], offset[_p] + nelems[_p]):
                             for _rai in range(n_race_args):
                                 for _mi in range(flat_race_args[_rai].count):
                                     flat_race_args[_rai].tmp[flat_race_args[_rai].mip[_mi].map_base[iteridx[_t] * flat_race_args[_rai].mip[_mi].arity + flat_race_args[_rai].mip[_mi].idx]] |= _mask
 
+            # We've run out of colours, so we start over and offset by 32
             _base_color += 32
 
         # memory free
@@ -390,71 +408,92 @@ cdef class _Plan:
 
     @property
     def nargs(self):
+        """Number of arguments."""
         return self._nargs
 
     @property
     def ninds(self):
+        """Number of indirect non-matrix arguments."""
         return self._ninds
 
     @property
     def nshared(self):
+        """Bytes of shared memory required per partition."""
         return self._nshared
 
     @property
     def nblocks(self):
+        """Number of partitions."""
         return self._nblocks
 
     @property
     def ncolors(self):
+        """Total number of block colours."""
         return self._ncolors
 
     @property
     def ncolblk(self):
+        """Array of numbers of block with any given colour."""
         return self._ncolblk
 
     @property
     def nindirect(self):
+        """Number of unique Dat/Map pairs in the argument list."""
         return self._nindirect
 
     @property
     def ind_map(self):
+        """Indirection map: array of arrays of indices into the Dat of all
+        indirect arguments (nblocks x nindirect x nvalues)."""
         return self._ind_map
 
     @property
     def ind_sizes(self):
+        """2D array of sizes of indirection maps for each block (nblocks x
+        nindirect)."""
         return self._ind_sizes
 
     @property
     def ind_offs(self):
+        """2D array of offsets into the indirection maps for each block
+        (nblocks x nindirect)."""
         return self._ind_offs
 
     @property
     def loc_map(self):
+        """Array of offsets of staged data in shared memory for each Dat/Map
+        pair for each partition (nblocks x nindirect x partition size)."""
         return self._loc_map
 
     @property
     def blkmap(self):
+        """List of blocks ordered by colour."""
         return self._blkmap
 
     @property
     def offset(self):
+        """List of offsets of each partition."""
         return self._offset
 
     @property
     def nelems(self):
+        """Array of numbers of elements for each partition."""
         return self._nelems
 
     @property
     def nthrcol(self):
+        """Array of numbers of thread colours for each partition."""
         return self._nthrcol
 
     @property
     def thrcol(self):
+        """Array of thread colours for each element of iteration space."""
         return self._thrcol
 
     #dummy values for now, to make it run with the cuda backend
     @property
     def nsharedCol(self):
+        """Array of shared memory sizes for each colour."""
         return numpy.array([self._nshared] * self._ncolors, dtype=numpy.int32)
 
 
