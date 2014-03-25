@@ -13,11 +13,11 @@ def integrate_var_p0(family, degree):
     # coordinates as a field.
     # TODO: provide a kernel which will describe how coordinates are extruded.
 
-    mesh = firedrake.ExtrudedMesh(m, layers, layer_height=0.1)
+    mesh = ExtrudedMesh(m, layers, layer_height=0.1)
 
-    fs = firedrake.FunctionSpace(mesh, family, degree, name="fs")
+    fs = FunctionSpace(mesh, family, degree, name="fs")
 
-    f = firedrake.Function(fs)
+    f = Function(fs)
 
     populate_p0 = op2.Kernel("""
 void populate_tracer(double *x[], double *c[])

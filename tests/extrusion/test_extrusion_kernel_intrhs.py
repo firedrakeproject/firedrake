@@ -14,15 +14,15 @@ def integrate_rhs(family, degree):
     # coordinates as a field.
     # TODO: provide a kernel which will describe how coordinates are extruded.
 
-    mesh = firedrake.ExtrudedMesh(m, layers, layer_height=0.1)
+    mesh = ExtrudedMesh(m, layers, layer_height=0.1)
 
     horiz = ufl.FiniteElement(family, "triangle", degree)
     vert = ufl.FiniteElement(family, "interval", degree)
     prod = ufl.OuterProductElement(horiz, vert)
 
-    fs = firedrake.FunctionSpace(mesh, prod, name="fs")
+    fs = FunctionSpace(mesh, prod, name="fs")
 
-    f = firedrake.Function(fs)
+    f = Function(fs)
 
     populate_p0 = op2.Kernel("""
 void populate_tracer(double *x[], double *c[])
@@ -36,7 +36,7 @@ void populate_tracer(double *x[], double *c[])
                  f.dat(op2.INC, f.cell_node_map()),
                  coords.dat(op2.READ, coords.cell_node_map()))
 
-    g = firedrake.assemble(f * firedrake.dx)
+    g = assemble(f * dx)
 
     return np.abs(g - 0.5)
 
