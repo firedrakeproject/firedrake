@@ -1,8 +1,6 @@
 #!/usr/bin/env python
-
-from pyop2.ffc_interface import clear_cache, FFCKernel
+from pyop2.compilation import clear_cache
 
 
 if __name__ == '__main__':
-    print 'Removing cached ffc kernels from %s' % FFCKernel._cachedir
-    clear_cache()
+    clear_cache(prompt=True)
