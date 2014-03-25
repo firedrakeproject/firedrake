@@ -260,14 +260,26 @@ class ParLoop(device.ParLoop, host.ParLoop):
             self._jit_args[3] = plan.offset
             self._argtypes[4] = ndpointer(plan.nelems.dtype, shape=plan.nelems.shape)
             self._jit_args[4] = plan.nelems
+            # Must call compile on all processes even if partition size is
+            # zero since compilation is collective.
+            fun = fun.compile(argtypes=self._argtypes, restype=None)
 
             boffset = 0
             for c in range(plan.ncolors):
                 nblocks = plan.ncolblk[c]
                 self._jit_args[0] = boffset
                 self._jit_args[1] = nblocks
-                fun(*self._jit_args, argtypes=self._argtypes, restype=None)
+                fun(*self._jit_args)
                 boffset += nblocks
+        else:
+            # Fake types for arguments so that ctypes doesn't complain
+            self._argtypes[2] = ndpointer(np.int32, shape=(0, ))
+            self._argtypes[3] = ndpointer(np.int32, shape=(0, ))
+            self._argtypes[4] = ndpointer(np.int32, shape=(0, ))
+            # No need to actually call function since partition size
+            # is zero, however we must compile it because compilation
+            # is collective
+            fun.compile(argtypes=self._argtypes, restype=None)
 
     def _get_plan(self, part, part_size):
         if self._is_indirect:

@@ -772,6 +772,9 @@ class ParLoop(op2.ParLoop):
                     'WARPSIZE': 32}
 
     def _compute(self, part):
+        if part.size == 0:
+            # Return before plan call if no computation should occur
+            return
         arglist = [np.int32(part.size), np.int32(part.offset)]
         config = self.launch_configuration(part)
         config['subset'] = False

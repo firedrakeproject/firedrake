@@ -3280,20 +3280,17 @@ class ParLoop(LazyComputation):
         """Executes the kernel over all members of the iteration space."""
         self.halo_exchange_begin()
         self.maybe_set_dat_dirty()
-        self._compute_if_not_empty(self.it_space.iterset.core_part)
+        self._compute(self.it_space.iterset.core_part)
         self.halo_exchange_end()
-        self._compute_if_not_empty(self.it_space.iterset.owned_part)
+        self._compute(self.it_space.iterset.owned_part)
         self.reduction_begin()
         if self.needs_exec_halo:
-            self._compute_if_not_empty(self.it_space.iterset.exec_part)
+            self._compute(self.it_space.iterset.exec_part)
         self.reduction_end()
         self.maybe_set_halo_update_needed()
         self.assemble()
 
-    def _compute_if_not_empty(self, part):
-        if part.size > 0:
-            self._compute(part)
-
+    @collective
     def _compute(self, part):
         """Executes the kernel over all members of a MPI-part of the iteration space."""
         raise RuntimeError("Must select a backend")
