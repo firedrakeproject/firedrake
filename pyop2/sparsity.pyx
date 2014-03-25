@@ -111,6 +111,16 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
                                     for c in range(cmult):
                                         s_diag[row].insert(cmult * (colmap.values[d + e * colmap.arity] +
                                                            layer * colmap.offset[d]) + c)
+                elif it_sp.where == "ON_INTERIOR_FACETS":
+                    for e in range(rsize):
+                        for i in range(rowmap.arity * 2):
+                            for r in range(rmult):
+                                for l in range(rowmap.layers - 2):
+                                    row = rmult * (rowmap.values[i % rowmap.arity + e*rowmap.arity] + (l + i / rowmap.arity) * rowmap.offset[i % rowmap.arity]) + r
+                                    for d in range(colmap.arity * 2):
+                                        for c in range(cmult):
+                                            s_diag[row].insert(cmult * (colmap.values[d % colmap.arity + e * colmap.arity] +
+                                                               (l + d / rowmap.arity) * colmap.offset[d % colmap.arity]) + c)
                 else:
                     for e in range(rsize):
                         for i in range(rowmap.arity):
