@@ -187,31 +187,20 @@ def get_entities_by_class(plex, depth, condition=None):
     return entities, entity_classes
 
 
-def permute_global_numbering(plex):
-    """Permute the global/universal DoF numbering according to a
-    depth-first traversal of the Plex graph."""
+def plex_renumbering(plex):
+    """
+    Build a global node renumbering as a permutation of Plex points.
+
+    :arg plex: The DMPlex object encapsulating the mesh topology
+
+    The node permutation is derived from a depth-first traversal of
+    the Plex graph over each OP2 entity class in turn. The returned IS
+    is the Plex -> OP2 permutation.
+    """
     dim = plex.getDimension()
-    glbl = plex.getDefaultSection()
-    univ = plex.getDefaultGlobalSection()
-    pStart, pEnd = glbl.getChart()
-
-    entity_classes = [0, 0, 0, 0]
-    permutation = -1 * np.ones(pEnd-pStart, dtype=np.int)
-    glbl_num = 0
-
-    # Create new numbering sections
-    glbl_new = PETSc.Section().create()
-    glbl_new.setChart(pStart, pEnd)
-    glbl_new.setUp()
-    univ_new = PETSc.Section().create()
-    univ_new.setChart(pStart, pEnd)
-    univ_new.setUp()
-
-    # Get a list of current universal DoFs
-    universal_dofs = []
-    for p in range(pStart, pEnd):
-        for c in range(univ.getDof(p)):
-            universal_dofs.append(univ.getOffset(p)+c)
+    pStart, pEnd = plex.getChart()
+    perm = np.empty(pEnd - pStart, dtype=np.int32)
+    p_glbl = 0
 
     # Renumber core DoFs
     seen = set()
@@ -221,71 +210,33 @@ def permute_global_numbering(plex):
                 if p in seen:
                     continue
 
-                seen.add(p)
-                dof = glbl.getDof(p)
-                if dof > 0 and plex.getLabelValue("op2_core", p) >= 0:
-                    glbl_new.setDof(p, dof)
-                    glbl_new.setOffset(p, glbl_num)
-                    univ_new.setDof(p, dof)
-                    univ_new.setOffset(p, universal_dofs[glbl_num])
-                    permutation[p] = glbl_num
-                    glbl_num += dof
-    entity_classes[0] = glbl_num
+                if plex.getLabelValue("op2_core", p) >= 0:
+                    seen.add(p)
+                    perm[p_glbl] = p
+                    p_glbl += 1
 
     # Renumber non-core DoFs
-    seen = set()
     if plex.getStratumSize("op2_non_core", dim) > 0:
         for cell in plex.getStratumIS("op2_non_core", dim).getIndices():
             for p in plex.getTransitiveClosure(cell)[0]:
                 if p in seen:
                     continue
 
-                seen.add(p)
-                dof = glbl.getDof(p)
-                if dof > 0 and plex.getLabelValue("op2_non_core", p) >= 0:
-                    glbl_new.setDof(p, dof)
-                    glbl_new.setOffset(p, glbl_num)
-                    univ_new.setDof(p, dof)
-                    univ_new.setOffset(p, universal_dofs[glbl_num])
-                    permutation[p] = glbl_num
-                    glbl_num += dof
-    entity_classes[1] = glbl_num
+                if plex.getLabelValue("op2_non_core", p) >= 0:
+                    seen.add(p)
+                    perm[p_glbl] = p
+                    p_glbl += 1
 
-    # We need to propagate the new global numbers for owned points to
-    # all ranks to get the correct universal numbers (unn) for the halo.
-    unn_global = plex.createGlobalVec()
-    unn_global.assemblyBegin()
-    for p in range(pStart, pEnd):
-        if univ_new.getDof(p) > 0:
-            unn_global.setValue(univ.getOffset(p), univ_new.getOffset(p))
-    unn_global.assemblyEnd()
-    unn_local = plex.createLocalVec()
-    plex.globalToLocal(unn_global, unn_local)
-
-    # Renumber exec-halo DoFs
-    seen = set()
+    # Renumber halo DoFs
     if plex.getStratumSize("op2_exec_halo", dim) > 0:
         for cell in plex.getStratumIS("op2_exec_halo", dim).getIndices():
             for p in plex.getTransitiveClosure(cell)[0]:
                 if p in seen:
                     continue
 
-                seen.add(p)
-                ldof = glbl.getDof(p)
-                gdof = univ.getDof(p)
-                if ldof > 0 and plex.getLabelValue("op2_exec_halo", p) >= 0:
-                    glbl_new.setDof(p, ldof)
-                    glbl_new.setOffset(p, glbl_num)
-                    univ_new.setDof(p, gdof)
-                    remote_unn = unn_local.getValue(glbl.getOffset(p))
-                    univ_new.setOffset(p, -(remote_unn+1))
-                    permutation[p] = glbl_num
-                    glbl_num += ldof
-    entity_classes[2] = glbl_num
+                if plex.getLabelValue("op2_exec_halo", p) >= 0:
+                    seen.add(p)
+                    perm[p_glbl] = p
+                    p_glbl += 1
 
-    # L2 halos not supported
-    entity_classes[3] = glbl_num
-
-    plex.setDefaultSection(glbl_new)
-    plex.setDefaultGlobalSection(univ_new)
-    return entity_classes, permutation
+    return PETSc.IS().createGeneral(perm)

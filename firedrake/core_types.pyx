@@ -393,7 +393,9 @@ class Mesh(object):
         if op2.MPI.comm.size > 1:
             self.parallel_sf = self._plex.distribute(overlap=1)
 
+        # Mark OP2 entities and derive the resulting Plex renumbering
         dmplex.mark_entity_classes(self._plex)
+        self._plex_renumbering = dmplex.plex_renumbering(plex)
 
         cStart, cEnd = self._plex.getHeightStratum(0)  # cells
         cell_vertices = self._plex.getConeSize(cStart)
@@ -460,9 +462,6 @@ class Mesh(object):
         else:
             self.interior_facets = _Facets(self, 0, "interior", None, None)
 
-        plex_coords = self._plex.getCoordinatesLocal().getArray()
-        self._coordinates = np.reshape(plex_coords, (self.num_vertices(), geometric_dim))
-
         # Note that for bendy elements, this needs to change.
         if periodic_coords is not None:
             if self.ufl_cell().geometric_dimension() != 1:
@@ -475,16 +474,17 @@ class Mesh(object):
         else:
             self._coordinate_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
 
-            # Use the inverse of the section permutation to re-order
-            # the coordinates from the Plex
-            perm = filter(lambda x: x>=0, self._coordinate_fs.perm)
-            perm_is = PETSc.IS().createGeneral(perm, comm=MPI.COMM_SELF)
-            perm_is.setPermutation()
-            inv_perm = perm_is.invertPermutation().getIndices()
-            self._coordinates = np.array([self._coordinates[p] for p in inv_perm])
+            # Use the section permutation to re-order Plex coordinates
+            plex_coords = self._plex.getCoordinatesLocal().getArray()
+            plex_coords = np.reshape(plex_coords, (self.num_vertices(), geometric_dim))
+            coordinates = np.empty(plex_coords.shape)
+            vStart, vEnd = self._plex.getDepthStratum(0)
+            for v in range(vStart, vEnd):
+                offset = self._coordinate_fs._global_numbering.getOffset(v)
+                coordinates[offset,:] = plex_coords[v-vStart,:]
 
             self.coordinates = types.Function(self._coordinate_fs,
-                                                    val=self._coordinates,
+                                                    val=coordinates,
                                                     name="Coordinates")
         self._dx = Measure('cell', domain_data=self.coordinates)
         self._ds = Measure('exterior_facet', domain_data=self.coordinates)
@@ -730,10 +730,10 @@ class ExtrudedMesh(Mesh):
         self._cells = mesh._cells
         self.parent = mesh.parent
         self.uid = mesh.uid
-        self._coordinates = mesh._coordinates
         self._vertex_numbering = mesh._vertex_numbering
         self.name = mesh.name
         self._plex = mesh._plex
+        self._plex_renumbering = mesh._plex_renumbering
 
         interior_f = self._old_mesh.interior_facets
         self._interior_facets = _Facets(self, interior_f.count,
@@ -1005,12 +1005,9 @@ class FunctionSpaceBase(Cached):
         self._plex = mesh._plex.clone()
 
         # Create the PetscSection mapping topological entities to DoFs
-        self._global_numbering = self._plex.createSection(1, [1], self._dofs_per_entity)
-
-        # Reorder global and universal node numberings
+        self._global_numbering = self._plex.createSection(1, [1], self._dofs_per_entity,
+                                                          perm=self._mesh._plex_renumbering)
         self._plex.setDefaultSection(self._global_numbering)
-        self.dof_classes, self.perm = dmplex.permute_global_numbering(self._plex)
-        self._global_numbering = self._plex.getDefaultSection()
         self._universal_numbering = self._plex.getDefaultGlobalSection()
 
         # Re-initialise the PetscSF and build Halo from it
@@ -1021,6 +1018,8 @@ class FunctionSpaceBase(Cached):
                           self._universal_numbering)
 
         self._node_count = self._global_numbering.getStorageSize()
+        ndof = self._global_numbering.getStorageSize()
+        self.dof_classes = [ndof, ndof, ndof, ndof]
         self.cell_node_list = np.array([self._get_cell_nodes(c) for c in self._mesh.cells()])
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
