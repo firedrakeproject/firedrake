@@ -355,6 +355,9 @@ class PeriodicIntervalMesh(Mesh):
         self.name = "periodicinterval"
 
         """Build the periodic Plex by hand"""
+
+        if MPI.comm.size > 1:
+            raise NotImplementedError("Periodic intervals not yet implemented in parallel")
         nvert = ncells
         nedge = ncells
         dmplex = PETSc.DMPlex().create()
