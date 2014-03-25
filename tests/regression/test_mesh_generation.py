@@ -37,6 +37,7 @@ def test_unit_cube():
 
 @pytest.mark.xfail(reason='Requires improved Gmsh support in PETSc')
 def test_unit_circle():
+    pytest.importorskip('gmshpy')
     assert abs(integrate_one(UnitCircleMesh(15)) - pi * 0.5 ** 2) < 1e-3
 
 
@@ -83,6 +84,7 @@ def test_unit_cube_parallel():
 @pytest.mark.xfail(reason='Requires improved Gmsh support in PETSc')
 @pytest.mark.parallel
 def test_unit_circle_parallel():
+    pytest.importorskip('gmshpy')
     assert abs(integrate_one(UnitCircleMesh(15)) - pi * 0.5 ** 2) < 1e-3
 
 
