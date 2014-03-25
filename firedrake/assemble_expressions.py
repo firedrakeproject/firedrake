@@ -39,7 +39,7 @@ class DummyFunction(ufl.Coefficient):
         argtype = self.function.dat.ctype + "*"
         name = " fn_%r" % self.argnum
 
-        return ast.Decl(argtype, ast.Symbol(name, ()))
+        return ast.Decl(argtype, ast.Symbol(name))
 
 
 class AssignmentBase(Operator):
@@ -344,13 +344,13 @@ def expression_kernel(expr, args):
     fs = args[0].function.function_space()
 
     if isinstance(fs, types.VectorFunctionSpace):
-        d = ast.Symbol("dim", ())
+        d = ast.Symbol("dim")
         body = ast.Block(
             (
                 ast.Decl("int", d),
-                ast.For(ast.Assign(d, ast.Symbol(0, ())),
-                        ast.Less(d, ast.Symbol(fs.dof_dset.cdim, ())),
-                        ast.Incr(d, ast.Symbol(1, ())),
+                ast.For(ast.Assign(d, ast.Symbol(0)),
+                        ast.Less(d, ast.Symbol(fs.dof_dset.cdim)),
+                        ast.Incr(d, ast.Symbol(1)),
                         ast.FlatBlock(str(expr) + ";"))
             )
         )
