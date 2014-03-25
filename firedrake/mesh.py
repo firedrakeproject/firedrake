@@ -1,5 +1,6 @@
 import tempfile
 from core_types import Mesh
+from dmplex import _from_cell_list
 import subprocess
 from pyop2.mpi import MPI
 import os
@@ -312,9 +313,9 @@ class IntervalMesh(Mesh):
         dx = length / ncells
         # This ensures the rightmost point is actually present.
         coords = np.arange(0, length + 0.01 * dx, dx).reshape(-1, 1)
-        cells = np.dstack((np.arange(0, len(coords) - 1), np.arange(1, len(coords)))).reshape(-1, 2)
-        dmplex = PETSc.DMPlex().createFromCellList(1, list(cells), coords)
-
+        cells = np.dstack((np.arange(0, len(coords) - 1, dtype=np.int32),
+                           np.arange(1, len(coords), dtype=np.int32))).reshape(-1, 2)
+        dmplex = _from_cell_list(1, cells, coords)
         # Apply boundary IDs
         dmplex.createLabel("boundary_ids")
         coordinates = dmplex.getCoordinates()
@@ -428,7 +429,7 @@ class UnitTetrahedronMesh(Mesh):
         self.name = "unittetra"
         coords = [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
         cells = [[1, 0, 3, 2]]
-        dmplex = PETSc.DMPlex().createFromCellList(3, cells, coords)
+        dmplex = _from_cell_list(3, cells, coords)
         super(UnitTetrahedronMesh, self).__init__(self.name, plex=dmplex)
 
 
@@ -440,7 +441,7 @@ class UnitTriangleMesh(Mesh):
         self.name = "unittri"
         coords = [[0., 0.], [1., 0.], [0., 1.]]
         cells = [[1, 2, 0]]
-        dmplex = PETSc.DMPlex().createFromCellList(2, cells, coords)
+        dmplex = _from_cell_list(2, cells, coords)
         super(UnitTriangleMesh, self).__init__(self.name, plex=dmplex)
 
 
@@ -515,7 +516,7 @@ class IcosahedralSphereMesh(Mesh):
         for i in range(refinement_level):
             self._refine()
 
-        dmplex = PETSc.DMPlex().createFromCellList(2, self._faces, self._vertices)
+        dmplex = _from_cell_list(2, self._faces, self._vertices)
         super(IcosahedralSphereMesh, self).__init__(self.name, plex=dmplex, dim=3)
 
     def _force_to_sphere(self, vtx):

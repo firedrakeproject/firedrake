@@ -5,6 +5,30 @@ import numpy as np
 from operator import itemgetter
 
 
+def _from_cell_list(dim, cells, coords, comm=None):
+    """
+    Create a DMPlex from a list of cells and coords.
+
+    :arg dim: The topological dimension of the mesh
+    :arg cells: The vertices of each cell
+    :arg coords: The coordinates of each vertex
+    :arg comm: An optional communicator to build the plex on (defaults to COMM_WORLD)
+    """
+
+    if comm is None:
+        comm = MPI.comm
+    if comm.rank == 0:
+        # Provide the actual data on rank 0.
+        return PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
+
+    # Provide empty plex on other ranks
+    # A subsequent call to plex.distribute() takes care of parallel partitioning
+    return PETSc.DMPlex().createFromCellList(dim,
+                                             np.zeros((0, 0), dtype=np.int32),
+                                             np.zeros((0, 0), dtype=np.int32),
+                                             comm=comm)
+
+
 def facet_numbering(plex, vertex_numbering, facet):
     """Derive local facet number according to Fenics"""
     cells = plex.getSupport(facet)
