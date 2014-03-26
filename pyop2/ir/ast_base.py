@@ -178,7 +178,7 @@ class Symbol(Expr):
         depends on, or explicit numbers representing the entry of a tensor the
         symbol is accessing, or the size of the tensor itself. """
 
-    def __init__(self, symbol, rank, offset=None):
+    def __init__(self, symbol, rank=(), offset=None):
         self.symbol = symbol
         self.rank = rank
         self.offset = offset
