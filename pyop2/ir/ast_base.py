@@ -40,12 +40,18 @@ point_ofs = lambda p, o: "[%s*%d+%d]" % (p, o[0], o[1])
 assign = lambda s, e: "%s = %s" % (s, e)
 incr = lambda s, e: "%s += %s" % (s, e)
 incr_by_1 = lambda s: "%s++" % s
+decr = lambda s, e: "%s -= %s" % (s, e)
+decr_by_1 = lambda s: "%s--" % s
+idiv = lambda s, e: "%s /= %s" % (s, e)
+imul = lambda s, e: "%s *= %s" % (s, e)
 wrap = lambda e: "(%s)" % e
 bracket = lambda s: "{%s}" % s
 decl = lambda q, t, s, a: "%s%s %s %s" % (q, t, s, a)
 decl_init = lambda q, t, s, a, e: "%s%s %s %s = %s" % (q, t, s, a, e)
 for_loop = lambda s1, e, s2, s3: "for (%s; %s; %s)\n%s" % (s1, e, s2, s3)
+ternary = lambda e, s1, s2: wrap("%s ? %s : %s" % (e, s1, s2))
 
+as_symbol = lambda s: s if isinstance(s, Node) else Symbol(s)
 # Base classes of the AST ###
 
 
@@ -54,7 +60,7 @@ class Node(object):
     """The base class of the AST."""
 
     def __init__(self, children=None):
-        self.children = children or []
+        self.children = map(as_symbol, children) or []
 
     def gencode(self):
         code = ""
@@ -164,6 +170,16 @@ class Less(BinExpr):
 
     def __init__(self, expr1, expr2):
         super(Less, self).__init__(expr1, expr2, "<")
+
+
+class Ternary(Expr):
+
+    """Ternary operator: expr ? true_stmt : false_stmt."""
+    def __init__(self, expr, true_stmt, false_stmt):
+        super(Ternary, self).__init__([expr, true_stmt, false_stmt])
+
+    def gencode(self):
+        return ternary(self.children)
 
 
 class Symbol(Expr):
@@ -319,6 +335,42 @@ class Incr(Statement):
             return incr_by_1(sym.gencode())
         else:
             return incr(sym.gencode(), exp.gencode()) + semicolon(scope)
+
+
+class Decr(Statement):
+
+    """Decrement a symbol by a certain amount."""
+    def __init__(self, sym, exp, pragma=None):
+        super(Decr, self).__init__([sym, exp], pragma)
+
+    def gencode(self, scope=False):
+        sym, exp = self.children
+        if isinstance(exp, Symbol) and exp.symbol == 1:
+            return decr_by_1(sym.gencode())
+        else:
+            return decr(sym.gencode(), exp.gencode()) + semicolon(scope)
+
+
+class IMul(Statement):
+
+    """In-place multiplication."""
+    def __init__(self, sym, exp, pragma=None):
+        super(IMul, self).__init__([sym, exp], pragma)
+
+    def gencode(self, scope=False):
+        sym, exp = self.children
+        return imul(sym.gencode(), exp.gencode()) + semicolon(scope)
+
+
+class Idiv(Statement):
+
+    """In-place multiplication."""
+    def __init__(self, sym, exp, pragma=None):
+        super(Idiv, self).__init__([sym, exp], pragma)
+
+    def gencode(self, scope=False):
+        sym, exp = self.children
+        return idiv(sym.gencode(), exp.gencode()) + semicolon(scope)
 
 
 class Decl(Statement):
