@@ -1,22 +1,12 @@
 import tempfile
 from core_types import Mesh
-import subprocess
+from dmplex import _from_cell_list
 from pyop2.mpi import MPI
 import os
 from shutil import rmtree
 import numpy as np
 from petsc import PETSc
 
-import firedrake
-
-try:
-    # Must occur after mpi4py import due to:
-    # 1) MPI initialisation issues
-    # 2) LD_PRELOAD issues
-    import gmshpy
-    gmshpy.Msg.SetVerbosity(-1)
-except ImportError:
-    gmshpy = None
 
 _cachedir = os.path.join(tempfile.gettempdir(),
                          'firedrake-mesh-cache-uid%d' % os.getuid())
@@ -46,7 +36,12 @@ def _msh_exists(name):
 
 
 def _build_msh_file(input, output, dimension):
-    if gmshpy:
+    try:
+        # Must occur after mpi4py import due to:
+        # 1) MPI initialisation issues
+        # 2) LD_PRELOAD issues
+        import gmshpy
+        gmshpy.Msg.SetVerbosity(-1)
         # We've got the gmsh python interface available, so
         # use that, rather than spawning the gmsh binary.
         m = gmshpy.GModel()
@@ -54,39 +49,8 @@ def _build_msh_file(input, output, dimension):
         m.mesh(dimension)
         m.writeMSH(output + ".msh")
         return
-    # Writing of the output file.
-    from mpi4py import MPI as _MPI
-    # We must use MPI's process spawning functionality because if Gmsh
-    # has been compiled with MPI and linked against the library then
-    # just running it as a subprocess doesn't work.
-    _MPI.COMM_SELF.Spawn('gmsh', args=[input, "-" + str(dimension),
-                                       '-o', output + '.msh'])
-    # Hideous: MPI_Comm_spawn returns as soon as the child calls
-    # MPI_Init.  So to wait for the gmsh process to complete we ought
-    # to call MPI_Comm_disconnect.  However, that's collective over
-    # the intercommunicator and gmsh doesn't call it, so we deadlock.
-    # Instead, sit spinning on the output file until gmsh has finished
-    # writing it before proceeding to the next step.
-    oldsize = 0
-    import time
-    while True:
-        try:
-            statinfo = os.stat(output + '.msh')
-            newsize = statinfo.st_size
-            if newsize == 0 or newsize != oldsize:
-                oldsize = newsize
-                # Sleep so we don't restat too soon.
-                time.sleep(1)
-            else:
-                # Gmsh has finished writing the output
-                # file, we hope, so break the loop.
-                break
-        except OSError as e:
-            if e.errno == 2:
-                # file didn't exist
-                pass
-            else:
-                raise e
+    except ImportError:
+        raise RuntimeError('Creation of gmsh meshes requires gmshpy')
 
 
 def _get_msh_file(source, name, dimension, meshed=False):
@@ -111,59 +75,10 @@ def _get_msh_file(source, name, dimension, meshed=False):
                     f.write(source)
             else:
                 _build_msh_file(input, output, dimension)
-        if MPI.parallel:
-            if dimension == 2:
-                exts = _exts + _2dexts
-            else:
-                exts = _exts + _3dexts
-            if not _triangled(output, exts):
-                gmsh2triangle = os.path.split(firedrake.__file__)[0] +\
-                    "/../../bin/gmsh2triangle"
-                if not os.path.exists(gmsh2triangle):
-                    raise OSError(
-                        "gmsh2triangle not found. Did you make fltools?")
-                args = [gmsh2triangle, output + '.msh']
-                if dimension == 2:
-                    args.append('--2d')
-                subprocess.call(args, cwd=_cachedir)
-
-            basename = output + "_" + str(MPI.comm.size)
-            # Deal with decomposition.
-            # fldecomp would always name the decomposed triangle files
-            # in a same way.(meshname_rank.node, rather than
-            # meshname_size_rank.node).
-            # To go around this without creating triangle files everytime,
-            # we can make a simlink meshname_size.node which points to
-            # the file meshname.node.
-            for ext in exts:
-                if os.path.exists(output + ext) \
-                        and not os.path.lexists(basename + ext):
-                    os.symlink(output + ext, basename + ext)
-            pexts = exts + _pexts
-            if not all([_triangled(basename + '_' + str(r), pexts)
-                        for r in xrange(MPI.comm.size)]):
-                fldecomp = os.path.split(firedrake.__file__)[0] +\
-                    "/../../bin/fldecomp"
-                if not os.path.exists(fldecomp):
-                    raise OSError("fldecomp not found. Did you make fltools?")
-
-                subprocess.call([fldecomp, '-n', str(MPI.comm.size), '-m',
-                                 'triangle', basename])
-
-            output = basename + ".node"
-            MPI.comm.bcast(output, root=0)
-
-    # Not processor-0
+        MPI.comm.bcast(output, root=0)
     else:
         output = MPI.comm.bcast(None, root=0)
-
-    return output if MPI.parallel else output + '.msh'
-
-
-def _triangled(basename, exts):
-    """ Checks if the mesh of the given basename has already been decomposed.
-    """
-    return all(map(lambda ext: os.path.exists(basename + ext), exts))
+    return output + '.msh'
 
 
 class UnitSquareMesh(Mesh):
@@ -312,9 +227,9 @@ class IntervalMesh(Mesh):
         dx = length / ncells
         # This ensures the rightmost point is actually present.
         coords = np.arange(0, length + 0.01 * dx, dx).reshape(-1, 1)
-        cells = np.dstack((np.arange(0, len(coords) - 1), np.arange(1, len(coords)))).reshape(-1, 2)
-        dmplex = PETSc.DMPlex().createFromCellList(1, list(cells), coords)
-
+        cells = np.dstack((np.arange(0, len(coords) - 1, dtype=np.int32),
+                           np.arange(1, len(coords), dtype=np.int32))).reshape(-1, 2)
+        dmplex = _from_cell_list(1, cells, coords)
         # Apply boundary IDs
         dmplex.createLabel("boundary_ids")
         coordinates = dmplex.getCoordinates()
@@ -354,6 +269,9 @@ class PeriodicIntervalMesh(Mesh):
         self.name = "periodicinterval"
 
         """Build the periodic Plex by hand"""
+
+        if MPI.comm.size > 1:
+            raise NotImplementedError("Periodic intervals not yet implemented in parallel")
         nvert = ncells
         nedge = ncells
         dmplex = PETSc.DMPlex().create()
@@ -428,7 +346,7 @@ class UnitTetrahedronMesh(Mesh):
         self.name = "unittetra"
         coords = [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
         cells = [[1, 0, 3, 2]]
-        dmplex = PETSc.DMPlex().createFromCellList(3, cells, coords)
+        dmplex = _from_cell_list(3, cells, coords)
         super(UnitTetrahedronMesh, self).__init__(self.name, plex=dmplex)
 
 
@@ -440,7 +358,7 @@ class UnitTriangleMesh(Mesh):
         self.name = "unittri"
         coords = [[0., 0.], [1., 0.], [0., 1.]]
         cells = [[1, 2, 0]]
-        dmplex = PETSc.DMPlex().createFromCellList(2, cells, coords)
+        dmplex = _from_cell_list(2, cells, coords)
         super(UnitTriangleMesh, self).__init__(self.name, plex=dmplex)
 
 
@@ -515,7 +433,7 @@ class IcosahedralSphereMesh(Mesh):
         for i in range(refinement_level):
             self._refine()
 
-        dmplex = PETSc.DMPlex().createFromCellList(2, self._faces, self._vertices)
+        dmplex = _from_cell_list(2, self._faces, self._vertices)
         super(IcosahedralSphereMesh, self).__init__(self.name, plex=dmplex, dim=3)
 
     def _force_to_sphere(self, vtx):

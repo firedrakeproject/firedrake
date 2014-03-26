@@ -1,4 +1,4 @@
-from petsc4py import PETSc
+from petsc import PETSc
 from types import IndexedFunctionSpace
 
 

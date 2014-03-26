@@ -37,7 +37,8 @@ def test_unit_cube():
 
 @pytest.mark.xfail(reason='Requires improved Gmsh support in PETSc')
 def test_unit_circle():
-    assert abs(integrate_one(UnitCircleMesh(15)) - pi * 0.5 ** 2) < 1e-3
+    pytest.importorskip('gmshpy')
+    assert abs(integrate_one(UnitCircleMesh(4)) - pi * 0.5 ** 2) < 0.02
 
 
 def test_unit_triangle():
@@ -46,6 +47,46 @@ def test_unit_triangle():
 
 def test_unit_tetrahedron():
     assert abs(integrate_one(UnitTetrahedronMesh()) - 0.5 / 3) < 1e-3
+
+
+@pytest.mark.parallel
+def test_unit_interval_parallel():
+    assert abs(integrate_one(UnitIntervalMesh(30)) - 1) < 1e-3
+
+
+@pytest.mark.parallel
+def test_interval_parallel():
+    assert abs(integrate_one(IntervalMesh(30, 5.0)) - 5.0) < 1e-3
+
+
+@pytest.mark.xfail(reason='Periodic intervals not implemented in parallel')
+@pytest.mark.parallel
+def test_periodic_unit_interval_parallel():
+    assert abs(integrate_one(PeriodicUnitIntervalMesh(30)) - 1) < 1e-3
+
+
+@pytest.mark.xfail(reason='Periodic intervals not implemented in parallel')
+@pytest.mark.parallel
+def test_periodic_interval_parallel():
+    assert abs(integrate_one(PeriodicIntervalMesh(30, 5.0)) - 5.0) < 1e-3
+
+
+@pytest.mark.parallel
+def test_unit_square_parallel():
+    assert abs(integrate_one(UnitSquareMesh(5, 5)) - 1) < 1e-3
+
+
+@pytest.mark.parallel
+def test_unit_cube_parallel():
+    assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
+
+
+@pytest.mark.xfail(reason='Requires improved Gmsh support in PETSc')
+@pytest.mark.parallel
+def test_unit_circle_parallel():
+    pytest.importorskip('gmshpy')
+    assert abs(integrate_one(UnitCircleMesh(4)) - pi * 0.5 ** 2) < 0.02
+
 
 if __name__ == '__main__':
     import os

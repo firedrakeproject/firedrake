@@ -13,11 +13,11 @@ def integrate_unit_cube(family, degree):
     # coordinates as a field.
     # A kernel which describes how coordinates are extruded.
 
-    mesh = firedrake.ExtrudedMesh(m, layers, layer_height=0.1)
+    mesh = ExtrudedMesh(m, layers, layer_height=0.1)
 
-    fs = firedrake.FunctionSpace(mesh, family, degree, name="fs")
+    fs = FunctionSpace(mesh, family, degree, name="fs")
 
-    f = firedrake.Function(fs)
+    f = Function(fs)
 
     volume = op2.Kernel("""
 void comp_vol(double A[1], double *x[], double *y[])
