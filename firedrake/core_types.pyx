@@ -3,7 +3,6 @@
 import os
 from mpi4py import MPI
 import numpy as np
-import cgen
 import pyop2.ir.ast_base as ast
 
 from petsc import PETSc
@@ -1335,35 +1334,24 @@ class FunctionSpaceBase(Cached):
 
         # Helper function to turn the inner index of an array into c
         # array literals.
-        c_array = lambda xs : "{"+", ".join(map(str, xs))+"}"
+        c_array = lambda xs: "{"+", ".join(map(str, xs))+"}"
 
-        kernel = op2.Kernel(str(cgen.FunctionBody(
-                    cgen.FunctionDeclaration(
-                        cgen.Value("void", "create_bc_node_map"),
-                        [cgen.Value("int", "*cell_nodes"),
-                         cgen.Value("int", "*facet_nodes"),
-                         cgen.Value("unsigned int", "*facet")
-                         ]
-                        ),
-                    cgen.Block(
-                        [cgen.ArrayInitializer(
-                                cgen.Const(
-                                    cgen.ArrayOf(
-                                        cgen.ArrayOf(
-                                            cgen.Value("int", "l_nodes"),
-                                            str(len(el.get_reference_element().topology[dim]))),
-                                        str(nodes_per_facet)),
-                                    ),
-                                map(c_array, local_facet_nodes)
-                                ),
-                         cgen.Value("int", "n"),
-                         cgen.For("n=0", "n < %d" % nodes_per_facet, "++n",
-                                  cgen.Assign("facet_nodes[n]",
-                                              "cell_nodes[l_nodes[facet[0]][n]]")
-                                  )
-                         ]
-                        )
-                    )), "create_bc_node_map")
+        body = ast.Block([ast.Decl("int", ast.Symbol("l_nodes", (len(el.get_reference_element().topology[dim]),
+                                                                 nodes_per_facet)),
+                                   init=ast.ArrayInit(c_array(map(c_array, local_facet_nodes))),
+                                   qualifiers=["const"]),
+                          ast.For(ast.Decl("int", ast.Symbol("n"), ast.Symbol(0)),
+                                  ast.Less(ast.Symbol("n"), ast.Symbol(nodes_per_facet)),
+                                  ast.Incr(ast.Symbol("n"), ast.Symbol(1)),
+                                  ast.FlatBlock("facet_nodes[n] = cell_nodes[l_nodes[facet[0]][n]];"))
+                          ])
+
+        kernel = op2.Kernel(ast.FunDecl("void", "create_bc_node_map",
+                                        [ast.Decl("int*", ast.Symbol("cell_nodes")),
+                                         ast.Decl("int*", ast.Symbol("facet_nodes")),
+                                         ast.Decl("unsigned int*", ast.Symbol("facet"))],
+                                        body),
+                            "create_bc_node_map")
 
         local_facet_dat = self._mesh.exterior_facets.local_facet_dat
         op2.par_loop(kernel, facet_set,
