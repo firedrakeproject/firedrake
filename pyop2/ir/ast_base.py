@@ -172,6 +172,19 @@ class Less(BinExpr):
         super(Less, self).__init__(expr1, expr2, "<")
 
 
+class FunCall(Expr):
+
+    """Function call. """
+
+    def __init__(self, function_name, *args):
+        super(BinExpr, self).__init__(args)
+        self.funcall = as_symbol(function_name)
+
+    def gencode(self, scope=False):
+        return self.funcall.gencode() + \
+            wrap(",".join([n.gencode() for n in self.children]))
+
+
 class Ternary(Expr):
 
     """Ternary operator: expr ? true_stmt : false_stmt."""
@@ -362,11 +375,11 @@ class IMul(Statement):
         return imul(sym.gencode(), exp.gencode()) + semicolon(scope)
 
 
-class Idiv(Statement):
+class IDiv(Statement):
 
     """In-place multiplication."""
     def __init__(self, sym, exp, pragma=None):
-        super(Idiv, self).__init__([sym, exp], pragma)
+        super(IDiv, self).__init__([sym, exp], pragma)
 
     def gencode(self, scope=False):
         sym, exp = self.children
@@ -449,17 +462,6 @@ class For(Statement):
         return self.pragma + "\n" + for_loop(self.init.gencode(True),
                                              self.cond.gencode(), self.incr.gencode(True),
                                              self.children[0].gencode())
-
-
-class FunCall(Statement):
-
-    """Function call. """
-
-    def __init__(self, funcall):
-        self.funcall = funcall
-
-    def gencode(self, scope=False):
-        return self.funcall
 
 
 class FunDecl(Statement):
