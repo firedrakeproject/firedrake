@@ -179,7 +179,7 @@ class Ternary(Expr):
         super(Ternary, self).__init__([expr, true_stmt, false_stmt])
 
     def gencode(self):
-        return ternary(self.children)
+        return ternary(*[c.gencode() for c in self.children])
 
 
 class Symbol(Expr):
@@ -388,10 +388,10 @@ class Decl(Statement):
     def __init__(self, typ, sym, init=None, qualifiers=None, attributes=None):
         super(Decl, self).__init__()
         self.typ = typ
-        self.sym = sym
+        self.sym = as_symbol(sym)
         self.qual = qualifiers or []
         self.attr = attributes or []
-        self.init = init or EmptyStatement()
+        self.init = as_symbol(init) if init else EmptyStatement()
 
     def gencode(self, scope=False):
 
@@ -585,7 +585,7 @@ class PreprocessNode(Node):
         super(PreprocessNode, self).__init__([prep])
 
     def gencode(self, scope=False):
-        return self.children[0]
+        return self.children[0].gencode()
 
 
 # Utility functions ###
