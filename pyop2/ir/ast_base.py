@@ -60,7 +60,7 @@ class Node(object):
     """The base class of the AST."""
 
     def __init__(self, children=None):
-        self.children = map(as_symbol, children) or []
+        self.children = map(as_symbol, children) if children else []
 
     def gencode(self):
         code = ""
