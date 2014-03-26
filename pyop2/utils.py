@@ -150,7 +150,7 @@ class validate_in(validate_base):
     and exception is the exception type to be raised if validation fails."""
 
     def check_arg(self, arg, values, exception):
-        if not arg in values:
+        if arg not in values:
             raise exception("%s:%d %s must be one of %s"
                             % (self.file, self.line, arg, values))
 
@@ -211,7 +211,7 @@ def verify_reshape(data, dtype, shape, allow_none=False):
             return a
         except ValueError:
             raise DataValueError("Invalid data: expected %d values, got %d!" %
-                                (np.prod(shape), np.asarray(data).size))
+                                 (np.prod(shape), np.asarray(data).size))
 
 
 def align(bytes, alignment=16):

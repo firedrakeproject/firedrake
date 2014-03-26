@@ -286,8 +286,8 @@ def xtr_b(xtr_dnodes):
 @pytest.fixture
 def xtr_coords(xtr_dvnodes):
     coord_vals = numpy.asarray([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
-                              (0.0, 1.0, 0.0), (1.0, 1.0, 0.0)],
-        dtype=valuetype)
+                                (0.0, 1.0, 0.0), (1.0, 1.0, 0.0)],
+                               dtype=valuetype)
     return coord_vals
 
 

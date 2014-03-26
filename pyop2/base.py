@@ -2496,7 +2496,7 @@ class Map(object):
     _globalcount = 0
 
     @validate_type(('iterset', Set, SetTypeError), ('toset', Set, SetTypeError),
-                  ('arity', int, ArityTypeError), ('name', str, NameTypeError))
+                   ('arity', int, ArityTypeError), ('name', str, NameTypeError))
     def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, parent=None, bt_masks=None):
         self._iterset = iterset
         self._toset = toset
