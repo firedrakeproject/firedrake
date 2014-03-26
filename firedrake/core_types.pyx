@@ -614,33 +614,31 @@ class Mesh(object):
         n = lambda x: ast.Symbol("n", (x,))
         x = lambda x: ast.Symbol("x", (x,))
         coords = lambda x, y: ast.Symbol("coords", (x, y))
-        i = ast.Symbol("i")
-        dot = ast.Symbol("dot")
 
         body = []
         body += [ast.Decl("double", v(3)) for v in [v0, v1, n, x]]
-        body.append(ast.Decl("double", dot))
-        body.append(ast.Assign(dot, ast.Symbol(0.0)))
-        body.append(ast.Decl("int", i))
-        body.append(ast.For(ast.Assign(i, ast.Symbol(0)), ast.Less(i, ast.Symbol(3)), ast.Incr(i, ast.Symbol(1)),
-                            ast.Block([ast.Assign(v0("i"), ast.Sub(coords(1, "i"), coords(0, "i"))),
-                                       ast.Assign(v0("i"), ast.Sub(coords(2, "i"), coords(0, "i"))),
-                                       ast.Assign(x("i"), ast.Symbol(0.0))])))
+        body.append(ast.Decl("double", "dot"))
+        body.append(ast.Assign("dot", 0.0))
+        body.append(ast.Decl("int", "i"))
+        body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
+                            [ast.Assign(v0("i"), ast.Sub(coords(1, "i"), coords(0, "i"))),
+                             ast.Assign(v1("i"), ast.Sub(coords(2, "i"), coords(0, "i"))),
+                             ast.Assign(x("i"), 0.0)]))
         # n = v0 x v1
         body.append(ast.Assign(n(0), ast.Sub(ast.Prod(v0(1), v1(2)), ast.Prod(v0(2), v1(1)))))
         body.append(ast.Assign(n(1), ast.Sub(ast.Prod(v0(2), v1(0)), ast.Prod(v0(0), v1(2)))))
         body.append(ast.Assign(n(2), ast.Sub(ast.Prod(v0(0), v1(1)), ast.Prod(v0(1), v1(0)))))
 
-        body.append(ast.For(ast.Assign(i, ast.Symbol(0)), ast.Less(i, ast.Symbol(3)), ast.Incr(i, ast.Symbol(1)),
-                            ast.Block([ast.Incr(x(j), coords("i", j)) for j in range(3)])))
+        body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
+                            [ast.Incr(x(j), coords("i", j)) for j in range(3)]))
 
-        body.extend([ast.FlatBlock("dot += (%(x)s) * n[%(i)d];" % {"x": x, "i": i})
+        body.extend([ast.FlatBlock("dot += (%(x)s) * n[%(i)d];\n" % {"x": x, "i": i})
                      for i, x in enumerate(expr.code)])
-        body.append(ast.Assign(ast.Symbol("*orientation"), ast.Less(dot, ast.FlatBlock("0 ? 1 : 0"))))
+        body.append(ast.Assign("*orientation", ast.Ternary(ast.Less("dot", 0), 1, 0)))
 
         kernel = op2.Kernel(ast.FunDecl("void", "cell_orientations",
-                                        [ast.Decl("int*", ast.Symbol("orientation")),
-                                         ast.Decl("double**", ast.Symbol("coords"))],
+                                        [ast.Decl("int*", "orientation"),
+                                         ast.Decl("double**", "coords")],
                                         ast.Block(body)),
                             "cell_orientations")
 
@@ -1340,16 +1338,17 @@ class FunctionSpaceBase(Cached):
                                                                  nodes_per_facet)),
                                    init=ast.ArrayInit(c_array(map(c_array, local_facet_nodes))),
                                    qualifiers=["const"]),
-                          ast.For(ast.Decl("int", ast.Symbol("n"), ast.Symbol(0)),
-                                  ast.Less(ast.Symbol("n"), ast.Symbol(nodes_per_facet)),
-                                  ast.Incr(ast.Symbol("n"), ast.Symbol(1)),
-                                  ast.FlatBlock("facet_nodes[n] = cell_nodes[l_nodes[facet[0]][n]];"))
+                          ast.For(ast.Decl("int", "n", 0),
+                                  ast.Less("n", nodes_per_facet),
+                                  ast.Incr("n", 1),
+                                  ast.Assign(ast.Symbol("facet_nodes", ("n",)),
+                                             ast.Symbol("cell_nodes", ("l_nodes[facet[0]][n]",))))
                           ])
 
         kernel = op2.Kernel(ast.FunDecl("void", "create_bc_node_map",
-                                        [ast.Decl("int*", ast.Symbol("cell_nodes")),
-                                         ast.Decl("int*", ast.Symbol("facet_nodes")),
-                                         ast.Decl("unsigned int*", ast.Symbol("facet"))],
+                                        [ast.Decl("int*", "cell_nodes"),
+                                         ast.Decl("int*", "facet_nodes"),
+                                         ast.Decl("unsigned int*", "facet")],
                                         body),
                             "create_bc_node_map")
 
