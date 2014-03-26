@@ -1,5 +1,5 @@
 import numpy as np
-from petsc4py import PETSc
+from petsc import PETSc
 from pyop2 import op2
 from mpi4py import MPI
 

@@ -26,15 +26,15 @@ def identity(family, degree):
 
 
 def vector_identity(family, degree):
-    mesh = firedrake.UnitSquareMesh(2, 2)
-    fs = firedrake.VectorFunctionSpace(mesh, family, degree)
-    f = firedrake.Function(fs)
-    out = firedrake.Function(fs)
-    u = firedrake.TrialFunction(fs)
-    v = firedrake.TestFunction(fs)
+    mesh = UnitSquareMesh(2, 2)
+    fs = VectorFunctionSpace(mesh, family, degree)
+    f = Function(fs)
+    out = Function(fs)
+    u = TrialFunction(fs)
+    v = TestFunction(fs)
 
-    f.interpolate(firedrake.Expression(("x[0]", "x[1]")))
-    firedrake.solve(firedrake.inner(u, v)*firedrake.dx == firedrake.inner(f, v)*firedrake.dx, out)
+    f.interpolate(Expression(("x[0]", "x[1]")))
+    solve(inner(u, v)*dx == inner(f, v)*dx, out)
 
     return np.max(np.abs(out.dat.data - f.dat.data))
 
@@ -51,7 +51,7 @@ def run_vector_test():
     return np.array([vector_identity(family, d) for d in degree])
 
 
-def test_firedrake_identity():
+def test_identity():
     assert (run_test() < 1e-6).all()
 
 
@@ -60,7 +60,7 @@ def test_vector_identity():
 
 
 @pytest.mark.parallel
-def test_firedrake_identity_parallel():
+def test_identity_parallel():
     from mpi4py import MPI
     error = run_test()
     MPI.COMM_WORLD.allreduce(MPI.IN_PLACE, error, MPI.MAX)

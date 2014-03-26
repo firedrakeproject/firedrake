@@ -20,6 +20,7 @@ from pyop2.utils import as_tuple
 
 import utils
 import dmplex
+from dmplex import _from_cell_list
 from collections import defaultdict
 
 np.import_array()
@@ -562,7 +563,7 @@ class Mesh(object):
             assert elecount == eles.shape[0]
 
         cells = map(lambda c: c-1, eles)
-        dmplex = PETSc.DMPlex().createFromCellList(tdim, cells, coordinates, comm=op2.MPI.comm)
+        dmplex = _from_cell_list(tdim, cells, coordinates, comm=op2.MPI.comm)
 
         # Apply boundary IDs
         facets = None
