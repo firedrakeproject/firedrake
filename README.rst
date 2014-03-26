@@ -161,19 +161,21 @@ compiler) are installed. On a Debian based system, run::
 Then install PETSc_ via ``pip`` ::
 
   PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco" \
-    pip install -U git+https://bitbucket.org/petsc/petsc.git
+    pip install git+https://bitbucket.org/petsc/petsc.git
   unset PETSC_DIR
   unset PETSC_ARCH
-
-The -U option forces the install in the case where you have a recent
-PETSc_ version already installed.
 
 If you built PETSc_ using ``pip``, ``PETSC_DIR`` and ``PETSC_ARCH``
 should be left unset when building petsc4py_.
 
 Install petsc4py_ via ``pip``::
 
-  pip install -U git+https://bitbucket.org/petsc/petsc4py.git
+  pip install git+https://bitbucket.org/petsc/petsc4py.git
+
+If you have previously installed and older version of PETSc_ or petsc4py_,
+``pip`` might tell you that the requirements are already satisfied when running
+above commands. In that case, use ``pip install -U --no-deps`` to upgrade
+(``--no-deps`` prevents also recursively upgrading any dependencies).
 
 .. _cuda-installation:
 
