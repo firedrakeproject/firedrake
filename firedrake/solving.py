@@ -29,6 +29,7 @@ import numpy
 import ufl
 from ufl_expr import derivative
 from pyop2 import op2, ffc_interface
+from pyop2.exceptions import MapValueError
 from pyop2.logger import progress, INFO
 import core_types
 import types
@@ -515,7 +516,10 @@ def _assemble(f, tensor=None, bcs=None):
                     args.append(c.dat(op2.READ, c.cell_node_map(),
                                       flatten=has_vec_fs(c)))
 
-                op2.par_loop(*args)
+                try:
+                    op2.par_loop(*args)
+                except MapValueError:
+                    raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
             elif domain_type == 'exterior_facet':
                 if op2.MPI.parallel:
                     raise \
@@ -540,8 +544,10 @@ def _assemble(f, tensor=None, bcs=None):
                     args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
                                       flatten=has_vec_fs(c)))
                 args.append(m.exterior_facets.local_facet_dat(op2.READ))
-                op2.par_loop(*args)
-
+                try:
+                    op2.par_loop(*args)
+                except MapValueError:
+                    raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
             elif domain_type == 'interior_facet':
                 if op2.MPI.parallel:
                     raise \
@@ -567,7 +573,10 @@ def _assemble(f, tensor=None, bcs=None):
                     args.append(c.dat(op2.READ, c.interior_facet_node_map(),
                                       flatten=True))
                 args.append(m.interior_facets.local_facet_dat(op2.READ))
-                op2.par_loop(*args)
+                try:
+                    op2.par_loop(*args)
+                except MapValueError:
+                    raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
             else:
                 raise RuntimeError('Unknown domain type "%s"' % domain_type)
 
