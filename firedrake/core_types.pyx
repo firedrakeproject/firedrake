@@ -1002,27 +1002,27 @@ class FunctionSpaceBase(Cached):
         self._mesh = mesh
         self._index = None
 
-        self._plex = mesh._plex.clone()
-
         # Create the PetscSection mapping topological entities to DoFs
-        self._global_numbering = self._plex.createSection(1, [1], self._dofs_per_entity,
-                                                          perm=self._mesh._plex_renumbering)
-        self._plex.setDefaultSection(self._global_numbering)
-        self._universal_numbering = self._plex.getDefaultGlobalSection()
+        self._global_numbering = mesh._plex.createSection(1, [1], self._dofs_per_entity,
+                                                          perm=mesh._plex_renumbering)
+        mesh._plex.setDefaultSection(self._global_numbering)
+        self._universal_numbering = mesh._plex.getDefaultGlobalSection()
 
-        # Re-initialise the PetscSF and build Halo from it
-        self._plex.createDefaultSF(self._global_numbering,
+        # Re-initialise the DefaultSF with the numbering for this FS
+        mesh._plex.createDefaultSF(self._global_numbering,
                                    self._universal_numbering)
-        self._halo = Halo(self._plex.getDefaultSF(),
+
+        # Derive the Halo from the DefaultSF
+        self._halo = Halo(mesh._plex.getDefaultSF(),
                           self._global_numbering,
                           self._universal_numbering)
 
         # Compute entity class offsets
         self.dof_classes = [0, 0, 0, 0]
-        for d in range(self._plex.getDimension()+1):
-            ncore = self._mesh._plex.getStratumSize("op2_core", d)
-            nowned = self._mesh._plex.getStratumSize("op2_non_core", d)
-            nhalo = self._mesh._plex.getStratumSize("op2_exec_halo", d)
+        for d in range(mesh._plex.getDimension()+1):
+            ncore = mesh._plex.getStratumSize("op2_core", d)
+            nowned = mesh._plex.getStratumSize("op2_non_core", d)
+            nhalo = mesh._plex.getStratumSize("op2_exec_halo", d)
             ndofs = self._dofs_per_entity[d]
             self.dof_classes[0] += ndofs * ncore
             self.dof_classes[1] += ndofs * (ncore + nowned)
@@ -1030,7 +1030,7 @@ class FunctionSpaceBase(Cached):
             self.dof_classes[3] += ndofs * (ncore + nowned + nhalo)
 
         self._node_count = self._global_numbering.getStorageSize()
-        self.cell_node_list = np.array([self._get_cell_nodes(c) for c in self._mesh.cells()])
+        self.cell_node_list = np.array([self._get_cell_nodes(c) for c in mesh.cells()])
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
             dim = mesh._plex.getDimension()
@@ -1082,13 +1082,13 @@ class FunctionSpaceBase(Cached):
             # Instead of using the numbering directly, we step through
             # all points and build the numbering for each entity
             # according to the extrusion rules.
-            dim = self._plex.getDimension()
+            dim = plex.getDimension()
             flat_entity_dofs = self.flattened_element.entity_dofs()
             hdofs = self._xtr_hdofs
             vdofs = self._xtr_vdofs
 
             for d in range(dim+1):
-                pStart, pEnd = self._plex.getDepthStratum(d)
+                pStart, pEnd = plex.getDepthStratum(d)
                 points = filter(lambda x: pStart<=x and x<pEnd, numbering)
                 for i in range(len(points)):
                     p = points[i]
