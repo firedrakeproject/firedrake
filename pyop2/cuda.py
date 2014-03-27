@@ -689,6 +689,7 @@ class JITModule(base.JITModule):
         # No need to protect against re-initialization since these attributes
         # are not expensive to set and won't be used if we hit cache
         self._parloop = kwargs.get('parloop')
+        self._kernel = self._parloop._kernel
         self._config = kwargs.get('config')
 
     def compile(self):
@@ -727,7 +728,7 @@ class JITModule(base.JITModule):
             argtypes += inttype  # number of colours in the block
 
         self._module = SourceModule(src, options=compiler_opts)
-        self._dump_generated_code(src, ext=".cu")
+        self._dump_generated_code(src, ext="cu")
 
         # Upload Const data.
         for c in Const._definitions():

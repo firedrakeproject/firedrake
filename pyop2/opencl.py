@@ -507,6 +507,7 @@ class JITModule(base.JITModule):
         # No need to protect against re-initialization since these attributes
         # are not expensive to set and won't be used if we hit cache
         self._parloop = kwargs.get('parloop')
+        self._kernel = self._parloop._kernel
         self._conf = kwargs.get('conf')
 
     def compile(self):
@@ -551,7 +552,7 @@ class JITModule(base.JITModule):
                                'codegen': {'amd': _AMD_fixes},
                                'op2const': Const._definitions()
                                }).encode("ascii")
-        self._dump_generated_code(src, ext=".cl")
+        self._dump_generated_code(src, ext="cl")
         prg = cl.Program(_ctx, src).build()
         self._fun = prg.__getattr__(self._parloop._stub_name)
         return self._fun
