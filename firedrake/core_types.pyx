@@ -405,6 +405,13 @@ class Mesh(object):
         dim = self._plex.getDimension()
         self._cells, self.cell_classes = dmplex.get_entities_by_class(self._plex, dim)
 
+        # Derive a cell numbering from the Plex renumbering
+        cell_entity_dofs = np.zeros(dim+1, dtype=np.int32)
+        cell_entity_dofs[-1] = 1
+        self._cell_numbering = self._plex.createSection(1, [1],
+                                                        cell_entity_dofs,
+                                                        perm=self._plex_renumbering)
+
         # Fenics facet and DoF numbering requires a universal vertex numbering
         self._vertex_numbering = None
         vertex_fs = types.FunctionSpace(self, "CG", 1)
@@ -426,7 +433,13 @@ class Mesh(object):
             else:
                 boundary_ids = None
 
-            exterior_facet_cell = np.array([np.where(self._plex.getSupport(f)==self.cells())[0][0] for f in exterior_facets])
+            exterior_facet_cell = []
+            for f in exterior_facets:
+                fcells = self._plex.getSupport(f)
+                fcells_num = [np.array([self._cell_numbering.getOffset(c)]) for c in fcells]
+                exterior_facet_cell.append(np.concatenate(fcells_num))
+            exterior_facet_cell = np.array(exterior_facet_cell)
+
             get_f_no = lambda f: dmplex.facet_numbering(self._plex, self._vertex_numbering, f)
             exterior_local_facet_number = np.array([get_f_no(f) for f in exterior_facets], dtype=np.int32)
             # Note: To implement facets correctly in parallel
@@ -449,7 +462,9 @@ class Mesh(object):
 
             interior_facet_cell = []
             for f in interior_facets:
-                interior_facet_cell.append(np.concatenate([np.where(c==self.cells())[0] for c in self._plex.getSupport(f)]))
+                fcells = self._plex.getSupport(f)
+                fcells_num = [np.array([self._cell_numbering.getOffset(c)]) for c in fcells]
+                interior_facet_cell.append(np.concatenate(fcells_num))
             interior_facet_cell = np.array(interior_facet_cell)
             get_f_no = lambda f: dmplex.facet_numbering(self._plex, self._vertex_numbering, f)
             interior_local_facet_number = np.array([get_f_no(f) for f in interior_facets])
@@ -734,6 +749,7 @@ class ExtrudedMesh(Mesh):
         self.name = mesh.name
         self._plex = mesh._plex
         self._plex_renumbering = mesh._plex_renumbering
+        self._cell_numbering = mesh._cell_numbering
 
         interior_f = self._old_mesh.interior_facets
         self._interior_facets = _Facets(self, interior_f.count,
@@ -1039,7 +1055,9 @@ class FunctionSpaceBase(Cached):
 
             interior_facet_eles = []
             for f in interior_facets:
-                interior_facet_eles.append(np.concatenate([np.where(c==mesh.cells())[0] for c in mesh._plex.getSupport(f)]))
+                fcells = self._mesh._plex.getSupport(f)
+                fcells_num = [np.array([mesh._cell_numbering.getOffset(c)]) for c in fcells]
+                interior_facet_eles.append(np.concatenate(fcells_num))
             self.interior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in interior_facet_eles])
         else:
             self.interior_facet_node_list = None
@@ -1051,7 +1069,9 @@ class FunctionSpaceBase(Cached):
 
             exterior_facet_eles = []
             for f in exterior_facets:
-                exterior_facet_eles.append(np.concatenate([np.where(c==mesh.cells())[0] for c in mesh._plex.getSupport(f)]))
+                fcells = self._mesh._plex.getSupport(f)
+                fcells_num = [np.array([mesh._cell_numbering.getOffset(c)]) for c in fcells]
+                exterior_facet_eles.append(np.concatenate(fcells_num))
             self.exterior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in exterior_facet_eles])
         else:
             self.exterior_facet_node_list = None
