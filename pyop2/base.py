@@ -3302,7 +3302,7 @@ ON_COLUMN = Iterate("ON_COLUMN")
 """Iterate over the entire column of cells."""
 
 ON_BOTTOM = Iterate("ON_BOTTOM")
-"""Itrerate over the cells at the bottom of the column in an extruded mesh."""
+"""Iterate over the cells at the bottom of the column in an extruded mesh."""
 
 ON_TOP = Iterate("ON_TOP")
 """Iterate over the top cells in an extruded mesh."""

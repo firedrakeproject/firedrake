@@ -89,6 +89,18 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
         rowmap = init_map(rmap)
         colmap = init_map(cmap)
         rsize = rowmap.from_size
+        # In the case of extruded meshes, in particular, when iterating over
+        # horizontal facets, the iteration region determines which part of the
+        # mesh the sparsity should be constructed for.
+        #
+        # ON_BOTTOM: create the sparsity only for the bottom layer of cells
+        # ON_TOP: create the sparsity only for the top layers
+        # ON_INTERIOR_FACETS: the sparsity creation requires the dynamic
+        # computation of the full facet map. Because the extruded direction
+        # is structured, the map can be computed dynamically. The map is made up
+        # of a lower half given by the base map and an upper part which is obtained
+        # by adding the offset to the base map. This produces a map which has double
+        # the arity of the initial map.
         if rowmap.layers > 1:
             row_iteration_region = maps[ind][0].iteration_region
             col_iteration_region = maps[ind][1].iteration_region

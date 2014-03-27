@@ -250,11 +250,11 @@ class ParLoop(device.ParLoop, host.ParLoop):
 
             if self.iterate in [ON_TOP, ON_BOTTOM]:
                 self._argtypes.append(ctypes.c_int)
-                self._jit_args.extend([2])
+                self._jit_args.append(2)
             elif self.iterate in [ON_INTERIOR_FACETS]:
                 self._argtypes.append(ctypes.c_int)
-                self._jit_args.extend([self._it_space.layers - 1])
-            elif self._it_space.layers > 1:
+                self._jit_args.append(self._it_space.layers - 1)
+            elif self._it_space._extruded:
                 self._argtypes.append(ctypes.c_int)
                 self._jit_args.extend(self.layer_arg)
 
