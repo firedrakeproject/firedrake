@@ -20,9 +20,10 @@ PyOP2 and its dependencies on a Ubuntu 12.04 or compatible platform.
 Only the sequential and OpenMP backends are covered at the moment.
 
 .. note::
-  This script is not intended to be used by PyOP2 developers. If you intend
-  to contribute to PyOP2 it is recommended to follow the instructions below
-  for a manual installation.
+  This script will only work reliably on a clean Ubuntu installation and is
+  not intended to be used by PyOP2 developers. If you intend to contribute to
+  PyOP2 it is recommended to follow the instructions below for a manual
+  installation.
 
 Running with superuser privileges will install missing packages and
 Python dependencies will be installed system wide::
@@ -41,8 +42,7 @@ site ``~/.local``::
 
   wget -O - https://github.com/OP2/PyOP2/raw/master/install.sh | bash
 
-In each case, OP2-Common and PyOP2 will be cloned to subdirectories of
-the current directory.
+In each case, PyOP2 will be cloned to subdirectories of the current directory.
 
 After installation has completed and a rudimentary functionality check,
 the test suite is run. The script indicates whether all these steps have
