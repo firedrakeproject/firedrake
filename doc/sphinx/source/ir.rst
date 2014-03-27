@@ -21,7 +21,7 @@ objects. Since PyOP2 has been primarily thought to be fed by higher layers
 of abstractions, rather than by users, no C-to-AST parser is currently provided.
 The advantage of providing an AST, instead of C code, is that it enables PyOP2
 to inspect and transform the kernel, which is aimed at achieving performance
-portability among different architectures and, more in general, better execution
+portability among different architectures and, more generally, better execution
 times.
 
 For the purposes of exposition, let us consider a simple
@@ -57,7 +57,7 @@ The :class:`~pyop2.ir.ast_base.FlatBlock` object encapsulates a "flat" block
 of code, which is not modified by the IR engine. A
 :class:`~pyop2.ir.ast_base.FlatBlock` is used to represent (possibly large)
 fragments of code for which we are not interested in any kind of
-transformations, so it may be particularly useful to speed up code development
+transformation, so it may be particularly useful to speed up code development
 when writing, for example, test cases or non-expensive kernels.  On the other
 hand, time-demanding kernels should be properly represented using a "real"
 AST. For example, an useful AST for ``init`` could be the following
@@ -76,7 +76,7 @@ AST. For example, an useful AST for ``init`` could be the following
 
 In this example, we first construct the body of the kernel function. We have
 an initial :class:`~pyop2.ir.ast_base.FlatBlock` that contains, for instance,
-some sort of initializing code. :func:`~pyop2.ir.ast_base.c_for` is a shortcut
+some sort of initialization code. :func:`~pyop2.ir.ast_base.c_for` is a shortcut
 for building a :class:`for loop <pyop2.ir.ast_base.For>`.  It takes an
 iteration variable (``i``), the extent of the loop and its body.  Multiple
 statements in the body can be passed in as a list.
@@ -88,7 +88,7 @@ iteration variables.
 We use :class:`~pyop2.ir.ast_base.Symbol` instead of
 :func:`~pyop2.ir.ast_base.c_sym`,  when ``edge_weight`` accesses a specific
 element using the iteration variable ``i``. This is fundamental to allow the
-IR engine performing many kind of transformations involving the kernel's
+IR engine to perform many kind of transformations involving the kernel's
 iteration space(s). Finally, the signature of the function is constructed
 using the :class:`~pyop2.ir.ast_base.FunDecl`.
 
@@ -114,8 +114,8 @@ achieved in two steps:
   underlying backend.
 
 To maximize the outcome of the transformation process, it is important that
-kernels are written as simple as possible. That is, premature optimizations,
-possibly for a specific backend, might be harmful for performance.
+kernels are written as simply as possible. That is, premature optimization,
+possibly for a specific backend, might harm performance.
 
 A minimal language, the so-called PyOP2 Kernel Domain-Specific Language, is
 used to trigger specific transformations. If we had had a parser from C
@@ -132,8 +132,8 @@ language follows
   to denote that we are performing a local assembly operation along to the
   ``itvar1`` and ``itvar2`` dimensions.
 * ``pragma pyop2 simd``. This is added on top of the kernel signature. It is
-  used to suggest PyOP2 to apply simd vectorization along the ParLoop's
-  iteration set dimension. Such kind of vectorization is also known as
+  used to suggest PyOP2 to apply SIMD vectorization along the ParLoop's
+  iteration set dimension. This kind of vectorization is also known as
   *inter-kernel vectorization*. This feature is currently not supported
   by PyOP2, and will be added only in a future release.
 
@@ -159,7 +159,7 @@ Now, imagine we are executing the ``init`` kernel on a CPU architecture.
 Typically we want a single core to execute the entire kernel, because it is
 very likely that the kernel's iteration space is small and its working set
 fits the L1 cache, and no benefit would be gained by splitting the computation
-among distinct cores. On the other end, if the backend is a GPU or an
+between distinct cores. On the other end, if the backend is a GPU or an
 accelerator, a different execution model might give better performance.
 There's a huge amount of parallelism available, for example, in a GPU, so
 delegating the execution of an individual iteration (or a chunk of iterations)
@@ -209,10 +209,10 @@ That, conceptually, corresponds to
 Visiting the AST, PyOP2 finds a 2-dimensional iteration space and an assembly
 statement. Currently, ``#pragma pyop2 itspace`` is ignored when the backend is
 a CPU. The ``#pragma pyop2 assembly(i, j)`` can trigger multiple DSOs.
-PyOP2 currently lacks an autotuning system that finds out automatically the
-best possible kernel implementation, that is the optimizations that minimize
+PyOP2 currently lacks an autotuning system that automatically finds out the
+best possible kernel implementation; that is, the optimizations that minimize
 the kernel run-time. To drive the optimization process, the user (or the
-higher layer) can specifiy which optimizations should be applied. Currently,
+higher layer) can specify which optimizations should be applied. Currently,
 PyOP2 can automate:
 
 * Alignment and padding of data structures: for issuing aligned loads and stores.

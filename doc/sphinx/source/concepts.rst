@@ -64,7 +64,7 @@ Dat
 
 Since a set does not have any type but only a cardinality, data declared on a
 set through a :class:`~pyop2.Dat` needs additional metadata to allow PyOP2 to
-inpret the data and to specify how much memory is required to store it. This
+interpret the data and to specify how much memory is required to store it. This
 metadata is the *datatype* and the *shape* of the data associated with any
 given set element. The shape is not associated with the :class:`~pyop2.Dat`
 directly, but with a :class:`~pyop2.DataSet`. One can associate a scalar with
