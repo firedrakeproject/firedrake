@@ -345,7 +345,7 @@ class Incr(Statement):
     def gencode(self, scope=False):
         sym, exp = self.children
         if isinstance(exp, Symbol) and exp.symbol == 1:
-            return incr_by_1(sym.gencode())
+            return incr_by_1(sym.gencode()) + semicolon(scope)
         else:
             return incr(sym.gencode(), exp.gencode()) + semicolon(scope)
 
@@ -359,7 +359,7 @@ class Decr(Statement):
     def gencode(self, scope=False):
         sym, exp = self.children
         if isinstance(exp, Symbol) and exp.symbol == 1:
-            return decr_by_1(sym.gencode())
+            return decr_by_1(sym.gencode()) + semicolon(scope)
         else:
             return decr(sym.gencode(), exp.gencode()) + semicolon(scope)
 
