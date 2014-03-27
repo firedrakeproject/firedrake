@@ -387,13 +387,14 @@ def _assemble(f, tensor=None, bcs=None):
     # Do we need to pass cell_orientations in to get the sign of detJ right?
     needs_orientations = False
     for e in fd.elements:
-        if isinstance(e, ufl.MixedElement):
+        if isinstance(e, ufl.MixedElement) and e.family() != 'Real':
             if any("contravariant piola" in core_types.fiat_from_ufl_element(s).mapping()
                    for s in e.sub_elements()):
                 needs_orientations = True
                 break
         else:
-            if "contravariant piola" in core_types.fiat_from_ufl_element(e).mapping():
+            if e.family() != 'Real' and \
+               "contravariant piola" in core_types.fiat_from_ufl_element(e).mapping():
                 needs_orientations = True
                 break
     needs_orientations = needs_orientations and fd.topological_dimension != fd.geometric_dimension
