@@ -27,7 +27,7 @@
 #    USA
 
 import sys
-from numpy import *
+import numpy as np
 import tempfile
 import os
 
@@ -46,7 +46,7 @@ class get_interval_mesh(object):
         name = tempfile.NamedTemporaryFile('w+r').name
         dx = self._length / self._nx
         # This ensures the rightmost point is actually present.
-        nodes = arange(0, self._length + 0.01 * dx, dx)
+        nodes = np.arange(0, self._length + 0.01 * dx, dx)
         eles = [(i + 1, i + 2) for i in range(len(nodes) - 1)]
         dim = 1
 
@@ -110,7 +110,7 @@ class periodic_interval_mesh(object):
         self._ncells = ncells
 
     def __enter__(self):
-        nodes = arange(1, self._ncells + 1, dtype=float)
+        nodes = np.arange(1, self._ncells + 1, dtype=float)
         ele = [[i + 1, i + 2] for i in range(self._ncells)]
         # Wrap around
         ele[-1][1] = 1

@@ -11,7 +11,6 @@ cimport numpy as np
 cimport cpython as py
 
 import ufl
-from ufl import *
 import FIAT
 
 from pyop2 import op2
@@ -489,9 +488,9 @@ class Mesh(object):
             self.coordinates = types.Function(self._coordinate_fs,
                                                     val=self._coordinates,
                                                     name="Coordinates")
-        self._dx = Measure('cell', domain_data=self.coordinates)
-        self._ds = Measure('exterior_facet', domain_data=self.coordinates)
-        self._dS = Measure('interior_facet', domain_data=self.coordinates)
+        self._dx = ufl.Measure('cell', domain_data=self.coordinates)
+        self._ds = ufl.Measure('exterior_facet', domain_data=self.coordinates)
+        self._dS = ufl.Measure('interior_facet', domain_data=self.coordinates)
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._domain_data = self.coordinates
@@ -786,9 +785,9 @@ class ExtrudedMesh(Mesh):
                              kernel=kernel)
         self._coordinates = self.coordinates.dat.data_ro_with_halos
 
-        self._dx = Measure('cell', domain_data=self.coordinates)
-        self._ds = Measure('exterior_facet', domain_data=self.coordinates)
-        self._dS = Measure('interior_facet', domain_data=self.coordinates)
+        self._dx = ufl.Measure('cell', domain_data=self.coordinates)
+        self._ds = ufl.Measure('exterior_facet', domain_data=self.coordinates)
+        self._dS = ufl.Measure('interior_facet', domain_data=self.coordinates)
         # Set the domain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._domain_data = self.coordinates
