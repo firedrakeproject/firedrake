@@ -90,9 +90,9 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
         colmap = init_map(cmap)
         rsize = rowmap.from_size
         if rowmap.layers > 1:
-            row_it_space = maps[ind][0].it_space
-            col_it_space = maps[ind][1].it_space
-            for it_sp in row_it_space:
+            row_iteration_region = maps[ind][0].iteration_region
+            col_iteration_region = maps[ind][1].iteration_region
+            for it_sp in row_iteration_region:
                 if it_sp.where == 'ON_BOTTOM':
                     for e in range(rsize):
                         for i in range(rowmap.arity):

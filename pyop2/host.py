@@ -202,6 +202,10 @@ class Arg(base.Arg):
                                 'idx': d * arity * (2 if is_facet else 1) + idx,
                                 'data': self.c_ind_data(idx, 0, d, is_top=is_top, layers=layers,
                                                         offset=self.map.offset[idx] if is_top else None)})
+            # In the case of interior horizontal facets the map for the vertical does not exist
+            # so it has to be dynamically created by adding the offset to the map of the current cell.
+            # In this way the only map required is the one for the bottom layer of cells and the wrapper will
+            # make sure to stage in the data for the entire map spanning the facet.
             if is_facet:
                 for d in range(self.data.dataset.cdim):
                     for idx in range(arity):

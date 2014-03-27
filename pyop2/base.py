@@ -2550,7 +2550,7 @@ class Map(object):
         return (self,)
 
     @property
-    def it_space(self):
+    def iteration_region(self):
         """:class:`Set` mapped from."""
         return [ALL]
 
@@ -2657,24 +2657,29 @@ class Map(object):
 
 class SparsityMap(Map):
     """Augmented type for a map used in the case of building the sparsity
-    for horizontal facets."""
+    for horizontal facets.
 
-    def __new__(cls, map, it_space):
+    The original Map and the pre-defined region of the mesh over which the
+    parallel loop is expected to execute must be included. In this way the
+    iteration over a specific part of the mesh will lead to the creation of
+    the appropriate sparsity pattern."""
+
+    def __new__(cls, map, iteration_region):
         if isinstance(map, MixedMap):
-            return MixedMap([SparsityMap(m, it_space) for m in map])
-        return super(SparsityMap, cls).__new__(cls, map, it_space)
+            return MixedMap([SparsityMap(m, iteration_region) for m in map])
+        return super(SparsityMap, cls).__new__(cls, map, iteration_region)
 
-    def __init__(self, map, it_space):
+    def __init__(self, map, iteration_region):
         self._map = map
-        self._it_space = it_space
+        self._iteration_region = iteration_region
 
     def __getattr__(self, name):
         return getattr(self._map, name)
 
     @property
-    def it_space(self):
+    def iteration_region(self):
         """Returns the type of the iteration to be performed."""
-        return self._it_space
+        return self._iteration_region
 
 
 class MixedMap(Map):
@@ -3328,7 +3333,7 @@ class ParLoop(LazyComputation):
         # Always use the current arguments, also when we hit cache
         self._actual_args = args
         self._kernel = kernel
-        self._is_layered = iterset.layers > 1
+        self._is_layered = iterset._extruded
         self._iterate = kwargs.get("iterate", None)
 
         for i, arg in enumerate(self._actual_args):
