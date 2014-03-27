@@ -446,6 +446,10 @@ class For(Statement):
         for (int i = 0, j = 0; ...)"""
 
     def __init__(self, init, cond, incr, body, pragma=""):
+        # If the body is a plain list, cast it to a Block.
+        if not isinstance(body, Node):
+            body = Block(body, open_scope=True)
+
         super(For, self).__init__([body], pragma)
         self.init = init
         self.cond = cond
