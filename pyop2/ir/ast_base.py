@@ -39,9 +39,9 @@ point = lambda p: "[%s]" % p
 point_ofs = lambda p, o: "[%s*%d+%d]" % (p, o[0], o[1])
 assign = lambda s, e: "%s = %s" % (s, e)
 incr = lambda s, e: "%s += %s" % (s, e)
-incr_by_1 = lambda s: "%s++" % s
+incr_by_1 = lambda s: "++%s" % s
 decr = lambda s, e: "%s -= %s" % (s, e)
-decr_by_1 = lambda s: "%s--" % s
+decr_by_1 = lambda s: "--%s" % s
 idiv = lambda s, e: "%s /= %s" % (s, e)
 imul = lambda s, e: "%s *= %s" % (s, e)
 wrap = lambda e: "(%s)" % e
@@ -96,7 +96,7 @@ class BinExpr(Expr):
         self.op = op
 
     def gencode(self):
-        return self.op.join([n.gencode() for n in self.children])
+        return (" "+self.op+" ").join([n.gencode() for n in self.children])
 
 
 class UnaryExpr(Expr):
@@ -404,7 +404,7 @@ class Decl(Statement):
         self.sym = as_symbol(sym)
         self.qual = qualifiers or []
         self.attr = attributes or []
-        self.init = as_symbol(init) if init else EmptyStatement()
+        self.init = as_symbol(init) if init is not None else EmptyStatement()
 
     def gencode(self, scope=False):
 
