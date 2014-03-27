@@ -642,7 +642,7 @@ class JITModule(base.JITModule):
         self._itspace = itspace
         self._args = args
         self._direct = kwargs.get('direct', False)
-        self._iterate = kwargs.get('iterate', False)
+        self._iteration_region = kwargs.get('iterate', False)
 
     @collective
     def __call__(self, *args, **kwargs):
@@ -742,8 +742,8 @@ class JITModule(base.JITModule):
 
         _ssinds_arg = ""
         _index_expr = "n"
-        is_top = (self._iterate == ON_TOP)
-        is_facet = (self._iterate == ON_INTERIOR_FACETS)
+        is_top = (self._iteration_region == ON_TOP)
+        is_facet = (self._iteration_region == ON_INTERIOR_FACETS)
 
         if isinstance(self._itspace._iterset, Subset):
             _ssinds_arg = "int* ssinds,"
@@ -953,5 +953,5 @@ class JITModule(base.JITModule):
                 'layout_assign': _layout_assign,
                 'layout_loop_close': _layout_loops_close,
                 'kernel_args': _kernel_args,
-                'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape, offsets, is_facet=(self._iterate == ON_INTERIOR_FACETS))
+                'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape, offsets, is_facet=(self._iteration_region == ON_INTERIOR_FACETS))
                                               for i, j, shape, offsets in self._itspace])}

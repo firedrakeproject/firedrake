@@ -212,7 +212,7 @@ void %(wrapper_name)s(int boffset,
 class ParLoop(device.ParLoop, host.ParLoop):
 
     def _compute(self, part):
-        fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct, iterate=self.iterate)
+        fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct, iterate=self.iteration_region)
         if not hasattr(self, '_jit_args'):
             self._jit_args = [None] * 5
             self._argtypes = [None] * 5
@@ -248,10 +248,10 @@ class ParLoop(device.ParLoop, host.ParLoop):
                 self._argtypes.append(ndpointer(a.dtype, shape=a.shape))
                 self._jit_args.append(a)
 
-            if self.iterate in [ON_TOP, ON_BOTTOM]:
+            if self.iteration_region in [ON_TOP, ON_BOTTOM]:
                 self._argtypes.append(ctypes.c_int)
                 self._jit_args.append(2)
-            elif self.iterate in [ON_INTERIOR_FACETS]:
+            elif self.iteration_region in [ON_INTERIOR_FACETS]:
                 self._argtypes.append(ctypes.c_int)
                 self._jit_args.append(self._it_space.layers - 1)
             elif self._it_space._extruded:

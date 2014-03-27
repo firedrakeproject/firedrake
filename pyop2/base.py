@@ -3276,7 +3276,7 @@ class JITModule(Cached):
                 f.write(src)
 
 
-class Iterate(object):
+class IteratationRegion(object):
     """ Class that specifies the way to iterate over a column of extruded
     mesh elements. A column of elements refers to the elements which are
     in the extrusion direction. The accesses to these elements are direct.
@@ -3298,19 +3298,19 @@ class Iterate(object):
     def __repr__(self):
         return "%r" % self._iterate
 
-ON_COLUMN = Iterate("ON_COLUMN")
+ON_COLUMN = IteratationRegion("ON_COLUMN")
 """Iterate over the entire column of cells."""
 
-ON_BOTTOM = Iterate("ON_BOTTOM")
+ON_BOTTOM = IteratationRegion("ON_BOTTOM")
 """Iterate over the cells at the bottom of the column in an extruded mesh."""
 
-ON_TOP = Iterate("ON_TOP")
+ON_TOP = IteratationRegion("ON_TOP")
 """Iterate over the top cells in an extruded mesh."""
 
-ON_INTERIOR_FACETS = Iterate("ON_INTERIOR_FACETS")
+ON_INTERIOR_FACETS = IteratationRegion("ON_INTERIOR_FACETS")
 """Iterate over the interior facets of an extruded mesh."""
 
-ALL = Iterate("ALL")
+ALL = IteratationRegion("ALL")
 """Iterate over the interior facets of an extruded mesh."""
 
 
@@ -3334,7 +3334,7 @@ class ParLoop(LazyComputation):
         self._actual_args = args
         self._kernel = kernel
         self._is_layered = iterset._extruded
-        self._iterate = kwargs.get("iterate", None)
+        self._iteration_region = kwargs.get("iterate", None)
 
         for i, arg in enumerate(self._actual_args):
             arg.position = i
@@ -3524,12 +3524,12 @@ class ParLoop(LazyComputation):
         return self._is_layered
 
     @property
-    def iterate(self):
+    def iteration_region(self):
         """Specifies the part of the mesh the parallel loop will
         be iterating over. The effect is the loop only iterates over
         a certain part of an extruded mesh, for example on top cells, bottom cells or
         interior facets."""
-        return self._iterate
+        return self._iteration_region
 
 DEFAULT_SOLVER_PARAMETERS = {'ksp_type': 'cg',
                              'pc_type': 'jacobi',
