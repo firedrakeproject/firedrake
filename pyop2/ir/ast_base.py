@@ -337,7 +337,7 @@ class Assign(Statement):
 
 class Incr(Statement):
 
-    """Increment a symbol by a certain amount."""
+    """Increment a symbol by an expression."""
 
     def __init__(self, sym, exp, pragma=None):
         super(Incr, self).__init__([sym, exp], pragma)
@@ -352,7 +352,7 @@ class Incr(Statement):
 
 class Decr(Statement):
 
-    """Decrement a symbol by a certain amount."""
+    """Decrement a symbol by an expression."""
     def __init__(self, sym, exp, pragma=None):
         super(Decr, self).__init__([sym, exp], pragma)
 
@@ -366,7 +366,7 @@ class Decr(Statement):
 
 class IMul(Statement):
 
-    """In-place multiplication."""
+    """In-place multiplication of a symbol by an expression."""
     def __init__(self, sym, exp, pragma=None):
         super(IMul, self).__init__([sym, exp], pragma)
 
@@ -377,7 +377,7 @@ class IMul(Statement):
 
 class IDiv(Statement):
 
-    """In-place multiplication."""
+    """In-place division of a symbol by an expression."""
     def __init__(self, sym, exp, pragma=None):
         super(IDiv, self).__init__([sym, exp], pragma)
 
