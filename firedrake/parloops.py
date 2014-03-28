@@ -3,7 +3,7 @@
 non-finite element operations such as slope limiters."""
 from pyop2 import READ, WRITE, RW, INC  # NOQA get flake8 to ignore unused import.
 import pyop2
-from pyop2.ir.ast_base import *
+import pyop2.ir.ast_base as ast
 
 """Map a measure to the correct maps."""
 _maps = {
@@ -30,11 +30,11 @@ def _form_kernel(kernel, measure, args):
     for var, (func, intent) in args.iteritems():
         ndof = func.function_space().fiat_element.space_dimension()
         lkernel = lkernel.replace(var+".dofs", str(ndof))
-        kargs.append(Decl("double *", Symbol(var, (ndof,))))
+        kargs.append(ast.Decl("double *", ast.Symbol(var, (ndof,))))
 
-    body = FlatBlock(lkernel)
+    body = ast.FlatBlock(lkernel)
 
-    return pyop2.Kernel(FunDecl("void", "par_loop_kernel", kargs, body),
+    return pyop2.Kernel(ast.FunDecl("void", "par_loop_kernel", kargs, body),
                         "par_loop_kernel")
 
 
@@ -43,7 +43,7 @@ def par_loop(kernel, measure, args):
     writes :class:`.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
 
-    :arg kernel: is a string containing the c code to be executed.
+    :arg kernel: is a string containing the C code to be executed.
     :arg measure: is a :class:`ufl.Measure` which determines the manner in which the iteration over the mesh is to occur.
     :arg args: is a dictionary mapping variable names in the kernel to :class:`.Functions` and indicates how these :class:`.Functions` are to be accessed.
 
@@ -57,7 +57,7 @@ def par_loop(kernel, measure, args):
 
       A.assign(numpy.finfo(0.).min)
       parloop('for (int i=0; i<A.dofs; i++;) A[i] = fmax(A[i], B[0]);', dx,
-          {'A' : (A, READWRITE), 'B', (B, READ)})
+          {'A' : (A, RW), 'B', (B, READ)})
 
 
     **Argument definitions**
@@ -74,7 +74,7 @@ def par_loop(kernel, measure, args):
        The variable will be written to but not read. If multiple kernel
        invocations write to the same DoF, then the order of these writes
        is undefined.
-    `READWRITE`
+    `RW`
        The variable will be both read and written to. If multiple kernel
        invocations access the same DoF, then the order of these accesses
        is undefined, but it is guaranteed that no race will occur.
@@ -109,9 +109,9 @@ def par_loop(kernel, measure, args):
 
     **The kernel code**
 
-    The kernel code is plain c in which the variables specified in the
+    The kernel code is plain C in which the variables specified in the
     `args` dictionary are available to be read or written in according
-    to the argument intent specified. Most basic c operations are
+    to the argument intent specified. Most basic C operations are
     permitted. However there are some restrictions:
 
     * Only functions from `math.h
