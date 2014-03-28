@@ -6,7 +6,7 @@ import FIAT
 
 from pyop2 import op2
 from pyop2.utils import flatten, as_tuple
-from pyop2.ir.ast_base import *
+import pyop2.ir.ast_base as ast
 
 import assemble_expressions
 from core_types import FunctionSpaceBase, ExtrudedMesh, _new_uid
@@ -528,8 +528,9 @@ class Function(ufl.Coefficient):
         # Produce C array notation of X.
         X_str = "{{"+"},\n{".join([",".join(map(str, x)) for x in X.T])+"}}"
 
-        ass_exp = [Assign(Symbol("A", ("k",), ((len(expression.code), i),)),
-                          FlatBlock("%s" % code)) for i, code in enumerate(expression.code)]
+        ass_exp = [ast.Assign(ast.Symbol("A", ("k",), ((len(expression.code), i),)),
+                              ast.FlatBlock("%s" % code))
+                   for i, code in enumerate(expression.code)]
         vals = {
             "x_array": X_str,
             "dim": coords_space.dim,
@@ -537,14 +538,14 @@ class Function(ufl.Coefficient):
             "ndof": to_element.space_dimension(),
             "assign_dim": np.prod(expression.shape(), dtype=int)
         }
-        init = FlatBlock("""
+        init = ast.FlatBlock("""
 const double X[%(ndof)d][%(xndof)d] = %(x_array)s;
 
 double x[%(dim)d];
 const double pi = 3.141592653589793;
 
 """ % vals)
-        block = FlatBlock("""
+        block = ast.FlatBlock("""
 for (unsigned int d=0; d < %(dim)d; d++) {
   x[d] = 0;
   for (unsigned int i=0; i < %(xndof)d; i++) {
@@ -553,11 +554,12 @@ for (unsigned int d=0; d < %(dim)d; d++) {
 };
 
 """ % vals)
-        loop = c_for("k", "%(ndof)d" % vals, Block([block] + ass_exp, open_scope=True))
-        kernel_code = FunDecl("void", "expression_kernel",
-                              [Decl("double", Symbol("A", (int("%(ndof)d" % vals),))),
-                               Decl("double**", c_sym("x_"))],
-                              Block([init, loop], open_scope=False))
+        loop = ast.c_for("k", "%(ndof)d" % vals, ast.Block([block] + ass_exp,
+                                                           open_scope=True))
+        kernel_code = ast.FunDecl("void", "expression_kernel",
+                                  [ast.Decl("double", ast.Symbol("A", (int("%(ndof)d" % vals),))),
+                                   ast.Decl("double**", "x_")],
+                                  ast.Block([init, loop], open_scope=False))
         kernel = op2.Kernel(kernel_code, "expression_kernel")
 
         op2.par_loop(kernel, subset or self.cell_set,

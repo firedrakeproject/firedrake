@@ -17,13 +17,9 @@ version of FFC and its dependencies.
 Firedrake
 ---------
 
-In addition to PyOP2, you will need the Python cgen package::
-
-  sudo pip install cgen
-
-You may also choose to install cgen for a single user::
-
-  pip install --user cgen
+In addition to PyOP2, you will need to install Firedrake. There are two
+routes, depending on whether you intend to contribute to Firedrake
+development.
 
 Pip instructions for users
 ..........................

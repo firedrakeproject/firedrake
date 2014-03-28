@@ -3,7 +3,7 @@
 import os
 from mpi4py import MPI
 import numpy as np
-import cgen
+import pyop2.ir.ast_base as ast
 
 from petsc import PETSc
 
@@ -609,35 +609,39 @@ class Mesh(object):
         if self.ufl_cell() != ufl.Cell('triangle', 3):
             raise NotImplementedError('Only implemented for triangles embedded in 3d')
 
-        body = cgen.Block()
-        body.extend([cgen.ArrayOf(v, 3) for v in [cgen.Value("double", "v0"),
-                                                 cgen.Value("double", "v1"),
-                                                 cgen.Value("double", "n"),
-                                                 cgen.Value("double", "x")]])
-        body.append(cgen.Initializer(cgen.Value("double", "dot"), "0.0"))
-        body.append(cgen.Value("int", "i"))
-        body.append(cgen.For("i = 0", "i < 3", "i++",
-                             cgen.Block([cgen.Assign("v0[i]", "coords[1][i] - coords[0][i]"),
-                                         cgen.Assign("v1[i]", "coords[2][i] - coords[0][i]"),
-                                         cgen.Assign("x[i]", "0.0")])))
-        body.append(cgen.Assign("n[0]", "v0[1]*v1[2] - v0[2]*v1[1]"))
-        body.append(cgen.Assign("n[1]", "v0[2]*v1[0] - v0[0]*v1[2]"))
-        body.append(cgen.Assign("n[2]", "v0[0]*v1[1] - v0[1]*v1[0]"))
+        v0 = lambda x: ast.Symbol("v0", (x,))
+        v1 = lambda x: ast.Symbol("v1", (x,))
+        n = lambda x: ast.Symbol("n", (x,))
+        x = lambda x: ast.Symbol("x", (x,))
+        coords = lambda x, y: ast.Symbol("coords", (x, y))
 
-        body.append(cgen.For("i = 0", "i < 3", "i++",
-                             cgen.Block([cgen.Line("x[0] += coords[i][0];"),
-                                         cgen.Line("x[1] += coords[i][1];"),
-                                         cgen.Line("x[2] += coords[i][2];")])))
-        body.extend([cgen.Line("dot += (%(x)s) * n[%(i)d];" % {"x": x, "i": i})
+        body = []
+        body += [ast.Decl("double", v(3)) for v in [v0, v1, n, x]]
+        body.append(ast.Decl("double", "dot"))
+        body.append(ast.Assign("dot", 0.0))
+        body.append(ast.Decl("int", "i"))
+        body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
+                            [ast.Assign(v0("i"), ast.Sub(coords(1, "i"), coords(0, "i"))),
+                             ast.Assign(v1("i"), ast.Sub(coords(2, "i"), coords(0, "i"))),
+                             ast.Assign(x("i"), 0.0)]))
+        # n = v0 x v1
+        body.append(ast.Assign(n(0), ast.Sub(ast.Prod(v0(1), v1(2)), ast.Prod(v0(2), v1(1)))))
+        body.append(ast.Assign(n(1), ast.Sub(ast.Prod(v0(2), v1(0)), ast.Prod(v0(0), v1(2)))))
+        body.append(ast.Assign(n(2), ast.Sub(ast.Prod(v0(0), v1(1)), ast.Prod(v0(1), v1(0)))))
+
+        body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
+                            [ast.Incr(x(j), coords("i", j)) for j in range(3)]))
+
+        body.extend([ast.FlatBlock("dot += (%(x)s) * n[%(i)d];\n" % {"x": x, "i": i})
                      for i, x in enumerate(expr.code)])
-        body.append(cgen.Assign("*orientation", "dot < 0 ? 1 : 0"))
+        body.append(ast.Assign("*orientation", ast.Ternary(ast.Less("dot", 0), 1, 0)))
 
-        fdecl = cgen.FunctionDeclaration(cgen.Value("void", "cell_orientations"),
-                                         [cgen.Pointer(cgen.Value("int", "orientation")),
-                                          cgen.Pointer(cgen.Pointer(cgen.Value("double", "coords")))])
+        kernel = op2.Kernel(ast.FunDecl("void", "cell_orientations",
+                                        [ast.Decl("int*", "orientation"),
+                                         ast.Decl("double**", "coords")],
+                                        ast.Block(body)),
+                            "cell_orientations")
 
-        fn = cgen.FunctionBody(fdecl, body)
-        kernel = op2.Kernel(str(fn), "cell_orientations")
         op2.par_loop(kernel, self.cell_set,
                      self._cell_orientations(op2.WRITE),
                      self.coordinates.dat(op2.READ, self.coordinates.cell_node_map()))
@@ -1328,35 +1332,25 @@ class FunctionSpaceBase(Cached):
 
         # Helper function to turn the inner index of an array into c
         # array literals.
-        c_array = lambda xs : "{"+", ".join(map(str, xs))+"}"
+        c_array = lambda xs: "{"+", ".join(map(str, xs))+"}"
 
-        kernel = op2.Kernel(str(cgen.FunctionBody(
-                    cgen.FunctionDeclaration(
-                        cgen.Value("void", "create_bc_node_map"),
-                        [cgen.Value("int", "*cell_nodes"),
-                         cgen.Value("int", "*facet_nodes"),
-                         cgen.Value("unsigned int", "*facet")
-                         ]
-                        ),
-                    cgen.Block(
-                        [cgen.ArrayInitializer(
-                                cgen.Const(
-                                    cgen.ArrayOf(
-                                        cgen.ArrayOf(
-                                            cgen.Value("int", "l_nodes"),
-                                            str(len(el.get_reference_element().topology[dim]))),
-                                        str(nodes_per_facet)),
-                                    ),
-                                map(c_array, local_facet_nodes)
-                                ),
-                         cgen.Value("int", "n"),
-                         cgen.For("n=0", "n < %d" % nodes_per_facet, "++n",
-                                  cgen.Assign("facet_nodes[n]",
-                                              "cell_nodes[l_nodes[facet[0]][n]]")
-                                  )
-                         ]
-                        )
-                    )), "create_bc_node_map")
+        body = ast.Block([ast.Decl("int", ast.Symbol("l_nodes", (len(el.get_reference_element().topology[dim]),
+                                                                 nodes_per_facet)),
+                                   init=ast.ArrayInit(c_array(map(c_array, local_facet_nodes))),
+                                   qualifiers=["const"]),
+                          ast.For(ast.Decl("int", "n", 0),
+                                  ast.Less("n", nodes_per_facet),
+                                  ast.Incr("n", 1),
+                                  ast.Assign(ast.Symbol("facet_nodes", ("n",)),
+                                             ast.Symbol("cell_nodes", ("l_nodes[facet[0]][n]",))))
+                          ])
+
+        kernel = op2.Kernel(ast.FunDecl("void", "create_bc_node_map",
+                                        [ast.Decl("int*", "cell_nodes"),
+                                         ast.Decl("int*", "facet_nodes"),
+                                         ast.Decl("unsigned int*", "facet")],
+                                        body),
+                            "create_bc_node_map")
 
         local_facet_dat = self._mesh.exterior_facets.local_facet_dat
         op2.par_loop(kernel, facet_set,

@@ -3,9 +3,35 @@ from ufl.algorithms import ReuseTransformer
 from ufl.constantvalue import ConstantValue, Zero
 from ufl.indexing import MultiIndex
 from ufl.operatorbase import Operator
+from ufl.mathfunctions import MathFunction
 from pyop2 import op2
 import types
-import cgen
+import pyop2.ir.ast_base as ast
+
+_to_sum = lambda o: ast.Sum(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
+_to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
+
+_ast_map = {
+    MathFunction: (lambda e: ast.FunCall(e._name, _ast(e._argument)), None),
+    ufl.algebra.Sum: (lambda e: _to_sum(e._operands)),
+    ufl.algebra.Product: (lambda e: _to_prod(e._operands)),
+    ufl.algebra.Division: (lambda e: ast.Div(_ast(e._a), _ast(e._b))),
+    ufl.algebra.Abs: (lambda e: ast.FunCall("abs", _ast(e._a))),
+    ufl.constantvalue.ScalarValue: (lambda e: ast.Symbol(e._value)),
+    ufl.constantvalue.Zero: (lambda e: ast.Symbol(0))
+}
+
+
+def _ast(expr):
+    """Convert expr to a PyOP2 ast."""
+
+    try:
+        return expr.ast
+    except AttributeError:
+        for t, f in _ast_map.iteritems():
+            if isinstance(expr, t):
+                return f(expr)
+        raise TypeError("No ast handler for %s" % str(type(expr)))
 
 
 class DummyFunction(ufl.Coefficient):
@@ -39,13 +65,21 @@ class DummyFunction(ufl.Coefficient):
         argtype = self.function.dat.ctype + "*"
         name = " fn_%r" % self.argnum
 
-        return cgen.Value(argtype, name)
+        return ast.Decl(argtype, ast.Symbol(name))
+
+    @property
+    def ast(self):
+        if isinstance(self.function.function_space(),
+                      types.VectorFunctionSpace):
+            return ast.Symbol("fn_%d" % self.argnum, ("dim",))
+        else:
+            return ast.Symbol("fn_%d" % self.argnum, (0,))
 
 
 class AssignmentBase(Operator):
 
     """Base class for UFL augmented assignments."""
-    __slots__ = ("_operands", "_symbol", "_visit")
+    __slots__ = ("_operands", "_symbol", "_ast", "_visit")
 
     def __init__(self, lhs, rhs):
         self._operands = map(ufl.as_ufl, (lhs, rhs))
@@ -65,11 +99,17 @@ class AssignmentBase(Operator):
         return "%s(%s)" % (self.__class__.__name__,
                            ", ".join(repr(o) for o in self._operands))
 
+    @property
+    def ast(self):
+
+        return self._ast(_ast(self._operands[0]), _ast(self._operands[1]))
+
 
 class Assign(AssignmentBase):
 
     """A UFL assignment operator."""
     _symbol = "="
+    _ast = ast.Assign
 
     def _visit(self, transformer):
         lhs = self._operands[0]
@@ -125,6 +165,7 @@ class IAdd(AugmentedAssignment):
 
     """A UFL `+=` operator."""
     _symbol = "+="
+    _ast = ast.Incr
 
 # UFL class mangling hack
 IAdd._uflclass = IAdd
@@ -134,6 +175,7 @@ class ISub(AugmentedAssignment):
 
     """A UFL `-=` operator."""
     _symbol = "-="
+    _ast = ast.Decr
 
 # UFL class mangling hack
 ISub._uflclass = ISub
@@ -143,6 +185,7 @@ class IMul(AugmentedAssignment):
 
     """A UFL `*=` operator."""
     _symbol = "*="
+    _ast = ast.IMul
 
 # UFL class mangling hack
 IMul._uflclass = IMul
@@ -152,6 +195,7 @@ class IDiv(AugmentedAssignment):
 
     """A UFL `/=` operator."""
     _symbol = "/="
+    _ast = ast.IDiv
 
 # UFL class mangling hack
 IDiv._uflclass = IDiv
@@ -165,6 +209,10 @@ class Power(ufl.algebra.Power):
     def __str__(self):
         return "pow(%s, %s)" % (str(self._a), str(self._b))
 
+    @property
+    def ast(self):
+        return ast.FunCall("pow", _ast(self._a), _ast(self._b))
+
 
 class Ln(ufl.mathfunctions.Ln):
 
@@ -174,6 +222,10 @@ class Ln(ufl.mathfunctions.Ln):
     def __str__(self):
         return "log(%s)" % str(self._argument)
 
+    @property
+    def ast(self):
+        return ast.FunCall("log", _ast(self._argument))
+
 
 class ComponentTensor(ufl.tensors.ComponentTensor):
     """Subclass of :class:`ufl.tensors.ComponentTensor` which only prints the
@@ -182,6 +234,10 @@ class ComponentTensor(ufl.tensors.ComponentTensor):
     def __str__(self):
         return str(self.operands()[0])
 
+    @property
+    def ast(self):
+        return _ast(self.operands()[0])
+
 
 class Indexed(ufl.indexed.Indexed):
     """Subclass of :class:`ufl.indexed.Indexed` which only prints the first
@@ -189,6 +245,10 @@ class Indexed(ufl.indexed.Indexed):
 
     def __str__(self):
         return str(self.operands()[0])
+
+    @property
+    def ast(self):
+        return _ast(self.operands()[0])
 
 
 class ExpressionSplitter(ReuseTransformer):
@@ -343,26 +403,23 @@ def expression_kernel(expr, args):
 
     fs = args[0].function.function_space()
 
-    body = cgen.Block()
-
     if isinstance(fs, types.VectorFunctionSpace):
-        body.extend(
-            [cgen.Value("int", "dim"),
-             cgen.For("dim = 0",
-                      "dim < %s" % fs.dof_dset.cdim,
-                      "++dim",
-                      cgen.Line(str(expr) + ";")
-                      )
-             ]
+        d = ast.Symbol("dim")
+        body = ast.Block(
+            (
+                ast.Decl("int", d),
+                ast.For(ast.Assign(d, ast.Symbol(0)),
+                        ast.Less(d, ast.Symbol(fs.dof_dset.cdim)),
+                        ast.Incr(d, ast.Symbol(1)),
+                        _ast(expr))
+            )
         )
     else:
-        body.append(cgen.Line(str(expr) + ";"))
+        body = ast.FlatBlock(str(expr) + ";")
 
-    fdecl = cgen.FunctionDeclaration(
-        cgen.Value("void", "expression"),
-        [arg.arg for arg in args])
-
-    return op2.Kernel(str(cgen.FunctionBody(fdecl, body)), "expression")
+    return op2.Kernel(ast.FunDecl("void", "expression",
+                                  [arg.arg for arg in args], body),
+                      "expression")
 
 
 def evaluate_preprocessed_expression(expr, args, subset=None):
