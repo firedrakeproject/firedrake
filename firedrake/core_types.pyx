@@ -399,17 +399,17 @@ class Mesh(object):
         cell_vertices = self._plex.getConeSize(cStart)
         self._ufl_cell = ufl.Cell(_cells[geometric_dim][cell_vertices],
                                   geometric_dimension = geometric_dim)
-        self._vertex_numbering = None
 
         dim = self._plex.getDimension()
         self._cells, self.cell_classes = dmplex.get_entities_by_class(self._plex, dim)
 
+        # Fenics facet and DoF numbering requires a universal vertex numbering
+        self._vertex_numbering = None
+        vertex_fs = types.FunctionSpace(self, "CG", 1)
+        self._vertex_numbering = vertex_fs._universal_numbering
+
         # Exterior facets
         if self._plex.getStratumSize("exterior_facets", 1) > 0:
-            # OP2 facet numbering requires a universal vertex numbering
-            if not self._vertex_numbering:
-                vertex_fs = types.FunctionSpace(self, "CG", 1)
-                self._vertex_numbering = vertex_fs._universal_numbering
 
             # Order exterior facets by OP2 entity class
             ext_facet = lambda f: self._plex.getLabelValue("exterior_facets", f) == 1
@@ -439,11 +439,8 @@ class Mesh(object):
 
         # Interior facets
         if self._plex.getStratumSize("interior_facets", 1) > 0:
-            # OP2 facet numbering requires a universal vertex numbering
-            if not self._vertex_numbering:
-                vertex_fs = types.FunctionSpace(self, "CG", 1)
-                self._vertex_numbering = vertex_fs._universal_numbering
 
+            # Order interior facets by OP2 entity class
             int_facet = lambda f: self._plex.getLabelValue("interior_facets", f) == 1
             interior_facets, interior_facet_classes = \
                 dmplex.get_entities_by_class(self._plex, dim-1, condition=int_facet)
