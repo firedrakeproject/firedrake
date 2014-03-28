@@ -252,6 +252,12 @@ div.note {
 	padding: 10px 20px 10px 60px;
 }
 
+#firedrake-package div.section>dl {
+    border: 2px solid #ddd;
+	border-right-style: none;
+	border-bottom-style: none;
+}
+
 div.seealso {
     background: #fff6bf url(dialog-seealso.png) no-repeat 10px 8px;
     border: 2px solid #ffd324;
