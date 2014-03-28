@@ -838,32 +838,37 @@ class Halo(object):
 
         # Propagate remote send lists to the actual sender
         send_reqs = []
-        for p in remote_sends:
+        for p in range(self._nprocs):
             # send sizes
-            s = np.array(len(remote_sends[p]), dtype=np.int32)
-            send_reqs.append(self.comm.Isend(s, dest=p, tag=self.tag))
+            if p != self._comm.rank:
+                s = np.array(len(remote_sends[p]), dtype=np.int32)
+                send_reqs.append(self.comm.Isend(s, dest=p, tag=self.tag))
 
         recv_reqs = []
-        sizes = [np.empty(1, dtype=np.int32) for _ in range(len(self._receives))]
-        for i, p in enumerate(self._receives):
+        sizes = [np.empty(1, dtype=np.int32) for _ in range(self._nprocs)]
+        for p in range(self._nprocs):
             # receive sizes
-            recv_reqs.append(self.comm.Irecv(sizes[i], source=p, tag=self.tag))
+            if p != self._comm.rank:
+                recv_reqs.append(self.comm.Irecv(sizes[p], source=p, tag=self.tag))
 
         MPI.Request.Waitall(recv_reqs)
         MPI.Request.Waitall(send_reqs)
 
-        for i, p in enumerate(self._receives):
+        for p in range(self._nprocs):
             # allocate buffers
-            self._sends[p] = np.empty(sizes[i], dtype=np.int32)
+            if p != self._comm.rank:
+                self._sends[p] = np.empty(sizes[p], dtype=np.int32)
 
         send_reqs = []
-        for p in remote_sends:
-            send_buf = np.array(remote_sends[p], dtype=np.int32)
-            send_reqs.append(self.comm.Isend(send_buf, dest=p, tag=self.tag))
+        for p in range(self._nprocs):
+            if p != self._comm.rank:
+                send_buf = np.array(remote_sends[p], dtype=np.int32)
+                send_reqs.append(self.comm.Isend(send_buf, dest=p, tag=self.tag))
 
         recv_reqs = []
-        for p in self._receives:
-            recv_reqs.append(self.comm.Irecv(self._sends[p], source=p, tag=self.tag))
+        for p in range(self._nprocs):
+            if p != self._comm.rank:
+                recv_reqs.append(self.comm.Irecv(self._sends[p], source=p, tag=self.tag))
 
         MPI.Request.Waitall(send_reqs)
         MPI.Request.Waitall(recv_reqs)
