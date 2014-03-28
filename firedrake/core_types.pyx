@@ -254,7 +254,6 @@ class _Facets(object):
         self.local_facet_number = local_facet_number
 
         self.markers = markers
-        self._b_set = mesh.cell_set
         self._subsets = {}
 
     @utils.cached_property
@@ -274,7 +273,7 @@ class _Facets(object):
     @property
     def bottom_set(self):
         '''Returns the bottom row of cells.'''
-        return self._b_set
+        return self.mesh.cell_set
 
     @utils.cached_property
     def _null_subset(self):

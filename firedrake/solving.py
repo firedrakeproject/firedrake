@@ -401,7 +401,6 @@ def _assemble(f, tensor=None, bcs=None):
     is_vec = fd.rank == 1
 
     integrals = fd.preprocessed_form.integrals()
-    #Uncomment once UFL is fixed: integrals = fd.integral_data
 
     # Extract coordinate field
     coords = integrals[0].measure().domain_data()
@@ -428,6 +427,11 @@ def _assemble(f, tensor=None, bcs=None):
         cell_domains = []
         exterior_facet_domains = []
         interior_facet_domains = []
+        # For horizontal facets of extrded meshes, the corresponding domain
+        # in the base mesh is the cell domain. Hence all the maps used for top
+        # bottom and interior horizontal facets will use the cell to dofs map
+        # coming from the base mesh as a starting point for the actual dynamic map
+        # computation.
         for integral in integrals:
             domain_type = integral.measure().domain_type()
             if domain_type == "cell":
@@ -449,6 +453,11 @@ def _assemble(f, tensor=None, bcs=None):
             else:
                 raise RuntimeError('Unknown domain type "%s"' % domain_type)
 
+        # To avoid an extra check for extruded domains, the maps that are being passed in
+        # are SparsityMaps. For the non-extruded case the SparsityMaps don't restrict the
+        # space over which we iterate as the domains are dropped at Sparsity construction
+        # time. In the extruded case the cell domains are used to identify the regions of the
+        # mesh which require allocation in the sparsity.
         if cell_domains:
             map_pairs.append((op2.SparsityMap(test.cell_node_map(), cell_domains),
                               op2.SparsityMap(trial.cell_node_map(), cell_domains)))
@@ -515,9 +524,6 @@ def _assemble(f, tensor=None, bcs=None):
             bottom = any(bc.sub_domain == "bottom" for bc in bcs)
             top = any(bc.sub_domain == "top" for bc in bcs)
             extruded_bcs = (bottom, top)
-        # ker_int = [(ker, integral) for ker in kernels for integral in integrals
-        #            if integral.domain_type() == ker.domain_type]
-        # for kernel, integral in ker_int:
         for kernel, integral in zip(kernels, integrals):
             domain_type = integral.measure().domain_type()
             if domain_type == 'cell':
@@ -595,7 +601,7 @@ def _assemble(f, tensor=None, bcs=None):
 
                 #In the case of extruded meshes with horizontal facet integrals, two
                 #parallel loops will (potentially) get created and called based on the
-                #domain id: everywhere, bottom or top.
+                #domain id: interior horizontal, bottom or top.
 
                 #Get the list of sets and globals required for parallel loop construction.
                 set_global_list = m.exterior_facets.measure_set(integral.measure())
