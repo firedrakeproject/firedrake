@@ -3231,6 +3231,8 @@ class JITModule(Cached):
             fname = "%s-%s.%s" % (self._kernel.name,
                                   hashlib.md5(src).hexdigest(),
                                   ext if ext is not None else "c")
+            if not os.path.exists(configuration['dump_gencode_path']):
+                os.makedirs(configuration['dump_gencode_path'])
             output = os.path.abspath(os.path.join(configuration['dump_gencode_path'],
                                                   fname))
             with open(output, "w") as f:
