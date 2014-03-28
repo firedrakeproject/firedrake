@@ -47,9 +47,9 @@ def project(v, V, bcs=None, mesh=None,
             deg = V.ufl_element().degree()
 
         if v.rank() == 0:
-            fs = FunctionSpace(V.mesh(), 'CG', deg+1)
+            fs = FunctionSpace(V.mesh(), 'DG', deg+1)
         elif v.rank() == 1:
-            fs = VectorFunctionSpace(V.mesh(), 'CG',
+            fs = VectorFunctionSpace(V.mesh(), 'DG',
                                      deg+1,
                                      dim=shape[0])
         else:
