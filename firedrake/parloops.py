@@ -39,10 +39,92 @@ def _form_kernel(kernel, measure, args):
 
 
 def par_loop(kernel, measure, args):
-    """Syntax example::
+    """A :func:`par_loop` is a user-defined operation which reads and
+    writes :class:`.Function`\s by looping over the mesh cells or facets
+    and accessing the degrees of freedom on adjacent entities.
 
-    parloop('for int i=0; i<A.dofs; i++; A[i] = max(A[i], B[0]);', dx,
-       {'A' : (A, READWRITE), 'B', (B, READ)})
+    :arg kernel: is a string containing the c code to be executed.
+    :arg measure: is a :class:`ufl.Measure` which determines the manner in which the iteration over the mesh is to occur.
+    :arg args: is a dictionary mapping variable names in the kernel to :class:`.Functions` and indicates how these :class:`.Functions` are to be accessed.
+
+    Example
+    .......
+
+    Assume that `A` is a :class:`.Function` in CG1 and `B` is a
+    :class:`.Function` in DG0. Then the following code sets each DoF in
+    `A` to the maximum value that `B` attains in the cells adjacent to
+    that DoF::
+
+      A.assign(numpy.finfo(0.).min)
+      parloop('for (int i=0; i<A.dofs; i++;) A[i] = fmax(A[i], B[0]);', dx,
+          {'A' : (A, READWRITE), 'B', (B, READ)})
+
+
+    **Argument definitions**
+
+    Each item in the `args` dictionary maps a string to a tuple
+    containing a :class:`.Function` and an argument intent. The string
+    is the c language variable name by which this function will be
+    accessed in the kernel. The argument intent indicates how the
+    kernel will access this variable:
+
+    `READ`
+       The variable will be read but not written to.
+    `WRITE`
+       The variable will be written to but not read. If multiple kernel
+       invocations write to the same DoF, then the order of these writes
+       is undefined.
+    `READWRITE`
+       The variable will be both read and written to. If multiple kernel
+       invocations access the same DoF, then the order of these accesses
+       is undefined, but it is guaranteed that no race will occur.
+    `INC`
+       The variable will be added into using +=. As before, the order in
+       which the kernel invocations increment the variable is undefined,
+       but there is a guarantee that no races will occur.
+
+    **The measure**
+
+    The measure determines the mesh entities over which the iteration
+    will occur, and the size of the kernel stencil. The iteration will
+    occur over the same mesh entities as if the measure had been used
+    to define an integral, and the stencil will likewise be the same
+    as the integral case. That is to say, if the measure is a volume
+    measure, the kernel will be called once per cell and the DoFs
+    accessible to the kernel will be those associated with the cell,
+    its facets, edges and vertices. If the measure is a facet measure
+    then the iteration will occur over the corresponding class of
+    facets and the accessible DoFs will be those on the cell(s)
+    adjacent to the facet, and on the facets, edges and vertices
+    adjacent to those facets.
+
+    For volume measures the DoFs are guaranteed to be in the FIAT
+    local DoFs order. For facet measures, the DoFs will be in sorted
+    first by the cell to which they are adjacent. Within each cell,
+    they will be in FIAT order. Note that if a continuous
+    :class:`.Function` is accessed via an internal facet measure, the
+    DoFs on the interface between the two facets will be accessible
+    twice: once via each cell. The orientation of the cell(s) relative
+    to the current facet is currently arbitrary.
+
+    **The kernel code**
+
+    The kernel code is plain c in which the variables specified in the
+    `args` dictionary are available to be read or written in according
+    to the argument intent specified. Most basic c operations are
+    permitted. However there are some restrictions:
+
+    * Only functions from `math.h
+      <http://pubs.opengroup.org/onlinepubs/9699919799/basedefs/math.h.html>`_
+      may be called.
+    * Pointer operations other than dereferencing arrays are prohibited.
+
+    The free variables are all of type `double**` in which the first
+    index is the local node number, while the second index is the
+    vector component. The latter only applies to :class:`.Function`\s
+    over a :class:`VectorFunctionSpace`, for :class:`.Function`\s over
+    a plain :class:`.FunctionSpace` the second index will always be 0.
+
     """
 
     _map = _maps[measure.domain_type()]
