@@ -302,28 +302,15 @@ class PeriodicIntervalMesh(Mesh):
         coordvec = PETSc.Vec().createWithArray(coords, size=size)
         dmplex.setCoordinatesLocal(coordvec)
 
-        # Coordinate values need to be replaced by the appropriate
-        # DG coordinate field.
         dx = length / ncells
-        # Two per cell
-        coords = np.empty(2 * ncells, dtype=float)
-        # For an interval
-        #
-        # 0---1---2---3 ... n-1---n
-        # |                       |
-        # `-----------------------'
-        #
-        # The element (0,1) is numbered first
-        coords[0] = 0.0
-        coords[1] = dx
-        # Then the element (n, 0)
-        coords[2] = length
-        coords[3] = length - dx
-        # Then the rest in order (1, 2), (2, 3) ... (n-1, n)
-        if len(coords) > 4:
-            coords[4] = dx
-            coords[5:] = np.repeat(np.arange(dx * 2, length - dx + dx*0.01, dx), 2)[:-1]
-
+        # HACK ALERT!
+        # Almost certainly not right when symbolic geometry stuff lands.
+        # Hopefully DMPlex will eventually give us a DG coordinate
+        # field.  Until then, we build one by hand.
+        coords = np.dstack((np.arange(dx, length + dx*0.01, dx),
+                            np.arange(0, length - dx*0.01, dx))).flatten()
+        # Last cell is back to front.
+        coords[-2:] = coords[-2:][::-1]
         Mesh.__init__(self, self.name, plex=dmplex,
                       periodic_coords=coords)
 
