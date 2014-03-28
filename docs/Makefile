@@ -53,6 +53,9 @@ publish: html
 # Imperial's ICT department are doing.
 	scp -r build/html/* 'o3ce6600@146.255.44.1:html/'
 
+livehtml: html
+	python server.py
+
 serve: html
 	cd $(BUILDDIR)/html; python -m SimpleHTTPServer $(PORT)
 
@@ -80,8 +83,10 @@ clean:
 	-rm -rf $(BUILDDIR)/*
 	-rm -rf $(GENERATED_FILES)
 
-html: apidoc
+buildhtml:
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
+
+html: apidoc buildhtml
 	cp source/demos/*.py $(BUILDDIR)/html/demos
 	@echo
 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
