@@ -244,6 +244,10 @@ div.note {
 	background: #e1ecfe url(dialog-note.png) no-repeat 10px 8px;
 }
 
+#firedrake-package #id1 {
+    display: none;
+}
+
 #firedrake-package h2 {
     background-color: #fafafa;                   
     border: 2px solid #8c1b1e;
