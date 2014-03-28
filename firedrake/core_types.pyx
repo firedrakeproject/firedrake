@@ -499,16 +499,24 @@ class Mesh(object):
     def _from_gmsh(self, filename, dim=0, periodic_coords=None):
         """Read a Gmsh .msh file from `filename`"""
         basename, ext = os.path.splitext(filename)
+        self.name = filename
 
         # Create a read-only PETSc.Viewer
         gmsh_viewer = PETSc.Viewer().create()
         gmsh_viewer.setType("ascii")
         gmsh_viewer.setFileMode("r")
         gmsh_viewer.setFileName(filename)
-        gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer, interpolate=False)
+        gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer)
 
-        #TODO: Add boundary IDs
-        self._from_dmplex(gmsh_plex, periodic_coords)
+        if gmsh_plex.hasLabel("Face Sets"):
+            boundary_ids = gmsh_plex.getLabelIdIS("Face Sets").getIndices()
+            gmsh_plex.createLabel("boundary_ids")
+            for bid in boundary_ids:
+                faces = gmsh_plex.getStratumIS("Face Sets", bid).getIndices()
+                for f in faces:
+                    gmsh_plex.setLabelValue("boundary_ids", f, bid)
+
+        self._from_dmplex(gmsh_plex, dim, periodic_coords)
 
     def _from_exodus(self, filename, dim=0):
         self.name = filename
