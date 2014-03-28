@@ -277,8 +277,11 @@ class _VTUFile(object):
         if isinstance(output.function_space(), VectorFunctionSpace):
             tmp = output.dat.data_ro_with_halos
             vdata = [None]*3
-            for i in range(output.dat.dim[0]):
-                vdata[i] = tmp[:, i].flatten()
+            if output.dat.dim[0] == 1:
+                vdata[0] = tmp.flatten()
+            else:
+                for i in range(output.dat.dim[0]):
+                    vdata[i] = tmp[:, i].flatten()
             for i in range(output.dat.dim[0], 3):
                 vdata[i] = np.zeros_like(vdata[0])
             data = tuple(vdata)
