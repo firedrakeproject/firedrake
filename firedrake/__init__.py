@@ -13,6 +13,7 @@ from parameters import *
 from bcs import *
 from nullspace import *
 from norms import *
+from parloops import *
 from version import __version__, __version_info__, check  # noqa
 
 # Set default log level
