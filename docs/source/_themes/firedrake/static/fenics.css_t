@@ -21,8 +21,7 @@ body {
     font-size: 14px;
     background-color: #ffffff;
     color: #ffffff;
-    margin: 0;
-    padding: 0;
+    margin: 0;    padding: 0;
 }
 
 div.documentwrapper {
@@ -245,6 +244,24 @@ div.note {
 	background: #e1ecfe url(dialog-note.png) no-repeat 10px 8px;
 }
 
+#firedrake-package #id1 {
+    display: none;
+}
+
+#firedrake-package h2 {
+    background-color: #fafafa;                   
+    border: 2px solid #8c1b1e;
+	border-right-style: none;
+	border-left-style: none;
+	padding: 10px 20px 10px 60px;
+}
+
+#firedrake-package div.section>dl {
+    border: 2px solid #ddd;
+	border-right-style: none;
+	border-bottom-style: none;
+}
+
 div.seealso {
     background: #fff6bf url(dialog-seealso.png) no-repeat 10px 8px;
     border: 2px solid #ffd324;
@@ -293,6 +310,10 @@ tt {
     color: #222;
     font-size: 14px;
     font-family: Consolas, "andale mono", "lucida console", monospace;
+}
+
+h2 tt.py-mod {
+   font-size: 1em;
 }
 
 .viewcode-back {
