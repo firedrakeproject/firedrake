@@ -133,6 +133,7 @@ class _VTUFile(object):
                     raise TypeError("Expected tuple, got function.")
                 function = data
                 self._time_step += 1
+                self._generate_time = True
         else:
             function = data
 
@@ -498,5 +499,10 @@ class _PVDFile(object):
             new_vtk = _VTUFile(self._filename, warnings=self._warnings)
             new_pvtu = _PVTUFile(new_pvtu_name)
             new_vtk << function
+            # The new_vtk object has its timestep initialised to -1 each time,
+            # so we need to provide the timestep ourselves here otherwise
+            # the VTU of timestep 0 (belonging to the process with rank 0)
+            # will be over-written each time _update_PVD is called.
+            new_vtk << (function, self._time_step)
             new_pvtu._update(function.name())
             self._writer.addFile(new_pvtu_name + ".pvtu", self._time_step)
