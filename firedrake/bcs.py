@@ -9,6 +9,9 @@ from projection import project
 import pyop2 as op2
 
 
+__all__ = ['DirichletBC']
+
+
 class DirichletBC(object):
     '''Implementation of a strong Dirichlet boundary condition.
 

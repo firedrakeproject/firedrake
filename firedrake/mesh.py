@@ -8,6 +8,12 @@ import numpy as np
 from petsc import PETSc
 
 
+__all__ = ['UnitIntervalMesh', 'UnitSquareMesh', 'UnitCircleMesh',
+           'IntervalMesh', 'PeriodicIntervalMesh', 'PeriodicUnitIntervalMesh',
+           'UnitTetrahedronMesh', 'UnitTriangleMesh', 'UnitCubeMesh',
+           'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh']
+
+
 _cachedir = os.path.join(tempfile.gettempdir(),
                          'firedrake-mesh-cache-uid%d' % os.getuid())
 

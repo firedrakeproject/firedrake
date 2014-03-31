@@ -17,6 +17,7 @@ from bcs import *
 from nullspace import *
 from norms import *
 from parloops import *
+from vector import *
 from version import __version__, __version_info__, check  # noqa
 
 # Set default log level

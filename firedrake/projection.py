@@ -6,6 +6,9 @@ import ufl
 from ufl_expr import TrialFunction, TestFunction
 
 
+__all__ = ['project']
+
+
 def project(v, V, bcs=None, mesh=None,
             solver_parameters={},
             form_compiler_parameters=None,

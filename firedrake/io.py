@@ -10,6 +10,9 @@ from pyop2.logger import warning, RED
 from projection import project
 
 
+__all__ = ['File']
+
+
 # Dictionary used to translate the cellname of firedrake
 # to the celltype of evtk module.
 _cells = {}

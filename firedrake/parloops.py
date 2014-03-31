@@ -5,6 +5,8 @@ from pyop2 import READ, WRITE, RW, INC  # NOQA get flake8 to ignore unused impor
 import pyop2
 import pyop2.ir.ast_base as ast
 
+__all__ = ['par_loop', 'READ', 'WRITE', 'RW', 'INC']
+
 """Map a measure to the correct maps."""
 _maps = {
     'cell': {

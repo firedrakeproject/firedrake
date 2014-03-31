@@ -24,6 +24,10 @@ from collections import defaultdict
 
 np.import_array()
 
+
+__all__ = ['Mesh', 'ExtrudedMesh']
+
+
 _cells = {
     1 : { 2 : "interval"},
     2 : { 3 : "triangle"},
