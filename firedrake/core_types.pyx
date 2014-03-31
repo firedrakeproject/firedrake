@@ -399,17 +399,17 @@ class Mesh(object):
         cell_vertices = self._plex.getConeSize(cStart)
         self._ufl_cell = ufl.Cell(_cells[geometric_dim][cell_vertices],
                                   geometric_dimension = geometric_dim)
-        self._vertex_numbering = None
 
         dim = self._plex.getDimension()
         self._cells, self.cell_classes = dmplex.get_entities_by_class(self._plex, dim)
 
+        # Fenics facet and DoF numbering requires a universal vertex numbering
+        self._vertex_numbering = None
+        vertex_fs = types.FunctionSpace(self, "CG", 1)
+        self._vertex_numbering = vertex_fs._universal_numbering
+
         # Exterior facets
         if self._plex.getStratumSize("exterior_facets", 1) > 0:
-            # OP2 facet numbering requires a universal vertex numbering
-            if not self._vertex_numbering:
-                vertex_fs = types.FunctionSpace(self, "CG", 1)
-                self._vertex_numbering = vertex_fs._universal_numbering
 
             # Order exterior facets by OP2 entity class
             ext_facet = lambda f: self._plex.getLabelValue("exterior_facets", f) == 1
@@ -439,11 +439,8 @@ class Mesh(object):
 
         # Interior facets
         if self._plex.getStratumSize("interior_facets", 1) > 0:
-            # OP2 facet numbering requires a universal vertex numbering
-            if not self._vertex_numbering:
-                vertex_fs = types.FunctionSpace(self, "CG", 1)
-                self._vertex_numbering = vertex_fs._universal_numbering
 
+            # Order interior facets by OP2 entity class
             int_facet = lambda f: self._plex.getLabelValue("interior_facets", f) == 1
             interior_facets, interior_facet_classes = \
                 dmplex.get_entities_by_class(self._plex, dim-1, condition=int_facet)
@@ -849,32 +846,37 @@ class Halo(object):
 
         # Propagate remote send lists to the actual sender
         send_reqs = []
-        for p in remote_sends:
+        for p in range(self._nprocs):
             # send sizes
-            s = np.array(len(remote_sends[p]), dtype=np.int32)
-            send_reqs.append(self.comm.Isend(s, dest=p, tag=self.tag))
+            if p != self._comm.rank:
+                s = np.array(len(remote_sends[p]), dtype=np.int32)
+                send_reqs.append(self.comm.Isend(s, dest=p, tag=self.tag))
 
         recv_reqs = []
-        sizes = [np.empty(1, dtype=np.int32) for _ in range(len(self._receives))]
-        for i, p in enumerate(self._receives):
+        sizes = [np.empty(1, dtype=np.int32) for _ in range(self._nprocs)]
+        for p in range(self._nprocs):
             # receive sizes
-            recv_reqs.append(self.comm.Irecv(sizes[i], source=p, tag=self.tag))
+            if p != self._comm.rank:
+                recv_reqs.append(self.comm.Irecv(sizes[p], source=p, tag=self.tag))
 
         MPI.Request.Waitall(recv_reqs)
         MPI.Request.Waitall(send_reqs)
 
-        for i, p in enumerate(self._receives):
+        for p in range(self._nprocs):
             # allocate buffers
-            self._sends[p] = np.empty(sizes[i], dtype=np.int32)
+            if p != self._comm.rank:
+                self._sends[p] = np.empty(sizes[p], dtype=np.int32)
 
         send_reqs = []
-        for p in remote_sends:
-            send_buf = np.array(remote_sends[p], dtype=np.int32)
-            send_reqs.append(self.comm.Isend(send_buf, dest=p, tag=self.tag))
+        for p in range(self._nprocs):
+            if p != self._comm.rank:
+                send_buf = np.array(remote_sends[p], dtype=np.int32)
+                send_reqs.append(self.comm.Isend(send_buf, dest=p, tag=self.tag))
 
         recv_reqs = []
-        for p in self._receives:
-            recv_reqs.append(self.comm.Irecv(self._sends[p], source=p, tag=self.tag))
+        for p in range(self._nprocs):
+            if p != self._comm.rank:
+                recv_reqs.append(self.comm.Irecv(self._sends[p], source=p, tag=self.tag))
 
         MPI.Request.Waitall(send_reqs)
         MPI.Request.Waitall(recv_reqs)
