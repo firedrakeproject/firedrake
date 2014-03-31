@@ -498,7 +498,6 @@ class _PVDFile(object):
             new_pvtu_name = self._filename + "_" + str(self._time_step)
             new_vtk = _VTUFile(self._filename, warnings=self._warnings)
             new_pvtu = _PVTUFile(new_pvtu_name)
-            new_vtk << function
             # The new_vtk object has its timestep initialised to -1 each time,
             # so we need to provide the timestep ourselves here otherwise
             # the VTU of timestep 0 (belonging to the process with rank 0)
