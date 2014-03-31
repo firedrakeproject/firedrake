@@ -337,6 +337,44 @@ problem:
    solve(a == L, s)
 
 
+Forms with constant coefficients
+--------------------------------
+
+Many PDEs will contain values that are constant over the whole mesh,
+but may vary in time.  For example, a time-varying diffusivity, or a
+time-dependent forcing function.  Although you can create a new form
+for each new value of this constant, this will not be efficient, since
+Firedrake must generate new code each time the value changes.  A
+better option is to use a :py:class:`~.Constant` coefficient.  This
+object behaves exactly like a :py:class:`~.Function`, except that it
+has a single value over the whole mesh.  One may assign a new value to
+the :py:class:`~.Constant` using the :py:meth:`~.Constant.assign`
+method.  As an example, let us consider a form which contains a time
+varying constant which we wish to assemble in a time loop.  We can use
+a :py:class:`~.Constant` to do this:
+
+.. code-block:: python
+
+   ...
+   t = 0
+   dt = 0.1
+   from math import exp
+   c = Constant(exp(-t))
+   # Exponentially decaying RHS
+   L = f*v*c*dx
+   while t < tend:
+       solve(a == L, ...)
+       t += dt
+       c.assign(exp(-t))
+
+
+.. warning::
+
+   Although UFL supports computing the derivative of a form with
+   respect to a :py:class:`~.Constant`, the resulting form will have
+   an unknown in the reals, which is currently unsupported by
+   Firedrake.
+
 Incorporating boundary conditions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
