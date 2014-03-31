@@ -18,14 +18,22 @@ def _from_cell_list(dim, cells, coords, comm=None):
     if comm is None:
         comm = MPI.comm
     if comm.rank == 0:
+        cells = np.asarray(cells, dtype=PETSc.IntType)
+        coords = np.asarray(coords, dtype=float)
+        comm.bcast(cells.shape, root=0)
+        comm.bcast(coords.shape, root=0)
         # Provide the actual data on rank 0.
         return PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
 
+    cell_shape = list(comm.bcast(None, root=0))
+    coord_shape = list(comm.bcast(None, root=0))
+    cell_shape[0] = 0
+    coord_shape[0] = 0
     # Provide empty plex on other ranks
     # A subsequent call to plex.distribute() takes care of parallel partitioning
     return PETSc.DMPlex().createFromCellList(dim,
-                                             np.zeros((0, 0), dtype=np.int32),
-                                             np.zeros((0, 0), dtype=np.int32),
+                                             np.zeros(cell_shape, dtype=PETSc.IntType),
+                                             np.zeros(coord_shape, dtype=float),
                                              comm=comm)
 
 
