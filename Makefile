@@ -5,8 +5,11 @@ modules:
 	@python setup.py build_ext --inplace > build.log 2>&1 || cat build.log
 
 lint:
-	@echo "    Linting"
+	@echo "    Linting firedrake codebase"
 	@flake8 firedrake
+	@echo "    Linting firedrake test suite"
+	@flake8 tests
+
 
 THREADS=1
 ifeq ($(THREADS), 1)
