@@ -7,17 +7,17 @@ Firedrake uses a high-level language, `UFL`_, to describe variational
 problems.  To do this, we need a number of pieces.  We need a
 representation of the domain we're solving the :abbr:`PDE (partial
 differential equation)` on: Firedrake uses a
-:py:class:`~firedrake.core_types.Mesh` for this.  On top of this mesh,
-we build :py:class:`~firedrake.core_types.FunctionSpace`\s which
+:py:class:`~.Mesh` for this.  On top of this mesh,
+we build :py:class:`~.FunctionSpace`\s which
 define the space in which the solutions to our equation live.  Finally
-we define :py:class:`~firedrake.core_types.Function`\s in those
+we define :py:class:`~.Function`\s in those
 function spaces to actually hold the solutions.
 
 Constructing meshes
 -------------------
 
 Firedrake can read meshes in `Gmsh`_ and `triangle`_ format.  To build
-a mesh one uses the :py:class:`~firedrake.core_types.Mesh`
+a mesh one uses the :py:class:`~.Mesh`
 constructor, passing the name of the file as an argument.  If your
 mesh is in triangle format, you should pass the name of ``node`` file,
 if it is in Gmsh format, use the name of the ``msh`` file.  For
@@ -40,12 +40,12 @@ Utility mesh functions
 As well as offering the ability to read mesh information from a file,
 Firedrake also provides a number of built in mesh types for a number
 of standard shapes.  The simplest is a
-:py:class:`~firedrake.mesh.IntervalMesh` which is a regularly
+:py:class:`~.IntervalMesh` which is a regularly
 subdivided unit line of specified length.  We may also build square
-meshes with the :py:class:`~firedrake.mesh.UnitSquareMesh`
+meshes with the :py:class:`~.UnitSquareMesh`
 constructor, and cube meshes with
-:py:class:`~firedrake.mesh.UnitCubeMesh`.  The API documentation for
-the :py:mod:`~firedrake.mesh` module has full usage descriptions.
+:py:class:`~.UnitCubeMesh`.  The API documentation for
+the :py:mod:`~.
 
 Immersed manifolds
 ~~~~~~~~~~~~~~~~~~
@@ -71,9 +71,9 @@ use:
 Firedrake provides utility meshes for the surfaces of spheres immersed
 in 3D that are approximated using an `icosahedral mesh`_.  You can
 either build a mesh of the unit sphere with
-:py:class:`~firedrake.mesh.UnitIcosahedralSphereMesh`, or a mesh of a
+:py:class:`~.UnitIcosahedralSphereMesh`, or a mesh of a
 sphere with specified radius using
-:py:class:`~firedrake.mesh.IcosahedralSphereMesh`.  The meshes are
+:py:class:`~.IcosahedralSphereMesh`.  The meshes are
 constructed by recursively refining a `regular icosahedron
 <icosahedron_>`_, you can specify the refinement level by passing a
 non-zero ``refinement_level`` to the constructor.  For example, to
@@ -98,8 +98,8 @@ information is used by Firedrake to ensure that the facet normal on,
 say, the surface of a sphere, uniformly points outwards.  To do this,
 after constructing an immersed mesh, we must initialise the cell
 orientation information.  This is carried out with the function
-:py:meth:`~firedrake.core_types.Mesh.init_cell_orientations`, which
-takes an :py:class:`~firedrake.expression.Expression` used to produce
+:py:meth:`~.Mesh.init_cell_orientations`, which
+takes an :py:class:`~.Expression` used to produce
 the reference normal direction.  For example, on the sphere mesh of
 the earth defined above we can initialise the cell orientations
 relative to vector pointing out from the origin:
@@ -124,8 +124,8 @@ Building function spaces
 Now that we have a mesh of our domain, we need to build the function
 spaces the solution to our :abbr:`PDE (partial differential equation)`
 will live in, along with the spaces for the trial and test functions.
-To do so, we use the :py:class:`~firedrake.core_types.FunctionSpace`
-or :py:class:`~firedrake.core_types.VectorFunctionSpace` constructors.
+To do so, we use the :py:class:`~.FunctionSpace`
+or :py:class:`~.VectorFunctionSpace` constructors.
 The former may be used to define a function space for a scalar
 variable, for example pressure, which has a single value at each point
 in the domain; the latter is for vector-valued variables, such as
@@ -148,7 +148,7 @@ function space is the geometric dimension of the mesh (e.g. 3, if the
 mesh is 3D).  However, sometimes we might want that the number of
 components in the vector differs from the geometric dimension of the
 mesh.  We can do this by passing a value for the ``dim`` argument to
-the :py:class:`~firedrake.core_types.VectorFunctionSpace` constructor.
+the :py:class:`~.VectorFunctionSpace` constructor.
 For example, if we wanted a 2D vector-valued function space on the
 surface of a unit sphere mesh we might write:
 
@@ -165,7 +165,7 @@ Many :abbr:`PDE (partial differential equation)`\s are posed in terms
 of more than one, coupled, variable.  The function space for the
 variational problem for such a PDE is termed a *mixed* function space.
 Such a space is represented in Firedrake by a
-:py:class:`~firedrake.core_types.MixedFunctionSpace`.  We can either
+:py:class:`~.MixedFunctionSpace`.  We can either
 build such a space by invoking the constructor directly, or, more
 readably, by taking existing function spaces and multiplying them
 together using the ``*`` operator.  For example:
@@ -214,9 +214,9 @@ next step is to actually write down the variational form of the
 problem we wish to solve.  To do this, we will need a test function in
 an appropriate space along with a function to hold the solution and
 perhaps a trial function.  Test functions are obtained via a call to
-:py:class:`~firedrake.ufl_expr.TestFunction`, trial functions via
-:py:class:`~firedrake.ufl_expr.TrialFunction` and functions with
-:py:class:`~firedrake.core_types.Function`.  The former two are purely
+:py:class:`~.TestFunction`, trial functions via
+:py:class:`~.TrialFunction` and functions with
+:py:class:`~.Function`.  The former two are purely
 symbolic objects, the latter contains storage for the coefficients of
 the basis functions in the function space.  We use them as follows:
 
@@ -228,16 +228,16 @@ the basis functions in the function space.  We use them as follows:
 
 .. note::
 
-   A newly allocated :py:class:`~firedrake.core_types.Function` has
+   A newly allocated :py:class:`~.Function` has
    coefficients which are all zero.
 
 If ``V`` above were a
-:py:class:`~firedrake.core_types.MixedFunctionSpace`, the test and
+:py:class:`~.MixedFunctionSpace`, the test and
 trial functions we obtain are for the combined mixed space.  Often, we
 would like to have test and trial functions for the subspaces of the
 mixed space.  We can do this by asking for
-:py:class:`~firedrake.ufl_expr.TrialFunctions` and
-:py:class:`~firedrake.ufl_expr.TestFunctions`, which return an ordered
+:py:class:`~.TrialFunctions` and
+:py:class:`~.TestFunctions`, which return an ordered
 tuple of test and trial functions for the underlying spaces.  For
 example, if we write:
 
@@ -299,8 +299,8 @@ we will populate with the x component of the coordinate field.
    f = Function(V)
    f.interpolate(Expression('x[0]'))
 
-For details on how :py:class:`~firedrake.expression.Expression`\s and
-:py:meth:`~firedrake.core_types.Function.interpolate` work, see the
+For details on how :py:class:`~.Expression`\s and
+:py:meth:`~.Function.interpolate` work, see the
 :doc:`appropriate section in the manual <expressions>`.  The
 variational problem is to find :math:`u \in V` such that
 
@@ -329,7 +329,7 @@ how to do it here.  First we define a function to hold the solution
 
    s = Function(V)
 
-and call :py:func:`~firedrake.solving.solve` to solve the variational
+and call :py:func:`~.solve` to solve the variational
 problem:
 
 .. code-block:: python
@@ -386,7 +386,7 @@ incorporated into the variational form.  `Essential` (often termed
 of the solution, become prescriptions on the function space.  In
 Firedrake, the former are naturally expressed as part of the
 formulation of the variational problem, the latter are represented as
-:py:class:`~firedrake.bcs.DirichletBC` objects and are applied when
+:py:class:`~.DirichletBC` objects and are applied when
 solving the variational problem.  Construction of such a strong
 boundary condition requires a function space (to impose the boundary
 condition in), a value and a subdomain to apply the boundary condition
@@ -403,9 +403,9 @@ for the various
 respective constructor documentation.  For externally generated
 meshes, Firedrake just uses whichever ids the mesh generator
 provided.  The ``value`` may be either a scalar, or more generally an
-:py:class:`~firedrake.expression.Expression` of the appropriate
+:py:class:`~.Expression` of the appropriate
 shape.  You may also supply an iterable of literal constants, which
-will be converted to an :py:class:`~firedrake.expression.Expression`.
+will be converted to an :py:class:`~.Expression`.
 Hence the following two are equivalent:
 
 .. code-block:: python
