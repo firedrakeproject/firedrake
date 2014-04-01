@@ -84,11 +84,6 @@ On a Debian-based system (Ubuntu, Mint, etc.) install them by running::
   sudo apt-get install -y build-essential python-dev git-core mercurial \
   cmake cmake-curses-gui python-pip swig
 
-**Note:** You may find the version of pip this installs is too old, in
- which case you can tell pip to upgrade itself::
-
-   sudo pip install pip
-
 Dependencies
 ------------
 
