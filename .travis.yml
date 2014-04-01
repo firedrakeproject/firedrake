@@ -32,7 +32,7 @@ before_install:
     libvtk5-dev python-vtk libparmetis-dev python-vtk cython"
   - pip install git+https://bitbucket.org/petsc/petsc.git --allow-external petsc --allow-unverified petsc
   - pip install git+https://bitbucket.org/petsc/petsc4py.git
-  - wget https://github.com/OP2/PyOP2/raw/master/requirements-minimal.txt
+  - wget https://raw.github.com/OP2/PyOP2/master/requirements-minimal.txt
   - pip install git+https://github.com/OP2/PyOP2 -r requirements-minimal.txt
   - if [[ $TRAVIS_PYTHON_VERSION == "2.6" ]]; then pip install argparse ordereddict; fi
 install:
