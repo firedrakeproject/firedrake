@@ -396,7 +396,9 @@ class Mesh(object):
         if op2.MPI.comm.size > 1:
             self.parallel_sf = self._plex.distribute(overlap=1)
 
+        # Mark OP2 entities and derive the resulting Plex renumbering
         dmplex.mark_entity_classes(self._plex)
+        self._plex_renumbering = dmplex.plex_renumbering(plex)
 
         cStart, cEnd = self._plex.getHeightStratum(0)  # cells
         cell_vertices = self._plex.getConeSize(cStart)
@@ -405,6 +407,13 @@ class Mesh(object):
 
         dim = self._plex.getDimension()
         self._cells, self.cell_classes = dmplex.get_entities_by_class(self._plex, dim)
+
+        # Derive a cell numbering from the Plex renumbering
+        cell_entity_dofs = np.zeros(dim+1, dtype=np.int32)
+        cell_entity_dofs[-1] = 1
+        self._cell_numbering = self._plex.createSection(1, [1],
+                                                        cell_entity_dofs,
+                                                        perm=self._plex_renumbering)
 
         # Fenics facet and DoF numbering requires a universal vertex numbering
         self._vertex_numbering = None
@@ -427,7 +436,13 @@ class Mesh(object):
             else:
                 boundary_ids = None
 
-            exterior_facet_cell = np.array([np.where(self._plex.getSupport(f)==self.cells())[0][0] for f in exterior_facets])
+            exterior_facet_cell = []
+            for f in exterior_facets:
+                fcells = self._plex.getSupport(f)
+                fcells_num = [np.array([self._cell_numbering.getOffset(c)]) for c in fcells]
+                exterior_facet_cell.append(np.concatenate(fcells_num))
+            exterior_facet_cell = np.array(exterior_facet_cell)
+
             get_f_no = lambda f: dmplex.facet_numbering(self._plex, self._vertex_numbering, f)
             exterior_local_facet_number = np.array([get_f_no(f) for f in exterior_facets], dtype=np.int32)
             # Note: To implement facets correctly in parallel
@@ -450,7 +465,9 @@ class Mesh(object):
 
             interior_facet_cell = []
             for f in interior_facets:
-                interior_facet_cell.append(np.concatenate([np.where(c==self.cells())[0] for c in self._plex.getSupport(f)]))
+                fcells = self._plex.getSupport(f)
+                fcells_num = [np.array([self._cell_numbering.getOffset(c)]) for c in fcells]
+                interior_facet_cell.append(np.concatenate(fcells_num))
             interior_facet_cell = np.array(interior_facet_cell)
             get_f_no = lambda f: dmplex.facet_numbering(self._plex, self._vertex_numbering, f)
             interior_local_facet_number = np.array([get_f_no(f) for f in interior_facets])
@@ -462,9 +479,6 @@ class Mesh(object):
                                            interior_local_facet_number)
         else:
             self.interior_facets = _Facets(self, 0, "interior", None, None)
-
-        plex_coords = self._plex.getCoordinatesLocal().getArray()
-        self._coordinates = np.reshape(plex_coords, (self.num_vertices(), geometric_dim))
 
         # Note that for bendy elements, this needs to change.
         if periodic_coords is not None:
@@ -478,16 +492,17 @@ class Mesh(object):
         else:
             self._coordinate_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
 
-            # Use the inverse of the section permutation to re-order
-            # the coordinates from the Plex
-            perm = filter(lambda x: x>=0, self._coordinate_fs.perm)
-            perm_is = PETSc.IS().createGeneral(perm, comm=MPI.COMM_SELF)
-            perm_is.setPermutation()
-            inv_perm = perm_is.invertPermutation().getIndices()
-            self._coordinates = np.array([self._coordinates[p] for p in inv_perm])
+            # Use the section permutation to re-order Plex coordinates
+            plex_coords = self._plex.getCoordinatesLocal().getArray()
+            plex_coords = np.reshape(plex_coords, (self.num_vertices(), geometric_dim))
+            coordinates = np.empty(plex_coords.shape)
+            vStart, vEnd = self._plex.getDepthStratum(0)
+            for v in range(vStart, vEnd):
+                offset = self._coordinate_fs._global_numbering.getOffset(v)
+                coordinates[offset,:] = plex_coords[v-vStart,:]
 
             self.coordinates = types.Function(self._coordinate_fs,
-                                                    val=self._coordinates,
+                                                    val=coordinates,
                                                     name="Coordinates")
         self._dx = ufl.Measure('cell', domain_data=self.coordinates)
         self._ds = ufl.Measure('exterior_facet', domain_data=self.coordinates)
@@ -733,10 +748,11 @@ class ExtrudedMesh(Mesh):
         self._cells = mesh._cells
         self.parent = mesh.parent
         self.uid = mesh.uid
-        self._coordinates = mesh._coordinates
         self._vertex_numbering = mesh._vertex_numbering
         self.name = mesh.name
         self._plex = mesh._plex
+        self._plex_renumbering = mesh._plex_renumbering
+        self._cell_numbering = mesh._cell_numbering
 
         interior_f = self._old_mesh.interior_facets
         self._interior_facets = _Facets(self, interior_f.count,
@@ -1005,26 +1021,35 @@ class FunctionSpaceBase(Cached):
         self._mesh = mesh
         self._index = None
 
-        self._plex = mesh._plex.clone()
-
         # Create the PetscSection mapping topological entities to DoFs
-        self._global_numbering = self._plex.createSection(1, [1], self._dofs_per_entity)
+        self._global_numbering = mesh._plex.createSection(1, [1], self._dofs_per_entity,
+                                                          perm=mesh._plex_renumbering)
+        mesh._plex.setDefaultSection(self._global_numbering)
+        self._universal_numbering = mesh._plex.getDefaultGlobalSection()
 
-        # Reorder global and universal node numberings
-        self._plex.setDefaultSection(self._global_numbering)
-        self.dof_classes, self.perm = dmplex.permute_global_numbering(self._plex)
-        self._global_numbering = self._plex.getDefaultSection()
-        self._universal_numbering = self._plex.getDefaultGlobalSection()
-
-        # Re-initialise the PetscSF and build Halo from it
-        self._plex.createDefaultSF(self._global_numbering,
+        # Re-initialise the DefaultSF with the numbering for this FS
+        mesh._plex.createDefaultSF(self._global_numbering,
                                    self._universal_numbering)
-        self._halo = Halo(self._plex.getDefaultSF(),
+
+        # Derive the Halo from the DefaultSF
+        self._halo = Halo(mesh._plex.getDefaultSF(),
                           self._global_numbering,
                           self._universal_numbering)
 
+        # Compute entity class offsets
+        self.dof_classes = [0, 0, 0, 0]
+        for d in range(mesh._plex.getDimension()+1):
+            ncore = mesh._plex.getStratumSize("op2_core", d)
+            nowned = mesh._plex.getStratumSize("op2_non_core", d)
+            nhalo = mesh._plex.getStratumSize("op2_exec_halo", d)
+            ndofs = self._dofs_per_entity[d]
+            self.dof_classes[0] += ndofs * ncore
+            self.dof_classes[1] += ndofs * (ncore + nowned)
+            self.dof_classes[2] += ndofs * (ncore + nowned + nhalo)
+            self.dof_classes[3] += ndofs * (ncore + nowned + nhalo)
+
         self._node_count = self._global_numbering.getStorageSize()
-        self.cell_node_list = np.array([self._get_cell_nodes(c) for c in self._mesh.cells()])
+        self.cell_node_list = np.array([self._get_cell_nodes(c) for c in mesh.cells()])
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
             dim = mesh._plex.getDimension()
@@ -1033,7 +1058,9 @@ class FunctionSpaceBase(Cached):
 
             interior_facet_eles = []
             for f in interior_facets:
-                interior_facet_eles.append(np.concatenate([np.where(c==mesh.cells())[0] for c in mesh._plex.getSupport(f)]))
+                fcells = self._mesh._plex.getSupport(f)
+                fcells_num = [np.array([mesh._cell_numbering.getOffset(c)]) for c in fcells]
+                interior_facet_eles.append(np.concatenate(fcells_num))
             self.interior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in interior_facet_eles])
         else:
             self.interior_facet_node_list = None
@@ -1045,7 +1072,9 @@ class FunctionSpaceBase(Cached):
 
             exterior_facet_eles = []
             for f in exterior_facets:
-                exterior_facet_eles.append(np.concatenate([np.where(c==mesh.cells())[0] for c in mesh._plex.getSupport(f)]))
+                fcells = self._mesh._plex.getSupport(f)
+                fcells_num = [np.array([mesh._cell_numbering.getOffset(c)]) for c in fcells]
+                exterior_facet_eles.append(np.concatenate(fcells_num))
             self.exterior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in exterior_facet_eles])
         else:
             self.exterior_facet_node_list = None
@@ -1076,13 +1105,13 @@ class FunctionSpaceBase(Cached):
             # Instead of using the numbering directly, we step through
             # all points and build the numbering for each entity
             # according to the extrusion rules.
-            dim = self._plex.getDimension()
+            dim = plex.getDimension()
             flat_entity_dofs = self.flattened_element.entity_dofs()
             hdofs = self._xtr_hdofs
             vdofs = self._xtr_vdofs
 
             for d in range(dim+1):
-                pStart, pEnd = self._plex.getDepthStratum(d)
+                pStart, pEnd = plex.getDepthStratum(d)
                 points = filter(lambda x: pStart<=x and x<pEnd, numbering)
                 for i in range(len(points)):
                     p = points[i]
