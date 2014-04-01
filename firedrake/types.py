@@ -16,6 +16,11 @@ import utils
 from vector import Vector
 
 
+__all__ = ['FunctionSpace', 'VectorFunctionSpace',
+           'MixedFunctionSpace', 'IndexedFunctionSpace',
+           'Function']
+
+
 valuetype = np.float64
 
 

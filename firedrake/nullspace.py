@@ -2,6 +2,9 @@ from petsc import PETSc
 from types import IndexedFunctionSpace
 
 
+__all__ = ['VectorSpaceBasis', 'MixedVectorSpaceBasis']
+
+
 class VectorSpaceBasis(object):
     """Build a basis for a vector space.
 

@@ -2,6 +2,9 @@ import ufl
 import numpy as np
 
 
+__all__ = ['Expression']
+
+
 class Expression(ufl.Coefficient):
     """A code snippet that may be evaluated on a :class:`.FunctionSpace`.
 

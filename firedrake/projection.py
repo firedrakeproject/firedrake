@@ -1,9 +1,12 @@
 from core_types import FunctionSpaceBase
-from types import *
+from types import Function, FunctionSpace, VectorFunctionSpace
 from expression import Expression
 from solving import solve
-from ufl import *
+import ufl
 from ufl_expr import TrialFunction, TestFunction
+
+
+__all__ = ['project']
 
 
 def project(v, V, bcs=None, mesh=None,
@@ -67,8 +70,8 @@ def project(v, V, bcs=None, mesh=None,
 
     p = TestFunction(V)
     q = TrialFunction(V)
-    a = inner(p, q) * V.mesh()._dx
-    L = inner(p, v) * V.mesh()._dx
+    a = ufl.inner(p, q) * V.mesh()._dx
+    L = ufl.inner(p, v) * V.mesh()._dx
 
     solve(a == L, ret, bcs=bcs,
           solver_parameters=solver_parameters,

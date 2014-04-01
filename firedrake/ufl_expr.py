@@ -7,6 +7,12 @@ from ufl.algorithms.analysis import extract_arguments
 import types
 
 
+__all__ = ['Argument', 'TestFunction', 'TrialFunction',
+           'TestFunctions', 'TrialFunctions',
+           'derivative', 'adjoint',
+           'CellSize', 'FacetNormal']
+
+
 class Argument(ufl.argument.Argument):
     """Representation of the argument to a form,"""
     def __init__(self, element, function_space, count=None):
