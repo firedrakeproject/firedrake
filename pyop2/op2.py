@@ -211,6 +211,16 @@ def par_loop(kernel, iterset, *args, **kwargs):
                  :class:`Kernel` is going to access this data (see the example
                  below). These are the global data structures from and to
                  which the kernel will read and write.
+    :kwarg iterate: Optionally specify which region of an
+            :class:`ExtrudedSet` to iterate over.
+            Valid values are:
+
+              - ``ON_BOTTOM``: iterate over the bottom layer of cells.
+              - ``ON_TOP`` iterate over the top layer of cells.
+              - ``ALL`` iterate over all cells (the default if unspecified)
+              - ``ON_INTERIOR_FACETS`` iterate over all the layers
+                 except the top layer, accessing data two adjacent (in
+                 the extruded direction) cells at a time.
 
     .. warning ::
         It is the caller's responsibility that the number and type of all

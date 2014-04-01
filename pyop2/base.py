@@ -2551,7 +2551,9 @@ class Map(object):
 
     @property
     def iteration_region(self):
-        """:class:`Set` mapped from."""
+        """Return the iteration region for the current map. For a normal map it
+        will always be ALL. For a class `SparsityMap` it will specify over which mesh
+        region the iteration will take place."""
         return [ALL]
 
     @property
@@ -2659,9 +2661,12 @@ class SparsityMap(Map):
     """Augmented type for a map used in the case of building the sparsity
     for horizontal facets.
 
-    The original Map and the pre-defined region of the mesh over which the
-    parallel loop is expected to execute must be included. In this way the
-    iteration over a specific part of the mesh will lead to the creation of
+    :param map: The original class:`Map`.
+
+    :param iteration_region: The class:`IterationRegion` of the mesh over which
+                             the parallel loop will iterate.
+
+    The iteration over a specific part of the mesh will lead to the creation of
     the appropriate sparsity pattern."""
 
     def __new__(cls, map, iteration_region):
@@ -2826,7 +2831,6 @@ class Sparsity(Cached):
         maps = (maps, maps) if isinstance(maps, Map) else maps
         # A single pair becomes a tuple of one pair
         maps = (maps,) if isinstance(maps[0], Map) else maps
-        # A list of maps where each map has a flag attached to it
 
         # Check maps are sane
         for pair in maps:
@@ -3276,7 +3280,7 @@ class JITModule(Cached):
                 f.write(src)
 
 
-class IteratationRegion(object):
+class IterationRegion(object):
     """ Class that specifies the way to iterate over a column of extruded
     mesh elements. A column of elements refers to the elements which are
     in the extrusion direction. The accesses to these elements are direct.
@@ -3298,19 +3302,19 @@ class IteratationRegion(object):
     def __repr__(self):
         return "%r" % self._iterate
 
-ON_COLUMN = IteratationRegion("ON_COLUMN")
+ON_COLUMN = IterationRegion("ON_COLUMN")
 """Iterate over the entire column of cells."""
 
-ON_BOTTOM = IteratationRegion("ON_BOTTOM")
+ON_BOTTOM = IterationRegion("ON_BOTTOM")
 """Iterate over the cells at the bottom of the column in an extruded mesh."""
 
-ON_TOP = IteratationRegion("ON_TOP")
+ON_TOP = IterationRegion("ON_TOP")
 """Iterate over the top cells in an extruded mesh."""
 
-ON_INTERIOR_FACETS = IteratationRegion("ON_INTERIOR_FACETS")
+ON_INTERIOR_FACETS = IterationRegion("ON_INTERIOR_FACETS")
 """Iterate over the interior facets of an extruded mesh."""
 
-ALL = IteratationRegion("ALL")
+ALL = IterationRegion("ALL")
 """Iterate over the interior facets of an extruded mesh."""
 
 
@@ -3322,6 +3326,10 @@ class ParLoop(LazyComputation):
 
         Users should not directly construct :class:`ParLoop` objects, but
         use :func:`pyop2.op2.par_loop` instead.
+
+    An optional keyword argument, ``iterate``, can be used to specify
+    which region of an :class:`ExtrudedSet` the parallel loop should
+    iterate over.
     """
 
     @validate_type(('kernel', Kernel, KernelTypeError),

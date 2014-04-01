@@ -642,7 +642,7 @@ class JITModule(base.JITModule):
         self._itspace = itspace
         self._args = args
         self._direct = kwargs.get('direct', False)
-        self._iteration_region = kwargs.get('iterate', False)
+        self._iteration_region = kwargs.get('iterate', ALL)
 
     @collective
     def __call__(self, *args, **kwargs):
