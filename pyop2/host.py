@@ -130,7 +130,7 @@ class Arg(base.Arg):
              'map_name': self.c_map_name(i, 0),
              'arity': self.map.split[i].arity,
              'idx': idx,
-             'top': ' + '+str(layers - 2) if is_top else '',
+             'top': ' + start_layer' if is_top else '',
              'dim': self.data.split[i].cdim,
              'off': ' + %d' % j if j else '',
              'off_mul': ' * %d' % offset if is_top and offset is not None else '',
@@ -142,7 +142,7 @@ class Arg(base.Arg):
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
              'idx': idx,
-             'top': ' + '+str(layers - 2) if is_top else '',
+             'top': ' + start_layer' if is_top else '',
              'dim': 1 if self._flatten else str(cdim),
              'off': ' + %d' % j if j else '',
              'offset': ' * _'+self.c_offset_name(i, 0)+'['+idx+']' if is_top else ''}
@@ -441,7 +441,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                     'dat_dim': str(cdim),
                                     'ind_flat': str(m.arity * k + idx),
                                     'offset': ' + '+str(k) if k > 0 else '',
-                                    'off_top': ' + '+str((layers - 2) * m.offset[idx]) if is_top else ''})
+                                    'off_top': ' + start_layer * '+str(m.offset[idx]) if is_top else ''})
                 if is_facet:
                     for idx in range(m.arity):
                         for k in range(cdim):
@@ -465,7 +465,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                {'name': self.c_map_name(i, j),
                                 'dim': m.arity,
                                 'ind': idx,
-                                'off_top': ' + '+str((layers - 2) * m.offset[idx]) if is_top else ''})
+                                'off_top': ' + start_layer * '+str(m.offset[idx]) if is_top else ''})
                 if is_facet:
                     for idx in range(m.arity):
                         val.append("xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind_zero)s)%(off_top)s%(off)s;" %
@@ -473,7 +473,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                     'dim': m.arity,
                                     'ind': idx + m.arity,
                                     'ind_zero': idx,
-                                    'off_top': ' + '+str(layers - 2) if is_top else '',
+                                    'off_top': ' + start_layer' if is_top else '',
                                     'off': ' + ' + str(m.offset[idx])})
 
         return '\n'.join(val)+'\n'
@@ -505,7 +505,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 
         if top_bottom[1]:
             # We need to apply the top bcs
-            val.append("if (j_0 == layer-2){")
+            val.append("if (j_0 == end_layer - 1){")
             for i, map in enumerate(maps):
                 if not map.iterset._extruded:
                     continue
@@ -738,7 +738,7 @@ class JITModule(base.JITModule):
         def extrusion_loop():
             if self._direct:
                 return "{"
-            return "for (int j_0=0; j_0<layer-1; ++j_0){"
+            return "for (int j_0 = start_layer; j_0 < end_layer; ++j_0){"
 
         _ssinds_arg = ""
         _index_expr = "n"
@@ -790,7 +790,7 @@ class JITModule(base.JITModule):
         _layer_arg = ""
         if self._itspace._extruded:
             a_bcs = self._itspace.iterset._extruded_bcs
-            _layer_arg = ", int layer"
+            _layer_arg = ", int start_layer, int end_layer"
             _off_args = ''.join([arg.c_offset_init() for arg in self._args
                                  if arg._uses_itspace or arg._is_vec_map])
             _off_inits = ';\n'.join([arg.c_offset_decl() for arg in self._args
