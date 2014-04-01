@@ -80,34 +80,40 @@ class FormSplitter(ReuseTransformer):
                 count, l = args[0]
                 for i in range(l):
                     self._idx = {count: i}
+                    self._args = {}
                     visit((i, 0))
             # 2 form
             elif len(args) == 2:
                 for i in range(args[0][1]):
                     for j in range(args[1][1]):
                         self._idx = {args[0][0]: i, args[1][0]: j}
+                        self._args = {}
                         visit((i, j))
             forms_list += forms
         return forms_list
 
-    def argument(self, o):
+    def argument(self, arg):
         """Split an argument into its constituent spaces."""
-        if isinstance(o.function_space(), types.MixedFunctionSpace):
+        if isinstance(arg.function_space(), types.MixedFunctionSpace):
+            if arg in self._args:
+                return self._args[arg]
             args = []
-            for i, fs in enumerate(o.function_space().split()):
-                a = Argument(fs.ufl_element(), fs, o.count())
+            for i, fs in enumerate(arg.function_space().split()):
+                # Look up the split argument in cache since we want it unique
+                a = Argument(fs.ufl_element(), fs, arg.count())
                 if a.shape():
-                    if self._idx[o.count()] == i:
+                    if self._idx[arg.count()] == i:
                         args += [a[j] for j in range(a.shape()[0])]
                     else:
                         args += [Zero() for j in range(a.shape()[0])]
                 else:
-                    if self._idx[o.count()] == i:
+                    if self._idx[arg.count()] == i:
                         args.append(a)
                     else:
                         args.append(Zero())
+            self._args[arg] = as_vector(args)
             return as_vector(args)
-        return o
+        return arg
 
 
 class FFCKernel(DiskCached):
