@@ -3286,7 +3286,7 @@ class IterationRegion(object):
     in the extrusion direction. The accesses to these elements are direct.
     """
 
-    _iterates = ["ON_COLUMN", "ON_BOTTOM", "ON_TOP", "ON_INTERIOR_FACETS", "ALL"]
+    _iterates = ["ON_BOTTOM", "ON_TOP", "ON_INTERIOR_FACETS", "ALL"]
 
     @validate_in(('iterate', _iterates, IterateValueError))
     def __init__(self, iterate):
@@ -3302,9 +3302,6 @@ class IterationRegion(object):
     def __repr__(self):
         return "%r" % self._iterate
 
-ON_COLUMN = IterationRegion("ON_COLUMN")
-"""Iterate over the entire column of cells."""
-
 ON_BOTTOM = IterationRegion("ON_BOTTOM")
 """Iterate over the cells at the bottom of the column in an extruded mesh."""
 
@@ -3315,7 +3312,7 @@ ON_INTERIOR_FACETS = IterationRegion("ON_INTERIOR_FACETS")
 """Iterate over the interior facets of an extruded mesh."""
 
 ALL = IterationRegion("ALL")
-"""Iterate over the interior facets of an extruded mesh."""
+"""Iterate over all cells of an extruded mesh."""
 
 
 class ParLoop(LazyComputation):
