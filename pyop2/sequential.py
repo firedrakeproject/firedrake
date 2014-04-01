@@ -41,6 +41,7 @@ import host
 import ctypes
 from numpy.ctypeslib import ndpointer
 from host import Kernel, Arg  # noqa: needed by BackendSelector
+from base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS
 
 # Parallel loop API
 
@@ -86,7 +87,7 @@ class ParLoop(host.ParLoop):
 
     @collective
     def _compute(self, part):
-        fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct)
+        fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct, iterate=self.iteration_region)
         if not hasattr(self, '_jit_args'):
             self._argtypes = [ctypes.c_int, ctypes.c_int]
             self._jit_args = [0, 0]
@@ -119,9 +120,26 @@ class ParLoop(host.ParLoop):
                 self._argtypes.append(ndpointer(a.dtype, shape=a.shape))
                 self._jit_args.append(a)
 
-            for a in self.layer_arg:
+            if self.iteration_region in [ON_BOTTOM]:
                 self._argtypes.append(ctypes.c_int)
-                self._jit_args.append(a)
+                self._argtypes.append(ctypes.c_int)
+                self._jit_args.append(0)
+                self._jit_args.append(1)
+            if self.iteration_region in [ON_TOP]:
+                self._argtypes.append(ctypes.c_int)
+                self._argtypes.append(ctypes.c_int)
+                self._jit_args.append(self._it_space.layers - 2)
+                self._jit_args.append(self._it_space.layers - 1)
+            elif self.iteration_region in [ON_INTERIOR_FACETS]:
+                self._argtypes.append(ctypes.c_int)
+                self._argtypes.append(ctypes.c_int)
+                self._jit_args.append(0)
+                self._jit_args.append(self._it_space.layers - 2)
+            elif self._it_space._extruded:
+                self._argtypes.append(ctypes.c_int)
+                self._argtypes.append(ctypes.c_int)
+                self._jit_args.append(0)
+                self._jit_args.append(self._it_space.layers - 1)
 
         self._jit_args[0] = part.offset
         self._jit_args[1] = part.offset + part.size

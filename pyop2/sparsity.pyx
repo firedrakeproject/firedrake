@@ -75,7 +75,7 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
     from set, for each row pointed to by the row map, add all columns pointed
     to by the col map."""
     cdef:
-        int e, i, r, d, c
+        int e, i, r, d, c, layer
         int lsize, rsize, row
         cmap rowmap, colmap
         vector[set[int]] s_diag
@@ -83,21 +83,67 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
 
     lsize = nrows*rmult
     s_diag = vector[set[int]](lsize)
+    iterate = None
 
-    for rmap, cmap in maps:
+    for ind, (rmap, cmap) in enumerate(maps):
         rowmap = init_map(rmap)
         colmap = init_map(cmap)
         rsize = rowmap.from_size
+        # In the case of extruded meshes, in particular, when iterating over
+        # horizontal facets, the iteration region determines which part of the
+        # mesh the sparsity should be constructed for.
+        #
+        # ON_BOTTOM: create the sparsity only for the bottom layer of cells
+        # ON_TOP: create the sparsity only for the top layers
+        # ON_INTERIOR_FACETS: the sparsity creation requires the dynamic
+        # computation of the full facet map. Because the extruded direction
+        # is structured, the map can be computed dynamically. The map is made up
+        # of a lower half given by the base map and an upper part which is obtained
+        # by adding the offset to the base map. This produces a map which has double
+        # the arity of the initial map.
         if rowmap.layers > 1:
-            for e in range(rsize):
-                for i in range(rowmap.arity):
-                    for r in range(rmult):
-                        for l in range(rowmap.layers - 1):
-                            row = rmult * (rowmap.values[i + e*rowmap.arity] + l * rowmap.offset[i]) + r
-                            for d in range(colmap.arity):
-                                for c in range(cmult):
-                                    s_diag[row].insert(cmult * (colmap.values[d + e * colmap.arity] +
-                                                       l * colmap.offset[d]) + c)
+            row_iteration_region = maps[ind][0].iteration_region
+            col_iteration_region = maps[ind][1].iteration_region
+            for it_sp in row_iteration_region:
+                if it_sp.where == 'ON_BOTTOM':
+                    for e in range(rsize):
+                        for i in range(rowmap.arity):
+                            for r in range(rmult):
+                                row = rmult * (rowmap.values[i + e*rowmap.arity]) + r
+                                for d in range(colmap.arity):
+                                    for c in range(cmult):
+                                        s_diag[row].insert(cmult * (colmap.values[d + e * colmap.arity]) + c)
+                elif it_sp.where == "ON_TOP":
+                    layer = rowmap.layers - 2
+                    for e in range(rsize):
+                        for i in range(rowmap.arity):
+                            for r in range(rmult):
+                                row = rmult * (rowmap.values[i + e*rowmap.arity] + layer * rowmap.offset[i]) + r
+                                for d in range(colmap.arity):
+                                    for c in range(cmult):
+                                        s_diag[row].insert(cmult * (colmap.values[d + e * colmap.arity] +
+                                                           layer * colmap.offset[d]) + c)
+                elif it_sp.where == "ON_INTERIOR_FACETS":
+                    for e in range(rsize):
+                        for i in range(rowmap.arity * 2):
+                            for r in range(rmult):
+                                for l in range(rowmap.layers - 2):
+                                    row = rmult * (rowmap.values[i % rowmap.arity + e*rowmap.arity] + (l + i / rowmap.arity) * rowmap.offset[i % rowmap.arity]) + r
+                                    for d in range(colmap.arity * 2):
+                                        for c in range(cmult):
+                                            s_diag[row].insert(cmult * (colmap.values[d % colmap.arity + e * colmap.arity] +
+                                                               (l + d / rowmap.arity) * colmap.offset[d % colmap.arity]) + c)
+                else:
+                    for e in range(rsize):
+                        for i in range(rowmap.arity):
+                            for r in range(rmult):
+                                for l in range(rowmap.layers - 1):
+                                    row = rmult * (rowmap.values[i + e*rowmap.arity] + l * rowmap.offset[i]) + r
+                                    for d in range(colmap.arity):
+                                        for c in range(cmult):
+                                            s_diag[row].insert(cmult * (colmap.values[d + e * colmap.arity] +
+                                                               l * colmap.offset[d]) + c)
+
         else:
             for e in range(rsize):
                 for i in range(rowmap.arity):

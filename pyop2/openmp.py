@@ -48,6 +48,7 @@ from host import Kernel  # noqa: for inheritance
 import device
 import plan as _plan
 from subprocess import Popen, PIPE
+from base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS
 
 # hard coded value to max openmp threads
 _max_threads = 32
@@ -78,12 +79,12 @@ class Arg(host.Arg):
     def c_local_tensor_name(self, i, j):
         return self.c_kernel_arg_name(i, j, _max_threads)
 
-    def c_vec_dec(self):
+    def c_vec_dec(self, is_facet=False):
         cdim = self.data.dataset.cdim if self._flatten else 1
         return ";\n%(type)s *%(vec_name)s[%(arity)s]" % \
             {'type': self.ctype,
              'vec_name': self.c_vec_name(str(_max_threads)),
-             'arity': self.map.arity * cdim}
+             'arity': self.map.arity * cdim * (2 if is_facet else 1)}
 
     def padding(self):
         return int(_padding * (self.data.cdim / _padding + 1)) * \
@@ -211,7 +212,7 @@ void %(wrapper_name)s(int boffset,
 class ParLoop(device.ParLoop, host.ParLoop):
 
     def _compute(self, part):
-        fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct)
+        fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct, iterate=self.iteration_region)
         if not hasattr(self, '_jit_args'):
             self._jit_args = [None] * 5
             self._argtypes = [None] * 5
@@ -247,9 +248,26 @@ class ParLoop(device.ParLoop, host.ParLoop):
                 self._argtypes.append(ndpointer(a.dtype, shape=a.shape))
                 self._jit_args.append(a)
 
-            for a in self.layer_arg:
+            if self.iteration_region in [ON_BOTTOM]:
                 self._argtypes.append(ctypes.c_int)
-                self._jit_args.append(a)
+                self._argtypes.append(ctypes.c_int)
+                self._jit_args.append(0)
+                self._jit_args.append(1)
+            if self.iteration_region in [ON_TOP]:
+                self._argtypes.append(ctypes.c_int)
+                self._argtypes.append(ctypes.c_int)
+                self._jit_args.append(self._it_space.layers - 2)
+                self._jit_args.append(self._it_space.layers - 1)
+            elif self.iteration_region in [ON_INTERIOR_FACETS]:
+                self._argtypes.append(ctypes.c_int)
+                self._argtypes.append(ctypes.c_int)
+                self._jit_args.append(0)
+                self._jit_args.append(self._it_space.layers - 2)
+            elif self._it_space._extruded:
+                self._argtypes.append(ctypes.c_int)
+                self._argtypes.append(ctypes.c_int)
+                self._jit_args.append(0)
+                self._jit_args.append(self._it_space.layers - 1)
 
         if part.size > 0:
             #TODO: compute partition size

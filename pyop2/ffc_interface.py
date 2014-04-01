@@ -95,21 +95,20 @@ class FFCKernel(DiskCached):
             return
 
         incl = PreprocessNode('#include "pyop2_geometry.h"\n')
-        ffc_tree = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
-
-        form_data = form.form_data()
+        forms = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
+        fdict = dict((f.name, f) for f in forms)
 
         kernels = []
-        for ida, kernel in zip(form_data.integral_data, ffc_tree):
+        for ida in form.form_data().preprocessed_form.integrals():
+            fname = '%s_%s_integral_0_%s' % (name, ida.domain_type(), ida.domain_id())
             # Set optimization options
-            opts = {} if ida.domain_type not in ['cell'] else \
+            opts = {} if ida.domain_type() not in ['cell'] else \
                    {'licm': False,
                     'tile': None,
                     'vect': None,
                     'ap': False,
                     'split': None}
-            kernels.append(Kernel(Root([incl, kernel]), '%s_%s_integral_0_%s' %
-                           (name, ida.domain_type, ida.domain_id), opts))
+            kernels.append(Kernel(Root([incl, fdict[fname]]), fname, opts))
         self.kernels = tuple(kernels)
 
         self._initialized = True

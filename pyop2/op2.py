@@ -38,6 +38,7 @@ import atexit
 import backends
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, i
+from base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL
 from configuration import configuration
 from logger import debug, info, warning, error, critical, set_log_level
 from mpi import MPI, collective
@@ -47,6 +48,7 @@ from ir.ast_plan import init_ir
 from versioning import modifies_arguments
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
+           'ON_BOTTOM', 'ON_TOP', 'ON_INTERIOR_FACETS', 'ALL',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'ExtrudedSet',
            'MixedSet', 'Subset', 'DataSet', 'MixedDataSet', 'Halo', 'Dat',
@@ -177,6 +179,10 @@ class Map(base.Map):
     __metaclass__ = backends._BackendSelector
 
 
+class SparsityMap(base.SparsityMap):
+    __metaclass__ = backends._BackendSelector
+
+
 class MixedMap(base.MixedMap):
     __metaclass__ = backends._BackendSelector
 
@@ -191,7 +197,7 @@ class Solver(base.Solver):
 
 @modifies_arguments
 @collective
-def par_loop(kernel, iterset, *args):
+def par_loop(kernel, iterset, *args, **kwargs):
     """Invocation of an OP2 kernel
 
     :arg kernel: The :class:`Kernel` to be executed.
@@ -205,6 +211,16 @@ def par_loop(kernel, iterset, *args):
                  :class:`Kernel` is going to access this data (see the example
                  below). These are the global data structures from and to
                  which the kernel will read and write.
+    :kwarg iterate: Optionally specify which region of an
+            :class:`ExtrudedSet` to iterate over.
+            Valid values are:
+
+              - ``ON_BOTTOM``: iterate over the bottom layer of cells.
+              - ``ON_TOP`` iterate over the top layer of cells.
+              - ``ALL`` iterate over all cells (the default if unspecified)
+              - ``ON_INTERIOR_FACETS`` iterate over all the layers
+                 except the top layer, accessing data two adjacent (in
+                 the extruded direction) cells at a time.
 
     .. warning ::
         It is the caller's responsibility that the number and type of all
@@ -243,7 +259,7 @@ def par_loop(kernel, iterset, *args):
     ``elem_node`` for the relevant member of ``elements`` will be
     passed to the kernel as a vector.
     """
-    return backends._BackendSelector._backend.par_loop(kernel, iterset, *args)
+    return backends._BackendSelector._backend.par_loop(kernel, iterset, *args, **kwargs)
 
 
 @collective

@@ -2550,6 +2550,13 @@ class Map(object):
         return (self,)
 
     @property
+    def iteration_region(self):
+        """Return the iteration region for the current map. For a normal map it
+        will always be ALL. For a class `SparsityMap` it will specify over which mesh
+        region the iteration will take place."""
+        return [ALL]
+
+    @property
     def iterset(self):
         """:class:`Set` mapped from."""
         return self._iterset
@@ -2648,6 +2655,36 @@ class Map(object):
         if len(arity) != 1:
             raise ArityTypeError("Unrecognised arity value %s" % arity)
         return cls(iterset, toset, arity[0], values, name)
+
+
+class SparsityMap(Map):
+    """Augmented type for a map used in the case of building the sparsity
+    for horizontal facets.
+
+    :param map: The original class:`Map`.
+
+    :param iteration_region: The class:`IterationRegion` of the mesh over which
+                             the parallel loop will iterate.
+
+    The iteration over a specific part of the mesh will lead to the creation of
+    the appropriate sparsity pattern."""
+
+    def __new__(cls, map, iteration_region):
+        if isinstance(map, MixedMap):
+            return MixedMap([SparsityMap(m, iteration_region) for m in map])
+        return super(SparsityMap, cls).__new__(cls, map, iteration_region)
+
+    def __init__(self, map, iteration_region):
+        self._map = map
+        self._iteration_region = iteration_region
+
+    def __getattr__(self, name):
+        return getattr(self._map, name)
+
+    @property
+    def iteration_region(self):
+        """Returns the type of the iteration to be performed."""
+        return self._iteration_region
 
 
 class MixedMap(Map):
@@ -3205,6 +3242,10 @@ class JITModule(Cached):
                 key += (arg.data.dims, arg.data.dtype, idxs,
                         map_arities, arg.access)
 
+        iterate = kwargs.get("iterate", None)
+        if iterate is not None:
+            key += ((iterate,))
+
         # The currently defined Consts need to be part of the cache key, since
         # these need to be uploaded to the device before launching the kernel
         for c in Const._definitions():
@@ -3239,6 +3280,41 @@ class JITModule(Cached):
                 f.write(src)
 
 
+class IterationRegion(object):
+    """ Class that specifies the way to iterate over a column of extruded
+    mesh elements. A column of elements refers to the elements which are
+    in the extrusion direction. The accesses to these elements are direct.
+    """
+
+    _iterates = ["ON_BOTTOM", "ON_TOP", "ON_INTERIOR_FACETS", "ALL"]
+
+    @validate_in(('iterate', _iterates, IterateValueError))
+    def __init__(self, iterate):
+        self._iterate = iterate
+
+    @property
+    def where(self):
+        return self._iterate
+
+    def __str__(self):
+        return "OP2 Iterate: %s" % self._iterate
+
+    def __repr__(self):
+        return "%r" % self._iterate
+
+ON_BOTTOM = IterationRegion("ON_BOTTOM")
+"""Iterate over the cells at the bottom of the column in an extruded mesh."""
+
+ON_TOP = IterationRegion("ON_TOP")
+"""Iterate over the top cells in an extruded mesh."""
+
+ON_INTERIOR_FACETS = IterationRegion("ON_INTERIOR_FACETS")
+"""Iterate over the interior facets of an extruded mesh."""
+
+ALL = IterationRegion("ALL")
+"""Iterate over all cells of an extruded mesh."""
+
+
 class ParLoop(LazyComputation):
     """Represents the kernel, iteration space and arguments of a parallel loop
     invocation.
@@ -3247,11 +3323,15 @@ class ParLoop(LazyComputation):
 
         Users should not directly construct :class:`ParLoop` objects, but
         use :func:`pyop2.op2.par_loop` instead.
+
+    An optional keyword argument, ``iterate``, can be used to specify
+    which region of an :class:`ExtrudedSet` the parallel loop should
+    iterate over.
     """
 
     @validate_type(('kernel', Kernel, KernelTypeError),
                    ('iterset', Set, SetTypeError))
-    def __init__(self, kernel, iterset, *args):
+    def __init__(self, kernel, iterset, *args, **kwargs):
         LazyComputation.__init__(self,
                                  set([a.data for a in args if a.access in [READ, RW]]) | Const._defs,
                                  set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]))
@@ -3259,6 +3339,7 @@ class ParLoop(LazyComputation):
         self._actual_args = args
         self._kernel = kernel
         self._is_layered = iterset._extruded
+        self._iteration_region = kwargs.get("iterate", None)
 
         for i, arg in enumerate(self._actual_args):
             arg.position = i
@@ -3447,6 +3528,14 @@ class ParLoop(LazyComputation):
         """Flag which triggers extrusion"""
         return self._is_layered
 
+    @property
+    def iteration_region(self):
+        """Specifies the part of the mesh the parallel loop will
+        be iterating over. The effect is the loop only iterates over
+        a certain part of an extruded mesh, for example on top cells, bottom cells or
+        interior facets."""
+        return self._iteration_region
+
 DEFAULT_SOLVER_PARAMETERS = {'ksp_type': 'cg',
                              'pc_type': 'jacobi',
                              'ksp_rtol': 1.0e-7,
@@ -3524,5 +3613,5 @@ class Solver(object):
 
 
 @collective
-def par_loop(kernel, it_space, *args):
-    return _make_object('ParLoop', kernel, it_space, *args).enqueue()
+def par_loop(kernel, it_space, *args, **kwargs):
+    return _make_object('ParLoop', kernel, it_space, *args, **kwargs).enqueue()

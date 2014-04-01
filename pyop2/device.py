@@ -324,8 +324,8 @@ class Mat(base.Mat):
 
 class ParLoop(base.ParLoop):
 
-    def __init__(self, kernel, itspace, *args):
-        base.ParLoop.__init__(self, kernel, itspace, *args)
+    def __init__(self, kernel, itspace, *args, **kwargs):
+        base.ParLoop.__init__(self, kernel, itspace, *args, **kwargs)
         # List of arguments with vector-map/iteration-space indexes
         # flattened out
         # Does contain Mat arguments (cause of coloring)
