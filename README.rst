@@ -87,13 +87,14 @@ On a Debian-based system (Ubuntu, Mint, etc.) install them by running::
 Dependencies
 ------------
 
-To install dependencies system-wide use ``sudo -E pip install ...``, to
+To install dependencies system-wide use ``sudo pip install ...``, to
 install to a user site use ``pip install --user ...``. If you don't want
 PyOP2 or its dependencies interfering with your existing Python environment,
 consider creating a `virtualenv <http://virtualenv.org/>`__.
 
-**Note:** In the following we will use ``pip install ...`` to mean any
-of the above options.
+**Note:** In the following we will use ``sudo pip install ...``. If
+ you want either of the other options you should change the command
+ appropriately.
 
 **Note:** Installing to the user site does not always give packages
 priority over system installed packages on your ``sys.path``.
@@ -129,7 +130,7 @@ can selectively upgrade packages via ``pip``, see below.
 
 Install dependencies via ``pip``::
 
-  pip install "Cython>=0.17" decorator "numpy>=1.6"
+  sudo pip install "Cython>=0.17" decorator "numpy>=1.6"
 
 Additional Python 2.6 dependencies: 
 
@@ -138,7 +139,7 @@ Additional Python 2.6 dependencies:
 
 Install these via ``pip``::
 
-  pip install argparse ordereddict
+  sudo pip install argparse ordereddict
 
 PETSc
 ~~~~~
@@ -160,7 +161,7 @@ compiler) are installed. On a Debian based system, run::
 
 Then install PETSc_ via ``pip`` ::
 
-  PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco" \
+  sudo PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco" \
     pip install git+https://bitbucket.org/petsc/petsc.git
   unset PETSC_DIR
   unset PETSC_ARCH
@@ -170,7 +171,7 @@ should be left unset when building petsc4py_.
 
 Install petsc4py_ via ``pip``::
 
-  pip install git+https://bitbucket.org/petsc/petsc4py.git
+  sudo pip install git+https://bitbucket.org/petsc/petsc4py.git
 
 If you have previously installed and older version of PETSc_ or petsc4py_,
 ``pip`` might tell you that the requirements are already satisfied when running
@@ -208,7 +209,7 @@ is too old, you will need to install it via ``pip``, see below.
 
 Install dependencies via ``pip``::
 
-  pip install codepy Jinja2 mako pycparser>=2.10
+  sudo pip install codepy Jinja2 mako pycparser>=2.10
 
 If a pycuda package is not available, it will be necessary to install it
 manually. Make sure ``nvcc`` is in your ``$PATH`` and ``libcuda.so`` in
@@ -258,7 +259,7 @@ location you need to configure pyopencl manually::
 
 Otherwise, install dependencies via ``pip``::
 
-  pip install Jinja2 mako pyopencl>=2012.1 pycparser>=2.10
+  sudo pip install Jinja2 mako pyopencl>=2012.1 pycparser>=2.10
 
 Installing the Intel OpenCL toolkit (64bit systems only)::
 
@@ -296,7 +297,7 @@ On a Debian-based system, run::
 
   sudo apt-get install libhdf5-mpi-dev python-h5py
 
-Alternatively, if the HDF5 library is available, ``pip install h5py``.
+Alternatively, if the HDF5 library is available, ``sudo pip install h5py``.
 
 Building PyOP2
 --------------
@@ -327,7 +328,7 @@ and FIAT_.  Note that FFC_ requires a version of Instant_.
 
 Install FFC_ and all dependencies via pip::
 
-  pip install \
+  sudo pip install \
     git+https://bitbucket.org/mapdes/ffc.git#egg=ffc
     git+https://bitbucket.org/mapdes/ufl.git#egg=ufl
     git+https://bitbucket.org/mapdes/fiat.git#egg=fiat
@@ -368,12 +369,12 @@ manager::
 
 or pip::
 
-  pip install "pytest>=2.3"
+  sudo pip install "pytest>=2.3"
 
 The code linting test uses `flake8 <http://flake8.readthedocs.org>`__.
 Install via pip::
 
-  pip install "flake8>=2.1.0"
+  sudo pip install "flake8>=2.1.0"
 
 If you install *pytest* and *flake8* using ``pip --user``, you should
 include the binary folder of your local site in your path by adding the
