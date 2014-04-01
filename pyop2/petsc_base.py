@@ -226,7 +226,7 @@ class Mat(base.Mat, CopyOnWrite):
                            '_'.join([self.name, str(i), str(j)])))
             self._blocks.append(row)
         # PETSc Mat.createNest wants a flattened list of Mats
-        mat.createNest([[m.handle for m in row] for row in self._blocks])
+        mat.createNest([[m.handle for m in row_] for row_ in self._blocks])
         self._handle = mat
 
     def _init_block(self):

@@ -66,12 +66,12 @@ def read_triangle(f, layers=None):
 
     # Read elements
     with open(f + '.ele') as h:
-        num_tri, nodes_per_tri, num_attrs = [int(x) for x in h.readline().split()]
+        num_tri, nodes_per_tri, num_attrs = [int(col) for col in h.readline().split()]
         map_values = np.zeros((num_tri, nodes_per_tri), dtype=np.int32)
         for line in h:
             if line[0] == '#':
                 continue
-            vals = [int(x) - 1 for x in line.split()]
+            vals = [int(v) - 1 for v in line.split()]
             map_values[vals[0], :] = vals[1:nodes_per_tri + 1]
 
     if layers is not None:
