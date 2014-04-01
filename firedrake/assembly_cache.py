@@ -57,6 +57,9 @@ class BCSnapshot(object):
 
     def valid(self, bcs):
 
+        if len(bcs) != len(self.bcs):
+            return False
+
         for bc, wbc in zip(bcs, self.bcs):
             if bc != wbc():
                 return False
@@ -217,7 +220,7 @@ class AssemblyCache(object):
             self._hits += 1
             self._hits_size += retval.nbytes
 
-        print "Cache hit"
+            print "Cache hit"
 
         return retval
 
