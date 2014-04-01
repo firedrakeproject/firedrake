@@ -579,17 +579,6 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             return ""
         return ", " + ", ".join(val)
 
-    def c_offset_decl(self):
-        maps = as_tuple(self.map, Map)
-        val = []
-        for i, map in enumerate(maps):
-            if not map.iterset._extruded:
-                continue
-            for j, _ in enumerate(map):
-                val.append("int *_%(cnt)s = (int *)(((PyArrayObject *)%(cnt)s)->data)" %
-                           {'cnt': self.c_offset_name(i, j)})
-        return ";\n".join(val)
-
     def c_buffer_decl(self, size, idx, buf_name, is_facet=False):
         buf_type = self.data.ctype
         dim = len(size)
@@ -793,8 +782,6 @@ class JITModule(base.JITModule):
             _layer_arg = ", int start_layer, int end_layer"
             _off_args = ''.join([arg.c_offset_init() for arg in self._args
                                  if arg._uses_itspace or arg._is_vec_map])
-            _off_inits = ';\n'.join([arg.c_offset_decl() for arg in self._args
-                                     if arg._uses_itspace or arg._is_vec_map])
             _map_decl += ';\n'.join([arg.c_map_decl_itspace(is_facet=is_facet) for arg in self._args
                                      if arg._uses_itspace and not arg._is_mat])
             _map_decl += ';\n'.join([arg.c_map_decl(is_facet=is_facet) for arg in self._args
@@ -819,7 +806,6 @@ class JITModule(base.JITModule):
             _extr_loop_close = '}\n'
         else:
             _off_args = ""
-            _off_inits = ""
 
         # Build kernel invocation. Let X be a parameter of the kernel representing a tensor
         # accessed in an iteration space. Let BUFFER be an array of the same size as X.
@@ -934,7 +920,6 @@ class JITModule(base.JITModule):
                 'const_inits': indent(_const_inits, 1),
                 'vec_inits': indent(_vec_inits, 2),
                 'off_args': _off_args,
-                'off_inits': indent(_off_inits, 1),
                 'layer_arg': _layer_arg,
                 'map_decl': indent(_map_decl, 2),
                 'map_init': indent(_map_init, 5),
