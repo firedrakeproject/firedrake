@@ -2,6 +2,11 @@ from math import pi
 import pytest
 
 from firedrake import *
+# Must come after firedrake import (that loads MPI)
+try:
+    import gmshpy
+except ImportError:
+    gmshpy = None
 
 
 def integrate_one(m):
@@ -80,9 +85,9 @@ def test_unit_cube_parallel():
     assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
 
 
+@pytest.mark.skipif("gmshpy is None", reason='gmshpy not available')
 @pytest.mark.parallel
 def test_unit_circle_parallel():
-    pytest.importorskip('gmshpy')
     assert abs(integrate_one(UnitCircleMesh(4)) - pi * 0.5 ** 2) < 0.02
 
 
