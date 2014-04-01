@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from tests.common import longtest
 from firedrake import *
 

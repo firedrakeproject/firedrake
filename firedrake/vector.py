@@ -4,6 +4,9 @@ from pyop2 import op2
 from mpi4py import MPI
 
 
+__all__ = ['Vector']
+
+
 class Vector(object):
     def __init__(self, x):
         """Build a `Vector` that wraps a :class:`pyop2.Dat` for Dolfin compatibilty.

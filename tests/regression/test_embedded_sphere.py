@@ -1,5 +1,6 @@
 # Test that integrals over the surface of a sphere do the right thing
 import pytest
+import numpy as np
 from tests.common import longtest
 from firedrake import *
 

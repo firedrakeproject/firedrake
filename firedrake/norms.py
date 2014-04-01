@@ -4,6 +4,8 @@ from solving import assemble
 from pyop2.logger import warning
 from ufl import inner, div, grad, curl, sqrt
 
+__all__ = ['errornorm', 'norm']
+
 
 def errornorm(u, uh, norm_type="L2", degree_rise=3, mesh=None):
     """Compute the error :math:`e = u - u_h` in the specified norm.

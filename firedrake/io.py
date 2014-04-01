@@ -1,26 +1,29 @@
-from evtk.hl import *
+from evtk import hl
 from evtk.vtk import _get_byte_order
 from evtk.hl import _requiresLargeVTKFileSize
 from ufl import Cell, OuterProductCell
 import numpy as np
 import os
-from pyop2.mpi import *
+from pyop2.mpi import MPI
 from types import FunctionSpace, VectorFunctionSpace
 from pyop2.logger import warning, RED
 from projection import project
 
 
+__all__ = ['File']
+
+
 # Dictionary used to translate the cellname of firedrake
 # to the celltype of evtk module.
 _cells = {}
-_cells[Cell("interval")] = VtkLine
-_cells[Cell("interval", 2)] = VtkLine
-_cells[Cell("interval", 3)] = VtkLine
-_cells[Cell("triangle")] = VtkTriangle
-_cells[Cell("triangle", 3)] = VtkTriangle
-_cells[Cell("tetrahedron")] = VtkTetra
-_cells[OuterProductCell(Cell("triangle"), Cell("interval"))] = VtkWedge
-_cells[OuterProductCell(Cell("interval"), Cell("interval"))] = VtkQuad
+_cells[Cell("interval")] = hl.VtkLine
+_cells[Cell("interval", 2)] = hl.VtkLine
+_cells[Cell("interval", 3)] = hl.VtkLine
+_cells[Cell("triangle")] = hl.VtkTriangle
+_cells[Cell("triangle", 3)] = hl.VtkTriangle
+_cells[Cell("tetrahedron")] = hl.VtkTetra
+_cells[OuterProductCell(Cell("triangle"), Cell("interval"))] = hl.VtkWedge
+_cells[OuterProductCell(Cell("interval"), Cell("interval"))] = hl.VtkQuad
 
 _points_per_cell = {}
 _points_per_cell[Cell("interval")] = 2
@@ -222,7 +225,7 @@ class _VTUFile(object):
         else:
             # Connectivity of bottom cell in extruded mesh
             base = Vc.cell_node_map().values_with_halo
-            if _cells[mesh._ufl_cell] == VtkQuad:
+            if _cells[mesh._ufl_cell] == hl.VtkQuad:
                 # Quad is
                 #
                 # 1--3
@@ -236,7 +239,7 @@ class _VTUFile(object):
                 # 0--1
                 base = base[:, [0, 2, 3, 1]]
                 points_per_cell = 4
-            elif _cells[mesh._ufl_cell] == VtkWedge:
+            elif _cells[mesh._ufl_cell] == hl.VtkWedge:
                 # Wedge is
                 #
                 #    5
@@ -312,8 +315,8 @@ class _VTUFile(object):
         if MPI.parallel:
             new_name += "_" + str(self._time_step) + "_" + str(MPI.comm.rank)
 
-        self._writer = VtkFile(
-            new_name, VtkUnstructuredGrid, large_file_flag)
+        self._writer = hl.VtkFile(
+            new_name, hl.VtkUnstructuredGrid, large_file_flag)
 
         self._writer.openGrid()
 
@@ -390,7 +393,7 @@ class PVTUWriter(object):
     """Class that is responsible for writing the PVTU file."""
 
     def __init__(self, filename):
-        self.xml = XmlWriter(filename + ".pvtu")
+        self.xml = hl.XmlWriter(filename + ".pvtu")
         self.root = os.path.dirname(filename)
         self.xml.openElement("VTKFile")
         self.xml.addAttributes(type="PUnstructuredGrid", version="0.1",
@@ -448,7 +451,7 @@ class _PVDFile(object):
     def __init__(self, filename):
         # Full path to the file without extension.
         self._filename = filename
-        self._writer = VtkGroup(self._filename)
+        self._writer = hl.VtkGroup(self._filename)
         self._warnings = [False, False]
         # Keep the index of child file
         #(parallel -> pvtu, else vtu)

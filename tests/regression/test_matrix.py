@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake import types
 import pytest
 
 
@@ -20,7 +21,7 @@ def a(V):
 def test_assemble_returns_matrix(a):
     A = assemble(a)
 
-    assert isinstance(A, Matrix)
+    assert isinstance(A, types.Matrix)
 
 
 def test_assemble_is_lazy(a):
