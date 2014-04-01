@@ -92,7 +92,7 @@ On a Debian-based system (Ubuntu, Mint, etc.) install them by running::
 Dependencies
 ------------
 
-To install dependencies system-wide use ``sudo -E pip install ...``, to
+To install dependencies system-wide use ``sudo pip install ...``, to
 install to a user site use ``pip install --user ...``. If you don't want
 PyOP2 or its dependencies interfering with your existing Python environment,
 consider creating a `virtualenv <http://virtualenv.org/>`__.
