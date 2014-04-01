@@ -91,8 +91,12 @@ class FunctionSpace(FunctionSpaceBase):
         self._initialized = True
 
     @classmethod
+    def _process_args(cls, *args, **kwargs):
+        return (args[0], ) + args, kwargs
+
+    @classmethod
     def _cache_key(cls, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
-        return mesh, family, degree, vfamily, vdegree
+        return family, degree, vfamily, vdegree
 
 
 class VectorFunctionSpace(FunctionSpaceBase):
@@ -124,8 +128,12 @@ class VectorFunctionSpace(FunctionSpaceBase):
         self._initialized = True
 
     @classmethod
+    def _process_args(cls, *args, **kwargs):
+        return (args[0], ) + args, kwargs
+
+    @classmethod
     def _cache_key(cls, mesh, family, degree=None, dim=None, name=None, vfamily=None, vdegree=None):
-        return mesh, family, degree, dim, vfamily, vdegree
+        return family, degree, dim, vfamily, vdegree
 
 
 class MixedFunctionSpace(FunctionSpaceBase):
@@ -147,6 +155,8 @@ class MixedFunctionSpace(FunctionSpaceBase):
             ME  = MixedFunctionSpace([P2v, P1, P1, P1])
         """
 
+        if self._initialized:
+            return
         self._spaces = [IndexedFunctionSpace(s, i, self)
                         for i, s in enumerate(flatten(spaces))]
         self._mesh = self._spaces[0].mesh()
@@ -154,12 +164,14 @@ class MixedFunctionSpace(FunctionSpaceBase):
         self.name = name or '_'.join(str(s.name) for s in self._spaces)
         self.rank = 1
         self._index = None
+        self._initialized = True
 
     @classmethod
     def _process_args(cls, *args, **kwargs):
         """Convert list of spaces to tuple (to make it hashable)"""
+        mesh = args[0][0].mesh()
         pargs = tuple(as_tuple(arg) for arg in args)
-        return pargs, kwargs
+        return (mesh, ) + pargs, kwargs
 
     def split(self):
         """The list of :class:`FunctionSpace`\s of which this
@@ -311,6 +323,8 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         :param index: the position in the parent :class:`MixedFunctionSpace`
         :param parent: the parent :class:`MixedFunctionSpace`
         """
+        if self._initialized:
+            return
         # If the function space was extracted from a mixed function space,
         # extract the underlying component space
         if isinstance(fs, IndexedFunctionSpace):
@@ -322,6 +336,11 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         self._fs = fs
         self._index = index
         self._parent = parent
+        self._initialized = True
+
+    @classmethod
+    def _process_args(cls, fs, index, parent, **kwargs):
+        return (fs.mesh(), fs, index, parent), kwargs
 
     def __getattr__(self, name):
         return getattr(self._fs, name)
