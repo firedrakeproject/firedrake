@@ -273,6 +273,11 @@ class _Facets(object):
         return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo)
 
 
+    @property
+    def bottom_set(self):
+        '''Returns the bottom row of cells.'''
+        return self.mesh.cell_set
+
     @utils.cached_property
     def _null_subset(self):
         '''Empty subset for the case in which there are no facets with
@@ -286,9 +291,21 @@ class _Facets(object):
         either be for all the interior or exterior (as appropriate)
         facets, or for a particular numbered subdomain.'''
 
-        if measure.domain_id() in [measure.DOMAIN_ID_EVERYWHERE,
-                                   measure.DOMAIN_ID_OTHERWISE]:
-            return self.set
+        dom_id = measure.domain_id()
+        dom_type = measure.domain_type()
+        if dom_id in [measure.DOMAIN_ID_EVERYWHERE,
+                      measure.DOMAIN_ID_OTHERWISE]:
+            if dom_type == "exterior_facet_topbottom":
+                return [(op2.ON_BOTTOM, self.bottom_set),
+                        (op2.ON_TOP, self.bottom_set)]
+            elif dom_type == "exterior_facet_bottom":
+                return [(op2.ON_BOTTOM, self.bottom_set)]
+            elif dom_type == "exterior_facet_top":
+                return [(op2.ON_TOP, self.bottom_set)]
+            elif dom_type == "interior_facet_horiz":
+                return self.bottom_set
+            else:
+                return self.set
         else:
             return self.subset(measure.domain_id())
 
@@ -314,7 +331,6 @@ class _Facets(object):
 
         return op2.Dat(op2.DataSet(self.set, self._rank), self.local_facet_number,
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
-
 
 class Mesh(object):
     """A representation of mesh topology and geometry."""
@@ -806,7 +822,7 @@ class ExtrudedMesh(Mesh):
         self._ds = ufl.Measure('exterior_facet', domain_data=self.coordinates)
         self._dS = ufl.Measure('interior_facet', domain_data=self.coordinates)
         # Set the domain_data on all the default measures to this coordinate field.
-        for measure in [ufl.dx, ufl.ds, ufl.dS]:
+        for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_t, ufl.ds_b, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
             measure._domain_data = self.coordinates
 
     @property
@@ -1244,12 +1260,14 @@ class FunctionSpaceBase(Cached):
         else:
             parent = None
 
+        offset = self.cell_node_map().offset
         return self._map_cache(self._interior_facet_map_cache,
                                self._mesh.interior_facets.set,
                                self.interior_facet_node_list,
                                2*self.fiat_element.space_dimension(),
                                bcs,
                                "interior_facet_node",
+                               offset=np.append(offset, offset),
                                parent=parent)
 
     def exterior_facet_node_map(self, bcs=None):

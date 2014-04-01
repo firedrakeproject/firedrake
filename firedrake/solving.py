@@ -401,6 +401,7 @@ def _assemble(f, tensor=None, bcs=None):
     is_vec = fd.rank == 1
 
     integrals = fd.preprocessed_form.integrals()
+
     # Extract coordinate field
     coords = integrals[0].measure().domain_data()
 
@@ -423,18 +424,50 @@ def _assemble(f, tensor=None, bcs=None):
         mixed_plus_vfs_error(trial)
         m = test.function_space().mesh()
         map_pairs = []
+        cell_domains = []
+        exterior_facet_domains = []
+        interior_facet_domains = []
+        # For horizontal facets of extrded meshes, the corresponding domain
+        # in the base mesh is the cell domain. Hence all the maps used for top
+        # bottom and interior horizontal facets will use the cell to dofs map
+        # coming from the base mesh as a starting point for the actual dynamic map
+        # computation.
         for integral in integrals:
             domain_type = integral.measure().domain_type()
             if domain_type == "cell":
-                map_pairs.append((test.cell_node_map(), trial.cell_node_map()))
+                cell_domains.append(op2.ALL)
             elif domain_type == "exterior_facet":
-                map_pairs.append((test.exterior_facet_node_map(),
-                                  trial.exterior_facet_node_map()))
+                exterior_facet_domains.append(op2.ALL)
             elif domain_type == "interior_facet":
-                map_pairs.append((test.interior_facet_node_map(),
-                                  trial.interior_facet_node_map()))
+                interior_facet_domains.append(op2.ALL)
+            elif domain_type == "exterior_facet_bottom":
+                cell_domains.append(op2.ON_BOTTOM)
+            elif domain_type == "exterior_facet_top":
+                cell_domains.append(op2.ON_TOP)
+            elif domain_type == "exterior_facet_vert":
+                exterior_facet_domains.append(op2.ALL)
+            elif domain_type == "interior_facet_horiz":
+                cell_domains.append(op2.ON_INTERIOR_FACETS)
+            elif domain_type == "interior_facet_vert":
+                interior_facet_domains.append(op2.ALL)
             else:
                 raise RuntimeError('Unknown domain type "%s"' % domain_type)
+
+        # To avoid an extra check for extruded domains, the maps that are being passed in
+        # are SparsityMaps. For the non-extruded case the SparsityMaps don't restrict the
+        # space over which we iterate as the domains are dropped at Sparsity construction
+        # time. In the extruded case the cell domains are used to identify the regions of the
+        # mesh which require allocation in the sparsity.
+        if cell_domains:
+            map_pairs.append((op2.SparsityMap(test.cell_node_map(), cell_domains),
+                              op2.SparsityMap(trial.cell_node_map(), cell_domains)))
+        if exterior_facet_domains:
+            map_pairs.append((op2.SparsityMap(test.exterior_facet_node_map(), exterior_facet_domains),
+                              op2.SparsityMap(trial.exterior_facet_node_map(), exterior_facet_domains)))
+        if interior_facet_domains:
+            map_pairs.append((op2.SparsityMap(test.interior_facet_node_map(), interior_facet_domains),
+                              op2.SparsityMap(trial.interior_facet_node_map(), interior_facet_domains)))
+
         map_pairs = tuple(map_pairs)
         if tensor is None:
             # Construct OP2 Mat to assemble into
@@ -548,6 +581,76 @@ def _assemble(f, tensor=None, bcs=None):
                     op2.par_loop(*args)
                 except MapValueError:
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
+
+            elif domain_type in ['exterior_facet_top', 'exterior_facet_bottom']:
+                if op2.MPI.parallel:
+                    raise \
+                        NotImplementedError(
+                            "No support for facet integrals under MPI yet")
+
+                if is_mat:
+                    tensor_arg = tensor(op2.INC,
+                                        (test.cell_node_map(bcs)[op2.i[0]],
+                                         trial.cell_node_map(bcs)[op2.i[1]]),
+                                        flatten=has_vec_fs(test))
+                elif is_vec:
+                    tensor_arg = tensor(op2.INC,
+                                        test.cell_node_map()[op2.i[0]],
+                                        flatten=has_vec_fs(test))
+                else:
+                    tensor_arg = tensor(op2.INC)
+
+                #In the case of extruded meshes with horizontal facet integrals, two
+                #parallel loops will (potentially) get created and called based on the
+                #domain id: interior horizontal, bottom or top.
+
+                #Get the list of sets and globals required for parallel loop construction.
+                set_global_list = m.exterior_facets.measure_set(integral.measure())
+
+                #Iterate over the list and assemble all the args of the parallel loop
+                for (index, set) in set_global_list:
+                    # Add the kernel, iteration set and coordinate fields to the loop args
+                    args = [kernel, set, tensor_arg,
+                            coords.dat(op2.READ, coords.cell_node_map(),
+                                       flatten=True)]
+                    for c in fd.original_coefficients:
+                        args.append(c.dat(op2.READ, c.cell_node_map(),
+                                          flatten=has_vec_fs(c)))
+                    try:
+                        op2.par_loop(*args, iterate=index)
+                    except MapValueError:
+                        raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
+
+            elif domain_type == 'exterior_facet_vert':
+                if op2.MPI.parallel:
+                    raise \
+                        NotImplementedError(
+                            "No support for facet integrals under MPI yet")
+
+                if is_mat:
+                    tensor_arg = tensor(op2.INC,
+                                        (test.exterior_facet_node_map(bcs)[op2.i[0]],
+                                         trial.exterior_facet_node_map(bcs)[op2.i[1]]),
+                                        flatten=has_vec_fs(test))
+                elif is_vec:
+                    tensor_arg = tensor(op2.INC,
+                                        test.exterior_facet_node_map()[op2.i[0]],
+                                        flatten=has_vec_fs(test))
+                else:
+                    tensor_arg = tensor(op2.INC)
+
+                args = [kernel, m.exterior_facets.measure_set(integral.measure()), tensor_arg,
+                        coords.dat(op2.READ, coords.exterior_facet_node_map(),
+                                   flatten=True)]
+                for c in fd.original_coefficients:
+                    args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
+                                      flatten=has_vec_fs(c)))
+                args.append(m.exterior_facets.local_facet_dat(op2.READ))
+                try:
+                    op2.par_loop(*args)
+                except MapValueError:
+                    raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
+
             elif domain_type == 'interior_facet':
                 if op2.MPI.parallel:
                     raise \
@@ -577,6 +680,66 @@ def _assemble(f, tensor=None, bcs=None):
                     op2.par_loop(*args)
                 except MapValueError:
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
+
+            elif domain_type == 'interior_facet_horiz':
+                if op2.MPI.parallel:
+                    raise \
+                        NotImplementedError(
+                            "No support for facet integrals under MPI yet")
+
+                if is_mat:
+                    tensor_arg = tensor(
+                        op2.INC, (test.cell_node_map(bcs)[op2.i[0]],
+                                  trial.cell_node_map(bcs)[op2.i[1]]),
+                        flatten=True)
+                elif is_vec:
+                    tensor_arg = tensor(
+                        op2.INC, test.cell_node_map()[op2.i[0]],
+                        flatten=True)
+                else:
+                    tensor_arg = tensor(op2.INC)
+
+                args = [kernel, m.interior_facets.measure_set(integral.measure()), tensor_arg,
+                        coords.dat(op2.READ, coords.cell_node_map(),
+                                   flatten=True)]
+                for c in fd.original_coefficients:
+                    args.append(c.dat(op2.READ, c.cell_node_map(),
+                                      flatten=has_vec_fs(c)))
+                try:
+                    op2.par_loop(*args, iterate=op2.ON_INTERIOR_FACETS)
+                except MapValueError:
+                    raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
+
+            elif domain_type == 'interior_facet_vert':
+                if op2.MPI.parallel:
+                    raise \
+                        NotImplementedError(
+                            "No support for facet integrals under MPI yet")
+
+                if is_mat:
+                    tensor_arg = tensor(
+                        op2.INC, (test.interior_facet_node_map(bcs)[op2.i[0]],
+                                  trial.interior_facet_node_map(bcs)[
+                                      op2.i[1]]),
+                        flatten=True)
+                elif is_vec:
+                    tensor_arg = tensor(
+                        op2.INC, test.interior_facet_node_map()[op2.i[0]],
+                        flatten=True)
+                else:
+                    tensor_arg = tensor(op2.INC)
+                args = [kernel, m.interior_facets.set, tensor_arg,
+                        coords.dat(op2.READ, coords.interior_facet_node_map(),
+                                   flatten=True)]
+                for c in fd.original_coefficients:
+                    args.append(c.dat(op2.READ, c.interior_facet_node_map(),
+                                      flatten=has_vec_fs(c)))
+                args.append(m.interior_facets.local_facet_dat(op2.READ))
+                try:
+                    op2.par_loop(*args)
+                except MapValueError:
+                    raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
+
             else:
                 raise RuntimeError('Unknown domain type "%s"' % domain_type)
 
