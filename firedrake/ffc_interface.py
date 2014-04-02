@@ -4,7 +4,7 @@ generated code in order to make it suitable for passing to the backends."""
 from collections import defaultdict
 from hashlib import md5
 from operator import add
-import os
+from os import path, environ, getuid, makedirs
 import tempfile
 
 from ufl import Form, FiniteElement, VectorElement, as_vector
@@ -30,7 +30,7 @@ ffc_parameters['format'] = 'pyop2'
 ffc_parameters['pyop2-ir'] = True
 
 # Include an md5 hash of firedrake_geometry.h in the cache key
-with open(os.path.join(os.path.dirname(__file__), 'firedrake_geometry.h')) as f:
+with open(path.join(path.dirname(__file__), 'firedrake_geometry.h')) as f:
     _firedrake_geometry_md5 = md5(f.read()).hexdigest()
 
 
@@ -119,8 +119,9 @@ class FormSplitter(ReuseTransformer):
 class FFCKernel(DiskCached):
 
     _cache = {}
-    _cachedir = os.path.join(tempfile.gettempdir(),
-                             'firedrake-ffc-kernel-cache-uid%d' % os.getuid())
+    _cachedir = environ.get('FIREDRAKE_FFC_KERNEL_CACHE_DIR',
+                            path.join(tempfile.gettempdir(),
+                                      'firedrake-ffc-kernel-cache-uid%d' % getuid()))
 
     @classmethod
     def _cache_key(cls, form, name):
@@ -134,7 +135,7 @@ class FFCKernel(DiskCached):
             return
 
         incl = PreprocessNode('#include "firedrake_geometry.h"\n')
-        inc = [os.path.dirname(__file__)]
+        inc = [path.dirname(__file__)]
         ffc_tree = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
 
         kernels = []
@@ -181,7 +182,7 @@ def clear_cache():
     """Clear the PyOP2 FFC kernel cache."""
     if MPI.comm.rank != 0:
         return
-    if os.path.exists(FFCKernel._cachedir):
+    if path.exists(FFCKernel._cachedir):
         import shutil
         shutil.rmtree(FFCKernel._cachedir, ignore_errors=True)
         _ensure_cachedir()
@@ -189,8 +190,8 @@ def clear_cache():
 
 def _ensure_cachedir():
     """Ensure that the FFC kernel cache directory exists."""
-    if not os.path.exists(FFCKernel._cachedir) and MPI.comm.rank == 0:
-        os.makedirs(FFCKernel._cachedir)
+    if not path.exists(FFCKernel._cachedir) and MPI.comm.rank == 0:
+        makedirs(FFCKernel._cachedir)
 
 _check_version()
 _ensure_cachedir()
