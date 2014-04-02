@@ -54,6 +54,11 @@ class DummyFunction(ufl.Coefficient):
         self.intent = intent
 
     def __str__(self):
+        if isinstance(self.function, types.Constant):
+            if len(self.function.ufl_element().value_shape()) == 0:
+                return "fn_%d[0]" % self.argnum
+            else:
+                return "fn_%d[dim]" % self.argnum
         if isinstance(self.function.function_space(),
                       types.VectorFunctionSpace):
             return "fn_%d[dim]" % self.argnum
@@ -69,11 +74,11 @@ class DummyFunction(ufl.Coefficient):
 
     @property
     def ast(self):
-        if isinstance(self.function.function_space(),
-                      types.VectorFunctionSpace):
-            return ast.Symbol("fn_%d" % self.argnum, ("dim",))
-        else:
-            return ast.Symbol("fn_%d" % self.argnum, (0,))
+        # Constant broadcasts across functions if it's a scalar
+        if isinstance(self.function, types.Constant) and \
+           len(self.function.ufl_element().value_shape()) == 0:
+            return ast.Symbol("fn_%d" % self.argnum, (0, ))
+        return ast.Symbol("fn_%d" % self.argnum, ("dim",))
 
 
 class AssignmentBase(Operator):
@@ -422,19 +427,20 @@ def expression_kernel(expr, args):
 
     fs = args[0].function.function_space()
 
+    d = ast.Symbol("dim")
     if isinstance(fs, types.VectorFunctionSpace):
-        d = ast.Symbol("dim")
-        body = ast.Block(
-            (
-                ast.Decl("int", d),
-                ast.For(ast.Assign(d, ast.Symbol(0)),
-                        ast.Less(d, ast.Symbol(fs.dof_dset.cdim)),
-                        ast.Incr(d, ast.Symbol(1)),
-                        _ast(expr))
-            )
-        )
+        ast_expr = _ast(expr)
     else:
-        body = ast.FlatBlock(str(expr) + ";")
+        ast_expr = ast.FlatBlock(str(expr) + ";")
+    body = ast.Block(
+        (
+            ast.Decl("int", d),
+            ast.For(ast.Assign(d, ast.Symbol(0)),
+                    ast.Less(d, ast.Symbol(fs.dof_dset.cdim)),
+                    ast.Incr(d, ast.Symbol(1)),
+                    ast_expr)
+        )
+    )
 
     return op2.Kernel(ast.FunDecl("void", "expression",
                                   [arg.arg for arg in args], body),
