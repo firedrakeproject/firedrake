@@ -98,6 +98,11 @@ class FunctionSpace(FunctionSpaceBase):
     def _cache_key(cls, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
         return family, degree, vfamily, vdegree
 
+    def __getitem__(self, i):
+        """Return self if ``i`` is 0, otherwise raise an error."""
+        assert i == 0, "Can only extract subspace 0 from %r" % self
+        return self
+
 
 class VectorFunctionSpace(FunctionSpaceBase):
     """A vector finite element :class:`FunctionSpace`."""
@@ -134,6 +139,11 @@ class VectorFunctionSpace(FunctionSpaceBase):
     @classmethod
     def _cache_key(cls, mesh, family, degree=None, dim=None, name=None, vfamily=None, vdegree=None):
         return family, degree, dim, vfamily, vdegree
+
+    def __getitem__(self, i):
+        """Return self if ``i`` is 0, otherwise raise an error."""
+        assert i == 0, "Can only extract subspace 0 from %r" % self
+        return self
 
 
 class MixedFunctionSpace(FunctionSpaceBase):
