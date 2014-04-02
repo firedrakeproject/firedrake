@@ -303,7 +303,7 @@ class ExpressionSplitter(ReuseTransformer):
                 return [o if i == idx else Zero()
                         for i, _ in enumerate(self._function_space)]
         # We replicate ConstantValue and MultiIndex for each component
-        elif isinstance(o, (ConstantValue, MultiIndex)):
+        elif isinstance(o, (types.Constant, ConstantValue, MultiIndex)):
             return [o for _ in self._function_space]
         raise NotImplementedError("Don't know what to do with %r" % o)
 
@@ -351,6 +351,25 @@ class ExpressionWalker(ReuseTransformer):
                 self._args[o] = DummyFunction(o, len(self._args))
                 return self._args[o]
 
+        elif isinstance(o, types.Constant):
+            if self._function_space is None:
+                raise NotImplementedError("Cannot assign to Constant coefficients")
+            else:
+                # Constant shape has to match if the constant is not a scalar
+                # If it is a scalar, it gets broadcast across all of
+                # the values of the function.
+                if len(o.ufl_element().value_shape()) > 0:
+                    for fs in self._function_space:
+                        if fs.ufl_element().value_shape() != o.ufl_element().value_shape():
+                            raise ValueError("Constant has mismatched shape for expression function space")
+            try:
+                arg = self._args[o]
+                if arg.intent == op2.WRITE:
+                    arg.intent = op2.RW
+                return arg
+            except KeyError:
+                self._args[o] = DummyFunction(o, len(self._args))
+                return self._args[o]
         elif isinstance(o, DummyFunction):
             # Idempotency.
             return o
