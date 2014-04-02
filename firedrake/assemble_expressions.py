@@ -356,7 +356,7 @@ class ExpressionWalker(ReuseTransformer):
             return o
 
         else:
-            raise TypeError("Operand ", str(o), " is of unsupported type")
+            raise TypeError("Operand %s is of unsupported type" % o)
 
     # Prevent AlgebraOperators falling through to the Operator case.
     algebra_operator = ReuseTransformer.reuse_if_possible
