@@ -483,6 +483,12 @@ def _assemble(f, tensor=None, bcs=None):
             result_matrix.bcs = bcs
             tensor = tensor._M
             tensor.zero()
+
+        def mat(testmap, trialmap, i, j):
+            return tensor[i, j](op2.INC,
+                                (testmap(test.function_space()[i])[op2.i[0]],
+                                 trialmap(trial.function_space()[j])[op2.i[1]]),
+                                flatten=has_vec_fs(test))
         result = lambda: result_matrix
     elif is_vec:
         test = fd.original_arguments[0]
@@ -493,7 +499,12 @@ def _assemble(f, tensor=None, bcs=None):
         else:
             result_function = tensor
             tensor = result_function.dat
-        tensor.zero()
+            tensor.zero()
+
+        def vec(testmap, i):
+            return tensor[i](op2.INC,
+                             testmap(test.function_space()[i])[op2.i[0]],
+                             flatten=has_vec_fs(test))
         result = lambda: result_function
     else:
         # 0-forms are always scalar
@@ -525,33 +536,19 @@ def _assemble(f, tensor=None, bcs=None):
             # FIXME Ugly variable renaming required because functions are not
             # lexical closures in Python and we're writing to these variables
             if is_mat and tensor.sparsity.shape > (1, 1):
-                t = tensor[i, j]
-                ts = test.function_space()[i]
-                tr = trial.function_space()[j]
                 tsbc = [bc for bc in bcs if bc.function_space().index == i]
                 trbc = [bc for bc in bcs if bc.function_space().index == j]
             elif is_mat:
-                t = tensor
-                ts, tr = test, trial
                 tsbc, trbc = bcs, bcs
-            elif is_vec and len(tensor) > 1:
-                t = tensor[i]
-                ts = test.function_space()[i]
-            elif is_vec:
-                t = tensor
-                ts = test
-            else:
-                t = tensor
             if measure.domain_type() == 'cell':
                 if is_mat:
-                    tensor_arg = t(op2.INC, (ts.cell_node_map(tsbc)[op2.i[0]],
-                                             tr.cell_node_map(trbc)[op2.i[1]]),
-                                   flatten=has_vec_fs(test))
+                    tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
+                                     lambda s: s.cell_node_map(trbc),
+                                     i, j)
                 elif is_vec:
-                    tensor_arg = t(op2.INC, ts.cell_node_map()[op2.i[0]],
-                                   flatten=has_vec_fs(test))
+                    tensor_arg = vec(lambda s: s.cell_node_map(), i)
                 else:
-                    tensor_arg = t(op2.INC)
+                    tensor_arg = tensor(op2.INC)
 
                 itspace = m.cell_set
                 itspace._extruded_bcs = extruded_bcs
@@ -569,6 +566,7 @@ def _assemble(f, tensor=None, bcs=None):
                     op2.par_loop(*args)
                 except MapValueError:
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
+
             elif measure.domain_type() == 'exterior_facet':
                 if op2.MPI.parallel:
                     raise \
@@ -576,15 +574,13 @@ def _assemble(f, tensor=None, bcs=None):
                             "No support for facet integrals under MPI yet")
 
                 if is_mat:
-                    tensor_arg = t(op2.INC, (ts.exterior_facet_node_map(tsbc)[op2.i[0]],
-                                             tr.exterior_facet_node_map(trbc)[op2.i[1]]),
-                                   flatten=has_vec_fs(test))
+                    tensor_arg = mat(lambda s: s.exterior_facet_node_map(tsbc),
+                                     lambda s: s.exterior_facet_node_map(trbc),
+                                     i, j)
                 elif is_vec:
-                    tensor_arg = t(op2.INC,
-                                   ts.exterior_facet_node_map()[op2.i[0]],
-                                   flatten=has_vec_fs(test))
+                    tensor_arg = vec(lambda s: s.exterior_facet_node_map(), i)
                 else:
-                    tensor_arg = t(op2.INC)
+                    tensor_arg = tensor(op2.INC)
                 args = [kernel, m.exterior_facets.measure_set(measure), tensor_arg,
                         coords.dat(op2.READ, coords.exterior_facet_node_map(),
                                    flatten=True)]
@@ -604,12 +600,11 @@ def _assemble(f, tensor=None, bcs=None):
                             "No support for facet integrals under MPI yet")
 
                 if is_mat:
-                    tensor_arg = t(op2.INC, (ts.cell_node_map(tsbc)[op2.i[0]],
-                                             tr.cell_node_map(trbc)[op2.i[1]]),
-                                   flatten=has_vec_fs(test))
+                    tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
+                                     lambda s: s.cell_node_map(trbc),
+                                     i, j)
                 elif is_vec:
-                    tensor_arg = t(op2.INC, ts.cell_node_map()[op2.i[0]],
-                                   flatten=has_vec_fs(test))
+                    tensor_arg = vec(lambda s: s.cell_node_map(), i)
                 else:
                     tensor_arg = t(op2.INC)
 
@@ -641,13 +636,11 @@ def _assemble(f, tensor=None, bcs=None):
                             "No support for facet integrals under MPI yet")
 
                 if is_mat:
-                    tensor_arg = t(op2.INC,
-                                   (ts.exterior_facet_node_map(tsbc)[op2.i[0]],
-                                    tr.exterior_facet_node_map(trbc)[op2.i[1]]),
-                                   flatten=has_vec_fs(test))
+                    tensor_arg = mat(lambda s: s.exterior_facet_node_map(tsbc),
+                                     lambda s: s.exterior_facet_node_map(trbc),
+                                     i, j)
                 elif is_vec:
-                    tensor_arg = t(op2.INC, ts.exterior_facet_node_map()[op2.i[0]],
-                                   flatten=has_vec_fs(test))
+                    tensor_arg = vec(lambda s: s.exterior_facet_node_map(), i)
                 else:
                     tensor_arg = t(op2.INC)
 
@@ -670,15 +663,13 @@ def _assemble(f, tensor=None, bcs=None):
                             "No support for facet integrals under MPI yet")
 
                 if is_mat:
-                    tensor_arg = t(op2.INC,
-                                   (ts.interior_facet_node_map(tsbc)[op2.i[0]],
-                                    tr.interior_facet_node_map(trbc)[op2.i[1]]),
-                                   flatten=True)
+                    tensor_arg = mat(lambda s: s.interior_facet_node_map(tsbc),
+                                     lambda s: s.interior_facet_node_map(trbc),
+                                     i, j)
                 elif is_vec:
-                    tensor_arg = t(op2.INC, ts.interior_facet_node_map()[op2.i[0]],
-                                   flatten=True)
+                    tensor_arg = vec(lambda s: s.interior_facet_node_map(), i)
                 else:
-                    tensor_arg = t(op2.INC)
+                    tensor_arg = tensor(op2.INC)
                 args = [kernel, m.interior_facets.set, tensor_arg,
                         coords.dat(op2.READ, coords.interior_facet_node_map(),
                                    flatten=True)]
@@ -698,14 +689,13 @@ def _assemble(f, tensor=None, bcs=None):
                             "No support for facet integrals under MPI yet")
 
                 if is_mat:
-                    tensor_arg = t(op2.INC, (ts.cell_node_map(tsbc)[op2.i[0]],
-                                             tr.cell_node_map(trbc)[op2.i[1]]),
-                                   flatten=True)
+                    tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
+                                     lambda s: s.cell_node_map(trbc),
+                                     i, j)
                 elif is_vec:
-                    tensor_arg = t(op2.INC, ts.cell_node_map()[op2.i[0]],
-                                   flatten=True)
+                    tensor_arg = vec(lambda s: s.cell_node_map(), i)
                 else:
-                    tensor_arg = t(op2.INC)
+                    tensor_arg = tensor(op2.INC)
 
                 args = [kernel, m.interior_facets.measure_set(measure), tensor_arg,
                         coords.dat(op2.READ, coords.cell_node_map(),
@@ -725,16 +715,13 @@ def _assemble(f, tensor=None, bcs=None):
                             "No support for facet integrals under MPI yet")
 
                 if is_mat:
-                    tensor_arg = t(op2.INC,
-                                   (ts.interior_facet_node_map(tsbc)[op2.i[0]],
-                                    tr.interior_facet_node_map(trbc)[op2.i[1]]),
-                                   flatten=True)
+                    tensor_arg = mat(lambda s: s.interior_facet_node_map(tsbc),
+                                     lambda s: s.interior_facet_node_map(trbc),
+                                     i, j)
                 elif is_vec:
-                    tensor_arg = t(op2.INC,
-                                   ts.interior_facet_node_map()[op2.i[0]],
-                                   flatten=True)
+                    tensor_arg = vec(lambda s: s.interior_facet_node_map(), i)
                 else:
-                    tensor_arg = t(op2.INC)
+                    tensor_arg = tensor(op2.INC)
                 args = [kernel, m.interior_facets.set, tensor_arg,
                         coords.dat(op2.READ, coords.interior_facet_node_map(),
                                    flatten=True)]
@@ -759,7 +746,7 @@ def _assemble(f, tensor=None, bcs=None):
                     # block is on the matrix diagonal and its index matches the
                     # index of the function space the bc is defined on.
                     if i == j and (fs.index is None or fs.index == i):
-                        t.inc_local_diagonal_entries(bc.nodes)
+                        tensor[i, j].inc_local_diagonal_entries(bc.nodes)
 
         return result()
 
