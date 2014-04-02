@@ -56,6 +56,9 @@ class Constant(ufl.Coefficient):
             raise RuntimeError("Do not know how to make Constant from data with shape %s" % shape)
         super(Constant, self).__init__(self._ufl_element)
 
+    def ufl_element(self):
+        return self._ufl_element
+
     def function_space(self):
         """Return a null function space"""
         return None
