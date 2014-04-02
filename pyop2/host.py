@@ -159,9 +159,9 @@ class Arg(base.Arg):
     def c_kernel_arg(self, count, i=0, j=0, shape=(0,), is_top=False, layers=1):
         if self._uses_itspace:
             if self._is_mat:
-                if self.data._is_vector_field:
+                if self.data[i, j]._is_vector_field:
                     return self.c_kernel_arg_name(i, j)
-                elif self.data._is_scalar_field:
+                elif self.data[i, j]._is_scalar_field:
                     return "(%(t)s (*)[%(dim)d])&%(name)s" % \
                         {'t': self.ctype,
                          'dim': shape[0],
@@ -307,11 +307,11 @@ class Arg(base.Arg):
 
     def c_zero_tmp(self, i, j):
         t = self.ctype
-        if self.data._is_scalar_field:
+        if self.data[i, j]._is_scalar_field:
             idx = ''.join(["[i_%d]" % ix for ix in range(len(self.data.dims))])
             return "%(name)s%(idx)s = (%(t)s)0" % \
                 {'name': self.c_kernel_arg_name(i, j), 't': t, 'idx': idx}
-        elif self.data._is_vector_field:
+        elif self.data[i, j]._is_vector_field:
             if self._flatten:
                 return "%(name)s[0][0] = (%(t)s)0" % \
                     {'name': self.c_kernel_arg_name(i, j), 't': t}
@@ -902,16 +902,16 @@ class JITModule(base.JITModule):
             _addto_buf_name = _buf_scatter_name or _buf_name
             if self._itspace._extruded:
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, _addto_buf_name, "xtr_", is_facet=is_facet) for arg in self._args
-                                                            if arg._is_mat and arg.data._is_scalar_field])
+                                                            if arg._is_mat and arg.data[i, j]._is_scalar_field])
                 _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, "xtr_", is_facet=is_facet) for arg in self._args
-                                                  if arg._is_mat and arg.data._is_vector_field])
+                                                  if arg._is_mat and arg.data[i, j]._is_vector_field])
                 _addtos_scalar_field = ""
             else:
                 _addtos_scalar_field_extruded = ""
                 _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(i, j, _addto_buf_name) for count, arg in enumerate(self._args)
-                                                   if arg._is_mat and arg.data._is_scalar_field])
+                                                   if arg._is_mat and arg.data[i, j]._is_scalar_field])
                 _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j) for arg in self._args
-                                                  if arg._is_mat and arg.data._is_vector_field])
+                                                  if arg._is_mat and arg.data[i, j]._is_vector_field])
 
             if not _addtos_vector_field and not _buf_scatter:
                 _itspace_loops = ''
