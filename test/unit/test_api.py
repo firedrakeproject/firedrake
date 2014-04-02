@@ -894,6 +894,15 @@ class TestDatAPI:
         with pytest.raises(exceptions.ModeValueError):
             dat(mode)
 
+    def test_dat_subscript(self, backend, dat):
+        """Extracting component 0 of a Dat should yield self."""
+        assert dat[0] is dat
+
+    def test_dat_illegal_subscript(self, backend, dat):
+        """Extracting component 0 of a Dat should yield self."""
+        with pytest.raises(exceptions.IndexValueError):
+            dat[1]
+
     def test_dat_arg_default_map(self, backend, dat):
         """Dat __call__ should default the Arg map to None if not given."""
         assert dat(op2.READ).map is None

@@ -1621,6 +1621,12 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
             raise MapValueError("To Set of Map does not match Set of Dat.")
         return _make_object('Arg', data=self, map=path, access=access, flatten=flatten)
 
+    def __getitem__(self, idx):
+        """Return self if ``idx`` is 0, raise an error otherwise."""
+        if idx != 0:
+            raise IndexValueError("Can only extract component 0 from %r" % self)
+        return self
+
     @property
     def split(self):
         """Tuple containing only this :class:`Dat`."""
