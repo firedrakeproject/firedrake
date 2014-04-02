@@ -34,6 +34,7 @@ class DirichletBC(object):
         self.function_arg = g
         self._original_arg = self.function_arg
         self.sub_domain = sub_domain
+        self._currently_zeroed = False
 
     @property
     def function_arg(self):
@@ -62,6 +63,7 @@ class DirichletBC(object):
             except NotImplementedError:
                 g = project(g, self._function_space)
         self._function_arg = g
+        self._currently_zeroed = False
 
     def function_space(self):
         '''The :class:`.FunctionSpace` on which this boundary condition should
@@ -76,12 +78,14 @@ class DirichletBC(object):
 
         '''
         self.function_arg = 0
+        self._currently_zeroed = True
 
     def restore(self):
         '''Restore the original value of this boundary condition.
 
         This uses the value passed on instantiation of the object.'''
         self._function_arg = self._original_arg
+        self._currently_zeroed = False
 
     def set_value(self, val):
         '''Set the value of this boundary condition.
@@ -90,6 +94,7 @@ class DirichletBC(object):
             :class:`.DirichletBC` for valid values.
         '''
         self.function_arg = val
+        self._original_arg = self.function_arg
 
     @utils.cached_property
     def nodes(self):
@@ -172,6 +177,10 @@ class DirichletBC(object):
         if isinstance(r, types.Matrix):
             raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
 
+        # Record whether we are homogenized on entry.
+        currently_zeroed = self._currently_zeroed
+
         self.homogenize()
         self.apply(r)
-        self.restore()
+        if not currently_zeroed:
+            self.restore()
