@@ -1119,9 +1119,9 @@ class MixedDataSet(DataSet, ObjectCached):
 
     @property
     def cdim(self):
-        """The scalar number of values for each member of the sets. This is
-        the product of the dim tuples."""
-        return tuple(s.cdim for s in self._dsets)
+        """The sum of the scalar number of values for each member of the sets.
+        This is the sum of products of the dim tuples."""
+        return sum(s.cdim for s in self._dsets)
 
     @property
     def name(self):

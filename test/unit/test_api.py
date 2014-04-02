@@ -808,8 +808,8 @@ class TestMixedDataSetAPI:
         assert mdset.dim == tuple(s.dim for s in mdset)
 
     def test_mixed_dset_cdim(self, backend, mdset):
-        "MixedDataSet cdim should return a tuple of the DataSet cdims."
-        assert mdset.cdim == tuple(s.cdim for s in mdset)
+        "MixedDataSet cdim should return the sum of the DataSet cdims."
+        assert mdset.cdim == sum(s.cdim for s in mdset)
 
     def test_mixed_dset_name(self, backend, mdset):
         "MixedDataSet name should return a tuple of the DataSet names."
