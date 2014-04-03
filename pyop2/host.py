@@ -192,43 +192,47 @@ class Arg(base.Arg):
 
     def c_vec_init(self, is_top, layers, is_facet=False):
         val = []
-        arity = self.map.arity
-        if self._flatten:
-            for d in range(self.data.dataset.cdim):
-                for idx in range(arity):
-                    val.append("%(vec_name)s[%(idx)s] = %(data)s" %
-                               {'vec_name': self.c_vec_name(),
-                                'idx': d * arity * (2 if is_facet else 1) + idx,
-                                'data': self.c_ind_data(idx, 0, d, is_top=is_top, layers=layers,
-                                                        offset=self.map.offset[idx] if is_top else None)})
-            # In the case of interior horizontal facets the map for the vertical does not exist
-            # so it has to be dynamically created by adding the offset to the map of the current cell.
-            # In this way the only map required is the one for the bottom layer of cells and the wrapper will
-            # make sure to stage in the data for the entire map spanning the facet.
-            if is_facet:
-                for d in range(self.data.dataset.cdim):
-                    for idx in range(arity):
+        vec_idx = 0
+        for i, (m, d) in enumerate(zip(self.map, self.data)):
+            if self._flatten:
+                for k in range(d.dataset.cdim):
+                    for idx in range(m.arity):
                         val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                    {'vec_name': self.c_vec_name(),
-                                    'idx': d * arity * 2 + arity + idx,
-                                    'data': self.c_ind_data(idx, 0, d, is_top=is_top, layers=layers,
-                                                            offset=self.map.offset[idx])})
-        else:
-            for i, rng in enumerate(zip(self.map.arange[:-1], self.map.arange[1:])):
-                for mi, idx in enumerate(range(*rng)):
+                                    'idx': vec_idx,
+                                    'data': self.c_ind_data(idx, i, k, is_top=is_top, layers=layers,
+                                                            offset=m.offset[idx] if is_top else None)})
+                        vec_idx += 1
+                    # In the case of interior horizontal facets the map for the
+                    # vertical does not exist so it has to be dynamically
+                    # created by adding the offset to the map of the current
+                    # cell. In this way the only map required is the one for
+                    # the bottom layer of cells and the wrapper will make sure
+                    # to stage in the data for the entire map spanning the facet.
+                    if is_facet:
+                        for idx in range(m.arity):
+                            val.append("%(vec_name)s[%(idx)s] = %(data)s" %
+                                       {'vec_name': self.c_vec_name(),
+                                        'idx': vec_idx,
+                                        'data': self.c_ind_data(idx, i, k, is_top=is_top, layers=layers,
+                                                                offset=m.offset[idx])})
+                            vec_idx += 1
+            else:
+                for idx in range(m.arity):
                     val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                {'vec_name': self.c_vec_name(),
-                                'idx': idx,
-                                'data': self.c_ind_data(mi, i, is_top=is_top, layers=layers,
-                                                        offset=self.map.offset[idx] if is_top else None)})
-            if is_facet:
-                for i, rng in enumerate(zip(self.map.arange[:-1], self.map.arange[1:])):
-                    for mi, idx in enumerate(range(*rng)):
+                                'idx': vec_idx,
+                                'data': self.c_ind_data(idx, i, is_top=is_top, layers=layers,
+                                                        offset=m.offset[idx] if is_top else None)})
+                    vec_idx += 1
+                if is_facet:
+                    for idx in range(m.arity):
                         val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                    {'vec_name': self.c_vec_name(),
-                                    'idx': idx + arity,
-                                    'data': self.c_ind_data(mi, i, is_top=is_top, layers=layers,
-                                                            offset=self.map.offset[idx])})
+                                    'idx': vec_idx,
+                                    'data': self.c_ind_data(idx, i, is_top=is_top, layers=layers,
+                                                            offset=m.offset[idx])})
+                        vec_idx += 1
         return ";\n".join(val)
 
     def c_addto_scalar_field(self, i, j, buf_name, extruded=None, is_facet=False):
