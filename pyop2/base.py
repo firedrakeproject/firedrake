@@ -268,12 +268,17 @@ class Arg(object):
 
         # Determine the iteration space extents, if any
         if self._is_mat and flatten:
-            self._block_shape = (((map[0].arity * data.dims[0], map[1].arity * data.dims[1]),),)
+            rdims = tuple(d.cdim for d in data.sparsity.dsets[0])
+            cdims = tuple(d.cdim for d in data.sparsity.dsets[1])
+            self._block_shape = tuple(tuple((mr.arity * dr, mc.arity * dc)
+                                      for mc, dc in zip(map[1], cdims))
+                                      for mr, dr in zip(map[0], rdims))
         elif self._is_mat:
-            self._block_shape = tuple(tuple((mr.arity, mc.arity) for mc in map[1])
+            self._block_shape = tuple(tuple((mr.arity, mc.arity)
+                                      for mc in map[1])
                                       for mr in map[0])
         elif self._uses_itspace and flatten:
-            self._block_shape = (((map.arity * data.cdim,),),)
+            self._block_shape = tuple(((m.arity * d.cdim,),) for m, d in zip(map, data))
         elif self._uses_itspace:
             self._block_shape = tuple(((m.arity,),) for m in map)
         else:
