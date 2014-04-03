@@ -37,7 +37,7 @@ from copy import copy
 from ffc_interface import compile_form
 from assemble_expressions import assemble_expression
 from petsc import PETSc
-from assembly_cache import assembly_cache, cache_thunk
+from assembly_cache import cache_thunk
 
 
 class NonlinearVariationalProblem(object):
@@ -383,7 +383,6 @@ def assemble(f, tensor=None, bcs=None):
         raise TypeError("Unable to assemble: %r" % f)
 
 
-@assembly_cache
 def _assemble(f, tensor=None, bcs=None):
     """Assemble the form f and return a Firedrake object representing the
     result. This will be a :class:`float` for 0-forms, a
