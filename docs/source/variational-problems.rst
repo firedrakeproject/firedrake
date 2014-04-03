@@ -45,7 +45,7 @@ subdivided unit line of specified length.  We may also build square
 meshes with the :py:class:`~.UnitSquareMesh`
 constructor, and cube meshes with
 :py:class:`~.UnitCubeMesh`.  The API documentation for
-the :py:mod:`~.
+the :py:mod:`~firedrake.mesh` module has full usage descriptions.
 
 Immersed manifolds
 ~~~~~~~~~~~~~~~~~~
