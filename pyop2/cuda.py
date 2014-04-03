@@ -686,15 +686,39 @@ class Solver(base.Solver):
 class JITModule(base.JITModule):
 
     def __init__(self, kernel, itspace_extents, *args, **kwargs):
-        # No need to protect against re-initialization since these attributes
-        # are not expensive to set and won't be used if we hit cache
+        """
+        A cached compiled function to execute for a specified par_loop.
+
+        See :func:`~.par_loop` for the description of arguments.
+
+        .. warning ::
+
+           Note to implementors.  This object is *cached*, and therefore
+           should not hold any long term references to objects that
+           you want to be collected.  In particular, after the
+           ``args`` have been inspected to produce the compiled code,
+           they **must not** remain part of the object's slots,
+           otherwise they (and the :class:`~.Dat`\s, :class:`~.Map`\s
+           and :class:`~.Mat`\s they reference) will never be collected.
+        """
+        if self._initialized:
+            return
         self._parloop = kwargs.get('parloop')
         self._kernel = self._parloop._kernel
         self._config = kwargs.get('config')
+        self._initialized = True
 
     def compile(self):
         if hasattr(self, '_fun'):
+            # It should not be possible to pull a jit module out of
+            # the cache referencing its par_loop
+            if hasattr(self, '_parloop'):
+                raise RuntimeError("JITModule is holding onto parloop, causing a memory leak (should never happen)")
             return self._fun
+        # If we weren't in the cache we /must/ have a par_loop
+        if not hasattr(self, '_parloop'):
+            raise RuntimeError("JITModule has no parloop associated with it, should never happen")
+
         compiler_opts = ['-m64', '-Xptxas', '-dlcm=ca',
                          '-Xptxas=-v', '-O3', '-use_fast_math', '-DNVCC']
         inttype = np.dtype('int32').char
@@ -736,6 +760,10 @@ class JITModule(base.JITModule):
 
         self._fun = self._module.get_function(self._parloop._stub_name)
         self._fun.prepare(argtypes)
+        # Blow away everything we don't need any more
+        del self._parloop
+        del self._kernel
+        del self._config
         return self._fun
 
     def __call__(self, *args, **kwargs):

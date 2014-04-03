@@ -625,13 +625,30 @@ class JITModule(base.JITModule):
     _libraries = []
 
     def __init__(self, kernel, itspace, *args, **kwargs):
-        # No need to protect against re-initialization since these attributes
-        # are not expensive to set and won't be used if we hit cache
+        """
+        A cached compiled function to execute for a specified par_loop.
+
+        See :func:`~.par_loop` for the description of arguments.
+
+        .. warning ::
+
+           Note to implementors.  This object is *cached*, and therefore
+           should not hold any long term references to objects that
+           you want to be collected.  In particular, after the
+           ``args`` have been inspected to produce the compiled code,
+           they **must not** remain part of the object's slots,
+           otherwise they (and the :class:`~.Dat`\s, :class:`~.Map`\s
+           and :class:`~.Mat`\s they reference) will never be collected.
+        """
+        # Return early if we were in the cache.
+        if self._initialized:
+            return
         self._kernel = kernel
         self._itspace = itspace
         self._args = args
         self._direct = kwargs.get('direct', False)
         self._iteration_region = kwargs.get('iterate', ALL)
+        self._initialized = True
 
     @collective
     def __call__(self, *args, **kwargs):
@@ -646,9 +663,16 @@ class JITModule(base.JITModule):
     @collective
     def compile(self, argtypes=None, restype=None):
         if hasattr(self, '_fun'):
+            # It should not be possible to pull a jit module out of
+            # the cache /with/ arguments
+            if hasattr(self, '_args'):
+                raise RuntimeError("JITModule is holding onto args, causing a memory leak (should never happen)")
             self._fun.argtypes = argtypes
             self._fun.restype = restype
             return self._fun
+        # If we weren't in the cache we /must/ have arguments
+        if not hasattr(self, '_args'):
+            raise RuntimeError("JITModule has no args associated with it, should never happen")
         strip = lambda code: '\n'.join([l for l in code.splitlines()
                                         if l.strip() and l.strip() != ';'])
 
@@ -706,6 +730,12 @@ class JITModule(base.JITModule):
                                      ldargs=ldargs,
                                      argtypes=argtypes,
                                      restype=restype)
+        # Blow away everything we don't need any more
+        del self._args
+        del self._kernel
+        del self._itspace
+        del self._direct
+        del self._iteration_region
         return self._fun
 
     def generate_code(self):
