@@ -93,6 +93,18 @@ class Constant(ufl.Coefficient):
         except (op2.DataTypeError, op2.DataValueError) as e:
             raise RuntimeError(e.strerror)
 
+    def __iadd__(self, o):
+        raise NotImplementedError("Augmented assignment to Constant not implemented")
+
+    def __isub__(self, o):
+        raise NotImplementedError("Augmented assignment to Constant not implemented")
+
+    def __imul__(self, o):
+        raise NotImplementedError("Augmented assignment to Constant not implemented")
+
+    def __idiv__(self, o):
+        raise NotImplementedError("Augmented assignment to Constant not implemented")
+
 
 class FunctionSpace(FunctionSpaceBase):
     """Create a function space
