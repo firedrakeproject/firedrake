@@ -54,6 +54,11 @@ class DummyFunction(ufl.Coefficient):
         self.intent = intent
 
     def __str__(self):
+        if isinstance(self.function, types.Constant):
+            if len(self.function.ufl_element().value_shape()) == 0:
+                return "fn_%d[0]" % self.argnum
+            else:
+                return "fn_%d[dim]" % self.argnum
         if isinstance(self.function.function_space(),
                       types.VectorFunctionSpace):
             return "fn_%d[dim]" % self.argnum
@@ -69,11 +74,11 @@ class DummyFunction(ufl.Coefficient):
 
     @property
     def ast(self):
-        if isinstance(self.function.function_space(),
-                      types.VectorFunctionSpace):
-            return ast.Symbol("fn_%d" % self.argnum, ("dim",))
-        else:
-            return ast.Symbol("fn_%d" % self.argnum, (0,))
+        # Constant broadcasts across functions if it's a scalar
+        if isinstance(self.function, types.Constant) and \
+           len(self.function.ufl_element().value_shape()) == 0:
+            return ast.Symbol("fn_%d" % self.argnum, (0, ))
+        return ast.Symbol("fn_%d" % self.argnum, ("dim",))
 
 
 class AssignmentBase(Operator):
@@ -303,7 +308,7 @@ class ExpressionSplitter(ReuseTransformer):
                 return [o if i == idx else Zero()
                         for i, _ in enumerate(self._function_space)]
         # We replicate ConstantValue and MultiIndex for each component
-        elif isinstance(o, (ConstantValue, MultiIndex)):
+        elif isinstance(o, (types.Constant, ConstantValue, MultiIndex)):
             return [o for _ in self._function_space]
         raise NotImplementedError("Don't know what to do with %r" % o)
 
@@ -351,12 +356,31 @@ class ExpressionWalker(ReuseTransformer):
                 self._args[o] = DummyFunction(o, len(self._args))
                 return self._args[o]
 
+        elif isinstance(o, types.Constant):
+            if self._function_space is None:
+                raise NotImplementedError("Cannot assign to Constant coefficients")
+            else:
+                # Constant shape has to match if the constant is not a scalar
+                # If it is a scalar, it gets broadcast across all of
+                # the values of the function.
+                if len(o.ufl_element().value_shape()) > 0:
+                    for fs in self._function_space:
+                        if fs.ufl_element().value_shape() != o.ufl_element().value_shape():
+                            raise ValueError("Constant has mismatched shape for expression function space")
+            try:
+                arg = self._args[o]
+                if arg.intent == op2.WRITE:
+                    arg.intent = op2.RW
+                return arg
+            except KeyError:
+                self._args[o] = DummyFunction(o, len(self._args))
+                return self._args[o]
         elif isinstance(o, DummyFunction):
             # Idempotency.
             return o
 
         else:
-            raise TypeError("Operand ", str(o), " is of unsupported type")
+            raise TypeError("Operand %s is of unsupported type" % o)
 
     # Prevent AlgebraOperators falling through to the Operator case.
     algebra_operator = ReuseTransformer.reuse_if_possible
@@ -403,19 +427,20 @@ def expression_kernel(expr, args):
 
     fs = args[0].function.function_space()
 
+    d = ast.Symbol("dim")
     if isinstance(fs, types.VectorFunctionSpace):
-        d = ast.Symbol("dim")
-        body = ast.Block(
-            (
-                ast.Decl("int", d),
-                ast.For(ast.Assign(d, ast.Symbol(0)),
-                        ast.Less(d, ast.Symbol(fs.dof_dset.cdim)),
-                        ast.Incr(d, ast.Symbol(1)),
-                        _ast(expr))
-            )
-        )
+        ast_expr = _ast(expr)
     else:
-        body = ast.FlatBlock(str(expr) + ";")
+        ast_expr = ast.FlatBlock(str(expr) + ";")
+    body = ast.Block(
+        (
+            ast.Decl("int", d),
+            ast.For(ast.Assign(d, ast.Symbol(0)),
+                    ast.Less(d, ast.Symbol(fs.dof_dset.cdim)),
+                    ast.Incr(d, ast.Symbol(1)),
+                    ast_expr)
+        )
+    )
 
     return op2.Kernel(ast.FunDecl("void", "expression",
                                   [arg.arg for arg in args], body),

@@ -9,7 +9,7 @@ from pyop2.utils import flatten, as_tuple
 import pyop2.ir.ast_base as ast
 
 import assemble_expressions
-from core_types import FunctionSpaceBase, ExtrudedMesh, _new_uid
+from core_types import FunctionSpaceBase, ExtrudedMesh, _new_uid, _init
 from expression import Expression
 from solving import _assemble
 import utils
@@ -18,10 +18,92 @@ from vector import Vector
 
 __all__ = ['FunctionSpace', 'VectorFunctionSpace',
            'MixedFunctionSpace', 'IndexedFunctionSpace',
-           'Function']
+           'Function', 'Constant']
 
 
 valuetype = np.float64
+
+
+class Constant(ufl.Coefficient):
+
+    """A "constant" coefficient
+
+    A :class:`Constant` takes one value over the whole :class:`~.Mesh`.
+
+    :arg value: the value of the constant.  May either be a scalar, an
+         iterable of values (for a vector-valued constant), or an iterable
+         of iterables (or numpy array with 2-dimensional shape) for a
+         tensor-valued constant.
+
+    :arg cell: an optional :class:`ufl.Cell` the constant is defined on.
+    """
+    def __init__(self, value, cell=None):
+        # Init also called in mesh constructor, but constant can be built without mesh
+        _init()
+        data = np.array(value, dtype=np.float64)
+        shape = data.shape
+        dim = len(shape)
+        if dim == 0:
+            self.dat = op2.Global(1, data)
+            self._ufl_element = ufl.FiniteElement("Real", domain=cell, degree=0)
+        elif dim == 1:
+            self.dat = op2.Global(shape, data)
+            self._ufl_element = ufl.VectorElement("Real", domain=cell, degree=0,
+                                                  dim=self.dat.cdim)
+        elif dim == 2:
+            self.dat = op2.Global(shape, data)
+            self._ufl_element = ufl.TensorElement("Real", domain=cell, degree=0,
+                                                  shape=shape)
+        else:
+            raise RuntimeError("Do not know how to make Constant from data with shape %s" % shape)
+        super(Constant, self).__init__(self._ufl_element)
+
+    def ufl_element(self):
+        return self._ufl_element
+
+    def function_space(self):
+        """Return a null function space"""
+        return None
+
+    def cell_node_map(self, bcs=None):
+        """Return a null cell to node map"""
+        if bcs is not None:
+            raise RuntimeError("Can't apply boundary conditions to a Constant")
+        return None
+
+    def interior_facet_node_map(self, bcs=None):
+        """Return a null interior facet to node map"""
+        if bcs is not None:
+            raise RuntimeError("Can't apply boundary conditions to a Constant")
+        return None
+
+    def exterior_facet_node_map(self, bcs=None):
+        """Return a null exterior facet to node map"""
+        if bcs is not None:
+            raise RuntimeError("Can't apply boundary conditions to a Constant")
+        return None
+
+    def assign(self, value):
+        """Set the value of this constant.
+
+        :arg value: A value of the appropriate shape"""
+        try:
+            self.dat.data = value
+            return self
+        except (op2.DataTypeError, op2.DataValueError) as e:
+            raise RuntimeError(e.strerror)
+
+    def __iadd__(self, o):
+        raise NotImplementedError("Augmented assignment to Constant not implemented")
+
+    def __isub__(self, o):
+        raise NotImplementedError("Augmented assignment to Constant not implemented")
+
+    def __imul__(self, o):
+        raise NotImplementedError("Augmented assignment to Constant not implemented")
+
+    def __idiv__(self, o):
+        raise NotImplementedError("Augmented assignment to Constant not implemented")
 
 
 class FunctionSpace(FunctionSpaceBase):
