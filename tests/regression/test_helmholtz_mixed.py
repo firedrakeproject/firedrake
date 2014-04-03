@@ -2,7 +2,7 @@ import pytest
 from firedrake import *
 
 
-def helmholtz_mixed(x, V1, V2):
+def helmholtz_mixed(x, V1, V2, action=False):
     # Create mesh and define function space
     mesh = UnitSquareMesh(2**x, 2**x)
     V1 = FunctionSpace(mesh, *V1, name="V")
@@ -22,11 +22,16 @@ def helmholtz_mixed(x, V1, V2):
     # Compute solution
     x = Function(W)
 
+    if action:
+        system = action(a, x) - L == 0
+    else:
+        system = a == L
+
     # Block system is:
     # V Ct
     # Ch P
     # Eliminate V by forming a schur complement
-    solve(a == L, x, solver_parameters={'pc_type': 'fieldsplit',
+    solve(system, x, solver_parameters={'pc_type': 'fieldsplit',
                                         'pc_fieldsplit_type': 'schur',
                                         'ksp_type': 'cg',
                                         'pc_fieldsplit_schur_fact_type': 'FULL',
@@ -38,11 +43,12 @@ def helmholtz_mixed(x, V1, V2):
     return sqrt(assemble(dot(x[2] - f, x[2] - f) * dx))
 
 
-@pytest.mark.parametrize(('V1', 'V2', 'threshold'),
-                         [(('RT', 1), ('DG', 0), 1.9),
-                          (('BDM', 1), ('DG', 0), 1.89),
-                          (('BDFM', 2), ('DG', 1), 1.9)])
-def test_firedrake_helmholtz(V1, V2, threshold):
+@pytest.mark.parametrize(('V1', 'V2', 'threshold', 'action'),
+                         [(('RT', 1), ('DG', 0), 1.9, False),
+                          (('BDM', 1), ('DG', 0), 1.89, False),
+                          (('BDM', 1), ('DG', 0), 1.89, True),
+                          (('BDFM', 2), ('DG', 1), 1.9, False)])
+def test_firedrake_helmholtz(V1, V2, threshold, action):
     import numpy as np
     diff = np.array([helmholtz_mixed(i, V1, V2) for i in range(3, 6)])
     print "l2 error norms:", diff

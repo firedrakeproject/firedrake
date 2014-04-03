@@ -1,5 +1,6 @@
 from distutils.core import setup
 from distutils.extension import Extension
+from glob import glob
 import numpy as np
 
 try:
@@ -25,6 +26,7 @@ setup(name='firedrake',
       author_email="firedrake@imperial.ac.uk",
       url="http://firedrakeproject.org",
       packages=["firedrake", "evtk"],
+      scripts=glob('scripts/*'),
       ext_modules=[Extension('firedrake.core_types',
                              sources=firedrake_sources,
                              include_dirs=[np.get_include()]),
