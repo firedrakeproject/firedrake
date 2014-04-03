@@ -324,13 +324,13 @@ class Arg(base.Arg):
         else:
             raise RuntimeError("Don't know how to zero temp array for %s" % self)
 
-    def c_add_offset_flatten(self, is_facet=False):
+    def c_add_offset(self, is_facet=False):
         if not self.map.iterset._extruded:
             return ""
         val = []
         vec_idx = 0
         for i, (m, d) in enumerate(zip(self.map, self.data)):
-            for k in range(d.dataset.cdim):
+            for k in range(d.dataset.cdim if self._flatten else 1):
                 for idx in range(m.arity):
                     val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
                                {'name': self.c_vec_name(),
@@ -348,31 +348,6 @@ class Arg(base.Arg):
                                     'offset': self.c_offset_name(i, 0),
                                     'dim': d.dataset.cdim})
                         vec_idx += 1
-        return '\n'.join(val)+'\n'
-
-    def c_add_offset(self, is_facet=False):
-        if not self.map.iterset._extruded:
-            return ""
-        val = []
-        vec_idx = 0
-        for i, (m, d) in enumerate(zip(self.map, self.data)):
-            for idx in range(m.arity):
-                val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
-                           {'name': self.c_vec_name(),
-                            'i': idx,
-                            'j': vec_idx,
-                            'offset': self.c_offset_name(i, 0),
-                            'dim': d.dataset.cdim})
-                vec_idx += 1
-            if is_facet:
-                for idx in range(m.arity):
-                    val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
-                               {'name': self.c_vec_name(),
-                                'i': idx,
-                                'j': vec_idx,
-                                'offset': self.c_offset_name(i, 0),
-                                'dim': d.dataset.cdim})
-                    vec_idx += 1
         return '\n'.join(val)+'\n'
 
     # New globals generation which avoids false sharing.
@@ -822,10 +797,8 @@ class JITModule(base.JITModule):
                                      if not arg._flatten and arg._is_mat])
             _apply_offset += ';\n'.join([arg.c_add_offset_map(is_facet=is_facet)
                                          for arg in self._args if arg._uses_itspace])
-            _apply_offset += ';\n'.join([arg.c_add_offset_flatten(is_facet=is_facet) for arg in self._args
-                                         if arg._is_vec_map and arg._flatten])
-            _apply_offset += ';\n'.join([arg.c_add_offset(is_facet=is_facet) for arg in self._args
-                                         if arg._is_vec_map and not arg._flatten])
+            _apply_offset += ';\n'.join([arg.c_add_offset(is_facet=is_facet)
+                                         for arg in self._args if arg._is_vec_map])
             _extr_loop = '\n' + extrusion_loop()
             _extr_loop_close = '}\n'
         else:
