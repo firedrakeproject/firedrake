@@ -131,19 +131,18 @@ class Arg(base.Arg):
              'arity': self.map.split[i].arity,
              'idx': idx,
              'top': ' + start_layer' if is_top else '',
-             'dim': self.data.split[i].cdim,
+             'dim': self.data[i].cdim,
              'off': ' + %d' % j if j else '',
              'off_mul': ' * %d' % offset if is_top and offset is not None else '',
              'off_add': ' + %d' % offset if not is_top and offset is not None else ''}
 
     def c_ind_data_xtr(self, idx, i, j=0, is_top=False, layers=1):
-        cdim = np.prod(self.data.cdim)
         return "%(name)s + (xtr_%(map_name)s[%(idx)s]%(top)s%(offset)s)*%(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
              'idx': idx,
              'top': ' + start_layer' if is_top else '',
-             'dim': 1 if self._flatten else str(cdim),
+             'dim': 1 if self._flatten else str(self.data[i].cdim),
              'off': ' + %d' % j if j else '',
              'offset': ' * _'+self.c_offset_name(i, 0)+'['+idx+']' if is_top else ''}
 
@@ -176,7 +175,7 @@ class Arg(base.Arg):
                         {'name': self.c_arg_name(),
                          'map_name': self.c_map_name(0, i),
                          'arity': self.map.arity,
-                         'dim': self.data.cdim}
+                         'dim': self.data[i].cdim}
                 else:
                     return self.c_ind_data("i_%d" % self.idx.index, i)
         elif self._is_indirect:
@@ -189,7 +188,7 @@ class Arg(base.Arg):
             return self.c_arg_name(i)
         else:
             return "%(name)s + i * %(dim)s" % {'name': self.c_arg_name(i),
-                                               'dim': self.data.cdim}
+                                               'dim': self.data[i].cdim}
 
     def c_vec_init(self, is_top, layers, is_facet=False):
         val = []
