@@ -3218,7 +3218,13 @@ class Kernel(Cached):
 
 class JITModule(Cached):
 
-    """Cached module encapsulating the generated :class:`ParLoop` stub."""
+    """Cached module encapsulating the generated :class:`ParLoop` stub.
+
+    .. warning::
+
+       Note to implementors.  This object is *cached* and therefore
+       should not hold any references to objects you might want to be
+       collected (such PyOP2 data objects)."""
 
     _cache = {}
 
