@@ -325,48 +325,54 @@ class Arg(base.Arg):
             raise RuntimeError("Don't know how to zero temp array for %s" % self)
 
     def c_add_offset_flatten(self, is_facet=False):
-        cdim = np.prod(self.data.cdim)
-        val = []
         if not self.map.iterset._extruded:
             return ""
-        for (k, offset), arity in zip(enumerate(self.map.arange[:-1]), self.map.arities):
-            for idx in range(cdim):
-                for i in range(arity):
+        val = []
+        vec_idx = 0
+        for i, (m, d) in enumerate(zip(self.map, self.data)):
+            for k in range(d.dataset.cdim):
+                for idx in range(m.arity):
                     val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
                                {'name': self.c_vec_name(),
-                                'i': i,
-                                'j': offset + idx * arity + i,
-                                'offset': self.c_offset_name(k, 0),
-                                'dim': cdim})
-                    if is_facet:
+                                'i': idx,
+                                'j': vec_idx,
+                                'offset': self.c_offset_name(i, 0),
+                                'dim': d.dataset.cdim})
+                    vec_idx += 1
+                if is_facet:
+                    for idx in range(m.arity):
                         val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
                                    {'name': self.c_vec_name(),
-                                    'i': i,
-                                    'j': offset + (idx + cdim) * arity + i,
-                                    'offset': self.c_offset_name(k, 0),
-                                    'dim': cdim})
+                                    'i': idx,
+                                    'j': vec_idx,
+                                    'offset': self.c_offset_name(i, 0),
+                                    'dim': d.dataset.cdim})
+                        vec_idx += 1
         return '\n'.join(val)+'\n'
 
     def c_add_offset(self, is_facet=False):
-        cdim = np.prod(self.data.cdim)
-        val = []
         if not self.map.iterset._extruded:
             return ""
-        for (k, offset), arity in zip(enumerate(self.map.arange[:-1]), self.map.arities):
-            for i in range(arity):
+        val = []
+        vec_idx = 0
+        for i, (m, d) in enumerate(zip(self.map, self.data)):
+            for idx in range(m.arity):
                 val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
                            {'name': self.c_vec_name(),
-                            'i': i,
-                            'j': offset + i,
-                            'offset': self.c_offset_name(k, 0),
-                            'dim': cdim})
-                if is_facet:
+                            'i': idx,
+                            'j': vec_idx,
+                            'offset': self.c_offset_name(i, 0),
+                            'dim': d.dataset.cdim})
+                vec_idx += 1
+            if is_facet:
+                for idx in range(m.arity):
                     val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
                                {'name': self.c_vec_name(),
-                                'i': i,
-                                'j': offset + i + arity,
-                                'offset': self.c_offset_name(k, 0),
-                                'dim': cdim})
+                                'i': idx,
+                                'j': vec_idx,
+                                'offset': self.c_offset_name(i, 0),
+                                'dim': d.dataset.cdim})
+                    vec_idx += 1
         return '\n'.join(val)+'\n'
 
     # New globals generation which avoids false sharing.
