@@ -665,13 +665,13 @@ class JITModule(base.JITModule):
         if hasattr(self, '_fun'):
             # It should not be possible to pull a jit module out of
             # the cache /with/ arguments
-            if self._args is not None:
+            if hasattr(self, '_args'):
                 raise RuntimeError("JITModule is holding onto args, causing a memory leak (should never happen)")
             self._fun.argtypes = argtypes
             self._fun.restype = restype
             return self._fun
         # If we weren't in the cache we /must/ have arguments
-        if self._args is None:
+        if not hasattr(self, '_args'):
             raise RuntimeError("JITModule has no args associated with it, should never happen")
         strip = lambda code: '\n'.join([l for l in code.splitlines()
                                         if l.strip() and l.strip() != ';'])
@@ -730,8 +730,12 @@ class JITModule(base.JITModule):
                                      ldargs=ldargs,
                                      argtypes=argtypes,
                                      restype=restype)
-        # We've used the args, now blow them away to avoid holding references.
-        self._args = None
+        # Blow away everything we don't need any more
+        del self._args
+        del self._kernel
+        del self._itspace
+        del self._direct
+        del self._iteration_region
         return self._fun
 
     def generate_code(self):

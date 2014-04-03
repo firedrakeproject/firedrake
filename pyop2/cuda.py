@@ -712,11 +712,11 @@ class JITModule(base.JITModule):
         if hasattr(self, '_fun'):
             # It should not be possible to pull a jit module out of
             # the cache referencing its par_loop
-            if self._parloop is not None:
+            if hasattr(self, '_parloop'):
                 raise RuntimeError("JITModule is holding onto parloop, causing a memory leak (should never happen)")
             return self._fun
         # If we weren't in the cache we /must/ have a par_loop
-        if self._parloop is None:
+        if not hasattr(self, '_parloop'):
             raise RuntimeError("JITModule has no parloop associated with it, should never happen")
 
         compiler_opts = ['-m64', '-Xptxas', '-dlcm=ca',
@@ -760,8 +760,10 @@ class JITModule(base.JITModule):
 
         self._fun = self._module.get_function(self._parloop._stub_name)
         self._fun.prepare(argtypes)
-        # We've used the parloop, now blow it away to avoid holding references.
-        self._parloop = None
+        # Blow away everything we don't need any more
+        del self._parloop
+        del self._kernel
+        del self._config
         return self._fun
 
     def __call__(self, *args, **kwargs):
