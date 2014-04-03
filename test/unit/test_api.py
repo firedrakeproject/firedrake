@@ -312,17 +312,6 @@ class TestArgAPI:
     Arg API unit tests
     """
 
-    def test_arg_mixed_dat_flatten(self, backend, mdat, mmap):
-        "Creating a flattened Arg on a MixedDat should fail."
-        with pytest.raises(exceptions.DatTypeError):
-            mdat(op2.READ, mmap, flatten=True)
-
-    def test_arg_mixed_mat_flatten(self, backend, mmat):
-        "Creating a flattened Arg on a mixed Mat should fail."
-        mr, mc = mmat.sparsity.maps[0]
-        with pytest.raises(exceptions.MatTypeError):
-            mmat(op2.INC, (mr[op2.i[0]], mc[op2.i[1]]), flatten=True)
-
     def test_arg_split_dat(self, backend, dat, m_iterset_toset):
         arg = dat(op2.READ, m_iterset_toset)
         for a in arg.split:

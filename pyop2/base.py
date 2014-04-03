@@ -249,11 +249,6 @@ class Arg(object):
         self._position = None
         self._indirect_position = None
 
-        if self._is_mixed_mat and flatten:
-            raise MatTypeError("A Mat Arg on a mixed space cannot be flattened!")
-        if self._is_mixed_dat and flatten:
-            raise DatTypeError("A MixedDat Arg cannot be flattened!")
-
         # Check arguments for consistency
         if not (self._is_global or map is None):
             for j, m in enumerate(map):
