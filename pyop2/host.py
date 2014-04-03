@@ -385,29 +385,20 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 """ % {'combine': combine, 'dim': self.data.cdim}
 
     def c_map_decl(self, is_facet=False):
-        maps = as_tuple(self.map, Map)
+        if self._is_mat:
+            dsets = self.data.sparsity.dsets
+        else:
+            dsets = (self.data.dataset,)
         val = []
-        for i, map in enumerate(maps):
-            for j, m in enumerate(map):
-                val.append("int xtr_%(name)s[%(dim)s];" %
-                           {'name': self.c_map_name(i, j),
-                            'dim': m.arity * (2 if is_facet else 1)})
-        return '\n'.join(val)+'\n'
-
-    def c_map_decl_itspace(self, is_facet=False):
-        cdim = np.prod(self.data.cdim)
-        maps = as_tuple(self.map, Map)
-        val = []
-        for i, map in enumerate(maps):
-            for j, m in enumerate(map):
-                dim_row = m.arity
-                if self._flatten:
-                    dim_row = m.arity * cdim
+        for i, (map, dset) in enumerate(zip(as_tuple(self.map, Map), dsets)):
+            for j, (m, d) in enumerate(zip(map, dset)):
+                dim = m.arity
+                if self._is_dat and self._flatten:
+                    dim *= d.cdim
                 if is_facet:
-                    dim_row *= 2
-                val.append("int xtr_%(name)s[%(dim_row)s];\n" %
-                           {'name': self.c_map_name(i, j),
-                            'dim_row': str(dim_row)})
+                    dim *= 2
+                val.append("int xtr_%(name)s[%(dim)s];" %
+                           {'name': self.c_map_name(i, j), 'dim': dim})
         return '\n'.join(val)+'\n'
 
     def c_map_init(self, is_top=False, layers=1, is_facet=False):
@@ -785,10 +776,8 @@ class JITModule(base.JITModule):
             _layer_arg = ", int start_layer, int end_layer"
             _off_args = ''.join([arg.c_offset_init() for arg in self._args
                                  if arg._uses_itspace or arg._is_vec_map])
-            _map_decl += ';\n'.join([arg.c_map_decl_itspace(is_facet=is_facet) for arg in self._args
-                                     if arg._uses_itspace and not arg._is_mat])
-            _map_decl += ';\n'.join([arg.c_map_decl(is_facet=is_facet) for arg in self._args
-                                     if arg._is_mat])
+            _map_decl += ';\n'.join([arg.c_map_decl(is_facet=is_facet)
+                                     for arg in self._args if arg._uses_itspace])
             _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, layers=self._itspace.layers, is_facet=is_facet)
                                      for arg in self._args if arg._uses_itspace])
             _map_bcs_m += ';\n'.join([arg.c_map_bcs(a_bcs, self._itspace.layers, "-") for arg in self._args
