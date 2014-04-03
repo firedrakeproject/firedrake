@@ -9,7 +9,7 @@ from pyop2.utils import flatten, as_tuple
 import pyop2.ir.ast_base as ast
 
 import assemble_expressions
-from core_types import FunctionSpaceBase, ExtrudedMesh, _new_uid
+from core_types import FunctionSpaceBase, ExtrudedMesh, _new_uid, _init
 from expression import Expression
 from solving import _assemble
 import utils
@@ -38,6 +38,8 @@ class Constant(ufl.Coefficient):
     :arg cell: an optional :class:`ufl.Cell` the constant is defined on.
     """
     def __init__(self, value, cell=None):
+        # Init also called in mesh constructor, but constant can be built without mesh
+        _init()
         data = np.array(value, dtype=np.float64)
         shape = data.shape
         dim = len(shape)
