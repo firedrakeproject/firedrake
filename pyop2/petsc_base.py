@@ -307,7 +307,6 @@ class Mat(base.Mat, CopyOnWrite):
         vwr = PETSc.Viewer().createBinary(filename, PETSc.Viewer.Mode.WRITE)
         self.handle.view(vwr)
 
-    @modifies
     @collective
     def zero(self):
         """Zero the matrix."""
