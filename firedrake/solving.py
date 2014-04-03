@@ -493,7 +493,6 @@ def _assemble(f, tensor=None, bcs=None):
             # Replace any bcs on the tensor we passed in
             result_matrix.bcs = bcs
             tensor = tensor._M
-            tensor.zero()
 
         def mat(testmap, trialmap, i, j):
             return tensor[i, j](op2.INC,
@@ -509,7 +508,6 @@ def _assemble(f, tensor=None, bcs=None):
         else:
             result_function = tensor
             tensor = result_function.dat
-            tensor.zero()
 
         def vec(testmap, i):
             return tensor[i](op2.INC,
@@ -534,6 +532,10 @@ def _assemble(f, tensor=None, bcs=None):
     # solve, we funcall the closure with any bcs the Matrix now has to
     # assemble it.
     def thunk(bcs):
+        try:
+            tensor.zero()
+        except AttributeError:
+            pass
         extruded_bcs = None
         if bcs is not None:
             bottom = any(bc.sub_domain == "bottom" for bc in bcs)
