@@ -3,6 +3,7 @@ from ufl.algorithms.signature import compute_form_signature
 import types
 import weakref
 from petsc4py import PETSc
+from parameters import parameters
 
 
 class DependencySnapshot(object):
@@ -106,7 +107,6 @@ class AssemblyCache(object):
             cls._instance = super(AssemblyCache, cls).__new__(cls)
             cls._instance._hits = 0
             cls._instance._hits_size = 0
-            cls._instance._enabled = True
             cls._instance.cache = {}
             cls._instance.invalid_count = defaultdict(int)
             cls._instance.do_not_cache = set()
@@ -137,14 +137,6 @@ class AssemblyCache(object):
         self.cache[form_sig] = cache_entry
 
         return obj
-
-    @property
-    def enabled(self):
-        return self._enabled
-
-    @enabled.setter
-    def enabled(self, value):
-        self._enabled = value
 
     @property
     def num_objects(self):
@@ -187,7 +179,7 @@ def cache_thunk(thunk, form, result):
 
         cache = AssemblyCache()
 
-        if not cache.enabled:
+        if not parameters["assembly_cache"]["enabled"]:
             return thunk(bcs)
 
         obj = cache.lookup(form, bcs)

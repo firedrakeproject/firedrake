@@ -1,5 +1,7 @@
 __all__ = ['Parameters', 'parameters']
 
+"""The parameters dictionary contains global parameter settings."""
+
 
 class Parameters(dict):
     def __init__(self, name=None):
@@ -18,3 +20,5 @@ class Parameters(dict):
         self._name = name
 
 parameters = Parameters()
+
+parameters["assembly_cache"] = {"enabled": True}
