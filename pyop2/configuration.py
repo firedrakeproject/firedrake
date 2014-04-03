@@ -83,6 +83,8 @@ class Configuration(object):
             if not isinstance(typ, type):
                 typ = typ[0]
             try:
+                if typ is bool:
+                    return bool(int(os.environ.get(env, v)))
                 return typ(os.environ.get(env, v))
             except ValueError:
                 raise ValueError("Cannot convert value of environment variable %s to %r" % (env, typ))
