@@ -780,10 +780,10 @@ class JITModule(base.JITModule):
                                      for arg in self._args if arg._uses_itspace])
             _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, layers=self._itspace.layers, is_facet=is_facet)
                                      for arg in self._args if arg._uses_itspace])
-            _map_bcs_m += ';\n'.join([arg.c_map_bcs(a_bcs, self._itspace.layers, "-") for arg in self._args
-                                     if not arg._flatten and arg._is_mat])
-            _map_bcs_p += ';\n'.join([arg.c_map_bcs(a_bcs, self._itspace.layers, "+") for arg in self._args
-                                     if not arg._flatten and arg._is_mat])
+            _map_bcs_m += ';\n'.join([arg.c_map_bcs(a_bcs, self._itspace.layers, "-")
+                                      for arg in self._args if arg._is_mat])
+            _map_bcs_p += ';\n'.join([arg.c_map_bcs(a_bcs, self._itspace.layers, "+")
+                                      for arg in self._args if arg._is_mat])
             _apply_offset += ';\n'.join([arg.c_add_offset_map(is_facet=is_facet)
                                          for arg in self._args if arg._uses_itspace])
             _apply_offset += ';\n'.join([arg.c_add_offset(is_facet=is_facet)
