@@ -383,19 +383,12 @@ following to ``~/.bashrc`` or ``.env``::
   # Add pytest binaries to the path
   export PATH=${PATH}:${HOME}/.local/bin
 
-The regression tests further require *gmsh* and *triangle*: ::
-
-  sudo apt-get install gmsh triangle-bin unzip
-
 If all tests in our test suite pass, you should be good to go::
 
   make test
 
-This will run both unit and regression tests, the latter require UFL_ and FFC_.
-
-This will attempt to run tests for all backends and skip those for not
-available backends. If the FFC_ fork is not found, tests for the FFC_ interface
-are xfailed.
+This will run code linting and unit tests, attempting to run for all backends
+and skipping those for not available backends.
 
 Troubleshooting
 ---------------
@@ -417,10 +410,6 @@ Run the tests as follows, to abort after the first failed test:
 Start with the unit tests with the sequential backend ::
 
   py.test test/unit -vsx --tb=short --backend=sequential
-
-Then move on to the regression tests with the sequential backend ::
-
-  py.test test/regression -vsx --tb=short --backend=sequential
 
 With all the sequential tests passing, move on to the next backend in the same
 manner as required.
