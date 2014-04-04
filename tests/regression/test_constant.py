@@ -41,9 +41,19 @@ def test_vector_constant_2d():
     # `---'
     # Normal is in (1, 1) direction
     assert abs(assemble(dot(c('+'), n('+'))*dS)) < 1e-10
+    assert abs(assemble(dot(c('-'), n('+'))*dS)) < 1e-10
+
+    # Normal is in (-1, -1) direction
+    assert abs(assemble(dot(c('+'), n('-'))*dS)) < 1e-10
+    assert abs(assemble(dot(c('-'), n('-'))*dS)) < 1e-10
 
     c.assign([1, 1])
     assert abs(assemble(dot(c('+'), n('+'))*dS) - 2) < 1e-10
+    assert abs(assemble(dot(c('-'), n('+'))*dS) - 2) < 1e-10
+
+    # Normal is in (-1, -1) direction
+    assert abs(assemble(dot(c('+'), n('-'))*dS) + 2) < 1e-10
+    assert abs(assemble(dot(c('-'), n('-'))*dS) + 2) < 1e-10
 
 
 def test_constant_scalar_assign_distributes():
