@@ -29,7 +29,7 @@ on `IRC`_.  You can find us in the ``#firedrake`` channel on
 `Freenode`_ (``irc.freenode.net``).
 
 .. _github: http://github.com/firedrakeproject/firedrake
-.. _contributing: http://github.com/firedrakeproject/firedrake/master/blob/CONTRIBUTING.md
+.. _contributing: https://github.com/firedrakeproject/firedrake/blob/master/CONTRIBUTING.md
 .. _IRC: http://www.irchelp.org/
 .. _Freenode: http://freenode.net
 .. _mailing_list: https://mailman.ic.ac.uk/mailman/listinfo/firedrake
