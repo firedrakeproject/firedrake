@@ -1356,7 +1356,11 @@ class FunctionSpaceBase(object):
     def _map_cache(self, cache, entity_set, entity_node_list, map_arity, bcs, name,
                    offset=None, parent=None):
         if bcs is None:
-            lbcs = None
+            # Empty tuple if no bcs found.  This is so that matrix
+            # assembly, which uses a set to keep track of the bcs
+            # applied to matrix hits the cache when that set is
+            # empty.  tuple(set([])) == tuple().
+            lbcs = tuple()
         else:
             if not all(bc.function_space() == self for bc in bcs):
               raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
