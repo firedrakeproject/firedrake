@@ -62,17 +62,22 @@ def _init():
     import types
 
 def fiat_from_ufl_element(ufl_element):
-    if isinstance(ufl_element, ufl.EnrichedElement):
-        return FIAT.EnrichedElement(fiat_from_ufl_element(ufl_element._elements[0]), fiat_from_ufl_element(ufl_element._elements[1]))
-    elif isinstance(ufl_element, ufl.HDiv):
-        return FIAT.Hdiv(fiat_from_ufl_element(ufl_element._element))
-    elif isinstance(ufl_element, ufl.HCurl):
-        return FIAT.Hcurl(fiat_from_ufl_element(ufl_element._element))
-    elif isinstance(ufl_element, (ufl.OuterProductElement, ufl.OuterProductVectorElement)):
-        return FIAT.TensorFiniteElement(fiat_from_ufl_element(ufl_element._A), fiat_from_ufl_element(ufl_element._B))
-    else:
-        return FIAT.supported_elements[ufl_element.family()]\
-            (_FIAT_cells[ufl_element.cell().cellname()](), ufl_element.degree())
+    try:
+        return ufl_element._fiat_element
+    except AttributeError:
+        if isinstance(ufl_element, ufl.EnrichedElement):
+            fiat_element = FIAT.EnrichedElement(fiat_from_ufl_element(ufl_element._elements[0]), fiat_from_ufl_element(ufl_element._elements[1]))
+        elif isinstance(ufl_element, ufl.HDiv):
+            fiat_element = FIAT.Hdiv(fiat_from_ufl_element(ufl_element._element))
+        elif isinstance(ufl_element, ufl.HCurl):
+            fiat_element = FIAT.Hcurl(fiat_from_ufl_element(ufl_element._element))
+        elif isinstance(ufl_element, (ufl.OuterProductElement, ufl.OuterProductVectorElement)):
+            fiat_element = FIAT.TensorFiniteElement(fiat_from_ufl_element(ufl_element._A), fiat_from_ufl_element(ufl_element._B))
+        else:
+            fiat_element = FIAT.supported_elements[ufl_element.family()]\
+                (_FIAT_cells[ufl_element.cell().cellname()](), ufl_element.degree())
+    ufl_element._fiat_element = fiat_element
+    return fiat_element
 
 # Functions related to the extruded case
 def extract_offset(offset, facet_map, base_map):
