@@ -320,21 +320,6 @@ When installing PyOP2 via ``python setup.py install`` the extension
 modules will be built automatically and amending ``$PYTHONPATH`` is not
 necessary.
 
-FFC Interface
--------------
-
-Solving UFL_ finite element equations requires a fork of FFC_, UFL_
-and FIAT_.  Note that FFC_ requires a version of Instant_.
-
-Install FFC_ and all dependencies via pip::
-
-  sudo pip install \
-    git+https://bitbucket.org/mapdes/ffc.git#egg=ffc
-    git+https://bitbucket.org/mapdes/ufl.git#egg=ufl
-    git+https://bitbucket.org/mapdes/fiat.git#egg=fiat
-    git+https://bitbucket.org/fenics-project/instant.git#egg=instant
-    hg+https://bitbucket.org/khinsen/scientificpython
-
 Setting up the environment
 --------------------------
 
@@ -346,12 +331,6 @@ definitions as necessary::
   #PETSc installation, not necessary when PETSc was installed via pip
   export PETSC_DIR=/path/to/petsc 
   export PETSC_ARCH=linux-gnu-c-opt
-
-  #Add UFL and FFC to PYTHONPATH if in non-standard location
-  export UFL_DIR=/path/to/ufl 
-  export FFC_DIR=/path/to/ffc 
-  export PYTHONPATH=$UFL_DIR:$FFC_DIR:$PYTHONPATH 
-  # Add any other Python module in non-standard locations
 
   #Add PyOP2 to PYTHONPATH
   export PYTHONPATH=/path/to/PyOP2:$PYTHONPATH
@@ -417,7 +396,4 @@ manner as required.
 .. _PPA: https://launchpad.net/~amcg/+archive/petsc3.4/
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _petsc4py: http://pythonhosted.org/petsc4py/
-.. _FFC: https://bitbucket.org/mapdes/ffc
-.. _FIAT: https://bitbucket.org/mapdes/fiat
-.. _UFL: https://bitbucket.org/mapdes/ufl
 .. _Instant: https://bitbucket.org/fenics-project/instant
