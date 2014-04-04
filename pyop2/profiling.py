@@ -50,13 +50,13 @@ class Timer(object):
     _timers = {}
 
     def __new__(cls, name=None, timer=time):
-        n = name or 'timer' + len(cls._timers)
+        n = name or 'timer' + str(len(cls._timers))
         if n in cls._timers:
             return cls._timers[n]
         return super(Timer, cls).__new__(cls, name, timer)
 
     def __init__(self, name=None, timer=time):
-        n = name or 'timer' + len(self._timers)
+        n = name or 'timer' + str(len(self._timers))
         if n in self._timers:
             return
         self._name = n
