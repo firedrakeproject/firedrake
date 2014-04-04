@@ -747,7 +747,7 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
         bcs = A.bcs
     elif bcs is not None:
         # Override using bcs from solve call
-        A.bcs = bcs
+        A.bcs = _extract_bcs(bcs)
     if bcs is not None:
         # Solving A x = b - action(a, u_bc)
         u_bc = types.Function(b.function_space())
