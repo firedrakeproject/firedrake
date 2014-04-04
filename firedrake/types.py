@@ -5,6 +5,7 @@ import ufl
 import FIAT
 
 from pyop2 import op2
+from pyop2.exceptions import DataTypeError, DataValueError
 from pyop2.utils import flatten, as_tuple
 import pyop2.ir.ast_base as ast
 
@@ -90,8 +91,8 @@ class Constant(ufl.Coefficient):
         try:
             self.dat.data = value
             return self
-        except (op2.DataTypeError, op2.DataValueError) as e:
-            raise RuntimeError(e.strerror)
+        except (DataTypeError, DataValueError) as e:
+            raise ValueError(e)
 
     def __iadd__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")
