@@ -491,6 +491,7 @@ void comp_vol(double A[1], double *x[], double *y[])
                      coords_xtr(op2.READ, xtr_elem_node))
 
         eps = 1.e-5
+        xtr_mat.assemble()
         assert_allclose(sum(sum(xtr_mat.values)), 36.0, eps)
 
         # Assemble the RHS
