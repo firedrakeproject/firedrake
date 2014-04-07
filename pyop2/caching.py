@@ -38,8 +38,38 @@ import gzip
 import os
 
 
-class ObjectCached(object):
+def report_cache(typ):
+    """Report the size of caches of type ``typ``
 
+    :arg typ: A class of cached object.  For example
+    :class:`ObjectCached` or :class:`Cached`.
+
+    """
+    from collections import defaultdict
+    from inspect import getmodule
+    from gc import get_objects
+    typs = defaultdict(lambda: 0)
+    n = 0
+    for x in get_objects():
+        if isinstance(x, (typ, )):
+            typs[type(x)] += 1
+            n += 1
+    if n == 0:
+        print "\nNo %s objects in caches" % typ.__name__
+        return
+    print "\n%d %s objects in caches" % (n, typ.__name__)
+    print "Object breakdown"
+    print "================"
+    for k, v in typs.iteritems():
+        mod = getmodule(k)
+        if mod is not None:
+            name = "%s.%s" % (mod.__name__, k.__name__)
+        else:
+            name = k.__name__
+        print '%s: %d' % (name, v)
+
+
+class ObjectCached(object):
     """Base class for objects that should be cached on another object.
 
     Derived classes need to implement classmethods
