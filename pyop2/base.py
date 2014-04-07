@@ -1028,7 +1028,7 @@ class DataSet(ObjectCached):
         return dat.dataset == self
 
 
-class MixedDataSet(DataSet):
+class MixedDataSet(DataSet, ObjectCached):
     """A container for a bag of :class:`DataSet`\s.
 
     Initialized either from a :class:`MixedSet` and an iterable or iterator of
@@ -1072,6 +1072,13 @@ class MixedDataSet(DataSet):
             When using generator expressions for ``arg`` or ``dims``, these
             **must** terminate or else will cause an infinite loop.
         """
+        if self._initialized:
+            return
+        self._dsets = arg
+        self._initialized = True
+
+    @classmethod
+    def _process_args(cls, arg, dims=None):
         # If the second argument is not None it is expect to be a scalar dim
         # or an iterable of dims and the first is expected to be a MixedSet or
         # an iterable of Sets
@@ -1083,12 +1090,18 @@ class MixedDataSet(DataSet):
             if len(sets) != len(dims):
                 raise ValueError("Got MixedSet of %d Sets but %s dims" %
                                  (len(sets), len(dims)))
-            self._dsets = tuple(s ** d for s, d in zip(sets, dims))
+            dsets = tuple(s ** d for s, d in zip(sets, dims))
         # Otherwise expect the first argument to be an iterable of Sets and/or
         # DataSets and upcast Sets to DataSets as necessary
         else:
             arg = [s if isinstance(s, DataSet) else s ** 1 for s in arg]
-            self._dsets = as_tuple(arg, type=DataSet)
+            dsets = as_tuple(arg, type=DataSet)
+
+        return (dsets[0].set, ) + (dsets, ), {}
+
+    @classmethod
+    def _cache_key(cls, arg, dims=None):
+        return arg
 
     def __getitem__(self, idx):
         """Return :class:`DataSet` with index ``idx`` or a given slice of datasets."""
@@ -1129,20 +1142,6 @@ class MixedDataSet(DataSet):
     def __len__(self):
         """Return number of contained :class:`DataSet`s."""
         return len(self._dsets)
-
-    def __eq__(self, other):
-        """:class:`MixedDataSet`\s are equivalent if all their contained
-        :class:`DataSet`\s are."""
-        try:
-            return self._dsets == other._dsets
-        # Deal with the case of comparing to a different type
-        except AttributeError:
-            return False
-
-    def __ne__(self, other):
-        """:class:`MixedDataSet`\s are equivalent if all their contained
-        :class:`DataSet`\s are."""
-        return not self == other
 
     def __str__(self):
         return "OP2 MixedDataSet composed of DataSets: %s" % (self._dsets,)
