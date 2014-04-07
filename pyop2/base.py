@@ -573,6 +573,8 @@ class Set(object):
         self._extruded = False
         if self.halo:
             self.halo.verify(self)
+        # A cache of objects built on top of this set
+        self._cache = {}
         Set._globalcount += 1
 
     @property
