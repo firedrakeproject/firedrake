@@ -2806,7 +2806,7 @@ class MixedMap(Map, ObjectCached):
         return len(self._maps)
 
     def __le__(self, o):
-        """o<=self if o equals self or its parent equals self."""
+        """self<=o if o equals self or its self._parent==o."""
         return self == o or all(m <= om for m, om in zip(self, o))
 
     def __str__(self):
