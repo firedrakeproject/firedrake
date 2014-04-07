@@ -265,6 +265,10 @@ class MixedFunctionSpace(FunctionSpaceBase):
         pargs = tuple(as_tuple(arg) for arg in args)
         return (mesh, ) + pargs, kwargs
 
+    @classmethod
+    def _cache_key(cls, *args, **kwargs):
+        return args
+
     def split(self):
         """The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
@@ -433,6 +437,10 @@ class IndexedFunctionSpace(FunctionSpaceBase):
     @classmethod
     def _process_args(cls, fs, index, parent, **kwargs):
         return (fs.mesh(), fs, index, parent), kwargs
+
+    @classmethod
+    def _cache_key(cls, *args, **kwargs):
+        return args
 
     def __getattr__(self, name):
         return getattr(self._fs, name)

@@ -38,8 +38,8 @@ def test_extruded_fs_hits_cache():
 
     assert V1 is V2
 
-    assert V1 not in m._fs_cache.values()
-    assert V1 in e._fs_cache.values()
+    assert V1 not in m._cache.values()
+    assert V1 in e._cache.values()
 
 
 def test_extruded_fs_misses_cache():
