@@ -14,6 +14,7 @@ import ufl
 import FIAT
 
 from pyop2 import op2
+from pyop2.caching import ObjectCached
 from pyop2.utils import as_tuple
 
 import utils
@@ -365,7 +366,7 @@ class Mesh(object):
         _init()
 
         # A cache of function spaces that have been built on this mesh
-        self._fs_cache = {}
+        self._cache = {}
         self.parent = None
 
         if dim is None:
@@ -767,7 +768,7 @@ class ExtrudedMesh(Mesh):
     been specified)."""
     def __init__(self, mesh, layers, kernel=None, layer_height=None, extrusion_type='uniform'):
         # A cache of function spaces that have been built on this mesh
-        self._fs_cache = {}
+        self._cache = {}
         if kernel is None and extrusion_type is None:
             raise RuntimeError("Please provide a kernel or a preset extrusion_type ('uniform' or 'radial') for extruding the mesh")
         self._old_mesh = mesh
@@ -974,7 +975,7 @@ class Halo(object):
         return self._gnn2unn
 
 
-class FunctionSpaceBase(object):
+class FunctionSpaceBase(ObjectCached):
     """Base class for :class:`.FunctionSpace`, :class:`.VectorFunctionSpace` and
     :class:`.MixedFunctionSpace`.
 
@@ -983,47 +984,6 @@ class FunctionSpaceBase(object):
         Users should not directly create objects of this class, but one of its
         derived types.
     """
-
-    @classmethod
-    def _process_args(cls, *args, **kwargs):
-        """Process the arguments to __init__ into a canonical form.
-
-        In addition to the processed arguments, this *must* return the
-        mesh the function space is to be built on as the first member
-        of the returned args."""
-        raise RuntimeError("Derived classes of FunctionSpaceBase must implement _process_args")
-
-    @classmethod
-    def _cache_key(cls, *args, **kwargs):
-        """Return a key for caching this function space object.
-
-        Return ``None`` if the object should not be cached."""
-        return tuple(args), tuple([(k, v) for k, v in kwargs.items()])
-
-    def __new__(cls, *args, **kwargs):
-        """Try and find the function space in the cache"""
-        args, kwargs = cls._process_args(*args, **kwargs)
-        # The cache lives on the mesh, so pull that out
-        mesh = args[0]
-        if not isinstance(mesh, Mesh):
-            raise RuntimeError("Expected a mesh to find a cache in")
-        args = args[1:]
-        key = cls._cache_key(*args, **kwargs)
-        try:
-            return mesh._fs_cache[key]
-        except KeyError:
-            obj = super(FunctionSpaceBase, cls).__new__(cls)
-            obj._initialized = False
-            # obj.__init__ will be called twice when constructing
-            # something not in the cache.  The first time here, with
-            # the canonicalised args, the second time directly in the
-            # subclass.  But that one should hit the cache and return
-            # straight away.
-            obj.__init__(*args, **kwargs)
-            # If key is None we're not supposed to store the object in cache
-            if key is not None:
-                mesh._fs_cache[key] = obj
-            return obj
 
     def __init__(self, mesh, element, name=None, dim=1, rank=0):
         """
@@ -1367,7 +1327,11 @@ class FunctionSpaceBase(object):
     def _map_cache(self, cache, entity_set, entity_node_list, map_arity, bcs, name,
                    offset=None, parent=None):
         if bcs is None:
-            lbcs = None
+            # Empty tuple if no bcs found.  This is so that matrix
+            # assembly, which uses a set to keep track of the bcs
+            # applied to matrix hits the cache when that set is
+            # empty.  tuple(set([])) == tuple().
+            lbcs = tuple()
         else:
             if not all(bc.function_space() == self for bc in bcs):
               raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
