@@ -2639,18 +2639,6 @@ class Map(object):
         return "Map(%r, %r, %r, None, %r)" \
                % (self._iterset, self._toset, self._arity, self._name)
 
-    def __eq__(self, o):
-        """:class:`Map`\s compare equal if defined on the same ``iterset``,
-        ``toset`` and have the same ``arity`` and ``data``."""
-        try:
-            return (self._iterset == o._iterset and self._toset == o._toset and
-                    self._arity == o.arity and np.array_equal(self._values, o._values))
-        except AttributeError:
-            return False
-
-    def __ne__(self, o):
-        return not self == o
-
     def __le__(self, o):
         """o<=self if o equals self or its parent equals self."""
         return self == o or (isinstance(self._parent, Map) and self._parent <= o)
