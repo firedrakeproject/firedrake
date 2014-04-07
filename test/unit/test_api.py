@@ -650,11 +650,6 @@ class TestDataSetAPI:
     DataSet API unit tests
     """
 
-    def test_dset_illegal_set(self, backend):
-        "DataSet set should be Set."
-        with pytest.raises(exceptions.SetTypeError):
-            op2.DataSet('illegalset', 1)
-
     def test_dset_illegal_dim(self, backend, iterset):
         "DataSet dim should be int or int tuple."
         with pytest.raises(TypeError):

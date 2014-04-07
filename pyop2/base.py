@@ -944,7 +944,7 @@ class MixedSet(Set, ObjectCached):
         return "MixedSet(%r)" % (self._sets,)
 
 
-class DataSet(object):
+class DataSet(ObjectCached):
     """PyOP2 Data Set
 
     Set used in the op2.Dat structures to specify the dimension of the data.
@@ -955,6 +955,8 @@ class DataSet(object):
                    ('dim', (int, tuple, list), DimTypeError),
                    ('name', str, NameTypeError))
     def __init__(self, iter_set, dim=1, name=None):
+        if self._initialized:
+            return
         if isinstance(iter_set, Subset):
             raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
         self._set = iter_set
@@ -962,6 +964,15 @@ class DataSet(object):
         self._cdim = np.asscalar(np.prod(self._dim))
         self._name = name or "dset_%d" % DataSet._globalcount
         DataSet._globalcount += 1
+        self._initialized = True
+
+    @classmethod
+    def _process_args(cls, *args, **kwargs):
+        return (args[0], ) + args, kwargs
+
+    @classmethod
+    def _cache_key(cls, iter_set, dim=1, name=None):
+        return (iter_set, as_tuple(dim, int))
 
     def __getstate__(self):
         """Extract state to pickle."""
@@ -996,16 +1007,6 @@ class DataSet(object):
     def set(self):
         """Returns the parent set of the data set."""
         return self._set
-
-    def __eq__(self, other):
-        """:class:`DataSet`\s compare equal if they are defined on the same
-        :class:`Set` and have the same ``dim``."""
-        return self.set == other.set and self.dim == other.dim
-
-    def __ne__(self, other):
-        """:class:`DataSet`\s compare equal if they are defined on the same
-        :class:`Set` and have the same ``dim``."""
-        return not self == other
 
     def __iter__(self):
         """Yield self when iterated over."""
