@@ -2695,6 +2695,14 @@ class SparsityMap(Map, ObjectCached):
 
     def __str__(self):
         return "OP2 SparsityMap on %s with region %s" % (self._map, self._iteration_region)
+
+    def __le__(self, other):
+        """self<=other if the iteration regions of self and other match and self._map<=other"""
+        if isinstance(other, SparsityMap):
+            return self.iteration_region == other.iteration_region and self._map <= other._map
+        else:
+            return self.iteration_region == other.iteration_region and self._map <= other
+
     def __getattr__(self, name):
         return getattr(self._map, name)
 
