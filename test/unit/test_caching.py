@@ -110,6 +110,210 @@ def iter2ind2(iterset, indset):
     return op2.Map(iterset, indset, 2, u_map, "iter2ind2")
 
 
+class TestObjectCaching:
+
+    @pytest.fixture(scope='class')
+    def base_set(self):
+        return op2.Set(1)
+
+    @pytest.fixture(scope='class')
+    def base_set2(self):
+        return op2.Set(1)
+
+    @pytest.fixture(scope='class')
+    def base_map(self, base_set):
+        return op2.Map(base_set, base_set, 1, [0])
+
+    @pytest.fixture(scope='class')
+    def base_map2(self, base_set, base_set2):
+        return op2.Map(base_set, base_set2, 1, [0])
+
+    @pytest.fixture(scope='class')
+    def base_map3(self, base_set):
+        return op2.Map(base_set, base_set, 1, [0])
+
+    def test_set_identity(self, backend, base_set, base_set2):
+        assert base_set is base_set
+        assert base_set is not base_set2
+        assert base_set != base_set2
+        assert not base_set == base_set2
+
+    def test_map_identity(self, backend, base_map, base_map2):
+        assert base_map is base_map
+        assert base_map is not base_map2
+        assert base_map != base_map2
+        assert not base_map == base_map2
+
+    def test_dataset_cache_hit(self, backend, base_set):
+        d1 = base_set ** 2
+        d2 = base_set ** 2
+
+        assert d1 is d2
+        assert d1 == d2
+        assert not d1 != d2
+
+    def test_dataset_cache_miss(self, backend, base_set, base_set2):
+        d1 = base_set ** 1
+        d2 = base_set ** 2
+
+        assert d1 is not d2
+        assert d1 != d2
+        assert not d1 == d2
+
+        d3 = base_set2 ** 1
+        assert d1 is not d3
+        assert d1 != d3
+        assert not d1 == d3
+
+    def test_mixedset_cache_hit(self, backend, base_set):
+        ms = op2.MixedSet([base_set, base_set])
+        ms2 = op2.MixedSet([base_set, base_set])
+
+        assert ms is ms2
+        assert not ms != ms2
+        assert ms == ms2
+
+    def test_mixedset_cache_miss(self, backend, base_set, base_set2):
+        ms = op2.MixedSet([base_set, base_set2])
+        ms2 = op2.MixedSet([base_set2, base_set])
+
+        assert ms is not ms2
+        assert ms != ms2
+        assert not ms == ms2
+
+        ms3 = op2.MixedSet([base_set, base_set2])
+        assert ms is ms3
+        assert not ms != ms3
+        assert ms == ms3
+
+    def test_sparsitymap_cache_hit(self, backend, base_map):
+        sm = op2.SparsityMap(base_map, [op2.ALL])
+
+        sm2 = op2.SparsityMap(base_map, [op2.ALL])
+
+        assert sm is sm2
+        assert not sm != sm2
+        assert sm == sm2
+
+    def test_sparsitymap_cache_miss(self, backend, base_map, base_map2):
+        sm = op2.SparsityMap(base_map, [op2.ALL])
+        sm2 = op2.SparsityMap(base_map2, [op2.ALL])
+
+        assert sm is not sm2
+        assert sm != sm2
+        assert not sm == sm2
+
+        sm3 = op2.SparsityMap(base_map, [op2.ON_BOTTOM])
+        assert sm is not sm3
+        assert sm != sm3
+        assert not sm == sm3
+
+        assert sm2 is not sm3
+        assert sm2 != sm3
+        assert not sm2 == sm3
+
+    def test_sparsitymap_le(self, backend, base_map):
+        sm = op2.SparsityMap(base_map, [op2.ALL])
+
+        assert base_map <= sm
+        assert sm <= base_map
+
+        sm2 = op2.SparsityMap(base_map, [op2.ON_BOTTOM])
+
+        assert not base_map <= sm2
+        assert not sm2 <= base_map
+
+    def test_mixedmap_cache_hit(self, backend, base_map, base_map2):
+        mm = op2.MixedMap([base_map, base_map2])
+        mm2 = op2.MixedMap([base_map, base_map2])
+
+        assert mm is mm2
+        assert not mm != mm2
+        assert mm == mm2
+
+    def test_mixedmap_cache_miss(self, backend, base_map, base_map2):
+        ms = op2.MixedMap([base_map, base_map2])
+        ms2 = op2.MixedMap([base_map2, base_map])
+
+        assert ms is not ms2
+        assert ms != ms2
+        assert not ms == ms2
+
+        ms3 = op2.MixedMap([base_map, base_map2])
+        assert ms is ms3
+        assert not ms != ms3
+        assert ms == ms3
+
+    def test_mixeddataset_cache_hit(self, backend, base_set, base_set2):
+        mds = op2.MixedDataSet([base_set, base_set2])
+        mds2 = op2.MixedDataSet([base_set, base_set2])
+
+        assert mds is mds2
+        assert not mds != mds2
+        assert mds == mds2
+
+    def test_mixeddataset_cache_miss(self, backend, base_set, base_set2):
+        mds = op2.MixedDataSet([base_set, base_set2])
+        mds2 = op2.MixedDataSet([base_set2, base_set])
+        mds3 = op2.MixedDataSet([base_set, base_set])
+
+        assert mds is not mds2
+        assert mds != mds2
+        assert not mds == mds2
+
+        assert mds is not mds3
+        assert mds != mds3
+        assert not mds == mds3
+
+        assert mds2 is not mds3
+        assert mds2 != mds3
+        assert not mds2 == mds3
+
+    def test_sparsity_cache_hit(self, backend, base_set, base_map):
+        dsets = (base_set, base_set)
+        maps = (base_map, base_map)
+        sp = op2.Sparsity(dsets, maps)
+        sp2 = op2.Sparsity(dsets, maps)
+
+        assert sp is sp2
+        assert not sp != sp2
+        assert sp == sp2
+
+        dsets = op2.MixedSet([base_set, base_set])
+
+        maps = op2.MixedMap([base_map, base_map])
+        sp = op2.Sparsity(dsets, maps)
+
+        dsets2 = op2.MixedSet([base_set, base_set])
+        maps2 = op2.MixedMap([base_map, base_map])
+        sp2 = op2.Sparsity(dsets2, maps2)
+        assert sp is sp2
+        assert not sp != sp2
+        assert sp == sp2
+
+    def test_sparsity_cache_miss(self, backend, base_set, base_set2,
+                                 base_map, base_map2):
+        dsets = (base_set, base_set)
+        maps = (base_map, base_map)
+        sp = op2.Sparsity(dsets, maps)
+
+        dsets2 = op2.MixedSet([base_set, base_set])
+        maps2 = op2.MixedMap([base_map, base_map])
+        maps2 = op2.SparsityMap(maps2, [op2.ALL])
+        sp2 = op2.Sparsity(dsets2, maps2)
+        assert sp is not sp2
+        assert sp != sp2
+        assert not sp == sp2
+
+        dsets2 = (base_set, base_set2)
+        maps2 = (base_map, base_map2)
+
+        sp2 = op2.Sparsity(dsets2, maps2)
+        assert sp is not sp2
+        assert sp != sp2
+        assert not sp == sp2
+
+
 class TestPlanCache:
 
     """

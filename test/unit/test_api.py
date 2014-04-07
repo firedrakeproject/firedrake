@@ -650,11 +650,6 @@ class TestDataSetAPI:
     DataSet API unit tests
     """
 
-    def test_dset_illegal_set(self, backend):
-        "DataSet set should be Set."
-        with pytest.raises(exceptions.SetTypeError):
-            op2.DataSet('illegalset', 1)
-
     def test_dset_illegal_dim(self, backend, iterset):
         "DataSet dim should be int or int tuple."
         with pytest.raises(TypeError):
@@ -1806,12 +1801,12 @@ class TestMapAPI:
             m_iterset_toset[:]
 
     def test_map_eq(self, backend, m_iterset_toset):
-        """Maps should compare equal if defined on the identical iterset and
-        toset and having the same arity and mapping values."""
+        """Map equality is identity."""
         mcopy = op2.Map(m_iterset_toset.iterset, m_iterset_toset.toset,
                         m_iterset_toset.arity, m_iterset_toset.values)
-        assert m_iterset_toset == mcopy
-        assert not m_iterset_toset != mcopy
+        assert m_iterset_toset != mcopy
+        assert not m_iterset_toset == mcopy
+        assert mcopy == mcopy
 
     def test_map_ne_iterset(self, backend, m_iterset_toset):
         """Maps that have copied but not equal iteration sets are not equal."""

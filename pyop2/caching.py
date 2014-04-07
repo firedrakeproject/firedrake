@@ -38,6 +38,121 @@ import gzip
 import os
 
 
+def report_cache(typ):
+    """Report the size of caches of type ``typ``
+
+    :arg typ: A class of cached object.  For example
+    :class:`ObjectCached` or :class:`Cached`.
+
+    """
+    from collections import defaultdict
+    from inspect import getmodule
+    from gc import get_objects
+    typs = defaultdict(lambda: 0)
+    n = 0
+    for x in get_objects():
+        if isinstance(x, (typ, )):
+            typs[type(x)] += 1
+            n += 1
+    if n == 0:
+        print "\nNo %s objects in caches" % typ.__name__
+        return
+    print "\n%d %s objects in caches" % (n, typ.__name__)
+    print "Object breakdown"
+    print "================"
+    for k, v in typs.iteritems():
+        mod = getmodule(k)
+        if mod is not None:
+            name = "%s.%s" % (mod.__name__, k.__name__)
+        else:
+            name = k.__name__
+        print '%s: %d' % (name, v)
+
+
+class ObjectCached(object):
+    """Base class for objects that should be cached on another object.
+
+    Derived classes need to implement classmethods
+    :meth:`_process_args` and :meth:`_cache_key` (which see for more
+    details).  The object on which the cache is stored should contain
+    a dict in its ``_cache`` attribute.
+
+    .. warning ::
+
+       This kind of cache sets up a circular reference.  If either of
+       the objects implements ``__del__``, the Python garbage
+       collector will not be able to collect this cycle, and hence
+       the cache will never be evicted.
+
+    .. warning::
+
+        The derived class' :meth:`__init__` is still called if the
+        object is retrieved from cache. If that is not desired,
+        derived classes can set a flag indicating whether the
+        constructor has already been called and immediately return
+        from :meth:`__init__` if the flag is set. Otherwise the object
+        will be re-initialized even if it was returned from cache!
+
+    """
+
+    @classmethod
+    def _process_args(cls, *args, **kwargs):
+        """Process the arguments to ``__init__`` into a form suitable
+        for computing a cache key on.
+
+        The first returned argument is popped off the argument list
+        passed to ``__init__`` and is used as the object on which to
+        cache this instance.  As such, *args* should be returned as a
+        two-tuple of ``(cache_object, ) + (original_args, )``.
+
+        *kwargs* must be a (possibly empty) dict.
+        """
+        raise NotImplementedError("Subclass must implement _process_args")
+
+    @classmethod
+    def _cache_key(cls, *args, **kwargs):
+        """Compute a cache key from the constructor's preprocessed arguments.
+        If ``None`` is returned, the object is not to be cached.
+
+        .. note::
+
+           The return type **must** be hashable.
+
+        """
+        raise NotImplementedError("Subclass must implement _cache_key")
+
+    def __new__(cls, *args, **kwargs):
+        args, kwargs = cls._process_args(*args, **kwargs)
+        # First argument is the object we're going to cache on
+        cache_obj = args[0]
+        # These are now the arguments to the subclass constructor
+        args = args[1:]
+        key = cls._cache_key(*args, **kwargs)
+
+        # Does the caching object know about the caches?
+        try:
+            cache = cache_obj._cache
+        except AttributeError:
+            raise RuntimeError("Provided caching object does not have a '_cache' attribute.")
+
+        # OK, we have a cache, let's go ahead and try and find our
+        # object in it.
+        try:
+            return cache[key]
+        except KeyError:
+            obj = super(ObjectCached, cls).__new__(cls)
+            obj._initialized = False
+            # obj.__init__ will be called twice when constructing
+            # something not in the cache.  The first time here, with
+            # the canonicalised args, the second time directly in the
+            # subclass.  But that one should hit the cache and return
+            # straight away.
+            obj.__init__(*args, **kwargs)
+            if key is not None:
+                cache[key] = obj
+            return obj
+
+
 class Cached(object):
 
     """Base class providing global caching of objects. Derived classes need to

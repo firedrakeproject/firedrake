@@ -117,6 +117,11 @@ def init(**kwargs):
 @collective
 def exit():
     """Exit OP2 and clean up"""
+    if configuration['print_cache_size']:
+        from caching import report_cache, Cached, ObjectCached
+        print '**** PyOP2 cache sizes at exit ****'
+        report_cache(typ=ObjectCached)
+        report_cache(typ=Cached)
     configuration.reset()
 
     if backends.get_backend() != 'pyop2.void':

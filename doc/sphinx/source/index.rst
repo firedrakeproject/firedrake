@@ -21,6 +21,7 @@ Contents:
    plan
    mixed
    mpi
+   caching
    user
    pyop2
 
