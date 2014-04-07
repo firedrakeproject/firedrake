@@ -2816,7 +2816,7 @@ class MixedMap(Map, ObjectCached):
         return "MixedMap(%r)" % (self._maps,)
 
 
-class Sparsity(Cached):
+class Sparsity(ObjectCached):
 
     """OP2 Sparsity, the non-zero structure a matrix derived from the union of
     the outer product of pairs of :class:`Map` objects.
@@ -2888,8 +2888,13 @@ class Sparsity(Cached):
         if not all(m.toset == cmaps[0].toset for m in cmaps):
             raise RuntimeError("To set of all column maps must be the same")
 
-        # Need to return a list of args and dict of kwargs (empty in this case)
-        return [tuple(dsets), tuple(sorted(uniquify(maps))), name], {}
+        # Need to return the caching object, a tuple of the processed
+        # arguments and a dict of kwargs (empty in this case)
+        if isinstance(dsets[0].set, MixedSet):
+            cache = dsets[0].set[0]
+        else:
+            cache = dsets[0].set
+        return (cache, ) + (tuple(dsets), tuple(sorted(uniquify(maps))), name), {}
 
     @classmethod
     def _cache_key(cls, dsets, maps, *args, **kwargs):
