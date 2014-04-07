@@ -224,9 +224,10 @@ class NonlinearVariationalSolver(object):
     def __del__(self):
         # Remove stuff from the options database
         # It's fixed size, so if we don't it gets too big.
-        opts = PETSc.Options(self._opt_prefix)
-        for k in self.parameters.iterkeys():
-            del opts[k]
+        if hasattr(self, '_opt_prefix'):
+            opts = PETSc.Options(self._opt_prefix)
+            for k in self.parameters.iterkeys():
+                del opts[k]
 
     def destroy(self):
         """Destroy the SNES object inside the solver.
