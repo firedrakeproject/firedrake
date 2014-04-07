@@ -2690,6 +2690,11 @@ class SparsityMap(Map, ObjectCached):
     def _cache_key(cls, map, iteration_region):
         return (map, iteration_region)
 
+    def __repr__(self):
+        return "SparsityMap(%r, %r)" % (self._map, self._iteration_region)
+
+    def __str__(self):
+        return "OP2 SparsityMap on %s with region %s" % (self._map, self._iteration_region)
     def __getattr__(self, name):
         return getattr(self._map, name)
 
