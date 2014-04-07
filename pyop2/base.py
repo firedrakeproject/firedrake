@@ -3425,7 +3425,8 @@ class Kernel(Cached):
 
     @classmethod
     @validate_type(('name', str, NameTypeError))
-    def _cache_key(cls, code, name, opts={}, include_dirs=[], headers=[]):
+    def _cache_key(cls, code, name, opts={}, include_dirs=[], headers=[],
+                   user_code=""):
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
         # Also include the PyOP2 version, since the Kernel class might change
@@ -3440,7 +3441,8 @@ class Kernel(Cached):
             return ast.gencode()
         return ast
 
-    def __init__(self, code, name, opts={}, include_dirs=[], headers=[]):
+    def __init__(self, code, name, opts={}, include_dirs=[], headers=[],
+                 user_code=""):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
@@ -3451,6 +3453,7 @@ class Kernel(Cached):
         self._opt_is_padded = opts.get('ap', False)
         self._include_dirs = include_dirs
         self._headers = headers
+        self._user_code = user_code
         self._initialized = True
 
     @property

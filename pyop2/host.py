@@ -900,6 +900,7 @@ class JITModule(base.JITModule):
                 'ssinds_arg': _ssinds_arg,
                 'index_expr': _index_expr,
                 'wrapper_args': _wrapper_args,
+                'user_code': self._kernel._user_code,
                 'wrapper_decs': indent(_wrapper_decs, 1),
                 'const_args': _const_args,
                 'const_inits': indent(_const_inits, 1),

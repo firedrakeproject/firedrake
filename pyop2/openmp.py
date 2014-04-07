@@ -149,7 +149,7 @@ void %(wrapper_name)s(int boffset,
                       %(const_args)s
                       %(off_args)s
                       %(layer_arg)s) {
-
+  %(user_code)s
   %(wrapper_decs)s;
   %(const_inits)s;
   #pragma omp parallel shared(boffset, nblocks, nelems, blkmap)
