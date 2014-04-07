@@ -2712,15 +2712,28 @@ class SparsityMap(Map, ObjectCached):
         return self._iteration_region
 
 
-class MixedMap(Map):
+class MixedMap(Map, ObjectCached):
     """A container for a bag of :class:`Map`\s."""
 
     def __init__(self, maps):
         """:param iterable maps: Iterable of :class:`Map`\s"""
-        self._maps = as_tuple(maps, type=Map)
+        if self._initialized:
+            return
+        self._maps = maps
         # Make sure all itersets are identical
         if not all(m.iterset == self._maps[0].iterset for m in self._maps):
             raise MapTypeError("All maps in a MixedMap need to share the same iterset")
+        self._initialized = True
+
+    @classmethod
+    def _process_args(cls, *args, **kwargs):
+        maps = as_tuple(args[0], type=Map)
+        cache = maps[0]
+        return (cache, ) + (maps, ), kwargs
+
+    @classmethod
+    def _cache_key(cls, maps):
+        return maps
 
     @property
     def split(self):
@@ -2791,20 +2804,6 @@ class MixedMap(Map):
     def __len__(self):
         """Number of contained :class:`Map`\s."""
         return len(self._maps)
-
-    def __eq__(self, other):
-        """:class:`MixedMap`\s are equal if all their contained :class:`Map`\s
-        are."""
-        try:
-            return self._maps == other._maps
-        # Deal with the case of comparing to a different type
-        except AttributeError:
-            return False
-
-    def __ne__(self, other):
-        """:class:`MixedMap`\s are equal if all their contained :class:`Map`\s
-        are."""
-        return not self == other
 
     def __le__(self, o):
         """o<=self if o equals self or its parent equals self."""
