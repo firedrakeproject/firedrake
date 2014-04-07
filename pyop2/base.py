@@ -2640,7 +2640,9 @@ class Map(object):
                % (self._iterset, self._toset, self._arity, self._name)
 
     def __le__(self, o):
-        """o<=self if o equals self or its parent equals self."""
+        """self<=o if o equals self or self._parent <= o."""
+        if isinstance(o, SparsityMap):
+            return self.iteration_region == o.iteration_region and self <= o._map
         return self == o or (isinstance(self._parent, Map) and self._parent <= o)
 
     @classmethod
