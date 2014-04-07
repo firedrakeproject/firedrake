@@ -2516,6 +2516,8 @@ class Map(object):
         # where a boundary condition is imposed by setting some map
         # entries negative.
         self._parent = parent
+        # A cache for objects built on top of this map
+        self._cache = {}
         # Which indices in the extruded map should be masked out for
         # the application of strong boundary conditions
         self._bottom_mask = np.zeros(len(offset)) if offset is not None else []
