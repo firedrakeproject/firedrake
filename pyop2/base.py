@@ -2560,7 +2560,7 @@ class Map(object):
         """Return the iteration region for the current map. For a normal map it
         will always be ALL. For a class `SparsityMap` it will specify over which mesh
         region the iteration will take place."""
-        return [ALL]
+        return (ALL, )
 
     @property
     def iterset(self):
