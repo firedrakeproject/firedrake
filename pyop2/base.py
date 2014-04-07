@@ -2656,7 +2656,7 @@ class Map(object):
         return cls(iterset, toset, arity[0], values, name)
 
 
-class SparsityMap(Map):
+class SparsityMap(Map, ObjectCached):
     """Augmented type for a map used in the case of building the sparsity
     for horizontal facets.
 
@@ -2674,8 +2674,21 @@ class SparsityMap(Map):
         return super(SparsityMap, cls).__new__(cls, map, iteration_region)
 
     def __init__(self, map, iteration_region):
+        if self._initialized:
+            return
         self._map = map
         self._iteration_region = iteration_region
+        self._initialized = True
+
+    @classmethod
+    def _process_args(cls, *args, **kwargs):
+        m, ir = args
+        ir = as_tuple(ir, IterationRegion)
+        return (m, ) + (m, ir), kwargs
+
+    @classmethod
+    def _cache_key(cls, map, iteration_region):
+        return (map, iteration_region)
 
     def __getattr__(self, name):
         return getattr(self._map, name)
