@@ -2563,7 +2563,7 @@ class Map(object):
         """Return the iteration region for the current map. For a normal map it
         will always be ALL. For a class `SparsityMap` it will specify over which mesh
         region the iteration will take place."""
-        return (ALL, )
+        return frozenset([ALL])
 
     @property
     def iterset(self):
@@ -2642,7 +2642,9 @@ class Map(object):
     def __le__(self, o):
         """self<=o if o equals self or self._parent <= o."""
         if isinstance(o, SparsityMap):
-            return self.iteration_region == o.iteration_region and self <= o._map
+            # The iteration region of self must be a subset of the
+            # iteration region of the sparsitymap.
+            return len(self.iteration_region - o.iteration_region) == 0 and self <= o._map
         return self == o or (isinstance(self._parent, Map) and self._parent <= o)
 
     @classmethod
@@ -2677,7 +2679,7 @@ class SparsityMap(Map, ObjectCached):
         if self._initialized:
             return
         self._map = map
-        self._iteration_region = iteration_region
+        self._iteration_region = frozenset(iteration_region)
         self._initialized = True
 
     @classmethod
@@ -2697,11 +2699,12 @@ class SparsityMap(Map, ObjectCached):
         return "OP2 SparsityMap on %s with region %s" % (self._map, self._iteration_region)
 
     def __le__(self, other):
-        """self<=other if the iteration regions of self and other match and self._map<=other"""
+        """self<=other if the iteration regions of self are a subset of the
+        iteration regions of other and self._map<=other"""
         if isinstance(other, SparsityMap):
-            return self.iteration_region == other.iteration_region and self._map <= other._map
+            return len(self.iteration_region - other.iteration_region) == 0 and self._map <= other._map
         else:
-            return self.iteration_region == other.iteration_region and self._map <= other
+            return len(self.iteration_region - other.iteration_region) == 0 and self._map <= other
 
     def __getattr__(self, name):
         return getattr(self._map, name)
