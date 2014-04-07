@@ -17,6 +17,17 @@ def test_scalar_constant_assign():
         assert abs(assemble(c*m._dx) - 4.0) < 1e-10
 
 
+@pytest.mark.parametrize(('init', 'new_vals'),
+                         ((1, ([1, 1], "x", [[1, 1], [1, 1]])),
+                          ([1, 1], ([1, "x"], "x", 1, [[1, 1], [1, 1]])),
+                          ([[1], [1]], ([1, "x"], "x", 1, [[1, 1], [1, 1]]))))
+def test_constant_assign_mismatch(init, new_vals):
+    c = Constant(init)
+    for v in new_vals:
+        with pytest.raises(ValueError):
+            c.assign(v)
+
+
 def test_vector_constant_2d():
     m = UnitSquareMesh(1, 1)
     n = FacetNormal(m)
@@ -30,9 +41,19 @@ def test_vector_constant_2d():
     # `---'
     # Normal is in (1, 1) direction
     assert abs(assemble(dot(c('+'), n('+'))*dS)) < 1e-10
+    assert abs(assemble(dot(c('-'), n('+'))*dS)) < 1e-10
+
+    # Normal is in (-1, -1) direction
+    assert abs(assemble(dot(c('+'), n('-'))*dS)) < 1e-10
+    assert abs(assemble(dot(c('-'), n('-'))*dS)) < 1e-10
 
     c.assign([1, 1])
     assert abs(assemble(dot(c('+'), n('+'))*dS) - 2) < 1e-10
+    assert abs(assemble(dot(c('-'), n('+'))*dS) - 2) < 1e-10
+
+    # Normal is in (-1, -1) direction
+    assert abs(assemble(dot(c('+'), n('-'))*dS) + 2) < 1e-10
+    assert abs(assemble(dot(c('-'), n('-'))*dS) + 2) < 1e-10
 
 
 def test_constant_scalar_assign_distributes():
