@@ -42,7 +42,7 @@ import operator
 from hashlib import md5
 
 from configuration import configuration
-from caching import Cached
+from caching import Cached, ObjectCached
 from versioning import Versioned, modifies, CopyOnWrite, shallow_copy
 from exceptions import *
 from utils import *
@@ -844,18 +844,31 @@ class SetPartition(object):
         self.size = size
 
 
-class MixedSet(Set):
+class MixedSet(Set, ObjectCached):
     """A container for a bag of :class:`Set`\s."""
 
     def __init__(self, sets):
         """:param iterable sets: Iterable of :class:`Set`\s or :class:`ExtrudedSet`\s"""
-        sets = [s for s in sets]
-        try:
-            self._sets = as_tuple(sets, ExtrudedSet)
-        except TypeError:
-            self._sets = as_tuple(sets, Set)
+        if self._initialized:
+            return
+        self._sets = sets
         assert all(s.layers == self._sets[0].layers for s in sets), \
             "All components of a MixedSet must have the same number of layers."
+        self._initialized = True
+
+    @classmethod
+    def _process_args(cls, sets, **kwargs):
+        sets = [s for s in sets]
+        try:
+            sets = as_tuple(sets, ExtrudedSet)
+        except TypeError:
+            sets = as_tuple(sets, Set)
+        cache = sets[0]
+        return (cache, ) + (sets, ), kwargs
+
+    @classmethod
+    def _cache_key(cls, sets, **kwargs):
+        return sets
 
     def __getitem__(self, idx):
         """Return :class:`Set` with index ``idx`` or a given slice of sets."""
@@ -923,20 +936,6 @@ class MixedSet(Set):
     def __pow__(self, e):
         """Derive a :class:`MixedDataSet` with dimensions ``e``"""
         return MixedDataSet(self._sets, e)
-
-    def __eq__(self, other):
-        """:class:`MixedSet`\s are equivalent if all their contained
-        :class:`Set`\s are and the order is the same."""
-        try:
-            return self._sets == other._sets
-        # Deal with the case of comparing to a different type
-        except AttributeError:
-            return False
-
-    def __ne__(self, other):
-        """:class:`MixedSet`\s are equivalent if all their contained
-        :class:`Set`\s are."""
-        return not self == other
 
     def __str__(self):
         return "OP2 MixedSet composed of Sets: %s" % (self._sets,)
