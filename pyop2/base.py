@@ -3425,12 +3425,12 @@ class Kernel(Cached):
 
     @classmethod
     @validate_type(('name', str, NameTypeError))
-    def _cache_key(cls, code, name, opts={}, include_dirs=[]):
+    def _cache_key(cls, code, name, opts={}, include_dirs=[], headers=[]):
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
         # Also include the PyOP2 version, since the Kernel class might change
         return md5(str(hash(code)) + name + str(opts) + str(include_dirs) +
-                   version).hexdigest()
+                   str(headers) + version).hexdigest()
 
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
@@ -3440,7 +3440,7 @@ class Kernel(Cached):
             return ast.gencode()
         return ast
 
-    def __init__(self, code, name, opts={}, include_dirs=[]):
+    def __init__(self, code, name, opts={}, include_dirs=[], headers=[]):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
@@ -3450,6 +3450,7 @@ class Kernel(Cached):
         # Record used optimisations
         self._opt_is_padded = opts.get('ap', False)
         self._include_dirs = include_dirs
+        self._headers = headers
         self._initialized = True
 
     @property

@@ -585,7 +585,6 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 class JITModule(base.JITModule):
 
     _cppargs = []
-    _system_headers = []
     _libraries = []
 
     def __init__(self, kernel, itspace, *args, **kwargs):
@@ -674,7 +673,7 @@ class JITModule(base.JITModule):
         %(wrapper)s
         """ % {'consts': _const_decs, 'kernel': kernel_code,
                'wrapper': code_to_compile,
-               'sys_headers': '\n'.join(self._system_headers)}
+               'sys_headers': '\n'.join(self._kernel._headers)}
 
         self._dump_generated_code(code_to_compile)
         if configuration["debug"]:
