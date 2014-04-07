@@ -168,7 +168,7 @@ class LoopVectoriser(object):
         """Find inner loops in the subtree rooted in node."""
 
         def find_iloops(node, loops):
-            if perf_stmt(node):
+            if isinstance(node, Perfect):
                 return False
             elif isinstance(node, Block):
                 return any([find_iloops(s, loops) for s in node.children])

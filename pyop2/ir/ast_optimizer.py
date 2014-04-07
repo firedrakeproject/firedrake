@@ -118,14 +118,14 @@ class LoopOptimiser(object):
             elif isinstance(node, Symbol):
                 symbols.add(node)
                 return (fors, decls, symbols)
-            elif isinstance(node, BinExpr):
-                inspect(node.children[0], node, fors, decls, symbols)
-                inspect(node.children[1], node, fors, decls, symbols)
+            elif isinstance(node, Expr):
+                for child in node.children:
+                    inspect(child, node, fors, decls, symbols)
                 return (fors, decls, symbols)
-            elif perf_stmt(node):
+            elif isinstance(node, Perfect):
                 check_opts(node, parent, fors)
-                inspect(node.children[0], node, fors, decls, symbols)
-                inspect(node.children[1], node, fors, decls, symbols)
+                for child in node.children:
+                    inspect(child, node, fors, decls, symbols)
                 return (fors, decls, symbols)
             else:
                 return (fors, decls, symbols)

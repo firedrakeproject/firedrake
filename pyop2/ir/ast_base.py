@@ -55,6 +55,12 @@ as_symbol = lambda s: s if isinstance(s, Node) else Symbol(s)
 # Base classes of the AST ###
 
 
+class Perfect(object):
+    """Dummy mixin class used to decorate classes which can form part
+    of a perfect loop nest."""
+    pass
+
+
 class Node(object):
 
     """The base class of the AST."""
@@ -172,12 +178,12 @@ class Less(BinExpr):
         super(Less, self).__init__(expr1, expr2, "<")
 
 
-class FunCall(Expr):
+class FunCall(Expr, Perfect):
 
     """Function call. """
 
     def __init__(self, function_name, *args):
-        super(BinExpr, self).__init__(args)
+        super(Expr, self).__init__(args)
         self.funcall = as_symbol(function_name)
 
     def gencode(self, scope=False):
@@ -304,7 +310,7 @@ class Statement(Node):
         self.pragma = pragma
 
 
-class EmptyStatement(Statement):
+class EmptyStatement(Statement, Perfect):
 
     """Empty statement."""
 
@@ -323,7 +329,7 @@ class FlatBlock(Statement):
         return self.children[0]
 
 
-class Assign(Statement):
+class Assign(Statement, Perfect):
 
     """Assign an expression to a symbol."""
 
@@ -335,7 +341,7 @@ class Assign(Statement):
                       self.children[1].gencode()) + semicolon(scope)
 
 
-class Incr(Statement):
+class Incr(Statement, Perfect):
 
     """Increment a symbol by an expression."""
 
@@ -350,7 +356,7 @@ class Incr(Statement):
             return incr(sym.gencode(), exp.gencode()) + semicolon(scope)
 
 
-class Decr(Statement):
+class Decr(Statement, Perfect):
 
     """Decrement a symbol by an expression."""
     def __init__(self, sym, exp, pragma=None):
@@ -364,7 +370,7 @@ class Decr(Statement):
             return decr(sym.gencode(), exp.gencode()) + semicolon(scope)
 
 
-class IMul(Statement):
+class IMul(Statement, Perfect):
 
     """In-place multiplication of a symbol by an expression."""
     def __init__(self, sym, exp, pragma=None):
@@ -375,7 +381,7 @@ class IMul(Statement):
         return imul(sym.gencode(), exp.gencode()) + semicolon(scope)
 
 
-class IDiv(Statement):
+class IDiv(Statement, Perfect):
 
     """In-place division of a symbol by an expression."""
     def __init__(self, sym, exp, pragma=None):
@@ -386,7 +392,7 @@ class IDiv(Statement):
         return idiv(sym.gencode(), exp.gencode()) + semicolon(scope)
 
 
-class Decl(Statement):
+class Decl(Statement, Perfect):
 
     """Declaration of a symbol.
 
@@ -631,8 +637,3 @@ def c_flat_for(code, parent):
     parent.children.append(FlatBlock(code))
     parent.children.append(new_block)
     return new_block
-
-
-def perf_stmt(node):
-    """Checks if the node is allowed to be in the perfect nest."""
-    return isinstance(node, (Assign, Incr, FunCall, Decl, EmptyStatement))
