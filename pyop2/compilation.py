@@ -203,3 +203,37 @@ def load(src, fn_name, cppargs=[], ldargs=[], argtypes=None, restype=None):
     fn.argtypes = argtypes
     fn.restype = restype
     return fn
+
+
+def clear_cache(prompt=False):
+    """Clear the PyOP2 compiler cache.
+
+    :arg prompt: if ``True`` prompt before removing any files
+    """
+    cachedir = configuration['cache_dir']
+
+    files = [os.path.join(cachedir, f) for f in os.listdir(cachedir)
+             if os.path.isfile(os.path.join(cachedir, f))]
+    nfiles = len(files)
+
+    if nfiles == 0:
+        print "No cached libraries to remove"
+        return
+
+    remove = True
+    if prompt:
+
+        user = raw_input("Remove %d cached libraries from %s? [Y/n]: " % (nfiles, cachedir))
+
+        while user.lower() not in ['', 'y', 'n']:
+            print "Please answer y or n."
+            user = raw_input("Remove %d cached libraries from %s? [Y/n]: " % (nfiles, cachedir))
+
+        if user.lower() == 'n':
+            remove = False
+
+    if remove:
+        print "Removing %d cached libraries from %s" % (nfiles, cachedir)
+        [os.remove(f) for f in files]
+    else:
+        print "Not removing cached libraries"

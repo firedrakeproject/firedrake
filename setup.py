@@ -134,7 +134,7 @@ setup(name='PyOP2',
       test_requires=test_requires,
       packages=['pyop2', 'pyop2.ir', 'pyop2_utils'],
       package_data={
-          'pyop2': ['assets/*', 'mat_utils.*', 'sparsity_utils.*', '*.pyx', 'pyop2_geometry.h']},
+          'pyop2': ['assets/*', 'mat_utils.*', 'sparsity_utils.*', '*.pyx']},
       scripts=glob('scripts/*'),
       cmdclass=cmdclass,
       ext_modules=[NumpyExtension('pyop2.plan', plan_sources),

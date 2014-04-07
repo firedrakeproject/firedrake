@@ -4,8 +4,6 @@ TEST_BASE_DIR = test
 
 UNIT_TEST_DIR = $(TEST_BASE_DIR)/unit
 
-REGRESSION_TEST_DIR = $(TEST_BASE_DIR)/regression
-
 BACKENDS ?= sequential opencl openmp cuda
 OPENCL_ALL_CTXS := $(shell scripts/detect_opencl_devices)
 OPENCL_CTXS ?= $(OPENCL_ALL_CTXS)
@@ -25,16 +23,14 @@ GIT_REV = $(shell git rev-parse --verify --short HEAD)
 
 all: ext
 
-.PHONY : help test lint unit regression doc update_docs ext ext_clean meshes
+.PHONY : help test lint unit doc update_docs ext ext_clean meshes
 
 help:
 	@echo "make COMMAND with COMMAND one of:"
-	@echo "  test               : run lint, unit and regression tests"
+	@echo "  test               : run lint and unit tests"
 	@echo "  lint               : run flake8 code linter"
 	@echo "  unit               : run unit tests"
 	@echo "  unit_BACKEND       : run unit tests for BACKEND"
-	@echo "  regression         : run regression tests"
-	@echo "  regression_BACKEND : run regression tests for BACKEND"
 	@echo "  doc                : build sphinx documentation"
 	@echo "  serve              : launch local web server to serve up documentation"
 	@echo "  update_docs        : build sphinx documentation and push to GitHub"
@@ -44,7 +40,7 @@ help:
 	@echo
 	@echo "Available OpenCL contexts: $(OPENCL_CTXS)"
 
-test: lint unit regression
+test: lint unit
 
 lint:
 	@flake8
@@ -56,14 +52,6 @@ unit_%:
 
 unit_opencl:
 	cd $(UNIT_TEST_DIR); for c in $(OPENCL_CTXS); do PYOPENCL_CTX=$$c $(PYTEST) --backend=opencl; done
-
-regression: $(foreach backend,$(BACKENDS), regression_$(backend))
-
-regression_%:
-	cd $(REGRESSION_TEST_DIR); $(PYTEST) --backend=$*
-
-regression_opencl:
-	cd $(REGRESSION_TEST_DIR); for c in $(OPENCL_CTXS); do PYOPENCL_CTX=$$c $(PYTEST) --backend=opencl; done
 
 doc:
 	make -C $(SPHINX_DIR) $(SPHINX_TARGET) SPHINXOPTS=$(SPHINX_OPTS) APIDOCOPTS=$(APIDOC_OPTS)

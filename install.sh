@@ -64,16 +64,6 @@ echo | tee -a $LOGFILE
 # Install Cython so we can build PyOP2 from source
 ${PIP} Cython decorator numpy >> $LOGFILE 2>&1
 
-echo "*** Installing FEniCS dependencies ***" | tee -a $LOGFILE
-echo | tee -a $LOGFILE
-
-${PIP} \
-  git+https://bitbucket.org/mapdes/ffc#egg=ffc \
-  git+https://bitbucket.org/mapdes/ufl#egg=ufl \
-  git+https://bitbucket.org/mapdes/fiat#egg=fiat \
-  git+https://bitbucket.org/fenics-project/instant#egg=instant \
-  hg+https://bitbucket.org/khinsen/scientificpython >> $LOGFILE 2>&1
-
 echo "*** Installing PETSc ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
 
