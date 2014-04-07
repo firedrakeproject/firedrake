@@ -696,7 +696,9 @@ def _assemble(f, tensor=None, bcs=None):
                     # index of the function space the bc is defined on.
                     if i == j and (fs.index is None or fs.index == i):
                         tensor[i, j].inc_local_diagonal_entries(bc.nodes)
-
+        if is_mat:
+            # Queue up matrix assembly (after we've done all the other operations)
+            tensor.assemble()
         return result()
 
     if is_mat:

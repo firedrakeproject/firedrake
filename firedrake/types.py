@@ -911,6 +911,8 @@ class Matrix(object):
             just need a handle on the :class:`pyop2.Mat` object it's
             wrapping, use :attr:`_M` instead."""
         self.assemble()
+        # User wants to see it, so force the evaluation.
+        self._M._force_evaluation()
         return self._M
 
     @property
