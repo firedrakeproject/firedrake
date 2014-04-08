@@ -133,13 +133,19 @@ class NonlinearVariationalSolver(object):
 
         ksp = self.snes.getKSP()
         pc = ksp.getPC()
-        if self._jac_tensor._M.sparsity.shape != (1, 1):
-            offset = 0
-            rows, cols = self._jac_tensor._M.sparsity.shape
+        pmat = self._jac_ptensor._M
+        if pmat.sparsity.shape != (1, 1):
+            rows, cols = pmat.sparsity.shape
             ises = []
+            nlocal_rows = pmat.sparsity.nrows
+            offset = 0
+            if op2.MPI.comm.rank == 0:
+                op2.MPI.comm.exscan(nlocal_rows)
+            else:
+                offset = op2.MPI.comm.exscan(nlocal_rows)
             for i in range(rows):
                 if i < cols:
-                    nrows = self._jac_tensor._M[i, i].sparsity.nrows
+                    nrows = pmat[i, i].sparsity.nrows
                     name = test.function_space()[i].name
                     name = name if name else '%d' % i
                     ises.append((name, PETSc.IS().createStride(nrows, first=offset, step=1)))
