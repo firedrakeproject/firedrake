@@ -3,7 +3,16 @@ from ufl.algorithms.signature import compute_form_signature
 import types
 import weakref
 from petsc4py import PETSc
+from pyop2.logger import debug, warning
 from parameters import parameters
+try:
+    # Estimate the amount of memory per core may use.
+    import psutil
+    memory = psutil.virtmem_usage().total/psutil.cpu_count()
+except ImportError:
+    memory = None
+
+_assemble_count = 0
 
 
 class DependencySnapshot(object):
@@ -84,6 +93,11 @@ class CacheEntry(object):
         else:
             self.obj = obj.duplicate()
 
+        global _assemble_count
+        _assemble_count += 1
+        self.value = _assemble_count
+        self.nbytes = obj.nbytes
+
     def is_valid(self, form, bcs):
         return self.dependencies.valid(form) and self.bcs.valid(bcs)
 
@@ -111,6 +125,7 @@ class AssemblyCache(object):
             cls._instance.invalid_count = defaultdict(int)
             cls._instance.do_not_cache = set()
             cls._instance.assemblyfunc = None
+            cls._instance.evictwarned = False
         return cls._instance
 
     def lookup(self, form, bcs):
@@ -123,6 +138,8 @@ class AssemblyCache(object):
                 self.invalid_count[form_sig] += 1
                 del self.cache[form_sig]
                 return None
+            else:
+                self.invalid_count[form_sig] = 0
 
             retval = cache_entry.get_object()
             self._hits += 1
@@ -133,10 +150,75 @@ class AssemblyCache(object):
     def store(self, obj, form, bcs):
         form_sig = compute_form_signature(form)
 
-        cache_entry = CacheEntry(obj, form, bcs)
-        self.cache[form_sig] = cache_entry
+        if self.invalid_count[form_sig] > parameters["assembly_cache"]["max_misses"]:
+            if self.invalid_count[form_sig] == \
+               parameters["assembly_cache"]["max_misses"] + 1:
+                debug("form %s missed too many times, excluding from cache." % form)
 
-        return obj
+        else:
+            cache_entry = CacheEntry(obj, form, bcs)
+            self.cache[form_sig] = cache_entry
+            self.evict()
+
+    def evict(self):
+        """Run the cache eviction algorithm. This works out the permitted
+cache size and deletes objects until it is achieved. Cache values are
+assumed to have a :attr:`value` attribute and eviction occurs in
+increasing value order. Currently value is an index the assembly
+operation, so older operations are evicted first.
+
+The cache will be evicted down to 90% of permitted size. Cache values
+must also have a :attr:`nbytes` attribute.
+
+The permitted size is either the explicit
+`parameters["assembly_cache"]["max_bytes"]` or it is the amount of
+memory per core scaled by `parameters["assembly_cache"]["max_bytes"]`
+(by default the scale factor is 0.6).
+
+In MPI parallel, the nbytes of each cache entry is set to the maximum
+over all processes, while the available memory is set to the
+minimum. This produces a conservative caching policy which is
+guaranteed to result in the same evictions on each processor.
+        """
+
+        if not parameters["assembly_cache"]["eviction"]:
+            return
+
+        max_cache_size = min(parameters["assembly_cache"]["max_bytes"] or float("inf"),
+                             memory*parameters["assembly_cache"]["max_factor"]
+                             or float("inf"))
+
+        if max_cache_size == float("inf"):
+            if not self.evictwarned:
+                warning("No maximum assembly cache size. Leak memory at your own risk!")
+            return
+
+        cache_size = self.nbytes
+        if cache_size < max_cache_size:
+            return
+
+        debug("Cache eviction triggered. %s bytes in cache, %s bytes allowed" %
+              (cache_size, max_cache_size))
+
+        # Evict down to 90% full.
+        bytes_to_evict = cache_size - 0.9 * max_cache_size
+
+        sorted_cache = sorted(self.cache.items(), key=lambda x: x[1].value)
+
+        nbytes = lambda x: x[1].nbytes
+
+        candidates = []
+        while bytes_to_evict > 0:
+            next = sorted_cache.pop(0)
+            candidates.append(next)
+            bytes_to_evict -= nbytes(next)
+
+        for c in candidates[::-1]:
+            if bytes_to_evict + nbytes(c) < 0:
+                # We may have been overzealous.
+                bytes_to_evict += nbytes(c)
+            else:
+                del self.cache[c[0]]
 
     @property
     def num_objects(self):

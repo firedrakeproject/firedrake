@@ -21,4 +21,10 @@ class Parameters(dict):
 
 parameters = Parameters()
 
-parameters["assembly_cache"] = {"enabled": True}
+parameters["assembly_cache"] = {
+    "enabled": True,
+    "eviction": True,
+    "max_bytes": None,
+    "max_factor": 0.6,
+    "max_misses": 3
+}
