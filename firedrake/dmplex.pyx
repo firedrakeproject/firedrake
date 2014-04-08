@@ -21,6 +21,8 @@ cdef extern from "petscsys.h":
 cdef extern from "petscdmplex.h":
     int DMPlexGetConeSize(PETSc.PetscDM,PetscInt,PetscInt*)
     int DMPlexGetCone(PETSc.PetscDM,PetscInt,PetscInt*[])
+    int DMPlexGetSupportSize(PETSc.PetscDM,PetscInt,PetscInt*)
+    int DMPlexGetSupport(PETSc.PetscDM,PetscInt,PetscInt*[])
 
     int DMPlexGetTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
@@ -59,24 +61,56 @@ def _from_cell_list(dim, cells, coords, comm=None):
                                              np.zeros(coord_shape, dtype=float),
                                              comm=comm)
 
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def facet_numbering(PETSc.DM plex,
+def facet_numbering(PETSc.DM plex, kind,
                     np.ndarray[np.int32_t] facets,
-                    np.ndarray[np.int32_t, ndim=2] facet_cells,
+                    PETSc.Section cell_numbering,
                     np.ndarray[np.int32_t, ndim=2] cell_closures):
+    """Compute the parent cell(s) and the local facet number within
+    each parent cell for each given facet.
 
+    :arg plex: The DMPlex object encapsulating the mesh topology
+    :arg kind: String indicating the facet kind (interior or exterior)
+    :arg facets: Array of input facets
+    :arg cell_numbering: Section describing the global cell numbering
+    :arg cell_closures: 2D array of ordered cell closures
+    """
     cdef:
         PetscInt f, fStart, fEnd, fi, cell
-        PetscInt nfacets, nclosure
+        PetscInt nfacets, nclosure, ncells, cells_per_facet
+        PetscInt *cells = NULL
+        np.ndarray[np.int32_t, ndim=2] facet_cells
         np.ndarray[np.int32_t, ndim=2] facet_local_num
 
     fStart, fEnd = plex.getHeightStratum(1)
     nfacets = facets.shape[0]
     nclosure = cell_closures.shape[1]
-    facet_local_num = np.empty((nfacets, facet_cells.shape[1]), dtype=np.int32)
 
+    assert(kind in ["interior", "exterior"])
+    if kind == "interior":
+        cells_per_facet = 2
+    else:
+        cells_per_facet = 1
+    facet_local_num = np.empty((nfacets, cells_per_facet), dtype=np.int32)
+    facet_cells = np.empty((nfacets, cells_per_facet), dtype=np.int32)
+
+    # First determine the parent cell(s) for each facet
+    for f in range(nfacets):
+        DMPlexGetSupport(plex.dm, facets[f], &cells)
+        DMPlexGetSupportSize(plex.dm, facets[f], &ncells)
+        PetscSectionGetOffset(cell_numbering.sec, cells[0], &cell)
+        facet_cells[f,0] = cell
+        if cells_per_facet > 1:
+            if ncells > 1:
+                PetscSectionGetOffset(cell_numbering.sec,
+                                      cells[1], &cell)
+                facet_cells[f,1] = cell
+            else:
+                facet_cells[f,1] = -1
+
+    # Run through the sorted closure to get the
+    # local facet number within each parent cell
     for f in range(nfacets):
         # First cell
         cell = facet_cells[f,0]
@@ -99,7 +133,7 @@ def facet_numbering(PETSc.DM plex,
                         fi += 1
             else:
                 facet_local_num[f,1] = -1
-    return facet_local_num
+    return facet_local_num, facet_cells
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
