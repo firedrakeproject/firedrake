@@ -5,7 +5,6 @@ import numpy as np
 cimport numpy as np
 import cython
 cimport petsc4py.PETSc as PETSc
-from operator import itemgetter
 
 np.import_array()
 
@@ -60,26 +59,47 @@ def _from_cell_list(dim, cells, coords, comm=None):
                                              np.zeros(coord_shape, dtype=float),
                                              comm=comm)
 
-def facet_numbering(plex, vertex_numbering, facet):
-    """Derive local facet number according to Fenics"""
-    cells = plex.getSupport(facet)
-    local_facet = []
-    for c in cells:
-        closure = plex.getTransitiveClosure(c)[0]
 
-        # Local vertex numbering according to universal vertex numbering
-        vStart, vEnd = plex.getDepthStratum(0)   # vertices
-        is_vertex = lambda v: vStart <= v < vEnd
-        vertices = filter(is_vertex, closure)
-        v_glbl = [vertex_numbering.getOffset(v) for v in vertices]
-        v_glbl = [v if v >= 0 else -(v+1) for v in v_glbl]
-        vertices, v_glbl = zip(*sorted(zip(vertices, v_glbl), key=itemgetter(1)))
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def facet_numbering(PETSc.DM plex,
+                    np.ndarray[np.int32_t] facets,
+                    np.ndarray[np.int32_t, ndim=2] facet_cells,
+                    np.ndarray[np.int32_t, ndim=2] cell_closures):
 
-        # Local facet number := local number of non-incident vertex
-        v_incident = filter(is_vertex, plex.getTransitiveClosure(facet)[0])
-        v_non_incident = [v for v in vertices if v not in v_incident][0]
-        local_facet.append(np.where(vertices == v_non_incident)[0][0])
-    return local_facet
+    cdef:
+        PetscInt f, fStart, fEnd, fi, cell
+        PetscInt nfacets, nclosure
+        np.ndarray[np.int32_t, ndim=2] facet_local_num
+
+    fStart, fEnd = plex.getHeightStratum(1)
+    nfacets = facets.shape[0]
+    nclosure = cell_closures.shape[1]
+    facet_local_num = np.empty((nfacets, facet_cells.shape[1]), dtype=np.int32)
+
+    for f in range(nfacets):
+        # First cell
+        cell = facet_cells[f,0]
+        fi = 0
+        for c in range(nclosure):
+            if cell_closures[cell, c] == facets[f]:
+                facet_local_num[f,0] = fi
+            if fStart <= cell_closures[cell, c] < fEnd:
+                fi += 1
+
+        # Second cell
+        if facet_cells.shape[1] > 1:
+            cell = facet_cells[f,1]
+            if cell > 0:
+                fi = 0
+                for c in range(nclosure):
+                    if cell_closures[cell, c] == facets[f]:
+                        facet_local_num[f,1] = fi
+                    if fStart <= cell_closures[cell, c] < fEnd:
+                        fi += 1
+            else:
+                facet_local_num[f,1] = -1
+    return facet_local_num
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

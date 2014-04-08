@@ -444,11 +444,10 @@ class Mesh(object):
                                                         cell_entity_dofs,
                                                         perm=self._plex_renumbering)
 
-        # Fenics facet and DoF numbering requires a universal vertex numbering
-        self._vertex_numbering = None
+        # Build a simple FunctionSpace with vertex DoFs to ensure
+        # that the re-ordered cell closures have been computed
         self._cell_closure = None
-        vertex_fs = types.FunctionSpace(self, "CG", 1)
-        self._vertex_numbering = vertex_fs._universal_numbering
+        closure_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
 
         # Exterior facets
         if self._plex.getStratumSize("exterior_facets", 1) > 0:
@@ -466,15 +465,16 @@ class Mesh(object):
             else:
                 boundary_ids = None
 
-            exterior_facet_cell = []
-            for f in exterior_facets:
-                fcells = self._plex.getSupport(f)
-                fcells_num = [np.array([self._cell_numbering.getOffset(c)]) for c in fcells]
-                exterior_facet_cell.append(np.concatenate(fcells_num))
-            exterior_facet_cell = np.array(exterior_facet_cell)
+            exterior_facet_cell = np.empty((exterior_facets.shape[0], 1), dtype=np.int32)
+            for f in range(exterior_facets.shape[0]):
+                fcells = self._plex.getSupport(exterior_facets[f])
+                exterior_facet_cell[f,0] = self._cell_numbering.getOffset(fcells[0])
 
-            get_f_no = lambda f: dmplex.facet_numbering(self._plex, self._vertex_numbering, f)
-            exterior_local_facet_number = np.array([get_f_no(f) for f in exterior_facets], dtype=np.int32)
+            exterior_local_facet_number = dmplex.facet_numbering(self._plex,
+                                                                 exterior_facets,
+                                                                 exterior_facet_cell,
+                                                                 self._cell_closure)
+
             # Note: To implement facets correctly in parallel
             # we need to pass exterior_facet_classes to _Facets()
             self.exterior_facets = _Facets(self, exterior_facets.size,
@@ -493,14 +493,19 @@ class Mesh(object):
             interior_facets, interior_facet_classes = \
                 dmplex.get_entities_by_class(self._plex, dim-1, condition=int_facet)
 
-            interior_facet_cell = []
-            for f in interior_facets:
-                fcells = self._plex.getSupport(f)
-                fcells_num = [np.array([self._cell_numbering.getOffset(c)]) for c in fcells]
-                interior_facet_cell.append(np.concatenate(fcells_num))
-            interior_facet_cell = np.array(interior_facet_cell)
-            get_f_no = lambda f: dmplex.facet_numbering(self._plex, self._vertex_numbering, f)
-            interior_local_facet_number = np.array([get_f_no(f) for f in interior_facets])
+            interior_facet_cell = np.empty((interior_facets.shape[0], 2), dtype=np.int32)
+            for f in range(interior_facets.shape[0]):
+                fcells = self._plex.getSupport(interior_facets[f])
+                interior_facet_cell[f,0] = self._cell_numbering.getOffset(fcells[0])
+                if len(fcells) > 1:
+                    interior_facet_cell[f,1] = self._cell_numbering.getOffset(fcells[1])
+                else:
+                    interior_facet_cell[f,1] = -1
+
+            interior_local_facet_number = dmplex.facet_numbering(self._plex,
+                                                                 interior_facets,
+                                                                 interior_facet_cell,
+                                                                 self._cell_closure)
             # Note: To implement facets correctly in parallel
             # we need to pass interior_facet_classes to _Facets()
             self.interior_facets = _Facets(self, interior_facets.size,
@@ -780,7 +785,6 @@ class ExtrudedMesh(Mesh):
         self._cells = mesh._cells
         self.parent = mesh.parent
         self.uid = mesh.uid
-        self._vertex_numbering = mesh._vertex_numbering
         self.name = mesh.name
         self._plex = mesh._plex
         self._plex_renumbering = mesh._plex_renumbering
