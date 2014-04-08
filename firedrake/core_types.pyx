@@ -446,6 +446,7 @@ class Mesh(object):
 
         # Fenics facet and DoF numbering requires a universal vertex numbering
         self._vertex_numbering = None
+        self._cell_closure = None
         vertex_fs = types.FunctionSpace(self, "CG", 1)
         self._vertex_numbering = vertex_fs._universal_numbering
 
@@ -784,6 +785,7 @@ class ExtrudedMesh(Mesh):
         self._plex = mesh._plex
         self._plex_renumbering = mesh._plex_renumbering
         self._cell_numbering = mesh._cell_numbering
+        self._cell_closure = mesh._cell_closure
 
         interior_f = self._old_mesh.interior_facets
         self._interior_facets = _Facets(self, interior_f.count,
@@ -1078,7 +1080,20 @@ class FunctionSpaceBase(ObjectCached):
             self.dof_classes[3] += ndofs * (ncore + nowned + nhalo)
 
         self._node_count = self._global_numbering.getStorageSize()
-        self.cell_node_list = np.array([self._get_cell_nodes(c) for c in mesh.cells()])
+
+        # Re-order cell closures from the Plex
+        if mesh._cell_closure is None:
+            entity_dofs = self.fiat_element.entity_dofs()
+            entity_per_cell = [len(entity) for d, entity in entity_dofs.iteritems()]
+            entity_per_cell = np.array(entity_per_cell, dtype=np.int32)
+            mesh._cell_closure = dmplex.closure_ordering(mesh._plex,
+                                                         self._universal_numbering,
+                                                         mesh._cell_numbering,
+                                                         entity_per_cell)
+
+        self.cell_node_list = np.empty((mesh.num_cells(), sum(self._dofs_per_cell)), dtype=np.int32)
+        for c in range(mesh.num_cells()):
+            self.cell_node_list[c,:] = self._get_cell_nodes(mesh._cell_closure[c,:])
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
             dim = mesh._plex.getDimension()
@@ -1118,16 +1133,8 @@ class FunctionSpaceBase(ObjectCached):
         self._exterior_facet_map_cache = {}
         self._interior_facet_map_cache = {}
 
-    def _get_cell_nodes(self, cell):
+    def _get_cell_nodes(self, numbering):
         plex = self._mesh._plex
-        closure = plex.getTransitiveClosure(cell)[0]
-        if self._dofs_per_entity[0] > 0:
-            vertex_numbering = self._universal_numbering
-        else:
-            vertex_numbering = self._mesh._vertex_numbering
-        numbering = dmplex.closure_numbering(plex, vertex_numbering, closure,
-                                             self._dofs_per_entity)
-
         offset = 0
         cell_nodes = np.empty(sum(self._dofs_per_cell), dtype=np.int32)
         if isinstance(self._mesh, ExtrudedMesh):

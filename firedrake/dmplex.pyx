@@ -2,8 +2,32 @@
 from petsc import PETSc
 from pyop2 import MPI
 import numpy as np
+cimport numpy as np
+import cython
+cimport petsc4py.PETSc as PETSc
 from operator import itemgetter
 
+np.import_array()
+
+cdef extern from "petsc.h":
+   ctypedef long PetscInt
+   ctypedef enum PetscBool:
+       PETSC_TRUE, PETSC_FALSE
+
+cdef extern from "petscsys.h":
+   int PetscMalloc1(PetscInt,PetscInt**)
+   int PetscFree(PetscInt*)
+   int PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
+
+cdef extern from "petscdmplex.h":
+    int DMPlexGetConeSize(PETSc.PetscDM,PetscInt,PetscInt*)
+    int DMPlexGetCone(PETSc.PetscDM,PetscInt,PetscInt*[])
+
+    int DMPlexGetTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
+    int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
+
+cdef extern from "petscis.h":
+    int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
 
 def _from_cell_list(dim, cells, coords, comm=None):
     """
@@ -36,7 +60,6 @@ def _from_cell_list(dim, cells, coords, comm=None):
                                              np.zeros(coord_shape, dtype=float),
                                              comm=comm)
 
-
 def facet_numbering(plex, vertex_numbering, facet):
     """Derive local facet number according to Fenics"""
     cells = plex.getSupport(facet)
@@ -58,60 +81,171 @@ def facet_numbering(plex, vertex_numbering, facet):
         local_facet.append(np.where(vertices == v_non_incident)[0][0])
     return local_facet
 
-
-def closure_numbering(plex, vertex_numbering, closure, dofs_per_entity):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def closure_ordering(PETSc.DM plex,
+                     PETSc.Section vertex_numbering,
+                     PETSc.Section cell_numbering,
+                     np.ndarray[np.int32_t] entity_per_cell):
     """Apply Fenics local numbering to a cell closure.
+
+    :arg plex: The DMPlex object encapsulating the mesh topology
+    :arg cell_numbering: Section describing the universal vertex numbering
+    :arg cell_numbering: Section describing the global cell numbering
+    :arg entity_per_cell: List of the number of entity points in each dimension
 
     Vertices    := Ordered according to global/universal
                    vertex numbering
     Edges/faces := Ordered according to lexicographical
                    ordering of non-incident vertices
     """
+    cdef:
+        PetscInt c, cStart, cEnd, v, vStart, vEnd
+        PetscInt f, fStart, fEnd, e, eStart, eEnd
+        PetscInt dim, vi, ci, fi, v_per_cell, cell
+        PetscInt offset, cell_offset, nfaces, nfacets
+        PetscInt nclosure, nfacet_closure, nface_vertices
+        PetscInt *vertices = NULL
+        PetscInt *v_global = NULL
+        PetscInt *closure = NULL
+        PetscInt *facets = NULL
+        PetscInt *facet_closure = NULL
+        PetscInt *faces = NULL
+        PetscInt *face_indices = NULL
+        PetscInt *face_vertices = NULL
+        PetscInt *facet_vertices = NULL
+        np.ndarray[np.int32_t, ndim=2] cell_closure
+
     dim = plex.getDimension()
-    local_numbering = np.empty(len(closure), dtype=np.int32)
-    vStart, vEnd = plex.getDepthStratum(0)   # vertice
-    is_vertex = lambda v: vStart <= v < vEnd
+    cStart, cEnd = plex.getHeightStratum(0)
+    fStart, fEnd = plex.getHeightStratum(1)
+    eStart, eEnd = plex.getDepthStratum(1)
+    vStart, vEnd = plex.getDepthStratum(0)
+    v_per_cell = entity_per_cell[0]
+    cell_offset = sum(entity_per_cell) - 1
 
-    # Vertices := Ordered according to vertex numbering
-    vertices = filter(is_vertex, closure)
-    v_glbl = [vertex_numbering.getOffset(v) for v in vertices]
+    PetscMalloc1(v_per_cell, &vertices)
+    PetscMalloc1(v_per_cell, &v_global)
+    PetscMalloc1(v_per_cell-1, &facets)
+    PetscMalloc1(v_per_cell-1, &facet_vertices)
+    PetscMalloc1(entity_per_cell[1], &faces)
+    PetscMalloc1(entity_per_cell[1], &face_indices)
+    cell_closure = np.empty((cEnd - cStart, sum(entity_per_cell)), dtype=np.int32)
 
-    # Plex defines non-owned universal numbers as negative,
-    # correct with N = -(N+1)
-    v_glbl = [v if v >= 0 else -(v+1) for v in v_glbl]
+    for c in range(cStart, cEnd):
+        PetscSectionGetOffset(cell_numbering.sec, c, &cell)
+        DMPlexGetTransitiveClosure(plex.dm, c, PETSC_TRUE, &nclosure,&closure)
 
-    vertices, v_glbl = zip(*sorted(zip(vertices, v_glbl), key=itemgetter(1)))
-    # Correct 1D edge numbering
-    if dim == 1:
-        vertices = vertices[::-1]
-    local_numbering[:len(vertices)] = vertices
-    offset = len(vertices)
+        # Find vertices and translate universal numbers
+        vi = 0
+        for ci in range(nclosure):
+            if vStart <= closure[2*ci] < vEnd:
+                vertices[vi] = closure[2*ci]
+                PetscSectionGetOffset(vertex_numbering.sec, closure[2*ci], &v)
+                # Correct -ve offsets for non-owned entities
+                if v >= 0:
+                    v_global[vi] = v
+                else:
+                    v_global[vi] = -(v+1)
+                vi += 1
 
-    # Local edge/face numbering := lexicographical ordering
-    #                              of non-incident vertices
+        # Sort vertices by universal number
+        PetscSortIntWithArray(v_per_cell,v_global,vertices)
+        for vi in range(v_per_cell):
+            if dim == 1:
+                # Correct 1D edge numbering
+                cell_closure[cell, vi] = vertices[v_per_cell-vi-1]
+            else:
+                cell_closure[cell, vi] = vertices[vi]
+        offset = v_per_cell
 
-    for d in range(1, dim):
-        pStart, pEnd = plex.getDepthStratum(d)
-        points = filter(lambda p: pStart <= p < pEnd, closure)
+        # Find all faces (dim=1)
+        if dim > 2:
+            nfaces = 0
+            for ci in range(nclosure):
+                if eStart <= closure[2*ci] < eEnd:
+                    faces[nfaces] = closure[2*ci]
 
-        # Re-order edge/facet points only if they have DoFs associated
-        if dofs_per_entity[d] > 0:
-            v_lcl = []   # local no. of non-incident vertices
-            for p in points:
-                p_closure = plex.getTransitiveClosure(p)[0]
-                v_incident = filter(is_vertex, p_closure)
-                v_non_inc = [v for v in vertices if v not in v_incident]
-                v_lcl.append([np.where(vertices == v)[0][0] for v in v_non_inc])
-            points, v_lcl = zip(*sorted(zip(points, v_lcl), key=itemgetter(1)))
+                    DMPlexGetConeSize(plex.dm, closure[2*ci], &nface_vertices)
+                    DMPlexGetCone(plex.dm, closure[2*ci], &face_vertices)
 
-        local_numbering[offset:offset+len(points)] = points
-        offset += len(points)
+                    # Faces in 3D are tricky because we need a
+                    # lexicographical sort with two keys (the local
+                    # numbers of the two non-incident vertices).
 
-    # Add the cell itself
-    cStart, cEnd = plex.getHeightStratum(0)  # cells
-    cells = filter(lambda c: cStart <= c < cEnd, closure)
-    local_numbering[offset:offset+len(cells)] = cells
-    return local_numbering
+                    # Find non-incident vertices
+                    fi = 0
+                    face_indices[nfaces] = 0
+                    for v in range(v_per_cell):
+                        incident = 0
+                        for vi in range(nface_vertices):
+                            if cell_closure[cell,v] == face_vertices[vi]:
+                                incident = 1
+                                break
+                        if incident == 0:
+                            face_indices[nfaces] += v * 10**(1-fi)
+                            fi += 1
+                    nfaces += 1
+
+            # Sort by local numbers of non-incident vertices
+            PetscSortIntWithArray(entity_per_cell[1], face_indices, faces)
+            for fi in range(nfaces):
+                cell_closure[cell, offset+fi] = faces[fi]
+            offset += nfaces
+
+        # Calling DMPlexGetTransitiveClosure() again invalidates the
+        # current work array, so we need to get the facets and cell
+        # out before getting the facet closures.
+
+        # Find all facets (co-dim=1)
+        nfacets = 0
+        for ci in range(nclosure):
+            if fStart <= closure[2*ci] < fEnd:
+                facets[nfacets] = closure[2*ci]
+                nfacets += 1
+
+        # The cell itself is always the first entry in the Plex closure
+        cell_closure[cell, cell_offset] = closure[0]
+
+        # Now we can deal with facets
+        if dim > 1:
+            for f in range(nfacets):
+                # Derive facet vertices from facet_closure
+                DMPlexGetTransitiveClosure(plex.dm, facets[f],
+                                           PETSC_TRUE,
+                                           &nfacet_closure,
+                                           &facet_closure)
+                vi = 0
+                for fi in range(nfacet_closure):
+                    if vStart <= facet_closure[2*fi] < vEnd:
+                        facet_vertices[vi] = facet_closure[2*fi]
+                        vi += 1
+
+                # Find non-incident vertices
+                for v in range(v_per_cell):
+                    incident = 0
+                    for vi in range(v_per_cell-1):
+                        if cell_closure[cell,v] == facet_vertices[vi]:
+                            incident = 1
+                            break
+                    # Only one non-incident vertex per facet, so
+                    # local facet no. = non-incident vertex no.
+                    if incident == 0:
+                        cell_closure[cell,offset+v] = facets[f]
+                        break
+
+            DMPlexRestoreTransitiveClosure(plex.dm, facets[f], PETSC_TRUE,
+                                           &nfacet_closure, &facet_closure)
+            offset += nfacets
+
+    DMPlexRestoreTransitiveClosure(plex.dm, c, PETSC_TRUE, &nclosure,&closure)
+    PetscFree(vertices)
+    PetscFree(v_global)
+    PetscFree(facets)
+    PetscFree(facet_vertices)
+    PetscFree(faces)
+
+    return cell_closure
 
 
 def mark_entity_classes(plex):
