@@ -78,6 +78,17 @@ def test_assemble_with_tensor(cg1):
     # Make sure we get the result of the last assembly
     assert np.allclose(f.dat.data, 2*assemble(L).dat.data, rtol=1e-14)
 
+
+def test_assemble_mat_with_tensor(dg0):
+    u = TestFunction(dg0)
+    v = TrialFunction(dg0)
+    a = u*v*dx
+    M = assemble(a)
+    # Assemble a different form into M
+    M = assemble(Constant(2)*a, M)
+    # Make sure we get the result of the last assembly
+    assert np.allclose(M.M.values, 2*assemble(a).M.values, rtol=1e-14)
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
