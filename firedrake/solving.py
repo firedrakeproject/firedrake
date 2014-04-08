@@ -570,11 +570,6 @@ def _assemble(f, tensor=None, bcs=None):
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
             elif measure.domain_type() in ['exterior_facet', 'exterior_facet_vert']:
-                if op2.MPI.parallel:
-                    raise \
-                        NotImplementedError(
-                            "No support for facet integrals under MPI yet")
-
                 if is_mat:
                     tensor_arg = mat(lambda s: s.exterior_facet_node_map(tsbc),
                                      lambda s: s.exterior_facet_node_map(trbc),
@@ -596,11 +591,6 @@ def _assemble(f, tensor=None, bcs=None):
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
             elif measure.domain_type() in ['exterior_facet_top', 'exterior_facet_bottom']:
-                if op2.MPI.parallel:
-                    raise \
-                        NotImplementedError(
-                            "No support for facet integrals under MPI yet")
-
                 if is_mat:
                     tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
                                      lambda s: s.cell_node_map(trbc),
