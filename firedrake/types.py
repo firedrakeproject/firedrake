@@ -693,6 +693,10 @@ class Function(ufl.Coefficient):
             "x_array": X_str,
             "dim": coords_space.dim,
             "xndof": coords_element.space_dimension(),
+            # FS will always either be a functionspace or
+            # vectorfunctionspace, so just accessing dim here is safe
+            # (we don't need to go through ufl_element.value_shape())
+            "nfdof": to_element.space_dimension() * fs.dim,
             "ndof": to_element.space_dimension(),
             "assign_dim": np.prod(expression.shape(), dtype=int)
         }
@@ -715,7 +719,7 @@ for (unsigned int d=0; d < %(dim)d; d++) {
         loop = ast.c_for("k", "%(ndof)d" % vals, ast.Block([block] + ass_exp,
                                                            open_scope=True))
         kernel_code = ast.FunDecl("void", "expression_kernel",
-                                  [ast.Decl("double", ast.Symbol("A", (int("%(ndof)d" % vals),))),
+                                  [ast.Decl("double", ast.Symbol("A", (int("%(nfdof)d" % vals),))),
                                    ast.Decl("double**", "x_")],
                                   ast.Block([init, loop], open_scope=False))
         kernel = op2.Kernel(kernel_code, "expression_kernel")
