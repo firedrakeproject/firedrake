@@ -46,7 +46,7 @@ import base
 from base import *
 from backends import _make_object
 from logger import debug, warning
-from versioning import CopyOnWrite
+from versioning import CopyOnWrite, modifies
 import mpi
 from mpi import collective
 
@@ -95,6 +95,7 @@ class Dat(base.Dat):
             self.needs_halo_update = True
 
     @property
+    @modifies
     @collective
     def vec(self):
         """Context manager for a PETSc Vec appropriate for this Dat.
@@ -183,6 +184,7 @@ class MixedDat(base.MixedDat):
             self.needs_halo_update = True
 
     @property
+    @modifies
     @collective
     def vec(self):
         """Context manager for a PETSc Vec appropriate for this Dat.
@@ -324,6 +326,7 @@ class Mat(base.Mat, CopyOnWrite):
         rows = rows.indices if isinstance(rows, Subset) else rows
         self.handle.zeroRowsLocal(rows, diag_val)
 
+    @modifies
     @collective
     def set_diagonal(self, vec):
         """Add a vector to the diagonal of the matrix.
@@ -354,6 +357,7 @@ class Mat(base.Mat, CopyOnWrite):
         self._handle = src.handle.duplicate(copy=True)
         return self
 
+    @modifies
     @collective
     def inc_local_diagonal_entries(self, rows, diag_val=1.0):
         """Increment the diagonal entry in ``rows`` by a particular value.
@@ -401,6 +405,7 @@ class Mat(base.Mat, CopyOnWrite):
         return self._blocks
 
     @property
+    @modifies
     def array(self):
         """Array of non-zero values."""
         if not hasattr(self, '_array'):
@@ -409,6 +414,7 @@ class Mat(base.Mat, CopyOnWrite):
         return self._array
 
     @property
+    @modifies
     def values(self):
         base._trace.evaluate(set([self]), set())
         return self.handle[:, :]

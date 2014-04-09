@@ -1840,11 +1840,15 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         :class:`DataSet` and containing the same data."""
         return not self == other
 
+    @collective
     def _cow_actual_copy(self, src):
         # Force the execution of the copy parloop
 
         # We need to ensure that PyOP2 allocates fresh storage for this copy.
-        del self._numpy_data
+        try:
+            del self._numpy_data
+        except AttributeError:
+            pass
 
         if configuration['lazy_evaluation']:
             _trace.evaluate(self._cow_parloop.reads, self._cow_parloop.writes)
@@ -1852,6 +1856,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
 
         self._cow_parloop._run()
 
+    @collective
     def _cow_shallow_copy(self):
 
         other = shallow_copy(self)
@@ -2156,6 +2161,7 @@ class MixedDat(Dat):
         for s in self._dats:
             s.halo_exchange_end()
 
+    @collective
     def zero(self):
         """Zero the data associated with this :class:`MixedDat`."""
         for d in self._dats:
@@ -2164,7 +2170,7 @@ class MixedDat(Dat):
     @property
     def nbytes(self):
         """Return an estimate of the size of the data associated with this
-        :class:`Dat` in bytes. This will be the correct size of the data
+        :class:`MixedDat` in bytes. This will be the correct size of the data
         payload, but does not take into account the (presumably small)
         overhead of the object and its metadata.
 
@@ -2173,6 +2179,30 @@ class MixedDat(Dat):
         """
 
         return np.sum([d.nbytes for d in self._dats])
+
+    @collective
+    def copy(self, other):
+        """Copy the data in this :class:`MixedDat` into another.
+
+        :arg other: The destination :class:`MixedDat`"""
+
+        self._copy_parloop(other).enqueue()
+
+    @collective
+    def _cow_actual_copy(self, src):
+        # Force the execution of the copy parloop
+
+        for d, s in zip(self._dats, src._dats):
+            d._cow_actual_copy(d, s)
+
+    @collective
+    def _cow_shallow_copy(self):
+
+        other = shallow_copy(self)
+
+        other._dats = [d._cow_shallow_copy for d in self._dats]
+
+        return other
 
     def __iter__(self):
         """Yield all :class:`Dat`\s when iterated over."""

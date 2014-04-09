@@ -58,6 +58,7 @@ read. Instead, writes to the original and copy :class:`~pyop2.base.Dat` are
 intercepted and execution of the copy :func:`~pyop2.base.par_loop` is forced
 at that point."""
 
+from decorator import decorator
 from copy import copy as shallow_copy
 import op2
 
@@ -85,43 +86,39 @@ class Versioned(object):
         self._version = 0
 
 
-def modifies(method):
+@decorator
+def modifies(method, self, *args, **kwargs):
     "Decorator for methods that modify their instance's data"
-    def inner(self, *args, **kwargs):
-        # self is likely going to change
 
-        # If I am a copy-on-write duplicate, I need to become real
-        if hasattr(self, '_cow_is_copy_of') and self._cow_is_copy_of:
-            original = self._cow_is_copy_of
-            self._cow_actual_copy(original)
-            self._cow_is_copy_of = None
-            original._cow_copies.remove(self)
+    # If I am a copy-on-write duplicate, I need to become real
+    if hasattr(self, '_cow_is_copy_of') and self._cow_is_copy_of:
+        original = self._cow_is_copy_of
+        self._cow_actual_copy(original)
+        self._cow_is_copy_of = None
+        original._cow_copies.remove(self)
 
-        # If there are copies of me, they need to become real now
-        if hasattr(self, '_cow_copies'):
-            for c in self._cow_copies:
-                c._cow_actual_copy(self)
-                c._cow_is_copy_of = None
-            self._cow_copies = []
+    # If there are copies of me, they need to become real now
+    if hasattr(self, '_cow_copies'):
+        for c in self._cow_copies:
+            c._cow_actual_copy(self)
+            c._cow_is_copy_of = None
+        self._cow_copies = []
 
-        retval = method(self, *args, **kwargs)
+    retval = method(self, *args, **kwargs)
 
-        self._version_bump()
+    self._version_bump()
 
-        return retval
-
-    return inner
+    return retval
 
 
-def modifies_arguments(func):
+@decorator
+def modifies_arguments(func, *args, **kwargs):
     "Decorator for functions that modify their arguments' data"
-    def inner(*args, **kwargs):
-        retval = func(*args, **kwargs)
-        for a in args:
-            if hasattr(a, 'access') and a.access != op2.READ:
-                a.data._version_bump()
-        return retval
-    return inner
+    retval = func(*args, **kwargs)
+    for a in args:
+        if hasattr(a, 'access') and a.access != op2.READ:
+            a.data._version_bump()
+    return retval
 
 
 class CopyOnWrite(object):
