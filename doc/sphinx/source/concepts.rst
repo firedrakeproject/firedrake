@@ -233,6 +233,12 @@ therefore use the access descriptor :data:`~pyop2.READ`: ::
                                   edges2vertices[op2.i[1]])),
                  coordinates(op2.READ, edges2vertices))
 
+You can stack up multiple successive parallel loops that add values to
+a matrix, before you use the resulting values, you must explicitly
+tell PyOP2 that you want to do so, by calling
+:meth:`~pyop2.Mat.assemble` on the matrix.  Note that executing a
+:func:`~pyop2.solve` will do this automatically for you.
+
 .. _reduction-loops:
 
 Loops with global reductions

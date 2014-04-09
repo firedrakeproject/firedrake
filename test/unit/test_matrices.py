@@ -620,6 +620,7 @@ class TestMatrices:
         op2.par_loop(kernel, set,
                      mat(op2.WRITE, (map[op2.i[0]], map[op2.i[1]])))
 
+        mat.assemble()
         expected_matrix = np.zeros((nelems, nelems), dtype=np.float64)
         eps = 1.e-12
         assert_allclose(mat.values, expected_matrix, eps)
@@ -630,6 +631,7 @@ class TestMatrices:
         op2.par_loop(mass, elements,
                      mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
                      coords(op2.READ, elem_node))
+        mat.assemble()
         eps = 1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
@@ -648,6 +650,7 @@ class TestMatrices:
     def test_solve(self, backend, mat, b, x, f):
         """Solve a linear system where the solution is equal to the right-hand
         side and check the result."""
+        mat.assemble()
         op2.solve(mat, x, b)
         eps = 1.e-8
         assert_allclose(x.data, f.data, eps)
@@ -667,11 +670,13 @@ class TestMatrices:
         op2.par_loop(kernel_inc, elements,
                      mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
                      g(op2.READ))
+        mat.assemble()
         # Check we have ones in the matrix
         assert mat.array.sum() == 3 * 3 * elements.size
         op2.par_loop(kernel_set, elements,
                      mat(op2.WRITE, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
                      g(op2.READ))
+        mat.assemble()
         # Check we have set all values in the matrix to 1
         assert_allclose(mat.array, np.ones_like(mat.array))
         mat.zero()
@@ -688,6 +693,7 @@ class TestMatrices:
         op2.par_loop(mass_ffc, elements,
                      mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
                      coords(op2.READ, elem_node))
+        mat.assemble()
         eps = 1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
@@ -789,6 +795,7 @@ class TestMixedMatrices:
         op2.par_loop(addone, mmap.iterset,
                      mat(op2.INC, (mmap[op2.i[0]], mmap[op2.i[1]])),
                      mdat(op2.READ, mmap))
+        mat.assemble()
         return mat
 
     @pytest.fixture

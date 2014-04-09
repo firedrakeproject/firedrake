@@ -242,14 +242,15 @@ inc(unsigned int* v1, unsigned int* v2) {
         op2.par_loop(k, iterset,
                      dat(op2.READ, idmap[0]),
                      mat(op2.INC, (map[op2.i[0]], map[op2.i[1]])))
-
+        mat.assemble()
         op2.par_loop(k, ss01,
                      dat(op2.READ, idmap[0]),
                      mat01(op2.INC, (map[op2.i[0]], map[op2.i[1]])))
-
+        mat01.assemble()
         op2.par_loop(k, ss10,
                      dat(op2.READ, idmap[0]),
                      mat10(op2.INC, (map[op2.i[0]], map[op2.i[1]])))
+        mat10.assemble()
 
         assert (mat01.values == mat.values).all()
         assert (mat10.values == mat.values).all()

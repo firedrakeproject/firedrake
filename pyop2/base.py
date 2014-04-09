@@ -3123,7 +3123,14 @@ class Mat(SetAssociated):
 
     Notice that it is `always` necessary to index the indirection maps
     for a ``Mat``. See the :class:`Mat` documentation for more
-    details."""
+    details.
+
+    .. note ::
+
+       After executing :func:`par_loop`\s that write to a ``Mat`` and
+       before using it (for example to view its values), you must call
+       :meth:`assemble` to finalise the writes.
+    """
 
     _globalcount = 0
     _modes = [WRITE, INC]
@@ -3145,6 +3152,28 @@ class Mat(SetAssociated):
             raise MapValueError("Path maps not in sparsity maps")
         return _make_object('Arg', data=self, map=path_maps, access=access,
                             idx=path_idxs, flatten=flatten)
+
+    class _Assembly(LazyComputation):
+        """Finalise assembly of this matrix.
+
+        Called lazily after user calls :meth:`assemble`"""
+        def __init__(self, mat):
+            super(Mat._Assembly, self).__init__(reads=mat, writes=mat)
+            self._mat = mat
+
+        def _run(self):
+            self._mat._assemble()
+
+    def assemble(self):
+        """Finalise this :class:`Mat` ready for use.
+
+        Call this /after/ executing all the par_loops that write to
+        the matrix before you want to look at it.
+        """
+        Mat._Assembly(self).enqueue()
+
+    def _assemble(self):
+        raise NotImplementedError("Abstract Mat base class doesn't know how to assemble itself")
 
     @property
     def _argtype(self):
@@ -3439,7 +3468,6 @@ class ParLoop(LazyComputation):
             self._compute(self.it_space.iterset.exec_part)
         self.reduction_end()
         self.maybe_set_halo_update_needed()
-        self.assemble()
 
     @collective
     def _compute(self, part):
@@ -3492,11 +3520,6 @@ class ParLoop(LazyComputation):
         for arg in self.args:
             if arg._is_dat and arg.access in [INC, WRITE, RW]:
                 arg.data.needs_halo_update = True
-
-    def assemble(self):
-        for arg in self.args:
-            if arg._is_mat:
-                arg.data._assemble()
 
     def build_itspace(self, iterset):
         """Checks that the iteration set of the :class:`ParLoop` matches the
@@ -3673,6 +3696,9 @@ class Solver(object):
         :arg x: The :class:`Dat` to receive the solution.
         :arg b: The :class:`Dat` containing the RHS.
         """
+        # Finalise assembly of the matrix, we know we need to this
+        # because we're about to look at it.
+        A.assemble()
         _trace.evaluate(set([A, b]), set([x]))
         self._solve(A, x, b)
 
