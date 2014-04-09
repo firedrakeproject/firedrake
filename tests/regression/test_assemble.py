@@ -66,6 +66,29 @@ def test_zero_form(M, f, one):
     assert isinstance(zero_form, float)
     assert abs(zero_form - 0.5 * np.prod(f.shape())) < 1.0e-12
 
+
+def test_assemble_with_tensor(cg1):
+    v = TestFunction(cg1)
+    L = v*dx
+    f = Function(cg1)
+    # Assemble a form into f
+    f = assemble(L, f)
+    # Assemble a different form into f
+    f = assemble(Constant(2)*L, f)
+    # Make sure we get the result of the last assembly
+    assert np.allclose(f.dat.data, 2*assemble(L).dat.data, rtol=1e-14)
+
+
+def test_assemble_mat_with_tensor(dg0):
+    u = TestFunction(dg0)
+    v = TrialFunction(dg0)
+    a = u*v*dx
+    M = assemble(a)
+    # Assemble a different form into M
+    M = assemble(Constant(2)*a, M)
+    # Make sure we get the result of the last assembly
+    assert np.allclose(M.M.values, 2*assemble(a).M.values, rtol=1e-14)
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

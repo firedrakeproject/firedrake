@@ -382,7 +382,17 @@ def _assemble(f, tensor=None, bcs=None):
 
     """
 
-    kernels = compile_form(f, "form")
+    # We stash the form and kernels on the tensor if we reassemble for an
+    # existing tensor, to save having to compile the form again if identical
+    # Note that forms override == to construct an equation, so we have to
+    # explicitly test for object identity
+    if getattr(tensor, "_form", None) is f and hasattr(tensor, "_kernels"):
+        kernels = tensor._kernels
+    else:
+        kernels = compile_form(f, "form")
+        if tensor:
+            tensor._form = f
+            tensor._kernels = kernels
 
     fd = f.form_data()
 
