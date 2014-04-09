@@ -24,6 +24,7 @@ the weak formulation of the right hand side as
     42*dot(tau, n)*ds
 """
 
+import pytest
 from firedrake import *
 
 
@@ -67,6 +68,28 @@ def test_poisson_mixed():
 
 def test_poisson_mixed_monitor():
     assert poisson_mixed(3, parameters={'snes_monitor': True})[0] < 2e-5
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_poisson_mixed_parallel_fieldsplit():
+    x = poisson_mixed(3, parameters={'pc_type': 'fieldsplit',
+                                     'snes_type': 'ksponly',
+                                     'snes_monitor': True,
+                                     'pc_fieldsplit_type': 'schur',
+                                     'fieldsplit_schur_fact_type': 'full',
+                                     'fieldsplit_0_ksp_type': 'cg',
+                                     'fieldsplit_1_ksp_type': 'cg',
+                                     'fieldsplit_0_pc_type': 'bjacobi',
+                                     'fieldsplit_0_sub_pc_type': 'ilu',
+                                     'fieldsplit_1_pc_type': 'none',
+                                     'ksp_type': 'bcgs'})[0]
+    assert x < 2e-5
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_poisson_mixed_parallel():
+    x = poisson_mixed(3)[0]
+    assert x < 2e-5
 
 
 if __name__ == '__main__':
