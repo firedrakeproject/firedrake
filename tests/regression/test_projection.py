@@ -140,6 +140,23 @@ def test_project_mismatched_shape():
         project(v, U)
 
 
+def test_repeatable():
+    mesh = UnitSquareMesh(1, 1)
+    Q = FunctionSpace(mesh, 'DG', 1)
+
+    V2 = FunctionSpace(mesh, 'DG', 0)
+    V3 = FunctionSpace(mesh, 'DG', 0)
+    W = V2 * V3
+    expr = Expression('1.0')
+    old = project(expr, Q)
+
+    f = project(Expression(('-1.0', '-1.0')), W)  # noqa
+    new = project(expr, Q)
+
+    for fd, ud in zip(new.dat.data, old.dat.data):
+        assert (fd == ud).all()
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
