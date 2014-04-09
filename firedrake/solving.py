@@ -133,13 +133,19 @@ class NonlinearVariationalSolver(object):
 
         ksp = self.snes.getKSP()
         pc = ksp.getPC()
-        if self._jac_tensor._M.sparsity.shape != (1, 1):
-            offset = 0
-            rows, cols = self._jac_tensor._M.sparsity.shape
+        pmat = self._jac_ptensor._M
+        if pmat.sparsity.shape != (1, 1):
+            rows, cols = pmat.sparsity.shape
             ises = []
+            nlocal_rows = pmat.sparsity.nrows
+            offset = 0
+            if op2.MPI.comm.rank == 0:
+                op2.MPI.comm.exscan(nlocal_rows)
+            else:
+                offset = op2.MPI.comm.exscan(nlocal_rows)
             for i in range(rows):
                 if i < cols:
-                    nrows = self._jac_tensor._M[i, i].sparsity.nrows
+                    nrows = pmat[i, i].sparsity.nrows
                     name = test.function_space()[i].name
                     name = name if name else '%d' % i
                     ises.append((name, PETSc.IS().createStride(nrows, first=offset, step=1)))
@@ -580,11 +586,6 @@ def _assemble(f, tensor=None, bcs=None):
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
             elif measure.domain_type() in ['exterior_facet', 'exterior_facet_vert']:
-                if op2.MPI.parallel:
-                    raise \
-                        NotImplementedError(
-                            "No support for facet integrals under MPI yet")
-
                 if is_mat:
                     tensor_arg = mat(lambda s: s.exterior_facet_node_map(tsbc),
                                      lambda s: s.exterior_facet_node_map(trbc),
@@ -606,11 +607,6 @@ def _assemble(f, tensor=None, bcs=None):
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
             elif measure.domain_type() in ['exterior_facet_top', 'exterior_facet_bottom']:
-                if op2.MPI.parallel:
-                    raise \
-                        NotImplementedError(
-                            "No support for facet integrals under MPI yet")
-
                 if is_mat:
                     tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
                                      lambda s: s.cell_node_map(trbc),
@@ -706,7 +702,9 @@ def _assemble(f, tensor=None, bcs=None):
                     # index of the function space the bc is defined on.
                     if i == j and (fs.index is None or fs.index == i):
                         tensor[i, j].inc_local_diagonal_entries(bc.nodes)
-
+        if is_mat:
+            # Queue up matrix assembly (after we've done all the other operations)
+            tensor.assemble()
         return result()
 
     if is_mat:
