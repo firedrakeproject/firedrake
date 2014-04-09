@@ -4,11 +4,15 @@ import types
 import weakref
 from petsc4py import PETSc
 from pyop2.logger import debug, warning
+from pyop2.mpi import MPI, _MPI
+import numpy as np
 from parameters import parameters
 try:
     # Estimate the amount of memory per core may use.
     import psutil
-    memory = psutil.virtmem_usage().total/psutil.cpu_count()
+    memory = np.array([psutil.virtmem_usage().total/psutil.cpu_count()])
+    if MPI.comm.size > 1:
+        MPI.comm.Allreduce(_MPI.IN_PLACE, memory, _MPI.MIN)
 except ImportError:
     memory = None
 
@@ -96,7 +100,12 @@ class CacheEntry(object):
         global _assemble_count
         _assemble_count += 1
         self.value = _assemble_count
-        self.nbytes = obj.nbytes
+        if MPI.comm.size > 1:
+            tmp = np.array(obj.nbytes)
+            MPI.comm.Allreduce(_MPI.IN_PLACE, tmp, _MPI.MAX)
+            self.nbytes = tmp[0]
+        else:
+            self.nbytes = obj.nbytes
 
     def is_valid(self, form, bcs):
         return self.dependencies.valid(form) and self.bcs.valid(bcs)
@@ -123,8 +132,6 @@ class AssemblyCache(object):
             cls._instance._hits_size = 0
             cls._instance.cache = {}
             cls._instance.invalid_count = defaultdict(int)
-            cls._instance.do_not_cache = set()
-            cls._instance.assemblyfunc = None
             cls._instance.evictwarned = False
         return cls._instance
 
@@ -167,12 +174,11 @@ assumed to have a :attr:`value` attribute and eviction occurs in
 increasing value order. Currently value is an index the assembly
 operation, so older operations are evicted first.
 
-The cache will be evicted down to 90% of permitted size. Cache values
-must also have a :attr:`nbytes` attribute.
+The cache will be evicted down to 90% of permitted size.
 
 The permitted size is either the explicit
 `parameters["assembly_cache"]["max_bytes"]` or it is the amount of
-memory per core scaled by `parameters["assembly_cache"]["max_bytes"]`
+memory per core scaled by `parameters["assembly_cache"]["max_factor"]`
 (by default the scale factor is 0.6).
 
 In MPI parallel, the nbytes of each cache entry is set to the maximum
@@ -220,6 +226,9 @@ guaranteed to result in the same evictions on each processor.
             else:
                 del self.cache[c[0]]
 
+    def clear(self):
+        self.cache = {}
+
     @property
     def num_objects(self):
         return len(self.cache.keys())
@@ -236,8 +245,7 @@ guaranteed to result in the same evictions on each processor.
     def nbytes(self):
         tot_bytes = 0
         for entry in self.cache.values():
-            obj = entry.get_object()
-            tot_bytes += obj.nbytes
+            tot_bytes += entry.nbytes
         return tot_bytes
 
     @property
@@ -246,7 +254,7 @@ guaranteed to result in the same evictions on each processor.
         for entry in self.cache.values():
             obj = entry.get_object()
             if not (hasattr(obj, "_cow_is_copy_of") and obj._cow_is_copy_of):
-                tot_bytes += obj.nbytes
+                tot_bytes += entry.nbytes
             # TODO: also count snapshot bytes
             #for dep in obj.dependencies:
             #    if dep._duplicate
