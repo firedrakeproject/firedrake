@@ -68,6 +68,15 @@ class TestDat:
         d1.data[:] = -1
         assert (d1.data_ro != d2.data_ro).all()
 
+    def test_copy_constructor_mixed(self, backend, mdat):
+        """MixedDat copy constructor should copy values"""
+        mdat2 = op2.MixedDat(mdat)
+        assert mdat.dataset.set == mdat2.dataset.set
+        assert all(all(d.data_ro == d_.data_ro) for d, d_ in zip(mdat, mdat2))
+        for dat in mdat.data:
+            dat[:] = -1
+        assert all(all(d.data_ro != d_.data_ro) for d, d_ in zip(mdat, mdat2))
+
     def test_copy(self, backend, d1, s):
         """Copy method on a Dat should copy values into given target"""
         d2 = op2.Dat(s)
