@@ -747,6 +747,11 @@ for (unsigned int d=0; d < %(dim)d; d++) {
         to the nodes on that subset.
         """
 
+        if isinstance(expr, Function) and \
+                expr._function_space == self._function_space:
+            expr.dat.copy(self.dat, subset=subset)
+            return self
+
         assemble_expressions.evaluate_expression(
             assemble_expressions.Assign(self, expr), subset)
 
