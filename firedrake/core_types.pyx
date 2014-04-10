@@ -435,7 +435,7 @@ class Mesh(object):
                                   geometric_dimension = geometric_dim)
 
         dim = self._plex.getDimension()
-        self._cells, self.cell_classes = dmplex.get_entities_by_class(self._plex, dim)
+        self._cells, self.cell_classes = dmplex.get_cells_by_class(self._plex)
 
         # Derive a cell numbering from the Plex renumbering
         cell_entity_dofs = np.zeros(dim+1, dtype=np.int32)
@@ -1051,10 +1051,8 @@ class FunctionSpaceBase(ObjectCached):
             # Compute the facet_numbering and store with the parent mesh
             if mesh.interior_facets is None:
                 # Order interior facets by OP2 entity class
-                dim = mesh._plex.getDimension()
-                int_facet = lambda f: mesh._plex.getLabelValue("interior_facets", f) == 1
                 interior_facets, interior_facet_classes = \
-                    dmplex.get_entities_by_class(mesh._plex, dim-1, condition=int_facet)
+                    dmplex.get_facets_by_class(mesh._plex, "interior_facets")
 
                 interior_local_facet_number, interior_facet_cell = \
                     dmplex.facet_numbering(mesh._plex, "interior",
@@ -1079,10 +1077,8 @@ class FunctionSpaceBase(ObjectCached):
             if mesh.exterior_facets is None:
 
                 # Order exterior facets by OP2 entity class
-                dim = mesh._plex.getDimension()
-                ext_facet = lambda f: mesh._plex.getLabelValue("exterior_facets", f) == 1
                 exterior_facets, exterior_facet_classes = \
-                    dmplex.get_entities_by_class(mesh._plex, dim-1, condition=ext_facet)
+                    dmplex.get_facets_by_class(mesh._plex, "exterior_facets")
 
                 # Derive attached boundary IDs
                 if mesh._plex.hasLabel("boundary_ids"):

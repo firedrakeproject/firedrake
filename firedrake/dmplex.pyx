@@ -27,8 +27,11 @@ cdef extern from "petscdmplex.h":
     int DMPlexGetTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
 
+    int DMPlexGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
+
 cdef extern from "petscis.h":
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
+    int ISGetIndices(PETSc.PetscIS,PetscInt*[])
 
 def _from_cell_list(dim, cells, coords, comm=None):
     """
@@ -356,32 +359,81 @@ def mark_entity_classes(plex):
             depth = plex.getLabelValue("depth", p)
             plex.setLabelValue("op2_core", p, depth)
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_cells_by_class(PETSc.DM plex):
+    """Builds a list of all cells ordered according to OP2 entity
+    classes and computes the respective class offsets.
 
-def get_entities_by_class(plex, depth, condition=None):
-    """Get a list of Plex entities sorted by the PyOP2 entity classes"""
-    entity_classes = [0, 0, 0, 0]
-    entities = np.array([], dtype=np.int32)
-    if plex.getStratumSize("op2_core", depth) > 0:
-        core = plex.getStratumIS("op2_core", depth).getIndices()
-        if condition:
-            core = filter(condition, core)
-        entities = np.concatenate([entities, core])
-    entity_classes[0] = entities.size
-    if plex.getStratumSize("op2_non_core", depth) > 0:
-        non_core = plex.getStratumIS("op2_non_core", depth).getIndices()
-        if condition:
-            non_core = filter(condition, non_core)
-        entities = np.concatenate([entities, non_core])
-    entity_classes[1] = entities.size
-    if plex.getStratumSize("op2_exec_halo", depth) > 0:
-        exec_halo = plex.getStratumIS("op2_exec_halo", depth).getIndices()
-        if condition:
-            exec_halo = filter(condition, exec_halo)
-        entities = np.concatenate([entities, exec_halo])
-    entity_classes[2] = entities.size
-    entity_classes[3] = entities.size
-    return entities, entity_classes
+    :arg plex: The DMPlex object encapsulating the mesh topology
+    """
+    cdef:
+        PetscInt dim, c, ci, nclass
+        PetscInt *indices = NULL
+        PETSc.IS class_is = None
+        np.ndarray[np.int32_t] cells
 
+    dim = plex.getDimension()
+    cStart, cEnd = plex.getHeightStratum(0)
+    cells = np.empty(cEnd - cStart, dtype=np.int32)
+    cell_classes = [0, 0, 0, 0]
+    c = 0
+
+    for i, op2class in enumerate(["op2_core",
+                                  "op2_non_core",
+                                  "op2_exec_halo"]):
+        nclass = plex.getStratumSize(op2class, dim)
+        if nclass > 0:
+            class_is = plex.getStratumIS(op2class, dim)
+            ISGetIndices(class_is.iset, &indices)
+            for ci in range(nclass):
+                cells[c] = indices[ci]
+                c += 1
+        cell_classes[i] = c
+
+    cell_classes[3] = cell_classes[2]
+    return cells, cell_classes
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_facets_by_class(PETSc.DM plex, label):
+    """Builds a list of all facets ordered according to OP2 entity
+    classes and computes the respective class offsets.
+
+    :arg plex: The DMPlex object encapsulating the mesh topology
+    :arg label: Label string that marks the facets to order
+    """
+    cdef:
+        PetscInt dim, fi, ci, nfacets, nclass, lbl_val
+        PetscInt *indices = NULL
+        PETSc.IS class_is = None
+        char *class_chr = NULL
+        np.ndarray[np.int32_t] facets
+
+    label_chr = <char*>label
+    dim = plex.getDimension()
+    nfacets = plex.getStratumSize(label, 1)
+    facets = np.empty(nfacets, dtype=np.int32)
+    facet_classes = [0, 0, 0, 0]
+    fi = 0
+
+    for i, op2class in enumerate(["op2_core",
+                                  "op2_non_core",
+                                  "op2_exec_halo"]):
+        nclass = plex.getStratumSize(op2class, dim-1)
+        if nclass > 0:
+            class_is = plex.getStratumIS(op2class, dim-1)
+            ISGetIndices(class_is.iset, &indices)
+            for ci in range(nclass):
+                DMPlexGetLabelValue(plex.dm, label_chr,
+                                    indices[ci], &lbl_val)
+                if lbl_val == 1:
+                    facets[fi] = indices[ci]
+                    fi += 1
+        facet_classes[i] = fi
+
+    facet_classes[3] = facet_classes[2]
+    return facets, facet_classes
 
 def plex_renumbering(plex):
     """
