@@ -33,6 +33,7 @@ from pyop2.exceptions import MapValueError
 from pyop2.logger import progress, INFO
 import core_types
 import types
+from copy import copy
 from ffc_interface import compile_form
 from assemble_expressions import assemble_expression
 from petsc import PETSc
@@ -124,7 +125,9 @@ class NonlinearVariationalSolver(object):
         NonlinearVariationalSolver._id += 1
         self.snes.setOptionsPrefix(self._opt_prefix)
 
-        parameters = kwargs.get('parameters', {})
+        parameters = kwargs.get('parameters', None)
+        # Make sure we don't stomp on a dict the user has passed in.
+        parameters = copy(parameters) if parameters is not None else {}
         # Mixed problem, use jacobi pc if user has not supplied one.
         if self._jac_tensor._M.sparsity.shape != (1, 1):
             parameters.setdefault('pc_type', 'jacobi')
@@ -710,7 +713,7 @@ def _assemble(f, tensor=None, bcs=None):
         return thunk(bcs)
 
 
-def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'ilu'},
+def _la_solve(A, x, b, bcs=None, parameters=None,
               nullspace=None):
     """Solves a linear algebra problem.
 
@@ -743,7 +746,10 @@ def _la_solve(A, x, b, bcs=None, parameters={'ksp_type': 'gmres', 'pc_type': 'il
     the parameters dict, if it is empty, the defaults are taken from
     PyOP2 (see :var:`pyop2.DEFAULT_SOLVER_PARAMETERS`)."""
 
-    # Mixed problem, use jacobi pc if user has not supplied one.
+    # Make sure we don't stomp on a dict the user has passed in.
+    parameters = copy(parameters) if parameters is not None else {}
+    parameters.setdefault('ksp_type', 'gmres')
+    parameters.setdefault('pc_type', 'ilu')
     if A._M.sparsity.shape != (1, 1):
         parameters.setdefault('pc_type', 'jacobi')
     solver = op2.Solver(parameters=parameters)
@@ -866,8 +872,7 @@ def solve(*args, **kwargs):
         bcs = kwargs.pop('bcs', None)
         nullspace = kwargs.pop('nullspace', None)
         _kwargs = {'bcs': bcs, 'nullspace': nullspace}
-        if parms:
-            _kwargs['parameters'] = parms
+        _kwargs['parameters'] = parms
         return _la_solve(*args, **_kwargs)
 
 
