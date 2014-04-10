@@ -36,6 +36,7 @@
 import cPickle
 import gzip
 import os
+from mpi import MPI
 
 
 def report_cache(typ):
@@ -252,19 +253,38 @@ class DiskCached(Cached):
 
     @classmethod
     def _read_from_disk(cls, key):
-        filepath = os.path.join(cls._cachedir, key)
-        if os.path.exists(filepath):
-            f = gzip.open(filepath, "rb")
-            val = cPickle.load(f)
-            f.close()
-            # Store in memory so we can save ourselves a disk lookup next time
-            cls._cache[key] = val
-            return val
-        raise KeyError("Object with key %s not found in %s" % (key, filepath))
+        c = MPI.comm
+        # Only rank 0 looks on disk
+        if c.rank == 0:
+            filepath = os.path.join(cls._cachedir, key)
+            val = None
+            if os.path.exists(filepath):
+                with gzip.open(filepath, 'rb') as f:
+                    val = f.read()
+            # Have to broadcast pickled object, because __new__
+            # interferes with mpi4py's pickle/unpickle interface.
+            c.bcast(val, root=0)
+        else:
+            val = c.bcast(None, root=0)
+
+        if val is None:
+            raise KeyError("Object with key %s not found in %s" % (key, cls._cachedir))
+
+        # Get the actual object
+        val = cPickle.loads(val)
+
+        # Store in memory so we can save ourselves a disk lookup next time
+        cls._cache[key] = val
+        return val
 
     @classmethod
     def _cache_store(cls, key, val):
         cls._cache[key] = val
-        f = gzip.open(os.path.join(cls._cachedir, key), "wb")
-        cPickle.dump(val, f)
-        f.close()
+        c = MPI.comm
+        # Only rank 0 stores on disk
+        if c.rank == 0:
+            filepath = os.path.join(cls._cachedir, key)
+            # No need for a barrier after this, since non root
+            # processes will never race on this file.
+            with gzip.open(filepath, 'wb') as f:
+                cPickle.dump(val, f)
