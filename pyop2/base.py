@@ -2188,7 +2188,8 @@ class MixedDat(Dat):
 
         :arg other: The destination :class:`MixedDat`"""
 
-        self._copy_parloop(other).enqueue()
+        for s, o in zip(self, other):
+            s._copy_parloop(o).enqueue()
 
     @collective
     def _cow_actual_copy(self, src):
