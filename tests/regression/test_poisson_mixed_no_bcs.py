@@ -22,11 +22,12 @@ which reproduces the known analytical solution
 
     x[0]*(1-x[0])*x[1]*(1-x[1])
 """
+import pytest
 
 from firedrake import *
 
 
-def poisson_mixed(size):
+def poisson_mixed(size, parameters={}):
     # Create mesh
     mesh = UnitSquareMesh(2 ** size, 2 ** size)
 
@@ -48,7 +49,7 @@ def poisson_mixed(size):
 
     # Compute solution
     w = Function(W)
-    solve(a == L, w)
+    solve(a == L, w, solver_parameters=parameters)
     sigma, u = w.split()
 
     # Analytical solution
@@ -56,10 +57,17 @@ def poisson_mixed(size):
     return sqrt(assemble(dot(u - f, u - f) * dx)), u, f
 
 
-def test_poisson_mixed():
+@pytest.mark.parametrize('parameters',
+                         [{}, {'pc_type': 'fieldsplit',
+                               'pc_fieldsplit_type': 'schur',
+                               'ksp_type': 'gmres',
+                               'pc_fieldsplit_schur_fact_type': 'FULL',
+                               'fieldsplit_0_ksp_type': 'cg',
+                               'fieldsplit_1_ksp_type': 'cg'}])
+def test_poisson_mixed(parameters):
     """Test second-order convergence of the mixed poisson formulation."""
     import numpy as np
-    diff = np.array([poisson_mixed(i)[0] for i in range(3, 6)])
+    diff = np.array([poisson_mixed(i, parameters)[0] for i in range(3, 6)])
     print "l2 error norms:", diff
     conv = np.log2(diff[:-1] / diff[1:])
     print "convergence order:", conv
@@ -67,5 +75,4 @@ def test_poisson_mixed():
 
 if __name__ == '__main__':
     import os
-    import pytest
     pytest.main(os.path.abspath(__file__))

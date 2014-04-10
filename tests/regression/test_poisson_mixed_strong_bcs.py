@@ -23,6 +23,7 @@ the weak formulation of the right hand side as
 
     42*dot(tau, n)*ds
 """
+import pytest
 
 import pytest
 from firedrake import *
@@ -62,12 +63,15 @@ def poisson_mixed(size, parameters={}):
     return sqrt(assemble(dot(u - f, u - f) * dx)), u, f
 
 
-def test_poisson_mixed():
-    assert poisson_mixed(3)[0] < 2e-5
-
-
-def test_poisson_mixed_monitor():
-    assert poisson_mixed(3, parameters={'snes_monitor': True})[0] < 2e-5
+@pytest.mark.parametrize('parameters',
+                         [{}, {'pc_type': 'fieldsplit',
+                               'pc_fieldsplit_type': 'schur',
+                               'ksp_type': 'gmres',
+                               'pc_fieldsplit_schur_fact_type': 'FULL',
+                               'fieldsplit_0_ksp_type': 'cg',
+                               'fieldsplit_1_ksp_type': 'cg'}])
+def test_poisson_mixed(parameters):
+    assert poisson_mixed(3, parameters)[0] < 2e-5
 
 
 @pytest.mark.parallel(nprocs=3)
@@ -93,6 +97,5 @@ def test_poisson_mixed_parallel():
 
 
 if __name__ == '__main__':
-    import pytest
     import os
     pytest.main(os.path.abspath(__file__))
