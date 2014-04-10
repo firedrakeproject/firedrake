@@ -14,6 +14,7 @@ from ufl_expr import Argument
 
 from ffc import default_parameters, compile_form as ffc_compile_form
 from ffc import constants
+from ffc import log
 
 from pyop2.caching import DiskCached
 from pyop2.op2 import Kernel
@@ -28,6 +29,12 @@ ffc_parameters = default_parameters()
 ffc_parameters['write_file'] = False
 ffc_parameters['format'] = 'pyop2'
 ffc_parameters['pyop2-ir'] = True
+
+# Only spew ffc message on rank zero
+if MPI.comm.rank != 0:
+    log.set_level(log.ERROR)
+del log
+
 
 def _check_version():
     from version import __compatible_ffc_version_info__ as compatible_version, \
