@@ -396,12 +396,14 @@ class Mat(base.Mat, CopyOnWrite):
         if not hasattr(self, '_array'):
             self._init()
         base._trace.evaluate(set([self]), set())
+        self._assemble()
         return self._array
 
     @property
     @modifies
     def values(self):
         base._trace.evaluate(set([self]), set())
+        self._assemble()
         return self.handle[:, :]
 
     @property

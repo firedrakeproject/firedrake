@@ -1852,7 +1852,10 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
 
         if configuration['lazy_evaluation']:
             _trace.evaluate(self._cow_parloop.reads, self._cow_parloop.writes)
-            _trace._trace.remove(self._cow_parloop)
+            try:
+                _trace._trace.remove(self._cow_parloop)
+            except ValueError:
+                return
 
         self._cow_parloop._run()
 
@@ -3232,7 +3235,7 @@ class Mat(SetAssociated):
         """
 
         return (self._sparsity.nz + self._sparsity.onz) \
-            * self.dtype.itemsize * np.prod(self._sparsity.dims)
+            * self.dtype.itemsize * np.sum(np.prod(self._sparsity.dims))
 
     def __iter__(self):
         """Yield self when iterated over."""
