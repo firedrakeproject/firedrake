@@ -101,7 +101,7 @@ class CacheEntry(object):
         _assemble_count += 1
         self.value = _assemble_count
         if MPI.comm.size > 1:
-            tmp = np.array(obj.nbytes)
+            tmp = np.array([obj.nbytes])
             MPI.comm.Allreduce(_MPI.IN_PLACE, tmp, _MPI.MAX)
             self.nbytes = tmp[0]
         else:
@@ -228,6 +228,9 @@ guaranteed to result in the same evictions on each processor.
 
     def clear(self):
         self.cache = {}
+        self._hits = 0
+        self._hits_size = 0
+        self.invalid_count = defaultdict(int)
 
     @property
     def num_objects(self):
