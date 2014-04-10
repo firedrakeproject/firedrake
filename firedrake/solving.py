@@ -423,19 +423,9 @@ def _assemble(f, tensor=None, bcs=None):
     def get_rank(arg):
         return arg.function_space().rank
 
-    def mixed_plus_vfs_error(arg):
-        mfs = arg.function_space()
-        if not isinstance(mfs, types.MixedFunctionSpace):
-            return
-        if any(isinstance(fs, types.VectorFunctionSpace) for fs in mfs):
-            raise NotImplementedError(
-                "MixedFunctionSpaces containing a VectorFunctionSpace are currently unsupported")
-
     if is_mat:
         test, trial = fd.original_arguments
 
-        mixed_plus_vfs_error(test)
-        mixed_plus_vfs_error(trial)
         map_pairs = []
         cell_domains = []
         exterior_facet_domains = []
@@ -508,7 +498,6 @@ def _assemble(f, tensor=None, bcs=None):
         result = lambda: result_matrix
     elif is_vec:
         test = fd.original_arguments[0]
-        mixed_plus_vfs_error(test)
         if tensor is None:
             result_function = types.Function(test.function_space())
             tensor = result_function.dat
