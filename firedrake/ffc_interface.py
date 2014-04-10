@@ -179,7 +179,7 @@ def compile_form(form, name):
 
 
 def clear_cache():
-    """Clear the PyOP2 FFC kernel cache."""
+    """Clear the Firedrake FFC kernel cache."""
     if MPI.comm.rank != 0:
         return
     if path.exists(FFCKernel._cachedir):
