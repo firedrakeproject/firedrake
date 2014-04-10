@@ -190,7 +190,9 @@ def clear_cache():
 
 def _ensure_cachedir():
     """Ensure that the FFC kernel cache directory exists."""
-    if not path.exists(FFCKernel._cachedir) and MPI.comm.rank == 0:
+    if MPI.comm.rank != 0:
+        return
+    if not path.exists(FFCKernel._cachedir):
         makedirs(FFCKernel._cachedir)
 
 _check_version()
