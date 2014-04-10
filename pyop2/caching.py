@@ -36,6 +36,7 @@
 import cPickle
 import gzip
 import os
+from mpi import MPI
 
 
 def report_cache(typ):
@@ -129,6 +130,22 @@ class ObjectCached(object):
         args = args[1:]
         key = cls._cache_key(*args, **kwargs)
 
+        def make_obj():
+            obj = super(ObjectCached, cls).__new__(cls)
+            obj._initialized = False
+            # obj.__init__ will be called twice when constructing
+            # something not in the cache.  The first time here, with
+            # the canonicalised args, the second time directly in the
+            # subclass.  But that one should hit the cache and return
+            # straight away.
+            obj.__init__(*args, **kwargs)
+            return obj
+
+        # Don't bother looking in caches if we're not meant to cache
+        # this object.
+        if key is None:
+            return make_obj()
+
         # Does the caching object know about the caches?
         try:
             cache = cache_obj._cache
@@ -140,16 +157,8 @@ class ObjectCached(object):
         try:
             return cache[key]
         except KeyError:
-            obj = super(ObjectCached, cls).__new__(cls)
-            obj._initialized = False
-            # obj.__init__ will be called twice when constructing
-            # something not in the cache.  The first time here, with
-            # the canonicalised args, the second time directly in the
-            # subclass.  But that one should hit the cache and return
-            # straight away.
-            obj.__init__(*args, **kwargs)
-            if key is not None:
-                cache[key] = obj
+            obj = make_obj()
+            cache[key] = obj
             return obj
 
 
@@ -170,9 +179,8 @@ class Cached(object):
     def __new__(cls, *args, **kwargs):
         args, kwargs = cls._process_args(*args, **kwargs)
         key = cls._cache_key(*args, **kwargs)
-        try:
-            return cls._cache_lookup(key)
-        except KeyError:
+
+        def make_obj():
             obj = super(Cached, cls).__new__(cls)
             obj._key = key
             obj._initialized = False
@@ -182,9 +190,17 @@ class Cached(object):
             # subclass.  But that one should hit the cache and return
             # straight away.
             obj.__init__(*args, **kwargs)
-            # If key is None we're not supposed to store the object in cache
-            if key:
-                cls._cache_store(key, obj)
+            return obj
+
+        # Don't bother looking in caches if we're not meant to cache
+        # this object.
+        if key is None:
+            return make_obj()
+        try:
+            return cls._cache_lookup(key)
+        except KeyError:
+            obj = make_obj()
+            cls._cache_store(key, obj)
             return obj
 
     @classmethod
@@ -237,19 +253,38 @@ class DiskCached(Cached):
 
     @classmethod
     def _read_from_disk(cls, key):
-        filepath = os.path.join(cls._cachedir, key)
-        if os.path.exists(filepath):
-            f = gzip.open(filepath, "rb")
-            val = cPickle.load(f)
-            f.close()
-            # Store in memory so we can save ourselves a disk lookup next time
-            cls._cache[key] = val
-            return val
-        raise KeyError("Object with key %s not found in %s" % (key, filepath))
+        c = MPI.comm
+        # Only rank 0 looks on disk
+        if c.rank == 0:
+            filepath = os.path.join(cls._cachedir, key)
+            val = None
+            if os.path.exists(filepath):
+                with gzip.open(filepath, 'rb') as f:
+                    val = f.read()
+            # Have to broadcast pickled object, because __new__
+            # interferes with mpi4py's pickle/unpickle interface.
+            c.bcast(val, root=0)
+        else:
+            val = c.bcast(None, root=0)
+
+        if val is None:
+            raise KeyError("Object with key %s not found in %s" % (key, cls._cachedir))
+
+        # Get the actual object
+        val = cPickle.loads(val)
+
+        # Store in memory so we can save ourselves a disk lookup next time
+        cls._cache[key] = val
+        return val
 
     @classmethod
     def _cache_store(cls, key, val):
         cls._cache[key] = val
-        f = gzip.open(os.path.join(cls._cachedir, key), "wb")
-        cPickle.dump(val, f)
-        f.close()
+        c = MPI.comm
+        # Only rank 0 stores on disk
+        if c.rank == 0:
+            filepath = os.path.join(cls._cachedir, key)
+            # No need for a barrier after this, since non root
+            # processes will never race on this file.
+            with gzip.open(filepath, 'wb') as f:
+                cPickle.dump(val, f)
