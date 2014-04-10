@@ -10,8 +10,9 @@ commands below.
 PyOP2
 -----
 
-Instructions for obtaining PyOP2 and its dependencies are at
-:doc:`obtaining_pyop2`.
+Instructions for obtaining PyOP2_ and its dependencies are at
+:doc:`obtaining_pyop2`. Note that PyOP2_ is updated frequently and Firedrake
+requires an up-to-date version.
 
 FFC, FIAT and UFL
 -----------------
@@ -22,12 +23,21 @@ requires a version of Instant_.
 Install FFC_ and all dependencies via pip::
 
   sudo pip install \
-    git+https://bitbucket.org/mapdes/ffc.git#egg=ffc
-    git+https://bitbucket.org/mapdes/ufl.git#egg=ufl
-    git+https://bitbucket.org/mapdes/fiat.git#egg=fiat
-    git+https://bitbucket.org/fenics-project/instant.git#egg=instant
+    git+https://bitbucket.org/mapdes/ffc.git#egg=ffc \
+    git+https://bitbucket.org/mapdes/ufl.git#egg=ufl \
+    git+https://bitbucket.org/mapdes/fiat.git#egg=fiat \
+    git+https://bitbucket.org/fenics-project/instant.git#egg=instant \
     hg+https://bitbucket.org/khinsen/scientificpython
 
+These dependencies are regularly updated. If you already have the packages
+installed and want to upgrade to the latest versions, do the following::
+
+  sudo pip install -U --no-deps ...
+
+To install for your user only, which does not require sudo permissions,
+modify the pip invocation for either case above as follows::
+
+  pip install --user ...
 
 Firedrake
 ---------
@@ -44,7 +54,7 @@ development at all, you can install Firedrake using pip::
 
   sudo pip install git+https://github.com/firedrakeproject/firedrake.git
 
-or::
+or (to install for your user only)::
 
   pip install --user git+https://github.com/firedrakeproject/firedrake.git
 
@@ -54,7 +64,7 @@ examples on the :doc:`documentation page <documentation>`.
 Git instructions for developers
 ...............................
 
-Next, obtain the Firedrake source from GitHub_
+Next, obtain the Firedrake source from GitHub_ ::
 
  git clone https://github.com/firedrakeproject/firedrake.git
 
