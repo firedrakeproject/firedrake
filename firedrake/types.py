@@ -800,6 +800,7 @@ class Matrix(object):
 
     def __init__(self, a, bcs, *args, **kwargs):
         self._a = a
+        self._a_action = None
         self._M = op2.Mat(*args, **kwargs)
         self._thunk = None
         self._assembled = False
@@ -947,6 +948,20 @@ class Matrix(object):
             if bc.sub_domain != existing_bc.sub_domain:
                 new_bcs.add(existing_bc)
         self.bcs = new_bcs
+
+    def _form_action(self, u):
+        """Assemble the form action of this :class:`Matrix`' bilinear form
+        onto the :class:`Function` ``u``.
+        .. note::
+            This is the form **without** any boundary conditions."""
+        if not self._a_action:
+            self._a_action = ufl.action(self._a, u)
+        # We want to make sure the function space of u is the same as the one
+        # of the Function we computed the action from
+        coeff = self._a_action.compute_form_data().original_coefficients[0]
+        if coeff._function_space != u._function_space:
+            raise RuntimeError("%r not defined on the same function space as %r", (u, coeff))
+        return _assemble(self._a_action)
 
     def __repr__(self):
         return '%sassembled firedrake.Matrix(form=%r, bcs=%r)' % \
