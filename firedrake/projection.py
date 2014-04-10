@@ -10,7 +10,7 @@ __all__ = ['project']
 
 
 def project(v, V, bcs=None, mesh=None,
-            solver_parameters={},
+            solver_parameters=None,
             form_compiler_parameters=None,
             name=None):
     """Project an :class:`.Expression` or :class:`.Function` into a :class:`.FunctionSpace`
@@ -72,6 +72,13 @@ def project(v, V, bcs=None, mesh=None,
     q = TrialFunction(V)
     a = ufl.inner(p, q) * V.mesh()._dx
     L = ufl.inner(p, v) * V.mesh()._dx
+
+    # Default to 1e-8 relative tolerance
+    if solver_parameters is None:
+        solver_parameters = {'ksp_type': 'cg', 'ksp_rtol': 1e-8}
+    else:
+        solver_parameters.setdefault('ksp_type', 'cg')
+        solver_parameters.setdefault('ksp_rtol', 1e-8)
 
     solve(a == L, ret, bcs=bcs,
           solver_parameters=solver_parameters,
