@@ -312,17 +312,6 @@ class TestArgAPI:
     Arg API unit tests
     """
 
-    def test_arg_mixed_dat_flatten(self, backend, mdat, mmap):
-        "Creating a flattened Arg on a MixedDat should fail."
-        with pytest.raises(exceptions.DatTypeError):
-            mdat(op2.READ, mmap, flatten=True)
-
-    def test_arg_mixed_mat_flatten(self, backend, mmat):
-        "Creating a flattened Arg on a mixed Mat should fail."
-        mr, mc = mmat.sparsity.maps[0]
-        with pytest.raises(exceptions.MatTypeError):
-            mmat(op2.INC, (mr[op2.i[0]], mc[op2.i[1]]), flatten=True)
-
     def test_arg_split_dat(self, backend, dat, m_iterset_toset):
         arg = dat(op2.READ, m_iterset_toset)
         for a in arg.split:
@@ -808,8 +797,8 @@ class TestMixedDataSetAPI:
         assert mdset.dim == tuple(s.dim for s in mdset)
 
     def test_mixed_dset_cdim(self, backend, mdset):
-        "MixedDataSet cdim should return a tuple of the DataSet cdims."
-        assert mdset.cdim == tuple(s.cdim for s in mdset)
+        "MixedDataSet cdim should return the sum of the DataSet cdims."
+        assert mdset.cdim == sum(s.cdim for s in mdset)
 
     def test_mixed_dset_name(self, backend, mdset):
         "MixedDataSet name should return a tuple of the DataSet names."
@@ -1983,18 +1972,7 @@ class TestIterationSpaceAPI:
     def test_iteration_space_iter(self, backend, set):
         "Iterating an empty IterationSpace should yield an empty shape."
         for i, j, shape, offset in base.IterationSpace(set):
-            assert i == 0 and j == 0 and shape == () and offset == (0,)
-
-    @pytest.mark.parametrize(('shapes', 'offsets'),
-                             [((((1, 1), (1, 2)), ((2, 1), (2, 2))), ((0, 1), (0, 1))),
-                              ((((1, 2),), ((2, 1),)), ((0,), (1,)))])
-    def test_iteration_space_iter_blocks(self, backend, set, shapes, offsets):
-        """Iterating an IterationSpace should yield its blocks shapes and their
-        indices."""
-        for i, j, shape, offset in base.IterationSpace(set, block_shape=shapes,
-                                                       offsets=offsets):
-            assert shape == shapes[i][j]
-            assert offset == offsets[i][j]
+            assert i == 0 and j == 0 and shape == () and offset == (0, 0)
 
     def test_iteration_space_eq(self, backend, set):
         """IterationSpaces should compare equal if defined on the same Set."""
