@@ -14,6 +14,7 @@ from ufl_expr import Argument
 
 from ffc import default_parameters, compile_form as ffc_compile_form
 from ffc import constants
+from ffc import log
 
 from pyop2.caching import DiskCached
 from pyop2.op2 import Kernel
@@ -29,9 +30,10 @@ ffc_parameters['write_file'] = False
 ffc_parameters['format'] = 'pyop2'
 ffc_parameters['pyop2-ir'] = True
 
-# Include an md5 hash of firedrake_geometry.h in the cache key
-with open(path.join(path.dirname(__file__), 'firedrake_geometry.h')) as f:
-    _firedrake_geometry_md5 = md5(f.read()).hexdigest()
+# Only spew ffc message on rank zero
+if MPI.comm.rank != 0:
+    log.set_level(log.ERROR)
+del log
 
 
 def _check_version():
@@ -119,15 +121,25 @@ class FormSplitter(ReuseTransformer):
 class FFCKernel(DiskCached):
 
     _cache = {}
-    _cachedir = environ.get('FIREDRAKE_FFC_KERNEL_CACHE_DIR',
-                            path.join(tempfile.gettempdir(),
-                                      'firedrake-ffc-kernel-cache-uid%d' % getuid()))
+    if MPI.comm.rank == 0:
+        _cachedir = environ.get('FIREDRAKE_FFC_KERNEL_CACHE_DIR',
+                                path.join(tempfile.gettempdir(),
+                                          'firedrake-ffc-kernel-cache-uid%d' % getuid()))
+        # Include an md5 hash of firedrake_geometry.h in the cache key
+        with open(path.join(path.dirname(__file__), 'firedrake_geometry.h')) as f:
+            _firedrake_geometry_md5 = md5(f.read()).hexdigest()
+        MPI.comm.bcast(_firedrake_geometry_md5, root=0)
+    else:
+        # No cache on slave processes
+        _cachedir = None
+        # MD5 obtained by broadcast from root
+        _firedrake_geometry_md5 = MPI.comm.bcast(None, root=0)
 
     @classmethod
     def _cache_key(cls, form, name):
         form_data = form.compute_form_data()
         return md5(form_data.signature + name + Kernel._backend.__name__ +
-                   _firedrake_geometry_md5 + constants.FFC_VERSION +
+                   cls._firedrake_geometry_md5 + constants.FFC_VERSION +
                    constants.PYOP2_VERSION).hexdigest()
 
     def __init__(self, form, name):
@@ -179,7 +191,7 @@ def compile_form(form, name):
 
 
 def clear_cache():
-    """Clear the PyOP2 FFC kernel cache."""
+    """Clear the Firedrake FFC kernel cache."""
     if MPI.comm.rank != 0:
         return
     if path.exists(FFCKernel._cachedir):
@@ -190,7 +202,9 @@ def clear_cache():
 
 def _ensure_cachedir():
     """Ensure that the FFC kernel cache directory exists."""
-    if not path.exists(FFCKernel._cachedir) and MPI.comm.rank == 0:
+    if MPI.comm.rank != 0:
+        return
+    if not path.exists(FFCKernel._cachedir):
         makedirs(FFCKernel._cachedir)
 
 _check_version()
