@@ -24,8 +24,6 @@ the weak formulation of the right hand side as
     42*dot(tau, n)*ds
 """
 import pytest
-
-import pytest
 from firedrake import *
 
 
