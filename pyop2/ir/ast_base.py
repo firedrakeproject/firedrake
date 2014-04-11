@@ -113,6 +113,13 @@ class UnaryExpr(Expr):
         super(UnaryExpr, self).__init__([expr])
 
 
+class Neg(UnaryExpr):
+
+    "Unary negation of an expression"
+    def gencode(self, scope=False):
+        return "-%s" % wrap(self.children[0].gencode()) + semicolon(scope)
+
+
 class ArrayInit(Expr):
 
     """Array Initilizer. A n-dimensional array A can be statically initialized
@@ -451,7 +458,7 @@ class For(Statement):
 
         for (int i = 0, j = 0; ...)"""
 
-    def __init__(self, init, cond, incr, body, pragma=""):
+    def __init__(self, init, cond, incr, body, pragma=None):
         # If the body is a plain list, cast it to a Block.
         if not isinstance(body, Node):
             body = Block(body, open_scope=True)
@@ -460,7 +467,7 @@ class For(Statement):
         self.init = init
         self.cond = cond
         self.incr = incr
-        self.pragma = pragma
+        self.pragma = pragma if pragma is not None else ""
 
     def it_var(self):
         return self.init.sym.symbol
@@ -620,7 +627,7 @@ def c_sym(const):
     return Symbol(const, ())
 
 
-def c_for(var, to, code):
+def c_for(var, to, code, pragma="#pragma pyop2 itspace"):
     i = c_sym(var)
     end = c_sym(to)
     if type(code) == str:
@@ -629,7 +636,7 @@ def c_for(var, to, code):
         code = Block([code], open_scope=True)
     return Block(
         [For(Decl("int", i, c_sym(0)), Less(i, end), Incr(i, c_sym(1)),
-             code, "#pragma pyop2 itspace")], open_scope=True)
+             code, pragma)], open_scope=True)
 
 
 def c_flat_for(code, parent):
