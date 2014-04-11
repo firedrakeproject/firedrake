@@ -105,8 +105,8 @@ class TestDat:
 
     def test_copy_mixed_subset_fails(self, backend, s, mdat):
         """Copy method on a MixedDat does not support subsets"""
-        with pytest.raises(TypeError):
-            mdat.copy(op2.MixedDat([s, s]), subset=None)
+        with pytest.raises(NotImplementedError):
+            mdat.copy(op2.MixedDat([s, s]), subset=op2.Subset(s, []))
 
     @pytest.mark.skipif('config.getvalue("backend")[0] not in ["cuda", "opencl"]')
     def test_copy_works_device_to_device(self, backend, d1):

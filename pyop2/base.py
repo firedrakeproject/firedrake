@@ -2247,11 +2247,14 @@ class MixedDat(Dat):
         return np.sum([d.nbytes for d in self._dats])
 
     @collective
-    def copy(self, other):
+    def copy(self, other, subset=None):
         """Copy the data in this :class:`MixedDat` into another.
 
-        :arg other: The destination :class:`MixedDat`"""
+        :arg other: The destination :class:`MixedDat`
+        :arg subset: Subsets are not supported, this must be :class:`None`"""
 
+        if subset is not None:
+            raise NotImplementedError("MixedDat.copy with a Subset is not supported")
         for s, o in zip(self, other):
             s._copy_parloop(o).enqueue()
 
