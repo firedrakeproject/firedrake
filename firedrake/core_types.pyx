@@ -435,7 +435,7 @@ class Mesh(object):
                                   geometric_dimension = geometric_dim)
 
         dim = self._plex.getDimension()
-        self._cells, self.cell_classes = dmplex.get_entities_by_class(self._plex, dim)
+        self._cells, self.cell_classes = dmplex.get_cells_by_class(self._plex)
 
         # Derive a cell numbering from the Plex renumbering
         cell_entity_dofs = np.zeros(dim+1, dtype=np.int32)
@@ -444,69 +444,23 @@ class Mesh(object):
                                                         cell_entity_dofs,
                                                         perm=self._plex_renumbering)
 
-        # Fenics facet and DoF numbering requires a universal vertex numbering
-        self._vertex_numbering = None
-        vertex_fs = types.FunctionSpace(self, "CG", 1)
-        self._vertex_numbering = vertex_fs._universal_numbering
+        # Applying Fenics local numbering rules to DMPlex graph
+        # closures requires a universal vertex numbering, which we
+        # only have once we build a FunctionSpace. We therefore force
+        # the closure reordering and facet numbering to happen with a
+        # FS that has DoFs on vertices and coincides with the
+        # coordinate_fs in the non-periodic case to make use of caching.
+        self._cell_closure = None
+        self.interior_facets = None
+        self.exterior_facets = None
+        closure_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
 
         # Exterior facets
-        if self._plex.getStratumSize("exterior_facets", 1) > 0:
-
-            # Order exterior facets by OP2 entity class
-            ext_facet = lambda f: self._plex.getLabelValue("exterior_facets", f) == 1
-            exterior_facets, exterior_facet_classes = \
-                dmplex.get_entities_by_class(self._plex, dim-1, condition=ext_facet)
-
-            # Derive attached boundary IDs
-            if self._plex.hasLabel("boundary_ids"):
-                boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
-                for i, facet in enumerate(exterior_facets):
-                    boundary_ids[i] = self._plex.getLabelValue("boundary_ids", facet)
-            else:
-                boundary_ids = None
-
-            exterior_facet_cell = []
-            for f in exterior_facets:
-                fcells = self._plex.getSupport(f)
-                fcells_num = [np.array([self._cell_numbering.getOffset(c)]) for c in fcells]
-                exterior_facet_cell.append(np.concatenate(fcells_num))
-            exterior_facet_cell = np.array(exterior_facet_cell)
-
-            get_f_no = lambda f: dmplex.facet_numbering(self._plex, self._vertex_numbering, f)
-            exterior_local_facet_number = np.array([get_f_no(f) for f in exterior_facets], dtype=np.int32)
-            # Note: To implement facets correctly in parallel
-            # we need to pass exterior_facet_classes to _Facets()
-            self.exterior_facets = _Facets(self, exterior_facets.size,
-                                           "exterior",
-                                           exterior_facet_cell,
-                                           exterior_local_facet_number,
-                                           boundary_ids)
-        else:
+        if self._plex.getStratumSize("exterior_facets", 1) <= 0:
             self.exterior_facets = _Facets(self, 0, "exterior", None, None)
 
         # Interior facets
-        if self._plex.getStratumSize("interior_facets", 1) > 0:
-
-            # Order interior facets by OP2 entity class
-            int_facet = lambda f: self._plex.getLabelValue("interior_facets", f) == 1
-            interior_facets, interior_facet_classes = \
-                dmplex.get_entities_by_class(self._plex, dim-1, condition=int_facet)
-
-            interior_facet_cell = []
-            for f in interior_facets:
-                fcells = self._plex.getSupport(f)
-                fcells_num = [np.array([self._cell_numbering.getOffset(c)]) for c in fcells]
-                interior_facet_cell.append(np.concatenate(fcells_num))
-            interior_facet_cell = np.array(interior_facet_cell)
-            get_f_no = lambda f: dmplex.facet_numbering(self._plex, self._vertex_numbering, f)
-            interior_local_facet_number = np.array([get_f_no(f) for f in interior_facets])
-            # Note: To implement facets correctly in parallel
-            # we need to pass interior_facet_classes to _Facets()
-            self.interior_facets = _Facets(self, interior_facets.size,
-                                           "interior",
-                                           interior_facet_cell,
-                                           interior_local_facet_number)
-        else:
+        if self._plex.getStratumSize("interior_facets", 1) <= 0:
             self.interior_facets = _Facets(self, 0, "interior", None, None)
 
         # Note that for bendy elements, this needs to change.
@@ -779,11 +733,11 @@ class ExtrudedMesh(Mesh):
         self._cells = mesh._cells
         self.parent = mesh.parent
         self.uid = mesh.uid
-        self._vertex_numbering = mesh._vertex_numbering
         self.name = mesh.name
         self._plex = mesh._plex
         self._plex_renumbering = mesh._plex_renumbering
         self._cell_numbering = mesh._cell_numbering
+        self._cell_closure = mesh._cell_closure
 
         interior_f = self._old_mesh.interior_facets
         self._interior_facets = _Facets(self, interior_f.count,
@@ -1078,33 +1032,78 @@ class FunctionSpaceBase(ObjectCached):
             self.dof_classes[3] += ndofs * (ncore + nowned + nhalo)
 
         self._node_count = self._global_numbering.getStorageSize()
-        self.cell_node_list = np.array([self._get_cell_nodes(c) for c in mesh.cells()])
+
+        # Re-order cell closures from the Plex
+        if mesh._cell_closure is None:
+            entity_dofs = self.fiat_element.entity_dofs()
+            entity_per_cell = [len(entity) for d, entity in entity_dofs.iteritems()]
+            entity_per_cell = np.array(entity_per_cell, dtype=np.int32)
+            mesh._cell_closure = dmplex.closure_ordering(mesh._plex,
+                                                         self._universal_numbering,
+                                                         mesh._cell_numbering,
+                                                         entity_per_cell)
+
+        self.cell_node_list = np.empty((mesh.num_cells(), sum(self._dofs_per_cell)), dtype=np.int32)
+        for c in range(mesh.num_cells()):
+            self.cell_node_list[c,:] = self._get_cell_nodes(mesh._cell_closure[c,:])
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
-            dim = mesh._plex.getDimension()
-            int_facet = lambda f: mesh._plex.getLabelValue("interior_facets", f) == 1
-            interior_facets = dmplex.get_entities_by_class(mesh._plex, dim-1, condition=int_facet)[0]
+            # Compute the facet_numbering and store with the parent mesh
+            if mesh.interior_facets is None:
+                # Order interior facets by OP2 entity class
+                interior_facets, interior_facet_classes = \
+                    dmplex.get_facets_by_class(mesh._plex, "interior_facets")
 
-            interior_facet_eles = []
-            for f in interior_facets:
-                fcells = self._mesh._plex.getSupport(f)
-                fcells_num = [np.array([mesh._cell_numbering.getOffset(c)]) for c in fcells]
-                interior_facet_eles.append(np.concatenate(fcells_num))
-            self.interior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in interior_facet_eles])
+                interior_local_facet_number, interior_facet_cell = \
+                    dmplex.facet_numbering(mesh._plex, "interior",
+                                           interior_facets,
+                                           mesh._cell_numbering,
+                                           mesh._cell_closure)
+
+                # Note: To implement facets correctly in parallel
+                # we need to pass interior_facet_classes to _Facets()
+                mesh.interior_facets = _Facets(mesh, interior_facets.size,
+                                               "interior",
+                                               interior_facet_cell,
+                                               interior_local_facet_number)
+
+            interior_facet_cells = mesh.interior_facets.facet_cell
+            self.interior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in interior_facet_cells])
         else:
             self.interior_facet_node_list = None
 
         if mesh._plex.getStratumSize("exterior_facets", 1) > 0:
-            dim = mesh._plex.getDimension()
-            ext_facet = lambda f: mesh._plex.getLabelValue("exterior_facets", f) == 1
-            exterior_facets = dmplex.get_entities_by_class(mesh._plex, dim-1, condition=ext_facet)[0]
+            # Compute the facet_numbering and store with the parent mesh
+            if mesh.exterior_facets is None:
 
-            exterior_facet_eles = []
-            for f in exterior_facets:
-                fcells = self._mesh._plex.getSupport(f)
-                fcells_num = [np.array([mesh._cell_numbering.getOffset(c)]) for c in fcells]
-                exterior_facet_eles.append(np.concatenate(fcells_num))
-            self.exterior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in exterior_facet_eles])
+                # Order exterior facets by OP2 entity class
+                exterior_facets, exterior_facet_classes = \
+                    dmplex.get_facets_by_class(mesh._plex, "exterior_facets")
+
+                # Derive attached boundary IDs
+                if mesh._plex.hasLabel("boundary_ids"):
+                    boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
+                    for i, facet in enumerate(exterior_facets):
+                        boundary_ids[i] = mesh._plex.getLabelValue("boundary_ids", facet)
+                else:
+                    boundary_ids = None
+
+                exterior_local_facet_number, exterior_facet_cell = \
+                    dmplex.facet_numbering(mesh._plex, "exterior",
+                                           exterior_facets,
+                                           mesh._cell_numbering,
+                                           mesh._cell_closure)
+
+                # Note: To implement facets correctly in parallel
+                # we need to pass exterior_facet_classes to _Facets()
+                mesh.exterior_facets = _Facets(mesh, exterior_facets.size,
+                                               "exterior",
+                                               exterior_facet_cell,
+                                               exterior_local_facet_number,
+                                               boundary_ids)
+
+            exterior_facet_cells = mesh.exterior_facets.facet_cell
+            self.exterior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in exterior_facet_cells])
         else:
             self.exterior_facet_node_list = None
 
@@ -1118,16 +1117,8 @@ class FunctionSpaceBase(ObjectCached):
         self._exterior_facet_map_cache = {}
         self._interior_facet_map_cache = {}
 
-    def _get_cell_nodes(self, cell):
+    def _get_cell_nodes(self, numbering):
         plex = self._mesh._plex
-        closure = plex.getTransitiveClosure(cell)[0]
-        if self._dofs_per_entity[0] > 0:
-            vertex_numbering = self._universal_numbering
-        else:
-            vertex_numbering = self._mesh._vertex_numbering
-        numbering = dmplex.closure_numbering(plex, vertex_numbering, closure,
-                                             self._dofs_per_entity)
-
         offset = 0
         cell_nodes = np.empty(sum(self._dofs_per_cell), dtype=np.int32)
         if isinstance(self._mesh, ExtrudedMesh):
