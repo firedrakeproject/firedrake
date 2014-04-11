@@ -95,6 +95,19 @@ class TestDat:
             dat[:] = -1
         assert all(all(d.data_ro != d_.data_ro) for d, d_ in zip(mdat, mdat2))
 
+    def test_copy_subset(self, backend, s, d1):
+        """Copy method should copy values on a subset"""
+        d2 = op2.Dat(s)
+        ss = op2.Subset(s, range(1, nelems, 2))
+        d1.copy(d2, subset=ss)
+        assert (d1.data_ro[ss.indices] == d2.data_ro[ss.indices]).all()
+        assert (d2.data_ro[::2] == 0).all()
+
+    def test_copy_mixed_subset_fails(self, backend, s, mdat):
+        """Copy method on a MixedDat does not support subsets"""
+        with pytest.raises(TypeError):
+            mdat.copy(op2.MixedDat([s, s]), subset=None)
+
     @pytest.mark.skipif('config.getvalue("backend")[0] not in ["cuda", "opencl"]')
     def test_copy_works_device_to_device(self, backend, d1):
         d2 = op2.Dat(d1)

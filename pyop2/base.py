@@ -1791,15 +1791,16 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         self._version_set_zero()
 
     @collective
-    def copy(self, other):
+    def copy(self, other, subset=None):
         """Copy the data in this :class:`Dat` into another.
 
-        :arg other: The destination :class:`Dat`"""
+        :arg other: The destination :class:`Dat`
+        :arg subset: A :class:`Subset` of elements to copy (optional)"""
 
-        self._copy_parloop(other).enqueue()
+        self._copy_parloop(other, subset=subset).enqueue()
 
     @collective
-    def _copy_parloop(self, other):
+    def _copy_parloop(self, other, subset=None):
         """Create the :class:`ParLoop` implementing copy."""
         if not hasattr(self, '_copy_kernel'):
             k = """void copy(%(t)s *self, %(t)s *other) {
@@ -1808,7 +1809,8 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                 }
             }""" % {'t': self.ctype, 'dim': self.cdim}
             self._copy_kernel = _make_object('Kernel', k, 'copy')
-        return _make_object('ParLoop', self._copy_kernel, self.dataset.set,
+        return _make_object('ParLoop', self._copy_kernel,
+                            subset or self.dataset.set,
                             self(READ), other(WRITE))
 
     def __iter__(self):
