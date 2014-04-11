@@ -958,6 +958,8 @@ class Matrix(object):
         if hasattr(self, '_a_action_coeff'):
             self._a_action = ufl.replace(self._a_action, {self._a_action_coeff: u})
         self._a_action_coeff = u
+        # Since we assemble the cached form, the kernels will already have
+        # been compiled and stashed on the form the second time round
         return _assemble(self._a_action)
 
     def __repr__(self):
