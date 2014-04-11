@@ -113,6 +113,13 @@ class UnaryExpr(Expr):
         super(UnaryExpr, self).__init__([expr])
 
 
+class Neg(UnaryExpr):
+
+    "Unary negation of an expression"
+    def gencode(self, scope=False):
+        return "-%s" % wrap(self.children[0].gencode()) + semicolon(scope)
+
+
 class ArrayInit(Expr):
 
     """Array Initilizer. A n-dimensional array A can be statically initialized
