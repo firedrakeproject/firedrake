@@ -291,6 +291,10 @@ class Global(DeviceDataMixin, base.Global):
         base.Global.__init__(self, dim, data, dtype, name)
         self.state = DeviceDataMixin.DEVICE_UNALLOCATED
 
+    @property
+    def data_ro(self):
+        return self.data
+
 
 class Map(base.Map):
 
