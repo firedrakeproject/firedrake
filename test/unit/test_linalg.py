@@ -298,3 +298,16 @@ class TestLinAlgScalar:
         s = op2.Set(2)
         n = op2.Dat(s, [3, 4], np.float64, "n")
         assert abs(n.norm - 5) < 1e-12
+
+    def test_inner(self, backend):
+        s = op2.Set(2)
+        n = op2.Dat(s, [3, 4], np.float64)
+        o = op2.Dat(s, [4, 5], np.float64)
+
+        ret = n.inner(o)
+
+        assert abs(ret.data - 32) < 1e-12
+
+        ret = o.inner(n)
+
+        assert abs(ret.data - 32) < 1e-12
