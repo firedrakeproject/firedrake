@@ -1,3 +1,35 @@
+"""Firedrake by default caches assembled forms. This means that it is
+generally not necessary for users to manually lift assembly of linear
+operators out of timestepping loops; the same performance benefit will
+be realised automatically by the assembly cache.
+
+In order to prevent the assembly cache leaking memory, a simple cache
+eviction strategy is implemented. This is documented below. In
+addition, the following parameters control the operation of the
+assembly_cache:
+
+:data:`parameters["assembly_cache"]["enabled"]`
+  a boolean value used to disable the assembly cache if required.
+
+:data:`parameters["assembly_cache"]["eviction"]`
+  a boolean value used to disable the cache eviction
+  strategy. Disabling cache eviction can lead to memory leaks so is
+  discouraged in almost all circumstances.
+
+:data:`parameters["assembly_cache"]["max_misses"]`
+  attempting to cache objects whose inputs change every time they are
+  assembled is a waste of memory. This parameter sets a maximum number
+  of consecutive misses beyond which a form will be marked as
+  uncachable.
+
+:data:`parameters["assembly_cache"]["max_bytes"]`
+  absolute limit on the size of the assembly cache in bytes. This
+  defaults to :data:`None`.
+
+:data:`parameters["assembly_cache"]["max_factor"]`
+  limit on the size of the assembly cache relative to the amount of
+  memory per core on the current system. This defaults to 0.6.
+"""
 from collections import defaultdict
 from ufl.algorithms.signature import compute_form_signature
 import types
@@ -19,7 +51,7 @@ except ImportError:
 _assemble_count = 0
 
 
-class DependencySnapshot(object):
+class _DependencySnapshot(object):
     """Record the dependencies of a form at a particular point in order to
     establish whether a cached form is valid."""
 
@@ -60,7 +92,7 @@ class DependencySnapshot(object):
         return True
 
 
-class BCSnapshot(object):
+class _BCSnapshot(object):
     """Record the boundary conditions which were applied to a form."""
 
     def __init__(self, bcs):
@@ -79,7 +111,7 @@ class BCSnapshot(object):
         return True
 
 
-class CacheEntry(object):
+class _CacheEntry(object):
     """This is the basic caching unit. The form signature forms the key for
     each CacheEntry, while a reference to the main data object is kept.
     Additionally a list of Snapshot objects are kept in self.dependencies that
@@ -90,8 +122,8 @@ class CacheEntry(object):
 
     def __init__(self, obj, form, bcs):
         self.form = form
-        self.dependencies = DependencySnapshot(form)
-        self.bcs = BCSnapshot(bcs)
+        self.dependencies = _DependencySnapshot(form)
+        self.bcs = _BCSnapshot(bcs)
         if isinstance(obj, float):
             self.obj = obj
         else:
@@ -115,12 +147,13 @@ class CacheEntry(object):
 
 
 class AssemblyCache(object):
-    """Singleton class.
-
-    This is the central point of the assembly cache subsystem. This is a
+    """This is the central point of the assembly cache subsystem. This is a
     Singleton object so all the stored cache entries will reside in the single
     instance object returned.
 
+    It is not usually necessary for users to access the
+    :class:`AssemblyCache` object directly, bit this may occassionally
+    be useful when studying performance problems.
     """
 
     _instance = None
@@ -135,7 +168,7 @@ class AssemblyCache(object):
             cls._instance.evictwarned = False
         return cls._instance
 
-    def lookup(self, form, bcs):
+    def _lookup(self, form, bcs):
         form_sig = compute_form_signature(form)
         cache_entry = self.cache.get(form_sig, None)
 
@@ -154,7 +187,7 @@ class AssemblyCache(object):
 
         return retval
 
-    def store(self, obj, form, bcs):
+    def _store(self, obj, form, bcs):
         form_sig = compute_form_signature(form)
 
         if self.invalid_count[form_sig] > parameters["assembly_cache"]["max_misses"]:
@@ -163,7 +196,7 @@ class AssemblyCache(object):
                 debug("form %s missed too many times, excluding from cache." % form)
 
         else:
-            cache_entry = CacheEntry(obj, form, bcs)
+            cache_entry = _CacheEntry(obj, form, bcs)
             self.cache[form_sig] = cache_entry
             self.evict()
 
@@ -171,20 +204,21 @@ class AssemblyCache(object):
         """Run the cache eviction algorithm. This works out the permitted
 cache size and deletes objects until it is achieved. Cache values are
 assumed to have a :attr:`value` attribute and eviction occurs in
-increasing value order. Currently value is an index the assembly
-operation, so older operations are evicted first.
+increasing :attr:`value` order. Currently :attr:`value` is an index
+the assembly operation, so older operations are evicted first.
 
 The cache will be evicted down to 90% of permitted size.
 
 The permitted size is either the explicit
-`parameters["assembly_cache"]["max_bytes"]` or it is the amount of
-memory per core scaled by `parameters["assembly_cache"]["max_factor"]`
+:data:`parameters["assembly_cache"]["max_bytes"]` or it is the amount of
+memory per core scaled by :data:`parameters["assembly_cache"]["max_factor"]`
 (by default the scale factor is 0.6).
 
 In MPI parallel, the nbytes of each cache entry is set to the maximum
 over all processes, while the available memory is set to the
 minimum. This produces a conservative caching policy which is
 guaranteed to result in the same evictions on each processor.
+
         """
 
         if not parameters["assembly_cache"]["eviction"]:
@@ -227,6 +261,7 @@ guaranteed to result in the same evictions on each processor.
                 del self.cache[c[0]]
 
     def clear(self):
+        """Clear the cache contents."""
         self.cache = {}
         self._hits = 0
         self._hits_size = 0
@@ -236,9 +271,10 @@ guaranteed to result in the same evictions on each processor.
     def num_objects(self):
         return len(self.cache.keys())
 
+    @property
     def cache_stats(self):
+        """Consolidated statistics for the cache contents"""
         stats = "OpCache statistics: \n"
-        #from IPython import embed; embed()
         stats += "\tnum_stored=%d\tbytes=%d\trealbytes=%d\thits=%d\thit_bytes=%d" % \
                  (self.num_objects, self.nbytes, self.realbytes, self._hits,
                   self._hits_size)
@@ -246,6 +282,7 @@ guaranteed to result in the same evictions on each processor.
 
     @property
     def nbytes(self):
+        """An estimate of the total number of bytes in the cached objects."""
         tot_bytes = 0
         for entry in self.cache.values():
             tot_bytes += entry.nbytes
@@ -253,18 +290,17 @@ guaranteed to result in the same evictions on each processor.
 
     @property
     def realbytes(self):
+        """An estimate of the total number of bytes for which the cache holds
+        the sole reference to an object."""
         tot_bytes = 0
         for entry in self.cache.values():
             obj = entry.get_object()
             if not (hasattr(obj, "_cow_is_copy_of") and obj._cow_is_copy_of):
                 tot_bytes += entry.nbytes
-            # TODO: also count snapshot bytes
-            #for dep in obj.dependencies:
-            #    if dep._duplicate
         return tot_bytes
 
 
-def cache_thunk(thunk, form, result):
+def _cache_thunk(thunk, form, result):
     """Wrap thunk so that thunk is only executed if its target is not in
     the cache."""
 
@@ -275,7 +311,7 @@ def cache_thunk(thunk, form, result):
         if not parameters["assembly_cache"]["enabled"]:
             return thunk(bcs)
 
-        obj = cache.lookup(form, bcs)
+        obj = cache._lookup(form, bcs)
         if obj is not None:
             if isinstance(result, float):
                 # 0-form case
@@ -298,13 +334,13 @@ def cache_thunk(thunk, form, result):
         r = thunk(bcs)
         if isinstance(r, float):
             # 0-form case
-            cache.store(r, form, bcs)
+            cache._store(r, form, bcs)
         elif isinstance(r, types.Function):
             # 1-form
-            cache.store(r.dat, form, bcs)
+            cache._store(r.dat, form, bcs)
         elif isinstance(r, types.Matrix):
             # 2-form
-            cache.store(r._M, form, bcs)
+            cache._store(r._M, form, bcs)
         else:
             raise TypeError("Unknown result type")
         return r
