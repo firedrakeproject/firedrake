@@ -587,53 +587,60 @@ class Mesh(object):
         self.name = filename
         basename, ext = os.path.splitext(filename)
 
-        try:
-            facetfile = open(basename+".face")
-            tdim = 3
-        except:
+        if op2.MPI.comm.rank == 0:
             try:
-                facetfile = open(basename+".edge")
-                tdim = 2
+                facetfile = open(basename+".face")
+                tdim = 3
             except:
-                facetfile = None
-                tdim = 1
-        if dim == 0:
-            dim = tdim
+                try:
+                    facetfile = open(basename+".edge")
+                    tdim = 2
+                except:
+                    facetfile = None
+                    tdim = 1
+            if dim == 0:
+                dim = tdim
+            op2.MPI.comm.bcast(tdim, root=0)
 
-        with open(basename+".node") as nodefile:
-            header = np.fromfile(nodefile, dtype=np.int32, count=2, sep=' ')
-            nodecount = header[0]
-            nodedim = header[1]
-            coordinates = np.loadtxt(nodefile, usecols=range(1,dim+1), skiprows=1, delimiter=' ')
-            assert nodecount == coordinates.shape[0]
+            with open(basename+".node") as nodefile:
+                header = np.fromfile(nodefile, dtype=np.int32, count=2, sep=' ')
+                nodecount = header[0]
+                nodedim = header[1]
+                coordinates = np.loadtxt(nodefile, usecols=range(1,dim+1), skiprows=1, delimiter=' ')
+                assert nodecount == coordinates.shape[0]
 
-        with open(basename+".ele") as elefile:
-            header = np.fromfile(elefile, dtype=np.int32, count=2, sep=' ')
-            elecount = header[0]
-            eledim = header[1]
-            eles = np.loadtxt(elefile, usecols=range(1,eledim+1), dtype=np.int32, skiprows=1, delimiter=' ')
-            assert elecount == eles.shape[0]
+            with open(basename+".ele") as elefile:
+                header = np.fromfile(elefile, dtype=np.int32, count=2, sep=' ')
+                elecount = header[0]
+                eledim = header[1]
+                eles = np.loadtxt(elefile, usecols=range(1,eledim+1), dtype=np.int32, skiprows=1, delimiter=' ')
+                assert elecount == eles.shape[0]
 
-        cells = map(lambda c: c-1, eles)
+            cells = map(lambda c: c-1, eles)
+        else:
+            tdim = op2.MPI.comm.bcast(None, root=0)
+            cells = None
+            coordinates = None
         dmplex = _from_cell_list(tdim, cells, coordinates, comm=op2.MPI.comm)
 
         # Apply boundary IDs
-        facets = None
-        try:
-            header = np.fromfile(facetfile, dtype=np.int32, count=2, sep=' ')
-            edgecount = header[0]
-            edgedim = header[1]
-            facets = np.loadtxt(facetfile, usecols=range(1,tdim+2), dtype=np.int32, skiprows=0, delimiter=' ')
-        finally:
-            facetfile.close()
+        if op2.MPI.comm.rank == 0:
+            facets = None
+            try:
+                header = np.fromfile(facetfile, dtype=np.int32, count=2, sep=' ')
+                edgecount = header[0]
+                edgedim = header[1]
+                facets = np.loadtxt(facetfile, usecols=range(1,tdim+2), dtype=np.int32, skiprows=0, delimiter=' ')
+            finally:
+                facetfile.close()
 
-        if facets is not None:
-            vStart, vEnd = dmplex.getDepthStratum(0)   # vertices
-            for facet in facets:
-                bid = facet[-1]
-                vertices = map(lambda v: v + vStart - 1, facet[:-1])
-                join = dmplex.getJoin(vertices)
-                dmplex.setLabelValue("boundary_ids", join[0], bid)
+            if facets is not None:
+                vStart, vEnd = dmplex.getDepthStratum(0)   # vertices
+                for facet in facets:
+                    bid = facet[-1]
+                    vertices = map(lambda v: v + vStart - 1, facet[:-1])
+                    join = dmplex.getJoin(vertices)
+                    dmplex.setLabelValue("boundary_ids", join[0], bid)
 
         self._from_dmplex(dmplex, dim, periodic_coords)
 
