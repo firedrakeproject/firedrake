@@ -422,21 +422,10 @@ def _assemble(f, tensor=None, bcs=None):
 
     def get_rank(arg):
         return arg.function_space().rank
-    has_vec_fs = lambda arg: isinstance(arg.function_space(), types.VectorFunctionSpace)
-
-    def mixed_plus_vfs_error(arg):
-        mfs = arg.function_space()
-        if not isinstance(mfs, types.MixedFunctionSpace):
-            return
-        if any(isinstance(fs, types.VectorFunctionSpace) for fs in mfs):
-            raise NotImplementedError(
-                "MixedFunctionSpaces containing a VectorFunctionSpace are currently unsupported")
 
     if is_mat:
         test, trial = fd.original_arguments
 
-        mixed_plus_vfs_error(test)
-        mixed_plus_vfs_error(trial)
         map_pairs = []
         cell_domains = []
         exterior_facet_domains = []
@@ -505,11 +494,10 @@ def _assemble(f, tensor=None, bcs=None):
             return tensor[i, j](op2.INC,
                                 (testmap(test.function_space()[i])[op2.i[0]],
                                  trialmap(trial.function_space()[j])[op2.i[1]]),
-                                flatten=has_vec_fs(test))
+                                flatten=True)
         result = lambda: result_matrix
     elif is_vec:
         test = fd.original_arguments[0]
-        mixed_plus_vfs_error(test)
         if tensor is None:
             result_function = types.Function(test.function_space())
             tensor = result_function.dat
@@ -521,7 +509,7 @@ def _assemble(f, tensor=None, bcs=None):
         def vec(testmap, i):
             return tensor[i](op2.INC,
                              testmap(test.function_space()[i])[op2.i[0]],
-                             flatten=has_vec_fs(test))
+                             flatten=True)
         result = lambda: result_function
     else:
         # 0-forms are always scalar
@@ -571,13 +559,13 @@ def _assemble(f, tensor=None, bcs=None):
                 itspace._extruded_bcs = extruded_bcs
                 args = [kernel, itspace, tensor_arg,
                         coords.dat(op2.READ, coords.cell_node_map(),
-                                   flatten=has_vec_fs(coords))]
+                                   flatten=True)]
 
                 if needs_orientations:
                     args.append(coords.function_space().mesh()._cell_orientations(op2.READ))
                 for c in coefficients:
                     args.append(c.dat(op2.READ, c.cell_node_map(),
-                                      flatten=has_vec_fs(c)))
+                                      flatten=True))
 
                 try:
                     op2.par_loop(*args)
@@ -598,7 +586,7 @@ def _assemble(f, tensor=None, bcs=None):
                                    flatten=True)]
                 for c in coefficients:
                     args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
-                                      flatten=has_vec_fs(c)))
+                                      flatten=True))
                 args.append(m.exterior_facets.local_facet_dat(op2.READ))
                 try:
                     op2.par_loop(*args)
@@ -630,7 +618,7 @@ def _assemble(f, tensor=None, bcs=None):
                                        flatten=True)]
                     for c in coefficients:
                         args.append(c.dat(op2.READ, c.cell_node_map(),
-                                          flatten=has_vec_fs(c)))
+                                          flatten=True))
                     try:
                         op2.par_loop(*args, iterate=index)
                     except MapValueError:
@@ -682,7 +670,7 @@ def _assemble(f, tensor=None, bcs=None):
                                    flatten=True)]
                 for c in coefficients:
                     args.append(c.dat(op2.READ, c.cell_node_map(),
-                                      flatten=has_vec_fs(c)))
+                                      flatten=True))
                 try:
                     op2.par_loop(*args, iterate=op2.ON_INTERIOR_FACETS)
                 except MapValueError:
