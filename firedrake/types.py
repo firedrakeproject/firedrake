@@ -952,6 +952,20 @@ class Matrix(object):
                 new_bcs.add(existing_bc)
         self.bcs = new_bcs
 
+    def _form_action(self, u):
+        """Assemble the form action of this :class:`Matrix`' bilinear form
+        onto the :class:`Function` ``u``.
+        .. note::
+            This is the form **without** any boundary conditions."""
+        if not hasattr(self, '_a_action'):
+            self._a_action = ufl.action(self._a, u)
+        if hasattr(self, '_a_action_coeff'):
+            self._a_action = ufl.replace(self._a_action, {self._a_action_coeff: u})
+        self._a_action_coeff = u
+        # Since we assemble the cached form, the kernels will already have
+        # been compiled and stashed on the form the second time round
+        return _assemble(self._a_action)
+
     def __repr__(self):
         return '%sassembled firedrake.Matrix(form=%r, bcs=%r)' % \
             ('' if self._assembled else 'un',

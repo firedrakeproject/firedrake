@@ -765,7 +765,7 @@ def _la_solve(A, x, b, bcs=None, parameters=None,
         for bc in bcs:
             bc.apply(u_bc)
         # rhs = b - action(A, u_bc)
-        u_bc.assign(b - assemble(ufl.action(A.a, u_bc)))
+        u_bc.assign(b - A._form_action(u_bc))
         # Now we need to apply the boundary conditions to the "RHS"
         for bc in bcs:
             bc.apply(u_bc)
