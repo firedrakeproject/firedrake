@@ -1,4 +1,6 @@
-.. contents::
+.. only:: html
+
+   .. contents::
 
 Solving PDEs
 ============

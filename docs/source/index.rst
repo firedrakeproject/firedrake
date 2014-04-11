@@ -1,11 +1,18 @@
 .. title:: The Firedrake project
-.. sidebar:: Latest commits to the Firedrake master branch on Github
 
-  .. raw:: html
+.. only:: html
 
-    <div class="latest-commit" data-github="firedrakeproject/firedrake" data-commits="5"></div>
-    <script type="text/javascript" src="_static/jquery.latest-commit.js"></script>
+   .. sidebar:: Latest commits to the Firedrake master branch on Github
 
+      .. raw:: html
+
+         <div class="latest-commit" data-github="firedrakeproject/firedrake" data-commits="5"></div>
+         <script type="text/javascript" src="_static/jquery.latest-commit.js"></script>
+
+.. only:: latex
+
+   Introduction
+   ------------
 
 Firedrake is an automated system for the portable solution of partial
 differential equations using the finite element method (FEM). Firedrake
@@ -20,8 +27,19 @@ while the parallel execution of FEM assembly is accomplished by the
 structures, as well as linear and non-linear solvers, are provided by
 `PETSc <https://www.mcs.anl.gov/petsc/>`_.
 
-.. container:: youtube
 
-  .. youtube:: xhxvM1N8mDQ?modestbranding=1;controls=0;rel=0
-     :width: 400px
+.. only:: html
 
+  .. container:: youtube
+
+    .. youtube:: xhxvM1N8mDQ?modestbranding=1;controls=0;rel=0
+       :width: 400px
+
+.. only:: latex
+
+  .. toctree::
+ 
+     documentation
+     firedrake
+     funding
+     team
