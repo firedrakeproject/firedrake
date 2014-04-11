@@ -36,7 +36,22 @@ import numpy as np
 
 from pyop2 import op2
 
-nelems = 10
+nelems = 5
+
+
+@pytest.fixture(scope='module')
+def s():
+    return op2.Set(nelems)
+
+
+@pytest.fixture
+def d1(s):
+    return op2.Dat(s, range(nelems), dtype=np.float64)
+
+
+@pytest.fixture
+def mdat(d1):
+    return op2.MixedDat([d1, d1])
 
 
 class TestDat:
@@ -45,22 +60,56 @@ class TestDat:
     Test some properties of Dats
     """
 
-    def test_copy_constructor(self, backend):
-        """Copy constructor should copy values"""
-        s = op2.Set(10)
-        d1 = op2.Dat(s, range(10), dtype=np.float64)
-
+    def test_copy_constructor(self, backend, d1):
+        """Dat copy constructor should copy values"""
         d2 = op2.Dat(d1)
-
         assert d1.dataset.set == d2.dataset.set
         assert (d1.data_ro == d2.data_ro).all()
         d1.data[:] = -1
         assert (d1.data_ro != d2.data_ro).all()
 
+    def test_copy_constructor_mixed(self, backend, mdat):
+        """MixedDat copy constructor should copy values"""
+        mdat2 = op2.MixedDat(mdat)
+        assert mdat.dataset.set == mdat2.dataset.set
+        assert all(all(d.data_ro == d_.data_ro) for d, d_ in zip(mdat, mdat2))
+        for dat in mdat.data:
+            dat[:] = -1
+        assert all(all(d.data_ro != d_.data_ro) for d, d_ in zip(mdat, mdat2))
+
+    def test_copy(self, backend, d1, s):
+        """Copy method on a Dat should copy values into given target"""
+        d2 = op2.Dat(s)
+        d1.copy(d2)
+        assert d1.dataset.set == d2.dataset.set
+        assert (d1.data_ro == d2.data_ro).all()
+        d1.data[:] = -1
+        assert (d1.data_ro != d2.data_ro).all()
+
+    def test_copy_mixed(self, backend, s, mdat):
+        """Copy method on a MixedDat should copy values into given target"""
+        mdat2 = op2.MixedDat([s, s])
+        mdat.copy(mdat2)
+        assert all(all(d.data_ro == d_.data_ro) for d, d_ in zip(mdat, mdat2))
+        for dat in mdat.data:
+            dat[:] = -1
+        assert all(all(d.data_ro != d_.data_ro) for d, d_ in zip(mdat, mdat2))
+
+    def test_copy_subset(self, backend, s, d1):
+        """Copy method should copy values on a subset"""
+        d2 = op2.Dat(s)
+        ss = op2.Subset(s, range(1, nelems, 2))
+        d1.copy(d2, subset=ss)
+        assert (d1.data_ro[ss.indices] == d2.data_ro[ss.indices]).all()
+        assert (d2.data_ro[::2] == 0).all()
+
+    def test_copy_mixed_subset_fails(self, backend, s, mdat):
+        """Copy method on a MixedDat does not support subsets"""
+        with pytest.raises(TypeError):
+            mdat.copy(op2.MixedDat([s, s]), subset=None)
+
     @pytest.mark.skipif('config.getvalue("backend")[0] not in ["cuda", "opencl"]')
-    def test_copy_works_device_to_device(self, backend):
-        s = op2.Set(10)
-        d1 = op2.Dat(s, range(10), dtype=np.float64)
+    def test_copy_works_device_to_device(self, backend, d1):
         d2 = op2.Dat(d1)
 
         # Check we didn't do a copy on the host

@@ -1794,15 +1794,16 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         self._version_set_zero()
 
     @collective
-    def copy(self, other):
+    def copy(self, other, subset=None):
         """Copy the data in this :class:`Dat` into another.
 
-        :arg other: The destination :class:`Dat`"""
+        :arg other: The destination :class:`Dat`
+        :arg subset: A :class:`Subset` of elements to copy (optional)"""
 
-        self._copy_parloop(other).enqueue()
+        self._copy_parloop(other, subset=subset).enqueue()
 
     @collective
-    def _copy_parloop(self, other):
+    def _copy_parloop(self, other, subset=None):
         """Create the :class:`ParLoop` implementing copy."""
         if not hasattr(self, '_copy_kernel'):
             k = ast.FunDecl("void", "copy",
@@ -1815,7 +1816,8 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                                            pragma=None),
                             pred=["static", "inline"])
             self._copy_kernel = _make_object('Kernel', k, 'copy')
-        return _make_object('ParLoop', self._copy_kernel, self.dataset.set,
+        return _make_object('ParLoop', self._copy_kernel,
+                            subset or self.dataset.set,
                             self(READ), other(WRITE))
 
     def __iter__(self):
@@ -2142,6 +2144,9 @@ class MixedDat(Dat):
     """
 
     def __init__(self, mdset_or_dats):
+        if isinstance(mdset_or_dats, MixedDat):
+            self._dats = tuple(_make_object('Dat', d) for d in mdset_or_dats)
+            return
         self._dats = tuple(d if isinstance(d, Dat) else _make_object('Dat', d)
                            for d in mdset_or_dats)
         if not all(d.dtype == self._dats[0].dtype for d in self._dats):
@@ -2247,7 +2252,8 @@ class MixedDat(Dat):
 
         :arg other: The destination :class:`MixedDat`"""
 
-        self._copy_parloop(other).enqueue()
+        for s, o in zip(self, other):
+            s._copy_parloop(o).enqueue()
 
     @collective
     def _cow_actual_copy(self, src):

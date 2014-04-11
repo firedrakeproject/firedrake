@@ -186,7 +186,7 @@ class DeviceDataMixin(device.DeviceDataMixin):
                 shape = tuple(reversed(self.shape))
             else:
                 shape = self.shape
-            self._device_data = array.empty(_queue, shape=shape,
+            self._device_data = array.zeros(_queue, shape=shape,
                                             dtype=self.dtype)
             self.state = DeviceDataMixin.HOST
 
@@ -254,7 +254,7 @@ class Mat(device.Mat, petsc_base.Mat, DeviceDataMixin):
 
     def _allocate_device(self):
         if self.state is DeviceDataMixin.DEVICE_UNALLOCATED:
-            self._dev_array = array.empty(_queue,
+            self._dev_array = array.zeros(_queue,
                                           self.sparsity.nz,
                                           self.dtype)
             self.state = DeviceDataMixin.HOST

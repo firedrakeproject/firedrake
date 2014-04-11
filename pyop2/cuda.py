@@ -175,7 +175,7 @@ class DeviceDataMixin(op2.DeviceDataMixin):
                 shape = tuple(reversed(self.shape))
             else:
                 shape = self.shape
-            self._device_data = gpuarray.empty(shape=shape, dtype=self.dtype)
+            self._device_data = gpuarray.zeros(shape=shape, dtype=self.dtype)
             self.state = DeviceDataMixin.HOST
 
     def _to_device(self):
