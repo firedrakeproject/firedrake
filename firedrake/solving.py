@@ -140,7 +140,10 @@ class NonlinearVariationalSolver(object):
         if pmat.sparsity.shape != (1, 1):
             rows, cols = pmat.sparsity.shape
             ises = []
-            nlocal_rows = pmat.sparsity.nrows
+            nlocal_rows = 0
+            for i in range(rows):
+                if i < cols:
+                    nlocal_rows += pmat[i, i].sparsity.nrows * pmat[i, i].dims[0]
             offset = 0
             if op2.MPI.comm.rank == 0:
                 op2.MPI.comm.exscan(nlocal_rows)
@@ -148,7 +151,7 @@ class NonlinearVariationalSolver(object):
                 offset = op2.MPI.comm.exscan(nlocal_rows)
             for i in range(rows):
                 if i < cols:
-                    nrows = pmat[i, i].sparsity.nrows
+                    nrows = pmat[i, i].sparsity.nrows * pmat[i, i].dims[0]
                     name = test.function_space()[i].name
                     name = name if name else '%d' % i
                     ises.append((name, PETSc.IS().createStride(nrows, first=offset, step=1)))
