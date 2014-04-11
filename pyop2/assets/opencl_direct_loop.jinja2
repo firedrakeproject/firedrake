@@ -101,7 +101,16 @@ __attribute__((reqd_work_group_size({{ launch.work_group_size }}, 1, 1)))
   __local char shared[{{ launch.local_memory_size }}] __attribute__((aligned(sizeof(long))));
   {%- endif %}
   int i_1;
-
+  /*
+   * Alias non-unique arguments where appropriate
+   */
+  {% for arg in parloop._unique_dat_args -%}
+    {%- for arg2 in parloop._aliased_dat_args -%}
+    {%- if(arg.data == arg2.data and arg.name != arg2.name) -%}
+  __global {{ arg2.data._cl_type }} *{{ arg2.name }} = {{ arg.name }};
+    {% endif -%}
+    {% endfor -%}
+  {% endfor -%}
   {% if(parloop._needs_shared_memory) -%}
   int thread_id = get_local_id(0) % OP_WARPSIZE;
   {% if parloop._all_staged_direct_args %}

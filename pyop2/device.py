@@ -457,6 +457,12 @@ class ParLoop(base.ParLoop):
                                   '_unique_args', keep)
 
     @property
+    def _aliased_dat_args(self):
+        keep = lambda x: x._is_dat and all(x is not y for y in self._unique_dat_args)
+        return self._get_arg_list('__aliased_dat_args',
+                                  '_unwound_args', keep)
+
+    @property
     def _unique_vec_map_args(self):
         keep = lambda x: x._is_vec_map
         return self._get_arg_list('__unique_vec_map_args',
