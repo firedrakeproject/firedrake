@@ -389,12 +389,12 @@ class _PVTUFile(object):
     def __del__(self):
         self._writer.save()
 
-    def _update(self, name):
+    def _update(self, function):
         """Add all the vtu to be added to pvtu file."""
         for i in xrange(0, MPI.comm.size):
             new_vtk_name = os.path.splitext(
                 self._filename)[0] + "_" + str(i) + ".vtu"
-            self._writer.addFile(new_vtk_name, name)
+            self._writer.addFile(new_vtk_name, function)
 
 
 class PVTUWriter(object):
@@ -415,7 +415,7 @@ class PVTUWriter(object):
         self.xml.closeElement("PUnstructuredGrid")
         self.xml.closeElement("VTKFile")
 
-    def addFile(self, filepath, name):
+    def addFile(self, filepath, function):
         """Add VTU files to the PVTU file given in the filepath. For now, the
         attributes in vtu is assumed e.g. connectivity, offsets."""
 
@@ -429,7 +429,10 @@ class PVTUWriter(object):
         if not self._initialised:
 
             self.xml.openElement("PPointData")
-            self.addData("Float64", name)
+            if isinstance(function.function_space(), VectorFunctionSpace):
+                self.addData("Float64", function.name(), num_of_components=3)
+            else:
+                self.addData("Float64", function.name(), num_of_components=1)
             self.xml.closeElement("PPointData")
             self.xml.openElement("PCellData")
             self.addData("Int32", "connectivity")
@@ -515,5 +518,5 @@ class _PVDFile(object):
             # the VTU of timestep 0 (belonging to the process with rank 0)
             # will be over-written each time _update_PVD is called.
             new_vtk << (function, self._time_step)
-            new_pvtu._update(function.name())
+            new_pvtu._update(function)
             self._writer.addFile(new_pvtu_name + ".pvtu", self._time_step)
