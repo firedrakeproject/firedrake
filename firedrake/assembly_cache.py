@@ -24,7 +24,7 @@ assembly_cache:
 
 :data:`parameters["assembly_cache"]["max_bytes"]`
   absolute limit on the size of the assembly cache in bytes. This
-  defaults to :data:`None`.
+  defaults to :data:`float("inf")`.
 
 :data:`parameters["assembly_cache"]["max_factor"]`
   limit on the size of the assembly cache relative to the amount of
