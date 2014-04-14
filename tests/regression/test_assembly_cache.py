@@ -1,6 +1,15 @@
 import pytest
 from firedrake import *
-from tests.common import *
+
+
+@pytest.fixture(scope='module')
+def mesh():
+    return UnitSquareMesh(5, 5)
+
+
+@pytest.fixture(scope='module')
+def cg1(mesh):
+    return FunctionSpace(mesh, "CG", 1)
 
 
 def test_eviction(cg1):
@@ -24,6 +33,33 @@ def test_eviction(cg1):
 
     assert 3000 < cache.nbytes < 5000
     assert cache.num_objects == 2
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_eviction_parallel():
+    cache = assembly_cache.AssemblyCache()
+    cache.clear()
+
+    mesh = UnitSquareMesh(5, 5)
+    cg1 = FunctionSpace(mesh, "Lagrange", 1)
+
+    old_limit = parameters["assembly_cache"]["max_bytes"]
+    try:
+        parameters["assembly_cache"]["max_bytes"] = 5000
+        u = TrialFunction(cg1)
+        v = TestFunction(cg1)
+
+        # In the parallel case it's harder to ascertain exactly how
+        # much cache we will use, so we do this enough times that we
+        # can prove that we must have triggered eviction.
+        for i in range(1, 15):
+            # Scaling the mass matrix by i causes cache misses.
+            assemble(i*u*v*dx).M.handle
+
+    finally:
+        parameters["assembly_cache"]["max_bytes"] = old_limit
+
+    assert 3000 < cache.nbytes < 5000
 
 
 def test_hit(cg1):
