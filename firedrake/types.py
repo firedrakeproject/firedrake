@@ -145,9 +145,10 @@ class FunctionSpace(FunctionSpaceBase):
 
     :arg mesh: :class:`.Mesh` to build the function space on
     :arg family: string describing function space family, or a
-        :class:`ufl.OuterProductElement`
-    :arg degree: degree of the function space
-    :arg name: (optional) name of the function space
+        :class:`ufl.FiniteElement` or :class:`ufl.OuterProductElement`
+    :arg degree: degree of the function space (optional in the case an
+        element is passed for ``family``)
+    :arg name: name of the function space (optional)
     :arg vfamily: family of function space in vertical dimension
         (:class:`.ExtrudedMesh`\es only)
     :arg vdegree: degree of function space in vertical dimension
@@ -161,10 +162,8 @@ class FunctionSpace(FunctionSpaceBase):
     the `vfamily` and `vdegree` are not provided, the vertical element
     will be the same as the provided (`family`, `degree`) pair.
 
-    If the mesh is not an :class:`.ExtrudedMesh`, the `family` must be
-    a string describing the finite element family to use, and the
-    `degree` must be provided, `vfamily` and `vdegree` are ignored in
-    this case.
+    If the mesh is not an :class:`.ExtrudedMesh`, `vfamily` and
+    `vdegree` are ignored.
     """
 
     def __init__(self, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
@@ -221,7 +220,32 @@ class FunctionSpace(FunctionSpaceBase):
 
 
 class VectorFunctionSpace(FunctionSpaceBase):
-    """A vector finite element :class:`FunctionSpace`."""
+    """A vector finite element :class:`FunctionSpace`.
+
+    :arg mesh: :class:`.Mesh` to build the function space on
+    :arg family: string describing function space family, or a
+        :class:`ufl.VectorElement` or :class:`ufl.OuterProductElement`
+    :arg degree: degree of the function space (ignored in the case an
+        element is passed for ``family``)
+    :arg dim: function space dimension (optional, defaults to the
+        geometric dimension of the mesh)
+    :arg name: name of the function space (optional)
+    :arg vfamily: family of function space in vertical dimension
+        (:class:`.ExtrudedMesh`\es only)
+    :arg vdegree: degree of function space in vertical dimension
+        (:class:`.ExtrudedMesh`\es only)
+
+    If the mesh is an :class:`.ExtrudedMesh`, and the `family` argument
+    is a :class:`ufl.OuterProductElement`, `degree`, `vfamily` and
+    `vdegree` are ignored, since the `family` provides all necessary
+    information. Otherwise a :class:`ufl.OuterProductElement` is built
+    from the (`family`, `degree`) and (`vfamily`, `vdegree`) pair.  If
+    the `vfamily` and `vdegree` are not provided, the vertical element
+    will be the same as the provided (`family`, `degree`) pair.
+
+    If the mesh is not an :class:`.ExtrudedMesh`, `vfamily` and
+    `vdegree` are ignored.
+    """
 
     def __init__(self, mesh, family, degree=None, dim=None, name=None, vfamily=None, vdegree=None):
         if self._initialized:
