@@ -12,6 +12,10 @@ cdef extern from "petsc.h":
    ctypedef long PetscInt
    ctypedef enum PetscBool:
        PETSC_TRUE, PETSC_FALSE
+   ctypedef enum PetscCopyMode:
+       PETSC_COPY_VALUES,
+       PETSC_OWN_POINTER,
+       PETSC_USE_POINTER
 
 cdef extern from "petscsys.h":
    int PetscMalloc1(PetscInt,PetscInt**)
@@ -32,6 +36,14 @@ cdef extern from "petscdmplex.h":
 cdef extern from "petscis.h":
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])
+    int ISGeneralSetIndices(PETSc.PetscIS,PetscInt,PetscInt[],PetscCopyMode)
+
+cdef extern from "petscbt.h":
+    ctypedef char * PetscBT
+    int PetscBTCreate(PetscInt,PetscBT*)
+    int PetscBTDestroy(PetscBT*)
+    char PetscBTLookup(PetscBT,PetscInt)
+    int PetscBTSet(PetscBT,PetscInt)
 
 def _from_cell_list(dim, cells, coords, comm=None):
     """
@@ -435,7 +447,9 @@ def get_facets_by_class(PETSc.DM plex, label):
     facet_classes[3] = facet_classes[2]
     return facets, facet_classes
 
-def plex_renumbering(plex):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def plex_renumbering(PETSc.DM plex):
     """
     Build a global node renumbering as a permutation of Plex points.
 
@@ -445,46 +459,53 @@ def plex_renumbering(plex):
     the Plex graph over each OP2 entity class in turn. The returned IS
     is the Plex -> OP2 permutation.
     """
+    cdef:
+        PetscInt dim, ncells, nclosure, c, ci, p, p_glbl, lbl_val
+        PetscInt *cells = NULL
+        PetscInt *closure = NULL
+        PetscInt *perm = NULL
+        PETSc.IS cell_is = None
+        PETSc.IS perm_is = None
+        char *lbl_chr = NULL
+        PetscBT seen = NULL
+
     dim = plex.getDimension()
     pStart, pEnd = plex.getChart()
-    perm = np.empty(pEnd - pStart, dtype=np.int32)
+    PetscMalloc1(pEnd - pStart, &perm)
+    PetscBTCreate(pEnd - pStart, &seen)
     p_glbl = 0
 
-    # Renumber core DoFs
-    seen = set()
-    if plex.getStratumSize("op2_core", dim) > 0:
-        for cell in plex.getStratumIS("op2_core", dim).getIndices():
-            for p in plex.getTransitiveClosure(cell)[0]:
-                if p in seen:
-                    continue
+    for op2class in ["op2_core",
+                     "op2_non_core",
+                     "op2_exec_halo"]:
+        lbl_chr = <char*>op2class
+        ncells = plex.getStratumSize(op2class, dim)
+        if ncells > 0:
+            cell_is = plex.getStratumIS(op2class, dim)
+            ISGetIndices(cell_is.iset, &cells)
+            for c in range(ncells):
+                DMPlexGetTransitiveClosure(plex.dm, cells[c],
+                                           PETSC_TRUE,
+                                           &nclosure,
+                                           &closure)
+                for ci in range(nclosure):
+                    p = closure[2*ci]
+                    if not PetscBTLookup(seen, p):
+                        DMPlexGetLabelValue(plex.dm, lbl_chr,
+                                            p, &lbl_val)
+                        if lbl_val >= 0:
+                            PetscBTSet(seen, p)
+                            perm[p_glbl] = p
+                            p_glbl += 1
 
-                if plex.getLabelValue("op2_core", p) >= 0:
-                    seen.add(p)
-                    perm[p_glbl] = p
-                    p_glbl += 1
+            DMPlexRestoreTransitiveClosure(plex.dm, cells[c],
+                                           PETSC_TRUE,
+                                           &nclosure,
+                                           &closure)
+    PetscBTDestroy(&seen)
 
-    # Renumber non-core DoFs
-    if plex.getStratumSize("op2_non_core", dim) > 0:
-        for cell in plex.getStratumIS("op2_non_core", dim).getIndices():
-            for p in plex.getTransitiveClosure(cell)[0]:
-                if p in seen:
-                    continue
-
-                if plex.getLabelValue("op2_non_core", p) >= 0:
-                    seen.add(p)
-                    perm[p_glbl] = p
-                    p_glbl += 1
-
-    # Renumber halo DoFs
-    if plex.getStratumSize("op2_exec_halo", dim) > 0:
-        for cell in plex.getStratumIS("op2_exec_halo", dim).getIndices():
-            for p in plex.getTransitiveClosure(cell)[0]:
-                if p in seen:
-                    continue
-
-                if plex.getLabelValue("op2_exec_halo", p) >= 0:
-                    seen.add(p)
-                    perm[p_glbl] = p
-                    p_glbl += 1
-
-    return PETSc.IS().createGeneral(perm)
+    perm_is = PETSc.IS().create()
+    perm_is.setType("general")
+    ISGeneralSetIndices(perm_is.iset, pEnd - pStart,
+                        perm, PETSC_OWN_POINTER)
+    return perm_is
