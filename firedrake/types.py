@@ -228,7 +228,8 @@ class VectorFunctionSpace(FunctionSpaceBase):
     :arg degree: degree of the function space (ignored in the case an
         element is passed for ``family``)
     :arg dim: function space dimension (optional, defaults to the
-        geometric dimension of the mesh)
+        geometric dimension of the mesh, ignored in the case an element
+        is passed for ``family``)
     :arg name: name of the function space (optional)
     :arg vfamily: family of function space in vertical dimension
         (:class:`.ExtrudedMesh`\es only)
@@ -258,6 +259,8 @@ class VectorFunctionSpace(FunctionSpaceBase):
         #       OuterProductElement and so on
         if isinstance(family, ufl.FiniteElementBase):
             element = family
+            # Ignore given dim argument and extract it from the UFL element
+            dim = element.cell().geometric_dimension()
         # 2) pass in mesh, family, degree to generate a simple function space
         elif isinstance(mesh, ExtrudedMesh):
             if isinstance(family, ufl.OuterProductElement):
