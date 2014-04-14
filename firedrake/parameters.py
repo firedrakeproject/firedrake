@@ -4,8 +4,11 @@ __all__ = ['Parameters', 'parameters']
 
 
 class Parameters(dict):
-    def __init__(self, name=None):
+    def __init__(self, name=None, **kwargs):
         self._name = name
+
+        for key, value in kwargs.iteritems():
+            self.add(key, value)
 
     def add(self, key, value=None):
         if value is not None:
@@ -21,10 +24,8 @@ class Parameters(dict):
 
 parameters = Parameters()
 
-parameters["assembly_cache"] = {
-    "enabled": True,
-    "eviction": True,
-    "max_bytes": None,
-    "max_factor": 0.6,
-    "max_misses": 3
-}
+parameters["assembly_cache"] = Parameters(enabled=True,
+                                          eviction=True,
+                                          max_bytes=float("Inf"),
+                                          max_factor=0.6,
+                                          max_misses=3)

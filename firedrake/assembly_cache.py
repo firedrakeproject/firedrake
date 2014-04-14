@@ -97,7 +97,7 @@ class _BCSnapshot(object):
 
     def __init__(self, bcs):
 
-        self.bcs = map(weakref.ref, bcs)
+        self.bcs = map(weakref.ref, bcs) if bcs is not None else None
 
     def valid(self, bcs):
 
