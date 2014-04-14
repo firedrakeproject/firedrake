@@ -35,6 +35,7 @@ cdef extern from "petscdmplex.h":
 
 cdef extern from "petscis.h":
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
+    int PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])
     int ISGeneralSetIndices(PETSc.PetscIS,PetscInt,PetscInt[],PetscCopyMode)
 
@@ -316,6 +317,124 @@ def closure_ordering(PETSc.DM plex,
 
     return cell_closure
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_cell_nodes(PETSc.Section global_numbering,
+                   np.ndarray[np.int32_t, ndim=2] cell_closures,
+                   dofs_per_cell):
+    """
+    Builds the DoF mapping for non-extruded meshes.
+
+    :arg global_numbering: Section describing the global DoF numbering
+    :arg cell_closures: 2D array of ordered cell closures
+    :arg dofs_per_cell: Number of DoFs associated with each mesh cell
+    """
+    cdef:
+        PetscInt c, ncells, ci, nclosure, offset, p, pi, dof, off, i
+        np.ndarray[np.int32_t, ndim=2] cell_nodes
+
+    ncells = cell_closures.shape[0]
+    nclosure = cell_closures.shape[1]
+    cell_nodes = np.empty((ncells, dofs_per_cell), dtype=np.int32)
+
+    for c in range(ncells):
+        offset = 0
+        for ci in range(nclosure):
+            p = cell_closures[c, ci]
+            PetscSectionGetDof(global_numbering.sec, p, &dof)
+            PetscSectionGetOffset(global_numbering.sec, p, &off)
+            for i in range(dof):
+                cell_nodes[c, offset+i] = off+i
+            offset += dof
+    return cell_nodes
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_extruded_cell_nodes(PETSc.DM plex,
+                            PETSc.Section global_numbering,
+                            np.ndarray[np.int32_t, ndim=2] cell_closures,
+                            fiat_element, dofs_per_cell):
+    """
+    Builds the DoF mapping for extruded meshes.
+
+    :arg plex: The DMPlex object encapsulating the mesh topology
+    :arg global_numbering: Section describing the global DoF numbering
+    :arg cell_closures: 2D array of ordered cell closures
+    :arg fiat_element: The FIAT element for the extruded cell
+    :arg dofs_per_cell: Number of DoFs associated with each mesh cell
+    """
+    cdef:
+        PetscInt c, ncells, ci, nclosure, d, dim
+        PetscInt offset, p, pdof, off, glbl, lcl, i
+        PetscInt *pStarts = NULL
+        PetscInt *pEnds = NULL
+        PetscInt *hdofs = NULL
+        PetscInt *vdofs = NULL
+        np.ndarray[np.int32_t, ndim=2] cell_nodes
+
+    ncells = cell_closures.shape[0]
+    nclosure = cell_closures.shape[1]
+    cell_nodes = np.empty((ncells, dofs_per_cell), dtype=np.int32)
+
+    dim = plex.getDimension()
+    PetscMalloc1(dim+1, &pStarts)
+    PetscMalloc1(dim+1, &pEnds)
+    for d in range(dim+1):
+        pStarts[d], pEnds[d] = plex.getDepthStratum(d)
+
+    entity_dofs = fiat_element.entity_dofs()
+    PetscMalloc1(dim+1, &hdofs)
+    PetscMalloc1(dim+1, &vdofs)
+    for d in range(dim+1):
+        hdofs[d] = len(entity_dofs[(d,0)][0])
+        vdofs[d] = len(entity_dofs[(d,1)][0])
+
+    flattened_element = fiat_element.flattened_element()
+    flat_entity_dofs = flattened_element.entity_dofs()
+
+    for c in range(ncells):
+        offset = 0
+        for d in range(dim+1):
+            pi = 0
+            for ci in range(nclosure):
+                if pStarts[d] <= cell_closures[c, ci] < pEnds[d]:
+                    p = cell_closures[c, ci]
+                    PetscSectionGetDof(global_numbering.sec, p, &pdof)
+                    if pdof > 0:
+                        PetscSectionGetOffset(global_numbering.sec, p, &glbl)
+
+                        # For extruded entities the numberings are:
+                        # Global: [bottom[:], top[:], side[:]]
+                        # Local:  [bottom[i], top[i], side[i] for i in bottom[:]]
+                        #
+                        # eg. extruded P3 facet:
+                        #       Local            Global
+                        #  --1---6---11--   --12---13---14--
+                        #  | 4   9   14 |   |  5    8   11 |
+                        #  | 3   8   13 |   |  4    7   10 |
+                        #  | 2   7   12 |   |  3    6    9 |
+                        #  --0---5---10--   ---0----1----2--
+                        #
+                        # cell_nodes = [0,12,3,4,5,1,13,6,7,8,2,14,9,10,11]
+
+                        lcl_dofs = flat_entity_dofs[d][pi]
+                        for i in range(hdofs[d]):
+                            lcl = lcl_dofs[i]
+                            cell_nodes[c, lcl] = glbl + i
+                        for i in range(vdofs[d]):
+                            lcl = lcl_dofs[hdofs[d] + i]
+                            cell_nodes[c, lcl] = glbl + hdofs[d] + i
+                        for i in range(hdofs[d]):
+                            lcl = lcl_dofs[hdofs[d] + vdofs[d] + i]
+                            cell_nodes[c, lcl] = glbl + hdofs[d] + vdofs[d] + i
+
+                        offset += 2*hdofs[d] + vdofs[d]
+                        pi += 1
+    PetscFree(pStarts)
+    PetscFree(pEnds)
+    PetscFree(hdofs)
+    PetscFree(vdofs)
+    return cell_nodes
 
 def mark_entity_classes(plex):
     """Mark all points in a given Plex according to the PyOP2 entity classes:
