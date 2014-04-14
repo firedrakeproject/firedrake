@@ -223,13 +223,19 @@ class FunctionSpace(FunctionSpaceBase):
 class VectorFunctionSpace(FunctionSpaceBase):
     """A vector finite element :class:`FunctionSpace`."""
 
-    def __init__(self, mesh, family, degree, dim=None, name=None, vfamily=None, vdegree=None):
+    def __init__(self, mesh, family, degree=None, dim=None, name=None, vfamily=None, vdegree=None):
         if self._initialized:
             return
         # VectorFunctionSpace dimension defaults to the geometric dimension of the mesh.
         dim = dim or mesh.ufl_cell().geometric_dimension()
 
-        if isinstance(mesh, ExtrudedMesh):
+        # Two choices:
+        # 1) set up the function space using VectorElement, EnrichedElement,
+        #       OuterProductElement and so on
+        if isinstance(family, ufl.FiniteElementBase):
+            element = family
+        # 2) pass in mesh, family, degree to generate a simple function space
+        elif isinstance(mesh, ExtrudedMesh):
             if isinstance(family, ufl.OuterProductElement):
                 raise NotImplementedError("Not yet implemented")
             la = ufl.FiniteElement(family,
