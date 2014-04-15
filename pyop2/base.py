@@ -1993,9 +1993,10 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
     def inner(self, other):
         """Compute the l2 inner product of the flattened :class:`Dat`
 
-        :arg other: the other :class:`Dat` to compute the inner product against
+        :arg other: the other :class:`Dat` to compute the inner
+             product against.
 
-        Returns a :class:`Global`."""
+        """
         self._check_shape(other)
         ret = _make_object('Global', 1, data=0, dtype=self.dtype)
 
@@ -2013,7 +2014,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                         pred=["static", "inline"])
         k = _make_object('Kernel', k, "inner")
         par_loop(k, self.dataset.set, self(READ), other(READ), ret(INC))
-        return ret
+        return ret.data_ro[0]
 
     @property
     def norm(self):
@@ -2023,7 +2024,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
 
            This acts on the flattened data (see also :meth:`inner`)."""
         from math import sqrt
-        return sqrt(self.inner(self).data_ro[0])
+        return sqrt(self.inner(self))
 
     def __pos__(self):
         pos = _make_object('Dat', self)
@@ -2307,9 +2308,9 @@ class MixedDat(Dat):
         """Compute the l2 inner product.
 
         :arg other: the other :class:`MixedDat` to compute the inner product against"""
-        ret = _make_object('Global', 1, data=0, dtype=self.dtype)
+        ret = 0
         for s, o in zip(self, other):
-            ret.data += s.inner(o).data_ro
+            ret += s.inner(o)
         return ret
 
     def _op(self, other, op):

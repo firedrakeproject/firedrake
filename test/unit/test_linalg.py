@@ -306,11 +306,11 @@ class TestLinAlgScalar:
 
         ret = n.inner(o)
 
-        assert abs(ret.data - 32) < 1e-12
+        assert abs(ret - 32) < 1e-12
 
         ret = o.inner(n)
 
-        assert abs(ret.data - 32) < 1e-12
+        assert abs(ret - 32) < 1e-12
 
     def test_norm_mixed(self, backend):
         s = op2.Set(1)
@@ -337,8 +337,8 @@ class TestLinAlgScalar:
 
         ret = md.inner(md1)
 
-        assert abs(ret.data - 32) < 1e-12
+        assert abs(ret - 32) < 1e-12
 
         ret = md1.inner(md)
 
-        assert abs(ret.data - 32) < 1e-12
+        assert abs(ret - 32) < 1e-12
