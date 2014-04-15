@@ -1082,7 +1082,9 @@ class FunctionSpaceBase(ObjectCached):
                                                interior_local_facet_number)
 
             interior_facet_cells = mesh.interior_facets.facet_cell
-            self.interior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in interior_facet_cells])
+            self.interior_facet_node_list = \
+                dmplex.get_facet_nodes(interior_facet_cells,
+                                       self.cell_node_list)
         else:
             self.interior_facet_node_list = None
 
@@ -1117,7 +1119,9 @@ class FunctionSpaceBase(ObjectCached):
                                                boundary_ids)
 
             exterior_facet_cells = mesh.exterior_facets.facet_cell
-            self.exterior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in exterior_facet_cells])
+            self.exterior_facet_node_list = \
+                dmplex.get_facet_nodes(exterior_facet_cells,
+                                       self.cell_node_list)
         else:
             self.exterior_facet_node_list = None
 

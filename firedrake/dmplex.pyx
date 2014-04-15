@@ -447,6 +447,43 @@ def get_extruded_cell_nodes(PETSc.DM plex,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def get_facet_nodes(np.ndarray[np.int32_t, ndim=2] facet_cells,
+                    np.ndarray[np.int32_t, ndim=2] cell_nodes):
+    """
+    Derives the DoF mapping for a given facet list.
+
+    :arg facet_cells: 2D array of parent cells for each facet
+    :arg cell_nodes: 2D array of cell DoFs
+    """
+    cdef:
+        int f, i, cell, nfacets, ncells, ndofs
+        np.ndarray[np.int32_t, ndim=2] facet_nodes
+
+    nfacets = facet_cells.shape[0]
+    ncells = facet_cells.shape[1]
+    ndofs = cell_nodes.shape[1]
+    facet_nodes = np.empty((nfacets, ncells*ndofs), dtype=np.int32)
+
+    for f in range(nfacets):
+        # First parent cell
+        cell = facet_cells[f, 0]
+        for i in range(ndofs):
+            facet_nodes[f, i] = cell_nodes[cell, i]
+
+        # Second parent cell for internal facets
+        if ncells > 1:
+            cell = facet_cells[f, 1]
+            if cell > 0:
+                for i in range(ndofs):
+                    facet_nodes[f, ndofs+i] = cell_nodes[cell, i]
+            else:
+                for i in range(ndofs):
+                    facet_nodes[f, ndofs+i] = -1
+
+    return facet_nodes
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def mark_entity_classes(PETSc.DM plex):
     """Mark all points in a given Plex according to the PyOP2 entity
     classes:
