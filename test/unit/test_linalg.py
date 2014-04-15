@@ -314,7 +314,6 @@ class TestLinAlgScalar:
 
     def test_norm_mixed(self, backend):
         s = op2.Set(1)
-        ms = op2.MixedSet([s, s])
 
         n = op2.Dat(s, [3], np.float64)
         o = op2.Dat(s, [4], np.float64)
@@ -325,7 +324,6 @@ class TestLinAlgScalar:
 
     def test_inner_mixed(self, backend):
         s = op2.Set(1)
-        ms = op2.MixedSet([s, s])
 
         n = op2.Dat(s, [3], np.float64)
         o = op2.Dat(s, [4], np.float64)
