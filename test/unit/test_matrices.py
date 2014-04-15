@@ -601,6 +601,14 @@ class TestMatrices:
             op2.par_loop(op2.Kernel("", "dummy"), elements,
                          mat(mode, (elem_node[op2.i[0]], elem_node[op2.i[1]])))
 
+    @pytest.mark.parametrize('n', [1, 2])
+    def test_mat_set_diagonal(self, backend, nodes, elem_node, n, skip_cuda):
+        "Set the diagonal of the entire matrix to 1.0"
+        mat = op2.Mat(op2.Sparsity(nodes**n, elem_node), valuetype)
+        nrows = mat.sparsity.nrows
+        mat.inc_local_diagonal_entries(range(nrows))
+        assert (mat.values == np.identity(nrows * n)).all()
+
     def test_minimal_zero_mat(self, backend, skip_cuda):
         """Assemble a matrix that is all zeros."""
 
