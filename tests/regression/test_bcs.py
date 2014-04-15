@@ -3,14 +3,14 @@ import numpy as np
 from firedrake import *
 
 
-@pytest.fixture
-def V():
-    return FunctionSpace(UnitSquareMesh(10, 10), "CG", 1)
+@pytest.fixture(scope='module')
+def mesh():
+    return UnitSquareMesh(2, 2)
 
 
-@pytest.fixture
-def VV():
-    return VectorFunctionSpace(UnitSquareMesh(10, 10), "CG", 1)
+@pytest.fixture(scope='module', params=[FunctionSpace, VectorFunctionSpace])
+def V(request, mesh):
+    return request.param(mesh, "CG", 1)
 
 
 @pytest.fixture
@@ -21,8 +21,17 @@ def u(V):
 @pytest.fixture
 def a(u, V):
     v = TestFunction(V)
-    a = dot(grad(v), grad(u)) * dx
-    return a
+    return inner(grad(v), grad(u)) * dx
+
+
+@pytest.fixture
+def f(V):
+    return Function(V).assign(10)
+
+
+@pytest.fixture
+def f2(mesh):
+    return Function(FunctionSpace(mesh, 'CG', 2))
 
 
 @pytest.mark.parametrize('v', [0, 1.0])
@@ -32,16 +41,10 @@ def test_init_bcs(V, v):
 
 
 @pytest.mark.parametrize('v', [(0, 0), 'foo'])
-def test_init_bcs_illegal(V, v):
+def test_init_bcs_illegal(mesh, v):
     "Initialise a DirichletBC with illegal values."
     with pytest.raises(RuntimeError):
-        DirichletBC(V, v, 0)
-
-
-@pytest.mark.parametrize('v', [[0.0, 0.0], (1.0, 1.0)])
-def test_init_vector_bcs(VV, v):
-    "Initialise a DirichletBC on a VectorFunctionSpace."
-    assert DirichletBC(VV, v, 0).function_arg
+        DirichletBC(FunctionSpace(mesh, "CG", 1), v, 0)
 
 
 @pytest.mark.parametrize('measure', [dx, ds])
@@ -49,7 +52,7 @@ def test_assemble_bcs_wrong_fs(V, measure):
     "Assemble a Matrix with a DirichletBC on an incompatible FunctionSpace."
     u, v = TestFunction(V), TrialFunction(V)
     W = FunctionSpace(V.mesh(), "CG", 2)
-    A = assemble(u*v*measure, bcs=[DirichletBC(W, 32, 1)])
+    A = assemble(dot(u, v)*measure, bcs=[DirichletBC(W, 32, 1)])
     with pytest.raises(RuntimeError):
         A.M.values
 
@@ -64,35 +67,31 @@ def test_assemble_bcs_wrong_fs_interior(V):
         A.M.values
 
 
-def test_apply_bcs_wrong_fs(V):
+def test_apply_bcs_wrong_fs(V, f2):
     "Applying a DirichletBC to a Function on an incompatible FunctionSpace."
     bc = DirichletBC(V, 32, 1)
-    f = Function(FunctionSpace(V.mesh(), "CG", 2))
     with pytest.raises(RuntimeError):
-        bc.apply(f)
+        bc.apply(f2)
 
 
-def test_zero_bcs_wrong_fs(V):
+def test_zero_bcs_wrong_fs(V, f2):
     "Zeroing a DirichletBC on a Function on an incompatible FunctionSpace."
     bc = DirichletBC(V, 32, 1)
-    f = Function(FunctionSpace(V.mesh(), "CG", 2))
     with pytest.raises(RuntimeError):
-        bc.zero(f)
+        bc.zero(f2)
 
 
-def test_init_bcs_wrong_fs(V):
+def test_init_bcs_wrong_fs(V, f2):
     "Initialise a DirichletBC with a Function on an incompatible FunctionSpace."
-    f = Function(FunctionSpace(V.mesh(), "CG", 2))
     with pytest.raises(RuntimeError):
-        DirichletBC(V, f, 1)
+        DirichletBC(V, f2, 1)
 
 
-def test_set_bcs_wrong_fs(V):
+def test_set_bcs_wrong_fs(V, f2):
     "Set a DirichletBC to a Function on an incompatible FunctionSpace."
     bc = DirichletBC(V, 32, 1)
-    f = Function(FunctionSpace(V.mesh(), "CG", 2))
     with pytest.raises(RuntimeError):
-        bc.set_value(f)
+        bc.set_value(f2)
 
 
 def test_homogeneous_bcs(a, u, V):
@@ -102,38 +101,32 @@ def test_homogeneous_bcs(a, u, V):
     # Compute solution - this should have the solution u = 0
     solve(a == 0, u, bcs=bcs)
 
-    assert max(abs(u.vector().array())) == 0.0
+    assert abs(u.vector().array()).max() == 0.0
 
 
-def test_homogenize_doesnt_overwrite_function(a, u, V):
-    f = Function(V)
-    f.assign(10)
+def test_homogenize_doesnt_overwrite_function(a, u, V, f):
     bc = DirichletBC(V, f, 1)
     bc.homogenize()
 
     assert (f.vector().array() == 10.0).all()
 
     solve(a == 0, u, bcs=[bc])
-    assert max(abs(u.vector().array())) == 0.0
+    assert abs(u.vector().array()).max() == 0.0
 
 
-def test_restore_bc_value(a, u, V):
-    f = Function(V)
-    f.assign(10)
+def test_restore_bc_value(a, u, V, f):
     bc = DirichletBC(V, f, 1)
     bc.homogenize()
 
     solve(a == 0, u, bcs=[bc])
-    assert max(abs(u.vector().array())) == 0.0
+    assert abs(u.vector().array()).max() == 0.0
 
     bc.restore()
     solve(a == 0, u, bcs=[bc])
     assert np.allclose(u.vector().array(), 10.0)
 
 
-def test_set_bc_value(a, u, V):
-    f = Function(V)
-    f.assign(10)
+def test_set_bc_value(a, u, V, f):
     bc = DirichletBC(V, f, 1)
 
     bc.set_value(7)
@@ -143,16 +136,14 @@ def test_set_bc_value(a, u, V):
     assert np.allclose(u.vector().array(), 7.0)
 
 
-def test_preassembly_change_bcs(V):
+def test_preassembly_change_bcs(V, f):
     v = TestFunction(V)
     u = TrialFunction(V)
-    a = u*v*dx
-    f = Function(V)
-    f.assign(10)
+    a = dot(u, v)*dx
     bc = DirichletBC(V, f, 1)
 
     A = assemble(a, bcs=[bc])
-    L = v*f*dx
+    L = dot(v, f)*dx
     b = assemble(L)
 
     y = Function(V)
@@ -164,21 +155,19 @@ def test_preassembly_change_bcs(V):
     assert np.allclose(u.vector().array(), 10.0)
 
     u.assign(0)
-    b = assemble(v*y*dx)
+    b = assemble(dot(v, y)*dx)
     solve(A, u, b, bcs=[bc1])
     assert np.allclose(u.vector().array(), 7.0)
 
 
-def test_preassembly_doesnt_modify_assembled_rhs(V):
+def test_preassembly_doesnt_modify_assembled_rhs(V, f):
     v = TestFunction(V)
     u = TrialFunction(V)
-    a = u*v*dx
-    f = Function(V)
-    f.assign(10)
+    a = dot(u, v)*dx
     bc = DirichletBC(V, f, 1)
 
     A = assemble(a, bcs=[bc])
-    L = v*f*dx
+    L = dot(v, f)*dx
     b = assemble(L)
 
     b_vals = b.vector().array()
@@ -197,7 +186,7 @@ def test_preassembly_bcs_caching(V):
     v = TestFunction(V)
     u = TrialFunction(V)
 
-    a = u*v*dx
+    a = dot(u, v)*dx
 
     Aboth = assemble(a, bcs=[bc1, bc2])
     Aneither = assemble(a)
