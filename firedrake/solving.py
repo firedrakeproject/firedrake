@@ -157,25 +157,28 @@ class NonlinearVariationalSolver(object):
                     ises.append((name, PETSc.IS().createStride(nrows, first=offset, step=1)))
                     offset += nrows
             pc.setFieldSplitIS(*ises)
+        else:
+            ises = None
 
         with self._F_tensor.dat.vec as v:
             self.snes.setFunction(self.form_function, v)
         self.snes.setJacobian(self.form_jacobian, J=self._jac_tensor._M.handle,
                               P=self._jac_ptensor._M.handle)
+
         nullspace = kwargs.get('nullspace', None)
         if nullspace is not None:
-            self.set_nullspace(nullspace)
+            self.set_nullspace(nullspace, ises=ises)
 
-    def set_nullspace(self, nullspace):
+    def set_nullspace(self, nullspace, ises=None):
         """Set the null space for this solver.
 
         :arg nullspace: a :class:`.VectorSpaceBasis` spanning the null
              space of the operator.
 
         This overwrites any existing null space."""
-        nullspace._apply(self._jac_tensor._M)
+        nullspace._apply(self._jac_tensor._M, ises=ises)
         if self._jac_ptensor._M.handle != self._jac_tensor._M.handle:
-            nullspace._apply(self._jac_tensor._M)
+            nullspace._apply(self._jac_tensor._M, ises=ises)
 
     def form_function(self, snes, X_, F_):
         # X_ may not be the same vector as the vec behind self._x, so
