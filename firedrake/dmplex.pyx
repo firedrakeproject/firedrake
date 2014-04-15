@@ -32,12 +32,21 @@ cdef extern from "petscdmplex.h":
     int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
 
     int DMPlexGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
+    int DMPlexSetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
 
 cdef extern from "petscis.h":
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])
     int ISGeneralSetIndices(PETSc.PetscIS,PetscInt,PetscInt[],PetscCopyMode)
+
+cdef extern from "petscsf.h":
+    struct PetscSFNode:
+        PetscInt rank
+        PetscInt index
+    ctypedef PetscSFNode PetscSFNode "PetscSFNode"
+
+    int PetscSFGetGraph(PETSc.PetscSF,PetscInt*,PetscInt*,PetscInt**,PetscSFNode**)
 
 cdef extern from "petscbt.h":
     ctypedef char * PetscBT
@@ -436,59 +445,114 @@ def get_extruded_cell_nodes(PETSc.DM plex,
     PetscFree(vdofs)
     return cell_nodes
 
-def mark_entity_classes(plex):
-    """Mark all points in a given Plex according to the PyOP2 entity classes:
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def mark_entity_classes(PETSc.DM plex):
+    """Mark all points in a given Plex according to the PyOP2 entity
+    classes:
+
     core      : owned and not in send halo
     non_core  : owned and in send halo
     exec_halo : in halo, but touch owned entity
+
+    :arg plex: The DMPlex object encapsulating the mesh topology
     """
+    cdef:
+        PetscInt p, pStart, pEnd, cStart, cEnd, vStart, vEnd
+        PetscInt c, ncells, ci, nclosure, vi, dim
+        PetscInt depth, non_core, exec_halo, nroots, nleaves
+        PetscInt *cells = NULL
+        PetscInt *vertices = NULL
+        PetscInt *closure = NULL
+        PetscInt *ilocal = NULL
+        PetscSFNode *iremote = NULL
+        PETSc.SF point_sf = None
+        PETSc.IS cell_is = None
+
+    dim = plex.getDimension()
+    cStart, cEnd = plex.getHeightStratum(0)
+    vStart, vEnd = plex.getDepthStratum(0)
+    v_per_cell = plex.getConeSize(cStart)
+    PetscMalloc1(v_per_cell, &vertices)
+
     plex.createLabel("op2_core")
     plex.createLabel("op2_non_core")
     plex.createLabel("op2_exec_halo")
 
+    lbl_depth = <char*>"depth"
+    lbl_core = <char*>"op2_core"
+    lbl_non_core = <char*>"op2_non_core"
+    lbl_halo = <char*>"op2_exec_halo"
+
     if MPI.comm.size > 1:
         # Mark exec_halo from point overlap SF
         point_sf = plex.getPointSF()
-        nroots, nleaves, local, remote = point_sf.getGraph()
-        for p in local:
-            depth = plex.getLabelValue("depth", p)
-            plex.setLabelValue("op2_exec_halo", p, depth)
+        PetscSFGetGraph(point_sf.sf, &nroots, &nleaves, &ilocal, &iremote)
+        for p in range(nleaves):
+            DMPlexGetLabelValue(plex.dm, lbl_depth, ilocal[p], &depth)
+            DMPlexSetLabelValue(plex.dm, lbl_halo, ilocal[p], depth)
     else:
         # If sequential mark all points as core
         pStart, pEnd = plex.getChart()
         for p in range(pStart, pEnd):
-            depth = plex.getLabelValue("depth", p)
-            plex.setLabelValue("op2_core", p, depth)
+            DMPlexGetLabelValue(plex.dm, lbl_depth, p, &depth)
+            DMPlexSetLabelValue(plex.dm, lbl_core, p, depth)
         return
 
-    # Mark all unmarked points in the closure of adjacent cells as non_core
-    cStart, cEnd = plex.getHeightStratum(0)
-    vStart, vEnd = plex.getDepthStratum(0)
-    dim = plex.getDimension()
-    halo_cells = plex.getStratumIS("op2_exec_halo", dim).getIndices()
-    adjacent_cells = []
-    for c in halo_cells:
-        halo_closure = plex.getTransitiveClosure(c)[0]
-        for vertex in filter(lambda x: x >= vStart and x < vEnd, halo_closure):
-            star = plex.getTransitiveClosure(vertex, useCone=False)[0]
-            for adj in filter(lambda x: x >= cStart and x < cEnd, star):
-                if plex.getLabelValue("op2_exec_halo", adj) < 0:
-                    adjacent_cells.append(adj)
+    # Mark all cells adjacent to halo cells as non_core,
+    # where adjacent(c) := star(closure(c))
+    ncells = plex.getStratumSize("op2_exec_halo", dim)
+    cell_is = plex.getStratumIS("op2_exec_halo", dim)
+    ISGetIndices(cell_is.iset, &cells)
+    for c in range(ncells):
+        DMPlexGetTransitiveClosure(plex.dm, cells[c], PETSC_TRUE,
+                                   &nclosure, &closure)
+        # Copy vertices out of the work array (closure)
+        vi = 0
+        for ci in range(nclosure):
+            if vStart <= closure[2*ci] < vEnd:
+                vertices[vi] = closure[2*ci]
+                vi += 1
 
-    for adj_cell in adjacent_cells:
-        for p in plex.getTransitiveClosure(adj_cell)[0]:
-            if plex.getLabelValue("op2_exec_halo", p) < 0:
-                depth = plex.getLabelValue("depth", p)
-                plex.setLabelValue("op2_non_core", p, depth)
+        # Mark all cells in the star of each vertex
+        for vi in range(v_per_cell):
+            vertex = vertices[vi]
+            DMPlexGetTransitiveClosure(plex.dm, vertices[vi], PETSC_FALSE,
+                                       &nclosure, &closure)
+            for ci in range(nclosure):
+                if cStart <= closure[2*ci] < cEnd:
+                    p = closure[2*ci]
+                    DMPlexGetLabelValue(plex.dm, lbl_halo, p, &exec_halo)
+                    if exec_halo < 0:
+                        DMPlexSetLabelValue(plex.dm, lbl_non_core, p, dim)
+
+    # Mark the closures of non_core cells as non_core
+    ncells = plex.getStratumSize("op2_non_core", dim)
+    cell_is = plex.getStratumIS("op2_non_core", dim)
+    ISGetIndices(cell_is.iset, &cells)
+    for c in range(ncells):
+        DMPlexGetTransitiveClosure(plex.dm, cells[c], PETSC_TRUE,
+                                   &nclosure, &closure)
+        for ci in range(nclosure):
+            p = closure[2*ci]
+            DMPlexGetLabelValue(plex.dm, lbl_halo, p, &exec_halo)
+            if exec_halo < 0:
+                DMPlexGetLabelValue(plex.dm, lbl_depth, p, &depth)
+                DMPlexSetLabelValue(plex.dm, lbl_non_core, p, depth)
+
+    DMPlexRestoreTransitiveClosure(plex.dm, cells[c], PETSC_TRUE,
+                                   &nclosure, &closure)
 
     # Mark all remaining points as core
     pStart, pEnd = plex.getChart()
     for p in range(pStart, pEnd):
-        exec_halo = plex.getLabelValue("op2_exec_halo", p)
-        non_core = plex.getLabelValue("op2_non_core", p)
+        DMPlexGetLabelValue(plex.dm, lbl_halo, p, &exec_halo)
+        DMPlexGetLabelValue(plex.dm, lbl_non_core, p, &non_core)
         if exec_halo < 0 and non_core < 0:
-            depth = plex.getLabelValue("depth", p)
-            plex.setLabelValue("op2_core", p, depth)
+            DMPlexGetLabelValue(plex.dm, lbl_depth, p, &depth)
+            DMPlexSetLabelValue(plex.dm, lbl_core, p, depth)
+
+    PetscFree(vertices)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
