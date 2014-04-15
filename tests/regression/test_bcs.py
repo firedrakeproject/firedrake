@@ -216,21 +216,18 @@ def test_preassembly_bcs_caching(V):
     assert not any(Aneither.M.values.diagonal() == 0)
 
 
-def test_mass_bcs_1d():
-    m = UnitIntervalMesh(5)
-    V = FunctionSpace(m, 'CG', 1)
+def test_assemble_mass_bcs_2d(V):
     u = TrialFunction(V)
     v = TestFunction(V)
-    f = Function(V)
-    f.interpolate(Expression('x[0]'))
+    f = Function(V).interpolate(Expression(['x[0]'] * V.dim))
 
     bcs = [DirichletBC(V, 0.0, 1),
            DirichletBC(V, 1.0, 2)]
 
     w = Function(V)
-    solve(u*v*dx == f*v*dx, w, bcs=bcs)
+    solve(dot(u, v)*dx == dot(f, v)*dx, w, bcs=bcs)
 
-    assert assemble((w - f)*(w - f)*dx) < 1e-10
+    assert assemble(dot((w - f), (w - f))*dx) < 1e-12
 
 
 if __name__ == '__main__':
