@@ -373,8 +373,14 @@ class Mat(base.Mat, CopyOnWrite):
         base._trace.evaluate(set([self]), set([self]))
         vec = self.handle.createVecLeft()
         vec.setOption(vec.Option.IGNORE_OFF_PROC_ENTRIES, True)
+        rows = np.asarray(rows)
+        rows = rows[rows < self.sparsity.rmaps[0].toset.size]
+        # If the row DataSet has dimension > 1 we need to treat the given rows
+        # as block indices and set all rows in each block
+        rdim = self.sparsity.dsets[0].cdim
+        if rdim > 1:
+            rows = [r*rdim + i for r in rows for i in range(rdim)]
         with vec as array:
-            rows = rows[rows < self.sparsity.rmaps[0].toset.size]
             array[rows] = diag_val
         self.handle.setDiagonal(vec, addv=PETSc.InsertMode.ADD_VALUES)
 
