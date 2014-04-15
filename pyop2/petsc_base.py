@@ -379,7 +379,7 @@ class Mat(base.Mat, CopyOnWrite):
         # as block indices and set all rows in each block
         rdim = self.sparsity.dsets[0].cdim
         if rdim > 1:
-            rows = [r*rdim + i for r in rows for i in range(rdim)]
+            rows = np.dstack([rdim*rows + i for i in range(rdim)]).flatten()
         with vec as array:
             array[rows] = diag_val
         self.handle.setDiagonal(vec, addv=PETSc.InsertMode.ADD_VALUES)
