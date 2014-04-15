@@ -2307,9 +2307,9 @@ class MixedDat(Dat):
         """Compute the l2 inner product.
 
         :arg other: the other :class:`MixedDat` to compute the inner product against"""
-        ret = 0
+        ret = _make_object('Global', 1, data=0, dtype=self.dtype)
         for s, o in zip(self, other):
-            ret += self.inner(other)
+            ret.data += s.inner(o).data_ro
         return ret
 
     def _op(self, other, op):

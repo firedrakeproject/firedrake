@@ -311,3 +311,36 @@ class TestLinAlgScalar:
         ret = o.inner(n)
 
         assert abs(ret.data - 32) < 1e-12
+
+    def test_norm_mixed(self, backend):
+        s = op2.Set(1)
+        ms = op2.MixedSet([s, s])
+
+        n = op2.Dat(s, [3], np.float64)
+        o = op2.Dat(s, [4], np.float64)
+
+        md = op2.MixedDat([n, o])
+
+        assert abs(md.norm - 5) < 1e-12
+
+    def test_inner_mixed(self, backend):
+        s = op2.Set(1)
+        ms = op2.MixedSet([s, s])
+
+        n = op2.Dat(s, [3], np.float64)
+        o = op2.Dat(s, [4], np.float64)
+
+        md = op2.MixedDat([n, o])
+
+        n1 = op2.Dat(s, [4], np.float64)
+        o1 = op2.Dat(s, [5], np.float64)
+
+        md1 = op2.MixedDat([n1, o1])
+
+        ret = md.inner(md1)
+
+        assert abs(ret.data - 32) < 1e-12
+
+        ret = md1.inner(md)
+
+        assert abs(ret.data - 32) < 1e-12
