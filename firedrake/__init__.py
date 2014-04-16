@@ -1,5 +1,4 @@
 from ufl import *
-from core_types import *
 from types import *
 from projection import *
 from ufl_expr import *

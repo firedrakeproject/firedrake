@@ -31,8 +31,8 @@ from ufl_expr import derivative
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
 from pyop2.logger import progress, INFO
-import core_types
 import types
+import fiat_utils
 from copy import copy
 from ffc_interface import compile_form
 from assemble_expressions import assemble_expression
@@ -412,13 +412,13 @@ def _assemble(f, tensor=None, bcs=None):
     needs_orientations = False
     for e in fd.elements:
         if isinstance(e, ufl.MixedElement) and e.family() != 'Real':
-            if any("contravariant piola" in core_types.fiat_from_ufl_element(s).mapping()
+            if any("contravariant piola" in fiat_utils.fiat_from_ufl_element(s).mapping()
                    for s in e.sub_elements()):
                 needs_orientations = True
                 break
         else:
             if e.family() != 'Real' and \
-               "contravariant piola" in core_types.fiat_from_ufl_element(e).mapping():
+               "contravariant piola" in fiat_utils.fiat_from_ufl_element(e).mapping():
                 needs_orientations = True
                 break
     needs_orientations = needs_orientations and fd.topological_dimension != fd.geometric_dimension

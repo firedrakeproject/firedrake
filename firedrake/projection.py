@@ -1,5 +1,4 @@
-from core_types import FunctionSpaceBase
-from types import Function, FunctionSpace, VectorFunctionSpace
+from types import FunctionSpaceBase, Function, FunctionSpace, VectorFunctionSpace
 from expression import Expression
 from solving import solve
 import ufl

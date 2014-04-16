@@ -6,14 +6,22 @@ import FIAT
 
 from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
+
+from pyop2.caching import ObjectCached
 from pyop2.utils import flatten, as_tuple
 import pyop2.ir.ast_base as ast
-
+from collections import defaultdict
 import assemble_expressions
-from core_types import FunctionSpaceBase, ExtrudedMesh, _new_uid, _init
+from mesh import ExtrudedMesh
+from utils import _new_uid, _init
 from expression import Expression
 from solving import _assemble
+from extrusion_utils import compute_extruded_dofs, compute_offset, extract_offset
 import utils
+import dmplex
+from mpi4py import MPI
+from mesh import _Facets
+from fiat_utils import fiat_from_ufl_element
 from vector import Vector
 
 
@@ -138,6 +146,623 @@ class _TensorConstant(ufl.TensorConstant, Constant):
         shape = np.array(value).shape
         ufl.TensorConstant.__init__(self, domain=cell, shape=shape)
         Constant.__init__(self, value, cell)
+
+
+class Halo(object):
+    """Build a Halo associated with the appropriate FunctionSpace.
+
+    The Halo is derived from a PetscSF object and builds the global
+    to universal numbering map from the respective PetscSections."""
+
+    def __init__(self, petscsf, global_numbering, universal_numbering):
+        self._tag = _new_uid()
+        self._comm = op2.MPI.comm
+        self._nprocs = self.comm.size
+        self._sends = defaultdict(list)
+        self._receives = defaultdict(list)
+        self._gnn2unn = None
+        remote_sends = defaultdict(list)
+
+        if op2.MPI.comm.size <= 1:
+            return
+
+        # Sort the SF by local indices
+        nroots, nleaves, local, remote = petscsf.getGraph()
+        local_new, remote_new = (list(x) for x in zip(*sorted(zip(local, remote), key=lambda x: x[0])))
+        petscsf.setGraph(nroots, nleaves, local_new, remote_new)
+
+        # Derive local receives and according remote sends
+        nroots, nleaves, local, remote = petscsf.getGraph()
+        for local, (rank, index) in zip(local, remote):
+            if rank != self.comm.rank:
+                self._receives[rank].append(local)
+                remote_sends[rank].append(index)
+
+        # Propagate remote send lists to the actual sender
+        send_reqs = []
+        for p in range(self._nprocs):
+            # send sizes
+            if p != self._comm.rank:
+                s = np.array(len(remote_sends[p]), dtype=np.int32)
+                send_reqs.append(self.comm.Isend(s, dest=p, tag=self.tag))
+
+        recv_reqs = []
+        sizes = [np.empty(1, dtype=np.int32) for _ in range(self._nprocs)]
+        for p in range(self._nprocs):
+            # receive sizes
+            if p != self._comm.rank:
+                recv_reqs.append(self.comm.Irecv(sizes[p], source=p, tag=self.tag))
+
+        MPI.Request.Waitall(recv_reqs)
+        MPI.Request.Waitall(send_reqs)
+
+        for p in range(self._nprocs):
+            # allocate buffers
+            if p != self._comm.rank:
+                self._sends[p] = np.empty(sizes[p], dtype=np.int32)
+
+        send_reqs = []
+        for p in range(self._nprocs):
+            if p != self._comm.rank:
+                send_buf = np.array(remote_sends[p], dtype=np.int32)
+                send_reqs.append(self.comm.Isend(send_buf, dest=p, tag=self.tag))
+
+        recv_reqs = []
+        for p in range(self._nprocs):
+            if p != self._comm.rank:
+                recv_reqs.append(self.comm.Irecv(self._sends[p], source=p, tag=self.tag))
+
+        MPI.Request.Waitall(send_reqs)
+        MPI.Request.Waitall(recv_reqs)
+
+        # Build Global-To-Universal mapping
+        pStart, pEnd = global_numbering.getChart()
+        self._gnn2unn = np.zeros(global_numbering.getStorageSize(), dtype=np.int32)
+        for p in range(pStart, pEnd):
+            dof = global_numbering.getDof(p)
+            goff = global_numbering.getOffset(p)
+            uoff = universal_numbering.getOffset(p)
+            if uoff < 0:
+                uoff = (-1*uoff)-1
+            for c in range(dof):
+                self._gnn2unn[goff+c] = uoff+c
+
+    @utils.cached_property
+    def op2_halo(self):
+        if not self.sends and not self.receives:
+            return None
+        return op2.Halo(self.sends, self.receives,
+                        comm=self.comm, gnn2unn=self.gnn2unn)
+
+    @property
+    def comm(self):
+        return self._comm
+
+    @property
+    def tag(self):
+        return self._tag
+
+    @property
+    def nprocs(self):
+        return self._nprocs
+
+    @property
+    def sends(self):
+        return self._sends
+
+    @property
+    def receives(self):
+        return self._receives
+
+    @property
+    def gnn2unn(self):
+        return self._gnn2unn
+
+
+class FunctionSpaceBase(ObjectCached):
+    """Base class for :class:`.FunctionSpace`, :class:`.VectorFunctionSpace` and
+    :class:`.MixedFunctionSpace`.
+
+    .. note ::
+
+        Users should not directly create objects of this class, but one of its
+        derived types.
+    """
+
+    def __init__(self, mesh, element, name=None, dim=1, rank=0):
+        """
+        :param mesh: :class:`Mesh` to build this space on
+        :param element: :class:`ufl.FiniteElementBase` to build this space from
+        :param name: user-defined name for this space
+        :param dim: vector space dimension of a :class:`.VectorFunctionSpace`
+        :param rank: rank of the space, not the value rank
+        """
+
+        self._ufl_element = element
+
+        # Compute the FIAT version of the UFL element above
+        self.fiat_element = fiat_from_ufl_element(element)
+
+        if isinstance(mesh, ExtrudedMesh):
+            # Set up some extrusion-specific things
+            # The bottom layer maps will come from element_dof_list
+            # dof_count is the total number of dofs in the extruded mesh
+
+            # Get the flattened version of the FIAT element
+            self.flattened_element = self.fiat_element.flattened_element()
+            entity_dofs = self.flattened_element.entity_dofs()
+            self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
+
+            # Compute the number of DoFs per dimension on top/bottom and sides
+            entity_dofs = self.fiat_element.entity_dofs()
+            top_dim = mesh._plex.getDimension()
+            self._xtr_hdofs = [len(entity_dofs[(d, 0)][0]) for d in range(top_dim+1)]
+            self._xtr_vdofs = [len(entity_dofs[(d, 1)][0]) for d in range(top_dim+1)]
+
+            # Compute the dofs per column
+            self.dofs_per_column = compute_extruded_dofs(self.fiat_element,
+                                                         self.flattened_element.entity_dofs(),
+                                                         mesh._layers)
+
+            # Compute the offset for the extrusion process
+            self.offset = compute_offset(self.fiat_element.entity_dofs(),
+                                         self.flattened_element.entity_dofs(),
+                                         self.fiat_element.space_dimension())
+
+            # Compute the top and bottom masks to identify boundary dofs
+            b_mask = self.fiat_element.get_lower_mask()
+            t_mask = self.fiat_element.get_upper_mask()
+
+            self.bt_masks = (b_mask, t_mask)
+
+            self.extruded = True
+
+            self._dofs_per_entity = self.dofs_per_column
+        else:
+            # If not extruded specific, set things to None/False, etc.
+            self.offset = None
+            self.bt_masks = None
+            self.dofs_per_column = np.zeros(1, np.int32)
+            self.extruded = False
+
+            entity_dofs = self.fiat_element.entity_dofs()
+            self._dofs_per_entity = [len(entity[0]) for d, entity in entity_dofs.iteritems()]
+            self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
+
+        self.name = name
+        self._dim = dim
+        self._mesh = mesh
+        self._index = None
+
+        # Create the PetscSection mapping topological entities to DoFs
+        self._global_numbering = mesh._plex.createSection(1, [1], self._dofs_per_entity,
+                                                          perm=mesh._plex_renumbering)
+        mesh._plex.setDefaultSection(self._global_numbering)
+        self._universal_numbering = mesh._plex.getDefaultGlobalSection()
+
+        # Re-initialise the DefaultSF with the numbering for this FS
+        mesh._plex.createDefaultSF(self._global_numbering,
+                                   self._universal_numbering)
+
+        # Derive the Halo from the DefaultSF
+        self._halo = Halo(mesh._plex.getDefaultSF(),
+                          self._global_numbering,
+                          self._universal_numbering)
+
+        # Compute entity class offsets
+        self.dof_classes = [0, 0, 0, 0]
+        for d in range(mesh._plex.getDimension()+1):
+            ncore = mesh._plex.getStratumSize("op2_core", d)
+            nowned = mesh._plex.getStratumSize("op2_non_core", d)
+            nhalo = mesh._plex.getStratumSize("op2_exec_halo", d)
+            ndofs = self._dofs_per_entity[d]
+            self.dof_classes[0] += ndofs * ncore
+            self.dof_classes[1] += ndofs * (ncore + nowned)
+            self.dof_classes[2] += ndofs * (ncore + nowned + nhalo)
+            self.dof_classes[3] += ndofs * (ncore + nowned + nhalo)
+
+        self._node_count = self._global_numbering.getStorageSize()
+
+        # Re-order cell closures from the Plex
+        if mesh._cell_closure is None:
+            entity_dofs = self.fiat_element.entity_dofs()
+            entity_per_cell = [len(entity) for d, entity in entity_dofs.iteritems()]
+            entity_per_cell = np.array(entity_per_cell, dtype=np.int32)
+            mesh._cell_closure = dmplex.closure_ordering(mesh._plex,
+                                                         self._universal_numbering,
+                                                         mesh._cell_numbering,
+                                                         entity_per_cell)
+
+        if isinstance(self._mesh, ExtrudedMesh):
+            self.cell_node_list = dmplex.get_extruded_cell_nodes(mesh._plex,
+                                                                 self._global_numbering,
+                                                                 mesh._cell_closure,
+                                                                 self.fiat_element,
+                                                                 sum(self._dofs_per_cell))
+        else:
+            self.cell_node_list = dmplex.get_cell_nodes(self._global_numbering,
+                                                        mesh._cell_closure,
+                                                        sum(self._dofs_per_cell))
+
+        if mesh._plex.getStratumSize("interior_facets", 1) > 0:
+            # Compute the facet_numbering and store with the parent mesh
+            if mesh.interior_facets is None:
+                # Order interior facets by OP2 entity class
+                interior_facets, interior_facet_classes = \
+                    dmplex.get_facets_by_class(mesh._plex, "interior_facets")
+
+                interior_local_facet_number, interior_facet_cell = \
+                    dmplex.facet_numbering(mesh._plex, "interior",
+                                           interior_facets,
+                                           mesh._cell_numbering,
+                                           mesh._cell_closure)
+
+                # Note: To implement facets correctly in parallel
+                # we need to pass interior_facet_classes to _Facets()
+                mesh.interior_facets = _Facets(mesh, interior_facets.size,
+                                               "interior",
+                                               interior_facet_cell,
+                                               interior_local_facet_number)
+
+            interior_facet_cells = mesh.interior_facets.facet_cell
+            self.interior_facet_node_list = \
+                dmplex.get_facet_nodes(interior_facet_cells,
+                                       self.cell_node_list)
+        else:
+            self.interior_facet_node_list = None
+
+        if mesh._plex.getStratumSize("exterior_facets", 1) > 0:
+            # Compute the facet_numbering and store with the parent mesh
+            if mesh.exterior_facets is None:
+
+                # Order exterior facets by OP2 entity class
+                exterior_facets, exterior_facet_classes = \
+                    dmplex.get_facets_by_class(mesh._plex, "exterior_facets")
+
+                # Derive attached boundary IDs
+                if mesh._plex.hasLabel("boundary_ids"):
+                    boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
+                    for i, facet in enumerate(exterior_facets):
+                        boundary_ids[i] = mesh._plex.getLabelValue("boundary_ids", facet)
+                else:
+                    boundary_ids = None
+
+                exterior_local_facet_number, exterior_facet_cell = \
+                    dmplex.facet_numbering(mesh._plex, "exterior",
+                                           exterior_facets,
+                                           mesh._cell_numbering,
+                                           mesh._cell_closure)
+
+                # Note: To implement facets correctly in parallel
+                # we need to pass exterior_facet_classes to _Facets()
+                mesh.exterior_facets = _Facets(mesh, exterior_facets.size,
+                                               "exterior",
+                                               exterior_facet_cell,
+                                               exterior_local_facet_number,
+                                               boundary_ids)
+
+            exterior_facet_cells = mesh.exterior_facets.facet_cell
+            self.exterior_facet_node_list = \
+                dmplex.get_facet_nodes(exterior_facet_cells,
+                                       self.cell_node_list)
+        else:
+            self.exterior_facet_node_list = None
+
+        # Note: this is the function space rank. The value rank may be different.
+        self.rank = rank
+
+        # Empty map caches. This is a sui generis cache
+        # implementation because of the need to support boundary
+        # conditions.
+        self._cell_node_map_cache = {}
+        self._exterior_facet_map_cache = {}
+        self._interior_facet_map_cache = {}
+
+    @property
+    def index(self):
+        """Position of this :class:`FunctionSpaceBase` in the
+        :class:`.MixedFunctionSpace` it was extracted from."""
+        return self._index
+
+    @property
+    def node_count(self):
+        """The number of global nodes in the function space. For a
+        plain :class:`.FunctionSpace` this is equal to
+        :attr:`dof_count`, however for a :class:`.VectorFunctionSpace`,
+        the :attr:`dof_count`, is :attr:`dim` times the
+        :attr:`node_count`."""
+
+        return self._node_count
+
+    @property
+    def dof_count(self):
+        """The number of global degrees of freedom in the function
+        space. Cf. :attr:`node_count`."""
+
+        return self._node_count*self._dim
+
+    @utils.cached_property
+    def node_set(self):
+        """A :class:`pyop2.Set` containing the nodes of this
+        :class:`.FunctionSpace`. One or (for
+        :class:`.VectorFunctionSpace`\s) more degrees of freedom are
+        stored at each node.
+        """
+
+        name = "%s_nodes" % self.name
+        if self._halo:
+            s = op2.Set(self.dof_classes, name,
+                        halo=self._halo.op2_halo)
+            if self.extruded:
+                return op2.ExtrudedSet(s, layers=self._mesh.layers)
+            return s
+        else:
+            s = op2.Set(self.node_count, name)
+            if self.extruded:
+                return op2.ExtrudedSet(s, layers=self._mesh.layers)
+            return s
+
+    @utils.cached_property
+    def dof_dset(self):
+        """A :class:`pyop2.DataSet` containing the degrees of freedom of
+        this :class:`.FunctionSpace`."""
+        return op2.DataSet(self.node_set, self.dim)
+
+    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
+        """Return a newly allocated :class:`pyop2.Dat` defined on the
+        :attr:`dof_dset` of this :class:`.Function`."""
+        return op2.Dat(self.dof_dset, val, valuetype, name, uid=uid)
+
+    def cell_node_map(self, bcs=None):
+        """Return the :class:`pyop2.Map` from interior facets to
+        function space nodes. If present, bcs must be a tuple of
+        :class:`.DirichletBC`\s. In this case, the facet_node_map will return
+        negative node indices where boundary conditions should be
+        applied. Where a PETSc matrix is employed, this will cause the
+        corresponding values to be discarded during matrix assembly."""
+
+        if bcs:
+            parent = self.cell_node_map()
+        else:
+            parent = None
+
+        return self._map_cache(self._cell_node_map_cache,
+                               self._mesh.cell_set,
+                               self.cell_node_list,
+                               self.fiat_element.space_dimension(),
+                               bcs,
+                               "cell_node",
+                               self.offset,
+                               parent)
+
+    def interior_facet_node_map(self, bcs=None):
+        """Return the :class:`pyop2.Map` from interior facets to
+        function space nodes. If present, bcs must be a tuple of
+        :class:`.DirichletBC`\s. In this case, the facet_node_map will return
+        negative node indices where boundary conditions should be
+        applied. Where a PETSc matrix is employed, this will cause the
+        corresponding values to be discarded during matrix assembly."""
+
+        if bcs:
+            parent = self.interior_facet_node_map()
+        else:
+            parent = None
+
+        offset = self.cell_node_map().offset
+        return self._map_cache(self._interior_facet_map_cache,
+                               self._mesh.interior_facets.set,
+                               self.interior_facet_node_list,
+                               2*self.fiat_element.space_dimension(),
+                               bcs,
+                               "interior_facet_node",
+                               offset=np.append(offset, offset),
+                               parent=parent)
+
+    def exterior_facet_node_map(self, bcs=None):
+        """Return the :class:`pyop2.Map` from exterior facets to
+        function space nodes. If present, bcs must be a tuple of
+        :class:`.DirichletBC`\s. In this case, the facet_node_map will return
+        negative node indices where boundary conditions should be
+        applied. Where a PETSc matrix is employed, this will cause the
+        corresponding values to be discarded during matrix assembly."""
+
+        if bcs:
+            parent = self.exterior_facet_node_map()
+        else:
+            parent = None
+
+        facet_set = self._mesh.exterior_facets.set
+        if isinstance(self._mesh, ExtrudedMesh):
+            name = "extruded_exterior_facet_node"
+            offset = self.offset
+        else:
+            name = "exterior_facet_node"
+            offset = None
+        return self._map_cache(self._exterior_facet_map_cache,
+                               facet_set,
+                               self.exterior_facet_node_list,
+                               self.fiat_element.space_dimension(),
+                               bcs,
+                               name,
+                               parent=parent,
+                               offset=offset)
+
+    def bottom_nodes(self):
+        """Return a list of the bottom boundary nodes of the extruded mesh.
+        The bottom mask is applied to every bottom layer cell to get the
+        dof ids."""
+        return np.unique(self.cell_node_list[:, self.bt_masks[0]])
+
+    def top_nodes(self):
+        """Return a list of the top boundary nodes of the extruded mesh.
+        The top mask is applied to every top layer cell to get the dof ids."""
+        voffs = self.offset.take(self.bt_masks[1])*(self._mesh.layers-2)
+        return np.unique(self.cell_node_list[:, self.bt_masks[1]] + voffs)
+
+    def _map_cache(self, cache, entity_set, entity_node_list, map_arity, bcs, name,
+                   offset=None, parent=None):
+        if bcs is None:
+            # Empty tuple if no bcs found.  This is so that matrix
+            # assembly, which uses a set to keep track of the bcs
+            # applied to matrix hits the cache when that set is
+            # empty.  tuple(set([])) == tuple().
+            lbcs = tuple()
+        else:
+            if not all(bc.function_space() == self for bc in bcs):
+                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
+            # Ensure bcs is a tuple in a canonical order for the hash key.
+            lbcs = tuple(sorted(bcs, key=lambda bc: bc.__hash__()))
+        try:
+            # Cache hit
+            return cache[lbcs]
+        except KeyError:
+            # Cache miss.
+            if not lbcs:
+                new_entity_node_list = entity_node_list
+            elif offset is not None:
+                l = [bc.nodes for bc in bcs if bc.sub_domain not in ['top', 'bottom']]
+                if l:
+                    bcids = reduce(np.union1d, l)
+                    nl = entity_node_list.ravel()
+                    new_entity_node_list = np.where(np.in1d(nl, bcids), -10000000, nl)
+                else:
+                    new_entity_node_list = entity_node_list
+            else:
+                bcids = reduce(np.union1d, [bc.nodes for bc in bcs])
+                nl = entity_node_list.ravel()
+                new_entity_node_list = np.where(np.in1d(nl, bcids), -1, nl)
+
+            cache[lbcs] = op2.Map(entity_set, self.node_set,
+                                  map_arity,
+                                  new_entity_node_list,
+                                  ("%s_"+name) % (self.name),
+                                  offset,
+                                  parent,
+                                  self.bt_masks)
+
+            return cache[lbcs]
+
+    @utils.cached_property
+    def exterior_facet_boundary_node_map(self):
+        '''The :class:`pyop2.Map` from exterior facets to the nodes on
+        those facets. Note that this differs from
+        :meth:`exterior_facet_node_map` in that only surface nodes
+        are referenced, not all nodes in cells touching the surface.'''
+
+        el = self.fiat_element
+
+        if isinstance(self._mesh, ExtrudedMesh):
+            # The facet is indexed by (base-ele-codim 1, 1) for
+            # extruded meshes.
+            # e.g. for the two supported options of
+            # triangle x interval interval x interval it's (1, 1) and
+            # (0, 1) respectively.
+            if self._mesh.geometric_dimension == 3:
+                dim = (1, 1)
+            elif self._mesh.geometric_dimension == 2:
+                dim = (0, 1)
+            else:
+                raise RuntimeError("Dimension computation for other than 2D or 3D extruded meshes not supported.")
+        else:
+            # Facets have co-dimension 1
+            dim = len(el.get_reference_element().topology)-1
+            dim = dim - 1
+
+        nodes_per_facet = \
+            len(self.fiat_element.entity_closure_dofs()[dim][0])
+
+        facet_set = self._mesh.exterior_facets.set
+
+        fs_dat = op2.Dat(facet_set**el.space_dimension(),
+                         data=self.exterior_facet_node_map().values_with_halo)
+
+        facet_dat = op2.Dat(facet_set**nodes_per_facet,
+                            dtype=np.int32)
+
+        local_facet_nodes = np.array(
+            [dofs for e, dofs in el.entity_closure_dofs()[dim].iteritems()])
+
+        # Helper function to turn the inner index of an array into c
+        # array literals.
+        c_array = lambda xs: "{"+", ".join(map(str, xs))+"}"
+
+        body = ast.Block([ast.Decl("int", ast.Symbol("l_nodes", (len(el.get_reference_element().topology[dim]),
+                                                                 nodes_per_facet)),
+                                   init=ast.ArrayInit(c_array(map(c_array, local_facet_nodes))),
+                                   qualifiers=["const"]),
+                          ast.For(ast.Decl("int", "n", 0),
+                                  ast.Less("n", nodes_per_facet),
+                                  ast.Incr("n", 1),
+                                  ast.Assign(ast.Symbol("facet_nodes", ("n",)),
+                                             ast.Symbol("cell_nodes", ("l_nodes[facet[0]][n]",))))
+                          ])
+
+        kernel = op2.Kernel(ast.FunDecl("void", "create_bc_node_map",
+                                        [ast.Decl("int*", "cell_nodes"),
+                                         ast.Decl("int*", "facet_nodes"),
+                                         ast.Decl("unsigned int*", "facet")],
+                                        body),
+                            "create_bc_node_map")
+
+        local_facet_dat = self._mesh.exterior_facets.local_facet_dat
+        op2.par_loop(kernel, facet_set,
+                     fs_dat(op2.READ),
+                     facet_dat(op2.WRITE),
+                     local_facet_dat(op2.READ))
+
+        if isinstance(self._mesh, ExtrudedMesh):
+            offset = extract_offset(self.offset,
+                                    facet_dat.data_ro_with_halos[0],
+                                    self.cell_node_map().values[0])
+        else:
+            offset = None
+        return op2.Map(facet_set, self.node_set,
+                       nodes_per_facet,
+                       facet_dat.data_ro_with_halos,
+                       name="exterior_facet_boundary_node",
+                       offset=offset)
+
+    @property
+    def dim(self):
+        """The vector dimension of the :class:`.FunctionSpace`. For a
+        :class:`.FunctionSpace` this is always one. For a
+        :class:`.VectorFunctionSpace` it is the value given to the
+        constructor, and defaults to the geometric dimension of the :class:`Mesh`. """
+        return self._dim
+
+    @property
+    def cdim(self):
+        """The sum of the vector dimensions of the :class:`.FunctionSpace`. For a
+        :class:`.FunctionSpace` this is always one. For a
+        :class:`.VectorFunctionSpace` it is the value given to the
+        constructor, and defaults to the geometric dimension of the :class:`Mesh`. """
+        return self._dim
+
+    def ufl_element(self):
+        """The :class:`ufl.FiniteElement` used to construct this
+        :class:`FunctionSpace`."""
+        return self._ufl_element
+
+    def mesh(self):
+        """The :class:`Mesh` used to construct this :class:`.FunctionSpace`."""
+        return self._mesh
+
+    def __len__(self):
+        return 1
+
+    def __iter__(self):
+        yield self
+
+    def __getitem__(self, i):
+        """Return ``self`` if ``i`` is 0 or raise an exception."""
+        if i != 0:
+            raise IndexError("Only index 0 supported on a FunctionSpace")
+        return self
+
+    def __mul__(self, other):
+        """Create a :class:`.MixedFunctionSpace` composed of this
+        :class:`.FunctionSpace` and other"""
+        return MixedFunctionSpace((self, other))
 
 
 class FunctionSpace(FunctionSpaceBase):

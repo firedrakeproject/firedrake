@@ -192,7 +192,7 @@ def test_different_meshes_miss_cache():
 
 # A bit of a weak test, but the gc is slightly non-deterministic
 def test_mesh_fs_gced():
-    from firedrake.core_types import FunctionSpaceBase
+    from firedrake.types import FunctionSpaceBase
     gc.collect()
     gc.collect()
     nmesh = howmany(Mesh)
