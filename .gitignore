@@ -9,9 +9,9 @@
 *.so
 *.vtu
 /evtk/cevtk.c
-/firedrake/core_types.c
 /firedrake/dmplex.c
 /docs/build/
 /docs/source/firedrake.rst
 /docs/source/obtaining_pyop2.rst
+/docs/source/demos
 /demos/**/*.py
