@@ -148,7 +148,7 @@ PyOP2 uses petsc4py_, the Python bindings for the PETSc_ linear algebra
 library and requires:
 
 * an MPI implementation built with *shared libraries* 
-* The current PETSc_ master branch built with *shared libraries*
+* The current PETSc_ next branch built with *shared libraries*
 
 If you have a suitable PETSc_ installed on your system, ``PETSC_DIR``
 and ``PETSC_ARCH`` need to be set for the petsc4py_ installer to find
@@ -162,7 +162,7 @@ compiler) are installed. On a Debian based system, run::
 Then install PETSc_ via ``pip`` ::
 
   sudo PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco" \
-    pip install git+https://bitbucket.org/petsc/petsc.git
+    pip install git+https://bitbucket.org/petsc/petsc.git@next#egg=petsc
   unset PETSC_DIR
   unset PETSC_ARCH
 
