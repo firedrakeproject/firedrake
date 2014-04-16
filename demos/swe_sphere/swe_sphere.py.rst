@@ -6,24 +6,43 @@ This demo solves the shallow water equations on the sphere of radius
 
 .. math::
 
-   u_t + fu^{\perp} + \nabla \left(g(D+b) + \frac{1}{2}|u|^2 \right) = 0 \ \textrm{on}\ \Omega
+   u_t + q F^{\perp} + \nabla \left(g(D+b) + \frac{1}{2}|u|^2 \right) = 0 \ \textrm{on}\ \Omega
 
    D_t + \nabla\cdot(uD) = 0 \ \textrm{on}\ \Omega
 
 where :math:`u` is the velocity field, tangent to the sphere,
 :math:`D` is the layer depth, :math:`b` is the bottom topography,
 :math:`f=2|\Omega|z/R_0` is the Coriolis parameter, :math:`g` is the
-acceleration due to gravity, and :math:`u^{\perp}=k\times u` where
-:math:`k` is the unit vector normal to the sphere surface.::
+acceleration due to gravity, :math:`F=uD` is the mass flux,
+:math:`F^{\perp}=k\times F` where :math:`k` is the unit vector normal
+to the sphere surface, and :math:`q` is the potential vorticity, given
+by
+
+.. math::
+   q = \frac{\nabla^{\perp}u + f}{D}
+
+where :math:`\nabla^{\perp}u = k\cdot \nabla\times u`.
+
+We begin by initialising a sphere mesh. ::
+
    from firedrake import *
    op2.init(log_level = "WARNING")
    #Earth radius in metres
    mesh = IcosahedralSphereMesh(radius = 6371220, refinement_level = 5)
-   # Define global normal
+
+To use H(div) spaces such as :math:`BDM1`, it is necessary to determine
+global cell orientations, which is set via an expression. ::
+
+   #Define global normal
    global_normal = Expression(("x[0]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])" ,
       "x[1]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])" ,
       "x[2]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])"))
    mesh.init_cell_orientations(global_normal)
+
+
+To build a finite element spatial discretisation, we choose compatible
+finite element spaces :math:`P2,\,BDM1,\,DG0`, and choose :math:`u\in
+BDM1,\,D,b\in DG0`. These fields are initialised from expressions. ::
    degree = 1
    V0 = FunctionSpace(mesh , "CG" , degree+1)
    V1 = FunctionSpace(mesh , "BDM" , degree)
@@ -35,7 +54,9 @@ acceleration due to gravity, and :math:`u^{\perp}=k\times u` where
    u0 = project(uexpr , V1)
    D0 = project(Dexpr , V2)
    b = project(bexpr , V2)
-   print "initial data."
+
+We also set a number of physical constants and timestepping parameters. ::
+
    #Physical constants
    f = Function(V0).interpolate(Expression("2*7.292e-5*x[2]/6.37122e6")) # Coriolis frequency (1/s)
    g = 9.80616  # gravitational constant (m/s^2)
@@ -43,6 +64,15 @@ acceleration due to gravity, and :math:`u^{\perp}=k\times u` where
    dt = 180.0 # seconds
    theta = 0.5 # implicitness parameter
    maxiter = 3 # number of nonlinear iterations
+   # get average height
+   temp = Function(V2).assign(1.0)
+   H = assemble(D0*dx)/assemble(temp*dx)
+   t = 0.0
+
+To compute the :math:`\perp` operator, it is necessary to have a
+:math:`DG0^3` field that stores the outward element normal. This is
+built using the following PyOP2 kernel. ::
+
    def _outward_normals(mesh):
       kernel = op2.Kernel("""void outward_normal (double** coords , double** normal)
       {
@@ -96,13 +126,39 @@ acceleration due to gravity, and :math:`u^{\perp}=k\times u` where
       coords.dat(op2.READ, coords.cell_node_map()),
       normal.dat(op2.WRITE, normal.cell_node_map()))
       return normal
+
+We then call this function to construct the outward normals field and
+define expressions for the :math:`\perp` and :math:`\nabla^\perp`
+operators. ::
+
    outward_normals = _outward_normals(mesh)
    perp = lambda u: cross(outward_normals, u)
    gradperp = lambda psi: cross(outward_normals, grad(psi))
-   # get average height
-   temp = Function(V2).assign(1.0)
-   H = assemble(D0*dx)/assemble(temp*dx)
-   t = 0.0
+
+Now we turn to the spatial discretisation. The finite element
+discretisation of the velocity equation is
+
+.. math::
+
+   \int_{\Omega} w \cdot \left( u_t + q F^{\perp}\right) - \nabla\cdot w \left(g(D+b) + \frac{1}{2}|u|^2\right)\ {\rm d} x = 0, \quad \forall w\in BDM1,
+
+whilst the depth continuity equation holds pointwise and satisfies
+
+.. math::
+
+   D_t + \nabla\cdot F = 0,
+
+where we have implicitly defined :math:`F\in BDM1` and :math:`q\in P2` via
+the following weak approximations (note that the :math:`q` equation has been
+multiplied by :math:`D`.
+
+.. math::
+
+   \int_{\Omega} w \cdot  F \ {\rm d} x &= \int_{\Omega} w \cdot  uD \ {\rm d} x, \quad \forall w\in BDM1, \\
+   \int_{\Omega} \gamma qD {\rm d} x &= -\int_{\Omega} \nabla^\perp \gamma \cdot u {\rm d} x + \int_{\Omega} \gamma f {\rm d} x, \quad \forall \gamma\in P2,
+
+teasasdasdad ::
+
    du = Function(V1)
    dD = Function(V2)
    utheta = u0 + (1-theta)*du      # implicit velocity
