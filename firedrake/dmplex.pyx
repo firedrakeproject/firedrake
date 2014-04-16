@@ -451,6 +451,53 @@ def get_facet_nodes(np.ndarray[np.int32_t, ndim=2] facet_cells,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def label_facets(PETSc.DM plex):
+    """Add labels to facets in the the plex
+
+    Facets on the boundary are marked with "exterior_facets" while all
+    others are marked with "interior_facets"."""
+    cdef:
+        PetscInt fstart, fEnd, facet, val
+        char *ext_label = <char *>"exterior_facets"
+        char *int_label = <char *>"interior_facets"
+
+    # Mark boundaries as exterior_facets
+    plex.markBoundaryFaces(ext_label)
+    plex.createLabel(int_label)
+
+    fStart, fEnd = plex.getHeightStratum(1)
+
+    for facet in range(fStart, fEnd):
+        CHKERR(DMPlexGetLabelValue(plex.dm, ext_label, facet, &val))
+        # Not marked, must be interior
+        if val == -1:
+            CHKERR(DMPlexSetLabelValue(plex.dm, int_label, facet, 1))
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
+    """Return coordinates for the plex, reordered according to the
+    global numbering permutation for the coordinate function space.
+
+    Shape is a tuple of (plex.numVertices(), geometric_dim)."""
+    cdef:
+        PetscInt v, vStart, vEnd, offset
+        PetscInt i, dim = shape[1]
+        np.ndarray[np.float64_t, ndim=2] plex_coords, coords
+
+    plex_coords = plex.getCoordinatesLocal().array.reshape(shape)
+    coords = np.empty_like(plex_coords)
+    vStart, vEnd = plex.getDepthStratum(0)
+
+    for v in range(vStart, vEnd):
+        CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
+        for i in range(dim):
+            coords[offset, i] = plex_coords[v - vStart, i]
+
+    return coords
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def mark_entity_classes(PETSc.DM plex):
     """Mark all points in a given Plex according to the PyOP2 entity
     classes:

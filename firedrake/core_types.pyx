@@ -414,12 +414,7 @@ class Mesh(object):
             geometric_dim = self._plex.getDimension()
 
         # Mark exterior and interior facets
-        self._plex.markBoundaryFaces("exterior_facets")
-        self._plex.createLabel("interior_facets")
-        fStart, fEnd = self._plex.getHeightStratum(1)  # facets
-        for face in range(fStart, fEnd):
-            if self._plex.getLabelValue("exterior_facets", face) == -1:
-                self._plex.setLabelValue("interior_facets", face, 1)
+        dmplex.label_facets(self._plex)
 
         # Distribute the dm to all ranks
         if op2.MPI.comm.size > 1:
@@ -475,15 +470,8 @@ class Mesh(object):
         else:
             self._coordinate_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
 
-            # Use the section permutation to re-order Plex coordinates
-            plex_coords = self._plex.getCoordinatesLocal().getArray()
-            plex_coords = np.reshape(plex_coords, (self.num_vertices(), geometric_dim))
-            coordinates = np.empty(plex_coords.shape)
-            vStart, vEnd = self._plex.getDepthStratum(0)
-            for v in range(vStart, vEnd):
-                offset = self._coordinate_fs._global_numbering.getOffset(v)
-                coordinates[offset,:] = plex_coords[v-vStart,:]
-
+            coordinates = dmplex.reordered_coords(self._plex, self._coordinate_fs._global_numbering,
+                                                  (self.num_vertices(), geometric_dim))
             self.coordinates = types.Function(self._coordinate_fs,
                                                     val=coordinates,
                                                     name="Coordinates")
