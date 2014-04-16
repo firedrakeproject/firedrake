@@ -107,7 +107,7 @@ Common dependencies:
 * Cython >= 0.17 
 * decorator 
 * numpy >= 1.6 
-* PETSc_ current git master (see below)
+* PETSc_ current git next (see below)
 * PETSc4py_ current git master (see below)
 
 Testing dependencies (optional, required to run the tests):
