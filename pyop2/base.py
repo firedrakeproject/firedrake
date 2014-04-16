@@ -3445,7 +3445,7 @@ class Kernel(Cached):
         if self._initialized:
             return
         self._name = name or "kernel_%d" % Kernel._globalcount
-        self._code = preprocess(self._ast_to_c(code, opts), include_dirs)
+        self._code = self._ast_to_c(code, opts)
         Kernel._globalcount += 1
         # Record used optimisations
         self._opt_is_padded = opts.get('ap', False)

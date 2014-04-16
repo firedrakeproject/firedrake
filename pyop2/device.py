@@ -50,6 +50,12 @@ class Kernel(base.Kernel):
         ast_handler.plan_gpu()
         return ast.gencode()
 
+    def __init__(self, code, name, opts={}, include_dirs=[]):
+        if self._initialized:
+            return
+        self._code = preprocess(self._ast_to_c(code, opts), include_dirs)
+        super(Kernel, self).__init__(self._code, name, opts=opts, include_dirs=include_dirs)
+
 
 class Arg(base.Arg):
 
