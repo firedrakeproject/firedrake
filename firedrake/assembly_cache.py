@@ -237,7 +237,7 @@ guaranteed to result in the same evictions on each processor.
 
         if max_cache_size == float("inf"):
             if not self.evictwarned:
-                warning("No maximum assembly cache size. Leak memory at your own risk!")
+                warning("No maximum assembly cache size. Install psutil or risk leaking memory!")
                 self.evictwarned = True
             return
 
