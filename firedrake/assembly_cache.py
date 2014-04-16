@@ -42,7 +42,7 @@ from parameters import parameters
 try:
     # Estimate the amount of memory per core may use.
     import psutil
-    memory = np.array([psutil.virtmem_usage().total/psutil.cpu_count()])
+    memory = np.array([psutil.virtual_memory().total/psutil.cpu_count()])
     if MPI.comm.size > 1:
         MPI.comm.Allreduce(_MPI.IN_PLACE, memory, _MPI.MIN)
 except ImportError:
