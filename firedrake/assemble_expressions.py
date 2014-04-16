@@ -1,6 +1,6 @@
 import ufl
 from ufl.algorithms import ReuseTransformer
-from ufl.constantvalue import ConstantValue, Zero
+from ufl.constantvalue import ConstantValue, Zero, IntValue
 from ufl.indexing import MultiIndex
 from ufl.operatorbase import Operator
 from ufl.mathfunctions import MathFunction
@@ -86,9 +86,15 @@ class AssignmentBase(Operator):
     """Base class for UFL augmented assignments."""
     __slots__ = ("_operands", "_symbol", "_ast", "_visit")
 
+    _identity = Zero()
+
     def __init__(self, lhs, rhs):
         self._operands = map(ufl.as_ufl, (lhs, rhs))
 
+        # Sub function assignment, we've put a Zero in the lhs
+        # indicating we should do nothing.
+        if type(lhs) is Zero:
+            return
         if not (isinstance(lhs, types.Function)
                 or isinstance(lhs, DummyFunction)):
             raise TypeError("Can only assign to a Function")
@@ -191,6 +197,7 @@ class IMul(AugmentedAssignment):
     """A UFL `*=` operator."""
     _symbol = "*="
     _ast = ast.IMul
+    _identity = IntValue(1)
 
 # UFL class mangling hack
 IMul._uflclass = IMul
@@ -201,6 +208,7 @@ class IDiv(AugmentedAssignment):
     """A UFL `/=` operator."""
     _symbol = "/="
     _ast = ast.IDiv
+    _identity = IntValue(1)
 
 # UFL class mangling hack
 IDiv._uflclass = IDiv
@@ -262,6 +270,7 @@ class ExpressionSplitter(ReuseTransformer):
 
     def split(self, expr):
         """Split the given expression."""
+        self._identity = expr._identity
         self._trees = None
         lhs, rhs = expr.operands()
         # If the expression is not an assignment, the function spaces for both
@@ -269,7 +278,7 @@ class ExpressionSplitter(ReuseTransformer):
         if not isinstance(expr, AssignmentBase) and \
                 lhs.function_space() != rhs.function_space():
             raise ValueError("Operands of %r must have the same FunctionSpace" % expr)
-        self._function_space = lhs.function_space()
+        self._fs = lhs.function_space()
         return [expr.reconstruct(*ops) for ops in zip(*map(self.visit, (lhs, rhs)))]
 
     def indexed(self, o, *operands):
@@ -282,7 +291,7 @@ class ExpressionSplitter(ReuseTransformer):
             # reconstruct the fixed index expression for those (and only those)
             if isinstance(idx._indices[0], ufl.indexing.FixedIndex):
                 if idx._indices[0]._value != i:
-                    return Zero()
+                    return self._identity
                 elif isinstance(coeff.function_space(), types.VectorFunctionSpace):
                     return o.reconstruct(coeff, idx)
             return coeff
@@ -297,19 +306,40 @@ class ExpressionSplitter(ReuseTransformer):
         if isinstance(o, types.Function):
             # A function must either be defined on the same function space
             # we're assigning to, in which case we split it into components
-            if o.function_space() == self._function_space:
+            if o.function_space() == self._fs:
                 return o.split()
-            # Otherwise the function space must be indexed and we return the
-            # Function for the indexed component and Zero for every other
-            else:
-                idx = o.function_space().index
-                if idx is None:
-                    raise ValueError("Coefficient %r is not indexed" % o)
-                return [o if i == idx else Zero()
-                        for i, _ in enumerate(self._function_space)]
+            # Otherwise the function space must be indexed and we
+            # return the Function for the indexed component and the
+            # identity for this assignment for every other
+            idx = o.function_space().index
+            # LHS is indexed
+            if self._fs.index is not None:
+                # RHS indexed, indexed RHS function space must match
+                # indexed LHS function space.
+                if idx is not None and self._fs._fs != o.function_space()._fs:
+                    raise ValueError("Mismatching indexed function spaces")
+                # RHS not indexed, RHS function space must match
+                # indexed LHS function space
+                elif idx is None and self._fs._fs != o.function_space():
+                    raise ValueError("Mismatching function spaces")
+                # OK, everything checked out. Return RHS
+                return (o,)
+            # LHS not indexed, RHS must be indexed and isn't
+            if idx is None:
+                raise ValueError("Coefficient %r is not indexed" % o)
+            # RHS indexed, parent function space must match LHS function space
+            if self._fs != o.function_space()._parent:
+                raise ValueError("Mismatching function spaces")
+            # Return RHS in index slot in expression and
+            # identity otherwise.
+            return tuple(o if i == idx else self._identity
+                         for i, _ in enumerate(self._fs))
         # We replicate ConstantValue and MultiIndex for each component
         elif isinstance(o, (types.Constant, ConstantValue, MultiIndex)):
-            return [o for _ in self._function_space]
+            # If LHS is indexed, only return a scalar result
+            if self._fs.index is not None:
+                return (o,)
+            return tuple(o for _ in self._fs)
         raise NotImplementedError("Don't know what to do with %r" % o)
 
     def product(self, o, *operands):
@@ -318,7 +348,15 @@ class ExpressionSplitter(ReuseTransformer):
 
     def operator(self, o, *operands):
         """Reconstruct an operator on each of the component spaces."""
-        return [o.reconstruct(*ops) for ops in zip(*operands)]
+        ret = []
+        for ops in zip(*operands):
+            # Don't try to reconstruct if we've just got the identity
+            # Stops domain errors when calling Log on Zero (for example)
+            if len(ops) == 1 and type(ops[0]) is type(self._identity):
+                ret.append(ops[0])
+            else:
+                ret.append(o.reconstruct(*ops))
+        return ret
 
 
 class ExpressionWalker(ReuseTransformer):
@@ -343,6 +381,15 @@ class ExpressionWalker(ReuseTransformer):
         if isinstance(o, types.Function):
             if self._function_space is None:
                 self._function_space = o._function_space
+            elif self._function_space.index is not None:
+                # If the LHS is indexed, check compatibility with the
+                # underlying fs
+                sfs = self._function_space._fs
+                ofs = o._function_space
+                if o._function_space.index is not None:
+                    ofs = self._function_space._fs
+                if sfs != ofs:
+                    raise ValueError("Expression has incompatible function spaces")
             elif self._function_space != o._function_space:
                 raise ValueError("Expression has incompatible function spaces")
 
@@ -449,6 +496,9 @@ def expression_kernel(expr, args):
 
 def evaluate_preprocessed_expression(expr, args, subset=None):
 
+    # Empty slot indicating assignment to indexed LHS, so don't do anything
+    if type(expr) is Zero:
+        return
     kernel = expression_kernel(expr, args)
 
     # We need to splice the args according to the components of the

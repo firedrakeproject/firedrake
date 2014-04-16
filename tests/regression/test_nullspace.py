@@ -63,10 +63,7 @@ def test_nullspace_mixed():
     L = f*v*dx
 
     # Null space is constant functions in DG and empty in BDM.
-    null_vec = Function(W)
-    null_vec.dat[1].data[:] = 1 / sqrt(W[1].dof_count)
-
-    nullspace = VectorSpaceBasis(vecs=[null_vec])
+    nullspace = MixedVectorSpaceBasis(W, [W.sub(0), VectorSpaceBasis(constant=True)])
 
     solve(a == L, w, bcs=bcs, nullspace=nullspace)
 
@@ -77,18 +74,32 @@ def test_nullspace_mixed():
     assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 1e-7
 
     # Now using a Schur complement
-    nullspace = MixedVectorSpaceBasis([W.sub(0), VectorSpaceBasis(constant=True)])
-
     w.assign(0)
     solve(a == L, w, bcs=bcs, nullspace=nullspace,
           solver_parameters={'pc_type': 'fieldsplit',
                              'pc_fieldsplit_type': 'schur',
-                             'pc_fieldsplit_schur_fact_type': 'FULL',
-                             'fieldsplit_0_ksp_type': 'cg',
-                             'fieldsplit_1_ksp_type': 'cg'})
+                             'ksp_type': 'cg',
+                             'pc_fieldsplit_schur_fact_type': 'full',
+                             'fieldsplit_0_ksp_type': 'preonly',
+                             'fieldsplit_0_pc_type': 'lu',
+                             'fieldsplit_1_ksp_type': 'cg',
+                             'fieldsplit_1_pc_type': 'none'})
 
     sigma, u = w.split()
     assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 5e-8
+
+    # Not projecting out the nullspace should raise an error here,
+    # because the pc is indefinite.
+    with pytest.raises(RuntimeError):
+        solve(a == L, w, bcs=bcs, nullspace=None,
+              solver_parameters={'pc_type': 'fieldsplit',
+                                 'pc_fieldsplit_type': 'schur',
+                                 'ksp_type': 'cg',
+                                 'pc_fieldsplit_schur_fact_type': 'full',
+                                 'fieldsplit_0_ksp_type': 'preonly',
+                                 'fieldsplit_0_pc_type': 'lu',
+                                 'fieldsplit_1_ksp_type': 'cg',
+                                 'fieldsplit_1_pc_type': 'none'})
 
 
 if __name__ == '__main__':
