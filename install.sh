@@ -68,7 +68,7 @@ echo "*** Installing PETSc ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
 
 PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco"
-${PIP} git+https://bitbucket.org/petsc/petsc.git >> $LOGFILE 2>&1
+${PIP} git+https://bitbucket.org/petsc/petsc.git@next#egg=petsc >> $LOGFILE 2>&1
 ${PIP} git+https://bitbucket.org/petsc/petsc4py.git >> $LOGFILE 2>&1
 
 echo "*** Installing PyOP2 ***" | tee -a $LOGFILE
