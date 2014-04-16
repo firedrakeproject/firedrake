@@ -366,6 +366,16 @@ def get_extruded_cell_nodes(PETSc.DM plex,
     flattened_element = fiat_element.flattened_element()
     flat_entity_dofs = flattened_element.entity_dofs()
 
+    cdef PetscInt ***fled_ptr = NULL
+    cdef PetscInt *lcl_dofs = NULL
+    CHKERR(PetscMalloc1(len(flat_entity_dofs), &fled_ptr))
+    for i in range(len(flat_entity_dofs)):
+        CHKERR(PetscMalloc1(len(flat_entity_dofs[i]), &(fled_ptr[i])))
+        for j in range(len(flat_entity_dofs[i])):
+            CHKERR(PetscMalloc1(len(flat_entity_dofs[i][j]), &(fled_ptr[i][j])))
+            for k in range(len(flat_entity_dofs[i][j])):
+                fled_ptr[i][j][k] = flat_entity_dofs[i][j][k]
+
     for c in range(ncells):
         offset = 0
         for d in range(dim+1):
@@ -393,7 +403,7 @@ def get_extruded_cell_nodes(PETSc.DM plex,
                         #
                         # cell_nodes = [0,12,3,4,5,1,13,6,7,8,2,14,9,10,11]
 
-                        lcl_dofs = flat_entity_dofs[d][pi]
+                        lcl_dofs = fled_ptr[d][pi]
                         for i in range(hdofs[d]):
                             lcl = lcl_dofs[i]
                             cell_nodes[c, lcl] = glbl + i
@@ -406,6 +416,12 @@ def get_extruded_cell_nodes(PETSc.DM plex,
 
                         offset += 2*hdofs[d] + vdofs[d]
                         pi += 1
+
+    for i in range(len(flat_entity_dofs)):
+        for j in range(len(flat_entity_dofs[i])):
+            CHKERR(PetscFree(fled_ptr[i][j]))
+        CHKERR(PetscFree(fled_ptr[i]))
+    CHKERR(PetscFree(fled_ptr))
     CHKERR(PetscFree(pStarts))
     CHKERR(PetscFree(pEnds))
     CHKERR(PetscFree(hdofs))
