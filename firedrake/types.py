@@ -792,6 +792,10 @@ for (unsigned int d=0; d < %(dim)d; d++) {
         if np.isscalar(expr):
             self.dat *= expr
             return self
+        if isinstance(expr, Function) and \
+                expr._function_space == self._function_space:
+            self.dat *= expr.dat
+            return self
 
         assemble_expressions.evaluate_expression(
             assemble_expressions.IMul(self, expr))
@@ -802,6 +806,10 @@ for (unsigned int d=0; d < %(dim)d; d++) {
 
         if np.isscalar(expr):
             self.dat /= expr
+            return self
+        if isinstance(expr, Function) and \
+                expr._function_space == self._function_space:
+            self.dat /= expr.dat
             return self
 
         assemble_expressions.evaluate_expression(
