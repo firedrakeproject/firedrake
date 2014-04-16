@@ -1,5 +1,6 @@
 from petsc import PETSc
-from types import IndexedFunctionSpace
+from types import IndexedFunctionSpace, Function
+from numpy import prod
 
 
 __all__ = ['VectorSpaceBasis', 'MixedVectorSpaceBasis']
@@ -34,6 +35,7 @@ class VectorSpaceBasis(object):
             raise RuntimeError("Provided vectors must be orthonormal")
         self._nullspace = PETSc.NullSpace().create(constant=constant,
                                                    vectors=self._petsc_vecs)
+        self._constant = constant
 
     @property
     def nullspace(self):
@@ -43,32 +45,45 @@ class VectorSpaceBasis(object):
     def orthogonalize(self, b):
         """Orthogonalize ``b`` with respect to this :class:`.VectorSpaceBasis`.
 
-        :arg b: a :class:`.Function`"""
-        raise NotImplementedError
+        :arg b: a :class:`.Function`
+
+        .. note::
+
+            Modifies ``b`` in place."""
+        for v in self._vecs:
+            dot = b.dat.inner(v.dat)
+            b.dat -= dot * v.dat
+        if self._constant:
+            s = -b.dat.sum() / b.function_space().dof_count
+            b.dat += s
 
     def is_orthonormal(self):
         """Is this vector space basis orthonormal?"""
-        for i, iv in enumerate(self._petsc_vecs):
-            for j, jv in enumerate(self._petsc_vecs):
+        for i, iv in enumerate(self._vecs):
+            for j, jv in enumerate(self._vecs):
                 dij = 1 if i == j else 0
-                if abs(iv.dot(jv) - dij) > 1e-14:
+                # scaled by size of function space
+                if abs(iv.dat.inner(jv.dat) - dij) / prod(iv.function_space().dof_count) > 1e-10:
                     return False
         return True
 
     def is_orthogonal(self):
         """Is this vector space basis orthogonal?"""
-        for i, iv in enumerate(self._petsc_vecs):
-            for j, jv in enumerate(self._petsc_vecs):
+        for i, iv in enumerate(self._vecs):
+            for j, jv in enumerate(self._vecs):
                 if i == j:
                     continue
-                if abs(iv.dot(jv)) > 1e-14:
+                # scaled by size of function space
+                if abs(iv.dat.inner(jv.dat)) / prod(iv.function_space().dof_count) > 1e-10:
                     return False
         return True
 
-    def _apply(self, matrix):
+    def _apply(self, matrix, ises=None):
         """Set this VectorSpaceBasis as a nullspace for a matrix
 
-        :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should be set."""
+        :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should be set.
+        :arg ises: optional list of PETSc IS objects to compose the
+             nullspace with (ignored)."""
         matrix.handle.setNullSpace(self.nullspace)
 
     def __iter__(self):
@@ -79,6 +94,8 @@ class VectorSpaceBasis(object):
 class MixedVectorSpaceBasis(object):
     """A basis for a mixed vector space
 
+    :arg function_space: the :class:`~MixedFunctionSpace` this vector
+         space is a basis for.
     :arg bases: an iterable of bases for the null spaces of the
          subspaces in the mixed space.
 
@@ -107,11 +124,12 @@ class MixedVectorSpaceBasis(object):
     about projecting the null space out of the ``QxQ`` block.  We can
     do this like so ::
 
-        nullspace = MixedVectorSpaceBasis([W[0], VectorSpaceBasis(constant=True)])
+        nullspace = MixedVectorSpaceBasis(W, [W[0], VectorSpaceBasis(constant=True)])
         solve(a == ..., nullspace=nullspace)
 
     """
-    def __init__(self, bases):
+    def __init__(self, function_space, bases):
+        self._function_space = function_space
         if not all(isinstance(basis, (VectorSpaceBasis, IndexedFunctionSpace))
                    for basis in bases):
             raise RuntimeError("MixedVectorSpaceBasis can only contain vector space bases or indexed function spaces")
@@ -119,22 +137,88 @@ class MixedVectorSpaceBasis(object):
             if isinstance(basis, IndexedFunctionSpace):
                 if i != basis.index:
                     raise RuntimeError("FunctionSpace with index %d cannot appear at position %d" % (basis.index, i))
+                if basis._parent != self._function_space:
+                    raise RuntimeError("FunctionSpace with index %d does not have %s as a parent" % (basis.index, self._function_space))
         self._bases = bases
+        self._nullspace = None
 
-    def _apply(self, matrix):
-        """Set this MixedVectorSpaceBasis as a nullspace for a matrix
+    def _build_monolithic_basis(self):
+        """Build a basis for the complete mixed space.
 
-        :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should be set."""
+        The monolithic basis is formed by the cartesian product of the
+        bases forming each sub part.
+        """
+        from itertools import product
+        bvecs = [[None] for _ in self]
+        # Get the complete list of basis vectors for each component in
+        # the mixed basis.
+        for idx, basis in enumerate(self):
+            if isinstance(basis, VectorSpaceBasis):
+                v = []
+                if basis._constant:
+                    v = [Function(self._function_space[idx]).assign(1)]
+                bvecs[idx] = basis._vecs + v
+
+        # Basis for mixed space is cartesian product of all the basis
+        # vectors we just made.
+        allbvecs = [x for x in product(*bvecs)]
+
+        vecs = [Function(self._function_space) for _ in allbvecs]
+
+        # Build the functions representing the monolithic basis.
+        for vidx, bvec in enumerate(allbvecs):
+            for idx, b in enumerate(bvec):
+                if b:
+                    vecs[vidx].sub(idx).assign(b)
+        for v in vecs:
+            v /= v.dat.norm
+
+        self._vecs = vecs
+        self._petsc_vecs = []
+        for v in self._vecs:
+            with v.dat.vec_ro as v_:
+                self._petsc_vecs.append(v_)
+        self._nullspace = PETSc.NullSpace().create(constant=False,
+                                                   vectors=self._petsc_vecs)
+
+    def _apply_monolithic(self, matrix):
+        """Set this class:`MixedVectorSpaceBasis` as a nullspace for a
+        matrix.
+
+        :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should
+             be set.
+
+        Note, this only hangs the nullspace on the Mat, you should
+        normally be using :meth:`_apply` which also hangs the
+        nullspace on the appropriate fieldsplit ISes for Schur
+        complements."""
+        if self._nullspace is None:
+            self._build_monolithic_basis()
+        matrix.handle.setNullSpace(self._nullspace)
+
+    def _apply(self, matrix, ises):
+        """Set this :class:`MixedVectorSpaceBasis` as a nullspace for a matrix
+
+        :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should be set.
+        :arg ises: optional list of PETSc IS objects to compose the
+             nullspace with.  You must pass these if you intend to
+             solve a mixed problem with a nullspace using a Schur
+             complement."""
         rows, cols = matrix.sparsity.shape
         if rows != cols:
             raise RuntimeError("Can only apply nullspace to square operator")
         if rows != len(self):
             raise RuntimeError("Shape of matrix (%d, %d) does not match size of nullspace %d" %
                                (rows, cols, len(self)))
+        # Hang the expanded nullspace on the big matrix
+        self._apply_monolithic(matrix)
         for i, basis in enumerate(self):
             if not isinstance(basis, VectorSpaceBasis):
                 continue
-            basis._apply(matrix[i, i])
+            # Compose appropriate nullspace with IS for schur complement
+            if ises is not None:
+                is_ = ises[i][1]
+                is_.compose("nullspace", basis.nullspace)
 
     def __iter__(self):
         """Yield the individual bases making up this MixedVectorSpaceBasis"""
