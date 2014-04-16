@@ -46,6 +46,15 @@ In addition to PyOP2, you will need to install Firedrake. There are two
 routes, depending on whether you intend to contribute to Firedrake
 development.
 
+In order to have the form assembly cache operate in the most automatic
+fashion possible, you are also advised to install psutil::
+
+  sudo pip install psutil
+
+or (to install for your user only)::
+
+  pip install --user psutil
+
 Pip instructions for users
 ..........................
 
