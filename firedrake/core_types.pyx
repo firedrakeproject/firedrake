@@ -414,12 +414,7 @@ class Mesh(object):
             geometric_dim = self._plex.getDimension()
 
         # Mark exterior and interior facets
-        self._plex.markBoundaryFaces("exterior_facets")
-        self._plex.createLabel("interior_facets")
-        fStart, fEnd = self._plex.getHeightStratum(1)  # facets
-        for face in range(fStart, fEnd):
-            if self._plex.getLabelValue("exterior_facets", face) == -1:
-                self._plex.setLabelValue("interior_facets", face, 1)
+        dmplex.label_facets(self._plex)
 
         # Distribute the dm to all ranks
         if op2.MPI.comm.size > 1:
@@ -475,15 +470,8 @@ class Mesh(object):
         else:
             self._coordinate_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
 
-            # Use the section permutation to re-order Plex coordinates
-            plex_coords = self._plex.getCoordinatesLocal().getArray()
-            plex_coords = np.reshape(plex_coords, (self.num_vertices(), geometric_dim))
-            coordinates = np.empty(plex_coords.shape)
-            vStart, vEnd = self._plex.getDepthStratum(0)
-            for v in range(vStart, vEnd):
-                offset = self._coordinate_fs._global_numbering.getOffset(v)
-                coordinates[offset,:] = plex_coords[v-vStart,:]
-
+            coordinates = dmplex.reordered_coords(self._plex, self._coordinate_fs._global_numbering,
+                                                  (self.num_vertices(), geometric_dim))
             self.coordinates = types.Function(self._coordinate_fs,
                                                     val=coordinates,
                                                     name="Coordinates")
@@ -1050,9 +1038,16 @@ class FunctionSpaceBase(ObjectCached):
                                                          mesh._cell_numbering,
                                                          entity_per_cell)
 
-        self.cell_node_list = np.empty((mesh.num_cells(), sum(self._dofs_per_cell)), dtype=np.int32)
-        for c in range(mesh.num_cells()):
-            self.cell_node_list[c,:] = self._get_cell_nodes(mesh._cell_closure[c,:])
+        if isinstance(self._mesh, ExtrudedMesh):
+            self.cell_node_list = dmplex.get_extruded_cell_nodes(mesh._plex,
+                                                                 self._global_numbering,
+                                                                 mesh._cell_closure,
+                                                                 self.fiat_element,
+                                                                 sum(self._dofs_per_cell))
+        else:
+            self.cell_node_list = dmplex.get_cell_nodes(self._global_numbering,
+                                                        mesh._cell_closure,
+                                                        sum(self._dofs_per_cell))
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
             # Compute the facet_numbering and store with the parent mesh
@@ -1075,7 +1070,9 @@ class FunctionSpaceBase(ObjectCached):
                                                interior_local_facet_number)
 
             interior_facet_cells = mesh.interior_facets.facet_cell
-            self.interior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in interior_facet_cells])
+            self.interior_facet_node_list = \
+                dmplex.get_facet_nodes(interior_facet_cells,
+                                       self.cell_node_list)
         else:
             self.interior_facet_node_list = None
 
@@ -1110,7 +1107,9 @@ class FunctionSpaceBase(ObjectCached):
                                                boundary_ids)
 
             exterior_facet_cells = mesh.exterior_facets.facet_cell
-            self.exterior_facet_node_list = np.array([np.concatenate([self.cell_node_list[e] for e in eles]) for eles in exterior_facet_cells])
+            self.exterior_facet_node_list = \
+                dmplex.get_facet_nodes(exterior_facet_cells,
+                                       self.cell_node_list)
         else:
             self.exterior_facet_node_list = None
 
@@ -1123,62 +1122,6 @@ class FunctionSpaceBase(ObjectCached):
         self._cell_node_map_cache = {}
         self._exterior_facet_map_cache = {}
         self._interior_facet_map_cache = {}
-
-    def _get_cell_nodes(self, numbering):
-        plex = self._mesh._plex
-        offset = 0
-        cell_nodes = np.empty(sum(self._dofs_per_cell), dtype=np.int32)
-        if isinstance(self._mesh, ExtrudedMesh):
-            # Instead of using the numbering directly, we step through
-            # all points and build the numbering for each entity
-            # according to the extrusion rules.
-            dim = plex.getDimension()
-            flat_entity_dofs = self.flattened_element.entity_dofs()
-            hdofs = self._xtr_hdofs
-            vdofs = self._xtr_vdofs
-
-            for d in range(dim+1):
-                pStart, pEnd = plex.getDepthStratum(d)
-                points = filter(lambda x: pStart<=x and x<pEnd, numbering)
-                for i in range(len(points)):
-                    p = points[i]
-                    if self._global_numbering.getDof(p) > 0:
-                        glbl = self._global_numbering.getOffset(p)
-
-                        # For extruded entities the numberings are:
-                        # Global: [bottom[:], top[:], side[:]]
-                        # Local:  [bottom[i], top[i], side[i] for i in bottom[:]]
-                        #
-                        # eg. extruded P3 facet:
-                        #       Local            Global
-                        #  --1---6---11--   --12---13---14--
-                        #  | 4   9   14 |   |  5    8   11 |
-                        #  | 3   8   13 |   |  4    7   10 |
-                        #  | 2   7   12 |   |  3    6    9 |
-                        #  --0---5---10--   ---0----1----2--
-                        #
-                        # cell_nodes = [0,12,3,4,5,1,13,6,7,8,2,14,9,10,11]
-
-                        lcl_dofs = flat_entity_dofs[d][i]
-                        glbl_dofs = np.zeros(len(lcl_dofs), dtype=np.int32)
-                        glbl_dofs[:hdofs[d]] = range(glbl,glbl+hdofs[d])
-                        glbl_sides = glbl + hdofs[d]
-                        glbl_dofs[hdofs[d]:hdofs[d]+vdofs[d]] = range(glbl_sides, glbl_sides + vdofs[d])
-                        glbl_top = glbl + hdofs[d] + vdofs[d]
-                        glbl_dofs[vdofs[d]+hdofs[d]:vdofs[d]+2*hdofs[d]] = range(glbl_top, glbl_top+hdofs[d])
-                        for l, g in zip(lcl_dofs, glbl_dofs):
-                            cell_nodes[l] = g
-
-                        offset += 2*hdofs[d] + vdofs[d]
-
-        else:
-            for n in numbering:
-                dof = self._global_numbering.getDof(n)
-                off = self._global_numbering.getOffset(n)
-                for i in range(dof):
-                    cell_nodes[offset+i] = off+i
-                offset += dof
-        return cell_nodes
 
     @property
     def index(self):

@@ -8,30 +8,7 @@ cimport petsc4py.PETSc as PETSc
 
 np.import_array()
 
-cdef extern from "petsc.h":
-   ctypedef long PetscInt
-   ctypedef enum PetscBool:
-       PETSC_TRUE, PETSC_FALSE
-
-cdef extern from "petscsys.h":
-   int PetscMalloc1(PetscInt,PetscInt**)
-   int PetscFree(PetscInt*)
-   int PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
-
-cdef extern from "petscdmplex.h":
-    int DMPlexGetConeSize(PETSc.PetscDM,PetscInt,PetscInt*)
-    int DMPlexGetCone(PETSc.PetscDM,PetscInt,PetscInt*[])
-    int DMPlexGetSupportSize(PETSc.PetscDM,PetscInt,PetscInt*)
-    int DMPlexGetSupport(PETSc.PetscDM,PetscInt,PetscInt*[])
-
-    int DMPlexGetTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
-    int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
-
-    int DMPlexGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
-
-cdef extern from "petscis.h":
-    int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
-    int ISGetIndices(PETSc.PetscIS,PetscInt*[])
+include "dmplex.pxi"
 
 def _from_cell_list(dim, cells, coords, comm=None):
     """
@@ -100,14 +77,14 @@ def facet_numbering(PETSc.DM plex, kind,
 
     # First determine the parent cell(s) for each facet
     for f in range(nfacets):
-        DMPlexGetSupport(plex.dm, facets[f], &cells)
-        DMPlexGetSupportSize(plex.dm, facets[f], &ncells)
-        PetscSectionGetOffset(cell_numbering.sec, cells[0], &cell)
+        CHKERR(DMPlexGetSupport(plex.dm, facets[f], &cells))
+        CHKERR(DMPlexGetSupportSize(plex.dm, facets[f], &ncells))
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, cells[0], &cell))
         facet_cells[f,0] = cell
         if cells_per_facet > 1:
             if ncells > 1:
-                PetscSectionGetOffset(cell_numbering.sec,
-                                      cells[1], &cell)
+                CHKERR(PetscSectionGetOffset(cell_numbering.sec,
+                                             cells[1], &cell))
                 facet_cells[f,1] = cell
             else:
                 facet_cells[f,1] = -1
@@ -147,7 +124,7 @@ def closure_ordering(PETSc.DM plex,
     """Apply Fenics local numbering to a cell closure.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg cell_numbering: Section describing the universal vertex numbering
+    :arg vertex_numbering: Section describing the universal vertex numbering
     :arg cell_numbering: Section describing the global cell numbering
     :arg entity_per_cell: List of the number of entity points in each dimension
 
@@ -181,24 +158,26 @@ def closure_ordering(PETSc.DM plex,
     v_per_cell = entity_per_cell[0]
     cell_offset = sum(entity_per_cell) - 1
 
-    PetscMalloc1(v_per_cell, &vertices)
-    PetscMalloc1(v_per_cell, &v_global)
-    PetscMalloc1(v_per_cell-1, &facets)
-    PetscMalloc1(v_per_cell-1, &facet_vertices)
-    PetscMalloc1(entity_per_cell[1], &faces)
-    PetscMalloc1(entity_per_cell[1], &face_indices)
+    CHKERR(PetscMalloc1(v_per_cell, &vertices))
+    CHKERR(PetscMalloc1(v_per_cell, &v_global))
+    CHKERR(PetscMalloc1(v_per_cell-1, &facets))
+    CHKERR(PetscMalloc1(v_per_cell-1, &facet_vertices))
+    CHKERR(PetscMalloc1(entity_per_cell[1], &faces))
+    CHKERR(PetscMalloc1(entity_per_cell[1], &face_indices))
     cell_closure = np.empty((cEnd - cStart, sum(entity_per_cell)), dtype=np.int32)
 
     for c in range(cStart, cEnd):
-        PetscSectionGetOffset(cell_numbering.sec, c, &cell)
-        DMPlexGetTransitiveClosure(plex.dm, c, PETSC_TRUE, &nclosure,&closure)
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+        CHKERR(DMPlexGetTransitiveClosure(plex.dm, c, PETSC_TRUE,
+                                          &nclosure,&closure))
 
         # Find vertices and translate universal numbers
         vi = 0
         for ci in range(nclosure):
             if vStart <= closure[2*ci] < vEnd:
                 vertices[vi] = closure[2*ci]
-                PetscSectionGetOffset(vertex_numbering.sec, closure[2*ci], &v)
+                CHKERR(PetscSectionGetOffset(vertex_numbering.sec,
+                                             closure[2*ci], &v))
                 # Correct -ve offsets for non-owned entities
                 if v >= 0:
                     v_global[vi] = v
@@ -207,7 +186,7 @@ def closure_ordering(PETSc.DM plex,
                 vi += 1
 
         # Sort vertices by universal number
-        PetscSortIntWithArray(v_per_cell,v_global,vertices)
+        CHKERR(PetscSortIntWithArray(v_per_cell,v_global,vertices))
         for vi in range(v_per_cell):
             if dim == 1:
                 # Correct 1D edge numbering
@@ -223,8 +202,10 @@ def closure_ordering(PETSc.DM plex,
                 if eStart <= closure[2*ci] < eEnd:
                     faces[nfaces] = closure[2*ci]
 
-                    DMPlexGetConeSize(plex.dm, closure[2*ci], &nface_vertices)
-                    DMPlexGetCone(plex.dm, closure[2*ci], &face_vertices)
+                    CHKERR(DMPlexGetConeSize(plex.dm, closure[2*ci],
+                                             &nface_vertices))
+                    CHKERR(DMPlexGetCone(plex.dm, closure[2*ci],
+                                         &face_vertices))
 
                     # Faces in 3D are tricky because we need a
                     # lexicographical sort with two keys (the local
@@ -245,7 +226,8 @@ def closure_ordering(PETSc.DM plex,
                     nfaces += 1
 
             # Sort by local numbers of non-incident vertices
-            PetscSortIntWithArray(entity_per_cell[1], face_indices, faces)
+            CHKERR(PetscSortIntWithArray(entity_per_cell[1],
+                                         face_indices, faces))
             for fi in range(nfaces):
                 cell_closure[cell, offset+fi] = faces[fi]
             offset += nfaces
@@ -268,10 +250,10 @@ def closure_ordering(PETSc.DM plex,
         if dim > 1:
             for f in range(nfacets):
                 # Derive facet vertices from facet_closure
-                DMPlexGetTransitiveClosure(plex.dm, facets[f],
-                                           PETSC_TRUE,
-                                           &nfacet_closure,
-                                           &facet_closure)
+                CHKERR(DMPlexGetTransitiveClosure(plex.dm, facets[f],
+                                                  PETSC_TRUE,
+                                                  &nfacet_closure,
+                                                  &facet_closure))
                 vi = 0
                 for fi in range(nfacet_closure):
                     if vStart <= facet_closure[2*fi] < vEnd:
@@ -291,73 +273,379 @@ def closure_ordering(PETSc.DM plex,
                         cell_closure[cell,offset+v] = facets[f]
                         break
 
-            DMPlexRestoreTransitiveClosure(plex.dm, facets[f], PETSC_TRUE,
-                                           &nfacet_closure, &facet_closure)
+            if nfacets > 0:
+                CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, facets[nfacets-1],
+                                                      PETSC_TRUE,
+                                                      &nfacet_closure,
+                                                      &facet_closure))
             offset += nfacets
 
-    DMPlexRestoreTransitiveClosure(plex.dm, c, PETSC_TRUE, &nclosure,&closure)
-    PetscFree(vertices)
-    PetscFree(v_global)
-    PetscFree(facets)
-    PetscFree(facet_vertices)
-    PetscFree(faces)
+    if cEnd - cStart > 0:
+        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, cEnd - cStart - 1, PETSC_TRUE,
+                                              &nclosure,&closure))
+    CHKERR(PetscFree(vertices))
+    CHKERR(PetscFree(v_global))
+    CHKERR(PetscFree(facets))
+    CHKERR(PetscFree(facet_vertices))
+    CHKERR(PetscFree(faces))
 
     return cell_closure
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_cell_nodes(PETSc.Section global_numbering,
+                   np.ndarray[np.int32_t, ndim=2] cell_closures,
+                   dofs_per_cell):
+    """
+    Builds the DoF mapping for non-extruded meshes.
 
-def mark_entity_classes(plex):
-    """Mark all points in a given Plex according to the PyOP2 entity classes:
+    :arg global_numbering: Section describing the global DoF numbering
+    :arg cell_closures: 2D array of ordered cell closures
+    :arg dofs_per_cell: Number of DoFs associated with each mesh cell
+    """
+    cdef:
+        PetscInt c, ncells, ci, nclosure, offset, p, pi, dof, off, i
+        np.ndarray[np.int32_t, ndim=2] cell_nodes
+
+    ncells = cell_closures.shape[0]
+    nclosure = cell_closures.shape[1]
+    cell_nodes = np.empty((ncells, dofs_per_cell), dtype=np.int32)
+
+    for c in range(ncells):
+        offset = 0
+        for ci in range(nclosure):
+            p = cell_closures[c, ci]
+            CHKERR(PetscSectionGetDof(global_numbering.sec,
+                                      p, &dof))
+            CHKERR(PetscSectionGetOffset(global_numbering.sec,
+                                         p, &off))
+            for i in range(dof):
+                cell_nodes[c, offset+i] = off+i
+            offset += dof
+    return cell_nodes
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_extruded_cell_nodes(PETSc.DM plex,
+                            PETSc.Section global_numbering,
+                            np.ndarray[np.int32_t, ndim=2] cell_closures,
+                            fiat_element, dofs_per_cell):
+    """
+    Builds the DoF mapping for extruded meshes.
+
+    :arg plex: The DMPlex object encapsulating the mesh topology
+    :arg global_numbering: Section describing the global DoF numbering
+    :arg cell_closures: 2D array of ordered cell closures
+    :arg fiat_element: The FIAT element for the extruded cell
+    :arg dofs_per_cell: Number of DoFs associated with each mesh cell
+    """
+    cdef:
+        PetscInt c, ncells, ci, nclosure, d, dim
+        PetscInt offset, p, pdof, off, glbl, lcl, i
+        PetscInt *pStarts = NULL
+        PetscInt *pEnds = NULL
+        PetscInt *hdofs = NULL
+        PetscInt *vdofs = NULL
+        np.ndarray[np.int32_t, ndim=2] cell_nodes
+
+    ncells = cell_closures.shape[0]
+    nclosure = cell_closures.shape[1]
+    cell_nodes = np.empty((ncells, dofs_per_cell), dtype=np.int32)
+
+    dim = plex.getDimension()
+    CHKERR(PetscMalloc1(dim+1, &pStarts))
+    CHKERR(PetscMalloc1(dim+1, &pEnds))
+    for d in range(dim+1):
+        pStarts[d], pEnds[d] = plex.getDepthStratum(d)
+
+    entity_dofs = fiat_element.entity_dofs()
+    CHKERR(PetscMalloc1(dim+1, &hdofs))
+    CHKERR(PetscMalloc1(dim+1, &vdofs))
+    for d in range(dim+1):
+        hdofs[d] = len(entity_dofs[(d,0)][0])
+        vdofs[d] = len(entity_dofs[(d,1)][0])
+
+    flattened_element = fiat_element.flattened_element()
+    flat_entity_dofs = flattened_element.entity_dofs()
+
+    cdef PetscInt ***fled_ptr = NULL
+    cdef PetscInt *lcl_dofs = NULL
+    CHKERR(PetscMalloc1(len(flat_entity_dofs), &fled_ptr))
+    for i in range(len(flat_entity_dofs)):
+        CHKERR(PetscMalloc1(len(flat_entity_dofs[i]), &(fled_ptr[i])))
+        for j in range(len(flat_entity_dofs[i])):
+            CHKERR(PetscMalloc1(len(flat_entity_dofs[i][j]), &(fled_ptr[i][j])))
+            for k in range(len(flat_entity_dofs[i][j])):
+                fled_ptr[i][j][k] = flat_entity_dofs[i][j][k]
+
+    for c in range(ncells):
+        offset = 0
+        for d in range(dim+1):
+            pi = 0
+            for ci in range(nclosure):
+                if pStarts[d] <= cell_closures[c, ci] < pEnds[d]:
+                    p = cell_closures[c, ci]
+                    CHKERR(PetscSectionGetDof(global_numbering.sec,
+                                              p, &pdof))
+                    if pdof > 0:
+                        CHKERR(PetscSectionGetOffset(global_numbering.sec,
+                                                     p, &glbl))
+
+                        # For extruded entities the numberings are:
+                        # Global: [bottom[:], top[:], side[:]]
+                        # Local:  [bottom[i], top[i], side[i] for i in bottom[:]]
+                        #
+                        # eg. extruded P3 facet:
+                        #       Local            Global
+                        #  --1---6---11--   --12---13---14--
+                        #  | 4   9   14 |   |  5    8   11 |
+                        #  | 3   8   13 |   |  4    7   10 |
+                        #  | 2   7   12 |   |  3    6    9 |
+                        #  --0---5---10--   ---0----1----2--
+                        #
+                        # cell_nodes = [0,12,3,4,5,1,13,6,7,8,2,14,9,10,11]
+
+                        lcl_dofs = fled_ptr[d][pi]
+                        for i in range(hdofs[d]):
+                            lcl = lcl_dofs[i]
+                            cell_nodes[c, lcl] = glbl + i
+                        for i in range(vdofs[d]):
+                            lcl = lcl_dofs[hdofs[d] + i]
+                            cell_nodes[c, lcl] = glbl + hdofs[d] + i
+                        for i in range(hdofs[d]):
+                            lcl = lcl_dofs[hdofs[d] + vdofs[d] + i]
+                            cell_nodes[c, lcl] = glbl + hdofs[d] + vdofs[d] + i
+
+                        offset += 2*hdofs[d] + vdofs[d]
+                        pi += 1
+
+    for i in range(len(flat_entity_dofs)):
+        for j in range(len(flat_entity_dofs[i])):
+            CHKERR(PetscFree(fled_ptr[i][j]))
+        CHKERR(PetscFree(fled_ptr[i]))
+    CHKERR(PetscFree(fled_ptr))
+    CHKERR(PetscFree(pStarts))
+    CHKERR(PetscFree(pEnds))
+    CHKERR(PetscFree(hdofs))
+    CHKERR(PetscFree(vdofs))
+    return cell_nodes
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_facet_nodes(np.ndarray[np.int32_t, ndim=2] facet_cells,
+                    np.ndarray[np.int32_t, ndim=2] cell_nodes):
+    """
+    Derives the DoF mapping for a given facet list.
+
+    :arg facet_cells: 2D array of parent cells for each facet
+    :arg cell_nodes: 2D array of cell DoFs
+    """
+    cdef:
+        int f, i, cell, nfacets, ncells, ndofs
+        np.ndarray[np.int32_t, ndim=2] facet_nodes
+
+    nfacets = facet_cells.shape[0]
+    ncells = facet_cells.shape[1]
+    ndofs = cell_nodes.shape[1]
+    facet_nodes = np.empty((nfacets, ncells*ndofs), dtype=np.int32)
+
+    for f in range(nfacets):
+        # First parent cell
+        cell = facet_cells[f, 0]
+        for i in range(ndofs):
+            facet_nodes[f, i] = cell_nodes[cell, i]
+
+        # Second parent cell for internal facets
+        if ncells > 1:
+            cell = facet_cells[f, 1]
+            if cell > 0:
+                for i in range(ndofs):
+                    facet_nodes[f, ndofs+i] = cell_nodes[cell, i]
+            else:
+                for i in range(ndofs):
+                    facet_nodes[f, ndofs+i] = -1
+
+    return facet_nodes
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def label_facets(PETSc.DM plex):
+    """Add labels to facets in the the plex
+
+    Facets on the boundary are marked with "exterior_facets" while all
+    others are marked with "interior_facets"."""
+    cdef:
+        PetscInt fstart, fEnd, facet, val
+        char *ext_label = <char *>"exterior_facets"
+        char *int_label = <char *>"interior_facets"
+
+    # Mark boundaries as exterior_facets
+    plex.markBoundaryFaces(ext_label)
+    plex.createLabel(int_label)
+
+    fStart, fEnd = plex.getHeightStratum(1)
+
+    for facet in range(fStart, fEnd):
+        CHKERR(DMPlexGetLabelValue(plex.dm, ext_label, facet, &val))
+        # Not marked, must be interior
+        if val == -1:
+            CHKERR(DMPlexSetLabelValue(plex.dm, int_label, facet, 1))
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
+    """Return coordinates for the plex, reordered according to the
+    global numbering permutation for the coordinate function space.
+
+    Shape is a tuple of (plex.numVertices(), geometric_dim)."""
+    cdef:
+        PetscInt v, vStart, vEnd, offset
+        PetscInt i, dim = shape[1]
+        np.ndarray[np.float64_t, ndim=2] plex_coords, coords
+
+    plex_coords = plex.getCoordinatesLocal().array.reshape(shape)
+    coords = np.empty_like(plex_coords)
+    vStart, vEnd = plex.getDepthStratum(0)
+
+    for v in range(vStart, vEnd):
+        CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
+        for i in range(dim):
+            coords[offset, i] = plex_coords[v - vStart, i]
+
+    return coords
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def mark_entity_classes(PETSc.DM plex):
+    """Mark all points in a given Plex according to the PyOP2 entity
+    classes:
+
     core      : owned and not in send halo
     non_core  : owned and in send halo
     exec_halo : in halo, but touch owned entity
+
+    :arg plex: The DMPlex object encapsulating the mesh topology
     """
+    cdef:
+        PetscInt p, pStart, pEnd, cStart, cEnd, vStart, vEnd
+        PetscInt c, ncells, ci, nclosure, vi, dim
+        PetscInt depth, non_core, exec_halo, nroots, nleaves
+        PetscInt *cells = NULL
+        PetscInt *vertices = NULL
+        PetscInt *closure = NULL
+        PetscInt *ilocal = NULL
+        PetscSFNode *iremote = NULL
+        PETSc.SF point_sf = None
+        PETSc.IS cell_is = None
+
+    dim = plex.getDimension()
+    cStart, cEnd = plex.getHeightStratum(0)
+    vStart, vEnd = plex.getDepthStratum(0)
+    v_per_cell = plex.getConeSize(cStart)
+    CHKERR(PetscMalloc1(v_per_cell, &vertices))
+
     plex.createLabel("op2_core")
     plex.createLabel("op2_non_core")
     plex.createLabel("op2_exec_halo")
 
+    lbl_depth = <char*>"depth"
+    lbl_core = <char*>"op2_core"
+    lbl_non_core = <char*>"op2_non_core"
+    lbl_halo = <char*>"op2_exec_halo"
+
     if MPI.comm.size > 1:
         # Mark exec_halo from point overlap SF
         point_sf = plex.getPointSF()
-        nroots, nleaves, local, remote = point_sf.getGraph()
-        for p in local:
-            depth = plex.getLabelValue("depth", p)
-            plex.setLabelValue("op2_exec_halo", p, depth)
+        CHKERR(PetscSFGetGraph(point_sf.sf, &nroots, &nleaves,
+                               &ilocal, &iremote))
+        for p in range(nleaves):
+            CHKERR(DMPlexGetLabelValue(plex.dm, lbl_depth,
+                                       ilocal[p], &depth))
+            CHKERR(DMPlexSetLabelValue(plex.dm, lbl_halo,
+                                       ilocal[p], depth))
     else:
         # If sequential mark all points as core
         pStart, pEnd = plex.getChart()
         for p in range(pStart, pEnd):
-            depth = plex.getLabelValue("depth", p)
-            plex.setLabelValue("op2_core", p, depth)
+            CHKERR(DMPlexGetLabelValue(plex.dm, lbl_depth,
+                                       p, &depth))
+            CHKERR(DMPlexSetLabelValue(plex.dm, lbl_core,
+                                       p, depth))
         return
 
-    # Mark all unmarked points in the closure of adjacent cells as non_core
-    cStart, cEnd = plex.getHeightStratum(0)
-    vStart, vEnd = plex.getDepthStratum(0)
-    dim = plex.getDimension()
-    halo_cells = plex.getStratumIS("op2_exec_halo", dim).getIndices()
-    adjacent_cells = []
-    for c in halo_cells:
-        halo_closure = plex.getTransitiveClosure(c)[0]
-        for vertex in filter(lambda x: x >= vStart and x < vEnd, halo_closure):
-            star = plex.getTransitiveClosure(vertex, useCone=False)[0]
-            for adj in filter(lambda x: x >= cStart and x < cEnd, star):
-                if plex.getLabelValue("op2_exec_halo", adj) < 0:
-                    adjacent_cells.append(adj)
+    # Mark all cells adjacent to halo cells as non_core,
+    # where adjacent(c) := star(closure(c))
+    ncells = plex.getStratumSize("op2_exec_halo", dim)
+    cell_is = plex.getStratumIS("op2_exec_halo", dim)
+    CHKERR(ISGetIndices(cell_is.iset, &cells))
+    for c in range(ncells):
+        CHKERR(DMPlexGetTransitiveClosure(plex.dm, cells[c],
+                                          PETSC_TRUE,
+                                          &nclosure,
+                                          &closure))
+        # Copy vertices out of the work array (closure)
+        vi = 0
+        for ci in range(nclosure):
+            if vStart <= closure[2*ci] < vEnd:
+                vertices[vi] = closure[2*ci]
+                vi += 1
 
-    for adj_cell in adjacent_cells:
-        for p in plex.getTransitiveClosure(adj_cell)[0]:
-            if plex.getLabelValue("op2_exec_halo", p) < 0:
-                depth = plex.getLabelValue("depth", p)
-                plex.setLabelValue("op2_non_core", p, depth)
+        # Mark all cells in the star of each vertex
+        for vi in range(v_per_cell):
+            vertex = vertices[vi]
+            CHKERR(DMPlexGetTransitiveClosure(plex.dm, vertices[vi],
+                                              PETSC_FALSE,
+                                              &nclosure,
+                                              &closure))
+            for ci in range(nclosure):
+                if cStart <= closure[2*ci] < cEnd:
+                    p = closure[2*ci]
+                    CHKERR(DMPlexGetLabelValue(plex.dm, lbl_halo,
+                                               p, &exec_halo))
+                    if exec_halo < 0:
+                        CHKERR(DMPlexSetLabelValue(plex.dm,
+                                                   lbl_non_core,
+                                                   p, dim))
+
+    # Mark the closures of non_core cells as non_core
+    ncells = plex.getStratumSize("op2_non_core", dim)
+    cell_is = plex.getStratumIS("op2_non_core", dim)
+    CHKERR(ISGetIndices(cell_is.iset, &cells))
+    for c in range(ncells):
+        CHKERR(DMPlexGetTransitiveClosure(plex.dm, cells[c],
+                                          PETSC_TRUE,
+                                          &nclosure,
+                                          &closure))
+        for ci in range(nclosure):
+            p = closure[2*ci]
+            CHKERR(DMPlexGetLabelValue(plex.dm, lbl_halo,
+                                       p, &exec_halo))
+            if exec_halo < 0:
+                CHKERR(DMPlexGetLabelValue(plex.dm, lbl_depth,
+                                           p, &depth))
+                CHKERR(DMPlexSetLabelValue(plex.dm, lbl_non_core,
+                                           p, depth))
+
+    if ncells > 0:
+        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, cells[ncells-1],
+                                              PETSC_TRUE,
+                                              &nclosure,
+                                              &closure))
 
     # Mark all remaining points as core
     pStart, pEnd = plex.getChart()
     for p in range(pStart, pEnd):
-        exec_halo = plex.getLabelValue("op2_exec_halo", p)
-        non_core = plex.getLabelValue("op2_non_core", p)
+        CHKERR(DMPlexGetLabelValue(plex.dm, lbl_halo,
+                                   p, &exec_halo))
+        CHKERR(DMPlexGetLabelValue(plex.dm, lbl_non_core,
+                                   p, &non_core))
         if exec_halo < 0 and non_core < 0:
-            depth = plex.getLabelValue("depth", p)
-            plex.setLabelValue("op2_core", p, depth)
+            CHKERR(DMPlexGetLabelValue(plex.dm, lbl_depth,
+                                       p, &depth))
+            CHKERR(DMPlexSetLabelValue(plex.dm, lbl_core,
+                                       p, depth))
+
+    PetscFree(vertices)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -385,7 +673,7 @@ def get_cells_by_class(PETSc.DM plex):
         nclass = plex.getStratumSize(op2class, dim)
         if nclass > 0:
             class_is = plex.getStratumIS(op2class, dim)
-            ISGetIndices(class_is.iset, &indices)
+            CHKERR(ISGetIndices(class_is.iset, &indices))
             for ci in range(nclass):
                 cells[c] = indices[ci]
                 c += 1
@@ -423,10 +711,10 @@ def get_facets_by_class(PETSc.DM plex, label):
         nclass = plex.getStratumSize(op2class, dim-1)
         if nclass > 0:
             class_is = plex.getStratumIS(op2class, dim-1)
-            ISGetIndices(class_is.iset, &indices)
+            CHKERR(ISGetIndices(class_is.iset, &indices))
             for ci in range(nclass):
-                DMPlexGetLabelValue(plex.dm, label_chr,
-                                    indices[ci], &lbl_val)
+                CHKERR(DMPlexGetLabelValue(plex.dm, label_chr,
+                                           indices[ci], &lbl_val))
                 if lbl_val == 1:
                     facets[fi] = indices[ci]
                     fi += 1
@@ -435,7 +723,9 @@ def get_facets_by_class(PETSc.DM plex, label):
     facet_classes[3] = facet_classes[2]
     return facets, facet_classes
 
-def plex_renumbering(plex):
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def plex_renumbering(PETSc.DM plex):
     """
     Build a global node renumbering as a permutation of Plex points.
 
@@ -445,46 +735,53 @@ def plex_renumbering(plex):
     the Plex graph over each OP2 entity class in turn. The returned IS
     is the Plex -> OP2 permutation.
     """
+    cdef:
+        PetscInt dim, ncells, nclosure, c, ci, p, p_glbl, lbl_val
+        PetscInt *cells = NULL
+        PetscInt *closure = NULL
+        PetscInt *perm = NULL
+        PETSc.IS cell_is = None
+        PETSc.IS perm_is = None
+        char *lbl_chr = NULL
+        PetscBT seen = NULL
+
     dim = plex.getDimension()
     pStart, pEnd = plex.getChart()
-    perm = np.empty(pEnd - pStart, dtype=np.int32)
+    CHKERR(PetscMalloc1(pEnd - pStart, &perm))
+    CHKERR(PetscBTCreate(pEnd - pStart, &seen))
     p_glbl = 0
 
-    # Renumber core DoFs
-    seen = set()
-    if plex.getStratumSize("op2_core", dim) > 0:
-        for cell in plex.getStratumIS("op2_core", dim).getIndices():
-            for p in plex.getTransitiveClosure(cell)[0]:
-                if p in seen:
-                    continue
+    for op2class in ["op2_core",
+                     "op2_non_core",
+                     "op2_exec_halo"]:
+        lbl_chr = <char*>op2class
+        ncells = plex.getStratumSize(op2class, dim)
+        if ncells > 0:
+            cell_is = plex.getStratumIS(op2class, dim)
+            CHKERR(ISGetIndices(cell_is.iset, &cells))
+            for c in range(ncells):
+                CHKERR(DMPlexGetTransitiveClosure(plex.dm, cells[c],
+                                                  PETSC_TRUE,
+                                                  &nclosure,
+                                                  &closure))
+                for ci in range(nclosure):
+                    p = closure[2*ci]
+                    if not PetscBTLookup(seen, p):
+                        CHKERR(DMPlexGetLabelValue(plex.dm, lbl_chr,
+                                                   p, &lbl_val))
+                        if lbl_val >= 0:
+                            CHKERR(PetscBTSet(seen, p))
+                            perm[p_glbl] = p
+                            p_glbl += 1
 
-                if plex.getLabelValue("op2_core", p) >= 0:
-                    seen.add(p)
-                    perm[p_glbl] = p
-                    p_glbl += 1
+            CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, cells[c],
+                                                  PETSC_TRUE,
+                                                  &nclosure,
+                                                  &closure))
+    CHKERR(PetscBTDestroy(&seen))
 
-    # Renumber non-core DoFs
-    if plex.getStratumSize("op2_non_core", dim) > 0:
-        for cell in plex.getStratumIS("op2_non_core", dim).getIndices():
-            for p in plex.getTransitiveClosure(cell)[0]:
-                if p in seen:
-                    continue
-
-                if plex.getLabelValue("op2_non_core", p) >= 0:
-                    seen.add(p)
-                    perm[p_glbl] = p
-                    p_glbl += 1
-
-    # Renumber halo DoFs
-    if plex.getStratumSize("op2_exec_halo", dim) > 0:
-        for cell in plex.getStratumIS("op2_exec_halo", dim).getIndices():
-            for p in plex.getTransitiveClosure(cell)[0]:
-                if p in seen:
-                    continue
-
-                if plex.getLabelValue("op2_exec_halo", p) >= 0:
-                    seen.add(p)
-                    perm[p_glbl] = p
-                    p_glbl += 1
-
-    return PETSc.IS().createGeneral(perm)
+    perm_is = PETSc.IS().create()
+    perm_is.setType("general")
+    CHKERR(ISGeneralSetIndices(perm_is.iset, pEnd - pStart,
+                               perm, PETSC_OWN_POINTER))
+    return perm_is
