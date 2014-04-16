@@ -130,7 +130,9 @@ common_tests = [
     'iaddtest(f, 2, 2)',
     'isubtest(two, 1, 1)',
     'imultest(one, 2, 2)',
+    'imultest(one, two, 2)',
     'idivtest(two, 2, 1)',
+    'idivtest(one, two, 0.5)',
     'isubtest(one, one, 0)',
     'assigntest(f, 2 * one, 2)',
     'assigntest(f, one - one, 0)']

@@ -747,12 +747,25 @@ for (unsigned int d=0; d < %(dim)d; d++) {
         to the nodes on that subset.
         """
 
+        if isinstance(expr, Function) and \
+                expr._function_space == self._function_space:
+            expr.dat.copy(self.dat, subset=subset)
+            return self
+
         assemble_expressions.evaluate_expression(
             assemble_expressions.Assign(self, expr), subset)
 
         return self
 
     def __iadd__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat += expr
+            return self
+        if isinstance(expr, Function) and \
+                expr._function_space == self._function_space:
+            self.dat += expr.dat
+            return self
 
         assemble_expressions.evaluate_expression(
             assemble_expressions.IAdd(self, expr))
@@ -761,6 +774,14 @@ for (unsigned int d=0; d < %(dim)d; d++) {
 
     def __isub__(self, expr):
 
+        if np.isscalar(expr):
+            self.dat -= expr
+            return self
+        if isinstance(expr, Function) and \
+                expr._function_space == self._function_space:
+            self.dat -= expr.dat
+            return self
+
         assemble_expressions.evaluate_expression(
             assemble_expressions.ISub(self, expr))
 
@@ -768,12 +789,28 @@ for (unsigned int d=0; d < %(dim)d; d++) {
 
     def __imul__(self, expr):
 
+        if np.isscalar(expr):
+            self.dat *= expr
+            return self
+        if isinstance(expr, Function) and \
+                expr._function_space == self._function_space:
+            self.dat *= expr.dat
+            return self
+
         assemble_expressions.evaluate_expression(
             assemble_expressions.IMul(self, expr))
 
         return self
 
     def __idiv__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat /= expr
+            return self
+        if isinstance(expr, Function) and \
+                expr._function_space == self._function_space:
+            self.dat /= expr.dat
+            return self
 
         assemble_expressions.evaluate_expression(
             assemble_expressions.IDiv(self, expr))
