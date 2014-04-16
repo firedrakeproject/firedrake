@@ -10,8 +10,8 @@ cdef extern from "petsc.h":
        PETSC_USE_POINTER
 
 cdef extern from "petscsys.h":
-   int PetscMalloc1(PetscInt,PetscInt**)
-   int PetscFree(PetscInt*)
+   int PetscMalloc1(PetscInt,void*)
+   int PetscFree(void*)
    int PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
 
 cdef extern from "petscdmplex.h":
