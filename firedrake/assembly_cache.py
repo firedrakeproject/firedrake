@@ -48,8 +48,6 @@ try:
 except ImportError:
     memory = None
 
-_assemble_count = 0
-
 
 class _DependencySnapshot(object):
     """Record the dependencies of a form at a particular point in order to
@@ -77,17 +75,23 @@ class _DependencySnapshot(object):
         original_coords = self.dependencies[0][0]()
         if original_coords:
             coords = form.integrals()[0].measure().domain_data()
-            if coords != original_coords or \
+            if coords is not original_coords or \
                coords.dat._version != self.dependencies[0][1]:
                 return False
+        else:
+            return False
 
+        # Since UFL sorts the coefficients by count (creation index),
+        # further sorting here is not required.
         deps = form.compute_form_data().original_coefficients
 
         for original_d, dep in zip(self.dependencies[1:], deps):
             original_dep = original_d[0]()
             if original_dep:
-                if dep != original_dep or dep.dat._version != original_d[1]:
+                if dep is not original_dep or dep.dat._version != original_d[1]:
                     return False
+            else:
+                return False
 
         return True
 
@@ -125,19 +129,21 @@ class _CacheEntry(object):
         self.dependencies = _DependencySnapshot(form)
         self.bcs = _BCSnapshot(bcs)
         if isinstance(obj, float):
-            self.obj = obj
+            self.obj = np.float64(obj)
         else:
             self.obj = obj.duplicate()
 
         global _assemble_count
-        _assemble_count += 1
-        self.value = _assemble_count
+        self._assemble_count += 1
+        self.value = self._assemble_count
         if MPI.comm.size > 1:
             tmp = np.array([obj.nbytes])
             MPI.comm.Allreduce(_MPI.IN_PLACE, tmp, _MPI.MAX)
             self.nbytes = tmp[0]
         else:
             self.nbytes = obj.nbytes
+
+    _assemble_count = 0
 
     def is_valid(self, form, bcs):
         return self.dependencies.valid(form) and self.bcs.valid(bcs)
@@ -148,11 +154,11 @@ class _CacheEntry(object):
 
 class AssemblyCache(object):
     """This is the central point of the assembly cache subsystem. This is a
-    Singleton object so all the stored cache entries will reside in the single
+    singleton object so all the stored cache entries will reside in the single
     instance object returned.
 
     It is not usually necessary for users to access the
-    :class:`AssemblyCache` object directly, bit this may occassionally
+    :class:`AssemblyCache` object directly, but this may occassionally
     be useful when studying performance problems.
     """
 
@@ -204,7 +210,7 @@ class AssemblyCache(object):
         """Run the cache eviction algorithm. This works out the permitted
 cache size and deletes objects until it is achieved. Cache values are
 assumed to have a :attr:`value` attribute and eviction occurs in
-increasing :attr:`value` order. Currently :attr:`value` is an index
+increasing :attr:`value` order. Currently :attr:`value` is an index of
 the assembly operation, so older operations are evicted first.
 
 The cache will be evicted down to 90% of permitted size.
@@ -225,12 +231,14 @@ guaranteed to result in the same evictions on each processor.
             return
 
         max_cache_size = min(parameters["assembly_cache"]["max_bytes"] or float("inf"),
-                             memory*parameters["assembly_cache"]["max_factor"]
-                             or float("inf"))
+                             (memory or float("inf"))
+                             * parameters["assembly_cache"]["max_factor"]
+                             )
 
         if max_cache_size == float("inf"):
             if not self.evictwarned:
                 warning("No maximum assembly cache size. Leak memory at your own risk!")
+                self.evictwarned = True
             return
 
         cache_size = self.nbytes
@@ -253,7 +261,7 @@ guaranteed to result in the same evictions on each processor.
             candidates.append(next)
             bytes_to_evict -= nbytes(next)
 
-        for c in candidates[::-1]:
+        for c in reversed(candidates):
             if bytes_to_evict + nbytes(c) < 0:
                 # We may have been overzealous.
                 bytes_to_evict += nbytes(c)
@@ -269,7 +277,7 @@ guaranteed to result in the same evictions on each processor.
 
     @property
     def num_objects(self):
-        return len(self.cache.keys())
+        return len(self.cache)
 
     @property
     def cache_stats(self):
@@ -283,10 +291,7 @@ guaranteed to result in the same evictions on each processor.
     @property
     def nbytes(self):
         """An estimate of the total number of bytes in the cached objects."""
-        tot_bytes = 0
-        for entry in self.cache.values():
-            tot_bytes += entry.nbytes
-        return tot_bytes
+        return sum([entry.nbytes for entry in self.cache.values()])
 
     @property
     def realbytes(self):
