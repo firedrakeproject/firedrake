@@ -273,14 +273,16 @@ def closure_ordering(PETSc.DM plex,
                         cell_closure[cell,offset+v] = facets[f]
                         break
 
-            CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, facets[f],
-                                                  PETSC_TRUE,
-                                                  &nfacet_closure,
-                                                  &facet_closure))
+            if nfacets > 0:
+                CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, facets[nfacets-1],
+                                                      PETSC_TRUE,
+                                                      &nfacet_closure,
+                                                      &facet_closure))
             offset += nfacets
 
-    CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, c, PETSC_TRUE,
-                                          &nclosure,&closure))
+    if cEnd - cStart > 0:
+        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, cEnd - cStart - 1, PETSC_TRUE,
+                                              &nclosure,&closure))
     CHKERR(PetscFree(vertices))
     CHKERR(PetscFree(v_global))
     CHKERR(PetscFree(facets))
@@ -624,10 +626,11 @@ def mark_entity_classes(PETSc.DM plex):
                 CHKERR(DMPlexSetLabelValue(plex.dm, lbl_non_core,
                                            p, depth))
 
-    CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, cells[c],
-                                          PETSC_TRUE,
-                                          &nclosure,
-                                          &closure))
+    if ncells > 0:
+        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, cells[ncells-1],
+                                              PETSC_TRUE,
+                                              &nclosure,
+                                              &closure))
 
     # Mark all remaining points as core
     pStart, pEnd = plex.getChart()
