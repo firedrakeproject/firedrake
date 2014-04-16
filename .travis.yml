@@ -31,7 +31,7 @@ before_install:
     libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran triangle-bin \
     libvtk5-dev python-vtk libparmetis-dev python-vtk cython"
   - wget https://raw.github.com/OP2/PyOP2/master/requirements-minimal.txt
-  - pip install -r requirements-minimal.txt -r requirements.txt
+  - pip install psutil -r requirements-minimal.txt -r requirements.txt
   - if [[ $TRAVIS_PYTHON_VERSION == "2.6" ]]; then pip install argparse ordereddict; fi
 install:
   - make
