@@ -32,7 +32,7 @@ assembly_cache:
 """
 from collections import defaultdict
 from ufl.algorithms.signature import compute_form_signature
-import types
+import matrix
 import function
 import weakref
 from petsc4py import PETSc
@@ -327,7 +327,7 @@ def _cache_thunk(thunk, form, result):
                 # 1-form
                 result.dat = obj
                 r = result
-            elif isinstance(result, types.Matrix):
+            elif isinstance(result, matrix.Matrix):
                 # 2-form
                 if obj.handle is not result._M.handle:
                     obj.handle.copy(result._M.handle,
@@ -344,7 +344,7 @@ def _cache_thunk(thunk, form, result):
         elif isinstance(r, function.Function):
             # 1-form
             cache._store(r.dat, form, bcs)
-        elif isinstance(r, types.Matrix):
+        elif isinstance(r, matrix.Matrix):
             # 2-form
             cache._store(r._M, form, bcs)
         else:

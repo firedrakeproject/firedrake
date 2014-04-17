@@ -2,7 +2,7 @@
 import utils
 import numpy as np
 from ufl import as_ufl, UFLException
-import types
+import matrix
 from expression import Expression, to_expression
 from function import Function
 from projection import project
@@ -146,7 +146,7 @@ class DirichletBC(object):
 
         """
 
-        if isinstance(r, types.Matrix):
+        if isinstance(r, matrix.Matrix):
             r.add_bc(self)
             return
         fs = self._function_space
@@ -174,7 +174,7 @@ class DirichletBC(object):
             boundary condition should be applied.
 
         """
-        if isinstance(r, types.Matrix):
+        if isinstance(r, matrix.Matrix):
             raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
 
         # Record whether we are homogenized on entry.

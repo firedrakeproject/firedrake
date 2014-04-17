@@ -31,7 +31,7 @@ from ufl_expr import derivative
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
 from pyop2.logger import progress, INFO
-import types
+import matrix
 import functionspace
 import function
 import fiat_utils
@@ -489,8 +489,8 @@ def _assemble(f, tensor=None, bcs=None):
                                      trial.function_space().dof_dset),
                                     map_pairs,
                                     "%s_%s_sparsity" % fs_names)
-            result_matrix = types.Matrix(f, bcs, sparsity, numpy.float64,
-                                         "%s_%s_matrix" % fs_names)
+            result_matrix = matrix.Matrix(f, bcs, sparsity, numpy.float64,
+                                          "%s_%s_matrix" % fs_names)
             tensor = result_matrix._M
         else:
             result_matrix = tensor
