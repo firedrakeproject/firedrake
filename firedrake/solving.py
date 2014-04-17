@@ -32,6 +32,7 @@ from pyop2 import op2
 from pyop2.exceptions import MapValueError
 from pyop2.logger import progress, INFO
 import types
+import functionspace
 import fiat_utils
 from copy import copy
 from ffc_interface import compile_form
@@ -691,7 +692,7 @@ def _assemble(f, tensor=None, bcs=None):
             if bcs is not None and is_mat:
                 for bc in bcs:
                     fs = bc.function_space()
-                    if isinstance(fs, types.MixedFunctionSpace):
+                    if isinstance(fs, functionspace.MixedFunctionSpace):
                         raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
                     # Set diagonal entries on bc nodes to 1 if the current
                     # block is on the matrix diagonal and its index matches the

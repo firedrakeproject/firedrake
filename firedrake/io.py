@@ -5,7 +5,7 @@ from ufl import Cell, OuterProductCell
 import numpy as np
 import os
 from pyop2.mpi import MPI
-from types import FunctionSpace, VectorFunctionSpace
+from functionspace import FunctionSpace, VectorFunctionSpace
 from pyop2.logger import warning, RED
 from projection import project
 

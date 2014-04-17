@@ -1,5 +1,6 @@
 from petsc import PETSc
-from types import IndexedFunctionSpace, Function
+from functionspace import IndexedFunctionSpace
+from types import Function
 from numpy import prod
 
 

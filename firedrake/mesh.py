@@ -14,6 +14,7 @@ import FIAT
 import ufl
 from extrusion_utils import compute_extruded_dofs, make_extruded_coords
 import types
+import functionspace
 from utils import _init, _new_uid
 
 
@@ -305,12 +306,12 @@ class Mesh(object):
             if self.ufl_cell().geometric_dimension() != 1:
                 raise NotImplementedError("Periodic coordinates in more than 1D are unsupported")
             # We've been passed a periodic coordinate field, so use that.
-            self._coordinate_fs = types.VectorFunctionSpace(self, "DG", 1)
+            self._coordinate_fs = functionspace.VectorFunctionSpace(self, "DG", 1)
             self.coordinates = types.Function(self._coordinate_fs,
                                               val=periodic_coords,
                                               name="Coordinates")
         else:
-            self._coordinate_fs = types.VectorFunctionSpace(self, "Lagrange", 1)
+            self._coordinate_fs = functionspace.VectorFunctionSpace(self, "Lagrange", 1)
 
             coordinates = dmplex.reordered_coords(self._plex, self._coordinate_fs._global_numbering,
                                                   (self.num_vertices(), geometric_dim))
@@ -616,10 +617,10 @@ class ExtrudedMesh(Mesh):
             # Default to unit
             layer_height = 1.0 / layers
 
-        self._coordinate_fs = types.VectorFunctionSpace(self, mesh._coordinate_fs.ufl_element().family(),
-                                                        mesh._coordinate_fs.ufl_element().degree(),
-                                                        vfamily="CG",
-                                                        vdegree=1)
+        self._coordinate_fs = functionspace.VectorFunctionSpace(self, mesh._coordinate_fs.ufl_element().family(),
+                                                                mesh._coordinate_fs.ufl_element().degree(),
+                                                                vfamily="CG",
+                                                                vdegree=1)
 
         self.coordinates = types.Function(self._coordinate_fs)
         make_extruded_coords(self, layer_height, extrusion_type=extrusion_type,

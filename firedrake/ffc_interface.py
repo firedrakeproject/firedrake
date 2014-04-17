@@ -21,7 +21,7 @@ from pyop2.op2 import Kernel
 from pyop2.mpi import MPI
 from pyop2.ir.ast_base import PreprocessNode, Root
 
-import types
+import functionspace
 
 _form_cache = {}
 
@@ -96,7 +96,7 @@ class FormSplitter(ReuseTransformer):
 
     def argument(self, arg):
         """Split an argument into its constituent spaces."""
-        if isinstance(arg.function_space(), types.MixedFunctionSpace):
+        if isinstance(arg.function_space(), functionspace.MixedFunctionSpace):
             if arg in self._args:
                 return self._args[arg]
             args = []

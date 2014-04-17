@@ -1,7 +1,7 @@
 from pyop2 import op2
 import numpy as np
 from fiat_utils import fiat_from_ufl_element
-import types
+import functionspace as fs
 
 
 def extract_offset(offset, facet_map, base_map):
@@ -157,7 +157,7 @@ def make_extruded_coords(extruded_mesh, layer_height,
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
     # Dat to hold layer number
-    layer_fs = types.FunctionSpace(extruded_mesh, 'DG', 0)
+    layer_fs = fs.FunctionSpace(extruded_mesh, 'DG', 0)
     layers = extruded_mesh.layers
     layer = op2.Dat(layer_fs.dof_dset,
                     np.repeat(np.arange(layers-1, dtype=np.int32),

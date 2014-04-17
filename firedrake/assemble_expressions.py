@@ -6,6 +6,7 @@ from ufl.operatorbase import Operator
 from ufl.mathfunctions import MathFunction
 from pyop2 import op2
 import types
+import functionspace
 import pyop2.ir.ast_base as ast
 
 _to_sum = lambda o: ast.Sum(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
@@ -60,7 +61,7 @@ class DummyFunction(ufl.Coefficient):
             else:
                 return "fn_%d[dim]" % self.argnum
         if isinstance(self.function.function_space(),
-                      types.VectorFunctionSpace):
+                      functionspace.VectorFunctionSpace):
             return "fn_%d[dim]" % self.argnum
         else:
             return "fn_%d[0]" % self.argnum
@@ -292,7 +293,7 @@ class ExpressionSplitter(ReuseTransformer):
             if isinstance(idx._indices[0], ufl.indexing.FixedIndex):
                 if idx._indices[0]._value != i:
                     return self._identity
-                elif isinstance(coeff.function_space(), types.VectorFunctionSpace):
+                elif isinstance(coeff.function_space(), functionspace.VectorFunctionSpace):
                     return o.reconstruct(coeff, idx)
             return coeff
         return [reconstruct_if_vec(*ops, i=i)
@@ -475,7 +476,7 @@ def expression_kernel(expr, args):
     fs = args[0].function.function_space()
 
     d = ast.Symbol("dim")
-    if isinstance(fs, types.VectorFunctionSpace):
+    if isinstance(fs, functionspace.VectorFunctionSpace):
         ast_expr = _ast(expr)
     else:
         ast_expr = ast.FlatBlock(str(expr) + ";")
