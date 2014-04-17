@@ -3418,7 +3418,21 @@ class Mat(SetAssociated):
 
 class Kernel(Cached):
 
-    """OP2 kernel type."""
+    """OP2 kernel type.
+
+    :param code: kernel function definition, including signature; either a
+        string or an AST :class:`.Node`
+    :param name: kernel function name; must match the name of the kernel
+        function given in `code`
+    :param opts: options dictionary for :doc:`PyOP2 IR optimisations <ir>`
+        (optional, ignored if `code` is a string)
+    :param include_dirs: list of additional include directories to be searched
+        when compiling the kernel (optional, defaults to empty)
+    :param headers: list of system headers to include when compiling the kernel
+        in the form ``#include <header.h>`` (optional, defaults to empty)
+    :param user_code: code snippet to be executed once at the very start of
+        the generated kernel wrapper code (optional, defaults to empty)
+    """
 
     _globalcount = 0
     _cache = {}
