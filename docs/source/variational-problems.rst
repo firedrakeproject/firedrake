@@ -214,8 +214,8 @@ next step is to actually write down the variational form of the
 problem we wish to solve.  To do this, we will need a test function in
 an appropriate space along with a function to hold the solution and
 perhaps a trial function.  Test functions are obtained via a call to
-:py:class:`~.TestFunction`, trial functions via
-:py:class:`~.TrialFunction` and functions with
+:py:class:`~firedrake.ufl_expr.TestFunction`, trial functions via
+:py:class:`~firedrake.ufl_expr.TrialFunction` and functions with
 :py:class:`~.Function`.  The former two are purely
 symbolic objects, the latter contains storage for the coefficients of
 the basis functions in the function space.  We use them as follows:
@@ -236,8 +236,8 @@ If ``V`` above were a
 trial functions we obtain are for the combined mixed space.  Often, we
 would like to have test and trial functions for the subspaces of the
 mixed space.  We can do this by asking for
-:py:class:`~.TrialFunctions` and
-:py:class:`~.TestFunctions`, which return an ordered
+:py:class:`~firedrake.ufl_expr.TrialFunctions` and
+:py:class:`~firedrake.ufl_expr.TestFunctions`, which return an ordered
 tuple of test and trial functions for the underlying spaces.  For
 example, if we write:
 

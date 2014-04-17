@@ -593,8 +593,8 @@ boundary conditions:
 
 .. math::
 
-   -\nabla^2 u = 0 \quad \mathrm{in} \Omega
-   \nabla u \cdot n = g \quad \mathrm{on} \Gamma.
+   -\nabla^2 u &= 0 \quad \mathrm{in}\;\Omega\\
+   \nabla u \cdot n &= g \quad \mathrm{on}\;\Gamma.
 
 We will solve this problem on the unit square applying homogeneous
 Neumann boundary conditions on the planes :math:`x = 0` and :math:`x =
