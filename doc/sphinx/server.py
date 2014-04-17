@@ -12,7 +12,7 @@ try:
     from livereload import Server
 
     server = Server()
-    server.watch('source', 'make html')
+    server.watch('source', 'make buildhtml')
     server.watch('../../pyop2', 'make apidoc')
     server.serve(root='build/html', open_url=True)
 except ImportError:

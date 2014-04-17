@@ -2,9 +2,9 @@
 #
 
 # You can set these variables from the command line.
-APIDOCOPTS    =
+APIDOCOPTS    = -f
 SPHINXOPTS    =
-SPHINXBUILD   = OP2_DIR=. sphinx-build
+SPHINXBUILD   = sphinx-build
 PAPER         =
 BUILDDIR      = build
 
@@ -50,8 +50,10 @@ clean:
 livehtml:
 	python server.py
 
-html: apidoc
+buildhtml:
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
+
+html: apidoc buildhtml
 	@echo
 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
 

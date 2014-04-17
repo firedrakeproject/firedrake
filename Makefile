@@ -12,8 +12,7 @@ SPHINX_DIR = doc/sphinx
 SPHINX_BUILD_DIR = $(SPHINX_DIR)/build
 SPHINX_TARGET = html
 SPHINX_TARGET_DIR = $(SPHINX_BUILD_DIR)/$(SPHINX_TARGET)
-SPHINX_OPTS = -a
-APIDOC_OPTS = -f
+SPHINXOPTS = -a
 
 PORT = 8000
 
@@ -54,7 +53,7 @@ unit_opencl:
 	cd $(UNIT_TEST_DIR); for c in $(OPENCL_CTXS); do PYOPENCL_CTX=$$c $(PYTEST) --backend=opencl; done
 
 doc:
-	make -C $(SPHINX_DIR) $(SPHINX_TARGET) SPHINXOPTS=$(SPHINX_OPTS) APIDOCOPTS=$(APIDOC_OPTS)
+	make -C $(SPHINX_DIR) $(SPHINX_TARGET) SPHINXOPTS=$(SPHINXOPTS)
 
 serve:
 	make -C $(SPHINX_DIR) livehtml
@@ -65,7 +64,7 @@ update_docs:
 	cd $(SPHINX_BUILD_DIR); git clone `git config --get remote.origin.url` $(SPHINX_TARGET); \
 fi
 	cd $(SPHINX_TARGET_DIR); git fetch -p; git checkout -f gh-pages; git reset --hard origin/gh-pages
-	make -C $(SPHINX_DIR) $(SPHINX_TARGET) SPHINXOPTS=$(SPHINX_OPTS) APIDOCOPTS=$(APIDOC_OPTS)
+	make -C $(SPHINX_DIR) $(SPHINX_TARGET) SPHINXOPTS=$(SPHINXOPTS)
 	cd $(SPHINX_TARGET_DIR); git add .; git commit -am "Update documentation to revision $(GIT_REV)"; git push origin gh-pages
 
 ext: ext_clean
