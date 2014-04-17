@@ -6,10 +6,11 @@ import pyop2.ir.ast_base as ast
 from pyop2 import op2
 
 import assemble_expressions
+import expression as expression_t
 import functionspace
+import projection
 import utils
 import vector
-from expression import Expression
 
 
 __all__ = ['Function']
@@ -117,8 +118,7 @@ class Function(ufl.Coefficient):
         Any of the additional arguments to :func:`~firedrake.projection.project`
         may also be passed, and they will have their usual effect.
         """
-        from projection import project
-        return project(b, self, *args, **kwargs)
+        return projection.project(b, self, *args, **kwargs)
 
     def vector(self):
         """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
@@ -171,7 +171,7 @@ class Function(ufl.Coefficient):
         d = 0
         for fs, dat, dim in zip(self.function_space(), self.dat, dims):
             idx = d if fs.rank == 0 else slice(d, d+dim)
-            self._interpolate(fs, dat, Expression(expression.code[idx]), subset)
+            self._interpolate(fs, dat, expression_t.Expression(expression.code[idx]), subset)
             d += dim
         return self
 

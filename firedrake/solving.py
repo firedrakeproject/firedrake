@@ -32,15 +32,15 @@ from pyop2 import op2
 from pyop2.exceptions import MapValueError
 from pyop2.logger import progress, INFO
 
+import assembly_cache
+import assemble_expressions
 import fiat_utils
+import ffc_interface
 import function
 import functionspace
 import matrix
-from assemble_expressions import assemble_expression
-from assembly_cache import _cache_thunk
-from ffc_interface import compile_form
+import ufl_expr
 from petsc import PETSc
-from ufl_expr import derivative
 
 
 class NonlinearVariationalProblem(object):
@@ -65,7 +65,7 @@ class NonlinearVariationalProblem(object):
         self.F_ufl = F
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
-        self.J_ufl = J or derivative(F, u)
+        self.J_ufl = J or ufl_expr.derivative(F, u)
         self.u_ufl = u
         self.bcs = bcs
 
@@ -384,7 +384,7 @@ def assemble(f, tensor=None, bcs=None):
     if isinstance(f, ufl.form.Form):
         return _assemble(f, tensor=tensor, bcs=_extract_bcs(bcs))
     elif isinstance(f, ufl.expr.Expr):
-        return assemble_expression(f)
+        return assemble_expressions.assemble_expression(f)
     else:
         raise TypeError("Unable to assemble: %r" % f)
 
@@ -406,7 +406,7 @@ def _assemble(f, tensor=None, bcs=None):
     if hasattr(f._form_data, "_kernels"):
         kernels = f._form_data._kernels
     else:
-        kernels = compile_form(f, "form")
+        kernels = ffc_interface.compile_form(f, "form")
         f._form_data._kernels = kernels
 
     fd = f.form_data()
@@ -706,7 +706,7 @@ def _assemble(f, tensor=None, bcs=None):
             tensor.assemble()
         return result()
 
-    thunk = _cache_thunk(thunk, f, result())
+    thunk = assembly_cache._cache_thunk(thunk, f, result())
 
     if is_mat:
         result_matrix._assembly_callback = thunk

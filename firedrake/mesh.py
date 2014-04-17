@@ -11,13 +11,12 @@ from pyop2.mpi import MPI
 from pyop2.utils import as_tuple
 
 import dmplex
+import extrusion_utils as eutils
 import fiat_utils
 import function
 import functionspace
 import utils
-from extrusion_utils import compute_extruded_dofs, make_extruded_coords
 from petsc import PETSc
-from utils import _init, _new_uid
 
 
 __all__ = ['Mesh', 'ExtrudedMesh',
@@ -215,7 +214,7 @@ class Mesh(object):
                to be used as a DG1 field on the mesh.
         """
 
-        _init()
+        utils._init()
 
         # A cache of function spaces that have been built on this mesh
         self._cache = {}
@@ -260,7 +259,7 @@ class Mesh(object):
         """ Create mesh from DMPlex object """
 
         self._plex = plex
-        self.uid = _new_uid()
+        self.uid = utils._new_uid()
 
         if geometric_dim == 0:
             geometric_dim = self._plex.getDimension()
@@ -612,7 +611,8 @@ class ExtrudedMesh(Mesh):
         # Calculated dofs_per_column from flattened_element and layers.
         # The mirrored elements have to be counted only once.
         # Then multiply by layers and layers - 1 accordingly.
-        self.dofs_per_column = compute_extruded_dofs(fiat_element, flat_temp.entity_dofs(), layers)
+        self.dofs_per_column = eutils.compute_extruded_dofs(fiat_element, flat_temp.entity_dofs(),
+                                                            layers)
 
         #Compute Coordinates of the extruded mesh
         if layer_height is None:
@@ -625,8 +625,8 @@ class ExtrudedMesh(Mesh):
                                                                 vdegree=1)
 
         self.coordinates = function.Function(self._coordinate_fs)
-        make_extruded_coords(self, layer_height, extrusion_type=extrusion_type,
-                             kernel=kernel)
+        eutils.make_extruded_coords(self, layer_height, extrusion_type=extrusion_type,
+                                    kernel=kernel)
         self._coordinates = self.coordinates.dat.data_ro_with_halos
 
         self._dx = ufl.Measure('cell', domain_data=self.coordinates)

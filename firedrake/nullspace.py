@@ -1,7 +1,7 @@
 from numpy import prod
 
-from function import Function
-from functionspace import IndexedFunctionSpace
+import function
+import functionspace
 from petsc import PETSc
 
 
@@ -132,11 +132,11 @@ class MixedVectorSpaceBasis(object):
     """
     def __init__(self, function_space, bases):
         self._function_space = function_space
-        if not all(isinstance(basis, (VectorSpaceBasis, IndexedFunctionSpace))
+        if not all(isinstance(basis, (VectorSpaceBasis, functionspace.IndexedFunctionSpace))
                    for basis in bases):
             raise RuntimeError("MixedVectorSpaceBasis can only contain vector space bases or indexed function spaces")
         for i, basis in enumerate(bases):
-            if isinstance(basis, IndexedFunctionSpace):
+            if isinstance(basis, functionspace.IndexedFunctionSpace):
                 if i != basis.index:
                     raise RuntimeError("FunctionSpace with index %d cannot appear at position %d" % (basis.index, i))
                 if basis._parent != self._function_space:
@@ -158,14 +158,14 @@ class MixedVectorSpaceBasis(object):
             if isinstance(basis, VectorSpaceBasis):
                 v = []
                 if basis._constant:
-                    v = [Function(self._function_space[idx]).assign(1)]
+                    v = [function.Function(self._function_space[idx]).assign(1)]
                 bvecs[idx] = basis._vecs + v
 
         # Basis for mixed space is cartesian product of all the basis
         # vectors we just made.
         allbvecs = [x for x in product(*bvecs)]
 
-        vecs = [Function(self._function_space) for _ in allbvecs]
+        vecs = [function.Function(self._function_space) for _ in allbvecs]
 
         # Build the functions representing the monolithic basis.
         for vidx, bvec in enumerate(allbvecs):

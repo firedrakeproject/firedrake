@@ -1,10 +1,10 @@
 import ufl
 
+import expression
 import function
-from expression import Expression
-from functionspace import FunctionSpaceBase, FunctionSpace, VectorFunctionSpace
-from solving import solve
-from ufl_expr import TrialFunction, TestFunction
+import functionspace
+import solving
+import ufl_expr
 
 
 __all__ = ['project']
@@ -31,7 +31,7 @@ def project(v, V, bcs=None, mesh=None,
     :class:`.Function` is returned.
 
     Currently, `bcs`, `mesh` and `form_compiler_parameters` are ignored."""
-    if isinstance(V, FunctionSpaceBase):
+    if isinstance(V, functionspace.FunctionSpaceBase):
         ret = function.Function(V, name=name)
     elif isinstance(V, function.Function):
         ret = V
@@ -41,7 +41,7 @@ def project(v, V, bcs=None, mesh=None,
             'Can only project into functions and function spaces, not %r'
             % type(V))
 
-    if isinstance(v, Expression):
+    if isinstance(v, expression.Expression):
         shape = v.shape()
         # Build a function space that supports PointEvaluation so that
         # we can interpolate into it.
@@ -51,11 +51,11 @@ def project(v, V, bcs=None, mesh=None,
             deg = V.ufl_element().degree()
 
         if v.rank() == 0:
-            fs = FunctionSpace(V.mesh(), 'DG', deg+1)
+            fs = functionspace.FunctionSpace(V.mesh(), 'DG', deg+1)
         elif v.rank() == 1:
-            fs = VectorFunctionSpace(V.mesh(), 'DG',
-                                     deg+1,
-                                     dim=shape[0])
+            fs = functionspace.VectorFunctionSpace(V.mesh(), 'DG',
+                                                   deg+1,
+                                                   dim=shape[0])
         else:
             raise NotImplementedError(
                 "Don't know how to project onto tensor-valued function spaces")
@@ -69,8 +69,8 @@ def project(v, V, bcs=None, mesh=None,
     if v.function_space().mesh() != ret.function_space().mesh():
         raise RuntimeError("Can't project between mismatching meshes")
 
-    p = TestFunction(V)
-    q = TrialFunction(V)
+    p = ufl_expr.TestFunction(V)
+    q = ufl_expr.TrialFunction(V)
     a = ufl.inner(p, q) * V.mesh()._dx
     L = ufl.inner(p, v) * V.mesh()._dx
 
@@ -81,7 +81,7 @@ def project(v, V, bcs=None, mesh=None,
         solver_parameters.setdefault('ksp_type', 'cg')
         solver_parameters.setdefault('ksp_rtol', 1e-8)
 
-    solve(a == L, ret, bcs=bcs,
-          solver_parameters=solver_parameters,
-          form_compiler_parameters=form_compiler_parameters)
+    solving.solve(a == L, ret, bcs=bcs,
+                  solver_parameters=solver_parameters,
+                  form_compiler_parameters=form_compiler_parameters)
     return ret

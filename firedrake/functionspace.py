@@ -7,11 +7,11 @@ from pyop2.caching import ObjectCached
 from pyop2.utils import flatten, as_tuple
 
 import dmplex
+import extrusion_utils as eutils
+import fiat_utils
+import mesh as mesh_t
 import halo
 import utils
-from extrusion_utils import compute_extruded_dofs, compute_offset, extract_offset
-from fiat_utils import fiat_from_ufl_element
-from mesh import ExtrudedMesh, _Facets
 
 
 __all__ = ['FunctionSpace', 'VectorFunctionSpace',
@@ -40,9 +40,9 @@ class FunctionSpaceBase(ObjectCached):
         self._ufl_element = element
 
         # Compute the FIAT version of the UFL element above
-        self.fiat_element = fiat_from_ufl_element(element)
+        self.fiat_element = fiat_utils.fiat_from_ufl_element(element)
 
-        if isinstance(mesh, ExtrudedMesh):
+        if isinstance(mesh, mesh_t.ExtrudedMesh):
             # Set up some extrusion-specific things
             # The bottom layer maps will come from element_dof_list
             # dof_count is the total number of dofs in the extruded mesh
@@ -59,14 +59,14 @@ class FunctionSpaceBase(ObjectCached):
             self._xtr_vdofs = [len(entity_dofs[(d, 1)][0]) for d in range(top_dim+1)]
 
             # Compute the dofs per column
-            self.dofs_per_column = compute_extruded_dofs(self.fiat_element,
-                                                         self.flattened_element.entity_dofs(),
-                                                         mesh._layers)
+            self.dofs_per_column = eutils.compute_extruded_dofs(self.fiat_element,
+                                                                self.flattened_element.entity_dofs(),
+                                                                mesh._layers)
 
             # Compute the offset for the extrusion process
-            self.offset = compute_offset(self.fiat_element.entity_dofs(),
-                                         self.flattened_element.entity_dofs(),
-                                         self.fiat_element.space_dimension())
+            self.offset = eutils.compute_offset(self.fiat_element.entity_dofs(),
+                                                self.flattened_element.entity_dofs(),
+                                                self.fiat_element.space_dimension())
 
             # Compute the top and bottom masks to identify boundary dofs
             b_mask = self.fiat_element.get_lower_mask()
@@ -132,7 +132,7 @@ class FunctionSpaceBase(ObjectCached):
                                                          mesh._cell_numbering,
                                                          entity_per_cell)
 
-        if isinstance(self._mesh, ExtrudedMesh):
+        if isinstance(self._mesh, mesh_t.ExtrudedMesh):
             self.cell_node_list = dmplex.get_extruded_cell_nodes(mesh._plex,
                                                                  self._global_numbering,
                                                                  mesh._cell_closure,
@@ -158,10 +158,10 @@ class FunctionSpaceBase(ObjectCached):
 
                 # Note: To implement facets correctly in parallel
                 # we need to pass interior_facet_classes to _Facets()
-                mesh.interior_facets = _Facets(mesh, interior_facets.size,
-                                               "interior",
-                                               interior_facet_cell,
-                                               interior_local_facet_number)
+                mesh.interior_facets = mesh_t._Facets(mesh, interior_facets.size,
+                                                      "interior",
+                                                      interior_facet_cell,
+                                                      interior_local_facet_number)
 
             interior_facet_cells = mesh.interior_facets.facet_cell
             self.interior_facet_node_list = \
@@ -194,11 +194,11 @@ class FunctionSpaceBase(ObjectCached):
 
                 # Note: To implement facets correctly in parallel
                 # we need to pass exterior_facet_classes to _Facets()
-                mesh.exterior_facets = _Facets(mesh, exterior_facets.size,
-                                               "exterior",
-                                               exterior_facet_cell,
-                                               exterior_local_facet_number,
-                                               boundary_ids)
+                mesh.exterior_facets = mesh_t._Facets(mesh, exterior_facets.size,
+                                                      "exterior",
+                                                      exterior_facet_cell,
+                                                      exterior_local_facet_number,
+                                                      boundary_ids)
 
             exterior_facet_cells = mesh.exterior_facets.facet_cell
             self.exterior_facet_node_list = \
@@ -331,7 +331,7 @@ class FunctionSpaceBase(ObjectCached):
             parent = None
 
         facet_set = self._mesh.exterior_facets.set
-        if isinstance(self._mesh, ExtrudedMesh):
+        if isinstance(self._mesh, mesh_t.ExtrudedMesh):
             name = "extruded_exterior_facet_node"
             offset = self.offset
         else:
@@ -410,7 +410,7 @@ class FunctionSpaceBase(ObjectCached):
 
         el = self.fiat_element
 
-        if isinstance(self._mesh, ExtrudedMesh):
+        if isinstance(self._mesh, mesh_t.ExtrudedMesh):
             # The facet is indexed by (base-ele-codim 1, 1) for
             # extruded meshes.
             # e.g. for the two supported options of
@@ -469,10 +469,10 @@ class FunctionSpaceBase(ObjectCached):
                      facet_dat(op2.WRITE),
                      local_facet_dat(op2.READ))
 
-        if isinstance(self._mesh, ExtrudedMesh):
-            offset = extract_offset(self.offset,
-                                    facet_dat.data_ro_with_halos[0],
-                                    self.cell_node_map().values[0])
+        if isinstance(self._mesh, mesh_t.ExtrudedMesh):
+            offset = eutils.extract_offset(self.offset,
+                                           facet_dat.data_ro_with_halos[0],
+                                           self.cell_node_map().values[0])
         else:
             offset = None
         return op2.Map(facet_set, self.node_set,
@@ -563,7 +563,7 @@ class FunctionSpace(FunctionSpaceBase):
             element = family
         else:
             # First case...
-            if isinstance(mesh, ExtrudedMesh):
+            if isinstance(mesh, mesh_t.ExtrudedMesh):
                 # if extruded mesh, make the OPE
                 la = ufl.FiniteElement(family,
                                        domain=mesh._old_mesh._ufl_cell,
@@ -613,7 +613,7 @@ class VectorFunctionSpace(FunctionSpaceBase):
         # VectorFunctionSpace dimension defaults to the geometric dimension of the mesh.
         dim = dim or mesh.ufl_cell().geometric_dimension()
 
-        if isinstance(mesh, ExtrudedMesh):
+        if isinstance(mesh, mesh_t.ExtrudedMesh):
             if isinstance(family, ufl.OuterProductElement):
                 raise NotImplementedError("Not yet implemented")
             la = ufl.FiniteElement(family,

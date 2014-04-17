@@ -2,8 +2,8 @@ import numpy as np
 
 from pyop2 import op2
 
+import fiat_utils
 import functionspace as fs
-from fiat_utils import fiat_from_ufl_element
 
 
 def extract_offset(offset, facet_map, base_map):
@@ -76,7 +76,7 @@ def make_flat_fiat_element(ufl_cell_element, ufl_cell, flattened_entity_dofs):
     """Create a modified FIAT-style element.
     Transform object from 3D-Extruded to 2D-flattened FIAT-style object."""
     # Create base element
-    base_element = fiat_from_ufl_element(ufl_cell_element)
+    base_element = fiat_utils.fiat_from_ufl_element(ufl_cell_element)
 
     # Alter base element
     base_element.dual.entity_ids = flattened_entity_dofs

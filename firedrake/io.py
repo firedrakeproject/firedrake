@@ -8,8 +8,8 @@ import os
 from pyop2.logger import warning, RED
 from pyop2.mpi import MPI
 
-from functionspace import FunctionSpace, VectorFunctionSpace
-from projection import project
+import functionspace as fs
+import projection
 
 
 __all__ = ['File']
@@ -198,25 +198,25 @@ class _VTUFile(object):
 
         if project_function:
             if len(e.value_shape()) == 0:
-                Vo = FunctionSpace(mesh, family, 1)
+                Vo = fs.FunctionSpace(mesh, family, 1)
             elif len(e.value_shape()) == 1:
-                Vo = VectorFunctionSpace(mesh, family, 1, dim=e.value_shape()[0])
+                Vo = fs.VectorFunctionSpace(mesh, family, 1, dim=e.value_shape()[0])
             else:
                 # Never reached
                 Vo = None
             if not self._warnings[0]:
                 warning(RED % "*** Projecting output function to %s1", family)
                 self._warnings[0] = True
-            output = project(function, Vo, name=function.name())
+            output = projection.project(function, Vo, name=function.name())
         else:
             output = function
             Vo = output.function_space()
         if project_coords:
-            Vc = VectorFunctionSpace(mesh, family, 1, dim=mesh._coordinate_fs.dim)
+            Vc = fs.VectorFunctionSpace(mesh, family, 1, dim=mesh._coordinate_fs.dim)
             if not self._warnings[1]:
                 warning(RED % "*** Projecting coordinates to %s1", family)
                 self._warnings[1] = True
-            coordinates = project(mesh.coordinates, Vc, name=mesh.coordinates.name())
+            coordinates = projection.project(mesh.coordinates, Vc, name=mesh.coordinates.name())
         else:
             coordinates = mesh.coordinates
             Vc = coordinates.function_space()
@@ -286,7 +286,7 @@ class _VTUFile(object):
 
             connectivity = connectivity_temp.flatten()
 
-        if isinstance(output.function_space(), VectorFunctionSpace):
+        if isinstance(output.function_space(), fs.VectorFunctionSpace):
             tmp = output.dat.data_ro_with_halos
             vdata = [None]*3
             if output.dat.dim[0] == 1:
@@ -431,7 +431,7 @@ class PVTUWriter(object):
         if not self._initialised:
 
             self.xml.openElement("PPointData")
-            if isinstance(function.function_space(), VectorFunctionSpace):
+            if isinstance(function.function_space(), fs.VectorFunctionSpace):
                 self.addData("Float64", function.name(), num_of_components=3)
             else:
                 self.addData("Float64", function.name(), num_of_components=1)
