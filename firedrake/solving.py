@@ -25,19 +25,22 @@ __all__ = ["LinearVariationalProblem",
            "assemble"]
 
 import numpy
-
 import ufl
-from ufl_expr import derivative
+from copy import copy
+
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
 from pyop2.logger import progress, INFO
-import core_types
-import types
-from copy import copy
-from ffc_interface import compile_form
-from assemble_expressions import assemble_expression
+
+import assembly_cache
+import assemble_expressions
+import fiat_utils
+import ffc_interface
+import function
+import functionspace
+import matrix
+import ufl_expr
 from petsc import PETSc
-from assembly_cache import _cache_thunk
 
 
 class NonlinearVariationalProblem(object):
@@ -62,7 +65,7 @@ class NonlinearVariationalProblem(object):
         self.F_ufl = F
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
-        self.J_ufl = J or derivative(F, u)
+        self.J_ufl = J or ufl_expr.derivative(F, u)
         self.u_ufl = u
         self.bcs = bcs
 
@@ -114,9 +117,9 @@ class NonlinearVariationalSolver(object):
         self._jac_tensor = assemble(self._problem.J_ufl, bcs=self._problem.bcs)
         self._jac_ptensor = self._jac_tensor
         test = self._problem.F_ufl.compute_form_data().original_arguments[0]
-        self._F_tensor = types.Function(test.function_space())
+        self._F_tensor = function.Function(test.function_space())
         # Function to hold current guess
-        self._x = types.Function(self._problem.u_ufl)
+        self._x = function.Function(self._problem.u_ufl)
         self._problem.F_ufl = ufl.replace(self._problem.F_ufl, {self._problem.u_ufl:
                                                                 self._x})
         self._problem.J_ufl = ufl.replace(self._problem.J_ufl, {self._problem.u_ufl:
@@ -381,7 +384,7 @@ def assemble(f, tensor=None, bcs=None):
     if isinstance(f, ufl.form.Form):
         return _assemble(f, tensor=tensor, bcs=_extract_bcs(bcs))
     elif isinstance(f, ufl.expr.Expr):
-        return assemble_expression(f)
+        return assemble_expressions.assemble_expression(f)
     else:
         raise TypeError("Unable to assemble: %r" % f)
 
@@ -403,7 +406,7 @@ def _assemble(f, tensor=None, bcs=None):
     if hasattr(f._form_data, "_kernels"):
         kernels = f._form_data._kernels
     else:
-        kernels = compile_form(f, "form")
+        kernels = ffc_interface.compile_form(f, "form")
         f._form_data._kernels = kernels
 
     fd = f.form_data()
@@ -412,13 +415,13 @@ def _assemble(f, tensor=None, bcs=None):
     needs_orientations = False
     for e in fd.elements:
         if isinstance(e, ufl.MixedElement) and e.family() != 'Real':
-            if any("contravariant piola" in core_types.fiat_from_ufl_element(s).mapping()
+            if any("contravariant piola" in fiat_utils.fiat_from_ufl_element(s).mapping()
                    for s in e.sub_elements()):
                 needs_orientations = True
                 break
         else:
             if e.family() != 'Real' and \
-               "contravariant piola" in core_types.fiat_from_ufl_element(e).mapping():
+               "contravariant piola" in fiat_utils.fiat_from_ufl_element(e).mapping():
                 needs_orientations = True
                 break
     needs_orientations = needs_orientations and fd.topological_dimension != fd.geometric_dimension
@@ -487,8 +490,8 @@ def _assemble(f, tensor=None, bcs=None):
                                      trial.function_space().dof_dset),
                                     map_pairs,
                                     "%s_%s_sparsity" % fs_names)
-            result_matrix = types.Matrix(f, bcs, sparsity, numpy.float64,
-                                         "%s_%s_matrix" % fs_names)
+            result_matrix = matrix.Matrix(f, bcs, sparsity, numpy.float64,
+                                          "%s_%s_matrix" % fs_names)
             tensor = result_matrix._M
         else:
             result_matrix = tensor
@@ -505,7 +508,7 @@ def _assemble(f, tensor=None, bcs=None):
     elif is_vec:
         test = fd.original_arguments[0]
         if tensor is None:
-            result_function = types.Function(test.function_space())
+            result_function = function.Function(test.function_space())
             tensor = result_function.dat
         else:
             result_function = tensor
@@ -691,7 +694,7 @@ def _assemble(f, tensor=None, bcs=None):
             if bcs is not None and is_mat:
                 for bc in bcs:
                     fs = bc.function_space()
-                    if isinstance(fs, types.MixedFunctionSpace):
+                    if isinstance(fs, functionspace.MixedFunctionSpace):
                         raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
                     # Set diagonal entries on bc nodes to 1 if the current
                     # block is on the matrix diagonal and its index matches the
@@ -703,7 +706,7 @@ def _assemble(f, tensor=None, bcs=None):
             tensor.assemble()
         return result()
 
-    thunk = _cache_thunk(thunk, f, result())
+    thunk = assembly_cache._cache_thunk(thunk, f, result())
 
     if is_mat:
         result_matrix._assembly_callback = thunk
@@ -760,7 +763,7 @@ def _la_solve(A, x, b, bcs=None, parameters=None,
         A.bcs = _extract_bcs(bcs)
     if bcs is not None:
         # Solving A x = b - action(a, u_bc)
-        u_bc = types.Function(b.function_space())
+        u_bc = function.Function(b.function_space())
         for bc in bcs:
             bc.apply(u_bc)
         # rhs = b - action(A, u_bc)

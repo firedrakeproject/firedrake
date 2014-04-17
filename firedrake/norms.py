@@ -1,8 +1,10 @@
-from types import FunctionSpace, VectorFunctionSpace, Function
-from projection import project
-from solving import assemble
 from pyop2.logger import warning
 from ufl import inner, div, grad, curl, sqrt
+
+import function
+import functionspace
+import projection
+import solving
 
 __all__ = ['errornorm', 'norm']
 
@@ -38,14 +40,14 @@ def errornorm(u, uh, norm_type="L2", degree_rise=3, mesh=None):
 
     mesh = uh.function_space().mesh()
     if rank == 0:
-        V = FunctionSpace(mesh, 'DG', degree)
+        V = functionspace.FunctionSpace(mesh, 'DG', degree)
     elif rank == 1:
-        V = VectorFunctionSpace(mesh, 'DG', degree)
+        V = functionspace.VectorFunctionSpace(mesh, 'DG', degree)
     else:
         raise RuntimeError("Don't know how to compute error norm for tensor valued functions")
 
-    u_ = project(u, V)
-    uh_ = project(uh, V)
+    u_ = projection.project(u, V)
+    uh_ = projection.project(uh, V)
 
     uh_ -= u_
 
@@ -87,7 +89,7 @@ def norm(v, norm_type="L2", mesh=None):
 
           ||v||_{H_\mathrm{curl}}^2 = \int (v, v) + (\\nabla \wedge v, \\nabla \wedge v) \mathrm{d}x
     """
-    assert isinstance(v, Function)
+    assert isinstance(v, function.Function)
 
     typ = norm_type.lower()
     mesh = v.function_space().mesh()
@@ -103,4 +105,4 @@ def norm(v, norm_type="L2", mesh=None):
     else:
         raise RuntimeError("Unknown norm type '%s'" % norm_type)
 
-    return sqrt(assemble(form))
+    return sqrt(solving.assemble(form))

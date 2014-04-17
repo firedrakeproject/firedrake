@@ -1,12 +1,14 @@
 # A module implementing strong (Dirichlet) boundary conditions.
-import utils
 import numpy as np
 from ufl import as_ufl, UFLException
-import types
-from types import Function
-from expression import Expression, to_expression
-from projection import project
+
 import pyop2 as op2
+
+import expression
+import function
+import matrix
+import projection
+import utils
 
 
 __all__ = ['DirichletBC']
@@ -44,24 +46,24 @@ class DirichletBC(object):
     @function_arg.setter
     def function_arg(self, g):
         '''Set the value of this boundary condition.'''
-        if isinstance(g, Function) and g.function_space() != self._function_space:
+        if isinstance(g, function.Function) and g.function_space() != self._function_space:
             raise RuntimeError("%r is defined on incompatible FunctionSpace!" % g)
-        if not isinstance(g, Expression):
+        if not isinstance(g, expression.Expression):
             try:
                 # Bare constant?
                 as_ufl(g)
             except UFLException:
                 try:
                     # List of bare constants? Convert to Expression
-                    g = to_expression(g)
+                    g = expression.to_expression(g)
                 except:
                     raise ValueError("%r is not a valid DirichletBC expression" % (g,))
-        if isinstance(g, Expression):
+        if isinstance(g, expression.Expression):
             try:
-                g = Function(self._function_space).interpolate(g)
+                g = function.Function(self._function_space).interpolate(g)
             # Not a point evaluation space, need to project onto V
             except NotImplementedError:
-                g = project(g, self._function_space)
+                g = projection.project(g, self._function_space)
         self._function_arg = g
         self._currently_zeroed = False
 
@@ -146,7 +148,7 @@ class DirichletBC(object):
 
         """
 
-        if isinstance(r, types.Matrix):
+        if isinstance(r, matrix.Matrix):
             r.add_bc(self)
             return
         fs = self._function_space
@@ -159,10 +161,10 @@ class DirichletBC(object):
         # If this BC is defined on a subspace of a mixed function space, make
         # sure we only apply to the appropriate subspace of the Function r
         if fs.index is not None:
-            r = Function(self._function_space, r.dat[fs.index])
+            r = function.Function(self._function_space, r.dat[fs.index])
         if u:
             if fs.index is not None:
-                u = Function(fs, u.dat[fs.index])
+                u = function.Function(fs, u.dat[fs.index])
             r.assign(u - self.function_arg, subset=self.node_set)
         else:
             r.assign(self.function_arg, subset=self.node_set)
@@ -174,7 +176,7 @@ class DirichletBC(object):
             boundary condition should be applied.
 
         """
-        if isinstance(r, types.Matrix):
+        if isinstance(r, matrix.Matrix):
             raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
 
         # Record whether we are homogenized on entry.

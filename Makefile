@@ -14,8 +14,6 @@ lint:
 clean:
 	@echo "    Cleaning extension modules"
 	@python setup.py clean > /dev/null 2>&1
-	@echo "    RM firedrake/core_type.so"
-	-@rm -f firedrake/core_types.so > /dev/null 2>&1
 	@echo "    RM firedrake/dmplex.so"
 	-@rm -f firedrake/dmplex.so > /dev/null 2>&1
 

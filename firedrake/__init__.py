@@ -1,22 +1,23 @@
 from ufl import *
-from core_types import *
-from types import *
-from projection import *
-from ufl_expr import *
 from pyop2.logger import set_log_level, info_red, info_green, info_blue, log  # noqa
 from pyop2.logger import debug, info, warning, error, critical  # noqa
 from pyop2.logger import DEBUG, INFO, WARNING, ERROR, CRITICAL  # noqa
 from pyop2 import op2                                           # noqa
-from solving import *
+
+from bcs import *
+from constant import *
 from expression import *
-from mesh import *
+from function import *
+from functionspace import *
 from io import *
 from mesh import *
-from parameters import *
-from bcs import *
-from nullspace import *
 from norms import *
+from nullspace import *
+from parameters import *
 from parloops import *
+from projection import *
+from solving import *
+from ufl_expr import *
 from vector import *
 from version import __version__, __version_info__, check  # noqa
 
