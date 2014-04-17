@@ -30,15 +30,19 @@ assembly_cache:
   limit on the size of the assembly cache relative to the amount of
   memory per core on the current system. This defaults to 0.6.
 """
+import numpy as np
+import weakref
 from collections import defaultdict
 from ufl.algorithms.signature import compute_form_signature
-import types
-import weakref
-from petsc4py import PETSc
+
 from pyop2.logger import debug, warning
 from pyop2.mpi import MPI, _MPI
-import numpy as np
+
+import function
+import matrix
 from parameters import parameters
+from petsc import PETSc
+
 try:
     # Estimate the amount of memory per core may use.
     import psutil
@@ -322,11 +326,11 @@ def _cache_thunk(thunk, form, result):
                 # 0-form case
                 assert isinstance(obj, float)
                 r = obj
-            elif isinstance(result, types.Function):
+            elif isinstance(result, function.Function):
                 # 1-form
                 result.dat = obj
                 r = result
-            elif isinstance(result, types.Matrix):
+            elif isinstance(result, matrix.Matrix):
                 # 2-form
                 if obj.handle is not result._M.handle:
                     obj.handle.copy(result._M.handle,
@@ -340,10 +344,10 @@ def _cache_thunk(thunk, form, result):
         if isinstance(r, float):
             # 0-form case
             cache._store(r, form, bcs)
-        elif isinstance(r, types.Function):
+        elif isinstance(r, function.Function):
             # 1-form
             cache._store(r.dat, form, bcs)
-        elif isinstance(r, types.Matrix):
+        elif isinstance(r, matrix.Matrix):
             # 2-form
             cache._store(r._M, form, bcs)
         else:

@@ -9,13 +9,11 @@ import petsc4py
 try:
     from Cython.Distutils import build_ext
     cmdclass = {'build_ext': build_ext}
-    firedrake_sources = ["firedrake/core_types.pyx"]
     dmplex_sources = ["firedrake/dmplex.pyx"]
     evtk_sources = ['evtk/cevtk.pyx']
 except ImportError:
-    # No cython, core_types.c must be generated in distributions.
+    # No cython, dmplex.c must be generated in distributions.
     cmdclass = {}
-    firedrake_sources = ["firedrake/core_types.c"]
     dmplex_sources = ["firedrake/dmplex.c"]
     evtk_sources = ['evtk/cevtk.c']
 
@@ -44,9 +42,7 @@ setup(name='firedrake',
                              sources=dmplex_sources,
                              include_dirs=include_dirs,
                              libraries=["petsc"],
-                             extra_link_args=["-L%s/lib" % d for d in petsc_dirs]),
-                   Extension('firedrake.core_types',
-                             sources=firedrake_sources,
-                             include_dirs=[np.get_include()]),
+                             extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
+                             ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs]),
                    Extension('evtk.cevtk', evtk_sources,
                              include_dirs=[np.get_include()])])

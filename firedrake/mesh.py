@@ -1,14 +1,26 @@
-import tempfile
-from core_types import Mesh
-from dmplex import _from_cell_list
-from pyop2.mpi import MPI
-import os
-from shutil import rmtree
 import numpy as np
+import tempfile
+import os
+import FIAT
+import ufl
+from shutil import rmtree
+
+from pyop2 import op2
+from pyop2.ir import ast_base as ast
+from pyop2.mpi import MPI
+from pyop2.utils import as_tuple
+
+import dmplex
+import extrusion_utils as eutils
+import fiat_utils
+import function
+import functionspace
+import utils
 from petsc import PETSc
 
 
-__all__ = ['UnitIntervalMesh', 'UnitSquareMesh', 'UnitCircleMesh',
+__all__ = ['Mesh', 'ExtrudedMesh',
+           'UnitIntervalMesh', 'UnitSquareMesh', 'UnitCircleMesh',
            'IntervalMesh', 'PeriodicIntervalMesh', 'PeriodicUnitIntervalMesh',
            'UnitTetrahedronMesh', 'UnitTriangleMesh', 'UnitCubeMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh']
@@ -87,6 +99,567 @@ def _get_msh_file(source, name, dimension, meshed=False):
     return output + '.msh'
 
 
+class _Facets(object):
+    """Wrapper class for facet interation information on a :class:`Mesh`"""
+    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None):
+
+        self.mesh = mesh
+
+        self.count = count
+
+        self.kind = kind
+        assert(kind in ["interior", "exterior"])
+        if kind == "interior":
+            self._rank = 2
+        else:
+            self._rank = 1
+
+        self.facet_cell = facet_cell
+
+        self.local_facet_number = local_facet_number
+
+        self.markers = markers
+        self._subsets = {}
+
+    @utils.cached_property
+    def set(self):
+        # Currently no MPI parallel support
+        size = self.count
+        halo = None
+        if isinstance(self.mesh, ExtrudedMesh):
+            if self.kind == "interior":
+                base = self.mesh._old_mesh.interior_facets.set
+            else:
+                base = self.mesh._old_mesh.exterior_facets.set
+            return op2.ExtrudedSet(base, layers=self.mesh.layers)
+        return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo)
+
+    @property
+    def bottom_set(self):
+        '''Returns the bottom row of cells.'''
+        return self.mesh.cell_set
+
+    @utils.cached_property
+    def _null_subset(self):
+        '''Empty subset for the case in which there are no facets with
+        a given marker value. This is required because not all
+        markers need be represented on all processors.'''
+
+        return op2.Subset(self.set, [])
+
+    def measure_set(self, measure):
+        '''Return the iteration set appropriate to measure. This will
+        either be for all the interior or exterior (as appropriate)
+        facets, or for a particular numbered subdomain.'''
+
+        dom_id = measure.domain_id()
+        dom_type = measure.domain_type()
+        if dom_id in [measure.DOMAIN_ID_EVERYWHERE,
+                      measure.DOMAIN_ID_OTHERWISE]:
+            if dom_type == "exterior_facet_topbottom":
+                return [(op2.ON_BOTTOM, self.bottom_set),
+                        (op2.ON_TOP, self.bottom_set)]
+            elif dom_type == "exterior_facet_bottom":
+                return [(op2.ON_BOTTOM, self.bottom_set)]
+            elif dom_type == "exterior_facet_top":
+                return [(op2.ON_TOP, self.bottom_set)]
+            elif dom_type == "interior_facet_horiz":
+                return self.bottom_set
+            else:
+                return self.set
+        else:
+            return self.subset(measure.domain_id())
+
+    def subset(self, markers):
+        """Return the subset corresponding to a given marker value.
+
+        :param markers: integer marker id or an iterable of marker ids"""
+        if self.markers is None:
+            return self._null_subset
+        markers = as_tuple(markers, int)
+        try:
+            return self._subsets[markers]
+        except KeyError:
+            indices = np.concatenate([np.nonzero(self.markers == i)[0]
+                                      for i in markers])
+            self._subsets[markers] = op2.Subset(self.set, indices)
+            return self._subsets[markers]
+
+    @utils.cached_property
+    def local_facet_dat(self):
+        """Dat indicating which local facet of each adjacent
+        cell corresponds to the current facet."""
+
+        return op2.Dat(op2.DataSet(self.set, self._rank), self.local_facet_number,
+                       np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
+
+
+class Mesh(object):
+    """A representation of mesh topology and geometry."""
+    def __init__(self, filename, dim=None, periodic_coords=None, plex=None):
+        """
+        :param filename: the mesh file to read.  Supported mesh formats
+               are Gmsh (extension ``msh``) and triangle (extension
+               ``node``).
+        :param dim: optional dimension of the coordinates in the
+               supplied mesh.  If not supplied, the coordinate
+               dimension is determined from the type of topological
+               entities in the mesh file.  In particular, you will
+               need to supply a value for ``dim`` if the mesh is an
+               immersed manifold (where the geometric and topological
+               dimensions of entities are not the same).
+        :param periodic_coords: optional numpy array of coordinates
+               used to replace those read from the mesh file.  These
+               are only supported in 1D and must have enough entries
+               to be used as a DG1 field on the mesh.
+        """
+
+        utils._init()
+
+        # A cache of function spaces that have been built on this mesh
+        self._cache = {}
+        self.parent = None
+
+        if dim is None:
+            # Mesh reading in Fluidity level considers 0 to be None.
+            dim = 0
+
+        if plex is not None:
+            self._from_dmplex(plex, geometric_dim=dim,
+                              periodic_coords=periodic_coords)
+        else:
+            basename, ext = os.path.splitext(filename)
+
+            if ext in ['.e', '.exo', '.E', '.EXO']:
+                self._from_exodus(filename, dim)
+            elif ext in ['.cgns', '.CGNS']:
+                self._from_cgns(filename, dim)
+            elif ext in ['.msh']:
+                self._from_gmsh(filename, dim, periodic_coords)
+            elif ext in ['.node']:
+                self._from_triangle(filename, dim, periodic_coords)
+            else:
+                raise RuntimeError("Unknown mesh file format.")
+
+        self._cell_orientations = op2.Dat(self.cell_set, dtype=np.int32,
+                                          name="cell_orientations")
+        # -1 is uninitialised.
+        self._cell_orientations.data[:] = -1
+
+    @property
+    def coordinates(self):
+        """The :class:`.Function` containing the coordinates of this mesh."""
+        return self._coordinate_function
+
+    @coordinates.setter
+    def coordinates(self, value):
+        self._coordinate_function = value
+
+    def _from_dmplex(self, plex, geometric_dim=0, periodic_coords=None):
+        """ Create mesh from DMPlex object """
+
+        self._plex = plex
+        self.uid = utils._new_uid()
+
+        if geometric_dim == 0:
+            geometric_dim = self._plex.getDimension()
+
+        # Mark exterior and interior facets
+        dmplex.label_facets(self._plex)
+
+        # Distribute the dm to all ranks
+        if op2.MPI.comm.size > 1:
+            self.parallel_sf = self._plex.distribute(overlap=1)
+
+        # Mark OP2 entities and derive the resulting Plex renumbering
+        dmplex.mark_entity_classes(self._plex)
+        self._plex_renumbering = dmplex.plex_renumbering(plex)
+
+        cStart, cEnd = self._plex.getHeightStratum(0)  # cells
+        cell_vertices = self._plex.getConeSize(cStart)
+        self._ufl_cell = ufl.Cell(fiat_utils._cells[geometric_dim][cell_vertices],
+                                  geometric_dimension=geometric_dim)
+
+        dim = self._plex.getDimension()
+        self._cells, self.cell_classes = dmplex.get_cells_by_class(self._plex)
+
+        # Derive a cell numbering from the Plex renumbering
+        cell_entity_dofs = np.zeros(dim+1, dtype=np.int32)
+        cell_entity_dofs[-1] = 1
+        self._cell_numbering = self._plex.createSection(1, [1],
+                                                        cell_entity_dofs,
+                                                        perm=self._plex_renumbering)
+
+        self._cell_closure = None
+        self.interior_facets = None
+        self.exterior_facets = None
+
+        # Exterior facets
+        if self._plex.getStratumSize("exterior_facets", 1) <= 0:
+            self.exterior_facets = _Facets(self, 0, "exterior", None, None)
+
+        # Interior facets
+        if self._plex.getStratumSize("interior_facets", 1) <= 0:
+            self.interior_facets = _Facets(self, 0, "interior", None, None)
+
+        # Note that for bendy elements, this needs to change.
+        if periodic_coords is not None:
+            if self.ufl_cell().geometric_dimension() != 1:
+                raise NotImplementedError("Periodic coordinates in more than 1D are unsupported")
+            # We've been passed a periodic coordinate field, so use that.
+            self._coordinate_fs = functionspace.VectorFunctionSpace(self, "DG", 1)
+            self.coordinates = function.Function(self._coordinate_fs,
+                                                 val=periodic_coords,
+                                                 name="Coordinates")
+        else:
+            self._coordinate_fs = functionspace.VectorFunctionSpace(self, "Lagrange", 1)
+
+            coordinates = dmplex.reordered_coords(self._plex, self._coordinate_fs._global_numbering,
+                                                  (self.num_vertices(), geometric_dim))
+            self.coordinates = function.Function(self._coordinate_fs,
+                                                 val=coordinates,
+                                                 name="Coordinates")
+        self._dx = ufl.Measure('cell', domain_data=self.coordinates)
+        self._ds = ufl.Measure('exterior_facet', domain_data=self.coordinates)
+        self._dS = ufl.Measure('interior_facet', domain_data=self.coordinates)
+        # Set the domain_data on all the default measures to this coordinate field.
+        for measure in [ufl.dx, ufl.ds, ufl.dS]:
+            measure._domain_data = self.coordinates
+
+    def _from_gmsh(self, filename, dim=0, periodic_coords=None):
+        """Read a Gmsh .msh file from `filename`"""
+        basename, ext = os.path.splitext(filename)
+        self.name = filename
+
+        # Create a read-only PETSc.Viewer
+        gmsh_viewer = PETSc.Viewer().create()
+        gmsh_viewer.setType("ascii")
+        gmsh_viewer.setFileMode("r")
+        gmsh_viewer.setFileName(filename)
+        gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer)
+
+        if gmsh_plex.hasLabel("Face Sets"):
+            boundary_ids = gmsh_plex.getLabelIdIS("Face Sets").getIndices()
+            gmsh_plex.createLabel("boundary_ids")
+            for bid in boundary_ids:
+                faces = gmsh_plex.getStratumIS("Face Sets", bid).getIndices()
+                for f in faces:
+                    gmsh_plex.setLabelValue("boundary_ids", f, bid)
+
+        self._from_dmplex(gmsh_plex, dim, periodic_coords)
+
+    def _from_exodus(self, filename, dim=0):
+        self.name = filename
+        plex = PETSc.DMPlex().createExodusFromFile(filename)
+
+        boundary_ids = dmplex.getLabelIdIS("Face Sets").getIndices()
+        plex.createLabel("boundary_ids")
+        for bid in boundary_ids:
+            faces = plex.getStratumIS("Face Sets", bid).getIndices()
+            for f in faces:
+                plex.setLabelValue("boundary_ids", f, bid)
+
+        self._from_dmplex(plex)
+
+    def _from_cgns(self, filename, dim=0):
+        self.name = filename
+        plex = PETSc.DMPlex().createCGNSFromFile(filename)
+
+        #TODO: Add boundary IDs
+        self._from_dmplex(plex)
+
+    def _from_triangle(self, filename, dim=0, periodic_coords=None):
+        """Read a set of triangle mesh files from `filename`"""
+        self.name = filename
+        basename, ext = os.path.splitext(filename)
+
+        if op2.MPI.comm.rank == 0:
+            try:
+                facetfile = open(basename+".face")
+                tdim = 3
+            except:
+                try:
+                    facetfile = open(basename+".edge")
+                    tdim = 2
+                except:
+                    facetfile = None
+                    tdim = 1
+            if dim == 0:
+                dim = tdim
+            op2.MPI.comm.bcast(tdim, root=0)
+
+            with open(basename+".node") as nodefile:
+                header = np.fromfile(nodefile, dtype=np.int32, count=2, sep=' ')
+                nodecount = header[0]
+                nodedim = header[1]
+                assert nodedim == dim
+                coordinates = np.loadtxt(nodefile, usecols=range(1, dim+1), skiprows=1, delimiter=' ')
+                assert nodecount == coordinates.shape[0]
+
+            with open(basename+".ele") as elefile:
+                header = np.fromfile(elefile, dtype=np.int32, count=2, sep=' ')
+                elecount = header[0]
+                eledim = header[1]
+                eles = np.loadtxt(elefile, usecols=range(1, eledim+1), dtype=np.int32, skiprows=1, delimiter=' ')
+                assert elecount == eles.shape[0]
+
+            cells = map(lambda c: c-1, eles)
+        else:
+            tdim = op2.MPI.comm.bcast(None, root=0)
+            cells = None
+            coordinates = None
+        plex = dmplex._from_cell_list(tdim, cells, coordinates, comm=op2.MPI.comm)
+
+        # Apply boundary IDs
+        if op2.MPI.comm.rank == 0:
+            facets = None
+            try:
+                header = np.fromfile(facetfile, dtype=np.int32, count=2, sep=' ')
+                edgecount = header[0]
+                facets = np.loadtxt(facetfile, usecols=range(1, tdim+2), dtype=np.int32, skiprows=0, delimiter=' ')
+                assert edgecount == facets.shape[0]
+            finally:
+                facetfile.close()
+
+            if facets is not None:
+                vStart, vEnd = plex.getDepthStratum(0)   # vertices
+                for facet in facets:
+                    bid = facet[-1]
+                    vertices = map(lambda v: v + vStart - 1, facet[:-1])
+                    join = plex.getJoin(vertices)
+                    plex.setLabelValue("boundary_ids", join[0], bid)
+
+        self._from_dmplex(plex, dim, periodic_coords)
+
+    @property
+    def layers(self):
+        """Return the number of layers of the extruded mesh
+        represented by the number of occurences of the base mesh."""
+        return self._layers
+
+    def cell_orientations(self):
+        """Return the orientation of each cell in the mesh.
+
+        Use :func:`init_cell_orientations` to initialise this data."""
+        return self._cell_orientations.data_ro
+
+    def init_cell_orientations(self, expr):
+        """Compute and initialise `cell_orientations` relative to a specified orientation.
+
+        :arg expr: an :class:`.Expression` evaluated to produce a
+             reference normal direction.
+
+        """
+        if expr.shape()[0] != 3:
+            raise NotImplementedError('Only implemented for 3-vectors')
+        if self.ufl_cell() != ufl.Cell('triangle', 3):
+            raise NotImplementedError('Only implemented for triangles embedded in 3d')
+
+        v0 = lambda x: ast.Symbol("v0", (x,))
+        v1 = lambda x: ast.Symbol("v1", (x,))
+        n = lambda x: ast.Symbol("n", (x,))
+        x = lambda x: ast.Symbol("x", (x,))
+        coords = lambda x, y: ast.Symbol("coords", (x, y))
+
+        body = []
+        body += [ast.Decl("double", v(3)) for v in [v0, v1, n, x]]
+        body.append(ast.Decl("double", "dot"))
+        body.append(ast.Assign("dot", 0.0))
+        body.append(ast.Decl("int", "i"))
+        body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
+                            [ast.Assign(v0("i"), ast.Sub(coords(1, "i"), coords(0, "i"))),
+                             ast.Assign(v1("i"), ast.Sub(coords(2, "i"), coords(0, "i"))),
+                             ast.Assign(x("i"), 0.0)]))
+        # n = v0 x v1
+        body.append(ast.Assign(n(0), ast.Sub(ast.Prod(v0(1), v1(2)), ast.Prod(v0(2), v1(1)))))
+        body.append(ast.Assign(n(1), ast.Sub(ast.Prod(v0(2), v1(0)), ast.Prod(v0(0), v1(2)))))
+        body.append(ast.Assign(n(2), ast.Sub(ast.Prod(v0(0), v1(1)), ast.Prod(v0(1), v1(0)))))
+
+        body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
+                            [ast.Incr(x(j), coords("i", j)) for j in range(3)]))
+
+        body.extend([ast.FlatBlock("dot += (%(x)s) * n[%(i)d];\n" % {"x": x_, "i": i})
+                     for i, x_ in enumerate(expr.code)])
+        body.append(ast.Assign("*orientation", ast.Ternary(ast.Less("dot", 0), 1, 0)))
+
+        kernel = op2.Kernel(ast.FunDecl("void", "cell_orientations",
+                                        [ast.Decl("int*", "orientation"),
+                                         ast.Decl("double**", "coords")],
+                                        ast.Block(body)),
+                            "cell_orientations")
+
+        op2.par_loop(kernel, self.cell_set,
+                     self._cell_orientations(op2.WRITE),
+                     self.coordinates.dat(op2.READ, self.coordinates.cell_node_map()))
+        self._cell_orientations._force_evaluation(read=True, write=False)
+
+    def cells(self):
+        return self._cells
+
+    def ufl_cell(self):
+        return self._ufl_cell
+
+    def num_cells(self):
+        cStart, cEnd = self._plex.getHeightStratum(0)
+        return cEnd - cStart
+
+    def num_facets(self):
+        fStart, fEnd = self._plex.getHeightStratum(1)
+        return fEnd - fStart
+
+    def num_faces(self):
+        fStart, fEnd = self._plex.getDepthStratum(2)
+        return fEnd - fStart
+
+    def num_edges(self):
+        eStart, eEnd = self._plex.getDepthStratum(1)
+        return eEnd - eStart
+
+    def num_vertices(self):
+        vStart, vEnd = self._plex.getDepthStratum(0)
+        return vEnd - vStart
+
+    def num_entities(self, d):
+        eStart, eEnd = self._plex.getDepthStratum(d)
+        return eEnd - eStart
+
+    def size(self, d):
+        return self.num_entities(d)
+
+    @utils.cached_property
+    def cell_set(self):
+        size = self.cell_classes
+        return self.parent.cell_set if self.parent else \
+            op2.Set(size, "%s_cells" % self.name)
+
+    def compute_boundaries(self):
+        '''Currently a no-op for flop.py compatibility.'''
+        pass
+
+
+class ExtrudedMesh(Mesh):
+    """Build an extruded mesh from a 2D input mesh
+
+    :arg mesh:           2D unstructured mesh
+    :arg layers:         number of extruded cell layers in the "vertical"
+                         direction.
+    :arg kernel:         a :class:`pyop2.Kernel` to produce coordinates for the extruded
+                         mesh see :func:`make_extruded_coords` for more details.
+    :arg layer_height:   the height between layers when all layers are
+                         evenly spaced.  If no layer_height is
+                         provided and a preset extrusion_type is
+                         given, the value defaults to 1/layers
+                         (i.e. the extruded mesh has unit extent in
+                         the extruded direction).
+    :arg extrusion_type: refers to how the coordinates are computed for the
+                         evenly spaced layers:
+                         `uniform`: layers are computed in the extra dimension
+                         generated by the extrusion process
+                         `radial`: radially extrudes the mesh points in the
+                         outwards direction from the origin.
+
+    If a kernel for extrusion is passed in, this overrides both the
+    layer_height and extrusion_type options (should they have also
+    been specified)."""
+    def __init__(self, mesh, layers, kernel=None, layer_height=None, extrusion_type='uniform'):
+        # A cache of function spaces that have been built on this mesh
+        self._cache = {}
+        if kernel is None and extrusion_type is None:
+            raise RuntimeError("Please provide a kernel or a preset extrusion_type ('uniform' or 'radial') for extruding the mesh")
+        self._old_mesh = mesh
+        if layers < 1:
+            raise RuntimeError("Must have at least one layer of extruded cells (not %d)" % layers)
+        # All internal logic works with layers of base mesh (not layers of cells)
+        self._layers = layers + 1
+        self._cells = mesh._cells
+        self.parent = mesh.parent
+        self.uid = mesh.uid
+        self.name = mesh.name
+        self._plex = mesh._plex
+        self._plex_renumbering = mesh._plex_renumbering
+        self._cell_numbering = mesh._cell_numbering
+        self._cell_closure = mesh._cell_closure
+
+        interior_f = self._old_mesh.interior_facets
+        self._interior_facets = _Facets(self, interior_f.count,
+                                        "interior",
+                                        interior_f.facet_cell,
+                                        interior_f.local_facet_number)
+        exterior_f = self._old_mesh.exterior_facets
+        self._exterior_facets = _Facets(self, exterior_f.count,
+                                        "exterior",
+                                        exterior_f.facet_cell,
+                                        exterior_f.local_facet_number,
+                                        exterior_f.markers)
+
+        self.ufl_cell_element = ufl.FiniteElement("Lagrange",
+                                                  domain=mesh._ufl_cell,
+                                                  degree=1)
+        self.ufl_interval_element = ufl.FiniteElement("Lagrange",
+                                                      domain=ufl.Cell("interval", 1),
+                                                      degree=1)
+
+        self.fiat_base_element = fiat_utils.fiat_from_ufl_element(self.ufl_cell_element)
+        self.fiat_vert_element = fiat_utils.fiat_from_ufl_element(self.ufl_interval_element)
+
+        fiat_element = FIAT.tensor_finite_element.TensorFiniteElement(self.fiat_base_element, self.fiat_vert_element)
+
+        self._ufl_cell = ufl.OuterProductCell(mesh._ufl_cell, ufl.Cell("interval", 1))
+
+        flat_temp = fiat_element.flattened_element()
+
+        # Calculated dofs_per_column from flattened_element and layers.
+        # The mirrored elements have to be counted only once.
+        # Then multiply by layers and layers - 1 accordingly.
+        self.dofs_per_column = eutils.compute_extruded_dofs(fiat_element, flat_temp.entity_dofs(),
+                                                            layers)
+
+        #Compute Coordinates of the extruded mesh
+        if layer_height is None:
+            # Default to unit
+            layer_height = 1.0 / layers
+
+        self._coordinate_fs = functionspace.VectorFunctionSpace(self, mesh._coordinate_fs.ufl_element().family(),
+                                                                mesh._coordinate_fs.ufl_element().degree(),
+                                                                vfamily="CG",
+                                                                vdegree=1)
+
+        self.coordinates = function.Function(self._coordinate_fs)
+        eutils.make_extruded_coords(self, layer_height, extrusion_type=extrusion_type,
+                                    kernel=kernel)
+        self._coordinates = self.coordinates.dat.data_ro_with_halos
+
+        self._dx = ufl.Measure('cell', domain_data=self.coordinates)
+        self._ds = ufl.Measure('exterior_facet', domain_data=self.coordinates)
+        self._dS = ufl.Measure('interior_facet', domain_data=self.coordinates)
+        # Set the domain_data on all the default measures to this coordinate field.
+        for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_t, ufl.ds_b, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
+            measure._domain_data = self.coordinates
+
+    @property
+    def layers(self):
+        """Return the number of layers of the extruded mesh
+        represented by the number of occurences of the base mesh."""
+        return self._layers
+
+    @utils.cached_property
+    def cell_set(self):
+        return self.parent.cell_set if self.parent else \
+            op2.ExtrudedSet(self._old_mesh.cell_set, layers=self._layers)
+
+    @property
+    def exterior_facets(self):
+        return self._exterior_facets
+
+    @property
+    def interior_facets(self):
+        return self._interior_facets
+
+    @property
+    def geometric_dimension(self):
+        return self._ufl_cell.geometric_dimension()
+
+
 class UnitSquareMesh(Mesh):
 
     """Class that represents a structured triangular mesh of a 2D square whose
@@ -113,27 +686,27 @@ class UnitSquareMesh(Mesh):
         boundary = PETSc.DMPlex().create(MPI.comm)
         boundary.setDimension(1)
         boundary.createSquareBoundary([0., 0.], [1., 1.], [nx, ny])
-        dmplex = PETSc.DMPlex().generate(boundary)
+        plex = PETSc.DMPlex().generate(boundary)
 
         # Apply boundary IDs
-        dmplex.createLabel("boundary_ids")
-        dmplex.markBoundaryFaces("boundary_faces")
-        coords = dmplex.getCoordinates()
-        coord_sec = dmplex.getCoordinateSection()
-        if dmplex.getStratumSize("boundary_faces", 1) > 0:
-            boundary_faces = dmplex.getStratumIS("boundary_faces", 1).getIndices()
+        plex.createLabel("boundary_ids")
+        plex.markBoundaryFaces("boundary_faces")
+        coords = plex.getCoordinates()
+        coord_sec = plex.getCoordinateSection()
+        if plex.getStratumSize("boundary_faces", 1) > 0:
+            boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
             for face in boundary_faces:
-                face_coords = dmplex.vecGetClosure(coord_sec, coords, face)
+                face_coords = plex.vecGetClosure(coord_sec, coords, face)
                 if face_coords[0] == 0. and face_coords[2] == 0.:
-                    dmplex.setLabelValue("boundary_ids", face, 1)
+                    plex.setLabelValue("boundary_ids", face, 1)
                 if face_coords[0] == 1. and face_coords[2] == 1.:
-                    dmplex.setLabelValue("boundary_ids", face, 2)
+                    plex.setLabelValue("boundary_ids", face, 2)
                 if face_coords[1] == 0. and face_coords[3] == 0.:
-                    dmplex.setLabelValue("boundary_ids", face, 3)
+                    plex.setLabelValue("boundary_ids", face, 3)
                 if face_coords[1] == 1. and face_coords[3] == 1.:
-                    dmplex.setLabelValue("boundary_ids", face, 4)
+                    plex.setLabelValue("boundary_ids", face, 4)
 
-        super(UnitSquareMesh, self).__init__(self.name, plex=dmplex)
+        super(UnitSquareMesh, self).__init__(self.name, plex=plex)
 
 
 class UnitCubeMesh(Mesh):
@@ -165,31 +738,31 @@ class UnitCubeMesh(Mesh):
         boundary = PETSc.DMPlex().create(MPI.comm)
         boundary.setDimension(2)
         boundary.createCubeBoundary([0., 0., 0.], [1., 1., 1.], [nx, ny, nz])
-        dmplex = PETSc.DMPlex().generate(boundary)
+        plex = PETSc.DMPlex().generate(boundary)
 
         # Apply boundary IDs
-        dmplex.createLabel("boundary_ids")
-        dmplex.markBoundaryFaces("boundary_faces")
-        coords = dmplex.getCoordinates()
-        coord_sec = dmplex.getCoordinateSection()
-        if dmplex.getStratumSize("boundary_faces", 1) > 0:
-            boundary_faces = dmplex.getStratumIS("boundary_faces", 1).getIndices()
+        plex.createLabel("boundary_ids")
+        plex.markBoundaryFaces("boundary_faces")
+        coords = plex.getCoordinates()
+        coord_sec = plex.getCoordinateSection()
+        if plex.getStratumSize("boundary_faces", 1) > 0:
+            boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
             for face in boundary_faces:
-                face_coords = dmplex.vecGetClosure(coord_sec, coords, face)
+                face_coords = plex.vecGetClosure(coord_sec, coords, face)
                 if face_coords[0] == 0. and face_coords[3] == 0. and face_coords[6] == 0.:
-                    dmplex.setLabelValue("boundary_ids", face, 1)
+                    plex.setLabelValue("boundary_ids", face, 1)
                 if face_coords[0] == 1. and face_coords[3] == 1. and face_coords[6] == 1.:
-                    dmplex.setLabelValue("boundary_ids", face, 2)
+                    plex.setLabelValue("boundary_ids", face, 2)
                 if face_coords[1] == 0. and face_coords[4] == 0. and face_coords[7] == 0.:
-                    dmplex.setLabelValue("boundary_ids", face, 3)
+                    plex.setLabelValue("boundary_ids", face, 3)
                 if face_coords[1] == 1. and face_coords[4] == 1. and face_coords[7] == 1.:
-                    dmplex.setLabelValue("boundary_ids", face, 4)
+                    plex.setLabelValue("boundary_ids", face, 4)
                 if face_coords[2] == 0. and face_coords[5] == 0. and face_coords[8] == 0.:
-                    dmplex.setLabelValue("boundary_ids", face, 5)
+                    plex.setLabelValue("boundary_ids", face, 5)
                 if face_coords[2] == 1. and face_coords[5] == 1. and face_coords[8] == 1.:
-                    dmplex.setLabelValue("boundary_ids", face, 6)
+                    plex.setLabelValue("boundary_ids", face, 6)
 
-        super(UnitCubeMesh, self).__init__(self.name, plex=dmplex)
+        super(UnitCubeMesh, self).__init__(self.name, plex=plex)
 
 
 class UnitCircleMesh(Mesh):
@@ -235,20 +808,20 @@ class IntervalMesh(Mesh):
         coords = np.arange(0, length + 0.01 * dx, dx).reshape(-1, 1)
         cells = np.dstack((np.arange(0, len(coords) - 1, dtype=np.int32),
                            np.arange(1, len(coords), dtype=np.int32))).reshape(-1, 2)
-        dmplex = _from_cell_list(1, cells, coords)
+        plex = dmplex._from_cell_list(1, cells, coords)
         # Apply boundary IDs
-        dmplex.createLabel("boundary_ids")
-        coordinates = dmplex.getCoordinates()
-        coord_sec = dmplex.getCoordinateSection()
-        vStart, vEnd = dmplex.getDepthStratum(0)  # vertices
+        plex.createLabel("boundary_ids")
+        coordinates = plex.getCoordinates()
+        coord_sec = plex.getCoordinateSection()
+        vStart, vEnd = plex.getDepthStratum(0)  # vertices
         for v in range(vStart, vEnd):
-            vcoord = dmplex.vecGetClosure(coord_sec, coordinates, v)
+            vcoord = plex.vecGetClosure(coord_sec, coordinates, v)
             if vcoord[0] == coords[0]:
-                dmplex.setLabelValue("boundary_ids", v, 1)
+                plex.setLabelValue("boundary_ids", v, 1)
             if vcoord[0] == coords[-1]:
-                dmplex.setLabelValue("boundary_ids", v, 2)
+                plex.setLabelValue("boundary_ids", v, 2)
 
-        super(IntervalMesh, self).__init__(self.name, plex=dmplex)
+        super(IntervalMesh, self).__init__(self.name, plex=plex)
 
 
 class UnitIntervalMesh(IntervalMesh):
@@ -280,33 +853,33 @@ class PeriodicIntervalMesh(Mesh):
             raise NotImplementedError("Periodic intervals not yet implemented in parallel")
         nvert = ncells
         nedge = ncells
-        dmplex = PETSc.DMPlex().create()
-        dmplex.setDimension(1)
-        dmplex.setChart(0, nvert+nedge)
+        plex = PETSc.DMPlex().create()
+        plex.setDimension(1)
+        plex.setChart(0, nvert+nedge)
         for e in range(nedge):
-            dmplex.setConeSize(e, 2)
-        dmplex.setUp()
+            plex.setConeSize(e, 2)
+        plex.setUp()
         for e in range(nedge-1):
-            dmplex.setCone(e, [nedge+e, nedge+e+1])
-            dmplex.setConeOrientation(e, [0, 0])
+            plex.setCone(e, [nedge+e, nedge+e+1])
+            plex.setConeOrientation(e, [0, 0])
         # Connect v_(n-1) with v_0
-        dmplex.setCone(nedge-1, [nedge+nvert-1, nedge])
-        dmplex.setConeOrientation(nedge-1, [0, 0])
-        dmplex.symmetrize()
-        dmplex.stratify()
+        plex.setCone(nedge-1, [nedge+nvert-1, nedge])
+        plex.setConeOrientation(nedge-1, [0, 0])
+        plex.symmetrize()
+        plex.stratify()
 
         # Build coordinate section
         dx = length / ncells
         coords = [x for x in np.arange(0, length + 0.01 * dx, dx)]
 
-        coordsec = dmplex.getCoordinateSection()
+        coordsec = plex.getCoordinateSection()
         coordsec.setChart(nedge, nedge+nvert)
         for v in range(nedge, nedge+nvert):
             coordsec.setDof(v, 1)
         coordsec.setUp()
         size = coordsec.getStorageSize()
         coordvec = PETSc.Vec().createWithArray(coords, size=size)
-        dmplex.setCoordinatesLocal(coordvec)
+        plex.setCoordinatesLocal(coordvec)
 
         dx = length / ncells
         # HACK ALERT!
@@ -317,7 +890,7 @@ class PeriodicIntervalMesh(Mesh):
                             np.arange(0, length - dx*0.01, dx))).flatten()
         # Last cell is back to front.
         coords[-2:] = coords[-2:][::-1]
-        Mesh.__init__(self, self.name, plex=dmplex,
+        Mesh.__init__(self, self.name, plex=plex,
                       periodic_coords=coords)
 
 
@@ -339,8 +912,8 @@ class UnitTetrahedronMesh(Mesh):
         self.name = "unittetra"
         coords = [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
         cells = [[1, 0, 3, 2]]
-        dmplex = _from_cell_list(3, cells, coords)
-        super(UnitTetrahedronMesh, self).__init__(self.name, plex=dmplex)
+        plex = dmplex._from_cell_list(3, cells, coords)
+        super(UnitTetrahedronMesh, self).__init__(self.name, plex=plex)
 
 
 class UnitTriangleMesh(Mesh):
@@ -351,8 +924,8 @@ class UnitTriangleMesh(Mesh):
         self.name = "unittri"
         coords = [[0., 0.], [1., 0.], [0., 1.]]
         cells = [[1, 2, 0]]
-        dmplex = _from_cell_list(2, cells, coords)
-        super(UnitTriangleMesh, self).__init__(self.name, plex=dmplex)
+        plex = dmplex._from_cell_list(2, cells, coords)
+        super(UnitTriangleMesh, self).__init__(self.name, plex=plex)
 
 
 class IcosahedralSphereMesh(Mesh):
@@ -426,8 +999,8 @@ class IcosahedralSphereMesh(Mesh):
         for i in range(refinement_level):
             self._refine()
 
-        dmplex = _from_cell_list(2, self._faces, self._vertices)
-        super(IcosahedralSphereMesh, self).__init__(self.name, plex=dmplex, dim=3)
+        plex = dmplex._from_cell_list(2, self._faces, self._vertices)
+        super(IcosahedralSphereMesh, self).__init__(self.name, plex=plex, dim=3)
 
     def _force_to_sphere(self, vtx):
         """

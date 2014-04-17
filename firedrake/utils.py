@@ -1,5 +1,4 @@
 # Some generic python utilities not really specific to our work.
-
 from decorator import decorator
 
 
@@ -43,3 +42,22 @@ class cached_property(object):
             return self
         obj.__dict__[self.__name__] = result = self.fget(obj)
         return result
+
+
+_current_uid = 0
+
+
+def _new_uid():
+    global _current_uid
+    _current_uid += 1
+    return _current_uid
+
+
+def _init():
+    """Cause :func:`pyop2.init` to be called in case the user has not done it
+    for themselves. The result of this is that the user need only call
+    :func:`pyop2.init` if she wants to set a non-default option, for example
+    to switch the backend or the debug or log level."""
+    from pyop2 import op2
+    if not op2.initialised():
+        op2.init(log_level='INFO')

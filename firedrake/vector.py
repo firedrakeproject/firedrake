@@ -1,7 +1,9 @@
 import numpy as np
-from petsc import PETSc
-from pyop2 import op2
 from mpi4py import MPI
+
+from pyop2 import op2
+
+from petsc import PETSc
 
 
 __all__ = ['Vector']
