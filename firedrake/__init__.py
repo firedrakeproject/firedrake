@@ -17,7 +17,6 @@ from parameters import *
 from parloops import *
 from projection import *
 from solving import *
-from types import *
 from ufl_expr import *
 from vector import *
 from version import __version__, __version_info__, check  # noqa

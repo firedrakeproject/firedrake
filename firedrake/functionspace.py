@@ -7,7 +7,7 @@ from pyop2.caching import ObjectCached
 from pyop2.utils import flatten, as_tuple
 
 import dmplex
-import types
+import halo
 import utils
 from extrusion_utils import compute_extruded_dofs, compute_offset, extract_offset
 from fiat_utils import fiat_from_ufl_element
@@ -104,9 +104,9 @@ class FunctionSpaceBase(ObjectCached):
                                    self._universal_numbering)
 
         # Derive the Halo from the DefaultSF
-        self._halo = types.Halo(mesh._plex.getDefaultSF(),
-                                self._global_numbering,
-                                self._universal_numbering)
+        self._halo = halo.Halo(mesh._plex.getDefaultSF(),
+                               self._global_numbering,
+                               self._universal_numbering)
 
         # Compute entity class offsets
         self.dof_classes = [0, 0, 0, 0]
