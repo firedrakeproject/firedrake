@@ -280,6 +280,9 @@ class Mat(base.Mat, CopyOnWrite):
         # the nonzero structure of the matrix. Otherwise PETSc would compact
         # the sparsity and render our sparsity caching useless.
         mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
+        # Do not raise an error when non-zero entries in a pre-allocated
+        # sparsity remains unused (e.g. due to applying boundary conditions)
+        mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, False)
         self._handle = mat
         # Matrices start zeroed.
         self._version_set_zero()
