@@ -3432,6 +3432,14 @@ class Kernel(Cached):
         in the form ``#include <header.h>`` (optional, defaults to empty)
     :param user_code: code snippet to be executed once at the very start of
         the generated kernel wrapper code (optional, defaults to empty)
+
+    Consider the case of initialising a :class:`~pyop2.Dat` with seeded random
+    values in the interval 0 to 1. The corresponding :class:`~pyop2.Kernel` is
+    constructed as follows: ::
+
+      op2.Kernel("void setrand(double *x) { x[0] = (double)random()/RAND_MAX); }",
+                 name="setrand",
+                 headers=["#include <stdlib.h>"], user_code="srandom(10001);")
     """
 
     _globalcount = 0
