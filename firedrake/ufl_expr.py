@@ -4,7 +4,7 @@ from ufl.assertions import ufl_assert
 from ufl.finiteelement import FiniteElementBase
 from ufl.split_functions import split
 from ufl.algorithms.analysis import extract_arguments
-import types
+import function
 
 
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
@@ -128,7 +128,7 @@ def derivative(form, u, du=None):
     See also :func:`ufl.derivative`.
     """
     if du is None:
-        if isinstance(u, types.Function):
+        if isinstance(u, function.Function):
             V = u.function_space()
             du = Argument(V.ufl_element(), V)
         else:

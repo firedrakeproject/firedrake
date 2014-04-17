@@ -1,5 +1,5 @@
 from functionspace import FunctionSpace, VectorFunctionSpace
-from types import Function
+from function import Function
 from projection import project
 from solving import assemble
 from pyop2.logger import warning

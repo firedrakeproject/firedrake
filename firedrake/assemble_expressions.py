@@ -5,7 +5,8 @@ from ufl.indexing import MultiIndex
 from ufl.operatorbase import Operator
 from ufl.mathfunctions import MathFunction
 from pyop2 import op2
-import types
+import constant
+import function
 import functionspace
 import pyop2.ir.ast_base as ast
 
@@ -55,7 +56,7 @@ class DummyFunction(ufl.Coefficient):
         self.intent = intent
 
     def __str__(self):
-        if isinstance(self.function, types.Constant):
+        if isinstance(self.function, constant.Constant):
             if len(self.function.ufl_element().value_shape()) == 0:
                 return "fn_%d[0]" % self.argnum
             else:
@@ -76,7 +77,7 @@ class DummyFunction(ufl.Coefficient):
     @property
     def ast(self):
         # Constant broadcasts across functions if it's a scalar
-        if isinstance(self.function, types.Constant) and \
+        if isinstance(self.function, constant.Constant) and \
            len(self.function.ufl_element().value_shape()) == 0:
             return ast.Symbol("fn_%d" % self.argnum, (0, ))
         return ast.Symbol("fn_%d" % self.argnum, ("dim",))
@@ -96,7 +97,7 @@ class AssignmentBase(Operator):
         # indicating we should do nothing.
         if type(lhs) is Zero:
             return
-        if not (isinstance(lhs, types.Function)
+        if not (isinstance(lhs, function.Function)
                 or isinstance(lhs, DummyFunction)):
             raise TypeError("Can only assign to a Function")
 
@@ -304,7 +305,7 @@ class ExpressionSplitter(ReuseTransformer):
         return operands[0]
 
     def terminal(self, o):
-        if isinstance(o, types.Function):
+        if isinstance(o, function.Function):
             # A function must either be defined on the same function space
             # we're assigning to, in which case we split it into components
             if o.function_space() == self._fs:
@@ -336,7 +337,7 @@ class ExpressionSplitter(ReuseTransformer):
             return tuple(o if i == idx else self._identity
                          for i, _ in enumerate(self._fs))
         # We replicate ConstantValue and MultiIndex for each component
-        elif isinstance(o, (types.Constant, ConstantValue, MultiIndex)):
+        elif isinstance(o, (constant.Constant, ConstantValue, MultiIndex)):
             # If LHS is indexed, only return a scalar result
             if self._fs.index is not None:
                 return (o,)
@@ -379,7 +380,7 @@ class ExpressionWalker(ReuseTransformer):
 
     def coefficient(self, o):
 
-        if isinstance(o, types.Function):
+        if isinstance(o, function.Function):
             if self._function_space is None:
                 self._function_space = o._function_space
             elif self._function_space.index is not None:
@@ -404,7 +405,7 @@ class ExpressionWalker(ReuseTransformer):
                 self._args[o] = DummyFunction(o, len(self._args))
                 return self._args[o]
 
-        elif isinstance(o, types.Constant):
+        elif isinstance(o, constant.Constant):
             if self._function_space is None:
                 raise NotImplementedError("Cannot assign to Constant coefficients")
             else:
@@ -523,6 +524,6 @@ def assemble_expression(expr, subset=None):
     """Evaluates UFL expressions on :class:`.Function`\s pointwise and assigns
     into a new :class:`.Function`."""
 
-    result = types.Function(ExpressionWalker().walk(expr)[2])
+    result = function.Function(ExpressionWalker().walk(expr)[2])
     evaluate_expression(Assign(result, expr), subset)
     return result

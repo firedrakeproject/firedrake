@@ -33,6 +33,7 @@ from pyop2.exceptions import MapValueError
 from pyop2.logger import progress, INFO
 import types
 import functionspace
+import function
 import fiat_utils
 from copy import copy
 from ffc_interface import compile_form
@@ -115,9 +116,9 @@ class NonlinearVariationalSolver(object):
         self._jac_tensor = assemble(self._problem.J_ufl, bcs=self._problem.bcs)
         self._jac_ptensor = self._jac_tensor
         test = self._problem.F_ufl.compute_form_data().original_arguments[0]
-        self._F_tensor = types.Function(test.function_space())
+        self._F_tensor = function.Function(test.function_space())
         # Function to hold current guess
-        self._x = types.Function(self._problem.u_ufl)
+        self._x = function.Function(self._problem.u_ufl)
         self._problem.F_ufl = ufl.replace(self._problem.F_ufl, {self._problem.u_ufl:
                                                                 self._x})
         self._problem.J_ufl = ufl.replace(self._problem.J_ufl, {self._problem.u_ufl:
@@ -506,7 +507,7 @@ def _assemble(f, tensor=None, bcs=None):
     elif is_vec:
         test = fd.original_arguments[0]
         if tensor is None:
-            result_function = types.Function(test.function_space())
+            result_function = function.Function(test.function_space())
             tensor = result_function.dat
         else:
             result_function = tensor
@@ -761,7 +762,7 @@ def _la_solve(A, x, b, bcs=None, parameters=None,
         A.bcs = _extract_bcs(bcs)
     if bcs is not None:
         # Solving A x = b - action(a, u_bc)
-        u_bc = types.Function(b.function_space())
+        u_bc = function.Function(b.function_space())
         for bc in bcs:
             bc.apply(u_bc)
         # rhs = b - action(A, u_bc)

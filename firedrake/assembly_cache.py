@@ -33,6 +33,7 @@ assembly_cache:
 from collections import defaultdict
 from ufl.algorithms.signature import compute_form_signature
 import types
+import function
 import weakref
 from petsc4py import PETSc
 from pyop2.logger import debug, warning
@@ -322,7 +323,7 @@ def _cache_thunk(thunk, form, result):
                 # 0-form case
                 assert isinstance(obj, float)
                 r = obj
-            elif isinstance(result, types.Function):
+            elif isinstance(result, function.Function):
                 # 1-form
                 result.dat = obj
                 r = result
@@ -340,7 +341,7 @@ def _cache_thunk(thunk, form, result):
         if isinstance(r, float):
             # 0-form case
             cache._store(r, form, bcs)
-        elif isinstance(r, types.Function):
+        elif isinstance(r, function.Function):
             # 1-form
             cache._store(r.dat, form, bcs)
         elif isinstance(r, types.Matrix):

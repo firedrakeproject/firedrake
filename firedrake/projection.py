@@ -1,5 +1,5 @@
 from functionspace import FunctionSpaceBase, FunctionSpace, VectorFunctionSpace
-from types import Function
+import function
 from expression import Expression
 from solving import solve
 import ufl
@@ -31,8 +31,8 @@ def project(v, V, bcs=None, mesh=None,
 
     Currently, `bcs`, `mesh` and `form_compiler_parameters` are ignored."""
     if isinstance(V, FunctionSpaceBase):
-        ret = Function(V, name=name)
-    elif isinstance(V, Function):
+        ret = function.Function(V, name=name)
+    elif isinstance(V, function.Function):
         ret = V
         V = V.function_space()
     else:
@@ -58,7 +58,7 @@ def project(v, V, bcs=None, mesh=None,
         else:
             raise NotImplementedError(
                 "Don't know how to project onto tensor-valued function spaces")
-        f = Function(fs)
+        f = function.Function(fs)
         f.interpolate(v)
         v = f
 

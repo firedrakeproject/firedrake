@@ -13,7 +13,7 @@ import fiat_utils
 import FIAT
 import ufl
 from extrusion_utils import compute_extruded_dofs, make_extruded_coords
-import types
+import function
 import functionspace
 from utils import _init, _new_uid
 
@@ -307,17 +307,17 @@ class Mesh(object):
                 raise NotImplementedError("Periodic coordinates in more than 1D are unsupported")
             # We've been passed a periodic coordinate field, so use that.
             self._coordinate_fs = functionspace.VectorFunctionSpace(self, "DG", 1)
-            self.coordinates = types.Function(self._coordinate_fs,
-                                              val=periodic_coords,
-                                              name="Coordinates")
+            self.coordinates = function.Function(self._coordinate_fs,
+                                                 val=periodic_coords,
+                                                 name="Coordinates")
         else:
             self._coordinate_fs = functionspace.VectorFunctionSpace(self, "Lagrange", 1)
 
             coordinates = dmplex.reordered_coords(self._plex, self._coordinate_fs._global_numbering,
                                                   (self.num_vertices(), geometric_dim))
-            self.coordinates = types.Function(self._coordinate_fs,
-                                              val=coordinates,
-                                              name="Coordinates")
+            self.coordinates = function.Function(self._coordinate_fs,
+                                                 val=coordinates,
+                                                 name="Coordinates")
         self._dx = ufl.Measure('cell', domain_data=self.coordinates)
         self._ds = ufl.Measure('exterior_facet', domain_data=self.coordinates)
         self._dS = ufl.Measure('interior_facet', domain_data=self.coordinates)
@@ -622,7 +622,7 @@ class ExtrudedMesh(Mesh):
                                                                 vfamily="CG",
                                                                 vdegree=1)
 
-        self.coordinates = types.Function(self._coordinate_fs)
+        self.coordinates = function.Function(self._coordinate_fs)
         make_extruded_coords(self, layer_height, extrusion_type=extrusion_type,
                              kernel=kernel)
         self._coordinates = self.coordinates.dat.data_ro_with_halos
