@@ -41,8 +41,10 @@ global cell orientations, which is set via an expression. ::
 
 
 To build a finite element spatial discretisation, we choose compatible
-finite element spaces :math:`P2,\,BDM1,\,DG0`, and choose :math:`u\in
-BDM1,\,D,b\in DG0`. These fields are initialised from expressions. ::
+finite element spaces :math:`V_0,\,V_1\,V_2` (in this demo we take
+:math:`P2,\,BDM1,\,DG0`), and choose :math:`u\in V_1,\,D,b\in
+V_2`. These fields are initialised from expressions. ::
+
    degree = 1
    V0 = FunctionSpace(mesh , "CG" , degree+1)
    V1 = FunctionSpace(mesh , "BDM" , degree)
@@ -139,23 +141,43 @@ Now we turn to the spatial discretisation. The finite element
 discretisation of the velocity equation is
 
 .. math::
-
-   \int_{\Omega} w \cdot \left( u_t + q F^{\perp}\right) - \nabla\cdot w \left(g(D+b) + \frac{1}{2}|u|^2\right)\ {\rm d} x = 0, \quad \forall w\in BDM1,
+   :label: ueqn
+   
+   \int_{\Omega} w \cdot \left( u_t + q F^{\perp}\right) - \nabla\cdot w \left(g(D+b) + \frac{1}{2}|u|^2\right)\ {\rm d} x = 0, \quad \forall w\in V_1,
+   
 
 whilst the depth continuity equation holds pointwise and satisfies
 
 .. math::
+   :label: deqn
 
    D_t + \nabla\cdot F = 0,
 
-where we have implicitly defined :math:`F\in BDM1` and :math:`q\in P2` via
-the following weak approximations (note that the :math:`q` equation has been
-multiplied by :math:`D`.
+where :math:`F\in V_1` and :math:`q\in V_0` are functions of :math:`u`
+and :math:`D` defined via the following weak approximations (note that
+the :math:`q` equation has been multiplied by :math:`D`),
 
 .. math::
 
-   \int_{\Omega} w \cdot  F \ {\rm d} x &= \int_{\Omega} w \cdot  uD \ {\rm d} x, \quad \forall w\in BDM1, \\
-   \int_{\Omega} \gamma qD {\rm d} x &= -\int_{\Omega} \nabla^\perp \gamma \cdot u {\rm d} x + \int_{\Omega} \gamma f {\rm d} x, \quad \forall \gamma\in P2,
+   \int_{\Omega} w \cdot  F \ {\rm d} x &= \int_{\Omega} w \cdot  uD \ {\rm d} x, \quad \forall w\in V_1, \\
+   \int_{\Omega} \gamma qD {\rm d} x &= -\int_{\Omega} \nabla^\perp \gamma \cdot u {\rm d} x + \int_{\Omega} \gamma f {\rm d} x, \quad \forall \gamma\in V_0.
+
+We discretise Equations :eq:`ueqn` and :eq:`deqn` in time using the 
+implicit midpoint method, 
+
+.. math::
+   
+   \int_{\Omega} w \cdot \left(u^{n+1}-u^n + \Delta t \bar{q} \bar{F}^{\perp}\right) - \Delta t \nabla\cdot w \left(g(\bar{D}+b) + \frac{1}{2}|\bar{u}|^2\right)\ {\rm d} x &= 0, \quad \forall w\in V_1,\\
+   D^{n+1}-D^n + \Delta t\nabla\cdot \bar{F} &= 0,
+
+where 
+
+.. math:: 
+
+   \bar{u} = \theta u^{n+1} + (1-\theta)u^n, \quad \bar{D} = \theta D^{n+1} + (1-\theta)D^n,
+
+and where :math:`\bar{F}` and :math:`\bar{q}` are obtained upon substituting
+:math:`\bar{u}` and :math:`\bar{D}` into the above weak approximations.
 
 teasasdasdad ::
 
