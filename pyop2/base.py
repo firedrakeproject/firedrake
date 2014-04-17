@@ -3429,6 +3429,10 @@ class Kernel(Cached):
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
         # Also include the PyOP2 version, since the Kernel class might change
+
+        # HACK: Temporary fix!
+        if isinstance(code, Node):
+            code = code.gencode()
         return md5(str(hash(code)) + name + str(opts) + str(include_dirs) +
                    version).hexdigest()
 
