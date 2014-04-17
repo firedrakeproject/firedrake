@@ -1,20 +1,22 @@
-import tempfile
-import dmplex
-from pyop2.mpi import MPI
-from pyop2.ir import ast_base as ast
-from pyop2 import op2
-from pyop2.utils import as_tuple
-import os
-from shutil import rmtree
 import numpy as np
-from petsc import PETSc
-import utils
-import fiat_utils
+import tempfile
+import os
 import FIAT
 import ufl
-from extrusion_utils import compute_extruded_dofs, make_extruded_coords
+from shutil import rmtree
+
+from pyop2 import op2
+from pyop2.ir import ast_base as ast
+from pyop2.mpi import MPI
+from pyop2.utils import as_tuple
+
+import dmplex
+import fiat_utils
 import function
 import functionspace
+import utils
+from extrusion_utils import compute_extruded_dofs, make_extruded_coords
+from petsc import PETSc
 from utils import _init, _new_uid
 
 

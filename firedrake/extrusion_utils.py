@@ -1,7 +1,9 @@
-from pyop2 import op2
 import numpy as np
-from fiat_utils import fiat_from_ufl_element
+
+from pyop2 import op2
+
 import functionspace as fs
+from fiat_utils import fiat_from_ufl_element
 
 
 def extract_offset(offset, facet_map, base_map):

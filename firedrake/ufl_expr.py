@@ -4,6 +4,7 @@ from ufl.assertions import ufl_assert
 from ufl.finiteelement import FiniteElementBase
 from ufl.split_functions import split
 from ufl.algorithms.analysis import extract_arguments
+
 import function
 
 

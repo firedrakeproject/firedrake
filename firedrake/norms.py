@@ -1,9 +1,10 @@
-from functionspace import FunctionSpace, VectorFunctionSpace
-from function import Function
-from projection import project
-from solving import assemble
 from pyop2.logger import warning
 from ufl import inner, div, grad, curl, sqrt
+
+from function import Function
+from functionspace import FunctionSpace, VectorFunctionSpace
+from projection import project
+from solving import assemble
 
 __all__ = ['errornorm', 'norm']
 

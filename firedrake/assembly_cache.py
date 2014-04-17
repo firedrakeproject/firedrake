@@ -30,16 +30,19 @@ assembly_cache:
   limit on the size of the assembly cache relative to the amount of
   memory per core on the current system. This defaults to 0.6.
 """
+import numpy as np
+import weakref
 from collections import defaultdict
 from ufl.algorithms.signature import compute_form_signature
-import matrix
-import function
-import weakref
-from petsc4py import PETSc
+
 from pyop2.logger import debug, warning
 from pyop2.mpi import MPI, _MPI
-import numpy as np
+
+import function
+import matrix
 from parameters import parameters
+from petsc import PETSc
+
 try:
     # Estimate the amount of memory per core may use.
     import psutil

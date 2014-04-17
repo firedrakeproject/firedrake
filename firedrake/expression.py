@@ -1,5 +1,5 @@
-import ufl
 import numpy as np
+import ufl
 
 
 __all__ = ['Expression']

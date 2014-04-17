@@ -1,8 +1,9 @@
-from functionspace import FunctionSpaceBase, FunctionSpace, VectorFunctionSpace
+import ufl
+
 import function
 from expression import Expression
+from functionspace import FunctionSpaceBase, FunctionSpace, VectorFunctionSpace
 from solving import solve
-import ufl
 from ufl_expr import TrialFunction, TestFunction
 
 

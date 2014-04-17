@@ -1,12 +1,14 @@
 # A module implementing strong (Dirichlet) boundary conditions.
-import utils
 import numpy as np
 from ufl import as_ufl, UFLException
+
+import pyop2 as op2
+
 import matrix
+import utils
 from expression import Expression, to_expression
 from function import Function
 from projection import project
-import pyop2 as op2
 
 
 __all__ = ['DirichletBC']

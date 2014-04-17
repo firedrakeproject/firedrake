@@ -1,6 +1,6 @@
+from weakref import WeakKeyDictionary
 import FIAT
 import ufl
-from weakref import WeakKeyDictionary
 
 
 _fiat_element_cache = WeakKeyDictionary()

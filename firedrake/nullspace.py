@@ -1,7 +1,8 @@
-from petsc import PETSc
-from functionspace import IndexedFunctionSpace
-from function import Function
 from numpy import prod
+
+from function import Function
+from functionspace import IndexedFunctionSpace
+from petsc import PETSc
 
 
 __all__ = ['VectorSpaceBasis', 'MixedVectorSpaceBasis']

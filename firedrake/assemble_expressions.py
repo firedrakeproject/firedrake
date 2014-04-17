@@ -4,11 +4,13 @@ from ufl.constantvalue import ConstantValue, Zero, IntValue
 from ufl.indexing import MultiIndex
 from ufl.operatorbase import Operator
 from ufl.mathfunctions import MathFunction
+
+import pyop2.ir.ast_base as ast
 from pyop2 import op2
+
 import constant
 import function
 import functionspace
-import pyop2.ir.ast_base as ast
 
 _to_sum = lambda o: ast.Sum(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
 _to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])

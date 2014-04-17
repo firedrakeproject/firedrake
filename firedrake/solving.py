@@ -25,21 +25,22 @@ __all__ = ["LinearVariationalProblem",
            "assemble"]
 
 import numpy
-
 import ufl
-from ufl_expr import derivative
+from copy import copy
+
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
 from pyop2.logger import progress, INFO
-import matrix
-import functionspace
-import function
+
 import fiat_utils
-from copy import copy
-from ffc_interface import compile_form
+import function
+import functionspace
+import matrix
 from assemble_expressions import assemble_expression
-from petsc import PETSc
 from assembly_cache import _cache_thunk
+from ffc_interface import compile_form
+from petsc import PETSc
+from ufl_expr import derivative
 
 
 class NonlinearVariationalProblem(object):
