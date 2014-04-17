@@ -490,7 +490,13 @@ class JITModule(base.JITModule):
     @classmethod
     def _cache_key(cls, kernel, itspace, *args, **kwargs):
         # The local memory size is hard coded of the generated code
-        return base.JITModule._cache_key(kernel, itspace, *args) + (kwargs['conf']['local_memory_size'],)
+        # If we're passed the same arg in twice in a direct loop, we
+        # make different code, that's based on the aliased/unique data
+        # args.
+        parloop = kwargs.get('parloop')
+        # HACK: pretty ugly, works for now
+        key = (parloop._is_direct, len(parloop._unique_dat_args), len(parloop._aliased_dat_args))
+        return base.JITModule._cache_key(kernel, itspace, *args) + key + (kwargs['conf']['local_memory_size'],)
 
     def __init__(self, kernel, itspace_extents, *args, **kwargs):
         """
