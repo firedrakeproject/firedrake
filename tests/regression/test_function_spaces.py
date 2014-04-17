@@ -16,6 +16,20 @@ def fs(request, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
             'cg2dg1': cg2dg1}[request.param]
 
 
+def test_function_space_from_element(mesh):
+    "FunctionSpaces can be initialsed from an existing element."
+    e = FiniteElement("CG", mesh.ufl_cell(), 1)
+    assert FunctionSpace(mesh, "CG", 1).ufl_element() == e
+    assert FunctionSpace(mesh, e).ufl_element() == e
+
+
+def test_vector_function_space_from_element(mesh):
+    "VectorFunctionSpaces can be initialsed from an existing element."
+    e = VectorElement("CG", mesh.ufl_cell(), 1)
+    assert VectorFunctionSpace(mesh, "CG", 1).ufl_element() == e
+    assert VectorFunctionSpace(mesh, e).ufl_element() == e
+
+
 def test_function_space_cached(mesh):
     "FunctionSpaces defined on the same mesh and element are cached."
     assert FunctionSpace(mesh, "CG", 1) is FunctionSpace(mesh, "CG", 1)
