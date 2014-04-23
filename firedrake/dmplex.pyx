@@ -703,10 +703,12 @@ def get_cells_by_class(PETSc.DM plex):
         PetscInt *indices = NULL
         PETSc.IS class_is = None
         np.ndarray[np.int32_t] cells
+        np.ndarray[np.int32_t] inv_cells
 
     dim = plex.getDimension()
     cStart, cEnd = plex.getHeightStratum(0)
     cells = np.empty(cEnd - cStart, dtype=np.int32)
+    inv_cells = np.empty(cEnd - cStart, dtype=np.int32)
     cell_classes = [0, 0, 0, 0]
     c = 0
 
@@ -719,11 +721,12 @@ def get_cells_by_class(PETSc.DM plex):
             CHKERR(ISGetIndices(class_is.iset, &indices))
             for ci in range(nclass):
                 cells[c] = indices[ci]
+                inv_cells[indices[ci]] = c
                 c += 1
         cell_classes[i] = c
 
     cell_classes[3] = cell_classes[2]
-    return cells, cell_classes
+    return cells, cell_classes, inv_cells
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
