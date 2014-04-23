@@ -86,7 +86,6 @@ def test_no_manifold_parallel():
     run_no_manifold()
 
 
-@pytest.mark.xfail
 @pytest.mark.parallel(nprocs=2)
 def test_manifold_parallel():
     run_manifold()

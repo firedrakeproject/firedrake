@@ -571,7 +571,7 @@ def _assemble(f, tensor=None, bcs=None):
                                    flatten=True)]
 
                 if needs_orientations:
-                    args.append(coords.function_space().mesh()._cell_orientations(op2.READ))
+                    args.append(coords.function_space().mesh().cell_orientations()(op2.READ))
                 for c in coefficients:
                     args.append(c.dat(op2.READ, c.cell_node_map(),
                                       flatten=True))
