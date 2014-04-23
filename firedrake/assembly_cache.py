@@ -334,7 +334,7 @@ def _cache_thunk(thunk, form, result):
                 # 2-form
                 if obj.handle is not result._M.handle:
                     obj.handle.copy(result._M.handle,
-                                    PETSc.Mat.Structure.SAME_NONZERO_PATTERN)
+                                    PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN)
                 r = result
             else:
                 raise TypeError("Unknown result type")
