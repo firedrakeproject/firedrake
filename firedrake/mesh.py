@@ -239,6 +239,7 @@ class Mesh(object):
         if reorder is None:
             reorder = parameters["reorder_meshes"]
         if plex is not None:
+            self.name = name
             self._from_dmplex(plex, geometric_dim=dim,
                               periodic_coords=periodic_coords,
                               reorder=reorder,
