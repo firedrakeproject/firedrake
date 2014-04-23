@@ -203,7 +203,8 @@ class Mesh(object):
 
     @timed_function("Build mesh")
     @profile
-    def __init__(self, filename, dim=None, periodic_coords=None, plex=None, reorder=None):
+    def __init__(self, filename, dim=None, periodic_coords=None, plex=None,
+                 reorder=None, name=None, distribute=True):
         """
         :param filename: the mesh file to read.  Supported mesh formats
                are Gmsh (extension ``msh``) and triangle (extension
@@ -240,7 +241,8 @@ class Mesh(object):
         if plex is not None:
             self._from_dmplex(plex, geometric_dim=dim,
                               periodic_coords=periodic_coords,
-                              reorder=reorder)
+                              reorder=reorder,
+                              distribute=distribute)
             self.name = filename
         else:
             basename, ext = os.path.splitext(filename)
@@ -266,7 +268,7 @@ class Mesh(object):
         self._coordinate_function = value
 
     def _from_dmplex(self, plex, geometric_dim=0,
-                     periodic_coords=None, reorder=None):
+                     periodic_coords=None, reorder=None, distribute=True):
         """ Create mesh from DMPlex object """
 
         self._plex = plex
@@ -283,7 +285,7 @@ class Mesh(object):
             geometric_dim = plex.getDimension()
 
         # Distribute the dm to all ranks
-        if op2.MPI.comm.size > 1:
+        if op2.MPI.comm.size > 1 and distribute:
             self.parallel_sf = plex.distribute(overlap=1)
 
         self._plex = plex
