@@ -105,8 +105,7 @@ class LoopVectoriser(object):
 
         for stmt, stmt_info in self.lo.out_prods.items():
             # First, find outer product loops in the nest
-            it_vars, parent = stmt_info
-            loops = self.lo.out_prods[stmt][2]
+            it_vars, parent, loops = stmt_info
 
             vect_len = self.intr["dp_reg"]
             rows = loops[0].size()
@@ -147,11 +146,6 @@ class LoopVectoriser(object):
                 loop_peel[1].incr.children[1] = c_sym(1)
                 # Append peeling loop after the main loop
                 parent_loop = self.lo.fors[0]
-                for l in self.lo.fors[1:]:
-                    if l.it_var() == loops[0].it_var():
-                        break
-                    else:
-                        parent_loop = l
                 parent_loop.children[0].children.append(loop_peel[0])
 
             # Insert the vectorized code at the right point in the loop nest
