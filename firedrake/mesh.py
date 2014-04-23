@@ -166,6 +166,7 @@ def Mesh(meshfile, **kwargs):
     dim = kwargs.get("dim", None)
     reorder = kwargs.get("reorder", parameters["reorder_meshes"])
     periodic_coords = kwargs.get("periodic_coords", None)
+    distribute = kwargs.get("distribute", True)
 
     if isinstance(meshfile, PETSc.DMPlex):
         name = "plexmesh"
@@ -196,7 +197,7 @@ def Mesh(meshfile, **kwargs):
         dmplex.label_facets(plex)
 
     # Distribute the dm to all ranks
-    if op2.MPI.comm.size > 1:
+    if op2.MPI.comm.size > 1 and distribute:
         plex.distribute(overlap=1)
 
     topological_dim = plex.getDimension()
