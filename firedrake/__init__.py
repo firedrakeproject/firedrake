@@ -15,6 +15,7 @@ from function import *
 from functionspace import *
 from io import *
 from mesh import *
+from multigrid import *
 from norms import *
 from nullspace import *
 from parameters import *
