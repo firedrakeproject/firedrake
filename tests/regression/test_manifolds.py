@@ -10,7 +10,7 @@ cwd = abspath(dirname(__file__))
 # inhomogeneous Neumann boundary conditions such that the exact
 # solution is p(x, y) = x - 0.5.  First on a 2D mesh, and then again
 # on a 2D mesh embedded in 3D.
-def test_no_manifold():
+def run_no_manifold():
     mesh = UnitSquareMesh(1, 1)
 
     V0 = FunctionSpace(mesh, "RT", 2)
@@ -41,7 +41,7 @@ def test_no_manifold():
     assert errornorm(exact, p, degree_rise=0) < 1e-8
 
 
-def test_manifold():
+def run_manifold():
     mesh = Mesh(join(cwd, "unitsquare_in_3d.node"), dim=3)
 
     mesh.init_cell_orientations(Expression(('0', '0', '1')))
@@ -71,6 +71,24 @@ def test_manifold():
 
     u, p = up.split()
     assert errornorm(exact, p, degree_rise=0) < 1e-8
+
+
+def test_no_manifold_serial():
+    run_no_manifold()
+
+
+def test_manifold_serial():
+    run_manifold()
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_no_manifold_parallel():
+    run_no_manifold()
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_manifold_parallel():
+    run_manifold()
 
 
 if __name__ == '__main__':

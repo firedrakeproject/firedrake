@@ -241,11 +241,6 @@ class Mesh(object):
             else:
                 raise RuntimeError("Unknown mesh file format.")
 
-        self._cell_orientations = op2.Dat(self.cell_set, dtype=np.int32,
-                                          name="cell_orientations")
-        # -1 is uninitialised.
-        self._cell_orientations.data[:] = -1
-
     @property
     def coordinates(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
@@ -441,7 +436,9 @@ class Mesh(object):
         """Return the orientation of each cell in the mesh.
 
         Use :func:`init_cell_orientations` to initialise this data."""
-        return self._cell_orientations.data_ro
+        if not hasattr(self, '_cell_orientations'):
+            raise RuntimeError("No cell orientations found, did you forget to call init_cell_orientations?")
+        return self._cell_orientations
 
     def init_cell_orientations(self, expr):
         """Compute and initialise `cell_orientations` relative to a specified orientation.
@@ -454,6 +451,9 @@ class Mesh(object):
             raise NotImplementedError('Only implemented for 3-vectors')
         if self.ufl_cell() != ufl.Cell('triangle', 3):
             raise NotImplementedError('Only implemented for triangles embedded in 3d')
+
+        if hasattr(self, '_cell_orientations'):
+            raise RuntimeError("init_cell_orientations already called, did you mean to do so again?")
 
         v0 = lambda x: ast.Symbol("v0", (x,))
         v1 = lambda x: ast.Symbol("v1", (x,))
@@ -480,18 +480,25 @@ class Mesh(object):
 
         body.extend([ast.FlatBlock("dot += (%(x)s) * n[%(i)d];\n" % {"x": x_, "i": i})
                      for i, x_ in enumerate(expr.code)])
-        body.append(ast.Assign("*orientation", ast.Ternary(ast.Less("dot", 0), 1, 0)))
+        body.append(ast.Assign("orientation[0][0]", ast.Ternary(ast.Less("dot", 0), 1, 0)))
 
         kernel = op2.Kernel(ast.FunDecl("void", "cell_orientations",
-                                        [ast.Decl("int*", "orientation"),
+                                        [ast.Decl("int**", "orientation"),
                                          ast.Decl("double**", "coords")],
                                         ast.Block(body)),
                             "cell_orientations")
 
+        # Although the cell orientations live on each cell, the cell
+        # set doesn't have a halo, and we need the halo values to be
+        # correct too.  So build a DG0 function space (which has the
+        # right halo information) and write to that.
+        fs = functionspace.FunctionSpace(self, 'DG', 0)
+        dat = op2.Dat(fs.dof_dset, dtype=np.int32)
         op2.par_loop(kernel, self.cell_set,
-                     self._cell_orientations(op2.WRITE),
+                     dat(op2.WRITE, fs.cell_node_map()),
                      self.coordinates.dat(op2.READ, self.coordinates.cell_node_map()))
-        self._cell_orientations._force_evaluation(read=True, write=False)
+        self._cell_orientations = op2.Dat(self.cell_set, data=dat.data_ro_with_halos,
+                                          dtype=np.int32, name="cell_orientations")
 
     def cells(self):
         return self._cells
