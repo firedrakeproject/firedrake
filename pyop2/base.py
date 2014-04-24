@@ -3418,14 +3418,37 @@ class Mat(SetAssociated):
 
 class Kernel(Cached):
 
-    """OP2 kernel type."""
+    """OP2 kernel type.
+
+    :param code: kernel function definition, including signature; either a
+        string or an AST :class:`.Node`
+    :param name: kernel function name; must match the name of the kernel
+        function given in `code`
+    :param opts: options dictionary for :doc:`PyOP2 IR optimisations <ir>`
+        (optional, ignored if `code` is a string)
+    :param include_dirs: list of additional include directories to be searched
+        when compiling the kernel (optional, defaults to empty)
+    :param headers: list of system headers to include when compiling the kernel
+        in the form ``#include <header.h>`` (optional, defaults to empty)
+    :param user_code: code snippet to be executed once at the very start of
+        the generated kernel wrapper code (optional, defaults to empty)
+
+    Consider the case of initialising a :class:`~pyop2.Dat` with seeded random
+    values in the interval 0 to 1. The corresponding :class:`~pyop2.Kernel` is
+    constructed as follows: ::
+
+      op2.Kernel("void setrand(double *x) { x[0] = (double)random()/RAND_MAX); }",
+                 name="setrand",
+                 headers=["#include <stdlib.h>"], user_code="srandom(10001);")
+    """
 
     _globalcount = 0
     _cache = {}
 
     @classmethod
     @validate_type(('name', str, NameTypeError))
-    def _cache_key(cls, code, name, opts={}, include_dirs=[]):
+    def _cache_key(cls, code, name, opts={}, include_dirs=[], headers=[],
+                   user_code=""):
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
         # Also include the PyOP2 version, since the Kernel class might change
@@ -3434,7 +3457,7 @@ class Kernel(Cached):
         if isinstance(code, Node):
             code = code.gencode()
         return md5(str(hash(code)) + name + str(opts) + str(include_dirs) +
-                   version).hexdigest()
+                   str(headers) + version).hexdigest()
 
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
@@ -3444,7 +3467,8 @@ class Kernel(Cached):
             return ast.gencode()
         return ast
 
-    def __init__(self, code, name, opts={}, include_dirs=[]):
+    def __init__(self, code, name, opts={}, include_dirs=[], headers=[],
+                 user_code=""):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
@@ -3454,6 +3478,8 @@ class Kernel(Cached):
         # Record used optimisations
         self._opt_is_padded = opts.get('ap', False)
         self._include_dirs = include_dirs
+        self._headers = headers
+        self._user_code = user_code
         self._initialized = True
 
     @property
