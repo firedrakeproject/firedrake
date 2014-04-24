@@ -274,10 +274,6 @@ class NonlinearVariationalSolver(object):
         for bc in self._problem.bcs:
             bc.apply(self._problem.u_ufl)
 
-        # User might have updated parameters dict before calling
-        # solve, ensure these are passed through to the snes.
-        self._update_parameters()
-
         with self._problem.u_ufl.dat.vec as v:
             self.snes.solve(None, v)
 
@@ -575,7 +571,7 @@ def _assemble(f, tensor=None, bcs=None):
                                    flatten=True)]
 
                 if needs_orientations:
-                    args.append(coords.function_space().mesh()._cell_orientations(op2.READ))
+                    args.append(coords.function_space().mesh().cell_orientations()(op2.READ))
                 for c in coefficients:
                     args.append(c.dat(op2.READ, c.cell_node_map(),
                                       flatten=True))
