@@ -198,7 +198,7 @@ class Cached(object):
             return make_obj()
         try:
             return cls._cache_lookup(key)
-        except KeyError:
+        except (KeyError, IOError):
             obj = make_obj()
             cls._cache_store(key, obj)
             return obj
