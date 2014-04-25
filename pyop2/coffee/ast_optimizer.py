@@ -90,7 +90,7 @@ class AssemblyOptimizer(object):
                     delim = opts[2].find('(')
                     opt_name = opts[2][:delim].replace(" ", "")
                     opt_par = opts[2][delim:].replace(" ", "")
-                    if opt_name == "outerproduct":
+                    if opt_name == "assembly":
                         # Found high-level optimisation
                         # Store outer product iteration variables, parent, loops
                         it_vars = [opt_par[1], opt_par[3]]
