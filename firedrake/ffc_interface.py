@@ -166,7 +166,7 @@ class FFCKernel(DiskCached):
                     'ap': False,
                     'split': None}
             kernels.append(Kernel(Root([incl, kernel]), '%s_%s_integral_0_%s' %
-                           (name, it.integral_type(), it.domain_id()), opts, inc))
+                           (name, it.integral_type(), it.subdomain_id()), opts, inc))
         self.kernels = tuple(kernels)
         self._initialized = True
 

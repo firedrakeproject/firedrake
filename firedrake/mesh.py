@@ -153,7 +153,7 @@ class _Facets(object):
         either be for all the interior or exterior (as appropriate)
         facets, or for a particular numbered subdomain.'''
 
-        dom_id = measure.domain_id()
+        dom_id = measure.subdomain_id()
         dom_type = measure.integral_type()
         if dom_id in [measure.DOMAIN_ID_EVERYWHERE,
                       measure.DOMAIN_ID_OTHERWISE]:
@@ -169,7 +169,7 @@ class _Facets(object):
             else:
                 return self.set
         else:
-            return self.subset(measure.domain_id())
+            return self.subset(measure.subdomain_id())
 
     def subset(self, markers):
         """Return the subset corresponding to a given marker value.
