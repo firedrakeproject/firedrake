@@ -166,6 +166,14 @@ Then install PETSc_ via ``pip`` ::
   unset PETSC_DIR
   unset PETSC_ARCH
 
+.. note::
+
+   If you intend to run PyOP2's OpenMP backend, you should
+   additionally pass the following options to the PETSc configure
+   stage ::
+
+     --with-threadcomm --with-openmp --with-pthreadclasses
+
 If you built PETSc_ using ``pip``, ``PETSC_DIR`` and ``PETSC_ARCH``
 should be left unset when building petsc4py_.
 
