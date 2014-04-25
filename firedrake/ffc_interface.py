@@ -155,7 +155,7 @@ class FFCKernel(DiskCached):
             # Set optimization options
             opts = {} if it.domain_type() not in ['cell'] else \
                    {'licm': False,
-                    'tile': None,
+                    'slice': None,
                     'vect': None,
                     'ap': False,
                     'split': None}
