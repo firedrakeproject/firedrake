@@ -1,5 +1,6 @@
 from firedrake import *
 import pytest
+import numpy as np
 from os.path import abspath, dirname, join
 
 
@@ -89,6 +90,40 @@ def test_no_manifold_parallel():
 @pytest.mark.parallel(nprocs=2)
 def test_manifold_parallel():
     run_manifold()
+
+
+@pytest.mark.parametrize('space', ["RT", "BDM"])
+def test_contravariant_piola_facet_integral(space):
+    mesh = UnitIcosahedralSphereMesh(refinement_level=2)
+    global_normal = Expression(("x[0]", "x[1]", "x[2]"))
+    mesh.init_cell_orientations(global_normal)
+    V = FunctionSpace(mesh, space, 1)
+    # Some non-zero function
+    u = project(Expression(('x[0]', '-x[1]', '0')), V)
+    n = FacetNormal(mesh)
+
+    pos = inner(u('+'), n('+'))*dS
+    neg = inner(u('-'), n('-'))*dS
+
+    assert np.allclose(assemble(pos) + assemble(neg), 0)
+    assert np.allclose(assemble(pos + neg), 0)
+
+
+@pytest.mark.parametrize('space', ["N1curl", "N2curl"])
+def test_covariant_piola_facet_integral(space):
+    mesh = UnitIcosahedralSphereMesh(refinement_level=2)
+    global_normal = Expression(("x[0]", "x[1]", "x[2]"))
+    mesh.init_cell_orientations(global_normal)
+    V = FunctionSpace(mesh, space, 1)
+    # Some non-zero function
+    u = project(Expression(('x[0]', '-x[1]', '0')), V)
+    n = FacetNormal(mesh)
+
+    pos = inner(u('+'), n('+'))*dS
+    neg = inner(u('-'), n('-'))*dS
+
+    assert np.allclose(assemble(pos) + assemble(neg), 0, atol=1e-7)
+    assert np.allclose(assemble(pos + neg), 0, atol=1e-7)
 
 
 if __name__ == '__main__':

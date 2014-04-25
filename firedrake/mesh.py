@@ -488,17 +488,14 @@ class Mesh(object):
                                         ast.Block(body)),
                             "cell_orientations")
 
-        # Although the cell orientations live on each cell, the cell
-        # set doesn't have a halo, and we need the halo values to be
-        # correct too.  So build a DG0 function space (which has the
-        # right halo information) and write to that.
+        # Build the cell orientations as a DG0 field (so that we can
+        # pass it in for facet integrals and the like)
         fs = functionspace.FunctionSpace(self, 'DG', 0)
-        dat = op2.Dat(fs.dof_dset, dtype=np.int32)
+        cell_orientations = function.Function(fs, name="cell_orientations", dtype=np.int32)
         op2.par_loop(kernel, self.cell_set,
-                     dat(op2.WRITE, fs.cell_node_map()),
+                     cell_orientations.dat(op2.WRITE, cell_orientations.cell_node_map()),
                      self.coordinates.dat(op2.READ, self.coordinates.cell_node_map()))
-        self._cell_orientations = op2.Dat(self.cell_set, data=dat.data_ro_with_halos,
-                                          dtype=np.int32, name="cell_orientations")
+        self._cell_orientations = cell_orientations
 
     def cells(self):
         return self._cells
