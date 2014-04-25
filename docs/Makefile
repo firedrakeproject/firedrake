@@ -45,8 +45,6 @@ TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex
 
 GENERATED_FILES = source/teamgrid.rst source/obtaining_pyop2.rst source/demos
 
-$(TARGETS): $(GENERATED_FILES) copy_demos
-
 publish: html
 # Note that godaddy don't currently do rsync, unfortunately.
 # The raw IP address is used to circumvent some dns fiddling which
@@ -76,14 +74,14 @@ source/teamgrid.rst: source/team.py
 source/obtaining_pyop2.rst:
 	wget https://raw.github.com/OP2/PyOP2/master/README.rst -O $@
 
-apidoc:
+apidoc: $(GENERATED_FILES) copy_demos
 	sphinx-apidoc ../firedrake -o source/ -f -T
 
 clean:
 	-rm -rf $(BUILDDIR)/*
 	-rm -rf $(GENERATED_FILES)
 
-buildhtml:
+buildhtml: apidoc
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 
 html: apidoc buildhtml
