@@ -38,17 +38,17 @@ from ast_base import *
 import ast_plan as ap
 
 
-class LoopVectoriser(object):
+class AssemblyVectorizer(object):
 
     """ Loop vectorizer """
 
-    def __init__(self, loop_optimiser):
+    def __init__(self, assembly_optimizer):
         if not initialized:
             raise RuntimeError("Vectorizer must be initialized first.")
-        self.lo = loop_optimiser
+        self.asm_opt = assembly_optimizer
         self.intr = intrinsics
         self.comp = compiler
-        self.iloops = self._inner_loops(loop_optimiser.loop_nest)
+        self.iloops = self._inner_loops(assembly_optimizer.fors[0])
         self.padded = []
 
     def align_and_pad(self, decl_scope, only_align=False):
@@ -59,7 +59,7 @@ class LoopVectoriser(object):
         loops. Finally, adjust trip count and bound of each innermost loop
         in which padded and aligned arrays are written to."""
 
-        used_syms = [s.symbol for s in self.lo.sym]
+        used_syms = [s.symbol for s in self.asm_opt.sym]
         acc_decls = [d for s, d in decl_scope.items() if s in used_syms]
 
         # Padding
@@ -100,10 +100,10 @@ class LoopVectoriser(object):
         jam factor. Note that factor is just a suggestion to the compiler,
         which can freely decide to use a higher or lower value."""
 
-        if not self.lo.out_prods:
+        if not self.asm_opt.asm_expr:
             return
 
-        for stmt, stmt_info in self.lo.out_prods.items():
+        for stmt, stmt_info in self.asm_opt.asm_expr.items():
             # First, find outer product loops in the nest
             it_vars, parent, loops = stmt_info
 
@@ -111,7 +111,7 @@ class LoopVectoriser(object):
             rows = loops[0].size()
             unroll_factor = factor if opts in [ap.V_OP_UAJ, ap.V_OP_UAJ_EXTRA] else 1
 
-            op = OuterProduct(stmt, loops, self.intr, self.lo)
+            op = OuterProduct(stmt, loops, self.intr, self.asm_opt)
 
             # Vectorisation
             rows_per_it = vect_len*unroll_factor
@@ -145,7 +145,7 @@ class LoopVectoriser(object):
                 loop_peel[0].incr.children[1] = c_sym(1)
                 loop_peel[1].incr.children[1] = c_sym(1)
                 # Append peeling loop after the main loop
-                parent_loop = self.lo.fors[0]
+                parent_loop = self.asm_opt.fors[0]
                 parent_loop.children[0].children.append(loop_peel[0])
 
             # Insert the vectorized code at the right point in the loop nest
@@ -155,8 +155,8 @@ class LoopVectoriser(object):
 
         # Append the layout code after the loop nest
         if layout:
-            parent = self.lo.pre_header.children
-            parent.insert(parent.index(self.lo.loop_nest) + 1, layout)
+            parent = self.asm_opt.pre_header.children
+            parent.insert(parent.index(self.asm_opt.fors[0]) + 1, layout)
 
     def _inner_loops(self, node):
         """Find inner loops in the subtree rooted in node."""

@@ -38,7 +38,7 @@ from pyop2.coffee.ast_base import *
 import ast_plan
 
 
-class LoopOptimiser(object):
+class AssemblyOptimizer(object):
 
     """Loops optimiser:
 
@@ -58,13 +58,15 @@ class LoopOptimiser(object):
       pressure and register re-use."""
 
     def __init__(self, loop_nest, pre_header, kernel_decls):
-        self.loop_nest = loop_nest
         self.pre_header = pre_header
         self.kernel_decls = kernel_decls
-        self.out_prods = {}
-        self.itspace = []
-        fors_loc, self.decls, self.sym = self._visit_nest(loop_nest)
-        self.fors, self.for_parents = zip(*fors_loc)
+        # Expressions evaluating the element matrix
+        self.asm_expr = {}
+        # Fully parallel iteration space in the assembly loop nest
+        self.asm_itspace = []
+        # Inspect the assembly loop nest and collect info
+        self.fors, self.decls, self.sym = self._visit_nest(loop_nest)
+        self.fors = zip(*self.fors)[0]
 
     def _visit_nest(self, node):
         """Explore the loop nest and collect various info like:
@@ -83,7 +85,7 @@ class LoopOptimiser(object):
                 if opts[1] == "pyop2":
                     if opts[2] == "itspace":
                         # Found high-level optimisation
-                        self.itspace.append((node, parent))
+                        self.asm_itspace.append((node, parent))
                         return
                     delim = opts[2].find('(')
                     opt_name = opts[2][:delim].replace(" ", "")
@@ -94,7 +96,7 @@ class LoopOptimiser(object):
                         it_vars = [opt_par[1], opt_par[3]]
                         fors, fors_parents = zip(*fors)
                         loops = [l for l in fors if l.it_var() in it_vars]
-                        self.out_prods[node] = (it_vars, parent, loops)
+                        self.asm_expr[node] = (it_vars, parent, loops)
                     else:
                         raise RuntimeError("Unrecognised opt %s - skipping it", opt_name)
                 else:
@@ -138,7 +140,7 @@ class LoopOptimiser(object):
         pyop2 itspace``."""
 
         itspace_vrs = []
-        for node, parent in reversed(self.itspace):
+        for node, parent in reversed(self.asm_itspace):
             parent.children.extend(node.children[0].children)
             parent.children.remove(node)
             itspace_vrs.append(node.it_var())
@@ -148,7 +150,7 @@ class LoopOptimiser(object):
 
         return (itspace_vrs, accessed_vrs)
 
-    def op_licm(self):
+    def generalized_licm(self):
         """Perform loop-invariant code motion.
 
         Invariant expressions found in the loop nest are moved "after" the
@@ -220,14 +222,14 @@ class LoopOptimiser(object):
 
         # Find out all variables which are written to in this loop nest
         written_vars = []
-        for s in self.out_prods.keys():
+        for s in self.asm_expr.keys():
             if type(s) in [Assign, Incr]:
                 written_vars.append(s.children[0].symbol)
 
         # Extract read-only sub-expressions that do not depend on at least
         # one loop in the loop nest
         ext_loops = []
-        for s, op in self.out_prods.items():
+        for s, op in self.asm_expr.items():
             expr_dep = defaultdict(list)
             if isinstance(s, (Assign, Incr)):
                 typ = self.kernel_decls[s.children[0].symbol][0].typ
@@ -262,7 +264,7 @@ class LoopOptimiser(object):
                     wl = [fast_for]
                 else:
                     place = self.pre_header
-                    ofs = place.children.index(self.loop_nest)
+                    ofs = place.children.index(self.fors[0])
                     wl = [l for l in self.fors if l.it_var() in dep]
 
                 # 2) Create the new loop
@@ -299,46 +301,60 @@ class LoopOptimiser(object):
 
         return ext_loops
 
-    def op_tiling(self, tile_sz=None):
-        """Perform tiling at the register level for this nest.
-        This function slices the iteration space, and relies on the backend
-        compiler for unrolling and vector-promoting the tiled loops.
-        By default, it slices the inner outer-product loop."""
+    def slice_loop(self, slice_factor=None):
+        """Perform slicing of the innermost loop to enhance register reuse.
+        For example, given a loop:
 
-        if tile_sz == -1:
-            tile_sz = 20  # Actually, should be determined for each form
+        for i = 0 to N
+          f()
 
-        for stmt, stmt_info in self.out_prods.items():
+        the following sequence of loops is generated:
+
+        for i = 0 to k
+          f()
+        for i = k to 2k
+          f()
+        ...
+        for i = (N-1)k to N
+          f()
+
+        The goal is to improve register re-use by relying on the backend
+        compiler unrolling and vector-promoting the sliced loops."""
+
+        if slice_factor == -1:
+            slice_factor = 20  # Defaut value
+
+        for stmt, stmt_info in self.asm_expr.items():
             # First, find outer product loops in the nest
-            loops = self.op_loops[stmt]
+            it_vars, parent, loops = stmt_info
 
-            # Build tiled loops
-            tiled_loops = []
-            n_loops = loops[1].cond.children[1].symbol / tile_sz
+            # Build sliced loops
+            sliced_loops = []
+            n_loops = loops[1].cond.children[1].symbol / slice_factor
             rem_loop_sz = loops[1].cond.children[1].symbol
             init = 0
             for i in range(n_loops):
                 loop = dcopy(loops[1])
                 loop.init.init = Symbol(init, ())
-                loop.cond.children[1] = Symbol(tile_sz * (i + 1), ())
-                init += tile_sz
-                tiled_loops.append(loop)
+                loop.cond.children[1] = Symbol(slice_factor * (i + 1), ())
+                init += slice_factor
+                sliced_loops.append(loop)
 
             # Build remainder loop
             if rem_loop_sz > 0:
-                init = tile_sz * n_loops
+                init = slice_factor * n_loops
                 loop = dcopy(loops[1])
                 loop.init.init = Symbol(init, ())
                 loop.cond.children[1] = Symbol(rem_loop_sz, ())
-                tiled_loops.append(loop)
+                sliced_loops.append(loop)
 
-            # Append tiled loops at the right point in the nest
+            # Append sliced loops at the right point in the nest
             par_block = loops[0].children[0]
             pb = par_block.children
             idx = pb.index(loops[1])
-            par_block.children = pb[:idx] + tiled_loops + pb[idx + 1:]
+            par_block.children = pb[:idx] + sliced_loops + pb[idx + 1:]
 
-    def op_split(self, cut, length):
+    def split(self, cut, length):
         """Split outer product RHS to improve resources utilization (e.g.
         vector registers)."""
 
@@ -375,9 +391,9 @@ class LoopOptimiser(object):
             else:
                 raise RuntimeError("Splitting expression, shouldn't be here.")
 
-        def split_and_update(out_prods):
-            op_split, op_splittable = ({}, {})
-            for stmt, stmt_info in out_prods.items():
+        def split_and_update(asm_expr):
+            split, splittable = ({}, {})
+            for stmt, stmt_info in asm_expr.items():
                 it_vars, parent, loops = stmt_info
                 stmt_left = dcopy(stmt)
                 stmt_right = dcopy(stmt)
@@ -393,25 +409,25 @@ class LoopOptimiser(object):
                     split_loop = dcopy([f for f in self.fors if f.it_var() == it_vars[0]][0])
                     split_inner_loop = split_loop.children[0].children[0].children[0]
                     split_inner_loop.children[0] = stmt_right
-                    self.loop_nest.children[0].children.append(split_loop)
+                    self.fors[0].children[0].children.append(split_loop)
                     stmt_right_loops = [split_loop, split_loop.children[0].children[0]]
                     # Update outer product dictionaries
-                    op_splittable[stmt_right] = (it_vars, split_inner_loop, stmt_right_loops)
-                    op_split[stmt_left] = (it_vars, parent, loops)
-                    return op_split, op_splittable
+                    splittable[stmt_right] = (it_vars, split_inner_loop, stmt_right_loops)
+                    split[stmt_left] = (it_vars, parent, loops)
+                    return split, splittable
                 else:
-                    return out_prods, {}
+                    return asm_expr, {}
 
-        if not self.out_prods:
+        if not self.asm_expr:
             return
 
-        new_out_prods = {}
-        splittable = self.out_prods
+        new_asm_expr = {}
+        splittable = self.asm_expr
         for i in range(length-1):
             split, splittable = split_and_update(splittable)
-            new_out_prods.update(split)
+            new_asm_expr.update(split)
             if not splittable:
                 break
         if splittable:
-            new_out_prods.update(splittable)
-        self.out_prods = new_out_prods
+            new_asm_expr.update(splittable)
+        self.asm_expr = new_asm_expr

@@ -34,8 +34,8 @@
 """Transform the kernel's AST according to the backend we are running over."""
 
 from ast_base import *
-from ast_optimizer import LoopOptimiser
-from ast_vectorizer import init_vectorizer, LoopVectoriser
+from ast_optimizer import AssemblyOptimizer
+from ast_vectorizer import init_vectorizer, AssemblyVectorizer
 import ast_vectorizer
 
 # Possibile optimizations
@@ -114,9 +114,9 @@ class ASTKernel(object):
             }
         """
 
-        lo = [LoopOptimiser(l, pre_l, self.decls) for l, pre_l in self.fors]
-        for nest in lo:
-            itspace_vrs, accessed_vrs = nest.extract_itspace()
+        asm = [AssemblyOptimizer(l, pre_l, self.decls) for l, pre_l in self.fors]
+        for ao in asm:
+            itspace_vrs, accessed_vrs = ao.extract_itspace()
 
             for v in accessed_vrs:
                 # Change declaration of non-constant iteration space-dependent
@@ -152,33 +152,32 @@ class ASTKernel(object):
 
         # Fetch user-provided options/hints on how to transform the kernel
         licm = opts.get('licm')
-        tile = opts.get('tile')
+        slice_factor = opts.get('slice')
         vect = opts.get('vect')
         ap = opts.get('ap')
         split = opts.get('split')
 
         v_type, v_param = vect if vect else (None, None)
-        tile_opt, tile_sz = tile if tile else (False, -1)
 
-        lo = [LoopOptimiser(l, pre_l, self.decls) for l, pre_l in self.fors]
-        for nest in lo:
+        asm = [AssemblyOptimizer(l, pre_l, self.decls) for l, pre_l in self.fors]
+        for ao in asm:
             # 1) Loop-invariant code motion
             inv_outer_loops = []
             if licm:
-                inv_outer_loops = nest.op_licm()  # noqa
-                self.decls.update(nest.decls)
+                inv_outer_loops = ao.generalized_licm()  # noqa
+                self.decls.update(ao.decls)
 
             # 2) Splitting
             if split:
-                nest.op_split(split[0], split[1])
+                ao.split(split[0], split[1])
 
             # 3) Register tiling
-            if tile_opt and v_type == AUTOVECT:
-                nest.op_tiling(tile_sz)
+            if slice_factor and v_type == AUTOVECT:
+                ao.slice_loop(slice_factor)
 
             # 4) Vectorization
             if ast_vectorizer.initialized:
-                vect = LoopVectoriser(nest)
+                vect = AssemblyVectorizer(ao)
                 if ap:
                     vect.align_and_pad(self.decls)
                 if v_type and v_type != AUTOVECT:
