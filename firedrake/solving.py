@@ -550,6 +550,8 @@ def _assemble(f, tensor=None, bcs=None):
         for (i, j), measure, coefficients, kernel in kernels:
             coords = measure.domain_data()
             m = coords.function_space().mesh()
+            if needs_orientations:
+                cell_orientations = m.cell_orientations()
             # Extract block from tensor and test/trial spaces
             # FIXME Ugly variable renaming required because functions are not
             # lexical closures in Python and we're writing to these variables
@@ -575,7 +577,9 @@ def _assemble(f, tensor=None, bcs=None):
                                    flatten=True)]
 
                 if needs_orientations:
-                    args.append(coords.function_space().mesh().cell_orientations()(op2.READ))
+                    args.append(cell_orientations.dat(op2.READ,
+                                                      cell_orientations.cell_node_map(),
+                                                      flatten=True))
                 for c in coefficients:
                     args.append(c.dat(op2.READ, c.cell_node_map(),
                                       flatten=True))
@@ -597,6 +601,10 @@ def _assemble(f, tensor=None, bcs=None):
                 args = [kernel, m.exterior_facets.measure_set(measure), tensor_arg,
                         coords.dat(op2.READ, coords.exterior_facet_node_map(),
                                    flatten=True)]
+                if needs_orientations:
+                    args.append(cell_orientations.dat(op2.READ,
+                                                      cell_orientations.exterior_facet_node_map(),
+                                                      flatten=True))
                 for c in coefficients:
                     args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
                                       flatten=True))
@@ -629,6 +637,10 @@ def _assemble(f, tensor=None, bcs=None):
                     args = [kernel, set, tensor_arg,
                             coords.dat(op2.READ, coords.cell_node_map(),
                                        flatten=True)]
+                    if needs_orientations:
+                        args.append(cell_orientations.dat(op2.READ,
+                                                          cell_orientations.cell_node_map(),
+                                                          flatten=True))
                     for c in coefficients:
                         args.append(c.dat(op2.READ, c.cell_node_map(),
                                           flatten=True))
@@ -654,6 +666,10 @@ def _assemble(f, tensor=None, bcs=None):
                 args = [kernel, m.interior_facets.set, tensor_arg,
                         coords.dat(op2.READ, coords.interior_facet_node_map(),
                                    flatten=True)]
+                if needs_orientations:
+                    args.append(cell_orientations.dat(op2.READ,
+                                                      cell_orientations.interior_facet_node_map(),
+                                                      flatten=True))
                 for c in coefficients:
                     args.append(c.dat(op2.READ, c.interior_facet_node_map(),
                                       flatten=True))
@@ -681,6 +697,10 @@ def _assemble(f, tensor=None, bcs=None):
                 args = [kernel, m.interior_facets.measure_set(measure), tensor_arg,
                         coords.dat(op2.READ, coords.cell_node_map(),
                                    flatten=True)]
+                if needs_orientations:
+                    args.append(cell_orientations.dat(op2.READ,
+                                                      cell_orientations.cell_node_map(),
+                                                      flatten=True))
                 for c in coefficients:
                     args.append(c.dat(op2.READ, c.cell_node_map(),
                                       flatten=True))
