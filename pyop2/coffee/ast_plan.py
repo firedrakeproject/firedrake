@@ -35,8 +35,7 @@
 
 from ast_base import *
 from ast_optimizer import AssemblyOptimizer
-from ast_vectorizer import init_vectorizer, AssemblyVectorizer
-import ast_vectorizer
+from ast_vectorizer import AssemblyVectorizer
 
 # Possibile optimizations
 AUTOVECT = 1        # Auto-vectorization
@@ -176,15 +175,84 @@ class ASTKernel(object):
                 ao.slice_loop(slice_factor)
 
             # 4) Vectorization
-            if ast_vectorizer.initialized:
-                vect = AssemblyVectorizer(ao)
+            if initialized:
+                vect = AssemblyVectorizer(ao, intrinsics, compiler)
                 if ap:
                     vect.align_and_pad(self.decls)
                 if v_type and v_type != AUTOVECT:
                     vect.outer_product(v_type, v_param)
 
 
-def init_ir(isa, compiler):
-    """Initialize the Intermediate Representation engine."""
+# These global variables capture the internal state of COFFEE
+intrinsics = {}
+compiler = {}
+initialized = False
 
-    init_vectorizer(isa, compiler)
+
+def init_coffee(isa, comp):
+    """Initialize COFFEE."""
+
+    global intrinsics, compiler, initialized
+    intrinsics = _init_isa(isa)
+    compiler = _init_compiler(comp)
+    if intrinsics and compiler:
+        initialized = True
+
+
+def _init_isa(isa):
+    """Set the intrinsics instruction set. """
+
+    if isa == 'sse':
+        return {
+            'inst_set': 'SSE',
+            'avail_reg': 16,
+            'alignment': 16,
+            'dp_reg': 2,  # Number of double values per register
+            'reg': lambda n: 'xmm%s' % n
+        }
+
+    if isa == 'avx':
+        return {
+            'inst_set': 'AVX',
+            'avail_reg': 16,
+            'alignment': 32,
+            'dp_reg': 4,  # Number of double values per register
+            'reg': lambda n: 'ymm%s' % n,
+            'zeroall': '_mm256_zeroall ()',
+            'setzero': AVXSetZero(),
+            'decl_var': '__m256d',
+            'align_array': lambda p: '__attribute__((aligned(%s)))' % p,
+            'symbol_load': lambda s, r, o=None: AVXLoad(s, r, o),
+            'symbol_set': lambda s, r, o=None: AVXSet(s, r, o),
+            'store': lambda m, r: AVXStore(m, r),
+            'mul': lambda r1, r2: AVXProd(r1, r2),
+            'div': lambda r1, r2: AVXDiv(r1, r2),
+            'add': lambda r1, r2: AVXSum(r1, r2),
+            'sub': lambda r1, r2: AVXSub(r1, r2),
+            'l_perm': lambda r, f: AVXLocalPermute(r, f),
+            'g_perm': lambda r1, r2, f: AVXGlobalPermute(r1, r2, f),
+            'unpck_hi': lambda r1, r2: AVXUnpackHi(r1, r2),
+            'unpck_lo': lambda r1, r2: AVXUnpackLo(r1, r2)
+        }
+
+
+def _init_compiler(compiler):
+    """Set compiler-specific keywords. """
+
+    if compiler == 'intel':
+        return {
+            'align': lambda o: '__attribute__((aligned(%s)))' % o,
+            'decl_aligned_for': '#pragma vector aligned',
+            'AVX': ['-xAVX'],
+            'SSE': ['-xSSE'],
+            'vect_header': '#include <immintrin.h>'
+        }
+
+    if compiler == 'gnu':
+        return {
+            'align': lambda o: '__attribute__((aligned(%s)))' % o,
+            'decl_aligned_for': '#pragma vector aligned',
+            'AVX': ['-mavx'],
+            'SSE': ['-msse'],
+            'vect_header': '#include <immintrin.h>'
+        }

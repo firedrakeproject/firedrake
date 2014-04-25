@@ -42,9 +42,7 @@ class AssemblyVectorizer(object):
 
     """ Loop vectorizer """
 
-    def __init__(self, assembly_optimizer):
-        if not initialized:
-            raise RuntimeError("Vectorizer must be initialized first.")
+    def __init__(self, assembly_optimizer, intrinsics, compiler):
         self.asm_opt = assembly_optimizer
         self.intr = intrinsics
         self.comp = compiler
@@ -456,79 +454,7 @@ class OuterProduct():
         return (stmt, layout)
 
 
-intrinsics = {}
-compiler = {}
-initialized = False
-
-
-def init_vectorizer(isa, comp):
-    global intrinsics, compiler, initialized
-    intrinsics = _init_isa(isa)
-    compiler = _init_compiler(comp)
-    if intrinsics and compiler:
-        initialized = True
-
-
-def _init_isa(isa):
-    """Set the intrinsics instruction set. """
-
-    if isa == 'sse':
-        return {
-            'inst_set': 'SSE',
-            'avail_reg': 16,
-            'alignment': 16,
-            'dp_reg': 2,  # Number of double values per register
-            'reg': lambda n: 'xmm%s' % n
-        }
-
-    if isa == 'avx':
-        return {
-            'inst_set': 'AVX',
-            'avail_reg': 16,
-            'alignment': 32,
-            'dp_reg': 4,  # Number of double values per register
-            'reg': lambda n: 'ymm%s' % n,
-            'zeroall': '_mm256_zeroall ()',
-            'setzero': AVXSetZero(),
-            'decl_var': '__m256d',
-            'align_array': lambda p: '__attribute__((aligned(%s)))' % p,
-            'symbol_load': lambda s, r, o=None: AVXLoad(s, r, o),
-            'symbol_set': lambda s, r, o=None: AVXSet(s, r, o),
-            'store': lambda m, r: AVXStore(m, r),
-            'mul': lambda r1, r2: AVXProd(r1, r2),
-            'div': lambda r1, r2: AVXDiv(r1, r2),
-            'add': lambda r1, r2: AVXSum(r1, r2),
-            'sub': lambda r1, r2: AVXSub(r1, r2),
-            'l_perm': lambda r, f: AVXLocalPermute(r, f),
-            'g_perm': lambda r1, r2, f: AVXGlobalPermute(r1, r2, f),
-            'unpck_hi': lambda r1, r2: AVXUnpackHi(r1, r2),
-            'unpck_lo': lambda r1, r2: AVXUnpackLo(r1, r2)
-        }
-
-
-def _init_compiler(compiler):
-    """Set compiler-specific keywords. """
-
-    if compiler == 'intel':
-        return {
-            'align': lambda o: '__attribute__((aligned(%s)))' % o,
-            'decl_aligned_for': '#pragma vector aligned',
-            'AVX': ['-xAVX'],
-            'SSE': ['-xSSE'],
-            'vect_header': '#include <immintrin.h>'
-        }
-
-    if compiler == 'gnu':
-        return {
-            'align': lambda o: '__attribute__((aligned(%s)))' % o,
-            'decl_aligned_for': '#pragma vector aligned',
-            'AVX': ['-mavx'],
-            'SSE': ['-msse'],
-            'vect_header': '#include <immintrin.h>'
-        }
-
-
 def vect_roundup(x):
     """Return x rounded up to the vector length. """
-    word_len = intrinsics.get("dp_reg") or 1
+    word_len = ap.intrinsics.get("dp_reg") or 1
     return int(ceil(x / float(word_len))) * word_len

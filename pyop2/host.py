@@ -45,7 +45,7 @@ from utils import as_tuple
 
 from coffee.ast_base import Node
 from coffee.ast_plan import ASTKernel
-import coffee.ast_vectorizer
+import coffee.ast_plan
 from coffee.ast_vectorizer import vect_roundup
 
 
@@ -544,8 +544,8 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
     def c_buffer_decl(self, size, idx, buf_name, is_facet=False):
         buf_type = self.data.ctype
         dim = len(size)
-        compiler = coffee.ast_vectorizer.compiler
-        isa = coffee.ast_vectorizer.intrinsics
+        compiler = coffee.ast_plan.compiler
+        isa = coffee.ast_plan.intrinsics
         return (buf_name, "%(typ)s %(name)s%(dim)s%(align)s%(init)s" %
                 {"typ": buf_type,
                  "name": buf_name,
@@ -637,8 +637,8 @@ class JITModule(base.JITModule):
         strip = lambda code: '\n'.join([l for l in code.splitlines()
                                         if l.strip() and l.strip() != ';'])
 
-        compiler = coffee.ast_vectorizer.compiler
-        vect_flag = compiler.get(coffee.ast_vectorizer.intrinsics.get('inst_set')) if compiler else None
+        compiler = coffee.ast_plan.compiler
+        vect_flag = compiler.get(coffee.ast_plan.intrinsics.get('inst_set')) if compiler else None
 
         if any(arg._is_soa for arg in self._args):
             kernel_code = """
