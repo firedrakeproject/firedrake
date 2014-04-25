@@ -26,8 +26,8 @@ class Argument(ufl.argument.Argument):
 
         .. note::
 
-           an :class:`Argument` with a count of ``-2`` is used as a
-           :class:`TestFunction`, with a count of ``-1`` it is used as
+           an :class:`Argument` with a count of ``0`` is used as a
+           :class:`TestFunction`, with a count of ``1`` it is used as
            a :class:`TrialFunction`.
 
         """
@@ -75,7 +75,7 @@ def TestFunction(function_space):
 
     :arg function_space: the :class:`.FunctionSpaceBase` to build the test
          function on."""
-    return Argument(function_space.ufl_element(), function_space, -2)
+    return Argument(function_space.ufl_element(), function_space, 0)
 
 
 def TrialFunction(function_space):
@@ -83,7 +83,7 @@ def TrialFunction(function_space):
 
     :arg function_space: the :class:`.FunctionSpaceBase` to build the trial
          function on."""
-    return Argument(function_space.ufl_element(), function_space, -1)
+    return Argument(function_space.ufl_element(), function_space, 1)
 
 
 def TestFunctions(function_space):
