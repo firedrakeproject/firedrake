@@ -159,14 +159,14 @@ class FFCKernel(DiskCached):
         kernels = []
         for it, kernel in zip(form.form_data().preprocessed_form.integrals(), ffc_tree):
             # Set optimization options
-            opts = {} if it.domain_type() not in ['cell'] else \
+            opts = {} if it.integral_type() not in ['cell'] else \
                    {'licm': False,
                     'slice': None,
                     'vect': None,
                     'ap': False,
                     'split': None}
             kernels.append(Kernel(Root([incl, kernel]), '%s_%s_integral_0_%s' %
-                           (name, it.domain_type(), it.domain_id()), opts, inc))
+                           (name, it.integral_type(), it.domain_id()), opts, inc))
         self.kernels = tuple(kernels)
         self._initialized = True
 

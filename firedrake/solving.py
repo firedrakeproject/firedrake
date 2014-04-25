@@ -449,25 +449,25 @@ def _assemble(f, tensor=None, bcs=None):
         # coming from the base mesh as a starting point for the actual dynamic map
         # computation.
         for integral in integrals:
-            domain_type = integral.measure().domain_type()
-            if domain_type == "cell":
+            integral_type = integral.measure().integral_type()
+            if integral_type == "cell":
                 cell_domains.append(op2.ALL)
-            elif domain_type == "exterior_facet":
+            elif integral_type == "exterior_facet":
                 exterior_facet_domains.append(op2.ALL)
-            elif domain_type == "interior_facet":
+            elif integral_type == "interior_facet":
                 interior_facet_domains.append(op2.ALL)
-            elif domain_type == "exterior_facet_bottom":
+            elif integral_type == "exterior_facet_bottom":
                 cell_domains.append(op2.ON_BOTTOM)
-            elif domain_type == "exterior_facet_top":
+            elif integral_type == "exterior_facet_top":
                 cell_domains.append(op2.ON_TOP)
-            elif domain_type == "exterior_facet_vert":
+            elif integral_type == "exterior_facet_vert":
                 exterior_facet_domains.append(op2.ALL)
-            elif domain_type == "interior_facet_horiz":
+            elif integral_type == "interior_facet_horiz":
                 cell_domains.append(op2.ON_INTERIOR_FACETS)
-            elif domain_type == "interior_facet_vert":
+            elif integral_type == "interior_facet_vert":
                 interior_facet_domains.append(op2.ALL)
             else:
-                raise RuntimeError('Unknown domain type "%s"' % domain_type)
+                raise RuntimeError('Unknown integral type "%s"' % integral_type)
 
         # To avoid an extra check for extruded domains, the maps that are being passed in
         # are SparsityMaps. For the non-extruded case the SparsityMaps don't restrict the
@@ -562,7 +562,7 @@ def _assemble(f, tensor=None, bcs=None):
                 trbc = [bc for bc in bcs if bc.function_space().index == j]
             elif is_mat:
                 tsbc, trbc = bcs, bcs
-            if measure.domain_type() == 'cell':
+            if measure.integral_type() == 'cell':
                 if is_mat:
                     tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
                                      lambda s: s.cell_node_map(trbc),
@@ -591,7 +591,7 @@ def _assemble(f, tensor=None, bcs=None):
                 except MapValueError:
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
-            elif measure.domain_type() in ['exterior_facet', 'exterior_facet_vert']:
+            elif measure.integral_type() in ['exterior_facet', 'exterior_facet_vert']:
                 if is_mat:
                     tensor_arg = mat(lambda s: s.exterior_facet_node_map(tsbc),
                                      lambda s: s.exterior_facet_node_map(trbc),
@@ -616,7 +616,7 @@ def _assemble(f, tensor=None, bcs=None):
                 except MapValueError:
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
-            elif measure.domain_type() in ['exterior_facet_top', 'exterior_facet_bottom']:
+            elif measure.integral_type() in ['exterior_facet_top', 'exterior_facet_bottom']:
                 if is_mat:
                     tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
                                      lambda s: s.cell_node_map(trbc),
@@ -651,7 +651,7 @@ def _assemble(f, tensor=None, bcs=None):
                     except MapValueError:
                         raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
-            elif measure.domain_type() in ['interior_facet', 'interior_facet_vert']:
+            elif measure.integral_type() in ['interior_facet', 'interior_facet_vert']:
                 if op2.MPI.parallel:
                     raise \
                         NotImplementedError(
@@ -681,7 +681,7 @@ def _assemble(f, tensor=None, bcs=None):
                 except MapValueError:
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
-            elif measure.domain_type() == 'interior_facet_horiz':
+            elif measure.integral_type() == 'interior_facet_horiz':
                 if op2.MPI.parallel:
                     raise \
                         NotImplementedError(
@@ -712,7 +712,7 @@ def _assemble(f, tensor=None, bcs=None):
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
             else:
-                raise RuntimeError('Unknown domain type "%s"' % measure.domain_type())
+                raise RuntimeError('Unknown integral type "%s"' % measure.integral_type())
 
             if bcs is not None and is_mat:
                 for bc in bcs:

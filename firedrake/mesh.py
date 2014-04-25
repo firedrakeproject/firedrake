@@ -154,7 +154,7 @@ class _Facets(object):
         facets, or for a particular numbered subdomain.'''
 
         dom_id = measure.domain_id()
-        dom_type = measure.domain_type()
+        dom_type = measure.integral_type()
         if dom_id in [measure.DOMAIN_ID_EVERYWHERE,
                       measure.DOMAIN_ID_OTHERWISE]:
             if dom_type == "exterior_facet_topbottom":

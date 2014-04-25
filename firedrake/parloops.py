@@ -128,7 +128,7 @@ def par_loop(kernel, measure, args):
 
     """
 
-    _map = _maps[measure.domain_type()]
+    _map = _maps[measure.integral_type()]
 
     mesh = measure.subdomain_data().function_space().mesh()
 
