@@ -59,6 +59,7 @@ void %(wrapper_name)s(int start, int end,
   %(wrapper_decs)s;
   %(const_inits)s;
   %(map_decl)s
+  %(vec_decs)s;
   for ( int n = start; n < end; n++ ) {
     int i = %(index_expr)s;
     %(vec_inits)s;

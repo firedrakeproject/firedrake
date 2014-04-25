@@ -120,8 +120,6 @@ class Arg(base.Arg):
         elif self._is_mat:
             val += "Mat %(iname)s = %(name)s_;\n" % {'name': self.c_arg_name(),
                                                      'iname': self.c_arg_name(0, 0)}
-        if self._is_vec_map:
-            val += self.c_vec_dec(is_facet=is_facet)
         return val
 
     def c_ind_data(self, idx, i, j=0, is_top=False, layers=1, offset=None):
@@ -737,6 +735,8 @@ class JITModule(base.JITModule):
         # an extruded mesh.
         _wrapper_decs = ';\n'.join([arg.c_wrapper_dec(is_facet=is_facet) for arg in self._args])
 
+        _vec_decs = ';\n'.join([arg.c_vec_dec(is_facet=is_facet) for arg in self._args if arg._is_vec_map])
+
         if len(Const._defs) > 0:
             _const_args = ', '
             _const_args += ', '.join([c_const_arg(c) for c in Const._definitions()])
@@ -908,6 +908,7 @@ class JITModule(base.JITModule):
                 'off_args': _off_args,
                 'layer_arg': _layer_arg,
                 'map_decl': indent(_map_decl, 2),
+                'vec_decs': indent(_vec_decs, 2),
                 'map_init': indent(_map_init, 5),
                 'apply_offset': indent(_apply_offset, 3),
                 'extr_loop': indent(_extr_loop, 5),
