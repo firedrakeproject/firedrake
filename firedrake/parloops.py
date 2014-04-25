@@ -130,7 +130,7 @@ def par_loop(kernel, measure, args):
 
     _map = _maps[measure.domain_type()]
 
-    mesh = measure.domain_data().function_space().mesh()
+    mesh = measure.subdomain_data().function_space().mesh()
 
     op2args = [_form_kernel(kernel, measure, args)]
 

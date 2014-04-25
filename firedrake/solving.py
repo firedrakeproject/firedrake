@@ -550,7 +550,7 @@ def _assemble(f, tensor=None, bcs=None):
             top = any(bc.sub_domain == "top" for bc in bcs)
             extruded_bcs = (bottom, top)
         for (i, j), measure, coefficients, kernel in kernels:
-            coords = measure.domain_data()
+            coords = measure.subdomain_data()
             m = coords.function_space().mesh()
             if needs_orientations:
                 cell_orientations = m.cell_orientations()

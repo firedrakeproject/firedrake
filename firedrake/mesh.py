@@ -333,12 +333,12 @@ class Mesh(object):
             self.coordinates = function.Function(self._coordinate_fs,
                                                  val=coordinates,
                                                  name="Coordinates")
-        self._dx = ufl.Measure('cell', domain_data=self.coordinates)
-        self._ds = ufl.Measure('exterior_facet', domain_data=self.coordinates)
-        self._dS = ufl.Measure('interior_facet', domain_data=self.coordinates)
-        # Set the domain_data on all the default measures to this coordinate field.
+        self._dx = ufl.Measure('cell', subdomain_data=self.coordinates)
+        self._ds = ufl.Measure('exterior_facet', subdomain_data=self.coordinates)
+        self._dS = ufl.Measure('interior_facet', subdomain_data=self.coordinates)
+        # Set the subdomain_data on all the default measures to this coordinate field.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
-            measure._domain_data = self.coordinates
+            measure._subdomain_data = self.coordinates
 
     def _from_gmsh(self, filename, dim=0, periodic_coords=None, reorder=None):
         """Read a Gmsh .msh file from `filename`"""
@@ -648,12 +648,12 @@ class ExtrudedMesh(Mesh):
                                     kernel=kernel)
         self._coordinates = self.coordinates.dat.data_ro_with_halos
 
-        self._dx = ufl.Measure('cell', domain_data=self.coordinates)
-        self._ds = ufl.Measure('exterior_facet', domain_data=self.coordinates)
-        self._dS = ufl.Measure('interior_facet', domain_data=self.coordinates)
-        # Set the domain_data on all the default measures to this coordinate field.
+        self._dx = ufl.Measure('cell', subdomain_data=self.coordinates)
+        self._ds = ufl.Measure('exterior_facet', subdomain_data=self.coordinates)
+        self._dS = ufl.Measure('interior_facet', subdomain_data=self.coordinates)
+        # Set the subdomain_data on all the default measures to this coordinate field.
         for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_t, ufl.ds_b, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
-            measure._domain_data = self.coordinates
+            measure._subdomain_data = self.coordinates
 
     @property
     def layers(self):
