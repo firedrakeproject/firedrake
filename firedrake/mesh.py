@@ -253,22 +253,28 @@ class Mesh(object):
     def _from_dmplex(self, plex, geometric_dim=0, periodic_coords=None):
         """ Create mesh from DMPlex object """
 
-        self._plex = plex
         self.uid = utils._new_uid()
 
         if geometric_dim == 0:
-            geometric_dim = self._plex.getDimension()
+            geometric_dim = plex.getDimension()
+
+        # Distribute the dm to all ranks
+        if op2.MPI.comm.size > 1:
+            self.parallel_sf = plex.distribute(overlap=1)
+        else:
+            # For non-1D meshes in serial, reorder using RCM
+            if plex.getDimension() > 1:
+                perm = plex.getOrdering(PETSc.Mat.OrderingType.RCM)
+                plex = plex.permute(perm)
+
+        self._plex = plex
 
         # Mark exterior and interior facets
         dmplex.label_facets(self._plex)
 
-        # Distribute the dm to all ranks
-        if op2.MPI.comm.size > 1:
-            self.parallel_sf = self._plex.distribute(overlap=1)
-
         # Mark OP2 entities and derive the resulting Plex renumbering
         dmplex.mark_entity_classes(self._plex)
-        self._plex_renumbering = dmplex.plex_renumbering(plex)
+        self._plex_renumbering = dmplex.plex_renumbering(self._plex)
 
         cStart, cEnd = self._plex.getHeightStratum(0)  # cells
         cell_vertices = self._plex.getConeSize(cStart)

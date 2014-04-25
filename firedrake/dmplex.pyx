@@ -104,7 +104,7 @@ def facet_numbering(PETSc.DM plex, kind,
         # Second cell
         if facet_cells.shape[1] > 1:
             cell = facet_cells[f,1]
-            if cell > 0:
+            if cell >= 0:
                 fi = 0
                 for c in range(nclosure):
                     if cell_closures[cell, c] == facets[f]:
@@ -458,7 +458,7 @@ def get_facet_nodes(np.ndarray[np.int32_t, ndim=2] facet_cells,
         # Second parent cell for internal facets
         if ncells > 1:
             cell = facet_cells[f, 1]
-            if cell > 0:
+            if cell >= 0:
                 for i in range(ndofs):
                     facet_nodes[f, ndofs+i] = cell_nodes[cell, i]
             else:
