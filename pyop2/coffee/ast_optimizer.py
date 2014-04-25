@@ -34,7 +34,7 @@
 from collections import defaultdict
 from copy import deepcopy as dcopy
 
-from pyop2.ir.ast_base import *
+from pyop2.coffee.ast_base import *
 import ast_plan
 
 

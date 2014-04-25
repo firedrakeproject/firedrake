@@ -38,7 +38,7 @@ from numpy.testing import assert_allclose
 
 from pyop2 import op2
 from pyop2.computeind import compute_ind_extr
-from pyop2.ir.ast_base import *
+from pyop2.coffee.ast_base import *
 
 backends = ['sequential', 'openmp']
 

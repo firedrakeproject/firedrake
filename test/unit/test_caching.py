@@ -37,7 +37,7 @@ import random
 from pyop2 import plan
 from pyop2 import op2
 
-from pyop2.ir.ast_base import *
+from pyop2.coffee.ast_base import *
 
 
 def _seed():
