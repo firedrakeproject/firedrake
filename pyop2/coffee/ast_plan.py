@@ -178,7 +178,8 @@ class ASTKernel(object):
             if initialized:
                 vect = AssemblyVectorizer(ao, intrinsics, compiler)
                 if ap:
-                    vect.align_and_pad(self.decls)
+                    vect.alignment(self.decls)
+                    vect.padding(self.decls)
                 if v_type and v_type != AUTOVECT:
                     vect.outer_product(v_type, v_param)
 

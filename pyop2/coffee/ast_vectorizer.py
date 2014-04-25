@@ -46,42 +46,44 @@ class AssemblyVectorizer(object):
         self.asm_opt = assembly_optimizer
         self.intr = intrinsics
         self.comp = compiler
-        self.iloops = self._inner_loops(assembly_optimizer.fors[0])
         self.padded = []
 
-    def align_and_pad(self, decl_scope, only_align=False):
+    def alignment(self, decl_scope):
+        """Align all data structures accessed in the loop nest to the size in
+        bytes of the vector length."""
+
+        for d, s in decl_scope.values():
+            if d.sym.rank and s != ap.PARAM_VAR:
+                d.attr.append(self.comp["align"](self.intr["alignment"]))
+
+    def padding(self, decl_scope):
         """Pad all data structures accessed in the loop nest to the nearest
-        multiple of the vector length. Also align them to the size of the
-        vector length in order to issue aligned loads and stores. Tell about
-        the alignment to the back-end compiler by adding suitable pragmas to
-        loops. Finally, adjust trip count and bound of each innermost loop
-        in which padded and aligned arrays are written to."""
+        multiple of the vector length. Adjust trip counts and bounds of all
+        innermost loops where padded arrays are written to. Since padding
+        enforces data alignment of multi-dimensional arrays, add suitable
+        pragmas to inner loops to inform the backend compiler about this
+        property."""
 
         used_syms = [s.symbol for s in self.asm_opt.sym]
         acc_decls = [d for s, d in decl_scope.items() if s in used_syms]
 
         # Padding
-        if not only_align:
-            for d, s in acc_decls:
-                if d.sym.rank:
-                    if s == ap.PARAM_VAR:
-                        d.sym.rank = tuple([vect_roundup(r) for r in d.sym.rank])
-                    else:
-                        rounded = vect_roundup(d.sym.rank[-1])
-                        d.sym.rank = d.sym.rank[:-1] + (rounded,)
-                    self.padded.append(d.sym)
+        for d, s in acc_decls:
+            if d.sym.rank:
+                if s == ap.PARAM_VAR:
+                    d.sym.rank = tuple([vect_roundup(r) for r in d.sym.rank])
+                else:
+                    rounded = vect_roundup(d.sym.rank[-1])
+                    d.sym.rank = d.sym.rank[:-1] + (rounded,)
+                self.padded.append(d.sym)
 
-        # Alignment
-        for d, s in decl_scope.values():
-            if d.sym.rank and s != ap.PARAM_VAR:
-                d.attr.append(self.comp["align"](self.intr["alignment"]))
-
-        # Add pragma alignment over innermost loops
-        for l in self.iloops:
+        iloops = inner_loops(self.asm_opt.pre_header)
+        # Add pragma alignment
+        for l in iloops:
             l.pragma = self.comp["decl_aligned_for"]
 
         # Loop adjustment
-        for l in self.iloops:
+        for l in iloops:
             for stm in l.children[0].children:
                 sym = stm.children[0]
                 if sym.rank and sym.rank[-1] == l.it_var():
@@ -155,24 +157,6 @@ class AssemblyVectorizer(object):
         if layout:
             parent = self.asm_opt.pre_header.children
             parent.insert(parent.index(self.asm_opt.fors[0]) + 1, layout)
-
-    def _inner_loops(self, node):
-        """Find inner loops in the subtree rooted in node."""
-
-        def find_iloops(node, loops):
-            if isinstance(node, Perfect):
-                return False
-            elif isinstance(node, Block):
-                return any([find_iloops(s, loops) for s in node.children])
-            elif isinstance(node, For):
-                found = find_iloops(node.children[0], loops)
-                if not found:
-                    loops.append(node)
-                return True
-
-        loops = []
-        find_iloops(node, loops)
-        return loops
 
 
 class OuterProduct():
@@ -454,7 +438,28 @@ class OuterProduct():
         return (stmt, layout)
 
 
+# Utility functions
+
 def vect_roundup(x):
     """Return x rounded up to the vector length. """
     word_len = ap.intrinsics.get("dp_reg") or 1
     return int(ceil(x / float(word_len))) * word_len
+
+
+def inner_loops(node):
+    """Find inner loops in the subtree rooted in node."""
+
+    def find_iloops(node, loops):
+        if isinstance(node, Perfect):
+            return False
+        elif isinstance(node, Block):
+            return any([find_iloops(s, loops) for s in node.children])
+        elif isinstance(node, For):
+            found = find_iloops(node.children[0], loops)
+            if not found:
+                loops.append(node)
+            return True
+
+    loops = []
+    find_iloops(node, loops)
+    return loops
