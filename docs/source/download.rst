@@ -88,6 +88,24 @@ From the Firedrake directory build the relevant modules::
 
  make
 
+Cleaning disk caches after upgrade
+..................................
+
+After upgrading, you may need to clear any disk caches that Firedrake
+maintains to ensure that your problem does not pick up any out of date
+compiled modules.  This can be carried out by executing the
+``firedrake-clean`` script.  If you carried out a sudo install of
+Firedrake using pip, ``firedrake-clean`` should be in your ``PATH``
+and so you should just be able to execute it.  If you carried out a
+user install using pip, you will need to add ``$HOME/.local/bin`` to
+your ``PATH`` ::
+
+  export PATH=$HOME/.local/bin:$PATH
+
+If you are using a checkout of Firedrake, ``firedrake-clean`` lives in
+the ``scripts`` subdirectory.
+
+
 .. _PyOP2: http://op2.github.io/PyOP2
 .. _FFC: https://bitbucket.org/mapdes/ffc
 .. _FIAT: https://bitbucket.org/mapdes/fiat
