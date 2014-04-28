@@ -3440,6 +3440,10 @@ class Kernel(Cached):
       op2.Kernel("void setrand(double *x) { x[0] = (double)random()/RAND_MAX); }",
                  name="setrand",
                  headers=["#include <stdlib.h>"], user_code="srandom(10001);")
+
+    .. note::
+        When running in parallel with MPI the generated code must be the same
+        on all ranks.
     """
 
     _globalcount = 0
