@@ -551,7 +551,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                  "name": buf_name,
                  "dim": "".join(["[%d]" % (d * (2 if is_facet else 1)) for d in size]),
                  "align": " " + compiler.get("align")(isa["alignment"]) if compiler else "",
-                 "init": " = " + "{" * dim + "0" + "}" * dim if self.access._mode in ['WRITE', 'INC'] else ""})
+                 "init": " = " + "{" * dim + "0.0" + "}" * dim if self.access._mode in ['WRITE', 'INC'] else ""})
 
     def c_buffer_gather(self, size, idx, buf_name):
         dim = 1 if self._flatten else self.data.cdim
