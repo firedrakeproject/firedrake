@@ -638,8 +638,6 @@ class JITModule(base.JITModule):
                                         if l.strip() and l.strip() != ';'])
 
         compiler = coffee.ast_plan.compiler
-        vect_flag = compiler.get(coffee.ast_plan.intrinsics.get('inst_set')) if compiler else None
-
         if any(arg._is_soa for arg in self._args):
             kernel_code = """
             #define OP2_STRIDE(a, idx) a[idx]
@@ -647,13 +645,13 @@ class JITModule(base.JITModule):
             %(code)s
             #undef OP2_STRIDE
             """ % {'code': self._kernel.code,
-                   'header': compiler.get('vect_header') if vect_flag else ""}
+                   'header': compiler.get('vect_header') if compiler else ""}
         else:
             kernel_code = """
             %(header)s
             %(code)s
             """ % {'code': self._kernel.code,
-                   'header': compiler.get('vect_header') if vect_flag else ""}
+                   'header': compiler.get('vect_header') if compiler else ""}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
 
         _const_decs = '\n'.join([const._format_declaration()
@@ -680,8 +678,8 @@ class JITModule(base.JITModule):
         cppargs = ["-I%s/include" % d for d in get_petsc_dir()] + \
                   ["-I%s" % d for d in self._kernel._include_dirs] + \
                   ["-I%s" % os.path.abspath(os.path.dirname(__file__))]
-        if vect_flag:
-            cppargs += vect_flag
+        if compiler:
+            cppargs += [compiler[coffee.ast_plan.intrinsics['inst_set']]]
         ldargs = ["-L%s/lib" % d for d in get_petsc_dir()] + \
                  ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()] + \
                  ["-lpetsc", "-lm"] + self._libraries
@@ -690,7 +688,8 @@ class JITModule(base.JITModule):
                                      cppargs=cppargs,
                                      ldargs=ldargs,
                                      argtypes=argtypes,
-                                     restype=restype)
+                                     restype=restype,
+                                     compiler=compiler['name'])
         # Blow away everything we don't need any more
         del self._args
         del self._kernel

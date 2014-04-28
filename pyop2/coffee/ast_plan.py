@@ -242,18 +242,20 @@ def _init_compiler(compiler):
 
     if compiler == 'intel':
         return {
+            'name': 'intel',
             'align': lambda o: '__attribute__((aligned(%s)))' % o,
             'decl_aligned_for': '#pragma vector aligned',
-            'AVX': ['-xAVX'],
-            'SSE': ['-xSSE'],
+            'AVX': '-xAVX',
+            'SSE': '-xSSE',
             'vect_header': '#include <immintrin.h>'
         }
 
     if compiler == 'gnu':
         return {
+            'name': 'gnu',
             'align': lambda o: '__attribute__((aligned(%s)))' % o,
             'decl_aligned_for': '#pragma vector aligned',
-            'AVX': ['-mavx'],
-            'SSE': ['-msse'],
+            'AVX': '-mavx',
+            'SSE': '-msse',
             'vect_header': '#include <immintrin.h>'
         }
