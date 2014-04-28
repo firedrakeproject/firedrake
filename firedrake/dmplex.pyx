@@ -725,11 +725,17 @@ def get_facets_by_class(PETSc.DM plex, label):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def plex_renumbering(PETSc.DM plex):
+def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1] reordering=None):
     """
     Build a global node renumbering as a permutation of Plex points.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
+    :arg reordering: A reordering from reordered to original plex
+         points used to provide the traversal order of the cells
+         (i.e. the inverse of the ordering obtained from
+         DMPlexGetOrdering).  Optional, if not provided (or ``None``),
+         no reordering is applied and the plex is traversed in
+         original order.
 
     The node permutation is derived from a depth-first traversal of
     the Plex graph over each OP2 entity class in turn. The returned IS
@@ -737,6 +743,10 @@ def plex_renumbering(PETSc.DM plex):
     """
     cdef:
         PetscInt dim, ncells, nclosure, c, ci, p, p_glbl, lbl_val
+        PetscInt cStart, cEnd, core_idx, non_core_idx, exec_halo_idx
+        PetscInt *core_cells = NULL
+        PetscInt *non_core_cells = NULL
+        PetscInt *exec_halo_cells = NULL
         PetscInt *cells = NULL
         PetscInt *closure = NULL
         PetscInt *perm = NULL
@@ -744,41 +754,109 @@ def plex_renumbering(PETSc.DM plex):
         PETSc.IS perm_is = None
         char *lbl_chr = NULL
         PetscBT seen = NULL
+        bint reorder = reordering is not None
 
     dim = plex.getDimension()
     pStart, pEnd = plex.getChart()
+    cStart, cEnd = plex.getHeightStratum(0)
     CHKERR(PetscMalloc1(pEnd - pStart, &perm))
     CHKERR(PetscBTCreate(pEnd - pStart, &seen))
     p_glbl = 0
 
-    for op2class in ["op2_core",
-                     "op2_non_core",
-                     "op2_exec_halo"]:
-        lbl_chr = <char*>op2class
-        ncells = plex.getStratumSize(op2class, dim)
-        if ncells > 0:
-            cell_is = plex.getStratumIS(op2class, dim)
-            CHKERR(ISGetIndices(cell_is.iset, &cells))
-            for c in range(ncells):
-                CHKERR(DMPlexGetTransitiveClosure(plex.dm, cells[c],
-                                                  PETSC_TRUE,
-                                                  &nclosure,
-                                                  &closure))
-                for ci in range(nclosure):
-                    p = closure[2*ci]
-                    if not PetscBTLookup(seen, p):
-                        CHKERR(DMPlexGetLabelValue(plex.dm, lbl_chr,
-                                                   p, &lbl_val))
-                        if lbl_val >= 0:
-                            CHKERR(PetscBTSet(seen, p))
-                            perm[p_glbl] = p
-                            p_glbl += 1
+    if reorder:
+        core_idx = plex.getStratumSize("op2_core", dim)
+        non_core_idx = plex.getStratumSize("op2_non_core", dim)
+        exec_halo_idx = plex.getStratumSize("op2_exec_halo", dim)
 
-            CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, cells[c],
-                                                  PETSC_TRUE,
-                                                  &nclosure,
-                                                  &closure))
-    CHKERR(PetscBTDestroy(&seen))
+        CHKERR(PetscMalloc1(core_idx, &core_cells))
+        CHKERR(PetscMalloc1(non_core_idx, &non_core_cells))
+        CHKERR(PetscMalloc1(exec_halo_idx, &exec_halo_cells))
+
+        core_idx = 0
+        non_core_idx = 0
+        exec_halo_idx = 0
+
+        # Walk over the reordering
+        for ci in range(reordering.size):
+            # Have we hit all the cells yet, if so break out early
+            if core_idx + non_core_idx + exec_halo_idx > cEnd - cStart:
+                break
+            p = reordering[ci]
+
+            CHKERR(DMPlexGetLabelValue(plex.dm, "depth",
+                                       p, &lbl_val))
+            # This point is a cell
+            if lbl_val == dim:
+                # Which entity class is this point in?
+                CHKERR(DMPlexGetLabelValue(plex.dm, "op2_core",
+                                           p, &lbl_val))
+                if lbl_val == dim:
+                    core_cells[core_idx] = p
+                    core_idx += 1
+                    continue
+
+                CHKERR(DMPlexGetLabelValue(plex.dm, "op2_non_core",
+                                           p, &lbl_val))
+                if lbl_val == dim:
+                    non_core_cells[non_core_idx] = p
+                    non_core_idx += 1
+                    continue
+
+                CHKERR(DMPlexGetLabelValue(plex.dm, "op2_exec_halo",
+                                           p, &lbl_val))
+
+                if lbl_val == dim:
+                    exec_halo_cells[exec_halo_idx] = p
+                    exec_halo_idx += 1
+                    continue
+
+                raise RuntimeError("Should never be reached")
+
+    # Now we can walk over the cell classes and order all the plex points
+    for op2class in ["op2_core", "op2_non_core", "op2_exec_halo"]:
+        lbl_chr = <char *>op2class
+        if reorder:
+            if op2class == "op2_core":
+                ncells = core_idx
+                cells = core_cells
+            elif op2class == "op2_non_core":
+                ncells = non_core_idx
+                cells = non_core_cells
+            elif op2class == "op2_exec_halo":
+                ncells = exec_halo_idx
+                cells = exec_halo_cells
+        else:
+            ncells = plex.getStratumSize(op2class, dim)
+            if ncells > 0:
+                cell_is = plex.getStratumIS(op2class, dim)
+                CHKERR(ISGetIndices(cell_is.iset, &cells))
+        for c in range(ncells):
+            CHKERR(DMPlexGetTransitiveClosure(plex.dm, cells[c],
+                                              PETSC_TRUE,
+                                              &nclosure,
+                                              &closure))
+            for ci in range(nclosure):
+                p = closure[2*ci]
+                if not PetscBTLookup(seen, p):
+                    CHKERR(DMPlexGetLabelValue(plex.dm, lbl_chr,
+                                               p, &lbl_val))
+                    if lbl_val >= 0:
+                        CHKERR(PetscBTSet(seen, p))
+                        perm[p_glbl] = p
+                        p_glbl += 1
+
+        if not reorder and ncells > 0:
+            CHKERR(ISRestoreIndices(cell_is.iset, &cells))
+
+    CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0,
+                                          PETSC_TRUE,
+                                          &nclosure,
+                                          &closure))
+
+    if reorder:
+        CHKERR(PetscFree(core_cells))
+        CHKERR(PetscFree(non_core_cells))
+        CHKERR(PetscFree(exec_halo_cells))
 
     perm_is = PETSc.IS().create()
     perm_is.setType("general")

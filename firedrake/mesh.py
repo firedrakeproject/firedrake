@@ -196,7 +196,7 @@ class _Facets(object):
 
 class Mesh(object):
     """A representation of mesh topology and geometry."""
-    def __init__(self, filename, dim=None, periodic_coords=None, plex=None):
+    def __init__(self, filename, dim=None, periodic_coords=None, plex=None, reorder=True):
         """
         :param filename: the mesh file to read.  Supported mesh formats
                are Gmsh (extension ``msh``) and triangle (extension
@@ -212,6 +212,9 @@ class Mesh(object):
                used to replace those read from the mesh file.  These
                are only supported in 1D and must have enough entries
                to be used as a DG1 field on the mesh.
+        :param reorder: if True, reorder the mesh before numbering it,
+               currently, only reorderings in serial using RCM are
+               supported.
         """
 
         utils._init()
@@ -226,7 +229,8 @@ class Mesh(object):
 
         if plex is not None:
             self._from_dmplex(plex, geometric_dim=dim,
-                              periodic_coords=periodic_coords)
+                              periodic_coords=periodic_coords,
+                              reorder=reorder)
         else:
             basename, ext = os.path.splitext(filename)
 
@@ -250,25 +254,36 @@ class Mesh(object):
     def coordinates(self, value):
         self._coordinate_function = value
 
-    def _from_dmplex(self, plex, geometric_dim=0, periodic_coords=None):
+    def _from_dmplex(self, plex, geometric_dim=0,
+                     periodic_coords=None, reorder=True):
         """ Create mesh from DMPlex object """
 
         self._plex = plex
         self.uid = utils._new_uid()
 
         if geometric_dim == 0:
-            geometric_dim = self._plex.getDimension()
+            geometric_dim = plex.getDimension()
+
+        # Distribute the dm to all ranks
+        if op2.MPI.comm.size > 1:
+            self.parallel_sf = plex.distribute(overlap=1)
+
+        self._plex = plex
 
         # Mark exterior and interior facets
         dmplex.label_facets(self._plex)
 
-        # Distribute the dm to all ranks
-        if op2.MPI.comm.size > 1:
-            self.parallel_sf = self._plex.distribute(overlap=1)
+        if reorder and self._plex.getDimension() > 1:
+            rcm_order = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
+            inv_rcm_order = np.empty_like(rcm_order)
+            inv_rcm_order[rcm_order] = np.arange(rcm_order.size, dtype=rcm_order.dtype)
+        else:
+            # Identity
+            inv_rcm_order = np.arange(*self._plex.getChart(), dtype=PETSc.IntType)
 
         # Mark OP2 entities and derive the resulting Plex renumbering
         dmplex.mark_entity_classes(self._plex)
-        self._plex_renumbering = dmplex.plex_renumbering(plex)
+        self._plex_renumbering = dmplex.plex_renumbering(self._plex, inv_rcm_order)
 
         cStart, cEnd = self._plex.getHeightStratum(0)  # cells
         cell_vertices = self._plex.getConeSize(cStart)
