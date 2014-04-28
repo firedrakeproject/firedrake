@@ -85,6 +85,10 @@ class Compiler(object):
         # atomically (avoiding races).
         tmpname = os.path.join(cachedir, "%s.so.tmp" % basename)
 
+        if configuration['debug']:
+            basenames = MPI.comm.allgather(basename)
+            if not all(b == basename for b in basenames):
+                raise CompilationError('Hashes of generated code differ on different ranks')
         try:
             # Are we in the cache?
             return ctypes.CDLL(soname)
