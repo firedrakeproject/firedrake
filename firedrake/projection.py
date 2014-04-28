@@ -16,12 +16,13 @@ def project(v, V, bcs=None, mesh=None,
             name=None):
     """Project an :class:`.Expression` or :class:`.Function` into a :class:`.FunctionSpace`
 
-    :arg v: the :class:`.Expression` or :class:`.Function` to project
+    :arg v: the :class:`.Expression`, :class:`ufl.Expr` or
+         :class:`.Function` to project
     :arg V: the :class:`.FunctionSpace` or :class:`.Function` to project into
     :arg bcs: boundary conditions to apply in the projection
     :arg mesh: the mesh to project into
-    :arg solver_type: linear solver to use
-    :arg preconditioner_type: preconditioner to use
+    :arg solver_parameters: parameters to pass to the solver used when
+         projecting.
     :arg form_compiler_parameters: parameters to the form compiler
     :arg name: name of the resulting :class:`.Function`
 
@@ -62,12 +63,14 @@ def project(v, V, bcs=None, mesh=None,
         f = function.Function(fs)
         f.interpolate(v)
         v = f
+    elif isinstance(v, function.Function):
+        if v.function_space().mesh() != ret.function_space().mesh():
+            raise RuntimeError("Can't project between mismatching meshes")
+    elif not isinstance(v, ufl.expr.Expr):
+        raise RuntimeError("Can't only project from expressions and functions, not %r" % type(v))
 
     if v.shape() != ret.shape():
         raise RuntimeError('Shape mismatch between source %s and target function spaces %s in project' % (v.shape(), ret.shape()))
-
-    if v.function_space().mesh() != ret.function_space().mesh():
-        raise RuntimeError("Can't project between mismatching meshes")
 
     p = ufl_expr.TestFunction(V)
     q = ufl_expr.TrialFunction(V)
