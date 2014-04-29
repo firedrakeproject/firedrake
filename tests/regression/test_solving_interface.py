@@ -24,7 +24,7 @@ def a_L_out():
 def test_linear_solver_api(a_L_out):
     a, L, out = a_L_out
     p = LinearVariationalProblem(a, L, out)
-    solver = LinearVariationalSolver(p, parameters={'ksp_type': 'cg'})
+    solver = LinearVariationalSolver(p, solver_parameters={'ksp_type': 'cg'})
 
     assert solver.parameters['snes_type'] == 'ksponly'
     assert solver.parameters['ksp_rtol'] == 1e-7
@@ -90,7 +90,7 @@ def test_nonlinear_solver_api(a_L_out):
     J = a
     F = action(a, out) - L
     p = NonlinearVariationalProblem(F, out, J=J)
-    solver = NonlinearVariationalSolver(p, parameters={'snes_type': 'ksponly'})
+    solver = NonlinearVariationalSolver(p, solver_parameters={'snes_type': 'ksponly'})
 
     assert solver.snes.getType() == solver.snes.Type.KSPONLY
     rtol, _, _, _ = solver.snes.getTolerances()
