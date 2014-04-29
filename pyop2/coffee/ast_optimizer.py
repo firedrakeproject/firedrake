@@ -345,17 +345,22 @@ class AssemblyRewriter(object):
                 # Iteration variables of the two children do not match, add
                 # the children to the dict of invariant expressions iff
                 # they were invariant w.r.t. some loops and not just symbols
-                if invariant_l and not isinstance(left, Symbol):
+                if invariant_l:
+                    left = Par(left) if isinstance(left, Symbol) else left
                     expr_dep[dep_left].append(left)
-                if invariant_r and not isinstance(right, Symbol):
+                if invariant_r:
+                    right = Par(right) if isinstance(right, Symbol) else right
                     expr_dep[dep_right].append(right)
                 return ((), False)
 
         def replace_const(node, syms_dict):
             if isinstance(node, Symbol):
-                return False
+                if str(Par(node)) in syms_dict:
+                    return True
+                else:
+                    return False
             if isinstance(node, Par):
-                if node in syms_dict:
+                if str(node) in syms_dict:
                     return True
                 else:
                     return replace_const(node.children[0], syms_dict)
@@ -367,9 +372,11 @@ class AssemblyRewriter(object):
             left = node.children[0]
             right = node.children[1]
             if replace_const(left, syms_dict):
-                node.children[0] = syms_dict[left]
+                left = Par(left) if isinstance(left, Symbol) else left
+                node.children[0] = syms_dict[str(left)]
             if replace_const(right, syms_dict):
-                node.children[1] = syms_dict[right]
+                right = Par(right) if isinstance(right, Symbol) else right
+                node.children[1] = syms_dict[str(right)]
             return False
 
         # Extract read-only sub-expressions that do not depend on at least
@@ -393,7 +400,6 @@ class AssemblyRewriter(object):
                     op_loop = l
             if not fast_for or not n_dep_for:
                 continue
-
             # Find where to put the new invariant for
             pre_loop = None
             for l in self.nest_loops:
@@ -410,7 +416,10 @@ class AssemblyRewriter(object):
                 ofs = place.children.index(self.nest_loops[0])
                 wl = [l for l in self.nest_loops if l.it_var() in dep]
 
-            # 2) Create the new loop
+            # 2) Remove identical sub-expressions
+            expr = dict([(str(e), e) for e in expr]).values()
+
+            # 3) Create the new loop
             sym_rank = tuple([l.size() for l in wl],)
             syms = [Symbol("LI_%s_%s" % (wl[0].it_var(), i), sym_rank)
                     for i in range(len(expr))]
@@ -420,22 +429,21 @@ class AssemblyRewriter(object):
             for_ass = [Assign(_s, e) for _s, e in zip(for_sym, expr)]
             block = Block(for_ass, open_scope=True)
             for l in wl:
-                inv_for = For(dcopy(l.init), dcopy(l.cond),
-                              dcopy(l.incr), block)
+                inv_for = For(dcopy(l.init), dcopy(l.cond), dcopy(l.incr), block)
                 block = Block([inv_for], open_scope=True)
 
-            # Update the lists of symbols accessed and of decls
+            # 4) Update the lists of symbols accessed and of decls
             self.nest_syms.update([d.sym for d in var_decl])
             lv = ast_plan.LOCAL_VAR
             self.nest_decls.update(dict(zip([d.sym.symbol for d in var_decl],
                                         [(v, lv) for v in var_decl])))
 
-            # 3) Append the new node at the right level in the loop nest
+            # 5) Append the new node at the right level in the loop nest
             new_block = var_decl + [inv_for] + place.children[ofs:]
             place.children = place.children[:ofs] + new_block
 
-            # 4) Track hoisted symbols
+            # 6) Track hoisted symbols
             self.hoisted.update(zip(for_sym, [(i, inv_for) for i in expr]))
 
-            # 5) Replace invariant sub-trees with the proper tmp variable
-            replace_const(self.expr.children[1], dict(zip(expr, for_sym)))
+            # 7) Replace invariant sub-trees with the proper tmp variable
+            replace_const(self.expr.children[1], dict(zip([str(i) for i in expr], for_sym)))
