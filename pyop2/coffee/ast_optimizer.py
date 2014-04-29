@@ -319,7 +319,7 @@ class AssemblyRewriter(object):
 
         def extract_const(node, expr_dep):
             if isinstance(node, Symbol):
-                return (node.loop_dep, node.symbol not in self.expr.children[0].symbol)
+                return (node.loop_dep, node.symbol != self.expr.children[0].symbol)
             if isinstance(node, Par):
                 return (extract_const(node.children[0], expr_dep))
 
