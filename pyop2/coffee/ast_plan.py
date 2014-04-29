@@ -236,6 +236,8 @@ def _init_isa(isa):
             'unpck_lo': lambda r1, r2: AVXUnpackLo(r1, r2)
         }
 
+    return {}
+
 
 def _init_compiler(compiler):
     """Set compiler-specific keywords. """
@@ -259,3 +261,5 @@ def _init_compiler(compiler):
             'SSE': '-msse',
             'vect_header': '#include <immintrin.h>'
         }
+
+    return {}

@@ -645,13 +645,13 @@ class JITModule(base.JITModule):
             %(code)s
             #undef OP2_STRIDE
             """ % {'code': self._kernel.code,
-                   'header': compiler.get('vect_header') if compiler else ""}
+                   'header': compiler.get('vect_header', '')}
         else:
             kernel_code = """
             %(header)s
             %(code)s
             """ % {'code': self._kernel.code,
-                   'header': compiler.get('vect_header') if compiler else ""}
+                   'header': compiler.get('vect_header', '')}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
 
         _const_decs = '\n'.join([const._format_declaration()
@@ -689,7 +689,7 @@ class JITModule(base.JITModule):
                                      ldargs=ldargs,
                                      argtypes=argtypes,
                                      restype=restype,
-                                     compiler=compiler['name'])
+                                     compiler=compiler.get('name'))
         # Blow away everything we don't need any more
         del self._args
         del self._kernel
