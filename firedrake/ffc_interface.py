@@ -8,6 +8,7 @@ from os import path, environ, getuid, makedirs
 import tempfile
 
 from ufl import Form, FiniteElement, VectorElement, as_vector
+from ufl.measure import Measure
 from ufl.algorithms import as_form, ReuseTransformer
 from ufl.constantvalue import Zero
 from ufl_expr import Argument
@@ -73,7 +74,11 @@ class FormSplitter(ReuseTransformer):
             def visit(idx):
                 integrand = self.visit(it.integrand())
                 if not isinstance(integrand, Zero):
-                    forms.append([(idx, integrand * it.measure())])
+                    forms.append([(idx, integrand * Measure(it.integral_type(),
+                                                            domain=it.domain(),
+                                                            subdomain_id=it.subdomain_id(),
+                                                            subdomain_data=it.subdomain_data(),
+                                                            metadata=it.metadata()))])
             # 0 form
             if not args:
                 visit((0, 0))
@@ -182,7 +187,9 @@ def compile_form(form, name):
     fd = form.compute_form_data()
     # If there is no mixed element involved, return the kernels FFC produces
     if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
-        return [((0, 0), it.measure(), fd.original_coefficients, kernel)
+        return [((0, 0),
+                it.integral_type(), it.subdomain_data(),
+                fd.original_coefficients, kernel)
                 for it, kernel in zip(fd.preprocessed_form.integrals(),
                                       FFCKernel(form, name).kernels)]
     # Otherwise pre-split the form into mixed blocks before calling FFC
@@ -191,7 +198,9 @@ def compile_form(form, name):
         for (i, j), form in forms:
             kernel, = FFCKernel(form, name + str(i) + str(j)).kernels
             fd = form.form_data()
-            kernels.append(((i, j), fd.preprocessed_form.integrals()[0].measure(),
+            kernels.append(((i, j),
+                            fd.preprocessed_form.integrals()[0].integral_type(),
+                            fd.preprocessed_form.integrals()[0].subdomain_data(),
                             fd.original_coefficients, kernel))
     return kernels
 

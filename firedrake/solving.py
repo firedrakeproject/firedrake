@@ -549,8 +549,8 @@ def _assemble(f, tensor=None, bcs=None):
             bottom = any(bc.sub_domain == "bottom" for bc in bcs)
             top = any(bc.sub_domain == "top" for bc in bcs)
             extruded_bcs = (bottom, top)
-        for (i, j), measure, coefficients, kernel in kernels:
-            coords = measure.subdomain_data()
+        for (i, j), integral_type, sd_data, coefficients, kernel in kernels:
+            coords = sd_data
             m = coords.function_space().mesh()
             if needs_orientations:
                 cell_orientations = m.cell_orientations()
@@ -562,7 +562,7 @@ def _assemble(f, tensor=None, bcs=None):
                 trbc = [bc for bc in bcs if bc.function_space().index == j]
             elif is_mat:
                 tsbc, trbc = bcs, bcs
-            if measure.integral_type() == 'cell':
+            if integral_type == 'cell':
                 if is_mat:
                     tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
                                      lambda s: s.cell_node_map(trbc),
@@ -591,7 +591,7 @@ def _assemble(f, tensor=None, bcs=None):
                 except MapValueError:
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
-            elif measure.integral_type() in ['exterior_facet', 'exterior_facet_vert']:
+            elif integral_type in ['exterior_facet', 'exterior_facet_vert']:
                 if is_mat:
                     tensor_arg = mat(lambda s: s.exterior_facet_node_map(tsbc),
                                      lambda s: s.exterior_facet_node_map(trbc),
@@ -616,7 +616,7 @@ def _assemble(f, tensor=None, bcs=None):
                 except MapValueError:
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
-            elif measure.integral_type() in ['exterior_facet_top', 'exterior_facet_bottom']:
+            elif integral_type in ['exterior_facet_top', 'exterior_facet_bottom']:
                 if is_mat:
                     tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
                                      lambda s: s.cell_node_map(trbc),
@@ -651,7 +651,7 @@ def _assemble(f, tensor=None, bcs=None):
                     except MapValueError:
                         raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
-            elif measure.integral_type() in ['interior_facet', 'interior_facet_vert']:
+            elif integral_type in ['interior_facet', 'interior_facet_vert']:
                 if op2.MPI.parallel:
                     raise \
                         NotImplementedError(
@@ -681,7 +681,7 @@ def _assemble(f, tensor=None, bcs=None):
                 except MapValueError:
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
-            elif measure.integral_type() == 'interior_facet_horiz':
+            elif integral_type == 'interior_facet_horiz':
                 if op2.MPI.parallel:
                     raise \
                         NotImplementedError(
@@ -712,7 +712,7 @@ def _assemble(f, tensor=None, bcs=None):
                     raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
             else:
-                raise RuntimeError('Unknown integral type "%s"' % measure.integral_type())
+                raise RuntimeError('Unknown integral type "%s"' % integral_type)
 
             if bcs is not None and is_mat:
                 for bc in bcs:
