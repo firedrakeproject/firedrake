@@ -325,30 +325,30 @@ class AssemblyRewriter(object):
 
             # Traverse the expression tree
             left, right = node.children
-            dep_left, invariant_l = extract_const(left, expr_dep)
-            dep_right, invariant_r = extract_const(right, expr_dep)
+            dep_left, inv_l = extract_const(left, expr_dep)
+            dep_right, inv_r = extract_const(right, expr_dep)
 
             if dep_left == dep_right:
                 # Children match up, keep traversing the tree in order to see
                 # if this sub-expression is actually a child of a larger
                 # loop-invariant sub-expression
-                return (dep_left, True)
-            elif len(dep_left) == 0:
-                # The left child does not depend on any iteration variable,
-                # so it's loop invariant
-                return (dep_right, True)
-            elif len(dep_right) == 0:
-                # The right child does not depend on any iteration variable,
-                # so it's loop invariant
-                return (dep_left, True)
+                return (dep_left, inv_l and inv_r)
+            elif not dep_left or not dep_right:
+                # The left child or the right child do not depend on any iteration
+                # variable, so at least one of them is loop invariant
+                if isinstance(left, Par) and inv_l and not (inv_r and dep_left):
+                    expr_dep[dep_left].append(left)
+                if isinstance(right, Par) and inv_r and not (inv_l and dep_right):
+                    expr_dep[dep_right].append(right)
+                return (dep_left or dep_right, inv_l and inv_r)
             else:
                 # Iteration variables of the two children do not match, add
                 # the children to the dict of invariant expressions iff
-                # they were invariant w.r.t. some loops and not just symbols
-                if invariant_l:
+                # they were invariant w.r.t. some loops
+                if inv_l:
                     left = Par(left) if isinstance(left, Symbol) else left
                     expr_dep[dep_left].append(left)
-                if invariant_r:
+                if inv_r:
                     right = Par(right) if isinstance(right, Symbol) else right
                     expr_dep[dep_right].append(right)
                 return ((), False)
@@ -365,7 +365,7 @@ class AssemblyRewriter(object):
                 else:
                     return replace_const(node.children[0], syms_dict)
             # Found invariant sub-expression
-            if node in syms_dict:
+            if str(node) in syms_dict:
                 return True
 
             # Traverse the expression tree and replace
@@ -385,52 +385,56 @@ class AssemblyRewriter(object):
         typ = self.parent_decls[self.expr.children[0].symbol][0].typ
         extract_const(self.expr.children[1], expr_dep)
 
-        for dep, expr in expr_dep.items():
+        for dep, expr in sorted(expr_dep.items()):
             # 1) Determine the loops that should wrap invariant statements
             # and where such for blocks should be placed in the loop nest
             n_dep_for = None
             fast_for = None
             # Collect some info about the loops
             for l in self.nest_loops:
-                if l.it_var() == dep[-1]:
+                if dep and l.it_var() == dep[-1]:
                     fast_for = fast_for or l
                 if l.it_var() not in dep:
                     n_dep_for = n_dep_for or l
-                if l.it_var() == self.expr_info[0][0]:
-                    op_loop = l
+            # Find where to put the invariant code
             if not fast_for or not n_dep_for:
-                continue
-            # Find where to put the new invariant for
-            pre_loop = None
-            for l in self.nest_loops:
-                if l.it_var() not in [fast_for.it_var(), n_dep_for.it_var()]:
-                    pre_loop = l
-                else:
-                    break
-            if pre_loop:
-                place = pre_loop.children[0]
-                ofs = place.children.index(op_loop)
-                wl = [fast_for]
+                # Handle sub-expressions of invariant scalars, to be put just outside
+                # of the assemby loop nest
+                place = self.nest_loops[0].children[0] if len(self.nest_loops) > 2 \
+                    else self.parent
+                ofs = place.children.index(self.expr_info[2][0])
+                wl = []
             else:
-                place = self.parent
-                ofs = place.children.index(self.nest_loops[0])
-                wl = [l for l in self.nest_loops if l.it_var() in dep]
+                # Handle sub-expressions of arrays iterating along assembly loops
+                pre_loop = None
+                for l in self.nest_loops:
+                    if l.it_var() not in [fast_for.it_var(), n_dep_for.it_var()]:
+                        pre_loop = l
+                    else:
+                        break
+                if pre_loop:
+                    place = pre_loop.children[0]
+                    ofs = place.children.index(self.expr_info[2][0])
+                    wl = [fast_for]
+                else:
+                    place = self.parent
+                    ofs = place.children.index(self.nest_loops[0])
+                    wl = [l for l in self.nest_loops if l.it_var() in dep]
 
             # 2) Remove identical sub-expressions
             expr = dict([(str(e), e) for e in expr]).values()
 
             # 3) Create the new loop
             sym_rank = tuple([l.size() for l in wl],)
-            syms = [Symbol("LI_%s_%s" % (wl[0].it_var(), i), sym_rank)
+            syms = [Symbol("LI_%s_%s" % ("".join(dep) if dep else "c", i), sym_rank)
                     for i in range(len(expr))]
             var_decl = [Decl(typ, _s) for _s in syms]
             for_rank = tuple([l.it_var() for l in reversed(wl)])
             for_sym = [Symbol(_s.sym.symbol, for_rank) for _s in var_decl]
-            for_ass = [Assign(_s, e) for _s, e in zip(for_sym, expr)]
-            block = Block(for_ass, open_scope=True)
+            inv_for = [Assign(_s, e) for _s, e in zip(for_sym, expr)]
             for l in wl:
-                inv_for = For(dcopy(l.init), dcopy(l.cond), dcopy(l.incr), block)
-                block = Block([inv_for], open_scope=True)
+                block = Block(inv_for, open_scope=True)
+                inv_for = [For(dcopy(l.init), dcopy(l.cond), dcopy(l.incr), block)]
 
             # 4) Update the lists of symbols accessed and of decls
             self.nest_syms.update([d.sym for d in var_decl])
@@ -439,7 +443,7 @@ class AssemblyRewriter(object):
                                         [(v, lv) for v in var_decl])))
 
             # 5) Append the new node at the right level in the loop nest
-            new_block = var_decl + [inv_for] + place.children[ofs:]
+            new_block = var_decl + inv_for + [FlatBlock("\n")] + place.children[ofs:]
             place.children = place.children[:ofs] + new_block
 
             # 6) Track hoisted symbols
