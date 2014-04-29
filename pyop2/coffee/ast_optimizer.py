@@ -447,3 +447,23 @@ class AssemblyRewriter(object):
 
             # 7) Replace invariant sub-trees with the proper tmp variable
             replace_const(self.expr.children[1], dict(zip([str(i) for i in expr], for_sym)))
+
+    def count_occurrences(self):
+        """For each variable in the assembly expression, count how many times
+        it appears as involved in some operations. For example, for the
+        expression a*(5+c) + b*(a+4), return {a: 2, b: 1, c: 1}."""
+
+        def count(node, counter):
+            if isinstance(node, Symbol):
+                node = str(node)
+                if node in counter:
+                    counter[node] += 1
+                else:
+                    counter[node] = 1
+            else:
+                for c in node.children:
+                    count(c, counter)
+
+        counter = {}
+        count(self.expr.children[1], counter)
+        return counter
