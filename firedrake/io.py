@@ -10,6 +10,7 @@ from pyop2.mpi import MPI
 
 import functionspace as fs
 import projection
+from petsc import PETSc
 
 
 __all__ = ['File']
@@ -92,6 +93,13 @@ class File(object):
             if not os.path.exists(outdir):
                 os.makedirs(outdir)
         MPI.comm.barrier()
+
+        basename, ext = os.path.splitext(filename)
+
+        if ext in ['.h5']:
+            self._file = _HDF5File(filename)
+            return
+
         # Parallel
         if MPI.comm.size > 1:
             new_file = os.path.splitext(os.path.abspath(filename))[0]
@@ -117,6 +125,41 @@ class File(object):
 
     def __lshift__(self, data):
         self._file << data
+
+
+class _HDF5File(object):
+
+    """Class that represents a HDF5 file."""
+
+    def __init__(self, filename, warnings=None):
+        self._filename = filename
+        if warnings:
+            self._warnings = warnings
+        else:
+            self._warnings = [None, None]
+
+        self._viewer = PETSc.ViewerHDF5().create(filename,
+                                                 mode="w",
+                                                 comm=MPI.comm)
+        self._time_step = 0
+        self._has_topology = False
+
+    def __lshift__(self, data, timestep=None):
+        """It allows file << function syntax for writing data out to disk. """
+        fspace = data.function_space()
+        plex = fspace.mesh()._plex
+
+        # Write DMPlex topology to file
+        if not self._has_topology:
+            plex.view(self._viewer)
+            self._has_topology = True
+
+        # Output data via the PetscViewer
+        with data.dat.vec as v:
+            v.setName(str(data))
+            v.view(self._viewer)
+
+        self._time_step += 1
 
 
 class _VTUFile(object):
