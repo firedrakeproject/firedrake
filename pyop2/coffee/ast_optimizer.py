@@ -158,6 +158,7 @@ class AssemblyOptimizer(object):
         for expr in self.asm_expr.items():
             ew = AssemblyRewriter(expr, nest, parent)
             ew.licm()
+            ew.expand()
 
     def slice_loop(self, slice_factor=None):
         """Perform slicing of the innermost loop to enhance register reuse.
@@ -373,10 +374,10 @@ class AssemblyRewriter(object):
             right = node.children[1]
             if replace_const(left, syms_dict):
                 left = Par(left) if isinstance(left, Symbol) else left
-                node.children[0] = syms_dict[str(left)]
+                node.children[0] = dcopy(syms_dict[str(left)])
             if replace_const(right, syms_dict):
                 right = Par(right) if isinstance(right, Symbol) else right
-                node.children[1] = syms_dict[str(right)]
+                node.children[1] = dcopy(syms_dict[str(right)])
             return False
 
         # Extract read-only sub-expressions that do not depend on at least
@@ -447,7 +448,8 @@ class AssemblyRewriter(object):
             place.children = place.children[:ofs] + new_block
 
             # 6) Track hoisted symbols
-            self.hoisted.update(zip(for_sym, [(i, inv_for) for i in expr]))
+            sym_info = [(i, j, inv_for, place.children) for i, j in zip(expr, var_decl)]
+            self.hoisted.update(zip([str(s) for s in for_sym], sym_info))
 
             # 7) Replace invariant sub-trees with the proper tmp variable
             replace_const(self.expr.children[1], dict(zip([str(i) for i in expr], for_sym)))
@@ -471,3 +473,99 @@ class AssemblyRewriter(object):
         counter = {}
         count(self.expr.children[1], counter)
         return counter
+
+    def expand(self):
+        """Expand assembly expressions such that:
+
+        Y[j] = f(...)
+        (X[i]*Y[j])*F + ...
+
+        becomes:
+
+        Y[j] = f(...)*F
+        (X[i]*Y[j]) + ...
+
+        This may be useful for several purposes:
+        - Relieve register pressure; when, for example, (X[i]*Y[j]) is computed
+        in a loop L' different than the loop L'' in which Y[j] is evaluated,
+        and cost(L') > cost(L'')
+        - It is also a step towards exposing well-known linear algebra operations,
+        like matrix-matrix multiplies."""
+
+        def do_expand(node, parent, it_vars):
+            if isinstance(node, Symbol):
+                if not node.rank:
+                    return ([node], do_expand.CONST)
+                elif node.rank[-1] not in it_vars:
+                    return ([node], do_expand.CONST)
+                else:
+                    return ([node], do_expand.ITVAR)
+            elif isinstance(node, Par):
+                return do_expand(node.children[0], node, it_vars)
+            elif isinstance(node, Prod):
+                l_node, l_type = do_expand(node.children[0], node, it_vars)
+                r_node, r_type = do_expand(node.children[1], node, it_vars)
+                if l_type == do_expand.ITVAR and r_type == do_expand.ITVAR:
+                    # Found an expandable product
+                    left_occs = do_expand.occs[str(l_node[0])]
+                    right_occs = do_expand.occs[str(r_node[0])]
+                    to_exp = l_node if left_occs < right_occs else r_node
+                    return (to_exp, do_expand.ITVAR)
+                elif l_type == do_expand.CONST and r_type == do_expand.CONST:
+                    # Product of constants; they are both used for expansion (if any)
+                    return ([node], do_expand.CONST)
+                else:
+                    # Do the expansion
+                    const = l_node[0] if l_type == do_expand.CONST else r_node[0]
+                    expandable, exp_node = (l_node, node.children[0]) \
+                        if l_type == do_expand.ITVAR else (r_node, node.children[1])
+                    for sym in expandable:
+                        # Perform the expansion
+                        sym_symbol = str(sym)
+                        if sym_symbol not in self.hoisted:
+                            raise RuntimeError("Expansion error: no symbol: %s" % sym_symbol)
+                        old_expr, var_decl, inv_for, place = self.hoisted[sym_symbol]
+                        if do_expand.occs[sym_symbol] == 1:
+                            old_expr.children[0] = Prod(Par(old_expr.children[0]), const)
+                        else:
+                            # Create a new symbol, expr, and decl, because the found symbol
+                            # is used in multiple places in the expression, and the expansion
+                            # happens only in a specific point
+                            do_expand.occs[sym_symbol] -= 1
+                            new_expr = Par(Prod(dcopy(sym), const))
+                            new_node = Assign(sym, new_expr)
+                            sym.symbol += "_exp%d" % do_expand.counter
+                            inv_for[0].children[0].children.append(new_node)
+                            new_var_decl = dcopy(var_decl)
+                            new_var_decl.sym.symbol = sym.symbol
+                            place.insert(place.index(var_decl), new_var_decl)
+                            self.hoisted[str(sym)] = (new_expr, new_var_decl, inv_for, place)
+                            # Update counters
+                            do_expand.occs[str(sym)] = 1
+                            do_expand.counter += 1
+                    # Update the parent node, since an expression has been expanded
+                    if parent.children[0] == node:
+                        parent.children[0] = exp_node
+                    elif parent.children[1] == node:
+                        parent.children[1] = exp_node
+                    else:
+                        raise RuntimeError("Expansion error: wrong parent-child association")
+                    return (expandable, do_expand.ITVAR)
+            elif isinstance(node, Sum):
+                l_node, l_type = do_expand(node.children[0], node, it_vars)
+                r_node, r_type = do_expand(node.children[1], node, it_vars)
+                if l_type == do_expand.ITVAR and r_type == do_expand.ITVAR:
+                    return (l_node + r_node, do_expand.ITVAR)
+                elif l_type == do_expand.CONST and r_type == do_expand.CONST:
+                    return ([node], do_expand.CONST)
+                else:
+                    return (None, do_expand.CONST)
+            else:
+                raise RuntimeError("Expansion error: found an unknown node: %s" % str(node))
+
+        do_expand.CONST = -1
+        do_expand.ITVAR = -2
+        do_expand.counter = 0
+        do_expand.occs = self.count_occurrences()
+
+        do_expand(self.expr.children[1], self.expr, self.expr_info[0])
