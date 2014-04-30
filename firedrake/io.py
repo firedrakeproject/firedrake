@@ -7,6 +7,7 @@ import os
 
 from pyop2.logger import warning, RED
 from pyop2.mpi import MPI
+from pyop2.utils import get_petsc_dir
 
 import functionspace as fs
 import projection
@@ -15,6 +16,7 @@ from petsc import PETSc
 
 __all__ = ['File']
 
+_petscdir = get_petsc_dir()[0]
 
 # Dictionary used to translate the cellname of firedrake
 # to the celltype of evtk module.
@@ -138,6 +140,18 @@ class _HDF5File(object):
                                                  comm=MPI.comm)
         self._time_step = 0
         self._has_topology = False
+
+    def __del__(self):
+        self._viewer.destroy()
+
+        # Run PETSc post-processing script to generate Xdmf header
+        try:
+            import imp
+            path = _petscdir + "/bin/pythonscripts/petsc_gen_xdmf.py"
+            petsc_xdmf = imp.load_source('petsc_gen_xdmf', path)
+            petsc_xdmf.generateXdmf(self._filename)
+        except:
+            print "WARNING: Could not generate Xdmf header for", self._filename
 
     def __lshift__(self, data, timestep=None):
         """It allows file << function syntax for writing data out to disk. """
