@@ -43,7 +43,7 @@ from hashlib import md5
 
 from configuration import configuration
 from caching import Cached, ObjectCached
-from versioning import Versioned, modifies, CopyOnWrite, shallow_copy
+from versioning import Versioned, modifies, modifies_argn, CopyOnWrite, shallow_copy
 from exceptions import *
 from utils import *
 from backends import _make_object
@@ -1788,11 +1788,11 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                                            pragma=None),
                             pred=["static", "inline"])
             self._zero_kernel = _make_object('Kernel', k, 'zero')
-        _make_object('ParLoop', self._zero_kernel, self.dataset.set,
-                     self(WRITE)).enqueue()
+        par_loop(self._zero_kernel, self.dataset.set, self(WRITE))
 
         self._version_set_zero()
 
+    @modifies_argn(0)
     @collective
     def copy(self, other, subset=None):
         """Copy the data in this :class:`Dat` into another.
@@ -3885,6 +3885,7 @@ class Solver(object):
         """
         self.parameters.update(parameters)
 
+    @modifies_argn(1)
     @collective
     def solve(self, A, x, b):
         """Solve a matrix equation.

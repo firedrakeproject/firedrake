@@ -86,29 +86,49 @@ class Versioned(object):
         self._version = 0
 
 
+def _force_copies(obj):
+    # If I am a copy-on-write duplicate, I need to become real
+    if hasattr(obj, '_cow_is_copy_of') and obj._cow_is_copy_of:
+        original = obj._cow_is_copy_of
+        obj._cow_actual_copy(original)
+        obj._cow_is_copy_of = None
+        original._cow_copies.remove(obj)
+
+    # If there are copies of me, they need to become real now
+    if hasattr(obj, '_cow_copies'):
+        for c in obj._cow_copies:
+            c._cow_actual_copy(obj)
+            c._cow_is_copy_of = None
+        obj._cow_copies = []
+
+
 @decorator
 def modifies(method, self, *args, **kwargs):
     "Decorator for methods that modify their instance's data"
 
-    # If I am a copy-on-write duplicate, I need to become real
-    if hasattr(self, '_cow_is_copy_of') and self._cow_is_copy_of:
-        original = self._cow_is_copy_of
-        self._cow_actual_copy(original)
-        self._cow_is_copy_of = None
-        original._cow_copies.remove(self)
-
-    # If there are copies of me, they need to become real now
-    if hasattr(self, '_cow_copies'):
-        for c in self._cow_copies:
-            c._cow_actual_copy(self)
-            c._cow_is_copy_of = None
-        self._cow_copies = []
+    _force_copies(self)
 
     retval = method(self, *args, **kwargs)
 
     self._version_bump()
 
     return retval
+
+
+def modifies_argn(n):
+    """Decorator for a method that modifies its nth argument
+
+    :arg n: the nth argument to the method (not including self) counting from 0."""
+    def modifies_arg(fn, self, *args, **kwargs):
+        arg = args[n]
+        _force_copies(arg)
+
+        retval = fn(self, *args, **kwargs)
+
+        arg._version_bump()
+
+        return retval
+    return decorator(modifies_arg)
 
 
 @decorator

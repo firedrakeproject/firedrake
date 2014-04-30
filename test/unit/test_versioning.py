@@ -132,6 +132,11 @@ class TestVersioning:
         mat.zero_rows([2], 1.0)  # 3
         assert mat._version == 3
 
+    def test_dat_copy_increases_version(self, backend, x):
+        old_version = x._version
+        x.copy(x)
+        assert x._version != old_version
+
     def test_valid_snapshot(self, backend, x):
         s = x.create_snapshot()
         assert s.is_valid()
