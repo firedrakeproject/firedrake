@@ -11,10 +11,13 @@ except ImportError:
     h5py = None
 
 _h5file = "test_hdf5.h5"
+_xmffile = "test_hdf5.xmf"
 
 
 @pytest.fixture
 def filepath(tmpdir):
+    if os.path.exists(_xmffile):
+        os.remove(_xmffile)
     if os.path.exists(_h5file):
         os.remove(_h5file)
     return _h5file
@@ -30,6 +33,7 @@ def test_hdf5_scalar(mesh, filepath):
     h5file << x
     del h5file
 
+    assert os.path.exists(_xmffile)
     h5out = h5py.File(filepath, 'r')
     xval = h5out['vertex_fields']['xcoord'][:]
     x = h5out['geometry']['vertices'][:, 0]
@@ -43,6 +47,7 @@ def test_hdf5_vector(mesh, filepath):
     h5file << mesh.coordinates
     del h5file
 
+    assert os.path.exists(_xmffile)
     h5out = h5py.File(filepath, 'r')
     vals = h5out['vertex_fields']['Coordinates'][:, :]
     xy = h5out['geometry']['vertices'][:, :]
