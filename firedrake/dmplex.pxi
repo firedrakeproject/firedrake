@@ -25,6 +25,7 @@ cdef extern from "petscdmplex.h":
 
     int DMPlexGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
     int DMPlexSetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
+    int DMPlexClearLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
 
 cdef extern from "petscis.h":
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
