@@ -523,20 +523,24 @@ def mark_entity_classes(PETSc.DM plex):
     core      : owned and not in send halo
     non_core  : owned and in send halo
     exec_halo : in halo, but touch owned entity
+    non_exec_halo : in halo and only touch halo entities
 
     :arg plex: The DMPlex object encapsulating the mesh topology
     """
     cdef:
         PetscInt p, pStart, pEnd, cStart, cEnd, vStart, vEnd
-        PetscInt c, ncells, ci, nclosure, vi, dim
+        PetscInt c, ncells, f, nfacets, ci, nclosure, vi, dim
         PetscInt depth, non_core, exec_halo, nroots, nleaves
         PetscInt *cells = NULL
+        PetscInt *facets = NULL
         PetscInt *vertices = NULL
         PetscInt *closure = NULL
         PetscInt *ilocal = NULL
+        PetscBool non_exec
         PetscSFNode *iremote = NULL
         PETSc.SF point_sf = None
         PETSc.IS cell_is = None
+        PETSc.IS facet_is = None
 
     dim = plex.getDimension()
     cStart, cEnd = plex.getHeightStratum(0)
@@ -547,11 +551,13 @@ def mark_entity_classes(PETSc.DM plex):
     plex.createLabel("op2_core")
     plex.createLabel("op2_non_core")
     plex.createLabel("op2_exec_halo")
+    plex.createLabel("op2_non_exec_halo")
 
     lbl_depth = <char*>"depth"
     lbl_core = <char*>"op2_core"
     lbl_non_core = <char*>"op2_non_core"
     lbl_halo = <char*>"op2_exec_halo"
+    lbl_non_exec_halo = <char*>"op2_non_exec_halo"
 
     if MPI.comm.size > 1:
         # Mark exec_halo from point overlap SF
@@ -645,6 +651,52 @@ def mark_entity_classes(PETSc.DM plex):
             CHKERR(DMPlexSetLabelValue(plex.dm, lbl_core,
                                        p, depth))
 
+    # Halo facets that only touch halo vertices and halo cells need to
+    # be marked as non-exec.
+    nfacets = plex.getStratumSize("op2_exec_halo", dim-1)
+    facet_is = plex.getStratumIS("op2_exec_halo", dim-1)
+    CHKERR(ISGetIndices(facet_is.iset, &facets))
+    for f in range(nfacets):
+        non_exec = PETSC_TRUE
+        # Check for halo vertices
+        CHKERR(DMPlexGetTransitiveClosure(plex.dm, facets[f],
+                                          PETSC_TRUE,
+                                          &nclosure,
+                                          &closure))
+        for ci in range(nclosure):
+            if vStart <= closure[2*ci] < vEnd:
+                CHKERR(DMPlexGetLabelValue(plex.dm, lbl_halo,
+                                           closure[2*ci], &exec_halo))
+                if exec_halo < 0:
+                    # Touches a non-halo vertex, needs to be executed
+                    # over.
+                    non_exec = PETSC_FALSE
+        if non_exec:
+            # If we still think we're non-exec, check for halo cells
+            CHKERR(DMPlexGetTransitiveClosure(plex.dm, facets[f],
+                                              PETSC_FALSE,
+                                              &nclosure,
+                                              &closure))
+            for ci in range(nclosure):
+                if cStart <= closure[2*ci] < cEnd:
+                    CHKERR(DMPlexGetLabelValue(plex.dm, lbl_halo,
+                                               closure[2*ci], &exec_halo))
+                    if exec_halo < 0:
+                        # Touches a non-halo cell, needs to be
+                        # executed over.
+                        non_exec = PETSC_FALSE
+        if non_exec:
+            CHKERR(DMPlexGetLabelValue(plex.dm, lbl_depth,
+                                       facets[f], &depth))
+            CHKERR(DMPlexSetLabelValue(plex.dm, lbl_non_exec_halo,
+                                       facets[f], depth))
+
+    if nfacets > 0:
+        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm,
+                                              facets[nfacets-1],
+                                              PETSC_TRUE,
+                                              &nclosure,
+                                              &closure))
     PetscFree(vertices)
 
 @cython.boundscheck(False)
