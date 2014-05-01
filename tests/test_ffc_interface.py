@@ -25,14 +25,14 @@ def laplace(fs):
 
 @pytest.fixture
 def rhs(fs):
-    v = TrialFunction(fs)
+    v = TestFunction(fs)
     g = Function(fs)
     return g * v * ds
 
 
 @pytest.fixture
 def rhs2(fs):
-    v = TrialFunction(fs)
+    v = TestFunction(fs)
     f = Function(fs)
     g = Function(fs)
     return f * v * dx + g * v * ds
