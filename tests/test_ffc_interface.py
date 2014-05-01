@@ -11,15 +11,15 @@ def fs():
 
 @pytest.fixture
 def mass(fs):
-    u = TestFunction(fs)
-    v = TrialFunction(fs)
+    u = TrialFunction(fs)
+    v = TestFunction(fs)
     return u * v * dx
 
 
 @pytest.fixture
 def laplace(fs):
-    u = TestFunction(fs)
-    v = TrialFunction(fs)
+    u = TrialFunction(fs)
+    v = TestFunction(fs)
     return inner(grad(u), grad(v)) * dx
 
 
