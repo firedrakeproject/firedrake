@@ -536,10 +536,6 @@ class Mesh(object):
         return self.parent.cell_set if self.parent else \
             op2.Set(size, "%s_cells" % self.name)
 
-    def compute_boundaries(self):
-        '''Currently a no-op for flop.py compatibility.'''
-        pass
-
 
 class ExtrudedMesh(Mesh):
     """Build an extruded mesh from a 2D input mesh

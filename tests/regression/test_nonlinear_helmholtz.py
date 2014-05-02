@@ -46,17 +46,16 @@ def run_convergence_test(parameters={}):
 
 @pytest.mark.parametrize('params', [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}])
 def test_l2_conv(params):
-    assert (run_convergence_test(parameters=params) > 3.3).all()
+    assert (run_convergence_test(parameters=params) > 2.8).all()
 
 
-# This currently fails: https://github.com/firedrakeproject/firedrake/issues/1
 @pytest.mark.xfail
 @pytest.mark.parallel
 def test_l2_conv_parallel():
     from mpi4py import MPI
     l2_conv = run_convergence_test()
     print '[%d]' % MPI.COMM_WORLD.rank, 'convergence rate:', l2_conv
-    assert (l2_conv > 3.5).all()
+    assert (l2_conv > 2.8).all()
 
 if __name__ == '__main__':
     import os

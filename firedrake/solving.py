@@ -82,9 +82,10 @@ class NonlinearVariationalSolver(object):
     def __init__(self, *args, **kwargs):
         """
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
-        :kwarg nullspace: an optional :class:`.VectorSpaceBasis`
-               spanning the null space of the operator.
-        :kwarg parameters: Solver parameters to pass to PETSc.
+        :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
+               :class:`.MixedVectorSpaceBasis`) spanning the null
+               space of the operator.
+        :kwarg solver_parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.  For
             example, to set the nonlinear solver type to just use a linear
             solver:
@@ -129,7 +130,7 @@ class NonlinearVariationalSolver(object):
         NonlinearVariationalSolver._id += 1
         self.snes.setOptionsPrefix(self._opt_prefix)
 
-        parameters = kwargs.get('parameters', None)
+        parameters = kwargs.get('solver_parameters', None)
         # Make sure we don't stomp on a dict the user has passed in.
         parameters = copy(parameters) if parameters is not None else {}
         # Mixed problem, use jacobi pc if user has not supplied one.
@@ -342,8 +343,9 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         :arg problem: A :class:`LinearVariationalProblem` to solve.
         :kwarg parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.
-        :kwarg nullspace: an optional :class:`.VectorSpaceBasis`
-               spanning the null space of the operator.
+        :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
+               :class:`.MixedVectorSpaceBasis`) spanning the null
+               space of the operator.
 
         .. warning ::
 
@@ -745,8 +747,9 @@ def _la_solve(A, x, b, bcs=None, parameters=None,
     :arg b: the :class:`.Function` defining the right hand side values.
     :arg bcs: an optional list of :class:`.DirichletBC`\s to apply.
     :arg parameters: optional solver parameters.
-    :arg nullspace: an optional :class:`.VectorSpaceBasis`
-         spanning the null space of the operator.
+    :arg nullspace: an optional :class:`.VectorSpaceBasis` (or
+         :class:`.MixedVectorSpaceBasis`) spanning the null space of
+         the operator.
     .. note::
         Any boundary conditions passed in as an argument here override the
         boundary conditions set when the bilinear form was assembled.
@@ -879,8 +882,10 @@ def solve(*args, **kwargs):
                                  "pc_type" : "lu"})
 
     In all three cases, if the operator is singular you can pass a
-    :class:`.VectorSpaceBasis` spanning the null space of the operator
-    to the solve call using the ``nullspace`` keyword argument.
+    :class:`.VectorSpaceBasis` (or :class:`.MixedVectorSpaceBasis`)
+    spanning the null space of the operator to the solve call using
+    the ``nullspace`` keyword argument.
+
     """
 
     assert(len(args) > 0)
@@ -914,7 +919,7 @@ def _solve_varproblem(*args, **kwargs):
                                            form_compiler_parameters=form_compiler_parameters)
 
         # Create solver and call solve
-        solver = LinearVariationalSolver(problem, parameters=solver_parameters,
+        solver = LinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                          nullspace=nullspace)
         with progress(INFO, 'Solving linear variational problem'):
             solver.solve()
@@ -927,7 +932,7 @@ def _solve_varproblem(*args, **kwargs):
                                               form_compiler_parameters=form_compiler_parameters)
 
         # Create solver and call solve
-        solver = NonlinearVariationalSolver(problem, parameters=solver_parameters,
+        solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                             nullspace=nullspace)
         with progress(INFO, 'Solving nonlinear variational problem'):
             solver.solve()
