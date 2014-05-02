@@ -159,6 +159,7 @@ class AssemblyOptimizer(object):
             ew = AssemblyRewriter(expr, nest, parent)
             ew.licm()
             ew.expand()
+            ew.distribute()
 
     def slice_loop(self, slice_factor=None):
         """Perform slicing of the innermost loop to enhance register reuse.
@@ -301,6 +302,9 @@ class AssemblyRewriter(object):
         self.nest_loops, self.nest_syms, self.nest_decls = nest
         self.parent, self.parent_decls = parent
         self.hoisted = {}
+        # Properties of the assembly expression
+        self._licm = False
+        self._expanded = False
 
     def licm(self):
         """Perform loop-invariant code motion.
@@ -434,9 +438,10 @@ class AssemblyRewriter(object):
             extract(self.expr.children[1], expr_dep)
 
             # While end condition
-            if inv_dep and not extract.has_extracted:
+            if self._licm and not extract.has_extracted:
                 break
             extract.has_extracted = False
+            self._licm = True
 
             var_counter += 1
             for dep, expr in sorted(expr_dep.items()):
@@ -642,3 +647,61 @@ class AssemblyRewriter(object):
         do_expand.occs = self.count_occurrences()
 
         do_expand(self.expr.children[1], self.expr, self.expr_info[0])
+        self._expanded = True
+
+    def distribute(self):
+        """Apply to the distributivity property to the assembly expression.
+        E.g. A[i]*B[j] + A[i]*C[j] becomes A[i]*(B[j] + C[j])."""
+
+        def find_prod(node, occs, to_distr):
+            if isinstance(node, Par):
+                find_prod(node.children[0], occs, to_distr)
+            elif isinstance(node, Sum):
+                find_prod(node.children[0], occs, to_distr)
+                find_prod(node.children[1], occs, to_distr)
+            elif isinstance(node, Prod):
+                left, right = (node.children[0], node.children[1])
+                l_str, r_str = (str(left), str(right))
+                if occs[l_str] > 1 and occs[r_str] > 1:
+                    if occs[l_str] > occs[r_str]:
+                        dist = l_str
+                        target = (left, right)
+                        occs[r_str] -= 1
+                    else:
+                        dist = r_str
+                        target = (right, left)
+                        occs[l_str] -= 1
+                elif occs[l_str] > 1 and occs[r_str] == 1:
+                    dist = l_str
+                    target = (left, right)
+                elif occs[r_str] > 1 and occs[l_str] == 1:
+                    dist = r_str
+                    target = (right, left)
+                elif occs[l_str] == 1 and occs[r_str] == 1:
+                    dist = l_str
+                    target = (left, right)
+                else:
+                    raise RuntimeError("Distribute error: symbol not found")
+                to_distr[dist].append(target)
+
+        def create_sum(symbols):
+            if len(symbols) == 1:
+                return symbols[0]
+            else:
+                return Sum(symbols[0], create_sum(symbols[1:]))
+
+        # Expansion ensures the expression to be in a form like:
+        # tensor[i][j] += A[i]*B[j] + C[i]*D[j] + A[i]*E[j] + ...
+        if not self._expanded:
+            raise RuntimeError("Distribute error: expansion required first.")
+
+        to_distr = defaultdict(list)
+        find_prod(self.expr.children[1], self.count_occurrences(), to_distr)
+
+        # Create the new assembly expression
+        new_prods = []
+        for d in to_distr.values():
+            dist, target = zip(*d)
+            target = Par(create_sum(target)) if len(target) > 1 else create_sum(target)
+            new_prods.append(Par(Prod(dist[0], target)))
+        self.expr.children[1] = Par(create_sum(new_prods))
