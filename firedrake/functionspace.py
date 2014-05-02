@@ -584,7 +584,7 @@ class FunctionSpace(FunctionSpaceBase):
             else:
                 # if not an extruded mesh, just make the element
                 element = ufl.FiniteElement(family,
-                                            domain=mesh._ufl_cell,
+                                            domain=mesh.ufl_domain(),
                                             degree=degree)
 
         super(FunctionSpace, self).__init__(mesh, element, name, dim=1)
@@ -627,7 +627,7 @@ class VectorFunctionSpace(FunctionSpaceBase):
                                        degree=vdegree)
             element = ufl.OuterProductVectorElement(la, lb, dim=dim, domain=mesh.ufl_domain())
         else:
-            element = ufl.VectorElement(family, domain=mesh.ufl_cell(),
+            element = ufl.VectorElement(family, domain=mesh.ufl_domain(),
                                         degree=degree, dim=dim)
         super(VectorFunctionSpace, self).__init__(mesh, element, name, dim=dim, rank=1)
         self._initialized = True
