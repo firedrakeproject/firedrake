@@ -580,7 +580,7 @@ class FunctionSpace(FunctionSpaceBase):
                                            domain=ufl.Cell("interval", 1),
                                            degree=vdegree)
                 # now make the OPE
-                element = ufl.OuterProductElement(la, lb)
+                element = ufl.OuterProductElement(la, lb, domain=mesh.ufl_domain())
             else:
                 # if not an extruded mesh, just make the element
                 element = ufl.FiniteElement(family,
@@ -625,7 +625,7 @@ class VectorFunctionSpace(FunctionSpaceBase):
             else:
                 lb = ufl.FiniteElement(vfamily, domain=ufl.Cell("interval", 1),
                                        degree=vdegree)
-            element = ufl.OuterProductVectorElement(la, lb, dim=dim)
+            element = ufl.OuterProductVectorElement(la, lb, dim=dim, domain=mesh.ufl_domain())
         else:
             element = ufl.VectorElement(family, domain=mesh.ufl_cell(),
                                         degree=degree, dim=dim)
