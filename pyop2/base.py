@@ -3629,6 +3629,19 @@ class ParLoop(LazyComputation):
         LazyComputation.__init__(self,
                                  set([a.data for a in args if a.access in [READ, RW]]) | Const._defs,
                                  set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]))
+        # INCs into globals need to start with zero and then sum back
+        # into the input global at the end.  This has the same number
+        # of reductions but means that successive par_loops
+        # incrementing into a global get the "right" value in
+        # parallel.
+        # Don't care about MIN and MAX because they commute with the reduction
+        self._reduced_globals = {}
+        for i, arg in enumerate(args):
+            if arg._is_global_reduction and arg.access == INC:
+                glob = arg.data
+                self._reduced_globals[i] = glob
+                args[i]._dat = _make_object('Global', glob.dim, data=np.zeros_like(glob.data_ro), dtype=glob.dtype)
+
         # Always use the current arguments, also when we hit cache
         self._actual_args = args
         self._kernel = kernel
@@ -3709,6 +3722,16 @@ class ParLoop(LazyComputation):
         for arg in self.args:
             if arg._is_global_reduction:
                 arg.reduction_end()
+        # Finalise global increments
+        for i, glob in self._reduced_globals.iteritems():
+            # These can safely access the _data member directly
+            # because lazy evaluation has ensured that any pending
+            # updates to glob happened before this par_loop started
+            # and the reduction_end on the temporary global pulled
+            # data back from the device if necessary.
+            # In fact we can't access the properties directly because
+            # that forces an infinite loop.
+            glob._data += self.args[i].data._data
 
     @collective
     def maybe_set_halo_update_needed(self):
