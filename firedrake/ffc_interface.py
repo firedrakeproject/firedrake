@@ -65,7 +65,7 @@ class FormSplitter(ReuseTransformer):
     def split(self, form):
         """Split the given form."""
         # Visit each integrand and obtain the tuple of sub forms
-        args = tuple((a.count(), len(a.function_space()))
+        args = tuple((a.number(), len(a.function_space()))
                      for a in form.form_data().original_arguments)
         forms_list = []
         for it in sum_integrands(form).integrals():
@@ -107,14 +107,14 @@ class FormSplitter(ReuseTransformer):
             args = []
             for i, fs in enumerate(arg.function_space().split()):
                 # Look up the split argument in cache since we want it unique
-                a = Argument(fs.ufl_element(), fs, arg.count())
+                a = Argument(fs.ufl_element(), fs, arg.number())
                 if a.shape():
-                    if self._idx[arg.count()] == i:
+                    if self._idx[arg.number()] == i:
                         args += [a[j] for j in range(a.shape()[0])]
                     else:
                         args += [Zero() for j in range(a.shape()[0])]
                 else:
-                    if self._idx[arg.count()] == i:
+                    if self._idx[arg.number()] == i:
                         args.append(a)
                     else:
                         args.append(Zero())
