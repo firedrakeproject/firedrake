@@ -94,14 +94,20 @@ class FunctionSpaceBase(ObjectCached):
         self._index = None
 
         # Create the PetscSection mapping topological entities to DoFs
+        #
+        # Note: PETSc treats the components of a vector-DoF as
+        # individual DoFs, so we have to scale dofs_per_entity by the
+        # dimension of the (Vector)FunctionSpace.
+        scaled_dofs_per_entity = map(lambda d: d * dim, self._dofs_per_entity)
         try:
             # Old style createSection
-            self._global_numbering = mesh._plex.createSection(1, [1], self._dofs_per_entity,
+            self._global_numbering = mesh._plex.createSection(1, [dim], scaled_dofs_per_entity,
                                                               perm=mesh._plex_renumbering)
         except:
             # New style
-            self._global_numbering = mesh._plex.createSection([1], self._dofs_per_entity,
+            self._global_numbering = mesh._plex.createSection([dim], scaled_dofs_per_entity,
                                                               perm=mesh._plex_renumbering)
+
         mesh._plex.setDefaultSection(self._global_numbering)
         self._universal_numbering = mesh._plex.getDefaultGlobalSection()
 
@@ -112,7 +118,8 @@ class FunctionSpaceBase(ObjectCached):
         # Derive the Halo from the DefaultSF
         self._halo = halo.Halo(mesh._plex.getDefaultSF(),
                                self._global_numbering,
-                               self._universal_numbering)
+                               self._universal_numbering,
+                               self.dim)
 
         # Compute entity class offsets
         self.dof_classes = [0, 0, 0, 0]
@@ -144,11 +151,13 @@ class FunctionSpaceBase(ObjectCached):
                                                                  self._global_numbering,
                                                                  mesh._cell_closure,
                                                                  self.fiat_element,
-                                                                 sum(self._dofs_per_cell))
+                                                                 sum(self._dofs_per_cell),
+                                                                 self.dim)
         else:
             self.cell_node_list = dmplex.get_cell_nodes(self._global_numbering,
                                                         mesh._cell_closure,
-                                                        sum(self._dofs_per_cell))
+                                                        sum(self._dofs_per_cell),
+                                                        self.dim)
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
             # Compute the facet_numbering and store with the parent mesh

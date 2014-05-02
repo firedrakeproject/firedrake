@@ -290,13 +290,14 @@ def closure_ordering(PETSc.DM plex,
 @cython.wraparound(False)
 def get_cell_nodes(PETSc.Section global_numbering,
                    np.ndarray[np.int32_t, ndim=2] cell_closures,
-                   dofs_per_cell):
+                   dofs_per_cell, PetscInt vdim):
     """
     Builds the DoF mapping for non-extruded meshes.
 
     :arg global_numbering: Section describing the global DoF numbering
     :arg cell_closures: 2D array of ordered cell closures
     :arg dofs_per_cell: Number of DoFs associated with each mesh cell
+    :arg vdim: Vector dimension of the function space
     """
     cdef:
         PetscInt c, ncells, ci, nclosure, offset, p, pi, dof, off, i
@@ -312,8 +313,10 @@ def get_cell_nodes(PETSc.Section global_numbering,
             p = cell_closures[c, ci]
             CHKERR(PetscSectionGetDof(global_numbering.sec,
                                       p, &dof))
+            dof /= vdim
             CHKERR(PetscSectionGetOffset(global_numbering.sec,
                                          p, &off))
+            off /= vdim
             for i in range(dof):
                 cell_nodes[c, offset+i] = off+i
             offset += dof
@@ -324,7 +327,7 @@ def get_cell_nodes(PETSc.Section global_numbering,
 def get_extruded_cell_nodes(PETSc.DM plex,
                             PETSc.Section global_numbering,
                             np.ndarray[np.int32_t, ndim=2] cell_closures,
-                            fiat_element, dofs_per_cell):
+                            fiat_element, dofs_per_cell, PetscInt vdim):
     """
     Builds the DoF mapping for extruded meshes.
 
@@ -333,6 +336,7 @@ def get_extruded_cell_nodes(PETSc.DM plex,
     :arg cell_closures: 2D array of ordered cell closures
     :arg fiat_element: The FIAT element for the extruded cell
     :arg dofs_per_cell: Number of DoFs associated with each mesh cell
+    :arg vdim: Vector dimension of the function space
     """
     cdef:
         PetscInt c, ncells, ci, nclosure, d, dim
@@ -382,9 +386,11 @@ def get_extruded_cell_nodes(PETSc.DM plex,
                     p = cell_closures[c, ci]
                     CHKERR(PetscSectionGetDof(global_numbering.sec,
                                               p, &pdof))
+                    pdof /= vdim
                     if pdof > 0:
                         CHKERR(PetscSectionGetOffset(global_numbering.sec,
                                                      p, &glbl))
+                        glbl /= vdim
 
                         # For extruded entities the numberings are:
                         # Global: [bottom[:], top[:], side[:]]
@@ -504,6 +510,7 @@ def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
 
     for v in range(vStart, vEnd):
         CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
+        offset /= dim
         for i in range(dim):
             coords[offset, i] = plex_coords[v - vStart, i]
 

@@ -38,6 +38,21 @@ def test_hdf5_scalar(mesh, filepath):
 
 
 @pytest.mark.skipif("h5py is None", reason='h5py not available')
+def test_hdf5_vector(mesh, filepath):
+    mesh = UnitSquareMesh(2, 2)
+    h5file = File(filepath)
+    h5file << mesh.coordinates
+
+    h5out = h5py.File(filepath, 'r')
+    xval = h5out['fields']['Coordinates'][0, :, 0]
+    x = mesh.coordinates.dat.data[:, 0]
+    assert np.max(np.abs(xval - x)) < 1e-6
+    yval = h5out['fields']['Coordinates'][0, :, 1]
+    y = mesh.coordinates.dat.data[:, 1]
+    assert np.max(np.abs(yval - y)) < 1e-6
+
+
+@pytest.mark.skipif("h5py is None", reason='h5py not available')
 def test_hdf5_xdmf_header(mesh, filepath):
     fs = FunctionSpace(mesh, "CG", 1)
     x = Function(fs, name='xcoord')

@@ -13,7 +13,7 @@ class Halo(object):
     The Halo is derived from a PetscSF object and builds the global
     to universal numbering map from the respective PetscSections."""
 
-    def __init__(self, petscsf, global_numbering, universal_numbering):
+    def __init__(self, petscsf, global_numbering, universal_numbering, vdim):
         self._tag = utils._new_uid()
         self._comm = op2.MPI.comm
         self._nprocs = self.comm.size
@@ -34,8 +34,8 @@ class Halo(object):
         nroots, nleaves, local, remote = petscsf.getGraph()
         for local, (rank, index) in zip(local, remote):
             if rank != self.comm.rank:
-                self._receives[rank].append(local)
-                remote_sends[rank].append(index)
+                self._receives[rank].append(local/vdim)
+                remote_sends[rank].append(index/vdim)
 
         # Propagate remote send lists to the actual sender
         send_reqs = []
@@ -76,11 +76,11 @@ class Halo(object):
 
         # Build Global-To-Universal mapping
         pStart, pEnd = global_numbering.getChart()
-        self._gnn2unn = np.zeros(global_numbering.getStorageSize(), dtype=np.int32)
+        self._gnn2unn = np.zeros(global_numbering.getStorageSize()/vdim, dtype=np.int32)
         for p in range(pStart, pEnd):
-            dof = global_numbering.getDof(p)
-            goff = global_numbering.getOffset(p)
-            uoff = universal_numbering.getOffset(p)
+            dof = global_numbering.getDof(p) / vdim
+            goff = global_numbering.getOffset(p) / vdim
+            uoff = universal_numbering.getOffset(p) / vdim
             if uoff < 0:
                 uoff = (-1*uoff)-1
             for c in range(dof):
