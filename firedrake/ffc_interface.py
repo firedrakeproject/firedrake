@@ -53,7 +53,7 @@ def sum_integrands(form):
     """Produce a form with the integrands on the same measure summed."""
     integrals = defaultdict(list)
     for integral in form.integrals():
-        integrals[integral.measure()].append(integral)
+        integrals[(integral.integral_type(), integral.subdomain_id())].append(integral)
     return Form([it[0].reconstruct(reduce(add, [i.integrand() for i in it]))
                  for it in integrals.values()])
 

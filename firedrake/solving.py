@@ -449,7 +449,7 @@ def _assemble(f, tensor=None, bcs=None):
         # coming from the base mesh as a starting point for the actual dynamic map
         # computation.
         for integral in integrals:
-            integral_type = integral.measure().integral_type()
+            integral_type = integral.integral_type()
             if integral_type == "cell":
                 cell_domains.append(op2.ALL)
             elif integral_type == "exterior_facet":
