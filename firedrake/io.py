@@ -73,6 +73,12 @@ class File(object):
     """
 
     def __init__(self, filename):
+        # Ensure output directory exists
+        outdir = os.path.dirname(os.path.abspath(filename))
+        if MPI.comm.rank == 0:
+            if not os.path.exists(outdir):
+                os.makedirs(outdir)
+        MPI.comm.barrier()
         # Parallel
         if MPI.comm.size > 1:
             new_file = os.path.splitext(os.path.abspath(filename))[0]
