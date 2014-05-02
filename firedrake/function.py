@@ -39,11 +39,12 @@ class Function(ufl.Coefficient):
 
     def __init__(self, function_space, val=None, name=None, dtype=valuetype):
         """
-        :param function_space: the :class:`.FunctionSpaceBase` or another
-            :class:`Function` to build this :class:`Function` on
-        :param val: NumPy array-like with initial values or a :class:`op2.Dat`
-            (optional)
-        :param name: user-defined name of this :class:`Function` (optional)
+        :param function_space: the :class:`.FunctionSpace`, :class:`.VectorFunctionSpace`
+            or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
+            Alternatively, another :class:`Function` may be passed here and its function space
+            will be used to build this :class:`Function`.
+        :param val: NumPy array-like (or :class:`op2.Dat`) providing initial values (optional).
+        :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
                (defaults to :data:`valuetype`).
         """
@@ -98,19 +99,24 @@ class Function(ufl.Coefficient):
     @property
     def node_set(self):
         return self._function_space.node_set
+    node_set.__doc__ = functionspace.FunctionSpace.node_set.__doc__
 
     @property
     def dof_dset(self):
         return self._function_space.dof_dset
+    dof_dset.__doc__ = functionspace.FunctionSpace.dof_dset.__doc__
 
     def cell_node_map(self, bcs=None):
         return self._function_space.cell_node_map(bcs)
+    cell_node_map.__doc__ = functionspace.FunctionSpace.cell_node_map.__doc__
 
     def interior_facet_node_map(self, bcs=None):
         return self._function_space.interior_facet_node_map(bcs)
+    interior_facet_node_map.__doc__ = functionspace.FunctionSpace.interior_facet_node_map.__doc__
 
     def exterior_facet_node_map(self, bcs=None):
         return self._function_space.exterior_facet_node_map(bcs)
+    exterior_facet_node_map.__doc__ = functionspace.FunctionSpace.exterior_facet_node_map.__doc__
 
     def project(self, b, *args, **kwargs):
         """Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
@@ -127,6 +133,8 @@ class Function(ufl.Coefficient):
         return vector.Vector(self.dat)
 
     def function_space(self):
+        """Return the :class:`.FunctionSpace`, :class:`.VectorFunctionSpace`
+            or :class:`.MixedFunctionSpace` on which this :class:`Function` is defined."""
         return self._function_space
 
     def name(self):
@@ -255,8 +263,8 @@ for (unsigned int d=0; d < %(dim)d; d++) {
 
     def assign(self, expr, subset=None):
         """Set the :class:`Function` value to the pointwise value of
-        expr. expr may only contain Functions on the same
-        :class:`FunctionSpace` as the :class:`Function` being assigned to.
+        expr. expr may only contain :class:`Function`\s on the same
+        :class:`.FunctionSpace` as the :class:`Function` being assigned to.
 
         Similar functionality is available for the augmented assignment
         operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are

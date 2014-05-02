@@ -23,7 +23,7 @@ def extract_offset(offset, facet_map, base_map):
 
 
 def compute_extruded_dofs(fiat_element, flat_dofs, layers):
-    """Compute the number of dofs in a column"""
+    """Compute the number of dofs in a column."""
     size = len(flat_dofs)
     dofs_per_column = np.zeros(size, np.int32)
     for i in range(size):
@@ -64,7 +64,7 @@ def compute_offset(ent_dofs, flat_dofs, total_dofs):
 
 
 def total_num_dofs(flat_dofs):
-    """Compute the total number of degrees of freedom in the extruded mesh"""
+    """Compute the total number of degrees of freedom in the extruded mesh."""
     size = len(flat_dofs)
     total = 0
     for i in range(size):

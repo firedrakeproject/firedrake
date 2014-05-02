@@ -281,6 +281,7 @@ guaranteed to result in the same evictions on each processor.
 
     @property
     def num_objects(self):
+        """The number of objects currently in the cache."""
         return len(self.cache)
 
     @property

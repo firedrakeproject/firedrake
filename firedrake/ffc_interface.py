@@ -128,6 +128,7 @@ class FFCKernel(DiskCached):
         # Include an md5 hash of firedrake_geometry.h in the cache key
         with open(path.join(path.dirname(__file__), 'firedrake_geometry.h')) as f:
             _firedrake_geometry_md5 = md5(f.read()).hexdigest()
+        del f
         MPI.comm.bcast(_firedrake_geometry_md5, root=0)
     else:
         # No cache on slave processes
@@ -143,6 +144,11 @@ class FFCKernel(DiskCached):
                    constants.PYOP2_VERSION).hexdigest()
 
     def __init__(self, form, name):
+        """A wrapper object for one or more FFC kernels compiled from a given :class:`~Form`.
+
+        :arg form: the :class:`~Form` from which to compile the kernels.
+        :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
+        """
         if self._initialized:
             return
 
