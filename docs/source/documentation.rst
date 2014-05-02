@@ -1,34 +1,36 @@
-.. sidebar:: Current development information.
+.. only:: html
+
+  .. sidebar:: Current development information.
   
-  Firedrake and PyOP2 are continually tested using a `local buildbot
-  <http://buildbot-ocean.ese.ic.ac.uk:8080/builders/firedrake-trunk>`__
-  and the `Travis continuous integration system
-  <https://travis-ci.org>`__ respectively.
+     Firedrake and PyOP2 are continually tested using a `local buildbot
+     <http://buildbot-ocean.ese.ic.ac.uk:8080/builders/firedrake-trunk>`__
+     and the `Travis continuous integration system
+     <https://travis-ci.org>`__ respectively.
 
-  Latest Firedrake status can be found `here
-  <http://buildbot-ocean.ese.ic.ac.uk:8080/builders/firedrake-trunk>`__.
+     Latest Firedrake status can be found `here
+     <http://buildbot-ocean.ese.ic.ac.uk:8080/builders/firedrake-trunk>`__.
 
-  Latest PyOP2 status: |pyop2build|
+     Latest PyOP2 status: |pyop2build|
 
-  .. |pyop2build| image:: https://travis-ci.org/OP2/PyOP2.png?branch=master
-             :target: https://travis-ci.org/OP2/PyOP2
+     .. |pyop2build| image:: https://travis-ci.org/OP2/PyOP2.png?branch=master
+                             :target: https://travis-ci.org/OP2/PyOP2
 
-  Firedrake and PyOP2 are developed on `GitHub <http://github.com>`__ while we also maintain Firedrake-ready versions of the `FEniCS <http://fenicsproject.org>`__ tools on `Bitbucket <http://bitbucket.org>`__. 
+     Firedrake and PyOP2 are developed on `GitHub <http://github.com>`__ while we also maintain Firedrake-ready versions of the `FEniCS <http://fenicsproject.org>`__ tools on `Bitbucket <http://bitbucket.org>`__. 
 
-  * `Firedrake on GitHub <https://github.com/firedrakeproject/firedrake/>`__
-  * `PyOp2 on GitHub <https://github.com/OP2/PyOP2>`__
-  * `Firedrake version of FFC on Bitbucket <https://bitbucket.org/mapdes/ffc>`__
-  * `Firedrake version of UFL on Bitbucket <https://bitbucket.org/mapdes/ufl>`__
-  * `Firedrake version of FIAT on Bitbucket <https://bitbucket.org/mapdes/fiat>`__
+     * `Firedrake on GitHub <https://github.com/firedrakeproject/firedrake/>`__
+     * `PyOp2 on GitHub <https://github.com/OP2/PyOP2>`__
+     * `Firedrake version of FFC on Bitbucket <https://bitbucket.org/mapdes/ffc>`__
+     * `Firedrake version of UFL on Bitbucket <https://bitbucket.org/mapdes/ufl>`__
+     * `Firedrake version of FIAT on Bitbucket <https://bitbucket.org/mapdes/fiat>`__
 
-Getting started
-===============
+  Getting started
+  ===============
 
-The first step is to download and install Firedrake and its
-dependencies. For full instructions, see :doc:`obtaining Firedrake
-<download>`.
+  The first step is to download and install Firedrake and its
+  dependencies. For full instructions, see :doc:`obtaining Firedrake
+  <download>`.
 
-.. _firedrake_tutorials:
+  .. _firedrake_tutorials:
 
 Tutorials
 =========
@@ -36,9 +38,11 @@ Tutorials
 Once you've built Firedrake, you'll want to actually solve some
 PDEs. Below are a few tutorial examples to get you started.
 
-*  :doc:`A basic Helmholtz equation <demos/helmholtz.py>`
-*  :doc:`The Burgers equation <demos/burgers.py>`, a non-linear, unsteady example.
-*  :doc:`A mixed formulation of the Poisson equation <demos/poisson_mixed.py>`
+.. toctree::
+
+   A basic Helmholtz equation.<demos/helmholtz.py>
+   The Burgers equation, a non-linear, unsteady example.<demos/burgers.py>
+   A mixed formulation of the Poisson equation.<demos/poisson_mixed.py>
 
 Manual
 ======
@@ -54,10 +58,12 @@ finite element problems in Firedrake.
    solving-interface
    boundary_conditions
 
-API documentation
-=================
+.. only:: html
 
-The complete list of all the classes and methods in Firedrake is
-available at the :doc:`firedrake` page. The same information is
-:ref:`indexed <genindex>` in alphabetical order. Another very
-effective mechanism is the site :ref:`search engine <search>`.
+  API documentation
+  =================
+
+  The complete list of all the classes and methods in Firedrake is
+  available at the :doc:`firedrake` page. The same information is
+  :ref:`indexed <genindex>` in alphabetical order. Another very
+  effective mechanism is the site :ref:`search engine <search>`.

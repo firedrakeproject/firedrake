@@ -1,6 +1,8 @@
 .. default-role:: math
 
-.. contents::
+.. only:: html
+
+   .. contents::
 
 Dirichlet boundary conditions
 =============================
