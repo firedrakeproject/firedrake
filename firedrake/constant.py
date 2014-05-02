@@ -14,7 +14,12 @@ class Constant(object):
 
     """A "constant" coefficient
 
-    A :class:`Constant` takes one value over the whole :class:`~.Mesh`.
+    A :class:`Constant` takes one value over the whole
+    :class:`~.Mesh`. The advantage of using a :class:`Constant` in a
+    form rather than a literal value is that the constant will be
+    passed as an argument to the generated kernel which avoids the
+    need to recompile the kernel if the form is assembled for a
+    different value of the constant.
 
     :arg value: the value of the constant.  May either be a scalar, an
          iterable of values (for a vector-valued constant), or an iterable
@@ -56,27 +61,27 @@ class Constant(object):
         self._repr = 'Constant(%r)' % self._ufl_element
 
     def ufl_element(self):
-        """Return the UFL element this Constant is built on"""
+        """Return the UFL element on which this Constant is built."""
         return self._ufl_element
 
     def function_space(self):
-        """Return a null function space"""
+        """Return a null function space."""
         return None
 
     def cell_node_map(self, bcs=None):
-        """Return a null cell to node map"""
+        """Return a null cell to node map."""
         if bcs is not None:
             raise RuntimeError("Can't apply boundary conditions to a Constant")
         return None
 
     def interior_facet_node_map(self, bcs=None):
-        """Return a null interior facet to node map"""
+        """Return a null interior facet to node map."""
         if bcs is not None:
             raise RuntimeError("Can't apply boundary conditions to a Constant")
         return None
 
     def exterior_facet_node_map(self, bcs=None):
-        """Return a null exterior facet to node map"""
+        """Return a null exterior facet to node map."""
         if bcs is not None:
             raise RuntimeError("Can't apply boundary conditions to a Constant")
         return None

@@ -49,8 +49,7 @@ def par_loop(kernel, measure, args):
     :arg measure: is a :class:`ufl.Measure` which determines the manner in which the iteration over the mesh is to occur.
     :arg args: is a dictionary mapping variable names in the kernel to :class:`.Functions` and indicates how these :class:`.Functions` are to be accessed.
 
-    Example
-    .......
+    **Example**
 
     Assume that `A` is a :class:`.Function` in CG1 and `B` is a
     :class:`.Function` in DG0. Then the following code sets each DoF in
