@@ -33,8 +33,8 @@ class Expression(ufl.Coefficient):
     support projection.
 
     If the :class:`FunctionSpace` the expression will be applied to is
-    vector valued, the length of the code snippets provided must match
-    the number of components in the function space.
+    vector valued, a list of code snippets of length matching the
+    number of components in the function space must be provided.
     """
     def __init__(self, code=None, element=None, cell=None, degree=None, **kwargs):
         """
