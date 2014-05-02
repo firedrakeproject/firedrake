@@ -98,13 +98,18 @@ class Function(ufl.Coefficient):
 
     @property
     def node_set(self):
+        """A :class:`pyop2.Set` containing the nodes of this
+        :class:`Function`. One or (for
+        :class:`.VectorFunctionSpace`\s) more degrees of freedom are
+        stored at each node.
+        """
         return self._function_space.node_set
-    node_set.__doc__ = functionspace.FunctionSpace.node_set.__doc__
 
     @property
     def dof_dset(self):
+        """A :class:`pyop2.DataSet` containing the degrees of freedom of
+        this :class:`Function`."""
         return self._function_space.dof_dset
-    dof_dset.__doc__ = functionspace.FunctionSpace.dof_dset.__doc__
 
     def cell_node_map(self, bcs=None):
         return self._function_space.cell_node_map(bcs)
