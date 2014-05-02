@@ -101,11 +101,12 @@ def _get_msh_file(source, name, dimension, meshed=False):
 
 class _Facets(object):
     """Wrapper class for facet interation information on a :class:`Mesh`"""
-    def __init__(self, mesh, count, kind, facet_cell, local_facet_number, markers=None):
+    def __init__(self, mesh, classes, kind, facet_cell, local_facet_number, markers=None):
 
         self.mesh = mesh
 
-        self.count = count
+        classes = as_tuple(classes, int, 4)
+        self.classes = classes
 
         self.kind = kind
         assert(kind in ["interior", "exterior"])
@@ -123,8 +124,7 @@ class _Facets(object):
 
     @utils.cached_property
     def set(self):
-        # Currently no MPI parallel support
-        size = self.count
+        size = self.classes
         halo = None
         if isinstance(self.mesh, ExtrudedMesh):
             if self.kind == "interior":
@@ -581,12 +581,12 @@ class ExtrudedMesh(Mesh):
         self._cell_closure = mesh._cell_closure
 
         interior_f = self._old_mesh.interior_facets
-        self._interior_facets = _Facets(self, interior_f.count,
+        self._interior_facets = _Facets(self, interior_f.classes,
                                         "interior",
                                         interior_f.facet_cell,
                                         interior_f.local_facet_number)
         exterior_f = self._old_mesh.exterior_facets
-        self._exterior_facets = _Facets(self, exterior_f.count,
+        self._exterior_facets = _Facets(self, exterior_f.classes,
                                         "exterior",
                                         exterior_f.facet_cell,
                                         exterior_f.local_facet_number,

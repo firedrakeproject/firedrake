@@ -156,9 +156,7 @@ class FunctionSpaceBase(ObjectCached):
                                            mesh._cell_numbering,
                                            mesh._cell_closure)
 
-                # Note: To implement facets correctly in parallel
-                # we need to pass interior_facet_classes to _Facets()
-                mesh.interior_facets = mesh_t._Facets(mesh, interior_facets.size,
+                mesh.interior_facets = mesh_t._Facets(mesh, interior_facet_classes,
                                                       "interior",
                                                       interior_facet_cell,
                                                       interior_local_facet_number)
@@ -192,9 +190,7 @@ class FunctionSpaceBase(ObjectCached):
                                            mesh._cell_numbering,
                                            mesh._cell_closure)
 
-                # Note: To implement facets correctly in parallel
-                # we need to pass exterior_facet_classes to _Facets()
-                mesh.exterior_facets = mesh_t._Facets(mesh, exterior_facets.size,
+                mesh.exterior_facets = mesh_t._Facets(mesh, exterior_facet_classes,
                                                       "exterior",
                                                       exterior_facet_cell,
                                                       exterior_local_facet_number,
@@ -430,7 +426,13 @@ class FunctionSpaceBase(ObjectCached):
         nodes_per_facet = \
             len(self.fiat_element.entity_closure_dofs()[dim][0])
 
-        facet_set = self._mesh.exterior_facets.set
+        # HACK ALERT
+        # The facet set does not have a halo associated with it, since
+        # we only construct halos for DoF sets.  Fortunately, this
+        # loop is direct and we already have all the correct
+        # information available locally.  So We fake a set of the
+        # correct size and carry out a direct loop
+        facet_set = op2.Set(self._mesh.exterior_facets.set.total_size)
 
         fs_dat = op2.Dat(facet_set**el.space_dimension(),
                          data=self.exterior_facet_node_map().values_with_halo)
@@ -463,7 +465,9 @@ class FunctionSpaceBase(ObjectCached):
                                         body),
                             "create_bc_node_map")
 
-        local_facet_dat = self._mesh.exterior_facets.local_facet_dat
+        local_facet_dat = op2.Dat(facet_set ** self._mesh.exterior_facets._rank,
+                                  self._mesh.exterior_facets.local_facet_dat.data_ro_with_halos,
+                                  dtype=np.uintc)
         op2.par_loop(kernel, facet_set,
                      fs_dat(op2.READ),
                      facet_dat(op2.WRITE),
