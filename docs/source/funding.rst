@@ -1,5 +1,12 @@
-Firedrake is supported by:
---------------------------
+.. only:: html
+
+  Firedrake is supported by:
+  --------------------------
+
+.. only:: latex
+
+  Funding
+  =======
 
 .. |NERC| image:: /images/nerc.*
   :height: 60px
@@ -17,11 +24,19 @@ Firedrake is supported by:
   :height: 60px
   :target: http://www.imperial.ac.uk/climatechange
 
-+---------------------------+------------+---------+--------+
-| |Imperial College London| | |Grantham| | |EPSRC| | |NERC| |
-+---------------------------+------------+---------+--------+
+.. only:: html
 
-and in particular by the following grants:
+  +---------------------------+------------+---------+--------+
+  | |Imperial College London| | |Grantham| | |EPSRC| | |NERC| |
+  +---------------------------+------------+---------+--------+
+  and in particular by the following grants:
+
+.. only:: latex 
+
+   Firedrake is supported by Imperial College London, the Grantham
+   Institute for Climate Change, the Engineering and Physical Sciences
+   Research Council and the Natural Environment research council.
+
 
 NERC fellowship `NE/K008951/1 <http://gotw.nerc.ac.uk/list_full.asp?pcode=NE%2FK008951%2F1>`_:
   Abstracting the environment: automating geoscientific simulation
