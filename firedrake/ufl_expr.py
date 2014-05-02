@@ -171,4 +171,4 @@ def FacetNormal(mesh):
 
     :arg mesh: the mesh over which the normal should be represented.
     """
-    return ufl.FacetNormal(mesh.ufl_cell())
+    return ufl.FacetNormal(mesh.ufl_domain())
