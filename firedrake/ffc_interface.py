@@ -188,7 +188,7 @@ def compile_form(form, name):
     # If there is no mixed element involved, return the kernels FFC produces
     if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
         return [((0, 0),
-                it.integral_type(), it.subdomain_data(),
+                it.integral_type(), it.domain().data().coordinates,
                 fd.original_coefficients, kernel)
                 for it, kernel in zip(fd.preprocessed_form.integrals(),
                                       FFCKernel(form, name).kernels)]
@@ -200,7 +200,7 @@ def compile_form(form, name):
             fd = form.form_data()
             kernels.append(((i, j),
                             fd.preprocessed_form.integrals()[0].integral_type(),
-                            fd.preprocessed_form.integrals()[0].subdomain_data(),
+                            fd.preprocessed_form.integrals()[0].domain().data().coordinates,
                             fd.original_coefficients, kernel))
     return kernels
 
