@@ -49,7 +49,6 @@ def test_l2_conv(params):
     assert (run_convergence_test(parameters=params) > 2.8).all()
 
 
-@pytest.mark.xfail
 @pytest.mark.parallel
 def test_l2_conv_parallel():
     from mpi4py import MPI
