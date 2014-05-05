@@ -148,28 +148,26 @@ class _Facets(object):
 
         return op2.Subset(self.set, [])
 
-    def measure_set(self, measure):
+    def measure_set(self, integral_type, subdomain_id):
         '''Return the iteration set appropriate to measure. This will
         either be for all the interior or exterior (as appropriate)
         facets, or for a particular numbered subdomain.'''
 
-        dom_id = measure.subdomain_id()
-        dom_type = measure.integral_type()
-        if dom_id in [measure.DOMAIN_ID_EVERYWHERE,
-                      measure.DOMAIN_ID_OTHERWISE]:
-            if dom_type == "exterior_facet_topbottom":
+        # ufl.Measure doesn't have enums for these any more :(
+        if subdomain_id in ["everywhere", "otherwise"]:
+            if integral_type == "exterior_facet_topbottom":
                 return [(op2.ON_BOTTOM, self.bottom_set),
                         (op2.ON_TOP, self.bottom_set)]
-            elif dom_type == "exterior_facet_bottom":
+            elif integral_type == "exterior_facet_bottom":
                 return [(op2.ON_BOTTOM, self.bottom_set)]
-            elif dom_type == "exterior_facet_top":
+            elif integral_type == "exterior_facet_top":
                 return [(op2.ON_TOP, self.bottom_set)]
-            elif dom_type == "interior_facet_horiz":
+            elif integral_type == "interior_facet_horiz":
                 return self.bottom_set
             else:
                 return self.set
         else:
-            return self.subset(measure.subdomain_id())
+            return self.subset(subdomain_id)
 
     def subset(self, markers):
         """Return the subset corresponding to a given marker value.

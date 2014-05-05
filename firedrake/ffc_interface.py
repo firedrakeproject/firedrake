@@ -178,7 +178,10 @@ class FFCKernel(DiskCached):
 
 def compile_form(form, name):
     """Compile a form using FFC and return a tuple of tuples of
-    (index, domain type, coefficients, :class:`Kernels <pyop2.op2.Kernel>`)."""
+    (index, integral type, subdomain id, coordinates, coefficients, :class:`Kernels <pyop2.op2.Kernel>`).
+
+    Where the coordinates are extracted from the :class:`ufl.Domain` of the integral.
+    """
 
     # Check that we get a Form
     if not isinstance(form, Form):
@@ -188,8 +191,9 @@ def compile_form(form, name):
     # If there is no mixed element involved, return the kernels FFC produces
     if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
         return [((0, 0),
-                it.integral_type(), it.domain().data().coordinates,
-                fd.original_coefficients, kernel)
+                 it.integral_type(), it.subdomain_id(),
+                 it.domain().data().coordinates,
+                 fd.original_coefficients, kernel)
                 for it, kernel in zip(fd.preprocessed_form.integrals(),
                                       FFCKernel(form, name).kernels)]
     # Otherwise pre-split the form into mixed blocks before calling FFC
@@ -200,6 +204,7 @@ def compile_form(form, name):
             fd = form.form_data()
             kernels.append(((i, j),
                             fd.preprocessed_form.integrals()[0].integral_type(),
+                            fd.preprocessed_form.integrals()[0].subdomain_id(),
                             fd.preprocessed_form.integrals()[0].domain().data().coordinates,
                             fd.original_coefficients, kernel))
     return kernels

@@ -549,8 +549,7 @@ def _assemble(f, tensor=None, bcs=None):
             bottom = any(bc.sub_domain == "bottom" for bc in bcs)
             top = any(bc.sub_domain == "top" for bc in bcs)
             extruded_bcs = (bottom, top)
-        for (i, j), integral_type, sd_data, coefficients, kernel in kernels:
-            coords = sd_data
+        for (i, j), integral_type, subdomain_id, coords, coefficients, kernel in kernels:
             m = coords.function_space().mesh()
             if needs_orientations:
                 cell_orientations = m.cell_orientations()
@@ -600,7 +599,9 @@ def _assemble(f, tensor=None, bcs=None):
                     tensor_arg = vec(lambda s: s.exterior_facet_node_map(), i)
                 else:
                     tensor_arg = tensor(op2.INC)
-                args = [kernel, m.exterior_facets.measure_set(measure), tensor_arg,
+                args = [kernel, m.exterior_facets.measure_set(integral_type,
+                                                              subdomain_id),
+                        tensor_arg,
                         coords.dat(op2.READ, coords.exterior_facet_node_map(),
                                    flatten=True)]
                 if needs_orientations:
@@ -631,7 +632,7 @@ def _assemble(f, tensor=None, bcs=None):
                 #domain id: interior horizontal, bottom or top.
 
                 #Get the list of sets and globals required for parallel loop construction.
-                set_global_list = m.exterior_facets.measure_set(measure)
+                set_global_list = m.exterior_facets.measure_set(integral_type, subdomain_id)
 
                 #Iterate over the list and assemble all the args of the parallel loop
                 for (index, set) in set_global_list:
@@ -696,7 +697,8 @@ def _assemble(f, tensor=None, bcs=None):
                 else:
                     tensor_arg = tensor(op2.INC)
 
-                args = [kernel, m.interior_facets.measure_set(measure), tensor_arg,
+                args = [kernel, m.interior_facets.measure_set(integral_type, subdomain_id),
+                        tensor_arg,
                         coords.dat(op2.READ, coords.cell_node_map(),
                                    flatten=True)]
                 if needs_orientations:
