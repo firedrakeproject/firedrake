@@ -560,7 +560,7 @@ class FunctionSpace(FunctionSpaceBase):
         #       OuterProductElement and so on
         if isinstance(family, ufl.FiniteElementBase):
             # Second case...
-            element = family
+            element = family.reconstruct(domain=mesh.ufl_domain())
         else:
             # First case...
             if isinstance(mesh, mesh_t.ExtrudedMesh):
