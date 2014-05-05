@@ -372,20 +372,16 @@ class FunctionSpaceBase(ObjectCached):
             return cache[lbcs]
         except KeyError:
             # Cache miss.
-            if not lbcs:
-                new_entity_node_list = entity_node_list
-            elif offset is not None:
-                l = [bc.nodes for bc in bcs if bc.sub_domain not in ['top', 'bottom']]
-                if l:
-                    bcids = reduce(np.union1d, l)
-                    nl = entity_node_list.ravel()
-                    new_entity_node_list = np.where(np.in1d(nl, bcids), -10000000, nl)
-                else:
-                    new_entity_node_list = entity_node_list
+
+            # Any top and bottom bcs (for the extruded case) are handled elsewhere.
+            nodes = [bc.nodes for bc in lbcs if bc.sub_domain not in ['top', 'bottom']]
+            if nodes:
+                bcids = reduce(np.union1d, nodes)
+                node_list_bc = np.arange(self.node_count)
+                node_list_bc[bcids] = -10000000
+                new_entity_node_list = node_list_bc.take(entity_node_list)
             else:
-                bcids = reduce(np.union1d, [bc.nodes for bc in bcs])
-                nl = entity_node_list.ravel()
-                new_entity_node_list = np.where(np.in1d(nl, bcids), -1, nl)
+                new_entity_node_list = entity_node_list
 
             cache[lbcs] = op2.Map(entity_set, self.node_set,
                                   map_arity,
