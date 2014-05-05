@@ -115,6 +115,19 @@ def modifies(method, self, *args, **kwargs):
     return retval
 
 
+@decorator
+def zeroes(method, self, *args, **kwargs):
+    "Decorator for methods that zero their instance's data"
+
+    _force_copies(self)
+
+    retval = method(self, *args, **kwargs)
+
+    self._version_set_zero()
+
+    return retval
+
+
 def modifies_argn(n):
     """Decorator for a method that modifies its nth argument
 

@@ -43,7 +43,8 @@ from hashlib import md5
 
 from configuration import configuration
 from caching import Cached, ObjectCached
-from versioning import Versioned, modifies, modifies_argn, CopyOnWrite, shallow_copy
+from versioning import Versioned, modifies, modifies_argn, CopyOnWrite, \
+    shallow_copy, zeroes
 from exceptions import *
 from utils import *
 from backends import _make_object
@@ -1776,6 +1777,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         """Indictate whether this Dat requires a halo update"""
         self._needs_halo_update = val
 
+    @zeroes
     @collective
     def zero(self):
         """Zero the data associated with this :class:`Dat`"""
@@ -1789,8 +1791,6 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                             pred=["static", "inline"])
             self._zero_kernel = _make_object('Kernel', k, 'zero')
         par_loop(self._zero_kernel, self.dataset.set, self(WRITE))
-
-        self._version_set_zero()
 
     @modifies_argn(0)
     @collective
