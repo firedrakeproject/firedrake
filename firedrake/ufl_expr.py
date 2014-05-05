@@ -16,7 +16,7 @@ __all__ = ['Argument', 'TestFunction', 'TrialFunction',
 
 class Argument(ufl.argument.Argument):
     """Representation of the argument to a form,"""
-    def __init__(self, element, function_space, count=None):
+    def __init__(self, element, function_space, count):
         """
         :arg element: the :class:`ufl.element.FiniteElementBase` this
              argument corresponds to.
@@ -131,7 +131,7 @@ def derivative(form, u, du=None):
     if du is None:
         if isinstance(u, function.Function):
             V = u.function_space()
-            du = Argument(V.ufl_element(), V)
+            du = TrialFunction(V)
         else:
             raise RuntimeError("Can't compute derivative for form")
     return ufl.derivative(form, u, du)
@@ -153,8 +153,10 @@ def adjoint(form, reordered_arguments=None):
     # firedrake.Argument objects.
     if reordered_arguments is None:
         v, u = extract_arguments(form)
-        reordered_arguments = (Argument(u.element(), u.function_space()),
-                               Argument(v.element(), v.function_space()))
+        reordered_arguments = (Argument(u.element(), u.function_space(),
+                                        count=v.count()),
+                               Argument(v.element(), v.function_space(),
+                                        count=u.count()))
     return ufl.adjoint(form, reordered_arguments)
 
 
