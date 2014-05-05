@@ -122,6 +122,16 @@ def test_assemble_with_bcs_then_not(a, V):
     assert (Anobcs != Abcs).any()
 
 
+def test_assemble_with_bcs_multiple_subdomains(a, V):
+    bc1 = DirichletBC(V, 0, [0, 1])
+    A = assemble(a, bcs=[bc1])
+    assert not A.assembled
+    assert A._needs_reassembly
+    A.assemble()
+    assert A.assembled
+    assert not A._needs_reassembly
+
+
 def test_form_action(a, V):
     A = assemble(a)
     u1 = A._form_action(Function(V).assign(1.0))
