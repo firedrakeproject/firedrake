@@ -782,9 +782,9 @@ class Subset(ExtrudedSet):
                 'Out of bounds indices in Subset construction: [%d, %d) not [0, %d)' %
                 (self._indices[0], self._indices[-1], self._superset.total_size))
 
-        self._core_size = sum(self._indices < superset._core_size)
-        self._size = sum(self._indices < superset._size)
-        self._ieh_size = sum(self._indices < superset._ieh_size)
+        self._core_size = (self._indices < superset._core_size).sum()
+        self._size = (self._indices < superset._size).sum()
+        self._ieh_size = (self._indices < superset._ieh_size).sum()
         self._inh_size = len(self._indices)
 
     # Look up any unspecified attributes on the _set.
