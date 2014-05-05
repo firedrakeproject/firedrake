@@ -70,12 +70,13 @@ cdef cmap init_map(omap):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
     """Create and populate auxiliary data structure: for each element of the
     from set, for each row pointed to by the row map, add all columns pointed
     to by the col map."""
     cdef:
-        int e, i, r, d, c, layer
+        int e, i, r, d, c, layer, l
         int lsize, rsize, row
         cmap rowmap, colmap
         vector[set[int]] s_diag
@@ -175,13 +176,14 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+@cython.cdivision(True)
 cdef build_sparsity_pattern_mpi(int rmult, int cmult, int nrows, int ncols, list maps):
     """Create and populate auxiliary data structure: for each element of the
     from set, for each row pointed to by the row map, add all columns pointed
     to by the col map."""
     cdef:
         int lrsize, lcsize, rsize, row, entry
-        int e, i, r, d, c
+        int e, i, r, d, c, l
         cmap rowmap, colmap
         vector[set[int]] s_diag, s_odiag
 
