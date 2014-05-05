@@ -163,8 +163,7 @@ def CellSize(mesh):
 
     :arg mesh: the mesh for which to calculate the cell size.
     """
-    cell = mesh.ufl_cell()
-    return 2.0 * cell.circumradius
+    return 2.0 * ufl.Circumradius(mesh.ufl_domain())
 
 
 def FacetNormal(mesh):
