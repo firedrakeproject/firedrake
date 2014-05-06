@@ -171,7 +171,11 @@ class LinuxCompiler(Compiler):
          (optional).
     :arg ldargs: A list of arguments to pass to the linker (optional)."""
     def __init__(self, cppargs=[], ldargs=[]):
-        opt_flags = ['-O3']
+        # GCC 4.8.2 produces bad code with -fivopts (which O3 does by default).
+        # gcc.gnu.org/bugzilla/show_bug.cgi?id=61068
+        # This is the default in Ubuntu 14.04 so work around this
+        # problem by turning ivopts off.
+        opt_flags = ['-O3', '-fno-ivopts']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
 
