@@ -678,6 +678,11 @@ class ExtrudedMesh(Mesh):
         self._dx = ufl.Measure('cell', domain=self, subdomain_data=self.coordinates)
         self._ds = ufl.Measure('exterior_facet', domain=self, subdomain_data=self.coordinates)
         self._dS = ufl.Measure('interior_facet', domain=self, subdomain_data=self.coordinates)
+        self._ds_t = ufl.Measure('exterior_facet_top', domain=self, subdomain_data=self.coordinates)
+        self._ds_b = ufl.Measure('exterior_facet_bottom', domain=self, subdomain_data=self.coordinates)
+        self._ds_v = ufl.Measure('exterior_facet_vert', domain=self, subdomain_data=self.coordinates)
+        self._dS_h = ufl.Measure('interior_facet_horiz', domain=self, subdomain_data=self.coordinates)
+        self._dS_v = ufl.Measure('interior_facet_vert', domain=self, subdomain_data=self.coordinates)
         # Set the subdomain_data on all the default measures to this coordinate field.
         for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_t, ufl.ds_b, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
             measure._subdomain_data = self.coordinates
