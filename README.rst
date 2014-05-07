@@ -72,17 +72,22 @@ dependencies using the above install script.
 Preparing the system
 --------------------
 
-PyOP2 require a number of tools to be available: 
+PyOP2 requires a number of tools and libraries to be available:
 
 * gcc, make, CMake 
 * Git, Mercurial
 * pip and the Python headers 
-* SWIG
+* boost 1.48 or newer
 
 On a Debian-based system (Ubuntu, Mint, etc.) install them by running::
 
   sudo apt-get install -y build-essential python-dev git-core mercurial \
-  cmake cmake-curses-gui python-pip swig
+  cmake cmake-curses-gui python-pip libboost-dev
+
+**Note:** On Ubuntu 12.04, the default boost version is 1.46, which is too
+old. Please install boost 1.48::
+
+  sudo apt-get install -y libboost1.48-dev
 
 Dependencies
 ------------
