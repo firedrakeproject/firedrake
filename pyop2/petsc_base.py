@@ -46,7 +46,7 @@ import base
 from base import *
 from backends import _make_object
 from logger import debug, warning
-from versioning import CopyOnWrite, modifies
+from versioning import CopyOnWrite, modifies, zeroes
 import mpi
 from mpi import collective
 
@@ -309,12 +309,12 @@ class Mat(base.Mat, CopyOnWrite):
         vwr = PETSc.Viewer().createBinary(filename, PETSc.Viewer.Mode.WRITE)
         self.handle.view(vwr)
 
+    @zeroes
     @collective
     def zero(self):
         """Zero the matrix."""
         base._trace.evaluate(set(), set([self]))
         self.handle.zeroEntries()
-        self._version_set_zero()
 
     @modifies
     @collective
