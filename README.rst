@@ -2,6 +2,8 @@
   :target: https://travis-ci.org/OP2/PyOP2
   :alt: build status
 
+.. contents::
+
 Installing PyOP2
 ================
 
