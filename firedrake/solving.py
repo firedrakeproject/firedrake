@@ -427,7 +427,10 @@ def _assemble(f, tensor=None, bcs=None):
                "contravariant piola" in fiat_utils.fiat_from_ufl_element(e).mapping():
                 needs_orientations = True
                 break
-    needs_orientations = needs_orientations and fd.topological_dimension != fd.geometric_dimension
+    cell = fd.integration_domains[0].cell()
+    tdim = cell.topological_dimension()
+    gdim = cell.geometric_dimension()
+    needs_orientations = needs_orientations and tdim != gdim
     is_mat = fd.rank == 2
     is_vec = fd.rank == 1
 
