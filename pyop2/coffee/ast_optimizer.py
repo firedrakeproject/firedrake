@@ -335,8 +335,9 @@ class AssemblyRewriter(object):
             expression. Hoistable sub-expressions are stored in expr_dep."""
 
             def hoist(node, dep, expr_dep, _extract=True):
-                node = Par(node) if isinstance(node, Symbol) else node
-                expr_dep[dep].append(node)
+                if _extract:
+                    node = Par(node) if isinstance(node, Symbol) else node
+                    expr_dep[dep].append(node)
                 extract.has_extracted = extract.has_extracted or _extract
 
             if isinstance(node, Symbol):
@@ -375,8 +376,8 @@ class AssemblyRewriter(object):
                     return ((), extract.INV, node_len)
                 elif dep_l and dep_r and dep_l != dep_r:
                     # E.g. A[i]*B[j]
-                    hoist(left, dep_l, expr_dep, len_l > 1)
-                    hoist(right, dep_r, expr_dep, len_r > 1)
+                    hoist(left, dep_l, expr_dep, not self._licm or len_l > 1)
+                    hoist(right, dep_r, expr_dep, not self._licm or len_r > 1)
                     return ((), extract.HOI, node_len)
                 elif dep_l and dep_r and dep_l == dep_r:
                     # E.g. A[i] + B[i]
