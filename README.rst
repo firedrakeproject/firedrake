@@ -6,8 +6,9 @@ Installing PyOP2
 ================
 
 The main testing platform for PyOP2 is Ubuntu 12.04 64-bit with Python
-2.7.3. Other UNIX-like systems may or may not work. Microsoft Windows is
-not supported.
+2.7.3. Other UNIX-like systems may or may not work. Mac OS X 10.7 and
+10.9 are also known to work. Microsoft Windows may work, but is not a
+supported platform.
 
 Quick start
 -----------
@@ -89,6 +90,56 @@ old. Please install boost 1.48::
 
   sudo apt-get install -y libboost1.48-dev
 
+.. _mac-install:
+
+Obtaining a build environment on Mac OS
+---------------------------------------
+
+We recommend using `Homebrew <http://brew.sh>`__ as a package manager
+for the required packages on Mac OS systems.  Obtaining a build
+environment for PyOP2 consists of the following:
+
+1. Install Xcode.  For OS X 10.9 (Mavericks) this is possible through
+   the App Store.  For earlier versions, try
+   https://developer.apple.com/downloads (note that on OS X 10.7
+   (Lion) you will need to obtain Xcode 4.6 rather than Xcode 5)
+
+2. If you did not install Xcode 5, you will need to additionally
+   install the Xcode command line tools through the downloads section
+   of Xcode's preferences
+
+3. Install homebrew, following the instructions at http://brew.sh
+
+4. Install an MPI library (PyOP2 is tested with openmpi)::
+
+     brew install openmpi
+
+5. Install an up-to-date Python via homebrew::
+
+     brew install python
+
+   **Note:** Do not follow the instructions to update pip, since they
+   currently result in a broken pip installation (see
+   https://github.com/Homebrew/homebrew/issues/26900)
+
+6. Install numpy via homebrew::
+
+     brew tap homebrew/python
+     brew install numpy
+
+7. Install python dependencies via pip::
+
+     pip install decorator
+     pip install cython
+     pip install mpi4py
+     pip install pytest
+     pip install flake8
+
+Your system is now ready to move on to installation of PETSc_ and
+petsc4py_ described below.  Note that on Mac OS we do not recommend
+using sudo when installing, as such when following instructions below
+to install with pip just remove the ``sudo`` portion of the command.
+
 Dependencies
 ------------
 
@@ -146,6 +197,8 @@ Install these via ``pip``::
 
   sudo pip install argparse ordereddict
 
+.. _petsc-install:
+
 PETSc
 ~~~~~
 
@@ -163,6 +216,12 @@ If not, make sure all PETSc_ dependencies (BLAS/LAPACK, MPI and a Fortran
 compiler) are installed. On a Debian based system, run::
 
   sudo apt-get install -y libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran
+
+.. note::
+
+   If you followed the instructions above for installation of
+   dependencies on Mac OS X, you should be ready to build PETSc_
+   without installing any additional packages at this point.
 
 Then install PETSc_ via ``pip`` ::
 
@@ -190,6 +249,10 @@ If you have previously installed and older version of PETSc_ or petsc4py_,
 ``pip`` might tell you that the requirements are already satisfied when running
 above commands. In that case, use ``pip install -U --no-deps`` to upgrade
 (``--no-deps`` prevents also recursively upgrading any dependencies).
+
+If you only intend to run PyOP2 on CPUs (not GPUs) you can now skip
+straight to building PyOP2, otherwise read on for additional
+dependencies.
 
 .. _cuda-installation:
 
@@ -311,6 +374,8 @@ On a Debian-based system, run::
   sudo apt-get install libhdf5-mpi-dev python-h5py
 
 Alternatively, if the HDF5 library is available, ``sudo pip install h5py``.
+
+.. _pyop2-install:
 
 Building PyOP2
 --------------
