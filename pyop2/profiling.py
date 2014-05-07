@@ -35,6 +35,7 @@
 
 import numpy as np
 from time import time
+from contextlib import contextmanager
 from decorator import decorator
 
 
@@ -169,6 +170,14 @@ def tic(name):
 def toc(name):
     """Stop a timer with the given name."""
     Timer(name).stop()
+
+
+@contextmanager
+def timed_region(name):
+    """A context manager for timing a given code region."""
+    tic(name)
+    yield
+    toc(name)
 
 
 def summary(filename=None):
