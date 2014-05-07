@@ -313,6 +313,8 @@ class AssemblyRewriter(object):
         # Properties of the assembly expression
         self._licm = 0
         self._expanded = False
+        # The expression graph tracks symbols dependencies
+        self.eg = ExpressionGraph()
 
     def licm(self):
         """Perform loop-invariant code motion.
@@ -489,9 +491,11 @@ class AssemblyRewriter(object):
                 # 5) Replace invariant sub-trees with the proper tmp variable
                 replace(self.expr.children[1], dict(zip([str(i) for i in expr], for_sym)))
 
-                # 6) Track hoisted symbols
+                # 6) Track hoisted symbols and symbols dependencies
                 sym_info = [(i, j, inv_for) for i, j in zip(_expr, var_decl)]
                 self.hoisted.update(zip([s.symbol for s in for_sym], sym_info))
+                for s, e in zip(for_sym, expr):
+                    self.eg.add_dependency(s, e)
 
                 # 7a) Update expressions hoisted along a known dimension (same dep)
                 if for_dep in inv_dep:
@@ -692,3 +696,33 @@ class AssemblyRewriter(object):
             target = Par(create_sum(target)) if len(target) > 1 else create_sum(target)
             new_prods.append(Par(Prod(dist[0], target)))
         self.expr.children[1] = Par(create_sum(new_prods))
+
+
+class ExpressionGraph(object):
+
+    """Track read-after-write dependencies between symbols."""
+
+    def __init__(self):
+        self.deps = defaultdict(list)
+
+    def add_dependency(self, sym, expr):
+        """Extract symbols from ``expr`` and create a read-after-write dependency
+        with ``sym``."""
+
+        def extract_syms(node, extracted):
+            if isinstance(node, Symbol):
+                extracted.append(node.symbol)
+            else:
+                for n in node.children:
+                    extract_syms(n, extracted)
+
+        extract_syms(expr, self.deps[sym.symbol])
+
+    def which_dep(self, sym, syms_target):
+        """Return a list of those symbols in ``syms_target`` having a read-after-write
+        dependency with sym."""
+
+        if sym not in self.deps:
+            return []
+
+        return [s for s in syms_target if s.symbol in self.deps[sym]]
