@@ -8,13 +8,11 @@ notifications:
 language: python
 python:
   - "2.6"
-  - "2.7"
+  - "2.7_with_system_site_packages"
 env:
   global:
     - C_INCLUDE_PATH=/usr/lib/openmpi/include
     - PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco"
-virtualenv:
-  system_site_packages: true
 # command to install dependencies
 before_install:
   - sudo add-apt-repository -y ppa:cython-dev/master-ppa
