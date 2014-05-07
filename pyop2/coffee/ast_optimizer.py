@@ -34,6 +34,8 @@
 from collections import defaultdict
 from copy import deepcopy as dcopy
 
+import networkx as nx
+
 from pyop2.coffee.ast_base import *
 import ast_plan
 
@@ -364,13 +366,11 @@ class AssemblyRewriter(object):
                     return (dep_l, extract.KSE, node_len)
             elif info_l == extract.KSE and info_r == extract.INV:
                 hoist(left, dep_l, expr_dep)
-                if len_r > 1:
-                    hoist(right, dep_r, expr_dep)
+                hoist(right, dep_r, expr_dep, (dep_r and len_r == 1) or len_r > 1)
                 return ((), extract.HOI, node_len)
             elif info_l == extract.INV and info_r == extract.KSE:
                 hoist(right, dep_r, expr_dep)
-                if len_l > 1:
-                    hoist(left, dep_l, expr_dep)
+                hoist(left, dep_l, expr_dep, (dep_l and len_l == 1) or len_l > 1)
                 return ((), extract.HOI, node_len)
             elif info_l == extract.INV and info_r == extract.INV:
                 if not dep_l and not dep_r:
@@ -386,23 +386,19 @@ class AssemblyRewriter(object):
                     return (dep_l, extract.INV, node_len)
                 elif dep_l and not dep_r:
                     # E.g. A[i]*alpha
-                    if len_r > 1:
-                        hoist(right, dep_r, expr_dep)
+                    hoist(right, dep_r, expr_dep, len_r > 1)
                     return (dep_l, extract.KSE, node_len)
                 elif dep_r and not dep_l:
                     # E.g. alpha*A[i]
-                    if len_l > 1:
-                        hoist(left, dep_l, expr_dep)
+                    hoist(left, dep_l, expr_dep, len_l > 1)
                     return (dep_r, extract.KSE, node_len)
                 else:
                     raise RuntimeError("Error while hoisting invariant terms")
             elif info_l == extract.HOI and info_r == extract.KSE:
-                if len_r > 2:
-                    hoist(right, dep_r, expr_dep)
+                hoist(right, dep_r, expr_dep, len_r > 2)
                 return ((), extract.HOI, node_len)
             elif info_l == extract.KSE and info_r == extract.HOI:
-                if len_l > 2:
-                    hoist(left, dep_l, expr_dep)
+                hoist(left, dep_l, expr_dep, len_l > 2)
                 return ((), extract.HOI, node_len)
             elif info_l == extract.HOI or info_r == extract.HOI:
                 return ((), extract.HOI, node_len)
@@ -414,7 +410,7 @@ class AssemblyRewriter(object):
         extract.HOI = 2  # Stop searching, done hoisting
         extract.has_extracted = False
 
-        def replace(node, syms_dict):
+        def replace(node, syms_dict, n_replaced):
             if isinstance(node, Symbol):
                 if str(Par(node)) in syms_dict:
                     return True
@@ -424,7 +420,7 @@ class AssemblyRewriter(object):
                 if str(node) in syms_dict:
                     return True
                 else:
-                    return replace(node.children[0], syms_dict)
+                    return replace(node.children[0], syms_dict, n_replaced)
             # Found invariant sub-expression
             if str(node) in syms_dict:
                 return True
@@ -432,12 +428,16 @@ class AssemblyRewriter(object):
             # Traverse the expression tree and replace
             left = node.children[0]
             right = node.children[1]
-            if replace(left, syms_dict):
+            if replace(left, syms_dict, n_replaced):
                 left = Par(left) if isinstance(left, Symbol) else left
-                node.children[0] = dcopy(syms_dict[str(left)])
-            if replace(right, syms_dict):
+                replacing = syms_dict[str(left)]
+                node.children[0] = dcopy(replacing)
+                n_replaced[str(replacing)] += 1
+            if replace(right, syms_dict, n_replaced):
                 right = Par(right) if isinstance(right, Symbol) else right
-                node.children[1] = dcopy(syms_dict[str(right)])
+                replacing = syms_dict[str(right)]
+                node.children[1] = dcopy(replacing)
+                n_replaced[str(replacing)] += 1
             return False
 
         # Extract read-only sub-expressions that do not depend on at least
@@ -489,13 +489,15 @@ class AssemblyRewriter(object):
                                            [(v, lv) for v in var_decl])))
 
                 # 5) Replace invariant sub-trees with the proper tmp variable
-                replace(self.expr.children[1], dict(zip([str(i) for i in expr], for_sym)))
+                n_replaced = dict(zip([str(s) for s in for_sym], [0]*len(for_sym)))
+                replace(self.expr.children[1], dict(zip([str(i) for i in expr], for_sym)),
+                        n_replaced)
 
                 # 6) Track hoisted symbols and symbols dependencies
                 sym_info = [(i, j, inv_for) for i, j in zip(_expr, var_decl)]
                 self.hoisted.update(zip([s.symbol for s in for_sym], sym_info))
                 for s, e in zip(for_sym, expr):
-                    self.eg.add_dependency(s, e)
+                    self.eg.add_dependency(s, e, n_replaced[str(s)] > 1)
 
                 # 7a) Update expressions hoisted along a known dimension (same dep)
                 if for_dep in inv_dep:
@@ -523,14 +525,14 @@ class AssemblyRewriter(object):
                 old_sym_info = old_sym_info[0:2] + (inv_for[0],) + (place.children,)
                 self.hoisted[i.sym.symbol] = old_sym_info
 
-    def count_occurrences(self):
+    def count_occurrences(self, str_key=False):
         """For each variable in the assembly expression, count how many times
         it appears as involved in some operations. For example, for the
         expression a*(5+c) + b*(a+4), return {a: 2, b: 1, c: 1}."""
 
         def count(node, counter):
             if isinstance(node, Symbol):
-                node = str(node)
+                node = str(node) if str_key else (node.symbol, node.rank)
                 if node in counter:
                     counter[node] += 1
                 else:
@@ -561,83 +563,19 @@ class AssemblyRewriter(object):
         - It is also a step towards exposing well-known linear algebra operations,
         like matrix-matrix multiplies."""
 
-        def do_expand(node, parent, it_vars):
-            if isinstance(node, Symbol):
-                if not node.rank:
-                    return ([node], do_expand.CONST)
-                elif node.rank[-1] not in it_vars:
-                    return ([node], do_expand.CONST)
-                else:
-                    return ([node], do_expand.ITVAR)
-            elif isinstance(node, Par):
-                return do_expand(node.children[0], node, it_vars)
-            elif isinstance(node, Prod):
-                l_node, l_type = do_expand(node.children[0], node, it_vars)
-                r_node, r_type = do_expand(node.children[1], node, it_vars)
-                if l_type == do_expand.ITVAR and r_type == do_expand.ITVAR:
-                    # Found an expandable product
-                    left_occs = do_expand.occs[str(l_node[0])]
-                    right_occs = do_expand.occs[str(r_node[0])]
-                    to_exp = l_node if left_occs < right_occs else r_node
-                    return (to_exp, do_expand.ITVAR)
-                elif l_type == do_expand.CONST and r_type == do_expand.CONST:
-                    # Product of constants; they are both used for expansion (if any)
-                    return ([node], do_expand.CONST)
-                else:
-                    # Do the expansion
-                    const = l_node[0] if l_type == do_expand.CONST else r_node[0]
-                    expandable, exp_node = (l_node, node.children[0]) \
-                        if l_type == do_expand.ITVAR else (r_node, node.children[1])
-                    for sym in expandable:
-                        # Perform the expansion
-                        if sym.symbol not in self.hoisted:
-                            raise RuntimeError("Expansion error: no symbol: %s" % sym.symbol)
-                        old_expr, var_decl, inv_for, place = self.hoisted[sym.symbol]
-                        if do_expand.occs[str(sym)] == 1:
-                            old_expr.children[0] = Prod(Par(old_expr.children[0]), const)
-                        else:
-                            # Create a new symbol, expr, and decl, because the
-                            # found symbol is used in multiple places in the
-                            # expression, and the expansion happens only in a
-                            # specific point
-                            do_expand.occs[str(sym)] -= 1
-                            new_expr = Par(Prod(dcopy(sym), const))
-                            new_node = Assign(sym, new_expr)
-                            sym.symbol += "_EXP%d" % do_expand.counter
-                            inv_for.children[0].children.append(new_node)
-                            new_var_decl = dcopy(var_decl)
-                            new_var_decl.sym.symbol = sym.symbol
-                            place.insert(place.index(var_decl), new_var_decl)
-                            self.hoisted[sym.symbol] = (new_expr, new_var_decl, inv_for, place)
-                            # Update counters
-                            do_expand.occs[str(sym)] = 1
-                            do_expand.counter += 1
-                    # Update the parent node, since an expression has been expanded
-                    if parent.children[0] == node:
-                        parent.children[0] = exp_node
-                    elif parent.children[1] == node:
-                        parent.children[1] = exp_node
-                    else:
-                        raise RuntimeError("Expansion error: wrong parent-child association")
-                    return (expandable, do_expand.ITVAR)
-            elif isinstance(node, Sum):
-                l_node, l_type = do_expand(node.children[0], node, it_vars)
-                r_node, r_type = do_expand(node.children[1], node, it_vars)
-                if l_type == do_expand.ITVAR and r_type == do_expand.ITVAR:
-                    return (l_node + r_node, do_expand.ITVAR)
-                elif l_type == do_expand.CONST and r_type == do_expand.CONST:
-                    return ([node], do_expand.CONST)
-                else:
-                    return (None, do_expand.CONST)
-            else:
-                raise RuntimeError("Expansion error: unknown node: %s" % str(node))
+        # Select the assembly iteration variable along which the expansion should
+        # be performed. The heuristics here is that the expansion occurs along the
+        # iteration variable which appears in more unique arrays. This will allow
+        # distribution to be more effective.
+        asm_out, asm_in = (self.expr_info[0][0], self.expr_info[0][1])
+        it_var_occs = {asm_out: 0, asm_in: 0}
+        for s in self.count_occurrences().keys():
+            if s[1] and s[1][0] in it_var_occs:
+                it_var_occs[s[1][0]] += 1
 
-        do_expand.CONST = -1
-        do_expand.ITVAR = -2
-        do_expand.counter = 0
-        do_expand.occs = self.count_occurrences()
-
-        do_expand(self.expr.children[1], self.expr, self.expr_info[0])
+        exp_var = asm_out if it_var_occs[asm_out] < it_var_occs[asm_in] else asm_in
+        ee = ExpressionExpander(self.hoisted, self.eg, self.parent)
+        ee.expand(self.expr.children[1], self.expr, it_var_occs, exp_var)
         self._expanded = True
 
     def distribute(self):
@@ -687,7 +625,7 @@ class AssemblyRewriter(object):
             raise RuntimeError("Distribute error: expansion required first.")
 
         to_distr = defaultdict(list)
-        find_prod(self.expr.children[1], self.count_occurrences(), to_distr)
+        find_prod(self.expr.children[1], self.count_occurrences(True), to_distr)
 
         # Create the new assembly expression
         new_prods = []
@@ -698,31 +636,138 @@ class AssemblyRewriter(object):
         self.expr.children[1] = Par(create_sum(new_prods))
 
 
+class ExpressionExpander(object):
+    """Expand assembly expressions such that:
+
+    Y[j] = f(...)
+    (X[i]*Y[j])*F + ...
+
+    becomes:
+
+    Y[j] = f(...)*F
+    (X[i]*Y[j]) + ..."""
+
+    CONST = -1
+    ITVAR = -2
+
+    def __init__(self, var_info, eg, expr):
+        self.var_info = var_info
+        self.eg = eg
+        self.counter = 0
+        self.parent = expr
+
+    def _do_expand(self, sym, const):
+        """Perform the actual expansion. If there are no dependencies, then
+        the already hoisted expression is expanded. Otherwise, if the symbol to
+        be expanded occurs multiple times in the expression, or it depends on
+        other hoisted symbols that will also be expanded, create a new symbol."""
+
+        old_expr, var_decl, inv_for, place = self.var_info[sym.symbol]
+
+        # No dependencies, just perform the expansion
+        if not self.eg.has_dep(sym):
+            old_expr.children[0] = Prod(Par(old_expr.children[0]), const)
+            return
+
+        # Create a new symbol, expression, and declaration
+        new_expr = Par(Prod(dcopy(sym), const))
+        new_node = Assign(sym, new_expr)
+        sym.symbol += "_EXP%d" % self.counter
+        new_var_decl = dcopy(var_decl)
+        new_var_decl.sym.symbol = sym.symbol
+        # Append new expression and declaration
+        inv_for.children[0].children.append(new_node)
+        place.insert(place.index(var_decl), new_var_decl)
+        # Update tracked information
+        self.var_info[sym.symbol] = (new_expr, new_var_decl, inv_for, place)
+        self.eg.add_dependency(sym, new_expr, 0)
+
+        self.counter += 1
+
+    def expand(self, node, parent, it_vars, exp_var):
+        """Perform the expansion of the expression rooted in ``node``. Terms are
+        expanded along the iteration variable ``exp_var``."""
+
+        if isinstance(node, Symbol):
+            if not node.rank:
+                return ([node], self.CONST)
+            elif node.rank[-1] not in it_vars.keys():
+                return ([node], self.CONST)
+            else:
+                return ([node], self.ITVAR)
+        elif isinstance(node, Par):
+            return self.expand(node.children[0], node, it_vars, exp_var)
+        elif isinstance(node, Prod):
+            l_node, l_type = self.expand(node.children[0], node, it_vars, exp_var)
+            r_node, r_type = self.expand(node.children[1], node, it_vars, exp_var)
+            if l_type == self.ITVAR and r_type == self.ITVAR:
+                # Found an expandable product
+                to_exp = l_node if l_node[0].rank[-1] == exp_var else r_node
+                return (to_exp, self.ITVAR)
+            elif l_type == self.CONST and r_type == self.CONST:
+                # Product of constants; they are both used for expansion (if any)
+                return ([node], self.CONST)
+            else:
+                # Do the expansion
+                const = l_node[0] if l_type == self.CONST else r_node[0]
+                expandable, exp_node = (l_node, node.children[0]) \
+                    if l_type == self.ITVAR else (r_node, node.children[1])
+                for sym in expandable:
+                    # Perform the expansion
+                    if sym.symbol not in self.var_info:
+                        raise RuntimeError("Expansion error: no symbol: %s" % sym.symbol)
+                    old_expr, var_decl, inv_for, place = self.var_info[sym.symbol]
+                    self._do_expand(sym, const)
+                # Update the parent node, since an expression has been expanded
+                if parent.children[0] == node:
+                    parent.children[0] = exp_node
+                elif parent.children[1] == node:
+                    parent.children[1] = exp_node
+                else:
+                    raise RuntimeError("Expansion error: wrong parent-child association")
+                return (expandable, self.ITVAR)
+        elif isinstance(node, Sum):
+            l_node, l_type = self.expand(node.children[0], node, it_vars, exp_var)
+            r_node, r_type = self.expand(node.children[1], node, it_vars, exp_var)
+            if l_type == self.ITVAR and r_type == self.ITVAR:
+                return (l_node + r_node, self.ITVAR)
+            elif l_type == self.CONST and r_type == self.CONST:
+                return ([node], self.CONST)
+            else:
+                return (None, self.CONST)
+        else:
+            raise RuntimeError("Expansion error: unknown node: %s" % str(node))
+
+
 class ExpressionGraph(object):
 
     """Track read-after-write dependencies between symbols."""
 
     def __init__(self):
-        self.deps = defaultdict(list)
+        self.deps = nx.DiGraph()
 
-    def add_dependency(self, sym, expr):
+    def add_dependency(self, sym, expr, self_loop):
         """Extract symbols from ``expr`` and create a read-after-write dependency
-        with ``sym``."""
+        with ``sym``. If ``sym`` already has a dependency, then ``sym`` has a
+        self dependency on itself."""
 
-        def extract_syms(node, extracted):
+        def extract_syms(sym, node, deps):
             if isinstance(node, Symbol):
-                extracted.append(node.symbol)
+                deps.add_edge(sym, node.symbol)
             else:
                 for n in node.children:
-                    extract_syms(n, extracted)
+                    extract_syms(sym, n, deps)
 
-        extract_syms(expr, self.deps[sym.symbol])
+        sym = sym.symbol
+        # Add self-dependency
+        if self_loop:
+            self.deps.add_edge(sym, sym)
+        extract_syms(sym, expr, self.deps)
 
-    def which_dep(self, sym, syms_target):
-        """Return a list of those symbols in ``syms_target`` having a read-after-write
-        dependency with sym."""
+    def has_dep(self, sym):
+        """Return True if ``sym`` has a read-after-write dependency with some
+        other symbols. This is the case if ``sym`` has either a self dependency
+        or at least one input edge, meaning that other symbols depend on it."""
 
-        if sym not in self.deps:
-            return []
-
-        return [s for s in syms_target if s.symbol in self.deps[sym]]
+        sym = sym.symbol
+        return sym in self.deps and zip(*self.deps.in_edges(sym))
