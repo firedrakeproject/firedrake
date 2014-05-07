@@ -18,9 +18,9 @@ before_install:
   - sudo add-apt-repository -y ppa:cython-dev/master-ppa
   - sudo apt-get update -qq
   - "sudo apt-get install -qq build-essential python-dev git-core mercurial \
-    cmake cmake-curses-gui libmed1 gmsh python-pip swig libhdf5-openmpi-dev \
+    cmake cmake-curses-gui libmed1 gmsh python-pip libhdf5-openmpi-dev \
     libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran \
-    triangle-bin cython"
+    triangle-bin cython libboost1.48-dev"
   - pip install -r requirements-minimal.txt
   - if [[ $TRAVIS_PYTHON_VERSION == "2.6" ]]; then pip install argparse ordereddict; fi
 install: "python setup.py develop"
