@@ -588,6 +588,7 @@ class AssemblyRewriter(object):
         exp_var = asm_out if it_var_occs[asm_out] < it_var_occs[asm_in] else asm_in
         ee = ExpressionExpander(self.hoisted, self.eg, self.parent)
         ee.expand(self.expr.children[1], self.expr, it_var_occs, exp_var)
+        self.decls.update(ee.expanded_decls)
         self._expanded = True
 
     def distribute(self):
@@ -667,6 +668,7 @@ class ExpressionExpander(object):
         self.eg = eg
         self.counter = 0
         self.parent = expr
+        self.expanded_decls = {}
 
     def _do_expand(self, sym, const):
         """Perform the actual expansion. If there are no dependencies, then
@@ -690,6 +692,7 @@ class ExpressionExpander(object):
         # Append new expression and declaration
         inv_for.children[0].children.append(new_node)
         place.insert(place.index(var_decl), new_var_decl)
+        self.expanded_decls[new_var_decl.sym.symbol] = (new_var_decl, ast_plan.LOCAL_VAR)
         # Update tracked information
         self.var_info[sym.symbol] = (new_expr, new_var_decl, inv_for, place)
         self.eg.add_dependency(sym, new_expr, 0)
