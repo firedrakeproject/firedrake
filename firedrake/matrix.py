@@ -2,6 +2,7 @@ import copy
 import ufl
 
 from pyop2 import op2
+from pyop2.utils import as_tuple, flatten
 
 import solving
 
@@ -33,7 +34,7 @@ class Matrix(object):
         self._thunk = None
         self._assembled = False
         self._bcs = set()
-        self._bcs_at_point_of_assembly = None
+        self._bcs_at_point_of_assembly = []
         if bcs is not None:
             for bc in bcs:
                 self._bcs.add(bc)
@@ -153,8 +154,10 @@ class Matrix(object):
         assembled are different from the subdomains of the current set
         of boundary conditions.
         """
-        old_subdomains = set([bc.sub_domain for bc in self._bcs_at_point_of_assembly])
-        new_subdomains = set([bc.sub_domain for bc in self.bcs])
+        old_subdomains = set(flatten(as_tuple(bc.sub_domain)
+                             for bc in self._bcs_at_point_of_assembly))
+        new_subdomains = set(flatten(as_tuple(bc.sub_domain)
+                             for bc in self.bcs))
         return old_subdomains != new_subdomains
 
     def add_bc(self, bc):
