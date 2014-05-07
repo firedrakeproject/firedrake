@@ -39,6 +39,14 @@ modify the pip invocation for either case above as follows::
 
   pip install --user ...
 
+Visualisation software
+----------------------
+
+Firedrake can output data in VTK format, suitable for viewing in
+Paraview_.  On Debian-like systems, you can obtain Paraview by
+installing the ``paraview`` package.  On Mac OS, the easiest approach
+is to download a binary from the `paraview website <Paraview_>`_.
+
 Firedrake
 ---------
 
@@ -112,3 +120,4 @@ the ``scripts`` subdirectory.
 .. _UFL: https://bitbucket.org/mapdes/ufl
 .. _Instant: https://bitbucket.org/fenics-project/instant
 .. _GitHub: https://github.com/firedrakeproject/firedrake
+.. _Paraview: http://www.paraview.org
