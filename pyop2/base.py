@@ -49,7 +49,7 @@ from exceptions import *
 from utils import *
 from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
-from profiling import timed_region
+from profiling import timed_region, timed_function
 from sparsity import build_sparsity
 from version import __version__ as version
 
@@ -3670,6 +3670,7 @@ class ParLoop(LazyComputation):
         return self.compute()
 
     @collective
+    @timed_function('ParLoop compute')
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
         self.halo_exchange_begin()
@@ -3695,6 +3696,7 @@ class ParLoop(LazyComputation):
                     maybe_setflags(d._data, write=False)
 
     @collective
+    @timed_function('ParLoop halo exchange begin')
     def halo_exchange_begin(self):
         """Start halo exchanges."""
         if self.is_direct:
@@ -3705,6 +3707,7 @@ class ParLoop(LazyComputation):
                 arg.halo_exchange_begin()
 
     @collective
+    @timed_function('ParLoop halo exchange end')
     def halo_exchange_end(self):
         """Finish halo exchanges (wait on irecvs)"""
         if self.is_direct:
@@ -3714,6 +3717,7 @@ class ParLoop(LazyComputation):
                 arg.halo_exchange_end()
 
     @collective
+    @timed_function('ParLoop reduction begin')
     def reduction_begin(self):
         """Start reductions"""
         for arg in self.args:
@@ -3721,6 +3725,7 @@ class ParLoop(LazyComputation):
                 arg.reduction_begin()
 
     @collective
+    @timed_function('ParLoop reduction end')
     def reduction_end(self):
         """End reductions"""
         for arg in self.args:
