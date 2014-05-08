@@ -175,6 +175,8 @@ class AssemblyOptimizer(object):
                 ew.expand()
                 ew.distribute()
                 ew.licm()
+            if level > 2:
+                self._precompute(expr)
 
     def slice_loop(self, slice_factor=None):
         """Perform slicing of the innermost loop to enhance register reuse.
@@ -348,6 +350,123 @@ class AssemblyOptimizer(object):
                 split, splittable = split_and_update(splittable)
                 new_asm_expr.update(split)
         self.asm_expr = new_asm_expr
+
+    def _precompute(self, expr):
+        """Precompute all expressions contributing to the evaluation of the local
+        assembly tensor. Precomputation implies vector expansion and hoisting
+        outside of the loop nest. This renders the assembly loop nest perfect.
+
+        For example:
+        for i
+          for r
+            A[r] += f(i, ...)
+          for j
+            for k
+              LT[j][k] += g(A[r], ...)
+
+        becomes
+        for i
+          for r
+            A[i][r] += f(...)
+        for i
+          for j
+            for k
+              LT[j][k] += g(A[i][r], ...)
+        """
+
+        def update_syms(node, precomputed):
+            if isinstance(node, Symbol):
+                if str(node) in precomputed:
+                    node.rank = precomputed[str(node)]
+            else:
+                for n in node.children:
+                    update_syms(n, precomputed)
+
+        def precompute_stmt(node, precomputed, new_outer_block):
+            """Recursively precompute, and vector-expand if already precomputed,
+            all terms rooted in node."""
+
+            if isinstance(node, Symbol):
+                # Vector-expand the symbol if already pre-computed
+                if str(node) in precomputed:
+                    node.rank = precomputed[str(node)]
+            elif isinstance(node, Expr):
+                for n in node.children:
+                    precompute_stmt(n, precomputed, new_outer_block)
+            elif isinstance(node, (Assign, Incr)):
+                # Precompute the LHS of the assignment
+                symbol = node.children[0]
+                new_rank = (self.int_loop.it_var(),) + symbol.rank
+                precomputed[str(symbol)] = new_rank
+                symbol.rank = new_rank
+                # Vector-expand the RHS
+                precompute_stmt(node.children[1], precomputed, new_outer_block)
+                # Finally, append the new node
+                new_outer_block.append(node)
+            elif isinstance(node, Decl):
+                # Vector-expand the declaration of the precomputed symbol
+                node.sym.rank = (self.int_loop.size(),) + node.sym.rank
+                if isinstance(node.init, Symbol):
+                    node.init.symbol = "{%s}" % node.init.symbol
+                new_outer_block.append(node)
+            elif isinstance(node, For):
+                # Precompute and/or Vector-expand inner statements
+                new_children = []
+                for n in node.children[0].children:
+                    precompute_stmt(n, precomputed, new_children)
+                node.children[0].children = new_children
+                new_outer_block.append(node)
+            else:
+                raise RuntimeError("Precompute error: found unexpteced node: %s" % str(node))
+
+        # The integration loop must be present for precomputation to be meaningful
+        if not self.int_loop:
+            return
+
+        expr, expr_info = expr
+        asm_outer_loop = expr_info[2][0]
+
+        # Precomputation
+        precomputed_block = []
+        precomputed_syms = {}
+        for i in self.int_loop.children[0].children:
+            if i == asm_outer_loop:
+                break
+            elif isinstance(i, FlatBlock):
+                continue
+            else:
+                precompute_stmt(i, precomputed_syms, precomputed_block)
+
+        # Wrap hoisted for/assignments/increments within a loop
+        new_outer_block = []
+        searching_stmt = []
+        for i in precomputed_block:
+            if searching_stmt and not isinstance(i, (Assign, Incr)):
+                wrap = Block(searching_stmt, open_scope=True)
+                precompute_for = For(dcopy(self.int_loop.init), dcopy(self.int_loop.cond),
+                                     dcopy(self.int_loop.incr), wrap, dcopy(self.int_loop.pragma))
+                new_outer_block.append(precompute_for)
+                searching_stmt = []
+            if isinstance(i, For):
+                wrap = Block([i], open_scope=True)
+                precompute_for = For(dcopy(self.int_loop.init), dcopy(self.int_loop.cond),
+                                     dcopy(self.int_loop.incr), wrap, dcopy(self.int_loop.pragma))
+                new_outer_block.append(precompute_for)
+            elif isinstance(i, (Assign, Incr)):
+                searching_stmt.append(i)
+            else:
+                new_outer_block.append(i)
+
+        # Delete precomputed stmts from original loop nest
+        self.int_loop.children[0].children = [asm_outer_loop]
+
+        # Update the AST adding the newly precomputed blocks
+        root = self.pre_header.children
+        ofs = root.index(self.int_loop)
+        self.pre_header.children = root[:ofs] + new_outer_block + root[ofs:]
+
+        # Update the AST by vector-expanding the pre-computed accessed variables
+        update_syms(expr.children[1], precomputed_syms)
 
 
 class AssemblyRewriter(object):
