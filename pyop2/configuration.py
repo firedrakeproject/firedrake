@@ -59,6 +59,8 @@ class Configuration(object):
         written to?
     :param print_cache_size: Should PyOP2 print the size of caches at
         program exit?
+    :param print_summary: Should PyOP2 print a summary of timings at
+        program exit?
     """
     # name, env variable, type, default, write once
     DEFAULTS = {
@@ -74,6 +76,7 @@ class Configuration(object):
                       os.path.join(gettempdir(),
                                    "pyop2-cache-uid%s" % os.getuid())),
         "print_cache_size": ("PYOP2_PRINT_CACHE_SIZE", bool, False),
+        "print_summary": ("PYOP2_PRINT_SUMMARY", bool, False),
         "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str,
                               os.path.join(gettempdir(), "pyop2-gencode")),
     }
