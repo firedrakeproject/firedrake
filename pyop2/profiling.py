@@ -76,6 +76,10 @@ class Timer(object):
         self._timings.append(self._timer() - self._start)
         self._start = None
 
+    def reset(self):
+        """Reset the timer."""
+        self._timings = []
+
     @property
     def name(self):
         """Name of the timer."""
@@ -140,7 +144,7 @@ class Timer(object):
         return cls._timers
 
     @classmethod
-    def reset(cls):
+    def reset_all(cls):
         """Clear all timer information previously recorded."""
         if not cls._timers:
             return
@@ -190,6 +194,6 @@ def get_timers():
     return Timer.get_timers()
 
 
-def reset():
+def reset_timers():
     """Clear all timer information previously recorded."""
-    Timer.reset()
+    Timer.reset_all()

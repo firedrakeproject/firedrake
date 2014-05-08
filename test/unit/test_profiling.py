@@ -32,7 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-from pyop2.profiling import tic, toc, get_timers, reset, Timer
+from pyop2.profiling import tic, toc, get_timers, reset_timers, Timer
 
 
 class TestProfiling:
@@ -61,10 +61,10 @@ class TestProfiling:
             t.stop()
         assert t.ncalls == 10
 
-    def test_reset(self):
+    def test_reset_timers(self):
         tic('test_reset')
         toc('test_reset')
-        reset()
+        reset_timers()
         assert get_timers().keys() == []
 
 
