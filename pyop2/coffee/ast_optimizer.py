@@ -158,16 +158,23 @@ class AssemblyOptimizer(object):
 
         return (itspace_vrs, accessed_vrs)
 
-    def generalized_licm(self):
-        """Generalized loop-invariant code motion."""
+    def generalized_licm(self, level):
+        """Generalized loop-invariant code motion.
+
+        :arg level: The optimization level (0, 1, 2, 3). The higher, the more
+                    invasive is the re-writing of the assembly expressions,
+                    trying to hoist as much invariant code as possible.
+        """
 
         parent = (self.pre_header, self.kernel_decls)
         for expr in self.asm_expr.items():
             ew = AssemblyRewriter(expr, self.int_loop, self.sym, self.decls, parent)
-            ew.licm()
-            ew.expand()
-            ew.distribute()
-            ew.licm()
+            if level > 0:
+                ew.licm()
+            if level > 1:
+                ew.expand()
+                ew.distribute()
+                ew.licm()
 
     def slice_loop(self, slice_factor=None):
         """Perform slicing of the innermost loop to enhance register reuse.

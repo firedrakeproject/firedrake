@@ -162,7 +162,7 @@ class ASTKernel(object):
         for ao in asm:
             # 1) Loop-invariant code motion
             if licm:
-                ao.generalized_licm()
+                ao.generalized_licm(licm)
                 self.decls.update(ao.decls)
 
             # 2) Splitting
