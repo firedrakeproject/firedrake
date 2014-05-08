@@ -197,3 +197,12 @@ def get_timers():
 def reset_timers():
     """Clear all timer information previously recorded."""
     Timer.reset_all()
+
+
+def timing(name, reset=False):
+    """Return timing (average) for given task, optionally clearing timing."""
+    t = Timer(name)
+    ret = t.average
+    if reset:
+        t.reset()
+    return ret
