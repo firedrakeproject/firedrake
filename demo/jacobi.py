@@ -181,6 +181,3 @@ for j in range(NN - 1, 0, -1):
         print(" %7.4f" % p_u.data[i - 1 + (j - 1) * (NN - 1)], end='')
     print("")
 print("")
-
-
-op2.exit()
