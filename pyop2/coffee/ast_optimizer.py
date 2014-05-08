@@ -222,17 +222,47 @@ class AssemblyOptimizer(object):
             idx = pb.index(loops[1])
             par_block.children = pb[:idx] + sliced_loops + pb[idx + 1:]
 
-    def split(self, cut, length):
-        """Split outer product RHS to improve resources utilization (e.g.
-        vector registers)."""
+    def split(self, cut=1, length=0):
+        """Split assembly to improve resources utilization (e.g. vector registers).
+        The splitting ``cuts`` the expressions into ``length`` blocks of ``cut``
+        outer products.
+
+        For example:
+        for i
+          for j
+            A[i][j] += X[i]*Y[j] + Z[i]*K[j] + B[i]*X[j]
+        with cut=1, length=1 this would be transformed into:
+        for i
+          for j
+            A[i][j] += X[i]*Y[j]
+        for i
+          for j
+            A[i][j] += Z[i]*K[j] + B[i]*X[j]
+
+        If ``length`` is 0, then ``cut`` is ignored, and the expression is fully cut
+        into chunks containing a single outer product."""
+
+        def check_sum(par_node):
+            """Return true if there are no sums in the sub-tree rooted in
+            par_node, false otherwise."""
+            if isinstance(par_node, Symbol):
+                return False
+            elif isinstance(par_node, Sum):
+                return True
+            elif isinstance(par_node, Par):
+                return check_sum(par_node.children[0])
+            elif isinstance(par_node, Prod):
+                left = check_sum(par_node.children[0])
+                right = check_sum(par_node.children[1])
+                return left or right
+            else:
+                raise RuntimeError("Split error: found unknown node %s:" % str(par_node))
 
         def split_sum(node, parent, is_left, found, sum_count):
             """Exploit sum's associativity to cut node when a sum is found."""
             if isinstance(node, Symbol):
                 return False
-            elif isinstance(node, Par) and found:
-                return False
-            elif isinstance(node, Par) and not found:
+            elif isinstance(node, Par):
                 return split_sum(node.children[0], (node, 0), is_left, found, sum_count)
             elif isinstance(node, Prod) and found:
                 return False
@@ -243,8 +273,10 @@ class AssemblyOptimizer(object):
             elif isinstance(node, Sum):
                 sum_count += 1
                 if not found:
+                    # Track the first Sum we found while cutting
                     found = parent
                 if sum_count == cut:
+                    # Perform the cut
                     if is_left:
                         parent, parent_leaf = parent
                         parent.children[parent_leaf] = node.children[0]
@@ -257,11 +289,12 @@ class AssemblyOptimizer(object):
                         return split_sum(node.children[1], (node, 1), is_left, found, sum_count)
                     return True
             else:
-                raise RuntimeError("Splitting expression, shouldn't be here.")
+                raise RuntimeError("Splitting expression, but actually found an unknown \
+                                    node: %s" % node.gencode())
 
-        def split_and_update(asm_expr):
+        def split_and_update(out_prods):
             split, splittable = ({}, {})
-            for stmt, stmt_info in asm_expr.items():
+            for stmt, stmt_info in out_prods.items():
                 it_vars, parent, loops = stmt_info
                 stmt_left = dcopy(stmt)
                 stmt_right = dcopy(stmt)
@@ -277,27 +310,36 @@ class AssemblyOptimizer(object):
                     split_loop = dcopy([f for f in self.fors if f.it_var() == it_vars[0]][0])
                     split_inner_loop = split_loop.children[0].children[0].children[0]
                     split_inner_loop.children[0] = stmt_right
-                    self.fors[0].children[0].children.append(split_loop)
+                    place = self.int_loop.children[0] if self.int_loop else self.pre_header
+                    place.children.append(split_loop)
                     stmt_right_loops = [split_loop, split_loop.children[0].children[0]]
                     # Update outer product dictionaries
                     splittable[stmt_right] = (it_vars, split_inner_loop, stmt_right_loops)
-                    split[stmt_left] = (it_vars, parent, loops)
-                    return split, splittable
-                else:
-                    return asm_expr, {}
+                    if check_sum(stmt_left.children[1]):
+                        splittable[stmt_left] = (it_vars, parent, loops)
+                    else:
+                        split[stmt_left] = (it_vars, parent, loops)
+            return split, splittable
 
         if not self.asm_expr:
             return
 
         new_asm_expr = {}
         splittable = self.asm_expr
-        for i in range(length-1):
-            split, splittable = split_and_update(splittable)
-            new_asm_expr.update(split)
-            if not splittable:
-                break
-        if splittable:
-            new_asm_expr.update(splittable)
+        if length:
+            # Split into at most length blocks
+            for i in range(length-1):
+                split, splittable = split_and_update(splittable)
+                new_asm_expr.update(split)
+                if not splittable:
+                    break
+            if splittable:
+                new_asm_expr.update(splittable)
+        else:
+            # Split everything into blocks of length 1
+            while splittable:
+                split, splittable = split_and_update(splittable)
+                new_asm_expr.update(split)
         self.asm_expr = new_asm_expr
 
 
