@@ -151,9 +151,9 @@ class Timer(object):
         cls._timers = {}
 
 
-class profile(Timer):
+class timed_function(Timer):
 
-    """Decorator to profile function calls."""
+    """Decorator to time function calls."""
 
     def __call__(self, f):
         def wrapper(f, *args, **kwargs):
