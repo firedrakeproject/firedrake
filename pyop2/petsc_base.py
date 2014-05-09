@@ -47,6 +47,7 @@ from base import *
 from backends import _make_object
 from logger import debug, warning
 from versioning import CopyOnWrite, modifies, zeroes
+from profiling import timed_region
 import mpi
 from mpi import collective
 
@@ -492,9 +493,10 @@ class Solver(base.Solver, PETSc.KSP):
                 debug("%3d KSP Residual norm %14.12e" % (its, norm))
             self.setMonitor(monitor)
         # Not using super here since the MRO would call base.Solver.solve
-        with b.vec_ro as bv:
-            with x.vec as xv:
-                PETSc.KSP.solve(self, bv, xv)
+        with timed_region("PETSc Krylov solver"):
+            with b.vec_ro as bv:
+                with x.vec as xv:
+                    PETSc.KSP.solve(self, bv, xv)
         if self.parameters['plot_convergence']:
             self.cancelMonitor()
             try:
