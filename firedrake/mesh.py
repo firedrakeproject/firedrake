@@ -6,7 +6,7 @@ import ufl
 from shutil import rmtree
 
 from pyop2 import op2
-from pyop2.ir import ast_base as ast
+from pyop2.coffee import ast_base as ast
 from pyop2.mpi import MPI
 from pyop2.utils import as_tuple
 

@@ -5,7 +5,7 @@ from ufl.indexing import MultiIndex
 from ufl.operatorbase import Operator
 from ufl.mathfunctions import MathFunction
 
-import pyop2.ir.ast_base as ast
+import pyop2.coffee.ast_base as ast
 from pyop2 import op2
 
 import constant
