@@ -189,9 +189,12 @@ def summary(filename=None):
     Timer.summary(filename)
 
 
-def get_timers():
+def get_timers(reset=False):
     """Return a dict containing all Timers."""
-    return Timer.get_timers()
+    ret = Timer.get_timers()
+    if reset:
+        Timer.reset_all()
+    return ret
 
 
 def reset_timers():
