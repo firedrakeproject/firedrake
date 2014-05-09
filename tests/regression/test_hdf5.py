@@ -62,3 +62,22 @@ def test_hdf5_xdmf_header(mesh, filepath):
     h5file << x
     del h5file  # Close output file
     assert os.path.exists(_xmffile)
+
+
+@pytest.mark.skipif("h5py is None", reason='h5py not available')
+@pytest.mark.parallel(nprocs=2)
+def test_hdf5_scalar_parallel():
+    mesh = UnitSquareMesh(2, 2)
+    fs = FunctionSpace(mesh, "CG", 1)
+    x = Function(fs, name='xcoord')
+    x.interpolate(Expression("x[0]"))
+
+    if op2.MPI.comm.rank == 0:
+        if os.path.exists(_xmffile):
+            os.remove(_xmffile)
+        if os.path.exists(_h5file):
+            os.remove(_h5file)
+    filepath = _h5file
+
+    h5file = File(filepath)
+    h5file << x
