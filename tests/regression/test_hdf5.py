@@ -54,5 +54,24 @@ def test_hdf5_vector(mesh, filepath):
     assert np.max(np.abs(vals - xy)) < 1e-6
 
 
+@pytest.mark.skipif("h5py is None", reason='h5py not available')
+@pytest.mark.parallel(nprocs=2)
+def test_hdf5_scalar_parallel():
+    mesh = UnitSquareMesh(2, 2)
+    fs = FunctionSpace(mesh, "CG", 1)
+    x = Function(fs, name='xcoord')
+    x.interpolate(Expression("x[0]"))
+
+    if op2.MPI.comm.rank == 0:
+        if os.path.exists(_xmffile):
+            os.remove(_xmffile)
+        if os.path.exists(_h5file):
+            os.remove(_h5file)
+    filepath = _h5file
+
+    h5file = File(filepath)
+    h5file << x
+
+
 if __name__ == '__main__':
     pytest.main(os.path.abspath(__file__))

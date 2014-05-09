@@ -166,6 +166,14 @@ class _HDF5File(object):
 
         # Write DMPlex topology to file
         if not self._has_topology:
+            # We do not want to output the OP2 entity class labels,
+            # since they are not conistent across processes and may
+            # change when we re-initialise the Plex from checkpoint.
+            plex.setLabelOutput("op2_core", False)
+            plex.setLabelOutput("op2_non_core", False)
+            plex.setLabelOutput("op2_exec_halo", False)
+            plex.setLabelOutput("op2_non_exec_halo", False)
+
             plex.view(self._viewer)
             self._has_topology = True
 
