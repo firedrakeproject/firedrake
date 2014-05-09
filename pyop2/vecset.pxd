@@ -26,4 +26,6 @@ cdef extern from "vecset.h":
         void erase(T&) nogil
         void sort() nogil
         void clear() nogil
+        void reserve(int) nogil
+        int capacity() nogil
         T operator[](size_t) nogil

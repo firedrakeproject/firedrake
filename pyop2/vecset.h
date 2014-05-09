@@ -110,6 +110,16 @@ class vecset {
       _x.clear();
     }
 
+    /// Reserve space for a given number of set members
+    void reserve(size_type n) {
+      _x.reserve(n);
+    }
+
+    /// Set capacity
+    size_type capacity() {
+      return _x.capacity();
+    }
+
     /// Index the nth entry in the set
     T operator[](size_type n) const {
       return _x[n];
