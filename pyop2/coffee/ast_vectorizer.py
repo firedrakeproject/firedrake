@@ -38,52 +38,52 @@ from ast_base import *
 import ast_plan as ap
 
 
-class LoopVectoriser(object):
+class AssemblyVectorizer(object):
 
     """ Loop vectorizer """
 
-    def __init__(self, loop_optimiser):
-        if not initialized:
-            raise RuntimeError("Vectorizer must be initialized first.")
-        self.lo = loop_optimiser
+    def __init__(self, assembly_optimizer, intrinsics, compiler):
+        self.asm_opt = assembly_optimizer
         self.intr = intrinsics
         self.comp = compiler
-        self.iloops = self._inner_loops(loop_optimiser.loop_nest)
         self.padded = []
 
-    def align_and_pad(self, decl_scope, only_align=False):
-        """Pad all data structures accessed in the loop nest to the nearest
-        multiple of the vector length. Also align them to the size of the
-        vector length in order to issue aligned loads and stores. Tell about
-        the alignment to the back-end compiler by adding suitable pragmas to
-        loops. Finally, adjust trip count and bound of each innermost loop
-        in which padded and aligned arrays are written to."""
+    def alignment(self, decl_scope):
+        """Align all data structures accessed in the loop nest to the size in
+        bytes of the vector length."""
 
-        used_syms = [s.symbol for s in self.lo.sym]
-        acc_decls = [d for s, d in decl_scope.items() if s in used_syms]
-
-        # Padding
-        if not only_align:
-            for d, s in acc_decls:
-                if d.sym.rank:
-                    if s == ap.PARAM_VAR:
-                        d.sym.rank = tuple([vect_roundup(r) for r in d.sym.rank])
-                    else:
-                        rounded = vect_roundup(d.sym.rank[-1])
-                        d.sym.rank = d.sym.rank[:-1] + (rounded,)
-                    self.padded.append(d.sym)
-
-        # Alignment
         for d, s in decl_scope.values():
             if d.sym.rank and s != ap.PARAM_VAR:
                 d.attr.append(self.comp["align"](self.intr["alignment"]))
 
-        # Add pragma alignment over innermost loops
-        for l in self.iloops:
+    def padding(self, decl_scope):
+        """Pad all data structures accessed in the loop nest to the nearest
+        multiple of the vector length. Adjust trip counts and bounds of all
+        innermost loops where padded arrays are written to. Since padding
+        enforces data alignment of multi-dimensional arrays, add suitable
+        pragmas to inner loops to inform the backend compiler about this
+        property."""
+
+        used_syms = [s.symbol for s in self.asm_opt.sym]
+        acc_decls = [d for s, d in decl_scope.items() if s in used_syms]
+
+        # Padding
+        for d, s in acc_decls:
+            if d.sym.rank:
+                if s == ap.PARAM_VAR:
+                    d.sym.rank = tuple([vect_roundup(r) for r in d.sym.rank])
+                else:
+                    rounded = vect_roundup(d.sym.rank[-1])
+                    d.sym.rank = d.sym.rank[:-1] + (rounded,)
+                self.padded.append(d.sym)
+
+        iloops = inner_loops(self.asm_opt.pre_header)
+        # Add pragma alignment
+        for l in iloops:
             l.pragma = self.comp["decl_aligned_for"]
 
         # Loop adjustment
-        for l in self.iloops:
+        for l in iloops:
             for stm in l.children[0].children:
                 sym = stm.children[0]
                 if sym.rank and sym.rank[-1] == l.it_var():
@@ -100,10 +100,10 @@ class LoopVectoriser(object):
         jam factor. Note that factor is just a suggestion to the compiler,
         which can freely decide to use a higher or lower value."""
 
-        if not self.lo.out_prods:
+        if not self.asm_opt.asm_expr:
             return
 
-        for stmt, stmt_info in self.lo.out_prods.items():
+        for stmt, stmt_info in self.asm_opt.asm_expr.items():
             # First, find outer product loops in the nest
             it_vars, parent, loops = stmt_info
 
@@ -111,7 +111,7 @@ class LoopVectoriser(object):
             rows = loops[0].size()
             unroll_factor = factor if opts in [ap.V_OP_UAJ, ap.V_OP_UAJ_EXTRA] else 1
 
-            op = OuterProduct(stmt, loops, self.intr, self.lo)
+            op = OuterProduct(stmt, loops, self.intr, self.asm_opt)
 
             # Vectorisation
             rows_per_it = vect_len*unroll_factor
@@ -145,7 +145,7 @@ class LoopVectoriser(object):
                 loop_peel[0].incr.children[1] = c_sym(1)
                 loop_peel[1].incr.children[1] = c_sym(1)
                 # Append peeling loop after the main loop
-                parent_loop = self.lo.fors[0]
+                parent_loop = self.asm_opt.fors[0]
                 parent_loop.children[0].children.append(loop_peel[0])
 
             # Insert the vectorized code at the right point in the loop nest
@@ -155,26 +155,8 @@ class LoopVectoriser(object):
 
         # Append the layout code after the loop nest
         if layout:
-            parent = self.lo.pre_header.children
-            parent.insert(parent.index(self.lo.loop_nest) + 1, layout)
-
-    def _inner_loops(self, node):
-        """Find inner loops in the subtree rooted in node."""
-
-        def find_iloops(node, loops):
-            if isinstance(node, Perfect):
-                return False
-            elif isinstance(node, Block):
-                return any([find_iloops(s, loops) for s in node.children])
-            elif isinstance(node, For):
-                found = find_iloops(node.children[0], loops)
-                if not found:
-                    loops.append(node)
-                return True
-
-        loops = []
-        find_iloops(node, loops)
-        return loops
+            parent = self.asm_opt.pre_header.children
+            parent.insert(parent.index(self.asm_opt.fors[0]) + 1, layout)
 
 
 class OuterProduct():
@@ -456,79 +438,28 @@ class OuterProduct():
         return (stmt, layout)
 
 
-intrinsics = {}
-compiler = {}
-initialized = False
-
-
-def init_vectorizer(isa, comp):
-    global intrinsics, compiler, initialized
-    intrinsics = _init_isa(isa)
-    compiler = _init_compiler(comp)
-    if intrinsics and compiler:
-        initialized = True
-
-
-def _init_isa(isa):
-    """Set the intrinsics instruction set. """
-
-    if isa == 'sse':
-        return {
-            'inst_set': 'SSE',
-            'avail_reg': 16,
-            'alignment': 16,
-            'dp_reg': 2,  # Number of double values per register
-            'reg': lambda n: 'xmm%s' % n
-        }
-
-    if isa == 'avx':
-        return {
-            'inst_set': 'AVX',
-            'avail_reg': 16,
-            'alignment': 32,
-            'dp_reg': 4,  # Number of double values per register
-            'reg': lambda n: 'ymm%s' % n,
-            'zeroall': '_mm256_zeroall ()',
-            'setzero': AVXSetZero(),
-            'decl_var': '__m256d',
-            'align_array': lambda p: '__attribute__((aligned(%s)))' % p,
-            'symbol_load': lambda s, r, o=None: AVXLoad(s, r, o),
-            'symbol_set': lambda s, r, o=None: AVXSet(s, r, o),
-            'store': lambda m, r: AVXStore(m, r),
-            'mul': lambda r1, r2: AVXProd(r1, r2),
-            'div': lambda r1, r2: AVXDiv(r1, r2),
-            'add': lambda r1, r2: AVXSum(r1, r2),
-            'sub': lambda r1, r2: AVXSub(r1, r2),
-            'l_perm': lambda r, f: AVXLocalPermute(r, f),
-            'g_perm': lambda r1, r2, f: AVXGlobalPermute(r1, r2, f),
-            'unpck_hi': lambda r1, r2: AVXUnpackHi(r1, r2),
-            'unpck_lo': lambda r1, r2: AVXUnpackLo(r1, r2)
-        }
-
-
-def _init_compiler(compiler):
-    """Set compiler-specific keywords. """
-
-    if compiler == 'intel':
-        return {
-            'align': lambda o: '__attribute__((aligned(%s)))' % o,
-            'decl_aligned_for': '#pragma vector aligned',
-            'AVX': ['-xAVX'],
-            'SSE': ['-xSSE'],
-            'vect_header': '#include <immintrin.h>'
-        }
-
-    if compiler == 'gnu':
-        return {
-            'align': lambda o: '__attribute__((aligned(%s)))' % o,
-            'decl_aligned_for': '#pragma vector aligned',
-            'AVX': ['-mavx'],
-            'SSE': ['-msse'],
-            'vect_header': '#include <immintrin.h>'
-        }
-
+# Utility functions
 
 def vect_roundup(x):
     """Return x rounded up to the vector length. """
-    word_len = intrinsics.get("dp_reg") or 1
+    word_len = ap.intrinsics.get("dp_reg") or 1
     return int(ceil(x / float(word_len))) * word_len
+
+
+def inner_loops(node):
+    """Find inner loops in the subtree rooted in node."""
+
+    def find_iloops(node, loops):
+        if isinstance(node, Perfect):
+            return False
+        elif isinstance(node, Block):
+            return any([find_iloops(s, loops) for s in node.children])
+        elif isinstance(node, For):
+            found = find_iloops(node.children[0], loops)
+            if not found:
+                loops.append(node)
+            return True
+
+    loops = []
+    find_iloops(node, loops)
+    return loops

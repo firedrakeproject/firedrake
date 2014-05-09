@@ -52,8 +52,8 @@ from mpi import MPI, _MPI, _check_comm, collective
 from sparsity import build_sparsity
 from version import __version__ as version
 
-from ir.ast_base import Node
-from ir import ast_base as ast
+from coffee.ast_base import Node
+from coffee import ast_base as ast
 
 
 class LazyComputation(object):

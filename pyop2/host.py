@@ -43,10 +43,10 @@ from mpi import collective
 from configuration import configuration
 from utils import as_tuple
 
-from ir.ast_base import Node
-from ir.ast_plan import ASTKernel
-import ir.ast_vectorizer
-from ir.ast_vectorizer import vect_roundup
+from coffee.ast_base import Node
+from coffee.ast_plan import ASTKernel
+import coffee.ast_plan
+from coffee.ast_vectorizer import vect_roundup
 
 
 class Kernel(base.Kernel):
@@ -544,14 +544,14 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
     def c_buffer_decl(self, size, idx, buf_name, is_facet=False):
         buf_type = self.data.ctype
         dim = len(size)
-        compiler = ir.ast_vectorizer.compiler
-        isa = ir.ast_vectorizer.intrinsics
+        compiler = coffee.ast_plan.compiler
+        isa = coffee.ast_plan.intrinsics
         return (buf_name, "%(typ)s %(name)s%(dim)s%(align)s%(init)s" %
                 {"typ": buf_type,
                  "name": buf_name,
                  "dim": "".join(["[%d]" % (d * (2 if is_facet else 1)) for d in size]),
                  "align": " " + compiler.get("align")(isa["alignment"]) if compiler else "",
-                 "init": " = " + "{" * dim + "0" + "}" * dim if self.access._mode in ['WRITE', 'INC'] else ""})
+                 "init": " = " + "{" * dim + "0.0" + "}" * dim if self.access._mode in ['WRITE', 'INC'] else ""})
 
     def c_buffer_gather(self, size, idx, buf_name):
         dim = 1 if self._flatten else self.data.cdim
@@ -637,9 +637,7 @@ class JITModule(base.JITModule):
         strip = lambda code: '\n'.join([l for l in code.splitlines()
                                         if l.strip() and l.strip() != ';'])
 
-        compiler = ir.ast_vectorizer.compiler
-        vect_flag = compiler.get(ir.ast_vectorizer.intrinsics.get('inst_set')) if compiler else None
-
+        compiler = coffee.ast_plan.compiler
         if any(arg._is_soa for arg in self._args):
             kernel_code = """
             #define OP2_STRIDE(a, idx) a[idx]
@@ -647,13 +645,13 @@ class JITModule(base.JITModule):
             %(code)s
             #undef OP2_STRIDE
             """ % {'code': self._kernel.code,
-                   'header': compiler.get('vect_header') if vect_flag else ""}
+                   'header': compiler.get('vect_header', '')}
         else:
             kernel_code = """
             %(header)s
             %(code)s
             """ % {'code': self._kernel.code,
-                   'header': compiler.get('vect_header') if vect_flag else ""}
+                   'header': compiler.get('vect_header', '')}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
 
         _const_decs = '\n'.join([const._format_declaration()
@@ -680,8 +678,8 @@ class JITModule(base.JITModule):
         cppargs = ["-I%s/include" % d for d in get_petsc_dir()] + \
                   ["-I%s" % d for d in self._kernel._include_dirs] + \
                   ["-I%s" % os.path.abspath(os.path.dirname(__file__))]
-        if vect_flag:
-            cppargs += vect_flag
+        if compiler:
+            cppargs += [compiler[coffee.ast_plan.intrinsics['inst_set']]]
         ldargs = ["-L%s/lib" % d for d in get_petsc_dir()] + \
                  ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()] + \
                  ["-lpetsc", "-lm"] + self._libraries
@@ -690,7 +688,8 @@ class JITModule(base.JITModule):
                                      cppargs=cppargs,
                                      ldargs=ldargs,
                                      argtypes=argtypes,
-                                     restype=restype)
+                                     restype=restype,
+                                     compiler=compiler.get('name'))
         # Blow away everything we don't need any more
         del self._args
         del self._kernel

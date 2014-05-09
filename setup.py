@@ -132,7 +132,7 @@ setup(name='PyOP2',
       setup_requires=setup_requires,
       install_requires=install_requires,
       test_requires=test_requires,
-      packages=['pyop2', 'pyop2.ir', 'pyop2_utils'],
+      packages=['pyop2', 'pyop2.coffee', 'pyop2_utils'],
       package_data={
           'pyop2': ['assets/*', 'mat_utils.*', '*.pxd', '*.pyx']},
       scripts=glob('scripts/*'),
