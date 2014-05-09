@@ -84,7 +84,9 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
 
     lsize = nrows*rmult
     s_diag = vector[vecset[int]](lsize)
-    iterate = None
+    # Preallocate 13 set entries (this is a heuristic)
+    for i in range(lsize):
+        s_diag[i].reserve(13)
 
     for ind, (rmap, cmap) in enumerate(maps):
         rowmap = init_map(rmap)
@@ -191,7 +193,12 @@ cdef build_sparsity_pattern_mpi(int rmult, int cmult, int nrows, int ncols, list
     lrsize = nrows*rmult
     lcsize = ncols*cmult
     s_diag = vector[vecset[int]](lrsize)
-    s_odiag = vector[vecset[int]](lrsize)
+    s_odiag = vector[vecset[int]](lcsize)
+    # Preallocate 13 set entries (this is a heuristic)
+    for i in range(lrsize):
+        s_diag[i].reserve(13)
+    for i in range(lcsize):
+        s_odiag[i].reserve(13)
 
     for rmap, cmap in maps:
         rowmap = init_map(rmap)
