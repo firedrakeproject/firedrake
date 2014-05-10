@@ -63,8 +63,8 @@ class Configuration(object):
     # name, env variable, type, default, write once
     DEFAULTS = {
         "backend": ("PYOP2_BACKEND", str, "sequential"),
-        "compiler": ("PYOP2_BACKEND_COMPILER", str, ""),
-        "simd_isa": ("PYOP2_SIMD_ISA", str, ""),
+        "compiler": ("PYOP2_BACKEND_COMPILER", str, "gnu"),
+        "simd_isa": ("PYOP2_SIMD_ISA", str, "sse"),
         "debug": ("PYOP2_DEBUG", int, 0),
         "log_level": ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),
         "lazy_evaluation": ("PYOP2_LAZY", bool, True),
