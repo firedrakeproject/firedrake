@@ -31,6 +31,7 @@ from copy import copy
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
 from pyop2.logger import progress, INFO
+from pyop2.profiling import timed_region
 
 import assembly_cache
 import assemble_expressions
@@ -695,15 +696,16 @@ def _assemble(f, tensor=None, bcs=None):
                 raise RuntimeError('Unknown integral type "%s"' % integral_type)
 
             if bcs is not None and is_mat:
-                for bc in bcs:
-                    fs = bc.function_space()
-                    if isinstance(fs, functionspace.MixedFunctionSpace):
-                        raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
-                    # Set diagonal entries on bc nodes to 1 if the current
-                    # block is on the matrix diagonal and its index matches the
-                    # index of the function space the bc is defined on.
-                    if i == j and (fs.index is None or fs.index == i):
-                        tensor[i, j].inc_local_diagonal_entries(bc.nodes)
+                with timed_region('DirichletBC apply'):
+                    for bc in bcs:
+                        fs = bc.function_space()
+                        if isinstance(fs, functionspace.MixedFunctionSpace):
+                            raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
+                        # Set diagonal entries on bc nodes to 1 if the current
+                        # block is on the matrix diagonal and its index matches the
+                        # index of the function space the bc is defined on.
+                        if i == j and (fs.index is None or fs.index == i):
+                            tensor[i, j].inc_local_diagonal_entries(bc.nodes)
         if is_mat:
             # Queue up matrix assembly (after we've done all the other operations)
             tensor.assemble()
