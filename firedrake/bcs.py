@@ -3,6 +3,7 @@ import numpy as np
 from ufl import as_ufl, UFLException
 
 import pyop2 as op2
+from pyop2.profiling import timed_function
 
 import expression
 import function
@@ -161,6 +162,7 @@ class DirichletBC(object):
 
         return op2.Subset(self._function_space.node_set, self.nodes)
 
+    @timed_function('DirichletBC apply')
     def apply(self, r, u=None):
         """Apply this boundary condition to ``r``.
 
