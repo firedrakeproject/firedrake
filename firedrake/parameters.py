@@ -11,10 +11,10 @@ class Parameters(dict):
             self.add(key, value)
 
     def add(self, key, value=None):
-        if value is not None:
-            self[key] = value
-        else:
+        if isinstance(key, Parameters):
             self[key.name()] = key
+        else:
+            self[key] = value
 
     def name(self):
         return self._name
