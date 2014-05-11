@@ -145,9 +145,12 @@ class FFCKernel(DiskCached):
     @classmethod
     def _cache_key(cls, form, name):
         form_data = form.compute_form_data()
+        # FIXME Making the COFFEE parameters part of the cache key causes
+        # unnecessary repeated calls to FFC when actually only the kernel code
+        # needs to be regenerated
         return md5(form_data.signature + name + Kernel._backend.__name__ +
                    cls._firedrake_geometry_md5 + constants.FFC_VERSION +
-                   constants.PYOP2_VERSION).hexdigest()
+                   constants.PYOP2_VERSION + str(parameters["coffee"])).hexdigest()
 
     def __init__(self, form, name):
         """A wrapper object for one or more FFC kernels compiled from a given :class:`~Form`.
