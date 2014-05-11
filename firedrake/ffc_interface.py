@@ -23,6 +23,7 @@ from pyop2.mpi import MPI
 from pyop2.coffee.ast_base import PreprocessNode, Root
 
 import functionspace
+from parameters import parameters
 
 _form_cache = {}
 
@@ -164,12 +165,7 @@ class FFCKernel(DiskCached):
         kernels = []
         for it, kernel in zip(form.form_data().preprocessed_form.integrals(), ffc_tree):
             # Set optimization options
-            opts = {} if it.integral_type() not in ['cell'] else \
-                   {'licm': False,
-                    'slice': None,
-                    'vect': None,
-                    'ap': False,
-                    'split': None}
+            opts = {} if it.integral_type() not in ['cell'] else parameters["coffee"]
             kernels.append(Kernel(Root([incl, kernel]), '%s_%s_integral_0_%s' %
                            (name, it.integral_type(), it.subdomain_id()), opts, inc))
         self.kernels = tuple(kernels)
