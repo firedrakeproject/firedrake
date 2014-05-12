@@ -29,3 +29,5 @@ parameters["assembly_cache"] = Parameters(enabled=True,
                                           max_bytes=float("Inf"),
                                           max_factor=0.6,
                                           max_misses=3)
+
+parameters["reorder_meshes"] = True
