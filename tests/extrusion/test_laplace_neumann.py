@@ -42,7 +42,7 @@ def test_bottom_and_top(P2):
     u_exact = Function(P2)
     u_exact.interpolate(bc_expr)
 
-    assert max(abs(u.dat.data - u_exact.dat.data)) < 1.0e-6
+    assert max(abs(u.dat.data - u_exact.dat.data)) < 1.1e-6
 
 
 def test_top_and_bottom(P2):
@@ -63,7 +63,7 @@ def test_top_and_bottom(P2):
     u_exact = Function(P2)
     u_exact.interpolate(bc_expr)
 
-    assert max(abs(u.dat.data - u_exact.dat.data)) < 1.0e-6
+    assert max(abs(u.dat.data - u_exact.dat.data)) < 1.1e-6
 
 
 def test_left_right(P2):

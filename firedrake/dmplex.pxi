@@ -30,6 +30,7 @@ cdef extern from "petscis.h":
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])
+    int ISRestoreIndices(PETSc.PetscIS,PetscInt*[])
     int ISGeneralSetIndices(PETSc.PetscIS,PetscInt,PetscInt[],PetscCopyMode)
 
 cdef extern from "petscsf.h":

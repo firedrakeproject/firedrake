@@ -16,6 +16,7 @@ import fiat_utils
 import function
 import functionspace
 import utils
+from parameters import parameters
 from petsc import PETSc
 
 
@@ -196,7 +197,7 @@ class _Facets(object):
 
 class Mesh(object):
     """A representation of mesh topology and geometry."""
-    def __init__(self, filename, dim=None, periodic_coords=None, plex=None):
+    def __init__(self, filename, dim=None, periodic_coords=None, plex=None, reorder=None):
         """
         :param filename: the mesh file to read.  Supported mesh formats
                are Gmsh (extension ``msh``) and triangle (extension
@@ -212,6 +213,10 @@ class Mesh(object):
                used to replace those read from the mesh file.  These
                are only supported in 1D and must have enough entries
                to be used as a DG1 field on the mesh.
+        :param reorder: optional flag indicating whether to reorder
+               meshes for better cache locality.  If not supplied the
+               default value in :py:data:`parameters["reorder_meshes"]`
+               is used.
         """
 
         utils._init()
@@ -224,20 +229,23 @@ class Mesh(object):
             # Mesh reading in Fluidity level considers 0 to be None.
             dim = 0
 
+        if reorder is None:
+            reorder = parameters["reorder_meshes"]
         if plex is not None:
             self._from_dmplex(plex, geometric_dim=dim,
-                              periodic_coords=periodic_coords)
+                              periodic_coords=periodic_coords,
+                              reorder=reorder)
         else:
             basename, ext = os.path.splitext(filename)
 
             if ext in ['.e', '.exo', '.E', '.EXO']:
-                self._from_exodus(filename, dim)
+                self._from_exodus(filename, dim, reorder=reorder)
             elif ext in ['.cgns', '.CGNS']:
                 self._from_cgns(filename, dim)
             elif ext in ['.msh']:
-                self._from_gmsh(filename, dim, periodic_coords)
+                self._from_gmsh(filename, dim, periodic_coords, reorder=reorder)
             elif ext in ['.node']:
-                self._from_triangle(filename, dim, periodic_coords)
+                self._from_triangle(filename, dim, periodic_coords, reorder=reorder)
             else:
                 raise RuntimeError("Unknown mesh file format.")
 
@@ -250,25 +258,36 @@ class Mesh(object):
     def coordinates(self, value):
         self._coordinate_function = value
 
-    def _from_dmplex(self, plex, geometric_dim=0, periodic_coords=None):
+    def _from_dmplex(self, plex, geometric_dim=0,
+                     periodic_coords=None, reorder=None):
         """ Create mesh from DMPlex object """
 
         self._plex = plex
         self.uid = utils._new_uid()
 
         if geometric_dim == 0:
-            geometric_dim = self._plex.getDimension()
+            geometric_dim = plex.getDimension()
+
+        # Distribute the dm to all ranks
+        if op2.MPI.comm.size > 1:
+            self.parallel_sf = plex.distribute(overlap=1)
+
+        self._plex = plex
 
         # Mark exterior and interior facets
         dmplex.label_facets(self._plex)
 
-        # Distribute the dm to all ranks
-        if op2.MPI.comm.size > 1:
-            self.parallel_sf = self._plex.distribute(overlap=1)
+        if reorder:
+            old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
+            reordering = np.empty_like(old_to_new)
+            reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
+        else:
+            # No reordering
+            reordering = None
 
         # Mark OP2 entities and derive the resulting Plex renumbering
         dmplex.mark_entity_classes(self._plex)
-        self._plex_renumbering = dmplex.plex_renumbering(plex)
+        self._plex_renumbering = dmplex.plex_renumbering(self._plex, reordering)
 
         cStart, cEnd = self._plex.getHeightStratum(0)  # cells
         cell_vertices = self._plex.getConeSize(cStart)
@@ -321,7 +340,7 @@ class Mesh(object):
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._domain_data = self.coordinates
 
-    def _from_gmsh(self, filename, dim=0, periodic_coords=None):
+    def _from_gmsh(self, filename, dim=0, periodic_coords=None, reorder=None):
         """Read a Gmsh .msh file from `filename`"""
         basename, ext = os.path.splitext(filename)
         self.name = filename
@@ -341,9 +360,9 @@ class Mesh(object):
                 for f in faces:
                     gmsh_plex.setLabelValue("boundary_ids", f, bid)
 
-        self._from_dmplex(gmsh_plex, dim, periodic_coords)
+        self._from_dmplex(gmsh_plex, dim, periodic_coords, reorder=reorder)
 
-    def _from_exodus(self, filename, dim=0):
+    def _from_exodus(self, filename, dim=0, reorder=None):
         self.name = filename
         plex = PETSc.DMPlex().createExodusFromFile(filename)
 
@@ -354,16 +373,16 @@ class Mesh(object):
             for f in faces:
                 plex.setLabelValue("boundary_ids", f, bid)
 
-        self._from_dmplex(plex)
+        self._from_dmplex(plex, reorder=reorder)
 
-    def _from_cgns(self, filename, dim=0):
+    def _from_cgns(self, filename, dim=0, reorder=None):
         self.name = filename
         plex = PETSc.DMPlex().createCGNSFromFile(filename)
 
         #TODO: Add boundary IDs
-        self._from_dmplex(plex)
+        self._from_dmplex(plex, reorder=reorder)
 
-    def _from_triangle(self, filename, dim=0, periodic_coords=None):
+    def _from_triangle(self, filename, dim=0, periodic_coords=None, reorder=None):
         """Read a set of triangle mesh files from `filename`"""
         self.name = filename
         basename, ext = os.path.splitext(filename)
@@ -424,7 +443,7 @@ class Mesh(object):
                     join = plex.getJoin(vertices)
                     plex.setLabelValue("boundary_ids", join[0], bid)
 
-        self._from_dmplex(plex, dim, periodic_coords)
+        self._from_dmplex(plex, dim, periodic_coords, reorder=None)
 
     @property
     def layers(self):
@@ -667,6 +686,7 @@ class UnitSquareMesh(Mesh):
 
     :arg nx: The number of the cells in the x direction.
     :arg ny: The number of the cells in the y direction.
+    :arg reorder: Should the mesh be reordered?
 
     The number of the elements in a mesh can be computed from 2 * nx * ny,
     and the number of vertices from (nx+1) * (ny+1).
@@ -679,7 +699,7 @@ class UnitSquareMesh(Mesh):
     * 4: plane y == 1
     """
 
-    def __init__(self, nx, ny):
+    def __init__(self, nx, ny, reorder=None):
         self.name = "unitsquare_%d_%d" % (nx, ny)
 
         # Create mesh from DMPlex
@@ -706,7 +726,7 @@ class UnitSquareMesh(Mesh):
                 if face_coords[1] == 1. and face_coords[3] == 1.:
                     plex.setLabelValue("boundary_ids", face, 4)
 
-        super(UnitSquareMesh, self).__init__(self.name, plex=plex)
+        super(UnitSquareMesh, self).__init__(self.name, plex=plex, reorder=reorder)
 
 
 class UnitCubeMesh(Mesh):
@@ -717,6 +737,7 @@ class UnitCubeMesh(Mesh):
     :arg nx: The number of the cells in the x direction.
     :arg ny: The number of the cells in the y direction.
     :arg nx: The number of the cells in the z direction.
+    :arg reorder: Should the mesh be reordered?
 
     The number of the elements in a mesh can be computed from 6 * nx * ny * nz,
     and the number of the vertices from (nx+1) * (ny+1) * (nz+1).
@@ -731,7 +752,7 @@ class UnitCubeMesh(Mesh):
     * 6: plane z == 1
     """
 
-    def __init__(self, nx, ny, nz):
+    def __init__(self, nx, ny, nz, reorder=None):
         self.name = "unitcube_%d_%d_%d" % (nx, ny, nz)
 
         # Create mesh from DMPlex
@@ -762,7 +783,7 @@ class UnitCubeMesh(Mesh):
                 if face_coords[2] == 1. and face_coords[5] == 1. and face_coords[8] == 1.:
                     plex.setLabelValue("boundary_ids", face, 6)
 
-        super(UnitCubeMesh, self).__init__(self.name, plex=plex)
+        super(UnitCubeMesh, self).__init__(self.name, plex=plex, reorder=reorder)
 
 
 class UnitCircleMesh(Mesh):
@@ -772,9 +793,10 @@ class UnitCircleMesh(Mesh):
 
     :arg resolution: The number of cells lying along the radius and the arc of
       the quadrant.
+    :arg reorder: Should the mesh be reordered?
     """
 
-    def __init__(self, resolution):
+    def __init__(self, resolution, reorder=None):
         source = """
             lc = %g;
             Point(1) = {0, -0.5, 0, lc};
@@ -788,7 +810,7 @@ class UnitCircleMesh(Mesh):
         self.name = "unitcircle_%d" % resolution
 
         output = _get_msh_file(source, self.name, 2)
-        super(UnitCircleMesh, self).__init__(output)
+        super(UnitCircleMesh, self).__init__(output, reorder=reorder)
 
 
 class IntervalMesh(Mesh):
@@ -821,7 +843,7 @@ class IntervalMesh(Mesh):
             if vcoord[0] == coords[-1]:
                 plex.setLabelValue("boundary_ids", v, 2)
 
-        super(IntervalMesh, self).__init__(self.name, plex=plex)
+        super(IntervalMesh, self).__init__(self.name, plex=plex, reorder=False)
 
 
 class UnitIntervalMesh(IntervalMesh):
@@ -829,7 +851,6 @@ class UnitIntervalMesh(IntervalMesh):
     Generate a uniform mesh of the interval [0,1].
 
     :arg ncells: The number of the cells over the interval.
-
     The left hand (:math:`x=0`) boundary point has boundary marker 1,
     while the right hand (:math:`x=1`) point has marker 2.
     """
@@ -891,7 +912,7 @@ class PeriodicIntervalMesh(Mesh):
         # Last cell is back to front.
         coords[-2:] = coords[-2:][::-1]
         Mesh.__init__(self, self.name, plex=plex,
-                      periodic_coords=coords)
+                      periodic_coords=coords, reorder=False)
 
 
 class PeriodicUnitIntervalMesh(PeriodicIntervalMesh):
@@ -971,7 +992,7 @@ class IcosahedralSphereMesh(Mesh):
                             [8, 6, 7],
                             [9, 8, 1]], dtype=np.int32)
 
-    def __init__(self, radius=1, refinement_level=0):
+    def __init__(self, radius=1, refinement_level=0, reorder=None):
         """
         :arg radius: the radius of the sphere to approximate.
              For a radius R the edge length of the underlying
@@ -983,6 +1004,7 @@ class IcosahedralSphereMesh(Mesh):
 
         :arg refinement_level: how many levels of refinement, zero
                                corresponds to an icosahedron.
+        :arg reorder: Should the mesh be reordered?
         """
 
         self.name = "icosahedralspheremesh_%d_%g" % (refinement_level, radius)
@@ -1000,7 +1022,7 @@ class IcosahedralSphereMesh(Mesh):
             self._refine()
 
         plex = dmplex._from_cell_list(2, self._faces, self._vertices)
-        super(IcosahedralSphereMesh, self).__init__(self.name, plex=plex, dim=3)
+        super(IcosahedralSphereMesh, self).__init__(self.name, plex=plex, dim=3, reorder=reorder)
 
     def _force_to_sphere(self, vtx):
         """
@@ -1074,8 +1096,9 @@ class IcosahedralSphereMesh(Mesh):
 
 class UnitIcosahedralSphereMesh(IcosahedralSphereMesh):
     """An icosahedral approximation to the unit sphere."""
-    def __init__(self, refinement_level=0):
+    def __init__(self, refinement_level=0, reorder=None):
         """
         :arg refinement_level: how many levels to refine the mesh.
+        :arg reorder: Should the mesh be reordered?
         """
-        super(UnitIcosahedralSphereMesh, self).__init__(1, refinement_level)
+        super(UnitIcosahedralSphereMesh, self).__init__(1, refinement_level, reorder=reorder)

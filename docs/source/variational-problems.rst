@@ -34,6 +34,36 @@ with:
 This works in both serial and parallel, Firedrake takes care of
 decomposing the mesh among processors transparently.
 
+Reordering meshes for better performance
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Most mesh generators produce badly numbered meshes (with bad data
+locality) which can reduce the performance of assembling and solving
+finite element problems.  By default then, Firedrake reorders input
+meshes to improve data locality by performing reverse Cuthill-McKee
+reordering on the adjacency matrix of the input mesh.  If you know
+your mesh has a good numbering (perhaps your mesh generator uses space
+filling curves to number entities) then you can switch off this
+reordering by passing :py:data:`reorder=False` to the appropriate
+:py:class:`~.Mesh` constructor.  You can control Firedrake's default
+behaviour in reordering meshes with the :py:data:`"reorder_meshes"`
+parameter.  For example, to turn off mesh reordering globally:
+
+.. code-block:: python
+
+   from firedrake import *
+   parameters["reorder_meshes"] = False
+
+The parameter passed in to the mesh constructor overrides this default
+value.
+
+.. note::
+
+   Firedrake numbers degrees of freedom in a function space by
+   visiting each cell in order and performing a depth first numbering
+   of all degrees of freedom on that cell.  Hence, if your mesh has a
+   good numbering, the degrees of freedom will too.
+
 .. _utility_mesh_functions:
 
 Utility mesh functions
