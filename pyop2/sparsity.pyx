@@ -194,7 +194,7 @@ cdef build_sparsity_pattern_mpi(int rmult, int cmult, int nrows, int ncols, list
     lrsize = nrows*rmult
     lcsize = ncols*cmult
     s_diag = vector[vecset[int]](lrsize)
-    s_odiag = vector[vecset[int]](lcsize)
+    s_odiag = vector[vecset[int]](lrsize)
 
     for rmap, cmap in maps:
         rowmap = init_map(rmap)
@@ -204,8 +204,7 @@ cdef build_sparsity_pattern_mpi(int rmult, int cmult, int nrows, int ncols, list
             # Preallocate set entries heuristically based on arity
             for i in range(lrsize):
                 s_diag[i].reserve(4*rowmap.arity+1)
-            for i in range(lcsize):
-                s_odiag[i].reserve(4*colmap.arity+1)
+                s_odiag[i].reserve(4*rowmap.arity+1)
         if rowmap.layers > 1:
             for e in range (rsize):
                 for i in range(rowmap.arity):
