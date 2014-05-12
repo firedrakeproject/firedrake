@@ -14,7 +14,9 @@ def f():
 
 @pytest.fixture(scope='module')
 def dg_trial_test():
-    m = UnitSquareMesh(1, 1)
+    # Interior facet tests hard code order in which cells were
+    # numbered, so don't reorder this mesh.
+    m = UnitSquareMesh(1, 1, reorder=False)
     V = FunctionSpace(m, "DG", 0)
     u = TrialFunction(V)
     v = TestFunction(V)
