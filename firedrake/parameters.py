@@ -24,18 +24,18 @@ class Parameters(dict):
 
 parameters = Parameters()
 
-parameters["assembly_cache"] = Parameters("assembly_cache",
-                                          enabled=True,
-                                          eviction=True,
-                                          max_bytes=float("Inf"),
-                                          max_factor=0.6,
-                                          max_misses=3)
+parameters.add(Parameters("assembly_cache",
+                          enabled=True,
+                          eviction=True,
+                          max_bytes=float("Inf"),
+                          max_factor=0.6,
+                          max_misses=3))
+
+parameters.add(Parameters("coffee",
+                          licm=False,
+                          slice=None,
+                          vect=None,
+                          ap=False,
+                          split=None))
 
 parameters["reorder_meshes"] = True
-
-parameters["coffee"] = Parameters("coffee",
-                                  licm=False,
-                                  slice=None,
-                                  vect=None,
-                                  ap=False,
-                                  split=None)
