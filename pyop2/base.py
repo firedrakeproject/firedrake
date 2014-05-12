@@ -3480,7 +3480,7 @@ class Kernel(Cached):
         self._code = self._ast_to_c(code, opts)
         Kernel._globalcount += 1
         # Record used optimisations
-        self._opt_is_padded = opts.get('ap', False)
+        self._opts = opts
         self._include_dirs = include_dirs
         self._headers = headers
         self._user_code = user_code

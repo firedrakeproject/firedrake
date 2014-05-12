@@ -814,7 +814,7 @@ class JITModule(base.JITModule):
                 _dat_size = [s[0] for s in dim] if len(arg.data.dim) > 1 else dim
                 _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
                 _loop_size = [_buf_size[i]/_dat_size[i] for i in range(len(_buf_size))]
-            if self._kernel._opt_is_padded:
+            if self._kernel._opts.get('ap'):
                 if arg._is_mat:
                     # Layout of matrices must be restored prior to the invokation of addto_vector
                     # if padding was used
