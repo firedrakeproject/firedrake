@@ -80,17 +80,11 @@ PyOP2 requires a number of tools and libraries to be available:
 * A C compiler (for example gcc or clang), make
 * Git, Mercurial
 * pip and the Python headers 
-* boost 1.48 or newer
 
 On a Debian-based system (Ubuntu, Mint, etc.) install them by running::
 
   sudo apt-get install -y build-essential python-dev git-core mercurial \
-  python-pip libboost-dev
-
-**Note:** On Ubuntu 12.04, the default boost version is 1.46, which is too
-old. Please install boost 1.48::
-
-  sudo apt-get install -y libboost1.48-dev
+    python-pip
 
 .. _mac-install:
 

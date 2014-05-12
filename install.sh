@@ -56,7 +56,7 @@ else
   apt-get install -y build-essential python-dev git-core mercurial cmake \
     cmake-curses-gui libmed1 gmsh python-pip libhdf5-openmpi-dev \
     libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran \
-    libboost1.48-dev >> $LOGFILE 2>&1
+    >> $LOGFILE 2>&1
 fi
 
 echo "*** Installing dependencies ***" | tee -a $LOGFILE

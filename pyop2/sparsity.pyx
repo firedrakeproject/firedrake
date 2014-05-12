@@ -32,7 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from libcpp.vector cimport vector
-from flat_set cimport flat_set
+from vecset cimport vecset
 from cython.operator cimport dereference as deref, preincrement as inc
 from cpython cimport bool
 import numpy as np
@@ -79,17 +79,20 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
         int e, i, r, d, c, layer, l
         int lsize, rsize, row
         cmap rowmap, colmap
-        vector[flat_set[int]] s_diag
-        flat_set[int].iterator it
+        vector[vecset[int]] s_diag
+        vecset[int].const_iterator it
 
     lsize = nrows*rmult
-    s_diag = vector[flat_set[int]](lsize)
-    iterate = None
+    s_diag = vector[vecset[int]](lsize)
 
     for ind, (rmap, cmap) in enumerate(maps):
         rowmap = init_map(rmap)
         colmap = init_map(cmap)
         rsize = rowmap.from_size
+        if not s_diag[0].capacity():
+            # Preallocate set entries heuristically based on arity
+            for i in range(lsize):
+                s_diag[i].reserve(4*rowmap.arity+1)
         # In the case of extruded meshes, in particular, when iterating over
         # horizontal facets, the iteration region determines which part of the
         # mesh the sparsity should be constructed for.
@@ -165,6 +168,7 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
     cdef np.ndarray[DTYPE_t, ndim=1] colidx = np.empty(rowptr[lsize], dtype=np.int32)
     # Note: elements in a set are always sorted, so no need to sort colidx
     for row in range(lsize):
+        s_diag[row].sort()
         i = rowptr[row]
         it = s_diag[row].begin()
         while it != s_diag[row].end():
@@ -185,17 +189,23 @@ cdef build_sparsity_pattern_mpi(int rmult, int cmult, int nrows, int ncols, list
         int lrsize, lcsize, rsize, row, entry
         int e, i, r, d, c, l
         cmap rowmap, colmap
-        vector[flat_set[int]] s_diag, s_odiag
+        vector[vecset[int]] s_diag, s_odiag
 
     lrsize = nrows*rmult
     lcsize = ncols*cmult
-    s_diag = vector[flat_set[int]](lrsize)
-    s_odiag = vector[flat_set[int]](lrsize)
+    s_diag = vector[vecset[int]](lrsize)
+    s_odiag = vector[vecset[int]](lcsize)
 
     for rmap, cmap in maps:
         rowmap = init_map(rmap)
         colmap = init_map(cmap)
         rsize = rowmap.from_exec_size;
+        if not s_diag[0].capacity():
+            # Preallocate set entries heuristically based on arity
+            for i in range(lrsize):
+                s_diag[i].reserve(4*rowmap.arity+1)
+            for i in range(lcsize):
+                s_odiag[i].reserve(4*colmap.arity+1)
         if rowmap.layers > 1:
             for e in range (rsize):
                 for i in range(rowmap.arity):
