@@ -92,7 +92,7 @@ cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
         if not s_diag[0].capacity():
             # Preallocate set entries heuristically based on arity
             for i in range(lsize):
-                s_diag[i].reserve(4*rowmap.arity+1)
+                s_diag[i].reserve(6*rowmap.arity)
         # In the case of extruded meshes, in particular, when iterating over
         # horizontal facets, the iteration region determines which part of the
         # mesh the sparsity should be constructed for.
@@ -203,8 +203,8 @@ cdef build_sparsity_pattern_mpi(int rmult, int cmult, int nrows, int ncols, list
         if not s_diag[0].capacity():
             # Preallocate set entries heuristically based on arity
             for i in range(lrsize):
-                s_diag[i].reserve(4*rowmap.arity+1)
-                s_odiag[i].reserve(4*rowmap.arity+1)
+                s_diag[i].reserve(6*rowmap.arity)
+                s_odiag[i].reserve(6*rowmap.arity)
         if rowmap.layers > 1:
             for e in range (rsize):
                 for i in range(rowmap.arity):
