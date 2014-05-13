@@ -80,7 +80,7 @@ the formulation. These will be created automatically when the residual
 is differentiated by the nonlinear solver::
 
   F = (inner((u - u_)/timestep, v)
-       + inner(u, dot(grad(u), v)) + nu*inner(grad(u), grad(v)))*dx
+       + inner(u, dot(nabla_grad(u), v)) + nu*inner(grad(u), grad(v)))*dx
 
 To output the initial conditions, we project them into P1 and pipe
 them into the output file::
