@@ -233,6 +233,7 @@ class Mesh(object):
             self._from_dmplex(plex, geometric_dim=dim,
                               periodic_coords=periodic_coords,
                               reorder=reorder)
+            self.name = filename
         else:
             basename, ext = os.path.splitext(filename)
 
