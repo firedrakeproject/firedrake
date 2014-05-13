@@ -45,8 +45,16 @@ class MeshHierarchy(mesh.Mesh):
         factor = 2 ** self.ufl_cell().topological_dimension()
         self._c2f_cells = []
         for mc, mf in zip(self._hierarchy[:-1], self._hierarchy[1:]):
-            cback = mc._inv_cells
-            fforward = mf._cells
+            cback = np.empty(mc.num_cells(), dtype=np.int32)
+            cStart, cEnd = mc._plex.getHeightStratum(0)
+            for i in range(*mc._plex.getChart()):
+                if mc._cell_numbering.getDof(i) > 0:
+                    cback[mc._cell_numbering.getOffset(i)] = i - cStart
+            cStart, cEnd = mf._plex.getHeightStratum(0)
+            fforward = np.empty(mf.num_cells(), dtype=np.int32)
+            for i in range(*mf._plex.getChart()):
+                if mf._cell_numbering.getDof(i) > 0:
+                    fforward[i] = mf._cell_numbering.getOffset(i) - cStart
             ofcells = np.dstack([(cback * factor) + i for i in range(factor)]).flatten()
             fcells = fforward[ofcells]
             self._c2f_cells.append(fcells.reshape(-1, factor))
@@ -114,17 +122,69 @@ class FunctionSpaceHierarchy(object):
         Vc = self._hierarchy[level]
         Vf = self._hierarchy[level + 1]
 
-        c2f = self._mesh_hierarchy._c2f_cells[level]
-        arity = Vf.cell_node_map().arity * c2f.shape[1]
-        map_vals = Vf.cell_node_map().values_with_halo[c2f].flatten()
+        family = self.ufl_element().family()
+        degree = self.ufl_element().degree()
 
-        map = op2.Map(Vc.mesh().cell_set,
-                      Vf.node_set,
-                      arity,
-                      map_vals)
+        if family == "Discontinuous Lagrange":
+            if degree != 0:
+                raise RuntimeError
+            c2f = self._mesh_hierarchy._c2f_cells[level]
+            arity = Vf.cell_node_map().arity * c2f.shape[1]
+            map_vals = Vf.cell_node_map().values_with_halo[c2f].flatten()
 
-        self._map_cache[level] = map
-        return map
+            map = op2.Map(Vc.mesh().cell_set,
+                          Vf.node_set,
+                          arity,
+                          map_vals)
+
+            self._map_cache[level] = map
+            return map
+
+        if family == "Lagrange":
+            if degree != 1:
+                raise RuntimeError
+            cm = Vc.mesh()
+            fm = Vf.mesh()
+            c2f_is = cm._plex.createCoarsePointIS().indices
+            c2f = self._mesh_hierarchy._c2f_cells[level]
+            if cm.ufl_cell().cellname() == 'interval':
+                ndof = 3
+            elif cm.ufl_cell().cellname() == 'triangle':
+                ndof = 6
+            elif cm.ufl_cell().cellname() == 'tetrahedron':
+                ndof = 10
+            else:
+                raise RuntimeError("Don't know how to make map")
+            map_vals = np.empty((c2f.shape[0], ndof), dtype=np.int32)
+
+            vStart, vEnd = cm._plex.getDepthStratum(0)
+
+            inv = np.empty(cm.num_vertices(), dtype=np.int32)
+            for i in range(*cm._plex.getChart()):
+                if cm._vertex_numbering.getDof(i) > 0:
+                    inv[cm._vertex_numbering.getOffset(i)] = i - vStart
+            for c in range(cm.num_cells()):
+                got = []
+                for i, cv in enumerate(Vc.cell_node_map().values_with_halo[c]):
+                    orig_v = inv[cv]
+                    fv = fm._vertex_numbering.getOffset(c2f_is[orig_v + vStart])
+                    map_vals[c, i] = fv
+                    got.append(fv)
+                non_unique = Vf.cell_node_map().values_with_halo[c2f[c, :]]
+                unique = set(non_unique.flatten())
+                want = unique.difference(set(got))
+                i = 3
+                for g in got:
+                    idx = np.where(g == non_unique)
+                    map_vals[c, i] = want.difference(non_unique[idx[0][0], :]).pop()
+                    i += 1
+            map = op2.Map(Vc.mesh().cell_set,
+                          Vf.node_set,
+                          ndof,
+                          map_vals)
+
+            self._map_cache[level] = map
+            return map
 
 
 class FunctionHierarchy(object):
@@ -173,10 +233,9 @@ class FunctionHierarchy(object):
         degree = fs.ufl_element().degree()
 
         if family == "Discontinuous Lagrange":
-            if degree == 0:
-                self._prolong_dg0(level)
-            else:
+            if degree != 0:
                 raise RuntimeError("Can only prolong P0 fields, not P%dDG" % degree)
+            self._prolong_dg0(level)
 
     def restrict(self, level):
         """Restrict from a fine to the next coarsest hierarchy level.

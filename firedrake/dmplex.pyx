@@ -692,41 +692,26 @@ def mark_entity_classes(PETSc.DM plex):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_cells_by_class(PETSc.DM plex):
-    """Builds a list of all cells ordered according to OP2 entity
-    classes and computes the respective class offsets.
+def get_cell_classes(PETSc.DM plex):
+    """Builds a PyOP2 entity class offsets for cells.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
     """
     cdef:
         PetscInt dim, c, ci, nclass
-        PetscInt *indices = NULL
-        PETSc.IS class_is = None
-        np.ndarray[np.int32_t] cells
-        np.ndarray[np.int32_t] inv_cells
 
     dim = plex.getDimension()
     cStart, cEnd = plex.getHeightStratum(0)
-    cells = np.empty(cEnd - cStart, dtype=np.int32)
-    inv_cells = np.empty(cEnd - cStart, dtype=np.int32)
     cell_classes = [0, 0, 0, 0]
     c = 0
 
     for i, op2class in enumerate(["op2_core",
                                   "op2_non_core",
                                   "op2_exec_halo"]):
-        nclass = plex.getStratumSize(op2class, dim)
-        if nclass > 0:
-            class_is = plex.getStratumIS(op2class, dim)
-            CHKERR(ISGetIndices(class_is.iset, &indices))
-            for ci in range(nclass):
-                cells[c] = indices[ci]
-                inv_cells[indices[ci]] = c
-                c += 1
+        c += plex.getStratumSize(op2class, dim)
         cell_classes[i] = c
-
     cell_classes[3] = cell_classes[2]
-    return cells, cell_classes, inv_cells
+    return cell_classes
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
