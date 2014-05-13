@@ -8,6 +8,7 @@ from os import path, environ, getuid, makedirs
 import tempfile
 
 from ufl import Form, FiniteElement, VectorElement, as_vector
+from ufl.measure import Measure
 from ufl.algorithms import as_form, ReuseTransformer
 from ufl.constantvalue import Zero
 from ufl_expr import Argument
@@ -52,7 +53,7 @@ def sum_integrands(form):
     """Produce a form with the integrands on the same measure summed."""
     integrals = defaultdict(list)
     for integral in form.integrals():
-        integrals[integral.measure()].append(integral)
+        integrals[(integral.integral_type(), integral.subdomain_id())].append(integral)
     return Form([it[0].reconstruct(reduce(add, [i.integrand() for i in it]))
                  for it in integrals.values()])
 
@@ -64,7 +65,7 @@ class FormSplitter(ReuseTransformer):
     def split(self, form):
         """Split the given form."""
         # Visit each integrand and obtain the tuple of sub forms
-        args = tuple((a.count(), len(a.function_space()))
+        args = tuple((a.number(), len(a.function_space()))
                      for a in form.form_data().original_arguments)
         forms_list = []
         for it in sum_integrands(form).integrals():
@@ -73,7 +74,11 @@ class FormSplitter(ReuseTransformer):
             def visit(idx):
                 integrand = self.visit(it.integrand())
                 if not isinstance(integrand, Zero):
-                    forms.append([(idx, integrand * it.measure())])
+                    forms.append([(idx, integrand * Measure(it.integral_type(),
+                                                            domain=it.domain(),
+                                                            subdomain_id=it.subdomain_id(),
+                                                            subdomain_data=it.subdomain_data(),
+                                                            metadata=it.metadata()))])
             # 0 form
             if not args:
                 visit((0, 0))
@@ -102,14 +107,14 @@ class FormSplitter(ReuseTransformer):
             args = []
             for i, fs in enumerate(arg.function_space().split()):
                 # Look up the split argument in cache since we want it unique
-                a = Argument(fs.ufl_element(), fs, arg.count())
+                a = Argument(fs.ufl_element(), fs, arg.number())
                 if a.shape():
-                    if self._idx[arg.count()] == i:
+                    if self._idx[arg.number()] == i:
                         args += [a[j] for j in range(a.shape()[0])]
                     else:
                         args += [Zero() for j in range(a.shape()[0])]
                 else:
-                    if self._idx[arg.count()] == i:
+                    if self._idx[arg.number()] == i:
                         args.append(a)
                     else:
                         args.append(Zero())
@@ -159,21 +164,24 @@ class FFCKernel(DiskCached):
         kernels = []
         for it, kernel in zip(form.form_data().preprocessed_form.integrals(), ffc_tree):
             # Set optimization options
-            opts = {} if it.domain_type() not in ['cell'] else \
+            opts = {} if it.integral_type() not in ['cell'] else \
                    {'licm': False,
                     'slice': None,
                     'vect': None,
                     'ap': False,
                     'split': None}
             kernels.append(Kernel(Root([incl, kernel]), '%s_%s_integral_0_%s' %
-                           (name, it.domain_type(), it.domain_id()), opts, inc))
+                           (name, it.integral_type(), it.subdomain_id()), opts, inc))
         self.kernels = tuple(kernels)
         self._initialized = True
 
 
 def compile_form(form, name):
     """Compile a form using FFC and return a tuple of tuples of
-    (index, domain type, coefficients, :class:`Kernels <pyop2.op2.Kernel>`)."""
+    (index, integral type, subdomain id, coordinates, coefficients, :class:`Kernels <pyop2.op2.Kernel>`).
+
+    Where the coordinates are extracted from the :class:`ufl.Domain` of the integral.
+    """
 
     # Check that we get a Form
     if not isinstance(form, Form):
@@ -182,7 +190,10 @@ def compile_form(form, name):
     fd = form.compute_form_data()
     # If there is no mixed element involved, return the kernels FFC produces
     if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
-        return [((0, 0), it.measure(), fd.original_coefficients, kernel)
+        return [((0, 0),
+                 it.integral_type(), it.subdomain_id(),
+                 it.domain().data().coordinates,
+                 fd.original_coefficients, kernel)
                 for it, kernel in zip(fd.preprocessed_form.integrals(),
                                       FFCKernel(form, name).kernels)]
     # Otherwise pre-split the form into mixed blocks before calling FFC
@@ -191,7 +202,10 @@ def compile_form(form, name):
         for (i, j), form in forms:
             kernel, = FFCKernel(form, name + str(i) + str(j)).kernels
             fd = form.form_data()
-            kernels.append(((i, j), fd.preprocessed_form.integrals()[0].measure(),
+            kernels.append(((i, j),
+                            fd.preprocessed_form.integrals()[0].integral_type(),
+                            fd.preprocessed_form.integrals()[0].subdomain_id(),
+                            fd.preprocessed_form.integrals()[0].domain().data().coordinates,
                             fd.original_coefficients, kernel))
     return kernels
 

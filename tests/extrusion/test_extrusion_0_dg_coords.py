@@ -8,11 +8,10 @@ def test_extruded_interval_area():
 
     DG = VectorFunctionSpace(m, 'DG', 1)
     new_coords = project(m.coordinates, DG)
-    m._coordinates = new_coords.dat.data
     m._coordinate_fs = new_coords.function_space()
     m.coordinates = new_coords
 
-    ufl.dx._domain_data = m.coordinates
+    ufl.dx._subdomain_data = m.coordinates
     V = FunctionSpace(m, 'CG', 1)
     u = Function(V)
     u.assign(1)

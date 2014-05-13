@@ -148,28 +148,26 @@ class _Facets(object):
 
         return op2.Subset(self.set, [])
 
-    def measure_set(self, measure):
+    def measure_set(self, integral_type, subdomain_id):
         '''Return the iteration set appropriate to measure. This will
         either be for all the interior or exterior (as appropriate)
         facets, or for a particular numbered subdomain.'''
 
-        dom_id = measure.domain_id()
-        dom_type = measure.domain_type()
-        if dom_id in [measure.DOMAIN_ID_EVERYWHERE,
-                      measure.DOMAIN_ID_OTHERWISE]:
-            if dom_type == "exterior_facet_topbottom":
+        # ufl.Measure doesn't have enums for these any more :(
+        if subdomain_id in ["everywhere", "otherwise"]:
+            if integral_type == "exterior_facet_topbottom":
                 return [(op2.ON_BOTTOM, self.bottom_set),
                         (op2.ON_TOP, self.bottom_set)]
-            elif dom_type == "exterior_facet_bottom":
+            elif integral_type == "exterior_facet_bottom":
                 return [(op2.ON_BOTTOM, self.bottom_set)]
-            elif dom_type == "exterior_facet_top":
+            elif integral_type == "exterior_facet_top":
                 return [(op2.ON_TOP, self.bottom_set)]
-            elif dom_type == "interior_facet_horiz":
+            elif integral_type == "interior_facet_horiz":
                 return self.bottom_set
             else:
                 return self.set
         else:
-            return self.subset(measure.domain_id())
+            return self.subset(subdomain_id)
 
     def subset(self, markers):
         """Return the subset corresponding to a given marker value.
@@ -294,6 +292,7 @@ class Mesh(object):
         self._ufl_cell = ufl.Cell(fiat_utils._cells[geometric_dim][cell_vertices],
                                   geometric_dimension=geometric_dim)
 
+        self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
         dim = self._plex.getDimension()
         self._cells, self.cell_classes = dmplex.get_cells_by_class(self._plex)
 
@@ -333,12 +332,24 @@ class Mesh(object):
             self.coordinates = function.Function(self._coordinate_fs,
                                                  val=coordinates,
                                                  name="Coordinates")
-        self._dx = ufl.Measure('cell', domain_data=self.coordinates)
-        self._ds = ufl.Measure('exterior_facet', domain_data=self.coordinates)
-        self._dS = ufl.Measure('interior_facet', domain_data=self.coordinates)
-        # Set the domain_data on all the default measures to this coordinate field.
+        self._ufl_domain = ufl.Domain(self.coordinates)
+        # Build a new ufl element for this function space with the
+        # correct domain.  This is necessary since this function space
+        # is in the cache and will be picked up by later
+        # VectorFunctionSpace construction.
+        self._coordinate_fs._ufl_element = self._coordinate_fs.ufl_element().reconstruct(domain=self.ufl_domain())
+        # HACK alert!
+        # Replace coordinate Function by one that has a real domain on it (but don't copy values)
+        self.coordinates = function.Function(self._coordinate_fs, val=self.coordinates.dat)
+        # Add domain and subdomain_data to the measure objects we store with the mesh.
+        self._dx = ufl.Measure('cell', domain=self, subdomain_data=self.coordinates)
+        self._ds = ufl.Measure('exterior_facet', domain=self, subdomain_data=self.coordinates)
+        self._dS = ufl.Measure('interior_facet', domain=self, subdomain_data=self.coordinates)
+        # Set the subdomain_data on all the default measures to this
+        # coordinate field.  Also set the domain on the measure.
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
-            measure._domain_data = self.coordinates
+            measure._subdomain_data = self.coordinates
+            measure._domain = self.ufl_domain()
 
     def _from_gmsh(self, filename, dim=0, periodic_coords=None, reorder=None):
         """Read a Gmsh .msh file from `filename`"""
@@ -519,6 +530,12 @@ class Mesh(object):
     def cells(self):
         return self._cells
 
+    def ufl_id(self):
+        return id(self)
+
+    def ufl_domain(self):
+        return self._ufl_domain
+
     def ufl_cell(self):
         return self._ufl_cell
 
@@ -625,6 +642,7 @@ class ExtrudedMesh(Mesh):
 
         self._ufl_cell = ufl.OuterProductCell(mesh._ufl_cell, ufl.Cell("interval", 1))
 
+        self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
         flat_temp = fiat_element.flattened_element()
 
         # Calculated dofs_per_column from flattened_element and layers.
@@ -644,16 +662,29 @@ class ExtrudedMesh(Mesh):
                                                                 vdegree=1)
 
         self.coordinates = function.Function(self._coordinate_fs)
+        self._ufl_domain = ufl.Domain(self.coordinates)
         eutils.make_extruded_coords(self, layer_height, extrusion_type=extrusion_type,
                                     kernel=kernel)
-        self._coordinates = self.coordinates.dat.data_ro_with_halos
-
-        self._dx = ufl.Measure('cell', domain_data=self.coordinates)
-        self._ds = ufl.Measure('exterior_facet', domain_data=self.coordinates)
-        self._dS = ufl.Measure('interior_facet', domain_data=self.coordinates)
-        # Set the domain_data on all the default measures to this coordinate field.
+        # Build a new ufl element for this function space with the
+        # correct domain.  This is necessary since this function space
+        # is in the cache and will be picked up by later
+        # VectorFunctionSpace construction.
+        self._coordinate_fs._ufl_element = self._coordinate_fs.ufl_element().reconstruct(domain=self.ufl_domain())
+        # HACK alert!
+        # Replace coordinate Function by one that has a real domain on it (but don't copy values)
+        self.coordinates = function.Function(self._coordinate_fs, val=self.coordinates.dat)
+        self._dx = ufl.Measure('cell', domain=self, subdomain_data=self.coordinates)
+        self._ds = ufl.Measure('exterior_facet', domain=self, subdomain_data=self.coordinates)
+        self._dS = ufl.Measure('interior_facet', domain=self, subdomain_data=self.coordinates)
+        self._ds_t = ufl.Measure('exterior_facet_top', domain=self, subdomain_data=self.coordinates)
+        self._ds_b = ufl.Measure('exterior_facet_bottom', domain=self, subdomain_data=self.coordinates)
+        self._ds_v = ufl.Measure('exterior_facet_vert', domain=self, subdomain_data=self.coordinates)
+        self._dS_h = ufl.Measure('interior_facet_horiz', domain=self, subdomain_data=self.coordinates)
+        self._dS_v = ufl.Measure('interior_facet_vert', domain=self, subdomain_data=self.coordinates)
+        # Set the subdomain_data on all the default measures to this coordinate field.
         for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_t, ufl.ds_b, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
-            measure._domain_data = self.coordinates
+            measure._subdomain_data = self.coordinates
+            measure._domain = self.ufl_domain()
 
     @property
     def layers(self):
