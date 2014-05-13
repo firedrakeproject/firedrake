@@ -1,6 +1,7 @@
 import numpy as np
 
 from pyop2 import op2
+import pyop2.coffee.ast_base as ast
 
 import function
 import functionspace
@@ -155,3 +156,80 @@ class FunctionHierarchy(object):
 
     def cell_node_map(self, i):
         return self._function_space.cell_node_map(i)
+
+    def prolong(self, level):
+        """Prolong from a coarse to the next finest hierarchy level.
+
+        :arg level: The coarse level to prolong from"""
+
+        if not 0 <= level < len(self) - 1:
+            raise RuntimeError("Requested coarse level %d outside permissible range [0, %d)" %
+                               (level, len(self) - 1))
+        fs = self[level].function_space()
+        family = fs.ufl_element().family()
+        degree = fs.ufl_element().degree()
+
+        if family == "Discontinuous Lagrange":
+            if degree == 0:
+                self._prolong_dg0(level)
+            else:
+                raise RuntimeError("Can only prolong P0 fields, not P%dDG" % degree)
+
+    def restrict(self, level):
+        """Restrict from a fine to the next coarsest hierarchy level.
+
+        :arg level: The fine level to restrict from"""
+
+        if not 0 < level < len(self):
+            raise RuntimeError("Requested fine level %d outside permissible range [1, %d)" %
+                               (level, len(self)))
+
+        fs = self[level].function_space()
+        family = fs.ufl_element().family()
+        degree = fs.ufl_element().degree()
+        if family == "Discontinuous Lagrange":
+            if degree == 0:
+                self._restrict_dg0(level)
+            else:
+                raise RuntimeError("Can only restrict P0 fields, not P%dDG" % degree)
+
+    def _prolong_dg0(self, level):
+        c2f_map = self.cell_node_map(level)
+        coarse = self[level]
+        fine = self[level + 1]
+        if not hasattr(self, '_prolong_kernel'):
+            k = ast.FunDecl("void", "prolong_dg0",
+                            [ast.Decl(coarse.dat.ctype, "**coarse"),
+                             ast.Decl(fine.dat.ctype, "**fine")],
+                            body=ast.c_for("fdof", c2f_map.arity,
+                                           ast.Assign(ast.Symbol("fine", ("fdof", 0)),
+                                                      ast.Symbol("coarse", (0, 0))),
+                                           pragma=None),
+                            pred=["static", "inline"])
+            self._prolong_kernel = op2.Kernel(k, "prolong_dg0")
+        op2.par_loop(self._prolong_kernel, coarse.cell_set,
+                     coarse.dat(op2.READ, coarse.cell_node_map()),
+                     fine.dat(op2.WRITE, c2f_map))
+
+    def _restrict_dg0(self, level):
+        c2f_map = self.cell_node_map(level - 1)
+        coarse = self[level - 1]
+        fine = self[level]
+        if not hasattr(self, '_restrict_kernel'):
+            k = ast.FunDecl("void", "restrict_dg0",
+                            [ast.Decl(coarse.dat.ctype, "**coarse"),
+                             ast.Decl(fine.dat.ctype, "**fine")],
+                            body=ast.Block([ast.Decl(coarse.dat.ctype, "tmp", init=0.0),
+                                            ast.c_for("fdof", c2f_map.arity,
+                                                      ast.Incr(ast.Symbol("tmp"),
+                                                               ast.Symbol("fine", ("fdof", 0))),
+                                                      pragma=None),
+                                            ast.Assign(ast.Symbol("coarse", (0, 0)),
+                                                       ast.Div(ast.Symbol("tmp"),
+                                                               c2f_map.arity))]),
+                            pred=["static", "inline"])
+            self._restrict_kernel = op2.Kernel(k, "restrict_dg0")
+
+        op2.par_loop(self._restrict_kernel, coarse.cell_set,
+                     coarse.dat(op2.WRITE, coarse.cell_node_map()),
+                     fine.dat(op2.READ, c2f_map))
