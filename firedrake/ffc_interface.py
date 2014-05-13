@@ -187,25 +187,37 @@ def compile_form(form, name):
         form = as_form(form)
 
     fd = form.compute_form_data()
+
+    # We stash the compiled kernels on the form so we don't have to recompile
+    # if we assemble the same form again with the same optimisations
+    if hasattr(fd, "_kernels") and \
+            fd._kernels[0][-1]._opts == parameters["coffee"] and \
+            fd._kernels[0][-1].name == name:
+        return fd._kernels
+
     # If there is no mixed element involved, return the kernels FFC produces
     if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
-        return [((0, 0),
-                 it.integral_type(), it.subdomain_id(),
-                 it.domain().data().coordinates,
-                 fd.original_coefficients, kernel)
-                for it, kernel in zip(fd.preprocessed_form.integrals(),
-                                      FFCKernel(form, name).kernels)]
+        kernels = [((0, 0),
+                    it.integral_type(), it.subdomain_id(),
+                    it.domain().data().coordinates,
+                    fd.original_coefficients, kernel)
+                   for it, kernel in zip(fd.preprocessed_form.integrals(),
+                                         FFCKernel(form, name).kernels)]
+        fd._kernels = kernels
+        return kernels
     # Otherwise pre-split the form into mixed blocks before calling FFC
     kernels = []
     for forms in FormSplitter().split(form):
         for (i, j), form in forms:
             kernel, = FFCKernel(form, name + str(i) + str(j)).kernels
             fd = form.form_data()
+            it = fd.preprocessed_form.integrals()[0]
             kernels.append(((i, j),
-                            fd.preprocessed_form.integrals()[0].integral_type(),
-                            fd.preprocessed_form.integrals()[0].subdomain_id(),
-                            fd.preprocessed_form.integrals()[0].domain().data().coordinates,
+                            it.integral_type(),
+                            it.subdomain_id(),
+                            it.domain().data().coordinates,
                             fd.original_coefficients, kernel))
+    form._form_data._kernels = kernels
     return kernels
 
 

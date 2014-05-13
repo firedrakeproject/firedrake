@@ -404,14 +404,7 @@ def _assemble(f, tensor=None, bcs=None):
 
     """
 
-    # We stash the compiled kernels on the form so we don't have to recompile
-    # if we assemble the same form again
-    if hasattr(f._form_data, "_kernels"):
-        kernels = f._form_data._kernels
-    else:
-        kernels = ffc_interface.compile_form(f, "form")
-        f._form_data._kernels = kernels
-
+    kernels = ffc_interface.compile_form(f, "form")
     fd = f.form_data()
 
     # Do we need to pass cell_orientations in to get the sign of detJ right?
