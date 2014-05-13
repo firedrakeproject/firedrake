@@ -374,7 +374,7 @@ class ExpressionWalker(ReuseTransformer):
 
     def walk(self, expr):
         """Walk the given expression and return a tuple of the transformed
-        expression, the list of arguments sorted by their count and the
+        expression, the list of coefficients sorted by their count and the
         function space the expression is defined on."""
         return (self.visit(expr),
                 sorted(self._args.values(), key=lambda c: c.count()),

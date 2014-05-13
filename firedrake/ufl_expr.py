@@ -16,7 +16,7 @@ __all__ = ['Argument', 'TestFunction', 'TrialFunction',
 
 class Argument(ufl.argument.Argument):
     """Representation of the argument to a form,"""
-    def __init__(self, element, function_space, count=None):
+    def __init__(self, element, function_space, count):
         """
         :arg element: the :class:`ufl.element.FiniteElementBase` this
              argument corresponds to.
@@ -26,8 +26,8 @@ class Argument(ufl.argument.Argument):
 
         .. note::
 
-           an :class:`Argument` with a count of ``-2`` is used as a
-           :class:`TestFunction`, with a count of ``-1`` it is used as
+           an :class:`Argument` with a count of ``0`` is used as a
+           :class:`TestFunction`, with a count of ``1`` it is used as
            a :class:`TrialFunction`.
 
         """
@@ -75,7 +75,7 @@ def TestFunction(function_space):
 
     :arg function_space: the :class:`.FunctionSpaceBase` to build the test
          function on."""
-    return Argument(function_space.ufl_element(), function_space, -2)
+    return Argument(function_space.ufl_element(), function_space, 0)
 
 
 def TrialFunction(function_space):
@@ -83,7 +83,7 @@ def TrialFunction(function_space):
 
     :arg function_space: the :class:`.FunctionSpaceBase` to build the trial
          function on."""
-    return Argument(function_space.ufl_element(), function_space, -1)
+    return Argument(function_space.ufl_element(), function_space, 1)
 
 
 def TestFunctions(function_space):
@@ -131,7 +131,7 @@ def derivative(form, u, du=None):
     if du is None:
         if isinstance(u, function.Function):
             V = u.function_space()
-            du = Argument(V.ufl_element(), V)
+            du = TrialFunction(V)
         else:
             raise RuntimeError("Can't compute derivative for form")
     return ufl.derivative(form, u, du)
@@ -153,8 +153,10 @@ def adjoint(form, reordered_arguments=None):
     # firedrake.Argument objects.
     if reordered_arguments is None:
         v, u = extract_arguments(form)
-        reordered_arguments = (Argument(u.element(), u.function_space()),
-                               Argument(v.element(), v.function_space()))
+        reordered_arguments = (Argument(u.element(), u.function_space(),
+                                        count=v.count()),
+                               Argument(v.element(), v.function_space(),
+                                        count=u.count()))
     return ufl.adjoint(form, reordered_arguments)
 
 
@@ -163,8 +165,7 @@ def CellSize(mesh):
 
     :arg mesh: the mesh for which to calculate the cell size.
     """
-    cell = mesh.ufl_cell()
-    return 2.0 * cell.circumradius
+    return 2.0 * ufl.Circumradius(mesh.ufl_domain())
 
 
 def FacetNormal(mesh):
@@ -172,4 +173,4 @@ def FacetNormal(mesh):
 
     :arg mesh: the mesh over which the normal should be represented.
     """
-    return ufl.FacetNormal(mesh.ufl_cell())
+    return ufl.FacetNormal(mesh.ufl_domain())

@@ -95,7 +95,7 @@ def test_extrusion_side_strong_bcs():
 
 
 def test_extrusion_side_strong_bcs_large():
-    assert (run_test_3D(6, test_mode=True) < 1.e-08)
+    assert (run_test_3D(6, test_mode=True) < 1.2e-08)
 
 
 def test_extrusion_side_strong_bcs_2D():

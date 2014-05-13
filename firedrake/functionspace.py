@@ -560,7 +560,7 @@ class FunctionSpace(FunctionSpaceBase):
         #       OuterProductElement and so on
         if isinstance(family, ufl.FiniteElementBase):
             # Second case...
-            element = family
+            element = family.reconstruct(domain=mesh.ufl_domain())
         else:
             # First case...
             if isinstance(mesh, mesh_t.ExtrudedMesh):
@@ -580,11 +580,11 @@ class FunctionSpace(FunctionSpaceBase):
                                            domain=ufl.Cell("interval", 1),
                                            degree=vdegree)
                 # now make the OPE
-                element = ufl.OuterProductElement(la, lb)
+                element = ufl.OuterProductElement(la, lb, domain=mesh.ufl_domain())
             else:
                 # if not an extruded mesh, just make the element
                 element = ufl.FiniteElement(family,
-                                            domain=mesh._ufl_cell,
+                                            domain=mesh.ufl_domain(),
                                             degree=degree)
 
         super(FunctionSpace, self).__init__(mesh, element, name, dim=1)
@@ -625,9 +625,9 @@ class VectorFunctionSpace(FunctionSpaceBase):
             else:
                 lb = ufl.FiniteElement(vfamily, domain=ufl.Cell("interval", 1),
                                        degree=vdegree)
-            element = ufl.OuterProductVectorElement(la, lb, dim=dim)
+            element = ufl.OuterProductVectorElement(la, lb, dim=dim, domain=mesh.ufl_domain())
         else:
-            element = ufl.VectorElement(family, domain=mesh.ufl_cell(),
+            element = ufl.VectorElement(family, domain=mesh.ufl_domain(),
                                         degree=degree, dim=dim)
         super(VectorFunctionSpace, self).__init__(mesh, element, name, dim=dim, rank=1)
         self._initialized = True

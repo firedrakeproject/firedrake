@@ -65,7 +65,7 @@ class _DependencySnapshot(object):
 
         deps = []
 
-        coords = form.integrals()[0].measure().domain_data()
+        coords = form.integrals()[0].domain().data().coordinates
         deps.append(ref(coords))
 
         for c in form.compute_form_data().original_coefficients:
@@ -78,7 +78,7 @@ class _DependencySnapshot(object):
 
         original_coords = self.dependencies[0][0]()
         if original_coords:
-            coords = form.integrals()[0].measure().domain_data()
+            coords = form.integrals()[0].domain().data().coordinates
             if coords is not original_coords or \
                coords.dat._version != self.dependencies[0][1]:
                 return False

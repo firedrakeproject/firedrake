@@ -26,7 +26,7 @@ class Constant(object):
          of iterables (or numpy array with 2-dimensional shape) for a
          tensor-valued constant.
 
-    :arg cell: an optional :class:`ufl.Cell` the constant is defined on.
+    :arg domain: an optional :class:`ufl.Domain` the constant is defined on.
     """
 
     # We want to have a single "Constant" at the firedrake level, but
@@ -38,7 +38,7 @@ class Constant(object):
     # appropriately (such that isinstance checks do the right thing).
     # These classes /also/ inherit from Constant itself, such that
     # Constant's __init__ method is called after the instance is created.
-    def __new__(cls, value, cell=None):
+    def __new__(cls, value, domain=None):
         # Figure out which type of constant we're building
         rank = len(np.array(value).shape)
         try:
@@ -47,7 +47,7 @@ class Constant(object):
             raise RuntimeError("Don't know how to make Constant from data with rank %d" % rank)
         return super(Constant, cls).__new__(klass)
 
-    def __init__(self, value, cell=None):
+    def __init__(self, value, domain=None):
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
         data = np.array(value, dtype=np.float64)
@@ -112,19 +112,19 @@ class Constant(object):
 # These are the voodoo intermediate classes that allow inheritance to
 # work correctly for Constant
 class _Constant(ufl.Constant, Constant):
-    def __init__(self, value, cell=None):
-        ufl.Constant.__init__(self, domain=cell)
-        Constant.__init__(self, value, cell)
+    def __init__(self, value, domain=None):
+        ufl.Constant.__init__(self, domain=domain)
+        Constant.__init__(self, value, domain)
 
 
 class _VectorConstant(ufl.VectorConstant, Constant):
-    def __init__(self, value, cell=None):
-        ufl.VectorConstant.__init__(self, domain=cell, dim=len(value))
-        Constant.__init__(self, value, cell)
+    def __init__(self, value, domain=None):
+        ufl.VectorConstant.__init__(self, domain=domain, dim=len(value))
+        Constant.__init__(self, value, domain)
 
 
 class _TensorConstant(ufl.TensorConstant, Constant):
-    def __init__(self, value, cell=None):
+    def __init__(self, value, domain=None):
         shape = np.array(value).shape
-        ufl.TensorConstant.__init__(self, domain=cell, shape=shape)
-        Constant.__init__(self, value, cell)
+        ufl.TensorConstant.__init__(self, domain=domain, shape=shape)
+        Constant.__init__(self, value, domain)
