@@ -7,9 +7,9 @@ two dimensions to demonstrate the use of vector function spaces:
 
 .. math::
 
-   \frac{\partial u}{\partial t} + u\cdot\nabla u - \nu\nabla^2 u = 0
+   \frac{\partial u}{\partial t} + (u\cdot\nabla) u - \nu\nabla^2 u = 0
 
-   \nabla u \cdot n = 0 \ \textrm{on}\ \Gamma
+   (n\cdot \nabla) u = 0 \ \textrm{on}\ \Gamma
 
 where :math:`\Gamma` is the domain boundary and :math:`\nu` is a
 constant scalar viscosity. The solution :math:`u` is sought in some
@@ -20,7 +20,7 @@ the viscosity term by parts:
 .. math::
 
    \int_\Omega\frac{\partial u}{\partial t}\cdot v + 
-   (u\cdot\nabla u)\cdot v + \nu\nabla u\cdot\nabla v \ \mathrm d x = 0.
+   ((u\cdot\nabla) u)\cdot v + \nu\nabla u\cdot\nabla v \ \mathrm d x = 0.
 
 The boundary condition has been used to discard the surface
 integral. Next, we need to discretise in time. For simplicity and
@@ -29,7 +29,7 @@ stability we elect to use a backward Euler discretisation:
 .. math::
 
    \int_\Omega\frac{u^{n+1}-u^n}{dt}\cdot v + 
-   (u^{n+1}\cdot\nabla u^{n+1})\cdot v + \nu\nabla u^{n+1}\cdot\nabla v \ \mathrm d x = 0.
+   ((u^{n+1}\cdot\nabla) u^{n+1})\cdot v + \nu\nabla u^{n+1}\cdot\nabla v \ \mathrm d x = 0.
 
 We can now proceed to set up the problem. We choose a resolution and set up a square mesh::
 
@@ -74,13 +74,17 @@ system's evolution::
 
   timestep = 1.0/n
 
-Here we finally get to define the residual of the equation. Note once
-again that for a nonlinear problem, there are no trial functions in
+Here we finally get to define the residual of the equation. In the advection
+term we need to contract the test function :math:`v` with 
+:math:`(u\cdot\nabla)u`, which is the derivative of the velocity in the
+direction :math:`u`. This directional derivative can be written as
+``dot(u,nabla_grad(u))`` since ``nabla_grad(u)[i,j]``:math:`=\partial_i u_j`.
+Note once again that for a nonlinear problem, there are no trial functions in
 the formulation. These will be created automatically when the residual
 is differentiated by the nonlinear solver::
 
   F = (inner((u - u_)/timestep, v)
-       + inner(u, dot(grad(u), v)) + nu*inner(grad(u), grad(v)))*dx
+       + inner(dot(u,nabla_grad(u)), v) + nu*inner(grad(u), grad(v)))*dx
 
 To output the initial conditions, we project them into P1 and pipe
 them into the output file::
