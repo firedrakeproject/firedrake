@@ -59,5 +59,8 @@ def _init():
     :func:`pyop2.init` if she wants to set a non-default option, for example
     to switch the backend or the debug or log level."""
     from pyop2 import op2
+    from parameters import parameters
     if not op2.initialised():
-        op2.init(log_level='INFO')
+        op2.init(log_level='INFO',
+                 compiler=parameters["coffee"]["compiler"],
+                 simd_isa=parameters["coffee"]["simd_isa"])
