@@ -204,6 +204,12 @@ class FunctionHierarchy(object):
             if degree != 0:
                 raise RuntimeError("Can only prolong P0 fields, not P%dDG" % degree)
             self._prolong_dg0(level)
+        elif family == "Lagrange":
+            if degree != 1:
+                raise RuntimeError("Can only prolong P1 fields, not P%d" % degree)
+            self._prolong_cg1(level)
+        else:
+            raise RuntimeError("Prolongation only implemented for P0DG and P1")
 
     def restrict(self, level):
         """Restrict from a fine to the next coarsest hierarchy level.
@@ -263,3 +269,26 @@ class FunctionHierarchy(object):
         op2.par_loop(self._restrict_kernel, coarse.cell_set,
                      coarse.dat(op2.WRITE, coarse.cell_node_map()),
                      fine.dat(op2.READ, c2f_map))
+
+    def _prolong_cg1(self, level):
+        c2f_map = self.cell_node_map(level)
+        coarse = self[level]
+        fine = self[level + 1]
+        if not hasattr(self, '_prolong_kernel'):
+            # Only 2D for now.
+            # Due to smart map, fine field is:
+            # u_f = A u_c
+            # Where A is [[1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0.5, 0.5], [0.5, 0, 0.5], [0.5, 0.5, 0]]
+            k = """void prolong_cg1(double **coarse, double **fine)
+            {
+                fine[0][0] = coarse[0][0];
+                fine[1][0] = coarse[1][0];
+                fine[2][0] = coarse[2][0];
+                fine[3][0] = 0.5*(coarse[1][0] + coarse[2][0]);
+                fine[4][0] = 0.5*(coarse[0][0] + coarse[2][0]);
+                fine[5][0] = 0.5*(coarse[0][0] + coarse[1][0]);
+            }"""
+            self._prolong_kernel = op2.Kernel(k, "prolong_cg1")
+        op2.par_loop(self._prolong_kernel, coarse.cell_set,
+                     coarse.dat(op2.READ, coarse.cell_node_map()),
+                     fine.dat(op2.WRITE, c2f_map))
