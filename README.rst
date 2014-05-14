@@ -159,6 +159,7 @@ Common dependencies:
 * Cython >= 0.17 
 * decorator 
 * numpy >= 1.6 
+* networkx
 * PETSc_ current git master (see below)
 * PETSc4py_ current git master (see below)
 
@@ -174,7 +175,7 @@ using the package management system of your OS, or via ``pip``.
 
 Install the dependencies via the package manager (Debian based systems)::
 
-  sudo apt-get install cython python-decorator python-numpy
+  sudo apt-get install cython python-decorator python-numpy python-networkx
 
 **Note:** This may not give you recent enough versions of those packages
 (in particular the Cython version shipped with 12.04 is too old). You
@@ -182,7 +183,7 @@ can selectively upgrade packages via ``pip``, see below.
 
 Install dependencies via ``pip``::
 
-  sudo pip install "Cython>=0.17" decorator "numpy>=1.6"
+  sudo pip install "Cython>=0.17" decorator "numpy>=1.6" networkx
 
 Additional Python 2.6 dependencies: 
 

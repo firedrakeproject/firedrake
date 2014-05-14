@@ -63,7 +63,7 @@ echo "*** Installing dependencies ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
 
 # Install Cython so we can build PyOP2 from source
-${PIP} Cython decorator numpy >> $LOGFILE 2>&1
+${PIP} Cython decorator numpy networkx >> $LOGFILE 2>&1
 
 echo "*** Installing PETSc ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
