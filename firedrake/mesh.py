@@ -263,6 +263,12 @@ class Mesh(object):
         self._plex = plex
         self.uid = utils._new_uid()
 
+        # Mark exterior and interior facets
+        # Note.  This must come before distribution, because otherwise
+        # DMPlex will consider facets on the domain boundary to be
+        # exterior, which is wrong.
+        dmplex.label_facets(self._plex)
+
         if geometric_dim == 0:
             geometric_dim = plex.getDimension()
 
@@ -271,9 +277,6 @@ class Mesh(object):
             self.parallel_sf = plex.distribute(overlap=1)
 
         self._plex = plex
-
-        # Mark exterior and interior facets
-        dmplex.label_facets(self._plex)
 
         if reorder:
             old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
