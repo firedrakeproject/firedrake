@@ -20,6 +20,7 @@ class Halo(object):
         self._sends = defaultdict(list)
         self._receives = defaultdict(list)
         self._gnn2unn = None
+        self._sf = petscsf.duplicate()
         remote_sends = defaultdict(list)
 
         if op2.MPI.comm.size <= 1:
