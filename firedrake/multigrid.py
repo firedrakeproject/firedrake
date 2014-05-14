@@ -3,6 +3,7 @@ import numpy as np
 from pyop2 import op2
 import pyop2.coffee.ast_base as ast
 
+import dmplex
 import function
 import functionspace
 import mesh
@@ -44,17 +45,19 @@ class MeshHierarchy(mesh.Mesh):
         # Simplex only
         factor = 2 ** self.ufl_cell().topological_dimension()
         self._c2f_cells = []
+
         for mc, mf in zip(self._hierarchy[:-1], self._hierarchy[1:]):
-            cback = np.empty(mc.num_cells(), dtype=np.int32)
-            cStart, cEnd = mc._plex.getHeightStratum(0)
-            for i in range(*mc._plex.getChart()):
-                if mc._cell_numbering.getDof(i) > 0:
-                    cback[mc._cell_numbering.getOffset(i)] = i - cStart
-            cStart, cEnd = mf._plex.getHeightStratum(0)
-            fforward = np.empty(mf.num_cells(), dtype=np.int32)
-            for i in range(*mf._plex.getChart()):
-                if mf._cell_numbering.getDof(i) > 0:
-                    fforward[i] = mf._cell_numbering.getOffset(i) - cStart
+            if not hasattr(mc, '_cell_new_to_old'):
+                o, n = dmplex.get_cell_renumbering(mc._plex, mc._cell_numbering)
+                mc._cell_old_to_new = o
+                mc._cell_new_to_old = n
+            if not hasattr(mf, '_cell_old_to_new'):
+                o, n = dmplex.get_cell_renumbering(mf._plex, mf._cell_numbering)
+                mf._cell_old_to_new = o
+                mf._cell_new_to_old = n
+
+            cback = mc._cell_new_to_old
+            fforward = mf._cell_old_to_new
             ofcells = np.dstack([(cback * factor) + i for i in range(factor)]).flatten()
             fcells = fforward[ofcells]
             self._c2f_cells.append(fcells.reshape(-1, factor))

@@ -910,3 +910,25 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1] reordering=None
     CHKERR(ISGeneralSetIndices(perm_is.iset, pEnd - pStart,
                                perm, PETSC_OWN_POINTER))
     return perm_is
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_cell_renumbering(PETSc.DM plex, PETSc.Section cell_numbering):
+    cdef:
+        PetscInt cStart, cEnd, c, ndof, cell
+        np.ndarray[PetscInt, ndim=1] old_to_new
+        np.ndarray[PetscInt, ndim=1] new_to_old
+
+    cStart, cEnd = plex.getHeightStratum(0)
+
+    old_to_new = np.empty(cEnd - cStart, dtype=PETSc.IntType)
+    new_to_old = np.empty(cEnd - cStart, dtype=PETSc.IntType)
+
+    for c in range(cStart, cEnd):
+        CHKERR(PetscSectionGetDof(cell_numbering.sec, c, &ndof))
+        if ndof > 0:
+            CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+            new_to_old[cell] = c - cStart
+            old_to_new[c - cStart] = cell
+
+    return old_to_new, new_to_old
