@@ -48,11 +48,11 @@ class MeshHierarchy(mesh.Mesh):
 
         for mc, mf in zip(self._hierarchy[:-1], self._hierarchy[1:]):
             if not hasattr(mc, '_cell_new_to_old'):
-                o, n = dmplex.get_cell_renumbering(mc._plex, mc._cell_numbering)
+                o, n = dmplex.get_entity_renumbering(mc._plex, mc._cell_numbering, "cell")
                 mc._cell_old_to_new = o
                 mc._cell_new_to_old = n
             if not hasattr(mf, '_cell_old_to_new'):
-                o, n = dmplex.get_cell_renumbering(mf._plex, mf._cell_numbering)
+                o, n = dmplex.get_entity_renumbering(mf._plex, mf._cell_numbering, "cell")
                 mf._cell_old_to_new = o
                 mf._cell_new_to_old = n
 
