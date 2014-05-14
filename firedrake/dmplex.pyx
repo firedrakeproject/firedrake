@@ -912,22 +912,27 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1] reordering=None
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_cell_renumbering(PETSc.DM plex, PETSc.Section cell_numbering):
+def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
     cdef:
-        PetscInt cStart, cEnd, c, ndof, cell
+        PetscInt start, end, p, ndof, entity
         np.ndarray[PetscInt, ndim=1] old_to_new
         np.ndarray[PetscInt, ndim=1] new_to_old
 
-    cStart, cEnd = plex.getHeightStratum(0)
+    if entity_type == "cell":
+        start, end = plex.getHeightStratum(0)
+    elif entity_type == "vertex":
+        start, end = plex.getDepthStratum(0)
+    else:
+        raise RuntimeError("Entity renumbering for entities of type %s not implemented" % entity_type)
 
-    old_to_new = np.empty(cEnd - cStart, dtype=PETSc.IntType)
-    new_to_old = np.empty(cEnd - cStart, dtype=PETSc.IntType)
+    old_to_new = np.empty(end - start, dtype=PETSc.IntType)
+    new_to_old = np.empty(end - start, dtype=PETSc.IntType)
 
-    for c in range(cStart, cEnd):
-        CHKERR(PetscSectionGetDof(cell_numbering.sec, c, &ndof))
+    for p in range(start, end):
+        CHKERR(PetscSectionGetDof(section.sec, p, &ndof))
         if ndof > 0:
-            CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
-            new_to_old[cell] = c - cStart
-            old_to_new[c - cStart] = cell
+            CHKERR(PetscSectionGetOffset(section.sec, p, &entity))
+            new_to_old[entity] = p - start
+            old_to_new[p - start] = entity
 
     return old_to_new, new_to_old
