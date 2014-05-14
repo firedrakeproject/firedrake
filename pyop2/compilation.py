@@ -175,7 +175,8 @@ class LinuxCompiler(Compiler):
         # gcc.gnu.org/bugzilla/show_bug.cgi?id=61068
         # This is the default in Ubuntu 14.04 so work around this
         # problem by turning ivopts off.
-        opt_flags = ['-O3', '-fno-ivopts']
+        # For 4.6 we need to turn off more, so go to no-tree-vectorize
+        opt_flags = ['-g', '-O3', '-fno-tree-vectorize']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
 
