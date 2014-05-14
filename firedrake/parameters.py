@@ -32,6 +32,8 @@ parameters.add(Parameters("assembly_cache",
                           max_misses=3))
 
 parameters.add(Parameters("coffee",
+                          compiler='gnu',
+                          simd_isa='avx',
                           licm=False,
                           slice=None,
                           vect=None,
