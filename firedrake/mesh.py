@@ -101,8 +101,13 @@ def _get_msh_file(source, name, dimension, meshed=False):
 
 
 class _Facets(object):
-    """Wrapper class for facet interation information on a :class:`Mesh`"""
-    def __init__(self, mesh, classes, kind, facet_cell, local_facet_number, markers=None):
+    """Wrapper class for facet interation information on a :class:`Mesh`
+
+    .. warning::
+
+       The unique_markers argument **must** be the same on all processes."""
+    def __init__(self, mesh, classes, kind, facet_cell, local_facet_number, markers=None,
+                 unique_markers=None):
 
         self.mesh = mesh
 
@@ -121,6 +126,7 @@ class _Facets(object):
         self.local_facet_number = local_facet_number
 
         self.markers = markers
+        self.unique_markers = [] if unique_markers is None else unique_markers
         self._subsets = {}
 
     @utils.cached_property
@@ -264,6 +270,12 @@ class Mesh(object):
         self._plex = plex
         self.uid = utils._new_uid()
 
+        # Mark exterior and interior facets
+        # Note.  This must come before distribution, because otherwise
+        # DMPlex will consider facets on the domain boundary to be
+        # exterior, which is wrong.
+        dmplex.label_facets(self._plex)
+
         if geometric_dim == 0:
             geometric_dim = plex.getDimension()
 
@@ -272,9 +284,6 @@ class Mesh(object):
             self.parallel_sf = plex.distribute(overlap=1)
 
         self._plex = plex
-
-        # Mark exterior and interior facets
-        dmplex.label_facets(self._plex)
 
         if reorder:
             old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
@@ -307,14 +316,6 @@ class Mesh(object):
         self._cell_closure = None
         self.interior_facets = None
         self.exterior_facets = None
-
-        # Exterior facets
-        if self._plex.getStratumSize("exterior_facets", 1) <= 0:
-            self.exterior_facets = _Facets(self, 0, "exterior", None, None)
-
-        # Interior facets
-        if self._plex.getStratumSize("interior_facets", 1) <= 0:
-            self.interior_facets = _Facets(self, 0, "interior", None, None)
 
         # Note that for bendy elements, this needs to change.
         if periodic_coords is not None:
