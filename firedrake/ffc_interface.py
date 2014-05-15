@@ -9,7 +9,7 @@ import tempfile
 
 from ufl import Form, FiniteElement, VectorElement, as_vector
 from ufl.measure import Measure
-from ufl.algorithms import as_form, ReuseTransformer
+from ufl.algorithms import ReuseTransformer
 from ufl.constantvalue import Zero
 from ufl_expr import Argument
 
@@ -185,7 +185,7 @@ def compile_form(form, name):
 
     # Check that we get a Form
     if not isinstance(form, Form):
-        form = as_form(form)
+        error("Unable to convert object to a UFL form: %s" % repr(form))
 
     fd = form.compute_form_data()
     # If there is no mixed element involved, return the kernels FFC produces
