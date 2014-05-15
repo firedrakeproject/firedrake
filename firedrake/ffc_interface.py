@@ -185,7 +185,7 @@ def compile_form(form, name):
 
     # Check that we get a Form
     if not isinstance(form, Form):
-        error("Unable to convert object to a UFL form: %s" % repr(form))
+        raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
 
     fd = form.compute_form_data()
     # If there is no mixed element involved, return the kernels FFC produces
