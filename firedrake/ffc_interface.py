@@ -23,6 +23,7 @@ from pyop2.mpi import MPI
 from pyop2.coffee.ast_base import PreprocessNode, Root
 
 import functionspace
+from parameters import parameters
 
 _form_cache = {}
 
@@ -144,9 +145,12 @@ class FFCKernel(DiskCached):
     @classmethod
     def _cache_key(cls, form, name):
         form_data = form.compute_form_data()
+        # FIXME Making the COFFEE parameters part of the cache key causes
+        # unnecessary repeated calls to FFC when actually only the kernel code
+        # needs to be regenerated
         return md5(form_data.signature + name + Kernel._backend.__name__ +
                    cls._firedrake_geometry_md5 + constants.FFC_VERSION +
-                   constants.PYOP2_VERSION).hexdigest()
+                   constants.PYOP2_VERSION + str(parameters["coffee"])).hexdigest()
 
     def __init__(self, form, name):
         """A wrapper object for one or more FFC kernels compiled from a given :class:`~Form`.
@@ -164,12 +168,7 @@ class FFCKernel(DiskCached):
         kernels = []
         for it, kernel in zip(form.form_data().preprocessed_form.integrals(), ffc_tree):
             # Set optimization options
-            opts = {} if it.integral_type() not in ['cell'] else \
-                   {'licm': False,
-                    'slice': None,
-                    'vect': None,
-                    'ap': False,
-                    'split': None}
+            opts = {} if it.integral_type() not in ['cell'] else parameters["coffee"]
             kernels.append(Kernel(Root([incl, kernel]), '%s_%s_integral_0_%s' %
                            (name, it.integral_type(), it.subdomain_id()), opts, inc))
         self.kernels = tuple(kernels)
@@ -188,25 +187,37 @@ def compile_form(form, name):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
 
     fd = form.compute_form_data()
+
+    # We stash the compiled kernels on the form so we don't have to recompile
+    # if we assemble the same form again with the same optimisations
+    if hasattr(fd, "_kernels") and \
+            fd._kernels[0][-1]._opts == parameters["coffee"] and \
+            fd._kernels[0][-1].name == name:
+        return fd._kernels
+
     # If there is no mixed element involved, return the kernels FFC produces
     if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
-        return [((0, 0),
-                 it.integral_type(), it.subdomain_id(),
-                 it.domain().data().coordinates,
-                 fd.original_coefficients, kernel)
-                for it, kernel in zip(fd.preprocessed_form.integrals(),
-                                      FFCKernel(form, name).kernels)]
+        kernels = [((0, 0),
+                    it.integral_type(), it.subdomain_id(),
+                    it.domain().data().coordinates,
+                    fd.original_coefficients, kernel)
+                   for it, kernel in zip(fd.preprocessed_form.integrals(),
+                                         FFCKernel(form, name).kernels)]
+        fd._kernels = kernels
+        return kernels
     # Otherwise pre-split the form into mixed blocks before calling FFC
     kernels = []
     for forms in FormSplitter().split(form):
         for (i, j), form in forms:
             kernel, = FFCKernel(form, name + str(i) + str(j)).kernels
             fd = form.form_data()
+            it = fd.preprocessed_form.integrals()[0]
             kernels.append(((i, j),
-                            fd.preprocessed_form.integrals()[0].integral_type(),
-                            fd.preprocessed_form.integrals()[0].subdomain_id(),
-                            fd.preprocessed_form.integrals()[0].domain().data().coordinates,
+                            it.integral_type(),
+                            it.subdomain_id(),
+                            it.domain().data().coordinates,
                             fd.original_coefficients, kernel))
+    form._form_data._kernels = kernels
     return kernels
 
 

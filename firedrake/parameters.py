@@ -11,10 +11,10 @@ class Parameters(dict):
             self.add(key, value)
 
     def add(self, key, value=None):
-        if value is not None:
-            self[key] = value
-        else:
+        if isinstance(key, Parameters):
             self[key.name()] = key
+        else:
+            self[key] = value
 
     def name(self):
         return self._name
@@ -24,10 +24,20 @@ class Parameters(dict):
 
 parameters = Parameters()
 
-parameters["assembly_cache"] = Parameters(enabled=True,
-                                          eviction=True,
-                                          max_bytes=float("Inf"),
-                                          max_factor=0.6,
-                                          max_misses=3)
+parameters.add(Parameters("assembly_cache",
+                          enabled=True,
+                          eviction=True,
+                          max_bytes=float("Inf"),
+                          max_factor=0.6,
+                          max_misses=3))
+
+parameters.add(Parameters("coffee",
+                          compiler='gnu',
+                          simd_isa='avx',
+                          licm=False,
+                          slice=None,
+                          vect=None,
+                          ap=False,
+                          split=None))
 
 parameters["reorder_meshes"] = True
