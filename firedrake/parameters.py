@@ -33,7 +33,7 @@ parameters.add(Parameters("assembly_cache",
 
 parameters.add(Parameters("coffee",
                           compiler='gnu',
-                          simd_isa='avx',
+                          simd_isa='sse',
                           licm=False,
                           slice=None,
                           vect=None,
