@@ -110,7 +110,6 @@ def test_repeated_project():
     assert np.allclose(assemble((D0 - D1)*(D0 - D1)*dx), 0)
 
 
-@pytest.mark.xfail
 @pytest.mark.parallel
 def test_repeated_mixed_solve():
     n = 4
