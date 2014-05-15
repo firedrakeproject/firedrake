@@ -16,6 +16,7 @@ from ufl_expr import Argument
 from ffc import default_parameters, compile_form as ffc_compile_form
 from ffc import constants
 from ffc import log
+from ffc.quadrature.quadraturetransformerbase import EmptyIntegrandError
 
 from pyop2.caching import DiskCached
 from pyop2.op2 import Kernel
@@ -163,15 +164,21 @@ class FFCKernel(DiskCached):
 
         incl = PreprocessNode('#include "firedrake_geometry.h"\n')
         inc = [path.dirname(__file__)]
-        ffc_tree = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
-
-        kernels = []
-        for it, kernel in zip(form.form_data().preprocessed_form.integrals(), ffc_tree):
-            # Set optimization options
-            opts = {} if it.integral_type() not in ['cell'] else parameters["coffee"]
-            kernels.append(Kernel(Root([incl, kernel]), '%s_%s_integral_0_%s' %
-                           (name, it.integral_type(), it.subdomain_id()), opts, inc))
-        self.kernels = tuple(kernels)
+        try:
+            ffc_tree = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
+            kernels = []
+            for it, kernel in zip(form.form_data().preprocessed_form.integrals(), ffc_tree):
+                # Set optimization options
+                opts = {} if it.integral_type() not in ['cell'] else parameters["coffee"]
+                kernels.append(Kernel(Root([incl, kernel]), '%s_%s_integral_0_%s' %
+                               (name, it.integral_type(), it.subdomain_id()), opts, inc))
+            self.kernels = tuple(kernels)
+            self._empty = False
+        except EmptyIntegrandError:
+            # FFC noticed that the integrand was zero and simplified
+            # it, catch this here and set a flag telling us to ignore
+            # the kernel when returning it in compile_form
+            self._empty = True
         self._initialized = True
 
 
@@ -209,7 +216,12 @@ def compile_form(form, name):
     kernels = []
     for forms in FormSplitter().split(form):
         for (i, j), form in forms:
-            kernel, = FFCKernel(form, name + str(i) + str(j)).kernels
+            ffc_kernel = FFCKernel(form, name + str(i) + str(j))
+            # FFC noticed the integrand was zero, so don't bother
+            # using this kernel (it's invalid anyway)
+            if ffc_kernel._empty:
+                continue
+            kernel, = ffc_kernel.kernels
             fd = form.form_data()
             it = fd.preprocessed_form.integrals()[0]
             kernels.append(((i, j),
