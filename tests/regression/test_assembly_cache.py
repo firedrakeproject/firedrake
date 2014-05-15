@@ -78,40 +78,57 @@ def test_hit(cg1):
 
 
 def test_assemble_rhs_with_without_constant(cg1):
+    cache = assembly_cache.AssemblyCache()
+    cache.clear()
     v = TestFunction(cg1)
     f = Function(cg1)
 
     f = assemble(v*dx, f)
     f = assemble(Constant(2)*v*dx, f)
 
+    assert cache.num_objects == 2
     assert np.allclose(f.dat.data_ro, 2 * assemble(v*dx).dat.data_ro)
+    assert cache.num_objects == 2
 
 
 def test_repeated_assign(cg1):
+    cache = assembly_cache.AssemblyCache()
+    cache.clear()
     u = Function(cg1)
     g = Function(cg1)
     f = Function(cg1)
 
     assert np.allclose(assemble(g*g*dx), 0)
+    assert cache.num_objects == 1
     f.assign(1)
     u.assign(g)
     u.assign(f)
     g.assign(u)
+    assert cache.num_objects == 1
     assert np.allclose(assemble(g*g*dx), 1.0)
+    assert cache.num_objects == 1
 
 
 @pytest.mark.parallel
 def test_repeated_project():
+    cache = assembly_cache.AssemblyCache()
+    cache.clear()
     mesh = UnitCubeMesh(2, 2, 2)
     V2 = FunctionSpace(mesh, "DG", 0)
     D0 = project(Expression('x[0]'), V2)
+
+    assert cache.num_objects == 2
     D1 = project(Expression('x[0]'), V2)
 
+    assert cache.num_objects == 2
     assert np.allclose(assemble((D0 - D1)*(D0 - D1)*dx), 0)
+    assert cache.num_objects == 3
 
 
 @pytest.mark.parallel
 def test_repeated_mixed_solve():
+    cache = assembly_cache.AssemblyCache()
+    cache.clear()
     n = 4
     mesh = UnitSquareMesh(n, n)
     V1 = FunctionSpace(mesh, 'RT', 1)
@@ -136,8 +153,10 @@ def test_repeated_mixed_solve():
     solution1 = Function(W)
     solve(a == L, solution1, solver_parameters=solver_parameters)
 
+    assert cache.num_objects == 2
     solution2 = Function(W)
     solve(a == L, solution2, solver_parameters=solver_parameters)
+    assert cache.num_objects == 2
 
     assert np.allclose(errornorm(solution1, solution2, degree_rise=0), 0)
 
