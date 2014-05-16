@@ -25,8 +25,10 @@ def errornorm(u, uh, norm_type="L2", degree_rise=3, mesh=None):
     a space of degree ``degree_rise`` higher than the degree of ``uh``
     and computing the error there.
     """
-    urank = len(u.function_space().ufl_element().value_shape())
-    uhrank = len(uh.function_space().ufl_element().value_shape())
+    uele = u.function_space().ufl_element()
+    uhele = uh.function_space().ufl_element()
+    urank = len(uele.value_shape())
+    uhrank = len(uhele.value_shape())
 
     rank = urank
     if urank != uhrank:
@@ -42,7 +44,8 @@ def errornorm(u, uh, norm_type="L2", degree_rise=3, mesh=None):
     if rank == 0:
         V = functionspace.FunctionSpace(mesh, 'DG', degree)
     elif rank == 1:
-        V = functionspace.VectorFunctionSpace(mesh, 'DG', degree)
+        V = functionspace.VectorFunctionSpace(mesh, 'DG', degree,
+                                              dim=uele.value_shape()[0])
     else:
         raise RuntimeError("Don't know how to compute error norm for tensor valued functions")
 

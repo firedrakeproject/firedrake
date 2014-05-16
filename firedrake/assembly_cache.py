@@ -336,6 +336,9 @@ def _cache_thunk(thunk, form, result):
                 if obj.handle is not result._M.handle:
                     obj.handle.copy(result._M.handle,
                                     PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN)
+                    # Ensure result matrix is assembled (MatCopy_Nest bug)
+                    if not result._M.handle.assembled:
+                        result._M.handle.assemble()
                 r = result
             else:
                 raise TypeError("Unknown result type")
