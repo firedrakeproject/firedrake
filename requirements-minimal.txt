@@ -12,5 +12,5 @@ flake8>=2.1.0
 pycparser>=2.10
 mpi4py>=1.3.1
 h5py>=2.0.0
-git+https://bitbucket.org/petsc/petsc.git@next#egg=petsc
-git+https://bitbucket.org/petsc/petsc4py.git@next#egg=petsc4py
+git+https://bitbucket.org/petsc/petsc.git#egg=petsc
+git+https://bitbucket.org/petsc/petsc4py.git#egg=petsc4py
