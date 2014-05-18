@@ -23,10 +23,14 @@ from projection import *
 from solving import *
 from ufl_expr import *
 from vector import *
-from version import __version__, __version_info__, check  # noqa
+from version import __version_info__, check  # noqa
 
 # Set default log level
 set_log_level(INFO)
 
 check()
 del check
+
+from ._version import get_versions
+__version__ = get_versions()['version']
+del get_versions
