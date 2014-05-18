@@ -27,14 +27,22 @@ directory or install PETSc from PyPI as described in the manual:
 http://firedrakeproject.org/obtaining_pyop2.html#petsc
 """)
 
+import versioneer
+versioneer.versionfile_source = 'firedrake/_version.py'
+versioneer.versionfile_build = 'firedrake/_version.py'
+versioneer.tag_prefix = 'v'
+versioneer.parentdir_prefix = 'firedrake-'
+versioneer.VCS = "git"
+
+cmdclass = versioneer.get_cmdclass()
+
 try:
     from Cython.Distutils import build_ext
-    cmdclass = {'build_ext': build_ext}
+    cmdclass['build_ext'] = build_ext
     dmplex_sources = ["firedrake/dmplex.pyx"]
     evtk_sources = ['evtk/cevtk.pyx']
 except ImportError:
     # No cython, dmplex.c must be generated in distributions.
-    cmdclass = {}
     dmplex_sources = ["firedrake/dmplex.c"]
     evtk_sources = ['evtk/cevtk.c']
 
@@ -45,10 +53,8 @@ petsc_dirs = get_petsc_dir()
 include_dirs = [np.get_include(), petsc4py.get_include()]
 include_dirs += ["%s/include" % d for d in petsc_dirs]
 
-# Get the package version without importing anyting from firedrake
-execfile('firedrake/version.py')
 setup(name='firedrake',
-      version=__version__,  # noqa: from version.py
+      version=versioneer.get_version(),
       cmdclass=cmdclass,
       description="""Firedrake is an automated system for the portable solution
           of partial differential equations using the finite element method
