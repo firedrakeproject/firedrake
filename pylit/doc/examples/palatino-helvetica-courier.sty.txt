@@ -1,1 +1,0 @@
-/home/milde/Code/Python/docutils-svn/sandbox/stylesheets/palatino-helvetica-courier.sty.txt
