@@ -1,1 +1,3 @@
 recursive-include pyop2 *.c
+include versioneer.py
+include pyop2/_version.py
