@@ -23,7 +23,7 @@ from projection import *
 from solving import *
 from ufl_expr import *
 from vector import *
-from version import __version_info__, check  # noqa
+from version import __version__ as ver, __version_info__, check  # noqa
 
 # Set default log level
 set_log_level(INFO)
@@ -32,5 +32,5 @@ check()
 del check
 
 from ._version import get_versions
-__version__ = get_versions()['version']
+__version__ = get_versions(default={"version": ver, "full": ""})['version']
 del get_versions
