@@ -26,6 +26,7 @@ cdef extern from "petscdmplex.h":
     int DMPlexGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
     int DMPlexSetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
     int DMPlexClearLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
+    int DMPlexCreateCoarsePointIS(PETSc.PetscDM,PETSc.PetscIS*)
 
 cdef extern from "petscis.h":
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
@@ -33,6 +34,7 @@ cdef extern from "petscis.h":
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])
     int ISRestoreIndices(PETSc.PetscIS,PetscInt*[])
     int ISGeneralSetIndices(PETSc.PetscIS,PetscInt,PetscInt[],PetscCopyMode)
+    int ISDestroy(PETSc.PetscIS*)
 
 cdef extern from "petscsf.h":
     struct PetscSFNode:
