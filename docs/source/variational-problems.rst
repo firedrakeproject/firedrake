@@ -430,15 +430,14 @@ over:
 
 The ``subdomain_id`` is an integer indicating which section of the
 mesh the boundary condition should be applied to.  The subdomain ids
-for the various
-:ref:`utility meshes <utility_mesh_functions>` are described in their
-respective constructor documentation.  For externally generated
-meshes, Firedrake just uses whichever ids the mesh generator
-provided.  The ``value`` may be either a scalar, or more generally an
-:py:class:`~.Expression` of the appropriate
-shape.  You may also supply an iterable of literal constants, which
-will be converted to an :py:class:`~.Expression`.
-Hence the following two are equivalent:
+for the various :ref:`utility meshes <utility_mesh_functions>` are
+described in their respective constructor documentation.  For
+externally generated meshes, Firedrake just uses whichever ids the
+mesh generator provided.  The ``value`` may be either a scalar, or
+more generally an :py:class:`~.Expression`, :py:class:`~.Function` or
+:py:class:`~.Constant` of the appropriate shape.  You may also supply
+an iterable of literal constants, which will be converted to an
+:py:class:`~.Expression`.  Hence the following two are equivalent:
 
 .. code-block:: python
 
@@ -458,6 +457,40 @@ details of how Firedrake applies strong boundary conditions are
 slightly involved and therefore have :doc:`their own section
 <boundary_conditions>` in the manual.
 
+Time dependent boundary conditions
+``````````````````````````````````
+
+Imposition of time-dependent boundary conditions can by carried out by
+modifying the value in the appropriate :py:class:`~.DirichletBC`
+object.  Note that if you use a literal value to initialise the
+boundary condition object within the timestepping loop, this will
+necessitate a recompilation of code every time the boundary condition
+changes.  For this reason we either recommend using a
+:py:class:`~.Constant` if the boundary condition is spatially uniform,
+or a :py:class:`~.Expression` if it has both space and
+time-dependence.  For example, a purely time-varying boundary
+condition might be implemented as:
+
+.. code-block:: python
+
+   c = Constant(sin(t))
+   bc = DirichletBC(V, c, 1)
+   while t < T:
+       solve(F == 0, bcs=[bc])
+       t += dt
+       c.assign(sin(t))
+
+If the boundary condition instead has both space and time dependence
+we can write:
+
+.. code-block:: python
+
+   e = Expression('sin(x[0]*t'), t=t)
+   bc = DirichletBC(V, e, 1)
+   while t < T:
+       solve(F == 0, bcs=[bc])
+       t += dt
+       e.t = t
 
 More complicated forms
 ~~~~~~~~~~~~~~~~~~~~~~
