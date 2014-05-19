@@ -136,6 +136,52 @@ def test_set_bc_value(a, u, V, f):
     assert np.allclose(u.vector().array(), 7.0)
 
 
+def test_update_bc_expression(a, u, V, f):
+    if isinstance(V, VectorFunctionSpace):
+        e = Expression(['t', 't'], t=1.0)
+    else:
+        e = Expression('t', t=1.0)
+    bc = DirichletBC(V, e, 1)
+
+    solve(a == 0, u, bcs=[bc])
+
+    # We should get the value in the expression
+    assert np.allclose(u.vector().array(), 1.0)
+
+    e.t = 2.0
+    solve(a == 0, u, bcs=[bc])
+
+    # Updating the expression value should give new value.
+    assert np.allclose(u.vector().array(), 2.0)
+
+    e.t = 3.0
+    bc.homogenize()
+    solve(a == 0, u, bcs=[bc])
+
+    # Homogenized bcs shouldn't be overridden by the expression
+    # changing.
+    assert np.allclose(u.vector().array(), 0.0)
+
+    bc.restore()
+    solve(a == 0, u, bcs=[bc])
+
+    # Restoring the bcs should give the new expression value.
+    assert np.allclose(u.vector().array(), 3.0)
+
+    bc.set_value(7)
+    solve(a == 0, u, bcs=[bc])
+
+    # Setting a value should replace the expression
+    assert np.allclose(u.vector().array(), 7.0)
+
+    e.t = 4.0
+    solve(a == 0, u, bcs=[bc])
+
+    # And now we should just have the new value (since the expression
+    # is gone)
+    assert np.allclose(u.vector().array(), 7.0)
+
+
 def test_preassembly_change_bcs(V, f):
     v = TestFunction(V)
     u = TrialFunction(V)
