@@ -49,6 +49,11 @@ class DirichletBC(object):
     @property
     def function_arg(self):
         '''The value of this boundary condition.'''
+        if isinstance(self._original_val, expression.Expression):
+            if not self._currently_zeroed and \
+               self._original_val._state != self._expression_state:
+                # Expression values have changed, need to reinterpolate
+                self.function_arg = self._original_val
         return self._function_arg
 
     @function_arg.setter
@@ -67,6 +72,7 @@ class DirichletBC(object):
                 except:
                     raise ValueError("%r is not a valid DirichletBC expression" % (g,))
         if isinstance(g, expression.Expression):
+            self._expression_state = g._state
             try:
                 g = function.Function(self._function_space).interpolate(g)
             # Not a point evaluation space, need to project onto V
@@ -105,6 +111,7 @@ class DirichletBC(object):
         '''
         self.function_arg = val
         self._original_arg = self.function_arg
+        self._original_val = val
 
     @utils.cached_property
     def nodes(self):
