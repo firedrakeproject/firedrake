@@ -186,7 +186,10 @@ class Function(ufl.Coefficient):
         d = 0
         for fs, dat, dim in zip(self.function_space(), self.dat, dims):
             idx = d if fs.rank == 0 else slice(d, d+dim)
-            self._interpolate(fs, dat, expression_t.Expression(expression.code[idx]), subset)
+            self._interpolate(fs, dat,
+                              expression_t.Expression(expression.code[idx],
+                                                      **expression._kwargs),
+                              subset)
             d += dim
         return self
 
@@ -255,16 +258,28 @@ for (unsigned int d=0; d < %(dim)d; d++) {
 """ % vals)
         loop = ast.c_for("k", "%(ndof)d" % vals, ast.Block([block] + ass_exp,
                                                            open_scope=True))
+        user_args = []
+        user_init = []
+        for arg in expression._user_args:
+            if arg.shape == (1, ):
+                user_args.append(ast.Decl("double *", "%s_" % arg.name))
+                user_init.append(ast.FlatBlock("const double %s = *%s_;" %
+                                               (arg.name, arg.name)))
+            else:
+                user_args.append(ast.Decl("double *", arg.name))
         kernel_code = ast.FunDecl("void", "expression_kernel",
                                   [ast.Decl("double", ast.Symbol("A", (int("%(nfdof)d" % vals),))),
-                                   ast.Decl("double**", "x_")],
-                                  ast.Block([init, loop], open_scope=False))
+                                   ast.Decl("double**", "x_")] + user_args,
+                                  ast.Block(user_init + [init, loop],
+                                            open_scope=False))
         kernel = op2.Kernel(kernel_code, "expression_kernel")
 
-        op2.par_loop(kernel, subset or self.cell_set,
-                     dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
-                     coords.dat(op2.READ, coords.cell_node_map())
-                     )
+        args = [kernel, subset or self.cell_set,
+                dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
+                coords.dat(op2.READ, coords.cell_node_map())]
+        for arg in expression._user_args:
+            args.append(arg(op2.READ))
+        op2.par_loop(*args)
 
     def assign(self, expr, subset=None):
         """Set the :class:`Function` value to the pointwise value of
