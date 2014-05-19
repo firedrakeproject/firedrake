@@ -85,6 +85,8 @@ class Expression(ufl.Coefficient):
         self._count = 0
 
         self._user_args = []
+        # Changing counter used to record when user changes values
+        self._state = 0
         # Save the kwargs so that when we rebuild an expression we can
         # reconstruct the user arguments.
         self._kwargs = {}
@@ -126,6 +128,8 @@ class Expression(ufl.Coefficient):
                     glob = getattr(self, '_%s' % slot)
                     glob.data = value
                     self._kwargs[slot] = value
+                    # Bump state
+                    self._state += 1
                 return setx
 
             # Add public properties for the user-defined variables
