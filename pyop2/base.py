@@ -2595,7 +2595,9 @@ class Global(DataCarrier, _EmptyDataMixin):
     @property
     def data_ro(self):
         """Data array."""
-        return self.data
+        view = self.data.view()
+        view.setflags(write=False)
+        return view
 
     @data.setter
     @modifies
