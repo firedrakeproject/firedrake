@@ -75,8 +75,10 @@ class Timer(object):
     def stop(self):
         """Stop the timer."""
         assert self._start, "Timer %s has not been started yet." % self._name
-        self._timings.append(self._timer() - self._start)
+        t = self._timer() - self._start
+        self._timings.append(t)
         self._start = None
+        return t
 
     def reset(self):
         """Reset the timer."""
@@ -176,7 +178,7 @@ def tic(name):
 
 def toc(name):
     """Stop a timer with the given name."""
-    Timer(name).stop()
+    return Timer(name).stop()
 
 
 @contextmanager
