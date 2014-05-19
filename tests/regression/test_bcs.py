@@ -182,6 +182,52 @@ def test_update_bc_expression(a, u, V, f):
     assert np.allclose(u.vector().array(), 7.0)
 
 
+def test_update_bc_constant(a, u, V, f):
+    if isinstance(V, VectorFunctionSpace):
+        # Don't bother with the VFS case
+        return
+    c = Constant(1)
+    bc = DirichletBC(V, c, 1)
+
+    solve(a == 0, u, bcs=[bc])
+
+    # We should get the value in the constant
+    assert np.allclose(u.vector().array(), 1.0)
+
+    c.assign(2.0)
+    solve(a == 0, u, bcs=[bc])
+
+    # Updating the constant value should give new value.
+    assert np.allclose(u.vector().array(), 2.0)
+
+    c.assign(3.0)
+    bc.homogenize()
+    solve(a == 0, u, bcs=[bc])
+
+    # Homogenized bcs shouldn't be overridden by the constant
+    # changing.
+    assert np.allclose(u.vector().array(), 0.0)
+
+    bc.restore()
+    solve(a == 0, u, bcs=[bc])
+
+    # Restoring the bcs should give the new constant value.
+    assert np.allclose(u.vector().array(), 3.0)
+
+    bc.set_value(7)
+    solve(a == 0, u, bcs=[bc])
+
+    # Setting a value should replace the constant
+    assert np.allclose(u.vector().array(), 7.0)
+
+    c.assign(4.0)
+    solve(a == 0, u, bcs=[bc])
+
+    # And now we should just have the new value (since the constant
+    # is gone)
+    assert np.allclose(u.vector().array(), 7.0)
+
+
 def test_preassembly_change_bcs(V, f):
     v = TestFunction(V)
     u = TrialFunction(V)
