@@ -162,9 +162,10 @@ class timed_function(Timer):
             if not self._name:
                 self._name = f.func_name
             self.start()
-            val = f(*args, **kwargs)
-            self.stop()
-            return val
+            try:
+                return f(*args, **kwargs)
+            finally:
+                self.stop()
         return decorator(wrapper, f)
 
 
@@ -182,8 +183,10 @@ def toc(name):
 def timed_region(name):
     """A context manager for timing a given code region."""
     tic(name)
-    yield
-    toc(name)
+    try:
+        yield
+    finally:
+        toc(name)
 
 
 def summary(filename=None):
