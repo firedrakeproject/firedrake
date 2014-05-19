@@ -33,6 +33,14 @@ class DirichletBC(object):
 
     def __init__(self, V, g, sub_domain):
         self._function_space = V
+        # Save the original value the user passed in.  If the user
+        # passed in an Expression that has user-defined variables in
+        # it, we need to remember it so that we can re-interpolate it
+        # onto the function_arg if its state has changed.  Note that
+        # the function_arg assignment is actually a property setter
+        # which in the case of expressions interpolates it onto a
+        # function and then throws the expression away.
+        self._original_val = g
         self.function_arg = g
         self._original_arg = self.function_arg
         self.sub_domain = sub_domain
