@@ -20,9 +20,10 @@ class DirichletBC(object):
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
     :arg g: the boundary condition values. This can be a :class:`.Function` on
-        ``V``, an :class:`.Expression`, an iterable of literal constants
-        (converted to an :class:`.Expression`), or a literal constant
-        which can be pointwise evaluated at the nodes of
+        ``V``, a :class:`.Constant`, an :class:`.Expression`, an
+        iterable of literal constants (converted to an
+        :class:`.Expression`), or a literal constant which can be
+        pointwise evaluated at the nodes of
         ``V``. :class:`.Expression`\s are projected onto ``V`` if it
         does not support pointwise evaluation.
     :arg sub_domain: the integer id of the boundary region over which the
