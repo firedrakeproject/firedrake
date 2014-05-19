@@ -64,10 +64,12 @@ class Timer(object):
         self._timer = timer
         self._start = None
         self._timings = []
-        self._timers[n] = self
 
     def start(self):
         """Start the timer."""
+        if self._name not in Timer._timers:
+            self.reset()
+            Timer._timers[self._name] = self
         self._start = self._timer()
 
     def stop(self):
