@@ -128,10 +128,10 @@ class FunctionSpaceHierarchy(object):
         family = self.ufl_element().family()
         degree = self.ufl_element().degree()
 
+        c2f = self._mesh_hierarchy._c2f_cells[level]
         if family == "Discontinuous Lagrange":
             if degree != 0:
                 raise RuntimeError
-            c2f = self._mesh_hierarchy._c2f_cells[level]
             arity = Vf.cell_node_map().arity * c2f.shape[1]
             map_vals = Vf.cell_node_map().values_with_halo[c2f].flatten()
 
@@ -146,45 +146,10 @@ class FunctionSpaceHierarchy(object):
         if family == "Lagrange":
             if degree != 1:
                 raise RuntimeError
-            cm = Vc.mesh()
-            fm = Vf.mesh()
-            c2f_is = cm._plex.createCoarsePointIS().indices
-            c2f = self._mesh_hierarchy._c2f_cells[level]
-            if cm.ufl_cell().cellname() == 'interval':
-                ndof = 3
-            elif cm.ufl_cell().cellname() == 'triangle':
-                ndof = 6
-            elif cm.ufl_cell().cellname() == 'tetrahedron':
-                ndof = 10
-            else:
-                raise RuntimeError("Don't know how to make map")
-            map_vals = np.empty((c2f.shape[0], ndof), dtype=np.int32)
+            map_vals = dmplex.p1_coarse_fine_map(Vc, Vf, c2f)
 
-            vStart, vEnd = cm._plex.getDepthStratum(0)
-
-            inv = np.empty(cm.num_vertices(), dtype=np.int32)
-            for i in range(*cm._plex.getChart()):
-                if cm._vertex_numbering.getDof(i) > 0:
-                    inv[cm._vertex_numbering.getOffset(i)] = i - vStart
-            for c in range(cm.num_cells()):
-                got = []
-                for i, cv in enumerate(Vc.cell_node_map().values_with_halo[c]):
-                    orig_v = inv[cv]
-                    fv = fm._vertex_numbering.getOffset(c2f_is[orig_v + vStart])
-                    map_vals[c, i] = fv
-                    got.append(fv)
-                non_unique = Vf.cell_node_map().values_with_halo[c2f[c, :]]
-                unique = set(non_unique.flatten())
-                want = unique.difference(set(got))
-                i = 3
-                for g in got:
-                    idx = np.where(g == non_unique)
-                    map_vals[c, i] = want.difference(non_unique[idx[0][0], :]).pop()
-                    i += 1
-            map = op2.Map(Vc.mesh().cell_set,
-                          Vf.node_set,
-                          ndof,
-                          map_vals)
+            arity = map_vals.shape[1]
+            map = op2.Map(Vc.mesh().cell_set, Vf.node_set, arity, map_vals)
 
             self._map_cache[level] = map
             return map

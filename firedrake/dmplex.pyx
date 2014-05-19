@@ -937,3 +937,139 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
             old_to_new[p - start] = entity
 
     return old_to_new, new_to_old
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def p1_coarse_fine_map(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] c2f_cells):
+    """Build a map from a coarse P1 function space Vc to the finer space Vf.
+    The resulting map is isomorphic in numbering to a P2 map in the coarse space.
+
+    :arg Vc: The coarse space
+    :arg Vf: The fine space
+    :arg c2f_cells: The map from coarse cells to fine cells
+    """
+    cdef:
+        PetscInt c, vStart, vEnd, i, cStart, cEnd, ndof, coarse_arity
+        PetscInt l, j, k, tmp, other_cell, vfStart
+        PetscInt coarse_vertex, fine_vertex, orig_coarse_vertex, ncell
+        PetscInt *orig_c2f
+        PETSc.DM dm
+        PETSc.PetscIS fpointIS
+        bint done
+        np.ndarray[np.int32_t, ndim=2, mode="c"] coarse_map, map_vals, fine_map
+        np.ndarray[PetscInt, ndim=1, mode="c"] coarse_inv, fine_forward
+
+    coarse_mesh = Vc.mesh()
+    fine_mesh = Vf.mesh()
+
+    try:
+        ndof, ncell = {'interval': (3, 2),
+                       'triangle': (6, 4),
+                       'tetrahedron': (10, 8)}[coarse_mesh.ufl_cell().cellname()]
+    except KeyError:
+        raise RuntimeError("Don't know how to make map")
+
+    map_vals = np.empty((Vc.mesh().cell_set.total_size, ndof), dtype=np.int32)
+    map_vals[:, :] = -1
+    coarse_map = Vc.cell_node_map().values
+    fine_map = Vf.cell_node_map().values
+
+    if not hasattr(coarse_mesh, '_vertex_new_to_old'):
+        o, n = get_entity_renumbering(coarse_mesh._plex, coarse_mesh._vertex_numbering, "vertex")
+        coarse_mesh._vertex_old_to_new = o
+        coarse_mesh._vertex_new_to_old = n
+
+    coarse_inv = coarse_mesh._vertex_new_to_old
+
+    if not hasattr(fine_mesh, '_vertex_new_to_old'):
+        o, n = get_entity_renumbering(fine_mesh._plex, fine_mesh._vertex_numbering, "vertex")
+        fine_mesh._vertex_old_to_new = o
+        fine_mesh._vertex_new_to_old = n
+
+    fine_forward = fine_mesh._vertex_old_to_new
+
+    cStart, cEnd = coarse_mesh._plex.getHeightStratum(0)
+    vStart, vEnd = coarse_mesh._plex.getDepthStratum(0)
+    vfStart, _ = fine_mesh._plex.getDepthStratum(0)
+    # vertex numbers in the fine plex of coarse vertices
+    dm = coarse_mesh._plex
+    CHKERR( DMPlexCreateCoarsePointIS(dm.dm, &fpointIS) )
+    CHKERR( ISGetIndices(fpointIS, &orig_c2f) )
+
+    coarse_arity = coarse_map.shape[1]
+    for c in range(cEnd - cStart):
+        # Find the fine vertices that correspond to coarse vertices
+        # and put them sequentially in the first ndof map entries
+        for i in range(coarse_arity):
+            coarse_vertex = coarse_map[c, i]
+            orig_coarse_vertex = coarse_inv[coarse_vertex]
+            fine_vertex = fine_forward[orig_c2f[orig_coarse_vertex + vStart] - vfStart]
+            map_vals[c, i] = fine_vertex
+
+        if coarse_arity == 2:
+            # intervals, only one missing fine vertex dof
+            # x----o----x
+            done = False
+            for j in range(ncell):
+                for k in range(coarse_arity):
+                    fine_vertex = fine_map[c2f_cells[c, j], k]
+                    if fine_vertex != map_vals[c, 0] and fine_vertex != map_vals[c, 1]:
+                        map_vals[c, 2] = fine_vertex
+                        done = True
+                        break
+                if done:
+                    break
+        elif coarse_arity == 3:
+            # triangles, 3 missing fine vertex dofs
+            #
+            #          x
+            #         / \
+            #        /   \
+            #       o-----o
+            #      / \   / \
+            #     /   \ /   \
+            #    x-----o-----x
+            #
+            for j in range(ncell):
+                for k in range(coarse_arity):
+                    fine_vertex = fine_map[c2f_cells[c, j], k]
+                    done = False
+                    # Original vertex or already found?
+                    for i in range(coarse_arity):
+                        if fine_vertex == map_vals[c, i] or \
+                           fine_vertex == map_vals[c, i + 3]:
+                            done = True
+                            break
+                    if done:
+                        continue
+
+                    other_cell = -1
+                    # Find the cell this fine vertex is /not/ part of
+                    for i in range(ncell):
+                        done = False
+                        for l in range(coarse_arity):
+                            tmp = fine_map[c2f_cells[c, i], l]
+                            if tmp == fine_vertex:
+                                done = True
+                        # Done is true if the fine_vertex was in the cell
+                        if not done:
+                            other_cell = i
+                            break
+
+                    # Now find the coarse vertex of of the cell we
+                    # weren't in and put this fine vertex in the
+                    # "opposite" position in the map
+                    done = False
+                    for l in range(coarse_arity):
+                        tmp = fine_map[c2f_cells[c, other_cell], l]
+                        for i in range(coarse_arity):
+                            if tmp == map_vals[c, i]:
+                                done = True
+                                map_vals[c, i + 3] = fine_vertex
+                                break
+                        if done:
+                            break
+
+    CHKERR( ISRestoreIndices(fpointIS, &orig_c2f) )
+    CHKERR( ISDestroy(&fpointIS) )
+    return map_vals
