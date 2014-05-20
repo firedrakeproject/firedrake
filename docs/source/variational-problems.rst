@@ -408,7 +408,7 @@ a :py:class:`~.Constant` to do this:
    Firedrake.
 
 Incorporating boundary conditions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+---------------------------------
 
 Boundary conditions enter the variational problem in one of two ways.
 `Natural` (often termed `Neumann` or `weak`) boundary conditions,
@@ -458,7 +458,7 @@ slightly involved and therefore have :doc:`their own section
 <boundary_conditions>` in the manual.
 
 Time dependent boundary conditions
-``````````````````````````````````
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Imposition of time-dependent boundary conditions can by carried out by
 modifying the value in the appropriate :py:class:`~.DirichletBC`
@@ -493,7 +493,7 @@ we can write:
        e.t = t
 
 More complicated forms
-~~~~~~~~~~~~~~~~~~~~~~
+----------------------
 
 UFL is a fully-fledged language for expressing variational problems,
 and hence has operators for all appropriate vector calculus operations
