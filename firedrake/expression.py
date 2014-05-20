@@ -1,6 +1,10 @@
 import numpy as np
 import ufl
 
+from pyop2 import op2
+
+import utils
+
 
 __all__ = ['Expression']
 
@@ -43,8 +47,26 @@ class Expression(ufl.Coefficient):
               (currently ignored)
         :param cell: a :class:`~ufl.geometry.Cell`, optional (currently ignored)
         :param degree: the degree of quadrature to use for evaluation (currently ignored)
-        :param kwargs: currently ignored
+        :param kwargs: user-defined values that are accessible in the
+               Expression code.  These values maybe updated by
+               accessing the property of the same name.  This can be
+               used, for example, to pass in the current timestep to
+               an Expression without necessitating recompilation.  For
+               example:
+
+               .. code-block:: python
+
+                  f = Function(V)
+                  e = Expression('sin(x[0]*t)', t=t)
+                  while t < T:
+                      f.interpolate(e)
+                      ...
+                      t += dt
+                      e.t = t
+
         """
+        # Init also called in mesh constructor, but expression can be built without mesh
+        utils._init()
         shape = np.array(code).shape
         self._rank = len(shape)
         self._shape = shape
@@ -61,6 +83,61 @@ class Expression(ufl.Coefficient):
         self._element = element
         self._repr = None
         self._count = 0
+
+        self._user_args = []
+        # Changing counter used to record when user changes values
+        self._state = 0
+        # Save the kwargs so that when we rebuild an expression we can
+        # reconstruct the user arguments.
+        self._kwargs = {}
+        if len(kwargs) == 0:
+            # No need for magic, since there are no user arguments.
+            return
+
+        # We have to build a new class to add these properties to
+        # since properties work on classes not instances and we don't
+        # want every Expression to have all the properties of all
+        # Expressions.
+        cls = type(self.__class__.__name__, (self.__class__, ), {})
+        for slot, val in kwargs.iteritems():
+            # Save the argument for later reconstruction
+            self._kwargs[slot] = val
+            # Scalar arguments have to be treated specially
+            val = np.array(val, dtype=np.float64)
+            shape = val.shape
+            rank = len(shape)
+            if rank == 0:
+                shape = 1
+            val = op2.Global(shape, val, dtype=np.float64, name=slot)
+            # Record the Globals in a known order (for later passing
+            # to a par_loop).
+            self._user_args.append(val)
+            # And save them as an attribute
+            setattr(self, '_%s' % slot, val)
+
+            # We have to do this because of the worthlessness of
+            # Python's support for closing over variables.
+            def make_getx(slot):
+                def getx(self):
+                    glob = getattr(self, '_%s' % slot)
+                    return glob.data_ro
+                return getx
+
+            def make_setx(slot):
+                def setx(self, value):
+                    glob = getattr(self, '_%s' % slot)
+                    glob.data = value
+                    self._kwargs[slot] = value
+                    # Bump state
+                    self._state += 1
+                return setx
+
+            # Add public properties for the user-defined variables
+            prop = property(make_getx(slot), make_setx(slot))
+            setattr(cls, slot, prop)
+        # Set the class on this instance to the newly built class with
+        # properties attached.
+        self.__class__ = cls
 
     def rank(self):
         """Return the rank of this :class:`Expression`"""

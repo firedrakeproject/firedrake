@@ -275,6 +275,61 @@ def test_assign_to_mfs_sub(cg1, vcg1):
         w.assign(q.sub(1))
 
 
+def test_scalar_user_defined_values():
+    m = UnitSquareMesh(2, 2)
+    V = FunctionSpace(m, 'CG', 1)
+    f = Function(V)
+    e = Expression('n', n=1.0)
+    f.interpolate(e)
+
+    assert np.allclose(f.dat.data_ro, 1.0)
+
+    e.n = 2.0
+    f.interpolate(e)
+
+    assert np.allclose(f.dat.data_ro, 2.0)
+
+
+def test_vector_user_defined_values():
+    m = UnitSquareMesh(2, 2)
+    V = FunctionSpace(m, 'CG', 1)
+    f = Function(V)
+    e = Expression('n[0] + n[1]', n=[1.0, 2.0])
+
+    f.interpolate(e)
+
+    assert np.allclose(f.dat.data_ro, 3.0)
+
+    e.n = [2.0, 4.0]
+    f.interpolate(e)
+
+    assert np.allclose(f.dat.data_ro, 6.0)
+
+
+def test_scalar_increment_fails():
+    e = Expression('n', n=1.0)
+
+    with pytest.raises(ValueError):
+        e.n += 1
+
+    with pytest.raises(ValueError):
+        e.n[0] += 2
+
+    assert np.allclose(e.n, 1.0)
+
+
+def test_vector_increment_fails():
+    e = Expression('n', n=[1.0, 1.0])
+
+    with pytest.raises(ValueError):
+        e.n += 1
+
+    with pytest.raises(ValueError):
+        e.n[0] += 2
+
+    assert np.allclose(e.n, 1.0)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
