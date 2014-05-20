@@ -20,9 +20,10 @@ class DirichletBC(object):
     :arg V: the :class:`.FunctionSpace` on which the boundary condition
         should be applied.
     :arg g: the boundary condition values. This can be a :class:`.Function` on
-        ``V``, an :class:`.Expression`, an iterable of literal constants
-        (converted to an :class:`.Expression`), or a literal constant
-        which can be pointwise evaluated at the nodes of
+        ``V``, a :class:`.Constant`, an :class:`.Expression`, an
+        iterable of literal constants (converted to an
+        :class:`.Expression`), or a literal constant which can be
+        pointwise evaluated at the nodes of
         ``V``. :class:`.Expression`\s are projected onto ``V`` if it
         does not support pointwise evaluation.
     :arg sub_domain: the integer id of the boundary region over which the
@@ -33,6 +34,14 @@ class DirichletBC(object):
 
     def __init__(self, V, g, sub_domain):
         self._function_space = V
+        # Save the original value the user passed in.  If the user
+        # passed in an Expression that has user-defined variables in
+        # it, we need to remember it so that we can re-interpolate it
+        # onto the function_arg if its state has changed.  Note that
+        # the function_arg assignment is actually a property setter
+        # which in the case of expressions interpolates it onto a
+        # function and then throws the expression away.
+        self._original_val = g
         self.function_arg = g
         self._original_arg = self.function_arg
         self.sub_domain = sub_domain
@@ -41,6 +50,11 @@ class DirichletBC(object):
     @property
     def function_arg(self):
         '''The value of this boundary condition.'''
+        if isinstance(self._original_val, expression.Expression):
+            if not self._currently_zeroed and \
+               self._original_val._state != self._expression_state:
+                # Expression values have changed, need to reinterpolate
+                self.function_arg = self._original_val
         return self._function_arg
 
     @function_arg.setter
@@ -59,6 +73,7 @@ class DirichletBC(object):
                 except:
                     raise ValueError("%r is not a valid DirichletBC expression" % (g,))
         if isinstance(g, expression.Expression):
+            self._expression_state = g._state
             try:
                 g = function.Function(self._function_space).interpolate(g)
             # Not a point evaluation space, need to project onto V
@@ -97,6 +112,7 @@ class DirichletBC(object):
         '''
         self.function_arg = val
         self._original_arg = self.function_arg
+        self._original_val = val
 
     @utils.cached_property
     def nodes(self):
