@@ -30,9 +30,19 @@ class DirichletBC(object):
         boundary condition should be applied. In the case of extrusion
         the ``top`` and ``bottom`` strings are used to flag the bcs application on
         the top and bottom boundaries of the extruded mesh respectively.
+    :arg method: the method for determining boundary nodes. The default is
+        "topological", indicating that nodes topologically associated with a
+        boundary facet will be included. The alternative value is "geometric",
+        which indicates that nodes associated with basis functions which do not
+        vanish on the boundary will be included. This can be used to impose
+        strong boundary conditions on DG spaces, or no-slip conditions on HDiv spaces.
+
+    .. warning::
+
+        Geometric boundary conditions are not yet supported on extruded meshes
     '''
 
-    def __init__(self, V, g, sub_domain):
+    def __init__(self, V, g, sub_domain, method="topological"):
         self._function_space = V
         # Save the original value the user passed in.  If the user
         # passed in an Expression that has user-defined variables in
@@ -46,6 +56,12 @@ class DirichletBC(object):
         self._original_arg = self.function_arg
         self.sub_domain = sub_domain
         self._currently_zeroed = False
+        if method not in ["topological", "geometric"]:
+            raise ValueError("Unknown boundary condition method %s" % method)
+        self.method = method
+
+        if V.extruded and method == "geometric":
+            raise ValueError("Geometric boundary conditions are not yet supported on extruded meshes")
 
     @property
     def function_arg(self):
@@ -125,14 +141,16 @@ class DirichletBC(object):
             return fs.top_nodes()
         else:
             if fs.extruded:
-                base_maps = fs.exterior_facet_boundary_node_map.values_with_halo.take(
+                base_maps = fs.exterior_facet_boundary_node_map(
+                    self.method).values_with_halo.take(
                     fs._mesh._old_mesh.exterior_facets.subset(self.sub_domain).indices,
                     axis=0)
-                facet_offset = fs.exterior_facet_boundary_node_map.offset
+                facet_offset = fs.exterior_facet_boundary_node_map(self.method).offset
                 return np.unique(np.concatenate([base_maps + i * facet_offset
                                                  for i in range(fs._mesh.layers - 1)]))
             return np.unique(
-                fs.exterior_facet_boundary_node_map.values_with_halo.take(
+                fs.exterior_facet_boundary_node_map(
+                    self.method).values_with_halo.take(
                     fs._mesh.exterior_facets.subset(self.sub_domain).indices,
                     axis=0))
 
