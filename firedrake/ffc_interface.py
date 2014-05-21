@@ -7,6 +7,7 @@ from operator import add
 from os import path, environ, getuid, makedirs
 import tempfile
 
+import ufl
 from ufl import Form, FiniteElement, VectorElement, as_vector
 from ufl.measure import Measure
 from ufl.algorithms import ReuseTransformer
@@ -23,6 +24,7 @@ from pyop2.op2 import Kernel
 from pyop2.mpi import MPI
 from pyop2.coffee.ast_base import PreprocessNode, Root
 
+import fiat_utils
 import functionspace
 from parameters import parameters
 
@@ -153,6 +155,23 @@ class FFCKernel(DiskCached):
                    cls._firedrake_geometry_md5 + constants.FFC_VERSION +
                    constants.PYOP2_VERSION + str(parameters["coffee"])).hexdigest()
 
+    def _needs_orientations(self, elements):
+        if len(elements) == 0:
+            return False
+        cell = elements[0].cell()
+        if cell.topological_dimension() == cell.geometric_dimension():
+            return False
+        for e in elements:
+            if isinstance(e, ufl.MixedElement) and e.family() != 'Real':
+                if any("contravariant piola" in fiat_utils.fiat_from_ufl_element(s).mapping()
+                       for s in e.sub_elements()):
+                    return True
+            else:
+                if e.family() != 'Real' and \
+                   "contravariant piola" in fiat_utils.fiat_from_ufl_element(e).mapping():
+                    return True
+        return False
+
     def __init__(self, form, name):
         """A wrapper object for one or more FFC kernels compiled from a given :class:`~Form`.
 
@@ -167,11 +186,15 @@ class FFCKernel(DiskCached):
         try:
             ffc_tree = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
             kernels = []
-            for it, kernel in zip(form.form_data().preprocessed_form.integrals(), ffc_tree):
+            fd = form.form_data()
+            elements = fd.elements
+            needs_orientations = self._needs_orientations(elements)
+            for it, kernel in zip(fd.preprocessed_form.integrals(), ffc_tree):
                 # Set optimization options
                 opts = {} if it.integral_type() not in ['cell'] else parameters["coffee"]
-                kernels.append(Kernel(Root([incl, kernel]), '%s_%s_integral_0_%s' %
-                               (name, it.integral_type(), it.subdomain_id()), opts, inc))
+                kernels.append((Kernel(Root([incl, kernel]), '%s_%s_integral_0_%s' %
+                                       (name, it.integral_type(), it.subdomain_id()), opts, inc),
+                                needs_orientations))
             self.kernels = tuple(kernels)
             self._empty = False
         except EmptyIntegrandError:
@@ -184,7 +207,11 @@ class FFCKernel(DiskCached):
 
 def compile_form(form, name):
     """Compile a form using FFC and return a tuple of tuples of
-    (index, integral type, subdomain id, coordinates, coefficients, :class:`Kernels <pyop2.op2.Kernel>`).
+    (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, :class:`Kernels <pyop2.op2.Kernel>`).
+
+    needs_orientations indicates whether the form requires cell
+    orientation information (for correctly pulling back to reference
+    elements on embedded manifolds).
 
     Where the coordinates are extracted from the :class:`ufl.Domain` of the integral.
     """
@@ -207,9 +234,9 @@ def compile_form(form, name):
         kernels = [((0, 0),
                     it.integral_type(), it.subdomain_id(),
                     it.domain().data().coordinates,
-                    fd.original_coefficients, kernel)
-                   for it, kernel in zip(fd.preprocessed_form.integrals(),
-                                         FFCKernel(form, name).kernels)]
+                    fd.original_coefficients, needs_orientations, kernel)
+                   for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
+                                                               FFCKernel(form, name).kernels)]
         fd._kernels = kernels
         return kernels
     # Otherwise pre-split the form into mixed blocks before calling FFC
@@ -221,14 +248,15 @@ def compile_form(form, name):
             # using this kernel (it's invalid anyway)
             if ffc_kernel._empty:
                 continue
-            kernel, = ffc_kernel.kernels
+            ((kernel, needs_orientations), ) = ffc_kernel.kernels
             fd = form.form_data()
             it = fd.preprocessed_form.integrals()[0]
             kernels.append(((i, j),
                             it.integral_type(),
                             it.subdomain_id(),
                             it.domain().data().coordinates,
-                            fd.original_coefficients, kernel))
+                            fd.original_coefficients,
+                            needs_orientations, kernel))
     form._form_data._kernels = kernels
     return kernels
 
