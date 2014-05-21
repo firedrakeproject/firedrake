@@ -309,10 +309,12 @@ def test_vector_user_defined_values():
 def test_scalar_increment_fails():
     e = Expression('n', n=1.0)
 
-    with pytest.raises(ValueError):
+    # Some versions of numpy raise RuntimeError on access to read-only
+    # array view, rather than ValueError.
+    with pytest.raises((ValueError, RuntimeError)):
         e.n += 1
 
-    with pytest.raises(ValueError):
+    with pytest.raises((ValueError, RuntimeError)):
         e.n[0] += 2
 
     assert np.allclose(e.n, 1.0)
@@ -321,10 +323,10 @@ def test_scalar_increment_fails():
 def test_vector_increment_fails():
     e = Expression('n', n=[1.0, 1.0])
 
-    with pytest.raises(ValueError):
+    with pytest.raises((ValueError, RuntimeError)):
         e.n += 1
 
-    with pytest.raises(ValueError):
+    with pytest.raises((ValueError, RuntimeError)):
         e.n[0] += 2
 
     assert np.allclose(e.n, 1.0)
