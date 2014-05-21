@@ -34,7 +34,6 @@ from pyop2.logger import progress, INFO
 
 import assembly_cache
 import assemble_expressions
-import fiat_utils
 import ffc_interface
 import function
 import functionspace
@@ -407,23 +406,6 @@ def _assemble(f, tensor=None, bcs=None):
     kernels = ffc_interface.compile_form(f, "form")
     fd = f.form_data()
 
-    # Do we need to pass cell_orientations in to get the sign of detJ right?
-    needs_orientations = False
-    for e in fd.elements:
-        if isinstance(e, ufl.MixedElement) and e.family() != 'Real':
-            if any("contravariant piola" in fiat_utils.fiat_from_ufl_element(s).mapping()
-                   for s in e.sub_elements()):
-                needs_orientations = True
-                break
-        else:
-            if e.family() != 'Real' and \
-               "contravariant piola" in fiat_utils.fiat_from_ufl_element(e).mapping():
-                needs_orientations = True
-                break
-    cell = fd.integration_domains[0].cell()
-    tdim = cell.topological_dimension()
-    gdim = cell.geometric_dimension()
-    needs_orientations = needs_orientations and tdim != gdim
     is_mat = fd.rank == 2
     is_vec = fd.rank == 1
 
@@ -545,7 +527,7 @@ def _assemble(f, tensor=None, bcs=None):
             bottom = any(bc.sub_domain == "bottom" for bc in bcs)
             top = any(bc.sub_domain == "top" for bc in bcs)
             extruded_bcs = (bottom, top)
-        for (i, j), integral_type, subdomain_id, coords, coefficients, kernel in kernels:
+        for (i, j), integral_type, subdomain_id, coords, coefficients, needs_orientations, kernel in kernels:
             m = coords.function_space().mesh()
             if needs_orientations:
                 cell_orientations = m.cell_orientations()
