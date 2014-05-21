@@ -25,10 +25,8 @@ def errornorm(u, uh, norm_type="L2", degree_rise=3, mesh=None):
     a space of degree ``degree_rise`` higher than the degree of ``uh``
     and computing the error there.
     """
-    uele = u.function_space().ufl_element()
-    uhele = uh.function_space().ufl_element()
-    urank = len(uele.value_shape())
-    uhrank = len(uhele.value_shape())
+    urank = len(u.shape())
+    uhrank = len(uh.shape())
 
     rank = urank
     if urank != uhrank:
@@ -36,16 +34,18 @@ def errornorm(u, uh, norm_type="L2", degree_rise=3, mesh=None):
 
     degree = uh.function_space().ufl_element().degree() + degree_rise
 
-    degree_u = u.function_space().ufl_element().degree()
-    if degree > degree_u:
-        warning("Degree of exact solution less than approximation degree")
+    # The exact solution might be an expression, in which case this test is irrelevant.
+    if isinstance(u, function.Function):
+        degree_u = u.function_space().ufl_element().degree()
+        if degree > degree_u:
+            warning("Degree of exact solution less than approximation degree")
 
     mesh = uh.function_space().mesh()
     if rank == 0:
         V = functionspace.FunctionSpace(mesh, 'DG', degree)
     elif rank == 1:
         V = functionspace.VectorFunctionSpace(mesh, 'DG', degree,
-                                              dim=uele.value_shape()[0])
+                                              dim=u.shape()[0])
     else:
         raise RuntimeError("Don't know how to compute error norm for tensor valued functions")
 

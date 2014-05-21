@@ -406,12 +406,16 @@ class FunctionSpaceBase(ObjectCached):
 
             return cache[lbcs]
 
-    @utils.cached_property
-    def exterior_facet_boundary_node_map(self):
+    @utils.memoize
+    def exterior_facet_boundary_node_map(self, method):
         '''The :class:`pyop2.Map` from exterior facets to the nodes on
         those facets. Note that this differs from
         :meth:`exterior_facet_node_map` in that only surface nodes
-        are referenced, not all nodes in cells touching the surface.'''
+        are referenced, not all nodes in cells touching the surface.
+
+        :arg method: The method for determining boundary nodes. See
+            :class:`~.bcs.DirichletBC`.
+        '''
 
         el = self.fiat_element
 
@@ -432,8 +436,13 @@ class FunctionSpaceBase(ObjectCached):
             dim = len(el.get_reference_element().topology)-1
             dim = dim - 1
 
+        if method == "topological":
+            boundary_dofs = el.entity_closure_dofs()[dim]
+        elif method == "geometric":
+            boundary_dofs = el.facet_support_dofs()
+
         nodes_per_facet = \
-            len(self.fiat_element.entity_closure_dofs()[dim][0])
+            len(boundary_dofs[0])
 
         # HACK ALERT
         # The facet set does not have a halo associated with it, since
@@ -450,7 +459,7 @@ class FunctionSpaceBase(ObjectCached):
                             dtype=np.int32)
 
         local_facet_nodes = np.array(
-            [dofs for e, dofs in el.entity_closure_dofs()[dim].iteritems()])
+            [dofs for e, dofs in boundary_dofs.iteritems()])
 
         # Helper function to turn the inner index of an array into c
         # array literals.
