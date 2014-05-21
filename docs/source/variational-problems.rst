@@ -457,6 +457,30 @@ details of how Firedrake applies strong boundary conditions are
 slightly involved and therefore have :doc:`their own section
 <boundary_conditions>` in the manual.
 
+Boundary conditions in discontinuous spaces
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The default method Firedrake uses to determine where to apply strong
+boundary conditions is :py:data:`"topological"`, meaning that nodes
+topologically associated with a boundary facet will be included.  In
+discontinuous spaces, however, the nodes to be included do not all
+live on boundary facets, in this case, you should use the
+:py:data:`"geometric"` method for determining boundary condition
+nodes.  In this case, nodes associated with basis functions that do
+not vanish on the boundary are included.  This method can be used to
+impose strong boundary conditions on discontinuous galerkin spaces, or
+no-slip conditions on HDiv spaces.  To select the method used for
+determining boundary condition nodes, use the :py:data:`method`
+argument to the :py:class:`DirichletBC` constructor.  For example, to
+select geometric boundary node determination we would write:
+
+.. code-block:: python
+
+   V = FunctionSpace(mesh, 'DG', 2)
+   bc = DirichletBC(V, 1.0, subdomain_id, method="geometric")
+   ...
+
+
 Time dependent boundary conditions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
