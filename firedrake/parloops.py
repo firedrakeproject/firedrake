@@ -15,11 +15,11 @@ _maps = {
     },
     'interior_facet': {
         'nodes': lambda x: x.interior_facet_node_map(),
-        'itspace': lambda mesh, measure: mesh.interior_facets.measure_set(measure)
+        'itspace': lambda mesh, measure: mesh.interior_facets.measure_set(measure.integral_type(), measure.subdomain_id())
     },
     'exterior_facet': {
         'nodes': lambda x: x.exterior_facet_node_map(),
-        'itspace': lambda mesh, measure: mesh.exterior_facets.measure_set(measure)
+        'itspace': lambda mesh, measure: mesh.exterior_facets.measure_set(measure.integral_type(), measure.subdomain_id())
     }
 }
 
