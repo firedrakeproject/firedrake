@@ -51,3 +51,25 @@ def test_cg_max_field_extruded(f_extruded):
     assert (c.dat.data == [1./4, 1./4, 1./4,
                            3./4, 3./4, 3./4,
                            3./4, 3./4, 3./4]).all()
+
+
+def test_walk_facets_rt():
+    m = UnitSquareMesh(3, 3)
+    V = FunctionSpace(m, 'RT', 1)
+
+    f1 = Function(V)
+    f2 = Function(V)
+
+    project(Expression(('x[0]', 'x[1]')), f1)
+
+    par_loop("""
+    for (int i = 0; i < f1.dofs; i++) {
+        f2[i][0] = f1[i][0];
+    }""", dS, {'f1': (f1, READ), 'f2': (f2, WRITE)})
+
+    par_loop("""
+    for (int i = 0; i < f1.dofs; i++) {
+        f2[i][0] = f1[i][0];
+    }""", ds, {'f1': (f1, READ), 'f2': (f2, WRITE)})
+
+    assert errornorm(f1, f2, degree_rise=0) < 1e-10
