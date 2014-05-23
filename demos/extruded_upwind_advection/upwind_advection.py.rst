@@ -14,9 +14,9 @@ directed towards the interior of the domain:
 
 .. math::
 
-  D = D_0 \textnormal{on} \Gamma_\textnormal{inflow}
+  D = D_0 \quad \mathrm{on} \ \Gamma_\mathrm{inflow}
 
-where :math:`\Gamma_\textnormal{inflow}` is defined appropriately. :math:`D` can
+where :math:`\Gamma_\mathrm{inflow}` is defined appropriately. :math:`D` can
 be interpreted as the steady-state distribution of a passive tracer carried by a
 fluid with velocity field :math:`\vec{u_0}`.
 
@@ -27,7 +27,7 @@ A weak form of the continuous equation is
    \int_\Omega \! \phi \nabla \cdot (\vec{u_0} D) \, \mathrm{d} x &= 0 \quad
    \forall \ \phi \in D(\Omega), \\
    
-   D &= D_0 \textnormal{on} \Gamma_\textnormal{inflow}
+   D &= D_0 \quad \mathrm{on} \ \Gamma_\mathrm{inflow}
 
 where :math:`D(\Omega)` is the space of smooth *test functions* with compact
 support in :math:`\Omega`. We will look for a solution :math:`D` in a space of
@@ -36,12 +36,11 @@ avoid taking the derivative of a discontinuous quantity:
 
 .. math::
 
-   \Sum_e \left( &\int_{\delta e} \! \phi_e D \vec{u_0} \cdot \vec{n} \, 
-   \mathrm{d} S \\
-   - &\int_e \! D \vec{u_0} \cdot \nabla \phi \, \mathrm{d} x \right) = 0
+   \sum_e \left( \int_{\delta e} \! \phi_e D \vec{u_0} \cdot \vec{n} \, 
+   \mathrm{d} S - \int_e \! D \vec{u_0} \cdot \nabla \phi \, \mathrm{d} x \right) = 0
    \quad \forall \ \phi \in V, \\
    
-   D &= D_0 \textnormal{on} \Gamma_\textnormal{inflow}
+   D = D_0 \quad \mathrm{on} \ \Gamma_\mathrm{inflow}
 
 where the sum is taken over all elements. Since :math:`D` is discontinuous, we
 have to make a choice about how it is defined on facets in order to evaluate
@@ -62,20 +61,20 @@ was used to make this explicit. The full set of equations are then
 
 .. math::
 
-   - &\int_\Omega \! D \vec{u_0} \cdot \nabla \phi \, \mathrm{d} x \\
-   + &\int_{\Gamma_\textnormal{ext, outflow}} \! \phi D \vec{u_0} \cdot \vec{n}
-   \, \mathrm{d} s \\
-   + &\int_{\Gamma_\textnormal{int}} \! (\phi_+ - \phi_-) \widetilde{D}
-   \vec{u_0} \cdot \vec{n} \, \mathrm{d} S \\
-   &\qquad = -\int_{\Gamma_\textnormal{ext, inflow}} \phi D_0 \vec{u_0} \cdot
-   \vec{n} \, \mathrm{d} s \quad \forall \ \phi \in V, \\
+   -\int_\Omega \! D \vec{u_0} \cdot \nabla \phi \, \mathrm{d} x 
+   + \int_{\Gamma_\rlap{\mathrm{ext, outflow}}} \! \phi D \vec{u_0} \cdot \vec{n}
+   \, \mathrm{d} s 
+   + \int_{\Gamma_\mathrm{int}} \! (\phi_+ - \phi_-) \widetilde{D}
+   \vec{u_0} \cdot \vec{n} \, \mathrm{d} S
+     =  -\int_{\Gamma_\rlap{\mathrm{ext, inflow}}} \phi D_0 \vec{u_0} \cdot
+   \vec{n} \, \mathrm{d} s \quad \forall \ \phi \in V,
 
-   &D = D_0 \textnormal{on} \Gamma_\textnormal{inflow}
+   D = D_0 \quad \mathrm{on} \ \Gamma_\mathrm{inflow}
 
 In this worked example, we will take the domain :math:`\Omega` to be the cuboid
 :math:`\Omega = [0,1] \times [0,1] \times [0,0.2]`. We will use the constant
-velocity field :math:`\vec{u_0} = (0, 0, 1)`. :math:`\Gamma_\textnormal{inflow}`
-is therefore the base of the cuboid, while :math:`\Gamma_\textnormal{outflow}`
+velocity field :math:`\vec{u_0} = (0, 0, 1)`. :math:`\Gamma_\mathrm{inflow}`
+is therefore the base of the cuboid, while :math:`\Gamma_\mathrm{outflow}`
 is the top. The four vertical sides can be ignored, since
 :math:`\vec{u_0} \cdot \vec{n} = 0` on these faces.
 
