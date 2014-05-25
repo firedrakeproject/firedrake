@@ -328,7 +328,7 @@ variational form.  Let us consider solving the identity equation:
 
 .. math::
 
-   u = f \; \mathrm{on} \, \Omega
+   u = f \quad \mathrm{on} \, \Omega
 
 where :math:`\Omega` is the unit square, using piecewise linear
 polynomials for our solution.  We start with a mesh and build a
@@ -362,7 +362,7 @@ variational problem is to find :math:`u \in V` such that
 
 .. math::
 
-   \int_\Omega u v \mathrm{d}x = \int_\Omega f v \mathrm{d}x \;
+   \int_\Omega \! u v \, \mathrm{d}x = \int_\Omega \! f v \, \mathrm{d}x \quad
    \forall v \in V
 
 we define the variational problem in UFL with:
