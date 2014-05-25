@@ -120,13 +120,13 @@ times we would write:
 Ensuring consistent cell orientations
 +++++++++++++++++++++++++++++++++++++
 
-Variational forms that contain facet normals, for example problems
-where a non-zero boundary condition is applied to the normal
-derivative of the solution, require information about the orientation
-of the cells.  For normal meshes, this is does not pose a problem,
-however for immersed meshes we must tell Firedrake about the
-orientation of each cell relative to some global orientation.  This
-information is used by Firedrake to ensure that the facet normal on,
+Variational forms that include particular function spaces (those
+requiring a *contravarient Piola transform*), require information
+about the orientation of the cells.  For normal meshes, this can be
+deduced automatically. However, when using immersed meshes, Firedrake
+needs extra information to calculate the orientation of each cell
+relative to some global orientation. This
+is used by Firedrake to ensure that the cell normal on,
 say, the surface of a sphere, uniformly points outwards.  To do this,
 after constructing an immersed mesh, we must initialise the cell
 orientation information.  This is carried out with the function
@@ -139,6 +139,9 @@ relative to vector pointing out from the origin:
 .. code-block:: python
 
    earth.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
+
+However, a more complicated expression would be needed to initialise
+the cell orientations on a toroidal mesh.
 
 
 Semi-structured extruded meshes
