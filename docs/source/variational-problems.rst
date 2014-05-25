@@ -219,10 +219,9 @@ Mixed function spaces
 ~~~~~~~~~~~~~~~~~~~~~
 
 Many :abbr:`PDE (partial differential equation)`\s are posed in terms
-of more than one, coupled, variable.  The function space for the
-variational problem for such a PDE is termed a *mixed* function space.
-Such a space is represented in Firedrake by a
-:py:class:`~.MixedFunctionSpace`.  We can either
+of multiple, coupled, variables. The variational problem for such a
+PDE uses a so-called *mixed* function space. In Firedrake, this is
+represented by a :py:class:`~.MixedFunctionSpace`.  We can either
 build such a space by invoking the constructor directly, or, more
 readably, by taking existing function spaces and multiplying them
 together using the ``*`` operator.  For example:
