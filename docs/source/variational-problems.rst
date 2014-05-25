@@ -159,33 +159,54 @@ Building function spaces
 Now that we have a mesh of our domain, we need to build the function
 spaces the solution to our :abbr:`PDE (partial differential equation)`
 will live in, along with the spaces for the trial and test functions.
-To do so, we use the :py:class:`~.FunctionSpace`
-or :py:class:`~.VectorFunctionSpace` constructors.
-The former may be used to define a function space for a scalar
-variable, for example pressure, which has a single value at each point
-in the domain; the latter is for vector-valued variables, such as
-velocity, whose value is a vector at each point in the domain.  To
-construct a function space, you must decide on its family and its
-degree.  For example, to build a function space of piecewise cubic
-polynomials we write:
+To do so, we normally use the :py:class:`~.FunctionSpace` constructor.
+This is the only way to obtain a function space for a scalar variable,
+such as pressure, which has a single value at each point in the
+domain.
+
+To construct a function space, you must decide on its family and its
+degree.  To build a scalar-valued function space of continuous
+piecewise-cubic polynomials, we write:
 
 .. code-block:: python
 
    V = FunctionSpace(mesh, "Lagrange", 3)
 
+There are two main routes to obtaining a function space for a
+vector-valued variable such as velocity. Firstly, you can pass the
+:py:class:`~.FunctionSpace` constructor a natively *vector-valued*
+family such as ``"Raviart-Thomas"``. Secondly, you may use the
+:py:class:`~.VectorFunctionSpace` constructor with a *scalar-valued*
+family, which gives a vector-valued space where each component is
+identical to the appropriate scalar-valued :py:class:`~.FunctionSpace`.
+
+To build a vector-valued function space using the lowest-order
+``Raviart-Thomas`` elements, we write
+
+.. code-block:: python
+
+   V = FunctionSpace(mesh, "Raviart-Thomas", 1)
+
+To build a vector-valued function space for which each component
+is a discontinuous piecewise-quadratic polynomial, we write
+
+.. code-block:: python
+
+   V = VectorFunctionSpace(mesh, "Discontinuous Lagrange", 2)
+
 Firedrake supports all function spaces that are allowed by `FIAT`_.
 
-Function spaces on immersed manifolds
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Advanced usage of ``VectorFunctionSpace``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-By default the number of components of each vector in a vector
-function space is the geometric dimension of the mesh (e.g. 3, if the
-mesh is 3D).  However, sometimes we might want that the number of
-components in the vector differs from the geometric dimension of the
-mesh.  We can do this by passing a value for the ``dim`` argument to
-the :py:class:`~.VectorFunctionSpace` constructor.
-For example, if we wanted a 2D vector-valued function space on the
-surface of a unit sphere mesh we might write:
+By default, the number of components of a
+:py:class:`~.VectorFunctionSpace` is the geometric dimension of the
+mesh (e.g. 3, if the mesh is 3D). However, sometimes we might want
+the number of components in the vector to differ from the geometric
+dimension of the mesh. We can do this by passing a value for the
+``dim`` argument to the :py:class:`~.VectorFunctionSpace` constructor.
+For example, if we wanted a vector-valued function space on the surface
+of a unit sphere mesh with only 2 components, we might write:
 
 .. code-block:: python
 
