@@ -1,3 +1,7 @@
+.. only:: html
+
+   .. contents::
+
 Extruded Meshes in Firedrake
 ============================
 
