@@ -170,22 +170,22 @@ the coordinates in the new direction is based on the assumption that the
 layers are evenly spaced (hence the word uniform).
 
 Let ``mesh`` be the previously constructed unit square mesh defined above.
-Uniformly extruding ``mesh`` with 11 base mesh layers and a distance of
+Uniformly extruding ``mesh`` with 10 mesh layers and a distance of
 :math:`0.1` between them can be done in the following way:
 
 .. code-block:: python
 
-	extruded_mesh = ExtrudedMesh(mesh, 11, layer_height=0.1, extrusion_type='uniform')
+	extruded_mesh = ExtrudedMesh(mesh, 10, layer_height=0.1, extrusion_type='uniform')
 
 As uniform extrusion is the default type of of extrusion, the call can be
 simplified to:
 
 .. code-block:: python
 
-	extruded_mesh = ExtrudedMesh(mesh, 11, layer_height=0.1)
+	extruded_mesh = ExtrudedMesh(mesh, 10, layer_height=0.1)
 
 A further simplification can be made as the provided layer height in this case
-is equal to the default value :math:`1/(11 - 1) = 0.1`:
+is equal to the default value :math:`1/10 = 0.1`:
 
 .. code-block:: python
 
@@ -199,7 +199,7 @@ origin.
 
 .. code-block:: python
 
-	extruded_mesh = ExtrudedMesh(mesh, 11, layer_height=0.1, extrusion_type='radial')
+	extruded_mesh = ExtrudedMesh(mesh, 10, layer_height=0.1, extrusion_type='radial')
 
 Radial extrusion has been developed as a way of extruding spherical surfaces.
 The following code radially extrudes a spherical mesh:
@@ -207,7 +207,7 @@ The following code radially extrudes a spherical mesh:
 .. code-block:: python
 
 	mesh = IcosahedralSphereMesh(radius=1000, refinement_level=2)
-	extruded_mesh = ExtrudedMesh(mesh, 11, layer_height=0.1, extrusion_type='radial')
+	extruded_mesh = ExtrudedMesh(mesh, 10, layer_height=0.1, extrusion_type='radial')
 
 In the above example the layer height can be omitted as it is the same as the
 default value.
