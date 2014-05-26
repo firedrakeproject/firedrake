@@ -240,13 +240,24 @@ be provided by the user as constant strings.
 Function Spaces on Extruded Meshes
 ----------------------------------
 
-Building a :py:class:`~firedrake.core_types.FunctionSpace` or
-:py:class:`~firedrake.core_types.VectorFunctionSpace` on extruded meshes is
-similar to the non-extruded case.
+The syntax for building a :py:class:`~.FunctionSpace` on an extruded mesh is
+an extension of the existing syntax for non-extruded meshes.
 
-The main difference is the type of elements that are being used. Extruded
-elements are a tensor product of two space types: the *horizontal* pertaining
-to the *base mesh* and the *vertical* pertaining to the extrusion direction.
+Geometrically, a cell from an extruded mesh can be thought of as the *product*
+of a base, "horizontal", cell with a "vertical" interval. The construction of
+function spaces on extruded meshes makes use of this fact.
+
+Firedrake supports all function spaces whose local element can be expressed
+as the product of an element defined on the base cell with an element defined
+on an interval.
+
+The most general syntax for initialising a function space is
+
+.. code-block:: python
+
+	fspace = FunctionSpace(extruded_mesh, element)
+
+where ``element`` is a UFL FiniteElement object.
 
 For example, creating a :py:class:`~firedrake.core_types.FunctionSpace` from
 any of the ``extruded_mesh`` objects defined above can be done in the
