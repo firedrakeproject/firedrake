@@ -302,10 +302,22 @@ class AssemblyOptimizer(object):
 
 
 class AssemblyRewriter(object):
-    """Rewrite assembly expressions according to the following expansion
-    rules."""
+    """Provide operations to re-write an assembly expression:
+        - Loop-invariant code motion: find and hoist sub-expressions which are
+        invariant with respect to an assembly loop
+        - Expansion: transform an expression (a + b)*c into (a*c + b*c)
+        - Distribute: transform an expression a*b + a*c into a*(b+c)"""
 
     def __init__(self, expr, int_loop, syms, decls, parent):
+        """Initialize the AssemblyRewriter.
+
+        :arg expr:     provide generic information related to an assembly expression,
+                       including the depending for loops.
+        :arg int_loop: the loop along which integration is performed.
+        :arg syms:     list of AST symbols used to evaluate the local element matrix.
+        :arg decls:    list of AST declarations of the various symbols in ``syms``.
+        :arg parent:   the parent AST node of the assembly loop nest.
+        """
         self.expr, self.expr_info = expr
         self.int_loop = int_loop
         self.syms = syms
@@ -478,7 +490,7 @@ class AssemblyRewriter(object):
                 var_decl = [Decl(typ, _s) for _s in syms]
                 for_sym = [Symbol(_s.sym.symbol, for_dep) for _s in var_decl]
 
-                # 3) Create the new for containing invariant terms
+                # 3) Create the new for loop containing invariant terms
                 _expr = [Par(e) if not isinstance(e, Par) else e for e in expr]
                 inv_for = [Assign(_s, e) for _s, e in zip(for_sym, _expr)]
 
