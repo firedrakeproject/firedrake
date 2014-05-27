@@ -251,13 +251,48 @@ Firedrake supports all function spaces whose local element can be expressed
 as the product of an element defined on the base cell with an element defined
 on an interval.
 
+Scalar-valued spaces (basic)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Simple scalar-valued spaces can be created using a variation on the existing
+syntax. To create a function space of degree 2 in the horizontal direction,
+degree 1 in the vertical direction and possibly discontinuous between layers,
+the syntax is
+
+.. code-block:: python
+
+	fspace = FunctionSpace(mesh, "Lagrange", 2, vfamily="Discontinuous Lagrange", vdegree=1)
+
+If the horizontal and vertical parts have the same ``family`` and ``degree``,
+the ``vfamily`` and ``vdegree`` arguments may be omitted. If ``mesh`` is an
+:py:class:`~.ExtrudedMesh` object then the following are equivalent:
+
+.. code-block:: python
+
+	fspace = FunctionSpace(mesh, "Lagrange", 1)
+
+.. code-block:: python
+
+	fspace = FunctionSpace(mesh, "Lagrange", 1, vfamily="Lagrange", vdegree=1)
+
+Note that replacing :py:class:`~.FunctionSpace` by
+:py:class:`~.VectorFunctionSpace` would give the expected behaviour in these
+examples.
+
+HDiv and HCurl (advanced)
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
 The most general syntax for initialising a function space is
 
 .. code-block:: python
 
-	fspace = FunctionSpace(extruded_mesh, element)
+	fspace = FunctionSpace(mesh, element)
 
-where ``element`` is a UFL FiniteElement object.
+where ``element`` is a UFL FiniteElement object. This requires manipulation
+of FiniteElement objects, which is not presently performed by the user in
+other applications.
+
+
 
 For example, creating a :py:class:`~firedrake.core_types.FunctionSpace` from
 any of the ``extruded_mesh`` objects defined above can be done in the
