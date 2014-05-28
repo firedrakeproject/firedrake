@@ -295,7 +295,7 @@ def _init_blas(blas):
     import os
 
     blas_dict = {
-        'dir': os.environ.get("PYOP2_BLAS_DIR") or ''
+        'dir': os.environ.get("PYOP2_BLAS_DIR", "")
     }
 
     if blas == 'mkl':

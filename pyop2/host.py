@@ -55,12 +55,12 @@ class Kernel(base.Kernel):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of code (C syntax) suitable to CPU execution."""
         if not isinstance(ast, Node):
-            self._opt_blas = False
+            self._is_blas_optimized = False
             return ast
         self._ast = ast
         ast_handler = ASTKernel(ast)
         ast_handler.plan_cpu(opts)
-        self._opt_blas = ast_handler.blas
+        self._is_blas_optimized = ast_handler.blas
         return ast_handler.gencode()
 
 
@@ -642,7 +642,7 @@ class JITModule(base.JITModule):
         compiler = coffee.ast_plan.compiler
         blas = coffee.ast_plan.blas_interface
         blas_header, blas_namespace, externc_open, externc_close = ("", "", "", "")
-        if self._kernel._opt_blas:
+        if self._kernel._is_blas_optimized:
             blas_header = blas.get('header')
             blas_namespace = blas.get('namespace', '')
             if blas['name'] == 'eigen':
@@ -696,7 +696,7 @@ class JITModule(base.JITModule):
         if configuration["debug"]:
             self._wrapper_code = code_to_compile
 
-        filetype = "c"
+        extension = "c"
         cppargs = ["-I%s/include" % d for d in get_petsc_dir()] + \
                   ["-I%s" % d for d in self._kernel._include_dirs] + \
                   ["-I%s" % os.path.abspath(os.path.dirname(__file__))]
@@ -705,16 +705,16 @@ class JITModule(base.JITModule):
         ldargs = ["-L%s/lib" % d for d in get_petsc_dir()] + \
                  ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()] + \
                  ["-lpetsc", "-lm"] + self._libraries
-        if self._kernel._opt_blas:
+        if self._kernel._is_blas_optimized:
             blas_dir = blas['dir']
             if blas_dir:
                 cppargs += ["-I%s/include" % blas_dir]
                 ldargs += ["-L%s/lib" % blas_dir]
             ldargs += blas['link']
             if blas['name'] == 'eigen':
-                filetype = "cpp"
+                extension = "cpp"
         self._fun = compilation.load(code_to_compile,
-                                     filetype,
+                                     extension,
                                      self._wrapper_name,
                                      cppargs=cppargs,
                                      ldargs=ldargs,
@@ -846,7 +846,7 @@ class JITModule(base.JITModule):
                 _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
                 _loop_size = [_buf_size[i]/_dat_size[i] for i in range(len(_buf_size))]
             else:
-                if self._kernel._opt_blas:
+                if self._kernel._is_blas_optimized:
                     _buf_size = [reduce(lambda x, y: x*y, _buf_size)]
             if self._kernel._opts.get('ap'):
                 if arg._is_mat:
@@ -889,7 +889,7 @@ class JITModule(base.JITModule):
                     _buf_scatter = ""
             _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
             _addto_buf_name = _buf_scatter_name or _buf_name
-            _buffer_indices = "[i_0*%d + i_1]" % shape[0] if self._kernel._opt_blas else "[i_0][i_1]"
+            _buffer_indices = "[i_0*%d + i_1]" % shape[0] if self._kernel._is_blas_optimized else "[i_0][i_1]"
             if self._itspace._extruded:
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, _addto_buf_name, "xtr_", is_facet=is_facet) for arg in self._args
                                                             if arg._is_mat and arg.data[i, j]._is_scalar_field])

@@ -164,6 +164,15 @@ class AssemblyOptimizer(object):
         :arg level: The optimization level (0, 1, 2, 3). The higher, the more
                     invasive is the re-writing of the assembly expressions,
                     trying to hoist as much invariant code as possible.
+                    level == 1: performs "basic" generalized loop-invariant
+                                code motion
+                    level == 2: level 1 + expansion of terms, factorization of
+                                basis functions appearing multiple times in the
+                                same expression, and finally another run of
+                                loop-invariant code motion to move invariant
+                                sub-expressions exposed by factorization
+                    level == 3: level 2 + precomputation of read-only expressions
+                                out of the assembly loop nest
         """
 
         parent = (self.pre_header, self.kernel_decls)
@@ -232,24 +241,49 @@ class AssemblyOptimizer(object):
             par_block.children = pb[:idx] + sliced_loops + pb[idx + 1:]
 
     def split(self, cut=1, length=0):
-        """Split assembly to improve resources utilization (e.g. vector registers).
-        The splitting ``cuts`` the expressions into ``length`` blocks of ``cut``
-        outer products.
+        """Split assembly expressions into multiple chunks exploiting sum's
+        associativity. This is done to improve register pressure.
+        This transformation "splits" an expression into at most ``length`` chunks
+        of ``cut`` operands. If ``length = 0``, then the expression is completely
+        split into chunks of ``cut`` operands.
 
-        For example:
+        For example, consider the following piece of code:
         for i
           for j
             A[i][j] += X[i]*Y[j] + Z[i]*K[j] + B[i]*X[j]
-        with cut=1, length=1 this would be transformed into:
+
+        If ``cut=1`` and ``length=1``, the cut is applied at most length=1 times, and this
+        is transformed into:
+        for i
+          for j
+            A[i][j] += X[i]*Y[j]
+        // Reminder of the splitting:
+        for i
+          for j
+            A[i][j] += Z[i]*K[j] + B[i]*X[j]
+
+        If ``cut=1`` and ``length=0``, length is ignored and the expression is cut into chunks
+        of size ``cut=1``:
         for i
           for j
             A[i][j] += X[i]*Y[j]
         for i
           for j
-            A[i][j] += Z[i]*K[j] + B[i]*X[j]
+            A[i][j] += Z[i]*K[j]
+        for i
+          for j
+            A[i][j] += B[i]*X[j]
 
-        If ``length`` is 0, then ``cut`` is ignored, and the expression is fully cut
-        into chunks containing a single outer product."""
+        If ``cut=2`` and ``length=0``, length is ignored and the expression is cut into chunks
+        of size ``cut=2``:
+        for i
+          for j
+            A[i][j] += X[i]*Y[j] + Z[i]*K[j]
+        // Reminder of the splitting:
+        for i
+          for j
+            A[i][j] += B[i]*X[j]
+        """
 
         def check_sum(par_node):
             """Return true if there are no sums in the sub-tree rooted in

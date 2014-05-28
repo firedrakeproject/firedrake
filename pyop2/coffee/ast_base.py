@@ -36,7 +36,7 @@ Abstract Syntax Tree (ast)."""
 
 # Utilities for simple exprs and commands
 point = lambda p: "[%s]" % p
-point_ofs = lambda p, o: "[%s*%s+%s]" % (p, str(o[0]), str(o[1]))
+point_ofs = lambda p, o: "[%s*%s+%s]" % (p, o[0], o[1])
 assign = lambda s, e: "%s = %s" % (s, e)
 incr = lambda s, e: "%s += %s" % (s, e)
 incr_by_1 = lambda s: "++%s" % s

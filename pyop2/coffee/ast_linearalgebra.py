@@ -40,22 +40,35 @@ from pyop2.coffee.ast_base import *
 class AssemblyLinearAlgebra(object):
 
     """Convert assembly code into sequences of calls to external dense linear
-    algebra libraries. Currently, MKL BLAS and ATLAS BLAS are supported."""
+    algebra libraries. Currently, MKL, ATLAS, and EIGEN are supported."""
 
-    def __init__(self, ao, kernel_decls):
+    def __init__(self, assembly_optimizer, kernel_decls):
+        """Initialize an AssemblyLinearAlgebra object.
+
+        :arg assembly_optimizer: an AssemblyOptimizer object of the AST
+        :arg kernel_decls:       list of declarations used in the AST"""
+
         self.kernel_decls = kernel_decls
-        self.header = ao.pre_header
-        self.int_loop = ao.int_loop
-        self.asm_expr = ao.asm_expr
+        self.header = assembly_optimizer.pre_header
+        self.int_loop = assembly_optimizer.int_loop
+        self.asm_expr = assembly_optimizer.asm_expr
 
     def transform(self, library):
         """Transform perfect loop nests representing matrix-matrix multiplies into
         calls to a dense linear algebra library.
 
-        :arg library: the BLAS library that should be used (currently, only mkl)."""
+        :arg library: the BLAS library that should be used (mkl, atlas, eigen)."""
 
         def update_syms(node, parent, syms_to_change, ofs_info, to_transpose):
-            """Change the storage layout of symbols involved in MMMs."""
+            """Change the storage layout of symbols involved in matrix-matrix multiplies.
+            two-dimensional arrays are transformed (i.e. "flatten") into one-dimensional
+            arrays. This stands for declaration as well as for other commands.
+            For instance:
+                - double A[10][10] => double A[100]
+                - A[i][k]*B[k][j] =>  A[i*x + k]*B[k*y + j], where x and y are obtained
+                  by looking at the size of arrays A and B, which is assumed to be known
+                  at compile time
+            This makes symbols conform to the BLAS interface."""
             if isinstance(node, Symbol):
                 if node.symbol in syms_to_change:
                     if isinstance(parent, Decl):
