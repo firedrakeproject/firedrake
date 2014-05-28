@@ -3481,7 +3481,6 @@ class Kernel(Cached):
         if self._initialized:
             return
         self._name = name or "kernel_%d" % Kernel._globalcount
-        self._code = self._ast_to_c(code, opts)
         Kernel._globalcount += 1
         # Record used optimisations
         self._opts = opts
@@ -3489,6 +3488,7 @@ class Kernel(Cached):
         self._include_dirs = include_dirs
         self._headers = headers
         self._user_code = user_code
+        self._code = self._ast_to_c(code, opts)
         self._initialized = True
 
     @property

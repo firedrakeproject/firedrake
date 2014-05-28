@@ -61,7 +61,7 @@ class Kernel(base.Kernel):
         ast_handler = ASTKernel(ast)
         ast_handler.plan_cpu(opts)
         self._opt_blas = ast_handler.blas
-        return ast.gencode()
+        return ast_handler.gencode()
 
 
 class Arg(base.Arg):
@@ -639,22 +639,37 @@ class JITModule(base.JITModule):
         strip = lambda code: '\n'.join([l for l in code.splitlines()
                                         if l.strip() and l.strip() != ';'])
 
-        blas = coffee.ast_plan.blas_interface
         compiler = coffee.ast_plan.compiler
-        headers = "\n".join([h for h in [compiler.get('vect_header'), blas.get('header')] if h])
+        blas = coffee.ast_plan.blas_interface
+        blas_header, blas_namespace, externc_open, externc_close = ("", "", "", "")
+        if self._kernel._opt_blas:
+            blas_header = blas.get('header')
+            blas_namespace = blas.get('namespace', '')
+            if blas['name'] == 'eigen':
+                externc_open = 'extern "C" {'
+                externc_close = '}'
+        headers = "\n".join([compiler.get('vect_header', ""), blas_header])
         if any(arg._is_soa for arg in self._args):
             kernel_code = """
             #define OP2_STRIDE(a, idx) a[idx]
             %(header)s
+            %(namespace)s
+            %(externc_open)s
             %(code)s
             #undef OP2_STRIDE
             """ % {'code': self._kernel.code,
+                   'externc_open': externc_open,
+                   'namespace': blas_namespace,
                    'header': headers}
         else:
             kernel_code = """
             %(header)s
+            %(namespace)s
+            %(externc_open)s
             %(code)s
             """ % {'code': self._kernel.code,
+                   'externc_open': externc_open,
+                   'namespace': blas_namespace,
                    'header': headers}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
 
@@ -671,14 +686,17 @@ class JITModule(base.JITModule):
         %(kernel)s
 
         %(wrapper)s
+        %(externc_close)s
         """ % {'consts': _const_decs, 'kernel': kernel_code,
                'wrapper': code_to_compile,
+               'externc_close': externc_close,
                'sys_headers': '\n'.join(self._kernel._headers)}
 
         self._dump_generated_code(code_to_compile)
         if configuration["debug"]:
             self._wrapper_code = code_to_compile
 
+        filetype = "c"
         cppargs = ["-I%s/include" % d for d in get_petsc_dir()] + \
                   ["-I%s" % d for d in self._kernel._include_dirs] + \
                   ["-I%s" % os.path.abspath(os.path.dirname(__file__))]
@@ -687,13 +705,16 @@ class JITModule(base.JITModule):
         ldargs = ["-L%s/lib" % d for d in get_petsc_dir()] + \
                  ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()] + \
                  ["-lpetsc", "-lm"] + self._libraries
-        if blas:
+        if self._kernel._opt_blas:
             blas_dir = blas['dir']
             if blas_dir:
                 cppargs += ["-I%s/include" % blas_dir]
                 ldargs += ["-L%s/lib" % blas_dir]
-            ldargs += [blas['link']]
+            ldargs += blas['link']
+            if blas['name'] == 'eigen':
+                filetype = "cpp"
         self._fun = compilation.load(code_to_compile,
+                                     filetype,
                                      self._wrapper_name,
                                      cppargs=cppargs,
                                      ldargs=ldargs,

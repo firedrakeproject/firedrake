@@ -200,7 +200,11 @@ class ASTKernel(object):
             # 5) Conversion into blas calls
             if blas:
                 ala = AssemblyLinearAlgebra(ao, self.decls)
-                self.blas = ala.blas(blas)
+                self.blas = ala.transform(blas)
+
+    def gencode(self):
+        """Generate a string representation of the AST."""
+        return self.ast.gencode()
 
 # These global variables capture the internal state of COFFEE
 intrinsics = {}
@@ -290,24 +294,28 @@ def _init_blas(blas):
 
     import os
 
-    dgemm = "cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, "
-    dgemm += "%(m1size)d, %(m2size)d, %(m3size)d, 1.0, %(m1)s, "
-    dgemm += "%(m3size)d, %(m2)s, %(m2size)s, 1.0, %(m3)s, %(m2size)s);"
-
     blas_dict = {
-        'dgemm': dgemm,
         'dir': os.environ.get("PYOP2_BLAS_DIR") or ''
     }
 
     if blas == 'mkl':
         blas_dict.update({
+            'name': 'mkl',
             'header': '#include <mkl.h>',
-            'link': '-lmkl_rt'
+            'link': ['-lmkl_rt']
         })
     elif blas == 'atlas':
         blas_dict.update({
+            'name': 'atlas',
             'header': '#include "cblas.h"',
-            'link': '-lsatlas'
+            'link': ['-lsatlas']
+        })
+    elif blas == 'eigen':
+        blas_dict.update({
+            'name': 'eigen',
+            'header': '#include <Eigen/Dense>',
+            'namespace': 'using namespace Eigen;',
+            'link': []
         })
     else:
         return {}
