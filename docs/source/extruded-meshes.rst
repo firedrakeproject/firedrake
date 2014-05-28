@@ -251,6 +251,17 @@ Firedrake supports all function spaces whose local element can be expressed
 as the product of an element defined on the base cell with an element defined
 on an interval.
 
+To allow maximal flexibility in constructing function spaces on extruded
+meshes, Firedrake supports a more general syntax:
+
+.. code-block:: python
+
+	V = FunctionSpace(mesh, element)
+
+where ``element`` is a UFL FiniteElement object. This requires manipulation
+of FiniteElement objects, which is not presently performed by the user in
+other applications.
+
 Scalar-valued spaces (basic)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -278,44 +289,3 @@ the ``vfamily`` and ``vdegree`` arguments may be omitted. If ``mesh`` is an
 Note that replacing :py:class:`~.FunctionSpace` by
 :py:class:`~.VectorFunctionSpace` would give the expected behaviour in these
 examples.
-
-HDiv and HCurl (advanced)
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The most general syntax for initialising a function space is
-
-.. code-block:: python
-
-	fspace = FunctionSpace(mesh, element)
-
-where ``element`` is a UFL FiniteElement object. This requires manipulation
-of FiniteElement objects, which is not presently performed by the user in
-other applications.
-
-
-
-For example, creating a :py:class:`~firedrake.core_types.FunctionSpace` from
-any of the ``extruded_mesh`` objects defined above can be done in the
-following way:
-
-.. code-block:: python
-
-	fspace = FunctionSpace(extruded_mesh, "Lagrange", 1)
-
-This creates a :py:class:`~firedrake.core_types.FunctionSpace` with both the
-*horizontal* and the *vertical* spaces set to *Lagrange P1*. This is
-equivalent to the following invokation:
-
-.. code-block:: python
-
-	fspace = FunctionSpace(extruded_mesh, "Lagrange", 1, vfamily="Lagrange", vdegree=1)
-
-In the more general case we only use the second variant when we want the two
-spaces to be different.
-
-.. code-block:: python
-
-	fspace = FunctionSpace(mesh, "BDFM", 2, vfamily="Lagrange", vdegree=1)
-
-A :py:class:`~firedrake.core_types.VectorFunctionSpace` can be constructed in
-a similar way.
