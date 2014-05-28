@@ -256,7 +256,7 @@ meshes, Firedrake supports a more general syntax:
 
 .. code-block:: python
 
-	V = FunctionSpace(mesh, element)
+    V = FunctionSpace(mesh, element)
 
 where ``element`` is a UFL FiniteElement object. This requires manipulation
 of FiniteElement objects, which is not presently performed by the user in
@@ -266,14 +266,14 @@ For example, in a non-extruded context, the following are equivalent:
 
 .. code-block:: python
 
-	Mesh = UnitSquareMesh(4, 4)
-	V = FunctionSpace(mesh, "RT", 1)
+    Mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "RT", 1)
 
 .. code-block:: python
 
-	Mesh = UnitSquareMesh(4, 4)
-	V_elt = FiniteElement("RT", triangle, 1)
-	V = FunctionSpace(mesh, V_elt)
+    Mesh = UnitSquareMesh(4, 4)
+    V_elt = FiniteElement("RT", triangle, 1)
+    V = FunctionSpace(mesh, V_elt)
 
 We will now introduce the new operators which act on FiniteElement objects.
 
@@ -284,10 +284,10 @@ To create any Element compatible with an extruded mesh, you must use the ``Outer
 
 .. code-block:: python
 
-	horiz_elt = FiniteElement("CG", triangle, 1)
-	vert_elt = FiniteElement("CG", interval, 1)
-	elt = OuterProductElement(horiz_elt, vert_elt)
-	V = FunctionSpace(mesh, elt)
+    horiz_elt = FiniteElement("CG", triangle, 1)
+    vert_elt = FiniteElement("CG", interval, 1)
+    elt = OuterProductElement(horiz_elt, vert_elt)
+    V = FunctionSpace(mesh, elt)
 
 will give a continuous, scalar-valued function space. The resulting space
 is technically piecewise-quadratic, but it only contains functions which
@@ -297,21 +297,49 @@ The degree and continuity may differ; for example
 
 .. code-block:: python
 
-	horiz_elt = FiniteElement("DG", triangle, 0)
-	vert_elt = FiniteElement("CG", interval, 2)
-	elt = OuterProductElement(horiz_elt, vert_elt)
-	V = FunctionSpace(mesh, elt)
+    horiz_elt = FiniteElement("DG", triangle, 0)
+    vert_elt = FiniteElement("CG", interval, 2)
+    elt = OuterProductElement(horiz_elt, vert_elt)
+    V = FunctionSpace(mesh, elt)
 
 will give a function space which is continuous between cells in a column,
 but discontinuous between horizontally-neighbouring cells. In addition,
 the function may vary piecewise-quadratically in the vertical direction,
 but is piecewise constant horizontally.
 
-Simple vector-valued spaces may be constructed by calling
-``VectorFunctionSpace`` in place of ``FunctionSpace`` in the above examples.
+A more complicated element, like a Mini horizontal element with linear
+variation in the vertical direction, may be built using the
+``EnrichedElement`` functionality in either of the following ways:
+
+.. code-block:: python
+
+    mini_horiz_1 = FiniteElement("CG", triangle, 1)
+    mini_horiz_2 = FiniteElement("B", triangle, 1)
+    mini_horiz = mini_horiz_1 + mini_horiz_2  # Enriched element
+    mini_vert = FiniteElement("CG", interval, 1)
+    mini_elt = OuterProductElement(mini_horiz, mini_vert)
+    V = FunctionSpace(mesh, mini_elt)
+
+or
+
+.. code-block:: python
+
+    mini_horiz_1 = FiniteElement("CG", triangle, 1)
+    mini_horiz_2 = FiniteElement("B", triangle, 1)
+    mini_vert = FiniteElement("CG", interval, 1)
+    mini_elt_1 = OuterProductElement(mini_horiz_1, mini_vert)
+    mini_elt_2 = OuterProductElement(mini_horiz_2, mini_vert)
+    mini_elt = mini_elt_1 + mini_elt_2  # Enriched element
+    V = FunctionSpace(mesh, mini_elt)
 
 The HDiv and HCurl operators
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For moderately complicated vector-valued elements, ``OuterProductElement``
+does not give enough information to unambiguously produce the desired
+space. As an example, consider the lowest-order *Raviart-Thomas* element on a
+quadrilateral. The degrees of freedom live on the facets, and consist of
+a single evaluation of the component of the vector field normal to each facet.
 
 Scalar-valued spaces (basic)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
