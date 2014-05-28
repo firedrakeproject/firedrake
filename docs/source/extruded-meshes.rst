@@ -341,6 +341,18 @@ space. As an example, consider the lowest-order *Raviart-Thomas* element on a
 quadrilateral. The degrees of freedom live on the facets, and consist of
 a single evaluation of the component of the vector field normal to each facet.
 
+The following element is closely related to the desired Raviart-Thomas element:
+
+.. code-block:: python
+
+    CG_1 = FiniteElement("CG", interval, 1)
+    DG_0 = FiniteElement("DG", interval, 0)
+    P1P0 = OuterProductElement(CG_1, DG_0)
+    P0P1 = OuterProductElement(DG_0, CG_1)
+    elt = P1P0 + P0P1
+
+
+
 Scalar-valued spaces (basic)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
