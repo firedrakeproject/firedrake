@@ -262,6 +262,57 @@ where ``element`` is a UFL FiniteElement object. This requires manipulation
 of FiniteElement objects, which is not presently performed by the user in
 other applications.
 
+For example, in a non-extruded context, the following are equivalent:
+
+.. code-block:: python
+
+	Mesh = UnitSquareMesh(4, 4)
+	V = FunctionSpace(mesh, "RT", 1)
+
+.. code-block:: python
+
+	Mesh = UnitSquareMesh(4, 4)
+	V_elt = FiniteElement("RT", triangle, 1)
+	V = FunctionSpace(mesh, V_elt)
+
+We will now introduce the new operators which act on FiniteElement objects.
+
+The OuterProductElement operator
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To create any Element compatible with an extruded mesh, you must use the ``OuterProductElement`` operator. For example,
+
+.. code-block:: python
+
+	horiz_elt = FiniteElement("CG", triangle, 1)
+	vert_elt = FiniteElement("CG", interval, 1)
+	elt = OuterProductElement(horiz_elt, vert_elt)
+	V = FunctionSpace(mesh, elt)
+
+will give a continuous, scalar-valued function space. The resulting space
+is technically piecewise-quadratic, but it only contains functions which
+vary linearly in the horizontal and linearly in the vertical direction.
+
+The degree and continuity may differ; for example
+
+.. code-block:: python
+
+	horiz_elt = FiniteElement("DG", triangle, 0)
+	vert_elt = FiniteElement("CG", interval, 2)
+	elt = OuterProductElement(horiz_elt, vert_elt)
+	V = FunctionSpace(mesh, elt)
+
+will give a function space which is continuous between cells in a column,
+but discontinuous between horizontally-neighbouring cells. In addition,
+the function may vary piecewise-quadratically in the vertical direction,
+but is piecewise constant horizontally.
+
+Simple vector-valued spaces may be constructed by calling
+``VectorFunctionSpace`` in place of ``FunctionSpace`` in the above examples.
+
+The HDiv and HCurl operators
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 Scalar-valued spaces (basic)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
