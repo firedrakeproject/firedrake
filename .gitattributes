@@ -5,3 +5,4 @@
 * whitespace=tab-in-indent,space-before-tab,trailing-space,tabwidth=2
 *.{py,pyx,pxd,pxi} whitespace=tab-in-indent,space-before-tab,trailing-space,tabwidth=4
 Makefile whitespace=space-before-tab,trailing-space,tabwidth=2
+pyop2/_version.py export-subst

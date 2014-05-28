@@ -7,4 +7,8 @@ delivers performance-portability across a range of platforms:
 """
 
 from op2 import *
-from version import __version__, __version_info__  # noqa: we just want to expose these
+from version import __version__ as ver, __version_info__  # noqa: just expose
+
+from ._version import get_versions
+__version__ = get_versions(default={"version": ver, "full": ""})['version']
+del get_versions

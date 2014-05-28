@@ -38,14 +38,23 @@ try:
 except ImportError:
     from distutils.core import setup
     from distutils.extension import Extension
-from distutils.command.sdist import sdist as _sdist
 from glob import glob
 import sys
+
+import versioneer
+versioneer.versionfile_source = 'pyop2/_version.py'
+versioneer.versionfile_build = 'pyop2/_version.py'
+versioneer.tag_prefix = 'v'
+versioneer.parentdir_prefix = 'pyop2-'
+versioneer.VCS = "git"
+
+cmdclass = versioneer.get_cmdclass()
+_sdist = cmdclass['sdist']
 
 # If Cython is available, built the extension module from the Cython source
 try:
     from Cython.Distutils import build_ext
-    cmdclass = {'build_ext': build_ext}
+    cmdclass['build_ext'] = build_ext
     plan_sources = ['pyop2/plan.pyx']
     sparsity_sources = ['pyop2/sparsity.pyx']
     computeind_sources = ['pyop2/computeind.pyx']
@@ -53,7 +62,6 @@ try:
 # Else we require the Cython-compiled .c file to be present and use that
 # Note: file is not in revision control but needs to be included in distributions
 except ImportError:
-    cmdclass = {}
     plan_sources = ['pyop2/plan.c']
     sparsity_sources = ['pyop2/sparsity.cpp']
     computeind_sources = ['pyop2/computeind.c']
@@ -109,10 +117,8 @@ class sdist(_sdist):
         _sdist.run(self)
 cmdclass['sdist'] = sdist
 
-# Get the package version without importing anyting from pyop2
-execfile('pyop2/version.py')
 setup(name='PyOP2',
-      version=__version__,  # noqa: pulled from pyop2/version.py
+      version=versioneer.get_version(),
       description='Framework for performance-portable parallel computations on unstructured meshes',
       author='Imperial College London and others',
       author_email='mapdes@imperial.ac.uk',
