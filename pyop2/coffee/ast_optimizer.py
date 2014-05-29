@@ -62,6 +62,7 @@ class AssemblyOptimizer(object):
     def __init__(self, loop_nest, pre_header, kernel_decls):
         self.pre_header = pre_header
         self.kernel_decls = kernel_decls
+        self._is_precomputed = False
         # Expressions evaluating the element matrix
         self.asm_expr = {}
         # Integration loop (if any)
@@ -186,6 +187,7 @@ class AssemblyOptimizer(object):
                 ew.licm()
             if level > 2:
                 self._precompute(expr)
+                self._is_precomputed = True
 
     def slice_loop(self, slice_factor=None):
         """Perform slicing of the innermost loop to enhance register reuse.
@@ -239,6 +241,75 @@ class AssemblyOptimizer(object):
             pb = par_block.children
             idx = pb.index(loops[1])
             par_block.children = pb[:idx] + sliced_loops + pb[idx + 1:]
+
+    def unroll(self, loops_factor):
+        """Unroll loops in the assembly nest.
+
+        :arg loops_factor:   dictionary from loops to unroll (factor, increment).
+                             Loops are specified as integers: 0 = integration loop,
+                             1 = test functions loop, 2 = trial functions loop.
+                             A factor of 0 denotes that the corresponding loop
+                             is not present.
+        """
+
+        def update_stmt(node, var, factor):
+            """Add an offset ``factor`` to every iteration variable ``var`` in
+            ``node``."""
+            if isinstance(node, Symbol):
+                new_ofs = []
+                node.offset = node.offset or ((1, 0) for i in range(len(node.rank)))
+                for r, ofs in zip(node.rank, node.offset):
+                    new_ofs.append((ofs[0], ofs[1] + factor) if r == var else ofs)
+                node.offset = tuple(new_ofs)
+            else:
+                for n in node.children:
+                    update_stmt(n, var, factor)
+
+        def unroll_loop(asm_expr, it_var, factor):
+            """Unroll assembly expressions in ``asm_expr`` along iteration variable
+            ``it_var`` a total of ``factor`` times."""
+            new_asm_expr = {}
+            unroll_loops = set()
+            for stmt, stmt_info in asm_expr.items():
+                it_vars, parent, loops = stmt_info
+                new_stmts = []
+                # Determine the loop along which to unroll
+                if self.int_loop and self.int_loop.it_var() == it_var:
+                    loop = self.int_loop
+                elif loops[0].it_var() == it_var:
+                    loop = loops[0]
+                else:
+                    loop = loops[1]
+                unroll_loops.add(loop)
+                # Unroll individual statements
+                for i in range(factor):
+                    new_stmt = dcopy(stmt)
+                    update_stmt(new_stmt, loop.it_var(), (i+1))
+                    parent.children.append(new_stmt)
+                    new_stmts.append(new_stmt)
+                new_asm_expr.update(dict(zip(new_stmts,
+                                             [stmt_info for i in range(len(new_stmts))])))
+            # Update the increment of each unrolled loop
+            for l in unroll_loops:
+                l.incr.children[1].symbol += factor
+            return new_asm_expr
+
+        int_factor = loops_factor[0]
+        asm_outer_factor = loops_factor[1]
+        asm_inner_factor = loops_factor[2]
+
+        # Unroll-and-jam integration loop
+        if int_factor > 1 and self._is_precomputed:
+            self.asm_expr.update(unroll_loop(self.asm_expr, self.int_loop.it_var(),
+                                             int_factor-1))
+        # Unroll-and-jam test functions loop
+        if asm_outer_factor > 1:
+            self.asm_expr.update(unroll_loop(self.asm_expr, self.asm_itspace[0][0].it_var(),
+                                             asm_outer_factor-1))
+        # Unroll trial functions loop
+        if asm_inner_factor > 1:
+            self.asm_expr.update(unroll_loop(self.asm_expr, self.asm_itspace[1][0].it_var(),
+                                             asm_inner_factor-1))
 
     def split(self, cut=1, length=0):
         """Split assembly expressions into multiple chunks exploiting sum's

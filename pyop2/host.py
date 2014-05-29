@@ -58,7 +58,7 @@ class Kernel(base.Kernel):
             self._is_blas_optimized = False
             return ast
         self._ast = ast
-        ast_handler = ASTKernel(ast)
+        ast_handler = ASTKernel(ast, self._include_dirs)
         ast_handler.plan_cpu(opts)
         self._is_blas_optimized = ast_handler.blas
         return ast_handler.gencode()
@@ -702,6 +702,7 @@ class JITModule(base.JITModule):
                'sys_headers': '\n'.join(self._kernel._headers)}
 
         self._dump_generated_code(code_to_compile)
+        from IPython import embed; embed()
         if configuration["debug"]:
             self._wrapper_code = code_to_compile
 

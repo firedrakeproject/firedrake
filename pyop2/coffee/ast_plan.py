@@ -37,6 +37,12 @@ from ast_base import *
 from ast_optimizer import AssemblyOptimizer
 from ast_vectorizer import AssemblyVectorizer
 from ast_linearalgebra import AssemblyLinearAlgebra
+from ast_autotuner import Autotuner
+
+from copy import deepcopy as dcopy
+import itertools
+import operator
+
 
 # Possibile optimizations
 AUTOVECT = 1        # Auto-vectorization
@@ -58,10 +64,11 @@ class ASTKernel(object):
     :meth:`plan_gpu` method, which transforms the AST for GPU execution.
     """
 
-    def __init__(self, ast):
+    def __init__(self, ast, include_dirs=[]):
         self.ast = ast
-        self.decls, self.fors = self._visit_ast(ast, fors=[], decls={})
-        self.blas = False  # True if blas conversion is applied
+        self.blas = False
+        # Used in case of autotuning
+        self.include_dirs = include_dirs
 
     def _visit_ast(self, node, parent=None, fors=None, decls=None):
         """Return lists of:
@@ -115,7 +122,8 @@ class ASTKernel(object):
             }
         """
 
-        asm = [AssemblyOptimizer(l, pre_l, self.decls) for l, pre_l in self.fors]
+        decls, fors = self._visit_ast(self.ast, fors=[], decls={})
+        asm = [AssemblyOptimizer(l, pre_l, decls) for l, pre_l in fors]
         for ao in asm:
             itspace_vrs, accessed_vrs = ao.extract_itspace()
 
@@ -140,7 +148,7 @@ class ASTKernel(object):
                                      for i in itspace_vrs])
 
         # Clean up the kernel removing variable qualifiers like 'static'
-        for decl in self.decls.values():
+        for decl in decls.values():
             d, place = decl
             d.qual = [q for q in d.qual if q not in ['static', 'const']]
 
@@ -151,64 +159,166 @@ class ASTKernel(object):
     def plan_cpu(self, opts):
         """Transform and optimize the kernel suitably for CPU execution."""
 
-        # Fetch user-provided options/hints on how to transform the kernel
-        licm = opts.get('licm')
-        slice_factor = opts.get('slice')
-        vect = opts.get('vect')
-        ap = opts.get('ap')
-        split = opts.get('split')
-        blas = opts.get('blas')
+        # Unrolling threshold when autotuning
+        autotune_unroll_ths = 10
+        # The higher, the more precise and costly is autotuning
+        autotune_resolution = 100000000
+        # Kernel variants tested when autotuning is enabled
+        autotune_minimal = [('licm', 1, False, (None, None), True, None, False),
+                            ('split', 3, False, (None, None), True, (1, 0), False),
+                            ('vect', 2, False, (V_OP_UAJ, 1), True, None, False)]
+        autotune_all = [('licm', 1, False, (None, None), True, None, False),
+                        ('licm', 2, False, (None, None), True, None, False),
+                        ('licm', 3, False, (None, None), True, None, False),
+                        ('split', 3, False, (None, None), True, (1, 0), False),
+                        ('split', 3, False, (None, None), True, (2, 0), False),
+                        ('split', 3, False, (None, None), True, (4, 0), False),
+                        ('vect', 2, False, (V_OP_UAJ, 1), True, None, False),
+                        ('vect', 2, False, (V_OP_UAJ, 2), True, None, False),
+                        ('vect', 2, False, (V_OP_UAJ, 3), True, None, False)]
 
-        v_type, v_param = vect if vect else (None, None)
+        def _generate_cpu_code(self, licm, slice_factor, vect, ap, split, blas, unroll=None):
+            """Generate kernel code according to the various optimization options."""
 
-        # Ensure kernel is always marked static inline
-        if hasattr(self, 'fundecl'):
-            # Remove either or both of static and inline (so that we get the order right)
-            self.fundecl.pred = [q for q in self.fundecl.pred
-                                 if q not in ['static', 'inline']]
-            self.fundecl.pred.insert(0, 'inline')
-            self.fundecl.pred.insert(0, 'static')
+            v_type, v_param = vect
 
-        if blas:
-            if not blas_interface:
-                raise RuntimeError("COFFEE Error: must set PYOP2_BLAS to convert into BLAS calls")
+            if unroll and blas:
+                raise RuntimeError("COFFEE Error: cannot unroll and then convert to BLAS")
+            if unroll and v_type and v_type != AUTOVECT:
+                raise RuntimeError("COFFEE Error: outer-product vectorization needs no unroll")
+
+            decls, fors = self._visit_ast(self.ast, fors=[], decls={})
+            asm = [AssemblyOptimizer(l, pre_l, decls) for l, pre_l in fors]
+            for ao in asm:
+                # 1) Loop-invariant code motion
+                if licm:
+                    ao.generalized_licm(licm)
+                    decls.update(ao.decls)
+
+                # 2) Splitting
+                if split:
+                    ao.split(split[0], split[1])
+
+                # 3) Unroll/Unroll-and-jam
+                if unroll:
+                    ao.unroll({0: unroll[0], 1: unroll[1], 2: unroll[2]})
+
+                # 4) Register tiling
+                if slice_factor and v_type == AUTOVECT:
+                    ao.slice_loop(slice_factor)
+
+                # 5) Vectorization
+                if initialized:
+                    vect = AssemblyVectorizer(ao, intrinsics, compiler)
+                    if ap:
+                        vect.alignment(decls)
+                        if not blas:
+                            vect.padding(decls)
+                    if v_type and v_type != AUTOVECT:
+                        if intrinsics['inst_set'] == 'SSE':
+                            raise RuntimeError("COFFEE Error: SSE vectorization not supported")
+                        vect.outer_product(v_type, v_param)
+
+                # 6) Conversion into blas calls
+                if blas:
+                    ala = AssemblyLinearAlgebra(ao, decls)
+                    self.blas = ala.transform(blas)
+
+            # Ensure kernel is always marked static inline
+            if hasattr(self, 'fundecl'):
+                # Remove either or both of static and inline (so that we get the order right)
+                self.fundecl.pred = [q for q in self.fundecl.pred
+                                     if q not in ['static', 'inline']]
+                self.fundecl.pred.insert(0, 'inline')
+                self.fundecl.pred.insert(0, 'static')
+
+            return asm
+
+        def _heuristic_unroll_factors(sizes, ths):
+            """Return a list of unroll factors to try given the sizes in ``sizes``.
+            The return value is a list of tuples, where each element in a tuple
+            represents the unroll factor for the corresponding loop in the nest.
+
+            :arg ths: unrolling threshold
+            """
+            i_loop, j_loop, k_loop = sizes
+            # Determine individual unroll factors
+            i_factors = [i+1 for i in range(i_loop) if i_loop % (i+1) == 0] or [0]
+            j_factors = [i+1 for i in range(j_loop) if j_loop % (i+1) == 0] or [0]
+            k_factors = [1]
+            # Return the cartesian product of all possible unroll factors not exceeding the threshold
+            unroll_factors = list(itertools.product(i_factors, j_factors, k_factors))
+            return [x for x in unroll_factors if reduce(operator.mul, x) <= ths]
+
+        if opts.get('autotune'):
+            if not (compiler and intrinsics):
+                raise RuntimeError("COFFEE Error: must properly initialize COFFEE for autotuning")
+            # Set granularity of autotuning
+            resolution = autotune_resolution
+            unroll_ths = autotune_unroll_ths
+            autotune_configs = autotune_all
+            if opts['autotune'] == 'minimal':
+                resolution = 1
+                autotune_configs = autotune_minimal
+                unroll_ths = 4
+            elif blas_interface:
+                autotune_configs.append(('blas', 3, 0, (None, None), True, (1, 0),
+                                         blas_interface['name']))
+            variants = []
+            autotune_configs_unroll = []
+            tunable = True
+            original_ast = dcopy(self.ast)
+            # Generate basic kernel variants
+            for params in autotune_configs:
+                opt, _params = params[0], params[1:]
+                asm = _generate_cpu_code(self, *_params)
+                if not asm:
+                    # Not a local assembly kernel, nothing to tune
+                    tunable = False
+                    break
+                if opt in ['licm', 'split']:
+                    # Heuristically apply a set of unroll factors on top of the transformation
+                    ao = asm[0]
+                    int_loop_sz = ao.int_loop.size() if ao.int_loop else 0
+                    asm_outer_sz = ao.asm_itspace[0][0].size() if len(ao.asm_itspace) >= 1 else 0
+                    asm_inner_sz = ao.asm_itspace[1][0].size() if len(ao.asm_itspace) >= 2 else 0
+                    loop_sizes = [int_loop_sz, asm_outer_sz, asm_inner_sz]
+                    for factor in _heuristic_unroll_factors(loop_sizes, unroll_ths):
+                        autotune_configs_unroll.append(params + (factor,))
+                # Add the variant to the test cases the autotuner will have to run
+                variants.append(self.ast)
+                self.ast = dcopy(original_ast)
+            # On top of some of the basic kernel variants, apply unroll/unroll-and-jam
+            for params in autotune_configs_unroll:
+                asm = _generate_cpu_code(self, *params[1:])
+                variants.append(self.ast)
+                self.ast = dcopy(original_ast)
+            if tunable:
+                # Determine the fastest kernel implementation
+                autotuner = Autotuner(variants, asm[0].asm_itspace, self.include_dirs,
+                                      compiler, intrinsics, blas_interface)
+                fastest = autotuner.tune(resolution)
+                variants = autotune_configs + autotune_configs_unroll
+                name, params = variants[fastest][0], variants[fastest][1:]
+                # Discard values set while autotuning
+                if name != 'blas':
+                    self.blas = False
+            else:
+                # The kernel is not transformed since it was not a local assembly kernel
+                params = (0, False, (None, None), True, None, False)
+        elif opts.get('blas'):
             # Conversion into blas requires a specific set of transformations
             # in order to identify and extract matrix multiplies.
-            licm = 3
-            ap = True
-            split = (1, 0)  # Full splitting
-            slice_factor = 0
-            v_type = v_type = None
+            if not blas_interface:
+                raise RuntimeError("COFFEE Error: must set PYOP2_BLAS to convert into BLAS calls")
+            params = (3, 0, (None, None), True, (1, 0), opts['blas'])
+        else:
+            # Fetch user-provided options/hints on how to transform the kernel
+            params = (opts.get('licm'), opts.get('slice'), opts.get('vect') or (None, None),
+                      opts.get('ap'), opts.get('split'), opts.get('blas'))
 
-        asm = [AssemblyOptimizer(l, pre_l, self.decls) for l, pre_l in self.fors]
-        for ao in asm:
-            # 1) Loop-invariant code motion
-            if licm:
-                ao.generalized_licm(licm)
-                self.decls.update(ao.decls)
-
-            # 2) Splitting
-            if split:
-                ao.split(split[0], split[1])
-
-            # 3) Register tiling
-            if slice_factor and v_type == AUTOVECT:
-                ao.slice_loop(slice_factor)
-
-            # 4) Vectorization
-            if initialized:
-                vect = AssemblyVectorizer(ao, intrinsics, compiler)
-                if ap:
-                    vect.alignment(self.decls)
-                    if not blas:
-                        vect.padding(self.decls)
-                if v_type and v_type != AUTOVECT:
-                    vect.outer_product(v_type, v_param)
-
-            # 5) Conversion into blas calls
-            if blas:
-                ala = AssemblyLinearAlgebra(ao, self.decls)
-                self.blas = ala.transform(blas)
+        # Generate a specific code version
+        _generate_cpu_code(self, *params)
 
     def gencode(self):
         """Generate a string representation of the AST."""
@@ -303,7 +413,8 @@ def _init_blas(blas):
     import os
 
     blas_dict = {
-        'dir': os.environ.get("PYOP2_BLAS_DIR", "")
+        'dir': os.environ.get("PYOP2_BLAS_DIR", ""),
+        'namespace': ''
     }
 
     if blas == 'mkl':
