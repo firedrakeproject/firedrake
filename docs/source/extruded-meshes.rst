@@ -332,8 +332,8 @@ or
     mini_elt = mini_elt_1 + mini_elt_2  # Enriched element
     V = FunctionSpace(mesh, mini_elt)
 
-The HDiv and HCurl operators
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The DivConforming and CurlConforming operators
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For moderately complicated vector-valued elements, ``OuterProductElement``
 does not give enough information to unambiguously produce the desired
@@ -351,19 +351,73 @@ The following element is closely related to the desired Raviart-Thomas element:
     P0P1 = OuterProductElement(DG_0, CG_1)
     elt = P1P0 + P0P1
 
-
-
-Scalar-valued spaces (basic)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Simple scalar-valued spaces can be created using a variation on the existing
-syntax. To create a function space of degree 2 in the horizontal direction,
-degree 1 in the vertical direction and possibly discontinuous between layers,
-the syntax is
+However, this is only scalar-valued. There are two natural vector-valued
+elements that can be generated from this: one of them preserves tangential
+continuity between elements, and the other preserves normal continuity
+between elements. To obtain the Raviart-Thomas element, we must use the
+``DivConforming`` operator:
 
 .. code-block:: python
 
-	fspace = FunctionSpace(mesh, "Lagrange", 2, vfamily="Discontinuous Lagrange", vdegree=1)
+    CG_1 = FiniteElement("CG", interval, 1)
+    DG_0 = FiniteElement("DG", interval, 0)
+    P1P0 = OuterProductElement(CG_1, DG_0)
+    RT_horiz = DivConforming(P1P0)
+    P0P1 = OuterProductElement(DG_0, CG_1)
+    RT_vert = DivConforming(P0P1)
+    elt = RT_horiz + RT_vert
+
+Another reason to use the operator is when expanding a vector into a higher
+dimensional space. Consider the lowest-order Nedelec element of the 2nd kind
+on a triangle:
+
+.. code-block:: python
+
+    N2_1 = FiniteElement("N2curl", triangle, 1)
+
+This is naturally vector-valued, and has two components. Suppose we form
+the product of this with a continuous element on an interval:
+
+.. code-block:: python
+
+    CG_2 = FiniteElement("CG", interval, 2)
+    N2CG = OuterProductElement(N2_1, CG_2)
+
+This element still only has two components. To expand this into a
+three-dimensional curl-conforming element, the syntax is:
+
+.. code-block:: python
+
+    Ned_horiz = CurlConforming(N2CG)
+
+This gives the horizontal part of a Nedelec edge element on a triangular
+prism. The full element can be built as follows:
+
+.. code-block:: python
+
+    N2_1 = FiniteElement("N2curl", triangle, 1)
+    CG_2 = FiniteElement("CG", interval, 2)
+    N2CG = OuterProductElement(N2_1, CG_2)
+    Ned_horiz = CurlConforming(N2CG)
+    P2tr = FiniteElement("CG", triangle, 2)
+    P1dg = FiniteElement("DG", interval, 1)
+    P2P1 = OuterProductElement(P2tr, P1dg)
+    Ned_vert = CurlConforming(P2P1)
+    Ned_wedge = Ned_horiz + Ned_vert
+    V = FunctionSpace(mesh, Ned_wedge)
+
+Shortcuts for simple spaces
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Simple scalar-valued spaces can be created using a variation on the existing
+syntax, if the ``DivConforming``, ``CurlConforming`` and enrichment operations
+are not required. To create a function space of degree 2 in the horizontal
+direction, degree 1 in the vertical direction and possibly discontinuous
+between layers, the short syntax is
+
+.. code-block:: python
+
+	fspace = FunctionSpace(mesh, "CG", 2, vfamily="DG", vdegree=1)
 
 If the horizontal and vertical parts have the same ``family`` and ``degree``,
 the ``vfamily`` and ``vdegree`` arguments may be omitted. If ``mesh`` is an
@@ -378,5 +432,5 @@ the ``vfamily`` and ``vdegree`` arguments may be omitted. If ``mesh`` is an
 	fspace = FunctionSpace(mesh, "Lagrange", 1, vfamily="Lagrange", vdegree=1)
 
 Note that replacing :py:class:`~.FunctionSpace` by
-:py:class:`~.VectorFunctionSpace` would give the expected behaviour in these
-examples.
+:py:class:`~.VectorFunctionSpace`, when using the short syntax, will do the
+expected thing.
