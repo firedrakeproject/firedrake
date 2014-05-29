@@ -366,7 +366,7 @@ space.
 
    u = Function(W)
    solve(a == L, u, 
-         solver_parameters={'ksp_type': 'cg'
+         solver_parameters={'ksp_type': 'cg',
                             'pc_type': 'fieldsplit',
                             'pc_fieldsplit_type': 'schur',
                             'pc_fieldsplit_schur_fact_type': 'FULL',
