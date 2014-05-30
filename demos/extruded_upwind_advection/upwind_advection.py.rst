@@ -36,7 +36,7 @@ avoid taking the derivative of a discontinuous quantity:
 
 .. math::
 
-   \sum_e \left( \int_{\delta e} \! \phi_e D \vec{u_0} \cdot \vec{n} \, 
+   \sum_e \left( \int_{\partial e} \! \phi_e D \vec{u_0} \cdot \vec{n} \,
    \mathrm{d} S - \int_e \! D \vec{u_0} \cdot \nabla \phi \, \mathrm{d} x \right) = 0
    \quad \forall \ \phi \in V, \\
    
@@ -66,7 +66,8 @@ was used to make this explicit. The full set of equations are then
    \, \mathrm{d} s 
    + \int_{\Gamma_\mathrm{int}} \! (\phi_+ - \phi_-) \widetilde{D}
    \vec{u_0} \cdot \vec{n} \, \mathrm{d} S
-     =  -\int_{\Gamma_\rlap{\mathrm{ext, inflow}}} \phi D_0 \vec{u_0} \cdot
+   \quad = \quad
+   -\int_{\Gamma_\rlap{\mathrm{ext, inflow}}} \phi D_0 \vec{u_0} \cdot
    \vec{n} \, \mathrm{d} s \quad \forall \ \phi \in V,
 
    D = D_0 \quad \mathrm{on} \ \Gamma_\mathrm{inflow}
