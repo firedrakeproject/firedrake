@@ -700,17 +700,23 @@ def _assemble(f, tensor=None, bcs=None):
             else:
                 raise RuntimeError('Unknown integral type "%s"' % integral_type)
 
-            if bcs is not None and is_mat:
-                with timed_region('DirichletBC apply'):
-                    for bc in bcs:
-                        fs = bc.function_space()
-                        if isinstance(fs, functionspace.MixedFunctionSpace):
-                            raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
-                        # Set diagonal entries on bc nodes to 1 if the current
-                        # block is on the matrix diagonal and its index matches the
-                        # index of the function space the bc is defined on.
-                        if i == j and (fs.index is None or fs.index == i):
-                            tensor[i, j].inc_local_diagonal_entries(bc.nodes)
+        # Must apply bcs outside loop over kernels because we may wish
+        # to apply bcs to a block which is otherwise zero, and
+        # therefore does not have an associated kernel.
+        if bcs is not None and is_mat:
+            with timed_region('DirichletBC apply'):
+                for bc in bcs:
+                    fs = bc.function_space()
+                    if isinstance(fs, functionspace.MixedFunctionSpace):
+                        raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
+                    shape = tensor.sparsity.shape
+                    for i in range(shape[0]):
+                        for j in range(shape[1]):
+                            # Set diagonal entries on bc nodes to 1 if the current
+                            # block is on the matrix diagonal and its index matches the
+                            # index of the function space the bc is defined on.
+                            if i == j and (fs.index is None or fs.index == i):
+                                tensor[i, j].inc_local_diagonal_entries(bc.nodes)
         if is_mat:
             # Queue up matrix assembly (after we've done all the other operations)
             tensor.assemble()

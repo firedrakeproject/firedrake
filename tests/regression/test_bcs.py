@@ -311,6 +311,26 @@ def test_assemble_mass_bcs_2d(V):
     assert assemble(dot((w - f), (w - f))*dx) < 1e-12
 
 
+def test_mixed_bcs(V):
+    W = V*V
+    u, p = TrialFunctions(W)
+    v, q = TestFunctions(W)
+
+    f = Function(W)
+
+    f.sub(0).assign(10)
+
+    w = Function(W)
+
+    bc = DirichletBC(W.sub(1), Constant(12), (1, 2, 3, 4))
+
+    A = assemble(inner(u, v)*dx, bcs=bc)
+
+    A11 = A.M[1, 1].values
+
+    assert np.allclose(A11.diagonal()[bc.nodes], 1.0)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
