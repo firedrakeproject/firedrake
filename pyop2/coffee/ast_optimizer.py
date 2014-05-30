@@ -34,6 +34,8 @@
 from collections import defaultdict
 from copy import deepcopy as dcopy
 
+import networkx as nx
+
 from pyop2.coffee.ast_base import *
 import ast_plan
 
@@ -62,6 +64,8 @@ class AssemblyOptimizer(object):
         self.kernel_decls = kernel_decls
         # Expressions evaluating the element matrix
         self.asm_expr = {}
+        # Integration loop (if any)
+        self.int_loop = None
         # Fully parallel iteration space in the assembly loop nest
         self.asm_itspace = []
         # Inspect the assembly loop nest and collect info
@@ -83,6 +87,10 @@ class AssemblyOptimizer(object):
                 if len(opts) < 3:
                     return
                 if opts[1] == "pyop2":
+                    if opts[2] == "integration":
+                        # Found integration loop
+                        self.int_loop = node
+                        return
                     if opts[2] == "itspace":
                         # Found high-level optimisation
                         self.asm_itspace.append((node, parent))
@@ -151,155 +159,15 @@ class AssemblyOptimizer(object):
         return (itspace_vrs, accessed_vrs)
 
     def generalized_licm(self):
-        """Perform loop-invariant code motion.
+        """Generalized loop-invariant code motion."""
 
-        Invariant expressions found in the loop nest are moved "after" the
-        outermost independent loop and "after" the fastest varying dimension
-        loop. Here, "after" means that if the loop nest has two loops i and j,
-        and j is in the body of i, then i comes after j (i.e. the loop nest
-        has to be read from right to left)
-
-        For example, if a sub-expression E depends on [i, j] and the loop nest
-        has three loops [i, j, k], then E is hoisted out from the body of k to
-        the body of i). All hoisted expressions are then wrapped within a
-        suitable loop in order to exploit compiler autovectorization.
-        """
-
-        def extract_const(node, expr_dep):
-            if isinstance(node, Symbol):
-                return (node.loop_dep, node.symbol not in written_vars)
-            if isinstance(node, Par):
-                return (extract_const(node.children[0], expr_dep))
-
-            # Traverse the expression tree
-            left, right = node.children
-            dep_left, invariant_l = extract_const(left, expr_dep)
-            dep_right, invariant_r = extract_const(right, expr_dep)
-
-            if dep_left == dep_right:
-                # Children match up, keep traversing the tree in order to see
-                # if this sub-expression is actually a child of a larger
-                # loop-invariant sub-expression
-                return (dep_left, True)
-            elif len(dep_left) == 0:
-                # The left child does not depend on any iteration variable,
-                # so it's loop invariant
-                return (dep_right, True)
-            elif len(dep_right) == 0:
-                # The right child does not depend on any iteration variable,
-                # so it's loop invariant
-                return (dep_left, True)
-            else:
-                # Iteration variables of the two children do not match, add
-                # the children to the dict of invariant expressions iff
-                # they were invariant w.r.t. some loops and not just symbols
-                if invariant_l and not isinstance(left, Symbol):
-                    expr_dep[dep_left].append(left)
-                if invariant_r and not isinstance(right, Symbol):
-                    expr_dep[dep_right].append(right)
-                return ((), False)
-
-        def replace_const(node, syms_dict):
-            if isinstance(node, Symbol):
-                return False
-            if isinstance(node, Par):
-                if node in syms_dict:
-                    return True
-                else:
-                    return replace_const(node.children[0], syms_dict)
-            # Found invariant sub-expression
-            if node in syms_dict:
-                return True
-
-            # Traverse the expression tree and replace
-            left = node.children[0]
-            right = node.children[1]
-            if replace_const(left, syms_dict):
-                node.children[0] = syms_dict[left]
-            if replace_const(right, syms_dict):
-                node.children[1] = syms_dict[right]
-            return False
-
-        # Find out all variables which are written to in this loop nest
-        written_vars = []
-        for s in self.asm_expr.keys():
-            if type(s) in [Assign, Incr]:
-                written_vars.append(s.children[0].symbol)
-
-        # Extract read-only sub-expressions that do not depend on at least
-        # one loop in the loop nest
-        ext_loops = []
-        for s, op in self.asm_expr.items():
-            expr_dep = defaultdict(list)
-            if isinstance(s, (Assign, Incr)):
-                typ = self.kernel_decls[s.children[0].symbol][0].typ
-                extract_const(s.children[1], expr_dep)
-
-            for dep, expr in expr_dep.items():
-                # 1) Determine the loops that should wrap invariant statements
-                # and where such for blocks should be placed in the loop nest
-                n_dep_for = None
-                fast_for = None
-                # Collect some info about the loops
-                for l in self.fors:
-                    if l.it_var() == dep[-1]:
-                        fast_for = fast_for or l
-                    if l.it_var() not in dep:
-                        n_dep_for = n_dep_for or l
-                    if l.it_var() == op[0][0]:
-                        op_loop = l
-                if not fast_for or not n_dep_for:
-                    continue
-
-                # Find where to put the new invariant for
-                pre_loop = None
-                for l in self.fors:
-                    if l.it_var() not in [fast_for.it_var(), n_dep_for.it_var()]:
-                        pre_loop = l
-                    else:
-                        break
-                if pre_loop:
-                    place = pre_loop.children[0]
-                    ofs = place.children.index(op_loop)
-                    wl = [fast_for]
-                else:
-                    place = self.pre_header
-                    ofs = place.children.index(self.fors[0])
-                    wl = [l for l in self.fors if l.it_var() in dep]
-
-                # 2) Create the new loop
-                sym_rank = tuple([l.size() for l in wl],)
-                syms = [Symbol("LI_%s_%s" % (wl[0].it_var(), i), sym_rank)
-                        for i in range(len(expr))]
-                var_decl = [Decl(typ, _s) for _s in syms]
-                for_rank = tuple([l.it_var() for l in reversed(wl)])
-                for_sym = [Symbol(_s.sym.symbol, for_rank) for _s in var_decl]
-                for_ass = [Assign(_s, e) for _s, e in zip(for_sym, expr)]
-                block = Block(for_ass, open_scope=True)
-                for l in wl:
-                    inv_for = For(dcopy(l.init), dcopy(l.cond),
-                                  dcopy(l.incr), block)
-                    block = Block([inv_for], open_scope=True)
-
-                # Update the lists of symbols accessed and of decls
-                self.sym.update([d.sym for d in var_decl])
-                lv = ast_plan.LOCAL_VAR
-                self.decls.update(dict(zip([d.sym.symbol for d in var_decl],
-                                           [(v, lv) for v in var_decl])))
-
-                # 3) Append the new node at the right level in the loop nest
-                new_block = var_decl + [inv_for] + place.children[ofs:]
-                place.children = place.children[:ofs] + new_block
-
-                # 4) Replace invariant sub-trees with the proper tmp variable
-                replace_const(s.children[1], dict(zip(expr, for_sym)))
-
-                # 5) Record invariant loops which have been hoisted out of
-                # the present loop nest
-                if not pre_loop:
-                    ext_loops.append(inv_for)
-
-        return ext_loops
+        parent = (self.pre_header, self.kernel_decls)
+        for expr in self.asm_expr.items():
+            ew = AssemblyRewriter(expr, self.int_loop, self.sym, self.decls, parent)
+            ew.licm()
+            ew.expand()
+            ew.distribute()
+            ew.licm()
 
     def slice_loop(self, slice_factor=None):
         """Perform slicing of the innermost loop to enhance register reuse.
@@ -431,3 +299,487 @@ class AssemblyOptimizer(object):
         if splittable:
             new_asm_expr.update(splittable)
         self.asm_expr = new_asm_expr
+
+
+class AssemblyRewriter(object):
+    """Provide operations to re-write an assembly expression:
+        - Loop-invariant code motion: find and hoist sub-expressions which are
+        invariant with respect to an assembly loop
+        - Expansion: transform an expression (a + b)*c into (a*c + b*c)
+        - Distribute: transform an expression a*b + a*c into a*(b+c)"""
+
+    def __init__(self, expr, int_loop, syms, decls, parent):
+        """Initialize the AssemblyRewriter.
+
+        :arg expr:     provide generic information related to an assembly expression,
+                       including the depending for loops.
+        :arg int_loop: the loop along which integration is performed.
+        :arg syms:     list of AST symbols used to evaluate the local element matrix.
+        :arg decls:    list of AST declarations of the various symbols in ``syms``.
+        :arg parent:   the parent AST node of the assembly loop nest.
+        """
+        self.expr, self.expr_info = expr
+        self.int_loop = int_loop
+        self.syms = syms
+        self.decls = decls
+        self.parent, self.parent_decls = parent
+        self.hoisted = {}
+        # Properties of the assembly expression
+        self._licm = 0
+        self._expanded = False
+        # The expression graph tracks symbols dependencies
+        self.eg = ExpressionGraph()
+
+    def licm(self):
+        """Perform loop-invariant code motion.
+
+        Invariant expressions found in the loop nest are moved "after" the
+        outermost independent loop and "after" the fastest varying dimension
+        loop. Here, "after" means that if the loop nest has two loops i and j,
+        and j is in the body of i, then i comes after j (i.e. the loop nest
+        has to be read from right to left).
+
+        For example, if a sub-expression E depends on [i, j] and the loop nest
+        has three loops [i, j, k], then E is hoisted out from the body of k to
+        the body of i). All hoisted expressions are then wrapped within a
+        suitable loop in order to exploit compiler autovectorization. Note that
+        this applies to constant sub-expressions as well, in which case hoisting
+        after the outermost loop takes place."""
+
+        def extract(node, expr_dep, length=0):
+            """Extract invariant sub-expressions from the original assembly
+            expression. Hoistable sub-expressions are stored in expr_dep."""
+
+            def hoist(node, dep, expr_dep, _extract=True):
+                if _extract:
+                    node = Par(node) if isinstance(node, Symbol) else node
+                    expr_dep[dep].append(node)
+                extract.has_extracted = extract.has_extracted or _extract
+
+            if isinstance(node, Symbol):
+                return (node.loop_dep, extract.INV, 1)
+            if isinstance(node, Par):
+                return (extract(node.children[0], expr_dep, length))
+
+            # Traverse the expression tree
+            left, right = node.children
+            dep_l, info_l, len_l = extract(left, expr_dep, length)
+            dep_r, info_r, len_r = extract(right, expr_dep, length)
+            node_len = len_l + len_r
+
+            if info_l == extract.KSE and info_r == extract.KSE:
+                if dep_l != dep_r:
+                    # E.g. (A[i]*alpha + D[i])*(B[j]*beta + C[j])
+                    hoist(left, dep_l, expr_dep)
+                    hoist(right, dep_r, expr_dep)
+                    return ((), extract.HOI, node_len)
+                else:
+                    # E.g. (A[i]*alpha)+(B[i]*beta)
+                    return (dep_l, extract.KSE, node_len)
+            elif info_l == extract.KSE and info_r == extract.INV:
+                hoist(left, dep_l, expr_dep)
+                hoist(right, dep_r, expr_dep, (dep_r and len_r == 1) or len_r > 1)
+                return ((), extract.HOI, node_len)
+            elif info_l == extract.INV and info_r == extract.KSE:
+                hoist(right, dep_r, expr_dep)
+                hoist(left, dep_l, expr_dep, (dep_l and len_l == 1) or len_l > 1)
+                return ((), extract.HOI, node_len)
+            elif info_l == extract.INV and info_r == extract.INV:
+                if not dep_l and not dep_r:
+                    # E.g. alpha*beta
+                    return ((), extract.INV, node_len)
+                elif dep_l and dep_r and dep_l != dep_r:
+                    # E.g. A[i]*B[j]
+                    hoist(left, dep_l, expr_dep, not self._licm or len_l > 1)
+                    hoist(right, dep_r, expr_dep, not self._licm or len_r > 1)
+                    return ((), extract.HOI, node_len)
+                elif dep_l and dep_r and dep_l == dep_r:
+                    # E.g. A[i] + B[i]
+                    return (dep_l, extract.INV, node_len)
+                elif dep_l and not dep_r:
+                    # E.g. A[i]*alpha
+                    hoist(right, dep_r, expr_dep, len_r > 1)
+                    return (dep_l, extract.KSE, node_len)
+                elif dep_r and not dep_l:
+                    # E.g. alpha*A[i]
+                    hoist(left, dep_l, expr_dep, len_l > 1)
+                    return (dep_r, extract.KSE, node_len)
+                else:
+                    raise RuntimeError("Error while hoisting invariant terms")
+            elif info_l == extract.HOI and info_r == extract.KSE:
+                hoist(right, dep_r, expr_dep, len_r > 2)
+                return ((), extract.HOI, node_len)
+            elif info_l == extract.KSE and info_r == extract.HOI:
+                hoist(left, dep_l, expr_dep, len_l > 2)
+                return ((), extract.HOI, node_len)
+            elif info_l == extract.HOI or info_r == extract.HOI:
+                return ((), extract.HOI, node_len)
+            else:
+                raise RuntimeError("Fatal error while finding hoistable terms")
+
+        extract.INV = 0  # Invariant term(s)
+        extract.KSE = 1  # Keep searching invariant sub-expressions
+        extract.HOI = 2  # Stop searching, done hoisting
+        extract.has_extracted = False
+
+        def replace(node, syms_dict, n_replaced):
+            if isinstance(node, Symbol):
+                if str(Par(node)) in syms_dict:
+                    return True
+                else:
+                    return False
+            if isinstance(node, Par):
+                if str(node) in syms_dict:
+                    return True
+                else:
+                    return replace(node.children[0], syms_dict, n_replaced)
+            # Found invariant sub-expression
+            if str(node) in syms_dict:
+                return True
+
+            # Traverse the expression tree and replace
+            left = node.children[0]
+            right = node.children[1]
+            if replace(left, syms_dict, n_replaced):
+                left = Par(left) if isinstance(left, Symbol) else left
+                replacing = syms_dict[str(left)]
+                node.children[0] = dcopy(replacing)
+                n_replaced[str(replacing)] += 1
+            if replace(right, syms_dict, n_replaced):
+                right = Par(right) if isinstance(right, Symbol) else right
+                replacing = syms_dict[str(right)]
+                node.children[1] = dcopy(replacing)
+                n_replaced[str(replacing)] += 1
+            return False
+
+        # Extract read-only sub-expressions that do not depend on at least
+        # one loop in the loop nest
+        inv_dep = {}
+        typ = self.parent_decls[self.expr.children[0].symbol][0].typ
+        while True:
+            expr_dep = defaultdict(list)
+            extract(self.expr.children[1], expr_dep)
+
+            # While end condition
+            if self._licm and not extract.has_extracted:
+                break
+            extract.has_extracted = False
+            self._licm += 1
+
+            for dep, expr in sorted(expr_dep.items()):
+                # 0) Determine the loops that should wrap invariant statements
+                # and where such loops should be placed in the loop nest
+                place = self.int_loop.children[0] if self.int_loop else self.parent
+                out_asm_loop, in_asm_loop = self.expr_info[2]
+                ofs = lambda: place.children.index(out_asm_loop)
+                if dep and out_asm_loop.it_var() == dep[-1]:
+                    wl = out_asm_loop
+                elif dep and in_asm_loop.it_var() == dep[-1]:
+                    wl = in_asm_loop
+                else:
+                    wl = None
+
+                # 1) Remove identical sub-expressions
+                expr = dict([(str(e), e) for e in expr]).values()
+
+                # 2) Create the new invariant sub-expressions and temporaries
+                sym_rank, for_dep = (tuple([wl.size()]), tuple([wl.it_var()])) \
+                    if wl else ((), ())
+                syms = [Symbol("LI_%s_%d_%s" % ("".join(dep).upper() if dep else "C",
+                        self._licm, i), sym_rank) for i in range(len(expr))]
+                var_decl = [Decl(typ, _s) for _s in syms]
+                for_sym = [Symbol(_s.sym.symbol, for_dep) for _s in var_decl]
+
+                # 3) Create the new for loop containing invariant terms
+                _expr = [Par(e) if not isinstance(e, Par) else e for e in expr]
+                inv_for = [Assign(_s, e) for _s, e in zip(for_sym, _expr)]
+
+                # 4) Update the lists of symbols accessed and of decls
+                self.syms.update([d.sym for d in var_decl])
+                lv = ast_plan.LOCAL_VAR
+                self.decls.update(dict(zip([d.sym.symbol for d in var_decl],
+                                           [(v, lv) for v in var_decl])))
+
+                # 5) Replace invariant sub-trees with the proper tmp variable
+                n_replaced = dict(zip([str(s) for s in for_sym], [0]*len(for_sym)))
+                replace(self.expr.children[1], dict(zip([str(i) for i in expr], for_sym)),
+                        n_replaced)
+
+                # 6) Track hoisted symbols and symbols dependencies
+                sym_info = [(i, j, inv_for) for i, j in zip(_expr, var_decl)]
+                self.hoisted.update(zip([s.symbol for s in for_sym], sym_info))
+                for s, e in zip(for_sym, expr):
+                    self.eg.add_dependency(s, e, n_replaced[str(s)] > 1)
+
+                # 7a) Update expressions hoisted along a known dimension (same dep)
+                if for_dep in inv_dep:
+                    _var_decl, _inv_for = inv_dep[for_dep][0:2]
+                    _var_decl.extend(var_decl)
+                    _inv_for.extend(inv_for)
+                    continue
+
+                # 7b) Keep track of hoisted stuff
+                inv_dep[for_dep] = (var_decl, inv_for, place, ofs, wl)
+
+        for dep, dep_info in sorted(inv_dep.items()):
+            var_decl, inv_for, place, ofs, wl = dep_info
+            # Create the hoisted code
+            if wl:
+                new_for = [dcopy(wl)]
+                new_for[0].children[0] = Block(inv_for, open_scope=True)
+                inv_for = new_for
+            # Append the new node at the right level in the loop nest
+            new_block = var_decl + inv_for + [FlatBlock("\n")] + place.children[ofs():]
+            place.children = place.children[:ofs()] + new_block
+            # Update information about hoisted symbols
+            for i in var_decl:
+                old_sym_info = self.hoisted[i.sym.symbol]
+                old_sym_info = old_sym_info[0:2] + (inv_for[0],) + (place.children,)
+                self.hoisted[i.sym.symbol] = old_sym_info
+
+    def count_occurrences(self, str_key=False):
+        """For each variable in the assembly expression, count how many times
+        it appears as involved in some operations. For example, for the
+        expression a*(5+c) + b*(a+4), return {a: 2, b: 1, c: 1}."""
+
+        def count(node, counter):
+            if isinstance(node, Symbol):
+                node = str(node) if str_key else (node.symbol, node.rank)
+                if node in counter:
+                    counter[node] += 1
+                else:
+                    counter[node] = 1
+            else:
+                for c in node.children:
+                    count(c, counter)
+
+        counter = {}
+        count(self.expr.children[1], counter)
+        return counter
+
+    def expand(self):
+        """Expand assembly expressions such that:
+
+        Y[j] = f(...)
+        (X[i]*Y[j])*F + ...
+
+        becomes:
+
+        Y[j] = f(...)*F
+        (X[i]*Y[j]) + ...
+
+        This may be useful for several purposes:
+        - Relieve register pressure; when, for example, (X[i]*Y[j]) is computed
+        in a loop L' different than the loop L'' in which Y[j] is evaluated,
+        and cost(L') > cost(L'')
+        - It is also a step towards exposing well-known linear algebra operations,
+        like matrix-matrix multiplies."""
+
+        # Select the assembly iteration variable along which the expansion should
+        # be performed. The heuristics here is that the expansion occurs along the
+        # iteration variable which appears in more unique arrays. This will allow
+        # distribution to be more effective.
+        asm_out, asm_in = (self.expr_info[0][0], self.expr_info[0][1])
+        it_var_occs = {asm_out: 0, asm_in: 0}
+        for s in self.count_occurrences().keys():
+            if s[1] and s[1][0] in it_var_occs:
+                it_var_occs[s[1][0]] += 1
+
+        exp_var = asm_out if it_var_occs[asm_out] < it_var_occs[asm_in] else asm_in
+        ee = ExpressionExpander(self.hoisted, self.eg, self.parent)
+        ee.expand(self.expr.children[1], self.expr, it_var_occs, exp_var)
+        self._expanded = True
+
+    def distribute(self):
+        """Apply to the distributivity property to the assembly expression.
+        E.g. A[i]*B[j] + A[i]*C[j] becomes A[i]*(B[j] + C[j])."""
+
+        def find_prod(node, occs, to_distr):
+            if isinstance(node, Par):
+                find_prod(node.children[0], occs, to_distr)
+            elif isinstance(node, Sum):
+                find_prod(node.children[0], occs, to_distr)
+                find_prod(node.children[1], occs, to_distr)
+            elif isinstance(node, Prod):
+                left, right = (node.children[0], node.children[1])
+                l_str, r_str = (str(left), str(right))
+                if occs[l_str] > 1 and occs[r_str] > 1:
+                    if occs[l_str] > occs[r_str]:
+                        dist = l_str
+                        target = (left, right)
+                        occs[r_str] -= 1
+                    else:
+                        dist = r_str
+                        target = (right, left)
+                        occs[l_str] -= 1
+                elif occs[l_str] > 1 and occs[r_str] == 1:
+                    dist = l_str
+                    target = (left, right)
+                elif occs[r_str] > 1 and occs[l_str] == 1:
+                    dist = r_str
+                    target = (right, left)
+                elif occs[l_str] == 1 and occs[r_str] == 1:
+                    dist = l_str
+                    target = (left, right)
+                else:
+                    raise RuntimeError("Distribute error: symbol not found")
+                to_distr[dist].append(target)
+
+        def create_sum(symbols):
+            if len(symbols) == 1:
+                return symbols[0]
+            else:
+                return Sum(symbols[0], create_sum(symbols[1:]))
+
+        # Expansion ensures the expression to be in a form like:
+        # tensor[i][j] += A[i]*B[j] + C[i]*D[j] + A[i]*E[j] + ...
+        if not self._expanded:
+            raise RuntimeError("Distribute error: expansion required first.")
+
+        to_distr = defaultdict(list)
+        find_prod(self.expr.children[1], self.count_occurrences(True), to_distr)
+
+        # Create the new assembly expression
+        new_prods = []
+        for d in to_distr.values():
+            dist, target = zip(*d)
+            target = Par(create_sum(target)) if len(target) > 1 else create_sum(target)
+            new_prods.append(Par(Prod(dist[0], target)))
+        self.expr.children[1] = Par(create_sum(new_prods))
+
+
+class ExpressionExpander(object):
+    """Expand assembly expressions such that:
+
+    Y[j] = f(...)
+    (X[i]*Y[j])*F + ...
+
+    becomes:
+
+    Y[j] = f(...)*F
+    (X[i]*Y[j]) + ..."""
+
+    CONST = -1
+    ITVAR = -2
+
+    def __init__(self, var_info, eg, expr):
+        self.var_info = var_info
+        self.eg = eg
+        self.counter = 0
+        self.parent = expr
+
+    def _do_expand(self, sym, const):
+        """Perform the actual expansion. If there are no dependencies, then
+        the already hoisted expression is expanded. Otherwise, if the symbol to
+        be expanded occurs multiple times in the expression, or it depends on
+        other hoisted symbols that will also be expanded, create a new symbol."""
+
+        old_expr, var_decl, inv_for, place = self.var_info[sym.symbol]
+
+        # No dependencies, just perform the expansion
+        if not self.eg.has_dep(sym):
+            old_expr.children[0] = Prod(Par(old_expr.children[0]), const)
+            return
+
+        # Create a new symbol, expression, and declaration
+        new_expr = Par(Prod(dcopy(sym), const))
+        new_node = Assign(sym, new_expr)
+        sym.symbol += "_EXP%d" % self.counter
+        new_var_decl = dcopy(var_decl)
+        new_var_decl.sym.symbol = sym.symbol
+        # Append new expression and declaration
+        inv_for.children[0].children.append(new_node)
+        place.insert(place.index(var_decl), new_var_decl)
+        # Update tracked information
+        self.var_info[sym.symbol] = (new_expr, new_var_decl, inv_for, place)
+        self.eg.add_dependency(sym, new_expr, 0)
+
+        self.counter += 1
+
+    def expand(self, node, parent, it_vars, exp_var):
+        """Perform the expansion of the expression rooted in ``node``. Terms are
+        expanded along the iteration variable ``exp_var``."""
+
+        if isinstance(node, Symbol):
+            if not node.rank:
+                return ([node], self.CONST)
+            elif node.rank[-1] not in it_vars.keys():
+                return ([node], self.CONST)
+            else:
+                return ([node], self.ITVAR)
+        elif isinstance(node, Par):
+            return self.expand(node.children[0], node, it_vars, exp_var)
+        elif isinstance(node, Prod):
+            l_node, l_type = self.expand(node.children[0], node, it_vars, exp_var)
+            r_node, r_type = self.expand(node.children[1], node, it_vars, exp_var)
+            if l_type == self.ITVAR and r_type == self.ITVAR:
+                # Found an expandable product
+                to_exp = l_node if l_node[0].rank[-1] == exp_var else r_node
+                return (to_exp, self.ITVAR)
+            elif l_type == self.CONST and r_type == self.CONST:
+                # Product of constants; they are both used for expansion (if any)
+                return ([node], self.CONST)
+            else:
+                # Do the expansion
+                const = l_node[0] if l_type == self.CONST else r_node[0]
+                expandable, exp_node = (l_node, node.children[0]) \
+                    if l_type == self.ITVAR else (r_node, node.children[1])
+                for sym in expandable:
+                    # Perform the expansion
+                    if sym.symbol not in self.var_info:
+                        raise RuntimeError("Expansion error: no symbol: %s" % sym.symbol)
+                    old_expr, var_decl, inv_for, place = self.var_info[sym.symbol]
+                    self._do_expand(sym, const)
+                # Update the parent node, since an expression has been expanded
+                if parent.children[0] == node:
+                    parent.children[0] = exp_node
+                elif parent.children[1] == node:
+                    parent.children[1] = exp_node
+                else:
+                    raise RuntimeError("Expansion error: wrong parent-child association")
+                return (expandable, self.ITVAR)
+        elif isinstance(node, Sum):
+            l_node, l_type = self.expand(node.children[0], node, it_vars, exp_var)
+            r_node, r_type = self.expand(node.children[1], node, it_vars, exp_var)
+            if l_type == self.ITVAR and r_type == self.ITVAR:
+                return (l_node + r_node, self.ITVAR)
+            elif l_type == self.CONST and r_type == self.CONST:
+                return ([node], self.CONST)
+            else:
+                return (None, self.CONST)
+        else:
+            raise RuntimeError("Expansion error: unknown node: %s" % str(node))
+
+
+class ExpressionGraph(object):
+
+    """Track read-after-write dependencies between symbols."""
+
+    def __init__(self):
+        self.deps = nx.DiGraph()
+
+    def add_dependency(self, sym, expr, self_loop):
+        """Extract symbols from ``expr`` and create a read-after-write dependency
+        with ``sym``. If ``sym`` already has a dependency, then ``sym`` has a
+        self dependency on itself."""
+
+        def extract_syms(sym, node, deps):
+            if isinstance(node, Symbol):
+                deps.add_edge(sym, node.symbol)
+            else:
+                for n in node.children:
+                    extract_syms(sym, n, deps)
+
+        sym = sym.symbol
+        # Add self-dependency
+        if self_loop:
+            self.deps.add_edge(sym, sym)
+        extract_syms(sym, expr, self.deps)
+
+    def has_dep(self, sym):
+        """Return True if ``sym`` has a read-after-write dependency with some
+        other symbols. This is the case if ``sym`` has either a self dependency
+        or at least one input edge, meaning that other symbols depend on it."""
+
+        sym = sym.symbol
+        return sym in self.deps and zip(*self.deps.in_edges(sym))

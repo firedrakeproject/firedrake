@@ -161,9 +161,8 @@ class ASTKernel(object):
         asm = [AssemblyOptimizer(l, pre_l, self.decls) for l, pre_l in self.fors]
         for ao in asm:
             # 1) Loop-invariant code motion
-            inv_outer_loops = []
             if licm:
-                inv_outer_loops = ao.generalized_licm()  # noqa
+                ao.generalized_licm()
                 self.decls.update(ao.decls)
 
             # 2) Splitting

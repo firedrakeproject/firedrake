@@ -196,7 +196,7 @@ class LinuxIntelCompiler(Compiler):
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
 
-        cppargs = ['-std=c99', '-fPIC'] + opt_flags + cppargs
+        cppargs = ['-std=c99', '-fPIC', '-no-multibyte-chars'] + opt_flags + cppargs
         ldargs = ['-shared'] + ldargs
         super(LinuxIntelCompiler, self).__init__("mpicc", cppargs=cppargs, ldargs=ldargs)
 
