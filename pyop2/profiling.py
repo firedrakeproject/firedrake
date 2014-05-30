@@ -35,6 +35,7 @@
 
 import numpy as np
 from time import time
+from contextlib import contextmanager
 from decorator import decorator
 
 
@@ -63,17 +64,25 @@ class Timer(object):
         self._timer = timer
         self._start = None
         self._timings = []
-        self._timers[n] = self
 
     def start(self):
         """Start the timer."""
+        if self._name not in Timer._timers:
+            self.reset()
+            Timer._timers[self._name] = self
         self._start = self._timer()
 
     def stop(self):
         """Stop the timer."""
         assert self._start, "Timer %s has not been started yet." % self._name
-        self._timings.append(self._timer() - self._start)
+        t = self._timer() - self._start
+        self._timings.append(t)
         self._start = None
+        return t
+
+    def reset(self):
+        """Reset the timer."""
+        self._timings = []
 
     @property
     def name(self):
@@ -139,25 +148,26 @@ class Timer(object):
         return cls._timers
 
     @classmethod
-    def reset(cls):
+    def reset_all(cls):
         """Clear all timer information previously recorded."""
         if not cls._timers:
             return
         cls._timers = {}
 
 
-class profile(Timer):
+class timed_function(Timer):
 
-    """Decorator to profile function calls."""
+    """Decorator to time function calls."""
 
     def __call__(self, f):
         def wrapper(f, *args, **kwargs):
             if not self._name:
                 self._name = f.func_name
             self.start()
-            val = f(*args, **kwargs)
-            self.stop()
-            return val
+            try:
+                return f(*args, **kwargs)
+            finally:
+                self.stop()
         return decorator(wrapper, f)
 
 
@@ -168,7 +178,17 @@ def tic(name):
 
 def toc(name):
     """Stop a timer with the given name."""
-    Timer(name).stop()
+    return Timer(name).stop()
+
+
+@contextmanager
+def timed_region(name):
+    """A context manager for timing a given code region."""
+    tic(name)
+    try:
+        yield
+    finally:
+        toc(name)
 
 
 def summary(filename=None):
@@ -176,11 +196,23 @@ def summary(filename=None):
     Timer.summary(filename)
 
 
-def get_timers():
+def get_timers(reset=False):
     """Return a dict containing all Timers."""
-    return Timer.get_timers()
+    ret = Timer.get_timers()
+    if reset:
+        Timer.reset_all()
+    return ret
 
 
-def reset():
+def reset_timers():
     """Clear all timer information previously recorded."""
-    Timer.reset()
+    Timer.reset_all()
+
+
+def timing(name, reset=False):
+    """Return timing (average) for given task, optionally clearing timing."""
+    t = Timer(name)
+    ret = t.average
+    if reset:
+        t.reset()
+    return ret

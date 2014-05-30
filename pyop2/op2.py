@@ -122,6 +122,10 @@ def exit():
         print '**** PyOP2 cache sizes at exit ****'
         report_cache(typ=ObjectCached)
         report_cache(typ=Cached)
+    if configuration['print_summary']:
+        from profiling import summary
+        print '**** PyOP2 timings summary ****'
+        summary()
     configuration.reset()
 
     if backends.get_backend() != 'pyop2.void':
