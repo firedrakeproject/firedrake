@@ -27,6 +27,10 @@ class MeshHierarchy(mesh.Mesh):
             dm.removeLabel("op2_core")
             dm.removeLabel("op2_non_core")
             dm.removeLabel("op2_exec_halo")
+            if isinstance(m, mesh.IcosahedralSphereMesh):
+                coords = dm.getCoordinatesLocal().array.reshape(-1, 3)
+                scale = (m._R / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
+                coords *= scale
 
         self._hierarchy = [m] + [mesh.Mesh(None, name="%s_refined_%d" % (m.name, i + 1),
                                            plex=dm, distribute=False)
