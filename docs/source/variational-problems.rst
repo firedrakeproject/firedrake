@@ -121,7 +121,7 @@ Ensuring consistent cell orientations
 +++++++++++++++++++++++++++++++++++++
 
 Variational forms that include particular function spaces (those
-requiring a *contravarient Piola transform*), require information
+requiring a *contravariant Piola transform*), require information
 about the orientation of the cells.  For normal meshes, this can be
 deduced automatically. However, when using immersed meshes, Firedrake
 needs extra information to calculate the orientation of each cell
