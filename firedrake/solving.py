@@ -31,6 +31,7 @@ from copy import copy
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
 from pyop2.logger import progress, INFO
+from pyop2.profiling import timed_region
 
 import assembly_cache
 import assemble_expressions
@@ -540,82 +541,148 @@ def _assemble(f, tensor=None, bcs=None):
             elif is_mat:
                 tsbc, trbc = bcs, bcs
             if integral_type == 'cell':
-                if is_mat:
-                    tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
-                                     lambda s: s.cell_node_map(trbc),
-                                     i, j)
-                elif is_vec:
-                    tensor_arg = vec(lambda s: s.cell_node_map(), i)
-                else:
-                    tensor_arg = tensor(op2.INC)
+                with timed_region("Assemble cells"):
+                    if is_mat:
+                        tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
+                                         lambda s: s.cell_node_map(trbc),
+                                         i, j)
+                    elif is_vec:
+                        tensor_arg = vec(lambda s: s.cell_node_map(), i)
+                    else:
+                        tensor_arg = tensor(op2.INC)
 
-                itspace = m.cell_set
-                itspace._extruded_bcs = extruded_bcs
-                args = [kernel, itspace, tensor_arg,
-                        coords.dat(op2.READ, coords.cell_node_map(),
-                                   flatten=True)]
+                    itspace = m.cell_set
+                    itspace._extruded_bcs = extruded_bcs
+                    args = [kernel, itspace, tensor_arg,
+                            coords.dat(op2.READ, coords.cell_node_map(),
+                                       flatten=True)]
 
-                if needs_orientations:
-                    args.append(cell_orientations.dat(op2.READ,
-                                                      cell_orientations.cell_node_map(),
-                                                      flatten=True))
-                for c in coefficients:
-                    args.append(c.dat(op2.READ, c.cell_node_map(),
-                                      flatten=True))
+                    if needs_orientations:
+                        args.append(cell_orientations.dat(op2.READ,
+                                                          cell_orientations.cell_node_map(),
+                                                          flatten=True))
+                    for c in coefficients:
+                        args.append(c.dat(op2.READ, c.cell_node_map(),
+                                          flatten=True))
 
-                try:
-                    op2.par_loop(*args)
-                except MapValueError:
-                    raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
+                    try:
+                        op2.par_loop(*args)
+                    except MapValueError:
+                        raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
             elif integral_type in ['exterior_facet', 'exterior_facet_vert']:
-                if is_mat:
-                    tensor_arg = mat(lambda s: s.exterior_facet_node_map(tsbc),
-                                     lambda s: s.exterior_facet_node_map(trbc),
-                                     i, j)
-                elif is_vec:
-                    tensor_arg = vec(lambda s: s.exterior_facet_node_map(), i)
-                else:
-                    tensor_arg = tensor(op2.INC)
-                args = [kernel, m.exterior_facets.measure_set(integral_type,
-                                                              subdomain_id),
-                        tensor_arg,
-                        coords.dat(op2.READ, coords.exterior_facet_node_map(),
-                                   flatten=True)]
-                if needs_orientations:
-                    args.append(cell_orientations.dat(op2.READ,
-                                                      cell_orientations.exterior_facet_node_map(),
-                                                      flatten=True))
-                for c in coefficients:
-                    args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
-                                      flatten=True))
-                args.append(m.exterior_facets.local_facet_dat(op2.READ))
-                try:
-                    op2.par_loop(*args)
-                except MapValueError:
-                    raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
+                with timed_region("Assemble exterior facets"):
+                    if is_mat:
+                        tensor_arg = mat(lambda s: s.exterior_facet_node_map(tsbc),
+                                         lambda s: s.exterior_facet_node_map(trbc),
+                                         i, j)
+                    elif is_vec:
+                        tensor_arg = vec(lambda s: s.exterior_facet_node_map(), i)
+                    else:
+                        tensor_arg = tensor(op2.INC)
+                    args = [kernel, m.exterior_facets.measure_set(integral_type,
+                                                                  subdomain_id),
+                            tensor_arg,
+                            coords.dat(op2.READ, coords.exterior_facet_node_map(),
+                                       flatten=True)]
+                    if needs_orientations:
+                        args.append(cell_orientations.dat(op2.READ,
+                                                          cell_orientations.exterior_facet_node_map(),
+                                                          flatten=True))
+                    for c in coefficients:
+                        args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
+                                          flatten=True))
+                    args.append(m.exterior_facets.local_facet_dat(op2.READ))
+                    try:
+                        op2.par_loop(*args)
+                    except MapValueError:
+                        raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
             elif integral_type in ['exterior_facet_top', 'exterior_facet_bottom']:
-                if is_mat:
-                    tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
-                                     lambda s: s.cell_node_map(trbc),
-                                     i, j)
-                elif is_vec:
-                    tensor_arg = vec(lambda s: s.cell_node_map(), i)
-                else:
-                    tensor_arg = tensor(op2.INC)
+                with timed_region("Assemble exterior facets"):
+                    if is_mat:
+                        tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
+                                         lambda s: s.cell_node_map(trbc),
+                                         i, j)
+                    elif is_vec:
+                        tensor_arg = vec(lambda s: s.cell_node_map(), i)
+                    else:
+                        tensor_arg = tensor(op2.INC)
 
-                #In the case of extruded meshes with horizontal facet integrals, two
-                #parallel loops will (potentially) get created and called based on the
-                #domain id: interior horizontal, bottom or top.
+                    # In the case of extruded meshes with horizontal facet integrals, two
+                    # parallel loops will (potentially) get created and called based on the
+                    # domain id: interior horizontal, bottom or top.
 
-                #Get the list of sets and globals required for parallel loop construction.
-                set_global_list = m.exterior_facets.measure_set(integral_type, subdomain_id)
+                    # Get the list of sets and globals required for parallel loop construction.
+                    set_global_list = m.exterior_facets.measure_set(integral_type, subdomain_id)
 
-                #Iterate over the list and assemble all the args of the parallel loop
-                for (index, set) in set_global_list:
-                    # Add the kernel, iteration set and coordinate fields to the loop args
-                    args = [kernel, set, tensor_arg,
+                    # Iterate over the list and assemble all the args of the parallel loop
+                    for (index, set) in set_global_list:
+                        # Add the kernel, iteration set and coordinate fields to the loop args
+                        args = [kernel, set, tensor_arg,
+                                coords.dat(op2.READ, coords.cell_node_map(),
+                                           flatten=True)]
+                        if needs_orientations:
+                            args.append(cell_orientations.dat(op2.READ,
+                                                              cell_orientations.cell_node_map(),
+                                                              flatten=True))
+                        for c in coefficients:
+                            args.append(c.dat(op2.READ, c.cell_node_map(),
+                                              flatten=True))
+                        try:
+                            op2.par_loop(*args, iterate=index)
+                        except MapValueError:
+                            raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
+
+            elif integral_type in ['interior_facet', 'interior_facet_vert']:
+                with timed_region("Assemble interior facets"):
+                    if op2.MPI.parallel:
+                        raise \
+                            NotImplementedError(
+                                "No support for facet integrals under MPI yet")
+
+                    if is_mat:
+                        tensor_arg = mat(lambda s: s.interior_facet_node_map(tsbc),
+                                         lambda s: s.interior_facet_node_map(trbc),
+                                         i, j)
+                    elif is_vec:
+                        tensor_arg = vec(lambda s: s.interior_facet_node_map(), i)
+                    else:
+                        tensor_arg = tensor(op2.INC)
+                    args = [kernel, m.interior_facets.set, tensor_arg,
+                            coords.dat(op2.READ, coords.interior_facet_node_map(),
+                                       flatten=True)]
+                    if needs_orientations:
+                        args.append(cell_orientations.dat(op2.READ,
+                                                          cell_orientations.interior_facet_node_map(),
+                                                          flatten=True))
+                    for c in coefficients:
+                        args.append(c.dat(op2.READ, c.interior_facet_node_map(),
+                                          flatten=True))
+                    args.append(m.interior_facets.local_facet_dat(op2.READ))
+                    try:
+                        op2.par_loop(*args)
+                    except MapValueError:
+                        raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
+
+            elif integral_type == 'interior_facet_horiz':
+                with timed_region("Assemble interior facets"):
+                    if op2.MPI.parallel:
+                        raise \
+                            NotImplementedError(
+                                "No support for facet integrals under MPI yet")
+
+                    if is_mat:
+                        tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
+                                         lambda s: s.cell_node_map(trbc),
+                                         i, j)
+                    elif is_vec:
+                        tensor_arg = vec(lambda s: s.cell_node_map(), i)
+                    else:
+                        tensor_arg = tensor(op2.INC)
+
+                    args = [kernel, m.interior_facets.measure_set(integral_type, subdomain_id),
+                            tensor_arg,
                             coords.dat(op2.READ, coords.cell_node_map(),
                                        flatten=True)]
                     if needs_orientations:
@@ -626,84 +693,24 @@ def _assemble(f, tensor=None, bcs=None):
                         args.append(c.dat(op2.READ, c.cell_node_map(),
                                           flatten=True))
                     try:
-                        op2.par_loop(*args, iterate=index)
+                        op2.par_loop(*args, iterate=op2.ON_INTERIOR_FACETS)
                     except MapValueError:
                         raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
-
-            elif integral_type in ['interior_facet', 'interior_facet_vert']:
-                if op2.MPI.parallel:
-                    raise \
-                        NotImplementedError(
-                            "No support for facet integrals under MPI yet")
-
-                if is_mat:
-                    tensor_arg = mat(lambda s: s.interior_facet_node_map(tsbc),
-                                     lambda s: s.interior_facet_node_map(trbc),
-                                     i, j)
-                elif is_vec:
-                    tensor_arg = vec(lambda s: s.interior_facet_node_map(), i)
-                else:
-                    tensor_arg = tensor(op2.INC)
-                args = [kernel, m.interior_facets.set, tensor_arg,
-                        coords.dat(op2.READ, coords.interior_facet_node_map(),
-                                   flatten=True)]
-                if needs_orientations:
-                    args.append(cell_orientations.dat(op2.READ,
-                                                      cell_orientations.interior_facet_node_map(),
-                                                      flatten=True))
-                for c in coefficients:
-                    args.append(c.dat(op2.READ, c.interior_facet_node_map(),
-                                      flatten=True))
-                args.append(m.interior_facets.local_facet_dat(op2.READ))
-                try:
-                    op2.par_loop(*args)
-                except MapValueError:
-                    raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
-
-            elif integral_type == 'interior_facet_horiz':
-                if op2.MPI.parallel:
-                    raise \
-                        NotImplementedError(
-                            "No support for facet integrals under MPI yet")
-
-                if is_mat:
-                    tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
-                                     lambda s: s.cell_node_map(trbc),
-                                     i, j)
-                elif is_vec:
-                    tensor_arg = vec(lambda s: s.cell_node_map(), i)
-                else:
-                    tensor_arg = tensor(op2.INC)
-
-                args = [kernel, m.interior_facets.measure_set(integral_type, subdomain_id),
-                        tensor_arg,
-                        coords.dat(op2.READ, coords.cell_node_map(),
-                                   flatten=True)]
-                if needs_orientations:
-                    args.append(cell_orientations.dat(op2.READ,
-                                                      cell_orientations.cell_node_map(),
-                                                      flatten=True))
-                for c in coefficients:
-                    args.append(c.dat(op2.READ, c.cell_node_map(),
-                                      flatten=True))
-                try:
-                    op2.par_loop(*args, iterate=op2.ON_INTERIOR_FACETS)
-                except MapValueError:
-                    raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
             else:
                 raise RuntimeError('Unknown integral type "%s"' % integral_type)
 
             if bcs is not None and is_mat:
-                for bc in bcs:
-                    fs = bc.function_space()
-                    if isinstance(fs, functionspace.MixedFunctionSpace):
-                        raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
-                    # Set diagonal entries on bc nodes to 1 if the current
-                    # block is on the matrix diagonal and its index matches the
-                    # index of the function space the bc is defined on.
-                    if i == j and (fs.index is None or fs.index == i):
-                        tensor[i, j].inc_local_diagonal_entries(bc.nodes)
+                with timed_region('DirichletBC apply'):
+                    for bc in bcs:
+                        fs = bc.function_space()
+                        if isinstance(fs, functionspace.MixedFunctionSpace):
+                            raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
+                        # Set diagonal entries on bc nodes to 1 if the current
+                        # block is on the matrix diagonal and its index matches the
+                        # index of the function space the bc is defined on.
+                        if i == j and (fs.index is None or fs.index == i):
+                            tensor[i, j].inc_local_diagonal_entries(bc.nodes)
         if is_mat:
             # Queue up matrix assembly (after we've done all the other operations)
             tensor.assemble()
