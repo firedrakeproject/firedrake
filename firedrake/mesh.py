@@ -1128,86 +1128,18 @@ class IcosahedralSphereMesh(Mesh):
         self._R = radius
         self._refinement = refinement_level
 
-        self._vertices = np.empty_like(IcosahedralSphereMesh._base_vertices)
-        self._faces = np.copy(IcosahedralSphereMesh._base_faces)
-        # Rescale so that vertices live on sphere of specified radius
-        for i, vtx in enumerate(IcosahedralSphereMesh._base_vertices):
-            self._vertices[i] = self._force_to_sphere(vtx)
-
+        plex = dmplex._from_cell_list(2, IcosahedralSphereMesh._base_faces,
+                                      IcosahedralSphereMesh._base_vertices)
+        plex.setRefinementUniform(True)
         for i in range(refinement_level):
-            self._refine()
+            plex = plex.refine()
 
-        plex = dmplex._from_cell_list(2, self._faces, self._vertices)
+        vStart, vEnd = plex.getDepthStratum(0)
+        nvertices = vEnd - vStart
+        coords = plex.getCoordinatesLocal().array.reshape(nvertices, 3)
+        scale = (self._R / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
+        coords *= scale
         super(IcosahedralSphereMesh, self).__init__(self.name, plex=plex, dim=3, reorder=reorder)
-
-    def _force_to_sphere(self, vtx):
-        """
-        Scale `vtx` such that it sits on surface of the sphere this mesh
-        represents.
-
-        """
-        scale = self._R / np.linalg.norm(vtx)
-        return vtx * scale
-
-    def _refine(self):
-        """Refine mesh by one level.
-
-        This increases the number of faces in the mesh by a factor of four."""
-        cache = {}
-        new_faces = np.empty((4 * len(self._faces), 3), dtype=np.int32)
-        # Dividing each face adds 1.5 extra vertices (each vertex on
-        # the midpoint is shared two ways).
-        new_vertices = np.empty((len(self._vertices) + 3 * len(self._faces) / 2, 3))
-        f_idx = 0
-        v_idx = len(self._vertices)
-        new_vertices[:v_idx] = self._vertices
-
-        def midpoint(v1, v2):
-            return self._force_to_sphere((self._vertices[v1] + self._vertices[v2])/2)
-
-        # Walk old faces, splitting into 4
-        for (v1, v2, v3) in self._faces:
-            a = midpoint(v1, v2)
-            b = midpoint(v2, v3)
-            c = midpoint(v3, v1)
-            ka = tuple(sorted((v1, v2)))
-            kb = tuple(sorted((v2, v3)))
-            kc = tuple(sorted((v3, v1)))
-            if ka not in cache:
-                cache[ka] = v_idx
-                new_vertices[v_idx] = a
-                v_idx += 1
-            va = cache[ka]
-            if kb not in cache:
-                cache[kb] = v_idx
-                new_vertices[v_idx] = b
-                v_idx += 1
-            vb = cache[kb]
-            if kc not in cache:
-                cache[kc] = v_idx
-                new_vertices[v_idx] = c
-                v_idx += 1
-            vc = cache[kc]
-            #
-            #         v1
-            #        /  \
-            #       /    \
-            #      v2----v3
-            #
-            #         v1
-            #        /  \
-            #       a--- c
-            #      / \  / \
-            #     /   \/   \
-            #   v2----b----v3
-            #
-            new_faces[f_idx][:] = (v1, va, vc)
-            new_faces[f_idx+1][:] = (v2, vb, va)
-            new_faces[f_idx+2][:] = (v3, vc, vb)
-            new_faces[f_idx+3][:] = (va, vb, vc)
-            f_idx += 4
-        self._vertices = new_vertices
-        self._faces = new_faces
 
 
 class UnitIcosahedralSphereMesh(IcosahedralSphereMesh):
