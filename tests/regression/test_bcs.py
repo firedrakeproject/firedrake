@@ -311,18 +311,14 @@ def test_assemble_mass_bcs_2d(V):
     assert assemble(dot((w - f), (w - f))*dx) < 1e-12
 
 
-def test_mixed_bcs(V):
+def test_mixed_bcs():
+    m = UnitSquareMesh(2, 2)
+    V = FunctionSpace(m, 'CG', 1)
     W = V*V
     u, p = TrialFunctions(W)
     v, q = TestFunctions(W)
 
-    f = Function(W)
-
-    f.sub(0).assign(10)
-
-    w = Function(W)
-
-    bc = DirichletBC(W.sub(1), Constant(12), (1, 2, 3, 4))
+    bc = DirichletBC(W.sub(1), 0.0, (1, 2, 3, 4))
 
     A = assemble(inner(u, v)*dx, bcs=bc)
 
