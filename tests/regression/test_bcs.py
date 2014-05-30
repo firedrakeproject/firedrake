@@ -311,7 +311,6 @@ def test_assemble_mass_bcs_2d(V):
     assert assemble(dot((w - f), (w - f))*dx) < 1e-12
 
 
-@pytest.mark.xfail
 def test_mixed_bcs(V):
     W = V*V
     u, p = TrialFunctions(W)
