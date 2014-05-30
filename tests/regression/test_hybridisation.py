@@ -60,10 +60,12 @@ def test_hybridisation(degree):
     a = a_dx + a_dS
     L = f*v*dx
 
+    bcs = DirichletBC(W.sub(2), Constant(0), (1, 2, 3, 4))
     # Compute solution
     w = Function(W)
     solve(a == L, w, solver_parameters={'ksp_rtol': 1e-14,
-                                        'ksp_max_it': 30000})
+                                        'ksp_max_it': 30000},
+          bcs=bcs)
     Hsigma, Hu, Hlambdar = w.split()
 
     # Compare result to non-hybridised calculation
