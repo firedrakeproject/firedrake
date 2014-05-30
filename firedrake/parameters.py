@@ -1,6 +1,8 @@
-__all__ = ['Parameters', 'parameters']
-
 """The parameters dictionary contains global parameter settings."""
+
+import os
+
+__all__ = ['Parameters', 'parameters']
 
 
 class Parameters(dict):
@@ -32,8 +34,8 @@ parameters.add(Parameters("assembly_cache",
                           max_misses=3))
 
 parameters.add(Parameters("coffee",
-                          compiler='gnu',
-                          simd_isa='sse',
+                          compiler=os.environ.get('PYOP2_BACKEND_COMPILER', 'gnu'),
+                          simd_isa=os.environ.get('PYOP2_SIMD_ISA', 'sse'),
                           licm=False,
                           slice=None,
                           vect=None,
