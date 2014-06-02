@@ -27,6 +27,14 @@ def f_extruded():
     return c, d
 
 
+def test_direct_par_loop(f):
+    c, d = f
+
+    par_loop("""*c +=1;""", direct, {'c': (c, WRITE)})
+
+    assert all(c.dat.data == 1)
+
+
 def test_cg_max_field(f):
     c, d = f
     d.interpolate(Expression("x[0]"))
