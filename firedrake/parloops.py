@@ -5,7 +5,25 @@ from pyop2 import READ, WRITE, RW, INC  # NOQA get flake8 to ignore unused impor
 import pyop2
 import pyop2.coffee.ast_base as ast
 
-__all__ = ['par_loop', 'READ', 'WRITE', 'RW', 'INC']
+__all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC']
+
+
+class _DirectLoop(object):
+    """A singleton object which can be used in a :func:`par_loop` in place
+    of the measure in order to indicate that the loop is a direct loop
+    over degrees of freedom."""
+
+    def integral_type(self):
+        return "direct"
+
+    def __repr__(self):
+
+        return "direct"
+
+direct = _DirectLoop()
+"""A singleton object which can be used in a :func:`par_loop` in place
+of the measure in order to indicate that the loop is a direct loop
+over degrees of freedom."""
 
 """Map a measure to the correct maps."""
 _maps = {
@@ -20,6 +38,10 @@ _maps = {
     'exterior_facet': {
         'nodes': lambda x: x.exterior_facet_node_map(),
         'itspace': lambda mesh, measure: mesh.exterior_facets.measure_set(measure.integral_type(), measure.subdomain_id())
+    },
+    'direct': {
+        'nodes': lambda x: None,
+        'itspace': lambda mesh, measure: mesh
     }
 }
 
@@ -32,7 +54,10 @@ def _form_kernel(kernel, measure, args):
     for var, (func, intent) in args.iteritems():
         ndof = func.function_space().fiat_element.space_dimension()
         lkernel = lkernel.replace(var+".dofs", str(ndof))
-        kargs.append(ast.Decl("double *", ast.Symbol(var, (ndof,))))
+        if measure is direct:
+            kargs.append(ast.Decl("double", ast.Symbol(var, (ndof,))))
+        else:
+            kargs.append(ast.Decl("double *", ast.Symbol(var, (ndof,))))
 
     body = ast.FlatBlock(lkernel)
 
@@ -46,7 +71,7 @@ def par_loop(kernel, measure, args):
     and accessing the degrees of freedom on adjacent entities.
 
     :arg kernel: is a string containing the C code to be executed.
-    :arg measure: is a :class:`ufl.Measure` which determines the manner in which the iteration over the mesh is to occur.
+    :arg measure: is a :class:`ufl.Measure` which determines the manner in which the iteration over the mesh is to occur. Alternatively, you can pass :data:`direct` to designate a direct loop.
     :arg args: is a dictionary mapping variable names in the kernel to :class:`.Functions` and indicates how these :class:`.Functions` are to be accessed.
 
     **Example**
@@ -108,6 +133,12 @@ def par_loop(kernel, measure, args):
     twice: once via each cell. The orientation of the cell(s) relative
     to the current facet is currently arbitrary.
 
+    A direct loop over nodes without any indirections can be specified
+    by passing :data:`direct` as the measure. In this case, all of the
+    arguments must be :class:`.Function`\s in the same
+    :class:`.FunctionSpace` or in the corresponding
+    :class:`.VectorFunctionSpace`.
+
     **The kernel code**
 
     The kernel code is plain C in which the variables specified in the
@@ -120,17 +151,32 @@ def par_loop(kernel, measure, args):
       may be called.
     * Pointer operations other than dereferencing arrays are prohibited.
 
-    The free variables are all of type `double**` in which the first
+    Indirect free variables are all of type `double**` in which the first
     index is the local node number, while the second index is the
     vector component. The latter only applies to :class:`.Function`\s
-    over a :class:`VectorFunctionSpace`, for :class:`.Function`\s over
+    over a :class:`.VectorFunctionSpace`, for :class:`.Function`\s over
     a plain :class:`.FunctionSpace` the second index will always be 0.
 
+    In a direct :func:`par_loop`, the variables will all be of type
+    `double*` with the single index being the vector component.
     """
 
     _map = _maps[measure.integral_type()]
 
-    mesh = measure.subdomain_data().function_space().mesh()
+    if measure is direct:
+        mesh = None
+        for (func, intent) in args.itervalues():
+            try:
+                if mesh and func.node_set is not mesh:
+                    raise ValueError("Cannot mix sets in direct loop.")
+                mesh = func.node_set
+            except AttributeError:
+                # Argument was a Global.
+                pass
+        if not mesh:
+            raise TypeError("No Functions passed to direct par_loop")
+    else:
+        mesh = measure.subdomain_data().function_space().mesh()
 
     op2args = [_form_kernel(kernel, measure, args)]
 
