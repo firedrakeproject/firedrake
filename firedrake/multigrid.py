@@ -241,6 +241,15 @@ class FunctionHierarchy(object):
         else:
             raise RuntimeError("Restriction only implemented for P0DG and P1")
 
+    def inject(self, level):
+        """Inject from a fine to the next coarsest hierarchy level.
+
+        :arg level: the fine level to inject from"""
+        if not 0 < level < len(self):
+            raise RuntimeError
+
+        self._inject_cg1(level)
+
     def _prolong_dg0(self, level):
         c2f_map = self.cell_node_map(level)
         coarse = self[level]
@@ -304,6 +313,22 @@ class FunctionHierarchy(object):
         op2.par_loop(self._prolong_kernel, coarse.cell_set,
                      coarse.dat(op2.READ, coarse.cell_node_map()),
                      fine.dat(op2.WRITE, c2f_map))
+
+    def _inject_cg1(self, level):
+        c2f_map = self.cell_node_map(level - 1)
+        coarse = self[level - 1]
+        fine = self[level]
+        if not hasattr(self, '_inject_kernel'):
+            k = """void inject_cg1(double **coarse, double **fine)
+            {
+                for ( int i = 0; i < 3; i++ ) {
+                    coarse[i][0] = fine[i][0];
+                }
+            }"""
+            self._inject_kernel = op2.Kernel(k, "inject_cg1")
+        op2.par_loop(self._inject_kernel, coarse.cell_set,
+                     coarse.dat(op2.WRITE, coarse.cell_node_map()),
+                     fine.dat(op2.READ, c2f_map))
 
     def _restrict_cg1(self, level):
         c2f_map = self.cell_node_map(level - 1)
