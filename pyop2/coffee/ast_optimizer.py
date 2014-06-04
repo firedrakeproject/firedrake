@@ -433,6 +433,8 @@ class AssemblyOptimizer(object):
                         splittable[stmt_left] = (it_vars, parent, loops)
                     else:
                         split[stmt_left] = (it_vars, parent, loops)
+                else:
+                    split[stmt] = stmt_info
             return split, splittable
 
         if not self.asm_expr:
@@ -454,6 +456,7 @@ class AssemblyOptimizer(object):
             while splittable:
                 split, splittable = split_and_update(splittable)
                 new_asm_expr.update(split)
+            new_asm_expr.update(splittable)
         self.asm_expr = new_asm_expr
 
     def _precompute(self, expr):
