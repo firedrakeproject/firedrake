@@ -252,20 +252,16 @@ class Mat(base.Mat, CopyOnWrite):
                 (self.sparsity.nrows * rdim, self.sparsity.ncols * cdim),
                 (self.sparsity._rowptr, self.sparsity._colidx, self._array))
         else:
-            # FIXME: probably not right for vector fields
-            # We get the PETSc local to global mapping from the halo
-            row_lg.create(indices=self.sparsity.rmaps[
-                          0].toset.halo.global_to_petsc_numbering)
-            col_lg.create(indices=self.sparsity.cmaps[
-                          0].toset.halo.global_to_petsc_numbering)
-            # PETSc has utility for turning a local to global map into
-            # a blocked one and vice versa, if rdim or cdim are > 1,
-            # the global_to_petsc_numbering we have is a blocked map,
-            # however, we can't currently generate the correct code
-            # for that case, so build the unblocked map and use that.
-            # This is a temporary fix until we do things properly.
-            row_lg = row_lg.unblock(rdim)
-            col_lg = col_lg.unblock(cdim)
+            # We get the PETSc local to global mapping from the halo.
+            # This gives us "block" indices, we need to splat those
+            # out to dof indices for vector fields since we don't
+            # currently assemble into block matrices.
+            rindices = self.sparsity.rmaps[0].toset.halo.global_to_petsc_numbering
+            rindices = np.dstack([rindices*rdim + i for i in range(rdim)]).flatten()
+            cindices = self.sparsity.cmaps[0].toset.halo.global_to_petsc_numbering
+            cindices = np.dstack([cindices*cdim + i for i in range(cdim)]).flatten()
+            row_lg.create(indices=rindices)
+            col_lg.create(indices=cindices)
 
             mat.createAIJ(size=((self.sparsity.nrows * rdim, None),
                                 (self.sparsity.ncols * cdim, None)),
