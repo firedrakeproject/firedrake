@@ -10,7 +10,7 @@ import tempfile
 import ufl
 from ufl import Form, FiniteElement, VectorElement, as_vector
 from ufl.measure import Measure
-from ufl.algorithms import ReuseTransformer
+from ufl.algorithms import compute_form_data, ReuseTransformer
 from ufl.constantvalue import Zero
 from ufl_expr import Argument
 
@@ -185,7 +185,7 @@ class FFCKernel(DiskCached):
         try:
             ffc_tree = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
             kernels = []
-            fd = form.form_data()
+            fd = compute_form_data(form)
             elements = fd.elements
             needs_orientations = self._needs_orientations(elements)
             for it, kernel in zip(fd.preprocessed_form.integrals(), ffc_tree):
@@ -219,7 +219,7 @@ def compile_form(form, name):
     if not isinstance(form, Form):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
 
-    fd = form.compute_form_data()
+    fd = compute_form_data(form)
 
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations
@@ -233,7 +233,7 @@ def compile_form(form, name):
         kernels = [((0, 0),
                     it.integral_type(), it.subdomain_id(),
                     it.domain().data().coordinates,
-                    fd.original_coefficients, needs_orientations, kernel)
+                    fd.original_form.coefficients(), needs_orientations, kernel)
                    for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
                                                                FFCKernel(form, name).kernels)]
         fd._kernels = kernels
