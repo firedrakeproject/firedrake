@@ -203,6 +203,12 @@ class Function(ufl.Coefficient):
         to_element = fs.fiat_element
         to_pts = []
 
+        # TODO very soon: look at the mapping associated with the UFL element;
+        # this needs to be "identity" (updated from "affine")
+        if to_element.mapping()[0] != "affine":
+            raise NotImplementedError("Can only interpolate onto elements \
+                with affine mapping. Try projecting instead")
+
         for dual in to_element.dual_basis():
             if not isinstance(dual, FIAT.functional.PointEvaluation):
                 raise NotImplementedError("Can only interpolate onto point \
