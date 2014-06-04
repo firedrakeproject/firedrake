@@ -257,7 +257,7 @@ class Arg(base.Arg):
              'cols': cols_str,
              'insert': self.access == WRITE}
 
-    def c_addto_vector_field(self, i, j, indices, xtr="", is_facet=False):
+    def c_addto_vector_field(self, i, j, buf_name, indices, xtr="", is_facet=False):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].split[i].arity
         ncols = maps[1].split[j].arity
@@ -265,7 +265,7 @@ class Arg(base.Arg):
         s = []
         if self._flatten:
             idx = indices
-            val = "&%s%s" % ("buffer_" + self.c_arg_name(), idx)
+            val = "&%s%s" % (buf_name, idx)
             row = "%(m)s * %(xtr)s%(map)s[%(elem_idx)si_0 %% %(dim)s] + (i_0 / %(dim)s)" % \
                   {'m': rmult,
                    'map': self.c_map_name(0, i),
@@ -902,14 +902,14 @@ class JITModule(base.JITModule):
             if self._itspace._extruded:
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, _addto_buf_name, "xtr_", is_facet=is_facet) for arg in self._args
                                                             if arg._is_mat and arg.data[i, j]._is_scalar_field])
-                _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, _buffer_indices, "xtr_", is_facet=is_facet) for arg in self._args
-                                                  if arg._is_mat and arg.data[i, j]._is_vector_field])
+                _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, _addto_buf_name, _buffer_indices, "xtr_", is_facet=is_facet)
+                                                   for arg in self._args if arg._is_mat and arg.data[i, j]._is_vector_field])
                 _addtos_scalar_field = ""
             else:
                 _addtos_scalar_field_extruded = ""
                 _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(i, j, _addto_buf_name) for count, arg in enumerate(self._args)
                                                    if arg._is_mat and arg.data[i, j]._is_scalar_field])
-                _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, _buffer_indices) for arg in self._args
+                _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, _addto_buf_name, _buffer_indices) for arg in self._args
                                                   if arg._is_mat and arg.data[i, j]._is_vector_field])
 
             if not _addtos_vector_field and not _buf_scatter:
