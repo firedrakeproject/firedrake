@@ -55,12 +55,14 @@ class Kernel(base.Kernel):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of code (C syntax) suitable to CPU execution."""
         if not isinstance(ast, Node):
-            self._is_blas_optimized = False
+            self._applied_blas = False
+            self._applied_ap = False
             return ast
         self._ast = ast
         ast_handler = ASTKernel(ast, self._include_dirs)
         ast_handler.plan_cpu(opts)
-        self._is_blas_optimized = ast_handler.blas
+        self._applied_blas = ast_handler.blas
+        self._applied_ap = ast_handler.ap
         return ast_handler.gencode()
 
 
@@ -651,7 +653,7 @@ class JITModule(base.JITModule):
         compiler = coffee.ast_plan.compiler
         blas = coffee.ast_plan.blas_interface
         blas_header, blas_namespace, externc_open, externc_close = ("", "", "", "")
-        if self._kernel._is_blas_optimized:
+        if self._kernel._applied_blas:
             blas_header = blas.get('header')
             blas_namespace = blas.get('namespace', '')
             if blas['name'] == 'eigen':
@@ -702,7 +704,6 @@ class JITModule(base.JITModule):
                'sys_headers': '\n'.join(self._kernel._headers)}
 
         self._dump_generated_code(code_to_compile)
-        from IPython import embed; embed()
         if configuration["debug"]:
             self._wrapper_code = code_to_compile
 
@@ -715,7 +716,7 @@ class JITModule(base.JITModule):
         ldargs = ["-L%s/lib" % d for d in get_petsc_dir()] + \
                  ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()] + \
                  ["-lpetsc", "-lm"] + self._libraries
-        if self._kernel._is_blas_optimized:
+        if self._kernel._applied_blas:
             blas_dir = blas['dir']
             if blas_dir:
                 cppargs += ["-I%s/include" % blas_dir]
@@ -853,9 +854,9 @@ class JITModule(base.JITModule):
                 _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
                 _loop_size = [_buf_size[i]/_dat_size[i] for i in range(len(_buf_size))]
             else:
-                if self._kernel._is_blas_optimized:
+                if self._kernel._applied_blas:
                     _buf_size = [reduce(lambda x, y: x*y, _buf_size)]
-            if self._kernel._opts.get('ap'):
+            if self._kernel._applied_ap:
                 if arg._is_mat:
                     # Layout of matrices must be restored prior to the invokation of addto_vector
                     # if padding was used
@@ -897,7 +898,7 @@ class JITModule(base.JITModule):
                     _buf_scatter = ""
             _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
             _addto_buf_name = _buf_scatter_name or _buf_name
-            _buffer_indices = "[i_0*%d + i_1]" % shape[0] if self._kernel._is_blas_optimized else "[i_0][i_1]"
+            _buffer_indices = "[i_0*%d + i_1]" % shape[0] if self._kernel._applied_blas else "[i_0][i_1]"
             if self._itspace._extruded:
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, _addto_buf_name, "xtr_", is_facet=is_facet) for arg in self._args
                                                             if arg._is_mat and arg.data[i, j]._is_scalar_field])

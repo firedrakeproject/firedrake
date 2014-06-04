@@ -3516,7 +3516,8 @@ class Kernel(Cached):
         Kernel._globalcount += 1
         # Record used optimisations
         self._opts = opts
-        self._is_blas_optimized = False
+        self._applied_blas = False
+        self._applied_ap = False
         self._include_dirs = include_dirs
         self._headers = headers
         self._user_code = user_code

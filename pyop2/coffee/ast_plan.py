@@ -66,9 +66,11 @@ class ASTKernel(object):
 
     def __init__(self, ast, include_dirs=[]):
         self.ast = ast
-        self.blas = False
         # Used in case of autotuning
         self.include_dirs = include_dirs
+        # Track applied optimizations
+        self.blas = False
+        self.ap = False
 
     def _visit_ast(self, node, parent=None, fors=None, decls=None):
         """Return lists of:
@@ -214,6 +216,7 @@ class ASTKernel(object):
                         vect.alignment(decls)
                         if not blas:
                             vect.padding(decls)
+                            self.ap = True
                     if v_type and v_type != AUTOVECT:
                         if intrinsics['inst_set'] == 'SSE':
                             raise RuntimeError("COFFEE Error: SSE vectorization not supported")
