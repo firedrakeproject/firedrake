@@ -35,7 +35,8 @@ class MeshHierarchy(mesh.Mesh):
                 scale = (m._R / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
                 coords *= scale
 
-        self._hierarchy = [m] + [mesh.Mesh(None, name="%s_refined_%d" % (m.name, i + 1),
+        self._hierarchy = [m] + [mesh.Mesh(None, dim=m.ufl_cell().geometric_dimension(),
+                                           name="%s_refined_%d" % (m.name, i + 1),
                                            plex=dm, distribute=False, reorder=reorder)
                                  for i, dm in enumerate(dm_hierarchy)]
 
