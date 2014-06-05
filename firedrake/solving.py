@@ -405,12 +405,12 @@ def _assemble(f, tensor=None, bcs=None):
     """
 
     kernels = ffc_interface.compile_form(f, "form")
-    fd = ufl.algorithms.compute_form_data(f)
+    rank = len(f.arguments())
 
-    is_mat = fd.rank == 2
-    is_vec = fd.rank == 1
+    is_mat = rank == 2
+    is_vec = rank == 1
 
-    integrals = fd.preprocessed_form.integrals()
+    integrals = f.integrals()
 
     def get_rank(arg):
         return arg.function_space().rank

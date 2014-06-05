@@ -185,6 +185,7 @@ class FFCKernel(DiskCached):
         try:
             ffc_tree = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
             kernels = []
+            # need compute_form_data here to get preproc form integrals
             fd = compute_form_data(form)
             elements = fd.elements
             needs_orientations = self._needs_orientations(elements)
@@ -219,6 +220,7 @@ def compile_form(form, name):
     if not isinstance(form, Form):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
 
+    # need compute_form_data since we use preproc. form integrals later
     fd = compute_form_data(form)
 
     # We stash the compiled kernels on the form so we don't have to recompile
@@ -233,7 +235,7 @@ def compile_form(form, name):
         kernels = [((0, 0),
                     it.integral_type(), it.subdomain_id(),
                     it.domain().data().coordinates,
-                    fd.original_form.coefficients(), needs_orientations, kernel)
+                    form.coefficients(), needs_orientations, kernel)
                    for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
                                                                FFCKernel(form, name).kernels)]
         form._kernels = kernels
@@ -248,13 +250,14 @@ def compile_form(form, name):
             if ffc_kernel._empty:
                 continue
             ((kernel, needs_orientations), ) = ffc_kernel.kernels
+            # need compute_form_data here to get preproc integrals
             fd = compute_form_data(f)
             it = fd.preprocessed_form.integrals()[0]
             kernels.append(((i, j),
                             it.integral_type(),
                             it.subdomain_id(),
                             it.domain().data().coordinates,
-                            fd.original_form.coefficients(),
+                            f.coefficients(),
                             needs_orientations, kernel))
     form._kernels = kernels
     return kernels
