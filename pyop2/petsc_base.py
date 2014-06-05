@@ -454,8 +454,8 @@ class Solver(base.Solver, PETSc.KSP):
         self._count = Solver._cnt
         Solver._cnt += 1
         self.create(PETSc.COMM_WORLD)
-        prefix = 'pyop2_ksp_%d' % self._count
-        self.setOptionsPrefix(prefix)
+        self._opt_prefix = 'pyop2_ksp_%d' % self._count
+        self.setOptionsPrefix(self._opt_prefix)
         converged_reason = self.ConvergedReason()
         self._reasons = dict([(getattr(converged_reason, r), r)
                               for r in dir(converged_reason)
@@ -463,8 +463,7 @@ class Solver(base.Solver, PETSc.KSP):
 
     @collective
     def _set_parameters(self):
-        opts = PETSc.Options()
-        opts.prefix = self.getOptionsPrefix()
+        opts = PETSc.Options(self._opt_prefix)
         for k, v in self.parameters.iteritems():
             if type(v) is bool:
                 if v:
@@ -474,8 +473,15 @@ class Solver(base.Solver, PETSc.KSP):
             else:
                 opts[k] = v
         self.setFromOptions()
-        for k in self.parameters.iterkeys():
-            del opts[k]
+
+    def __del__(self):
+        # Remove stuff from the options database
+        # It's fixed size, so if we don't it gets too big.
+        if hasattr(self, '_opt_prefix'):
+            opts = PETSc.Options()
+            for k in self.parameters.iterkeys():
+                del opts[self._opt_prefix + k]
+            delattr(self, '_opt_prefix')
 
     @collective
     def _solve(self, A, x, b):
