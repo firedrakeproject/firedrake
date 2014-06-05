@@ -17,6 +17,13 @@ def mass(fs):
 
 
 @pytest.fixture
+def mixed_mass(fs):
+    u, r = TrialFunctions(fs*fs)
+    v, s = TestFunctions(fs*fs)
+    return (u*v + r*s) * dx
+
+
+@pytest.fixture
 def laplace(fs):
     u = TrialFunction(fs)
     v = TestFunction(fs)
@@ -70,10 +77,19 @@ class TestFFCCache:
 
     def test_ffc_same_form(self, mass):
         """Compiling the same form twice should load kernels from cache."""
-        k1, = ffc_interface.compile_form(mass, 'mass')
-        k2, = ffc_interface.compile_form(mass, 'mass')
+        k1 = ffc_interface.compile_form(mass, 'mass')
+        k2 = ffc_interface.compile_form(mass, 'mass')
 
-        assert k1[-1] is k2[-1]
+        assert k1 is k2
+        assert all(k1_[-1] is k2_[-1] for k1_, k2_ in zip(k1, k2))
+
+    def test_ffc_same_mixed_form(self, mixed_mass):
+        """Compiling a mixed form twice should load kernels from cache."""
+        k1 = ffc_interface.compile_form(mixed_mass, 'mixed_mass')
+        k2 = ffc_interface.compile_form(mixed_mass, 'mixed_mass')
+
+        assert k1 is k2
+        assert all(k1_[-1] is k2_[-1] for k1_, k2_ in zip(k1, k2))
 
     def test_ffc_different_forms(self, mass, laplace):
         """Compiling different forms should not load kernels from cache."""
