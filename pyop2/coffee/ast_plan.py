@@ -166,20 +166,20 @@ class ASTKernel(object):
         # The higher, the more precise and costly is autotuning
         autotune_resolution = 100000000
         # Kernel variants tested when autotuning is enabled
-        autotune_minimal = [('licm', 1, False, (None, None), True, None, False),
-                            ('split', 3, False, (None, None), True, (1, 0), False),
-                            ('vect', 2, False, (V_OP_UAJ, 1), True, None, False)]
-        autotune_all = [('licm', 1, False, (None, None), True, None, False),
-                        ('licm', 2, False, (None, None), True, None, False),
-                        ('licm', 3, False, (None, None), True, None, False),
-                        ('split', 3, False, (None, None), True, (1, 0), False),
-                        ('split', 3, False, (None, None), True, (2, 0), False),
-                        ('split', 3, False, (None, None), True, (4, 0), False),
-                        ('vect', 2, False, (V_OP_UAJ, 1), True, None, False),
-                        ('vect', 2, False, (V_OP_UAJ, 2), True, None, False),
-                        ('vect', 2, False, (V_OP_UAJ, 3), True, None, False)]
+        autotune_minimal = [('licm', 1, False, (None, None), True, None, False, None),
+                            ('split', 3, False, (None, None), True, (1, 0), False, None),
+                            ('vect', 2, False, (V_OP_UAJ, 1), True, None, False, None)]
+        autotune_all = [('licm', 1, False, (None, None), True, None, False, None),
+                        ('licm', 2, False, (None, None), True, None, False, None),
+                        ('licm', 3, False, (None, None), True, None, False, None),
+                        ('split', 3, False, (None, None), True, (1, 0), False, None),
+                        ('split', 3, False, (None, None), True, (2, 0), False, None),
+                        ('split', 3, False, (None, None), True, (4, 0), False, None),
+                        ('vect', 2, False, (V_OP_UAJ, 1), True, None, False, None),
+                        ('vect', 2, False, (V_OP_UAJ, 2), True, None, False, None),
+                        ('vect', 2, False, (V_OP_UAJ, 3), True, None, False, None)]
 
-        def _generate_cpu_code(self, licm, slice_factor, vect, ap, split, blas, unroll=None):
+        def _generate_cpu_code(self, licm, slice_factor, vect, ap, split, blas, unroll):
             """Generate kernel code according to the various optimization options."""
 
             v_type, v_param = vect
@@ -287,7 +287,7 @@ class ASTKernel(object):
                     asm_inner_sz = ao.asm_itspace[1][0].size() if len(ao.asm_itspace) >= 2 else 0
                     loop_sizes = [int_loop_sz, asm_outer_sz, asm_inner_sz]
                     for factor in _heuristic_unroll_factors(loop_sizes, unroll_ths):
-                        autotune_configs_unroll.append(params + (factor,))
+                        autotune_configs_unroll.append(params[:-1] + (factor,))
                 # Add the variant to the test cases the autotuner will have to run
                 variants.append(self.ast)
                 self.ast = dcopy(original_ast)
@@ -308,17 +308,17 @@ class ASTKernel(object):
                     self.blas = False
             else:
                 # The kernel is not transformed since it was not a local assembly kernel
-                params = (0, False, (None, None), True, None, False)
+                params = (0, False, (None, None), True, None, False, None)
         elif opts.get('blas'):
             # Conversion into blas requires a specific set of transformations
             # in order to identify and extract matrix multiplies.
             if not blas_interface:
                 raise RuntimeError("COFFEE Error: must set PYOP2_BLAS to convert into BLAS calls")
-            params = (3, 0, (None, None), True, (1, 0), opts['blas'])
+            params = (3, 0, (None, None), True, (1, 0), opts['blas'], None)
         else:
             # Fetch user-provided options/hints on how to transform the kernel
             params = (opts.get('licm'), opts.get('slice'), opts.get('vect') or (None, None),
-                      opts.get('ap'), opts.get('split'), opts.get('blas'))
+                      opts.get('ap'), opts.get('split'), opts.get('blas'), opts.get('unroll'))
 
         # Generate a specific code version
         _generate_cpu_code(self, *params)
