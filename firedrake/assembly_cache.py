@@ -68,7 +68,7 @@ class _DependencySnapshot(object):
         coords = form.integrals()[0].domain().data().coordinates
         deps.append(ref(coords))
 
-        for c in form.compute_form_data().original_coefficients:
+        for c in form.coefficients():
             deps.append(ref(c))
 
         self.dependencies = tuple(deps)
@@ -87,7 +87,7 @@ class _DependencySnapshot(object):
 
         # Since UFL sorts the coefficients by count (creation index),
         # further sorting here is not required.
-        deps = form.compute_form_data().original_coefficients
+        deps = form.coefficients()
 
         for original_d, dep in zip(self.dependencies[1:], deps):
             original_dep = original_d[0]()

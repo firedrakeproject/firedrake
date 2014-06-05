@@ -117,7 +117,7 @@ class NonlinearVariationalSolver(object):
         # computation on the floor.
         self._jac_tensor = assemble(self._problem.J_ufl, bcs=self._problem.bcs)
         self._jac_ptensor = self._jac_tensor
-        test = self._problem.F_ufl.compute_form_data().original_arguments[0]
+        test = self._problem.F_ufl.arguments()[0]
         self._F_tensor = function.Function(test.function_space())
         # Function to hold current guess
         self._x = function.Function(self._problem.u_ufl)
@@ -405,7 +405,7 @@ def _assemble(f, tensor=None, bcs=None):
     """
 
     kernels = ffc_interface.compile_form(f, "form")
-    fd = f.form_data()
+    fd = ufl.algorithms.compute_form_data(f)
 
     is_mat = fd.rank == 2
     is_vec = fd.rank == 1
@@ -416,7 +416,7 @@ def _assemble(f, tensor=None, bcs=None):
         return arg.function_space().rank
 
     if is_mat:
-        test, trial = fd.original_arguments
+        test, trial = f.arguments()
 
         map_pairs = []
         cell_domains = []
@@ -488,7 +488,7 @@ def _assemble(f, tensor=None, bcs=None):
                                 flatten=True)
         result = lambda: result_matrix
     elif is_vec:
-        test = fd.original_arguments[0]
+        test = f.arguments()[0]
         if tensor is None:
             result_function = function.Function(test.function_space())
             tensor = result_function.dat

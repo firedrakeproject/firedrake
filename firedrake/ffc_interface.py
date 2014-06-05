@@ -70,7 +70,7 @@ class FormSplitter(ReuseTransformer):
         """Split the given form."""
         # Visit each integrand and obtain the tuple of sub forms
         args = tuple((a.number(), len(a.function_space()))
-                     for a in form.form_data().original_arguments)
+                     for a in form.arguments())
         forms_list = []
         for it in sum_integrands(form).integrals():
             forms = []
@@ -223,10 +223,10 @@ def compile_form(form, name):
 
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations
-    if hasattr(fd, "_kernels") and \
-            fd._kernels[0][-1]._opts == parameters["coffee"] and \
-            fd._kernels[0][-1].name.startswith(name):
-        return fd._kernels
+    if hasattr(form, "_kernels") and \
+            form._kernels[0][-1]._opts == parameters["coffee"] and \
+            form._kernels[0][-1].name.startswith(name):
+        return form._kernels
 
     # If there is no mixed element involved, return the kernels FFC produces
     if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
@@ -236,7 +236,7 @@ def compile_form(form, name):
                     fd.original_form.coefficients(), needs_orientations, kernel)
                    for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
                                                                FFCKernel(form, name).kernels)]
-        fd._kernels = kernels
+        form._kernels = kernels
         return kernels
     # Otherwise pre-split the form into mixed blocks before calling FFC
     kernels = []
@@ -248,15 +248,15 @@ def compile_form(form, name):
             if ffc_kernel._empty:
                 continue
             ((kernel, needs_orientations), ) = ffc_kernel.kernels
-            fd = f.form_data()
+            fd = compute_form_data(f)
             it = fd.preprocessed_form.integrals()[0]
             kernels.append(((i, j),
                             it.integral_type(),
                             it.subdomain_id(),
                             it.domain().data().coordinates,
-                            fd.original_coefficients,
+                            fd.original_form.coefficients(),
                             needs_orientations, kernel))
-    form._form_data._kernels = kernels
+    form._kernels = kernels
     return kernels
 
 
