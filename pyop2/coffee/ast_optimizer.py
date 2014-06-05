@@ -311,6 +311,70 @@ class AssemblyOptimizer(object):
             self.asm_expr.update(unroll_loop(self.asm_expr, self.asm_itspace[1][0].it_var(),
                                              asm_inner_factor-1))
 
+    def permute_int_loop(self):
+        """Permute the integration loop with the innermost loop in the assembly nest.
+        This transformation is legal if ``_precompute`` was invoked. Storage layout of
+        all 2-dimensional arrays involved in the element matrix computation is
+        transposed."""
+
+        def transpose_layout(node, transposed, to_transpose):
+            """Transpose the storage layout of symbols in ``node``. If the symbol is
+            in a declaration, then its statically-known size is transposed (e.g.
+            double A[3][4] -> double A[4][3]). Otherwise, its iteration variables
+            are swapped (e.g. A[i][j] -> A[j][i]).
+
+            If ``to_transpose`` is empty, then all symbols encountered in the traversal of
+            ``node`` are transposed. Otherwise, only symbols in ``to_transpose`` are
+            transposed."""
+            if isinstance(node, Symbol):
+                if not to_transpose:
+                    transposed.add(node.symbol)
+                elif node.symbol in to_transpose:
+                    node.rank = (node.rank[1], node.rank[0])
+            elif isinstance(node, Decl):
+                transpose_layout(node.sym, transposed, to_transpose)
+            elif isinstance(node, FlatBlock):
+                return
+            else:
+                for n in node.children:
+                    transpose_layout(n, transposed, to_transpose)
+
+        if not self.int_loop or not self._is_precomputed:
+            return
+
+        new_asm_expr = {}
+        new_outer_loop = None
+        new_inner_loops = []
+        permuted = set()
+        transposed = set()
+        for stmt, stmt_info in self.asm_expr.items():
+            it_vars, parent, loops = stmt_info
+            inner_loop = loops[-1]
+            # Permute loops
+            if inner_loop in permuted:
+                continue
+            else:
+                permuted.add(inner_loop)
+            new_outer_loop = new_outer_loop or dcopy(inner_loop)
+            inner_loop.init = dcopy(self.int_loop.init)
+            inner_loop.cond = dcopy(self.int_loop.cond)
+            inner_loop.incr = dcopy(self.int_loop.incr)
+            inner_loop.pragma = dcopy(self.int_loop.pragma)
+            new_asm_loops = (new_outer_loop,) if len(loops) == 1 else (new_outer_loop, loops[0])
+            new_asm_expr[stmt] = (it_vars, parent, new_asm_loops)
+            new_inner_loops.append(new_asm_loops[-1])
+            new_outer_loop.children[0].children = new_inner_loops
+            # Track symbols whose storage layout should be transposed for unit-stridness
+            transpose_layout(stmt.children[1], transposed, set())
+        blk = self.pre_header.children
+        blk.insert(blk.index(self.int_loop), new_outer_loop)
+        blk.remove(self.int_loop)
+        # Update assembly expressions and integration loop
+        self.asm_expr = new_asm_expr
+        self.int_loop = inner_loop
+        # Transpose storage layout of all symbols involved in assembly
+        transpose_layout(self.pre_header, set(), transposed)
+
     def split(self, cut=1, length=0):
         """Split assembly expressions into multiple chunks exploiting sum's
         associativity. This is done to improve register pressure.
