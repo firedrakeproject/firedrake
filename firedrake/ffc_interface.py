@@ -226,7 +226,7 @@ def compile_form(form, name):
     # if we assemble the same form again with the same optimisations
     if hasattr(fd, "_kernels") and \
             fd._kernels[0][-1]._opts == parameters["coffee"] and \
-            fd._kernels[0][-1].name == name:
+            fd._kernels[0][-1].name.startswith(name):
         return fd._kernels
 
     # If there is no mixed element involved, return the kernels FFC produces
@@ -242,14 +242,14 @@ def compile_form(form, name):
     # Otherwise pre-split the form into mixed blocks before calling FFC
     kernels = []
     for forms in FormSplitter().split(form):
-        for (i, j), form in forms:
-            ffc_kernel = FFCKernel(form, name + str(i) + str(j))
+        for (i, j), f in forms:
+            ffc_kernel = FFCKernel(f, name + str(i) + str(j))
             # FFC noticed the integrand was zero, so don't bother
             # using this kernel (it's invalid anyway)
             if ffc_kernel._empty:
                 continue
             ((kernel, needs_orientations), ) = ffc_kernel.kernels
-            fd = form.form_data()
+            fd = f.form_data()
             it = fd.preprocessed_form.integrals()[0]
             kernels.append(((i, j),
                             it.integral_type(),
