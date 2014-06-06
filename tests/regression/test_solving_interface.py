@@ -69,6 +69,23 @@ def test_linear_solver_gced(a_L_out):
     assert before == after
 
 
+def test_op2_solver_gced(a_L_out):
+    a, L, out = a_L_out
+
+    gc.collect()
+    before = howmany(op2.Solver)
+
+    A = assemble(a)
+    b = assemble(L)
+    solve(A, out, b)
+    out.dat.data_ro  # force evaluation
+
+    gc.collect()
+    after = howmany(op2.Solver)
+
+    assert before == after
+
+
 def test_nonlinear_solver_gced(a_L_out):
     a, L, out = a_L_out
 
