@@ -220,15 +220,15 @@ def compile_form(form, name):
     if not isinstance(form, Form):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
 
-    # need compute_form_data since we use preproc. form integrals later
-    fd = compute_form_data(form)
-
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations
     if hasattr(form, "_kernels") and \
             form._kernels[0][-1]._opts == parameters["coffee"] and \
             form._kernels[0][-1].name.startswith(name):
         return form._kernels
+
+    # need compute_form_data since we use preproc. form integrals later
+    fd = compute_form_data(form)
 
     # If there is no mixed element involved, return the kernels FFC produces
     if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
