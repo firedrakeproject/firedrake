@@ -69,12 +69,6 @@ class TestFFCCache:
         assert ffc_interface.FFCKernel._read_from_disk(
             cache_key).cache_key == cache_key
 
-    def test_ffc_compute_form_data(self, mass):
-        """Compiling a form attaches form data."""
-        ffc_interface.compile_form(mass, 'mass')
-
-        assert mass.form_data()
-
     def test_ffc_same_form(self, mass):
         """Compiling the same form twice should load kernels from cache."""
         k1 = ffc_interface.compile_form(mass, 'mass')

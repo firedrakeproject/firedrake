@@ -10,7 +10,7 @@ import tempfile
 import ufl
 from ufl import Form, FiniteElement, VectorElement, as_vector
 from ufl.measure import Measure
-from ufl.algorithms import ReuseTransformer
+from ufl.algorithms import compute_form_data, ReuseTransformer
 from ufl.constantvalue import Zero
 from ufl_expr import Argument
 
@@ -70,7 +70,7 @@ class FormSplitter(ReuseTransformer):
         """Split the given form."""
         # Visit each integrand and obtain the tuple of sub forms
         args = tuple((a.number(), len(a.function_space()))
-                     for a in form.form_data().original_arguments)
+                     for a in form.arguments())
         forms_list = []
         for it in sum_integrands(form).integrals():
             forms = []
@@ -147,11 +147,10 @@ class FFCKernel(DiskCached):
 
     @classmethod
     def _cache_key(cls, form, name):
-        form_data = form.compute_form_data()
         # FIXME Making the COFFEE parameters part of the cache key causes
         # unnecessary repeated calls to FFC when actually only the kernel code
         # needs to be regenerated
-        return md5(form_data.signature + name + Kernel._backend.__name__ +
+        return md5(form.signature() + name + Kernel._backend.__name__ +
                    cls._firedrake_geometry_md5 + constants.FFC_VERSION +
                    constants.PYOP2_VERSION + str(parameters["coffee"])).hexdigest()
 
@@ -186,7 +185,8 @@ class FFCKernel(DiskCached):
         try:
             ffc_tree = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
             kernels = []
-            fd = form.form_data()
+            # need compute_form_data here to get preproc form integrals
+            fd = compute_form_data(form)
             elements = fd.elements
             needs_orientations = self._needs_orientations(elements)
             for it, kernel in zip(fd.preprocessed_form.integrals(), ffc_tree):
@@ -220,24 +220,25 @@ def compile_form(form, name):
     if not isinstance(form, Form):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
 
-    fd = form.compute_form_data()
-
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations
-    if hasattr(fd, "_kernels") and \
-            fd._kernels[0][-1]._opts == parameters["coffee"] and \
-            fd._kernels[0][-1].name.startswith(name):
-        return fd._kernels
+    if hasattr(form, "_kernels") and \
+            form._kernels[0][-1]._opts == parameters["coffee"] and \
+            form._kernels[0][-1].name.startswith(name):
+        return form._kernels
+
+    # need compute_form_data since we use preproc. form integrals later
+    fd = compute_form_data(form)
 
     # If there is no mixed element involved, return the kernels FFC produces
     if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
         kernels = [((0, 0),
                     it.integral_type(), it.subdomain_id(),
                     it.domain().data().coordinates,
-                    fd.original_coefficients, needs_orientations, kernel)
+                    form.coefficients(), needs_orientations, kernel)
                    for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
                                                                FFCKernel(form, name).kernels)]
-        fd._kernels = kernels
+        form._kernels = kernels
         return kernels
     # Otherwise pre-split the form into mixed blocks before calling FFC
     kernels = []
@@ -249,15 +250,16 @@ def compile_form(form, name):
             if ffc_kernel._empty:
                 continue
             ((kernel, needs_orientations), ) = ffc_kernel.kernels
-            fd = f.form_data()
+            # need compute_form_data here to get preproc integrals
+            fd = compute_form_data(f)
             it = fd.preprocessed_form.integrals()[0]
             kernels.append(((i, j),
                             it.integral_type(),
                             it.subdomain_id(),
                             it.domain().data().coordinates,
-                            fd.original_coefficients,
+                            f.coefficients(),
                             needs_orientations, kernel))
-    form._form_data._kernels = kernels
+    form._kernels = kernels
     return kernels
 
 

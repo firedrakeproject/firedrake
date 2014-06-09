@@ -33,7 +33,6 @@ assembly_cache:
 import numpy as np
 import weakref
 from collections import defaultdict
-from ufl.algorithms.signature import compute_form_signature
 
 from pyop2.logger import debug, warning
 from pyop2.mpi import MPI, _MPI
@@ -68,7 +67,7 @@ class _DependencySnapshot(object):
         coords = form.integrals()[0].domain().data().coordinates
         deps.append(ref(coords))
 
-        for c in form.compute_form_data().original_coefficients:
+        for c in form.coefficients():
             deps.append(ref(c))
 
         self.dependencies = tuple(deps)
@@ -87,7 +86,7 @@ class _DependencySnapshot(object):
 
         # Since UFL sorts the coefficients by count (creation index),
         # further sorting here is not required.
-        deps = form.compute_form_data().original_coefficients
+        deps = form.coefficients()
 
         for original_d, dep in zip(self.dependencies[1:], deps):
             original_dep = original_d[0]()
@@ -179,7 +178,7 @@ class AssemblyCache(object):
         return cls._instance
 
     def _lookup(self, form, bcs):
-        form_sig = compute_form_signature(form)
+        form_sig = form.signature()
         cache_entry = self.cache.get(form_sig, None)
 
         retval = None
@@ -198,7 +197,7 @@ class AssemblyCache(object):
         return retval
 
     def _store(self, obj, form, bcs):
-        form_sig = compute_form_signature(form)
+        form_sig = form.signature()
 
         if self.invalid_count[form_sig] > parameters["assembly_cache"]["max_misses"]:
             if self.invalid_count[form_sig] == \
