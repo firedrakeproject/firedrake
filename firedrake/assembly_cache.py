@@ -33,7 +33,6 @@ assembly_cache:
 import numpy as np
 import weakref
 from collections import defaultdict
-from ufl.algorithms.signature import compute_form_signature
 
 from pyop2.logger import debug, warning
 from pyop2.mpi import MPI, _MPI
@@ -179,7 +178,7 @@ class AssemblyCache(object):
         return cls._instance
 
     def _lookup(self, form, bcs):
-        form_sig = compute_form_signature(form)
+        form_sig = form.signature()
         cache_entry = self.cache.get(form_sig, None)
 
         retval = None
@@ -198,7 +197,7 @@ class AssemblyCache(object):
         return retval
 
     def _store(self, obj, form, bcs):
-        form_sig = compute_form_signature(form)
+        form_sig = form.signature()
 
         if self.invalid_count[form_sig] > parameters["assembly_cache"]["max_misses"]:
             if self.invalid_count[form_sig] == \
