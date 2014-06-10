@@ -1,5 +1,6 @@
 import pytest
 import numpy as np
+import itertools
 from firedrake import *
 
 
@@ -48,6 +49,30 @@ def test_dsn_parallel():
         for d in domain[1:]:
             form += c*ds(d)
         assert np.allclose(assemble(form), len(domain))
+
+
+@pytest.mark.parametrize(['expr', 'value'],
+                         itertools.product(['f',
+                                            '2*f',
+                                            'tanh(f)',
+                                            '2 * tanh(f)',
+                                            'f + tanh(f)',
+                                            'cos(f) + sin(f)',
+                                            'cos(f)*cos(f) + sin(f)*sin(f)',
+                                            'tanh(f) + cos(f) + sin(f)'],
+                                           [1, 10, 20, -1, -10, -20]))
+def test_math_functions(mesh, expr, value):
+    V = FunctionSpace(mesh, 'CG', 1)
+
+    f = Function(V)
+    f.assign(value)
+
+    actual = assemble(eval(expr)*dx)
+
+    from math import *
+    f = value
+    expect = eval(expr)
+    assert np.allclose(actual, expect)
 
 
 if __name__ == '__main__':
