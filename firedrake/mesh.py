@@ -162,10 +162,7 @@ class _Facets(object):
 
         # ufl.Measure doesn't have enums for these any more :(
         if subdomain_id in ["everywhere", "otherwise"]:
-            if integral_type == "exterior_facet_topbottom":
-                return [(op2.ON_BOTTOM, self.bottom_set),
-                        (op2.ON_TOP, self.bottom_set)]
-            elif integral_type == "exterior_facet_bottom":
+            if integral_type == "exterior_facet_bottom":
                 return [(op2.ON_BOTTOM, self.bottom_set)]
             elif integral_type == "exterior_facet_top":
                 return [(op2.ON_TOP, self.bottom_set)]
