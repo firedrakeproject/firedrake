@@ -31,7 +31,12 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from collections import OrderedDict
+try:
+    from collections import OrderedDict
+# OrderedDict was added in Python 2.7. Earlier versions can use ordereddict
+# from PyPI
+except ImportError:
+    from ordereddict import OrderedDict
 from copy import deepcopy as dcopy
 
 from pyop2.coffee.ast_base import *
