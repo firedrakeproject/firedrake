@@ -84,11 +84,17 @@ class AssemblyVectorizer(object):
 
         # Loop adjustment
         for l in iloops:
+            adjust = True
             for stm in l.children[0].children:
                 sym = stm.children[0]
-                if sym.rank and sym.rank[-1] == l.it_var():
-                    bound = l.cond.children[1]
-                    l.cond.children[1] = c_sym(vect_roundup(bound.symbol))
+                if not (sym.rank and sym.rank[-1] == l.it_var()):
+                    adjust = False
+            if adjust:
+                # Bound adjustment is safe iff all statements's lfs in the body
+                # have as fastest varying the dimension the iteration variable
+                # of the innermost loop
+                bound = l.cond.children[1]
+                l.cond.children[1] = c_sym(vect_roundup(bound.symbol))
 
     def outer_product(self, opts, factor=1):
         """Compute outer products according to opts.
