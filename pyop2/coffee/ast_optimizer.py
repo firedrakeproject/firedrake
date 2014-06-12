@@ -84,7 +84,7 @@ class AssemblyOptimizer(object):
             """Check if node is associated some pragma. If that is the case,
             it saves this info so as to enable pyop2 optimising such node. """
             if node.pragma:
-                opts = node.pragma.split(" ", 2)
+                opts = node.pragma[0].split(" ", 2)
                 if len(opts) < 3:
                     return
                 if opts[1] == "pyop2":
@@ -109,7 +109,7 @@ class AssemblyOptimizer(object):
                     else:
                         raise RuntimeError("Unrecognised opt %s - skipping it", opt_name)
                 else:
-                    raise RuntimeError("Unrecognised pragma found '%s'", node.pragma)
+                    raise RuntimeError("Unrecognised pragma found '%s'", node.pragma[0])
 
         def inspect(node, parent, fors, decls, symbols):
             if isinstance(node, Block):

@@ -405,6 +405,7 @@ def _init_compiler(compiler):
             'name': 'intel',
             'align': lambda o: '__attribute__((aligned(%s)))' % o,
             'decl_aligned_for': '#pragma vector aligned',
+            'force_simdization': '#pragma simd',
             'AVX': '-xAVX',
             'SSE': '-xSSE',
             'vect_header': '#include <immintrin.h>'
