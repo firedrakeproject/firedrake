@@ -559,11 +559,12 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         dim = len(size)
         compiler = coffee.ast_plan.compiler
         isa = coffee.ast_plan.intrinsics
+        align = compiler['align'](isa["alignment"]) if compiler and size[-1] % isa["dp_reg"] == 0 else ""
         return (buf_name, "%(typ)s %(name)s%(dim)s%(align)s%(init)s" %
                 {"typ": buf_type,
                  "name": buf_name,
                  "dim": "".join(["[%d]" % (d * (2 if is_facet else 1)) for d in size]),
-                 "align": " " + compiler.get("align")(isa["alignment"]) if compiler else "",
+                 "align": " " + align,
                  "init": " = " + "{" * dim + "0.0" + "}" * dim if self.access._mode in ['WRITE', 'INC'] else ""})
 
     def c_buffer_gather(self, size, idx, buf_name):
