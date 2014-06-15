@@ -579,9 +579,9 @@ class Mesh(object):
 
 
 class ExtrudedMesh(Mesh):
-    """Build an extruded mesh from a 2D input mesh
+    """Build an extruded mesh from an input mesh
 
-    :arg mesh:           2D unstructured mesh
+    :arg mesh:           unstructured mesh
     :arg layers:         number of extruded cell layers in the "vertical"
                          direction.
     :arg kernel:         a :class:`pyop2.Kernel` to produce coordinates for the extruded
