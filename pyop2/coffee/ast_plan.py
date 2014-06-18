@@ -169,13 +169,14 @@ class ASTKernel(object):
         autotune_minimal = [('licm', 1, False, (None, None), True, None, False, None, False),
                             ('split', 3, False, (None, None), True, (1, 0), False, None, False),
                             ('vect', 2, False, (V_OP_UAJ, 1), True, None, False, None, False)]
-        autotune_all = [('licm', 1, False, (None, None), True, None, False, None, False),
+        autotune_all = [('base', 0, False, (None, None), False, None, False, None, False),
+                        ('base', 1, False, (None, None), True, None, False, None, False),
                         ('licm', 2, False, (None, None), True, None, False, None, False),
                         ('licm', 3, False, (None, None), True, None, False, None, False),
                         ('licm', 3, False, (None, None), True, None, False, None, True),
-                        ('split', 3, False, (None, None), True, (1, 0), False, None, False),
-                        ('split', 3, False, (None, None), True, (2, 0), False, None, False),
-                        ('split', 3, False, (None, None), True, (4, 0), False, None, False),
+                        ('split', 2, False, (None, None), True, (1, 0), False, None, False),
+                        ('split', 2, False, (None, None), True, (2, 0), False, None, False),
+                        ('split', 2, False, (None, None), True, (4, 0), False, None, False),
                         ('vect', 2, False, (V_OP_UAJ, 1), True, None, False, None, False),
                         ('vect', 2, False, (V_OP_UAJ, 2), True, None, False, None, False),
                         ('vect', 2, False, (V_OP_UAJ, 3), True, None, False, None, False)]
