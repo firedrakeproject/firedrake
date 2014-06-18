@@ -66,7 +66,7 @@ class Autotuner(object):
 #define RESOLUTION %(resolution)d
 #define TOLERANCE 0.000000000001
 
-long stamp()
+static inline long stamp()
 {
   struct timespec tv;
   clock_gettime(CLOCK_MONOTONIC, &tv);
@@ -166,6 +166,7 @@ int autotune()
       vertex_coordinates_%(iter)d[j][0] = (double)rand();
     }
     %(init_coeffs)s
+    #pragma noinline
     %(call_variant)s
     c++;
   }
@@ -258,6 +259,7 @@ int autotune()
         ldargs = ["-lrt", "-lm"]
         if self.compiler:
             cppargs += [self.compiler[self.isa['inst_set']]]
+            cppargs += [self.compiler['ipo']]
         if self.blas:
             blas_dir = self.blas['dir']
             if blas_dir:
@@ -289,6 +291,7 @@ int autotune()
         variants, debug_code, global_decls = ([], [], [])
         for ast, i in zip(self.kernels, range(len(self.kernels))):
             fun_decl = ast.children[1]
+            fun_decl.pred.remove('inline')
             # Create ficticious kernel parameters
             # Here, we follow the "standard" convention:
             # - The first parameter is the local tensor (lt)

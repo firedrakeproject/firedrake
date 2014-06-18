@@ -408,6 +408,7 @@ def _init_compiler(compiler):
             'force_simdization': '#pragma simd',
             'AVX': '-xAVX',
             'SSE': '-xSSE',
+            'ipo': '-ip',
             'vect_header': '#include <immintrin.h>'
         }
 
@@ -418,6 +419,7 @@ def _init_compiler(compiler):
             'decl_aligned_for': '#pragma vector aligned',
             'AVX': '-mavx',
             'SSE': '-msse',
+            'ipo': '',
             'vect_header': '#include <immintrin.h>'
         }
 
