@@ -126,7 +126,7 @@ int autotune()
     }
   }
 
-  /* Output fastest variant */
+  /* Output all variants */
   /*
   printf("COFFEE Autotuner: cost of variants:\\n");
   for (int j = 0; j < %(nvariants)d; j++)
@@ -134,6 +134,13 @@ int autotune()
     printf("  Variant %%d: %%d\\n", j, counters[j]);
   }
   printf("COFFEE Autotuner: fastest variant has ID %%d\\n", best);
+  */
+
+  /* Output base, licm1, and fastest variants */
+  /*
+  printf("COFFEE Autotuner: base variant: %%d \\n", counters[0]);
+  printf("COFFEE Autotuner: licm1 variant: %%d \\n", counters[1]);
+  printf("COFFEE Autotuner: fastest variant ID=%%d: %%d \\n", best, counters[best]);
   */
 
 #ifdef DEBUG
