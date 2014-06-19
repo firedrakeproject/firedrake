@@ -548,8 +548,8 @@ class AssemblyOptimizer(object):
 
         def update_syms(node, precomputed):
             if isinstance(node, Symbol):
-                if str(node) in precomputed:
-                    node.rank = precomputed[str(node)]
+                if node.symbol in precomputed:
+                    node.rank = precomputed[node.symbol]
             else:
                 for n in node.children:
                     update_syms(n, precomputed)
@@ -560,8 +560,8 @@ class AssemblyOptimizer(object):
 
             if isinstance(node, Symbol):
                 # Vector-expand the symbol if already pre-computed
-                if str(node) in precomputed:
-                    node.rank = precomputed[str(node)]
+                if node.symbol in precomputed:
+                    node.rank = precomputed[node.symbol]
             elif isinstance(node, Expr):
                 for n in node.children:
                     precompute_stmt(n, precomputed, new_outer_block)
@@ -569,18 +569,22 @@ class AssemblyOptimizer(object):
                 # Precompute the LHS of the assignment
                 symbol = node.children[0]
                 new_rank = (self.int_loop.it_var(),) + symbol.rank
-                precomputed[str(symbol)] = new_rank
+                precomputed[symbol.symbol] = new_rank
                 symbol.rank = new_rank
                 # Vector-expand the RHS
                 precompute_stmt(node.children[1], precomputed, new_outer_block)
                 # Finally, append the new node
                 new_outer_block.append(node)
             elif isinstance(node, Decl):
-                # Vector-expand the declaration of the precomputed symbol
-                node.sym.rank = (self.int_loop.size(),) + node.sym.rank
+                new_outer_block.append(node)
                 if isinstance(node.init, Symbol):
                     node.init.symbol = "{%s}" % node.init.symbol
-                new_outer_block.append(node)
+                elif isinstance(node.init, Expr):
+                    new_assign = Assign(dcopy(node.sym), node.init)
+                    precompute_stmt(new_assign, precomputed, new_outer_block)
+                    node.init = EmptyStatement()
+                # Vector-expand the declaration of the precomputed symbol
+                node.sym.rank = (self.int_loop.size(),) + node.sym.rank
             elif isinstance(node, For):
                 # Precompute and/or Vector-expand inner statements
                 new_children = []
@@ -1007,9 +1011,9 @@ class ExpressionExpander(object):
     def __init__(self, var_info, eg, expr):
         self.var_info = var_info
         self.eg = eg
-        self.counter = 0
         self.parent = expr
         self.expanded_decls = {}
+        self.found_consts = {}
         self.expanded_syms = []
 
     def _do_expand(self, sym, const):
@@ -1020,6 +1024,21 @@ class ExpressionExpander(object):
 
         old_expr, var_decl, inv_for, place = self.var_info[sym.symbol]
 
+        # The expanding expression is first assigned to a temporary value in order
+        # to minimize code size and, possibly, work around compiler's inefficiencies
+        # when doing loop-invariant code motion
+        const_str = str(const)
+        if const_str in self.found_consts:
+            const = dcopy(self.found_consts[const_str])
+        elif not isinstance(const, Symbol):
+            const_sym = Symbol("const%d" % len(self.found_consts), ())
+            new_const_decl = Decl("double", dcopy(const_sym), const)
+            self.expanded_decls[new_const_decl.sym.symbol] = (new_const_decl, ast_plan.LOCAL_VAR)
+            self.expanded_syms.append(new_const_decl.sym)
+            place.insert(place.index(inv_for), new_const_decl)
+            self.found_consts[const_str] = const_sym
+            const = const_sym
+
         # No dependencies, just perform the expansion
         if not self.eg.has_dep(sym):
             old_expr.children[0] = Prod(Par(old_expr.children[0]), const)
@@ -1028,7 +1047,7 @@ class ExpressionExpander(object):
         # Create a new symbol, expression, and declaration
         new_expr = Par(Prod(dcopy(sym), const))
         new_node = Assign(sym, new_expr)
-        sym.symbol += "_EXP%d" % self.counter
+        sym.symbol += "_EXP%d" % len(self.expanded_syms)
         new_var_decl = dcopy(var_decl)
         new_var_decl.sym.symbol = sym.symbol
         # Append new expression and declaration
@@ -1039,8 +1058,6 @@ class ExpressionExpander(object):
         # Update tracked information
         self.var_info[sym.symbol] = (new_expr, new_var_decl, inv_for, place)
         self.eg.add_dependency(sym, new_expr, 0)
-
-        self.counter += 1
 
     def expand(self, node, parent, it_vars, exp_var):
         """Perform the expansion of the expression rooted in ``node``. Terms are
