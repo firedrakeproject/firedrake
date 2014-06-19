@@ -485,28 +485,28 @@ class Solver(base.Solver, PETSc.KSP):
 
     @collective
     def _solve(self, A, x, b):
-        self.setOperators(A.handle)
         self._set_parameters()
-        # FIXME: solving again with the same operator shouldn't require
-        # rebuilding the fieldsplit IS
-        if self.parameters['pc_type'] == 'fieldsplit' and A.sparsity.shape != (1, 1):
-            rows, cols = A.sparsity.shape
-            ises = []
-            nlocal_rows = 0
-            for i in range(rows):
-                if i < cols:
-                    nlocal_rows += A[i, i].sparsity.nrows * A[i, i].dims[0]
-            offset = 0
-            if MPI.comm.rank == 0:
-                MPI.comm.exscan(nlocal_rows)
-            else:
-                offset = MPI.comm.exscan(nlocal_rows)
-            for i in range(rows):
-                if i < cols:
-                    nrows = A[i, i].sparsity.nrows * A[i, i].dims[0]
-                    ises.append((str(i), PETSc.IS().createStride(nrows, first=offset, step=1)))
-                    offset += nrows
-            self.getPC().setFieldSplitIS(*ises)
+        # Set up the operator only if it has changed
+        if not self.getOperators()[0] == A.handle:
+            self.setOperators(A.handle)
+            if self.parameters['pc_type'] == 'fieldsplit' and A.sparsity.shape != (1, 1):
+                rows, cols = A.sparsity.shape
+                ises = []
+                nlocal_rows = 0
+                for i in range(rows):
+                    if i < cols:
+                        nlocal_rows += A[i, i].sparsity.nrows * A[i, i].dims[0]
+                offset = 0
+                if MPI.comm.rank == 0:
+                    MPI.comm.exscan(nlocal_rows)
+                else:
+                    offset = MPI.comm.exscan(nlocal_rows)
+                for i in range(rows):
+                    if i < cols:
+                        nrows = A[i, i].sparsity.nrows * A[i, i].dims[0]
+                        ises.append((str(i), PETSc.IS().createStride(nrows, first=offset, step=1)))
+                        offset += nrows
+                self.getPC().setFieldSplitIS(*ises)
         if self.parameters['plot_convergence']:
             self.reshist = []
 
