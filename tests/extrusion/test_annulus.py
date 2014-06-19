@@ -19,5 +19,39 @@ def test_pi():
         assert ln(errors[i]/errors[i+1])/ln(2) > 0.95
 
 
+def test_poisson():
+    # u = x^2 + y^2 is a solution to the Poisson equation
+    # -div(grad(u)) = -4 on the annulus with inner radius
+    # 2, outer radius 5
+
+    len = 4
+    errors = np.zeros(len)
+
+    for i in range(4, 4+len):
+        m = CircleManifoldMesh(2**i, radius=2.0)
+        mesh = ExtrudedMesh(m, layers=2**i, layer_height=3.0/(2**i), extrusion_type="radial")
+        V = FunctionSpace(mesh, "CG", 1)
+
+        u = TrialFunction(V)
+        v = TestFunction(V)
+        f = Constant(-4)
+
+        bcs = [DirichletBC(V, 4, "bottom"),
+               DirichletBC(V, 25, "top")]
+
+        out = Function(V)
+
+        solve(dot(grad(u), grad(v))*dx == f*v*dx, out, bcs=bcs)
+
+        exactfs = FunctionSpace(mesh, "CG", 2)
+        exact = Function(exactfs).interpolate(Expression("x[0]*x[0] + x[1]*x[1]"))
+
+        errors[i-4] = sqrt(assemble((out-exact)*(out-exact)*dx))/sqrt(21*np.pi)  # normalised
+
+    # we seem to get second-order convergence...
+    for i in range(len-1):
+        assert ln(errors[i]/errors[i+1])/ln(2) > 1.7
+
+
 if __name__ == '__main__':
     pytest.main(os.path.abspath(__file__))
