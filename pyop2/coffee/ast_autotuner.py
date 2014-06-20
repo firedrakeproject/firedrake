@@ -311,8 +311,11 @@ int autotune()
             coeffs_syms = [f.sym.symbol.replace('*', '') for f in fun_decl.args[2:]]
             coeffs_types = [f.typ for f in fun_decl.args[2:]]
             lt_init = "".join("{" for r in lt_arg.rank) + "0.0" + "".join("}" for r in lt_arg.rank)
-            lt_decl = "double " + lt_sym + "".join(["[%d]" % r for r in lt_arg.rank]) + \
-                self.compiler['align']("VECTOR_ALIGN") + " = " + lt_init
+            lt_align = self.compiler['align']("VECTOR_ALIGN")
+            if lt_arg.rank[-1] % self.isa["dp_reg"]:
+                lt_align = ""
+            lt_decl = "double " + lt_sym + "".join(["[%d]" % r for r in lt_arg.rank]) + lt_align + \
+                " = " + lt_init
             coords_decl = "double " + coords_sym + "_%d[%d][1]" % (i, coords_size)
             coeffs_size = coeffs_size or self._retrieve_coeff_size(fun_decl, coeffs_syms)
             coeffs_decl = ["%s " % t + f + "_%d[%d][1]" % (i, coeffs_size[f]) for t, f
