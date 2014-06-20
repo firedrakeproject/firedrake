@@ -41,8 +41,6 @@ from ast_linearalgebra import AssemblyLinearAlgebra
 from ast_autotuner import Autotuner
 
 from copy import deepcopy as dcopy
-import itertools
-import operator
 
 
 # Possibile optimizations
@@ -251,22 +249,6 @@ class ASTKernel(object):
 
             return asm
 
-        def _heuristic_unroll_factors(sizes, ths):
-            """Return a list of unroll factors to try given the sizes in ``sizes``.
-            The return value is a list of tuples, where each element in a tuple
-            represents the unroll factor for the corresponding loop in the nest.
-
-            :arg ths: unrolling threshold
-            """
-            i_loop, j_loop, k_loop = sizes
-            # Determine individual unroll factors
-            i_factors = [i+1 for i in range(i_loop) if i_loop % (i+1) == 0] or [0]
-            j_factors = [i+1 for i in range(j_loop) if j_loop % (i+1) == 0] or [0]
-            k_factors = [1]
-            # Return the cartesian product of all possible unroll factors not exceeding the threshold
-            unroll_factors = list(itertools.product(i_factors, j_factors, k_factors))
-            return [x for x in unroll_factors if reduce(operator.mul, x) <= ths]
-
         if opts.get('autotune'):
             if not (compiler and intrinsics):
                 raise RuntimeError("COFFEE Error: must properly initialize COFFEE for autotuning")
@@ -300,7 +282,7 @@ class ASTKernel(object):
                     asm_outer_sz = ao.asm_itspace[0][0].size() if len(ao.asm_itspace) >= 1 else 0
                     asm_inner_sz = ao.asm_itspace[1][0].size() if len(ao.asm_itspace) >= 2 else 0
                     loop_sizes = [int_loop_sz, asm_outer_sz, asm_inner_sz]
-                    for factor in _heuristic_unroll_factors(loop_sizes, unroll_ths):
+                    for factor in unroll_factors(loop_sizes, unroll_ths):
                         autotune_configs_unroll.append(params[:7] + (factor,) + params[8:])
                 # Increase the stack size, if needed
                 increase_stack(asm)

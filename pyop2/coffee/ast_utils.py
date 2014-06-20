@@ -35,6 +35,7 @@
 
 import resource
 import operator
+import itertools
 
 from pyop2.logger import warning
 
@@ -63,3 +64,26 @@ def increase_stack(asm_opt):
         except resource.error:
             warning("Stack may blow up, and could not increase its size.")
             warning("In case of failure, lower COFFEE's licm level to 1.")
+
+
+def unroll_factors(sizes, ths):
+    """Return a list of unroll factors to run, given loop sizes in ``sizes``.
+    The return value is a list of tuples, where each element in a tuple
+    represents the unroll factor for the corresponding loop in the nest.
+
+    For example, if there are three loops i, j, and k, a tuple (2, 1, 1) in
+    the returned list indicates that the outermost loop i should be unrolled
+    by a factor two (i.e. two iterations), while loops j and k should not be
+    unrolled.
+
+    :arg ths: unrolling threshold that cannot be exceed by the overall unroll
+              factor
+    """
+    i_loop, j_loop, k_loop = sizes
+    # Determine individual unroll factors
+    i_factors = [i+1 for i in range(i_loop) if i_loop % (i+1) == 0] or [0]
+    j_factors = [i+1 for i in range(j_loop) if j_loop % (i+1) == 0] or [0]
+    k_factors = [1]
+    # Return the cartesian product of all possible unroll factors not exceeding the threshold
+    unroll_factors = list(itertools.product(i_factors, j_factors, k_factors))
+    return [x for x in unroll_factors if reduce(operator.mul, x) <= ths]
