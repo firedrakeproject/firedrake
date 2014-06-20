@@ -34,6 +34,7 @@
 """Transform the kernel's AST according to the backend we are running over."""
 
 from ast_base import *
+from ast_utils import *
 from ast_optimizer import AssemblyOptimizer
 from ast_vectorizer import AssemblyVectorizer
 from ast_linearalgebra import AssemblyLinearAlgebra
@@ -301,6 +302,8 @@ class ASTKernel(object):
                     loop_sizes = [int_loop_sz, asm_outer_sz, asm_inner_sz]
                     for factor in _heuristic_unroll_factors(loop_sizes, unroll_ths):
                         autotune_configs_unroll.append(params[:7] + (factor,) + params[8:])
+                # Increase the stack size, if needed
+                increase_stack(asm)
                 # Add the variant to the test cases the autotuner will have to run
                 variants.append(self.ast)
                 self.ast = dcopy(original_ast)
@@ -335,7 +338,10 @@ class ASTKernel(object):
                       opts.get('permute'))
 
         # Generate a specific code version
-        _generate_cpu_code(self, *params)
+        asm_opt = _generate_cpu_code(self, *params)
+
+        # Increase stack size if too much space is used on the stack
+        increase_stack(asm_opt)
 
     def gencode(self):
         """Generate a string representation of the AST."""
