@@ -31,7 +31,7 @@ from copy import copy
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
 from pyop2.logger import progress, INFO
-from pyop2.profiling import timed_region
+from pyop2.profiling import timed_region, timed_function
 
 import assembly_cache
 import assemble_expressions
@@ -270,6 +270,7 @@ class NonlinearVariationalSolver(object):
         self._parameters = val
         self._update_parameters()
 
+    @timed_function("SNES solver execution")
     def solve(self):
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:
