@@ -266,7 +266,6 @@ class Mesh(object):
     def coordinates(self, value):
         self._coordinate_function = value
 
-    @timed_function("Build mesh from DMPlex")
     def _from_dmplex(self, plex, geometric_dim=0,
                      periodic_coords=None, reorder=None):
         """ Create mesh from DMPlex object """
@@ -357,7 +356,6 @@ class Mesh(object):
             measure._subdomain_data = self.coordinates
             measure._domain = self.ufl_domain()
 
-    @timed_function("Build mesh from Gmsh")
     def _from_gmsh(self, filename, dim=0, periodic_coords=None, reorder=None):
         """Read a Gmsh .msh file from `filename`"""
         basename, ext = os.path.splitext(filename)
@@ -380,7 +378,6 @@ class Mesh(object):
 
         self._from_dmplex(gmsh_plex, dim, periodic_coords, reorder=reorder)
 
-    @timed_function("Build mesh from Exodus")
     def _from_exodus(self, filename, dim=0, reorder=None):
         self.name = filename
         plex = PETSc.DMPlex().createExodusFromFile(filename)
@@ -394,7 +391,6 @@ class Mesh(object):
 
         self._from_dmplex(plex, reorder=reorder)
 
-    @timed_function("Build mesh from CGNS")
     def _from_cgns(self, filename, dim=0, reorder=None):
         self.name = filename
         plex = PETSc.DMPlex().createCGNSFromFile(filename)
@@ -402,7 +398,6 @@ class Mesh(object):
         #TODO: Add boundary IDs
         self._from_dmplex(plex, reorder=reorder)
 
-    @timed_function("Build mesh from triangle")
     def _from_triangle(self, filename, dim=0, periodic_coords=None, reorder=None):
         """Read a set of triangle mesh files from `filename`"""
         self.name = filename
