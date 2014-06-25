@@ -233,12 +233,12 @@ class _VTUFile(object):
 
         num_points = Vo.node_count
 
-        if not (e.family() == "OuterProductElement"):
+        if not isinstance(e.cell(), OuterProductCell):
             num_cells = mesh.num_cells()
         else:
             num_cells = mesh.num_cells() * (mesh.layers - 1)
 
-        if not (e.family() == "OuterProductElement"):
+        if not isinstance(e.cell(), OuterProductCell):
             connectivity = Vc.cell_node_map().values_with_halo.flatten()
         else:
             # Connectivity of bottom cell in extruded mesh
