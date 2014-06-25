@@ -53,8 +53,8 @@ def test_left_to_right(mesh, DG0, W):
     phi = TestFunction(DG0)
 
     a1 = -D*dot(u0, grad(phi))*dx
-    a2 = dot(jump(phi), un('+')*D('+') - un('-')*D('-'))*dS_v
-    a3 = dot(phi, un*D)*ds_v(2)  # outflow at right-hand wall
+    a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS_v
+    a3 = phi*un*D*ds_v(2)  # outflow at right-hand wall
     a = a1 + a2 + a3
 
     L = -inflow*phi*dot(u0, n)*ds_v(1)  # inflow at left-hand wall
@@ -83,8 +83,8 @@ def test_right_to_left(mesh, DG1, W):
     phi = TestFunction(DG1)
 
     a1 = -D*dot(u0, grad(phi))*dx
-    a2 = dot(jump(phi), un('+')*D('+') - un('-')*D('-'))*dS_v
-    a3 = dot(phi, un*D)*ds_v(1)  # outflow at left-hand wall
+    a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS_v
+    a3 = phi*un*D*ds_v(1)  # outflow at left-hand wall
     a = a1 + a2 + a3
 
     L = -inflow*phi*dot(u0, n)*ds_v(2)  # inflow at right-hand wall
@@ -110,8 +110,8 @@ def test_bottom_to_top(mesh, DG0, W):
     phi = TestFunction(DG0)
 
     a1 = -D*dot(u0, grad(phi))*dx
-    a2 = dot(jump(phi), un('+')*D('+') - un('-')*D('-'))*dS_h
-    a3 = dot(phi, un*D)*ds_t  # outflow at top wall
+    a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS_h
+    a3 = phi*un*D*ds_t  # outflow at top wall
     a = a1 + a2 + a3
 
     L = -inflow*phi*dot(u0, n)*ds_b  # inflow at bottom wall
@@ -137,8 +137,8 @@ def test_top_to_bottom(mesh, DG1, W):
     phi = TestFunction(DG1)
 
     a1 = -D*dot(u0, grad(phi))*dx
-    a2 = dot(jump(phi), un('+')*D('+') - un('-')*D('-'))*dS_h
-    a3 = dot(phi, un*D)*ds_b  # outflow at bottom wall
+    a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS_h
+    a3 = phi*un*D*ds_b  # outflow at bottom wall
     a = a1 + a2 + a3
 
     L = -inflow*phi*dot(u0, n)*ds_t  # inflow at top wall
