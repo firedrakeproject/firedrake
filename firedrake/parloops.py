@@ -53,6 +53,8 @@ def _form_kernel(kernel, measure, args):
 
     for var, (func, intent) in args.iteritems():
         ndof = func.function_space().fiat_element.space_dimension()
+        if measure.integral_type() == 'interior_facet':
+            ndof *= 2
         lkernel = lkernel.replace(var+".dofs", str(ndof))
         if measure is direct:
             kargs.append(ast.Decl("double", ast.Symbol(var, (ndof,))))
