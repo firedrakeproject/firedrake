@@ -39,8 +39,8 @@ def test_left_to_right(mesh, DG0, W):
     phi = TestFunction(DG0)
 
     a1 = -D*dot(u0, grad(phi))*dx
-    a2 = dot(jump(phi), un('+')*D('+') - un('-')*D('-'))*dS
-    a3 = dot(phi, un*D)*ds(2)  # outflow at right-hand wall
+    a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS
+    a3 = phi*un*D*ds(2)  # outflow at right-hand wall
     a = a1 + a2 + a3
 
     L = -inflow*phi*dot(u0, n)*ds(1)  # inflow at left-hand wall
@@ -69,8 +69,8 @@ def test_up_to_down(mesh, DG1, W):
     phi = TestFunction(DG1)
 
     a1 = -D*dot(u0, grad(phi))*dx
-    a2 = dot(jump(phi), un('+')*D('+') - un('-')*D('-'))*dS
-    a3 = dot(phi, un*D)*ds(3)  # outflow at lower wall
+    a2 = jump(phi)*(un('+')*D('+') - un('-')*D('-'))*dS
+    a3 = phi*un*D*ds(3)  # outflow at lower wall
     a = a1 + a2 + a3
 
     L = -inflow*phi*dot(u0, n)*ds(4)  # inflow at upper wall
