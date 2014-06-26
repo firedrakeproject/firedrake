@@ -70,8 +70,7 @@ class NonlinearVariationalProblem(object):
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
         self.J_ufl = J or ufl_expr.derivative(F, u)
-        self.needs_pmat = Jp is not None
-        self.Jp = Jp or self.J_ufl
+        self.Jp = Jp
         self.u_ufl = u
         self.bcs = bcs
 
@@ -122,7 +121,7 @@ class NonlinearVariationalSolver(object):
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
         self._jac_tensor = assemble(self._problem.J_ufl, bcs=self._problem.bcs)
-        if self._problem.needs_pmat:
+        if self._problem.Jp is not None:
             self._jac_ptensor = assemble(self._problem.Jp, bcs=self._problem.bcs)
         else:
             self._jac_ptensor = self._jac_tensor
@@ -134,7 +133,7 @@ class NonlinearVariationalSolver(object):
                                                                 self._x})
         self._problem.J_ufl = ufl.replace(self._problem.J_ufl, {self._problem.u_ufl:
                                                                 self._x})
-        if self._problem.needs_pmat:
+        if self._problem.Jp is not None:
             self._problem.Jp = ufl.replace(self._problem.Jp, {self._problem.u_ufl:
                                                               self._x})
         self.snes = PETSc.SNES().create()
@@ -194,7 +193,7 @@ class NonlinearVariationalSolver(object):
 
         This overwrites any existing null space."""
         nullspace._apply(self._jac_tensor._M, ises=ises)
-        if self._problem.needs_pmat:
+        if self._problem.Jp is not None:
             nullspace._apply(self._jac_ptensor._M, ises=ises)
 
     def form_function(self, snes, X_, F_):
@@ -230,15 +229,16 @@ class NonlinearVariationalSolver(object):
                     _v[:] = _x[:]
         # Ensure guess has correct halo data.
         self._x.dat.needs_halo_update = True
-        assemble(self._problem.Jp,
-                 tensor=self._jac_ptensor,
+        assemble(self._problem.J_ufl,
+                 tensor=self._jac_tensor,
                  bcs=self._problem.bcs)
-        self._jac_ptensor.M._force_evaluation()
-        if J_ != P_:
-            assemble(self._problem.J_ufl,
-                     tensor=self._jac_tensor,
+        self._jac_tensor.M._force_evaluation()
+        if self._problem.Jp is not None:
+            assemble(self._problem.Jp,
+                     tensor=self._jac_ptensor,
                      bcs=self._problem.bcs)
-            self._jac_tensor.M._force_evaluation()
+            self._jac_ptensor.M._force_evaluation()
+            return PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 
     def _update_parameters(self):
