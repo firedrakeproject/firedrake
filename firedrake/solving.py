@@ -194,8 +194,8 @@ class NonlinearVariationalSolver(object):
 
         This overwrites any existing null space."""
         nullspace._apply(self._jac_tensor._M, ises=ises)
-        if self._jac_ptensor._M.handle != self._jac_tensor._M.handle:
-            nullspace._apply(self._jac_tensor._M, ises=ises)
+        if self._problem.needs_pmat:
+            nullspace._apply(self._jac_ptensor._M, ises=ises)
 
     def form_function(self, snes, X_, F_):
         # X_ may not be the same vector as the vec behind self._x, so
