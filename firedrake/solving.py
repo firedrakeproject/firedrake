@@ -601,15 +601,6 @@ def _assemble(f, tensor=None, bcs=None):
 
             elif integral_type in ['exterior_facet_top', 'exterior_facet_bottom']:
                 with timed_region("Assemble exterior facets"):
-                    if is_mat:
-                        tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
-                                         lambda s: s.cell_node_map(trbc),
-                                         i, j)
-                    elif is_vec:
-                        tensor_arg = vec(lambda s: s.cell_node_map(), i)
-                    else:
-                        tensor_arg = tensor(op2.INC)
-
                     # In the case of extruded meshes with horizontal facet integrals, two
                     # parallel loops will (potentially) get created and called based on the
                     # domain id: interior horizontal, bottom or top.
@@ -619,6 +610,15 @@ def _assemble(f, tensor=None, bcs=None):
 
                     # Iterate over the list and assemble all the args of the parallel loop
                     for (index, set) in set_global_list:
+                        if is_mat:
+                            tensor_arg = mat(lambda s: op2.SparsityMap(s.cell_node_map(tsbc), index),
+                                             lambda s: op2.SparsityMap(s.cell_node_map(trbc), index),
+                                             i, j)
+                        elif is_vec:
+                            tensor_arg = vec(lambda s: s.cell_node_map(), i)
+                        else:
+                            tensor_arg = tensor(op2.INC)
+
                         # Add the kernel, iteration set and coordinate fields to the loop args
                         args = [kernel, set, tensor_arg,
                                 coords.dat(op2.READ, coords.cell_node_map(),
@@ -674,8 +674,10 @@ def _assemble(f, tensor=None, bcs=None):
                                 "No support for facet integrals under MPI yet")
 
                     if is_mat:
-                        tensor_arg = mat(lambda s: s.cell_node_map(tsbc),
-                                         lambda s: s.cell_node_map(trbc),
+                        tensor_arg = mat(lambda s: op2.SparsityMap(s.cell_node_map(tsbc),
+                                                                   op2.ON_INTERIOR_FACETS),
+                                         lambda s: op2.SparsityMap(s.cell_node_map(trbc),
+                                                                   op2.ON_INTERIOR_FACETS),
                                          i, j)
                     elif is_vec:
                         tensor_arg = vec(lambda s: s.cell_node_map(), i)
