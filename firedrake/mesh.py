@@ -25,7 +25,8 @@ __all__ = ['Mesh', 'ExtrudedMesh',
            'UnitIntervalMesh', 'UnitSquareMesh', 'UnitCircleMesh',
            'IntervalMesh', 'PeriodicIntervalMesh', 'PeriodicUnitIntervalMesh',
            'UnitTetrahedronMesh', 'UnitTriangleMesh', 'UnitCubeMesh',
-           'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh']
+           'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
+           'CircleManifoldMesh']
 
 
 _cachedir = os.path.join(tempfile.gettempdir(),
@@ -982,6 +983,34 @@ class UnitTriangleMesh(Mesh):
         cells = [[1, 2, 0]]
         plex = dmplex._from_cell_list(2, cells, coords)
         super(UnitTriangleMesh, self).__init__(self.name, plex=plex)
+
+
+class CircleManifoldMesh(Mesh):
+
+    """A 1D mesh of the circle, immersed in 2D"""
+    def __init__(self, ncells, radius=1):
+        """
+        :arg ncells: number of cells the circle should be
+             divided into (min 3)
+
+        :arg radius: the radius of the circle to approximate
+        """
+
+        if ncells < 3:
+            raise ValueError("CircleManifoldMesh must have at least three cells")
+        self.name = "circlemanifoldmesh_%d_%g" % (ncells, radius)
+
+        self._R = radius
+        self._ncells = ncells
+
+        self._vertices = radius*np.column_stack((np.cos(np.arange(ncells)*(2*np.pi/ncells)),
+                                                 np.sin(np.arange(ncells)*(2*np.pi/ncells))))
+
+        self._cells = np.column_stack((np.arange(0, ncells, dtype=np.int32),
+                                       np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
+
+        plex = dmplex._from_cell_list(1, self._cells, self._vertices)
+        super(CircleManifoldMesh, self).__init__(self.name, plex=plex, dim=2, reorder=False)
 
 
 class IcosahedralSphereMesh(Mesh):
