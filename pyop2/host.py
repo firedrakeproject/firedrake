@@ -837,7 +837,8 @@ class JITModule(base.JITModule):
 
         def itset_loop_body(i, j, shape, offsets, is_facet=False):
             nloops = len(shape)
-            _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e) for n, e in enumerate(shape)])
+            mult = 2 if is_facet else 1
+            _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e*mult) for n, e in enumerate(shape)])
             _itspace_args = [(count, arg) for count, arg in enumerate(self._args)
                              if arg.access._mode in ['WRITE', 'INC'] and arg._uses_itspace]
             _buf_scatter = ""
