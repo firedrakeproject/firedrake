@@ -47,12 +47,16 @@ class NonlinearVariationalProblem(object):
     """Nonlinear variational problem F(u; v) = 0."""
 
     def __init__(self, F, u, bcs=None, J=None,
+                 Jp=None,
                  form_compiler_parameters=None):
         """
         :param F: the nonlinear form
         :param u: the :class:`.Function` to solve for
         :param bcs: the boundary conditions (optional)
         :param J: the Jacobian J = dF/du (optional)
+        :param Jp: a form used for preconditioning the linear system,
+                 optional, if not supplied then the Jacobian itself
+                 will be used.
         :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
         """
@@ -66,6 +70,7 @@ class NonlinearVariationalProblem(object):
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
         self.J_ufl = J or ufl_expr.derivative(F, u)
+        self.Jp = Jp
         self.u_ufl = u
         self.bcs = bcs
 
@@ -116,7 +121,10 @@ class NonlinearVariationalSolver(object):
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
         self._jac_tensor = assemble(self._problem.J_ufl, bcs=self._problem.bcs)
-        self._jac_ptensor = self._jac_tensor
+        if self._problem.Jp is not None:
+            self._jac_ptensor = assemble(self._problem.Jp, bcs=self._problem.bcs)
+        else:
+            self._jac_ptensor = self._jac_tensor
         test = self._problem.F_ufl.arguments()[0]
         self._F_tensor = function.Function(test.function_space())
         # Function to hold current guess
@@ -125,6 +133,9 @@ class NonlinearVariationalSolver(object):
                                                                 self._x})
         self._problem.J_ufl = ufl.replace(self._problem.J_ufl, {self._problem.u_ufl:
                                                                 self._x})
+        if self._problem.Jp is not None:
+            self._problem.Jp = ufl.replace(self._problem.Jp, {self._problem.u_ufl:
+                                                              self._x})
         self.snes = PETSc.SNES().create()
         self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
         NonlinearVariationalSolver._id += 1
@@ -182,8 +193,8 @@ class NonlinearVariationalSolver(object):
 
         This overwrites any existing null space."""
         nullspace._apply(self._jac_tensor._M, ises=ises)
-        if self._jac_ptensor._M.handle != self._jac_tensor._M.handle:
-            nullspace._apply(self._jac_tensor._M, ises=ises)
+        if self._problem.Jp is not None:
+            nullspace._apply(self._jac_ptensor._M, ises=ises)
 
     def form_function(self, snes, X_, F_):
         # X_ may not be the same vector as the vec behind self._x, so
@@ -219,14 +230,15 @@ class NonlinearVariationalSolver(object):
         # Ensure guess has correct halo data.
         self._x.dat.needs_halo_update = True
         assemble(self._problem.J_ufl,
-                 tensor=self._jac_ptensor,
+                 tensor=self._jac_tensor,
                  bcs=self._problem.bcs)
-        self._jac_ptensor.M._force_evaluation()
-        if J_ != P_:
-            assemble(self._problem.J_ufl,
-                     tensor=self._jac_tensor,
+        self._jac_tensor.M._force_evaluation()
+        if self._problem.Jp is not None:
+            assemble(self._problem.Jp,
+                     tensor=self._jac_ptensor,
                      bcs=self._problem.bcs)
-            self._jac_tensor.M._force_evaluation()
+            self._jac_ptensor.M._force_evaluation()
+            return PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 
     def _update_parameters(self):
@@ -317,13 +329,16 @@ Reason:
 class LinearVariationalProblem(NonlinearVariationalProblem):
     """Linear variational problem a(u, v) = L(v)."""
 
-    def __init__(self, a, L, u, bcs=None,
+    def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None):
         """
         :param a: the bilinear form
         :param L: the linear form
         :param u: the :class:`.Function` to solve for
         :param bcs: the boundary conditions (optional)
+        :param aP: an optional operator to assemble to precondition
+                 the system (if not provided a preconditioner may be
+                 computed from ``a``)
         :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
         """
@@ -332,8 +347,8 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         J = a
         F = ufl.action(J, u) - L
 
-        super(LinearVariationalProblem, self).__init__(F, u, bcs, J,
-                                                       form_compiler_parameters)
+        super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
+                                                       form_compiler_parameters=form_compiler_parameters)
 
 
 class LinearVariationalSolver(NonlinearVariationalSolver):
@@ -904,14 +919,14 @@ def _solve_varproblem(*args, **kwargs):
     "Solve variational problem a == L or F == 0"
 
     # Extract arguments
-    eq, u, bcs, J, M, form_compiler_parameters, solver_parameters, nullspace \
+    eq, u, bcs, J, Jp, M, form_compiler_parameters, solver_parameters, nullspace \
         = _extract_args(*args, **kwargs)
 
     # Solve linear variational problem
     if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
 
         # Create problem
-        problem = LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs,
+        problem = LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
                                            form_compiler_parameters=form_compiler_parameters)
 
         # Create solver and call solve
@@ -924,7 +939,7 @@ def _solve_varproblem(*args, **kwargs):
     else:
 
         # Create problem
-        problem = NonlinearVariationalProblem(eq.lhs, u, bcs, J,
+        problem = NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
                                               form_compiler_parameters=form_compiler_parameters)
 
         # Create solver and call solve
@@ -941,7 +956,7 @@ def _extract_args(*args, **kwargs):
     "Extraction of arguments for _solve_varproblem"
 
     # Check for use of valid kwargs
-    valid_kwargs = ["bcs", "J", "M",
+    valid_kwargs = ["bcs", "J", "Jp", "M",
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace"]
     for kwarg in kwargs.iterkeys():
@@ -972,6 +987,10 @@ def _extract_args(*args, **kwargs):
     if J is not None and not isinstance(J, ufl.Form):
         raise RuntimeError("Expecting Jacobian J to be a UFL Form")
 
+    Jp = kwargs.get("Jp", None)
+    if Jp is not None and not isinstance(Jp, ufl.Form):
+        raise RuntimeError("Expecting PC Jacobian Jp to be a UFL Form")
+
     # Extract functional
     M = kwargs.get("M", None)
     if M is not None and not isinstance(M, ufl.Form):
@@ -982,7 +1001,7 @@ def _extract_args(*args, **kwargs):
     form_compiler_parameters = kwargs.get("form_compiler_parameters", {})
     solver_parameters = kwargs.get("solver_parameters", {})
 
-    return eq, u, bcs, J, M, form_compiler_parameters, solver_parameters, nullspace
+    return eq, u, bcs, J, Jp, M, form_compiler_parameters, solver_parameters, nullspace
 
 
 def _extract_eq(eq):

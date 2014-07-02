@@ -457,6 +457,17 @@ precondition the Krylov system solving for :math:`S`, you can also use
 a `least squares commutator <LSC_>`_, see the relevant section of the
 `PETSc manual pages <fieldsplit_>`_ for more details.
 
+More block preconditioners
+++++++++++++++++++++++++++
+
+As well as physics-based Schur complement preconditioners for block
+systems, PETSc also allows us to use preconditioners formed from block
+Jacobi (``'pc_fieldsplit_type': 'additive'``) and block Gauss-Seidel
+(``'multiplicative'`` or ``'symmetric_multiplicative'``)
+inverses of the block system.  These work for any number of blocks,
+whereas the Schur complement approach mentioned above only works for
+two by two blocks.
+
 .. note::
 
    PETSc offers support for composing fieldsplit preconditioners
@@ -520,6 +531,42 @@ The maximum number of allowed function evaluations limits the number
 of times the residual may be evaluated before returning a
 non-convergence error, and defaults to 1000.
 
+
+Providing an operator for preconditioning
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+By default, Firedrake uses the Jacobian of the residual (or equally
+the bilinear form for linear problems) to construct preconditioners
+for the linear systems it solves.  That is, it does not directly
+solve:
+
+.. math::
+
+   A \vec{x} = \vec{b}
+
+but rather
+
+.. math::
+
+   \tilde{A}^{-1} A \vec{x} = \tilde{A}^{-1} \vec{b}
+
+where :math:`\tilde{A}^{-1}` is an approximation to :math:`A^{-1}`.  If we
+know something about the structure of our problem, we may be able to
+construct an operator :math:`P` explicitly which is "easy" to invert,
+and whose inverse approximates :math:`A^{-1}` well.  Firedrake allows
+you to provide this operator when solving variational problems by
+passing an explicit :py:data:`Jp` keyword argument to the solve call,
+the provided form will then be used to construct an approximate
+inverse when preconditioning the problem, rather than the form we're
+solving with.
+
+.. code-block:: python
+
+   a = ...
+   L = ...
+   Jp = ...
+   # Use the approximate inverse of Jp to precondition solves
+   solve(a == L, ..., Jp=Jp)
 
 Default solver options
 ~~~~~~~~~~~~~~~~~~~~~~
