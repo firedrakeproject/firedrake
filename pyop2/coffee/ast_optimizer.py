@@ -31,7 +31,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from copy import deepcopy as dcopy
 
 import networkx as nx
@@ -62,7 +62,9 @@ class AssemblyOptimizer(object):
     def __init__(self, loop_nest, pre_header, kernel_decls):
         self.pre_header = pre_header
         self.kernel_decls = kernel_decls
+        # Track applied optimizations
         self._is_precomputed = False
+        self._has_zeros = False
         # Expressions evaluating the element matrix
         self.asm_expr = {}
         # Integration loop (if any)
@@ -159,20 +161,22 @@ class AssemblyOptimizer(object):
 
         return (itspace_vrs, accessed_vrs)
 
-    def generalized_licm(self, level):
+    def rewrite_expression(self, level):
         """Generalized loop-invariant code motion.
 
-        :arg level: The optimization level (0, 1, 2, 3). The higher, the more
-            invasive is the re-writing of the assembly expressions, trying to
-            hoist as much invariant code as possible.
-
-            * level 1: performs "basic" generalized loop-invariant code motion
-            * level 2: level 1 + expansion of terms, factorization of basis
-              functions appearing multiple times in the same expression, and
-              finally another run of loop-invariant code motion to move
-              invariant sub-expressions exposed by factorization
-            * level 3: level 2 + precomputation of read-only expressions out
-              of the assembly loop nest
+        :arg level: The optimization level (0, 1, 2, 3, 4). The higher, the more
+                    invasive is the re-writing of the assembly expressions,
+                    trying to eliminate unnecessary floating point operations.
+                    level == 1: performs "basic" generalized loop-invariant
+                                code motion
+                    level == 2: level 1 + expansion of terms, factorization of
+                                basis functions appearing multiple times in the
+                                same expression, and finally another run of
+                                loop-invariant code motion to move invariant
+                                sub-expressions exposed by factorization
+                    level == 3: level 2 + avoid computing zero-columns
+                    level == 4: level 3 + precomputation of read-only expressions
+                                out of the assembly loop nest
         """
 
         parent = (self.pre_header, self.kernel_decls)
@@ -185,6 +189,8 @@ class AssemblyOptimizer(object):
                 ew.distribute()
                 ew.licm()
             if level > 2:
+                self._has_zeros = ew.zeros()
+            if level > 3:
                 self._precompute(expr)
                 self._is_precomputed = True
 
@@ -380,11 +386,13 @@ class AssemblyOptimizer(object):
 
     def split(self, cut=1, length=0):
         """Split assembly expressions into multiple chunks exploiting sum's
-        associativity. This is done to improve register pressure.
-
-        This transformation "splits" an expression into at most ``length`` chunks
-        of ``cut`` operands. If ``length = 0``, then the expression is completely
-        split into chunks of ``cut`` operands.
+        associativity.
+        In "normal" circumstances, this transformation "splits" an expression into at most
+        ``length`` chunks of ``cut`` operands. There are, however, special cases:
+        If zeros were found while rewriting the assembly expression, ``length`` is ignored
+        and the expression is split into X chunks, with X being the number of iteration
+        spaces required to correctly perform the assembly.
+        If ``length == 0``, the expression is completely split into chunks of one operand.
 
         For example, consider the following piece of code:
 
@@ -483,8 +491,7 @@ class AssemblyOptimizer(object):
                         return split_sum(node.children[1], (node, 1), is_left, found, sum_count)
                     return True
             else:
-                raise RuntimeError("Splitting expression, but actually found an unknown \
-                                    node: %s" % node.gencode())
+                raise RuntimeError("Split error: found unknown node: %s" % str(node))
 
         def split_and_update(out_prods):
             split, splittable = ({}, {})
@@ -522,8 +529,8 @@ class AssemblyOptimizer(object):
 
         new_asm_expr = {}
         splittable = self.asm_expr
-        if length:
-            # Split into at most length blocks
+        if length and not self._has_zeros:
+            # Split into at most ``length`` blocks
             for i in range(length-1):
                 split, splittable = split_and_update(splittable)
                 new_asm_expr.update(split)
@@ -533,11 +540,62 @@ class AssemblyOptimizer(object):
                 new_asm_expr.update(splittable)
         else:
             # Split everything into blocks of length 1
+            cut = 1
             while splittable:
                 split, splittable = split_and_update(splittable)
                 new_asm_expr.update(split)
             new_asm_expr.update(splittable)
+            if self._has_zeros:
+                # Group assembly expressions that have the same iteration space
+                new_asm_expr = self._group_itspaces(new_asm_expr)
         self.asm_expr = new_asm_expr
+
+    def _group_itspaces(self, asm_expr):
+        """Group the expressions in ``asm_expr`` that iterate along the same space
+        and return an updated version of the dictionary containing the assembly
+        expressions in the kernel."""
+        def get_nonzero_bounds(node):
+            if isinstance(node, Symbol):
+                return (node.rank[-1], self._has_zeros[node.symbol])
+            elif isinstance(node, Par):
+                return get_nonzero_bounds(node.children[0])
+            elif isinstance(node, Prod):
+                return tuple([get_nonzero_bounds(n) for n in node.children])
+            else:
+                raise RuntimeError("Group iter space error: unknown node: %s" % str(node))
+
+        # Group increments according to their iteration space
+        itspaces = defaultdict(list)
+        for expr, expr_info in asm_expr.items():
+            nonzero_bounds = get_nonzero_bounds(expr.children[1])
+            itspaces[nonzero_bounds].append((expr, expr_info))
+
+        # Create the new iteration spaces
+        to_remove = []
+        new_asm_expr = {}
+        for its, asm_exprs in itspaces.items():
+            itvar_to_its = dict(list(its))
+            expr, expr_info = asm_exprs[0]
+            it_vars, parent, loops = expr_info
+            # Reuse and modify an existing loop nest
+            outer_loop_sizes = itvar_to_its[loops[0].it_var()]
+            inner_loop_sizes = itvar_to_its[loops[1].it_var()]
+            loops[0].init.init = c_sym(outer_loop_sizes[0])
+            loops[0].cond.children[1] = c_sym(outer_loop_sizes[1] + 1)
+            loops[1].init.init = c_sym(inner_loop_sizes[0])
+            loops[1].cond.children[1] = c_sym(inner_loop_sizes[1] + 1)
+            new_asm_expr[expr] = expr_info
+            # Track down loops that will have to be removed
+            for expr, expr_info in asm_exprs[1:]:
+                to_remove.append(expr_info[2][0])
+                parent.children.append(expr)
+                new_asm_expr[expr] = expr_info
+        # Remove old loops
+        parent = self.int_loop.children[0] if self.int_loop else self.pre_header
+        for i in to_remove:
+            parent.children.remove(i)
+        # Update the dictionary of assembly expressions in the kernel
+        return new_asm_expr
 
     def _precompute(self, expr):
         """Precompute all expressions contributing to the evaluation of the local
@@ -684,7 +742,7 @@ class AssemblyRewriter(object):
         self.syms = syms
         self.decls = decls
         self.parent, self.parent_decls = parent
-        self.hoisted = {}
+        self.hoisted = OrderedDict()
         # Properties of the assembly expression
         self._licm = 0
         self._expanded = False
@@ -1016,6 +1074,73 @@ class AssemblyRewriter(object):
             target = Par(create_sum(target)) if len(target) > 1 else create_sum(target)
             new_prods.append(Par(Prod(dist[0], target)))
         self.expr.children[1] = Par(create_sum(new_prods))
+
+    def zeros(self):
+        """Track the propagation of zero columns along the computation and re-write
+        the assembly expressions so as to avoid useless floating point operations
+        over zero values."""
+
+        def track_nonzero_columns(node, nonzeros_in_syms):
+            """Return the first and last indices of non-zero columns resulting from
+            the evaluation of the expression rooted in node. If there are no zero
+            columns or if the expression is not made of bi-dimensional arrays,
+            return (None, None)."""
+            if isinstance(node, Symbol):
+                if node.offset:
+                    raise RuntimeError("Zeros error: offsets not supported: %s" % str(node))
+                return nonzeros_in_syms.get(node.symbol)
+            elif isinstance(node, Par):
+                return track_nonzero_columns(node.children[0], nonzeros_in_syms)
+            else:
+                nz_bounds = [track_nonzero_columns(n, nonzeros_in_syms) for n in node.children]
+                if isinstance(node, (Prod, Div)):
+                    indices = [nz for nz in nz_bounds if nz and nz != (None, None)]
+                    if len(indices) == 0:
+                        return (None, None)
+                    elif len(indices) > 1:
+                        raise RuntimeError("Zeros error: unexpected operation: %s" % str(node))
+                    else:
+                        return indices[0]
+                elif isinstance(node, Sum):
+                    indices = [None, None]
+                    for nz in nz_bounds:
+                        if nz is not None:
+                            indices[0] = nz[0] if not indices[0] else min(nz[0], indices[0])
+                            indices[1] = nz[1] if not indices[1] else max(nz[1], indices[1])
+                    return tuple(indices)
+                else:
+                    raise RuntimeError("Zeros error: unsupported operation: %s" % str(node))
+
+        # Initialize a dict mapping symbols to their zero columns with the info
+        # already available in the kernel's declarations
+        nonzeros_in_syms = {}
+        for i, j in self.parent_decls.items():
+            nz_bounds = j[0].get_nonzero_columns()
+            if nz_bounds:
+                nonzeros_in_syms[i] = nz_bounds
+                if nz_bounds == (-1, -1):
+                    # A fully zero-valued two dimensional array
+                    nonzeros_in_syms[i] = j[0].sym.rank
+
+        # If zeros were not found, then just give up
+        if not nonzeros_in_syms:
+            return {}
+
+        # Now track zeros in the temporaries storing hoisted sub-expressions
+        for i, j in self.hoisted.items():
+            nz_bounds = track_nonzero_columns(j[0], nonzeros_in_syms) or (None, None)
+            if None not in nz_bounds:
+                # There are some zero-columns in the array, so track the bounds
+                # of *non* zero-columns
+                nonzeros_in_syms[i] = nz_bounds
+            else:
+                # Dense array or scalar cases: need to ignore scalars
+                sym_size = j[1].size()[-1]
+                if sym_size:
+                    nonzeros_in_syms[i] = (0, sym_size)
+
+        # Record the fact that we are tracking zeros
+        return nonzeros_in_syms
 
 
 class ExpressionExpander(object):

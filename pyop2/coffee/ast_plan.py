@@ -172,7 +172,6 @@ class ASTKernel(object):
                         ('base', 1, False, (None, None), True, None, False, None, False),
                         ('licm', 2, False, (None, None), True, None, False, None, False),
                         ('licm', 3, False, (None, None), True, None, False, None, False),
-                        ('licm', 3, False, (None, None), True, None, False, None, True),
                         ('split', 2, False, (None, None), True, (1, 0), False, None, False),
                         ('split', 2, False, (None, None), True, (2, 0), False, None, False),
                         ('split', 2, False, (None, None), True, (4, 0), False, None, False),
@@ -190,7 +189,7 @@ class ASTKernel(object):
                 raise RuntimeError("COFFEE Error: cannot unroll and then convert to BLAS")
             if permute and blas:
                 raise RuntimeError("COFFEE Error: cannot permute and then convert to BLAS")
-            if permute and licm != 3:
+            if permute and licm != 4:
                 raise RuntimeError("COFFEE Error: cannot permute without full expression rewriter")
             if unroll and v_type and v_type != AUTOVECT:
                 raise RuntimeError("COFFEE Error: outer-product vectorization needs no unroll")
@@ -200,13 +199,15 @@ class ASTKernel(object):
             decls, fors = self._visit_ast(self.ast, fors=[], decls={})
             asm = [AssemblyOptimizer(l, pre_l, decls) for l, pre_l in fors]
             for ao in asm:
-                # 1) Loop-invariant code motion
+                # 1) Expression Re-writer
                 if licm:
-                    ao.generalized_licm(licm)
+                    ao.rewrite_expression(licm)
                     decls.update(ao.decls)
 
                 # 2) Splitting
-                if split:
+                if ao._has_zeros:
+                    ao.split()
+                elif split:
                     ao.split(split[0], split[1])
 
                 # 3) Permute integration loop
@@ -238,7 +239,7 @@ class ASTKernel(object):
                         vect.outer_product(v_type, v_param)
 
                 # 6) Conversion into blas calls
-                if blas:
+                if blas and not ao._has_zeros:
                     ala = AssemblyLinearAlgebra(ao, decls)
                     self.blas = ala.transform(blas)
 
@@ -264,7 +265,7 @@ class ASTKernel(object):
                 autotune_configs = autotune_minimal
                 unroll_ths = 4
             elif blas_interface:
-                autotune_configs.append(('blas', 3, 0, (None, None), True, (1, 0),
+                autotune_configs.append(('blas', 4, 0, (None, None), True, (1, 0),
                                          blas_interface['name'], None, False))
             variants = []
             autotune_configs_unroll = []
