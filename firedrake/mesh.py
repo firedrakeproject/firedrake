@@ -488,7 +488,7 @@ class Mesh(object):
         """
         if expr.shape()[0] != 3:
             raise NotImplementedError('Only implemented for 3-vectors')
-        if self.ufl_cell() != ufl.Cell('triangle', 3):
+        if self.ufl_cell() not in (ufl.Cell('triangle', 3), ufl.OuterProductCell(ufl.Cell('interval', 3), ufl.Cell('interval')), ufl.OuterProductCell(ufl.Cell('interval', 2), ufl.Cell('interval'), gdim=3)):
             raise NotImplementedError('Only implemented for triangles embedded in 3d')
 
         if hasattr(self, '_cell_orientations'):
