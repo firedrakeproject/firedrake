@@ -36,6 +36,7 @@
 from ast_base import *
 from ast_optimizer import AssemblyOptimizer
 from ast_vectorizer import AssemblyVectorizer
+from ast_linearalgebra import AssemblyLinearAlgebra
 
 # Possibile optimizations
 AUTOVECT = 1        # Auto-vectorization
@@ -60,6 +61,7 @@ class ASTKernel(object):
     def __init__(self, ast):
         self.ast = ast
         self.decls, self.fors = self._visit_ast(ast, fors=[], decls={})
+        self.blas = False  # True if blas conversion is applied
 
     def _visit_ast(self, node, parent=None, fors=None, decls=None):
         """Return lists of:
@@ -155,14 +157,26 @@ class ASTKernel(object):
         vect = opts.get('vect')
         ap = opts.get('ap')
         split = opts.get('split')
+        blas = opts.get('blas')
 
         v_type, v_param = vect if vect else (None, None)
+
+        if blas:
+            if not blas_interface:
+                raise RuntimeError("COFFEE Error: must set PYOP2_BLAS to convert into BLAS calls")
+            # Conversion into blas requires a specific set of transformations
+            # in order to identify and extract matrix multiplies.
+            licm = 3
+            ap = True
+            split = (1, 0)  # Full splitting
+            slice_factor = 0
+            v_type = v_type = None
 
         asm = [AssemblyOptimizer(l, pre_l, self.decls) for l, pre_l in self.fors]
         for ao in asm:
             # 1) Loop-invariant code motion
             if licm:
-                ao.generalized_licm()
+                ao.generalized_licm(licm)
                 self.decls.update(ao.decls)
 
             # 2) Splitting
@@ -178,23 +192,34 @@ class ASTKernel(object):
                 vect = AssemblyVectorizer(ao, intrinsics, compiler)
                 if ap:
                     vect.alignment(self.decls)
-                    vect.padding(self.decls)
+                    if not blas:
+                        vect.padding(self.decls)
                 if v_type and v_type != AUTOVECT:
                     vect.outer_product(v_type, v_param)
 
+            # 5) Conversion into blas calls
+            if blas:
+                ala = AssemblyLinearAlgebra(ao, self.decls)
+                self.blas = ala.transform(blas)
+
+    def gencode(self):
+        """Generate a string representation of the AST."""
+        return self.ast.gencode()
 
 # These global variables capture the internal state of COFFEE
 intrinsics = {}
 compiler = {}
+blas_interface = {}
 initialized = False
 
 
-def init_coffee(isa, comp):
+def init_coffee(isa, comp, blas):
     """Initialize COFFEE."""
 
-    global intrinsics, compiler, initialized
+    global intrinsics, compiler, blas_interface, initialized
     intrinsics = _init_isa(isa)
     compiler = _init_compiler(comp)
+    blas_interface = _init_blas(blas)
     if intrinsics and compiler:
         initialized = True
 
@@ -262,3 +287,36 @@ def _init_compiler(compiler):
         }
 
     return {}
+
+
+def _init_blas(blas):
+    """Initialize a dictionary of blas-specific keywords for code generation."""
+
+    import os
+
+    blas_dict = {
+        'dir': os.environ.get("PYOP2_BLAS_DIR", "")
+    }
+
+    if blas == 'mkl':
+        blas_dict.update({
+            'name': 'mkl',
+            'header': '#include <mkl.h>',
+            'link': ['-lmkl_rt']
+        })
+    elif blas == 'atlas':
+        blas_dict.update({
+            'name': 'atlas',
+            'header': '#include "cblas.h"',
+            'link': ['-lsatlas']
+        })
+    elif blas == 'eigen':
+        blas_dict.update({
+            'name': 'eigen',
+            'header': '#include <Eigen/Dense>',
+            'namespace': 'using namespace Eigen;',
+            'link': []
+        })
+    else:
+        return {}
+    return blas_dict

@@ -158,16 +158,34 @@ class AssemblyOptimizer(object):
 
         return (itspace_vrs, accessed_vrs)
 
-    def generalized_licm(self):
-        """Generalized loop-invariant code motion."""
+    def generalized_licm(self, level):
+        """Generalized loop-invariant code motion.
+
+        :arg level: The optimization level (0, 1, 2, 3). The higher, the more
+                    invasive is the re-writing of the assembly expressions,
+                    trying to hoist as much invariant code as possible.
+                    level == 1: performs "basic" generalized loop-invariant
+                                code motion
+                    level == 2: level 1 + expansion of terms, factorization of
+                                basis functions appearing multiple times in the
+                                same expression, and finally another run of
+                                loop-invariant code motion to move invariant
+                                sub-expressions exposed by factorization
+                    level == 3: level 2 + precomputation of read-only expressions
+                                out of the assembly loop nest
+        """
 
         parent = (self.pre_header, self.kernel_decls)
         for expr in self.asm_expr.items():
             ew = AssemblyRewriter(expr, self.int_loop, self.sym, self.decls, parent)
-            ew.licm()
-            ew.expand()
-            ew.distribute()
-            ew.licm()
+            if level > 0:
+                ew.licm()
+            if level > 1:
+                ew.expand()
+                ew.distribute()
+                ew.licm()
+            if level > 2:
+                self._precompute(expr)
 
     def slice_loop(self, slice_factor=None):
         """Perform slicing of the innermost loop to enhance register reuse.
@@ -222,17 +240,72 @@ class AssemblyOptimizer(object):
             idx = pb.index(loops[1])
             par_block.children = pb[:idx] + sliced_loops + pb[idx + 1:]
 
-    def split(self, cut, length):
-        """Split outer product RHS to improve resources utilization (e.g.
-        vector registers)."""
+    def split(self, cut=1, length=0):
+        """Split assembly expressions into multiple chunks exploiting sum's
+        associativity. This is done to improve register pressure.
+        This transformation "splits" an expression into at most ``length`` chunks
+        of ``cut`` operands. If ``length = 0``, then the expression is completely
+        split into chunks of ``cut`` operands.
+
+        For example, consider the following piece of code:
+        for i
+          for j
+            A[i][j] += X[i]*Y[j] + Z[i]*K[j] + B[i]*X[j]
+
+        If ``cut=1`` and ``length=1``, the cut is applied at most length=1 times, and this
+        is transformed into:
+        for i
+          for j
+            A[i][j] += X[i]*Y[j]
+        // Reminder of the splitting:
+        for i
+          for j
+            A[i][j] += Z[i]*K[j] + B[i]*X[j]
+
+        If ``cut=1`` and ``length=0``, length is ignored and the expression is cut into chunks
+        of size ``cut=1``:
+        for i
+          for j
+            A[i][j] += X[i]*Y[j]
+        for i
+          for j
+            A[i][j] += Z[i]*K[j]
+        for i
+          for j
+            A[i][j] += B[i]*X[j]
+
+        If ``cut=2`` and ``length=0``, length is ignored and the expression is cut into chunks
+        of size ``cut=2``:
+        for i
+          for j
+            A[i][j] += X[i]*Y[j] + Z[i]*K[j]
+        // Reminder of the splitting:
+        for i
+          for j
+            A[i][j] += B[i]*X[j]
+        """
+
+        def check_sum(par_node):
+            """Return true if there are no sums in the sub-tree rooted in
+            par_node, false otherwise."""
+            if isinstance(par_node, Symbol):
+                return False
+            elif isinstance(par_node, Sum):
+                return True
+            elif isinstance(par_node, Par):
+                return check_sum(par_node.children[0])
+            elif isinstance(par_node, Prod):
+                left = check_sum(par_node.children[0])
+                right = check_sum(par_node.children[1])
+                return left or right
+            else:
+                raise RuntimeError("Split error: found unknown node %s:" % str(par_node))
 
         def split_sum(node, parent, is_left, found, sum_count):
             """Exploit sum's associativity to cut node when a sum is found."""
             if isinstance(node, Symbol):
                 return False
-            elif isinstance(node, Par) and found:
-                return False
-            elif isinstance(node, Par) and not found:
+            elif isinstance(node, Par):
                 return split_sum(node.children[0], (node, 0), is_left, found, sum_count)
             elif isinstance(node, Prod) and found:
                 return False
@@ -243,8 +316,10 @@ class AssemblyOptimizer(object):
             elif isinstance(node, Sum):
                 sum_count += 1
                 if not found:
+                    # Track the first Sum we found while cutting
                     found = parent
                 if sum_count == cut:
+                    # Perform the cut
                     if is_left:
                         parent, parent_leaf = parent
                         parent.children[parent_leaf] = node.children[0]
@@ -257,11 +332,12 @@ class AssemblyOptimizer(object):
                         return split_sum(node.children[1], (node, 1), is_left, found, sum_count)
                     return True
             else:
-                raise RuntimeError("Splitting expression, shouldn't be here.")
+                raise RuntimeError("Splitting expression, but actually found an unknown \
+                                    node: %s" % node.gencode())
 
-        def split_and_update(asm_expr):
+        def split_and_update(out_prods):
             split, splittable = ({}, {})
-            for stmt, stmt_info in asm_expr.items():
+            for stmt, stmt_info in out_prods.items():
                 it_vars, parent, loops = stmt_info
                 stmt_left = dcopy(stmt)
                 stmt_right = dcopy(stmt)
@@ -277,28 +353,154 @@ class AssemblyOptimizer(object):
                     split_loop = dcopy([f for f in self.fors if f.it_var() == it_vars[0]][0])
                     split_inner_loop = split_loop.children[0].children[0].children[0]
                     split_inner_loop.children[0] = stmt_right
-                    self.fors[0].children[0].children.append(split_loop)
+                    place = self.int_loop.children[0] if self.int_loop else self.pre_header
+                    place.children.append(split_loop)
                     stmt_right_loops = [split_loop, split_loop.children[0].children[0]]
                     # Update outer product dictionaries
                     splittable[stmt_right] = (it_vars, split_inner_loop, stmt_right_loops)
-                    split[stmt_left] = (it_vars, parent, loops)
-                    return split, splittable
-                else:
-                    return asm_expr, {}
+                    if check_sum(stmt_left.children[1]):
+                        splittable[stmt_left] = (it_vars, parent, loops)
+                    else:
+                        split[stmt_left] = (it_vars, parent, loops)
+            return split, splittable
 
         if not self.asm_expr:
             return
 
         new_asm_expr = {}
         splittable = self.asm_expr
-        for i in range(length-1):
-            split, splittable = split_and_update(splittable)
-            new_asm_expr.update(split)
-            if not splittable:
-                break
-        if splittable:
-            new_asm_expr.update(splittable)
+        if length:
+            # Split into at most length blocks
+            for i in range(length-1):
+                split, splittable = split_and_update(splittable)
+                new_asm_expr.update(split)
+                if not splittable:
+                    break
+            if splittable:
+                new_asm_expr.update(splittable)
+        else:
+            # Split everything into blocks of length 1
+            while splittable:
+                split, splittable = split_and_update(splittable)
+                new_asm_expr.update(split)
         self.asm_expr = new_asm_expr
+
+    def _precompute(self, expr):
+        """Precompute all expressions contributing to the evaluation of the local
+        assembly tensor. Precomputation implies vector expansion and hoisting
+        outside of the loop nest. This renders the assembly loop nest perfect.
+
+        For example:
+        for i
+          for r
+            A[r] += f(i, ...)
+          for j
+            for k
+              LT[j][k] += g(A[r], ...)
+
+        becomes
+        for i
+          for r
+            A[i][r] += f(...)
+        for i
+          for j
+            for k
+              LT[j][k] += g(A[i][r], ...)
+        """
+
+        def update_syms(node, precomputed):
+            if isinstance(node, Symbol):
+                if str(node) in precomputed:
+                    node.rank = precomputed[str(node)]
+            else:
+                for n in node.children:
+                    update_syms(n, precomputed)
+
+        def precompute_stmt(node, precomputed, new_outer_block):
+            """Recursively precompute, and vector-expand if already precomputed,
+            all terms rooted in node."""
+
+            if isinstance(node, Symbol):
+                # Vector-expand the symbol if already pre-computed
+                if str(node) in precomputed:
+                    node.rank = precomputed[str(node)]
+            elif isinstance(node, Expr):
+                for n in node.children:
+                    precompute_stmt(n, precomputed, new_outer_block)
+            elif isinstance(node, (Assign, Incr)):
+                # Precompute the LHS of the assignment
+                symbol = node.children[0]
+                new_rank = (self.int_loop.it_var(),) + symbol.rank
+                precomputed[str(symbol)] = new_rank
+                symbol.rank = new_rank
+                # Vector-expand the RHS
+                precompute_stmt(node.children[1], precomputed, new_outer_block)
+                # Finally, append the new node
+                new_outer_block.append(node)
+            elif isinstance(node, Decl):
+                # Vector-expand the declaration of the precomputed symbol
+                node.sym.rank = (self.int_loop.size(),) + node.sym.rank
+                if isinstance(node.init, Symbol):
+                    node.init.symbol = "{%s}" % node.init.symbol
+                new_outer_block.append(node)
+            elif isinstance(node, For):
+                # Precompute and/or Vector-expand inner statements
+                new_children = []
+                for n in node.children[0].children:
+                    precompute_stmt(n, precomputed, new_children)
+                node.children[0].children = new_children
+                new_outer_block.append(node)
+            else:
+                raise RuntimeError("Precompute error: found unexpteced node: %s" % str(node))
+
+        # The integration loop must be present for precomputation to be meaningful
+        if not self.int_loop:
+            return
+
+        expr, expr_info = expr
+        asm_outer_loop = expr_info[2][0]
+
+        # Precomputation
+        precomputed_block = []
+        precomputed_syms = {}
+        for i in self.int_loop.children[0].children:
+            if i == asm_outer_loop:
+                break
+            elif isinstance(i, FlatBlock):
+                continue
+            else:
+                precompute_stmt(i, precomputed_syms, precomputed_block)
+
+        # Wrap hoisted for/assignments/increments within a loop
+        new_outer_block = []
+        searching_stmt = []
+        for i in precomputed_block:
+            if searching_stmt and not isinstance(i, (Assign, Incr)):
+                wrap = Block(searching_stmt, open_scope=True)
+                precompute_for = For(dcopy(self.int_loop.init), dcopy(self.int_loop.cond),
+                                     dcopy(self.int_loop.incr), wrap, dcopy(self.int_loop.pragma))
+                new_outer_block.append(precompute_for)
+                searching_stmt = []
+            if isinstance(i, For):
+                wrap = Block([i], open_scope=True)
+                precompute_for = For(dcopy(self.int_loop.init), dcopy(self.int_loop.cond),
+                                     dcopy(self.int_loop.incr), wrap, dcopy(self.int_loop.pragma))
+                new_outer_block.append(precompute_for)
+            elif isinstance(i, (Assign, Incr)):
+                searching_stmt.append(i)
+            else:
+                new_outer_block.append(i)
+
+        # Delete precomputed stmts from original loop nest
+        self.int_loop.children[0].children = [asm_outer_loop]
+
+        # Update the AST adding the newly precomputed blocks
+        root = self.pre_header.children
+        ofs = root.index(self.int_loop)
+        self.pre_header.children = root[:ofs] + new_outer_block + root[ofs:]
+
+        # Update the AST by vector-expanding the pre-computed accessed variables
+        update_syms(expr.children[1], precomputed_syms)
 
 
 class AssemblyRewriter(object):
@@ -588,6 +790,8 @@ class AssemblyRewriter(object):
         exp_var = asm_out if it_var_occs[asm_out] < it_var_occs[asm_in] else asm_in
         ee = ExpressionExpander(self.hoisted, self.eg, self.parent)
         ee.expand(self.expr.children[1], self.expr, it_var_occs, exp_var)
+        self.decls.update(ee.expanded_decls)
+        self.syms.update(ee.expanded_syms)
         self._expanded = True
 
     def distribute(self):
@@ -667,6 +871,8 @@ class ExpressionExpander(object):
         self.eg = eg
         self.counter = 0
         self.parent = expr
+        self.expanded_decls = {}
+        self.expanded_syms = []
 
     def _do_expand(self, sym, const):
         """Perform the actual expansion. If there are no dependencies, then
@@ -690,6 +896,8 @@ class ExpressionExpander(object):
         # Append new expression and declaration
         inv_for.children[0].children.append(new_node)
         place.insert(place.index(var_decl), new_var_decl)
+        self.expanded_decls[new_var_decl.sym.symbol] = (new_var_decl, ast_plan.LOCAL_VAR)
+        self.expanded_syms.append(new_var_decl.sym)
         # Update tracked information
         self.var_info[sym.symbol] = (new_expr, new_var_decl, inv_for, place)
         self.eg.add_dependency(sym, new_expr, 0)

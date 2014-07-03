@@ -59,10 +59,11 @@ class Compiler(object):
         self._ldargs = ldargs
 
     @collective
-    def get_so(self, src):
+    def get_so(self, src, extension):
         """Build a shared library and load it
 
         :arg src: The source string to compile.
+        :arg extension: extension of the source file (c, cpp).
 
         Returns a :class:`ctypes.CDLL` object of the resulting shared
         library."""
@@ -78,7 +79,7 @@ class Compiler(object):
         basename = hsh.hexdigest()
 
         cachedir = configuration['cache_dir']
-        cname = os.path.join(cachedir, "%s.c" % basename)
+        cname = os.path.join(cachedir, "%s.%s" % (basename, extension))
         oname = os.path.join(cachedir, "%s.o" % basename)
         soname = os.path.join(cachedir, "%s.so" % basename)
         # Link into temporary file, then rename to shared library
@@ -202,10 +203,11 @@ class LinuxIntelCompiler(Compiler):
 
 
 @collective
-def load(src, fn_name, cppargs=[], ldargs=[], argtypes=None, restype=None, compiler=None):
+def load(src, extension, fn_name, cppargs=[], ldargs=[], argtypes=None, restype=None, compiler=None):
     """Build a shared library and return a function pointer from it.
 
     :arg src: A string containing the source to build
+    :arg extension: extension of the source file (c, cpp)
     :arg fn_name: The name of the function to return from the resulting library
     :arg cppargs: A list of arguments to the C compiler (optional)
     :arg ldargs: A list of arguments to the linker (optional)
@@ -226,7 +228,7 @@ def load(src, fn_name, cppargs=[], ldargs=[], argtypes=None, restype=None, compi
     else:
         raise CompilationError("Don't know what compiler to use for platform '%s'" %
                                platform)
-    dll = compiler.get_so(src)
+    dll = compiler.get_so(src, extension)
 
     fn = getattr(dll, fn_name)
     fn.argtypes = argtypes

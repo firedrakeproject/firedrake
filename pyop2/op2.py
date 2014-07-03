@@ -110,7 +110,8 @@ def init(**kwargs):
         global MPI
         MPI = backends._BackendSelector._backend.MPI  # noqa: backend override
 
-    init_coffee(configuration['simd_isa'], configuration['compiler'])
+    init_coffee(configuration['simd_isa'], configuration['compiler'],
+                configuration['blas'])
 
 
 @atexit.register
