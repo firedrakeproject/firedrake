@@ -242,6 +242,8 @@ def clear_cache(prompt=False):
     :arg prompt: if ``True`` prompt before removing any files
     """
     cachedir = configuration['cache_dir']
+    if not os.path.exists(cachedir):
+        return
 
     files = [os.path.join(cachedir, f) for f in os.listdir(cachedir)
              if os.path.isfile(os.path.join(cachedir, f))]
