@@ -310,8 +310,7 @@ class Mesh(object):
         # Derive a cell numbering from the Plex renumbering
         cell_entity_dofs = np.zeros(dim+1, dtype=np.int32)
         cell_entity_dofs[-1] = 1
-        self._cell_numbering = self._plex.createSection(1, [1],
-                                                        cell_entity_dofs,
+        self._cell_numbering = self._plex.createSection([1], cell_entity_dofs,
                                                         perm=self._plex_renumbering)
 
         self._cell_closure = None
