@@ -268,6 +268,10 @@ class Mat(DeviceDataMixin, op2.Mat):
         self._assembled = False
         return super(Mat, self).__call__(*args, **kwargs)
 
+    def __getitem__(self, idx):
+        """Block matrices are not yet supported in CUDA, always yield self."""
+        return self
+
     def _assemble(self):
         if self._assembled:
             return
