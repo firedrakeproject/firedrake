@@ -225,13 +225,16 @@ class ASTKernel(object):
                 if initialized:
                     vect = AssemblyVectorizer(ao, intrinsics, compiler)
                     if ap:
+                        # Data alignment
                         vect.alignment(decls)
+                        # Padding
                         if not blas:
                             vect.padding(decls)
                             self.ap = True
                     if v_type and v_type != AUTOVECT:
                         if intrinsics['inst_set'] == 'SSE':
                             raise RuntimeError("COFFEE Error: SSE vectorization not supported")
+                        # Outer-product vectorization
                         vect.outer_product(v_type, v_param)
 
                 # 6) Conversion into blas calls
