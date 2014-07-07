@@ -30,7 +30,7 @@ from copy import copy
 
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
-from pyop2.logger import progress, INFO
+from pyop2.logger import progress, INFO, warning, RED
 from pyop2.profiling import timed_region, timed_function
 
 import assembly_cache
@@ -142,6 +142,15 @@ class NonlinearVariationalSolver(object):
         self.snes.setOptionsPrefix(self._opt_prefix)
 
         parameters = kwargs.get('solver_parameters', None)
+        if 'parameters' in kwargs:
+            warning(RED % "The 'parameters' keyword to %s is deprecated, use 'solver_parameters' instead.",
+                    self.__class__.__name__)
+            parameters = kwargs['parameters']
+            if 'solver_parameters' in kwargs:
+                warning(RED % "'parameters' and 'solver_parameters' passed to %s, using the latter",
+                        self.__class__.__name__)
+                parameters = kwargs['solver_parameters']
+
         # Make sure we don't stomp on a dict the user has passed in.
         parameters = copy(parameters) if parameters is not None else {}
         # Mixed problem, use jacobi pc if user has not supplied one.
@@ -357,7 +366,7 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
     def __init__(self, *args, **kwargs):
         """
         :arg problem: A :class:`LinearVariationalProblem` to solve.
-        :kwarg parameters: Solver parameters to pass to PETSc.
+        :kwarg solver_parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
                :class:`.MixedVectorSpaceBasis`) spanning the null
