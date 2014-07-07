@@ -143,7 +143,6 @@ def closure_ordering(PETSc.DM plex,
         PetscInt *v_global = NULL
         PetscInt *closure = NULL
         PetscInt *facets = NULL
-        PetscInt *facet_closure = NULL
         PetscInt *faces = NULL
         PetscInt *face_indices = NULL
         PetscInt *face_vertices = NULL
@@ -253,11 +252,11 @@ def closure_ordering(PETSc.DM plex,
                 CHKERR(DMPlexGetTransitiveClosure(plex.dm, facets[f],
                                                   PETSC_TRUE,
                                                   &nfacet_closure,
-                                                  &facet_closure))
+                                                  &closure))
                 vi = 0
                 for fi in range(nfacet_closure):
-                    if vStart <= facet_closure[2*fi] < vEnd:
-                        facet_vertices[vi] = facet_closure[2*fi]
+                    if vStart <= closure[2*fi] < vEnd:
+                        facet_vertices[vi] = closure[2*fi]
                         vi += 1
 
                 # Find non-incident vertices
@@ -273,16 +272,11 @@ def closure_ordering(PETSc.DM plex,
                         cell_closure[cell,offset+v] = facets[f]
                         break
 
-            if nfacets > 0:
-                CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, facets[nfacets-1],
-                                                      PETSC_TRUE,
-                                                      &nfacet_closure,
-                                                      &facet_closure))
             offset += nfacets
 
-    if cEnd - cStart > 0:
-        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, cEnd - cStart - 1, PETSC_TRUE,
-                                              &nclosure,&closure))
+    if closure != NULL:
+        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
+                                              NULL, &closure))
     CHKERR(PetscFree(vertices))
     CHKERR(PetscFree(v_global))
     CHKERR(PetscFree(facets))
@@ -633,12 +627,6 @@ def mark_entity_classes(PETSc.DM plex):
                 CHKERR(DMPlexSetLabelValue(plex.dm, lbl_non_core,
                                            p, depth))
 
-    if ncells > 0:
-        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, cells[ncells-1],
-                                              PETSC_TRUE,
-                                              &nclosure,
-                                              &closure))
-
     # Mark all remaining points as core
     pStart, pEnd = plex.getChart()
     for p in range(pStart, pEnd):
@@ -695,12 +683,9 @@ def mark_entity_classes(PETSc.DM plex):
             CHKERR(DMPlexClearLabelValue(plex.dm, lbl_halo,
                                          facets[f], depth))
 
-    if nfacets > 0:
-        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm,
-                                              facets[nfacets-1],
-                                              PETSC_TRUE,
-                                              &nclosure,
-                                              &closure))
+    if closure != NULL:
+        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
+                                              NULL, &closure))
     PetscFree(vertices)
 
 @cython.boundscheck(False)
@@ -906,10 +891,9 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1] reordering=None
         if not reorder and ncells > 0:
             CHKERR(ISRestoreIndices(cell_is.iset, &cells))
 
-    CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0,
-                                          PETSC_TRUE,
-                                          &nclosure,
-                                          &closure))
+    if closure != NULL:
+        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
+                                              NULL, &closure))
 
     # We currently mark non-exec facets without marking non-exec
     # cells, so they will not get picked up by the cell closure loops
