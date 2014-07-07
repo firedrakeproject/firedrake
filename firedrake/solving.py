@@ -357,7 +357,7 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
     def __init__(self, *args, **kwargs):
         """
         :arg problem: A :class:`LinearVariationalProblem` to solve.
-        :kwarg parameters: Solver parameters to pass to PETSc.
+        :kwarg solver_parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
                :class:`.MixedVectorSpaceBasis`) spanning the null
