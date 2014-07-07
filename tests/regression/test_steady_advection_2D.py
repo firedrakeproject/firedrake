@@ -24,7 +24,7 @@ def W(mesh):
     return FunctionSpace(mesh, "BDM", 1)
 
 
-def test_left_to_right(mesh, DG0, W):
+def run_left_to_right(mesh, DG0, W):
     velocity = Expression(("1.0", "0.0"))
     u0 = project(velocity, W)
 
@@ -54,7 +54,19 @@ def test_left_to_right(mesh, DG0, W):
     assert max(abs(out.dat.data - inflow.dat.data)) < 1.2e-7
 
 
-def test_up_to_down(mesh, DG1, W):
+def test_left_to_right(mesh, DG0, W):
+    run_left_to_right(mesh, DG0, W)
+
+
+@pytest.mark.parallel
+def test_left_to_right_parallel():
+    m = mesh()
+    dg0 = DG0(m)
+    w = W(m)
+    run_left_to_right(m, dg0, w)
+
+
+def run_up_to_down(mesh, DG1, W):
     velocity = Expression(("0.0", "-1.0"))
     u0 = project(velocity, W)
 
@@ -79,6 +91,19 @@ def test_up_to_down(mesh, DG1, W):
     solve(a == L, out)
 
     assert max(abs(out.dat.data - inflow.dat.data)) < 1.1e-6
+
+
+def test_up_to_down(mesh, DG1, W):
+    run_up_to_down(mesh, DG1, W)
+
+
+@pytest.mark.parallel
+def test_up_to_down_parallel():
+    m = mesh()
+    dg1 = DG1(m)
+    w = W(m)
+    run_up_to_down(m, dg1, w)
+
 
 if __name__ == '__main__':
     import os
