@@ -586,10 +586,10 @@ class AssemblyOptimizer(object):
             loops[1].cond.children[1] = c_sym(inner_loop_sizes[1] + 1)
             new_asm_expr[expr] = expr_info
             # Track down loops that will have to be removed
-            for expr, expr_info in asm_exprs[1:]:
-                to_remove.append(expr_info[2][0])
-                parent.children.append(expr)
-                new_asm_expr[expr] = expr_info
+            for _expr, _expr_info in asm_exprs[1:]:
+                to_remove.append(_expr_info[2][0])
+                parent.children.append(_expr)
+                new_asm_expr[_expr] = expr_info
         # Remove old loops
         parent = self.int_loop.children[0] if self.int_loop else self.pre_header
         for i in to_remove:
