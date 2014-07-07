@@ -288,6 +288,7 @@ def closure_ordering(PETSc.DM plex,
     CHKERR(PetscFree(facets))
     CHKERR(PetscFree(facet_vertices))
     CHKERR(PetscFree(faces))
+    CHKERR(PetscFree(face_indices))
 
     return cell_closure
 
