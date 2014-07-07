@@ -652,11 +652,6 @@ def _assemble(f, tensor=None, bcs=None):
 
             elif integral_type in ['interior_facet', 'interior_facet_vert']:
                 with timed_region("Assemble interior facets"):
-                    if op2.MPI.parallel:
-                        raise \
-                            NotImplementedError(
-                                "No support for facet integrals under MPI yet")
-
                     if is_mat:
                         tensor_arg = mat(lambda s: s.interior_facet_node_map(tsbc),
                                          lambda s: s.interior_facet_node_map(trbc),
@@ -686,7 +681,7 @@ def _assemble(f, tensor=None, bcs=None):
                     if op2.MPI.parallel:
                         raise \
                             NotImplementedError(
-                                "No support for facet integrals under MPI yet")
+                                "No support for interior horizontal facet integrals under MPI yet")
 
                     if is_mat:
                         tensor_arg = mat(lambda s: op2.SparsityMap(s.cell_node_map(tsbc),

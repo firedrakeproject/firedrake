@@ -92,7 +92,6 @@ def test_upwind_flux():
     run_test()
 
 
-@pytest.mark.xfail(reason="No support for interior facet integrals in MPI")
 @pytest.mark.parallel
 def test_upwind_flux_parallel():
     run_test()
