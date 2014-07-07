@@ -95,3 +95,8 @@ def test_upwind_flux():
 @pytest.mark.parallel
 def test_upwind_flux_parallel():
     run_test()
+
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))
