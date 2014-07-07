@@ -336,7 +336,7 @@ def get_extruded_cell_nodes(PETSc.DM plex,
     """
     cdef:
         PetscInt c, ncells, ci, nclosure, d, dim
-        PetscInt offset, p, pdof, off, glbl, lcl, i
+        PetscInt offset, p, pdof, off, glbl, lcl, i, pi
         PetscInt *pStarts = NULL
         PetscInt *pEnds = NULL
         PetscInt *hdofs = NULL
@@ -470,7 +470,7 @@ def label_facets(PETSc.DM plex):
     Facets on the boundary are marked with "exterior_facets" while all
     others are marked with "interior_facets"."""
     cdef:
-        PetscInt fstart, fEnd, facet, val
+        PetscInt fStart, fEnd, facet, val
         char *ext_label = <char *>"exterior_facets"
         char *int_label = <char *>"interior_facets"
 
@@ -526,6 +526,7 @@ def mark_entity_classes(PETSc.DM plex):
         PetscInt p, pStart, pEnd, cStart, cEnd, vStart, vEnd
         PetscInt c, ncells, f, nfacets, ci, nclosure, vi, dim
         PetscInt depth, non_core, exec_halo, nroots, nleaves
+        PetscInt v_per_cell
         PetscInt *cells = NULL
         PetscInt *facets = NULL
         PetscInt *vertices = NULL
