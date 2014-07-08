@@ -36,6 +36,7 @@ Cython implementation of the Plan construction.
 """
 
 import base
+from profiling import timed_region
 from utils import align, as_tuple
 import math
 import numpy
@@ -503,7 +504,8 @@ class Plan(base.Cached, _Plan):
         if self._initialized:
             Plan._cache_hit[self] += 1
             return
-        _Plan.__init__(self, iset, *args, **kwargs)
+        with timed_region("Plan construction"):
+            _Plan.__init__(self, iset, *args, **kwargs)
         Plan._cache_hit[self] = 0
         self._initialized = True
 
