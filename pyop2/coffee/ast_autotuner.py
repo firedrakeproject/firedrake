@@ -33,6 +33,8 @@
 
 """COFFEE's autotuning system."""
 
+from pyop2.mpi import MPI
+from pyop2.configuration import configuration
 import pyop2.compilation as compilation
 import ctypes
 
@@ -277,8 +279,9 @@ int autotune()
                 filetype = "cpp"
 
         # Dump autotuning src out to a file
-        with open(Autotuner._filename + filetype, 'w') as f:
-            f.write(src)
+        if configuration["debug"] and MPI.comm.rank == 0:
+            with open(Autotuner._filename + filetype, 'w') as f:
+                f.write(src)
 
         return compilation.load(src, filetype, "autotune", cppargs, ldargs, None,
                                 ctypes.c_int, self.compiler.get('name'))()
