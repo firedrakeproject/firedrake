@@ -39,6 +39,25 @@ modify the pip invocation for either case above as follows::
 
   pip install --user ...
 
+Potential installation errors on Mac OS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The installation of FFC_ requires a C++11 compatible compiler and
+standard library, some Mac OS systems (for example OS X "Lion")
+supply the former, but not the latter.  Should you obtain errors
+installing FFC_ of the following form:
+
+.. code-block:: c
+
+   ufc/ufc_wrap.cpp:3841:8: error: no member named 'shared_ptr' in namespace 'std'
+   std::shared_ptr< ufc::function > tempshared1 ;
+
+It's possible that you just need to tell the compiler to pick the
+correct standard library.  To so, try running with
+``CXXFLAGS='-stdlib=libc++'`` when installing::
+
+  sudo CXXFLAGS='-stdlib=libc++' pip install -U --no-deps ...
+
 Visualisation software
 ----------------------
 
