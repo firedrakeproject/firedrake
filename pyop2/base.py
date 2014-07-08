@@ -1750,6 +1750,12 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         """Read the data stored in file ``filename`` into a NumPy array
         and store the values in :meth:`_data`.
         """
+        # The np.save method will always append a .npy extension to the file name
+        # regardless of whether the user has supplied it or not.
+        # However, np.load does not, so we need to handle this manually here.
+        if(filename[-4:] != ".npy"):
+            filename = filename + ".npy"
+
         for d, d_from_file in zip(self.data, np.load(filename)):
             d[:] = d_from_file[:]
 
