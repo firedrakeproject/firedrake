@@ -246,9 +246,9 @@ cdef class _Plan:
         pcds = [None] * n_race_args
         for i, ra in enumerate(race_args.iterkeys()):
             if isinstance(ra, base.Dat):
-                s = ra.dataset.exec_size
+                s = ra.dataset.total_size
             elif isinstance(ra, base.Mat):
-                s = ra.sparsity.maps[0][0].toset.exec_size
+                s = ra.sparsity.maps[0][0].toset.total_size
 
             pcds[i] = numpy.empty((s,), dtype=numpy.uint32)
             flat_race_args[i].size = s
