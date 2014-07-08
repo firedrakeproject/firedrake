@@ -584,8 +584,9 @@ class JITModule(base.JITModule):
         fun = self.compile()
         for i, arg in enumerate(args):
             fun.set_arg(i, arg)
-        cl.enqueue_nd_range_kernel(_queue, fun, (thread_count,),
-                                   (work_group_size,), g_times_l=False).wait()
+        with timed_region("ParLoop kernel"):
+            cl.enqueue_nd_range_kernel(_queue, fun, (thread_count,),
+                                       (work_group_size,), g_times_l=False).wait()
 
 
 class ParLoop(device.ParLoop):

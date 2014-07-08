@@ -272,6 +272,7 @@ class Mat(DeviceDataMixin, op2.Mat):
         """Block matrices are not yet supported in CUDA, always yield self."""
         return self
 
+    @timed_function("CUDA assembly")
     def _assemble(self):
         if self._assembled:
             return
@@ -860,8 +861,9 @@ class ParLoop(op2.ParLoop):
 
         if self._is_direct:
             _stream.synchronize()
-            fun(max_grid_size, block_size, _stream, *arglist,
-                shared_size=shared_size)
+            with timed_region("ParLoop kernel"):
+                fun(max_grid_size, block_size, _stream, *arglist,
+                    shared_size=shared_size)
         else:
             arglist.append(_plan.ind_map.gpudata)
             arglist.append(_plan.loc_map.gpudata)
@@ -897,8 +899,9 @@ class ParLoop(op2.ParLoop):
                         shared_size = max(128 * 8, shared_size)
 
                     _stream.synchronize()
-                    fun(grid_size, block_size, _stream, *arglist,
-                        shared_size=shared_size)
+                    with timed_region("ParLoop kernel"):
+                        fun(grid_size, block_size, _stream, *arglist,
+                            shared_size=shared_size)
 
                 block_offset += blocks
 

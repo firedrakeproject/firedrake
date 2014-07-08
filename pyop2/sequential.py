@@ -147,7 +147,8 @@ class ParLoop(host.ParLoop):
         self._jit_args[1] = part.offset + part.size
         # Must call fun on all processes since this may trigger
         # compilation.
-        fun(*self._jit_args, argtypes=self._argtypes, restype=None)
+        with timed_region("ParLoop kernel"):
+            fun(*self._jit_args, argtypes=self._argtypes, restype=None)
 
 
 def _setup():

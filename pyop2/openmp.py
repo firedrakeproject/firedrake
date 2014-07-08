@@ -285,7 +285,8 @@ class ParLoop(device.ParLoop, host.ParLoop):
                 nblocks = plan.ncolblk[c]
                 self._jit_args[0] = boffset
                 self._jit_args[1] = nblocks
-                fun(*self._jit_args)
+                with timed_region("ParLoop kernel"):
+                    fun(*self._jit_args)
                 boffset += nblocks
         else:
             # Fake types for arguments so that ctypes doesn't complain
