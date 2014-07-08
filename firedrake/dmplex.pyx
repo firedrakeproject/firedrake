@@ -143,7 +143,6 @@ def closure_ordering(PETSc.DM plex,
         PetscInt *v_global = NULL
         PetscInt *closure = NULL
         PetscInt *facets = NULL
-        PetscInt *facet_closure = NULL
         PetscInt *faces = NULL
         PetscInt *face_indices = NULL
         PetscInt *face_vertices = NULL
@@ -253,11 +252,11 @@ def closure_ordering(PETSc.DM plex,
                 CHKERR(DMPlexGetTransitiveClosure(plex.dm, facets[f],
                                                   PETSC_TRUE,
                                                   &nfacet_closure,
-                                                  &facet_closure))
+                                                  &closure))
                 vi = 0
                 for fi in range(nfacet_closure):
-                    if vStart <= facet_closure[2*fi] < vEnd:
-                        facet_vertices[vi] = facet_closure[2*fi]
+                    if vStart <= closure[2*fi] < vEnd:
+                        facet_vertices[vi] = closure[2*fi]
                         vi += 1
 
                 # Find non-incident vertices
@@ -273,21 +272,17 @@ def closure_ordering(PETSc.DM plex,
                         cell_closure[cell,offset+v] = facets[f]
                         break
 
-            if nfacets > 0:
-                CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, facets[nfacets-1],
-                                                      PETSC_TRUE,
-                                                      &nfacet_closure,
-                                                      &facet_closure))
             offset += nfacets
 
-    if cEnd - cStart > 0:
-        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, cEnd - cStart - 1, PETSC_TRUE,
-                                              &nclosure,&closure))
+    if closure != NULL:
+        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
+                                              NULL, &closure))
     CHKERR(PetscFree(vertices))
     CHKERR(PetscFree(v_global))
     CHKERR(PetscFree(facets))
     CHKERR(PetscFree(facet_vertices))
     CHKERR(PetscFree(faces))
+    CHKERR(PetscFree(face_indices))
 
     return cell_closure
 
@@ -341,7 +336,7 @@ def get_extruded_cell_nodes(PETSc.DM plex,
     """
     cdef:
         PetscInt c, ncells, ci, nclosure, d, dim
-        PetscInt offset, p, pdof, off, glbl, lcl, i
+        PetscInt offset, p, pdof, off, glbl, lcl, i, pi
         PetscInt *pStarts = NULL
         PetscInt *pEnds = NULL
         PetscInt *hdofs = NULL
@@ -475,7 +470,7 @@ def label_facets(PETSc.DM plex):
     Facets on the boundary are marked with "exterior_facets" while all
     others are marked with "interior_facets"."""
     cdef:
-        PetscInt fstart, fEnd, facet, val
+        PetscInt fStart, fEnd, facet, val
         char *ext_label = <char *>"exterior_facets"
         char *int_label = <char *>"interior_facets"
 
@@ -523,20 +518,25 @@ def mark_entity_classes(PETSc.DM plex):
     core      : owned and not in send halo
     non_core  : owned and in send halo
     exec_halo : in halo, but touch owned entity
+    non_exec_halo : in halo and only touch halo entities
 
     :arg plex: The DMPlex object encapsulating the mesh topology
     """
     cdef:
         PetscInt p, pStart, pEnd, cStart, cEnd, vStart, vEnd
-        PetscInt c, ncells, ci, nclosure, vi, dim
+        PetscInt c, ncells, f, nfacets, ci, nclosure, vi, dim
         PetscInt depth, non_core, exec_halo, nroots, nleaves
+        PetscInt v_per_cell
         PetscInt *cells = NULL
+        PetscInt *facets = NULL
         PetscInt *vertices = NULL
         PetscInt *closure = NULL
         PetscInt *ilocal = NULL
+        PetscBool non_exec
         PetscSFNode *iremote = NULL
         PETSc.SF point_sf = None
         PETSc.IS cell_is = None
+        PETSc.IS facet_is = None
 
     dim = plex.getDimension()
     cStart, cEnd = plex.getHeightStratum(0)
@@ -547,11 +547,13 @@ def mark_entity_classes(PETSc.DM plex):
     plex.createLabel("op2_core")
     plex.createLabel("op2_non_core")
     plex.createLabel("op2_exec_halo")
+    plex.createLabel("op2_non_exec_halo")
 
     lbl_depth = <char*>"depth"
     lbl_core = <char*>"op2_core"
     lbl_non_core = <char*>"op2_non_core"
     lbl_halo = <char*>"op2_exec_halo"
+    lbl_non_exec_halo = <char*>"op2_non_exec_halo"
 
     if MPI.comm.size > 1:
         # Mark exec_halo from point overlap SF
@@ -626,12 +628,6 @@ def mark_entity_classes(PETSc.DM plex):
                 CHKERR(DMPlexSetLabelValue(plex.dm, lbl_non_core,
                                            p, depth))
 
-    if ncells > 0:
-        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, cells[ncells-1],
-                                              PETSC_TRUE,
-                                              &nclosure,
-                                              &closure))
-
     # Mark all remaining points as core
     pStart, pEnd = plex.getChart()
     for p in range(pStart, pEnd):
@@ -645,6 +641,52 @@ def mark_entity_classes(PETSc.DM plex):
             CHKERR(DMPlexSetLabelValue(plex.dm, lbl_core,
                                        p, depth))
 
+    # Halo facets that only touch halo vertices and halo cells need to
+    # be marked as non-exec.
+    nfacets = plex.getStratumSize("op2_exec_halo", dim-1)
+    facet_is = plex.getStratumIS("op2_exec_halo", dim-1)
+    CHKERR(ISGetIndices(facet_is.iset, &facets))
+    for f in range(nfacets):
+        non_exec = PETSC_TRUE
+        # Check for halo vertices
+        CHKERR(DMPlexGetTransitiveClosure(plex.dm, facets[f],
+                                          PETSC_TRUE,
+                                          &nclosure,
+                                          &closure))
+        for ci in range(nclosure):
+            if vStart <= closure[2*ci] < vEnd:
+                CHKERR(DMPlexGetLabelValue(plex.dm, lbl_halo,
+                                           closure[2*ci], &exec_halo))
+                if exec_halo < 0:
+                    # Touches a non-halo vertex, needs to be executed
+                    # over.
+                    non_exec = PETSC_FALSE
+        if non_exec:
+            # If we still think we're non-exec, check for halo cells
+            CHKERR(DMPlexGetTransitiveClosure(plex.dm, facets[f],
+                                              PETSC_FALSE,
+                                              &nclosure,
+                                              &closure))
+            for ci in range(nclosure):
+                if cStart <= closure[2*ci] < cEnd:
+                    CHKERR(DMPlexGetLabelValue(plex.dm, lbl_halo,
+                                               closure[2*ci], &exec_halo))
+                    if exec_halo < 0:
+                        # Touches a non-halo cell, needs to be
+                        # executed over.
+                        non_exec = PETSC_FALSE
+        if non_exec:
+            CHKERR(DMPlexGetLabelValue(plex.dm, lbl_depth,
+                                       facets[f], &depth))
+            CHKERR(DMPlexSetLabelValue(plex.dm, lbl_non_exec_halo,
+                                       facets[f], depth))
+            # Remove facet from exec-halo label
+            CHKERR(DMPlexClearLabelValue(plex.dm, lbl_halo,
+                                         facets[f], depth))
+
+    if closure != NULL:
+        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
+                                              NULL, &closure))
     PetscFree(vertices)
 
 @cython.boundscheck(False)
@@ -707,7 +749,8 @@ def get_facets_by_class(PETSc.DM plex, label):
 
     for i, op2class in enumerate(["op2_core",
                                   "op2_non_core",
-                                  "op2_exec_halo"]):
+                                  "op2_exec_halo",
+                                  "op2_non_exec_halo"]):
         nclass = plex.getStratumSize(op2class, dim-1)
         if nclass > 0:
             class_is = plex.getStratumIS(op2class, dim-1)
@@ -720,7 +763,6 @@ def get_facets_by_class(PETSc.DM plex, label):
                     fi += 1
         facet_classes[i] = fi
 
-    facet_classes[3] = facet_classes[2]
     return facets, facet_classes
 
 @cython.boundscheck(False)
@@ -742,15 +784,17 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1] reordering=None
     is the Plex -> OP2 permutation.
     """
     cdef:
-        PetscInt dim, ncells, nclosure, c, ci, p, p_glbl, lbl_val
+        PetscInt dim, ncells, nfacets, nclosure, c, ci, p, p_glbl, lbl_val
         PetscInt cStart, cEnd, core_idx, non_core_idx, exec_halo_idx
         PetscInt *core_cells = NULL
         PetscInt *non_core_cells = NULL
         PetscInt *exec_halo_cells = NULL
         PetscInt *cells = NULL
+        PetscInt *facets = NULL
         PetscInt *closure = NULL
         PetscInt *perm = NULL
         PETSc.IS cell_is = None
+        PETSc.IS facet_is = None
         PETSc.IS perm_is = None
         char *lbl_chr = NULL
         PetscBT seen = NULL
@@ -848,16 +892,30 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1] reordering=None
         if not reorder and ncells > 0:
             CHKERR(ISRestoreIndices(cell_is.iset, &cells))
 
-    CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0,
-                                          PETSC_TRUE,
-                                          &nclosure,
-                                          &closure))
+    if closure != NULL:
+        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
+                                              NULL, &closure))
 
+    # We currently mark non-exec facets without marking non-exec
+    # cells, so they will not get picked up by the cell closure loops
+    # and we need to add them explicitly.
+    op2class = "op2_non_exec_halo"
+    nfacets = plex.getStratumSize(op2class, dim-1)
+    if nfacets > 0:
+        facet_is = plex.getStratumIS(op2class, dim-1)
+        CHKERR(ISGetIndices(facet_is.iset, &facets))
+        for f in range(nfacets):
+            p = facets[f]
+            if not PetscBTLookup(seen, p):
+                CHKERR(PetscBTSet(seen, p))
+                perm[p_glbl] = p
+                p_glbl += 1
     if reorder:
         CHKERR(PetscFree(core_cells))
         CHKERR(PetscFree(non_core_cells))
         CHKERR(PetscFree(exec_halo_cells))
 
+    CHKERR(PetscBTDestroy(&seen))
     perm_is = PETSc.IS().create()
     perm_is.setType("general")
     CHKERR(ISGeneralSetIndices(perm_is.iset, pEnd - pStart,

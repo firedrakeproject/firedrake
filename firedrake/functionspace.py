@@ -120,11 +120,12 @@ class FunctionSpaceBase(ObjectCached):
             ncore = mesh._plex.getStratumSize("op2_core", d)
             nowned = mesh._plex.getStratumSize("op2_non_core", d)
             nhalo = mesh._plex.getStratumSize("op2_exec_halo", d)
+            nnonexec = mesh._plex.getStratumSize("op2_non_exec_halo", d)
             ndofs = self._dofs_per_entity[d]
             self.dof_classes[0] += ndofs * ncore
             self.dof_classes[1] += ndofs * (ncore + nowned)
             self.dof_classes[2] += ndofs * (ncore + nowned + nhalo)
-            self.dof_classes[3] += ndofs * (ncore + nowned + nhalo)
+            self.dof_classes[3] += ndofs * (ncore + nowned + nhalo + nnonexec)
 
         self._node_count = self._global_numbering.getStorageSize()
 
