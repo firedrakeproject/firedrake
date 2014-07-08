@@ -1756,8 +1756,12 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         if(filename[-4:] != ".npy"):
             filename = filename + ".npy"
 
-        for d, d_from_file in zip(self.data, np.load(filename)):
-            d[:] = d_from_file[:]
+        if isinstance(self.data, tuple):
+            # MixedDat case
+            for d, d_from_file in zip(self.data, np.load(filename)):
+                d[:] = d_from_file[:]
+        else:
+            self.data[:] = np.load(filename)
 
     @property
     def shape(self):
