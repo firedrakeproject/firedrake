@@ -1746,6 +1746,13 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         """Write the data array to file ``filename`` in NumPy format."""
         np.save(filename, self.data_ro)
 
+    def load(self, filename):
+        """Read the data stored in file ``filename`` into a NumPy array
+        and store the values in :meth:`_data`.
+        """
+        for d, d_from_file in zip(self.data, np.load(filename)):
+            d[:] = d_from_file[:]
+
     @property
     def shape(self):
         return self._shape
