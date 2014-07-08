@@ -53,7 +53,7 @@ installing FFC_ of the following form:
    std::shared_ptr< ufc::function > tempshared1 ;
 
 It's possible that you just need to tell the compiler to pick the
-correct standard library.  To so, try running with
+correct standard library.  To do so, try running with
 ``CXXFLAGS='-stdlib=libc++'`` when installing::
 
   sudo CXXFLAGS='-stdlib=libc++' pip install -U --no-deps ...
