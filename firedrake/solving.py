@@ -548,11 +548,6 @@ def _assemble(f, tensor=None, bcs=None):
             tensor.zero()
         except AttributeError:
             pass
-        extruded_bcs = None
-        if bcs is not None:
-            bottom = any(bc.sub_domain == "bottom" for bc in bcs)
-            top = any(bc.sub_domain == "top" for bc in bcs)
-            extruded_bcs = (bottom, top)
         for (i, j), integral_type, subdomain_id, coords, coefficients, needs_orientations, kernel in kernels:
             m = coords.function_space().mesh()
             if needs_orientations:
@@ -577,7 +572,6 @@ def _assemble(f, tensor=None, bcs=None):
                         tensor_arg = tensor(op2.INC)
 
                     itspace = m.cell_set
-                    itspace._extruded_bcs = extruded_bcs
                     args = [kernel, itspace, tensor_arg,
                             coords.dat(op2.READ, coords.cell_node_map(),
                                        flatten=True)]
