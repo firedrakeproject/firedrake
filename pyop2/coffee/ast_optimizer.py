@@ -188,9 +188,9 @@ class AssemblyOptimizer(object):
                 ew.expand()
                 ew.distribute()
                 ew.licm()
-            if level > 2:
+            if level == 3:
                 self._has_zeros = ew.zeros()
-            if level > 3:
+            if level == 4:
                 self._precompute(expr)
                 self._is_precomputed = True
 

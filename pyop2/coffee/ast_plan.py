@@ -316,7 +316,7 @@ class ASTKernel(object):
             # in order to identify and extract matrix multiplies.
             if not blas_interface:
                 raise RuntimeError("COFFEE Error: must set PYOP2_BLAS to convert into BLAS calls")
-            params = (3, 0, (None, None), True, (1, 0), opts['blas'], None, False)
+            params = (4, 0, (None, None), True, (1, 0), opts['blas'], None, False)
         else:
             # Fetch user-provided options/hints on how to transform the kernel
             params = (opts.get('licm'), opts.get('slice'), opts.get('vect') or (None, None),
