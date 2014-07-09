@@ -28,6 +28,8 @@ _cells[OuterProductCell(Cell("triangle"), Cell("interval"))] = hl.VtkWedge
 _cells[OuterProductCell(Cell("triangle", 3), Cell("interval"))] = hl.VtkWedge
 _cells[OuterProductCell(Cell("interval"), Cell("interval"))] = hl.VtkQuad
 _cells[OuterProductCell(Cell("interval", 2), Cell("interval"))] = hl.VtkQuad
+_cells[OuterProductCell(Cell("interval", 2), Cell("interval"), gdim=3)] = hl.VtkQuad
+_cells[OuterProductCell(Cell("interval", 3), Cell("interval"))] = hl.VtkQuad
 
 _points_per_cell = {}
 _points_per_cell[Cell("interval")] = 2
@@ -40,6 +42,8 @@ _points_per_cell[OuterProductCell(Cell("triangle"), Cell("interval"))] = 6
 _points_per_cell[OuterProductCell(Cell("triangle", 3), Cell("interval"))] = 6
 _points_per_cell[OuterProductCell(Cell("interval"), Cell("interval"))] = 4
 _points_per_cell[OuterProductCell(Cell("interval", 2), Cell("interval"))] = 4
+_points_per_cell[OuterProductCell(Cell("interval", 2), Cell("interval"), gdim=3)] = 4
+_points_per_cell[OuterProductCell(Cell("interval", 3), Cell("interval"))] = 4
 
 
 class File(object):
