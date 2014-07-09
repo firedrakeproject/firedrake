@@ -2,7 +2,6 @@ from firedrake import *
 import pytest
 
 
-@pytest.mark.xfail
 @pytest.mark.parametrize('degree', [1, 2, 3])
 def test_multiple_poisson_Pn(degree):
     m = UnitSquareMesh(4, 4)
@@ -49,7 +48,6 @@ def test_multiple_poisson_Pn(degree):
     assert assemble(inner(w - wexact, w - wexact)*dx) < 1e-8
 
 
-@pytest.mark.xfail
 def test_stokes_taylor_hood():
     length = 10
     m = IntervalMesh(40, length)
