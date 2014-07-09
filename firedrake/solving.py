@@ -474,19 +474,19 @@ def _assemble(f, tensor=None, bcs=None):
                 raise RuntimeError('Unknown integral type "%s"' % integral_type)
 
         # To avoid an extra check for extruded domains, the maps that are being passed in
-        # are SparsityMaps. For the non-extruded case the SparsityMaps don't restrict the
+        # are DecoratedMaps. For the non-extruded case the DecoratedMaps don't restrict the
         # space over which we iterate as the domains are dropped at Sparsity construction
         # time. In the extruded case the cell domains are used to identify the regions of the
         # mesh which require allocation in the sparsity.
         if cell_domains:
-            map_pairs.append((op2.SparsityMap(test.cell_node_map(), cell_domains),
-                              op2.SparsityMap(trial.cell_node_map(), cell_domains)))
+            map_pairs.append((op2.DecoratedMap(test.cell_node_map(), cell_domains),
+                              op2.DecoratedMap(trial.cell_node_map(), cell_domains)))
         if exterior_facet_domains:
-            map_pairs.append((op2.SparsityMap(test.exterior_facet_node_map(), exterior_facet_domains),
-                              op2.SparsityMap(trial.exterior_facet_node_map(), exterior_facet_domains)))
+            map_pairs.append((op2.DecoratedMap(test.exterior_facet_node_map(), exterior_facet_domains),
+                              op2.DecoratedMap(trial.exterior_facet_node_map(), exterior_facet_domains)))
         if interior_facet_domains:
-            map_pairs.append((op2.SparsityMap(test.interior_facet_node_map(), interior_facet_domains),
-                              op2.SparsityMap(trial.interior_facet_node_map(), interior_facet_domains)))
+            map_pairs.append((op2.DecoratedMap(test.interior_facet_node_map(), interior_facet_domains),
+                              op2.DecoratedMap(trial.interior_facet_node_map(), interior_facet_domains)))
 
         map_pairs = tuple(map_pairs)
         if tensor is None:
@@ -629,8 +629,8 @@ def _assemble(f, tensor=None, bcs=None):
                     # Iterate over the list and assemble all the args of the parallel loop
                     for (index, set) in set_global_list:
                         if is_mat:
-                            tensor_arg = mat(lambda s: op2.SparsityMap(s.cell_node_map(tsbc), index),
-                                             lambda s: op2.SparsityMap(s.cell_node_map(trbc), index),
+                            tensor_arg = mat(lambda s: op2.DecoratedMap(s.cell_node_map(tsbc), index),
+                                             lambda s: op2.DecoratedMap(s.cell_node_map(trbc), index),
                                              i, j)
                         elif is_vec:
                             tensor_arg = vec(lambda s: s.cell_node_map(), i)
@@ -687,10 +687,10 @@ def _assemble(f, tensor=None, bcs=None):
                                 "No support for interior horizontal facet integrals under MPI yet")
 
                     if is_mat:
-                        tensor_arg = mat(lambda s: op2.SparsityMap(s.cell_node_map(tsbc),
-                                                                   op2.ON_INTERIOR_FACETS),
-                                         lambda s: op2.SparsityMap(s.cell_node_map(trbc),
-                                                                   op2.ON_INTERIOR_FACETS),
+                        tensor_arg = mat(lambda s: op2.DecoratedMap(s.cell_node_map(tsbc),
+                                                                    op2.ON_INTERIOR_FACETS),
+                                         lambda s: op2.DecoratedMap(s.cell_node_map(trbc),
+                                                                    op2.ON_INTERIOR_FACETS),
                                          i, j)
                     elif is_vec:
                         tensor_arg = vec(lambda s: s.cell_node_map(), i)
