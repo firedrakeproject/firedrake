@@ -801,7 +801,6 @@ class JITModule(base.JITModule):
         _map_bcs_p = ""
         _layer_arg = ""
         if self._itspace._extruded:
-            a_bcs = self._itspace.iterset._extruded_bcs
             _layer_arg = ", int start_layer, int end_layer"
             _off_args = ''.join([arg.c_offset_init() for arg in self._args
                                  if arg._uses_itspace or arg._is_vec_map])
@@ -809,10 +808,6 @@ class JITModule(base.JITModule):
                                      for arg in self._args if arg._uses_itspace])
             _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, layers=self._itspace.layers, is_facet=is_facet)
                                      for arg in self._args if arg._uses_itspace])
-            _map_bcs_m += ';\n'.join([arg.c_map_bcs(a_bcs, self._itspace.layers, "-")
-                                      for arg in self._args if arg._is_mat])
-            _map_bcs_p += ';\n'.join([arg.c_map_bcs(a_bcs, self._itspace.layers, "+")
-                                      for arg in self._args if arg._is_mat])
             _apply_offset += ';\n'.join([arg.c_add_offset_map(is_facet=is_facet)
                                          for arg in self._args if arg._uses_itspace])
             _apply_offset += ';\n'.join([arg.c_add_offset(is_facet=is_facet)

@@ -709,7 +709,6 @@ class ExtrudedSet(Set):
         if layers < 2:
             raise SizeTypeError("Number of layers must be > 1 (not %s)" % layers)
         self._layers = layers
-        self._ext_tb_bcs = None
         self._extruded = True
 
     def __getattr__(self, name):
@@ -734,23 +733,6 @@ class ExtrudedSet(Set):
     def layers(self):
         """The number of layers in this extruded set."""
         return self._layers
-
-    @property
-    def _extruded_bcs(self):
-        """A tuple indicating whether the extruded problem should have boundary conditions applied.
-
-        If the first entry is True, boundary conditions will be applied at the bottom.
-        If the second entry is True, boundary conditions will be applied at the top."""
-        return self._ext_tb_bcs
-
-    @_extruded_bcs.setter
-    def _extruded_bcs(self, value):
-        """Set the boundary conditions on the extruded problem.
-
-        :arg value: a tuple with of two boolean values.
-            The first entry indicates whether a boundary condition will be applied at the bottom.
-            The second entry indicates whether a boundary condition will be applied at the top."""
-        self._ext_tb_bcs = value
 
 
 class Subset(ExtrudedSet):
@@ -1397,12 +1379,8 @@ class IterationSpace(object):
     @property
     def cache_key(self):
         """Cache key used to uniquely identify the object in the cache."""
-        if self.iterset._extruded:
-            ext_key = self.iterset._extruded_bcs
-        else:
-            ext_key = None
         return self._extents, self._block_shape, self.iterset._extruded, \
-            isinstance(self._iterset, Subset), ext_key
+            isinstance(self._iterset, Subset)
 
 
 class DataCarrier(Versioned):
