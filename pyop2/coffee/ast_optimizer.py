@@ -32,6 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from collections import defaultdict, OrderedDict
+import itertools
 from copy import deepcopy as dcopy
 
 import networkx as nx
@@ -182,14 +183,20 @@ class AssemblyOptimizer(object):
         parent = (self.pre_header, self.kernel_decls)
         for expr in self.asm_expr.items():
             ew = AssemblyRewriter(expr, self.int_loop, self.sym, self.decls, parent)
+            # Perform expression rewriting
             if level > 0:
                 ew.licm()
             if level > 1:
                 ew.expand()
                 ew.distribute()
                 ew.licm()
+                # Fuse loops iterating along the same iteration space
+                ew_parent = self.int_loop.children[0] if self.int_loop else self.pre_header
+                self._merge_perfect_loop_nests(ew_parent, ew.eg)
+            # Eliminate zeros
             if level == 3:
                 self._has_zeros = ew.zeros()
+            # Precompute expressions
             if level == 4:
                 self._precompute(expr)
                 self._is_precomputed = True
@@ -623,7 +630,7 @@ class AssemblyOptimizer(object):
         def update_syms(node, precomputed):
             if isinstance(node, Symbol):
                 if node.symbol in precomputed:
-                    node.rank = precomputed[node.symbol]
+                    node.rank = precomputed[node.symbol] + node.rank
             else:
                 for n in node.children:
                     update_syms(n, precomputed)
@@ -635,15 +642,15 @@ class AssemblyOptimizer(object):
             if isinstance(node, Symbol):
                 # Vector-expand the symbol if already pre-computed
                 if node.symbol in precomputed:
-                    node.rank = precomputed[node.symbol]
+                    node.rank = precomputed[node.symbol] + node.rank
             elif isinstance(node, Expr):
                 for n in node.children:
                     precompute_stmt(n, precomputed, new_outer_block)
             elif isinstance(node, (Assign, Incr)):
                 # Precompute the LHS of the assignment
                 symbol = node.children[0]
+                precomputed[symbol.symbol] = (self.int_loop.it_var(),)
                 new_rank = (self.int_loop.it_var(),) + symbol.rank
-                precomputed[symbol.symbol] = new_rank
                 symbol.rank = new_rank
                 # Vector-expand the RHS
                 precompute_stmt(node.children[1], precomputed, new_outer_block)
@@ -717,6 +724,130 @@ class AssemblyOptimizer(object):
 
         # Update the AST by vector-expanding the pre-computed accessed variables
         update_syms(expr.children[1], precomputed_syms)
+
+    def _merge_perfect_loop_nests(self, node, eg):
+        """Merge loop nests rooted in ``node`` having the same iteration space.
+        This assumes that the statements rooted in ``node`` are in SSA form:
+        no data dependency analysis is performed, i.e. the safety of the
+        transformation must be checked by the caller. Also, the loop nests are
+        assumed to be perfect; again, this must be ensured by the caller.
+
+        :arg node: root of the tree to inspect for merging loops
+        :arg eg: expression graph, used to check there are no read-after-write
+                 dependencies between two loops.
+        """
+
+        def find_iteration_space(node):
+            """Return the iteration space of the loop nest rooted in ``node``,
+            as tuple of 3-tuple, in which each 3-tuple is of the form
+            (start, bound, increment)."""
+            if isinstance(node, For):
+                itspace = (node.start(), node.end(), node.increment())
+                child_itspace = find_iteration_space(node.children[0].children[0])
+                return (itspace, child_itspace) if child_itspace else (itspace,)
+
+        def writing_syms(node):
+            """Return a list of symbols that are being written to in the tree
+            rooted in ``node``."""
+            if isinstance(node, Symbol):
+                return [node]
+            elif isinstance(node, FlatBlock):
+                return []
+            elif isinstance(node, (Assign, Incr, Decr)):
+                return writing_syms(node.children[0])
+            elif isinstance(node, Decl):
+                if node.init and not isinstance(node.init, EmptyStatement):
+                    return writing_syms(node.sym)
+                else:
+                    return []
+            else:
+                written_syms = []
+                for n in node.children:
+                    written_syms.extend(writing_syms(n))
+                return written_syms
+
+        def merge_loops(root, loop_a, loop_b):
+            """Merge the body of ``loop_a`` in ``loop_b`` and eliminate ``loop_a``
+            from the tree rooted in ``root``. Return a reference to the block
+            containing the merged loop as well as the iteration variables used
+            in the respective iteration spaces."""
+            # Find the first statement in the perfect loop nest loop_b
+            it_vars_a, it_vars_b = [], []
+            while isinstance(loop_b.children[0], (Block, For)):
+                if isinstance(loop_b, For):
+                    it_vars_b.append(loop_b.it_var())
+                loop_b = loop_b.children[0]
+            # Find the first statement in the perfect loop nest loop_a
+            root_loop_a = loop_a
+            while isinstance(loop_a.children[0], (Block, For)):
+                if isinstance(loop_a, For):
+                    it_vars_a.append(loop_a.it_var())
+                loop_a = loop_a.children[0]
+            # Merge body of loop_a in loop_b
+            loop_b.children[0:0] = loop_a.children
+            # Remove loop_a from root
+            root.children.remove(root_loop_a)
+            return (loop_b, tuple(it_vars_a), tuple(it_vars_b))
+
+        def update_iteration_variables(node, it_vars):
+            """Change the iteration variables in the nodes rooted in ``node``
+            according to the map defined in ``it_vars``, which is a dictionary
+            from old_iteration_variable to new_iteration_variable. For example,
+            given it_vars = {'i': 'j'} and a node "A[i] = B[i]", change the node
+            into "A[j] = B[j]"."""
+            if isinstance(node, Symbol):
+                new_rank = []
+                for r in node.rank:
+                    new_rank.append(r if r not in it_vars else it_vars[r])
+                node.rank = tuple(new_rank)
+            elif not isinstance(node, FlatBlock):
+                for n in node.children:
+                    update_iteration_variables(n, it_vars)
+
+        # {((start, bound, increment), ...) --> [outer_loop]}
+        found_nests = defaultdict(list)
+        written_syms = []
+        # Collect some info visiting the tree rooted in node
+        for n in node.children:
+            if isinstance(n, For):
+                # Track structure of iteration spaces
+                found_nests[find_iteration_space(n)].append(n)
+            else:
+                # Track written variables
+                written_syms.extend(writing_syms(n))
+
+        # A perfect loop nest L1 is mergeable in a loop nest L2 if
+        # - their iteration space is identical; implicitly true because the keys,
+        #   in the dictionary, are iteration spaces.
+        # - between the two nests, there are no statements that read from values
+        #   computed in L1. This is checked next.
+        # Here, to simplify the data flow analysis, the last loop in the tree
+        # rooted in node is selected as L2
+        for itspace, loop_nests in found_nests.items():
+            if len(loop_nests) == 1:
+                # At least two loops are necessary for merging to be meaningful
+                continue
+            mergeable = []
+            merging_in = loop_nests[-1]
+            for ln in loop_nests[:-1]:
+                is_mergeable = True
+                # Get the symbols written to in the loop nest ln
+                ln_written_syms = writing_syms(ln)
+                # Get the symbols written to between ln and merging_in (included)
+                _written_syms = [writing_syms(l) for l in loop_nests[loop_nests.index(ln)+1:-1]]
+                _written_syms = [i for l in _written_syms for i in l]  # list flattening
+                _written_syms += written_syms
+                for ws, lws in itertools.product(_written_syms, ln_written_syms):
+                    if eg.has_dep(ws, lws):
+                        is_mergeable = False
+                        break
+                # Track mergeable loops
+                if is_mergeable:
+                    mergeable.append(ln)
+            # If there is at least one mergeable loops, do the merging
+            for l in reversed(mergeable):
+                merged, l_itvars, m_itvars = merge_loops(node, l, merging_in)
+                update_iteration_variables(merged, dict(zip(l_itvars, m_itvars)))
 
 
 class AssemblyRewriter(object):
@@ -1288,10 +1419,18 @@ class ExpressionGraph(object):
             self.deps.add_edge(sym, sym)
         extract_syms(sym, expr, self.deps)
 
-    def has_dep(self, sym):
-        """Return True if ``sym`` has a read-after-write dependency with some
-        other symbols. This is the case if ``sym`` has either a self dependency
-        or at least one input edge, meaning that other symbols depend on it."""
+    def has_dep(self, sym, target_sym=None):
+        """If ``target_sym`` is not provided, return True if ``sym`` has a
+        read-after-write dependency with some other symbols. This is the case if
+        ``sym`` has either a self dependency or at least one input edge, meaning
+        that other symbols depend on it.
+        Otherwise, if ``target_sym`` is not None, return True if ``sym`` has a
+        read-after-write dependency on it, i.e. if there is an edge from
+        ``target_sym`` to ``sym``."""
 
         sym = sym.symbol
-        return sym in self.deps and zip(*self.deps.in_edges(sym))
+        if not target_sym:
+            return sym in self.deps and zip(*self.deps.in_edges(sym))
+        else:
+            target_sym = target_sym.symbol
+            return sym in self.deps and self.deps.has_edge(sym, target_sym)
