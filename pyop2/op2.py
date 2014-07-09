@@ -189,7 +189,7 @@ class Map(base.Map):
     __metaclass__ = backends._BackendSelector
 
 
-class SparsityMap(base.SparsityMap):
+class DecoratedMap(base.DecoratedMap):
     __metaclass__ = backends._BackendSelector
 
 

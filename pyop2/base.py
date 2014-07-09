@@ -2735,9 +2735,16 @@ class Map(object):
     @property
     def iteration_region(self):
         """Return the iteration region for the current map. For a normal map it
-        will always be ALL. For a class `SparsityMap` it will specify over which mesh
+        will always be ALL. For a :class:`DecoratedMap` it will specify over which mesh
         region the iteration will take place."""
         return frozenset([ALL])
+
+    @property
+    def implicit_bcs(self):
+        """Return any implicit (extruded "top" or "bottom") bcs to
+        apply to this :class:`Map`.  Normally empty except in the case of
+        some :class:`DecoratedMap`\s."""
+        return frozenset([])
 
     @property
     def iterset(self):
@@ -2815,7 +2822,7 @@ class Map(object):
 
     def __le__(self, o):
         """self<=o if o equals self or self._parent <= o."""
-        if isinstance(o, SparsityMap):
+        if isinstance(o, DecoratedMap):
             # The iteration region of self must be a subset of the
             # iteration region of the sparsitymap.
             return len(self.iteration_region - o.iteration_region) == 0 and self <= o._map
@@ -2832,50 +2839,76 @@ class Map(object):
         return cls(iterset, toset, arity[0], values, name)
 
 
-class SparsityMap(Map, ObjectCached):
-    """Augmented type for a map used in the case of building the sparsity
-    for horizontal facets.
+class DecoratedMap(Map, ObjectCached):
+    """Augmented type for a map used for attaching extra information
+    used to inform code generation and/or sparsity building about the
+    implicit structure of the extruded :class:`Map`.
 
     :param map: The original class:`Map`.
 
-    :param iteration_region: The class:`IterationRegion` of the mesh over which
+    :kwarg iteration_region: The class:`IterationRegion` of the mesh over which
                              the parallel loop will iterate.
+    :kwarg implicit_bcs: Any "top" or "bottom" boundary conditions to apply
+                         when assembling :class:`Mat`\s.
 
-    The iteration over a specific part of the mesh will lead to the creation of
-    the appropriate sparsity pattern."""
+    The :data:`map` parameter may be an existing :class:`DecoratedMap`
+    in which case, if either the :data:`iteration_region` or
+    :data:`implicit_bcs` arguments are :data:`None`, they will be
+    copied over from the supplied :data:`map`."""
 
-    def __new__(cls, map, iteration_region):
+    def __new__(cls, map, iteration_region=None, implicit_bcs=None):
+        if isinstance(map, DecoratedMap):
+            # Need to add information, rather than replace if we
+            # already have a decorated map (but overwrite if we're
+            # told to)
+            if iteration_region is None:
+                iteration_region = [x for x in map.iteration_region]
+            if implicit_bcs is None:
+                implicit_bcs = [x for x in map.implicit_bcs]
+            return DecoratedMap(map.map, iteration_region=iteration_region,
+                                implicit_bcs=implicit_bcs)
         if isinstance(map, MixedMap):
-            return MixedMap([SparsityMap(m, iteration_region) for m in map])
-        return super(SparsityMap, cls).__new__(cls, map, iteration_region)
+            return MixedMap([DecoratedMap(m, iteration_region=iteration_region,
+                                          implicit_bcs=implicit_bcs)
+                             for m in map])
+        return super(DecoratedMap, cls).__new__(cls, map, iteration_region=iteration_region,
+                                                implicit_bcs=implicit_bcs)
 
-    def __init__(self, map, iteration_region):
+    def __init__(self, map, iteration_region=None, implicit_bcs=None):
         if self._initialized:
             return
         self._map = map
+        if iteration_region is None:
+            iteration_region = [ALL]
+        iteration_region = as_tuple(iteration_region, IterationRegion)
         self._iteration_region = frozenset(iteration_region)
+        if implicit_bcs is None:
+            implicit_bcs = []
+        implicit_bcs = as_tuple(implicit_bcs)
+        self._implicit_bcs = frozenset(implicit_bcs)
         self._initialized = True
 
     @classmethod
-    def _process_args(cls, *args, **kwargs):
-        m, ir = args
-        ir = as_tuple(ir, IterationRegion)
-        return (m, ) + (m, ir), kwargs
+    def _process_args(cls, m, **kwargs):
+        return (m, ) + (m, ), kwargs
 
     @classmethod
-    def _cache_key(cls, map, iteration_region):
-        return (map, iteration_region)
+    def _cache_key(cls, map, iteration_region=None, implicit_bcs=None):
+        ir = as_tuple(iteration_region, IterationRegion) if iteration_region else ()
+        bcs = as_tuple(implicit_bcs) if implicit_bcs else ()
+        return (map, ir, bcs)
 
     def __repr__(self):
-        return "SparsityMap(%r, %r)" % (self._map, self._iteration_region)
+        return "DecoratedMap(%r, %r, %r)" % (self._map, self._iteration_region, self.implicit_bcs)
 
     def __str__(self):
-        return "OP2 SparsityMap on %s with region %s" % (self._map, self._iteration_region)
+        return "OP2 DecoratedMap on %s with region %s, implicit bcs %s" % \
+            (self._map, self._iteration_region, self.implicit_bcs)
 
     def __le__(self, other):
         """self<=other if the iteration regions of self are a subset of the
         iteration regions of other and self._map<=other"""
-        if isinstance(other, SparsityMap):
+        if isinstance(other, DecoratedMap):
             return len(self.iteration_region - other.iteration_region) == 0 and self._map <= other._map
         else:
             return len(self.iteration_region - other.iteration_region) == 0 and self._map <= other
@@ -2884,9 +2917,20 @@ class SparsityMap(Map, ObjectCached):
         return getattr(self._map, name)
 
     @property
+    def map(self):
+        """The :class:`Map` this :class:`DecoratedMap` is decorating"""
+        return self._map
+
+    @property
     def iteration_region(self):
         """Returns the type of the iteration to be performed."""
         return self._iteration_region
+
+    @property
+    def implicit_bcs(self):
+        """Return the set (if any) of implicit ("top" or "bottom") bcs
+    to be applied to the :class:`Map`."""
+        return self._implicit_bcs
 
 
 class MixedMap(Map, ObjectCached):
@@ -3516,8 +3560,12 @@ class JITModule(Cached):
                 idxs = (arg.idx[0].__class__, arg.idx[0].index,
                         arg.idx[1].index)
                 map_arities = (arg.map[0].arity, arg.map[1].arity)
+                # Implicit boundary conditions (extruded "top" or
+                # "bottom") affect generated code, and therefore need
+                # to be part of cache key
+                map_bcs = (arg.map[0].implicit_bcs, arg.map[1].implicit_bcs)
                 key += (arg.data.dims, arg.data.dtype, idxs,
-                        map_arities, arg.access)
+                        map_arities, map_bcs, arg.access)
 
         iterate = kwargs.get("iterate", None)
         if iterate is not None:
