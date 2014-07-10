@@ -1355,13 +1355,13 @@ class ExpressionExpander(object):
 
         # No dependencies, just perform the expansion
         if not self.eg.has_dep(sym):
-            old_expr.children[0] = Prod(Par(old_expr.children[0]), const)
+            old_expr.children[0] = Prod(Par(old_expr.children[0]), dcopy(const))
             return
 
         # Create a new symbol, expression, and declaration
         new_expr = Par(Prod(dcopy(sym), const))
-        new_node = Assign(sym, new_expr)
         sym.symbol += "_EXP%d" % len(self.expanded_syms)
+        new_node = Assign(dcopy(sym), new_expr)
         new_var_decl = dcopy(var_decl)
         new_var_decl.sym.symbol = sym.symbol
         # Append new expression and declaration
