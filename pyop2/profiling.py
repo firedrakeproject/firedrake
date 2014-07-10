@@ -209,10 +209,10 @@ def reset_timers():
     Timer.reset_all()
 
 
-def timing(name, reset=False):
+def timing(name, reset=False, total=True):
     """Return timing (average) for given task, optionally clearing timing."""
     t = Timer(name)
-    ret = t.average
+    ret = t.total if total else t.average
     if reset:
         t.reset()
     return ret
