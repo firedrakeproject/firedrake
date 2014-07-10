@@ -1746,6 +1746,23 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         """Write the data array to file ``filename`` in NumPy format."""
         np.save(filename, self.data_ro)
 
+    def load(self, filename):
+        """Read the data stored in file ``filename`` into a NumPy array
+        and store the values in :meth:`_data`.
+        """
+        # The np.save method appends a .npy extension to the file name
+        # if the user has not supplied it. However, np.load does not,
+        # so we need to handle this ourselves here.
+        if(filename[-4:] != ".npy"):
+            filename = filename + ".npy"
+
+        if isinstance(self.data, tuple):
+            # MixedDat case
+            for d, d_from_file in zip(self.data, np.load(filename)):
+                d[:] = d_from_file[:]
+        else:
+            self.data[:] = np.load(filename)
+
     @property
     def shape(self):
         return self._shape

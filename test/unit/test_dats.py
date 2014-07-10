@@ -124,6 +124,21 @@ class TestDat:
         s = op2.Set(10)
         assert op2.Dat(s**dim).nbytes == 10*8*dim
 
+    def test_dat_save_and_load(self, backend, tmpdir, d1, s, mdat):
+        """The save method should dump Dat and MixedDat values to
+        the file 'output', and the load method should read back
+        those same values from the 'output' file. """
+        output = tmpdir.join('output').strpath
+        d1.save(output)
+        d2 = op2.Dat(s)
+        d2.load(output)
+        assert (d1.data_ro == d2.data_ro).all()
+
+        mdat.save(output)
+        mdat2 = op2.MixedDat([d1, d1])
+        mdat2.load(output)
+        assert all(all(d.data_ro == d_.data_ro) for d, d_ in zip(mdat, mdat2))
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
