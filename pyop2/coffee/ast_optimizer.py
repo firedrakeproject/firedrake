@@ -571,32 +571,66 @@ class AssemblyOptimizer(object):
             else:
                 raise RuntimeError("Group iter space error: unknown node: %s" % str(node))
 
-        # Group increments according to their iteration space
+        def get_size_and_ofs(itspace):
+            """Given an ``itspace`` in the form (('itvar', (bound_a, bound_b), ...)),
+            return ((('it_var', bound_b - bound_a), ...), (('it_var', bound_a), ...))"""
+            itspace_info = []
+            for var, bounds in itspace:
+                itspace_info.append(((var, bounds[1] - bounds[0]), (var, bounds[0])))
+            return tuple(zip(*itspace_info))
+
+        def update_ofs(node, ofs):
+            """Given a dictionary ``ofs`` s.t. {'itvar': ofs}, update the various
+            iteration variables in the symbols rooted in ``node``."""
+            if isinstance(node, Symbol):
+                new_ofs = []
+                old_ofs = ((1, 0) for r in node.rank) if not node.offset else node.offset
+                for r, o in zip(node.rank, old_ofs):
+                    new_ofs.append((o[0], ofs[r] if r in ofs else o[1]))
+                node.offset = tuple(new_ofs)
+            else:
+                for n in node.children:
+                    update_ofs(n, ofs)
+
+        # If two iteration spaces have:
+        # - Same size and same bounds: then generate a single statement, e.g.
+        #   for i, for j
+        #     A[i][j] += B[i][j] + C[i][j]
+        # - Same size but different bounds: then generate two statements in the same
+        #   iteration space:
+        #   for i, for j
+        #     A[i][j] += B[i][j]
+        #     A[i+k][j+k] += C[i+k][j+k]
+        # - Different size: then generate two iteration spaces
+        # So, group increments according to the size of their iteration space, and
+        # also save the offset within that iteration space
         itspaces = defaultdict(list)
         for expr, expr_info in asm_expr.items():
             nonzero_bounds = get_nonzero_bounds(expr.children[1])
-            itspaces[nonzero_bounds].append((expr, expr_info))
+            itspace_info = get_size_and_ofs(nonzero_bounds)
+            itspaces[itspace_info[0]].append((expr, expr_info, itspace_info[1]))
 
         # Create the new iteration spaces
         to_remove = []
         new_asm_expr = {}
         for its, asm_exprs in itspaces.items():
-            itvar_to_its = dict(list(its))
-            expr, expr_info = asm_exprs[0]
+            itvar_to_size = dict(its)
+            expr, expr_info, ofs = asm_exprs[0]
             it_vars, parent, loops = expr_info
             # Reuse and modify an existing loop nest
-            outer_loop_sizes = itvar_to_its[loops[0].it_var()]
-            inner_loop_sizes = itvar_to_its[loops[1].it_var()]
-            loops[0].init.init = c_sym(outer_loop_sizes[0])
-            loops[0].cond.children[1] = c_sym(outer_loop_sizes[1] + 1)
-            loops[1].init.init = c_sym(inner_loop_sizes[0])
-            loops[1].cond.children[1] = c_sym(inner_loop_sizes[1] + 1)
+            outer_loop_size = itvar_to_size[loops[0].it_var()]
+            inner_loop_size = itvar_to_size[loops[1].it_var()]
+            loops[0].cond.children[1] = c_sym(outer_loop_size + 1)
+            loops[1].cond.children[1] = c_sym(inner_loop_size + 1)
+            # Update memory offsets in the expression
+            update_ofs(expr, dict(ofs))
             new_asm_expr[expr] = expr_info
             # Track down loops that will have to be removed
-            for _expr, _expr_info in asm_exprs[1:]:
+            for _expr, _expr_info, _ofs in asm_exprs[1:]:
                 to_remove.append(_expr_info[2][0])
                 parent.children.append(_expr)
                 new_asm_expr[_expr] = expr_info
+                update_ofs(_expr, dict(_ofs))
         # Remove old loops
         parent = self.int_loop.children[0] if self.int_loop else self.pre_header
         for i in to_remove:
