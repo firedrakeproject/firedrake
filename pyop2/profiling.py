@@ -139,7 +139,7 @@ class Timer(object):
             print fmt % column_heads
             fmt = "%%%ds | %%%dg | %%%dd | %%%dg" % (
                 namecol, totalcol, ncallscol, averagecol)
-            for t in cls._timers.values():
+            for t in sorted(cls._timers.values(), key=lambda k: k.name):
                 print fmt % (t.name, t.total, t.ncalls, t.average)
 
     @classmethod
