@@ -86,7 +86,8 @@ def make_flat_fiat_element(ufl_cell_element, ufl_cell, flattened_entity_dofs):
 
 
 def make_extruded_coords(extruded_mesh, layer_height,
-                         extrusion_type='uniform', kernel=None):
+                         extrusion_type='uniform', kernel=None,
+                         output_coords=None):
     """
     Given either a kernel or a (fixed) layer_height, compute an
     extruded coordinate field for an extruded mesh.
@@ -102,6 +103,9 @@ def make_extruded_coords(extruded_mesh, layer_height,
     :arg kernel: an optional kernel to carry out coordinate extrusion.
 
     The kernel signature (if provided) is::
+    :arg output_coords: an optional :class:`~.Function` to write the
+         extruded coordinates into.  If not provided, the coordinate
+         field in the :data:`extruded_mesh` will be written to.
 
         void kernel(double **base_coords, double **ext_coords,
                     int **layer, double *layer_height)
@@ -112,7 +116,10 @@ def make_extruded_coords(extruded_mesh, layer_height,
     of each cell and the fixed layer height.
     """
     base_coords = extruded_mesh._old_mesh.coordinates
-    ext_coords = extruded_mesh.coordinates
+    if output_coords is None:
+        ext_coords = extruded_mesh.coordinates
+    else:
+        ext_coords = output_coords
     vert_space = ext_coords.function_space().ufl_element()._B
     if kernel is None and not (vert_space.degree() == 1 and vert_space.family() == 'Lagrange'):
         raise RuntimeError('Extrusion of coordinates is only possible for P1 interval unless a custom kernel is provided')
