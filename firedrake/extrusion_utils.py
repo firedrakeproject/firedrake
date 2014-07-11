@@ -121,8 +121,10 @@ def make_extruded_coords(extruded_mesh, layer_height,
     else:
         ext_coords = output_coords
     vert_space = ext_coords.function_space().ufl_element()._B
-    if kernel is None and not (vert_space.degree() == 1 and vert_space.family() == 'Lagrange'):
-        raise RuntimeError('Extrusion of coordinates is only possible for P1 interval unless a custom kernel is provided')
+    if kernel is None and not (vert_space.degree() == 1 and
+                               vert_space.family() in ['Lagrange',
+                                                       'Discontinuous Lagrange']):
+        raise RuntimeError('Extrusion of coordinates is only possible for a P1 or P1dg interval unless a custom kernel is provided')
     if kernel is not None:
         pass
     elif extrusion_type == 'uniform':
