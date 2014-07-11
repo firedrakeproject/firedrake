@@ -146,7 +146,7 @@ class ColSparseArrayInit(ArrayInit):
     """Array initilizer in which zero-columns, i.e. columns full of zeros, are
     explictly tracked. Only bi-dimensional arrays are allowed."""
 
-    def __init__(self, values, nonzero_bounds):
+    def __init__(self, values, nonzero_bounds, numpy_values):
         """Zero columns are tracked once the object is instantiated.
 
         :arg values: string representation of the values the array is initialized to
@@ -155,6 +155,7 @@ class ColSparseArrayInit(ArrayInit):
         """
         super(ColSparseArrayInit, self).__init__(values)
         self.nonzero_bounds = nonzero_bounds
+        self.numpy_values = numpy_values
 
     def gencode(self):
         return self.values
