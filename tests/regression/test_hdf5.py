@@ -112,6 +112,26 @@ def test_hdf5_multifield(mesh, filepath):
     assert np.max(np.abs(yval - y)) < 1e-6
 
 
+@pytest.mark.skipif("h5py is None", reason='h5py not available')
+def test_hdf5_checkpoint(mesh, filepath):
+    mesh = UnitSquareMesh(2, 2)
+
+    fs = FunctionSpace(mesh, "CG", 1)
+    x = Function(fs, name='xcoord')
+    x.interpolate(Expression("x[0]"))
+
+    h5file = File(filepath)
+    h5file << x
+
+    cpmesh = Mesh(_h5file)
+    assert(cpmesh._plex.hasLabel('interior_facets'))
+    assert(cpmesh._plex.hasLabel('exterior_facets'))
+    assert(cpmesh._plex.hasLabel('boundary_ids'))
+
+    mesh_coords = mesh.coordinates.dat.data
+    cp_coords = cpmesh.coordinates.dat.data
+    assert np.max(np.abs(mesh_coords - cp_coords)) < 1e-6
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

@@ -252,6 +252,8 @@ class Mesh(object):
                 self._from_gmsh(filename, dim, periodic_coords, reorder=reorder)
             elif ext in ['.node']:
                 self._from_triangle(filename, dim, periodic_coords, reorder=reorder)
+            if ext in ['.h5', '.xmf']:
+                self._from_hdf5(filename, dim, reorder=reorder)
             else:
                 raise RuntimeError("Unknown mesh file format.")
 
@@ -275,7 +277,8 @@ class Mesh(object):
         # Note.  This must come before distribution, because otherwise
         # DMPlex will consider facets on the domain boundary to be
         # exterior, which is wrong.
-        dmplex.label_facets(self._plex)
+        if not plex.hasLabel('exterior_facets') or not plex.hasLabel('interior_facets'):
+            dmplex.label_facets(self._plex)
 
         if geometric_dim == 0:
             geometric_dim = plex.getDimension()
@@ -465,6 +468,16 @@ class Mesh(object):
                     plex.setLabelValue("boundary_ids", join[0], bid)
 
         self._from_dmplex(plex, dim, periodic_coords, reorder=None)
+
+    def _from_hdf5(self, filename, dim=0, reorder=None):
+        self.name = filename
+
+        # Load DMPlex object from HDF5 checkpoint
+        h5viewer = PETSc.Viewer().createHDF5(filename, mode='r')
+        plex = PETSc.DMPlex().create()
+        plex.load(h5viewer)
+
+        self._from_dmplex(plex, reorder=reorder)
 
     @property
     def layers(self):
