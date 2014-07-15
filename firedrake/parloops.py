@@ -5,6 +5,9 @@ from pyop2 import READ, WRITE, RW, INC  # NOQA get flake8 to ignore unused impor
 import pyop2
 import pyop2.coffee.ast_base as ast
 
+import constant
+
+
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC']
 
 
@@ -52,14 +55,20 @@ def _form_kernel(kernel, measure, args):
     lkernel = kernel
 
     for var, (func, intent) in args.iteritems():
-        ndof = func.function_space().fiat_element.space_dimension()
-        if measure.integral_type() == 'interior_facet':
-            ndof *= 2
-        lkernel = lkernel.replace(var+".dofs", str(ndof))
-        if measure is direct:
-            kargs.append(ast.Decl("double", ast.Symbol(var, (ndof,))))
+        if isinstance(func, constant.Constant):
+            # Constants modelled as Globals, so no need for double
+            # indirection
+            ndof = func.dat.cdim
+            kargs.append(ast.Decl("double", ast.Symbol(var, (ndof, ))))
         else:
-            kargs.append(ast.Decl("double *", ast.Symbol(var, (ndof,))))
+            ndof = func.function_space().fiat_element.space_dimension()
+            if measure.integral_type() == 'interior_facet':
+                ndof *= 2
+            if measure is direct:
+                kargs.append(ast.Decl("double", ast.Symbol(var, (ndof,))))
+            else:
+                kargs.append(ast.Decl("double *", ast.Symbol(var, (ndof,))))
+        lkernel = lkernel.replace(var+".dofs", str(ndof))
 
     body = ast.FlatBlock(lkernel)
 
