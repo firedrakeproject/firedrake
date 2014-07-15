@@ -93,17 +93,17 @@ def par_loop(kernel, measure, args):
     that DoF::
 
       A.assign(numpy.finfo(0.).min)
-      parloop('for (int i=0; i<A.dofs; i++;) A[i] = fmax(A[i], B[0]);', dx,
-          {'A' : (A, RW), 'B', (B, READ)})
+      par_loop('for (int i=0; i<A.dofs; i++;) A[i][0] = fmax(A[i][0], B[0][0]);', dx,
+          {'A' : (A, RW), 'B': (B, READ)})
 
 
     **Argument definitions**
 
     Each item in the `args` dictionary maps a string to a tuple
-    containing a :class:`.Function` and an argument intent. The string
-    is the c language variable name by which this function will be
-    accessed in the kernel. The argument intent indicates how the
-    kernel will access this variable:
+    containing a :class:`.Function` or :class:`.Constant` and an
+    argument intent. The string is the c language variable name by
+    which this function will be accessed in the kernel. The argument
+    intent indicates how the kernel will access this variable:
 
     `READ`
        The variable will be read but not written to.
@@ -162,14 +162,19 @@ def par_loop(kernel, measure, args):
       may be called.
     * Pointer operations other than dereferencing arrays are prohibited.
 
-    Indirect free variables are all of type `double**` in which the first
-    index is the local node number, while the second index is the
-    vector component. The latter only applies to :class:`.Function`\s
-    over a :class:`.VectorFunctionSpace`, for :class:`.Function`\s over
-    a plain :class:`.FunctionSpace` the second index will always be 0.
+    Indirect free variables referencing :class:`.Function`\s are all
+    of type `double**` in which the first index is the local node
+    number, while the second index is the vector component. The latter
+    only applies to :class:`.Function`\s over a
+    :class:`.VectorFunctionSpace`, for :class:`.Function`\s over a
+    plain :class:`.FunctionSpace` the second index will always be 0.
 
     In a direct :func:`par_loop`, the variables will all be of type
     `double*` with the single index being the vector component.
+
+    :class:`.Constant`\s are always of type `double*`, both for
+    indirect and direct :func:`par_loop` calls.
+
     """
 
     _map = _maps[measure.integral_type()]
