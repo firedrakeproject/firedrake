@@ -131,7 +131,9 @@ def derivative(form, u, du=None):
     if du is None:
         if isinstance(u, function.Function):
             V = u.function_space()
-            du = TrialFunction(V)
+            args = form.arguments()
+            number = max(a.number() for a in args) if args else -1
+            du = Argument(V.ufl_element(), V, number + 1)
         else:
             raise RuntimeError("Can't compute derivative for form")
     return ufl.derivative(form, u, du)

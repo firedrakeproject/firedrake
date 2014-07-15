@@ -235,7 +235,7 @@ def compile_form(form, name):
         kernels = [((0, 0),
                     it.integral_type(), it.subdomain_id(),
                     it.domain().data().coordinates,
-                    form.coefficients(), needs_orientations, kernel)
+                    fd.preprocessed_form.coefficients(), needs_orientations, kernel)
                    for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
                                                                FFCKernel(form, name).kernels)]
         form._kernels = kernels
@@ -257,7 +257,7 @@ def compile_form(form, name):
                             it.integral_type(),
                             it.subdomain_id(),
                             it.domain().data().coordinates,
-                            f.coefficients(),
+                            fd.preprocessed_form.coefficients(),
                             needs_orientations, kernel))
     form._kernels = kernels
     return kernels
