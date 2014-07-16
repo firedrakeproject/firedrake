@@ -269,6 +269,7 @@ class ASTKernel(object):
                                          blas_interface['name'], None, False))
             variants = []
             autotune_configs_unroll = []
+            found_zeros = False
             tunable = True
             original_ast = dcopy(self.ast)
             # Generate basic kernel variants
@@ -279,9 +280,10 @@ class ASTKernel(object):
                     # Not a local assembly kernel, nothing to tune
                     tunable = False
                     break
-                if opt in ['licm', 'split']:
+                ao = asm[0]
+                found_zeros = found_zeros or ao._has_zeros
+                if opt in ['licm', 'split'] and not found_zeros:
                     # Heuristically apply a set of unroll factors on top of the transformation
-                    ao = asm[0]
                     int_loop_sz = ao.int_loop.size() if ao.int_loop else 0
                     asm_outer_sz = ao.asm_itspace[0][0].size() if len(ao.asm_itspace) >= 1 else 0
                     asm_inner_sz = ao.asm_itspace[1][0].size() if len(ao.asm_itspace) >= 2 else 0
