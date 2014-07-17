@@ -683,6 +683,8 @@ class ParLoop(device.ParLoop):
         else:
             return {'partition_size': self._i_partition_size()}
 
+    @collective
+    @profile
     def _compute(self, part):
         if part.size == 0:
             # Return before plan call if no computation should occur

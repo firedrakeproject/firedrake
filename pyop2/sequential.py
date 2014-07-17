@@ -88,6 +88,7 @@ class ParLoop(host.ParLoop):
         host.ParLoop.__init__(self, *args, **kwargs)
 
     @collective
+    @profile
     def _compute(self, part):
         fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct, iterate=self.iteration_region)
         if not hasattr(self, '_jit_args'):

@@ -811,6 +811,8 @@ class ParLoop(op2.ParLoop):
             return {'op2stride': self._it_space.size,
                     'WARPSIZE': 32}
 
+    @collective
+    @profile
     def _compute(self, part):
         if part.size == 0:
             # Return before plan call if no computation should occur
