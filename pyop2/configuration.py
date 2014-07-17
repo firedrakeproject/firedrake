@@ -61,6 +61,7 @@ class Configuration(object):
         program exit?
     :param print_summary: Should PyOP2 print a summary of timings at
         program exit?
+    :param profiling: Profiling mode (CUDA kernels are launched synchronously)
     """
     # name, env variable, type, default, write once
     DEFAULTS = {
@@ -78,6 +79,7 @@ class Configuration(object):
                                    "pyop2-cache-uid%s" % os.getuid())),
         "print_cache_size": ("PYOP2_PRINT_CACHE_SIZE", bool, False),
         "print_summary": ("PYOP2_PRINT_SUMMARY", bool, False),
+        "profiling": ("PYOP2_PROFILING", bool, False),
         "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str,
                               os.path.join(gettempdir(), "pyop2-gencode")),
     }
