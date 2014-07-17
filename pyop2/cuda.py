@@ -36,6 +36,7 @@ from device import *
 from configuration import configuration
 import device as op2
 import plan
+from profiling import Timer
 import numpy as np
 from utils import verify_reshape
 import jinja2
@@ -772,8 +773,12 @@ class JITModule(base.JITModule):
         return self._fun
 
     @timed_function("ParLoop kernel")
-    def __call__(self, *args, **kwargs):
-        self.compile().prepared_async_call(*args, **kwargs)
+    def __call__(self, grid, block, stream, *args, **kwargs):
+        if configuration["profiling"]:
+            t_ = self.compile().prepared_timed_call(grid, block, *args, **kwargs)()
+            Timer("CUDA kernel").add(t_)
+        else:
+            self.compile().prepared_async_call(grid, block, stream, *args, **kwargs)
 
 
 class ParLoop(op2.ParLoop):
