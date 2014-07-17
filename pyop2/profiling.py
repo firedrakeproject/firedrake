@@ -84,6 +84,12 @@ class Timer(object):
         """Reset the timer."""
         self._timings = []
 
+    def add(self, t):
+        """Add a timing."""
+        if self._name not in Timer._timers:
+            Timer._timers[self._name] = self
+        self._timings.append(t)
+
     @property
     def name(self):
         """Name of the timer."""
