@@ -771,6 +771,7 @@ class JITModule(base.JITModule):
         del self._config
         return self._fun
 
+    @timed_function("ParLoop kernel")
     def __call__(self, *args, **kwargs):
         self.compile().prepared_async_call(*args, **kwargs)
 
@@ -861,9 +862,8 @@ class ParLoop(op2.ParLoop):
 
         if self._is_direct:
             _stream.synchronize()
-            with timed_region("ParLoop kernel"):
-                fun(max_grid_size, block_size, _stream, *arglist,
-                    shared_size=shared_size)
+            fun(max_grid_size, block_size, _stream, *arglist,
+                shared_size=shared_size)
         else:
             arglist.append(_plan.ind_map.gpudata)
             arglist.append(_plan.loc_map.gpudata)
@@ -899,9 +899,8 @@ class ParLoop(op2.ParLoop):
                         shared_size = max(128 * 8, shared_size)
 
                     _stream.synchronize()
-                    with timed_region("ParLoop kernel"):
-                        fun(grid_size, block_size, _stream, *arglist,
-                            shared_size=shared_size)
+                    fun(grid_size, block_size, _stream, *arglist,
+                        shared_size=shared_size)
 
                 block_offset += blocks
 
