@@ -167,6 +167,7 @@ int autotune()
   %(decl_params)s
   start%(iter)d = stamp();
   end%(iter)d = start%(iter)d + RESOLUTION;
+  #pragma forceinline
   while (stamp() < end%(iter)d)
   {
     // Initialize coordinates
