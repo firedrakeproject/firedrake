@@ -38,6 +38,17 @@ from time import time
 from contextlib import contextmanager
 from decorator import decorator
 
+import __builtin__
+
+# Try importing the builtin profile function from line_profiler
+# https://stackoverflow.com/a/18229685
+try:
+    profile = __builtin__.profile
+except AttributeError:
+    # No line profiler, provide a pass-through version
+    def profile(func):
+        return func
+
 
 class Timer(object):
 
