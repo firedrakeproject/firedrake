@@ -951,7 +951,7 @@ class RealFunctionSpace(FunctionSpaceBase):
         ":class:`RealFunctionSpace` objects have no node set."
         return None
 
-    def make_dat(self, val=None, valuetype=None, name=None):
+    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.Global` representing the
         data for a :class:`.Function` on this space."""
         return op2.Global(self._dim, val, valuetype, name)
