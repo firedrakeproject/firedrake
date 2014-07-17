@@ -956,15 +956,15 @@ class RealFunctionSpace(FunctionSpaceBase):
         data for a :class:`.Function` on this space."""
         return op2.Global(self._dim, val, valuetype, name)
 
-    def cell_node_map(self):
+    def cell_node_map(self, bcs=None):
         ":class:`RealFunctionSpace` objects have no cell node map."
         return None
 
-    def interior_facet_node_map(self):
+    def interior_facet_node_map(self, bcs=None):
         ":class:`RealFunctionSpace` objects have no interior facet node map."
         return None
 
-    def exterior_facet_node_map(self):
+    def exterior_facet_node_map(self, bcs=None):
         ":class:`RealFunctionSpace` objects have no exterior facet node map."
         return None
 
