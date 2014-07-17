@@ -1347,15 +1347,19 @@ class ExpressionExpander(object):
         elif not isinstance(const, Symbol):
             const_sym = Symbol("const%d" % len(self.found_consts), ())
             new_const_decl = Decl("double", dcopy(const_sym), const)
+            # Keep track of the expansion
             self.expanded_decls[new_const_decl.sym.symbol] = (new_const_decl, ast_plan.LOCAL_VAR)
             self.expanded_syms.append(new_const_decl.sym)
-            place.insert(place.index(inv_for), new_const_decl)
             self.found_consts[const_str] = const_sym
+            self.eg.add_dependency(const_sym, const, False)
+            # Update the AST
+            place.insert(place.index(inv_for), new_const_decl)
             const = const_sym
 
         # No dependencies, just perform the expansion
         if not self.eg.has_dep(sym):
             old_expr.children[0] = Prod(Par(old_expr.children[0]), dcopy(const))
+            self.eg.add_dependency(sym, const, False)
             return
 
         # Create a new symbol, expression, and declaration
