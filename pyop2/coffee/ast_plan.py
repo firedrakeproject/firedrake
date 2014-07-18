@@ -191,6 +191,8 @@ class ASTKernel(object):
                 raise RuntimeError("COFFEE Error: cannot permute and then convert to BLAS")
             if permute and licm != 4:
                 raise RuntimeError("COFFEE Error: cannot permute without full expression rewriter")
+            if licm == 3 and v_type and v_type != AUTOVECT:
+                raise RuntimeError("COFFEE Error: zeros removal only supports auto-vectorization")
             if unroll and v_type and v_type != AUTOVECT:
                 raise RuntimeError("COFFEE Error: outer-product vectorization needs no unroll")
             if permute and v_type and v_type != AUTOVECT:
