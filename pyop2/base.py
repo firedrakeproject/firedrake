@@ -3276,7 +3276,7 @@ class Sparsity(ObjectCached):
 
         # Check data sets are valid
         for dset in dsets:
-            if not isinstance(dset, DataSet):
+            if not isinstance(dset, DataSet) and dset is not None:
                 raise DataSetTypeError("All data sets must be of type DataSet, not type %r" % type(dset))
 
         # A single map becomes a pair of identical maps
@@ -3286,6 +3286,10 @@ class Sparsity(ObjectCached):
 
         # Check maps are sane
         for pair in maps:
+            if pair[0] is None or pair[1] is None:
+                # None of this checking makes sense if one of the
+                # matrix operands is a Global.
+                continue
             for m in pair:
                 if not isinstance(m, Map):
                     raise MapTypeError(
@@ -3308,17 +3312,20 @@ class Sparsity(ObjectCached):
         if not len(rmaps) == len(cmaps):
             raise RuntimeError("Must pass equal number of row and column maps")
 
-        # Each row map must have the same to-set (data set)
-        if not all(m.toset == rmaps[0].toset for m in rmaps):
-            raise RuntimeError("To set of all row maps must be the same")
+        if rmaps[0] is not None and cmaps[0] is not None:
+            # Each row map must have the same to-set (data set)
+            if not all(m.toset == rmaps[0].toset for m in rmaps):
+                raise RuntimeError("To set of all row maps must be the same")
 
-        # Each column map must have the same to-set (data set)
-        if not all(m.toset == cmaps[0].toset for m in cmaps):
-            raise RuntimeError("To set of all column maps must be the same")
+                # Each column map must have the same to-set (data set)
+            if not all(m.toset == cmaps[0].toset for m in cmaps):
+                raise RuntimeError("To set of all column maps must be the same")
 
         # Need to return the caching object, a tuple of the processed
         # arguments and a dict of kwargs (empty in this case)
-        if isinstance(dsets[0].set, MixedSet):
+        if dsets[0] is None:
+            cache = None
+        elif isinstance(dsets[0].set, MixedSet):
             cache = dsets[0].set[0]
         else:
             cache = dsets[0].set
