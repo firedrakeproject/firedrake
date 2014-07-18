@@ -9,6 +9,10 @@ import ufl_expr
 
 __all__ = ['project']
 
+# Store the solve function to use in a variable so external packages
+# (dolfin-adjoint) can override it.
+_solve = solving.solve
+
 
 def project(v, V, bcs=None, mesh=None,
             solver_parameters=None,
@@ -84,7 +88,7 @@ def project(v, V, bcs=None, mesh=None,
         solver_parameters.setdefault('ksp_type', 'cg')
         solver_parameters.setdefault('ksp_rtol', 1e-8)
 
-    solving.solve(a == L, ret, bcs=bcs,
-                  solver_parameters=solver_parameters,
-                  form_compiler_parameters=form_compiler_parameters)
+    _solve(a == L, ret, bcs=bcs,
+           solver_parameters=solver_parameters,
+           form_compiler_parameters=form_compiler_parameters)
     return ret
