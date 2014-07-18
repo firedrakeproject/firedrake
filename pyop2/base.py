@@ -2581,6 +2581,12 @@ class Global(DataCarrier, _EmptyDataMixin):
         """This is not a mixed type and therefore of length 1."""
         return 1
 
+    def __getitem__(self, idx):
+        """Return self if ``idx`` is 0, raise an error otherwise."""
+        if idx != 0:
+            raise IndexValueError("Can only extract component 0 from %r" % self)
+        return self
+
     def __str__(self):
         return "OP2 Global Argument: %s with dim %s and value %s" \
             % (self._name, self._dim, self._data)
@@ -2640,6 +2646,12 @@ class Global(DataCarrier, _EmptyDataMixin):
         """Are the data in SoA format? This is always false for :class:`Global`
         objects."""
         return False
+
+    def duplicate(self):
+        """Return a deep copy of self."""
+        return type(self)(self.dim, data=np.copy(self._data),
+                          dtype=self.dtype, name=self.name)
+
 
 # FIXME: Part of kernel API, but must be declared before Map for the validation.
 
