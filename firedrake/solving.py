@@ -522,8 +522,9 @@ def _assemble(f, tensor=None, bcs=None):
             tensor = result_function.dat
 
         def vec(testmap, i):
+            _testmap = testmap(test.function_space()[i])
             return tensor[i](op2.INC,
-                             testmap(test.function_space()[i])[op2.i[0]],
+                             _testmap[op2.i[0]] if _testmap else None,
                              flatten=True)
         result = lambda: result_function
     else:
