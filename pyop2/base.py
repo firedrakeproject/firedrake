@@ -3047,6 +3047,54 @@ class Sparsity(ObjectCached):
     .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
     """
 
+    def __init__(self, dsets, maps, name=None):
+        """
+        :param dsets: :class:`DataSet`\s for the left and right function
+            spaces this :class:`Sparsity` maps between
+        :param maps: :class:`Map`\s to build the :class:`Sparsity` from
+        :type maps: a pair of :class:`Map`\s specifying a row map and a column
+            map, or an iterable of pairs of :class:`Map`\s specifying multiple
+            row and column maps - if a single :class:`Map` is passed, it is
+            used as both a row map and a column map
+        :param string name: user-defined label (optional)
+        """
+        # Protect against re-initialization when retrieved from cache
+        if self._initialized:
+            return
+
+        # Split into a list of row maps and a list of column maps
+        self._rmaps, self._cmaps = zip(*maps)
+        self._dsets = dsets
+
+        # All rmaps and cmaps have the same data set - just use the first.
+        self._nrows = self._rmaps[0].toset.size
+        self._ncols = self._cmaps[0].toset.size
+        self._dims = (self._dsets[0].cdim, self._dsets[1].cdim)
+
+        self._name = name or "sparsity_%d" % Sparsity._globalcount
+        Sparsity._globalcount += 1
+
+        # If the Sparsity is defined on MixedDataSets, we need to build each
+        # block separately
+        if isinstance(dsets[0], MixedDataSet) or isinstance(dsets[1], MixedDataSet):
+            self._blocks = []
+            for i, rds in enumerate(dsets[0]):
+                row = []
+                for j, cds in enumerate(dsets[1]):
+                    row.append(Sparsity((rds, cds), [(rm.split[i], cm.split[j]) for rm, cm in maps]))
+                self._blocks.append(row)
+            self._rowptr = tuple(s._rowptr for s in self)
+            self._colidx = tuple(s._colidx for s in self)
+            self._d_nnz = tuple(s._d_nnz for s in self)
+            self._o_nnz = tuple(s._o_nnz for s in self)
+            self._d_nz = sum(s._d_nz for s in self)
+            self._o_nz = sum(s._o_nz for s in self)
+        else:
+            with timed_region("Build sparsity"):
+                build_sparsity(self, parallel=MPI.parallel)
+            self._blocks = [[self]]
+        self._initialized = True
+
     _cache = {}
     _globalcount = 0
 
@@ -3115,54 +3163,6 @@ class Sparsity(ObjectCached):
     @classmethod
     def _cache_key(cls, dsets, maps, *args, **kwargs):
         return (dsets, maps)
-
-    def __init__(self, dsets, maps, name=None):
-        """
-        :param dsets: :class:`DataSet`\s for the left and right function
-            spaces this :class:`Sparsity` maps between
-        :param maps: :class:`Map`\s to build the :class:`Sparsity` from
-        :type maps: a pair of :class:`Map`\s specifying a row map and a column
-            map, or an iterable of pairs of :class:`Map`\s specifying multiple
-            row and column maps - if a single :class:`Map` is passed, it is
-            used as both a row map and a column map
-        :param string name: user-defined label (optional)
-        """
-        # Protect against re-initialization when retrieved from cache
-        if self._initialized:
-            return
-
-        # Split into a list of row maps and a list of column maps
-        self._rmaps, self._cmaps = zip(*maps)
-        self._dsets = dsets
-
-        # All rmaps and cmaps have the same data set - just use the first.
-        self._nrows = self._rmaps[0].toset.size
-        self._ncols = self._cmaps[0].toset.size
-        self._dims = (self._dsets[0].cdim, self._dsets[1].cdim)
-
-        self._name = name or "sparsity_%d" % Sparsity._globalcount
-        Sparsity._globalcount += 1
-
-        # If the Sparsity is defined on MixedDataSets, we need to build each
-        # block separately
-        if isinstance(dsets[0], MixedDataSet) or isinstance(dsets[1], MixedDataSet):
-            self._blocks = []
-            for i, rds in enumerate(dsets[0]):
-                row = []
-                for j, cds in enumerate(dsets[1]):
-                    row.append(Sparsity((rds, cds), [(rm.split[i], cm.split[j]) for rm, cm in maps]))
-                self._blocks.append(row)
-            self._rowptr = tuple(s._rowptr for s in self)
-            self._colidx = tuple(s._colidx for s in self)
-            self._d_nnz = tuple(s._d_nnz for s in self)
-            self._o_nnz = tuple(s._o_nnz for s in self)
-            self._d_nz = sum(s._d_nz for s in self)
-            self._o_nz = sum(s._o_nz for s in self)
-        else:
-            with timed_region("Build sparsity"):
-                build_sparsity(self, parallel=MPI.parallel)
-            self._blocks = [[self]]
-        self._initialized = True
 
     def __getitem__(self, idx):
         """Return :class:`Sparsity` block with row and column given by ``idx``
