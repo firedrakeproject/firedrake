@@ -2980,6 +2980,8 @@ class DecoratedMap(Map, ObjectCached):
 
     def __new__(cls, map, iteration_region=None, implicit_bcs=None,
                 vector_index=None):
+        if map is None:
+            return None
         if isinstance(map, DecoratedMap):
             # Need to add information, rather than replace if we
             # already have a decorated map (but overwrite if we're
