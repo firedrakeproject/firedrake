@@ -2649,7 +2649,7 @@ class Global(DataCarrier, _EmptyDataMixin):
 
     def duplicate(self):
         """Return a deep copy of self."""
-        return type(self)(self.dim, data=np.copy(self._data),
+        return type(self)(self.dim, data=np.copy(self.data_ro),
                           dtype=self.dtype, name=self.name)
 
 
