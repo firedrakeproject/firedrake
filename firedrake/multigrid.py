@@ -217,10 +217,17 @@ class FunctionHierarchy(object):
         else:
             raise RuntimeError("Prolongation only implemented for P0DG and P1")
 
-    def restrict(self, level):
+    def restrict(self, level, is_solution=False):
         """Restrict from a fine to the next coarsest hierarchy level.
 
-        :arg level: The fine level to restrict from"""
+        :arg level: The fine level to restrict from
+        :kwarg is_solution: optional keyword argument indicating if
+            the :class:`~.Function` being restricted is a *solution*,
+            living in the primal space or a *residual* (cofunction)
+            living in the dual space (the default).  Residual
+            restriction is weighted by the size of the coarse cell
+            relative to the fine cells (i.e. the mass matrix) whereas
+            solution restriction need not be weighted."""
 
         if not 0 < level < len(self):
             raise RuntimeError("Requested fine level %d outside permissible range [1, %d)" %
@@ -231,13 +238,13 @@ class FunctionHierarchy(object):
         degree = fs.ufl_element().degree()
         if family == "Discontinuous Lagrange":
             if degree == 0:
-                self._restrict_dg0(level)
+                self._restrict_dg0(level, is_solution=is_solution)
             else:
                 raise RuntimeError("Can only restrict P0 fields, not P%dDG" % degree)
         elif family == "Lagrange":
             if degree != 1:
                 raise RuntimeError("Can only restrict P1 fields, not P%d" % degree)
-            self._restrict_cg1(level)
+            self._restrict_cg1(level, is_solution=is_solution)
         else:
             raise RuntimeError("Restriction only implemented for P0DG and P1")
 
@@ -268,11 +275,18 @@ class FunctionHierarchy(object):
                      coarse.dat(op2.READ, coarse.cell_node_map()),
                      fine.dat(op2.WRITE, c2f_map))
 
-    def _restrict_dg0(self, level):
+    def _restrict_dg0(self, level, is_solution=False):
         c2f_map = self.cell_node_map(level - 1)
         coarse = self[level - 1]
         fine = self[level]
         if not hasattr(self, '_restrict_kernel'):
+            if is_solution:
+                detJ = 1.0
+            else:
+                # we need to weight the restricted residual by detJ of the
+                # big cell relative to the small cells.  Since we have
+                # regular refinement, this is just 2^tdim
+                detJ = 2.0 ** self.function_space().ufl_element().cell().topological_dimension()
             k = ast.FunDecl("void", "restrict_dg0",
                             [ast.Decl(coarse.dat.ctype, "**coarse"),
                              ast.Decl(fine.dat.ctype, "**fine")],
@@ -281,9 +295,9 @@ class FunctionHierarchy(object):
                                                       ast.Incr(ast.Symbol("tmp"),
                                                                ast.Symbol("fine", ("fdof", 0))),
                                                       pragma=None),
+                                            # Need to multiply restricted function by a factor 4
                                             ast.Assign(ast.Symbol("coarse", (0, 0)),
-                                                       ast.Div(ast.Symbol("tmp"),
-                                                               c2f_map.arity))]),
+                                                       ast.Prod(detJ/c2f_map.arity, ast.Symbol("tmp")))]),
                             pred=["static", "inline"])
             self._restrict_kernel = op2.Kernel(k, "restrict_dg0")
 
@@ -330,7 +344,7 @@ class FunctionHierarchy(object):
                      coarse.dat(op2.WRITE, coarse.cell_node_map()),
                      fine.dat(op2.READ, c2f_map))
 
-    def _restrict_cg1(self, level):
+    def _restrict_cg1(self, level, is_solution=False):
         c2f_map = self.cell_node_map(level - 1)
         coarse = self[level - 1]
         fine = self[level]
@@ -427,8 +441,16 @@ class FunctionHierarchy(object):
                      ccoords.dat(op2.READ, ccoords.cell_node_map(), flatten=True))
 
         fs = self.function_space()
+        if is_solution:
+            detJ = 1.0
+        else:
+            # we need to weight the restricted residual by detJ of the
+            # big cell relative to the small cells.  Since we have
+            # regular refinement, this is just 2^tdim
+            detJ = 2.0 ** self.function_space().ufl_element().cell().topological_dimension()
         if fs._lumped_mass[level - 1] is None:
             v = ufl_expr.TestFunction(fs[level - 1])
             fs._lumped_mass[level - 1] = solving.assemble(v*v.function_space().mesh()._dx)
+            fs._lumped_mass[level - 1].assign(detJ / fs._lumped_mass[level - 1])
 
-        coarse /= fs._lumped_mass[level - 1]
+        coarse *= fs._lumped_mass[level - 1]
