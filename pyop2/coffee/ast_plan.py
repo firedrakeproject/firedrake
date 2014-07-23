@@ -41,7 +41,7 @@ from ast_linearalgebra import AssemblyLinearAlgebra
 from ast_autotuner import Autotuner
 
 from copy import deepcopy as dcopy
-
+import os
 
 # Possibile optimizations
 AUTOVECT = 1        # Auto-vectorization
@@ -295,20 +295,20 @@ class ASTKernel(object):
                 # Increase the stack size, if needed
                 increase_stack(asm)
                 # Add the variant to the test cases the autotuner will have to run
-                variants.append(self.ast)
+                variants.append((self.ast, _params))
                 self.ast = dcopy(original_ast)
             # On top of some of the basic kernel variants, apply unroll/unroll-and-jam
             for params in autotune_configs_unroll:
                 asm = _generate_cpu_code(self, *params[1:])
-                variants.append(self.ast)
+                variants.append((self.ast, params[1:]))
                 self.ast = dcopy(original_ast)
             if tunable:
                 # Determine the fastest kernel implementation
                 autotuner = Autotuner(variants, asm[0].asm_itspace, self.include_dirs,
-                                      compiler, intrinsics, blas_interface)
+                                      coffee_dir, compiler, intrinsics, blas_interface)
                 fastest = autotuner.tune(resolution)
-                variants = autotune_configs + autotune_configs_unroll
-                name, params = variants[fastest][0], variants[fastest][1:]
+                all_params = autotune_configs + autotune_configs_unroll
+                name, params = all_params[fastest][0], all_params[fastest][1:]
                 # Discard values set while autotuning
                 if name != 'blas':
                     self.blas = False
@@ -342,17 +342,23 @@ intrinsics = {}
 compiler = {}
 blas_interface = {}
 initialized = False
+coffee_dir = ""
 
 
 def init_coffee(isa, comp, blas):
     """Initialize COFFEE."""
 
-    global intrinsics, compiler, blas_interface, initialized
+    global intrinsics, compiler, blas_interface, initialized, coffee_dir
     intrinsics = _init_isa(isa)
     compiler = _init_compiler(comp)
     blas_interface = _init_blas(blas)
     if intrinsics and compiler:
         initialized = True
+
+    # Set the directory in which COFFEE will dump any relevant information
+    coffee_dir = os.environ.get('COFFEE_DIR', "/tmp/coffee_dump")
+    if not os.path.exists(coffee_dir):
+        os.makedirs(coffee_dir)
 
 
 def _init_isa(isa):
@@ -400,6 +406,7 @@ def _init_compiler(compiler):
     if compiler == 'intel':
         return {
             'name': 'intel',
+            'cmd': 'icc',
             'align': lambda o: '__attribute__((aligned(%s)))' % o,
             'decl_aligned_for': '#pragma vector aligned',
             'force_simdization': '#pragma simd',
@@ -412,6 +419,7 @@ def _init_compiler(compiler):
     if compiler == 'gnu':
         return {
             'name': 'gnu',
+            'cmd': 'gcc',
             'align': lambda o: '__attribute__((aligned(%s)))' % o,
             'decl_aligned_for': '#pragma vector aligned',
             'AVX': '-mavx',
