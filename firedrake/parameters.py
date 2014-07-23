@@ -1,6 +1,7 @@
 """The parameters dictionary contains global parameter settings."""
 
 import os
+from ffc import default_parameters
 
 __all__ = ['Parameters', 'parameters']
 
@@ -41,5 +42,12 @@ parameters.add(Parameters("coffee",
                           vect=None,
                           ap=False,
                           split=None))
+
+ffc_parameters = default_parameters()
+ffc_parameters['write_file'] = False
+ffc_parameters['format'] = 'pyop2'
+ffc_parameters['representation'] = 'quadrature'
+ffc_parameters['pyop2-ir'] = True
+parameters.add(Parameters("form_compiler", **ffc_parameters))
 
 parameters["reorder_meshes"] = True

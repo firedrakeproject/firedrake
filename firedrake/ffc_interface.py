@@ -14,7 +14,7 @@ from ufl.algorithms import compute_form_data, ReuseTransformer
 from ufl.constantvalue import Zero
 from ufl_expr import Argument
 
-from ffc import default_parameters, compile_form as ffc_compile_form
+from ffc import compile_form as ffc_compile_form
 from ffc import constants
 from ffc import log
 from ffc.quadrature.quadraturetransformerbase import EmptyIntegrandError
@@ -29,11 +29,6 @@ import functionspace
 from parameters import parameters
 
 _form_cache = {}
-
-ffc_parameters = default_parameters()
-ffc_parameters['write_file'] = False
-ffc_parameters['format'] = 'pyop2'
-ffc_parameters['pyop2-ir'] = True
 
 # Only spew ffc message on rank zero
 if MPI.comm.rank != 0:
@@ -183,7 +178,7 @@ class FFCKernel(DiskCached):
         incl = PreprocessNode('#include "firedrake_geometry.h"\n')
         inc = [path.dirname(__file__)]
         try:
-            ffc_tree = ffc_compile_form(form, prefix=name, parameters=ffc_parameters)
+            ffc_tree = ffc_compile_form(form, prefix=name, parameters=parameters["form_compiler"])
             kernels = []
             # need compute_form_data here to get preproc form integrals
             fd = compute_form_data(form)
