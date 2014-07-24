@@ -596,6 +596,11 @@ class Mat(base.Mat, CopyOnWrite):
 
     def _init_block(self):
         self._blocks = [[self]]
+
+        if self.sparsity._dsets[0] is None or self.sparsity._dsets[1] is None:
+            self._init_global_block()
+            return
+
         mat = PETSc.Mat()
         row_lg = self.sparsity.dsets[0].lgmap
         col_lg = self.sparsity.dsets[1].lgmap
@@ -646,6 +651,32 @@ class Mat(base.Mat, CopyOnWrite):
         self.handle = mat
         # Matrices start zeroed.
         self._version_set_zero()
+
+    def _init_global_block(self):
+        """Initialise this block in the case where the matrix maps either
+        to or from a :class:`Global`"""
+
+        if self.dsets[0] is None and self.dsets[1] is None:
+            # In this case both row and column are a Global.
+
+            mat = PETSc.Mat()
+            mat.create()
+            mat.setSizes((None, 1), (None, 1))
+            mat.setType(mat.Type.PYTHON)
+            mat.setPythonContext(globalmat)
+
+        else:
+            raise NotImplementedError("Mixed global matrices still to come.")
+
+        print "foo"
+
+        self._handle = mat
+        self._version_set_zero()
+        ##globalmat needs 
+        ## mat.mult
+        ## mat.multAdd
+        ## mat.multTranspose
+        ## usw. usw.
 
     def __getitem__(self, idx):
         """Return :class:`Mat` block with row and column given by ``idx``
