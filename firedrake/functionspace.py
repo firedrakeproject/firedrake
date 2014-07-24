@@ -936,7 +936,7 @@ class RealFunctionSpace(FunctionSpaceBase):
 
         self.__class__ = RealFunctionSpace
 
-        self._name = name
+        self.name = name
         self._index = None
         self._initialized = True
         self._ufl_element = element
@@ -949,6 +949,11 @@ class RealFunctionSpace(FunctionSpaceBase):
 
     def node_set(self):
         ":class:`RealFunctionSpace` objects have no node set."
+        return None
+
+    @property
+    def dof_dset(self):
+        ":class:`RealFunctionSpace` objects have no dof set."
         return None
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
@@ -975,10 +980,9 @@ class RealFunctionSpace(FunctionSpaceBase):
     def top_nodes(self):
         ":class:`RealFunctionSpace` objects have no bottom nodes."
         return None
-        
+
     def exterior_facet_boundary_node_map(self, method):
         """":class:`RealFunctionSpace` objects have no exterior facet boundary
         node map."""
         return None
 
-        
