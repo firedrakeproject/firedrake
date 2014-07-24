@@ -36,6 +36,7 @@
 import cPickle
 import gzip
 import os
+import zlib
 from mpi import MPI
 
 
@@ -259,8 +260,12 @@ class DiskCached(Cached):
             filepath = os.path.join(cls._cachedir, key)
             val = None
             if os.path.exists(filepath):
-                with gzip.open(filepath, 'rb') as f:
-                    val = f.read()
+                try:
+                    with gzip.open(filepath, 'rb') as f:
+                        val = f.read()
+                except zlib.error:
+                    # Archive corrup, decompression failed, leave val as None
+                    pass
             # Have to broadcast pickled object, because __new__
             # interferes with mpi4py's pickle/unpickle interface.
             c.bcast(val, root=0)
