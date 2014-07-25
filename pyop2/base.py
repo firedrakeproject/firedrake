@@ -444,23 +444,33 @@ class Arg(object):
         return self._is_mat or isinstance(self.idx, IterationIndex)
 
     @collective
-    def halo_exchange_begin(self):
+    def halo_exchange_begin(self, update_inc=False):
         """Begin halo exchange for the argument if a halo update is required.
-        Doing halo exchanges only makes sense for :class:`Dat` objects."""
+        Doing halo exchanges only makes sense for :class:`Dat` objects.
+
+        :kwarg update_inc: if True also force halo exchange for :class:`Dat`\s accessed via INC."""
         assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
         assert not self._in_flight, \
             "Halo exchange already in flight for Arg %s" % self
-        if self.access in [READ, RW] and self.data.needs_halo_update:
+        access = [READ, RW]
+        if update_inc:
+            access.append(INC)
+        if self.access in access and self.data.needs_halo_update:
             self.data.needs_halo_update = False
             self._in_flight = True
             self.data.halo_exchange_begin()
 
     @collective
-    def halo_exchange_end(self):
+    def halo_exchange_end(self, update_inc=False):
         """End halo exchange if it is in flight.
-        Doing halo exchanges only makes sense for :class:`Dat` objects."""
+        Doing halo exchanges only makes sense for :class:`Dat` objects.
+
+        :kwarg update_inc: if True also force halo exchange for :class:`Dat`\s accessed via INC."""
         assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
-        if self.access in [READ, RW] and self._in_flight:
+        access = [READ, RW]
+        if update_inc:
+            access.append(INC)
+        if self.access in access and self._in_flight:
             self._in_flight = False
             self.data.halo_exchange_end()
 
@@ -2076,23 +2086,38 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         return self._iop(other, operator.idiv)
 
     @collective
-    def halo_exchange_begin(self):
-        """Begin halo exchange."""
+    def halo_exchange_begin(self, reverse=False):
+        """Begin halo exchange.
+
+        :kwarg reverse: if True, switch round the meaning of sends and receives.
+               This can be used when computing non-redundantly and
+               INCing into a :class:`Dat` to obtain correct local
+               values."""
         halo = self.dataset.halo
         if halo is None:
             return
-        for dest, ele in halo.sends.iteritems():
+        sends = halo.sends
+        receives = halo.receives
+        if reverse:
+            sends = halo.receives
+            receives = halo.sends
+        for dest, ele in sends.iteritems():
             self._send_buf[dest] = self._data[ele]
             self._send_reqs[dest] = halo.comm.Isend(self._send_buf[dest],
                                                     dest=dest, tag=self._id)
-        for source, ele in halo.receives.iteritems():
+        for source, ele in receives.iteritems():
             self._recv_buf[source] = self._data[ele]
             self._recv_reqs[source] = halo.comm.Irecv(self._recv_buf[source],
                                                       source=source, tag=self._id)
 
     @collective
-    def halo_exchange_end(self):
-        """End halo exchange. Waits on MPI recv."""
+    def halo_exchange_end(self, reverse=False):
+        """End halo exchange. Waits on MPI recv.
+
+        :kwarg reverse: if True, switch round the meaning of sends and receives.
+               This can be used when computing non-redundantly and
+               INCing into a :class:`Dat` to obtain correct local
+               values."""
         halo = self.dataset.halo
         if halo is None:
             return
@@ -2103,10 +2128,18 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         self._recv_reqs.clear()
         self._send_reqs.clear()
         self._send_buf.clear()
+        receives = halo.receives
+        if reverse:
+            receives = halo.sends
         # data is read-only in a ParLoop, make it temporarily writable
         maybe_setflags(self._data, write=True)
         for source, buf in self._recv_buf.iteritems():
-            self._data[halo.receives[source]] = buf
+            if reverse:
+                # Reverse halo exchange into INC Dat increments local
+                # values, rather than writing.
+                self._data[receives[source]] += buf
+            else:
+                self._data[receives[source]] = buf
         maybe_setflags(self._data, write=False)
         self._recv_buf.clear()
 
@@ -3703,6 +3736,8 @@ class ParLoop(LazyComputation):
         self._kernel = kernel
         self._is_layered = iterset._extruded
         self._iteration_region = kwargs.get("iterate", None)
+        # Are we only computing over owned set entities?
+        self._only_local = kwargs.get("only_local", False)
 
         for i, arg in enumerate(self._actual_args):
             arg.position = i
@@ -3716,6 +3751,14 @@ class ParLoop(LazyComputation):
                     if arg2.data is arg1.data and arg2.map is arg1.map:
                         arg2.indirect_position = arg1.indirect_position
 
+        if self.is_direct and self._only_local:
+            raise RuntimeError("only_local makes no sense for direct loops")
+        if self._only_local:
+            for arg in self.args:
+                if arg._is_mat:
+                    raise RuntimeError("only_local does not make sense for par_loops with Mat args")
+                if arg._is_dat and arg.access not in [INC, READ]:
+                    raise RuntimeError("only_local only makes sense for INC and READ args, not %s" % arg.access)
         self._it_space = self.build_itspace(iterset)
 
     def _run(self):
@@ -3732,9 +3775,13 @@ class ParLoop(LazyComputation):
         self.halo_exchange_end()
         self._compute(self.it_space.iterset.owned_part)
         self.reduction_begin()
-        if self.needs_exec_halo:
+        if self._only_local:
+            self.reverse_halo_exchange_begin()
+        if not self._only_local and self.needs_exec_halo:
             self._compute(self.it_space.iterset.exec_part)
         self.reduction_end()
+        if self._only_local:
+            self.reverse_halo_exchange_end()
         self.maybe_set_halo_update_needed()
 
     @collective
@@ -3757,7 +3804,7 @@ class ParLoop(LazyComputation):
             return
         for arg in self.args:
             if arg._is_dat:
-                arg.halo_exchange_begin()
+                arg.halo_exchange_begin(update_inc=self._only_local)
 
     @collective
     @timed_function('ParLoop halo exchange end')
@@ -3767,7 +3814,27 @@ class ParLoop(LazyComputation):
             return
         for arg in self.args:
             if arg._is_dat:
-                arg.halo_exchange_end()
+                arg.halo_exchange_end(update_inc=self._only_local)
+
+    @collective
+    @timed_function('ParLoop reverse halo exchange begin')
+    def reverse_halo_exchange_begin(self):
+        """Start reverse halo exchanges (to gather remote data)"""
+        if self.is_direct:
+            raise RuntimeError("Should never happen")
+        for arg in self.args:
+            if arg._is_dat and arg.access is INC:
+                arg.data.halo_exchange_begin(reverse=True)
+
+    @collective
+    @timed_function('ParLoop reverse halo exchange end')
+    def reverse_halo_exchange_end(self):
+        """Finish reverse halo exchanges (to gather remote data)"""
+        if self.is_direct:
+            raise RuntimeError("Should never happen")
+        for arg in self.args:
+            if arg._is_dat and arg.access is INC:
+                arg.data.halo_exchange_end(reverse=True)
 
     @collective
     @timed_function('ParLoop reduction begin')

@@ -232,6 +232,17 @@ def par_loop(kernel, iterset, *args, **kwargs):
                  except the top layer, accessing data two adjacent (in
                  the extruded direction) cells at a time.
 
+    :kwarg only_local: Optionally specify that this par_loop should
+           not compute redundantly over halo entities.  This flag may
+           be used in conjunction with a :func:`par_loop` that
+           ``INC``s into a :class:`Dat`.  In this case, after the
+           local computation has finished, remote contributions to
+           local data with be gathered, such that local data is
+           correct on all processes.  This flag makes no sense for
+           :func:`par_loop`\s accessing a :class:`Mat` or those
+           accessing a :class:`Dat` with ``WRITE`` or ``RW`` access
+           descriptors, in which case an error is raised.
+
     .. warning ::
         It is the caller's responsibility that the number and type of all
         :class:`base.Arg`\s passed to the :func:`par_loop` match those expected
