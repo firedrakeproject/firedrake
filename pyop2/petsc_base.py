@@ -660,12 +660,7 @@ class Mat(base.Mat, CopyOnWrite):
            and self.sparsity.dsets[1] is None:
             # In this case both row and column are a Global.
 
-            mat = PETSc.Mat()
-            mat.create()
-            mat.setSizes(((None, 1), (None, 1)))
-            mat.setType(mat.Type.PYTHON)
-            mat.setPythonContext(globalmat)
-            self._global = _make_object("Global", 1)
+            mat = _GlobalMat()
 
         else:
             raise NotImplementedError("Mixed global matrices still to come.")
@@ -674,11 +669,6 @@ class Mat(base.Mat, CopyOnWrite):
 
         self._handle = mat
         self._version_set_zero()
-        ##globalmat needs 
-        ## mat.mult
-        ## mat.multAdd
-        ## mat.multTranspose
-        ## usw. usw.
 
     def __call__(self, access, path, flatten=False):
         """Override the parent __call__ method in order to special-case global
@@ -692,9 +682,8 @@ class Mat(base.Mat, CopyOnWrite):
             if path == (None, None):
                 if not hasattr(self, "_global"):
                     self._init()
-                return _make_object('Arg', data=self._global,
+                return _make_object('Arg', data=self.handle.getPythonContext(),
                                     access=access, flatten=flatten)
-
 
     def __getitem__(self, idx):
         """Return :class:`Mat` block with row and column given by ``idx``
@@ -816,6 +805,28 @@ class ParLoop(base.ParLoop):
 
     def log_flops(self):
         PETSc.Log.logFlops(self.num_flops)
+
+
+class _GlobalMat(PETSc.Mat):
+    """A :class:`PETSc.Mat` with global size 1x1 implemented as a
+    :class:`.Global`"""
+
+    def __init__(self):
+        super(_GlobalMat, self).__init__()
+        self.create()
+        self.setSizes(((None, 1), (None, 1)))
+        self.setType(self.Type.PYTHON)
+        self.setPythonContext(_make_object("Global", 1))
+
+    def zeroEntries(self):
+
+        self.getPythonContext().assign(0.0)
+
+        ##globalmat needs
+        ## mat.mult
+        ## mat.multAdd
+        ## mat.multTranspose
+        ## usw. usw.
 
 # FIXME: Eventually (when we have a proper OpenCL solver) this wants to go in
 # sequential
