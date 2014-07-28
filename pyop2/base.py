@@ -660,7 +660,12 @@ class Set(object):
 
     def __contains__(self, dset):
         """Indicate whether a given DataSet is compatible with this Set."""
-        return dset.set is self
+        if isinstance(dset, DataSet):
+            return dset.set is self
+        elif isinstance(dset, LocalSet):
+            return dset.superset is self
+        else:
+            return False
 
     def __pow__(self, e):
         """Derive a :class:`DataSet` with dimension ``e``"""
@@ -741,6 +746,53 @@ class ExtrudedSet(Set):
     def layers(self):
         """The number of layers in this extruded set."""
         return self._layers
+
+
+class LocalSet(Set):
+
+    """A wrapper around a :class:`Set`.
+
+    A :class:`LocalSet` behaves exactly like the :class:`Set` it was
+    built on except during parallel loop iterations. Iteration over a
+    :class:`LocalSet` indicates that the :func:`par_loop` should not
+    compute redundantly over halo entities.  It may be used in
+    conjunction with a :func:`par_loop` that ``INC``s into a
+    :class:`Dat`.  In this case, after the local computation has
+    finished, remote contributions to local data with be gathered,
+    such that local data is correct on all processes.  Iteration over
+    a :class:`LocalSet` makes no sense for :func:`par_loop`\s
+    accessing a :class:`Mat` or those accessing a :class:`Dat` with
+    ``WRITE`` or ``RW`` access descriptors, in which case an error is
+    raised.
+
+
+    .. note::
+
+       Building :class:`DataSet`\s and hence :class:`Dat`\s on a
+       :class:`LocalSet` is unsupported.
+
+    """
+    def __init__(self, set):
+        self._superset = set
+        self._sizes = (set.core_size, set.size, set.size, set.size)
+
+    def __getattr__(self, name):
+        """Look up attributes on the contained :class:`Set`."""
+        return getattr(self._superset, name)
+
+    @property
+    def superset(self):
+        return self._superset
+
+    def __repr__(self):
+        return "LocalSet(%r)" % self.superset
+
+    def __str__(self):
+        return "OP2 LocalSet on %s" % self.superset
+
+    def __pow__(self, e):
+        """Derive a :class:`DataSet` with dimension ``e``"""
+        raise NotImplementedError("Deriving a DataSet from a Localset is unsupported")
 
 
 class Subset(ExtrudedSet):
@@ -3734,7 +3786,7 @@ class ParLoop(LazyComputation):
         self._is_layered = iterset._extruded
         self._iteration_region = kwargs.get("iterate", None)
         # Are we only computing over owned set entities?
-        self._only_local = kwargs.get("only_local", False)
+        self._only_local = isinstance(iterset, LocalSet)
 
         for i, arg in enumerate(self._actual_args):
             arg.position = i
@@ -3749,13 +3801,14 @@ class ParLoop(LazyComputation):
                         arg2.indirect_position = arg1.indirect_position
 
         if self.is_direct and self._only_local:
-            raise RuntimeError("only_local makes no sense for direct loops")
+            raise RuntimeError("Iteration over a LocalSet makes no sense for direct loops")
         if self._only_local:
             for arg in self.args:
                 if arg._is_mat:
-                    raise RuntimeError("only_local does not make sense for par_loops with Mat args")
+                    raise RuntimeError("Iteration over a LocalSet does not make sense for par_loops with Mat args")
                 if arg._is_dat and arg.access not in [INC, READ]:
-                    raise RuntimeError("only_local only makes sense for INC and READ args, not %s" % arg.access)
+                    raise RuntimeError("Iteration over a LocalSet only makes sense for INC and READ args, not %s" % arg.access)
+
         self._it_space = self.build_itspace(iterset)
 
     def _run(self):
@@ -3877,7 +3930,10 @@ class ParLoop(LazyComputation):
 
         :return: class:`IterationSpace` for this :class:`ParLoop`"""
 
-        _iterset = iterset.superset if isinstance(iterset, Subset) else iterset
+        if isinstance(iterset, (LocalSet, Subset)):
+            _iterset = iterset.superset
+        else:
+            _iterset = iterset
         if isinstance(_iterset, MixedSet):
             raise SetTypeError("Cannot iterate over MixedSets")
         block_shape = None
@@ -3894,7 +3950,7 @@ class ParLoop(LazyComputation):
                     if m.iterset != _iterset and m.iterset not in _iterset:
                         raise MapValueError(
                             "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
-                elif m.iterset != _iterset:
+                elif m.iterset != _iterset and m.iterset not in _iterset:
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
             if arg._uses_itspace:

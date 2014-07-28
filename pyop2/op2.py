@@ -51,9 +51,9 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'ON_BOTTOM', 'ON_TOP', 'ON_INTERIOR_FACETS', 'ALL',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'ExtrudedSet',
-           'MixedSet', 'Subset', 'DataSet', 'MixedDataSet', 'Halo', 'Dat',
-           'MixedDat', 'Mat', 'Const', 'Global', 'Map', 'MixedMap', 'Sparsity',
-           'Solver', 'par_loop', 'solve']
+           'LocalSet', 'MixedSet', 'Subset', 'DataSet', 'MixedDataSet', 'Halo',
+           'Dat', 'MixedDat', 'Mat', 'Const', 'Global', 'Map', 'MixedMap',
+           'Sparsity', 'Solver', 'par_loop', 'solve']
 
 
 def initialised():
@@ -149,6 +149,10 @@ class MixedSet(base.MixedSet):
     __metaclass__ = backends._BackendSelector
 
 
+class LocalSet(base.LocalSet):
+    __metaclass__ = backends._BackendSelector
+
+
 class Subset(base.Subset):
     __metaclass__ = backends._BackendSelector
 
@@ -231,17 +235,6 @@ def par_loop(kernel, iterset, *args, **kwargs):
               - ``ON_INTERIOR_FACETS`` iterate over all the layers
                  except the top layer, accessing data two adjacent (in
                  the extruded direction) cells at a time.
-
-    :kwarg only_local: Optionally specify that this par_loop should
-           not compute redundantly over halo entities.  This flag may
-           be used in conjunction with a :func:`par_loop` that
-           ``INC``s into a :class:`Dat`.  In this case, after the
-           local computation has finished, remote contributions to
-           local data with be gathered, such that local data is
-           correct on all processes.  This flag makes no sense for
-           :func:`par_loop`\s accessing a :class:`Mat` or those
-           accessing a :class:`Dat` with ``WRITE`` or ``RW`` access
-           descriptors, in which case an error is raised.
 
     .. warning ::
         It is the caller's responsibility that the number and type of all
