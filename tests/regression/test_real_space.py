@@ -21,6 +21,15 @@ def test_real_one_form_assembly():
     assert assemble(v*dx).dat.data[0] == 1.0
 
 
+def test_real_two_form_assembly():
+    mesh = UnitIntervalMesh(3)
+    fs = FunctionSpace(mesh, "Real", 0)
+    u = TrialFunction(fs)
+    v = TestFunction(fs)
+
+    assemble(u*v*dx).M
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
