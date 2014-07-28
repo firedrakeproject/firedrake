@@ -912,6 +912,101 @@ def plex_renumbering(PETSc.DM plex,
                                perm, PETSC_OWN_POINTER))
     return perm_is
 
+@cython.cdivision(True)
+def compute_parent_cells(PETSc.DM plex):
+    """Return a Section mapping cells in a plex to their "parents"
+
+    :arg plex: the refined plex
+
+    The determination of a parent cell in a regularly refined plex is
+    simply by taking the cell number and dividing by the number of
+    refined cells per coarse cell.  However, we will subsequently go
+    on to resize the refined mesh, breaking this map.  Instead, we
+    create a Section that, on each fine cell point, contains the
+    offset into the original numbering of coarse cells.  This wil
+    persist through resizing and will still be correct."""
+    cdef:
+        PetscInt cStart, cEnd, c, dim, val, nref
+        PETSc.Section parents
+
+    dim = plex.getDimension()
+    # Space for one "dof" on each cell
+    ents = np.zeros(dim+1, dtype=PETSc.IntType)
+    ents[dim] = 1
+    parents = plex.createSection([1], ents)
+    # Number of refined cells per coarse cell (simplex only)
+    nref = 2 ** dim
+
+    cStart, cEnd = plex.getHeightStratum(0)
+    for c in range(cStart, cEnd):
+        val = c / nref
+        CHKERR(PetscSectionSetDof(parents.sec, c, 1))
+        CHKERR(PetscSectionSetOffset(parents.sec, c, val))
+
+    return parents
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def coarse_to_fine_cells(mc, mf, PETSc.Section parents):
+    """Return a map from (renumbered) cells in a coarse mesh to those
+    in a refined fine mesh.
+
+    :arg mc: the coarse mesh to create the map from.
+    :arg mf: the fine mesh to map to.
+    :arg parents: a Section mapping original fine cell numbers to
+         their corresponding coarse parent cells"""
+    cdef:
+        PETSc.DM cdm, fdm
+        PETSc.Section co2n, fo2n
+        PetscInt fStart, fEnd, c, val, dim, nref, ncoarse
+        PetscInt i, ccell, fcell, nfine
+        np.ndarray[PetscInt, ndim=2, mode="c"] coarse_to_fine
+
+    cdm = mc._plex
+    co2n = mc._cell_numbering
+    fdm = mf._plex
+    fo2n = mf._cell_numbering
+    dim = cdm.getDimension()
+    nref = 2 ** dim
+    ncoarse = mc.cell_set.size
+    nfine = mf.cell_set.size
+    fStart, fEnd = fdm.getHeightStratum(0)
+
+    coarse_to_fine = np.empty((ncoarse, nref), dtype=PETSc.IntType)
+    coarse_to_fine[:] = -1
+
+    # Walk fine cells, pull the parent cell from the label.  Then,
+    # since these are the original (not renumbered) cells, map them to
+    # our view of the world and push the values in the map
+    for c in range(fStart, fEnd):
+        # Find the (originally numbered) parent of the current cell
+        CHKERR(PetscSectionGetDof(parents.sec, c, &ccell))
+        if ccell != 1:
+            raise RuntimeError("Didn't find map from fine to coarse cell")
+        CHKERR(PetscSectionGetOffset(parents.sec, c, &val))
+        CHKERR(PetscSectionGetDof(co2n.sec, val, &ccell))
+        CHKERR(PetscSectionGetDof(fo2n.sec, c, &fcell))
+        if fcell <= 0:
+            raise RuntimeError("Didn't find renumbered fine cell, should never happen")
+        if ccell <= 0:
+            raise RuntimeError("Didn't find renumbered coarse cell, should never happen")
+        # Find the new numbering of the parent
+        CHKERR(PetscSectionGetOffset(co2n.sec, val, &ccell))
+        # Find the new numbering of the cell
+        CHKERR(PetscSectionGetOffset(fo2n.sec, c, &fcell))
+        # Only care about owned coarse cells
+        if ccell >= ncoarse:
+            # But halo coarse cells should not contain owned fine cells
+            if fcell < nfine:
+                raise RuntimeError("Found halo coarse cell containing owned fine cell, should never happen")
+            continue
+        # Find an empty slot
+        for i in range(nref):
+            if coarse_to_fine[ccell, i] == -1:
+                coarse_to_fine[ccell, i] = fcell
+                break
+    return coarse_to_fine
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
@@ -950,7 +1045,7 @@ def p1_coarse_fine_map(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] c2f_cells)
     :arg c2f_cells: The map from coarse cells to fine cells
     """
     cdef:
-        PetscInt c, vStart, vEnd, i, cStart, cEnd, ndof, coarse_arity
+        PetscInt c, vStart, vEnd, i, ncoarse_cell, ndof, coarse_arity
         PetscInt l, j, k, tmp, other_cell, vfStart
         PetscInt coarse_vertex, fine_vertex, orig_coarse_vertex, ncell
         PetscInt *orig_c2f
@@ -970,7 +1065,8 @@ def p1_coarse_fine_map(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] c2f_cells)
     except KeyError:
         raise RuntimeError("Don't know how to make map")
 
-    map_vals = np.empty((Vc.mesh().cell_set.total_size, ndof), dtype=np.int32)
+    ncoarse_cell = Vc.mesh().cell_set.size
+    map_vals = np.empty((ncoarse_cell, ndof), dtype=np.int32)
     map_vals[:, :] = -1
     coarse_map = Vc.cell_node_map().values
     fine_map = Vf.cell_node_map().values
@@ -989,7 +1085,6 @@ def p1_coarse_fine_map(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] c2f_cells)
 
     fine_forward = fine_mesh._vertex_old_to_new
 
-    cStart, cEnd = coarse_mesh._plex.getHeightStratum(0)
     vStart, vEnd = coarse_mesh._plex.getDepthStratum(0)
     vfStart, _ = fine_mesh._plex.getDepthStratum(0)
     # vertex numbers in the fine plex of coarse vertices
@@ -998,7 +1093,7 @@ def p1_coarse_fine_map(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] c2f_cells)
     CHKERR( ISGetIndices(fpointIS, &orig_c2f) )
 
     coarse_arity = coarse_map.shape[1]
-    for c in range(cEnd - cStart):
+    for c in range(ncoarse_cell):
         # Find the fine vertices that correspond to coarse vertices
         # and put them sequentially in the first ndof map entries
         for i in range(coarse_arity):

@@ -27,19 +27,27 @@ class MeshHierarchy(mesh.Mesh):
              refined meshes.
         """
         m._plex.setRefinementUniform(True)
-        dm_hierarchy = m._plex.refineHierarchy(refinement_levels)
-        for dm in dm_hierarchy:
-            dm.removeLabel("boundary_faces")
-            dm.markBoundaryFaces("boundary_faces")
-            dm.removeLabel("exterior_facets")
-            dm.removeLabel("interior_facets")
-            dm.removeLabel("op2_core")
-            dm.removeLabel("op2_non_core")
-            dm.removeLabel("op2_exec_halo")
+        dm_hierarchy = []
+        parent_cells = []
+
+        dm = m._plex
+        for i in range(refinement_levels):
+            rdm = dm.refine()
+            rdm.removeLabel("exterior_facets")
+            rdm.removeLabel("interior_facets")
+            rdm.removeLabel("op2_core")
+            rdm.removeLabel("op2_non_core")
+            rdm.removeLabel("op2_exec_halo")
+            rdm.removeLabel("op2_non_exec_halo")
+
+            parent_cells.append(dmplex.compute_parent_cells(rdm))
             if isinstance(m, mesh.IcosahedralSphereMesh):
-                coords = dm.getCoordinatesLocal().array.reshape(-1, 3)
+                coords = rdm.getCoordinatesLocal().array.reshape(-1, 3)
                 scale = (m._R / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
                 coords *= scale
+
+            dm_hierarchy.append(rdm)
+            dm = rdm
 
         self._hierarchy = [m] + [mesh.Mesh(None, dim=m.ufl_cell().geometric_dimension(),
                                            name="%s_refined_%d" % (m.name, i + 1),
@@ -47,25 +55,13 @@ class MeshHierarchy(mesh.Mesh):
                                  for i, dm in enumerate(dm_hierarchy)]
 
         self._ufl_cell = m.ufl_cell()
-        # Simplex only
-        factor = 2 ** self.ufl_cell().topological_dimension()
         self._c2f_cells = []
 
-        for mc, mf in zip(self._hierarchy[:-1], self._hierarchy[1:]):
-            if not hasattr(mc, '_cell_new_to_old'):
-                o, n = dmplex.get_entity_renumbering(mc._plex, mc._cell_numbering, "cell")
-                mc._cell_old_to_new = o
-                mc._cell_new_to_old = n
-            if not hasattr(mf, '_cell_old_to_new'):
-                o, n = dmplex.get_entity_renumbering(mf._plex, mf._cell_numbering, "cell")
-                mf._cell_old_to_new = o
-                mf._cell_new_to_old = n
-
-            cback = mc._cell_new_to_old
-            fforward = mf._cell_old_to_new
-            ofcells = np.dstack([(cback * factor) + i for i in range(factor)]).flatten()
-            fcells = fforward[ofcells]
-            self._c2f_cells.append(fcells.reshape(-1, factor))
+        for mc, mf, parents in zip(self._hierarchy[:-1],
+                                   self._hierarchy[1:],
+                                   parent_cells):
+            c2f = dmplex.coarse_to_fine_cells(mc, mf, parents)
+            self._c2f_cells.append(c2f)
 
     def __iter__(self):
         for m in self._hierarchy:
@@ -97,6 +93,7 @@ class FunctionSpaceHierarchy(object):
                            for m in self._mesh_hierarchy]
 
         self._map_cache = {}
+        self._cell_sets = tuple(op2.LocalSet(m.cell_set) for m in self._mesh_hierarchy)
         self._ufl_element = self[0].ufl_element()
         self._lumped_mass = [None for _ in self]
 
@@ -139,9 +136,9 @@ class FunctionSpaceHierarchy(object):
             if degree != 0:
                 raise RuntimeError
             arity = Vf.cell_node_map().arity * c2f.shape[1]
-            map_vals = Vf.cell_node_map().values_with_halo[c2f].flatten()
+            map_vals = Vf.cell_node_map().values[c2f].flatten()
 
-            map = op2.Map(Vc.mesh().cell_set,
+            map = op2.Map(self._cell_sets[level],
                           Vf.node_set,
                           arity,
                           map_vals)
@@ -155,7 +152,7 @@ class FunctionSpaceHierarchy(object):
             map_vals = dmplex.p1_coarse_fine_map(Vc, Vf, c2f)
 
             arity = map_vals.shape[1]
-            map = op2.Map(Vc.mesh().cell_set, Vf.node_set, arity, map_vals)
+            map = op2.Map(self._cell_sets[level], Vf.node_set, arity, map_vals)
 
             self._map_cache[level] = map
             return map
@@ -271,7 +268,7 @@ class FunctionHierarchy(object):
                                            pragma=None),
                             pred=["static", "inline"])
             self._prolong_kernel = op2.Kernel(k, "prolong_dg0")
-        op2.par_loop(self._prolong_kernel, coarse.cell_set,
+        op2.par_loop(self._prolong_kernel, self.function_space()._cell_sets[level],
                      coarse.dat(op2.READ, coarse.cell_node_map()),
                      fine.dat(op2.WRITE, c2f_map))
 
@@ -301,7 +298,7 @@ class FunctionHierarchy(object):
                             pred=["static", "inline"])
             self._restrict_kernel = op2.Kernel(k, "restrict_dg0")
 
-        op2.par_loop(self._restrict_kernel, coarse.cell_set,
+        op2.par_loop(self._restrict_kernel, self.function_space()._cell_sets[level-1],
                      coarse.dat(op2.WRITE, coarse.cell_node_map()),
                      fine.dat(op2.READ, c2f_map))
 
@@ -324,7 +321,7 @@ class FunctionHierarchy(object):
                 fine[5][0] = 0.5*(coarse[0][0] + coarse[1][0]);
             }"""
             self._prolong_kernel = op2.Kernel(k, "prolong_cg1")
-        op2.par_loop(self._prolong_kernel, coarse.cell_set,
+        op2.par_loop(self._prolong_kernel, self.function_space()._cell_sets[level],
                      coarse.dat(op2.READ, coarse.cell_node_map()),
                      fine.dat(op2.WRITE, c2f_map))
 
@@ -340,7 +337,7 @@ class FunctionHierarchy(object):
                 }
             }"""
             self._inject_kernel = op2.Kernel(k, "inject_cg1")
-        op2.par_loop(self._inject_kernel, coarse.cell_set,
+        op2.par_loop(self._inject_kernel, self.function_space()._cell_sets[level-1],
                      coarse.dat(op2.WRITE, coarse.cell_node_map()),
                      fine.dat(op2.READ, c2f_map))
 
@@ -435,7 +432,7 @@ class FunctionHierarchy(object):
         ccoords = coarse.function_space().mesh().coordinates
 
         coarse.dat.zero()
-        op2.par_loop(self._restrict_kernel, coarse.cell_set,
+        op2.par_loop(self._restrict_kernel, self.function_space()._cell_sets[level-1],
                      coarse.dat(op2.INC, coarse.cell_node_map()[op2.i[0]], flatten=True),
                      fine.dat(op2.READ, c2f_map, flatten=True),
                      ccoords.dat(op2.READ, ccoords.cell_node_map(), flatten=True))
