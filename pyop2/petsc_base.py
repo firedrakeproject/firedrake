@@ -656,7 +656,8 @@ class Mat(base.Mat, CopyOnWrite):
         """Initialise this block in the case where the matrix maps either
         to or from a :class:`Global`"""
 
-        if self.dsets[0] is None and self.dsets[1] is None:
+        if self.sparsity.dsets[0] is None \
+           and self.sparsity.dsets[1] is None:
             # In this case both row and column are a Global.
 
             mat = PETSc.Mat()
@@ -664,6 +665,7 @@ class Mat(base.Mat, CopyOnWrite):
             mat.setSizes((None, 1), (None, 1))
             mat.setType(mat.Type.PYTHON)
             mat.setPythonContext(globalmat)
+            self._global = _make_object("Global", 1)
 
         else:
             raise NotImplementedError("Mixed global matrices still to come.")
@@ -677,6 +679,22 @@ class Mat(base.Mat, CopyOnWrite):
         ## mat.multAdd
         ## mat.multTranspose
         ## usw. usw.
+
+    def __call__(self, access, path, flatten=False):
+        """Override the parent __call__ method in order to special-case global
+        blocks in matrices."""
+        try:
+            # Usual case
+            path = as_tuple(path, Arg, 2)
+            return super(Mat, self).__call__(access, path, flatten)
+        except TypeError:
+            # One of the path entries was not an Arg.
+            if path == (None, None):
+                if not hasattr(self, "_global"):
+                    self._init()
+                return _make_object('Arg', data=self._global,
+                                    access=access, flatten=flatten)
+
 
     def __getitem__(self, idx):
         """Return :class:`Mat` block with row and column given by ``idx``
