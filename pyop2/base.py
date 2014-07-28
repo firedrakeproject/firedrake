@@ -571,10 +571,7 @@ class Set(object):
         assert size[Set._CORE_SIZE] <= size[Set._OWNED_SIZE] <= \
             size[Set._IMPORT_EXEC_SIZE] <= size[Set._IMPORT_NON_EXEC_SIZE], \
             "Set received invalid sizes: %s" % size
-        self._core_size = size[Set._CORE_SIZE]
-        self._size = size[Set._OWNED_SIZE]
-        self._ieh_size = size[Set._IMPORT_EXEC_SIZE]
-        self._inh_size = size[Set._IMPORT_NON_EXEC_SIZE]
+        self._sizes = size
         self._name = name or "set_%d" % Set._globalcount
         self._halo = halo
         self._partition_size = 1024
@@ -588,12 +585,12 @@ class Set(object):
     @property
     def core_size(self):
         """Core set size.  Owned elements not touching halo elements."""
-        return self._core_size
+        return self._sizes[Set._CORE_SIZE]
 
     @property
     def size(self):
         """Set size, owned elements."""
-        return self._size
+        return self._sizes[Set._OWNED_SIZE]
 
     @property
     def exec_size(self):
@@ -602,17 +599,17 @@ class Set(object):
         If a :class:`ParLoop` is indirect, we do redundant computation
         by executing over these set elements as well as owned ones.
         """
-        return self._ieh_size
+        return self._sizes[Set._IMPORT_EXEC_SIZE]
 
     @property
     def total_size(self):
         """Total set size, including halo elements."""
-        return self._inh_size
+        return self._sizes[Set._IMPORT_NON_EXEC_SIZE]
 
     @property
     def sizes(self):
         """Set sizes: core, owned, execute halo, total."""
-        return self._core_size, self._size, self._ieh_size, self._inh_size
+        return self._sizes
 
     @property
     def name(self):
@@ -643,10 +640,10 @@ class Set(object):
         return 1
 
     def __str__(self):
-        return "OP2 Set: %s with size %s" % (self._name, self._size)
+        return "OP2 Set: %s with size %s" % (self._name, self.size)
 
     def __repr__(self):
-        return "Set(%r, %r)" % (self._size, self._name)
+        return "Set(%r, %r)" % (self._sizes, self._name)
 
     def __call__(self, *indices):
         """Build a :class:`Subset` from this :class:`Set`
@@ -731,7 +728,7 @@ class ExtrudedSet(Set):
 
     def __str__(self):
         return "OP2 ExtrudedSet: %s with size %s (%s layers)" % \
-            (self._name, self._size, self._layers)
+            (self._name, self.size, self._layers)
 
     def __repr__(self):
         return "ExtrudedSet(%r, %r)" % (self._parent, self._layers)
@@ -777,10 +774,10 @@ class Subset(ExtrudedSet):
                 'Out of bounds indices in Subset construction: [%d, %d) not [0, %d)' %
                 (self._indices[0], self._indices[-1], self._superset.total_size))
 
-        self._core_size = (self._indices < superset._core_size).sum()
-        self._size = (self._indices < superset._size).sum()
-        self._ieh_size = (self._indices < superset._ieh_size).sum()
-        self._inh_size = len(self._indices)
+        self._sizes = ((self._indices < superset.core_size).sum(),
+                       (self._indices < superset.size).sum(),
+                       (self._indices < superset.exec_size).sum(),
+                       len(self._indices))
 
     # Look up any unspecified attributes on the _set.
     def __getattr__(self, name):
