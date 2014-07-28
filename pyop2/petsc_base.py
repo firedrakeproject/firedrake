@@ -662,7 +662,7 @@ class Mat(base.Mat, CopyOnWrite):
 
             mat = PETSc.Mat()
             mat.create()
-            mat.setSizes((None, 1), (None, 1))
+            mat.setSizes(((None, 1), (None, 1)))
             mat.setType(mat.Type.PYTHON)
             mat.setPythonContext(globalmat)
             self._global = _make_object("Global", 1)
