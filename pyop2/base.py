@@ -3806,8 +3806,8 @@ class ParLoop(LazyComputation):
             for arg in self.args:
                 if arg._is_mat:
                     raise RuntimeError("Iteration over a LocalSet does not make sense for par_loops with Mat args")
-                if arg._is_dat and arg.access not in [INC, READ]:
-                    raise RuntimeError("Iteration over a LocalSet only makes sense for INC and READ args, not %s" % arg.access)
+                if arg._is_dat and arg.access not in [INC, READ, WRITE]:
+                    raise RuntimeError("Iteration over a LocalSet does not make sense for RW args")
 
         self._it_space = self.build_itspace(iterset)
 
