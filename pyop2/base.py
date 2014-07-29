@@ -3208,7 +3208,9 @@ class Sparsity(ObjectCached):
         self._dsets = dsets
 
         if dsets[0] is None or dsets[1] is None:
-            pass
+            # This will cause a trivial memory accounting error (although not a leak).
+            self._d_nz = 0
+            self._o_nz = 0
         else:
             self.lcomm = self._rmaps[0].comm
             self.rcomm = self._cmaps[0].comm
