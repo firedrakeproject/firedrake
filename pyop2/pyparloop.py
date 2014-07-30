@@ -112,8 +112,6 @@ class ParLoop(base.ParLoop):
             else:
                 idx = e
             for arg in self.args:
-                if arg.access is base.INC:
-                    raise NotImplementedError("Need to think harder about this case")
                 if arg._is_global:
                     args.append(arg.data._data)
                 elif arg._is_direct:
