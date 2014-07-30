@@ -225,7 +225,7 @@ class Function(ufl.Coefficient):
 
         if expression.value_shape() != fs.ufl_element().value_shape():
             raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
-                               % (expression.shape(), fs.ufl_element().value_shape()))
+                               % (expression.value_shape(), fs.ufl_element().value_shape()))
 
         coords = fs.mesh().coordinates
 
@@ -290,7 +290,7 @@ class Function(ufl.Coefficient):
             # (we don't need to go through ufl_element.value_shape())
             "nfdof": to_element.space_dimension() * fs.dim,
             "ndof": to_element.space_dimension(),
-            "assign_dim": np.prod(expression.shape(), dtype=int)
+            "assign_dim": np.prod(expression.value_shape(), dtype=int)
         }
         init = ast.FlatBlock("""
 const double X[%(ndof)d][%(xndof)d] = %(x_array)s;

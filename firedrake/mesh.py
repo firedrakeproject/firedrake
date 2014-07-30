@@ -486,7 +486,7 @@ class Mesh(object):
              reference normal direction.
 
         """
-        if expr.shape()[0] != 3:
+        if expr.value_shape()[0] != 3:
             raise NotImplementedError('Only implemented for 3-vectors')
         if self.ufl_cell() not in (ufl.Cell('triangle', 3), ufl.OuterProductCell(ufl.Cell('interval', 3), ufl.Cell('interval')), ufl.OuterProductCell(ufl.Cell('interval', 2), ufl.Cell('interval'), gdim=3)):
             raise NotImplementedError('Only implemented for triangles embedded in 3d')
