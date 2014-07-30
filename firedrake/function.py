@@ -193,7 +193,9 @@ class Function(ufl.Coefficient):
                                   subset)
                 d += dim
         else:
-            # Note that Python expressions for mixed functions are not yet supported.
+            if isinstance(fs, functionspace.MixedFunctionSpace):
+                raise NotImplementedError(
+                    "Python expressions for mixed functions are not yet supported.")
             self._interpolate(fs, self.dat, expression, subset)
         return self
 
