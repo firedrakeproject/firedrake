@@ -67,14 +67,13 @@ class Expression(ufl.Coefficient):
         """
         # Init also called in mesh constructor, but expression can be built without mesh
         utils._init()
-        shape = np.array(code).shape
-        self._rank = len(shape)
-        self._shape = shape
-        if self._rank == 0:
-            # Make code slot iterable even for scalar expressions
-            self.code = [code]
-        else:
-            self.code = code
+        self.code = code
+        if code:
+            shape = np.array(code).shape
+            self._shape = shape
+            if self.rank() == 0:
+                # Make code slot iterable even for scalar expressions
+                self.code = [code]
         self.cell = cell
         self.degree = degree
         # These attributes are required by ufl.Coefficient to render the repr
@@ -141,9 +140,9 @@ class Expression(ufl.Coefficient):
 
     def rank(self):
         """Return the rank of this :class:`Expression`"""
-        return self._rank
+        return len(self.value_shape())
 
-    def shape(self):
+    def value_shape(self):
         """Return the shape of this :class:`Expression`.
 
         This is the number of values the code snippet in the

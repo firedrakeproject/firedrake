@@ -219,11 +219,50 @@ class Function(ufl.Coefficient):
             raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
                                % (expression.rank(), len(fs.ufl_element().value_shape())))
 
-        if expression.shape() != fs.ufl_element().value_shape():
+        if expression.value_shape() != fs.ufl_element().value_shape():
             raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
                                % (expression.shape(), fs.ufl_element().value_shape()))
 
         coords = fs.mesh().coordinates
+
+        if expression.code:
+            kernel = self._interpolate_c_kernel(expression,
+                                                to_pts, to_element, fs, coords)
+        elif expression.hasattr("eval"):
+            kernel = self._interpolate_python_kernel(expression,
+                                                     to_pts, to_element, fs, coords)
+        else:
+            raise RuntimeError(
+                "Attempting to evaluate an Expression which has no value.")
+
+        args = [kernel, subset or self.cell_set,
+                dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
+                coords.dat(op2.READ, coords.cell_node_map())]
+        for arg in expression._user_args:
+            args.append(arg(op2.READ))
+        op2.par_loop(*args)
+
+    def _interpolate_python_kernel(self, expression, to_pts, to_element, fs, coords):
+        """Produce a :class:`PyOP2.Kernel` wrapping the eval method on the
+        function provided."""
+
+        coords_space = coords.function_space()
+        coords_element = coords_space.fiat_element
+
+        X_remap = coords_element.tabulate(0, to_pts).values()[0]
+
+        def kernel(output, x, **kwargs):
+
+            X = np.dot(x, X_remap)
+
+            for i in len(output):
+                output[i, ...] = expression.eval(X[i, ...], **kwargs)
+
+        op2.Kernel(kernel, "expression_kernel")
+
+    def _interpolate_c_kernel(self, expression, to_pts, to_element, fs, coords):
+        """Produce a :class:`PyOP2.Kernel` from the c expression provided."""
+
         coords_space = coords.function_space()
         coords_element = coords_space.fiat_element
 
@@ -278,14 +317,7 @@ for (unsigned int d=0; d < %(dim)d; d++) {
                                    ast.Decl("double**", "x_")] + user_args,
                                   ast.Block(user_init + [init, loop],
                                             open_scope=False))
-        kernel = op2.Kernel(kernel_code, "expression_kernel")
-
-        args = [kernel, subset or self.cell_set,
-                dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
-                coords.dat(op2.READ, coords.cell_node_map())]
-        for arg in expression._user_args:
-            args.append(arg(op2.READ))
-        op2.par_loop(*args)
+        return op2.Kernel(kernel_code, "expression_kernel")
 
     def assign(self, expr, subset=None):
         """Set the :class:`Function` value to the pointwise value of
