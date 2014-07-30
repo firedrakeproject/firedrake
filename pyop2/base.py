@@ -39,6 +39,7 @@ subclass these as required to implement backend-specific features.
 import weakref
 import numpy as np
 import operator
+import types
 from hashlib import md5
 
 from configuration import configuration
@@ -3956,4 +3957,7 @@ class Solver(object):
 
 @collective
 def par_loop(kernel, it_space, *args, **kwargs):
+    if isinstance(kernel, types.FunctionType):
+        import pyparloop
+        return pyparloop.ParLoop(pyparloop.Kernel(kernel), it_space, *args, **kwargs).enqueue()
     return _make_object('ParLoop', kernel, it_space, *args, **kwargs).enqueue()
