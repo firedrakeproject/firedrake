@@ -10,7 +10,22 @@ __all__ = ['Expression']
 
 
 class Expression(ufl.Coefficient):
-    """A code snippet that may be evaluated on a :class:`.FunctionSpace`.
+    """A code snippet or Python function that may be evaluated on a
+    :class:`.FunctionSpace`. This provides a mechanism for setting
+    :class:`.Function` values to user-determined values.
+
+    To use an Expression, we can either :meth:`~Function.interpolate`
+    it onto a :class:`.Function`, or :func:`.project` it into a
+    :class:`.FunctionSpace`.  Note that not all
+    :class:`.FunctionSpace`\s support interpolation, but all do
+    support projection.
+
+    :class:`Expression`\s may be provided as snippets of C code, which
+    results in fast execution but offers limited functionality to the
+    user, or as a Python function, which is more flexible but slower,
+    since a Python function is called for every cell in the mesh.
+
+    **The C interface**
 
     The code in an :class:`Expression` has access to the coordinates
     in the variable ``x``, with ``x[0]`` corresponding to the x
@@ -30,15 +45,50 @@ class Expression(ufl.Coefficient):
 
        expr = Expression('sin(pi*x[0])*sin(pi*x[1])*sin(pi*x[2])')
 
-    To use an Expression, we can either :meth:`~Function.interpolate`
-    it onto a :class:`.Function`, or :func:`.project` it into a
-    :class:`.FunctionSpace`.  Note that not all
-    :class:`.FunctionSpace`\s support interpolation, but all do
-    support projection.
-
-    If the :class:`FunctionSpace` the expression will be applied to is
+    If the :class:`.FunctionSpace` the expression will be applied to is
     vector valued, a list of code snippets of length matching the
     number of components in the function space must be provided.
+
+    **The Python interface**
+
+    The Python interface is accessed by creating a subclass of
+    :class:`Expression` with a user-specified :meth:`eval` method. For
+    example, the following expression sets the output
+    :class:`.Function` to the square of the magnitude of the
+    coordinate:
+
+    .. code-block:: python
+
+        class MyExpression(Expression):
+            def eval(self, value, X):
+                value[:] = numpy.dot(X, X)
+
+    Observe that the (single) entry of the ``value`` parameter are written to,
+    not the parameter itself.
+
+    This :class:`Expression` could be interpolated onto the
+    :class:`.Function` ``f`` by executing:
+
+    .. code-block:: python
+
+        f.interpolate(MyExpression())
+
+    Note the brackets required to instantiate the :class:`MyExpression` object.
+
+    If a Python :class:`Expression` is to set the value of a
+    vector-valued :class:`Function` then it is necessary to explicitly
+    override the :meth:`value_shape` method of that
+    :class:`Expression`. For example:
+
+    .. code-block:: python
+
+        class MyExpression(Expression):
+            def eval(self, value, X):
+                value[:] = X
+
+            def value_shape(self):
+                return (2,)
+
     """
     def __init__(self, code=None, element=None, cell=None, degree=None, **kwargs):
         """
@@ -64,6 +114,7 @@ class Expression(ufl.Coefficient):
                       t += dt
                       e.t = t
 
+        The currently ignored parameters are retained for API compatibility with Dolfin.
         """
         # Init also called in mesh constructor, but expression can be built without mesh
         utils._init()
