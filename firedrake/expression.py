@@ -68,6 +68,7 @@ class Expression(ufl.Coefficient):
         # Init also called in mesh constructor, but expression can be built without mesh
         utils._init()
         self.code = code
+        self._shape = ()
         if code:
             shape = np.array(code).shape
             self._shape = shape

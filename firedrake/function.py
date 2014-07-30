@@ -177,20 +177,24 @@ class Function(ufl.Coefficient):
         # each component in the value shape of each function space
         dims = [np.prod(fs.ufl_element().value_shape(), dtype=int)
                 for fs in self.function_space()]
-        if len(expression.code) != sum(dims):
+        if np.prod(expression.value_shape(), dtype=int) != sum(dims):
             raise RuntimeError('Expression of length %d required, got length %d'
-                               % (sum(dims), len(expression.code)))
+                               % (sum(dims), np.prod(expression.value_shape(), dtype=int)))
 
-        # Splice the expression and pass in the right number of values for
-        # each component function space of this function
-        d = 0
-        for fs, dat, dim in zip(self.function_space(), self.dat, dims):
-            idx = d if fs.rank == 0 else slice(d, d+dim)
-            self._interpolate(fs, dat,
-                              expression_t.Expression(expression.code[idx],
-                                                      **expression._kwargs),
-                              subset)
-            d += dim
+        if expression.code:
+            # Slice the expression and pass in the right number of values for
+            # each component function space of this function
+            d = 0
+            for fs, dat, dim in zip(self.function_space(), self.dat, dims):
+                idx = d if fs.rank == 0 else slice(d, d+dim)
+                self._interpolate(fs, dat,
+                                  expression_t.Expression(expression.code[idx],
+                                                          **expression._kwargs),
+                                  subset)
+                d += dim
+        else:
+            # Note that Python expressions for mixed functions are not yet supported.
+            self._interpolate(fs, self.dat, expression, subset)
         return self
 
     def _interpolate(self, fs, dat, expression, subset):
@@ -228,16 +232,19 @@ class Function(ufl.Coefficient):
         if expression.code:
             kernel = self._interpolate_c_kernel(expression,
                                                 to_pts, to_element, fs, coords)
-        elif expression.hasattr("eval"):
+            args = [kernel, subset or self.cell_set,
+                    dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
+                    coords.dat(op2.READ, coords.cell_node_map())]
+        elif hasattr(expression, "eval"):
             kernel = self._interpolate_python_kernel(expression,
                                                      to_pts, to_element, fs, coords)
+            args = [kernel, subset or self.cell_set,
+                    dat(op2.WRITE, fs.cell_node_map()),
+                    coords.dat(op2.READ, coords.cell_node_map())]
         else:
             raise RuntimeError(
                 "Attempting to evaluate an Expression which has no value.")
 
-        args = [kernel, subset or self.cell_set,
-                dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
-                coords.dat(op2.READ, coords.cell_node_map())]
         for arg in expression._user_args:
             args.append(arg(op2.READ))
         op2.par_loop(*args)
@@ -253,12 +260,12 @@ class Function(ufl.Coefficient):
 
         def kernel(output, x, **kwargs):
 
-            X = np.dot(x, X_remap)
+            X = np.dot(X_remap.T, x)
 
-            for i in len(output):
-                output[i, ...] = expression.eval(X[i, ...], **kwargs)
+            for i in range(len(output)):
+                expression.eval(output[i:i+1, ...], X[i, ...], **kwargs)
 
-        op2.Kernel(kernel, "expression_kernel")
+        return kernel
 
     def _interpolate_c_kernel(self, expression, to_pts, to_element, fs, coords):
         """Produce a :class:`PyOP2.Kernel` from the c expression provided."""
