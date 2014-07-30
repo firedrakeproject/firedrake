@@ -129,6 +129,19 @@ class ParLoop(base.ParLoop):
                 if args[-1].shape == ():
                     args[-1] = args[-1].reshape(1)
             self._kernel(*args)
+            for arg, tmp in zip(self.args, args):
+                if arg.access is base.READ:
+                    continue
+                if arg._is_global:
+                    arg.data._data[:] = tmp[:]
+                elif arg._is_direct:
+                    arg.data._data[idx, ...] = tmp[:]
+                elif arg._is_indirect:
+                    if arg._is_vec_map:
+                        arg.data._data[arg.map.values_with_halo[idx], ...] = tmp[:]
+                    else:
+                        arg.data._data[arg.map.values_with_halo[idx, arg.idx:arg.idx+1]] = tmp[:]
+
         for arg in self.args:
             if arg._is_dat and arg.data._is_allocated:
                 for d in arg.data:
