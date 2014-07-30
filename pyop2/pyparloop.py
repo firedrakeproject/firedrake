@@ -75,6 +75,7 @@ Example usage::
 """
 
 import base
+import device
 
 
 # Fake kernel for type checking
@@ -104,6 +105,13 @@ class ParLoop(base.ParLoop):
             if arg._is_dat and arg.data._is_allocated:
                 for d in arg.data:
                     d._data.setflags(write=True)
+            # UGH, we need to move data back from the device, since
+            # evaluation tries to leave it on the device as much as
+            # possible.  We can't use public accessors here to get
+            # round this, because they'd force the evaluation of any
+            # pending computation, which includes this computation.
+            if arg._is_dat and isinstance(arg.data, device.Dat):
+                arg.data._from_device()
         # Just walk over the iteration set
         for e in range(part.offset, part.offset + part.size):
             args = []
@@ -146,3 +154,7 @@ class ParLoop(base.ParLoop):
             if arg._is_dat and arg.data._is_allocated:
                 for d in arg.data:
                     d._data.setflags(write=False)
+            # UGH, set state of data to HOST, marking device data as
+            # out of date.
+            if arg._is_dat and isinstance(arg.data, device.Dat):
+                arg.data.state = device.DeviceDataMixin.HOST
