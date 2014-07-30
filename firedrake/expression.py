@@ -63,7 +63,7 @@ class Expression(ufl.Coefficient):
             def eval(self, value, X):
                 value[:] = numpy.dot(X, X)
 
-    Observe that the (single) entry of the ``value`` parameter are written to,
+    Observe that the (single) entry of the ``value`` parameter is written to,
     not the parameter itself.
 
     This :class:`Expression` could be interpolated onto the
