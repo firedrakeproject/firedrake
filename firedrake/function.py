@@ -247,7 +247,7 @@ class Function(ufl.Coefficient):
             raise RuntimeError(
                 "Attempting to evaluate an Expression which has no value.")
 
-        for arg in expression._user_args:
+        for _, arg in expression._user_args:
             args.append(arg(op2.READ))
         op2.par_loop(*args)
 
@@ -260,8 +260,13 @@ class Function(ufl.Coefficient):
 
         X_remap = coords_element.tabulate(0, to_pts).values()[0]
 
-        def kernel(output, x, **kwargs):
-
+        # The par_loop will just pass us arguments, since it doesn't
+        # know about keyword args at all so unpack into a dict that we
+        # can pass to the user's eval method.
+        def kernel(output, x, *args):
+            kwargs = {}
+            for (slot, _), arg in zip(expression._user_args, args):
+                kwargs[slot] = arg
             X = np.dot(X_remap.T, x)
 
             for i in range(len(output)):
@@ -314,7 +319,7 @@ for (unsigned int d=0; d < %(dim)d; d++) {
                                                            open_scope=True))
         user_args = []
         user_init = []
-        for arg in expression._user_args:
+        for _, arg in expression._user_args:
             if arg.shape == (1, ):
                 user_args.append(ast.Decl("double *", "%s_" % arg.name))
                 user_init.append(ast.FlatBlock("const double %s = *%s_;" %

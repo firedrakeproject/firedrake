@@ -161,8 +161,9 @@ class Expression(ufl.Coefficient):
                 shape = 1
             val = op2.Global(shape, val, dtype=np.float64, name=slot)
             # Record the Globals in a known order (for later passing
-            # to a par_loop).
-            self._user_args.append(val)
+            # to a par_loop).  Remember their "name" too, so we can
+            # construct a kwarg dict when applying python expressions.
+            self._user_args.append((slot, val))
             # And save them as an attribute
             setattr(self, '_%s' % slot, val)
 
