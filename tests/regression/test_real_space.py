@@ -27,8 +27,7 @@ def test_real_two_form_assembly():
     u = TrialFunction(fs)
     v = TestFunction(fs)
 
-    assemble(u*v*dx).M
-
+    assert assemble(2*u*v*dx).M.handle.getPythonContext().data == 2.0
 
 if __name__ == '__main__':
     import os

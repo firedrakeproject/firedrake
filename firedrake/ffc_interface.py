@@ -12,7 +12,7 @@ from ufl import Form, FiniteElement, VectorElement, as_vector
 from ufl.measure import Measure
 from ufl.algorithms import compute_form_data, ReuseTransformer
 from ufl.constantvalue import Zero
-from ufl_expr import Argument
+from ufl_expr import Argument, TestFunction
 
 from ffc import compile_form as ffc_compile_form
 from ffc import constants
@@ -180,6 +180,7 @@ class FFCKernel(DiskCached):
         try:
             ffc_tree = ffc_compile_form(form, prefix=name, parameters=parameters["form_compiler"])
             kernels = []
+            form = self._real_mangle(form)
             # need compute_form_data here to get preproc form integrals
             fd = compute_form_data(form)
             elements = fd.elements
@@ -198,6 +199,24 @@ class FFCKernel(DiskCached):
             # the kernel when returning it in compile_form
             self._empty = True
         self._initialized = True
+
+    @staticmethod
+    def _real_mangle(form):
+        """If the form contains arguments in the Real function space, replace these with literal 1 before passing to ffc."""
+
+        a = form.arguments()
+        reals = map(lambda x: x.element().family() == "Real", a)
+        if not a or not any(reals):
+            return form
+        replacements = {}
+        for arg, r in zip(a, reals):
+            if r:
+                replacements[arg] = 1
+        # If only the test space is Real, we need to turn the trial function into a test function.
+        if reals == (True, False):
+            replacements[a[1]] = TestFunction(a[1].function_space())
+
+        return ufl.replace(form, replacements)
 
 
 def compile_form(form, name):
