@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from firedrake import *
 
 
@@ -12,6 +13,11 @@ def f():
     d = Function(dg)
 
     return c, d
+
+
+@pytest.fixture
+def const(f):
+    return Constant(1.0, domain=f[0].function_space().mesh().ufl_domain())
 
 
 @pytest.fixture
@@ -30,9 +36,34 @@ def f_extruded():
 def test_direct_par_loop(f):
     c, d = f
 
-    par_loop("""*c +=1;""", direct, {'c': (c, WRITE)})
+    par_loop("""*c = 1;""", direct, {'c': (c, WRITE)})
 
     assert all(c.dat.data == 1)
+
+
+def test_direct_par_loop_read_const(f, const):
+    c, d = f
+    const.assign(10.0)
+
+    par_loop("""*c = *constant;""", direct, {'c': (c, WRITE), 'constant': (const, READ)})
+
+    assert np.allclose(c.dat.data, const.dat.data)
+
+
+def test_indirect_par_loop_read_const(f, const):
+    c, d = f
+    const.assign(10.0)
+
+    par_loop("""for (int i = 0; i < d.dofs; i++) d[0][0] = *constant;""",
+             dx, {'d': (d, WRITE), 'constant': (const, READ)})
+
+    assert np.allclose(d.dat.data, const.dat.data)
+
+
+def test_par_loop_const_write_error(f, const):
+    _, d = f
+    with pytest.raises(RuntimeError):
+        par_loop("""c[0] = d[0];""", direct, {'c': (const, WRITE), 'd': (d, READ)})
 
 
 def test_cg_max_field(f):
