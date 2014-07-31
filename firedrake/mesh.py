@@ -774,15 +774,17 @@ class UnitSquareMesh(Mesh):
         coord_sec = plex.getCoordinateSection()
         if plex.getStratumSize("boundary_faces", 1) > 0:
             boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
+            xtol = 1./(2*nx)
+            ytol = 1./(2*ny)
             for face in boundary_faces:
                 face_coords = plex.vecGetClosure(coord_sec, coords, face)
-                if face_coords[0] == 0. and face_coords[2] == 0.:
+                if abs(face_coords[0]) < xtol and abs(face_coords[2]) < xtol:
                     plex.setLabelValue("boundary_ids", face, 1)
-                if face_coords[0] == 1. and face_coords[2] == 1.:
+                if abs(face_coords[0] - 1.) < xtol and abs(face_coords[2] - 1.) < xtol:
                     plex.setLabelValue("boundary_ids", face, 2)
-                if face_coords[1] == 0. and face_coords[3] == 0.:
+                if abs(face_coords[1]) < ytol and abs(face_coords[3]) < ytol:
                     plex.setLabelValue("boundary_ids", face, 3)
-                if face_coords[1] == 1. and face_coords[3] == 1.:
+                if abs(face_coords[1] - 1.) < ytol and abs(face_coords[3] - 1.) < ytol:
                     plex.setLabelValue("boundary_ids", face, 4)
 
         super(UnitSquareMesh, self).__init__(self.name, plex=plex, reorder=reorder)
@@ -827,19 +829,22 @@ class UnitCubeMesh(Mesh):
         coord_sec = plex.getCoordinateSection()
         if plex.getStratumSize("boundary_faces", 1) > 0:
             boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
+            xtol = 1./(2*nx)
+            ytol = 1./(2*ny)
+            ztol = 1./(2*nz)
             for face in boundary_faces:
                 face_coords = plex.vecGetClosure(coord_sec, coords, face)
-                if face_coords[0] == 0. and face_coords[3] == 0. and face_coords[6] == 0.:
+                if abs(face_coords[0]) < xtol and abs(face_coords[3]) < xtol and abs(face_coords[6]) < xtol:
                     plex.setLabelValue("boundary_ids", face, 1)
-                if face_coords[0] == 1. and face_coords[3] == 1. and face_coords[6] == 1.:
+                if abs(face_coords[0] - 1.) < xtol and abs(face_coords[3] - 1.) < xtol and abs(face_coords[6] - 1.) < xtol:
                     plex.setLabelValue("boundary_ids", face, 2)
-                if face_coords[1] == 0. and face_coords[4] == 0. and face_coords[7] == 0.:
+                if abs(face_coords[1]) < ytol and abs(face_coords[4]) < ytol and abs(face_coords[7]) < ytol:
                     plex.setLabelValue("boundary_ids", face, 3)
-                if face_coords[1] == 1. and face_coords[4] == 1. and face_coords[7] == 1.:
+                if abs(face_coords[1] - 1.) < ytol and abs(face_coords[4] - 1.) < ytol and abs(face_coords[7] - 1.) < ytol:
                     plex.setLabelValue("boundary_ids", face, 4)
-                if face_coords[2] == 0. and face_coords[5] == 0. and face_coords[8] == 0.:
+                if abs(face_coords[2]) < ztol and abs(face_coords[5]) < ztol and abs(face_coords[8]) < ztol:
                     plex.setLabelValue("boundary_ids", face, 5)
-                if face_coords[2] == 1. and face_coords[5] == 1. and face_coords[8] == 1.:
+                if abs(face_coords[2] - 1.) < ztol and abs(face_coords[5] - 1.) < ztol and abs(face_coords[8] - 1.) < ztol:
                     plex.setLabelValue("boundary_ids", face, 6)
 
         super(UnitCubeMesh, self).__init__(self.name, plex=plex, reorder=reorder)
