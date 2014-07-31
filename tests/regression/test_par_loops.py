@@ -30,7 +30,7 @@ def f_extruded():
 def test_direct_par_loop(f):
     c, d = f
 
-    par_loop("""*c +=1;""", direct, {'c': (c, WRITE)})
+    par_loop("""*c = 1;""", direct, {'c': (c, WRITE)})
 
     assert all(c.dat.data == 1)
 
