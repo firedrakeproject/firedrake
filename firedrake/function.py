@@ -270,7 +270,11 @@ class Function(ufl.Coefficient):
             X = np.dot(X_remap.T, x)
 
             for i in range(len(output)):
-                expression.eval(output[i:i+1, ...], X[i, ...], **kwargs)
+                # Pass a slice for the scalar case but just the
+                # current vector in the VFS case. This ensures the
+                # eval method has a Dolfin compatible API.
+                expression.eval(output[i:i+1, ...] if np.rank(output) == 1 else output[i, ...],
+                                X[i:i+1, ...] if np.rank(X) == 1 else X[i, ...], **kwargs)
 
         return kernel
 
