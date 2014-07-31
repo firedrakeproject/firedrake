@@ -213,9 +213,8 @@ class FFCKernel(DiskCached):
             if r:
                 replacements[arg] = 1
         # If only the test space is Real, we need to turn the trial function into a test function.
-        if reals == (True, False):
+        if reals == [True, False]:
             replacements[a[1]] = TestFunction(a[1].function_space())
-
         return ufl.replace(form, replacements)
 
 
