@@ -56,10 +56,13 @@ def _form_kernel(kernel, measure, args):
 
     for var, (func, intent) in args.iteritems():
         if isinstance(func, constant.Constant):
+            if intent is not READ:
+                raise RuntimeError("Only READ access is allowed to Constant")
             # Constants modelled as Globals, so no need for double
             # indirection
             ndof = func.dat.cdim
-            kargs.append(ast.Decl("double", ast.Symbol(var, (ndof, ))))
+            kargs.append(ast.Decl("double", ast.Symbol(var, (ndof, )),
+                                  qualifiers=["const"]))
         else:
             ndof = func.function_space().fiat_element.space_dimension()
             if measure.integral_type() == 'interior_facet':
@@ -119,6 +122,11 @@ def par_loop(kernel, measure, args):
        The variable will be added into using +=. As before, the order in
        which the kernel invocations increment the variable is undefined,
        but there is a guarantee that no races will occur.
+
+    .. note::
+
+       Only `READ` intents are valid for :class:`.Constant`
+       coefficients, and an error will be raised in other cases.
 
     **The measure**
 
