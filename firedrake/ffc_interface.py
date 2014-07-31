@@ -178,9 +178,9 @@ class FFCKernel(DiskCached):
         incl = PreprocessNode('#include "firedrake_geometry.h"\n')
         inc = [path.dirname(__file__)]
         try:
+            form = self._real_mangle(form)
             ffc_tree = ffc_compile_form(form, prefix=name, parameters=parameters["form_compiler"])
             kernels = []
-            form = self._real_mangle(form)
             # need compute_form_data here to get preproc form integrals
             fd = compute_form_data(form)
             elements = fd.elements

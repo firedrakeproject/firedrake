@@ -29,6 +29,17 @@ def test_real_two_form_assembly():
 
     assert assemble(2*u*v*dx).M.handle.getPythonContext().data == 2.0
 
+
+def test_real_mixed_two_form_assembly():
+    mesh = UnitIntervalMesh(3)
+    rfs = FunctionSpace(mesh, "Real", 0)
+    cgfs = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(rfs)
+    v = TestFunction(cgfs)
+
+    print assemble(2*u*v*dx).M.handle.getPythonContext().data
+    assert False
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
