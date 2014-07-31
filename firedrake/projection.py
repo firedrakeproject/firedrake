@@ -47,7 +47,7 @@ def project(v, V, bcs=None, mesh=None,
             % type(V))
 
     if isinstance(v, expression.Expression):
-        shape = v.shape()
+        shape = v.value_shape()
         # Build a function space that supports PointEvaluation so that
         # we can interpolate into it.
         if isinstance(V.ufl_element().degree(), tuple):

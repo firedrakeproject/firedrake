@@ -177,20 +177,26 @@ class Function(ufl.Coefficient):
         # each component in the value shape of each function space
         dims = [np.prod(fs.ufl_element().value_shape(), dtype=int)
                 for fs in self.function_space()]
-        if len(expression.code) != sum(dims):
+        if np.prod(expression.value_shape(), dtype=int) != sum(dims):
             raise RuntimeError('Expression of length %d required, got length %d'
-                               % (sum(dims), len(expression.code)))
+                               % (sum(dims), np.prod(expression.value_shape(), dtype=int)))
 
-        # Splice the expression and pass in the right number of values for
-        # each component function space of this function
-        d = 0
-        for fs, dat, dim in zip(self.function_space(), self.dat, dims):
-            idx = d if fs.rank == 0 else slice(d, d+dim)
-            self._interpolate(fs, dat,
-                              expression_t.Expression(expression.code[idx],
-                                                      **expression._kwargs),
-                              subset)
-            d += dim
+        if expression.code:
+            # Slice the expression and pass in the right number of values for
+            # each component function space of this function
+            d = 0
+            for fs, dat, dim in zip(self.function_space(), self.dat, dims):
+                idx = d if fs.rank == 0 else slice(d, d+dim)
+                self._interpolate(fs, dat,
+                                  expression_t.Expression(expression.code[idx],
+                                                          **expression._kwargs),
+                                  subset)
+                d += dim
+        else:
+            if isinstance(fs, functionspace.MixedFunctionSpace):
+                raise NotImplementedError(
+                    "Python expressions for mixed functions are not yet supported.")
+            self._interpolate(fs, self.dat, expression, subset)
         return self
 
     def _interpolate(self, fs, dat, expression, subset):
@@ -219,11 +225,62 @@ class Function(ufl.Coefficient):
             raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
                                % (expression.rank(), len(fs.ufl_element().value_shape())))
 
-        if expression.shape() != fs.ufl_element().value_shape():
+        if expression.value_shape() != fs.ufl_element().value_shape():
             raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
-                               % (expression.shape(), fs.ufl_element().value_shape()))
+                               % (expression.value_shape(), fs.ufl_element().value_shape()))
 
         coords = fs.mesh().coordinates
+
+        if expression.code:
+            kernel = self._interpolate_c_kernel(expression,
+                                                to_pts, to_element, fs, coords)
+            args = [kernel, subset or self.cell_set,
+                    dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
+                    coords.dat(op2.READ, coords.cell_node_map())]
+        elif hasattr(expression, "eval"):
+            kernel = self._interpolate_python_kernel(expression,
+                                                     to_pts, to_element, fs, coords)
+            args = [kernel, subset or self.cell_set,
+                    dat(op2.WRITE, fs.cell_node_map()),
+                    coords.dat(op2.READ, coords.cell_node_map())]
+        else:
+            raise RuntimeError(
+                "Attempting to evaluate an Expression which has no value.")
+
+        for _, arg in expression._user_args:
+            args.append(arg(op2.READ))
+        op2.par_loop(*args)
+
+    def _interpolate_python_kernel(self, expression, to_pts, to_element, fs, coords):
+        """Produce a :class:`PyOP2.Kernel` wrapping the eval method on the
+        function provided."""
+
+        coords_space = coords.function_space()
+        coords_element = coords_space.fiat_element
+
+        X_remap = coords_element.tabulate(0, to_pts).values()[0]
+
+        # The par_loop will just pass us arguments, since it doesn't
+        # know about keyword args at all so unpack into a dict that we
+        # can pass to the user's eval method.
+        def kernel(output, x, *args):
+            kwargs = {}
+            for (slot, _), arg in zip(expression._user_args, args):
+                kwargs[slot] = arg
+            X = np.dot(X_remap.T, x)
+
+            for i in range(len(output)):
+                # Pass a slice for the scalar case but just the
+                # current vector in the VFS case. This ensures the
+                # eval method has a Dolfin compatible API.
+                expression.eval(output[i:i+1, ...] if np.rank(output) == 1 else output[i, ...],
+                                X[i:i+1, ...] if np.rank(X) == 1 else X[i, ...], **kwargs)
+
+        return kernel
+
+    def _interpolate_c_kernel(self, expression, to_pts, to_element, fs, coords):
+        """Produce a :class:`PyOP2.Kernel` from the c expression provided."""
+
         coords_space = coords.function_space()
         coords_element = coords_space.fiat_element
 
@@ -244,7 +301,7 @@ class Function(ufl.Coefficient):
             # (we don't need to go through ufl_element.value_shape())
             "nfdof": to_element.space_dimension() * fs.dim,
             "ndof": to_element.space_dimension(),
-            "assign_dim": np.prod(expression.shape(), dtype=int)
+            "assign_dim": np.prod(expression.value_shape(), dtype=int)
         }
         init = ast.FlatBlock("""
 const double X[%(ndof)d][%(xndof)d] = %(x_array)s;
@@ -266,7 +323,7 @@ for (unsigned int d=0; d < %(dim)d; d++) {
                                                            open_scope=True))
         user_args = []
         user_init = []
-        for arg in expression._user_args:
+        for _, arg in expression._user_args:
             if arg.shape == (1, ):
                 user_args.append(ast.Decl("double *", "%s_" % arg.name))
                 user_init.append(ast.FlatBlock("const double %s = *%s_;" %
@@ -278,14 +335,7 @@ for (unsigned int d=0; d < %(dim)d; d++) {
                                    ast.Decl("double**", "x_")] + user_args,
                                   ast.Block(user_init + [init, loop],
                                             open_scope=False))
-        kernel = op2.Kernel(kernel_code, "expression_kernel")
-
-        args = [kernel, subset or self.cell_set,
-                dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
-                coords.dat(op2.READ, coords.cell_node_map())]
-        for arg in expression._user_args:
-            args.append(arg(op2.READ))
-        op2.par_loop(*args)
+        return op2.Kernel(kernel_code, "expression_kernel")
 
     def assign(self, expr, subset=None):
         """Set the :class:`Function` value to the pointwise value of
