@@ -175,7 +175,7 @@ class FunctionSpaceBase(ObjectCached):
         else:
             self.interior_facet_node_list = np.array([], dtype=np.int32)
             if mesh.interior_facets is None:
-                mesh.interior_facets = mesh_t._Facets(self, 0, "exterior", None, None)
+                mesh.interior_facets = mesh_t._Facets(self, 0, "interior", None, None)
 
         if mesh._plex.getStratumSize("exterior_facets", 1) > 0:
             # Compute the facet_numbering and store with the parent mesh
