@@ -8,7 +8,7 @@ from shutil import rmtree
 from pyop2 import op2
 from pyop2.coffee import ast_base as ast
 from pyop2.mpi import MPI
-from pyop2.profiling import timed_function
+from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple
 
 import dmplex
@@ -275,7 +275,8 @@ class Mesh(object):
         # Note.  This must come before distribution, because otherwise
         # DMPlex will consider facets on the domain boundary to be
         # exterior, which is wrong.
-        dmplex.label_facets(self._plex)
+        with timed_region("Mesh: label facets"):
+            dmplex.label_facets(self._plex)
 
         if geometric_dim == 0:
             geometric_dim = plex.getDimension()
@@ -287,60 +288,64 @@ class Mesh(object):
         self._plex = plex
 
         if reorder:
-            old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
-            reordering = np.empty_like(old_to_new)
-            reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
+            with timed_region("Mesh: reorder"):
+                old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
+                reordering = np.empty_like(old_to_new)
+                reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
         else:
             # No reordering
             reordering = None
 
         # Mark OP2 entities and derive the resulting Plex renumbering
-        dmplex.mark_entity_classes(self._plex)
-        self._plex_renumbering = dmplex.plex_renumbering(self._plex, reordering)
+        with timed_region("Mesh: renumbering"):
+            dmplex.mark_entity_classes(self._plex)
+            self._plex_renumbering = dmplex.plex_renumbering(self._plex, reordering)
 
-        cStart, cEnd = self._plex.getHeightStratum(0)  # cells
-        cell_vertices = self._plex.getConeSize(cStart)
-        self._ufl_cell = ufl.Cell(fiat_utils._cells[geometric_dim][cell_vertices],
-                                  geometric_dimension=geometric_dim)
+            cStart, cEnd = self._plex.getHeightStratum(0)  # cells
+            cell_vertices = self._plex.getConeSize(cStart)
+            self._ufl_cell = ufl.Cell(fiat_utils._cells[geometric_dim][cell_vertices],
+                                      geometric_dimension=geometric_dim)
 
-        self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
-        dim = self._plex.getDimension()
-        self._cells, self.cell_classes = dmplex.get_cells_by_class(self._plex)
+            self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
+            dim = self._plex.getDimension()
+            self._cells, self.cell_classes = dmplex.get_cells_by_class(self._plex)
 
-        # Derive a cell numbering from the Plex renumbering
-        cell_entity_dofs = np.zeros(dim+1, dtype=np.int32)
-        cell_entity_dofs[-1] = 1
+        with timed_region("Mesh: cell numbering"):
+            # Derive a cell numbering from the Plex renumbering
+            cell_entity_dofs = np.zeros(dim+1, dtype=np.int32)
+            cell_entity_dofs[-1] = 1
 
-        try:
-            # Old style createSection
-            self._cell_numbering = self._plex.createSection(1, [1], cell_entity_dofs,
-                                                            perm=self._plex_renumbering)
-        except:
-            # New style
-            self._cell_numbering = self._plex.createSection([1], cell_entity_dofs,
-                                                            perm=self._plex_renumbering)
+            try:
+                # Old style createSection
+                self._cell_numbering = self._plex.createSection(1, [1], cell_entity_dofs,
+                                                                perm=self._plex_renumbering)
+            except:
+                # New style
+                self._cell_numbering = self._plex.createSection([1], cell_entity_dofs,
+                                                                perm=self._plex_renumbering)
 
         self._cell_closure = None
         self.interior_facets = None
         self.exterior_facets = None
 
         # Note that for bendy elements, this needs to change.
-        if periodic_coords is not None:
-            if self.ufl_cell().geometric_dimension() != 1:
-                raise NotImplementedError("Periodic coordinates in more than 1D are unsupported")
-            # We've been passed a periodic coordinate field, so use that.
-            self._coordinate_fs = functionspace.VectorFunctionSpace(self, "DG", 1)
-            self.coordinates = function.Function(self._coordinate_fs,
-                                                 val=periodic_coords,
-                                                 name="Coordinates")
-        else:
-            self._coordinate_fs = functionspace.VectorFunctionSpace(self, "Lagrange", 1)
+        with timed_region("Mesh: coordinate field"):
+            if periodic_coords is not None:
+                if self.ufl_cell().geometric_dimension() != 1:
+                    raise NotImplementedError("Periodic coordinates in more than 1D are unsupported")
+                # We've been passed a periodic coordinate field, so use that.
+                self._coordinate_fs = functionspace.VectorFunctionSpace(self, "DG", 1)
+                self.coordinates = function.Function(self._coordinate_fs,
+                                                     val=periodic_coords,
+                                                     name="Coordinates")
+            else:
+                self._coordinate_fs = functionspace.VectorFunctionSpace(self, "Lagrange", 1)
 
-            coordinates = dmplex.reordered_coords(self._plex, self._coordinate_fs._global_numbering,
-                                                  (self.num_vertices(), geometric_dim))
-            self.coordinates = function.Function(self._coordinate_fs,
-                                                 val=coordinates,
-                                                 name="Coordinates")
+                coordinates = dmplex.reordered_coords(self._plex, self._coordinate_fs._global_numbering,
+                                                      (self.num_vertices(), geometric_dim))
+                self.coordinates = function.Function(self._coordinate_fs,
+                                                     val=coordinates,
+                                                     name="Coordinates")
         self._ufl_domain = ufl.Domain(self.coordinates)
         # Build a new ufl element for this function space with the
         # correct domain.  This is necessary since this function space
