@@ -275,15 +275,19 @@ class Mesh(object):
         self._plex = plex
         self.uid = utils._new_uid()
 
+        if geometric_dim == 0:
+            geometric_dim = plex.getDimension()
+
         # Mark exterior and interior facets
         # Note.  This must come before distribution, because otherwise
         # DMPlex will consider facets on the domain boundary to be
         # exterior, which is wrong.
         with timed_region("Mesh: label facets"):
+            # If we're not distributing (already in parallel), don't
+            # relabel the boundary, just label the interior facets.
+            label_boundary = op2.MPI.comm.size == 1 or distribute
+            dmplex.label_facets(self._plex, label_boundary=label_boundary)
             dmplex.label_facets(self._plex)
-
-        if geometric_dim == 0:
-            geometric_dim = plex.getDimension()
 
         # Distribute the dm to all ranks
         if op2.MPI.comm.size > 1 and distribute:
