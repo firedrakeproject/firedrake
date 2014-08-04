@@ -33,8 +33,16 @@ class MeshHierarchy(mesh.Mesh):
         dm = m._plex
         for i in range(refinement_levels):
             rdm = dm.refine()
-            rdm.removeLabel("exterior_facets")
+            # Remove interior facet label (re-construct from
+            # complement of exterior facets).  Necessary because the
+            # refinement just marks points "underneath" the refined
+            # facet with the appropriate label.  This works for
+            # exterior, but not marked interior facets
             rdm.removeLabel("interior_facets")
+            # Remove vertex (and edge) points from labels on exterior
+            # facets.  Interior facets will be relabeled in Mesh
+            # construction below.
+            dmplex.filter_exterior_facet_labels(rdm)
             rdm.removeLabel("op2_core")
             rdm.removeLabel("op2_non_core")
             rdm.removeLabel("op2_exec_halo")

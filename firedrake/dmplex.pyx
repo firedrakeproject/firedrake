@@ -464,18 +464,22 @@ def get_facet_nodes(np.ndarray[np.int32_t, ndim=2, mode="c"] facet_cells,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def label_facets(PETSc.DM plex):
+def label_facets(PETSc.DM plex, label_boundary=True):
     """Add labels to facets in the the plex
 
     Facets on the boundary are marked with "exterior_facets" while all
-    others are marked with "interior_facets"."""
+    others are marked with "interior_facets".
+
+    :arg label_boundary: if False, don't label the boundary faces
+         (they must have already been labelled)."""
     cdef:
         PetscInt fStart, fEnd, facet, val
         char *ext_label = <char *>"exterior_facets"
         char *int_label = <char *>"interior_facets"
 
     # Mark boundaries as exterior_facets
-    plex.markBoundaryFaces(ext_label)
+    if label_boundary:
+        plex.markBoundaryFaces(ext_label)
     plex.createLabel(int_label)
 
     fStart, fEnd = plex.getHeightStratum(1)
@@ -485,6 +489,42 @@ def label_facets(PETSc.DM plex):
         # Not marked, must be interior
         if val == -1:
             CHKERR(DMPlexSetLabelValue(plex.dm, int_label, facet, 1))
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def filter_exterior_facet_labels(PETSc.DM plex):
+    """Remove exterior facet labels from things that aren't facets.
+
+    When refining, every point "underneath" the refined entity
+    receives its label.  But we want the facet label to really only
+    apply to facets, so clear the labels from everything else."""
+    cdef:
+        PetscInt pStart, pEnd, fStart, fEnd, p, ext_val
+        PetscBool has_bdy_ids, has_bdy_faces
+
+    pStart, pEnd = plex.getChart()
+    fStart, fEnd = plex.getHeightStratum(1)
+
+    # Plex will always have an exterior_facets label (maybe
+    # zero-sized), but may not always have boundary_ids or
+    # boundary_faces.
+    has_bdy_ids = plex.hasLabel("boundary_ids")
+    has_bdy_faces = plex.hasLabel("boundary_faces")
+
+    for p in range(pStart, pEnd):
+        if p < fStart or p >= fEnd:
+            CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"exterior_facets", p, &ext_val))
+            if ext_val >= 0:
+                CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"exterior_facets", p, ext_val))
+            if has_bdy_ids:
+                CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"boundary_ids", p, &ext_val))
+                if ext_val >= 0:
+                    CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"boundary_ids", p, ext_val))
+            if has_bdy_faces:
+                CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"boundary_faces", p, &ext_val))
+                if ext_val >= 0:
+                    CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"boundary_faces", p, ext_val))
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
