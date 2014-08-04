@@ -528,6 +528,44 @@ def filter_exterior_facet_labels(PETSc.DM plex):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def facet_numbering_section(mesh, typ):
+    """Return a section providing a numbering for facets of specified type.
+
+    :arg mesh: the mesh containing the facets.
+    :arg typ: the type of facet (``interior`` or ``exterior``).
+
+    The returned section can be used to build a halo object for the
+    specified set of facets."""
+    cdef:
+        PETSc.DM plex = mesh._plex
+        PETSc.Section section = PETSc.Section()
+        PETSc.IS perm = mesh._plex_renumbering
+        PetscInt f, fStart, fEnd, val, pStart, pEnd
+        char *facet_label
+
+    if typ == "interior":
+        facet_label = "interior_facets"
+    elif typ == "exterior":
+        facet_label = "exterior_facets"
+    else:
+        raise RuntimeError("Unknown facet type '%s'" % typ)
+
+    pStart, pEnd = plex.getChart()
+    section.create()
+    section.setChart(pStart, pEnd)
+    CHKERR(PetscSectionSetPermutation(section.sec, perm.iset))
+    fStart, fEnd = plex.getHeightStratum(1)
+    for f in range(fStart, fEnd):
+        CHKERR(DMPlexGetLabelValue(plex.dm, facet_label, f, &val))
+        # We've got a facet of the correct type, set the number of dofs to 1
+        if val >= 0:
+            CHKERR(PetscSectionSetDof(section.sec, f, 1))
+
+    section.setUp()
+    return section
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
     """Return coordinates for the plex, reordered according to the
     global numbering permutation for the coordinate function space.
