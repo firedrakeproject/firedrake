@@ -31,7 +31,7 @@ from copy import copy
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
 from pyop2.logger import progress, INFO, warning, RED
-from pyop2.profiling import timed_region, timed_function
+from pyop2.profiling import timed_region, timed_function, profile
 
 import assembly_cache
 import assemble_expressions
@@ -292,6 +292,7 @@ class NonlinearVariationalSolver(object):
         self._update_parameters()
 
     @timed_function("SNES solver execution")
+    @profile
     def solve(self):
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:
@@ -386,6 +387,7 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         self._update_parameters()
 
 
+@profile
 def assemble(f, tensor=None, bcs=None):
     """Evaluate f.
 
@@ -814,6 +816,7 @@ def _la_solve(A, x, b, bcs=None, parameters=None,
     x.dat.halo_exchange_end()
 
 
+@profile
 def solve(*args, **kwargs):
     """Solve linear system Ax = b or variational problem a == L or F == 0.
 
