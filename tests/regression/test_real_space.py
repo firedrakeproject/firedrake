@@ -50,6 +50,18 @@ def test_real_nonsquare_two_form_assembly():
     np.testing.assert_almost_equal(base_case.dat.data,
                                    m2.M.handle.getPythonContext().data)
 
+
+def test_real_mixed_two_form_assembly():
+    mesh = UnitIntervalMesh(3)
+    rfs = FunctionSpace(mesh, "Real", 0)
+    cgfs = FunctionSpace(mesh, "CG", 1)
+
+    mfs = cgfs*rfs
+    u, p = TrialFunctions(mfs)
+    v, q = TestFunctions(mfs)
+
+    m = assemble(u*v*dx + p*q*dx).M.handle.getPythonContext().data
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

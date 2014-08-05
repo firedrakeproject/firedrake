@@ -809,8 +809,8 @@ class MixedFunctionSpace(FunctionSpaceBase):
         if bcs:
             for bc in bcs:
                 bc_list[bc.function_space().index].append(bc)
-        return op2.MixedMap(tuple([s.cell_node_map(bc_list[i])
-                                   for i, s in enumerate(self._spaces)]))
+        return op2.MixedMap(s.cell_node_map(bc_list[i])
+                                   for i, s in enumerate(self._spaces))
 
     def interior_facet_node_map(self, bcs=None):
         """Return the :class:`pyop2.MixedMap` from interior facets to
