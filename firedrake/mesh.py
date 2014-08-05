@@ -8,7 +8,7 @@ from shutil import rmtree
 from pyop2 import op2
 from pyop2.coffee import ast_base as ast
 from pyop2.mpi import MPI
-from pyop2.profiling import timed_function, timed_region
+from pyop2.profiling import timed_function, timed_region, profile
 from pyop2.utils import as_tuple
 
 import dmplex
@@ -202,6 +202,7 @@ class Mesh(object):
     """A representation of mesh topology and geometry."""
 
     @timed_function("Build mesh")
+    @profile
     def __init__(self, filename, dim=None, periodic_coords=None, plex=None, reorder=None):
         """
         :param filename: the mesh file to read.  Supported mesh formats
@@ -616,6 +617,7 @@ class ExtrudedMesh(Mesh):
     been specified)."""
 
     @timed_function("Build extruded mesh")
+    @profile
     def __init__(self, mesh, layers, kernel=None, layer_height=None, extrusion_type='uniform', gdim=None):
         # A cache of function spaces that have been built on this mesh
         self._cache = {}
@@ -763,6 +765,7 @@ class UnitSquareMesh(Mesh):
     * 4: plane y == 1
     """
 
+    @profile
     def __init__(self, nx, ny, reorder=None):
         self.name = "unitsquare_%d_%d" % (nx, ny)
 
@@ -818,6 +821,7 @@ class UnitCubeMesh(Mesh):
     * 6: plane z == 1
     """
 
+    @profile
     def __init__(self, nx, ny, nz, reorder=None):
         self.name = "unitcube_%d_%d_%d" % (nx, ny, nz)
 
@@ -865,6 +869,7 @@ class UnitCircleMesh(Mesh):
     :arg reorder: Should the mesh be reordered?
     """
 
+    @profile
     def __init__(self, resolution, reorder=None):
         source = """
             lc = %g;
@@ -892,6 +897,8 @@ class IntervalMesh(Mesh):
     The left hand (:math:`x=0`) boundary point has boundary marker 1,
     while the right hand (:math:`x=L`) point has marker 2.
     """
+
+    @profile
     def __init__(self, ncells, length):
         self.name = "interval"
         dx = float(length) / ncells
@@ -923,6 +930,8 @@ class UnitIntervalMesh(IntervalMesh):
     The left hand (:math:`x=0`) boundary point has boundary marker 1,
     while the right hand (:math:`x=1`) point has marker 2.
     """
+
+    @profile
     def __init__(self, ncells):
         self.name = "unitinterval"
         IntervalMesh.__init__(self, ncells, length=1.0)
@@ -934,6 +943,8 @@ class PeriodicIntervalMesh(Mesh):
 
     :arg ncells: The number of cells over the interval.
     :arg length: The length the interval."""
+
+    @profile
     def __init__(self, ncells, length):
         self.name = "periodicinterval"
 
@@ -987,6 +998,8 @@ class PeriodicIntervalMesh(Mesh):
 class PeriodicUnitIntervalMesh(PeriodicIntervalMesh):
     """Generate a periodic uniform mesh of the interval [0, 1].
     :arg ncells: The number of cells over the interval."""
+
+    @profile
     def __init__(self, ncells):
         self.name = "periodicunitinterval"
         PeriodicIntervalMesh.__init__(self, ncells, length=1.0)
@@ -1021,6 +1034,8 @@ class UnitTriangleMesh(Mesh):
 class CircleManifoldMesh(Mesh):
 
     """A 1D mesh of the circle, immersed in 2D"""
+
+    @profile
     def __init__(self, ncells, radius=1):
         """
         :arg ncells: number of cells the circle should be
@@ -1089,6 +1104,7 @@ class IcosahedralSphereMesh(Mesh):
                             [8, 6, 7],
                             [9, 8, 1]], dtype=np.int32)
 
+    @profile
     def __init__(self, radius=1, refinement_level=0, reorder=None):
         """
         :arg radius: the radius of the sphere to approximate.
@@ -1193,6 +1209,8 @@ class IcosahedralSphereMesh(Mesh):
 
 class UnitIcosahedralSphereMesh(IcosahedralSphereMesh):
     """An icosahedral approximation to the unit sphere."""
+
+    @profile
     def __init__(self, refinement_level=0, reorder=None):
         """
         :arg refinement_level: how many levels to refine the mesh.
