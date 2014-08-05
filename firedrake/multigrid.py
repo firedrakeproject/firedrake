@@ -103,7 +103,7 @@ class FunctionSpaceHierarchy(object):
         self._map_cache = {}
         self._cell_sets = tuple(op2.LocalSet(m.cell_set) for m in self._mesh_hierarchy)
         self._ufl_element = self[0].ufl_element()
-        self._lumped_mass = [None for _ in self]
+        self._restriction_weights = None
 
     def __len__(self):
         return len(self._hierarchy)
@@ -354,108 +354,47 @@ class FunctionHierarchy(object):
         coarse = self[level - 1]
         fine = self[level]
         if not hasattr(self, '_restrict_kernel'):
-            element = coarse.function_space().fiat_element
-            quadrature = FIAT.make_quadrature(element.ref_el, 2)
-            weights = quadrature.get_weights()
-            points = quadrature.get_points()
-
-            fine_basis = element.tabulate(0, points).values()[0]
-
-            # Fine cells numbered as P2 coarse cell:
-            #
-            # 2.
-            # | \
-            # |  \
-            # | 2 \
-            # 4----3.
-            # | \ 3| \
-            # |  \ |  \
-            # | 0 \| 1 \
-            # 0----5----1
-            #
-            # The transformations from coordinates in each fine
-            # reference cell to coordinates in the coarse reference
-            # cell are:
-            #
-            # T0: dofs 0 5 4
-            #     X_c = 1/2 (1 0) X_f
-            #               (0 1)
-            #
-            # T1: dofs 1 3 5
-            #     X_c = 1/2 (-1 -1) X_f + (1)
-            #               ( 1  0)       (0)
-            #
-            # T2: dofs 2 4 3
-            #     X_c = 1/2 ( 0  1) X_f + (0)
-            #               (-1 -1)       (1)
-            #
-            # T3: dofs 3 5 4
-            #     X_c = 1/2 ( 0 -1) X_f + (1/2)
-            #               (-1  0)       (1/2)
-            #
-            # Hence, to calculate the coarse basis functions, we take
-            # the reference cell fine quadrature points and hit them
-            # with the transformation, before tabulating.
-            X_c0 = 0.5 * points
-            X_c1 = np.asarray([0.5 * np.dot([[-1, -1], [1, 0]], pt) + np.array([1, 0], dtype=float) for pt in points])
-            X_c2 = np.asarray([0.5 * np.dot([[0, 1], [-1, -1]], pt) + np.array([0, 1], dtype=float) for pt in points])
-            X_c3 = np.asarray([0.5 * (np.dot([[0, -1], [-1, 0]], pt) + np.array([1, 1], dtype=float)) for pt in points])
-
-            coarse_basis = element.tabulate(0, np.concatenate([X_c0, X_c1, X_c2, X_c3])).values()[0]
-
+            # Residual lives in the test space, so we restrict it by
+            # writing the coarse basis functions as a linear combination
+            # of fine space basis functions.  This turns out to be the
+            # transpose of the prolongation.  We have to carry these
+            # weights around since we walk over cells and touch some
+            # coarse dofs a varying number of times.
             k = """
-            #include "firedrake_geometry.h"
-            #include <stdio.h>
-            static inline void restrict_cg1(double coarse[3], double **fine, double **coordinates)
+            static inline void restrict_cg1(double coarse[3], double **weight,
+                                            double **fine)
             {
-            const double fine_basis[4][3] = %(fine_basis)s;
-            const double coarse_basis[16][3] = %(coarse_basis)s;
-            const double weight[4] = %(weight)s;
-            const int fine_cell_dofs[4][3] = {{0, 5, 4}, {1, 3, 5}, {2, 4, 3}, {3, 5, 4}};
-            double J[4];
-            compute_jacobian_triangle_2d(J, coordinates);
-            double K[4];
-            double detJ;
-            compute_jacobian_inverse_triangle_2d(K, detJ, J);
-            const double det = fabs(detJ);
-            for ( int fcell = 0; fcell < 4; fcell++ ) {
-                for ( int ip = 0; ip < 4; ip++ ) {
-                    double fine_coeff = 0;
-                    for ( int i = 0; i < 3; i++ ) {
-                        fine_coeff += fine[fine_cell_dofs[fcell][i]][0] * fine_basis[ip][i];
-                    }
-                    for ( int i = 0; i < 3; i++ ) {
-                        coarse[i] += (weight[ip] * fine_coeff * coarse_basis[fcell * 4 + ip][i]) * det/4.0;
-                    }
-                }
+            coarse[0] += weight[0][0]*fine[0][0] + 0.5*(weight[4][0]*fine[4][0] + weight[5][0]*fine[5][0]);
+            coarse[1] += weight[1][0]*fine[1][0] + 0.5*(weight[3][0]*fine[3][0] + weight[5][0]*fine[5][0]);
+            coarse[2] += weight[2][0]*fine[2][0] + 0.5*(weight[3][0]*fine[3][0] + weight[4][0]*fine[4][0]);
             }
-            }
-            """ % {"fine_basis": "{{" + "},\n{".join([", ".join(map(str, x)) for x in fine_basis.T])+"}}",
-                   "coarse_basis": "{{" + "},\n{".join([", ".join(map(str, x)) for x in coarse_basis.T])+"}}",
-                   "weight": "{" + ", ".join(["%s" % w for w in weights]) + "}"}
-
-            k = op2.Kernel(k, 'restrict_cg1', include_dirs=[os.path.dirname(__file__)])
+            """
+            k = op2.Kernel(k, 'restrict_cg1')
 
             self._restrict_kernel = k
-        ccoords = coarse.function_space().mesh().coordinates
+        fs = self.function_space()
+        if fs._restriction_weights is None:
+            fs._restriction_weights = FunctionHierarchy(fs)
+            k = """
+            static inline void weights(double weight[6])
+            {
+                for ( int i = 0; i < 6; i++ ) {
+                    weight[i] += 1.0;
+                }
+            }"""
+            fn = fs._restriction_weights
+            k = op2.Kernel(k, 'weights')
+            # Count number of times cell loop hits
+            for lvl in range(1, len(fn)):
+                op2.par_loop(k, self.function_space()._cell_sets[lvl-1],
+                             fn[lvl].dat(op2.INC, fn.cell_node_map(lvl-1)[op2.i[0]]))
+                # Inverse, since we're using these as weights, not
+                # counts.
+                fn[lvl].assign(1.0/fn[lvl])
 
         coarse.dat.zero()
+        weights = fs._restriction_weights[level]
         op2.par_loop(self._restrict_kernel, self.function_space()._cell_sets[level-1],
                      coarse.dat(op2.INC, coarse.cell_node_map()[op2.i[0]], flatten=True),
-                     fine.dat(op2.READ, c2f_map, flatten=True),
-                     ccoords.dat(op2.READ, ccoords.cell_node_map(), flatten=True))
-
-        fs = self.function_space()
-        if is_solution:
-            detJ = 1.0
-        else:
-            # we need to weight the restricted residual by detJ of the
-            # big cell relative to the small cells.  Since we have
-            # regular refinement, this is just 2^tdim
-            detJ = 2.0 ** self.function_space().ufl_element().cell().topological_dimension()
-        if fs._lumped_mass[level - 1] is None:
-            v = ufl_expr.TestFunction(fs[level - 1])
-            fs._lumped_mass[level - 1] = solving.assemble(v*v.function_space().mesh()._dx)
-            fs._lumped_mass[level - 1].assign(detJ / fs._lumped_mass[level - 1])
-
-        coarse *= fs._lumped_mass[level - 1]
+                     weights.dat(op2.READ, c2f_map, flatten=True),
+                     fine.dat(op2.READ, c2f_map, flatten=True))
