@@ -59,18 +59,17 @@ def test_adding_bcs(a, V):
     bc1 = DirichletBC(V, 0, 1)
     A = assemble(a, bcs=[bc1])
 
-    for bc in A.bcs:
-        assert bc is bc1
+    assert set(A.bcs) == set([bc1])
 
     bc2 = DirichletBC(V, 1, 1)
     bc2.apply(A)
-    for bc in A.bcs:
-        assert bc is bc2
+
+    assert set(A.bcs) == set([bc2])
 
     bc3 = DirichletBC(V, 1, 0)
 
     bc3.apply(A)
-    assert A.bcs == set([bc2, bc3])
+    assert set(A.bcs) == set([bc2, bc3])
 
 
 def test_assemble_with_bcs(a, V):

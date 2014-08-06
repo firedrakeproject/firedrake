@@ -33,11 +33,11 @@ class Matrix(object):
         self._M = op2.Mat(*args, **kwargs)
         self._thunk = None
         self._assembled = False
-        self._bcs = set()
+        # Iteration over bcs must be in a parallel consistent order
+        # (so we can't use a set, since the iteration order may differ
+        # on different processes)
+        self._bcs = [bc for bc in bcs] if bcs is not None else []
         self._bcs_at_point_of_assembly = []
-        if bcs is not None:
-            for bc in bcs:
-                self._bcs.add(bc)
 
     def assemble(self):
         """Actually assemble this :class:`Matrix`.
@@ -99,7 +99,7 @@ class Matrix(object):
     def has_bcs(self):
         """Return True if this :class:`Matrix` has any boundary
         conditions attached to it."""
-        return self._bcs != set()
+        return self._bcs != []
 
     @property
     def bcs(self):
@@ -117,14 +117,14 @@ class Matrix(object):
             on the :class:`Matrix`.
 
         """
-        if bcs is None:
-            self._bcs = set()
-            return
-        try:
-            self._bcs = set(bcs)
-        except TypeError:
-            # BC instance, not iterable
-            self._bcs = set([bcs])
+        self._bcs = []
+        if bcs is not None:
+            try:
+                for bc in bcs:
+                    self._bcs.append(bc)
+            except TypeError:
+                # BC instance, not iterable
+                self._bcs.append(bcs)
 
     @property
     def a(self):
@@ -173,11 +173,11 @@ class Matrix(object):
         :class:`Matrix`.
 
         """
-        new_bcs = set([bc])
+        new_bcs = [bc]
         for existing_bc in self.bcs:
             # New BC doesn't override existing one, so keep it.
             if bc.sub_domain != existing_bc.sub_domain:
-                new_bcs.add(existing_bc)
+                new_bcs.append(existing_bc)
         self.bcs = new_bcs
 
     def _form_action(self, u):
