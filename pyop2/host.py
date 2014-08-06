@@ -448,44 +448,53 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                         'off': ' + ' + str(m.offset[idx])})
         return '\n'.join(val)+'\n'
 
-    def c_map_bcs(self, top_bottom, layers, sign):
+    def c_map_bcs(self, sign):
         maps = as_tuple(self.map, Map)
         val = []
-        if top_bottom is None:
-            return ""
-
         # To throw away boundary condition values, we subtract a large
         # value from the map to make it negative then add it on later to
         # get back to the original
         max_int = 10000000
-        if top_bottom[0]:
-            # We need to apply the bottom bcs
-            val.append("if (j_0 == 0){")
-            for i, map in enumerate(maps):
-                if not map.iterset._extruded:
+
+        need_bottom = False
+        # Apply any bcs on the first (bottom) layer
+        for i, map in enumerate(maps):
+            if not map.iterset._extruded:
+                continue
+            for j, m in enumerate(map):
+                if 'bottom' not in m.implicit_bcs:
                     continue
-                for j, m in enumerate(map):
-                    for idx in range(m.arity):
+                need_bottom = True
+                for idx in range(m.arity):
+                    if m.bottom_mask[idx] < 0:
                         val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
                                    {'name': self.c_map_name(i, j),
-                                    'val': max_int if m.bottom_mask[idx] < 0 else 0,
+                                    'val': max_int,
                                     'ind': idx,
                                     'sign': sign})
+        if need_bottom:
+            val.insert(0, "if (j_0 == 0) {")
             val.append("}")
 
-        if top_bottom[1]:
-            # We need to apply the top bcs
-            val.append("if (j_0 == end_layer - 1){")
-            for i, map in enumerate(maps):
-                if not map.iterset._extruded:
+        need_top = False
+        pos = len(val)
+        # Apply any bcs on last (top) layer
+        for i, map in enumerate(maps):
+            if not map.iterset._extruded:
+                continue
+            for j, m in enumerate(map):
+                if 'top' not in m.implicit_bcs:
                     continue
-                for j, m in enumerate(map):
-                    for idx in range(m.arity):
+                need_top = True
+                for idx in range(m.arity):
+                    if m.top_mask[idx] < 0:
                         val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
                                    {'name': self.c_map_name(i, j),
-                                    'val': max_int if m.top_mask[idx] < 0 else 0,
+                                    'val': max_int,
                                     'ind': idx,
                                     'sign': sign})
+        if need_top:
+            val.insert(pos, "if (j_0 == end_layer - 1) {")
             val.append("}")
         return '\n'.join(val)+'\n'
 
@@ -801,7 +810,6 @@ class JITModule(base.JITModule):
         _map_bcs_p = ""
         _layer_arg = ""
         if self._itspace._extruded:
-            a_bcs = self._itspace.iterset._extruded_bcs
             _layer_arg = ", int start_layer, int end_layer"
             _off_args = ''.join([arg.c_offset_init() for arg in self._args
                                  if arg._uses_itspace or arg._is_vec_map])
@@ -809,10 +817,8 @@ class JITModule(base.JITModule):
                                      for arg in self._args if arg._uses_itspace])
             _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, layers=self._itspace.layers, is_facet=is_facet)
                                      for arg in self._args if arg._uses_itspace])
-            _map_bcs_m += ';\n'.join([arg.c_map_bcs(a_bcs, self._itspace.layers, "-")
-                                      for arg in self._args if arg._is_mat])
-            _map_bcs_p += ';\n'.join([arg.c_map_bcs(a_bcs, self._itspace.layers, "+")
-                                      for arg in self._args if arg._is_mat])
+            _map_bcs_m += ';\n'.join([arg.c_map_bcs("-") for arg in self._args if arg._is_mat])
+            _map_bcs_p += ';\n'.join([arg.c_map_bcs("+") for arg in self._args if arg._is_mat])
             _apply_offset += ';\n'.join([arg.c_add_offset_map(is_facet=is_facet)
                                          for arg in self._args if arg._uses_itspace])
             _apply_offset += ';\n'.join([arg.c_add_offset(is_facet=is_facet)
