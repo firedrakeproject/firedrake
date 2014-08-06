@@ -65,9 +65,12 @@ Output the initial conditions::
   outfile = File("out.pvd")
   outfile << project(phi, outfs, name="phi")
 
-We establish a boundary condition object::
+We establish a boundary condition object, since we have time-dependent
+boundary conditions, we first create a :class:`.Constant` to hold the
+value and use that::
 
-  bc = DirichletBC(V, 0.0, 1)
+  bcval = Constant(0.0)
+  bc = DirichletBC(V, bcval, 1)
 
 Now we set the timestepping variables::
 
@@ -76,24 +79,45 @@ Now we set the timestepping variables::
   t = 0
   step = 0
 
+Finally we set a flag indicating whether we wish to perform
+mass-lumping in the timestepping scheme::
+
+  lump_mass = False
+
+Now we are ready to start the timestepping loop::
+
   while t <= T:
       step += 1
 
 Update the boundary condition value for this timestep::
 
-      bc.set_value(sin(2*pi*5*t))
+      bcval.assign(sin(2*pi*5*t))
 
 Step forward :math:`\phi` by half a timestep. Since this does not involve a matrix inversion, this is implemented as a pointwise operation::
 
       phi -= dt / 2 * p
 
 Now step forward :math:`p`. This is an explicit timestepping scheme
-which only requires hte inversion of a mass matrix::
+which only requires the inversion of a mass matrix.  We have two
+options at this point, we may either `lump` the mass, which reduces
+the inversion to a pointwise division::
 
-      solve(u * v * dx == v * p * dx + dt * inner(grad(v), grad(phi)) * dx,
-            p, bcs=bc, solver_parameters={'ksp_type': 'cg',
-                                          'pc_type': 'sor',
-                                          'pc_sor_symmetric': True})
+      if lump_mass:
+          p += assemble(dt * inner(nabla_grad(v), nabla_grad(phi))*dx) / assemble(v*dx)
+
+In the mass lumped case, we must now ensure that the resulting
+solution for :math:`p` satisfies the boundary conditions::
+
+          bc.apply(p)
+
+Alternatively, we can invert the mass matrix using a linear solver::
+
+      else:
+          solve(u * v * dx == v * p * dx + dt * inner(grad(v), grad(phi)) * dx,
+                p, bcs=bc, solver_parameters={'ksp_type': 'cg',
+                                              'pc_type': 'sor',
+                                              'pc_sor_symmetric': True})
+
 
 Step forward :math:`\phi` by the second half timestep::
 
