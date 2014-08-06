@@ -889,7 +889,7 @@ class IntervalMesh(Mesh):
     """
     def __init__(self, ncells, length):
         self.name = "interval"
-        dx = length / ncells
+        dx = float(length) / ncells
         # This ensures the rightmost point is actually present.
         coords = np.arange(0, length + 0.01 * dx, dx).reshape(-1, 1)
         cells = np.dstack((np.arange(0, len(coords) - 1, dtype=np.int32),
@@ -954,7 +954,7 @@ class PeriodicIntervalMesh(Mesh):
         plex.stratify()
 
         # Build coordinate section
-        dx = length / ncells
+        dx = float(length) / ncells
         coords = [x for x in np.arange(0, length + 0.01 * dx, dx)]
 
         coordsec = plex.getCoordinateSection()

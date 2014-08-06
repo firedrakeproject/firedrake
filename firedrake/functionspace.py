@@ -376,6 +376,21 @@ class FunctionSpaceBase(ObjectCached):
 
     def _map_cache(self, cache, entity_set, entity_node_list, map_arity, bcs, name,
                    offset=None, parent=None):
+        if bcs is not None:
+            # Separate explicit bcs (we just place negative entries in
+            # the appropriate map values) from implicit ones (extruded
+            # top and bottom) that require PyOP2 code gen.
+            explicit_bcs = [bc for bc in bcs if bc.sub_domain not in ['top', 'bottom']]
+            implicit_bcs = [bc.sub_domain for bc in bcs if bc.sub_domain in ['top', 'bottom']]
+            if len(explicit_bcs) == 0:
+                # Implicit bcs are not part of the cache key for the
+                # map (they only change the generated PyOP2 code),
+                # hence rewrite bcs here.
+                bcs = None
+            if len(implicit_bcs) == 0:
+                implicit_bcs = None
+        else:
+            implicit_bcs = None
         if bcs is None:
             # Empty tuple if no bcs found.  This is so that matrix
             # assembly, which uses a set to keep track of the bcs
@@ -389,7 +404,13 @@ class FunctionSpaceBase(ObjectCached):
             lbcs = tuple(sorted(bcs, key=lambda bc: bc.__hash__()))
         try:
             # Cache hit
-            return cache[lbcs]
+            val = cache[lbcs]
+            # In the implicit bc case, we decorate the cached map with
+            # the list of implicit boundary conditions so PyOP2 knows
+            # what to do.
+            if implicit_bcs:
+                val = op2.DecoratedMap(val, implicit_bcs=implicit_bcs)
+            return val
         except KeyError:
             # Cache miss.
 
@@ -403,15 +424,18 @@ class FunctionSpaceBase(ObjectCached):
             else:
                 new_entity_node_list = entity_node_list
 
-            cache[lbcs] = op2.Map(entity_set, self.node_set,
-                                  map_arity,
-                                  new_entity_node_list,
-                                  ("%s_"+name) % (self.name),
-                                  offset,
-                                  parent,
-                                  self.bt_masks)
+            val = op2.Map(entity_set, self.node_set,
+                          map_arity,
+                          new_entity_node_list,
+                          ("%s_"+name) % (self.name),
+                          offset,
+                          parent,
+                          self.bt_masks)
 
-            return cache[lbcs]
+            cache[lbcs] = val
+            if implicit_bcs:
+                return op2.DecoratedMap(val, implicit_bcs=implicit_bcs)
+            return val
 
     @utils.memoize
     def exterior_facet_boundary_node_map(self, method):
