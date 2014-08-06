@@ -120,7 +120,7 @@ class Expression(ufl.Coefficient):
         utils._init()
         self.code = code
         self._shape = ()
-        if code:
+        if code is not None:
             shape = np.array(code).shape
             self._shape = shape
             if self.rank() == 0:
