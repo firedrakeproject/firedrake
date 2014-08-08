@@ -46,24 +46,20 @@ This time we created the mesh with `Gmsh <http://geuz.org/gmsh/>`_::
   from firedrake import *
   mesh = Mesh("wave_tank.msh")
 
-We choose a degree 2 continuous function space, and set up the
+We choose a degree 1 continuous function space, and set up the
 function space and functions::
 
-  V = FunctionSpace(mesh, 'Lagrange', 2)
-  p = Function(V)
-  phi = Function(V)
+  V = FunctionSpace(mesh, 'Lagrange', 1)
+  p = Function(V, name="p")
+  phi = Function(V, name="phi")
 
   u = TrialFunction(V)
   v = TestFunction(V)
 
-We also need a first order space to make output work properly::
-
-  outfs = FunctionSpace(mesh, 'Lagrange', 1)
-
 Output the initial conditions::
 
   outfile = File("out.pvd")
-  outfile << project(phi, outfs, name="phi")
+  outfile << phi
 
 We establish a boundary condition object, since we have time-dependent
 boundary conditions, we first create a :class:`.Constant` to hold the
@@ -82,7 +78,7 @@ Now we set the timestepping variables::
 Finally we set a flag indicating whether we wish to perform
 mass-lumping in the timestepping scheme::
 
-  lump_mass = False
+  lump_mass = True
 
 Now we are ready to start the timestepping loop::
 
@@ -127,7 +123,7 @@ Advance time and output as appropriate::
 
       t += dt
       if step % 10 == 0:
-          outfile << project(phi, outfs, name="phi")
+          outfile << phi
 
 .. only:: html
 
