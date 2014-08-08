@@ -1784,8 +1784,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                             body=ast.c_for("n", self.cdim,
                                            ast.Assign(ast.Symbol("self", ("n", )),
                                                       ast.FlatBlock("(%s)0" % self.ctype)),
-                                           pragma=None),
-                            pred=["static", "inline"])
+                                           pragma=None))
             self._zero_kernel = _make_object('Kernel', k, 'zero')
         par_loop(self._zero_kernel, self.dataset.set, self(WRITE))
 
@@ -1810,8 +1809,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                             body=ast.c_for("n", self.cdim,
                                            ast.Assign(ast.Symbol("other", ("n", )),
                                                       ast.Symbol("self", ("n", ))),
-                                           pragma=None),
-                            pred=["static", "inline"])
+                                           pragma=None))
             self._copy_kernel = _make_object('Kernel', k, 'copy')
         return _make_object('ParLoop', self._copy_kernel,
                             subset or self.dataset.set,
@@ -1914,8 +1912,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                                                  ast.BinExpr(ast.Symbol("self", ("n", )),
                                                              ast.Symbol("other", ("0", )),
                                                              op=ops[op])),
-                                      pragma=None),
-                            pred=["static", "inline"])
+                                      pragma=None))
 
             k = _make_object('Kernel', k, name)
         else:
@@ -1931,8 +1928,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                                                  ast.BinExpr(ast.Symbol("self", ("n", )),
                                                              ast.Symbol("other", ("n", )),
                                                              op=ops[op])),
-                                      pragma=None),
-                            pred=["static", "inline"])
+                                      pragma=None))
 
             k = _make_object('Kernel', k, name)
         par_loop(k, self.dataset.set, self(READ), other(READ), ret(WRITE))
@@ -1954,8 +1950,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                             ast.c_for("n", self.cdim,
                                       ops[op](ast.Symbol("self", ("n", )),
                                               ast.Symbol("other", ("0", ))),
-                                      pragma=None),
-                            pred=["static", "inline"])
+                                      pragma=None))
             k = _make_object('Kernel', k, name)
         else:
             self._check_shape(other)
@@ -1967,8 +1962,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                             ast.c_for("n", self.cdim,
                                       ops[op](ast.Symbol("self", ("n", )),
                                               ast.Symbol("other", ("n", ))),
-                                      pragma=None),
-                            pred=["static", "inline"])
+                                      pragma=None))
             k = _make_object('Kernel', k, name)
         par_loop(k, self.dataset.set, self(INC), other(READ))
         return self
@@ -1981,8 +1975,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                         ast.c_for("n", self.cdim,
                                   ast.Assign(ast.Symbol("self", ("n", )),
                                              ops[op](ast.Symbol("self", ("n", )))),
-                                  pragma=None),
-                        pred=["static", "inline"])
+                                  pragma=None))
         k = _make_object('Kernel', k, name)
         par_loop(k, self.dataset.set, self(RW))
         return self
@@ -2007,8 +2000,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                                   ast.Incr(ast.Symbol("ret", (0, )),
                                            ast.Prod(ast.Symbol("self", ("n", )),
                                                     ast.Symbol("other", ("n", )))),
-                                  pragma=None),
-                        pred=["static", "inline"])
+                                  pragma=None))
         k = _make_object('Kernel', k, "inner")
         par_loop(k, self.dataset.set, self(READ), other(READ), ret(INC))
         return ret.data_ro[0]
