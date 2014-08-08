@@ -46,7 +46,7 @@ class Halo(object):
                 send_reqs.append(self.comm.Isend(s, dest=p, tag=self.tag))
 
         recv_reqs = []
-        sizes = [np.empty(1, dtype=np.int32) for _ in range(self._nprocs)]
+        sizes = [np.zeros(1, dtype=np.int32) for _ in range(self._nprocs)]
         for p in range(self._nprocs):
             # receive sizes
             if p != self._comm.rank:
@@ -58,18 +58,21 @@ class Halo(object):
         for p in range(self._nprocs):
             # allocate buffers
             if p != self._comm.rank:
-                self._sends[p] = np.empty(sizes[p], dtype=np.int32)
+                if sizes[p][0] > 0:
+                    self._sends[p] = np.empty(sizes[p][0], dtype=np.int32)
 
         send_reqs = []
         for p in range(self._nprocs):
             if p != self._comm.rank:
-                send_buf = np.array(remote_sends[p], dtype=np.int32)
-                send_reqs.append(self.comm.Isend(send_buf, dest=p, tag=self.tag))
+                if len(remote_sends[p]) > 0:
+                    send_buf = np.array(remote_sends[p], dtype=np.int32)
+                    send_reqs.append(self.comm.Isend(send_buf, dest=p, tag=self.tag))
 
         recv_reqs = []
         for p in range(self._nprocs):
             if p != self._comm.rank:
-                recv_reqs.append(self.comm.Irecv(self._sends[p], source=p, tag=self.tag))
+                if sizes[p][0] > 0:
+                    recv_reqs.append(self.comm.Irecv(self._sends[p], source=p, tag=self.tag))
 
         MPI.Request.Waitall(send_reqs)
         MPI.Request.Waitall(recv_reqs)
