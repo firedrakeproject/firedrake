@@ -46,6 +46,7 @@ from device import *
 from logger import warning
 import plan
 import petsc_base
+from profiling import lineprof
 from utils import verify_reshape, uniquify, maybe_setflags
 
 
@@ -684,7 +685,7 @@ class ParLoop(device.ParLoop):
             return {'partition_size': self._i_partition_size()}
 
     @collective
-    @profile
+    @lineprof
     def _compute(self, part):
         if part.size == 0:
             # Return before plan call if no computation should occur

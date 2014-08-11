@@ -48,6 +48,7 @@ from host import Kernel  # noqa: for inheritance
 from logger import warning
 import plan as _plan
 from petsc_base import *
+from profiling import lineprof
 from utils import *
 
 # hard coded value to max openmp threads
@@ -210,7 +211,7 @@ void %(wrapper_name)s(int boffset,
 class ParLoop(device.ParLoop, host.ParLoop):
 
     @collective
-    @profile
+    @lineprof
     def _compute(self, part):
         fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct, iterate=self.iteration_region)
         if not hasattr(self, '_jit_args'):

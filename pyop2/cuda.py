@@ -43,7 +43,7 @@ from configuration import configuration
 import device as op2
 from device import *
 import plan
-from profiling import Timer
+from profiling import lineprof, Timer
 from utils import verify_reshape
 
 
@@ -813,7 +813,7 @@ class ParLoop(op2.ParLoop):
                     'WARPSIZE': 32}
 
     @collective
-    @profile
+    @lineprof
     def _compute(self, part):
         if part.size == 0:
             # Return before plan call if no computation should occur
