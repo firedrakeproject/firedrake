@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 
 from firedrake import *
 
@@ -27,9 +28,41 @@ def test_real_two_form_assembly():
     u = TrialFunction(fs)
     v = TestFunction(fs)
 
-    assemble(u*v*dx).M
+    assert assemble(2*u*v*dx).M.handle.getPythonContext().data == 2.0
 
 
+def test_real_nonsquare_two_form_assembly():
+    mesh = UnitIntervalMesh(3)
+    rfs = FunctionSpace(mesh, "Real", 0)
+    cgfs = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(rfs)
+    v = TestFunction(cgfs)
+
+    base_case = assemble(2*v*dx)
+    m1 = assemble(2*u*v*dx)
+
+    u = TrialFunction(cgfs)
+    v = TestFunction(rfs)
+    m2 = assemble(2*u*v*dx)
+
+    np.testing.assert_almost_equal(base_case.dat.data,
+                                   m1.M.handle.getPythonContext().data)
+    np.testing.assert_almost_equal(base_case.dat.data,
+                                   m2.M.handle.getPythonContext().data)
+
+
+def test_real_mixed_two_form_assembly():
+    mesh = UnitIntervalMesh(3)
+    rfs = FunctionSpace(mesh, "Real", 0)
+    cgfs = FunctionSpace(mesh, "CG", 1)
+
+    mfs = cgfs*rfs
+    u, p = TrialFunctions(mfs)
+    v, q = TestFunctions(mfs)
+
+    m = assemble(u*v*dx + p*q*dx).M.handle.getPythonContext().data
+
+>>>>>>> c276d32871b108962f09f4b451f525986432321b
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

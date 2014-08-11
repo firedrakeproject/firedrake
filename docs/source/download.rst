@@ -23,6 +23,7 @@ requires a version of Instant_.
 Install FFC_ and all dependencies via pip::
 
   sudo pip install \
+    six \
     git+https://bitbucket.org/mapdes/ffc.git#egg=ffc \
     git+https://bitbucket.org/mapdes/ufl.git#egg=ufl \
     git+https://bitbucket.org/mapdes/fiat.git#egg=fiat \
