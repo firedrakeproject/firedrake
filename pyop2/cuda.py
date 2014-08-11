@@ -31,19 +31,20 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import base
-from device import *
-from configuration import configuration
-import device as op2
-import plan
-from profiling import Timer
-import numpy as np
-from utils import verify_reshape
 import jinja2
+import numpy as np
 import pycuda.driver as driver
 import pycuda.gpuarray as gpuarray
 from pycuda.compiler import SourceModule
 from pycparser import c_parser, c_ast, c_generator
+
+import base
+from configuration import configuration
+import device as op2
+from device import *
+import plan
+from profiling import Timer
+from utils import verify_reshape
 
 
 class Kernel(op2.Kernel):

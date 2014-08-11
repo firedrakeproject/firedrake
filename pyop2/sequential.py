@@ -33,15 +33,16 @@
 
 """OP2 sequential backend."""
 
-from exceptions import *
-from utils import as_tuple
-from mpi import collective
-from petsc_base import *
-import host
 import ctypes
 from numpy.ctypeslib import ndpointer
-from host import Kernel, Arg  # noqa: needed by BackendSelector
+
 from base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS
+from exceptions import *
+import host
+from mpi import collective
+from petsc_base import *
+from host import Kernel, Arg  # noqa: needed by BackendSelector
+from utils import as_tuple
 
 # Parallel loop API
 

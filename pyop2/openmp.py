@@ -33,22 +33,22 @@
 
 """OP2 OpenMP backend."""
 
-import os
-import numpy as np
-import math
-
-from exceptions import *
-from utils import *
-from petsc_base import *
-from logger import warning
-import host
 import ctypes
+import math
+import numpy as np
 from numpy.ctypeslib import ndpointer
-from host import Kernel  # noqa: for inheritance
-import device
-import plan as _plan
+import os
 from subprocess import Popen, PIPE
+
 from base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS
+from exceptions import *
+import device
+import host
+from host import Kernel  # noqa: for inheritance
+from logger import warning
+import plan as _plan
+from petsc_base import *
+from utils import *
 
 # hard coded value to max openmp threads
 _max_threads = 32
