@@ -37,6 +37,7 @@ Abstract Syntax Tree (ast)."""
 # Utilities for simple exprs and commands
 point = lambda p: "[%s]" % p
 point_ofs = lambda p, o: "[%s*%s+%s]" % (p, o[0], o[1])
+point_ofs_stride = lambda p, o: "[%s+%s]" % (p, o)
 assign = lambda s, e: "%s = %s" % (s, e)
 incr = lambda s, e: "%s += %s" % (s, e)
 incr_by_1 = lambda s: "++%s" % s
@@ -223,7 +224,7 @@ class Symbol(Expr):
         depends on, or explicit numbers representing the entry of a tensor the
         symbol is accessing, or the size of the tensor itself. """
 
-    def __init__(self, symbol, rank=(), offset=None):
+    def __init__(self, symbol, rank=(), offset=()):
         self.symbol = symbol
         self.rank = rank
         self.offset = offset
@@ -236,7 +237,12 @@ class Symbol(Expr):
                 points += point(p)
         else:
             for p, ofs in zip(self.rank, self.offset):
-                points += point_ofs(p, ofs) if ofs != (1, 0) else point(p)
+                if ofs == (1, 0):
+                    points += point(p)
+                elif ofs[0] == 1:
+                    points += point_ofs_stride(p, ofs[1])
+                else:
+                    points += point_ofs(p, ofs)
         return str(self.symbol) + points
 
 
@@ -317,6 +323,10 @@ class Statement(Node):
 
     def __init__(self, children=None, pragma=None):
         super(Statement, self).__init__(children)
+        if not pragma:
+            pragma = []
+        elif isinstance(pragma, str):
+            pragma = [pragma]
         self.pragma = pragma
 
 
@@ -473,7 +483,6 @@ class For(Statement):
         self.init = init
         self.cond = cond
         self.incr = incr
-        self.pragma = pragma if pragma is not None else ""
 
     def it_var(self):
         return self.init.sym.symbol
@@ -482,9 +491,10 @@ class For(Statement):
         return self.cond.children[1].symbol - self.init.init.symbol
 
     def gencode(self, scope=False):
-        return self.pragma + "\n" + for_loop(self.init.gencode(True),
-                                             self.cond.gencode(), self.incr.gencode(True),
-                                             self.children[0].gencode())
+        return "\n".join(self.pragma) + "\n" + for_loop(self.init.gencode(True),
+                                                        self.cond.gencode(),
+                                                        self.incr.gencode(True),
+                                                        self.children[0].gencode())
 
 
 class FunDecl(Statement):

@@ -62,6 +62,7 @@ class AssemblyOptimizer(object):
     def __init__(self, loop_nest, pre_header, kernel_decls):
         self.pre_header = pre_header
         self.kernel_decls = kernel_decls
+        self._is_precomputed = False
         # Expressions evaluating the element matrix
         self.asm_expr = {}
         # Integration loop (if any)
@@ -83,7 +84,7 @@ class AssemblyOptimizer(object):
             """Check if node is associated some pragma. If that is the case,
             it saves this info so as to enable pyop2 optimising such node. """
             if node.pragma:
-                opts = node.pragma.split(" ", 2)
+                opts = node.pragma[0].split(" ", 2)
                 if len(opts) < 3:
                     return
                 if opts[1] == "pyop2":
@@ -108,7 +109,7 @@ class AssemblyOptimizer(object):
                     else:
                         raise RuntimeError("Unrecognised opt %s - skipping it", opt_name)
                 else:
-                    raise RuntimeError("Unrecognised pragma found '%s'", node.pragma)
+                    raise RuntimeError("Unrecognised pragma found '%s'", node.pragma[0])
 
         def inspect(node, parent, fors, decls, symbols):
             if isinstance(node, Block):
@@ -186,6 +187,7 @@ class AssemblyOptimizer(object):
                 ew.licm()
             if level > 2:
                 self._precompute(expr)
+                self._is_precomputed = True
 
     def slice_loop(self, slice_factor=None):
         """Perform slicing of the innermost loop to enhance register reuse.
@@ -239,6 +241,139 @@ class AssemblyOptimizer(object):
             pb = par_block.children
             idx = pb.index(loops[1])
             par_block.children = pb[:idx] + sliced_loops + pb[idx + 1:]
+
+    def unroll(self, loops_factor):
+        """Unroll loops in the assembly nest.
+
+        :arg loops_factor:   dictionary from loops to unroll (factor, increment).
+                             Loops are specified as integers: 0 = integration loop,
+                             1 = test functions loop, 2 = trial functions loop.
+                             A factor of 0 denotes that the corresponding loop
+                             is not present.
+        """
+
+        def update_stmt(node, var, factor):
+            """Add an offset ``factor`` to every iteration variable ``var`` in
+            ``node``."""
+            if isinstance(node, Symbol):
+                new_ofs = []
+                node.offset = node.offset or ((1, 0) for i in range(len(node.rank)))
+                for r, ofs in zip(node.rank, node.offset):
+                    new_ofs.append((ofs[0], ofs[1] + factor) if r == var else ofs)
+                node.offset = tuple(new_ofs)
+            else:
+                for n in node.children:
+                    update_stmt(n, var, factor)
+
+        def unroll_loop(asm_expr, it_var, factor):
+            """Unroll assembly expressions in ``asm_expr`` along iteration variable
+            ``it_var`` a total of ``factor`` times."""
+            new_asm_expr = {}
+            unroll_loops = set()
+            for stmt, stmt_info in asm_expr.items():
+                it_vars, parent, loops = stmt_info
+                new_stmts = []
+                # Determine the loop along which to unroll
+                if self.int_loop and self.int_loop.it_var() == it_var:
+                    loop = self.int_loop
+                elif loops[0].it_var() == it_var:
+                    loop = loops[0]
+                else:
+                    loop = loops[1]
+                unroll_loops.add(loop)
+                # Unroll individual statements
+                for i in range(factor):
+                    new_stmt = dcopy(stmt)
+                    update_stmt(new_stmt, loop.it_var(), (i+1))
+                    parent.children.append(new_stmt)
+                    new_stmts.append(new_stmt)
+                new_asm_expr.update(dict(zip(new_stmts,
+                                             [stmt_info for i in range(len(new_stmts))])))
+            # Update the increment of each unrolled loop
+            for l in unroll_loops:
+                l.incr.children[1].symbol += factor
+            return new_asm_expr
+
+        int_factor = loops_factor[0]
+        asm_outer_factor = loops_factor[1]
+        asm_inner_factor = loops_factor[2]
+
+        # Unroll-and-jam integration loop
+        if int_factor > 1 and self._is_precomputed:
+            self.asm_expr.update(unroll_loop(self.asm_expr, self.int_loop.it_var(),
+                                             int_factor-1))
+        # Unroll-and-jam test functions loop
+        if asm_outer_factor > 1:
+            self.asm_expr.update(unroll_loop(self.asm_expr, self.asm_itspace[0][0].it_var(),
+                                             asm_outer_factor-1))
+        # Unroll trial functions loop
+        if asm_inner_factor > 1:
+            self.asm_expr.update(unroll_loop(self.asm_expr, self.asm_itspace[1][0].it_var(),
+                                             asm_inner_factor-1))
+
+    def permute_int_loop(self):
+        """Permute the integration loop with the innermost loop in the assembly nest.
+        This transformation is legal if ``_precompute`` was invoked. Storage layout of
+        all 2-dimensional arrays involved in the element matrix computation is
+        transposed."""
+
+        def transpose_layout(node, transposed, to_transpose):
+            """Transpose the storage layout of symbols in ``node``. If the symbol is
+            in a declaration, then its statically-known size is transposed (e.g.
+            double A[3][4] -> double A[4][3]). Otherwise, its iteration variables
+            are swapped (e.g. A[i][j] -> A[j][i]).
+
+            If ``to_transpose`` is empty, then all symbols encountered in the traversal of
+            ``node`` are transposed. Otherwise, only symbols in ``to_transpose`` are
+            transposed."""
+            if isinstance(node, Symbol):
+                if not to_transpose:
+                    transposed.add(node.symbol)
+                elif node.symbol in to_transpose:
+                    node.rank = (node.rank[1], node.rank[0])
+            elif isinstance(node, Decl):
+                transpose_layout(node.sym, transposed, to_transpose)
+            elif isinstance(node, FlatBlock):
+                return
+            else:
+                for n in node.children:
+                    transpose_layout(n, transposed, to_transpose)
+
+        if not self.int_loop or not self._is_precomputed:
+            return
+
+        new_asm_expr = {}
+        new_outer_loop = None
+        new_inner_loops = []
+        permuted = set()
+        transposed = set()
+        for stmt, stmt_info in self.asm_expr.items():
+            it_vars, parent, loops = stmt_info
+            inner_loop = loops[-1]
+            # Permute loops
+            if inner_loop in permuted:
+                continue
+            else:
+                permuted.add(inner_loop)
+            new_outer_loop = new_outer_loop or dcopy(inner_loop)
+            inner_loop.init = dcopy(self.int_loop.init)
+            inner_loop.cond = dcopy(self.int_loop.cond)
+            inner_loop.incr = dcopy(self.int_loop.incr)
+            inner_loop.pragma = dcopy(self.int_loop.pragma)
+            new_asm_loops = (new_outer_loop,) if len(loops) == 1 else (new_outer_loop, loops[0])
+            new_asm_expr[stmt] = (it_vars, parent, new_asm_loops)
+            new_inner_loops.append(new_asm_loops[-1])
+            new_outer_loop.children[0].children = new_inner_loops
+            # Track symbols whose storage layout should be transposed for unit-stridness
+            transpose_layout(stmt.children[1], transposed, set())
+        blk = self.pre_header.children
+        blk.insert(blk.index(self.int_loop), new_outer_loop)
+        blk.remove(self.int_loop)
+        # Update assembly expressions and integration loop
+        self.asm_expr = new_asm_expr
+        self.int_loop = inner_loop
+        # Transpose storage layout of all symbols involved in assembly
+        transpose_layout(self.pre_header, set(), transposed)
 
     def split(self, cut=1, length=0):
         """Split assembly expressions into multiple chunks exploiting sum's
@@ -362,6 +497,8 @@ class AssemblyOptimizer(object):
                         splittable[stmt_left] = (it_vars, parent, loops)
                     else:
                         split[stmt_left] = (it_vars, parent, loops)
+                else:
+                    split[stmt] = stmt_info
             return split, splittable
 
         if not self.asm_expr:
@@ -383,6 +520,7 @@ class AssemblyOptimizer(object):
             while splittable:
                 split, splittable = split_and_update(splittable)
                 new_asm_expr.update(split)
+            new_asm_expr.update(splittable)
         self.asm_expr = new_asm_expr
 
     def _precompute(self, expr):
@@ -410,8 +548,8 @@ class AssemblyOptimizer(object):
 
         def update_syms(node, precomputed):
             if isinstance(node, Symbol):
-                if str(node) in precomputed:
-                    node.rank = precomputed[str(node)]
+                if node.symbol in precomputed:
+                    node.rank = precomputed[node.symbol]
             else:
                 for n in node.children:
                     update_syms(n, precomputed)
@@ -422,8 +560,8 @@ class AssemblyOptimizer(object):
 
             if isinstance(node, Symbol):
                 # Vector-expand the symbol if already pre-computed
-                if str(node) in precomputed:
-                    node.rank = precomputed[str(node)]
+                if node.symbol in precomputed:
+                    node.rank = precomputed[node.symbol]
             elif isinstance(node, Expr):
                 for n in node.children:
                     precompute_stmt(n, precomputed, new_outer_block)
@@ -431,18 +569,22 @@ class AssemblyOptimizer(object):
                 # Precompute the LHS of the assignment
                 symbol = node.children[0]
                 new_rank = (self.int_loop.it_var(),) + symbol.rank
-                precomputed[str(symbol)] = new_rank
+                precomputed[symbol.symbol] = new_rank
                 symbol.rank = new_rank
                 # Vector-expand the RHS
                 precompute_stmt(node.children[1], precomputed, new_outer_block)
                 # Finally, append the new node
                 new_outer_block.append(node)
             elif isinstance(node, Decl):
-                # Vector-expand the declaration of the precomputed symbol
-                node.sym.rank = (self.int_loop.size(),) + node.sym.rank
+                new_outer_block.append(node)
                 if isinstance(node.init, Symbol):
                     node.init.symbol = "{%s}" % node.init.symbol
-                new_outer_block.append(node)
+                elif isinstance(node.init, Expr):
+                    new_assign = Assign(dcopy(node.sym), node.init)
+                    precompute_stmt(new_assign, precomputed, new_outer_block)
+                    node.init = EmptyStatement()
+                # Vector-expand the declaration of the precomputed symbol
+                node.sym.rank = (self.int_loop.size(),) + node.sym.rank
             elif isinstance(node, For):
                 # Precompute and/or Vector-expand inner statements
                 new_children = []
@@ -869,9 +1011,9 @@ class ExpressionExpander(object):
     def __init__(self, var_info, eg, expr):
         self.var_info = var_info
         self.eg = eg
-        self.counter = 0
         self.parent = expr
         self.expanded_decls = {}
+        self.found_consts = {}
         self.expanded_syms = []
 
     def _do_expand(self, sym, const):
@@ -882,6 +1024,21 @@ class ExpressionExpander(object):
 
         old_expr, var_decl, inv_for, place = self.var_info[sym.symbol]
 
+        # The expanding expression is first assigned to a temporary value in order
+        # to minimize code size and, possibly, work around compiler's inefficiencies
+        # when doing loop-invariant code motion
+        const_str = str(const)
+        if const_str in self.found_consts:
+            const = dcopy(self.found_consts[const_str])
+        elif not isinstance(const, Symbol):
+            const_sym = Symbol("const%d" % len(self.found_consts), ())
+            new_const_decl = Decl("double", dcopy(const_sym), const)
+            self.expanded_decls[new_const_decl.sym.symbol] = (new_const_decl, ast_plan.LOCAL_VAR)
+            self.expanded_syms.append(new_const_decl.sym)
+            place.insert(place.index(inv_for), new_const_decl)
+            self.found_consts[const_str] = const_sym
+            const = const_sym
+
         # No dependencies, just perform the expansion
         if not self.eg.has_dep(sym):
             old_expr.children[0] = Prod(Par(old_expr.children[0]), const)
@@ -890,7 +1047,7 @@ class ExpressionExpander(object):
         # Create a new symbol, expression, and declaration
         new_expr = Par(Prod(dcopy(sym), const))
         new_node = Assign(sym, new_expr)
-        sym.symbol += "_EXP%d" % self.counter
+        sym.symbol += "_EXP%d" % len(self.expanded_syms)
         new_var_decl = dcopy(var_decl)
         new_var_decl.sym.symbol = sym.symbol
         # Append new expression and declaration
@@ -901,8 +1058,6 @@ class ExpressionExpander(object):
         # Update tracked information
         self.var_info[sym.symbol] = (new_expr, new_var_decl, inv_for, place)
         self.eg.add_dependency(sym, new_expr, 0)
-
-        self.counter += 1
 
     def expand(self, node, parent, it_vars, exp_var):
         """Perform the expansion of the expression rooted in ``node``. Terms are

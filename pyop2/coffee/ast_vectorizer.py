@@ -80,15 +80,24 @@ class AssemblyVectorizer(object):
         iloops = inner_loops(self.asm_opt.pre_header)
         # Add pragma alignment
         for l in iloops:
-            l.pragma = self.comp["decl_aligned_for"]
+            l.pragma = [self.comp["decl_aligned_for"]]
 
         # Loop adjustment
         for l in iloops:
+            adjust = True
             for stm in l.children[0].children:
                 sym = stm.children[0]
-                if sym.rank and sym.rank[-1] == l.it_var():
-                    bound = l.cond.children[1]
-                    l.cond.children[1] = c_sym(vect_roundup(bound.symbol))
+                if not (sym.rank and sym.rank[-1] == l.it_var()):
+                    adjust = False
+            if adjust:
+                # Bound adjustment is safe iff all statements's lfs in the body
+                # have as fastest varying the dimension the iteration variable
+                # of the innermost loop
+                bound = l.cond.children[1]
+                l.cond.children[1] = c_sym(vect_roundup(bound.symbol))
+                # Successful bound adjustment allows forcing simdization
+                if self.comp.get('force_simdization'):
+                    l.pragma.append(self.comp['force_simdization'])
 
     def outer_product(self, opts, factor=1):
         """Compute outer products according to opts.

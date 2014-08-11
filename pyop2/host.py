@@ -55,12 +55,14 @@ class Kernel(base.Kernel):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of code (C syntax) suitable to CPU execution."""
         if not isinstance(ast, Node):
-            self._is_blas_optimized = False
+            self._applied_blas = False
+            self._applied_ap = False
             return ast
         self._ast = ast
-        ast_handler = ASTKernel(ast)
+        ast_handler = ASTKernel(ast, self._include_dirs)
         ast_handler.plan_cpu(opts)
-        self._is_blas_optimized = ast_handler.blas
+        self._applied_blas = ast_handler.blas
+        self._applied_ap = ast_handler.ap
         return ast_handler.gencode()
 
 
@@ -255,7 +257,7 @@ class Arg(base.Arg):
              'cols': cols_str,
              'insert': self.access == WRITE}
 
-    def c_addto_vector_field(self, i, j, indices, xtr="", is_facet=False):
+    def c_addto_vector_field(self, i, j, buf_name, indices, xtr="", is_facet=False):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].split[i].arity
         ncols = maps[1].split[j].arity
@@ -263,7 +265,7 @@ class Arg(base.Arg):
         s = []
         if self._flatten:
             idx = indices
-            val = "&%s%s" % ("buffer_" + self.c_arg_name(), idx)
+            val = "&%s%s" % (buf_name, idx)
             row = "%(m)s * %(xtr)s%(map)s[%(elem_idx)si_0 %% %(dim)s] + (i_0 / %(dim)s)" % \
                   {'m': rmult,
                    'map': self.c_map_name(0, i),
@@ -557,11 +559,12 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         dim = len(size)
         compiler = coffee.ast_plan.compiler
         isa = coffee.ast_plan.intrinsics
+        align = compiler['align'](isa["alignment"]) if compiler and size[-1] % isa["dp_reg"] == 0 else ""
         return (buf_name, "%(typ)s %(name)s%(dim)s%(align)s%(init)s" %
                 {"typ": buf_type,
                  "name": buf_name,
                  "dim": "".join(["[%d]" % (d * (2 if is_facet else 1)) for d in size]),
-                 "align": " " + compiler.get("align")(isa["alignment"]) if compiler else "",
+                 "align": " " + align,
                  "init": " = " + "{" * dim + "0.0" + "}" * dim if self.access._mode in ['WRITE', 'INC'] else ""})
 
     def c_buffer_gather(self, size, idx, buf_name):
@@ -651,7 +654,7 @@ class JITModule(base.JITModule):
         compiler = coffee.ast_plan.compiler
         blas = coffee.ast_plan.blas_interface
         blas_header, blas_namespace, externc_open, externc_close = ("", "", "", "")
-        if self._kernel._is_blas_optimized:
+        if self._kernel._applied_blas:
             blas_header = blas.get('header')
             blas_namespace = blas.get('namespace', '')
             if blas['name'] == 'eigen':
@@ -714,7 +717,7 @@ class JITModule(base.JITModule):
         ldargs = ["-L%s/lib" % d for d in get_petsc_dir()] + \
                  ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()] + \
                  ["-lpetsc", "-lm"] + self._libraries
-        if self._kernel._is_blas_optimized:
+        if self._kernel._applied_blas:
             blas_dir = blas['dir']
             if blas_dir:
                 cppargs += ["-I%s/include" % blas_dir]
@@ -852,9 +855,9 @@ class JITModule(base.JITModule):
                 _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
                 _loop_size = [_buf_size[i]/_dat_size[i] for i in range(len(_buf_size))]
             else:
-                if self._kernel._is_blas_optimized:
+                if self._kernel._applied_blas:
                     _buf_size = [reduce(lambda x, y: x*y, _buf_size)]
-            if self._kernel._opts.get('ap'):
+            if self._kernel._applied_ap:
                 if arg._is_mat:
                     # Layout of matrices must be restored prior to the invokation of addto_vector
                     # if padding was used
@@ -896,18 +899,18 @@ class JITModule(base.JITModule):
                     _buf_scatter = ""
             _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
             _addto_buf_name = _buf_scatter_name or _buf_name
-            _buffer_indices = "[i_0*%d + i_1]" % shape[0] if self._kernel._is_blas_optimized else "[i_0][i_1]"
+            _buffer_indices = "[i_0*%d + i_1]" % shape[0] if self._kernel._applied_blas else "[i_0][i_1]"
             if self._itspace._extruded:
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, _addto_buf_name, "xtr_", is_facet=is_facet) for arg in self._args
                                                             if arg._is_mat and arg.data[i, j]._is_scalar_field])
-                _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, _buffer_indices, "xtr_", is_facet=is_facet) for arg in self._args
-                                                  if arg._is_mat and arg.data[i, j]._is_vector_field])
+                _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, _addto_buf_name, _buffer_indices, "xtr_", is_facet=is_facet)
+                                                   for arg in self._args if arg._is_mat and arg.data[i, j]._is_vector_field])
                 _addtos_scalar_field = ""
             else:
                 _addtos_scalar_field_extruded = ""
                 _addtos_scalar_field = ';\n'.join([arg.c_addto_scalar_field(i, j, _addto_buf_name) for count, arg in enumerate(self._args)
                                                    if arg._is_mat and arg.data[i, j]._is_scalar_field])
-                _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, _buffer_indices) for arg in self._args
+                _addtos_vector_field = ';\n'.join([arg.c_addto_vector_field(i, j, _addto_buf_name, _buffer_indices) for arg in self._args
                                                   if arg._is_mat and arg.data[i, j]._is_vector_field])
 
             if not _addtos_vector_field and not _buf_scatter:
