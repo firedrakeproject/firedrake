@@ -161,6 +161,14 @@ class ASTKernel(object):
 
         v_type, v_param = vect if vect else (None, None)
 
+        # Ensure kernel is always marked static inline
+        if hasattr(self, 'fundecl'):
+            # Remove either or both of static and inline (so that we get the order right)
+            self.fundecl.pred = [q for q in self.fundecl.pred
+                                 if q not in ['static', 'inline']]
+            self.fundecl.pred.insert(0, 'inline')
+            self.fundecl.pred.insert(0, 'static')
+
         if blas:
             if not blas_interface:
                 raise RuntimeError("COFFEE Error: must set PYOP2_BLAS to convert into BLAS calls")
