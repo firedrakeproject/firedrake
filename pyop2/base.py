@@ -2096,8 +2096,10 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         halo = self.dataset.halo
         if halo is None:
             return
-        _MPI.Request.Waitall(self._recv_reqs.values())
-        _MPI.Request.Waitall(self._send_reqs.values())
+        with timed_region("Halo exchange receives wait"):
+            _MPI.Request.Waitall(self._recv_reqs.values())
+        with timed_region("Halo exchange sends wait"):
+            _MPI.Request.Waitall(self._send_reqs.values())
         self._recv_reqs.clear()
         self._send_reqs.clear()
         self._send_buf.clear()
