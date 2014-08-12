@@ -284,15 +284,33 @@ class Function(ufl.Coefficient):
         coords_space = coords.function_space()
         coords_element = coords_space.fiat_element
 
+        names = {v[0] for v in expression._user_args}
+
         X = coords_element.tabulate(0, to_pts).values()[0]
 
         # Produce C array notation of X.
         X_str = "{{"+"},\n{".join([",".join(map(str, x)) for x in X.T])+"}}"
 
-        ass_exp = [ast.Assign(ast.Symbol("A", ("k",), ((len(expression.code), i),)),
+        A = utils.unique_name("A", names)
+        X = utils.unique_name("X", names)
+        x_ = utils.unique_name("x_", names)
+        k = utils.unique_name("k", names)
+        d = utils.unique_name("d", names)
+        i_ = utils.unique_name("i", names)
+        # x is a reserved name.
+        x = "x"
+        if "x" in names:
+            raise ValueError("cannot use 'x' as a user-defined Expression variable")
+        ass_exp = [ast.Assign(ast.Symbol(A, (k,), ((len(expression.code), i),)),
                               ast.FlatBlock("%s" % code))
                    for i, code in enumerate(expression.code)]
         vals = {
+            "X": X,
+            "x": x,
+            "x_": x_,
+            "k": k,
+            "d": d,
+            "i": i_,
             "x_array": X_str,
             "dim": coords_space.dim,
             "xndof": coords_element.space_dimension(),
@@ -304,23 +322,23 @@ class Function(ufl.Coefficient):
             "assign_dim": np.prod(expression.value_shape(), dtype=int)
         }
         init = ast.FlatBlock("""
-const double X[%(ndof)d][%(xndof)d] = %(x_array)s;
+const double %(X)s[%(ndof)d][%(xndof)d] = %(x_array)s;
 
-double x[%(dim)d];
+double %(x)s[%(dim)d];
 const double pi = 3.141592653589793;
 
 """ % vals)
         block = ast.FlatBlock("""
-for (unsigned int d=0; d < %(dim)d; d++) {
-  x[d] = 0;
-  for (unsigned int i=0; i < %(xndof)d; i++) {
-    x[d] += X[k][i] * x_[i][d];
+for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
+  %(x)s[%(d)s] = 0;
+  for (unsigned int %(i)s=0; %(i)s < %(xndof)d; %(i)s++) {
+        %(x)s[%(d)s] += %(X)s[%(k)s][%(i)s] * %(x_)s[%(i)s][%(d)s];
   };
 };
 
 """ % vals)
-        loop = ast.c_for("k", "%(ndof)d" % vals, ast.Block([block] + ass_exp,
-                                                           open_scope=True))
+        loop = ast.c_for(k, "%(ndof)d" % vals, ast.Block([block] + ass_exp,
+                                                         open_scope=True))
         user_args = []
         user_init = []
         for _, arg in expression._user_args:
@@ -331,8 +349,8 @@ for (unsigned int d=0; d < %(dim)d; d++) {
             else:
                 user_args.append(ast.Decl("double *", arg.name))
         kernel_code = ast.FunDecl("void", "expression_kernel",
-                                  [ast.Decl("double", ast.Symbol("A", (int("%(nfdof)d" % vals),))),
-                                   ast.Decl("double**", "x_")] + user_args,
+                                  [ast.Decl("double", ast.Symbol(A, (int("%(nfdof)d" % vals),))),
+                                   ast.Decl("double**", x_)] + user_args,
                                   ast.Block(user_init + [init, loop],
                                             open_scope=False))
         return op2.Kernel(kernel_code, "expression_kernel")

@@ -276,16 +276,17 @@ def test_assign_to_mfs_sub(cg1, vcg1):
         w.assign(q.sub(1))
 
 
-def test_scalar_user_defined_values():
+@pytest.mark.parametrize("uservar", ["A", "X", "x_", "k", "d", "i"])
+def test_scalar_user_defined_values(uservar):
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'CG', 1)
     f = Function(V)
-    e = Expression('n', n=1.0)
+    e = Expression(uservar, **{uservar: 1.0})
     f.interpolate(e)
 
     assert np.allclose(f.dat.data_ro, 1.0)
 
-    e.n = 2.0
+    setattr(e, uservar, 2.0)
     f.interpolate(e)
 
     assert np.allclose(f.dat.data_ro, 2.0)

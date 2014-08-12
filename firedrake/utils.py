@@ -64,3 +64,22 @@ def _init():
         op2.init(log_level='INFO',
                  compiler=parameters["coffee"]["compiler"],
                  simd_isa=parameters["coffee"]["simd_isa"])
+
+
+def unique_name(name, nameset):
+    """Return name if name is not in nameset, or a deterministic
+    uniquified name if name is in nameset. The new name is inserted into
+    nameset to prevent further name clashes."""
+
+    if name not in nameset:
+        nameset.add(name)
+        return name
+
+    idx = 0
+    while True:
+        newname = "%s_%d" % (name, idx)
+        if newname in nameset:
+            idx += 1
+        else:
+            nameset.add(name)
+            return newname
