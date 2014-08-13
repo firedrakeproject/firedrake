@@ -64,7 +64,7 @@ class Autotuner(object):
 %(blas_namespace)s
 
 #define RESOLUTION %(resolution)d
-#define TOLERANCE 0.000000000001
+#define TOLERANCE 0.000000001
 
 static inline long stamp()
 {
@@ -74,27 +74,28 @@ static inline long stamp()
 }
 
 #ifdef DEBUG
-static int compare_1d(double A1[%(trial)s], double A2[%(trial)s])
+static int compare_1d(double A1[%(trial)s], double A2[%(trial)s], FILE* out)
 {
   for(int i = 0; i < %(trial)s; i++)
   {
     if(fabs(A1[i] - A2[i]) > TOLERANCE)
     {
+      fprintf(out, "i=%%d, A1[i]=%%e, A2[i]=%%e\\n", i, A1[i], A2[i]);
       return 1;
     }
   }
   return 0;
 }
 
-static int compare_2d(double A1[%(test)s][%(test)s], double A2[%(test)s][%(test)s])
+static int compare_2d(double A1[%(trial)s][%(trial)s], double A2[%(trial)s][%(trial)s], FILE* out)
 {
   for(int i = 0; i < %(trial)s; i++)
   {
-    for(int j = 0; j < %(test)s; j++)
+    for(int j = 0; j < %(trial)s; j++)
     {
       if(fabs(A1[i][j] - A2[i][j]) > TOLERANCE)
       {
-        printf("i=%%d, j=%%d, A1[i][j]=%%f, A2[i][j]=%%f\\n", i, j, A1[i][j], A2[i][j]);
+        fprintf(out, "i=%%d, j=%%d, A1[i][j]=%%e, A2[i][j]=%%e\\n", i, j, A1[i][j], A2[i][j]);
         return 1;
       }
     }
@@ -144,12 +145,12 @@ int main()
 
   fprintf(out, "Fastest variant ID=%%d: %%d \\n", best, counters[best]);
   fprintf(out, "***Chosen optimizations set: %%s***\\n", all_opts[best]);
-  fclose(out);
 
 #ifdef DEBUG
   %(debug_code)s
 #endif
 
+  fclose(out);
   return best;
 }
 %(externc_close)s
@@ -158,7 +159,7 @@ int main()
     // Initialize coefficients
     for (int j = 0; j < %(ndofs)d; j++)
     {
-      %(init_coeffs)s
+%(init_coeffs)s
     }
 """
     _run_template = """
@@ -169,13 +170,21 @@ int main()
   %(decl_params)s
   start%(iter)d = stamp();
   end%(iter)d = start%(iter)d + RESOLUTION;
+#ifndef DEBUG
   #pragma forceinline
   while (stamp() < end%(iter)d)
+#else
+  while (c < 1)
+#endif
   {
     // Initialize coordinates
     for (int j = 0; j < %(ncoords)d; j++)
     {
+#ifndef DEBUG
       vertex_coordinates_%(iter)d[j][0] = (double)rand();
+#else
+      vertex_coordinates_%(iter)d[j][0] = (double)(rand()%%10);
+#endif
     }
     %(init_coeffs)s
     #pragma noinline
@@ -186,9 +195,14 @@ int main()
   c = 0;
 """
     _debug_template = """
-  if(%(call_debug)s(A_0, A_%(iter)s))
+  // First discard padded region, then check output
+  double A_%(iter)s_debug[%(trial)s][%(trial)s] = {{0.0}};
+  for (int i_0 = 0; i_0 < %(trial)s; i_0++)
+    for (int i_1 = 0; i_1 < %(trial)s; i_1++)
+      A_%(iter)s_debug[i_0][i_1] = A_%(iter)s[i_0][i_1];
+  if(%(call_debug)s(A_0, A_%(iter)s_debug, out))
   {
-    printf("COFFEE Warning: code variants 0 and %%d differ\\n", %(iter)s);
+    fprintf(out, "COFFEE Warning: code variants 0 and %%d differ\\n", %(iter)s);
   }
 """
     _filename = "autotuning_code"
@@ -374,9 +388,12 @@ See %s for more info about the error""" % logfile)
             # Initialize coefficients (if any)
             init_coeffs = ""
             if coeffs_syms:
+                wrap_coeffs = "#ifndef DEBUG\n      %s\n#else\n      %s\n#endif"
+                real_coeffs = ";\n      ".join([f + "[j][0] = (double)rand();" for f in coeffs_syms])
+                debug_coeffs = ";\n      ".join([f + "[j][0] = (double)(rand()%10);" for f in coeffs_syms])
                 init_coeffs = Autotuner._coeffs_template % {
                     'ndofs': min(coeffs_size.values()),
-                    'init_coeffs': ";\n      ".join([f + "[j][0] = (double)rand();" for f in coeffs_syms])
+                    'init_coeffs': wrap_coeffs % (real_coeffs, debug_coeffs)
                 }
 
             # Instantiate code variant
@@ -390,11 +407,13 @@ See %s for more info about the error""" % logfile)
                 'call_variant': fun_decl.name + "(%s);" % params
             })
 
-            # Create debug code
-            debug_code.append(Autotuner._debug_template % {
-                'iter': i,
-                'call_debug': "compare_2d" if trial_dofs and test_dofs else "compare_1d"
-            })
+            # Create debug code, apart from the BLAS case
+            if not used_opts[0] == 4:
+                debug_code.append(Autotuner._debug_template % {
+                    'iter': i,
+                    'trial': trial_dofs,
+                    'call_debug': "compare_2d"
+                })
 
         # Instantiate the autotuner skeleton
         kernels_code = "\n".join(["/* Code variant %d */" % i + str(k.children[1])
