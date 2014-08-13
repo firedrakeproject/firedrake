@@ -1270,8 +1270,8 @@ class AssemblyRewriter(object):
                     indices = [None, None]
                     for nz in nz_bounds:
                         if nz is not None:
-                            indices[0] = nz[0] if not indices[0] else min(nz[0], indices[0])
-                            indices[1] = nz[1] if not indices[1] else max(nz[1], indices[1])
+                            indices[0] = nz[0] if indices[0] is None else min(nz[0], indices[0])
+                            indices[1] = nz[1] if indices[1] is None else max(nz[1], indices[1])
                     return tuple(indices)
                 else:
                     raise RuntimeError("Zeros error: unsupported operation: %s" % str(node))
