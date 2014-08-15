@@ -144,6 +144,45 @@ A number of PyOP2 internal functions are decorated such that running
 your PyOP2 application with ``kernprof.py`` will produce a line-by-line
 profile of the parallel loop computation (but not the generated code!).
 
+Memory profiling
+----------------
+
+To profile the memory usage of your application, install Fabian
+Pedregosa's `memory profiler`_ and:
+
+1. Import the :func:`~pyop2.profiling.profile` decorator: ::
+
+     from pyop2.profiling import profile
+
+2. Decorate the function to profile with ``@profile``.
+3. Run your script with ::
+
+      python -m memory_profiler <script.py>
+
+   to get a line-by-line memory profile of your function.
+4. Run your script with ::
+   
+      memprof run --python <script.py>
+
+   to record memory usage of your program over time.
+5. Generate a plot of the memory profile with ``memprof plot``.
+
+Note that ``memprof`` and ``python -m memory_profiler`` inject the
+``@profile`` decorator into the Python builtins namespace. PyOP2
+provides a passthrough version of this decorator which does nothing if
+``profile`` is not found in ``__builtins__``. This means you can run
+your script regularly without having to remove the decorators again.
+
+The :func:`~pyop2.profiling.profile` decorator also works with the line
+profiler (see below). PyOP2 therefore provides the
+:func:`~pyop2.profiling.memprof` decorator which is only enabled when
+running with ``memprof``.
+
+A number of PyOP2 internal functions are decorated such that running
+your PyOP2 application with ``memprof run`` will produce a memory
+profile of the parallel loop computation (but not the generated code!).
+
 .. _cProfile: https://docs.python.org/2/library/profile.html#cProfile
 .. _gprof2dot: https://code.google.com/p/jrfonseca/wiki/Gprof2Dot
 .. _line profiler: https://pythonhosted.org/line_profiler/
+.. _memory profiler: https://github.com/fabianp/memory_profiler
