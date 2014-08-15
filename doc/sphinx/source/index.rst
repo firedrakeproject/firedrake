@@ -22,6 +22,7 @@ Contents:
    mixed
    mpi
    caching
+   profiling
    user
    pyop2
 
