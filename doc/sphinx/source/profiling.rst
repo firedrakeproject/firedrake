@@ -59,5 +59,59 @@ as ::
 
 and then call ``gprof2dot`` as before.
 
+Using PyOP2's internal timers
+-----------------------------
+
+PyOP2 automatically times the execution of certain regions:
+
+* Sparsity building
+* Plan construction
+* Parallel loop kernel execution
+* Halo exchange
+* Reductions
+* PETSc Krylov solver
+
+To output those timings, call :func:`~pyop2.profiling.summary` in your
+PyOP2 program or run with the environment variable
+``PYOP2_PRINT_SUMMARY`` set to 1.
+
+To query e.g. the timer for parallel loop execution programatically,
+use the :func:`~pyop2.profiling.timing` helper: ::
+
+  from pyop2 import timing
+  timing("ParLoop compute")               # get total time
+  timing("ParLoop compute", total=False)  # get average time per call
+
+To add additional timers to your own code, you can use the
+:func:`~pyop2.profiling.timed_region` and
+:func:`~pyop2.profiling.timed_function` helpers: ::
+
+  from pyop2.profiling import timed_region, timed_function
+
+  with timed_region("my code"):
+      # my code
+
+  @timed_function("my function")
+  def my_func():
+      # my func
+
+There are a few caveats:
+
+1. PyOP2 delays computation, which means timing a parallel loop call
+   will *not* time the execution, since the evaluation only happens when
+   the result is requested. To disable lazy evaluation of parallel
+   loops, set the environment variable ``PYOP2_LAZY`` to 0.
+
+   Alternatively, force the computation by requesting the data inside
+   the timed region e.g. by calling ``mydat._force_evaluation()``.
+
+2. Kernel execution with CUDA and OpenCL is asynchronous (though OpenCL
+   kernels are currently launched synchronously), which means the time
+   recorded for kernel execution is only the time for the kernel launch.
+
+   To launch CUDA kernels synchronously, set the PyOP2 configuration
+   variable ``profiling`` or the environment variable
+   ``PYOP2_PROFILING`` to 1.
+
 .. _cProfile: https://docs.python.org/2/library/profile.html#cProfile
 .. _gprof2dot: https://code.google.com/p/jrfonseca/wiki/Gprof2Dot
