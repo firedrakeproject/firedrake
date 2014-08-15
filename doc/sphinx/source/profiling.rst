@@ -113,5 +113,37 @@ There are a few caveats:
    variable ``profiling`` or the environment variable
    ``PYOP2_PROFILING`` to 1.
 
+Line-by-line profiling
+----------------------
+
+To get a line-by-line profile of a given function, install Robert Kern's
+`line profiler`_ and:
+
+1. Import the :func:`~pyop2.profiling.profile` decorator: ::
+
+     from pyop2.profiling import profile
+
+2. Decorate the function to profile with ``@profile``
+3. Run your script with ``kernprof.py -l <script.py>``
+4. Generate an annotated source file with ::
+
+     python -m line_profiler <script.py.lprof>
+
+Note that ``kernprof.py`` injects the ``@profile`` decorator into the
+Python builtins namespace. PyOP2 provides a passthrough version of this
+decorator which does nothing if ``profile`` is not found in
+``__builtins__``. This means you can run your script regularly without
+having to remove the decorators again.
+
+The :func:`~pyop2.profiling.profile` decorator also works with the
+memory profiler (see below). PyOP2 therefore provides the
+:func:`~pyop2.profiling.lineprof` decorator which is only enabled when
+running with ``kernprof.py``.
+
+A number of PyOP2 internal functions are decorated such that running
+your PyOP2 application with ``kernprof.py`` will produce a line-by-line
+profile of the parallel loop computation (but not the generated code!).
+
 .. _cProfile: https://docs.python.org/2/library/profile.html#cProfile
 .. _gprof2dot: https://code.google.com/p/jrfonseca/wiki/Gprof2Dot
+.. _line profiler: https://pythonhosted.org/line_profiler/
