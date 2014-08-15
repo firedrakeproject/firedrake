@@ -100,14 +100,15 @@ class AssemblyVectorizer(object):
                     l.pragma.append(self.comp['force_simdization'])
 
     def outer_product(self, opts, factor=1):
-        """Compute outer products according to opts.
-        opts = V_OP_PADONLY : no peeling, just use padding
-        opts = V_OP_PEEL : peeling for autovectorisation
-        opts = V_OP_UAJ : set unroll_and_jam factor
-        opts = V_OP_UAJ_EXTRA : as above, but extra iters avoid remainder loop
-        factor is an additional parameter to specify things like unroll-and-
-        jam factor. Note that factor is just a suggestion to the compiler,
-        which can freely decide to use a higher or lower value."""
+        """Compute outer products according to ``opts``.
+
+        * ``opts = V_OP_PADONLY`` : no peeling, just use padding
+        * ``opts = V_OP_PEEL`` : peeling for autovectorisation
+        * ``opts = V_OP_UAJ`` : set unroll_and_jam factor
+        * ``opts = V_OP_UAJ_EXTRA`` : as above, but extra iters avoid remainder
+          loop factor is an additional parameter to specify things like
+          unroll-and-jam factor. Note that factor is just a suggestion to the
+          compiler, which can freely decide to use a higher or lower value."""
 
         if not self.asm_opt.asm_expr:
             return

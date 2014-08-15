@@ -163,17 +163,16 @@ class AssemblyOptimizer(object):
         """Generalized loop-invariant code motion.
 
         :arg level: The optimization level (0, 1, 2, 3). The higher, the more
-                    invasive is the re-writing of the assembly expressions,
-                    trying to hoist as much invariant code as possible.
-                    level == 1: performs "basic" generalized loop-invariant
-                                code motion
-                    level == 2: level 1 + expansion of terms, factorization of
-                                basis functions appearing multiple times in the
-                                same expression, and finally another run of
-                                loop-invariant code motion to move invariant
-                                sub-expressions exposed by factorization
-                    level == 3: level 2 + precomputation of read-only expressions
-                                out of the assembly loop nest
+            invasive is the re-writing of the assembly expressions, trying to
+            hoist as much invariant code as possible.
+
+            * level 1: performs "basic" generalized loop-invariant code motion
+            * level 2: level 1 + expansion of terms, factorization of basis
+              functions appearing multiple times in the same expression, and
+              finally another run of loop-invariant code motion to move
+              invariant sub-expressions exposed by factorization
+            * level 3: level 2 + precomputation of read-only expressions out
+              of the assembly loop nest
         """
 
         parent = (self.pre_header, self.kernel_decls)
@@ -193,18 +192,22 @@ class AssemblyOptimizer(object):
         """Perform slicing of the innermost loop to enhance register reuse.
         For example, given a loop:
 
-        for i = 0 to N
-          f()
+        .. code-block:: none
+
+            for i = 0 to N
+              f()
 
         the following sequence of loops is generated:
 
-        for i = 0 to k
-          f()
-        for i = k to 2k
-          f()
-        ...
-        for i = (N-1)k to N
-          f()
+        .. code-block:: none
+
+            for i = 0 to k
+              f()
+            for i = k to 2k
+              f()
+            # ...
+            for i = (N-1)k to N
+              f()
 
         The goal is to improve register re-use by relying on the backend
         compiler unrolling and vector-promoting the sliced loops."""
@@ -378,46 +381,59 @@ class AssemblyOptimizer(object):
     def split(self, cut=1, length=0):
         """Split assembly expressions into multiple chunks exploiting sum's
         associativity. This is done to improve register pressure.
+
         This transformation "splits" an expression into at most ``length`` chunks
         of ``cut`` operands. If ``length = 0``, then the expression is completely
         split into chunks of ``cut`` operands.
 
         For example, consider the following piece of code:
-        for i
-          for j
-            A[i][j] += X[i]*Y[j] + Z[i]*K[j] + B[i]*X[j]
+
+        .. code-block:: none
+
+            for i
+              for j
+                A[i][j] += X[i]*Y[j] + Z[i]*K[j] + B[i]*X[j]
 
         If ``cut=1`` and ``length=1``, the cut is applied at most length=1 times, and this
         is transformed into:
-        for i
-          for j
-            A[i][j] += X[i]*Y[j]
-        // Reminder of the splitting:
-        for i
-          for j
-            A[i][j] += Z[i]*K[j] + B[i]*X[j]
+
+        .. code-block:: none
+
+            for i
+              for j
+                A[i][j] += X[i]*Y[j]
+            // Remainder of the splitting:
+            for i
+              for j
+                A[i][j] += Z[i]*K[j] + B[i]*X[j]
 
         If ``cut=1`` and ``length=0``, length is ignored and the expression is cut into chunks
         of size ``cut=1``:
-        for i
-          for j
-            A[i][j] += X[i]*Y[j]
-        for i
-          for j
-            A[i][j] += Z[i]*K[j]
-        for i
-          for j
-            A[i][j] += B[i]*X[j]
+
+        .. code-block:: none
+
+            for i
+              for j
+                A[i][j] += X[i]*Y[j]
+            for i
+              for j
+                A[i][j] += Z[i]*K[j]
+            for i
+              for j
+                A[i][j] += B[i]*X[j]
 
         If ``cut=2`` and ``length=0``, length is ignored and the expression is cut into chunks
         of size ``cut=2``:
-        for i
-          for j
-            A[i][j] += X[i]*Y[j] + Z[i]*K[j]
-        // Reminder of the splitting:
-        for i
-          for j
-            A[i][j] += B[i]*X[j]
+
+        .. code-block:: none
+
+            for i
+              for j
+                A[i][j] += X[i]*Y[j] + Z[i]*K[j]
+            // Remainder of the splitting:
+            for i
+              for j
+                A[i][j] += B[i]*X[j]
         """
 
         def check_sum(par_node):
@@ -647,10 +663,11 @@ class AssemblyOptimizer(object):
 
 class AssemblyRewriter(object):
     """Provide operations to re-write an assembly expression:
-        - Loop-invariant code motion: find and hoist sub-expressions which are
-        invariant with respect to an assembly loop
-        - Expansion: transform an expression (a + b)*c into (a*c + b*c)
-        - Distribute: transform an expression a*b + a*c into a*(b+c)"""
+
+    * Loop-invariant code motion: find and hoist sub-expressions which are
+      invariant with respect to an assembly loop
+    * Expansion: transform an expression ``(a + b)*c`` into ``(a*c + b*c)``
+    * Distribute: transform an expression ``a*b + a*c`` into ``a*(b+c)``"""
 
     def __init__(self, expr, int_loop, syms, decls, parent):
         """Initialize the AssemblyRewriter.
@@ -679,16 +696,16 @@ class AssemblyRewriter(object):
 
         Invariant expressions found in the loop nest are moved "after" the
         outermost independent loop and "after" the fastest varying dimension
-        loop. Here, "after" means that if the loop nest has two loops i and j,
-        and j is in the body of i, then i comes after j (i.e. the loop nest
-        has to be read from right to left).
+        loop. Here, "after" means that if the loop nest has two loops ``i``
+        and ``j``, and ``j`` is in the body of ``i``, then ``i`` comes after
+        ``j`` (i.e. the loop nest has to be read from right to left).
 
-        For example, if a sub-expression E depends on [i, j] and the loop nest
-        has three loops [i, j, k], then E is hoisted out from the body of k to
-        the body of i). All hoisted expressions are then wrapped within a
-        suitable loop in order to exploit compiler autovectorization. Note that
-        this applies to constant sub-expressions as well, in which case hoisting
-        after the outermost loop takes place."""
+        For example, if a sub-expression ``E`` depends on ``[i, j]`` and the
+        loop nest has three loops ``[i, j, k]``, then ``E`` is hoisted out from
+        the body of ``k`` to the body of ``i``). All hoisted expressions are
+        then wrapped within a suitable loop in order to exploit compiler
+        autovectorization. Note that this applies to constant sub-expressions
+        as well, in which case hoisting after the outermost loop takes place."""
 
         def extract(node, expr_dep, length=0):
             """Extract invariant sub-expressions from the original assembly
@@ -884,7 +901,7 @@ class AssemblyRewriter(object):
     def count_occurrences(self, str_key=False):
         """For each variable in the assembly expression, count how many times
         it appears as involved in some operations. For example, for the
-        expression a*(5+c) + b*(a+4), return {a: 2, b: 1, c: 1}."""
+        expression ``a*(5+c) + b*(a+4)``, return ``{a: 2, b: 1, c: 1}``."""
 
         def count(node, counter):
             if isinstance(node, Symbol):
@@ -902,22 +919,23 @@ class AssemblyRewriter(object):
         return counter
 
     def expand(self):
-        """Expand assembly expressions such that:
+        """Expand assembly expressions such that: ::
 
-        Y[j] = f(...)
-        (X[i]*Y[j])*F + ...
+            Y[j] = f(...)
+            (X[i]*Y[j])*F + ...
 
-        becomes:
+        becomes: ::
 
-        Y[j] = f(...)*F
-        (X[i]*Y[j]) + ...
+            Y[j] = f(...)*F
+            (X[i]*Y[j]) + ...
 
         This may be useful for several purposes:
-        - Relieve register pressure; when, for example, (X[i]*Y[j]) is computed
-        in a loop L' different than the loop L'' in which Y[j] is evaluated,
-        and cost(L') > cost(L'')
-        - It is also a step towards exposing well-known linear algebra operations,
-        like matrix-matrix multiplies."""
+
+        * Relieve register pressure; when, for example, ``(X[i]*Y[j])`` is
+          computed in a loop L' different than the loop L'' in which ``Y[j]``
+          is evaluated, and ``cost(L') > cost(L'')``
+        * It is also a step towards exposing well-known linear algebra
+          operations, like matrix-matrix multiplies."""
 
         # Select the assembly iteration variable along which the expansion should
         # be performed. The heuristics here is that the expansion occurs along the
@@ -938,7 +956,13 @@ class AssemblyRewriter(object):
 
     def distribute(self):
         """Apply to the distributivity property to the assembly expression.
-        E.g. A[i]*B[j] + A[i]*C[j] becomes A[i]*(B[j] + C[j])."""
+        E.g. ::
+
+            A[i]*B[j] + A[i]*C[j]
+
+        becomes ::
+
+            A[i]*(B[j] + C[j])."""
 
         def find_prod(node, occs, to_distr):
             if isinstance(node, Par):
@@ -995,15 +1019,15 @@ class AssemblyRewriter(object):
 
 
 class ExpressionExpander(object):
-    """Expand assembly expressions such that:
+    """Expand assembly expressions such that: ::
 
-    Y[j] = f(...)
-    (X[i]*Y[j])*F + ...
+        Y[j] = f(...)
+        (X[i]*Y[j])*F + ...
 
-    becomes:
+    becomes: ::
 
-    Y[j] = f(...)*F
-    (X[i]*Y[j]) + ..."""
+        Y[j] = f(...)*F
+        (X[i]*Y[j]) + ..."""
 
     CONST = -1
     ITVAR = -2
