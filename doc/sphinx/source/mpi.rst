@@ -111,7 +111,7 @@ PETSc_ supports insertion and subsequent communication of off-process matrix
 and vector entries, however its implementation is not thread safe. Concurrent
 insertion into PETSc_ MPI matrices *is* thread safe if off-process insertions
 are not cached and concurrent writes to rows are avoided, which is done
-through colouring as described in :ref:`colouring`.
+through colouring as described in :ref:`plan-colouring`.
 
 PyOP2 therefore disables PETSc_'s off-process insertion feature and instead
 redundantly computes over all off process entities that touch local dofs,

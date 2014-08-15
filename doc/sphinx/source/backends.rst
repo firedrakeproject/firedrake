@@ -113,7 +113,7 @@ In contrast to the sequential backend, the outermost ``for`` loop in the
 OpenMP backend is annotated with OpenMP pragmas to execute in parallel with
 multiple threads. To avoid race conditions on data access, the iteration set
 is coloured and a thread safe execution plan is computed as described in
-:ref:`colouring`.
+:ref:`plan-colouring`.
 
 The JIT compiled code for the parallel loop from above changes as follows: ::
 
