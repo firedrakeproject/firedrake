@@ -31,18 +31,20 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import base
-from device import *
-from configuration import configuration
-import device as op2
-import plan
-import numpy as np
-from utils import verify_reshape
 import jinja2
+import numpy as np
 import pycuda.driver as driver
 import pycuda.gpuarray as gpuarray
 from pycuda.compiler import SourceModule
 from pycparser import c_parser, c_ast, c_generator
+
+import base
+from configuration import configuration
+import device as op2
+from device import *
+import plan
+from profiling import lineprof, Timer
+from utils import verify_reshape
 
 
 class Kernel(op2.Kernel):
@@ -771,8 +773,13 @@ class JITModule(base.JITModule):
         del self._config
         return self._fun
 
-    def __call__(self, *args, **kwargs):
-        self.compile().prepared_async_call(*args, **kwargs)
+    @timed_function("ParLoop kernel")
+    def __call__(self, grid, block, stream, *args, **kwargs):
+        if configuration["profiling"]:
+            t_ = self.compile().prepared_timed_call(grid, block, *args, **kwargs)()
+            Timer("CUDA kernel").add(t_)
+        else:
+            self.compile().prepared_async_call(grid, block, stream, *args, **kwargs)
 
 
 class ParLoop(op2.ParLoop):
@@ -805,6 +812,8 @@ class ParLoop(op2.ParLoop):
             return {'op2stride': self._it_space.size,
                     'WARPSIZE': 32}
 
+    @collective
+    @lineprof
     def _compute(self, part):
         if part.size == 0:
             # Return before plan call if no computation should occur
@@ -861,9 +870,8 @@ class ParLoop(op2.ParLoop):
 
         if self._is_direct:
             _stream.synchronize()
-            with timed_region("ParLoop kernel"):
-                fun(max_grid_size, block_size, _stream, *arglist,
-                    shared_size=shared_size)
+            fun(max_grid_size, block_size, _stream, *arglist,
+                shared_size=shared_size)
         else:
             arglist.append(_plan.ind_map.gpudata)
             arglist.append(_plan.loc_map.gpudata)
@@ -899,9 +907,8 @@ class ParLoop(op2.ParLoop):
                         shared_size = max(128 * 8, shared_size)
 
                     _stream.synchronize()
-                    with timed_region("ParLoop kernel"):
-                        fun(grid_size, block_size, _stream, *arglist,
-                            shared_size=shared_size)
+                    fun(grid_size, block_size, _stream, *arglist,
+                        shared_size=shared_size)
 
                 block_offset += blocks
 

@@ -38,6 +38,29 @@ from time import time
 from contextlib import contextmanager
 from decorator import decorator
 
+import __builtin__
+
+
+def _profile(func):
+    """Pass-through version of the profile decorator."""
+    return func
+
+# Try importing the builtin profile function from line_profiler
+# https://stackoverflow.com/a/18229685
+try:
+    profile = __builtin__.profile
+    # Hack to detect whether we have the profile from line_profiler
+    if profile.__module__ == 'line_profiler':
+        lineprof = profile
+        memprof = _profile
+    else:
+        lineprof = _profile
+        memprof = profile
+except AttributeError:
+    profile = _profile
+    lineprof = _profile
+    memprof = _profile
+
 
 class Timer(object):
 
@@ -83,6 +106,12 @@ class Timer(object):
     def reset(self):
         """Reset the timer."""
         self._timings = []
+
+    def add(self, t):
+        """Add a timing."""
+        if self._name not in Timer._timers:
+            Timer._timers[self._name] = self
+        self._timings.append(t)
 
     @property
     def name(self):

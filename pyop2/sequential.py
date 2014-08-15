@@ -33,15 +33,17 @@
 
 """OP2 sequential backend."""
 
-from exceptions import *
-from utils import as_tuple
-from mpi import collective
-from petsc_base import *
-import host
 import ctypes
 from numpy.ctypeslib import ndpointer
-from host import Kernel, Arg  # noqa: needed by BackendSelector
+
 from base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS
+from exceptions import *
+import host
+from mpi import collective
+from petsc_base import *
+from host import Kernel, Arg  # noqa: needed by BackendSelector
+from profiling import lineprof
+from utils import as_tuple
 
 # Parallel loop API
 
@@ -88,6 +90,7 @@ class ParLoop(host.ParLoop):
         host.ParLoop.__init__(self, *args, **kwargs)
 
     @collective
+    @lineprof
     def _compute(self, part):
         fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct, iterate=self.iteration_region)
         if not hasattr(self, '_jit_args'):

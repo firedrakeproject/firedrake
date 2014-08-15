@@ -50,7 +50,7 @@ from exceptions import *
 from utils import *
 from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
-from profiling import timed_region, timed_function
+from profiling import profile, timed_region, timed_function
 from sparsity import build_sparsity
 from version import __version__ as version
 
@@ -2096,8 +2096,10 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         halo = self.dataset.halo
         if halo is None:
             return
-        _MPI.Request.Waitall(self._recv_reqs.values())
-        _MPI.Request.Waitall(self._send_reqs.values())
+        with timed_region("Halo exchange receives wait"):
+            _MPI.Request.Waitall(self._recv_reqs.values())
+        with timed_region("Halo exchange sends wait"):
+            _MPI.Request.Waitall(self._send_reqs.values())
         self._recv_reqs.clear()
         self._send_reqs.clear()
         self._send_buf.clear()
@@ -3721,6 +3723,7 @@ class ParLoop(LazyComputation):
 
     @collective
     @timed_function('ParLoop compute')
+    @profile
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
         self.halo_exchange_begin()
