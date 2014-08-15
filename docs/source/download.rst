@@ -24,11 +24,11 @@ Install FFC_ and all dependencies via pip::
 
   sudo pip install \
     six \
+    sympy \
     git+https://bitbucket.org/mapdes/ffc.git#egg=ffc \
     git+https://bitbucket.org/mapdes/ufl.git#egg=ufl \
     git+https://bitbucket.org/mapdes/fiat.git#egg=fiat \
-    git+https://bitbucket.org/fenics-project/instant.git#egg=instant \
-    hg+https://bitbucket.org/khinsen/scientificpython
+    git+https://bitbucket.org/fenics-project/instant.git#egg=instant
 
 These dependencies are regularly updated. If you already have the packages
 installed and want to upgrade to the latest versions, do the following::
