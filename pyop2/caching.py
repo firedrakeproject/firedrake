@@ -44,8 +44,7 @@ def report_cache(typ):
     """Report the size of caches of type ``typ``
 
     :arg typ: A class of cached object.  For example
-    :class:`ObjectCached` or :class:`Cached`.
-
+        :class:`ObjectCached` or :class:`Cached`.
     """
     from collections import defaultdict
     from inspect import getmodule

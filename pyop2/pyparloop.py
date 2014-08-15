@@ -56,10 +56,10 @@ Example usage::
    op2.par_loop(fn, s, d2(op2.WRITE), d(op2.READ, m))
 
    print d2.data
-   >>> [[ 0.  1.]
-        [ 1.  2.]
-        [ 2.  3.]
-        [ 3.  0.]]
+   # [[ 0.  1.]
+   #  [ 1.  2.]
+   #  [ 2.  3.]
+   #  [ 3.  0.]]
 
   def fn2(x, y):
       x[0] += y[0]
@@ -68,10 +68,10 @@ Example usage::
   op2.par_loop(fn, s, d2(op2.INC), d(op2.READ, m[1]))
 
   print d2.data
-  >>> [[ 1.  2.]
-       [ 3.  4.]
-       [ 5.  6.]
-       [ 3.  0.]]
+  # [[ 1.  2.]
+  #  [ 3.  4.]
+  #  [ 5.  6.]
+  #  [ 3.  0.]]
 """
 
 import base
