@@ -165,15 +165,15 @@ class ASTKernel(object):
         autotune_resolution = 100000000
         # Kernel variants tested when autotuning is enabled
         autotune_minimal = [('licm', 1, False, (None, None), True, None, False, None, False),
-                            ('split', 3, False, (None, None), True, (1, 0), False, None, False),
+                            ('split', 3, False, (None, None), True, 1, False, None, False),
                             ('vect', 2, False, (V_OP_UAJ, 1), True, None, False, None, False)]
         autotune_all = [('base', 0, False, (None, None), False, None, False, None, False),
                         ('base', 1, False, (None, None), True, None, False, None, False),
                         ('licm', 2, False, (None, None), True, None, False, None, False),
                         ('licm', 3, False, (None, None), True, None, False, None, False),
-                        ('split', 2, False, (None, None), True, (1, 0), False, None, False),
-                        ('split', 2, False, (None, None), True, (2, 0), False, None, False),
-                        ('split', 2, False, (None, None), True, (4, 0), False, None, False),
+                        ('split', 2, False, (None, None), True, 1, False, None, False),
+                        ('split', 2, False, (None, None), True, 2, False, None, False),
+                        ('split', 2, False, (None, None), True, 4, False, None, False),
                         ('vect', 2, False, (V_OP_UAJ, 1), True, None, False, None, False),
                         ('vect', 2, False, (V_OP_UAJ, 2), True, None, False, None, False),
                         ('vect', 2, False, (V_OP_UAJ, 3), True, None, False, None, False)]
@@ -190,6 +190,8 @@ class ASTKernel(object):
                 raise RuntimeError("COFFEE Error: cannot permute and then convert to BLAS")
             if permute and licm != 4:
                 raise RuntimeError("COFFEE Error: cannot permute without full expression rewriter")
+            if licm == 3 and split:
+                raise RuntimeError("COFFEE Error: split is forbidden when avoiding zero-columns")
             if licm == 3 and v_type and v_type != AUTOVECT:
                 raise RuntimeError("COFFEE Error: zeros removal only supports auto-vectorization")
             if unroll and v_type and v_type != AUTOVECT:
@@ -202,18 +204,16 @@ class ASTKernel(object):
             for ao in asm:
                 # 1) Expression Re-writer
                 if licm:
-                    ao.rewrite_expression(licm)
+                    ao.rewrite(licm)
                     decls.update(ao.decls)
 
                 # 2) Splitting
-                if ao._has_zeros:
-                    ao.split()
-                elif split:
-                    ao.split(split[0], split[1])
+                if split:
+                    ao.split(split)
 
                 # 3) Permute integration loop
                 if permute:
-                    ao.permute_int_loop()
+                    ao.permute()
 
                 # 3) Unroll/Unroll-and-jam
                 if unroll:
@@ -221,7 +221,7 @@ class ASTKernel(object):
 
                 # 4) Register tiling
                 if slice_factor and v_type == AUTOVECT:
-                    ao.slice_loop(slice_factor)
+                    ao.slice(slice_factor)
 
                 # 5) Vectorization
                 if initialized:
@@ -319,7 +319,7 @@ class ASTKernel(object):
             # in order to identify and extract matrix multiplies.
             if not blas_interface:
                 raise RuntimeError("COFFEE Error: must set PYOP2_BLAS to convert into BLAS calls")
-            params = (4, 0, (None, None), True, (1, 0), opts['blas'], None, False)
+            params = (4, 0, (None, None), True, 1, opts['blas'], None, False)
         else:
             # Fetch user-provided options/hints on how to transform the kernel
             params = (opts.get('licm'), opts.get('slice'), opts.get('vect') or (None, None),
