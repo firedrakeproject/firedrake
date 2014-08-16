@@ -51,15 +51,19 @@ class AssemblyOptimizer(object):
 
     """Assembly optimiser interface class"""
 
-    def __init__(self, loop_nest, pre_header, kernel_decls):
+    def __init__(self, loop_nest, pre_header, kernel_decls, is_mixed):
         """Initialize the AssemblyOptimizer.
 
         :arg loop_nest:    root node of the local assembly code.
         :arg pre_header:   parent of the root node
         :arg kernel_decls: list of declarations of variables which are visible
-                           within the local assembly code block."""
+                           within the local assembly code block.
+        :arg is_mixed:     true if the assembly operation uses mixed (vector)
+                           function spaces."""
         self.pre_header = pre_header
         self.kernel_decls = kernel_decls
+        # Properties of the assembly operation
+        self._is_mixed = is_mixed
         # Track applied optimizations
         self._is_precomputed = False
         self._has_zeros = False
@@ -213,25 +217,24 @@ class AssemblyOptimizer(object):
                 self._precompute(expr)
                 self._is_precomputed = True
 
-        # Eliminate zero-valued columns
-        if level == 3:
-            # First, search for zero-valued columns
-            zls = ZeroLoopScheduler(self.eg, self._get_root(), self.kernel_decls,
-                                    self.hoisted)
-            self._has_zeros = zls.get_zeros()
-            if self._has_zeros:
-                # Split the assembly expression into separate loop nests,
-                # based on sum's associativity. This exposes more opportunities
-                # for restructuring loops, since different summands may have
-                # contiguous regions of zero-valued columns in different
-                # positions. The ZeroLoopScheduler, indeed, analyzes statements
-                # "one by one", and changes the iteration spaces of the enclosing
-                # loops accordingly.
-                elf = ExprLoopFissioner(self.eg, self._get_root(), 1)
-                new_asm_expr = {}
-                for expr in self.asm_expr.items():
-                    new_asm_expr.update(elf.expr_fission(expr))
-                self.asm_expr = zls.reschedule(new_asm_expr)
+        # Eliminate zero-valued columns if the kernel operation uses mixed (vector)
+        # function spaces, leading to zero-valued columns in basis function arrays
+        if level == 3 and self._is_mixed:
+            # Split the assembly expression into separate loop nests,
+            # based on sum's associativity. This exposes more opportunities
+            # for restructuring loops, since different summands may have
+            # contiguous regions of zero-valued columns in different
+            # positions. The ZeroLoopScheduler, indeed, analyzes statements
+            # "one by one", and changes the iteration spaces of the enclosing
+            # loops accordingly.
+            elf = ExprLoopFissioner(self.eg, self._get_root(), 1)
+            new_asm_expr = {}
+            for expr in self.asm_expr.items():
+                new_asm_expr.update(elf.expr_fission(expr))
+            # Search for zero-valued columns and restructure the iteration spaces
+            zls = ZeroLoopScheduler(self.eg, self._get_root(), self.kernel_decls)
+            self.asm_expr = zls.reschedule(new_asm_expr)
+            self._has_zeros = True
 
     def slice(self, slice_factor=None):
         """Perform slicing of the innermost loop to enhance register reuse.
@@ -461,11 +464,10 @@ class AssemblyOptimizer(object):
             return
 
         new_asm_expr = {}
-        elf = ExprLoopFissioner(cut)
-        root = self._get_root()
+        elf = ExprLoopFissioner(self.eg, self._get_root(), cut)
         for splittable in self.asm_expr.items():
             # Split the expression
-            new_asm_expr.update(elf.expr_fission(splittable, root))
+            new_asm_expr.update(elf.expr_fission(splittable))
         self.asm_expr = new_asm_expr
 
     def _group_itspaces(self, asm_expr):
@@ -1450,56 +1452,18 @@ class ZeroLoopScheduler(LoopScheduler):
       B[i] = E[i]*F[i]
     """
 
-    def __init__(self, eg, root, decls, hoisted):
+    def __init__(self, eg, root, decls):
         """Initialize the ZeroLoopScheduler.
 
         :arg decls: list of declarations of statically-initialized n-dimensional
                     arrays, possibly containing regions of zero-valued columns."""
         super(ZeroLoopScheduler, self).__init__(eg, root)
         self.decls = decls
-        self.hoisted = hoisted
-        self.zeros = {}
-
-    def _track_nz_columns(self, node, nz_in_syms):
-        """Return the first and last indices of non-zero columns resulting from
-        the evaluation of the expression rooted in node. If there are no zero
-        columns or if the expression is not made of bi-dimensional arrays,
-        return (None, None)."""
-        if isinstance(node, Symbol):
-            if node.offset:
-                raise RuntimeError("Zeros error: offsets not supported: %s" % str(node))
-            return nz_in_syms.get(node.symbol)
-        elif isinstance(node, Par):
-            return self._track_nz_columns(node.children[0], nz_in_syms)
-        else:
-            nz_bounds = [self._track_nz_columns(n, nz_in_syms) for n in node.children]
-            if isinstance(node, (Prod, Div)):
-                indices = [nz for nz in nz_bounds if nz and nz != (None, None)]
-                if len(indices) == 0:
-                    return (None, None)
-                elif len(indices) > 1:
-                    raise RuntimeError("Zeros error: unexpected operation: %s" % str(node))
-                else:
-                    return indices[0]
-            elif isinstance(node, Sum):
-                indices = [None, None]
-                for nz in nz_bounds:
-                    if nz is not None:
-                        indices[0] = nz[0] if indices[0] is None else min(nz[0], indices[0])
-                        indices[1] = nz[1] if indices[1] is None else max(nz[1], indices[1])
-                return tuple(indices)
-            else:
-                raise RuntimeError("Zeros error: unsupported operation: %s" % str(node))
-
-    def _get_nz_bounds(self, node):
-        if isinstance(node, Symbol):
-            return (node.rank[-1], self.zeros[node.symbol])
-        elif isinstance(node, Par):
-            return self._get_nz_bounds(node.children[0])
-        elif isinstance(node, Prod):
-            return tuple([self._get_nz_bounds(n) for n in node.children])
-        else:
-            raise RuntimeError("Group iter space error: unknown node: %s" % str(node))
+        # Track zero blocks in each symbol accessed in the computation rooted in root
+        self.nz_in_syms = {}
+        # Track blocks accessed for evaluating symbols in the various for loops
+        # rooted in root
+        self.nz_in_fors = OrderedDict()
 
     def _get_size_and_ofs(self, itspace):
         """Given an ``itspace`` in the form (('itvar', (bound_a, bound_b), ...)),
@@ -1522,10 +1486,156 @@ class ZeroLoopScheduler(LoopScheduler):
             for n in node.children:
                 self._update_ofs(n, ofs)
 
+    def _get_nz_bounds(self, node):
+        if isinstance(node, Symbol):
+            return (node.rank[-1], self.nz_in_syms[node.symbol])
+        elif isinstance(node, Par):
+            return self._get_nz_bounds(node.children[0])
+        elif isinstance(node, Prod):
+            return tuple([self._get_nz_bounds(n) for n in node.children])
+        else:
+            raise RuntimeError("Group iter space error: unknown node: %s" % str(node))
+
+    def _track_expr_nz_columns(self, node):
+        """Return the first and last indices assumed by the iteration variables
+        appearing in ``node`` over regions of non-zero columns. For example,
+        consider the following node, particularly its right-hand side:
+        A[i][j] = B[i]*C[j]
+        If B over i is non-zero in the ranges [0, k1] and [k2, k3], while C over
+        j is non-zero in the range [N-k4, N], then return a dictionary:
+        {i: ((0, k1), (k2, k3)), j: ((N-k4, N),)}
+        If there are no zero-columns, return {}."""
+        if isinstance(node, Symbol):
+            if node.offset:
+                raise RuntimeError("Zeros error: offsets not supported: %s" % str(node))
+            nz_bounds = self.nz_in_syms.get(node.symbol)
+            if nz_bounds:
+                itvars = [r for r in node.rank if not r.isdigit()]
+                return dict(zip(itvars, nz_bounds))
+            else:
+                return {}
+        elif isinstance(node, Par):
+            return self._track_expr_nz_columns(node.children[0])
+        else:
+            itvar_nz_bounds_left = self._track_expr_nz_columns(node.children[0])
+            itvar_nz_bounds_right = self._track_expr_nz_columns(node.children[1])
+            if isinstance(node, (Prod, Div)):
+                # Merge the nonzero bounds of different iteration variables
+                # within the same dictionary
+                return dict(itvar_nz_bounds_left.items() +
+                            itvar_nz_bounds_right.items())
+            elif isinstance(node, Sum):
+                new_itvar_nz_bounds = {}
+                for itvar, nz_bounds in itvar_nz_bounds_left.items():
+                    # Compute the union of nonzero bounds along the same
+                    # iteration variable. Unify contiguous regions (for example,
+                    # [(1,3), (4,6)] -> [(1,6)]
+                    new_nz_bounds = nz_bounds + itvar_nz_bounds_right.get(itvar, ())
+                    new_nz_bounds = sorted(tuple(set(new_nz_bounds)))
+                    unified_nz_bounds = []
+                    current_start, current_stop = new_nz_bounds[0]
+                    for start, stop in new_nz_bounds:
+                        if start - 1 > current_stop:
+                            unified_nz_bounds.append((current_start, current_stop))
+                            current_start, current_stop = start, stop
+                        else:
+                            # Ranges adjacent or overlapping: merge.
+                            current_stop = max(current_stop, stop)
+                    unified_nz_bounds.append((current_start, current_stop))
+                    new_itvar_nz_bounds[itvar] = tuple(unified_nz_bounds)
+                return new_itvar_nz_bounds
+            else:
+                raise RuntimeError("Zeros error: unsupported operation: %s" % str(node))
+
+    def _track_nz_blocks(self, node, parent=None, loop_nest=()):
+        """Track the propagation of zero blocks along the computation which is
+        rooted in ``self.root``.
+
+        Before start tracking zero blocks in the nodes rooted in ``node``,
+        ``self.nz_in_syms`` contains, for each known identifier, the ranges of
+        its zero blocks. For example, assuming identifier A is an array and has
+        zero-valued entries in positions from 0 to k and from N-k to N,
+        ``self.nz_in_syms`` will contain an entry "A": ((0, k), (N-k, N)).
+        If A is modified by some statements rooted in ``node``, then
+        ``self.nz_in_syms["A"]`` will be modified accordingly.
+
+        This method also updates ``self.nz_in_fors``, which maps loop nests to
+        the enclosed symbols' non-zero blocks. For example, given the following
+        code:
+        { // root
+          ...
+          for i
+            for j
+              A = ...
+              B = ...
+        }
+        Once traversed the AST, ``self.nz_in_fors`` will contain a (key, value)
+        such that:
+        ((<for i>, <for j>), root) -> {A: (i, (nz_along_i)), (j, (nz_along_j))}
+
+        :arg node:      the node being currently inspected for tracking zero
+                        blocks
+        :arg parent:    the parent node of ``node``
+        :arg loop_nest: tuple of for loops enclosing ``node``
+        """
+        if isinstance(node, (Assign, Incr, Decr)):
+            symbol = node.children[0].symbol
+            rank = node.children[0].rank
+            itvar_nz_bounds = self._track_expr_nz_columns(node.children[1])
+            # Reflect the propagation of non-zero blocks in the node's
+            # target symbol. Note that by scanning loop_nest, the nonzero
+            # bounds are stored in order. For example, if the symbol is
+            # A[][], that is, it has two dimensions, then the first element
+            # of the tuple stored in nz_in_syms[symbol] represents the nonzero
+            # bounds for the first dimension, the second element the same for
+            # the second dimension, and so on if it had had more dimensions
+            self.nz_in_syms[symbol] = tuple(itvar_nz_bounds[l.it_var()] for l
+                                            in loop_nest if l.it_var() in rank)
+            if loop_nest:
+                # Track the propagation of non-zero blocks in this specific
+                # loop nest
+                key = (loop_nest, parent)
+                if key not in self.nz_in_fors:
+                    self.nz_in_fors[key] = []
+                self.nz_in_fors[key].append((symbol, itvar_nz_bounds))
+        if isinstance(node, For):
+            self._track_nz_blocks(node.children[0], node, loop_nest + (node,))
+        if isinstance(node, Block):
+            for n in node.children:
+                self._track_nz_blocks(n, node, loop_nest)
+
+    def _track_nz_from_root(self):
+        """Track the propagation of zero columns along the computation which is
+        rooted in ``self.root``."""
+
+        # Initialize a dict mapping symbols to their zero columns with the info
+        # already available in the kernel's declarations
+        for i, j in self.decls.items():
+            nz_col_bounds = j[0].get_nonzero_columns()
+            if nz_col_bounds:
+                # Note that nz_bounds are stored as second element of a 2-tuple,
+                # because the declared array is two-dimensional, in which the
+                # second dimension represents the columns
+                self.nz_in_syms[i] = (((0, j[0].sym.rank[0]),), (nz_col_bounds,))
+                if nz_col_bounds == (-1, -1):
+                    # A fully zero-valued two dimensional array
+                    self.nz_in_syms[i] = j[0].sym.rank
+
+        # If zeros were not found, then just give up
+        if not self.nz_in_syms:
+            return {}
+
+        # Track propagation of zero blocks by symbolically executing the code
+        self._track_nz_blocks(self.root)
+
     def reschedule(self, asm_expr):
         """Group the expressions in ``asm_expr`` that iterate along the same space
         and return an updated version of the dictionary containing the assembly
         expressions in the kernel."""
+
+        # First, symbolically execute the code starting from self.root to track
+        # the propagation of zeros
+        self._track_nz_from_root()
 
         # If two iteration spaces have:
         # - Same size and same bounds: then generate a single statement, e.g.
@@ -1571,41 +1681,6 @@ class ZeroLoopScheduler(LoopScheduler):
             self.root.children.remove(i)
         # Return a dictionary of modified expressions in the kernel
         return new_asm_expr
-
-    def get_zeros(self):
-        """Track the propagation of zero columns along the computation which is
-        rooted in ``self.root``."""
-
-        # Initialize a dict mapping symbols to their zero columns with the info
-        # already available in the kernel's declarations
-        nz_in_syms = {}
-        for i, j in self.decls.items():
-            nz_bounds = j[0].get_nonzero_columns()
-            if nz_bounds:
-                nz_in_syms[i] = nz_bounds
-                if nz_bounds == (-1, -1):
-                    # A fully zero-valued two dimensional array
-                    nz_in_syms[i] = j[0].sym.rank
-
-        # If zeros were not found, then just give up
-        if not nz_in_syms:
-            return {}
-
-        # Now track zeros in the temporaries storing hoisted sub-expressions
-        for i, j in self.hoisted.items():
-            nz_bounds = self._track_nz_columns(j[0], nz_in_syms) or (None, None)
-            if None not in nz_bounds:
-                # There are some zero-columns in the array, so track the bounds
-                # of *non* zero-columns
-                nz_in_syms[i] = nz_bounds
-            else:
-                # Dense array or scalar cases: need to ignore scalars
-                sym_size = j[1].size()[-1]
-                if sym_size:
-                    nz_in_syms[i] = (0, sym_size)
-
-        self.zeros = nz_in_syms
-        return True
 
 
 class ExpressionGraph(object):

@@ -63,12 +63,17 @@ class ASTKernel(object):
     """
 
     def __init__(self, ast, include_dirs=[]):
+        # Abstract syntax tree of the kernel
         self.ast = ast
         # Used in case of autotuning
         self.include_dirs = include_dirs
         # Track applied optimizations
         self.blas = False
         self.ap = False
+
+        # Properties of the kernel operation:
+        # True if the kernel contains sparse arrays
+        self._is_sparse = False
 
     def _visit_ast(self, node, parent=None, fors=None, decls=None):
         """Return lists of:
@@ -81,6 +86,7 @@ class ASTKernel(object):
 
         if isinstance(node, Decl):
             decls[node.sym.symbol] = (node, LOCAL_VAR)
+            self._is_sparse = self._is_sparse or node.get_nonzero_columns()
             return (decls, fors)
         elif isinstance(node, For):
             fors.append((node, parent))
@@ -123,7 +129,7 @@ class ASTKernel(object):
         """
 
         decls, fors = self._visit_ast(self.ast, fors=[], decls={})
-        asm = [AssemblyOptimizer(l, pre_l, decls) for l, pre_l in fors]
+        asm = [AssemblyOptimizer(l, pre_l, decls, self._is_sparse) for l, pre_l in fors]
         for ao in asm:
             itspace_vrs, accessed_vrs = ao.extract_itspace()
 
@@ -200,7 +206,7 @@ class ASTKernel(object):
                 raise RuntimeError("COFFEE Error: outer-product vectorization needs no permute")
 
             decls, fors = self._visit_ast(self.ast, fors=[], decls={})
-            asm = [AssemblyOptimizer(l, pre_l, decls) for l, pre_l in fors]
+            asm = [AssemblyOptimizer(l, pre_l, decls, self._is_sparse) for l, pre_l in fors]
             for ao in asm:
                 # 1) Expression Re-writer
                 if licm:
