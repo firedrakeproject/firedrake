@@ -730,3 +730,13 @@ def c_flat_for(code, parent):
     parent.children.append(FlatBlock(code))
     parent.children.append(new_block)
     return new_block
+
+
+def c_from_itspace_to_fors(itspaces):
+    inner_block = Block([], open_scope=True)
+    loops = []
+    for i, itspace in enumerate(itspaces):
+        s, size = itspace
+        loops.append(For(Decl("int", s, c_sym(0)), Less(s, size), Incr(s, c_sym(1)),
+                     Block([loops[i-1]], open_scope=True) if loops else inner_block))
+    return (tuple(loops), inner_block)

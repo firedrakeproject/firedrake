@@ -37,6 +37,8 @@ import resource
 import operator
 import itertools
 
+from ast_base import Symbol
+
 from pyop2.logger import warning
 
 
@@ -87,3 +89,56 @@ def unroll_factors(sizes, ths):
     # Return the cartesian product of all possible unroll factors not exceeding the threshold
     unroll_factors = list(itertools.product(i_factors, j_factors, k_factors))
     return [x for x in unroll_factors if reduce(operator.mul, x) <= ths]
+
+
+################################################################
+# Functions to manipulate and to query properties of AST nodes #
+################################################################
+
+
+def ast_update_ofs(node, ofs):
+    """Given a dictionary ``ofs`` s.t. {'itvar': ofs}, update the various
+    iteration variables in the symbols rooted in ``node``."""
+    if isinstance(node, Symbol):
+        new_ofs = []
+        old_ofs = ((1, 0) for r in node.rank) if not node.offset else node.offset
+        for r, o in zip(node.rank, old_ofs):
+            new_ofs.append((o[0], ofs[r] if r in ofs else o[1]))
+        node.offset = tuple(new_ofs)
+    else:
+        for n in node.children:
+            ast_update_ofs(n, ofs)
+
+
+#######################################################################
+# Functions to maniuplate iteration spaces in various representations #
+#######################################################################
+
+
+def itspace_size_ofs(itspace):
+    """Given an ``itspace`` in the form (('itvar', (bound_a, bound_b), ...)),
+    return ((('it_var', bound_b - bound_a), ...), (('it_var', bound_a), ...))"""
+    itspace_info = []
+    for var, bounds in itspace:
+        itspace_info.append(((var, bounds[1] - bounds[0] + 1), (var, bounds[0])))
+    return tuple(zip(*itspace_info))
+
+
+def itspace_merge(itspaces):
+    """Given an iterator of iteration spaces, each iteration space represented
+    as a 2-tuple containing the start and end point, return a tuple of iteration
+    spaces in which contiguous iteration spaces have been merged. For example:
+    [(1,3), (4,6)] -> ((1,6),)
+    [(1,3), (5,6)] -> ((1,3), (5,6))"""
+    itspaces = sorted(tuple(set(itspaces)))
+    merged_itspaces = []
+    current_start, current_stop = itspaces[0]
+    for start, stop in itspaces:
+        if start - 1 > current_stop:
+            merged_itspaces.append((current_start, current_stop))
+            current_start, current_stop = start, stop
+        else:
+            # Ranges adjacent or overlapping: merge.
+            current_stop = max(current_stop, stop)
+    merged_itspaces.append((current_start, current_stop))
+    return tuple(merged_itspaces)

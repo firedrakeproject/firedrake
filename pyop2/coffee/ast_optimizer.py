@@ -43,7 +43,8 @@ from copy import deepcopy as dcopy
 
 import networkx as nx
 
-from pyop2.coffee.ast_base import *
+from ast_base import *
+from ast_utils import ast_update_ofs, itspace_size_ofs, itspace_merge
 import ast_plan
 
 
@@ -69,6 +70,8 @@ class AssemblyOptimizer(object):
         self._has_zeros = False
         # Expressions evaluating the element matrix
         self.asm_expr = {}
+        # Track nonzero regions accessed in the various loops
+        self.nz_in_fors = {}
         # Integration loop (if any)
         self.int_loop = None
         # Fully parallel iteration space in the assembly loop nest
@@ -236,7 +239,8 @@ class AssemblyOptimizer(object):
                 new_asm_expr.update(elf.expr_fission(expr, False))
             # Search for zero-valued columns and restructure the iteration spaces
             zls = ZeroLoopScheduler(self.eg, self._get_root(), self.kernel_decls)
-            self.asm_expr = zls.reschedule(new_asm_expr)
+            self.asm_expr = zls.reschedule()[-1]
+            self.nz_in_fors = zls.nz_in_fors
             self._has_zeros = True
 
     def slice(self, slice_factor=None):
@@ -472,87 +476,6 @@ class AssemblyOptimizer(object):
             # Split the expression
             new_asm_expr.update(elf.expr_fission(splittable, True))
         self.asm_expr = new_asm_expr
-
-    def _group_itspaces(self, asm_expr):
-        """Group the expressions in ``asm_expr`` that iterate along the same space
-        and return an updated version of the dictionary containing the assembly
-        expressions in the kernel."""
-        def get_nonzero_bounds(node):
-            if isinstance(node, Symbol):
-                return (node.rank[-1], self._has_zeros[node.symbol])
-            elif isinstance(node, Par):
-                return get_nonzero_bounds(node.children[0])
-            elif isinstance(node, Prod):
-                return tuple([get_nonzero_bounds(n) for n in node.children])
-            else:
-                raise RuntimeError("Group iter space error: unknown node: %s" % str(node))
-
-        def get_size_and_ofs(itspace):
-            """Given an ``itspace`` in the form (('itvar', (bound_a, bound_b), ...)),
-            return ((('it_var', bound_b - bound_a), ...), (('it_var', bound_a), ...))"""
-            itspace_info = []
-            for var, bounds in itspace:
-                itspace_info.append(((var, bounds[1] - bounds[0]), (var, bounds[0])))
-            return tuple(zip(*itspace_info))
-
-        def update_ofs(node, ofs):
-            """Given a dictionary ``ofs`` s.t. {'itvar': ofs}, update the various
-            iteration variables in the symbols rooted in ``node``."""
-            if isinstance(node, Symbol):
-                new_ofs = []
-                old_ofs = ((1, 0) for r in node.rank) if not node.offset else node.offset
-                for r, o in zip(node.rank, old_ofs):
-                    new_ofs.append((o[0], ofs[r] if r in ofs else o[1]))
-                node.offset = tuple(new_ofs)
-            else:
-                for n in node.children:
-                    update_ofs(n, ofs)
-
-        # If two iteration spaces have:
-        # - Same size and same bounds: then generate a single statement, e.g.
-        #   for i, for j
-        #     A[i][j] += B[i][j] + C[i][j]
-        # - Same size but different bounds: then generate two statements in the same
-        #   iteration space:
-        #   for i, for j
-        #     A[i][j] += B[i][j]
-        #     A[i+k][j+k] += C[i+k][j+k]
-        # - Different size: then generate two iteration spaces
-        # So, group increments according to the size of their iteration space, and
-        # also save the offset within that iteration space
-        itspaces = defaultdict(list)
-        for expr, expr_info in asm_expr.items():
-            nonzero_bounds = get_nonzero_bounds(expr.children[1])
-            itspace_info = get_size_and_ofs(nonzero_bounds)
-            itspaces[itspace_info[0]].append((expr, expr_info, itspace_info[1]))
-
-        # Create the new iteration spaces
-        to_remove = []
-        new_asm_expr = {}
-        for its, asm_exprs in itspaces.items():
-            itvar_to_size = dict(its)
-            expr, expr_info, ofs = asm_exprs[0]
-            it_vars, parent, loops = expr_info
-            # Reuse and modify an existing loop nest
-            outer_loop_size = itvar_to_size[loops[0].it_var()]
-            inner_loop_size = itvar_to_size[loops[1].it_var()]
-            loops[0].cond.children[1] = c_sym(outer_loop_size + 1)
-            loops[1].cond.children[1] = c_sym(inner_loop_size + 1)
-            # Update memory offsets in the expression
-            update_ofs(expr, dict(ofs))
-            new_asm_expr[expr] = expr_info
-            # Track down loops that will have to be removed
-            for _expr, _expr_info, _ofs in asm_exprs[1:]:
-                to_remove.append(_expr_info[2][0])
-                parent.children.append(_expr)
-                new_asm_expr[_expr] = expr_info
-                update_ofs(_expr, dict(_ofs))
-        # Remove old loops
-        parent = self.int_loop.children[0] if self.int_loop else self.pre_header
-        for i in to_remove:
-            parent.children.remove(i)
-        # Update the dictionary of assembly expressions in the kernel
-        return new_asm_expr
 
     def _precompute(self, expr):
         """Precompute all expressions contributing to the evaluation of the local
@@ -1481,27 +1404,6 @@ class ZeroLoopScheduler(LoopScheduler):
         # rooted in root
         self.nz_in_fors = OrderedDict()
 
-    def _get_size_and_ofs(self, itspace):
-        """Given an ``itspace`` in the form (('itvar', (bound_a, bound_b), ...)),
-        return ((('it_var', bound_b - bound_a), ...), (('it_var', bound_a), ...))"""
-        itspace_info = []
-        for var, bounds in itspace:
-            itspace_info.append(((var, bounds[1] - bounds[0]), (var, bounds[0])))
-        return tuple(zip(*itspace_info))
-
-    def _update_ofs(self, node, ofs):
-        """Given a dictionary ``ofs`` s.t. {'itvar': ofs}, update the various
-        iteration variables in the symbols rooted in ``node``."""
-        if isinstance(node, Symbol):
-            new_ofs = []
-            old_ofs = ((1, 0) for r in node.rank) if not node.offset else node.offset
-            for r, o in zip(node.rank, old_ofs):
-                new_ofs.append((o[0], ofs[r] if r in ofs else o[1]))
-            node.offset = tuple(new_ofs)
-        else:
-            for n in node.children:
-                self._update_ofs(n, ofs)
-
     def _get_nz_bounds(self, node):
         if isinstance(node, Symbol):
             return (node.rank[-1], self.nz_in_syms[node.symbol])
@@ -1512,23 +1414,26 @@ class ZeroLoopScheduler(LoopScheduler):
         else:
             raise RuntimeError("Group iter space error: unknown node: %s" % str(node))
 
-    def _merge_nz_bounds(self, bounds):
-        """Given an iterator of bounds in ``bounds``, return a tuple of bounds
-        where contiguous bounds have been merged. For example:
-        [(1,3), (4,6)] -> ((1,6),)
-        [(1,3), (5,6)] -> ((1,3), (5,6))"""
-        bounds = sorted(tuple(set(bounds)))
-        merged_bounds = []
-        current_start, current_stop = bounds[0]
-        for start, stop in bounds:
-            if start - 1 > current_stop:
-                merged_bounds.append((current_start, current_stop))
-                current_start, current_stop = start, stop
-            else:
-                # Ranges adjacent or overlapping: merge.
-                current_stop = max(current_stop, stop)
-        merged_bounds.append((current_start, current_stop))
-        return tuple(merged_bounds)
+    def _merge_itvars_nz_bounds(self, itvar_nz_bounds_l, itvar_nz_bounds_r):
+        """Given two dictionaries associating iteration variables to ranges
+        of non-zero columns, merge the two dictionaries by combining ranges
+        along the same iteration variables and return the merged dictionary.
+        For example:
+        dict1 = {'j': [(1,3), (5,6)], 'k': [(5,7)]}
+        dict2 = {'j': [(3,4)], 'k': [(1,4)]}
+        dict1 + dict2 -> {'j': [(1,6)], 'k': [(1,7)]}"""
+        new_itvar_nz_bounds = {}
+        for itvar, nz_bounds in itvar_nz_bounds_l.items():
+            if itvar.isdigit():
+                # Skip constant dimensions
+                continue
+            # Compute the union of nonzero bounds along the same
+            # iteration variable. Unify contiguous regions (for example,
+            # [(1,3), (4,6)] -> [(1,6)]
+            new_nz_bounds = nz_bounds + itvar_nz_bounds_r.get(itvar, ())
+            merged_nz_bounds = itspace_merge(new_nz_bounds)
+            new_itvar_nz_bounds[itvar] = merged_nz_bounds
+        return new_itvar_nz_bounds
 
     def _track_expr_nz_columns(self, node):
         """Return the first and last indices assumed by the iteration variables
@@ -1551,26 +1456,16 @@ class ZeroLoopScheduler(LoopScheduler):
         elif isinstance(node, Par):
             return self._track_expr_nz_columns(node.children[0])
         else:
-            itvar_nz_bounds_left = self._track_expr_nz_columns(node.children[0])
-            itvar_nz_bounds_right = self._track_expr_nz_columns(node.children[1])
+            itvar_nz_bounds_l = self._track_expr_nz_columns(node.children[0])
+            itvar_nz_bounds_r = self._track_expr_nz_columns(node.children[1])
             if isinstance(node, (Prod, Div)):
                 # Merge the nonzero bounds of different iteration variables
                 # within the same dictionary
-                return dict(itvar_nz_bounds_left.items() +
-                            itvar_nz_bounds_right.items())
+                return dict(itvar_nz_bounds_l.items() +
+                            itvar_nz_bounds_r.items())
             elif isinstance(node, Sum):
-                new_itvar_nz_bounds = {}
-                for itvar, nz_bounds in itvar_nz_bounds_left.items():
-                    if itvar.isdigit():
-                        # Skip constant dimensions
-                        continue
-                    # Compute the union of nonzero bounds along the same
-                    # iteration variable. Unify contiguous regions (for example,
-                    # [(1,3), (4,6)] -> [(1,6)]
-                    new_nz_bounds = nz_bounds + itvar_nz_bounds_right.get(itvar, ())
-                    merged_nz_bounds = self._merge_nz_bounds(new_nz_bounds)
-                    new_itvar_nz_bounds[itvar] = merged_nz_bounds
-                return new_itvar_nz_bounds
+                return self._merge_itvars_nz_bounds(itvar_nz_bounds_l,
+                                                    itvar_nz_bounds_r)
             else:
                 raise RuntimeError("Zeros error: unsupported operation: %s" % str(node))
 
@@ -1609,22 +1504,38 @@ class ZeroLoopScheduler(LoopScheduler):
             symbol = node.children[0].symbol
             rank = node.children[0].rank
             itvar_nz_bounds = self._track_expr_nz_columns(node.children[1])
+            if not itvar_nz_bounds:
+                return
             # Reflect the propagation of non-zero blocks in the node's
             # target symbol. Note that by scanning loop_nest, the nonzero
             # bounds are stored in order. For example, if the symbol is
             # A[][], that is, it has two dimensions, then the first element
             # of the tuple stored in nz_in_syms[symbol] represents the nonzero
             # bounds for the first dimension, the second element the same for
-            # the second dimension, and so on if it had had more dimensions
-            self.nz_in_syms[symbol] = tuple(itvar_nz_bounds[l.it_var()] for l
-                                            in loop_nest if l.it_var() in rank)
+            # the second dimension, and so on if it had had more dimensions.
+            # Also, since nz_in_syms represents the propagation of non-zero
+            # columns "up to this point of the computation", we have to merge
+            # the non-zero columns produced by this node with those that we
+            # had already found.
+            nz_in_sym = tuple(itvar_nz_bounds[l.it_var()] for l in loop_nest
+                              if l.it_var() in rank)
+            if symbol in self.nz_in_syms:
+                merged_nz_in_sym = []
+                for i in zip(nz_in_sym, self.nz_in_syms[symbol]):
+                    flat_nz_bounds = [nzb for nzb_sym in i for nzb in nzb_sym]
+                    merged_nz_in_sym.append(itspace_merge(flat_nz_bounds))
+                nz_in_sym = tuple(merged_nz_in_sym)
+            self.nz_in_syms[symbol] = nz_in_sym
             if loop_nest:
                 # Track the propagation of non-zero blocks in this specific
-                # loop nest
-                key = (loop_nest, parent)
+                # loop nest. Outer loops, i.e. loops that have non been
+                # encountered as visiting from the root, are discarded.
+                key = loop_nest[0]
+                itvar_nz_bounds = dict([(k, v) for k, v in itvar_nz_bounds.items()
+                                        if k in [l.it_var() for l in loop_nest]])
                 if key not in self.nz_in_fors:
                     self.nz_in_fors[key] = []
-                self.nz_in_fors[key].append((symbol, itvar_nz_bounds))
+                self.nz_in_fors[key].append((node, itvar_nz_bounds))
         if isinstance(node, For):
             self._track_nz_blocks(node.children[0], node, loop_nest + (node,))
         if isinstance(node, Block):
@@ -1656,59 +1567,70 @@ class ZeroLoopScheduler(LoopScheduler):
         # Track propagation of zero blocks by symbolically executing the code
         self._track_nz_blocks(self.root)
 
-    def reschedule(self, asm_expr):
-        """Group the expressions in ``asm_expr`` that iterate along the same space
-        and return an updated version of the dictionary containing the assembly
-        expressions in the kernel."""
+    def reschedule(self):
+        """Restructure the loop nests rooted in ``self.root`` based on the
+        propagation of zero-valued columns along the computation. This, therefore,
+        involves fissioning and fusing loops so as to remove iterations spent
+        performing arithmetic operations over zero-valued entries.
+        Return a list of dictionaries, a dictionary for each loop nest encountered.
+        Each entry in a dictionary is of the form {stmt: (itvars, parent, loops)},
+        in which ``stmt`` is a statement found in the loop nest from which the
+        dictionary derives, ``itvars`` is the tuple of the iteration variables of
+        the enclosing loops, ``parent`` is the AST node in which the loop nest is
+        rooted, ``loops`` is the tuple of loops composing the loop nest."""
 
         # First, symbolically execute the code starting from self.root to track
         # the propagation of zeros
         self._track_nz_from_root()
 
-        # If two iteration spaces have:
-        # - Same size and same bounds: then generate a single statement, e.g.
+        # Consider two statements A and B, and their iteration spaces.
+        # If the two iteration spaces have:
+        # - Same size and same bounds: then put A and B in the same loop nest
         #   for i, for j
-        #     A[i][j] += B[i][j] + C[i][j]
-        # - Same size but different bounds: then generate two statements in the same
-        #   iteration space:
+        #     W1[i][j] = W2[i][j]
+        #     Z1[i][j] = Z2[i][j]
+        # - Same size but different bounds: then put A and B in the same loop
+        #   nest, but add suitable offsets to all of the involved iteration
+        #   variables
         #   for i, for j
-        #     A[i][j] += B[i][j]
-        #     A[i+k][j+k] += C[i+k][j+k]
-        # - Different size: then generate two iteration spaces
-        # So, group increments according to the size of their iteration space, and
-        # also save the offset within that iteration space
-        itspaces = defaultdict(list)
-        for expr, expr_info in asm_expr.items():
-            nz_bounds = self._get_nz_bounds(expr.children[1])
-            itspace_info = self._get_size_and_ofs(nz_bounds)
-            itspaces[itspace_info[0]].append((expr, expr_info, itspace_info[1]))
+        #     W1[i][j] = W2[i][j]
+        #     Z1[i+k][j+k] = Z2[i+k][j+k]
+        # - Different size: then put A and B in two different loop nests
+        #   for i, for j
+        #     W1[i][j] = W2[i][j]
+        #   for i, for j  // Different loop bounds
+        #     Z1[i][j] = Z2[i][j]
+        all_moved_stmts = []
+        new_nz_in_fors = {}
+        for loop, stmt_itspaces in self.nz_in_fors.items():
+            fissioned_loops = defaultdict(list)
+            # Fission the loops on an intermediate representation
+            for stmt, stmt_itspace in stmt_itspaces:
+                nz_bounds_list = [i for i in itertools.product(*stmt_itspace.values())]
+                for nz_bounds in nz_bounds_list:
+                    itvar_nz_bounds = tuple(zip(stmt_itspace.keys(), nz_bounds))
+                    itspace, stmt_ofs = itspace_size_ofs(itvar_nz_bounds)
+                    fissioned_loops[itspace].append((dcopy(stmt), stmt_ofs))
+            # Generate the actual code.
+            # The dictionary is sorted because we must first execute smaller
+            # loop nests, since larger ones may depend on them
+            moved_stmts = {}
+            for itspace, stmt_ofs in sorted(fissioned_loops.items()):
+                new_loops, inner_block = c_from_itspace_to_fors(itspace)
+                for stmt, ofs in stmt_ofs:
+                    ast_update_ofs(stmt, dict(ofs))
+                    inner_block.children.append(stmt)
+                    moved_stmts[stmt] = (tuple(i[0] for i in ofs), inner_block,
+                                         new_loops)
+                new_nz_in_fors[new_loops[0]] = stmt_ofs
+                # Append the created loops to the root
+                index = self.root.children.index(loop)
+                self.root.children.insert(index, new_loops[-1])
+            self.root.children.remove(loop)
+            all_moved_stmts.append(moved_stmts)
 
-        # Create the new iteration spaces
-        to_remove = []
-        new_asm_expr = {}
-        for its, asm_exprs in itspaces.items():
-            itvar_to_size = dict(its)
-            expr, expr_info, ofs = asm_exprs[0]
-            it_vars, parent, loops = expr_info
-            # Reuse and modify an existing loop nest
-            outer_loop_size = itvar_to_size[loops[0].it_var()]
-            inner_loop_size = itvar_to_size[loops[1].it_var()]
-            loops[0].cond.children[1] = c_sym(outer_loop_size + 1)
-            loops[1].cond.children[1] = c_sym(inner_loop_size + 1)
-            # Update memory offsets in the expression
-            self._update_ofs(expr, dict(ofs))
-            new_asm_expr[expr] = expr_info
-            # Track down loops that will have to be removed
-            for _expr, _expr_info, _ofs in asm_exprs[1:]:
-                to_remove.append(_expr_info[2][0])
-                parent.children.append(_expr)
-                new_asm_expr[_expr] = expr_info
-                self._update_ofs(_expr, dict(_ofs))
-        # Remove old loops
-        for i in to_remove:
-            self.root.children.remove(i)
-        # Return a dictionary of modified expressions in the kernel
-        return new_asm_expr
+        self.nz_in_fors = new_nz_in_fors
+        return all_moved_stmts
 
 
 class ExpressionGraph(object):

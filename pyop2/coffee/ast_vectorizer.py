@@ -33,8 +33,10 @@
 
 from math import ceil
 from copy import deepcopy as dcopy
+from collections import defaultdict
 
 from ast_base import *
+from ast_utils import ast_update_ofs, itspace_merge
 import ast_plan as ap
 
 
@@ -56,7 +58,7 @@ class AssemblyVectorizer(object):
             if d.sym.rank and s != ap.PARAM_VAR:
                 d.attr.append(self.comp["align"](self.intr["alignment"]))
 
-    def padding(self, decl_scope):
+    def padding(self, decl_scope, nz_in_fors):
         """Pad all data structures accessed in the loop nest to the nearest
         multiple of the vector length. Adjust trip counts and bounds of all
         innermost loops where padded arrays are written to. Since padding
@@ -66,32 +68,72 @@ class AssemblyVectorizer(object):
 
         iloops = inner_loops(self.asm_opt.pre_header)
         adjusted_loops = []
-        # Loop adjustment
+        # 1) Bound adjustment
+        # Bound adjustment consists of modifying the start point and the
+        # end point of an innermost loop (i.e. its bounds) and the offsets
+        # of all of its statements such that the memory accesses are aligned
+        # to the vector length.
+        # Bound adjustment of a loop is safe iff:
+        # 1- all statements's lhs in the loop body have as fastest varying
+        #    dimension the iteration variable of the innermost loop
+        # 2- the extra iterations fall either in a padded region, which will
+        #    be discarded by the kernel called, or in a zero-valued region.
+        #    This must be checked for every statements in the loop.
         for l in iloops:
             adjust = True
             loop_size = 0
-            # Bound adjustment is safe iff:
-            # 1- all statements's lhs in the loop body have as fastest varying
-            #    dimension the iteration variable of the innermost loop
-            # 2- the loop linearly iterates till the end of the iteration space
+            lvar = l.it_var()
             # Condition 1
-            for stm in l.children[0].children:
-                sym = stm.children[0]
+            for stmt in l.children[0].children:
+                sym = stmt.children[0]
                 if sym.rank:
                     loop_size = loop_size or decl_scope[sym.symbol][0].size()[-1]
-                if not (sym.rank and sym.rank[-1] == l.it_var()):
+                if not (sym.rank and sym.rank[-1] == lvar):
                     adjust = False
+                    break
             # Condition 2
-            if not (l.increment() == 1 and l.end() == loop_size):
-                adjust = False
+            nz_in_l = nz_in_fors.get(l)
+            if not nz_in_l:
+                # This means the full iteration space is traversed, from the
+                # beginning to the end, so no offsets are used and it's ok
+                # to adjust the top bound of the loop over the region that is
+                # going to be padded, at least for this statememt
+                continue
+            read_regions = defaultdict(list)
+            alignable_stmts = []
+            for stmt, ofs in nz_in_l:
+                expr = dcopy(stmt.children[1])
+                ast_update_ofs(expr, dict([(lvar, 0)]))
+                l_ofs = dict(ofs)[lvar]
+                # The statement can be aligned only if the new start and end
+                # points cover the whole iteration space. Also, the padded
+                # region cannot be exceeded.
+                start_point = vect_rounddown(l_ofs)
+                end_point = start_point + vect_roundup(l.end())  # == tot iters
+                if end_point >= l_ofs + l.end():
+                    alignable_stmts.append((stmt, dict([(lvar, start_point)])))
+                read_regions[str(expr)].append((start_point, end_point))
+            for rr in read_regions.values():
+                if len(itspace_merge(rr)) < len(rr):
+                    # Bound adjustment cause overlapping, so give up
+                    adjust = False
+                    break
+            # Conditions checked, if both passed then adjust loop and offsets
             if adjust:
+                # Adjust end point
                 l.cond.children[1] = c_sym(vect_roundup(l.end()))
-                adjusted_loops.append(l)
+                # Adjust start points
+                for stmt, ofs in alignable_stmts:
+                    ast_update_ofs(stmt, ofs)
+                # If all statements were successfully aligned, then put a
+                # suitable pragma to tell the compiler
+                if len(alignable_stmts) == len(nz_in_l):
+                    adjusted_loops.append(l)
                 # Successful bound adjustment allows forcing simdization
                 if self.comp.get('force_simdization'):
                     l.pragma.append(self.comp['force_simdization'])
 
-        # Adding pragma alignment is safe iff
+        # 2) Adding pragma alignment is safe iff
         # 1- the start point of the loop is a multiple of the vector length
         # 2- the size of the loop is a multiple of the vector length (note that
         #    at this point, we have already checked the loop increment is 1)
@@ -99,7 +141,7 @@ class AssemblyVectorizer(object):
             if not (l.start() % self.intr["dp_reg"] and l.size() % self.intr["dp_reg"]):
                 l.pragma.append(self.comp["decl_aligned_for"])
 
-        # Actual padding
+        # 3) Padding
         used_syms = [s.symbol for s in self.asm_opt.sym]
         acc_decls = [d for s, d in decl_scope.items() if s in used_syms]
         for d, s in acc_decls:
@@ -466,6 +508,12 @@ def vect_roundup(x):
     """Return x rounded up to the vector length. """
     word_len = ap.intrinsics.get("dp_reg") or 1
     return int(ceil(x / float(word_len))) * word_len
+
+
+def vect_rounddown(x):
+    """Return x rounded down to the vector length. """
+    word_len = ap.intrinsics.get("dp_reg") or 1
+    return x - (x % word_len)
 
 
 def inner_loops(node):
