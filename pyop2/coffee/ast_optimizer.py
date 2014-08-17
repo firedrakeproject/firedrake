@@ -197,6 +197,9 @@ class AssemblyOptimizer(object):
                                 out of the assembly loop nest
         """
 
+        if not self.asm_expr:
+            return
+
         parent = (self.pre_header, self.kernel_decls)
         for expr in self.asm_expr.items():
             ew = AssemblyRewriter(expr, self.int_loop, self.sym, self.decls,
