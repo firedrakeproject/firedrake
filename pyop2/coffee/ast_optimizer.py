@@ -230,7 +230,7 @@ class AssemblyOptimizer(object):
             elf = ExprLoopFissioner(self.eg, self._get_root(), 1)
             new_asm_expr = {}
             for expr in self.asm_expr.items():
-                new_asm_expr.update(elf.expr_fission(expr))
+                new_asm_expr.update(elf.expr_fission(expr, False))
             # Search for zero-valued columns and restructure the iteration spaces
             zls = ZeroLoopScheduler(self.eg, self._get_root(), self.kernel_decls)
             self.asm_expr = zls.reschedule(new_asm_expr)
@@ -467,7 +467,7 @@ class AssemblyOptimizer(object):
         elf = ExprLoopFissioner(self.eg, self._get_root(), cut)
         for splittable in self.asm_expr.items():
             # Split the expression
-            new_asm_expr.update(elf.expr_fission(splittable))
+            new_asm_expr.update(elf.expr_fission(splittable, True))
         self.asm_expr = new_asm_expr
 
     def _group_itspaces(self, asm_expr):
@@ -1378,10 +1378,12 @@ class ExprLoopFissioner(LoopScheduler):
         else:
             raise RuntimeError("Split error: found unknown node: %s" % str(node))
 
-    def _sum_fission(self, expr):
+    def _sum_fission(self, expr, copy_loops):
         """Split an expression after ``cut`` operands. This results in two
         sub-expressions that are placed in different, although identical
-        loop nests. Return the two split expressions."""
+        loop nests if ``copy_loops`` is true; they are placed in the same
+        original loop nest otherwise. Return the two split expressions as a
+        2-tuple, in which the second element is potentially further splittable."""
         expr_root, expr_info = expr
         it_vars, parent, loops = expr_info
         # Copy the original expression twice, and then split the two copies, that
@@ -1398,37 +1400,48 @@ class ExprLoopFissioner(LoopScheduler):
         sright = self._split_sum(expr_right.children[0], (expr_right, 0), False, None, 0)
 
         if sleft and sright:
+            index = parent.children.index(expr_root)
             # Append the left-split expression. Re-use a loop nest
-            parent.children[parent.children.index(expr_root)] = expr_root_left
-            # Append the right-split (reminder) expression. Create a new loop nest
-            split_loop = dcopy(loops[0])
-            split_inner_loop = split_loop.children[0].children[0].children[0]
-            split_inner_loop.children[0] = expr_root_right
-            expr_right_loops = [split_loop, split_loop.children[0].children[0]]
-            self.root.children.append(split_loop)
-            # Update outer product dictionaries
+            parent.children[index] = expr_root_left
+            # Append the right-split (reminder) expression.
+            if copy_loops:
+                # Create a new loop nest
+                new_loop = dcopy(loops[0])
+                new_inner_loop = new_loop.children[0].children[0]
+                new_inner_loop_block = new_inner_loop.children[0]
+                new_inner_loop_block.children[0] = expr_root_right
+                expr_right_loops = [new_loop, new_inner_loop]
+                self.root.children.append(new_loop)
+            else:
+                parent.children.insert(index, expr_root_right)
+                new_inner_loop_block, expr_right_loops = (parent, loops)
+            # Attach info to the two split sub-expressions
             split = (expr_root_left, (it_vars, parent, loops))
-            splittable = (expr_root_right, (it_vars, split_inner_loop, expr_right_loops))
-        else:
-            split = (expr_root, expr_info)
-            splittable = ()
-        return split, splittable
+            splittable = (expr_root_right, (it_vars, new_inner_loop_block,
+                                            expr_right_loops))
+            return (split, splittable)
+        return ((expr_root, expr_info), ())
 
-    def expr_fission(self, expr):
+    def expr_fission(self, expr, copy_loops):
         """Split an expression containing ``x`` summands into ``x/cut`` chunks.
-        Each chunk is placed in a separate loop nest. Return the dictionary of
-        the split chunks, in which each entry has the same format of ``empre``.
+        Each chunk is placed in a separate loop nest if ``copy_loops`` is true,
+        in the same loop nest otherwise. Return a dictionary of all of the split
+        chunks, in which each entry has the same format of ``expr``.
 
         :arg expr:  the expression that needs to be split. This is given as
                     a tuple of two elements: the former is the expression
                     root node; the latter includes info about the expression,
                     particularly iteration variables of the enclosing loops,
-                    the enclosing loops themselves, and the parent block."""
+                    the enclosing loops themselves, and the parent block.
+        :arg copy_loops: true if the split expressions should be placed in two
+                         separate, adjacent loop nests (iterating, of course,
+                         along the same iteration space); false, otherwise."""
 
         split_exprs = {}
         splittable_expr = expr
         while splittable_expr:
-            split_expr, splittable_expr = self._sum_fission(splittable_expr)
+            split_expr, splittable_expr = self._sum_fission(splittable_expr,
+                                                            copy_loops)
             split_exprs[split_expr[0]] = split_expr[1]
         return split_exprs
 
