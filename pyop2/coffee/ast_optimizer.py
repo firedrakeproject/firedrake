@@ -1544,7 +1544,7 @@ class ZeroLoopScheduler(LoopScheduler):
                 raise RuntimeError("Zeros error: offsets not supported: %s" % str(node))
             nz_bounds = self.nz_in_syms.get(node.symbol)
             if nz_bounds:
-                itvars = [r for r in node.rank if not r.isdigit()]
+                itvars = [r for r in node.rank]
                 return dict(zip(itvars, nz_bounds))
             else:
                 return {}
@@ -1561,6 +1561,9 @@ class ZeroLoopScheduler(LoopScheduler):
             elif isinstance(node, Sum):
                 new_itvar_nz_bounds = {}
                 for itvar, nz_bounds in itvar_nz_bounds_left.items():
+                    if itvar.isdigit():
+                        # Skip constant dimensions
+                        continue
                     # Compute the union of nonzero bounds along the same
                     # iteration variable. Unify contiguous regions (for example,
                     # [(1,3), (4,6)] -> [(1,6)]
@@ -1640,7 +1643,8 @@ class ZeroLoopScheduler(LoopScheduler):
                 # Note that nz_bounds are stored as second element of a 2-tuple,
                 # because the declared array is two-dimensional, in which the
                 # second dimension represents the columns
-                self.nz_in_syms[i] = (((0, j[0].sym.rank[0]),), (nz_col_bounds,))
+                self.nz_in_syms[i] = (((0, j[0].sym.rank[0] - 1),),
+                                      (nz_col_bounds,))
                 if nz_col_bounds == (-1, -1):
                     # A fully zero-valued two dimensional array
                     self.nz_in_syms[i] = j[0].sym.rank
