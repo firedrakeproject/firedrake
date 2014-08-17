@@ -1509,6 +1509,24 @@ class ZeroLoopScheduler(LoopScheduler):
         else:
             raise RuntimeError("Group iter space error: unknown node: %s" % str(node))
 
+    def _merge_nz_bounds(self, bounds):
+        """Given an iterator of bounds in ``bounds``, return a tuple of bounds
+        where contiguous bounds have been merged. For example:
+        [(1,3), (4,6)] -> ((1,6),)
+        [(1,3), (5,6)] -> ((1,3), (5,6))"""
+        bounds = sorted(tuple(set(bounds)))
+        merged_bounds = []
+        current_start, current_stop = bounds[0]
+        for start, stop in bounds:
+            if start - 1 > current_stop:
+                merged_bounds.append((current_start, current_stop))
+                current_start, current_stop = start, stop
+            else:
+                # Ranges adjacent or overlapping: merge.
+                current_stop = max(current_stop, stop)
+        merged_bounds.append((current_start, current_stop))
+        return tuple(merged_bounds)
+
     def _track_expr_nz_columns(self, node):
         """Return the first and last indices assumed by the iteration variables
         appearing in ``node`` over regions of non-zero columns. For example,
@@ -1544,18 +1562,8 @@ class ZeroLoopScheduler(LoopScheduler):
                     # iteration variable. Unify contiguous regions (for example,
                     # [(1,3), (4,6)] -> [(1,6)]
                     new_nz_bounds = nz_bounds + itvar_nz_bounds_right.get(itvar, ())
-                    new_nz_bounds = sorted(tuple(set(new_nz_bounds)))
-                    unified_nz_bounds = []
-                    current_start, current_stop = new_nz_bounds[0]
-                    for start, stop in new_nz_bounds:
-                        if start - 1 > current_stop:
-                            unified_nz_bounds.append((current_start, current_stop))
-                            current_start, current_stop = start, stop
-                        else:
-                            # Ranges adjacent or overlapping: merge.
-                            current_stop = max(current_stop, stop)
-                    unified_nz_bounds.append((current_start, current_stop))
-                    new_itvar_nz_bounds[itvar] = tuple(unified_nz_bounds)
+                    merged_nz_bounds = self._merge_nz_bounds(new_nz_bounds)
+                    new_itvar_nz_bounds[itvar] = merged_nz_bounds
                 return new_itvar_nz_bounds
             else:
                 raise RuntimeError("Zeros error: unsupported operation: %s" % str(node))
