@@ -412,6 +412,7 @@ def _init_compiler(compiler):
             'AVX': '-xAVX',
             'SSE': '-xSSE',
             'ipo': '-ip',
+            'native_opt': '-xHost',
             'vect_header': '#include <immintrin.h>'
         }
 
@@ -424,6 +425,7 @@ def _init_compiler(compiler):
             'AVX': '-mavx',
             'SSE': '-msse',
             'ipo': '',
+            'native_opt': '-mtune=native',
             'vect_header': '#include <immintrin.h>'
         }
 

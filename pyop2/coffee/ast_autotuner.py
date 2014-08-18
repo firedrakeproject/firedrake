@@ -299,8 +299,13 @@ int main()
     def _run(self, src):
         """Compile and run the generated test cases. Return the fastest kernel version."""
 
+        # If requested, run the autotuner in debug mode: eventually, a log file
+        # is outputed reporting the result of the numerical comparison of the
+        # element matrices as evaluated by the various code variants
+        debug_mode = [] if not os.environ.get('COFFEE_DEBUG') else ["-DDEBUG"]
+
         fext = "c"
-        cppargs = ["-std=gnu99", "-O3", "-xHost"] + \
+        cppargs = ["-std=gnu99", "-O3", self.compiler['native_opt']] + debug_mode + \
                   ["-I%s" % d for d in self.include]
         ldargs = ["-lrt", "-lm"]
         if self.compiler:
