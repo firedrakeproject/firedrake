@@ -272,7 +272,7 @@ class ASTKernel(object):
                 autotune_configs = autotune_minimal
                 unroll_ths = 4
             elif blas_interface:
-                autotune_configs.append(('blas', 4, 0, (None, None), True, (1, 0),
+                autotune_configs.append(('blas', 4, 0, (None, None), True, 1,
                                          blas_interface['name'], None, False))
             variants = []
             autotune_configs_unroll = []
