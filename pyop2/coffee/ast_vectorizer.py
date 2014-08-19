@@ -92,32 +92,31 @@ class AssemblyVectorizer(object):
                     adjust = False
                     break
             # Condition 2
-            nz_in_l = nz_in_fors.get(l)
-            if not nz_in_l:
-                # This means the full iteration space is traversed, from the
-                # beginning to the end, so no offsets are used and it's ok
-                # to adjust the top bound of the loop over the region that is
-                # going to be padded, at least for this statememt
-                continue
-            read_regions = defaultdict(list)
             alignable_stmts = []
-            for stmt, ofs in nz_in_l:
-                expr = dcopy(stmt.children[1])
-                ast_update_ofs(expr, dict([(lvar, 0)]))
-                l_ofs = dict(ofs)[lvar]
-                # The statement can be aligned only if the new start and end
-                # points cover the whole iteration space. Also, the padded
-                # region cannot be exceeded.
-                start_point = vect_rounddown(l_ofs)
-                end_point = start_point + vect_roundup(l.end())  # == tot iters
-                if end_point >= l_ofs + l.end():
-                    alignable_stmts.append((stmt, dict([(lvar, start_point)])))
-                read_regions[str(expr)].append((start_point, end_point))
-            for rr in read_regions.values():
-                if len(itspace_merge(rr)) < len(rr):
-                    # Bound adjustment cause overlapping, so give up
-                    adjust = False
-                    break
+            nz_in_l = nz_in_fors.get(l, [])
+            # Note that if nz_in_l is None, the full iteration space is traversed,
+            # from the beginning to the end, so no offsets are used and it's ok
+            # to adjust the top bound of the loop over the region that is going
+            # to be padded, at least for this statememt
+            if nz_in_l:
+                read_regions = defaultdict(list)
+                for stmt, ofs in nz_in_l:
+                    expr = dcopy(stmt.children[1])
+                    ast_update_ofs(expr, dict([(lvar, 0)]))
+                    l_ofs = dict(ofs)[lvar]
+                    # The statement can be aligned only if the new start and end
+                    # points cover the whole iteration space. Also, the padded
+                    # region cannot be exceeded.
+                    start_point = vect_rounddown(l_ofs)
+                    end_point = start_point + vect_roundup(l.end())  # == tot iters
+                    if end_point >= l_ofs + l.end():
+                        alignable_stmts.append((stmt, dict([(lvar, start_point)])))
+                    read_regions[str(expr)].append((start_point, end_point))
+                for rr in read_regions.values():
+                    if len(itspace_merge(rr)) < len(rr):
+                        # Bound adjustment cause overlapping, so give up
+                        adjust = False
+                        break
             # Conditions checked, if both passed then adjust loop and offsets
             if adjust:
                 # Adjust end point
