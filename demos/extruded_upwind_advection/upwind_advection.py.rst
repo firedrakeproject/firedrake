@@ -134,7 +134,7 @@ Next, we set the prescribed velocity field: ::
 Next, we will set the boundary value on our scalar to be a simple indicator
 function over part of the bottom of the domain: ::
 
-  inflow = Expression("(x[2] < 0.005) && (x[0] > 0.5) ? 1.0 : -1.0")
+  inflow = Expression("(x[2] < 0.02) && (x[0] > 0.5) ? 1.0 : -1.0")
   D0 = Function(V)
   D0.interpolate(inflow)
 
@@ -183,7 +183,7 @@ By construction, the exact solution is quite simple: ::
 
 We finally compare our solution to the expected solution: ::
 
-  assert max(abs(out.dat.data - inflow.dat.data)) < 1e-10
+  assert max(abs(out.dat.data - exact.dat.data)) < 1e-10
 
 This demo can be found as a script in
 `upwind_advection.py <upwind_advection.py>`__.
