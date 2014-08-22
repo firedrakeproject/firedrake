@@ -497,6 +497,25 @@ class For(Statement):
                                                         self.children[0].gencode())
 
 
+class Switch(Statement):
+    """Switch construct.
+
+    :param switch_expr: The expression over which to switch.
+    :param cases: A tuple of pairs ((case, statement),...)
+    """
+
+    def __init__(self, switch_expr, cases):
+        super(Switch, self).__init__([s for i, s in cases])
+
+        self.switch_expr = switch_expr
+        self.cases = cases
+
+    def gencode(self):
+        return "switch (" + str(self.switch_expr) + ")\n{\n" \
+            + indent("\n".join("case %s: \n{\n%s\n}" % (str(i), indent(str(s)))
+                               for i, s in self.cases)) + "}"
+
+
 class FunDecl(Statement):
 
     """Function declaration.
