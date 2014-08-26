@@ -121,6 +121,10 @@ div.sidebar {
 	padding: 0px 0px;
 }
 
+div.latest-commit {
+  max-width: 300px;
+}
+
 div.commit {
   clear: both;
   padding: 4px;
