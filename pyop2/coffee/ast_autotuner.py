@@ -69,6 +69,13 @@ class Autotuner(object):
 #define RESOLUTION %(resolution)d
 #define TOLERANCE 0.000000001
 
+#define PRINT_ARRAY(ARR, SZ)  do { \\
+  printf("ARR: "); \\
+  for (int k = 0; k < SZ; ++k) \\
+    printf("%%e ", ARR[k]); \\
+  printf("\\n"); \\
+  } while (0);
+
 static inline long stamp()
 {
   struct timespec tv;
