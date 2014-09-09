@@ -40,6 +40,9 @@ from ast_vectorizer import AssemblyVectorizer
 from ast_linearalgebra import AssemblyLinearAlgebra
 from ast_autotuner import Autotuner
 
+# PyOP2 dependencies
+from pyop2.profiling import timed_function
+
 from copy import deepcopy as dcopy
 
 # Possibile optimizations
@@ -162,6 +165,7 @@ class ASTKernel(object):
             self.fundecl.pred = [q for q in self.fundecl.pred
                                  if q not in ['static', 'inline']]
 
+    @timed_function('COFFEE plan_cpu')
     def plan_cpu(self, opts):
         """Transform and optimize the kernel suitably for CPU execution."""
 
