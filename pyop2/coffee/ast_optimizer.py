@@ -238,7 +238,8 @@ class AssemblyOptimizer(object):
             for expr in self.asm_expr.items():
                 new_asm_expr.update(elf.expr_fission(expr, False))
             # Search for zero-valued columns and restructure the iteration spaces
-            zls = ZeroLoopScheduler(self.eg, self._get_root(), self.kernel_decls)
+            zls = ZeroLoopScheduler(self.eg, self._get_root(), (self.kernel_decls,
+                                                                self.decls))
             self.asm_expr = zls.reschedule()[-1]
             self.nz_in_fors = zls.nz_in_fors
             self._has_zeros = True
@@ -1394,10 +1395,11 @@ class ZeroLoopScheduler(LoopScheduler):
     def __init__(self, eg, root, decls):
         """Initialize the ZeroLoopScheduler.
 
-        :arg decls: list of declarations of statically-initialized n-dimensional
-                    arrays, possibly containing regions of zero-valued columns."""
+        :arg decls: lists of array declarations. A 2-tuple is expected: the first
+                    element is the list of kernel declarations; the second element
+                    is the list of hoisted temporaries declarations."""
         super(ZeroLoopScheduler, self).__init__(eg, root)
-        self.decls = decls
+        self.kernel_decls, self.hoisted_decls = decls
         # Track zero blocks in each symbol accessed in the computation rooted in root
         self.nz_in_syms = {}
         # Track blocks accessed for evaluating symbols in the various for loops
@@ -1434,6 +1436,50 @@ class ZeroLoopScheduler(LoopScheduler):
             merged_nz_bounds = itspace_merge(new_nz_bounds)
             new_itvar_nz_bounds[itvar] = merged_nz_bounds
         return new_itvar_nz_bounds
+
+    def _set_var_to_zero(self, node, ofs, itspace):
+        """Scan each variable ``v`` in ``node``: if non-initialized elements in ``v``
+        are touched as iterating along ``itspace``, initialize ``v`` to 0.0."""
+
+        def get_accessed_syms(node, nz_in_syms, found_syms):
+            if isinstance(node, Symbol):
+                nz_in_node = nz_in_syms.get(node.symbol)
+                if nz_in_node:
+                    nz_regions = dict(zip([r for r in node.rank], nz_in_node))
+                    found_syms.append((node.symbol, nz_regions))
+            else:
+                for n in node.children:
+                    get_accessed_syms(n, nz_in_syms, found_syms)
+
+        # Determine the symbols accessed in node and their non-zero regions
+        found_syms = []
+        get_accessed_syms(node.children[1], self.nz_in_syms, found_syms)
+
+        # If iteration space along which they are accessed is bigger than the
+        # non-zero region, hoisted symbols must be initialized to zero
+        for sym, nz_regions in found_syms:
+            sym_decl = self.hoisted_decls.get(sym)
+            if not sym_decl:
+                continue
+            for itvar, size in itspace:
+                itvar_nz_regions = nz_regions.get(itvar)
+                itvar_ofs = ofs.get(itvar)
+                if not itvar_nz_regions or itvar_ofs is None:
+                    # Sym does not iterate along this iteration variable, so skip
+                    # the check
+                    continue
+                iteration_ok = False
+                # Check that the iteration space actually corresponds to one of the
+                # non-zero regions in the symbol currently analyzed
+                for itvar_nz_region in itvar_nz_regions:
+                    init_nz_reg, end_nz_reg = itvar_nz_region
+                    if itvar_ofs == init_nz_reg and size == end_nz_reg + 1 - init_nz_reg:
+                        iteration_ok = True
+                        break
+                if not iteration_ok:
+                    # Iterating over a non-initialized region, need to zeroed it
+                    sym_decl = sym_decl[0]
+                    sym_decl.init = FlatBlock("{0.0}")
 
     def _track_expr_nz_columns(self, node):
         """Return the first and last indices assumed by the iteration variables
@@ -1548,7 +1594,7 @@ class ZeroLoopScheduler(LoopScheduler):
 
         # Initialize a dict mapping symbols to their zero columns with the info
         # already available in the kernel's declarations
-        for i, j in self.decls.items():
+        for i, j in self.kernel_decls.items():
             nz_col_bounds = j[0].get_nonzero_columns()
             if nz_col_bounds:
                 # Note that nz_bounds are stored as second element of a 2-tuple,
@@ -1618,10 +1664,11 @@ class ZeroLoopScheduler(LoopScheduler):
             for itspace, stmt_ofs in sorted(fissioned_loops.items()):
                 new_loops, inner_block = c_from_itspace_to_fors(itspace)
                 for stmt, ofs in stmt_ofs:
-                    ast_update_ofs(stmt, dict(ofs))
+                    dict_ofs = dict(ofs)
+                    ast_update_ofs(stmt, dict_ofs)
+                    self._set_var_to_zero(stmt, dict_ofs, itspace)
                     inner_block.children.append(stmt)
-                    moved_stmts[stmt] = (tuple(i[0] for i in ofs), inner_block,
-                                         new_loops)
+                    moved_stmts[stmt] = (tuple(i[0] for i in ofs), inner_block, new_loops)
                 new_nz_in_fors[new_loops[0]] = stmt_ofs
                 # Append the created loops to the root
                 index = self.root.children.index(loop)
