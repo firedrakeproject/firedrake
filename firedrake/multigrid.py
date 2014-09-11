@@ -24,11 +24,12 @@ class MeshHierarchy(mesh.Mesh):
         """
         m._plex.setRefinementUniform(True)
         dm_hierarchy = []
-        parent_cells = []
 
         dm = m._plex
+        fpoint_ises = []
         for i in range(refinement_levels):
             rdm = dm.refine()
+            fpoint_ises.append(dm.createCoarsePointIS())
             # Remove interior facet label (re-construct from
             # complement of exterior facets).  Necessary because the
             # refinement just marks points "underneath" the refined
@@ -44,7 +45,6 @@ class MeshHierarchy(mesh.Mesh):
             rdm.removeLabel("op2_exec_halo")
             rdm.removeLabel("op2_non_exec_halo")
 
-            parent_cells.append(dmplex.compute_parent_cells(rdm))
             if isinstance(m, mesh.IcosahedralSphereMesh):
                 coords = rdm.getCoordinatesLocal().array.reshape(-1, 3)
                 scale = (m._R / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
@@ -53,6 +53,7 @@ class MeshHierarchy(mesh.Mesh):
             dm_hierarchy.append(rdm)
             dm = rdm
 
+        m._init()
         self._hierarchy = [m] + [mesh.Mesh(None, dim=m.ufl_cell().geometric_dimension(),
                                            name="%s_refined_%d" % (m.name, i + 1),
                                            plex=dm, distribute=False, reorder=reorder)
@@ -60,11 +61,14 @@ class MeshHierarchy(mesh.Mesh):
 
         self._ufl_cell = m.ufl_cell()
         self._c2f_cells = []
+        for m in self:
+            m._init()
 
-        for mc, mf, parents in zip(self._hierarchy[:-1],
-                                   self._hierarchy[1:],
-                                   parent_cells):
-            c2f = dmplex.coarse_to_fine_cells(mc, mf, parents)
+        for mc, mf, fpointis in zip(self._hierarchy[:-1],
+                                    self._hierarchy[1:],
+                                    fpoint_ises):
+            mc._fpointIS = fpointis
+            c2f = dmplex.coarse_to_fine_cells(mc, mf)
             self._c2f_cells.append(c2f)
 
     def __iter__(self):

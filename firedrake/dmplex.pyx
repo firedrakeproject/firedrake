@@ -991,41 +991,9 @@ def plex_renumbering(PETSc.DM plex,
     return perm_is
 
 @cython.cdivision(True)
-def compute_parent_cells(PETSc.DM plex):
-    """Return a Section mapping cells in a plex to their "parents"
-
-    :arg plex: the refined plex
-
-    The determination of a parent cell in a regularly refined plex is
-    simply by taking the cell number and dividing by the number of
-    refined cells per coarse cell.  However, we will subsequently go
-    on to resize the refined mesh, breaking this map.  Instead, we
-    create a Section that, on each fine cell point, contains the
-    offset into the original numbering of coarse cells.  This wil
-    persist through resizing and will still be correct."""
-    cdef:
-        PetscInt cStart, cEnd, c, dim, val, nref
-        PETSc.Section parents
-
-    dim = plex.getDimension()
-    # Space for one "dof" on each cell
-    ents = np.zeros(dim+1, dtype=PETSc.IntType)
-    ents[dim] = 1
-    parents = plex.createSection([1], ents)
-    # Number of refined cells per coarse cell (simplex only)
-    nref = 2 ** dim
-
-    cStart, cEnd = plex.getHeightStratum(0)
-    for c in range(cStart, cEnd):
-        val = c / nref
-        CHKERR(PetscSectionSetDof(parents.sec, c, 1))
-        CHKERR(PetscSectionSetOffset(parents.sec, c, val))
-
-    return parents
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def coarse_to_fine_cells(mc, mf, PETSc.Section parents):
+def coarse_to_fine_cells(mc, mf):
     """Return a map from (renumbered) cells in a coarse mesh to those
     in a refined fine mesh.
 
@@ -1035,53 +1003,39 @@ def coarse_to_fine_cells(mc, mf, PETSc.Section parents):
          their corresponding coarse parent cells"""
     cdef:
         PETSc.DM cdm, fdm
-        PETSc.Section co2n, fo2n
         PetscInt fStart, fEnd, c, val, dim, nref, ncoarse
         PetscInt i, ccell, fcell, nfine
         np.ndarray[PetscInt, ndim=2, mode="c"] coarse_to_fine
+        np.ndarray[PetscInt, ndim=1, mode="c"] co2n, cn2o, fo2n, fn2o
 
     cdm = mc._plex
-    co2n = mc._cell_numbering
     fdm = mf._plex
-    fo2n = mf._cell_numbering
     dim = cdm.getDimension()
     nref = 2 ** dim
     ncoarse = mc.cell_set.size
     nfine = mf.cell_set.size
-    fStart, fEnd = fdm.getHeightStratum(0)
-
+    co2n, cn2o  = get_entity_renumbering(cdm, mc._cell_numbering, "cell")
+    fo2n, fn2o  = get_entity_renumbering(fdm, mf._cell_numbering, "cell")
     coarse_to_fine = np.empty((ncoarse, nref), dtype=PETSc.IntType)
     coarse_to_fine[:] = -1
 
-    # Walk fine cells, pull the parent cell from the label.  Then,
-    # since these are the original (not renumbered) cells, map them to
-    # our view of the world and push the values in the map
+    # Walk owned fine cells:
+    fStart, fEnd = 0, nfine
     for c in range(fStart, fEnd):
-        # Find the (originally numbered) parent of the current cell
-        CHKERR(PetscSectionGetDof(parents.sec, c, &ccell))
-        if ccell != 1:
-            raise RuntimeError("Didn't find map from fine to coarse cell")
-        CHKERR(PetscSectionGetOffset(parents.sec, c, &val))
-        CHKERR(PetscSectionGetDof(co2n.sec, val, &ccell))
-        CHKERR(PetscSectionGetDof(fo2n.sec, c, &fcell))
-        if fcell <= 0:
-            raise RuntimeError("Didn't find renumbered fine cell, should never happen")
-        if ccell <= 0:
-            raise RuntimeError("Didn't find renumbered coarse cell, should never happen")
-        # Find the new numbering of the parent
-        CHKERR(PetscSectionGetOffset(co2n.sec, val, &ccell))
-        # Find the new numbering of the cell
-        CHKERR(PetscSectionGetOffset(fo2n.sec, c, &fcell))
-        # Only care about owned coarse cells
-        if ccell >= ncoarse:
-            # But halo coarse cells should not contain owned fine cells
-            if fcell < nfine:
-                raise RuntimeError("Found halo coarse cell containing owned fine cell, should never happen")
-            continue
-        # Find an empty slot
+        # get original (overlapped) cell number
+        fcell = fn2o[c]
+        # The owned cells should map into non-overlapped cell numbers
+        # (due to parallel growth strategy)
+        assert fcell < fEnd
+
+        # Find original coarse cell (fcell / nref) and then map
+        # forward to renumbered coarse cell (again non-overlapped
+        # cells should map into owned coarse cells)
+        ccell = co2n[fcell / nref]
+        assert ccell < ncoarse
         for i in range(nref):
             if coarse_to_fine[ccell, i] == -1:
-                coarse_to_fine[ccell, i] = fcell
+                coarse_to_fine[ccell, i] = c
                 break
     return coarse_to_fine
 
@@ -1126,12 +1080,12 @@ def p1_coarse_fine_map(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] c2f_cells)
         PetscInt c, vStart, vEnd, i, ncoarse_cell, ndof, coarse_arity
         PetscInt l, j, k, tmp, other_cell, vfStart
         PetscInt coarse_vertex, fine_vertex, orig_coarse_vertex, ncell
-        PetscInt *orig_c2f
+        PetscInt coarse_shift, fine_shift
         PETSc.DM dm
         PETSc.PetscIS fpointIS
         bint done
         np.ndarray[np.int32_t, ndim=2, mode="c"] coarse_map, map_vals, fine_map
-        np.ndarray[PetscInt, ndim=1, mode="c"] coarse_inv, fine_forward
+        np.ndarray[PetscInt, ndim=1, mode="c"] coarse_inv, fine_forward, orig_c2f
 
     coarse_mesh = Vc.mesh()
     fine_mesh = Vf.mesh()
@@ -1166,18 +1120,23 @@ def p1_coarse_fine_map(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] c2f_cells)
     vStart, vEnd = coarse_mesh._plex.getDepthStratum(0)
     vfStart, _ = fine_mesh._plex.getDepthStratum(0)
     # vertex numbers in the fine plex of coarse vertices
-    dm = coarse_mesh._plex
-    CHKERR( DMPlexCreateCoarsePointIS(dm.dm, &fpointIS) )
-    CHKERR( ISGetIndices(fpointIS, &orig_c2f) )
+    orig_c2f = coarse_mesh._fpointIS.indices
 
     coarse_arity = coarse_map.shape[1]
+
+    # Shift in plex points from non-overlapped to overlapped for
+    # vertices (basically the additional cells)
+    coarse_shift = coarse_mesh.cell_set.total_size - coarse_mesh.cell_set.size
+    fine_shift = fine_mesh.cell_set.total_size - fine_mesh.cell_set.size
     for c in range(ncoarse_cell):
         # Find the fine vertices that correspond to coarse vertices
         # and put them sequentially in the first ndof map entries
         for i in range(coarse_arity):
             coarse_vertex = coarse_map[c, i]
-            orig_coarse_vertex = coarse_inv[coarse_vertex]
-            fine_vertex = fine_forward[orig_c2f[orig_coarse_vertex + vStart] - vfStart]
+            # Vertex numbers were shifted by the number of cells we
+            # grew the halo by
+            orig_coarse_vertex = coarse_inv[coarse_vertex] + vStart - coarse_shift
+            fine_vertex = fine_forward[orig_c2f[orig_coarse_vertex] - vfStart + fine_shift]
             map_vals[c, i] = fine_vertex
 
         if coarse_arity == 2:
@@ -1244,6 +1203,4 @@ def p1_coarse_fine_map(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] c2f_cells)
                         if done:
                             break
 
-    CHKERR( ISRestoreIndices(fpointIS, &orig_c2f) )
-    CHKERR( ISDestroy(&fpointIS) )
     return map_vals

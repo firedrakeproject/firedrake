@@ -36,7 +36,7 @@ class FunctionSpaceBase(ObjectCached):
         :param dim: vector space dimension of a :class:`.VectorFunctionSpace`
         :param rank: rank of the space, not the value rank
         """
-
+        mesh._init()
         self._ufl_element = element
 
         # Compute the FIAT version of the UFL element above
