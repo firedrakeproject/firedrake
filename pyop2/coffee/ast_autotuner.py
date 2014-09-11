@@ -36,8 +36,11 @@
 from ast_base import *
 from ast_vectorizer import vect_roundup
 
+from pyop2.mpi import MPI
+
 import subprocess
 import os
+import tempfile
 
 
 class Autotuner(object):
@@ -251,10 +254,10 @@ int main()
 
         # Set the directory where the autotuner will dump its output
         kernel_name = variants[0][0].children[1].name
-        autotune_dir = os.path.join(coffee_dir, "autotune_%s" % kernel_name)
-        if not os.path.exists(autotune_dir):
-            os.makedirs(autotune_dir)
-        self.coffee_dir = autotune_dir
+        tempfile.tempdir = coffee_dir
+        self.coffee_dir = tempfile.mkdtemp(suffix="_tune_%s_rank%d" % (kernel_name,
+                                                                       MPI.comm.rank))
+        tempfile.tempdir = None
 
     def _retrieve_coords_size(self, kernel):
         """Return coordinates array size"""

@@ -41,6 +41,7 @@ from ast_linearalgebra import AssemblyLinearAlgebra
 from ast_autotuner import Autotuner
 
 from copy import deepcopy as dcopy
+from tempfile import gettempdir
 import os
 
 # Possibile optimizations
@@ -356,7 +357,7 @@ def init_coffee(isa, comp, blas):
         initialized = True
 
     # Set the directory in which COFFEE will dump any relevant information
-    coffee_dir = os.environ.get('COFFEE_DIR', "/tmp/coffee_dump")
+    coffee_dir = os.path.join(gettempdir(), "coffee-dump-uid%s" % os.getuid())
     if not os.path.exists(coffee_dir):
         os.makedirs(coffee_dir)
 
