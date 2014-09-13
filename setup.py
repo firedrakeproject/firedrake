@@ -70,6 +70,7 @@ setup(name='firedrake',
                              include_dirs=include_dirs,
                              libraries=["petsc"],
                              extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
-                             ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs]),
+                             ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs] +
+                             ["-Wl,-rpath,%s/lib" % sys.prefix]),
                    Extension('evtk.cevtk', evtk_sources,
                              include_dirs=[np.get_include()])])
