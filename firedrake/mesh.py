@@ -8,7 +8,7 @@ from shutil import rmtree
 from pyop2 import op2
 from pyop2.coffee import ast_base as ast
 from pyop2.mpi import MPI
-from pyop2.profiling import timed_function
+from pyop2.profiling import timed_function, timed_region, profile
 from pyop2.utils import as_tuple
 
 import dmplex
@@ -202,6 +202,7 @@ class Mesh(object):
     """A representation of mesh topology and geometry."""
 
     @timed_function("Build mesh")
+    @profile
     def __init__(self, filename, dim=None, periodic_coords=None, plex=None, reorder=None):
         """
         :param filename: the mesh file to read.  Supported mesh formats
@@ -275,7 +276,8 @@ class Mesh(object):
         # Note.  This must come before distribution, because otherwise
         # DMPlex will consider facets on the domain boundary to be
         # exterior, which is wrong.
-        dmplex.label_facets(self._plex)
+        with timed_region("Mesh: label facets"):
+            dmplex.label_facets(self._plex)
 
         if geometric_dim == 0:
             geometric_dim = plex.getDimension()
@@ -287,60 +289,64 @@ class Mesh(object):
         self._plex = plex
 
         if reorder:
-            old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
-            reordering = np.empty_like(old_to_new)
-            reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
+            with timed_region("Mesh: reorder"):
+                old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
+                reordering = np.empty_like(old_to_new)
+                reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
         else:
             # No reordering
             reordering = None
 
         # Mark OP2 entities and derive the resulting Plex renumbering
-        dmplex.mark_entity_classes(self._plex)
-        self._plex_renumbering = dmplex.plex_renumbering(self._plex, reordering)
+        with timed_region("Mesh: renumbering"):
+            dmplex.mark_entity_classes(self._plex)
+            self._plex_renumbering = dmplex.plex_renumbering(self._plex, reordering)
 
-        cStart, cEnd = self._plex.getHeightStratum(0)  # cells
-        cell_vertices = self._plex.getConeSize(cStart)
-        self._ufl_cell = ufl.Cell(fiat_utils._cells[geometric_dim][cell_vertices],
-                                  geometric_dimension=geometric_dim)
+            cStart, cEnd = self._plex.getHeightStratum(0)  # cells
+            cell_vertices = self._plex.getConeSize(cStart)
+            self._ufl_cell = ufl.Cell(fiat_utils._cells[geometric_dim][cell_vertices],
+                                      geometric_dimension=geometric_dim)
 
-        self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
-        dim = self._plex.getDimension()
-        self._cells, self.cell_classes = dmplex.get_cells_by_class(self._plex)
+            self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
+            dim = self._plex.getDimension()
+            self._cells, self.cell_classes = dmplex.get_cells_by_class(self._plex)
 
-        # Derive a cell numbering from the Plex renumbering
-        cell_entity_dofs = np.zeros(dim+1, dtype=np.int32)
-        cell_entity_dofs[-1] = 1
+        with timed_region("Mesh: cell numbering"):
+            # Derive a cell numbering from the Plex renumbering
+            cell_entity_dofs = np.zeros(dim+1, dtype=np.int32)
+            cell_entity_dofs[-1] = 1
 
-        try:
-            # Old style createSection
-            self._cell_numbering = self._plex.createSection(1, [1], cell_entity_dofs,
-                                                            perm=self._plex_renumbering)
-        except:
-            # New style
-            self._cell_numbering = self._plex.createSection([1], cell_entity_dofs,
-                                                            perm=self._plex_renumbering)
+            try:
+                # Old style createSection
+                self._cell_numbering = self._plex.createSection(1, [1], cell_entity_dofs,
+                                                                perm=self._plex_renumbering)
+            except:
+                # New style
+                self._cell_numbering = self._plex.createSection([1], cell_entity_dofs,
+                                                                perm=self._plex_renumbering)
 
         self._cell_closure = None
         self.interior_facets = None
         self.exterior_facets = None
 
         # Note that for bendy elements, this needs to change.
-        if periodic_coords is not None:
-            if self.ufl_cell().geometric_dimension() != 1:
-                raise NotImplementedError("Periodic coordinates in more than 1D are unsupported")
-            # We've been passed a periodic coordinate field, so use that.
-            self._coordinate_fs = functionspace.VectorFunctionSpace(self, "DG", 1)
-            self.coordinates = function.Function(self._coordinate_fs,
-                                                 val=periodic_coords,
-                                                 name="Coordinates")
-        else:
-            self._coordinate_fs = functionspace.VectorFunctionSpace(self, "Lagrange", 1)
+        with timed_region("Mesh: coordinate field"):
+            if periodic_coords is not None:
+                if self.ufl_cell().geometric_dimension() != 1:
+                    raise NotImplementedError("Periodic coordinates in more than 1D are unsupported")
+                # We've been passed a periodic coordinate field, so use that.
+                self._coordinate_fs = functionspace.VectorFunctionSpace(self, "DG", 1)
+                self.coordinates = function.Function(self._coordinate_fs,
+                                                     val=periodic_coords,
+                                                     name="Coordinates")
+            else:
+                self._coordinate_fs = functionspace.VectorFunctionSpace(self, "Lagrange", 1)
 
-            coordinates = dmplex.reordered_coords(self._plex, self._coordinate_fs._global_numbering,
-                                                  (self.num_vertices(), geometric_dim))
-            self.coordinates = function.Function(self._coordinate_fs,
-                                                 val=coordinates,
-                                                 name="Coordinates")
+                coordinates = dmplex.reordered_coords(self._plex, self._coordinate_fs._global_numbering,
+                                                      (self.num_vertices(), geometric_dim))
+                self.coordinates = function.Function(self._coordinate_fs,
+                                                     val=coordinates,
+                                                     name="Coordinates")
         self._ufl_domain = ufl.Domain(self.coordinates)
         # Build a new ufl element for this function space with the
         # correct domain.  This is necessary since this function space
@@ -611,6 +617,7 @@ class ExtrudedMesh(Mesh):
     been specified)."""
 
     @timed_function("Build extruded mesh")
+    @profile
     def __init__(self, mesh, layers, kernel=None, layer_height=None, extrusion_type='uniform', gdim=None):
         # A cache of function spaces that have been built on this mesh
         self._cache = {}
@@ -758,6 +765,7 @@ class UnitSquareMesh(Mesh):
     * 4: plane y == 1
     """
 
+    @profile
     def __init__(self, nx, ny, reorder=None):
         self.name = "unitsquare_%d_%d" % (nx, ny)
 
@@ -813,6 +821,7 @@ class UnitCubeMesh(Mesh):
     * 6: plane z == 1
     """
 
+    @profile
     def __init__(self, nx, ny, nz, reorder=None):
         self.name = "unitcube_%d_%d_%d" % (nx, ny, nz)
 
@@ -860,6 +869,7 @@ class UnitCircleMesh(Mesh):
     :arg reorder: Should the mesh be reordered?
     """
 
+    @profile
     def __init__(self, resolution, reorder=None):
         source = """
             lc = %g;
@@ -887,6 +897,8 @@ class IntervalMesh(Mesh):
     The left hand (:math:`x=0`) boundary point has boundary marker 1,
     while the right hand (:math:`x=L`) point has marker 2.
     """
+
+    @profile
     def __init__(self, ncells, length):
         self.name = "interval"
         dx = float(length) / ncells
@@ -918,6 +930,8 @@ class UnitIntervalMesh(IntervalMesh):
     The left hand (:math:`x=0`) boundary point has boundary marker 1,
     while the right hand (:math:`x=1`) point has marker 2.
     """
+
+    @profile
     def __init__(self, ncells):
         self.name = "unitinterval"
         IntervalMesh.__init__(self, ncells, length=1.0)
@@ -929,6 +943,8 @@ class PeriodicIntervalMesh(Mesh):
 
     :arg ncells: The number of cells over the interval.
     :arg length: The length the interval."""
+
+    @profile
     def __init__(self, ncells, length):
         self.name = "periodicinterval"
 
@@ -982,6 +998,8 @@ class PeriodicIntervalMesh(Mesh):
 class PeriodicUnitIntervalMesh(PeriodicIntervalMesh):
     """Generate a periodic uniform mesh of the interval [0, 1].
     :arg ncells: The number of cells over the interval."""
+
+    @profile
     def __init__(self, ncells):
         self.name = "periodicunitinterval"
         PeriodicIntervalMesh.__init__(self, ncells, length=1.0)
@@ -1016,6 +1034,8 @@ class UnitTriangleMesh(Mesh):
 class CircleManifoldMesh(Mesh):
 
     """A 1D mesh of the circle, immersed in 2D"""
+
+    @profile
     def __init__(self, ncells, radius=1):
         """
         :arg ncells: number of cells the circle should be
@@ -1084,6 +1104,7 @@ class IcosahedralSphereMesh(Mesh):
                             [8, 6, 7],
                             [9, 8, 1]], dtype=np.int32)
 
+    @profile
     def __init__(self, radius=1, refinement_level=0, reorder=None):
         """
         :arg radius: the radius of the sphere to approximate.
@@ -1188,6 +1209,8 @@ class IcosahedralSphereMesh(Mesh):
 
 class UnitIcosahedralSphereMesh(IcosahedralSphereMesh):
     """An icosahedral approximation to the unit sphere."""
+
+    @profile
     def __init__(self, refinement_level=0, reorder=None):
         """
         :arg refinement_level: how many levels to refine the mesh.
