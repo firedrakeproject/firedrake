@@ -50,6 +50,8 @@ from versioning import CopyOnWrite, modifies, zeroes
 from profiling import timed_region
 import mpi
 from mpi import collective
+import sparsity
+
 
 if petsc4py_version < '3.4':
     raise RuntimeError("Incompatible petsc4py version %s. At least version 3.4 is required."
@@ -275,13 +277,23 @@ class Mat(base.Mat, CopyOnWrite):
         # Any add or insertion that would generate a new entry that has not
         # been preallocated will raise an error
         mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+        # Do not ignore zeros while we fill the initial matrix so that
+        # petsc doesn't compress things out.
+        mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, False)
         # When zeroing rows (e.g. for enforcing Dirichlet bcs), keep those in
         # the nonzero structure of the matrix. Otherwise PETSc would compact
         # the sparsity and render our sparsity caching useless.
         mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
-        # Do not raise an error when non-zero entries in a pre-allocated
-        # sparsity remains unused (e.g. due to applying boundary conditions)
-        mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, False)
+        # We completely fill the allocated matrix when zeroing the
+        # entries, so raise an error if we "missed" one.
+        mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
+
+        # Put zeros in all the places we might eventually put a value.
+        sparsity.fill_with_zeros(mat, self.sparsity.dims, self.sparsity.maps)
+
+        # Now we've filled up our matrix, so the sparsity is
+        # "complete", we can ignore subsequent zero entries.
+        mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
         self._handle = mat
         # Matrices start zeroed.
         self._version_set_zero()

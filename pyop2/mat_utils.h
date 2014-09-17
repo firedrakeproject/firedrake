@@ -10,7 +10,6 @@ static inline void addto_scalar(Mat mat, const void *value, int row, int col, in
   // FIMXE: this assumes we're getting a PetscScalar
   const PetscScalar * v = (const PetscScalar *)value;
 
-  if ( v[0] == 0.0 && !insert ) return;
   MatSetValuesLocal( mat,
                 1, (const PetscInt *)&row,
                 1, (const PetscInt *)&col,
