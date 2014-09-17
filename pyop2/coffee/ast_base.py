@@ -141,6 +141,26 @@ class ArrayInit(Expr):
         return self.values
 
 
+class ColSparseArrayInit(ArrayInit):
+
+    """Array initilizer in which zero-columns, i.e. columns full of zeros, are
+    explictly tracked. Only bi-dimensional arrays are allowed."""
+
+    def __init__(self, values, nonzero_bounds, numpy_values):
+        """Zero columns are tracked once the object is instantiated.
+
+        :arg values: string representation of the values the array is initialized to
+        :arg zerobounds: a tuple of two integers indicating the indices of the first
+                         and last nonzero columns
+        """
+        super(ColSparseArrayInit, self).__init__(values)
+        self.nonzero_bounds = nonzero_bounds
+        self.numpy_values = numpy_values
+
+    def gencode(self):
+        return self.values
+
+
 class Par(UnaryExpr):
 
     """Parenthesis object."""
@@ -424,13 +444,22 @@ class Decl(Statement, Perfect):
 
         static const double FE0[3][3] __attribute__(align(32)) = {{...}};"""
 
-    def __init__(self, typ, sym, init=None, qualifiers=None, attributes=None):
+    def __init__(self, typ, sym, init=None, qualifiers=None, attributes=None, pragma=None):
         super(Decl, self).__init__()
         self.typ = typ
         self.sym = as_symbol(sym)
         self.qual = qualifiers or []
         self.attr = attributes or []
         self.init = as_symbol(init) if init is not None else EmptyStatement()
+        self.pragma = pragma or ""
+
+    def size(self):
+        """Return the size of the declared variable. In particular, return
+        - (0,), if it is a scalar
+        - a tuple, if it is a N-dimensional array, such that each entry represents
+          the size of an array dimension (e.g. double A[20][10] -> (20, 10))
+        """
+        return self.sym.rank or (0,)
 
     def gencode(self, scope=False):
 
@@ -444,8 +473,21 @@ class Decl(Statement, Perfect):
             return decl(spacer(self.qual), self.typ, self.sym.gencode(),
                         spacer(self.attr)) + semicolon(scope)
         else:
-            return decl_init(spacer(self.qual), self.typ, self.sym.gencode(),
-                             spacer(self.attr), self.init.gencode()) + semicolon(scope)
+            pragma = self.pragma + "\n" if self.pragma else ""
+            return pragma + decl_init(spacer(self.qual), self.typ, self.sym.gencode(),
+                                      spacer(self.attr), self.init.gencode()) + semicolon(scope)
+
+    def get_nonzero_columns(self):
+        """If the declared array:
+            - is a bi-dimensional array,
+            - is initialized to some values,
+            - the initialized values are of type ColSparseArrayInit
+        Then return a tuple of the first and last non-zero columns in the array.
+        Else, return an empty tuple."""
+        if len(self.sym.rank) == 2 and isinstance(self.init, ColSparseArrayInit):
+            return self.init.nonzero_bounds
+        else:
+            return ()
 
 
 class Block(Statement):
@@ -487,8 +529,17 @@ class For(Statement):
     def it_var(self):
         return self.init.sym.symbol
 
+    def start(self):
+        return self.init.init.symbol
+
+    def end(self):
+        return self.cond.children[1].symbol
+
     def size(self):
         return self.cond.children[1].symbol - self.init.init.symbol
+
+    def increment(self):
+        return self.incr.children[1].symbol
 
     def gencode(self, scope=False):
         return "\n".join(self.pragma) + "\n" + for_loop(self.init.gencode(True),

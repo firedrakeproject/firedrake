@@ -64,10 +64,44 @@ class AssemblyVectorizer(object):
         pragmas to inner loops to inform the backend compiler about this
         property."""
 
+        iloops = inner_loops(self.asm_opt.pre_header)
+        adjusted_loops = []
+        # Loop adjustment
+        for l in iloops:
+            adjust = True
+            loop_size = 0
+            # Bound adjustment is safe iff:
+            # 1- all statements's lhs in the loop body have as fastest varying
+            #    dimension the iteration variable of the innermost loop
+            # 2- the loop linearly iterates till the end of the iteration space
+            # Condition 1
+            for stm in l.children[0].children:
+                sym = stm.children[0]
+                if sym.rank:
+                    loop_size = loop_size or decl_scope[sym.symbol][0].size()[-1]
+                if not (sym.rank and sym.rank[-1] == l.it_var()):
+                    adjust = False
+            # Condition 2
+            if not (l.increment() == 1 and l.end() == loop_size):
+                adjust = False
+            if adjust:
+                l.cond.children[1] = c_sym(vect_roundup(l.end()))
+                adjusted_loops.append(l)
+                # Successful bound adjustment allows forcing simdization
+                if self.comp.get('force_simdization'):
+                    l.pragma.append(self.comp['force_simdization'])
+
+        # Adding pragma alignment is safe iff
+        # 1- the start point of the loop is a multiple of the vector length
+        # 2- the size of the loop is a multiple of the vector length (note that
+        #    at this point, we have already checked the loop increment is 1)
+        for l in adjusted_loops:
+            if not (l.start() % self.intr["dp_reg"] and l.size() % self.intr["dp_reg"]):
+                l.pragma.append(self.comp["decl_aligned_for"])
+
+        # Actual padding
         used_syms = [s.symbol for s in self.asm_opt.sym]
         acc_decls = [d for s, d in decl_scope.items() if s in used_syms]
-
-        # Padding
         for d, s in acc_decls:
             if d.sym.rank:
                 if s == ap.PARAM_VAR:
@@ -76,28 +110,6 @@ class AssemblyVectorizer(object):
                     rounded = vect_roundup(d.sym.rank[-1])
                     d.sym.rank = d.sym.rank[:-1] + (rounded,)
                 self.padded.append(d.sym)
-
-        iloops = inner_loops(self.asm_opt.pre_header)
-        # Add pragma alignment
-        for l in iloops:
-            l.pragma = [self.comp["decl_aligned_for"]]
-
-        # Loop adjustment
-        for l in iloops:
-            adjust = True
-            for stm in l.children[0].children:
-                sym = stm.children[0]
-                if not (sym.rank and sym.rank[-1] == l.it_var()):
-                    adjust = False
-            if adjust:
-                # Bound adjustment is safe iff all statements's lfs in the body
-                # have as fastest varying the dimension the iteration variable
-                # of the innermost loop
-                bound = l.cond.children[1]
-                l.cond.children[1] = c_sym(vect_roundup(bound.symbol))
-                # Successful bound adjustment allows forcing simdization
-                if self.comp.get('force_simdization'):
-                    l.pragma.append(self.comp['force_simdization'])
 
     def outer_product(self, opts, factor=1):
         """Compute outer products according to ``opts``.

@@ -193,7 +193,7 @@ class LinuxIntelCompiler(Compiler):
          (optional).
     :arg ldargs: A list of arguments to pass to the linker (optional)."""
     def __init__(self, cppargs=[], ldargs=[]):
-        opt_flags = ['-O3', '-inline-forceinline']
+        opt_flags = ['-O3', '-xHost']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
 

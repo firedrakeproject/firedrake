@@ -41,7 +41,8 @@ from ast_linearalgebra import AssemblyLinearAlgebra
 from ast_autotuner import Autotuner
 
 from copy import deepcopy as dcopy
-
+from tempfile import gettempdir
+import os
 
 # Possibile optimizations
 AUTOVECT = 1        # Auto-vectorization
@@ -172,7 +173,6 @@ class ASTKernel(object):
                         ('base', 1, False, (None, None), True, None, False, None, False),
                         ('licm', 2, False, (None, None), True, None, False, None, False),
                         ('licm', 3, False, (None, None), True, None, False, None, False),
-                        ('licm', 3, False, (None, None), True, None, False, None, True),
                         ('split', 2, False, (None, None), True, (1, 0), False, None, False),
                         ('split', 2, False, (None, None), True, (2, 0), False, None, False),
                         ('split', 2, False, (None, None), True, (4, 0), False, None, False),
@@ -190,8 +190,10 @@ class ASTKernel(object):
                 raise RuntimeError("COFFEE Error: cannot unroll and then convert to BLAS")
             if permute and blas:
                 raise RuntimeError("COFFEE Error: cannot permute and then convert to BLAS")
-            if permute and licm != 3:
+            if permute and licm != 4:
                 raise RuntimeError("COFFEE Error: cannot permute without full expression rewriter")
+            if licm == 3 and v_type and v_type != AUTOVECT:
+                raise RuntimeError("COFFEE Error: zeros removal only supports auto-vectorization")
             if unroll and v_type and v_type != AUTOVECT:
                 raise RuntimeError("COFFEE Error: outer-product vectorization needs no unroll")
             if permute and v_type and v_type != AUTOVECT:
@@ -200,13 +202,15 @@ class ASTKernel(object):
             decls, fors = self._visit_ast(self.ast, fors=[], decls={})
             asm = [AssemblyOptimizer(l, pre_l, decls) for l, pre_l in fors]
             for ao in asm:
-                # 1) Loop-invariant code motion
+                # 1) Expression Re-writer
                 if licm:
-                    ao.generalized_licm(licm)
+                    ao.rewrite_expression(licm)
                     decls.update(ao.decls)
 
                 # 2) Splitting
-                if split:
+                if ao._has_zeros:
+                    ao.split()
+                elif split:
                     ao.split(split[0], split[1])
 
                 # 3) Permute integration loop
@@ -225,17 +229,20 @@ class ASTKernel(object):
                 if initialized:
                     vect = AssemblyVectorizer(ao, intrinsics, compiler)
                     if ap:
+                        # Data alignment
                         vect.alignment(decls)
+                        # Padding
                         if not blas:
                             vect.padding(decls)
                             self.ap = True
                     if v_type and v_type != AUTOVECT:
                         if intrinsics['inst_set'] == 'SSE':
                             raise RuntimeError("COFFEE Error: SSE vectorization not supported")
+                        # Outer-product vectorization
                         vect.outer_product(v_type, v_param)
 
                 # 6) Conversion into blas calls
-                if blas:
+                if blas and not ao._has_zeros:
                     ala = AssemblyLinearAlgebra(ao, decls)
                     self.blas = ala.transform(blas)
 
@@ -261,10 +268,11 @@ class ASTKernel(object):
                 autotune_configs = autotune_minimal
                 unroll_ths = 4
             elif blas_interface:
-                autotune_configs.append(('blas', 3, 0, (None, None), True, (1, 0),
+                autotune_configs.append(('blas', 4, 0, (None, None), True, (1, 0),
                                          blas_interface['name'], None, False))
             variants = []
             autotune_configs_unroll = []
+            found_zeros = False
             tunable = True
             original_ast = dcopy(self.ast)
             # Generate basic kernel variants
@@ -275,9 +283,10 @@ class ASTKernel(object):
                     # Not a local assembly kernel, nothing to tune
                     tunable = False
                     break
-                if opt in ['licm', 'split']:
+                ao = asm[0]
+                found_zeros = found_zeros or ao._has_zeros
+                if opt in ['licm', 'split'] and not found_zeros:
                     # Heuristically apply a set of unroll factors on top of the transformation
-                    ao = asm[0]
                     int_loop_sz = ao.int_loop.size() if ao.int_loop else 0
                     asm_outer_sz = ao.asm_itspace[0][0].size() if len(ao.asm_itspace) >= 1 else 0
                     asm_inner_sz = ao.asm_itspace[1][0].size() if len(ao.asm_itspace) >= 2 else 0
@@ -287,20 +296,20 @@ class ASTKernel(object):
                 # Increase the stack size, if needed
                 increase_stack(asm)
                 # Add the variant to the test cases the autotuner will have to run
-                variants.append(self.ast)
+                variants.append((self.ast, _params))
                 self.ast = dcopy(original_ast)
             # On top of some of the basic kernel variants, apply unroll/unroll-and-jam
             for params in autotune_configs_unroll:
                 asm = _generate_cpu_code(self, *params[1:])
-                variants.append(self.ast)
+                variants.append((self.ast, params[1:]))
                 self.ast = dcopy(original_ast)
             if tunable:
                 # Determine the fastest kernel implementation
                 autotuner = Autotuner(variants, asm[0].asm_itspace, self.include_dirs,
-                                      compiler, intrinsics, blas_interface)
+                                      coffee_dir, compiler, intrinsics, blas_interface)
                 fastest = autotuner.tune(resolution)
-                variants = autotune_configs + autotune_configs_unroll
-                name, params = variants[fastest][0], variants[fastest][1:]
+                all_params = autotune_configs + autotune_configs_unroll
+                name, params = all_params[fastest][0], all_params[fastest][1:]
                 # Discard values set while autotuning
                 if name != 'blas':
                     self.blas = False
@@ -312,7 +321,7 @@ class ASTKernel(object):
             # in order to identify and extract matrix multiplies.
             if not blas_interface:
                 raise RuntimeError("COFFEE Error: must set PYOP2_BLAS to convert into BLAS calls")
-            params = (3, 0, (None, None), True, (1, 0), opts['blas'], None, False)
+            params = (4, 0, (None, None), True, (1, 0), opts['blas'], None, False)
         else:
             # Fetch user-provided options/hints on how to transform the kernel
             params = (opts.get('licm'), opts.get('slice'), opts.get('vect') or (None, None),
@@ -334,17 +343,23 @@ intrinsics = {}
 compiler = {}
 blas_interface = {}
 initialized = False
+coffee_dir = ""
 
 
 def init_coffee(isa, comp, blas):
     """Initialize COFFEE."""
 
-    global intrinsics, compiler, blas_interface, initialized
+    global intrinsics, compiler, blas_interface, initialized, coffee_dir
     intrinsics = _init_isa(isa)
     compiler = _init_compiler(comp)
     blas_interface = _init_blas(blas)
     if intrinsics and compiler:
         initialized = True
+
+    # Set the directory in which COFFEE will dump any relevant information
+    coffee_dir = os.path.join(gettempdir(), "coffee-dump-uid%s" % os.getuid())
+    if not os.path.exists(coffee_dir):
+        os.makedirs(coffee_dir)
 
 
 def _init_isa(isa):
@@ -392,6 +407,7 @@ def _init_compiler(compiler):
     if compiler == 'intel':
         return {
             'name': 'intel',
+            'cmd': 'icc',
             'align': lambda o: '__attribute__((aligned(%s)))' % o,
             'decl_aligned_for': '#pragma vector aligned',
             'force_simdization': '#pragma simd',
@@ -404,6 +420,7 @@ def _init_compiler(compiler):
     if compiler == 'gnu':
         return {
             'name': 'gnu',
+            'cmd': 'gcc',
             'align': lambda o: '__attribute__((aligned(%s)))' % o,
             'decl_aligned_for': '#pragma vector aligned',
             'AVX': '-mavx',

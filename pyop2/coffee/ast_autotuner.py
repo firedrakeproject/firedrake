@@ -33,13 +33,14 @@
 
 """COFFEE's autotuning system."""
 
-from pyop2.mpi import MPI
-from pyop2.configuration import configuration
-import pyop2.compilation as compilation
-import ctypes
-
 from ast_base import *
 from ast_vectorizer import vect_roundup
+
+from pyop2.mpi import MPI
+
+import subprocess
+import os
+import tempfile
 
 
 class Autotuner(object):
@@ -66,7 +67,7 @@ class Autotuner(object):
 %(blas_namespace)s
 
 #define RESOLUTION %(resolution)d
-#define TOLERANCE 0.000000000001
+#define TOLERANCE 0.000000001
 
 static inline long stamp()
 {
@@ -76,27 +77,28 @@ static inline long stamp()
 }
 
 #ifdef DEBUG
-static int compare_1d(double A1[%(trial)s], double A2[%(trial)s])
+static int compare_1d(double A1[%(trial)s], double A2[%(trial)s], FILE* out)
 {
   for(int i = 0; i < %(trial)s; i++)
   {
     if(fabs(A1[i] - A2[i]) > TOLERANCE)
     {
+      fprintf(out, "i=%%d, A1[i]=%%e, A2[i]=%%e\\n", i, A1[i], A2[i]);
       return 1;
     }
   }
   return 0;
 }
 
-static int compare_2d(double A1[%(test)s][%(test)s], double A2[%(test)s][%(test)s])
+static int compare_2d(double A1[%(trial)s][%(trial)s], double A2[%(trial)s][%(trial)s], FILE* out)
 {
   for(int i = 0; i < %(trial)s; i++)
   {
-    for(int j = 0; j < %(test)s; j++)
+    for(int j = 0; j < %(trial)s; j++)
     {
       if(fabs(A1[i][j] - A2[i][j]) > TOLERANCE)
       {
-        printf("i=%%d, j=%%d, A1[i][j]=%%f, A2[i][j]=%%f\\n", i, j, A1[i][j], A2[i][j]);
+        fprintf(out, "i=%%d, j=%%d, A1[i][j]=%%e, A2[i][j]=%%e\\n", i, j, A1[i][j], A2[i][j]);
         return 1;
       }
     }
@@ -110,10 +112,11 @@ static int compare_2d(double A1[%(test)s][%(test)s], double A2[%(test)s][%(test)
 %(variants)s
 
 %(externc_open)s
-int autotune()
+int main()
 {
   int i = 0, c = 0;
   int counters[%(nvariants)d] = {0};
+  char* all_opts[%(nvariants)d];
 
   /* Call kernel variants */
   %(call_variants)s
@@ -129,26 +132,28 @@ int autotune()
   }
 
   /* Output all variants */
-  /*
-  printf("COFFEE Autotuner: cost of variants:\\n");
+  FILE* out = fopen("%(filename)s", "a");
+  fprintf(out, "COFFEE Autotuner: cost of variants:\\n");
   for (int j = 0; j < %(nvariants)d; j++)
   {
-    printf("  Variant %%d: %%d\\n", j, counters[j]);
+    fprintf(out, "  Variant %%d: %%d\\n", j, counters[j]);
   }
-  printf("COFFEE Autotuner: fastest variant has ID %%d\\n", best);
-  */
 
   /* Output base, licm1, and fastest variants */
   /*
-  printf("COFFEE Autotuner: base variant: %%d \\n", counters[0]);
-  printf("COFFEE Autotuner: licm1 variant: %%d \\n", counters[1]);
-  printf("COFFEE Autotuner: fastest variant ID=%%d: %%d \\n", best, counters[best]);
+  fprintf(out, "Summary:\\n");
+  fprintf(out, "Base variant: %%d \\n", counters[0]);
+  fprintf(out, "Licm1 variant: %%d \\n", counters[1]);
   */
+
+  fprintf(out, "Fastest variant ID=%%d: %%d \\n", best, counters[best]);
+  fprintf(out, "***Chosen optimizations set: %%s***\\n", all_opts[best]);
 
 #ifdef DEBUG
   %(debug_code)s
 #endif
 
+  fclose(out);
   return best;
 }
 %(externc_close)s
@@ -157,22 +162,32 @@ int autotune()
     // Initialize coefficients
     for (int j = 0; j < %(ndofs)d; j++)
     {
-      %(init_coeffs)s
+%(init_coeffs)s
     }
 """
     _run_template = """
   // Code variant %(iter)d call
   srand (1);
+  all_opts[%(iter)d] = "%(used_opts)s";
   long start%(iter)d, end%(iter)d;
   %(decl_params)s
   start%(iter)d = stamp();
   end%(iter)d = start%(iter)d + RESOLUTION;
+#ifndef DEBUG
+  #pragma forceinline
   while (stamp() < end%(iter)d)
+#else
+  while (c < 1)
+#endif
   {
     // Initialize coordinates
     for (int j = 0; j < %(ncoords)d; j++)
     {
+#ifndef DEBUG
       vertex_coordinates_%(iter)d[j][0] = (double)rand();
+#else
+      vertex_coordinates_%(iter)d[j][0] = (double)(rand()%%10);
+#endif
     }
     %(init_coeffs)s
     #pragma noinline
@@ -183,12 +198,17 @@ int autotune()
   c = 0;
 """
     _debug_template = """
-  if(%(call_debug)s(A_0, A_%(iter)s))
+  // First discard padded region, then check output
+  double A_%(iter)s_debug[%(trial)s][%(trial)s] = {{0.0}};
+  for (int i_0 = 0; i_0 < %(trial)s; i_0++)
+    for (int i_1 = 0; i_1 < %(trial)s; i_1++)
+      A_%(iter)s_debug[i_0][i_1] = A_%(iter)s[i_0][i_1];
+  if(%(call_debug)s(A_0, A_%(iter)s_debug, out))
   {
-    printf("COFFEE Warning: code variants 0 and %%d differ\\n", %(iter)s);
+    fprintf(out, "COFFEE Warning: code variants 0 and %%d differ\\n", %(iter)s);
   }
 """
-    _filename = "autotuning_code."
+    _filename = "autotuning_code"
     _coord_size = {
         'compute_jacobian_interval_1d': 2,
         'compute_jacobian_interval_2d': 4,
@@ -213,23 +233,31 @@ int autotune()
     """Create and execute a C file in which multiple variants of the same kernel
     are executed to determine the fastest implementation."""
 
-    def __init__(self, kernels, itspace, include_dirs, compiler, isa, blas):
+    def __init__(self, variants, itspace, include, coffee_dir, compiler, isa, blas):
         """Initialize the autotuner.
 
-        :arg kernels:      list of code snippets implementing the kernel.
-        :arg itspace:      kernel's iteration space.
-        :arg include_dirs: list of directories to be searched for header files
+        :arg variants:     list of (ast, used_optimizations) for autotuning
+        :arg itspace:      kernel's iteration space
+        :arg include:      list of directories to be searched for header files
+        :arg coffee_dir:   location where to dump autotuner output
         :arg compiler:     backend compiler info
         :arg isa:          instruction set architecture info
         :arg blas:         COFFEE's dense linear algebra library info
         """
 
-        self.kernels = kernels
+        self.variants = variants
         self.itspace = itspace
-        self.include_dirs = include_dirs
+        self.include = include
         self.compiler = compiler
         self.isa = isa
         self.blas = blas
+
+        # Set the directory where the autotuner will dump its output
+        kernel_name = variants[0][0].children[1].name
+        tempfile.tempdir = coffee_dir
+        self.coffee_dir = tempfile.mkdtemp(suffix="_tune_%s_rank%d" % (kernel_name,
+                                                                       MPI.comm.rank))
+        tempfile.tempdir = None
 
     def _retrieve_coords_size(self, kernel):
         """Return coordinates array size"""
@@ -263,8 +291,9 @@ int autotune()
     def _run(self, src):
         """Compile and run the generated test cases. Return the fastest kernel version."""
 
-        filetype = "c"
-        cppargs = ["-std=gnu99"] + ["-I%s" % d for d in self.include_dirs]
+        fext = "c"
+        cppargs = ["-std=gnu99", "-O3", "-xHost"] + \
+                  ["-I%s" % d for d in self.include]
         ldargs = ["-lrt", "-lm"]
         if self.compiler:
             cppargs += [self.compiler[self.isa['inst_set']]]
@@ -276,15 +305,33 @@ int autotune()
                 ldargs += ["-L%s/lib" % blas_dir]
             ldargs += self.blas['link']
             if self.blas['name'] == 'eigen':
-                filetype = "cpp"
+                fext = "cpp"
 
-        # Dump autotuning src out to a file
-        if configuration["debug"] and MPI.comm.rank == 0:
-            with open(Autotuner._filename + filetype, 'w') as f:
-                f.write(src)
-
-        return compilation.load(src, filetype, "autotune", cppargs, ldargs, None,
-                                ctypes.c_int, self.compiler.get('name'))()
+        # Dump autotuning source out to a file
+        filename = os.path.join(self.coffee_dir, "%s.%s" % (Autotuner._filename, fext))
+        with file(filename, 'w') as f:
+            f.write(src)
+        objname = os.path.join(self.coffee_dir, Autotuner._filename)
+        logfile = os.path.join(self.coffee_dir, "%s.log" % Autotuner._filename)
+        errfile = os.path.join(self.coffee_dir, "%s.err" % Autotuner._filename)
+        cc = [self.compiler["cmd"], filename] + cppargs + ['-o', objname] + ldargs
+        with file(logfile, "a") as log:
+            with file(errfile, "a") as err:
+                log.write("Compilation command:\n")
+                log.write(" ".join(cc))
+                log.write("\n\n")
+                # Compile the source code
+                try:
+                    subprocess.check_call(cc, stderr=err, stdout=log)
+                except:
+                    raise RuntimeError("""Unable to compile autotuner file
+See %s for more info about the error""" % errfile)
+                # Execute the autotuner
+                try:
+                    return subprocess.call([objname], stderr=err, stdout=log)
+                except:
+                    raise RuntimeError("""Unable to run the autotuner
+See %s for more info about the error""" % logfile)
 
     def tune(self, resolution):
         """Return the fastest kernel implementation.
@@ -292,14 +339,15 @@ int autotune()
         :arg resolution: the amount of time in milliseconds a kernel is run."""
 
         is_global_decl = lambda s: isinstance(s, Decl) and ('static' and 'const' in s.qual)
-        coords_size = self._retrieve_coords_size(str(self.kernels[0]))
+        coords_size = self._retrieve_coords_size(str(self.variants[0][0]))
         trial_dofs = self.itspace[0][0].size() if len(self.itspace) >= 1 else 0
         test_dofs = self.itspace[1][0].size() if len(self.itspace) >= 2 else 0
         coeffs_size = {}
 
         # Create the invidual test cases
-        variants, debug_code, global_decls = ([], [], [])
-        for ast, i in zip(self.kernels, range(len(self.kernels))):
+        call_variants, debug_code, global_decls = ([], [], [])
+        for i, variant in enumerate(self.variants):
+            ast, used_opts = variant
             fun_decl = ast.children[1]
             fun_decl.pred.remove('inline')
             # Create ficticious kernel parameters
@@ -343,31 +391,38 @@ int autotune()
             # Initialize coefficients (if any)
             init_coeffs = ""
             if coeffs_syms:
+                wrap_coeffs = "#ifndef DEBUG\n      %s\n#else\n      %s\n#endif"
+                real_coeffs = ";\n      ".join([f + "[j][0] = (double)rand();" for f in coeffs_syms])
+                debug_coeffs = ";\n      ".join([f + "[j][0] = (double)(rand()%10);" for f in coeffs_syms])
                 init_coeffs = Autotuner._coeffs_template % {
                     'ndofs': min(coeffs_size.values()),
-                    'init_coeffs': ";\n      ".join([f + "[j][0] = (double)rand();" for f in coeffs_syms])
+                    'init_coeffs': wrap_coeffs % (real_coeffs, debug_coeffs)
                 }
 
             # Instantiate code variant
             params = ", ".join([lt_sym, coords_sym] + coeffs_syms)
-            variants.append(Autotuner._run_template % {
+            call_variants.append(Autotuner._run_template % {
                 'iter': i,
+                'used_opts': str(used_opts),
                 'decl_params': ";\n  ".join([lt_decl, coords_decl] + coeffs_decl) + ";",
                 'ncoords': coords_size,
                 'init_coeffs': init_coeffs,
                 'call_variant': fun_decl.name + "(%s);" % params
             })
 
-            # Create debug code
-            debug_code.append(Autotuner._debug_template % {
-                'iter': i,
-                'call_debug': "compare_2d" if trial_dofs and test_dofs else "compare_1d"
-            })
+            # Create debug code, apart from the BLAS case
+            if not used_opts[0] == 4:
+                debug_code.append(Autotuner._debug_template % {
+                    'iter': i,
+                    'trial': trial_dofs,
+                    'call_debug': "compare_2d"
+                })
 
         # Instantiate the autotuner skeleton
-        kernels_code = "\n".join(["/* Code variant %d */" % i + str(k.children[1]) for i, k
-                                  in zip(range(len(self.kernels)), self.kernels)])
+        kernels_code = "\n".join(["/* Code variant %d */" % i + str(k.children[1])
+                                  for i, k in enumerate(zip(*self.variants)[0])])
         code_template = Autotuner._code_template % {
+            'filename': os.path.join(self.coffee_dir, "%s.out" % Autotuner._filename),
             'trial': trial_dofs,
             'test': test_dofs,
             'vect_header': self.compiler['vect_header'],
@@ -377,8 +432,8 @@ int autotune()
             'resolution': resolution,
             'globals': global_decls,
             'variants': kernels_code,
-            'nvariants': len(self.kernels),
-            'call_variants': "".join(variants),
+            'nvariants': len(self.variants),
+            'call_variants': "".join(call_variants),
             'externc_open': 'extern "C" {' if self.blas.get('name') in ['eigen'] else "",
             'externc_close': "}" if self.blas.get('name') in ['eigen'] else "",
             'debug_code': "".join(debug_code)
