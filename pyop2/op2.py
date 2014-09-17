@@ -118,12 +118,12 @@ def init(**kwargs):
 @collective
 def exit():
     """Exit OP2 and clean up"""
-    if configuration['print_cache_size']:
+    if configuration['print_cache_size'] and MPI.comm.rank == 0:
         from caching import report_cache, Cached, ObjectCached
         print '**** PyOP2 cache sizes at exit ****'
         report_cache(typ=ObjectCached)
         report_cache(typ=Cached)
-    if configuration['print_summary']:
+    if configuration['print_summary'] and MPI.comm.rank == 0:
         from profiling import summary
         print '**** PyOP2 timings summary ****'
         summary()
