@@ -1,17 +1,33 @@
+# Build
 build
+dist
+MANIFEST
+PyOP2.egg-info
+*.py[cdo]
+
+# Extension modules
+computeind.c
+computeind.so
+plan.c
+plan.so
+sparsity.cpp
+sparsity.so
+
+# Docs
+pyop2.coffee.rst
+pyop2.rst
 pyop2.pdf
 pyop2.aux
 pyop2.log
-*.pyc
-/pyop2/computeind.c
-/pyop2/computeind.so
-/pyop2/plan.c
-/pyop2/plan.so
-/pyop2/sparsity.cpp
-/pyop2/sparsity.so
+
+# Testing
+.pytest-incremental
+.tox
+.vagrant
+
+# Meshes
 *.edge
 *.ele
 *.msh
 *.node
 *.geo
-!cdisk.geo
