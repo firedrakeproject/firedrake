@@ -38,10 +38,22 @@ from cpython cimport bool
 import numpy as np
 cimport numpy as np
 import cython
+cimport petsc4py.PETSc as PETSc
 
 np.import_array()
 
 ctypedef np.int32_t DTYPE_t
+
+cdef extern from "petsc.h":
+    ctypedef long PetscInt
+    ctypedef double PetscScalar
+    ctypedef enum PetscInsertMode "InsertMode":
+        PETSC_INSERT_VALUES "INSERT_VALUES"
+    int PetscCalloc1(size_t, void*)
+    int PetscMalloc1(size_t, void*)
+    int PetscFree(void*)
+    int MatSetValuesBlockedLocal(PETSc.PetscMat, PetscInt, PetscInt*, PetscInt, PetscInt*,
+                                 PetscScalar*, PetscInsertMode)
 
 ctypedef struct cmap:
     int from_size
@@ -247,6 +259,121 @@ cdef build_sparsity_pattern_mpi(int rmult, int cmult, int nrows, int ncols, list
         o_nz += o_nnz[row]
 
     return d_nnz, o_nnz, d_nz, o_nz
+
+
+def fill_with_zeros(PETSc.Mat mat not None, dims, maps):
+    """Fill a PETSc matrix with zeros in all slots we might end up inserting into
+
+    :arg mat: the PETSc Mat (must already be preallocated)
+    :arg dims: the dimensions of the sparsity (block size)
+    :arg maps: the pairs of maps defining the sparsity pattern"""
+    cdef:
+        PetscInt rdim, cdim
+        PetscScalar *values
+        int set_entry
+        int set_size
+        int layer_start, layer_end
+        int layer
+        int i
+        PetscInt rarity, carity, tmp_rarity, tmp_carity
+        PetscInt[:, ::1] rmap, cmap
+        PetscInt *rvals
+        PetscInt *cvals
+        PetscInt *roffset
+        PetscInt *coffset
+
+    rdim, cdim = dims
+
+    extruded = maps[0][0].iterset._extruded
+    for pair in maps:
+        # Iterate over row map values including value entries
+        set_size = pair[0].iterset.exec_size
+        if set_size == 0:
+            continue
+        # Map values
+        rmap = pair[0].values_with_halo
+        cmap = pair[1].values_with_halo
+        # Arity of maps
+        rarity = pair[0].arity
+        carity = pair[1].arity
+
+        if not extruded:
+            # The non-extruded case is easy, we just walk over the
+            # rmap and cmap entries and set a block of values.
+            PetscCalloc1(rarity*carity*rdim*cdim, &values)
+            for set_entry in range(set_size):
+                MatSetValuesBlockedLocal(mat.mat, rarity, &rmap[set_entry, 0],
+                                         carity, &cmap[set_entry, 0],
+                                         values, PETSC_INSERT_VALUES)
+        else:
+            # The extruded case needs a little more work.
+            layers = pair[0].iterset.layers
+            # We only need the *2 if we have an ON_INTERIOR_FACETS
+            # iteration region, but it doesn't hurt to make them all
+            # bigger, since we can special case less code below.
+            PetscCalloc1(2*rarity*carity*rdim*cdim, &values)
+            # Row values (generally only rarity of these)
+            PetscMalloc1(2 * rarity, &rvals)
+            # Col values (generally only rarity of these)
+            PetscMalloc1(2 * carity, &cvals)
+            # Offsets (for walking up the column)
+            PetscMalloc1(rarity, &roffset)
+            PetscMalloc1(carity, &coffset)
+            # Walk over the iteration regions on this map.
+            for r in pair[0].iteration_region:
+                # Default is "ALL"
+                layer_start = 0
+                layer_end = layers - 1
+                tmp_rarity = rarity
+                tmp_carity = carity
+                if r.where == "ON_BOTTOM":
+                    # Finish after first layer
+                    layer_end = 1
+                elif r.where == "ON_TOP":
+                    # Start on penultimate layer
+                    layer_start = layers - 2
+                elif r.where == "ON_INTERIOR_FACETS":
+                    # Finish on penultimate layer
+                    layer_end = layers - 2
+                    # Double up rvals and cvals
+                    tmp_rarity *= 2
+                    tmp_carity *= 2
+                elif r.where != "ALL":
+                    raise RuntimeError("Unhandled iteration region")
+                for i in range(rarity):
+                    roffset[i] = pair[0].offset[i]
+                for i in range(carity):
+                    coffset[i] = pair[1].offset[i]
+                for set_entry in range(set_size):
+                    # In the case of tmp_rarity == rarity this is just:
+                    #
+                    # rvals[i] = rmap[set_entry, i] + layer_start * roffset[i]
+                    #
+                    # But this means less special casing.
+                    for i in range(tmp_rarity):
+                        rvals[i] = rmap[set_entry, i % rarity] + \
+                                   (layer_start + i / rarity) * roffset[i % rarity]
+                    # Ditto
+                    for i in range(tmp_carity):
+                        cvals[i] = cmap[set_entry, i % carity] + \
+                                   (layer_start + i / carity) * coffset[i % carity]
+                    for layer in range(layer_start, layer_end):
+                        MatSetValuesBlockedLocal(mat.mat, tmp_rarity, rvals,
+                                                 tmp_carity, cvals,
+                                                 values, PETSC_INSERT_VALUES)
+                        # Move to the next layer
+                        for i in range(tmp_rarity):
+                            rvals[i] += roffset[i % rarity]
+                        for i in range(tmp_carity):
+                            cvals[i] += coffset[i % carity]
+            PetscFree(rvals)
+            PetscFree(cvals)
+            PetscFree(roffset)
+            PetscFree(coffset)
+        PetscFree(values)
+    # Aaaand, actually finalise the assembly.
+    mat.assemble()
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
