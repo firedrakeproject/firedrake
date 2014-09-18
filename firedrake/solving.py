@@ -409,6 +409,11 @@ def assemble(f, tensor=None, bcs=None):
     there, otherwise a new object of the appropriate type will be
     returned.
 
+    If ``bcs`` is supplied and ``f`` is a 2-form, the rows and columns
+    of the resulting :class:`.Matrix` corresponding to boundary nodes
+    will be set to 0 and the diagonal entries to 1. If ``f`` is a
+    1-form, the vector entries at boundary nodes are set to the
+    boundary condition values.
     """
 
     if isinstance(f, ufl.form.Form):
