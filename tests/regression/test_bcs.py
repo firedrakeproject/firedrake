@@ -327,6 +327,15 @@ def test_mixed_bcs():
     assert np.allclose(A11.diagonal()[bc.nodes], 1.0)
 
 
+def test_bcs_rhs_assemble(a, V):
+    bcs = [DirichletBC(V, 1.0, 1), DirichletBC(V, 2.0, 3)]
+    b1 = assemble(a)
+    for bc in bcs:
+        bc.apply(b1)
+    b2 = assemble(a, bcs=bcs)
+    assert np.allclose(b1.dat.data, b2.dat.data)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

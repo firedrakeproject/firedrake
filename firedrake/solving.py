@@ -409,6 +409,11 @@ def assemble(f, tensor=None, bcs=None):
     there, otherwise a new object of the appropriate type will be
     returned.
 
+    If ``bcs`` is supplied and ``f`` is a 2-form, the rows and columns
+    of the resulting :class:`.Matrix` corresponding to boundary nodes
+    will be set to 0 and the diagonal entries to 1. If ``f`` is a
+    1-form, the vector entries at boundary nodes are set to the
+    boundary condition values.
     """
 
     if isinstance(f, ufl.form.Form):
@@ -735,6 +740,9 @@ def _assemble(f, tensor=None, bcs=None):
                             # index of the function space the bc is defined on.
                             if i == j and (fs.index is None or fs.index == i):
                                 tensor[i, j].inc_local_diagonal_entries(bc.nodes)
+        if bcs is not None and is_vec:
+            for bc in bcs:
+                bc.apply(result_function)
         if is_mat:
             # Queue up matrix assembly (after we've done all the other operations)
             tensor.assemble()
