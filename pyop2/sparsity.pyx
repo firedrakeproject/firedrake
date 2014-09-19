@@ -42,8 +42,6 @@ cimport petsc4py.PETSc as PETSc
 
 np.import_array()
 
-ctypedef np.int32_t DTYPE_t
-
 cdef extern from "petsc.h":
     ctypedef long PetscInt
     ctypedef double PetscScalar
@@ -55,210 +53,172 @@ cdef extern from "petsc.h":
     int MatSetValuesBlockedLocal(PETSc.PetscMat, PetscInt, PetscInt*, PetscInt, PetscInt*,
                                  PetscScalar*, PetscInsertMode)
 
-ctypedef struct cmap:
-    int from_size
-    int from_exec_size
-    int to_size
-    int to_exec_size
-    int arity
-    int* values
-    int* offset
-    int layers
-
-cdef cmap init_map(omap):
-    cdef cmap out
-    out.from_size = omap.iterset.size
-    out.from_exec_size = omap.iterset.exec_size
-    out.to_size = omap.toset.size
-    out.to_exec_size = omap.toset.exec_size
-    out.arity = omap.arity
-    out.values = <int *>np.PyArray_DATA(omap.values_with_halo)
-    out.offset = <int *>np.PyArray_DATA(omap.offset)
-    if omap.iterset._extruded:
-        out.layers = omap.iterset.layers
-    else:
-        out.layers = 0
-    return out
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-cdef build_sparsity_pattern_seq(int rmult, int cmult, int nrows, list maps):
-    """Create and populate auxiliary data structure: for each element of the
-    from set, for each row pointed to by the row map, add all columns pointed
-    to by the col map."""
+cdef build_sparsity_pattern(int rmult, int cmult, list maps, bool have_odiag):
+    """Build a sparsity pattern defined by a list of pairs of maps
+
+    :arg rmult: the dataset dimension of the rows of the sparsity (the row block size).
+    :arg cmult: the dataset dimension of the columns of the sparsity (column block size).
+    :arg maps: a list of pairs of row, column maps defining the sparsity pattern.
+
+    The sparsity pattern is built from the outer products of the pairs
+    of maps.  This code works for both the serial and (MPI-) parallel
+    case."""
     cdef:
-        int e, i, r, d, c, layer, l
-        int lsize, rsize, row
-        cmap rowmap, colmap
-        vector[vecset[int]] s_diag
-        vecset[int].const_iterator it
-
-    lsize = nrows*rmult
-    s_diag = vector[vecset[int]](lsize)
-
-    for ind, (rmap, cmap) in enumerate(maps):
-        rowmap = init_map(rmap)
-        colmap = init_map(cmap)
-        rsize = rowmap.from_size
-        if not s_diag[0].capacity():
-            # Preallocate set entries heuristically based on arity
-            for i in range(lsize):
-                s_diag[i].reserve(6*rowmap.arity)
-        # In the case of extruded meshes, in particular, when iterating over
-        # horizontal facets, the iteration region determines which part of the
-        # mesh the sparsity should be constructed for.
-        #
-        # ON_BOTTOM: create the sparsity only for the bottom layer of cells
-        # ON_TOP: create the sparsity only for the top layers
-        # ON_INTERIOR_FACETS: the sparsity creation requires the dynamic
-        # computation of the full facet map. Because the extruded direction
-        # is structured, the map can be computed dynamically. The map is made up
-        # of a lower half given by the base map and an upper part which is obtained
-        # by adding the offset to the base map. This produces a map which has double
-        # the arity of the initial map.
-        if rowmap.layers > 1:
-            row_iteration_region = maps[ind][0].iteration_region
-            col_iteration_region = maps[ind][1].iteration_region
-            for it_sp in row_iteration_region:
-                if it_sp.where == 'ON_BOTTOM':
-                    for e in range(rsize):
-                        for i in range(rowmap.arity):
-                            for r in range(rmult):
-                                row = rmult * (rowmap.values[i + e*rowmap.arity]) + r
-                                for d in range(colmap.arity):
-                                    for c in range(cmult):
-                                        s_diag[row].insert(cmult * (colmap.values[d + e * colmap.arity]) + c)
-                elif it_sp.where == "ON_TOP":
-                    layer = rowmap.layers - 2
-                    for e in range(rsize):
-                        for i in range(rowmap.arity):
-                            for r in range(rmult):
-                                row = rmult * (rowmap.values[i + e*rowmap.arity] + layer * rowmap.offset[i]) + r
-                                for d in range(colmap.arity):
-                                    for c in range(cmult):
-                                        s_diag[row].insert(cmult * (colmap.values[d + e * colmap.arity] +
-                                                           layer * colmap.offset[d]) + c)
-                elif it_sp.where == "ON_INTERIOR_FACETS":
-                    for e in range(rsize):
-                        for i in range(rowmap.arity * 2):
-                            for r in range(rmult):
-                                for l in range(rowmap.layers - 2):
-                                    row = rmult * (rowmap.values[i % rowmap.arity + e*rowmap.arity] + (l + i / rowmap.arity) * rowmap.offset[i % rowmap.arity]) + r
-                                    for d in range(colmap.arity * 2):
-                                        for c in range(cmult):
-                                            s_diag[row].insert(cmult * (colmap.values[d % colmap.arity + e * colmap.arity] +
-                                                               (l + d / rowmap.arity) * colmap.offset[d % colmap.arity]) + c)
-                else:
-                    for e in range(rsize):
-                        for i in range(rowmap.arity):
-                            for r in range(rmult):
-                                for l in range(rowmap.layers - 1):
-                                    row = rmult * (rowmap.values[i + e*rowmap.arity] + l * rowmap.offset[i]) + r
-                                    for d in range(colmap.arity):
-                                        for c in range(cmult):
-                                            s_diag[row].insert(cmult * (colmap.values[d + e * colmap.arity] +
-                                                               l * colmap.offset[d]) + c)
-
-        else:
-            for e in range(rsize):
-                for i in range(rowmap.arity):
-                    for r in range(rmult):
-                            row = rmult * rowmap.values[i + e*rowmap.arity] + r
-                            for d in range(colmap.arity):
-                                for c in range(cmult):
-                                    s_diag[row].insert(cmult * colmap.values[d + e * colmap.arity] + c)
-
-    # Create final sparsity structure
-    cdef np.ndarray[DTYPE_t, ndim=1] nnz = np.empty(lsize, dtype=np.int32)
-    cdef np.ndarray[DTYPE_t, ndim=1] rowptr = np.empty(lsize + 1, dtype=np.int32)
-    rowptr[0] = 0
-    for row in range(lsize):
-        nnz[row] = s_diag[row].size()
-        rowptr[row+1] = rowptr[row] + nnz[row]
-
-    cdef np.ndarray[DTYPE_t, ndim=1] colidx = np.empty(rowptr[lsize], dtype=np.int32)
-    # Note: elements in a set are always sorted, so no need to sort colidx
-    for row in range(lsize):
-        s_diag[row].sort()
-        i = rowptr[row]
-        it = s_diag[row].begin()
-        while it != s_diag[row].end():
-            colidx[i] = deref(it)
-            inc(it)
-            i += 1
-
-    return rowptr[lsize], nnz, rowptr, colidx
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-@cython.cdivision(True)
-cdef build_sparsity_pattern_mpi(int rmult, int cmult, int nrows, int ncols, list maps):
-    """Create and populate auxiliary data structure: for each element of the
-    from set, for each row pointed to by the row map, add all columns pointed
-    to by the col map."""
-    cdef:
-        int lrsize, lcsize, rsize, row, entry
-        int e, i, r, d, c, l
-        cmap rowmap, colmap
+        int e, i, r, d, c
+        int layer, layer_start, layer_end
+        int local_nrows, local_ncols, set_size
+        int row, col, tmp_row, tmp_col, reps, rrep, crep
+        int rarity, carity
         vector[vecset[int]] s_diag, s_odiag
+        vecset[int].const_iterator it
+        int *rmap_vals
+        int *cmap_vals
+        int *roffset
+        int *coffset
 
-    lrsize = nrows*rmult
-    lcsize = ncols*cmult
-    s_diag = vector[vecset[int]](lrsize)
-    s_odiag = vector[vecset[int]](lrsize)
+    # Number of rows and columns "local" to this process
+    # In parallel, the matrix is distributed row-wise, so all
+    # processes always see all columns, but we distinguish between
+    # local (process-diagonal) and remote (process-off-diagonal)
+    # columns.
+    local_nrows = rmult * maps[0][0].toset.size
+    local_ncols = cmult * maps[0][1].toset.size
+
+    if local_nrows == 0:
+        # We don't own any rows, return something appropriate.
+        dummy = np.empty(0, dtype=np.int32).reshape(-1)
+        return 0, 0, dummy, dummy, dummy, dummy
+
+    s_diag = vector[vecset[int]](local_nrows)
+    if have_odiag:
+        s_odiag = vector[vecset[int]](local_nrows)
+
+    extruded = maps[0][0].iterset._extruded
 
     for rmap, cmap in maps:
-        rowmap = init_map(rmap)
-        colmap = init_map(cmap)
-        rsize = rowmap.from_exec_size;
+        set_size = rmap.iterset.exec_size
+        rarity = rmap.arity
+        carity = cmap.arity
+        rmap_vals = <int *>np.PyArray_DATA(rmap.values_with_halo)
+        cmap_vals = <int *>np.PyArray_DATA(cmap.values_with_halo)
         if not s_diag[0].capacity():
             # Preallocate set entries heuristically based on arity
-            for i in range(lrsize):
-                s_diag[i].reserve(6*rowmap.arity)
-                s_odiag[i].reserve(6*rowmap.arity)
-        if rowmap.layers > 1:
-            for e in range (rsize):
-                for i in range(rowmap.arity):
+            for i in range(local_nrows):
+                s_diag[i].reserve(6*rarity)
+            if have_odiag:
+                for i in range(local_nrows):
+                    s_odiag[i].reserve(6*rarity)
+        if not extruded:
+            # Non extruded case, reasonably straightfoward
+            for e in range(set_size):
+                for i in range(rarity):
+                    tmp_row = rmult * rmap_vals[e * rarity + i]
+                    # Not a process-local row, carry on.
+                    if tmp_row >= local_nrows:
+                        continue
                     for r in range(rmult):
-                        for l in range(rowmap.layers - 1):
-                            row = rmult * (rowmap.values[i + e*rowmap.arity] + l * rowmap.offset[i]) + r
-                            # NOTE: this hides errors due to invalid map entries
-                            if row < lrsize:
-                                for d in range(colmap.arity):
-                                    for c in range(cmult):
-                                        entry = cmult * (colmap.values[d + e * colmap.arity] + l * colmap.offset[d]) + c
-                                        if entry < lcsize:
-                                            s_diag[row].insert(entry)
-                                        else:
-                                            s_odiag[row].insert(entry)
+                        row = tmp_row + r
+                        for d in range(carity):
+                            for c in range(cmult):
+                                col = cmult * cmap_vals[e * carity + d] + c
+                                # Process-local column?
+                                if col < local_ncols:
+                                    s_diag[row].insert(col)
+                                else:
+                                    assert have_odiag, "Should never happen"
+                                    s_odiag[row].insert(col)
         else:
-            for e in range (rsize):
-                for i in range(rowmap.arity):
-                    for r in range(rmult):
-                            row = rmult * rowmap.values[i + e*rowmap.arity] + r
-                            # NOTE: this hides errors due to invalid map entries
-                            if row < lrsize:
-                                for d in range(colmap.arity):
-                                    for c in range(cmult):
-                                        entry = cmult * colmap.values[d + e * colmap.arity] + c
-                                        if entry < lcsize:
-                                            s_diag[row].insert(entry)
-                                        else:
-                                            s_odiag[row].insert(entry)
+            # Now the slightly trickier extruded case
+            roffset = <int *>np.PyArray_DATA(rmap.offset)
+            coffset = <int *>np.PyArray_DATA(cmap.offset)
+            layers = rmap.iterset.layers
+            for region in rmap.iteration_region:
+                # The rowmap will have an iteration region attached to
+                # it specifying which bits of the "implicit" (walking
+                # up the column) map we want.  This mostly affects the
+                # range of the loop over layers, except in the
+                # ON_INTERIOR_FACETS where we also have to "double" up
+                # the map.
+                layer_start = 0
+                layer_end = layers - 1
+                reps = 1
+                if region.where == "ON_BOTTOM":
+                    layer_end = 1
+                elif region.where == "ON_TOP":
+                    layer_start = layers - 2
+                elif region.where == "ON_INTERIOR_FACETS":
+                    layer_end = layers - 2
+                    reps = 2
+                elif region.where != "ALL":
+                    raise RuntimeError("Unhandled iteration region %s", region)
+                for e in range(set_size):
+                    for i in range(rarity):
+                        tmp_row = rmult * (rmap_vals[e * rarity + i] + layer_start * roffset[i])
+                        # Not a process-local row, carry on
+                        if tmp_row >= local_nrows:
+                            continue
+                        for r in range(rmult):
+                            # Double up for interior facets
+                            for rrep in range(reps):
+                                row = tmp_row + r + rmult*rrep*roffset[i]
+                                for layer in range(layer_start, layer_end):
+                                    for d in range(carity):
+                                        for c in range(cmult):
+                                            for crep in range(reps):
+                                                col = cmult * (cmap_vals[e * carity + d] +
+                                                               (layer + crep) * coffset[d]) + c
+                                                if col < local_ncols:
+                                                    s_diag[row].insert(col)
+                                                else:
+                                                    assert have_odiag, "Should never happen"
+                                                    s_odiag[row].insert(col)
+                                    row += rmult * roffset[i]
 
     # Create final sparsity structure
-    cdef np.ndarray[DTYPE_t, ndim=1] d_nnz = np.empty(lrsize, dtype=np.int32)
-    cdef np.ndarray[DTYPE_t, ndim=1] o_nnz = np.empty(lrsize, dtype=np.int32)
-    cdef int d_nz = 0
-    cdef int o_nz = 0
-    for row in range(lrsize):
-        d_nnz[row] = s_diag[row].size()
-        d_nz += d_nnz[row]
-        o_nnz[row] = s_odiag[row].size()
-        o_nz += o_nnz[row]
+    cdef np.ndarray[np.int32_t, ndim=1] dnnz = np.zeros(local_nrows, dtype=np.int32)
+    cdef np.ndarray[np.int32_t, ndim=1] onnz = np.zeros(local_nrows, dtype=np.int32)
+    cdef np.ndarray[np.int32_t, ndim=1] rowptr
+    cdef np.ndarray[np.int32_t, ndim=1] colidx
+    cdef int dnz, onz
+    if have_odiag:
+        # Don't need these, so create dummy arrays
+        rowptr = np.empty(0, dtype=np.int32).reshape(-1)
+        colidx = np.empty(0, dtype=np.int32).reshape(-1)
+    else:
+        rowptr = np.empty(local_nrows + 1, dtype=np.int32)
 
-    return d_nnz, o_nnz, d_nz, o_nz
+    dnz = 0
+    onz = 0
+    if have_odiag:
+        # Have off-diagonals (i.e. we're in parallel).
+        for row in range(local_nrows):
+            dnnz[row] = s_diag[row].size()
+            dnz += dnnz[row]
+            onnz[row] = s_odiag[row].size()
+            onz += onnz[row]
+    else:
+        # Not in parallel, in which case build the explicit row
+        # pointer and column index data structure petsc wants.
+        rowptr[0] = 0
+        for row in range(local_nrows):
+            dnnz[row] = s_diag[row].size()
+            rowptr[row+1] = rowptr[row] + dnnz[row]
+            dnz += dnnz[row]
+        colidx = np.empty(dnz, dtype=np.int32)
+        for row in range(local_nrows):
+            # each row's entries in colidx need to be sorted.
+            s_diag[row].sort()
+            i = rowptr[row]
+            it = s_diag[row].begin()
+            while it != s_diag[row].end():
+                colidx[i] = deref(it)
+                inc(it)
+                i += 1
+
+    return dnz, onz, dnnz, onnz, rowptr, colidx
 
 
 def fill_with_zeros(PETSc.Mat mat not None, dims, maps):
@@ -335,11 +295,12 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps):
                 elif r.where == "ON_INTERIOR_FACETS":
                     # Finish on penultimate layer
                     layer_end = layers - 2
-                    # Double up rvals and cvals
+                    # Double up rvals and cvals (the map is over two
+                    # cells, not one)
                     tmp_rarity *= 2
                     tmp_carity *= 2
                 elif r.where != "ALL":
-                    raise RuntimeError("Unhandled iteration region")
+                    raise RuntimeError("Unhandled iteration region %s", r)
                 for i in range(rarity):
                     roffset[i] = pair[0].offset[i]
                 for i in range(carity):
@@ -375,21 +336,15 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps):
     mat.assemble()
 
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
 def build_sparsity(object sparsity, bool parallel):
     cdef int rmult, cmult
     rmult, cmult = sparsity._dims
-    cdef int nrows = sparsity._nrows
-    cdef int ncols = sparsity._ncols
 
-    if parallel:
-        sparsity._d_nnz, sparsity._o_nnz, sparsity._d_nz, sparsity._o_nz = \
-            build_sparsity_pattern_mpi(rmult, cmult, nrows, ncols, sparsity.maps)
-        sparsity._rowptr = []
-        sparsity._colidx = []
-    else:
-        sparsity._d_nz, sparsity._d_nnz, sparsity._rowptr, sparsity._colidx = \
-            build_sparsity_pattern_seq(rmult, cmult, nrows, sparsity.maps)
-        sparsity._o_nnz = []
-        sparsity._o_nz = 0
+    pattern = build_sparsity_pattern(rmult, cmult, sparsity.maps, have_odiag=parallel)
+
+    sparsity._d_nz = pattern[0]
+    sparsity._o_nz = pattern[1]
+    sparsity._d_nnz = pattern[2]
+    sparsity._o_nnz = pattern[3]
+    sparsity._rowptr = pattern[4]
+    sparsity._colidx = pattern[5]
