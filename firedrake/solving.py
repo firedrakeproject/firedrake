@@ -683,11 +683,6 @@ def _assemble(f, tensor=None, bcs=None):
 
             elif integral_type == 'interior_facet_horiz':
                 with timed_region("Assemble interior facets"):
-                    if op2.MPI.parallel:
-                        raise \
-                            NotImplementedError(
-                                "No support for interior horizontal facet integrals under MPI yet")
-
                     if is_mat:
                         tensor_arg = mat(lambda s: op2.DecoratedMap(s.cell_node_map(tsbc),
                                                                     op2.ON_INTERIOR_FACETS),
