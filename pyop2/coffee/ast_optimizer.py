@@ -1148,25 +1148,29 @@ class PerfectSSALoopMerger(LoopScheduler):
             child_itspace = self._find_it_space(node.children[0].children[0])
             return (itspace, child_itspace) if child_itspace else (itspace,)
 
-    def _writing_syms(self, node):
-        """Return a list of symbols that are being written to in the tree
-        rooted in ``node``."""
+    def _accessed_syms(self, node, mode):
+        """Return a list of symbols that are being accessed in the tree
+        rooted in ``node``. If ``mode == 0``, looks for written to symbols;
+        if ``mode==1`` looks for read symbols."""
         if isinstance(node, Symbol):
             return [node]
         elif isinstance(node, FlatBlock):
             return []
         elif isinstance(node, (Assign, Incr, Decr)):
-            return self._writing_syms(node.children[0])
+            if mode == 0:
+                return self._accessed_syms(node.children[0], mode)
+            elif mode == 1:
+                return self._accessed_syms(node.children[1], mode)
         elif isinstance(node, Decl):
-            if node.init and not isinstance(node.init, EmptyStatement):
-                return self._writing_syms(node.sym)
+            if mode == 0 and node.init and not isinstance(node.init, EmptyStatement):
+                return self._accessed_syms(node.sym, mode)
             else:
                 return []
         else:
-            written_syms = []
+            accessed_syms = []
             for n in node.children:
-                written_syms.extend(self._writing_syms(n))
-            return written_syms
+                accessed_syms.extend(self._accessed_syms(n, mode))
+            return accessed_syms
 
     def _merge_loops(self, root, loop_a, loop_b):
         """Merge the body of ``loop_a`` in ``loop_b`` and eliminate ``loop_a``
@@ -1218,13 +1222,15 @@ class PerfectSSALoopMerger(LoopScheduler):
                 found_nests[self._find_it_space(n)].append(n)
             else:
                 # Track written variables
-                written_syms.extend(self._writing_syms(n))
+                written_syms.extend(self._accessed_syms(n, 0))
 
         # A perfect loop nest L1 is mergeable in a loop nest L2 if
-        # - their iteration space is identical; implicitly true because the keys,
-        #   in the dictionary, are iteration spaces.
-        # - between the two nests, there are no statements that read from values
-        #   computed in L1. This is checked next.
+        # 1 - their iteration space is identical; implicitly true because the keys,
+        #     in the dictionary, are iteration spaces.
+        # 2 - between the two nests, there are no statements that read from values
+        #     computed in L1. This is checked next.
+        # 3 - there are no read-after-write dependencies between variables written
+        #     in L1 and read in L2. This is checked next.
         # Here, to simplify the data flow analysis, the last loop in the tree
         # rooted in node is selected as L2
         for itspace, loop_nests in found_nests.items():
@@ -1233,17 +1239,25 @@ class PerfectSSALoopMerger(LoopScheduler):
                 continue
             mergeable = []
             merging_in = loop_nests[-1]
+            merging_in_read_syms = self._accessed_syms(merging_in, 1)
             for ln in loop_nests[:-1]:
                 is_mergeable = True
                 # Get the symbols written to in the loop nest ln
-                ln_written_syms = self._writing_syms(ln)
+                ln_written_syms = self._accessed_syms(ln, 0)
                 # Get the symbols written to between ln and merging_in (included)
-                _written_syms = [self._writing_syms(l) for l in
+                _written_syms = [self._accessed_syms(l, 0) for l in
                                  loop_nests[loop_nests.index(ln)+1:-1]]
                 _written_syms = [i for l in _written_syms for i in l]  # list flattening
                 _written_syms += written_syms
+                # Check condition 2
                 for ws, lws in itertools.product(_written_syms, ln_written_syms):
                     if self.expr_graph.has_dep(ws, lws):
+                        is_mergeable = False
+                        break
+                # Check condition 3
+                for lws, mirs in itertools.product(ln_written_syms,
+                                                   merging_in_read_syms):
+                    if lws.symbol == mirs.symbol and not lws.rank and not mirs.rank:
                         is_mergeable = False
                         break
                 # Track mergeable loops
