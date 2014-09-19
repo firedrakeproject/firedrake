@@ -233,13 +233,12 @@ int main()
     """Create and execute a C file in which multiple variants of the same kernel
     are executed to determine the fastest implementation."""
 
-    def __init__(self, variants, itspace, include, coffee_dir, compiler, isa, blas):
+    def __init__(self, variants, itspace, include, compiler, isa, blas):
         """Initialize the autotuner.
 
         :arg variants:     list of (ast, used_optimizations) for autotuning
         :arg itspace:      kernel's iteration space
         :arg include:      list of directories to be searched for header files
-        :arg coffee_dir:   location where to dump autotuner output
         :arg compiler:     backend compiler info
         :arg isa:          instruction set architecture info
         :arg blas:         COFFEE's dense linear algebra library info
@@ -251,6 +250,15 @@ int main()
         self.compiler = compiler
         self.isa = isa
         self.blas = blas
+
+        # Set the directory in which COFFEE will dump any relevant information
+        coffee_dir = os.path.join(gettempdir(), "coffee-dump-uid%s" % os.getuid())
+        # Wrap in try/except to protect against race conditions in parallel
+        try:
+            if not os.path.exists(coffee_dir):
+                os.makedirs(coffee_dir)
+        except OSError:
+            pass
 
         # Set the directory where the autotuner will dump its output
         kernel_name = variants[0][0].children[1].name
