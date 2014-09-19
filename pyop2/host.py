@@ -858,7 +858,7 @@ class JITModule(base.JITModule):
                 if self._kernel._applied_blas:
                     _buf_size = [reduce(lambda x, y: x*y, _buf_size)]
             if self._kernel._applied_ap and vect_roundup(_buf_size[-1]) > _buf_size[-1]:
-                # Layout of matrices must be restored prior to the invokation of addto_vector
+                # Layout of matrices must be restored prior to the invocation of addto_vector
                 # if padding was used
                 if arg._is_mat:
                     _layout_name = "buffer_layout_" + arg.c_arg_name(count)

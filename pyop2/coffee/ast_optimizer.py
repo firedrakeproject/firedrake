@@ -77,7 +77,7 @@ class AssemblyOptimizer(object):
         # Fully parallel iteration space in the assembly loop nest
         self.asm_itspace = []
         # Expression graph tracking data dependencies
-        self.eg = ExpressionGraph()
+        self.expr_graph = ExpressionGraph()
         # Dictionary contaning various information about hoisted expressions
         self.hoisted = OrderedDict()
         # Inspect the assembly loop nest and collect info
@@ -181,7 +181,7 @@ class AssemblyOptimizer(object):
         and relieve register pressure. This involves several possible transformations:
         - Generalized loop-invariant code motion
         - Factorization of common loop-dependent terms
-        - Expansion of costants over loop-dependent terms
+        - Expansion of constants over loop-dependent terms
         - Zero-valued columns avoidance
         - Precomputation of integration-dependent terms
 
@@ -206,7 +206,7 @@ class AssemblyOptimizer(object):
         parent = (self.pre_header, self.kernel_decls)
         for expr in self.asm_expr.items():
             ew = AssemblyRewriter(expr, self.int_loop, self.sym, self.decls,
-                                  parent, self.hoisted, self.eg)
+                                  parent, self.hoisted, self.expr_graph)
             # Perform expression rewriting
             if level > 0:
                 ew.licm()
@@ -215,7 +215,7 @@ class AssemblyOptimizer(object):
                 ew.distribute()
                 ew.licm()
                 # Fuse loops iterating along the same iteration space
-                lm = PerfectSSALoopMerger(self.eg, self._get_root())
+                lm = PerfectSSALoopMerger(self.expr_graph, self._get_root())
                 lm.merge()
                 ew.simplify()
             # Precompute expressions
@@ -233,13 +233,13 @@ class AssemblyOptimizer(object):
             # positions. The ZeroLoopScheduler, indeed, analyzes statements
             # "one by one", and changes the iteration spaces of the enclosing
             # loops accordingly.
-            elf = ExprLoopFissioner(self.eg, self._get_root(), 1)
+            elf = ExprLoopFissioner(self.expr_graph, self._get_root(), 1)
             new_asm_expr = {}
             for expr in self.asm_expr.items():
                 new_asm_expr.update(elf.expr_fission(expr, False))
             # Search for zero-valued columns and restructure the iteration spaces
-            zls = ZeroLoopScheduler(self.eg, self._get_root(), (self.kernel_decls,
-                                                                self.decls))
+            zls = ZeroLoopScheduler(self.expr_graph, self._get_root(),
+                                    (self.kernel_decls, self.decls))
             self.asm_expr = zls.reschedule()[-1]
             self.nz_in_fors = zls.nz_in_fors
             self._has_zeros = True
@@ -458,11 +458,11 @@ class AssemblyOptimizer(object):
             A[i][j] += B[i]*X[j]
 
         If ``cut=2`` the expression is cut into chunks of length 2, plus a
-        reminder chunk of size 1:
+        remainder chunk of size 1:
         for i
           for j
             A[i][j] += X[i]*Y[j] + Z[i]*K[j]
-        // Reminder:
+        // Remainder:
         for i
           for j
             A[i][j] += B[i]*X[j]
@@ -472,7 +472,7 @@ class AssemblyOptimizer(object):
             return
 
         new_asm_expr = {}
-        elf = ExprLoopFissioner(self.eg, self._get_root(), cut)
+        elf = ExprLoopFissioner(self.expr_graph, self._get_root(), cut)
         for splittable in self.asm_expr.items():
             # Split the expression
             new_asm_expr.update(elf.expr_fission(splittable, True))
@@ -608,17 +608,18 @@ class AssemblyRewriter(object):
     * Expansion: transform an expression ``(a + b)*c`` into ``(a*c + b*c)``
     * Distribute: transform an expression ``a*b + a*c`` into ``a*(b+c)``"""
 
-    def __init__(self, expr, int_loop, syms, decls, parent, hoisted, eg):
+    def __init__(self, expr, int_loop, syms, decls, parent, hoisted, expr_graph):
         """Initialize the AssemblyRewriter.
 
-        :arg expr:     provide generic information related to an assembly expression,
-                       including the depending for loops.
-        :arg int_loop: the loop along which integration is performed.
-        :arg syms:     list of AST symbols used to evaluate the local element matrix.
-        :arg decls:    list of AST declarations of the various symbols in ``syms``.
-        :arg parent:   the parent AST node of the assembly loop nest.
-        :arg hoisted:  dictionary that tracks hoisted expressions
-        :arg eg:       expression graph that tracks symbol dependencies
+        :arg expr:       provide generic information related to an assembly
+                         expression, including the depending for loops.
+        :arg int_loop:   the loop along which integration is performed.
+        :arg syms:       list of AST symbols used to evaluate the local element
+                         matrix.
+        :arg decls:      list of AST declarations of the various symbols in ``syms``.
+        :arg parent:     the parent AST node of the assembly loop nest.
+        :arg hoisted:    dictionary that tracks hoisted expressions
+        :arg expr_graph: expression graph that tracks symbol dependencies
         """
         self.expr, self.expr_info = expr
         self.int_loop = int_loop
@@ -626,7 +627,7 @@ class AssemblyRewriter(object):
         self.decls = decls
         self.parent, self.parent_decls = parent
         self.hoisted = hoisted
-        self.eg = eg
+        self.expr_graph = expr_graph
         # Properties of the assembly expression
         self._licm = 0
         self._expanded = False
@@ -810,7 +811,7 @@ class AssemblyRewriter(object):
                 sym_info = [(i, j, inv_for) for i, j in zip(_expr, var_decl)]
                 self.hoisted.update(zip([s.symbol for s in for_sym], sym_info))
                 for s, e in zip(for_sym, expr):
-                    self.eg.add_dependency(s, e, n_replaced[str(s)] > 1)
+                    self.expr_graph.add_dependency(s, e, n_replaced[str(s)] > 1)
 
                 # 7a) Update expressions hoisted along a known dimension (same dep)
                 if for_dep in inv_dep:
@@ -888,7 +889,7 @@ class AssemblyRewriter(object):
                 it_var_occs[s[1][0]] += 1
 
         exp_var = asm_out if it_var_occs[asm_out] < it_var_occs[asm_in] else asm_in
-        ee = ExpressionExpander(self.hoisted, self.eg, self.parent)
+        ee = ExpressionExpander(self.hoisted, self.expr_graph, self.parent)
         ee.expand(self.expr.children[1], self.expr, it_var_occs, exp_var)
         self.decls.update(ee.expanded_decls)
         self.syms.update(ee.expanded_syms)
@@ -1003,9 +1004,9 @@ class ExpressionExpander(object):
     CONST = -1
     ITVAR = -2
 
-    def __init__(self, var_info, eg, expr):
+    def __init__(self, var_info, expr_graph, expr):
         self.var_info = var_info
-        self.eg = eg
+        self.expr_graph = expr_graph
         self.parent = expr
         self.expanded_decls = {}
         self.found_consts = {}
@@ -1032,15 +1033,15 @@ class ExpressionExpander(object):
             self.expanded_decls[new_const_decl.sym.symbol] = (new_const_decl, ast_plan.LOCAL_VAR)
             self.expanded_syms.append(new_const_decl.sym)
             self.found_consts[const_str] = const_sym
-            self.eg.add_dependency(const_sym, const, False)
+            self.expr_graph.add_dependency(const_sym, const, False)
             # Update the AST
             place.insert(place.index(inv_for), new_const_decl)
             const = const_sym
 
         # No dependencies, just perform the expansion
-        if not self.eg.has_dep(sym):
+        if not self.expr_graph.has_dep(sym):
             old_expr.children[0] = Prod(Par(old_expr.children[0]), dcopy(const))
-            self.eg.add_dependency(sym, const, False)
+            self.expr_graph.add_dependency(sym, const, False)
             return
 
         # Create a new symbol, expression, and declaration
@@ -1056,7 +1057,7 @@ class ExpressionExpander(object):
         self.expanded_syms.append(new_var_decl.sym)
         # Update tracked information
         self.var_info[sym.symbol] = (new_expr, new_var_decl, inv_for, place)
-        self.eg.add_dependency(sym, new_expr, 0)
+        self.expr_graph.add_dependency(sym, new_expr, 0)
 
     def expand(self, node, parent, it_vars, exp_var):
         """Perform the expansion of the expression rooted in ``node``. Terms are
@@ -1118,13 +1119,13 @@ class LoopScheduler(object):
     """Base class for classes that handle loop scheduling; that is, loop fusion,
     loop distribution, etc."""
 
-    def __init__(self, eg, root):
+    def __init__(self, expr_graph, root):
         """Initialize the LoopScheduler.
 
-        :arg eg:    the ExpressionGraph tracking all data dependencies involving
-                    identifiers that appear in ``root``.
-        :arg root:  the node where loop scheduling takes place."""
-        self.eg = eg
+        :arg expr_graph: the ExpressionGraph tracking all data dependencies involving
+                         identifiers that appear in ``root``.
+        :arg root:       the node where loop scheduling takes place."""
+        self.expr_graph = expr_graph
         self.root = root
 
 
@@ -1135,8 +1136,8 @@ class PerfectSSALoopMerger(LoopScheduler):
     Statements must be in "soft" SSA form: they can be declared and initialized
     at declaration time, then they can be assigned a value in only one place."""
 
-    def __init__(self, eg, root):
-        super(PerfectSSALoopMerger, self).__init__(eg, root)
+    def __init__(self, expr_graph, root):
+        super(PerfectSSALoopMerger, self).__init__(expr_graph, root)
 
     def _find_it_space(self, node):
         """Return the iteration space of the loop nest rooted in ``node``,
@@ -1242,7 +1243,7 @@ class PerfectSSALoopMerger(LoopScheduler):
                 _written_syms = [i for l in _written_syms for i in l]  # list flattening
                 _written_syms += written_syms
                 for ws, lws in itertools.product(_written_syms, ln_written_syms):
-                    if self.eg.has_dep(ws, lws):
+                    if self.expr_graph.has_dep(ws, lws):
                         is_mergeable = False
                         break
                 # Track mergeable loops
@@ -1260,11 +1261,11 @@ class ExprLoopFissioner(LoopScheduler):
     operations in expressions.
     Fissioned expressions are placed in a separate loop nest."""
 
-    def __init__(self, eg, root, cut):
+    def __init__(self, expr_graph, root, cut):
         """Initialize the ExprLoopFissioner.
 
         :arg cut: number of operands requested to fission expressions."""
-        super(ExprLoopFissioner, self).__init__(eg, root)
+        super(ExprLoopFissioner, self).__init__(expr_graph, root)
         self.cut = cut
 
     def _split_sum(self, node, parent, is_left, found, sum_count):
@@ -1392,13 +1393,13 @@ class ZeroLoopScheduler(LoopScheduler):
       B[i] = E[i]*F[i]
     """
 
-    def __init__(self, eg, root, decls):
+    def __init__(self, expr_graph, root, decls):
         """Initialize the ZeroLoopScheduler.
 
         :arg decls: lists of array declarations. A 2-tuple is expected: the first
                     element is the list of kernel declarations; the second element
                     is the list of hoisted temporaries declarations."""
-        super(ZeroLoopScheduler, self).__init__(eg, root)
+        super(ZeroLoopScheduler, self).__init__(expr_graph, root)
         self.kernel_decls, self.hoisted_decls = decls
         # Track zero blocks in each symbol accessed in the computation rooted in root
         self.nz_in_syms = {}
@@ -1616,7 +1617,7 @@ class ZeroLoopScheduler(LoopScheduler):
     def reschedule(self):
         """Restructure the loop nests rooted in ``self.root`` based on the
         propagation of zero-valued columns along the computation. This, therefore,
-        involves fissioning and fusing loops so as to remove iterations spent
+        involves fissing and fusing loops so as to remove iterations spent
         performing arithmetic operations over zero-valued entries.
         Return a list of dictionaries, a dictionary for each loop nest encountered.
         Each entry in a dictionary is of the form {stmt: (itvars, parent, loops)},

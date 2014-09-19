@@ -78,7 +78,7 @@ class AssemblyVectorizer(object):
         #    dimension the iteration variable of the innermost loop
         # 2- the extra iterations fall either in a padded region, which will
         #    be discarded by the kernel called, or in a zero-valued region.
-        #    This must be checked for every statements in the loop.
+        #    This must be checked for every statement in the loop.
         for l in iloops:
             adjust = True
             loop_size = 0

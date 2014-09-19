@@ -111,7 +111,7 @@ def ast_update_ofs(node, ofs):
 
 
 #######################################################################
-# Functions to maniuplate iteration spaces in various representations #
+# Functions to manipulate iteration spaces in various representations #
 #######################################################################
 
 
