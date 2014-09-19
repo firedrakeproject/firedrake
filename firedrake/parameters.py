@@ -37,10 +37,10 @@ parameters.add(Parameters("assembly_cache",
 parameters.add(Parameters("coffee",
                           compiler=os.environ.get('PYOP2_BACKEND_COMPILER', 'gnu'),
                           simd_isa=os.environ.get('PYOP2_SIMD_ISA', 'sse'),
-                          licm=False,
+                          licm=3,
                           slice=None,
                           vect=None,
-                          ap=False,
+                          ap=True,
                           split=None))
 
 ffc_parameters = default_parameters()
