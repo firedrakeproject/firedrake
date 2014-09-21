@@ -352,6 +352,9 @@ def build_sparsity(object sparsity, bool parallel):
     cdef int rmult, cmult
     rmult, cmult = sparsity._dims
 
+    # Build sparsity pattern for block sparse matrix
+    if rmult == cmult and rmult > 1:
+        rmult = cmult = 1
     pattern = build_sparsity_pattern(rmult, cmult, sparsity.maps, have_odiag=parallel)
 
     sparsity._d_nz = pattern[0]

@@ -151,7 +151,7 @@ setup(name='PyOP2',
       test_requires=test_requires,
       packages=['pyop2', 'pyop2_utils'],
       package_data={
-          'pyop2': ['assets/*', 'mat_utils.*', '*.h', '*.pxd', '*.pyx']},
+          'pyop2': ['assets/*', '*.h', '*.pxd', '*.pyx']},
       scripts=glob('scripts/*'),
       cmdclass=cmdclass,
       ext_modules=[Extension('pyop2.plan', plan_sources,
