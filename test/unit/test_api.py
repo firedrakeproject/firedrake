@@ -322,7 +322,7 @@ class TestArgAPI:
         for a, d in zip(arg.split, mdat):
             assert a.data == d
 
-    def test_arg_split_mat(self, backend, mat, m_iterset_toset):
+    def test_arg_split_mat(self, backend, skip_opencl, mat, m_iterset_toset):
         arg = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
         for a in arg.split:
             assert a == arg
@@ -356,19 +356,19 @@ class TestArgAPI:
         assert dat(op2.READ, m_iterset_toset) != dat(op2.READ, m2)
         assert not dat(op2.READ, m_iterset_toset) == dat(op2.READ, m2)
 
-    def test_arg_eq_mat(self, backend, mat, m_iterset_toset):
+    def test_arg_eq_mat(self, backend, skip_opencl, mat, m_iterset_toset):
         a1 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
         a2 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
         assert a1 == a2
         assert not a1 != a2
 
-    def test_arg_ne_mat_idx(self, backend, mat, m_iterset_toset):
+    def test_arg_ne_mat_idx(self, backend, skip_opencl, mat, m_iterset_toset):
         a1 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
         a2 = mat(op2.INC, (m_iterset_toset[1], m_iterset_toset[1]))
         assert a1 != a2
         assert not a1 == a2
 
-    def test_arg_ne_mat_mode(self, backend, mat, m_iterset_toset):
+    def test_arg_ne_mat_mode(self, backend, skip_opencl, mat, m_iterset_toset):
         a1 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
         a2 = mat(op2.WRITE, (m_iterset_toset[0], m_iterset_toset[0]))
         assert a1 != a2
@@ -1371,6 +1371,8 @@ class TestMatAPI:
     Mat API unit tests
     """
 
+    skip_backends = ["opencl"]
+
     def test_mat_illegal_sets(self, backend):
         "Mat sparsity should be a Sparsity."
         with pytest.raises(TypeError):
@@ -1391,7 +1393,7 @@ class TestMatAPI:
         assert m.sparsity == sparsity and  \
             m.dtype == np.float64 and m.name == 'bar'
 
-    def test_mat_mixed(self, backend, mmat):
+    def test_mat_mixed(self, backend, mmat, skip_cuda):
         "Default data type should be numpy.float64."
         assert mmat.dtype == np.double
 
@@ -2062,7 +2064,7 @@ class TestParLoopAPI:
         with pytest.raises(exceptions.MapValueError):
             base.ParLoop(kernel, set1, dat(op2.READ, map))
 
-    def test_illegal_mat_iterset(self, backend, sparsity):
+    def test_illegal_mat_iterset(self, backend, skip_opencl, sparsity):
         """ParLoop should reject a Mat argument using a different iteration
         set from the par_loop's."""
         set1 = op2.Set(2)

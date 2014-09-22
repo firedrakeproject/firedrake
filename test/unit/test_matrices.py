@@ -40,6 +40,8 @@ from pyop2.exceptions import MapValueError, ModeValueError
 
 from coffee.base import *
 
+backends = ['sequential', 'openmp', 'cuda']
+
 # Data type
 valuetype = np.float64
 
