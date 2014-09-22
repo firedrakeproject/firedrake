@@ -1418,7 +1418,7 @@ class TestMatAPI:
         """Setting the diagonal of a zero matrix."""
         diag_mat.zero()
         diag_mat.set_diagonal(dat)
-        assert np.allclose(diag_mat.array, dat.data_ro)
+        assert np.allclose(diag_mat.handle.getDiagonal().array, dat.data_ro)
 
     def test_mat_dat_mult(self, backend, diag_mat, dat, skip_cuda):
         """Mat multiplied with Dat should perform matrix-vector multiplication
