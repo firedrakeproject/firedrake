@@ -43,41 +43,43 @@ from copy import deepcopy as dcopy
 
 import networkx as nx
 
-from pyop2.coffee.ast_base import *
+from ast_base import *
+from ast_utils import ast_update_ofs, itspace_size_ofs, itspace_merge
 import ast_plan
 
 
 class AssemblyOptimizer(object):
 
-    """Loops optimiser:
+    """Assembly optimiser interface class"""
 
-    * Loop Invariant Code Motion (LICM)
-      Backend compilers apply LICM to innermost loops only. In addition,
-      hoisted expressions are usually not vectorized. Here, we apply LICM to
-      terms which are known to be constant (i.e. they are declared const)
-      and all of the loops in the nest are searched for sub-expressions
-      involving such const terms only. Also, hoisted terms are wrapped
-      within loops to exploit compiler autovectorization. This has proved to
-      be beneficial for loop nests in which the bounds of all loops are
-      relatively small (let's say less than 50-60).
+    def __init__(self, loop_nest, pre_header, kernel_decls, is_mixed):
+        """Initialize the AssemblyOptimizer.
 
-    * register tiling:
-      Given a rectangular iteration space, register tiling slices it into
-      square tiles of user-provided size, with the aim of improving register
-      pressure and register re-use."""
-
-    def __init__(self, loop_nest, pre_header, kernel_decls):
+        :arg loop_nest:    root node of the local assembly code.
+        :arg pre_header:   parent of the root node
+        :arg kernel_decls: list of declarations of variables which are visible
+                           within the local assembly code block.
+        :arg is_mixed:     true if the assembly operation uses mixed (vector)
+                           function spaces."""
         self.pre_header = pre_header
         self.kernel_decls = kernel_decls
+        # Properties of the assembly operation
+        self._is_mixed = is_mixed
         # Track applied optimizations
         self._is_precomputed = False
         self._has_zeros = False
         # Expressions evaluating the element matrix
         self.asm_expr = {}
+        # Track nonzero regions accessed in the various loops
+        self.nz_in_fors = {}
         # Integration loop (if any)
         self.int_loop = None
         # Fully parallel iteration space in the assembly loop nest
         self.asm_itspace = []
+        # Expression graph tracking data dependencies
+        self.expr_graph = ExpressionGraph()
+        # Dictionary contaning various information about hoisted expressions
+        self.hoisted = OrderedDict()
         # Inspect the assembly loop nest and collect info
         self.fors, self.decls, self.sym = self._visit_nest(loop_nest)
         self.fors = zip(*self.fors)[0]
@@ -152,6 +154,12 @@ class AssemblyOptimizer(object):
 
         return inspect(node, self.pre_header, [], {}, set())
 
+    def _get_root(self):
+        """Return the root node of the assembly loop nest. It can be either the
+        loop over quadrature points or, if absent, a generic point in the
+        assembly routine."""
+        return self.int_loop.children[0] if self.int_loop else self.pre_header
+
     def extract_itspace(self):
         """Remove fully-parallel loop from the iteration space. These are
         the loops that were marked by the user/higher layer with a ``pragma
@@ -168,27 +176,39 @@ class AssemblyOptimizer(object):
 
         return (itspace_vrs, accessed_vrs)
 
-    def rewrite_expression(self, level):
-        """Generalized loop-invariant code motion.
+    def rewrite(self, level):
+        """Rewrite an assembly expression to minimize floating point operations
+        and relieve register pressure. This involves several possible transformations:
+
+        1. Generalized loop-invariant code motion
+        2. Factorization of common loop-dependent terms
+        3. Expansion of constants over loop-dependent terms
+        4. Zero-valued columns avoidance
+        5. Precomputation of integration-dependent terms
 
         :arg level: The optimization level (0, 1, 2, 3, 4). The higher, the more
                     invasive is the re-writing of the assembly expressions,
                     trying to eliminate unnecessary floating point operations.
-                    level == 1: performs "basic" generalized loop-invariant
-                                code motion
-                    level == 2: level 1 + expansion of terms, factorization of
-                                basis functions appearing multiple times in the
-                                same expression, and finally another run of
-                                loop-invariant code motion to move invariant
-                                sub-expressions exposed by factorization
-                    level == 3: level 2 + avoid computing zero-columns
-                    level == 4: level 3 + precomputation of read-only expressions
-                                out of the assembly loop nest
+
+                    * level == 1: performs "basic" generalized loop-invariant \
+                                  code motion
+                    * level == 2: level 1 + expansion of terms, factorization of \
+                                  basis functions appearing multiple times in the \
+                                  same expression, and finally another run of \
+                                  loop-invariant code motion to move invariant \
+                                  sub-expressions exposed by factorization
+                    * level == 3: level 2 + avoid computing zero-columns
+                    * level == 4: level 3 + precomputation of read-only expressions \
+                                  out of the assembly loop nest
         """
+
+        if not self.asm_expr:
+            return
 
         parent = (self.pre_header, self.kernel_decls)
         for expr in self.asm_expr.items():
-            ew = AssemblyRewriter(expr, self.int_loop, self.sym, self.decls, parent)
+            ew = AssemblyRewriter(expr, self.int_loop, self.sym, self.decls,
+                                  parent, self.hoisted, self.expr_graph)
             # Perform expression rewriting
             if level > 0:
                 ew.licm()
@@ -197,17 +217,36 @@ class AssemblyOptimizer(object):
                 ew.distribute()
                 ew.licm()
                 # Fuse loops iterating along the same iteration space
-                ew_parent = self.int_loop.children[0] if self.int_loop else self.pre_header
-                self._merge_perfect_loop_nests(ew_parent, ew.eg)
-            # Eliminate zeros
-            if level == 3:
-                self._has_zeros = ew.zeros()
+                lm = PerfectSSALoopMerger(self.expr_graph, self._get_root())
+                lm.merge()
+                ew.simplify()
             # Precompute expressions
             if level == 4:
                 self._precompute(expr)
                 self._is_precomputed = True
 
-    def slice_loop(self, slice_factor=None):
+        # Eliminate zero-valued columns if the kernel operation uses mixed (vector)
+        # function spaces, leading to zero-valued columns in basis function arrays
+        if level == 3 and self._is_mixed:
+            # Split the assembly expression into separate loop nests,
+            # based on sum's associativity. This exposes more opportunities
+            # for restructuring loops, since different summands may have
+            # contiguous regions of zero-valued columns in different
+            # positions. The ZeroLoopScheduler, indeed, analyzes statements
+            # "one by one", and changes the iteration spaces of the enclosing
+            # loops accordingly.
+            elf = ExprLoopFissioner(self.expr_graph, self._get_root(), 1)
+            new_asm_expr = {}
+            for expr in self.asm_expr.items():
+                new_asm_expr.update(elf.expr_fission(expr, False))
+            # Search for zero-valued columns and restructure the iteration spaces
+            zls = ZeroLoopScheduler(self.expr_graph, self._get_root(),
+                                    (self.kernel_decls, self.decls))
+            self.asm_expr = zls.reschedule()[-1]
+            self.nz_in_fors = zls.nz_in_fors
+            self._has_zeros = True
+
+    def slice(self, slice_factor=None):
         """Perform slicing of the innermost loop to enhance register reuse.
         For example, given a loop:
 
@@ -267,11 +306,14 @@ class AssemblyOptimizer(object):
     def unroll(self, loops_factor):
         """Unroll loops in the assembly nest.
 
-        :arg loops_factor:   dictionary from loops to unroll (factor, increment).
-                             Loops are specified as integers: 0 = integration loop,
-                             1 = test functions loop, 2 = trial functions loop.
-                             A factor of 0 denotes that the corresponding loop
-                             is not present.
+        :arg loops_factor: dictionary from loops to unroll (factor, increment).
+            Loops are specified as integers:
+
+            * 0 = integration loop,
+            * 1 = test functions loop,
+            * 2 = trial functions loop.
+
+            A factor of 0 denotes that the corresponding loop is not present.
         """
 
         def update_stmt(node, var, factor):
@@ -333,7 +375,7 @@ class AssemblyOptimizer(object):
             self.asm_expr.update(unroll_loop(self.asm_expr, self.asm_itspace[1][0].it_var(),
                                              asm_inner_factor-1))
 
-    def permute_int_loop(self):
+    def permute(self):
         """Permute the integration loop with the innermost loop in the assembly nest.
         This transformation is legal if ``_precompute`` was invoked. Storage layout of
         all 2-dimensional arrays involved in the element matrix computation is
@@ -397,41 +439,17 @@ class AssemblyOptimizer(object):
         # Transpose storage layout of all symbols involved in assembly
         transpose_layout(self.pre_header, set(), transposed)
 
-    def split(self, cut=1, length=0):
+    def split(self, cut=1):
         """Split assembly expressions into multiple chunks exploiting sum's
-        associativity.
-        In "normal" circumstances, this transformation "splits" an expression into at most
-        ``length`` chunks of ``cut`` operands. There are, however, special cases:
-        If zeros were found while rewriting the assembly expression, ``length`` is ignored
-        and the expression is split into X chunks, with X being the number of iteration
-        spaces required to correctly perform the assembly.
-        If ``length == 0``, the expression is completely split into chunks of one operand.
+        associativity. Each chunk will have ``cut`` summands.
 
-        For example, consider the following piece of code:
-
-        .. code-block:: none
+        For example, consider the following piece of code: ::
 
             for i
               for j
                 A[i][j] += X[i]*Y[j] + Z[i]*K[j] + B[i]*X[j]
 
-        If ``cut=1`` and ``length=1``, the cut is applied at most length=1 times, and this
-        is transformed into:
-
-        .. code-block:: none
-
-            for i
-              for j
-                A[i][j] += X[i]*Y[j]
-            // Remainder of the splitting:
-            for i
-              for j
-                A[i][j] += Z[i]*K[j] + B[i]*X[j]
-
-        If ``cut=1`` and ``length=0``, length is ignored and the expression is cut into chunks
-        of size ``cut=1``:
-
-        .. code-block:: none
+        If ``cut=1`` the expression is cut into chunks of length 1: ::
 
             for i
               for j
@@ -443,206 +461,27 @@ class AssemblyOptimizer(object):
               for j
                 A[i][j] += B[i]*X[j]
 
-        If ``cut=2`` and ``length=0``, length is ignored and the expression is cut into chunks
-        of size ``cut=2``:
-
-        .. code-block:: none
+        If ``cut=2`` the expression is cut into chunks of length 2, plus a
+        remainder chunk of size 1: ::
 
             for i
               for j
                 A[i][j] += X[i]*Y[j] + Z[i]*K[j]
-            // Remainder of the splitting:
+            # Remainder:
             for i
               for j
                 A[i][j] += B[i]*X[j]
         """
 
-        def check_sum(par_node):
-            """Return true if there are no sums in the sub-tree rooted in
-            par_node, false otherwise."""
-            if isinstance(par_node, Symbol):
-                return False
-            elif isinstance(par_node, Sum):
-                return True
-            elif isinstance(par_node, Par):
-                return check_sum(par_node.children[0])
-            elif isinstance(par_node, Prod):
-                left = check_sum(par_node.children[0])
-                right = check_sum(par_node.children[1])
-                return left or right
-            else:
-                raise RuntimeError("Split error: found unknown node %s:" % str(par_node))
-
-        def split_sum(node, parent, is_left, found, sum_count):
-            """Exploit sum's associativity to cut node when a sum is found."""
-            if isinstance(node, Symbol):
-                return False
-            elif isinstance(node, Par):
-                return split_sum(node.children[0], (node, 0), is_left, found, sum_count)
-            elif isinstance(node, Prod) and found:
-                return False
-            elif isinstance(node, Prod) and not found:
-                if not split_sum(node.children[0], (node, 0), is_left, found, sum_count):
-                    return split_sum(node.children[1], (node, 1), is_left, found, sum_count)
-                return True
-            elif isinstance(node, Sum):
-                sum_count += 1
-                if not found:
-                    # Track the first Sum we found while cutting
-                    found = parent
-                if sum_count == cut:
-                    # Perform the cut
-                    if is_left:
-                        parent, parent_leaf = parent
-                        parent.children[parent_leaf] = node.children[0]
-                    else:
-                        found, found_leaf = found
-                        found.children[found_leaf] = node.children[1]
-                    return True
-                else:
-                    if not split_sum(node.children[0], (node, 0), is_left, found, sum_count):
-                        return split_sum(node.children[1], (node, 1), is_left, found, sum_count)
-                    return True
-            else:
-                raise RuntimeError("Split error: found unknown node: %s" % str(node))
-
-        def split_and_update(out_prods):
-            split, splittable = ({}, {})
-            for stmt, stmt_info in out_prods.items():
-                it_vars, parent, loops = stmt_info
-                stmt_left = dcopy(stmt)
-                stmt_right = dcopy(stmt)
-                expr_left = Par(stmt_left.children[1])
-                expr_right = Par(stmt_right.children[1])
-                sleft = split_sum(expr_left.children[0], (expr_left, 0), True, None, 0)
-                sright = split_sum(expr_right.children[0], (expr_right, 0), False, None, 0)
-
-                if sleft and sright:
-                    # Append the left-split expression. Re-use loop nest
-                    parent.children[parent.children.index(stmt)] = stmt_left
-                    # Append the right-split (reminder) expression. Create new loop nest
-                    split_loop = dcopy([f for f in self.fors if f.it_var() == it_vars[0]][0])
-                    split_inner_loop = split_loop.children[0].children[0].children[0]
-                    split_inner_loop.children[0] = stmt_right
-                    place = self.int_loop.children[0] if self.int_loop else self.pre_header
-                    place.children.append(split_loop)
-                    stmt_right_loops = [split_loop, split_loop.children[0].children[0]]
-                    # Update outer product dictionaries
-                    splittable[stmt_right] = (it_vars, split_inner_loop, stmt_right_loops)
-                    if check_sum(stmt_left.children[1]):
-                        splittable[stmt_left] = (it_vars, parent, loops)
-                    else:
-                        split[stmt_left] = (it_vars, parent, loops)
-                else:
-                    split[stmt] = stmt_info
-            return split, splittable
-
         if not self.asm_expr:
             return
 
         new_asm_expr = {}
-        splittable = self.asm_expr
-        if length and not self._has_zeros:
-            # Split into at most ``length`` blocks
-            for i in range(length-1):
-                split, splittable = split_and_update(splittable)
-                new_asm_expr.update(split)
-                if not splittable:
-                    break
-            if splittable:
-                new_asm_expr.update(splittable)
-        else:
-            # Split everything into blocks of length 1
-            cut = 1
-            while splittable:
-                split, splittable = split_and_update(splittable)
-                new_asm_expr.update(split)
-            new_asm_expr.update(splittable)
-            if self._has_zeros:
-                # Group assembly expressions that have the same iteration space
-                new_asm_expr = self._group_itspaces(new_asm_expr)
+        elf = ExprLoopFissioner(self.expr_graph, self._get_root(), cut)
+        for splittable in self.asm_expr.items():
+            # Split the expression
+            new_asm_expr.update(elf.expr_fission(splittable, True))
         self.asm_expr = new_asm_expr
-
-    def _group_itspaces(self, asm_expr):
-        """Group the expressions in ``asm_expr`` that iterate along the same space
-        and return an updated version of the dictionary containing the assembly
-        expressions in the kernel."""
-        def get_nonzero_bounds(node):
-            if isinstance(node, Symbol):
-                return (node.rank[-1], self._has_zeros[node.symbol])
-            elif isinstance(node, Par):
-                return get_nonzero_bounds(node.children[0])
-            elif isinstance(node, Prod):
-                return tuple([get_nonzero_bounds(n) for n in node.children])
-            else:
-                raise RuntimeError("Group iter space error: unknown node: %s" % str(node))
-
-        def get_size_and_ofs(itspace):
-            """Given an ``itspace`` in the form (('itvar', (bound_a, bound_b), ...)),
-            return ((('it_var', bound_b - bound_a), ...), (('it_var', bound_a), ...))"""
-            itspace_info = []
-            for var, bounds in itspace:
-                itspace_info.append(((var, bounds[1] - bounds[0]), (var, bounds[0])))
-            return tuple(zip(*itspace_info))
-
-        def update_ofs(node, ofs):
-            """Given a dictionary ``ofs`` s.t. {'itvar': ofs}, update the various
-            iteration variables in the symbols rooted in ``node``."""
-            if isinstance(node, Symbol):
-                new_ofs = []
-                old_ofs = ((1, 0) for r in node.rank) if not node.offset else node.offset
-                for r, o in zip(node.rank, old_ofs):
-                    new_ofs.append((o[0], ofs[r] if r in ofs else o[1]))
-                node.offset = tuple(new_ofs)
-            else:
-                for n in node.children:
-                    update_ofs(n, ofs)
-
-        # If two iteration spaces have:
-        # - Same size and same bounds: then generate a single statement, e.g.
-        #   for i, for j
-        #     A[i][j] += B[i][j] + C[i][j]
-        # - Same size but different bounds: then generate two statements in the same
-        #   iteration space:
-        #   for i, for j
-        #     A[i][j] += B[i][j]
-        #     A[i+k][j+k] += C[i+k][j+k]
-        # - Different size: then generate two iteration spaces
-        # So, group increments according to the size of their iteration space, and
-        # also save the offset within that iteration space
-        itspaces = defaultdict(list)
-        for expr, expr_info in asm_expr.items():
-            nonzero_bounds = get_nonzero_bounds(expr.children[1])
-            itspace_info = get_size_and_ofs(nonzero_bounds)
-            itspaces[itspace_info[0]].append((expr, expr_info, itspace_info[1]))
-
-        # Create the new iteration spaces
-        to_remove = []
-        new_asm_expr = {}
-        for its, asm_exprs in itspaces.items():
-            itvar_to_size = dict(its)
-            expr, expr_info, ofs = asm_exprs[0]
-            it_vars, parent, loops = expr_info
-            # Reuse and modify an existing loop nest
-            outer_loop_size = itvar_to_size[loops[0].it_var()]
-            inner_loop_size = itvar_to_size[loops[1].it_var()]
-            loops[0].cond.children[1] = c_sym(outer_loop_size + 1)
-            loops[1].cond.children[1] = c_sym(inner_loop_size + 1)
-            # Update memory offsets in the expression
-            update_ofs(expr, dict(ofs))
-            new_asm_expr[expr] = expr_info
-            # Track down loops that will have to be removed
-            for _expr, _expr_info, _ofs in asm_exprs[1:]:
-                to_remove.append(_expr_info[2][0])
-                parent.children.append(_expr)
-                new_asm_expr[_expr] = expr_info
-                update_ofs(_expr, dict(_ofs))
-        # Remove old loops
-        parent = self.int_loop.children[0] if self.int_loop else self.pre_header
-        for i in to_remove:
-            parent.children.remove(i)
-        # Update the dictionary of assembly expressions in the kernel
-        return new_asm_expr
 
     def _precompute(self, expr):
         """Precompute all expressions contributing to the evaluation of the local
@@ -765,130 +604,6 @@ class AssemblyOptimizer(object):
         # Update the AST by vector-expanding the pre-computed accessed variables
         update_syms(expr.children[1], precomputed_syms)
 
-    def _merge_perfect_loop_nests(self, node, eg):
-        """Merge loop nests rooted in ``node`` having the same iteration space.
-        This assumes that the statements rooted in ``node`` are in SSA form:
-        no data dependency analysis is performed, i.e. the safety of the
-        transformation must be checked by the caller. Also, the loop nests are
-        assumed to be perfect; again, this must be ensured by the caller.
-
-        :arg node: root of the tree to inspect for merging loops
-        :arg eg: expression graph, used to check there are no read-after-write
-                 dependencies between two loops.
-        """
-
-        def find_iteration_space(node):
-            """Return the iteration space of the loop nest rooted in ``node``,
-            as tuple of 3-tuple, in which each 3-tuple is of the form
-            (start, bound, increment)."""
-            if isinstance(node, For):
-                itspace = (node.start(), node.end(), node.increment())
-                child_itspace = find_iteration_space(node.children[0].children[0])
-                return (itspace, child_itspace) if child_itspace else (itspace,)
-
-        def writing_syms(node):
-            """Return a list of symbols that are being written to in the tree
-            rooted in ``node``."""
-            if isinstance(node, Symbol):
-                return [node]
-            elif isinstance(node, FlatBlock):
-                return []
-            elif isinstance(node, (Assign, Incr, Decr)):
-                return writing_syms(node.children[0])
-            elif isinstance(node, Decl):
-                if node.init and not isinstance(node.init, EmptyStatement):
-                    return writing_syms(node.sym)
-                else:
-                    return []
-            else:
-                written_syms = []
-                for n in node.children:
-                    written_syms.extend(writing_syms(n))
-                return written_syms
-
-        def merge_loops(root, loop_a, loop_b):
-            """Merge the body of ``loop_a`` in ``loop_b`` and eliminate ``loop_a``
-            from the tree rooted in ``root``. Return a reference to the block
-            containing the merged loop as well as the iteration variables used
-            in the respective iteration spaces."""
-            # Find the first statement in the perfect loop nest loop_b
-            it_vars_a, it_vars_b = [], []
-            while isinstance(loop_b.children[0], (Block, For)):
-                if isinstance(loop_b, For):
-                    it_vars_b.append(loop_b.it_var())
-                loop_b = loop_b.children[0]
-            # Find the first statement in the perfect loop nest loop_a
-            root_loop_a = loop_a
-            while isinstance(loop_a.children[0], (Block, For)):
-                if isinstance(loop_a, For):
-                    it_vars_a.append(loop_a.it_var())
-                loop_a = loop_a.children[0]
-            # Merge body of loop_a in loop_b
-            loop_b.children[0:0] = loop_a.children
-            # Remove loop_a from root
-            root.children.remove(root_loop_a)
-            return (loop_b, tuple(it_vars_a), tuple(it_vars_b))
-
-        def update_iteration_variables(node, it_vars):
-            """Change the iteration variables in the nodes rooted in ``node``
-            according to the map defined in ``it_vars``, which is a dictionary
-            from old_iteration_variable to new_iteration_variable. For example,
-            given it_vars = {'i': 'j'} and a node "A[i] = B[i]", change the node
-            into "A[j] = B[j]"."""
-            if isinstance(node, Symbol):
-                new_rank = []
-                for r in node.rank:
-                    new_rank.append(r if r not in it_vars else it_vars[r])
-                node.rank = tuple(new_rank)
-            elif not isinstance(node, FlatBlock):
-                for n in node.children:
-                    update_iteration_variables(n, it_vars)
-
-        # {((start, bound, increment), ...) --> [outer_loop]}
-        found_nests = defaultdict(list)
-        written_syms = []
-        # Collect some info visiting the tree rooted in node
-        for n in node.children:
-            if isinstance(n, For):
-                # Track structure of iteration spaces
-                found_nests[find_iteration_space(n)].append(n)
-            else:
-                # Track written variables
-                written_syms.extend(writing_syms(n))
-
-        # A perfect loop nest L1 is mergeable in a loop nest L2 if
-        # - their iteration space is identical; implicitly true because the keys,
-        #   in the dictionary, are iteration spaces.
-        # - between the two nests, there are no statements that read from values
-        #   computed in L1. This is checked next.
-        # Here, to simplify the data flow analysis, the last loop in the tree
-        # rooted in node is selected as L2
-        for itspace, loop_nests in found_nests.items():
-            if len(loop_nests) == 1:
-                # At least two loops are necessary for merging to be meaningful
-                continue
-            mergeable = []
-            merging_in = loop_nests[-1]
-            for ln in loop_nests[:-1]:
-                is_mergeable = True
-                # Get the symbols written to in the loop nest ln
-                ln_written_syms = writing_syms(ln)
-                # Get the symbols written to between ln and merging_in (included)
-                _written_syms = [writing_syms(l) for l in loop_nests[loop_nests.index(ln)+1:-1]]
-                _written_syms = [i for l in _written_syms for i in l]  # list flattening
-                _written_syms += written_syms
-                for ws, lws in itertools.product(_written_syms, ln_written_syms):
-                    if eg.has_dep(ws, lws):
-                        is_mergeable = False
-                        break
-                # Track mergeable loops
-                if is_mergeable:
-                    mergeable.append(ln)
-            # If there is at least one mergeable loops, do the merging
-            for l in reversed(mergeable):
-                merged, l_itvars, m_itvars = merge_loops(node, l, merging_in)
-                update_iteration_variables(merged, dict(zip(l_itvars, m_itvars)))
-
 
 class AssemblyRewriter(object):
     """Provide operations to re-write an assembly expression:
@@ -898,27 +613,29 @@ class AssemblyRewriter(object):
     * Expansion: transform an expression ``(a + b)*c`` into ``(a*c + b*c)``
     * Distribute: transform an expression ``a*b + a*c`` into ``a*(b+c)``"""
 
-    def __init__(self, expr, int_loop, syms, decls, parent):
+    def __init__(self, expr, int_loop, syms, decls, parent, hoisted, expr_graph):
         """Initialize the AssemblyRewriter.
 
-        :arg expr:     provide generic information related to an assembly expression,
-                       including the depending for loops.
-        :arg int_loop: the loop along which integration is performed.
-        :arg syms:     list of AST symbols used to evaluate the local element matrix.
-        :arg decls:    list of AST declarations of the various symbols in ``syms``.
-        :arg parent:   the parent AST node of the assembly loop nest.
+        :arg expr:       provide generic information related to an assembly
+                         expression, including the depending for loops.
+        :arg int_loop:   the loop along which integration is performed.
+        :arg syms:       list of AST symbols used to evaluate the local element
+                         matrix.
+        :arg decls:      list of AST declarations of the various symbols in ``syms``.
+        :arg parent:     the parent AST node of the assembly loop nest.
+        :arg hoisted:    dictionary that tracks hoisted expressions
+        :arg expr_graph: expression graph that tracks symbol dependencies
         """
         self.expr, self.expr_info = expr
         self.int_loop = int_loop
         self.syms = syms
         self.decls = decls
         self.parent, self.parent_decls = parent
-        self.hoisted = OrderedDict()
+        self.hoisted = hoisted
+        self.expr_graph = expr_graph
         # Properties of the assembly expression
         self._licm = 0
         self._expanded = False
-        # The expression graph tracks symbols dependencies
-        self.eg = ExpressionGraph()
 
     def licm(self):
         """Perform loop-invariant code motion.
@@ -1099,7 +816,7 @@ class AssemblyRewriter(object):
                 sym_info = [(i, j, inv_for) for i, j in zip(_expr, var_decl)]
                 self.hoisted.update(zip([s.symbol for s in for_sym], sym_info))
                 for s, e in zip(for_sym, expr):
-                    self.eg.add_dependency(s, e, n_replaced[str(s)] > 1)
+                    self.expr_graph.add_dependency(s, e, n_replaced[str(s)] > 1)
 
                 # 7a) Update expressions hoisted along a known dimension (same dep)
                 if for_dep in inv_dep:
@@ -1177,7 +894,7 @@ class AssemblyRewriter(object):
                 it_var_occs[s[1][0]] += 1
 
         exp_var = asm_out if it_var_occs[asm_out] < it_var_occs[asm_in] else asm_in
-        ee = ExpressionExpander(self.hoisted, self.eg, self.parent)
+        ee = ExpressionExpander(self.hoisted, self.expr_graph, self.parent)
         ee.expand(self.expr.children[1], self.expr, it_var_occs, exp_var)
         self.decls.update(ee.expanded_decls)
         self.syms.update(ee.expanded_syms)
@@ -1246,72 +963,36 @@ class AssemblyRewriter(object):
             new_prods.append(Par(Prod(dist[0], target)))
         self.expr.children[1] = Par(create_sum(new_prods))
 
-    def zeros(self):
-        """Track the propagation of zero columns along the computation and re-write
-        the assembly expressions so as to avoid useless floating point operations
-        over zero values."""
+    def simplify(self):
+        """Scan the hoisted terms one by one and eliminate duplicate sub-expressions.
+        Remove useless assignments (e.g. a = b, and b never used later)."""
 
-        def track_nonzero_columns(node, nonzeros_in_syms):
-            """Return the first and last indices of non-zero columns resulting from
-            the evaluation of the expression rooted in node. If there are no zero
-            columns or if the expression is not made of bi-dimensional arrays,
-            return (None, None)."""
+        def replace_expr(node, parent, parent_idx, it_var, hoisted_expr):
+            """Recursively search for any sub-expressions rooted in node that have
+            been hoisted and therefore are already kept in a temporary. Replace them
+            with such temporary."""
             if isinstance(node, Symbol):
-                if node.offset:
-                    raise RuntimeError("Zeros error: offsets not supported: %s" % str(node))
-                return nonzeros_in_syms.get(node.symbol)
-            elif isinstance(node, Par):
-                return track_nonzero_columns(node.children[0], nonzeros_in_syms)
+                return
             else:
-                nz_bounds = [track_nonzero_columns(n, nonzeros_in_syms) for n in node.children]
-                if isinstance(node, (Prod, Div)):
-                    indices = [nz for nz in nz_bounds if nz and nz != (None, None)]
-                    if len(indices) == 0:
-                        return (None, None)
-                    elif len(indices) > 1:
-                        raise RuntimeError("Zeros error: unexpected operation: %s" % str(node))
-                    else:
-                        return indices[0]
-                elif isinstance(node, Sum):
-                    indices = [None, None]
-                    for nz in nz_bounds:
-                        if nz is not None:
-                            indices[0] = nz[0] if indices[0] is None else min(nz[0], indices[0])
-                            indices[1] = nz[1] if indices[1] is None else max(nz[1], indices[1])
-                    return tuple(indices)
+                tmp_sym = hoisted_expr.get(str(node)) or hoisted_expr.get(str(parent))
+                if tmp_sym:
+                    # Found a temporary value already hosting the value of node
+                    parent.children[parent_idx] = Symbol(dcopy(tmp_sym), (it_var,))
                 else:
-                    raise RuntimeError("Zeros error: unsupported operation: %s" % str(node))
+                    # Go ahead recursively
+                    for i, n in enumerate(node.children):
+                        replace_expr(n, node, i, it_var, hoisted_expr)
 
-        # Initialize a dict mapping symbols to their zero columns with the info
-        # already available in the kernel's declarations
-        nonzeros_in_syms = {}
-        for i, j in self.parent_decls.items():
-            nz_bounds = j[0].get_nonzero_columns()
-            if nz_bounds:
-                nonzeros_in_syms[i] = nz_bounds
-                if nz_bounds == (-1, -1):
-                    # A fully zero-valued two dimensional array
-                    nonzeros_in_syms[i] = j[0].sym.rank
-
-        # If zeros were not found, then just give up
-        if not nonzeros_in_syms:
-            return {}
-
-        # Now track zeros in the temporaries storing hoisted sub-expressions
-        for i, j in self.hoisted.items():
-            nz_bounds = track_nonzero_columns(j[0], nonzeros_in_syms) or (None, None)
-            if None not in nz_bounds:
-                # There are some zero-columns in the array, so track the bounds
-                # of *non* zero-columns
-                nonzeros_in_syms[i] = nz_bounds
-            else:
-                # Dense array or scalar cases: need to ignore scalars
-                sym_size = j[1].size()[-1]
-                if sym_size:
-                    nonzeros_in_syms[i] = (0, sym_size)
-
-        # Record the fact that we are tracking zeros
-        return nonzeros_in_syms
+        # Remove duplicates
+        hoisted_expr = {}
+        for sym, sym_info in self.hoisted.items():
+            expr, var_decl, inv_for, place = sym_info
+            if not isinstance(inv_for, For):
+                continue
+            # Check if any sub-expressions rooted in expr is alredy stored in a temporary
+            replace_expr(expr.children[0], expr, 0, inv_for.it_var(), hoisted_expr)
+            # Track the (potentially modified) hoisted expression
+            hoisted_expr[str(expr)] = sym
 
 
 class ExpressionExpander(object):
@@ -1328,9 +1009,9 @@ class ExpressionExpander(object):
     CONST = -1
     ITVAR = -2
 
-    def __init__(self, var_info, eg, expr):
+    def __init__(self, var_info, expr_graph, expr):
         self.var_info = var_info
-        self.eg = eg
+        self.expr_graph = expr_graph
         self.parent = expr
         self.expanded_decls = {}
         self.found_consts = {}
@@ -1357,15 +1038,15 @@ class ExpressionExpander(object):
             self.expanded_decls[new_const_decl.sym.symbol] = (new_const_decl, ast_plan.LOCAL_VAR)
             self.expanded_syms.append(new_const_decl.sym)
             self.found_consts[const_str] = const_sym
-            self.eg.add_dependency(const_sym, const, False)
+            self.expr_graph.add_dependency(const_sym, const, False)
             # Update the AST
             place.insert(place.index(inv_for), new_const_decl)
             const = const_sym
 
         # No dependencies, just perform the expansion
-        if not self.eg.has_dep(sym):
+        if not self.expr_graph.has_dep(sym):
             old_expr.children[0] = Prod(Par(old_expr.children[0]), dcopy(const))
-            self.eg.add_dependency(sym, const, False)
+            self.expr_graph.add_dependency(sym, const, False)
             return
 
         # Create a new symbol, expression, and declaration
@@ -1381,7 +1062,7 @@ class ExpressionExpander(object):
         self.expanded_syms.append(new_var_decl.sym)
         # Update tracked information
         self.var_info[sym.symbol] = (new_expr, new_var_decl, inv_for, place)
-        self.eg.add_dependency(sym, new_expr, 0)
+        self.expr_graph.add_dependency(sym, new_expr, 0)
 
     def expand(self, node, parent, it_vars, exp_var):
         """Perform the expansion of the expression rooted in ``node``. Terms are
@@ -1436,6 +1117,600 @@ class ExpressionExpander(object):
                 return (None, self.CONST)
         else:
             raise RuntimeError("Expansion error: unknown node: %s" % str(node))
+
+
+class LoopScheduler(object):
+
+    """Base class for classes that handle loop scheduling; that is, loop fusion,
+    loop distribution, etc."""
+
+    def __init__(self, expr_graph, root):
+        """Initialize the LoopScheduler.
+
+        :arg expr_graph: the ExpressionGraph tracking all data dependencies involving
+                         identifiers that appear in ``root``.
+        :arg root:       the node where loop scheduling takes place."""
+        self.expr_graph = expr_graph
+        self.root = root
+
+
+class PerfectSSALoopMerger(LoopScheduler):
+
+    """Analyze data dependencies and iteration spaces, then merge fusable
+    loops.
+    Statements must be in "soft" SSA form: they can be declared and initialized
+    at declaration time, then they can be assigned a value in only one place."""
+
+    def __init__(self, expr_graph, root):
+        super(PerfectSSALoopMerger, self).__init__(expr_graph, root)
+
+    def _find_it_space(self, node):
+        """Return the iteration space of the loop nest rooted in ``node``,
+        as a tuple of 3-tuple, in which each 3-tuple is of the form
+        (start, bound, increment)."""
+        if isinstance(node, For):
+            itspace = (node.start(), node.end(), node.increment())
+            child_itspace = self._find_it_space(node.children[0].children[0])
+            return (itspace, child_itspace) if child_itspace else (itspace,)
+
+    def _accessed_syms(self, node, mode):
+        """Return a list of symbols that are being accessed in the tree
+        rooted in ``node``. If ``mode == 0``, looks for written to symbols;
+        if ``mode==1`` looks for read symbols."""
+        if isinstance(node, Symbol):
+            return [node]
+        elif isinstance(node, FlatBlock):
+            return []
+        elif isinstance(node, (Assign, Incr, Decr)):
+            if mode == 0:
+                return self._accessed_syms(node.children[0], mode)
+            elif mode == 1:
+                return self._accessed_syms(node.children[1], mode)
+        elif isinstance(node, Decl):
+            if mode == 0 and node.init and not isinstance(node.init, EmptyStatement):
+                return self._accessed_syms(node.sym, mode)
+            else:
+                return []
+        else:
+            accessed_syms = []
+            for n in node.children:
+                accessed_syms.extend(self._accessed_syms(n, mode))
+            return accessed_syms
+
+    def _merge_loops(self, root, loop_a, loop_b):
+        """Merge the body of ``loop_a`` in ``loop_b`` and eliminate ``loop_a``
+        from the tree rooted in ``root``. Return a reference to the block
+        containing the merged loop as well as the iteration variables used
+        in the respective iteration spaces."""
+        # Find the first statement in the perfect loop nest loop_b
+        it_vars_a, it_vars_b = [], []
+        while isinstance(loop_b.children[0], (Block, For)):
+            if isinstance(loop_b, For):
+                it_vars_b.append(loop_b.it_var())
+            loop_b = loop_b.children[0]
+        # Find the first statement in the perfect loop nest loop_a
+        root_loop_a = loop_a
+        while isinstance(loop_a.children[0], (Block, For)):
+            if isinstance(loop_a, For):
+                it_vars_a.append(loop_a.it_var())
+            loop_a = loop_a.children[0]
+        # Merge body of loop_a in loop_b
+        loop_b.children[0:0] = loop_a.children
+        # Remove loop_a from root
+        root.children.remove(root_loop_a)
+        return (loop_b, tuple(it_vars_a), tuple(it_vars_b))
+
+    def _update_it_vars(self, node, it_vars):
+        """Change the iteration variables in the nodes rooted in ``node``
+        according to the map defined in ``it_vars``, which is a dictionary
+        from old_iteration_variable to new_iteration_variable. For example,
+        given it_vars = {'i': 'j'} and a node "A[i] = B[i]", change the node
+        into "A[j] = B[j]"."""
+        if isinstance(node, Symbol):
+            new_rank = []
+            for r in node.rank:
+                new_rank.append(r if r not in it_vars else it_vars[r])
+            node.rank = tuple(new_rank)
+        elif not isinstance(node, FlatBlock):
+            for n in node.children:
+                self._update_it_vars(n, it_vars)
+
+    def merge(self):
+        """Merge perfect loop nests rooted in ``self.root``."""
+        # {((start, bound, increment), ...) --> [outer_loop]}
+        found_nests = defaultdict(list)
+        written_syms = []
+        # Collect some info visiting the tree rooted in node
+        for n in self.root.children:
+            if isinstance(n, For):
+                # Track structure of iteration spaces
+                found_nests[self._find_it_space(n)].append(n)
+            else:
+                # Track written variables
+                written_syms.extend(self._accessed_syms(n, 0))
+
+        # A perfect loop nest L1 is mergeable in a loop nest L2 if
+        # 1 - their iteration space is identical; implicitly true because the keys,
+        #     in the dictionary, are iteration spaces.
+        # 2 - between the two nests, there are no statements that read from values
+        #     computed in L1. This is checked next.
+        # 3 - there are no read-after-write dependencies between variables written
+        #     in L1 and read in L2. This is checked next.
+        # Here, to simplify the data flow analysis, the last loop in the tree
+        # rooted in node is selected as L2
+        for itspace, loop_nests in found_nests.items():
+            if len(loop_nests) == 1:
+                # At least two loops are necessary for merging to be meaningful
+                continue
+            mergeable = []
+            merging_in = loop_nests[-1]
+            merging_in_read_syms = self._accessed_syms(merging_in, 1)
+            for ln in loop_nests[:-1]:
+                is_mergeable = True
+                # Get the symbols written to in the loop nest ln
+                ln_written_syms = self._accessed_syms(ln, 0)
+                # Get the symbols written to between ln and merging_in (included)
+                _written_syms = [self._accessed_syms(l, 0) for l in
+                                 loop_nests[loop_nests.index(ln)+1:-1]]
+                _written_syms = [i for l in _written_syms for i in l]  # list flattening
+                _written_syms += written_syms
+                # Check condition 2
+                for ws, lws in itertools.product(_written_syms, ln_written_syms):
+                    if self.expr_graph.has_dep(ws, lws):
+                        is_mergeable = False
+                        break
+                # Check condition 3
+                for lws, mirs in itertools.product(ln_written_syms,
+                                                   merging_in_read_syms):
+                    if lws.symbol == mirs.symbol and not lws.rank and not mirs.rank:
+                        is_mergeable = False
+                        break
+                # Track mergeable loops
+                if is_mergeable:
+                    mergeable.append(ln)
+            # If there is at least one mergeable loops, do the merging
+            for l in reversed(mergeable):
+                merged, l_itvars, m_itvars = self._merge_loops(self.root, l, merging_in)
+                self._update_it_vars(merged, dict(zip(l_itvars, m_itvars)))
+
+
+class ExprLoopFissioner(LoopScheduler):
+
+    """Analyze data dependencies and iteration spaces, then fission associative
+    operations in expressions.
+    Fissioned expressions are placed in a separate loop nest."""
+
+    def __init__(self, expr_graph, root, cut):
+        """Initialize the ExprLoopFissioner.
+
+        :arg cut: number of operands requested to fission expressions."""
+        super(ExprLoopFissioner, self).__init__(expr_graph, root)
+        self.cut = cut
+
+    def _split_sum(self, node, parent, is_left, found, sum_count):
+        """Exploit sum's associativity to cut node when a sum is found.
+        Return ``True`` if a potentially splittable node is found, ``False``
+        otherwise."""
+        if isinstance(node, Symbol):
+            return False
+        elif isinstance(node, Par):
+            return self._split_sum(node.children[0], (node, 0), is_left, found,
+                                   sum_count)
+        elif isinstance(node, Prod) and found:
+            return False
+        elif isinstance(node, Prod) and not found:
+            if not self._split_sum(node.children[0], (node, 0), is_left, found,
+                                   sum_count):
+                return self._split_sum(node.children[1], (node, 1), is_left, found,
+                                       sum_count)
+            return True
+        elif isinstance(node, Sum):
+            sum_count += 1
+            if not found:
+                # Track the first Sum we found while cutting
+                found = parent
+            if sum_count == self.cut:
+                # Perform the cut
+                if is_left:
+                    parent, parent_leaf = parent
+                    parent.children[parent_leaf] = node.children[0]
+                else:
+                    found, found_leaf = found
+                    found.children[found_leaf] = node.children[1]
+                return True
+            else:
+                if not self._split_sum(node.children[0], (node, 0), is_left,
+                                       found, sum_count):
+                    return self._split_sum(node.children[1], (node, 1), is_left,
+                                           found, sum_count)
+                return True
+        else:
+            raise RuntimeError("Split error: found unknown node: %s" % str(node))
+
+    def _sum_fission(self, expr, copy_loops):
+        """Split an expression after ``cut`` operands. This results in two
+        sub-expressions that are placed in different, although identical
+        loop nests if ``copy_loops`` is true; they are placed in the same
+        original loop nest otherwise. Return the two split expressions as a
+        2-tuple, in which the second element is potentially further splittable."""
+        expr_root, expr_info = expr
+        it_vars, parent, loops = expr_info
+        # Copy the original expression twice, and then split the two copies, that
+        # we refer to as ``left`` and ``right``, meaning that the left copy will
+        # be transformed in the sub-expression from the origin up to the cut point,
+        # and analoguously for right.
+        # For example, consider the expression a*b + c*d; the cut point is the sum
+        # operator. Therefore, the left part is a*b, whereas the right part is c*d
+        expr_root_left = dcopy(expr_root)
+        expr_root_right = dcopy(expr_root)
+        expr_left = Par(expr_root_left.children[1])
+        expr_right = Par(expr_root_right.children[1])
+        sleft = self._split_sum(expr_left.children[0], (expr_left, 0), True, None, 0)
+        sright = self._split_sum(expr_right.children[0], (expr_right, 0), False, None, 0)
+
+        if sleft and sright:
+            index = parent.children.index(expr_root)
+            # Append the left-split expression. Re-use a loop nest
+            parent.children[index] = expr_root_left
+            # Append the right-split (remainder) expression.
+            if copy_loops:
+                # Create a new loop nest
+                new_loop = dcopy(loops[0])
+                new_inner_loop = new_loop.children[0].children[0]
+                new_inner_loop_block = new_inner_loop.children[0]
+                new_inner_loop_block.children[0] = expr_root_right
+                expr_right_loops = [new_loop, new_inner_loop]
+                self.root.children.append(new_loop)
+            else:
+                parent.children.insert(index, expr_root_right)
+                new_inner_loop_block, expr_right_loops = (parent, loops)
+            # Attach info to the two split sub-expressions
+            split = (expr_root_left, (it_vars, parent, loops))
+            splittable = (expr_root_right, (it_vars, new_inner_loop_block,
+                                            expr_right_loops))
+            return (split, splittable)
+        return ((expr_root, expr_info), ())
+
+    def expr_fission(self, expr, copy_loops):
+        """Split an expression containing ``x`` summands into ``x/cut`` chunks.
+        Each chunk is placed in a separate loop nest if ``copy_loops`` is true,
+        in the same loop nest otherwise. Return a dictionary of all of the split
+        chunks, in which each entry has the same format of ``expr``.
+
+        :arg expr:  the expression that needs to be split. This is given as
+                    a tuple of two elements: the former is the expression
+                    root node; the latter includes info about the expression,
+                    particularly iteration variables of the enclosing loops,
+                    the enclosing loops themselves, and the parent block.
+        :arg copy_loops: true if the split expressions should be placed in two
+                         separate, adjacent loop nests (iterating, of course,
+                         along the same iteration space); false, otherwise."""
+
+        split_exprs = {}
+        splittable_expr = expr
+        while splittable_expr:
+            split_expr, splittable_expr = self._sum_fission(splittable_expr,
+                                                            copy_loops)
+            split_exprs[split_expr[0]] = split_expr[1]
+        return split_exprs
+
+
+class ZeroLoopScheduler(LoopScheduler):
+
+    """Analyze data dependencies, iteration spaces, and domain-specific
+    information to perform symbolic execution of the assembly code so as to
+    determine how to restructure the loop nests to skip iteration over
+    zero-valued columns.
+    This implies that loops can be fissioned or merged. For example: ::
+
+        for i = 0, N
+          A[i] = C[i]*D[i]
+          B[i] = E[i]*F[i]
+
+    If the evaluation of A requires iterating over a region of contiguous
+    zero-valued columns in C and D, then A is computed in a separate (smaller)
+    loop nest: ::
+
+        for i = 0 < (N-k)
+          A[i+k] = C[i+k][i+k]
+        for i = 0, N
+          B[i] = E[i]*F[i]
+    """
+
+    def __init__(self, expr_graph, root, decls):
+        """Initialize the ZeroLoopScheduler.
+
+        :arg decls: lists of array declarations. A 2-tuple is expected: the first
+                    element is the list of kernel declarations; the second element
+                    is the list of hoisted temporaries declarations."""
+        super(ZeroLoopScheduler, self).__init__(expr_graph, root)
+        self.kernel_decls, self.hoisted_decls = decls
+        # Track zero blocks in each symbol accessed in the computation rooted in root
+        self.nz_in_syms = {}
+        # Track blocks accessed for evaluating symbols in the various for loops
+        # rooted in root
+        self.nz_in_fors = OrderedDict()
+
+    def _get_nz_bounds(self, node):
+        if isinstance(node, Symbol):
+            return (node.rank[-1], self.nz_in_syms[node.symbol])
+        elif isinstance(node, Par):
+            return self._get_nz_bounds(node.children[0])
+        elif isinstance(node, Prod):
+            return tuple([self._get_nz_bounds(n) for n in node.children])
+        else:
+            raise RuntimeError("Group iter space error: unknown node: %s" % str(node))
+
+    def _merge_itvars_nz_bounds(self, itvar_nz_bounds_l, itvar_nz_bounds_r):
+        """Given two dictionaries associating iteration variables to ranges
+        of non-zero columns, merge the two dictionaries by combining ranges
+        along the same iteration variables and return the merged dictionary.
+        For example: ::
+
+            dict1 = {'j': [(1,3), (5,6)], 'k': [(5,7)]}
+            dict2 = {'j': [(3,4)], 'k': [(1,4)]}
+            dict1 + dict2 -> {'j': [(1,6)], 'k': [(1,7)]}
+        """
+        new_itvar_nz_bounds = {}
+        for itvar, nz_bounds in itvar_nz_bounds_l.items():
+            if itvar.isdigit():
+                # Skip constant dimensions
+                continue
+            # Compute the union of nonzero bounds along the same
+            # iteration variable. Unify contiguous regions (for example,
+            # [(1,3), (4,6)] -> [(1,6)]
+            new_nz_bounds = nz_bounds + itvar_nz_bounds_r.get(itvar, ())
+            merged_nz_bounds = itspace_merge(new_nz_bounds)
+            new_itvar_nz_bounds[itvar] = merged_nz_bounds
+        return new_itvar_nz_bounds
+
+    def _set_var_to_zero(self, node, ofs, itspace):
+        """Scan each variable ``v`` in ``node``: if non-initialized elements in ``v``
+        are touched as iterating along ``itspace``, initialize ``v`` to 0.0."""
+
+        def get_accessed_syms(node, nz_in_syms, found_syms):
+            if isinstance(node, Symbol):
+                nz_in_node = nz_in_syms.get(node.symbol)
+                if nz_in_node:
+                    nz_regions = dict(zip([r for r in node.rank], nz_in_node))
+                    found_syms.append((node.symbol, nz_regions))
+            else:
+                for n in node.children:
+                    get_accessed_syms(n, nz_in_syms, found_syms)
+
+        # Determine the symbols accessed in node and their non-zero regions
+        found_syms = []
+        get_accessed_syms(node.children[1], self.nz_in_syms, found_syms)
+
+        # If iteration space along which they are accessed is bigger than the
+        # non-zero region, hoisted symbols must be initialized to zero
+        for sym, nz_regions in found_syms:
+            sym_decl = self.hoisted_decls.get(sym)
+            if not sym_decl:
+                continue
+            for itvar, size in itspace:
+                itvar_nz_regions = nz_regions.get(itvar)
+                itvar_ofs = ofs.get(itvar)
+                if not itvar_nz_regions or itvar_ofs is None:
+                    # Sym does not iterate along this iteration variable, so skip
+                    # the check
+                    continue
+                iteration_ok = False
+                # Check that the iteration space actually corresponds to one of the
+                # non-zero regions in the symbol currently analyzed
+                for itvar_nz_region in itvar_nz_regions:
+                    init_nz_reg, end_nz_reg = itvar_nz_region
+                    if itvar_ofs == init_nz_reg and size == end_nz_reg + 1 - init_nz_reg:
+                        iteration_ok = True
+                        break
+                if not iteration_ok:
+                    # Iterating over a non-initialized region, need to zero it
+                    sym_decl = sym_decl[0]
+                    sym_decl.init = FlatBlock("{0.0}")
+
+    def _track_expr_nz_columns(self, node):
+        """Return the first and last indices assumed by the iteration variables
+        appearing in ``node`` over regions of non-zero columns. For example,
+        consider the following node, particularly its right-hand side: ::
+
+        A[i][j] = B[i]*C[j]
+
+        If B over i is non-zero in the ranges [0, k1] and [k2, k3], while C over
+        j is non-zero in the range [N-k4, N], then return a dictionary: ::
+
+        {i: ((0, k1), (k2, k3)), j: ((N-k4, N),)}
+
+        If there are no zero-columns, return {}."""
+        if isinstance(node, Symbol):
+            if node.offset:
+                raise RuntimeError("Zeros error: offsets not supported: %s" % str(node))
+            nz_bounds = self.nz_in_syms.get(node.symbol)
+            if nz_bounds:
+                itvars = [r for r in node.rank]
+                return dict(zip(itvars, nz_bounds))
+            else:
+                return {}
+        elif isinstance(node, Par):
+            return self._track_expr_nz_columns(node.children[0])
+        else:
+            itvar_nz_bounds_l = self._track_expr_nz_columns(node.children[0])
+            itvar_nz_bounds_r = self._track_expr_nz_columns(node.children[1])
+            if isinstance(node, (Prod, Div)):
+                # Merge the nonzero bounds of different iteration variables
+                # within the same dictionary
+                return dict(itvar_nz_bounds_l.items() +
+                            itvar_nz_bounds_r.items())
+            elif isinstance(node, Sum):
+                return self._merge_itvars_nz_bounds(itvar_nz_bounds_l,
+                                                    itvar_nz_bounds_r)
+            else:
+                raise RuntimeError("Zeros error: unsupported operation: %s" % str(node))
+
+    def _track_nz_blocks(self, node, parent=None, loop_nest=()):
+        """Track the propagation of zero blocks along the computation which is
+        rooted in ``self.root``.
+
+        Before start tracking zero blocks in the nodes rooted in ``node``,
+        ``self.nz_in_syms`` contains, for each known identifier, the ranges of
+        its zero blocks. For example, assuming identifier A is an array and has
+        zero-valued entries in positions from 0 to k and from N-k to N,
+        ``self.nz_in_syms`` will contain an entry "A": ((0, k), (N-k, N)).
+        If A is modified by some statements rooted in ``node``, then
+        ``self.nz_in_syms["A"]`` will be modified accordingly.
+
+        This method also updates ``self.nz_in_fors``, which maps loop nests to
+        the enclosed symbols' non-zero blocks. For example, given the following
+        code: ::
+
+        { // root
+          ...
+          for i
+            for j
+              A = ...
+              B = ...
+        }
+
+        Once traversed the AST, ``self.nz_in_fors`` will contain a (key, value)
+        such that:
+        ((<for i>, <for j>), root) -> {A: (i, (nz_along_i)), (j, (nz_along_j))}
+
+        :arg node:      the node being currently inspected for tracking zero
+                        blocks
+        :arg parent:    the parent node of ``node``
+        :arg loop_nest: tuple of for loops enclosing ``node``
+        """
+        if isinstance(node, (Assign, Incr, Decr)):
+            symbol = node.children[0].symbol
+            rank = node.children[0].rank
+            itvar_nz_bounds = self._track_expr_nz_columns(node.children[1])
+            if not itvar_nz_bounds:
+                return
+            # Reflect the propagation of non-zero blocks in the node's
+            # target symbol. Note that by scanning loop_nest, the nonzero
+            # bounds are stored in order. For example, if the symbol is
+            # A[][], that is, it has two dimensions, then the first element
+            # of the tuple stored in nz_in_syms[symbol] represents the nonzero
+            # bounds for the first dimension, the second element the same for
+            # the second dimension, and so on if it had had more dimensions.
+            # Also, since nz_in_syms represents the propagation of non-zero
+            # columns "up to this point of the computation", we have to merge
+            # the non-zero columns produced by this node with those that we
+            # had already found.
+            nz_in_sym = tuple(itvar_nz_bounds[l.it_var()] for l in loop_nest
+                              if l.it_var() in rank)
+            if symbol in self.nz_in_syms:
+                merged_nz_in_sym = []
+                for i in zip(nz_in_sym, self.nz_in_syms[symbol]):
+                    flat_nz_bounds = [nzb for nzb_sym in i for nzb in nzb_sym]
+                    merged_nz_in_sym.append(itspace_merge(flat_nz_bounds))
+                nz_in_sym = tuple(merged_nz_in_sym)
+            self.nz_in_syms[symbol] = nz_in_sym
+            if loop_nest:
+                # Track the propagation of non-zero blocks in this specific
+                # loop nest. Outer loops, i.e. loops that have non been
+                # encountered as visiting from the root, are discarded.
+                key = loop_nest[0]
+                itvar_nz_bounds = dict([(k, v) for k, v in itvar_nz_bounds.items()
+                                        if k in [l.it_var() for l in loop_nest]])
+                if key not in self.nz_in_fors:
+                    self.nz_in_fors[key] = []
+                self.nz_in_fors[key].append((node, itvar_nz_bounds))
+        if isinstance(node, For):
+            self._track_nz_blocks(node.children[0], node, loop_nest + (node,))
+        if isinstance(node, Block):
+            for n in node.children:
+                self._track_nz_blocks(n, node, loop_nest)
+
+    def _track_nz_from_root(self):
+        """Track the propagation of zero columns along the computation which is
+        rooted in ``self.root``."""
+
+        # Initialize a dict mapping symbols to their zero columns with the info
+        # already available in the kernel's declarations
+        for i, j in self.kernel_decls.items():
+            nz_col_bounds = j[0].get_nonzero_columns()
+            if nz_col_bounds:
+                # Note that nz_bounds are stored as second element of a 2-tuple,
+                # because the declared array is two-dimensional, in which the
+                # second dimension represents the columns
+                self.nz_in_syms[i] = (((0, j[0].sym.rank[0] - 1),),
+                                      (nz_col_bounds,))
+                if nz_col_bounds == (-1, -1):
+                    # A fully zero-valued two dimensional array
+                    self.nz_in_syms[i] = j[0].sym.rank
+
+        # If zeros were not found, then just give up
+        if not self.nz_in_syms:
+            return {}
+
+        # Track propagation of zero blocks by symbolically executing the code
+        self._track_nz_blocks(self.root)
+
+    def reschedule(self):
+        """Restructure the loop nests rooted in ``self.root`` based on the
+        propagation of zero-valued columns along the computation. This, therefore,
+        involves fissing and fusing loops so as to remove iterations spent
+        performing arithmetic operations over zero-valued entries.
+        Return a list of dictionaries, a dictionary for each loop nest encountered.
+        Each entry in a dictionary is of the form {stmt: (itvars, parent, loops)},
+        in which ``stmt`` is a statement found in the loop nest from which the
+        dictionary derives, ``itvars`` is the tuple of the iteration variables of
+        the enclosing loops, ``parent`` is the AST node in which the loop nest is
+        rooted, ``loops`` is the tuple of loops composing the loop nest."""
+
+        # First, symbolically execute the code starting from self.root to track
+        # the propagation of zeros
+        self._track_nz_from_root()
+
+        # Consider two statements A and B, and their iteration spaces.
+        # If the two iteration spaces have:
+        # - Same size and same bounds: then put A and B in the same loop nest
+        #   for i, for j
+        #     W1[i][j] = W2[i][j]
+        #     Z1[i][j] = Z2[i][j]
+        # - Same size but different bounds: then put A and B in the same loop
+        #   nest, but add suitable offsets to all of the involved iteration
+        #   variables
+        #   for i, for j
+        #     W1[i][j] = W2[i][j]
+        #     Z1[i+k][j+k] = Z2[i+k][j+k]
+        # - Different size: then put A and B in two different loop nests
+        #   for i, for j
+        #     W1[i][j] = W2[i][j]
+        #   for i, for j  // Different loop bounds
+        #     Z1[i][j] = Z2[i][j]
+        all_moved_stmts = []
+        new_nz_in_fors = {}
+        for loop, stmt_itspaces in self.nz_in_fors.items():
+            fissioned_loops = defaultdict(list)
+            # Fission the loops on an intermediate representation
+            for stmt, stmt_itspace in stmt_itspaces:
+                nz_bounds_list = [i for i in itertools.product(*stmt_itspace.values())]
+                for nz_bounds in nz_bounds_list:
+                    itvar_nz_bounds = tuple(zip(stmt_itspace.keys(), nz_bounds))
+                    itspace, stmt_ofs = itspace_size_ofs(itvar_nz_bounds)
+                    fissioned_loops[itspace].append((dcopy(stmt), stmt_ofs))
+            # Generate the actual code.
+            # The dictionary is sorted because we must first execute smaller
+            # loop nests, since larger ones may depend on them
+            moved_stmts = {}
+            for itspace, stmt_ofs in sorted(fissioned_loops.items()):
+                new_loops, inner_block = c_from_itspace_to_fors(itspace)
+                for stmt, ofs in stmt_ofs:
+                    dict_ofs = dict(ofs)
+                    ast_update_ofs(stmt, dict_ofs)
+                    self._set_var_to_zero(stmt, dict_ofs, itspace)
+                    inner_block.children.append(stmt)
+                    moved_stmts[stmt] = (tuple(i[0] for i in ofs), inner_block, new_loops)
+                new_nz_in_fors[new_loops[0]] = stmt_ofs
+                # Append the created loops to the root
+                index = self.root.children.index(loop)
+                self.root.children.insert(index, new_loops[-1])
+            self.root.children.remove(loop)
+            all_moved_stmts.append(moved_stmts)
+
+        self.nz_in_fors = new_nz_in_fors
+        return all_moved_stmts
 
 
 class ExpressionGraph(object):

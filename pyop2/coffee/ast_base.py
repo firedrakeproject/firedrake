@@ -224,7 +224,7 @@ class FunCall(Expr, Perfect):
 
 class Ternary(Expr):
 
-    """Ternary operator: expr ? true_stmt : false_stmt."""
+    """Ternary operator: ``expr ? true_stmt : false_stmt``."""
     def __init__(self, expr, true_stmt, false_stmt):
         super(Ternary, self).__init__([expr, true_stmt, false_stmt])
 
@@ -455,9 +455,11 @@ class Decl(Statement, Perfect):
 
     def size(self):
         """Return the size of the declared variable. In particular, return
-        - (0,), if it is a scalar
-        - a tuple, if it is a N-dimensional array, such that each entry represents
-          the size of an array dimension (e.g. double A[20][10] -> (20, 10))
+
+        * ``(0,)``, if it is a scalar
+        * a tuple, if it is a N-dimensional array, such that each entry
+          represents the size of an array dimension (e.g. ``double A[20][10]``
+          -> ``(20, 10)``)
         """
         return self.sym.rank or (0,)
 
@@ -479,9 +481,11 @@ class Decl(Statement, Perfect):
 
     def get_nonzero_columns(self):
         """If the declared array:
-            - is a bi-dimensional array,
-            - is initialized to some values,
-            - the initialized values are of type ColSparseArrayInit
+
+        * is a bi-dimensional array,
+        * is initialized to some values,
+        * the initialized values are of type ColSparseArrayInit
+
         Then return a tuple of the first and last non-zero columns in the array.
         Else, return an empty tuple."""
         if len(self.sym.rank) == 2 and isinstance(self.init, ColSparseArrayInit):
@@ -730,3 +734,13 @@ def c_flat_for(code, parent):
     parent.children.append(FlatBlock(code))
     parent.children.append(new_block)
     return new_block
+
+
+def c_from_itspace_to_fors(itspaces):
+    inner_block = Block([], open_scope=True)
+    loops = []
+    for i, itspace in enumerate(itspaces):
+        s, size = itspace
+        loops.append(For(Decl("int", s, c_sym(0)), Less(s, size), Incr(s, c_sym(1)),
+                     Block([loops[i-1]], open_scope=True) if loops else inner_block))
+    return (tuple(loops), inner_block)

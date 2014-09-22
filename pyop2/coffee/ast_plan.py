@@ -40,6 +40,9 @@ from ast_vectorizer import AssemblyVectorizer
 from ast_linearalgebra import AssemblyLinearAlgebra
 from ast_autotuner import Autotuner
 
+# PyOP2 dependencies
+from pyop2.profiling import timed_function
+
 from copy import deepcopy as dcopy
 
 # Possibile optimizations
@@ -63,12 +66,17 @@ class ASTKernel(object):
     """
 
     def __init__(self, ast, include_dirs=[]):
+        # Abstract syntax tree of the kernel
         self.ast = ast
         # Used in case of autotuning
         self.include_dirs = include_dirs
         # Track applied optimizations
         self.blas = False
         self.ap = False
+
+        # Properties of the kernel operation:
+        # True if the kernel contains sparse arrays
+        self._is_sparse = False
 
     def _visit_ast(self, node, parent=None, fors=None, decls=None):
         """Return lists of:
@@ -81,6 +89,7 @@ class ASTKernel(object):
 
         if isinstance(node, Decl):
             decls[node.sym.symbol] = (node, LOCAL_VAR)
+            self._is_sparse = self._is_sparse or node.get_nonzero_columns()
             return (decls, fors)
         elif isinstance(node, For):
             fors.append((node, parent))
@@ -123,7 +132,7 @@ class ASTKernel(object):
         """
 
         decls, fors = self._visit_ast(self.ast, fors=[], decls={})
-        asm = [AssemblyOptimizer(l, pre_l, decls) for l, pre_l in fors]
+        asm = [AssemblyOptimizer(l, pre_l, decls, self._is_sparse) for l, pre_l in fors]
         for ao in asm:
             itspace_vrs, accessed_vrs = ao.extract_itspace()
 
@@ -156,6 +165,7 @@ class ASTKernel(object):
             self.fundecl.pred = [q for q in self.fundecl.pred
                                  if q not in ['static', 'inline']]
 
+    @timed_function('COFFEE plan_cpu')
     def plan_cpu(self, opts):
         """Transform and optimize the kernel suitably for CPU execution."""
 
@@ -165,15 +175,15 @@ class ASTKernel(object):
         autotune_resolution = 100000000
         # Kernel variants tested when autotuning is enabled
         autotune_minimal = [('licm', 1, False, (None, None), True, None, False, None, False),
-                            ('split', 3, False, (None, None), True, (1, 0), False, None, False),
+                            ('split', 3, False, (None, None), True, 1, False, None, False),
                             ('vect', 2, False, (V_OP_UAJ, 1), True, None, False, None, False)]
         autotune_all = [('base', 0, False, (None, None), False, None, False, None, False),
                         ('base', 1, False, (None, None), True, None, False, None, False),
                         ('licm', 2, False, (None, None), True, None, False, None, False),
                         ('licm', 3, False, (None, None), True, None, False, None, False),
-                        ('split', 2, False, (None, None), True, (1, 0), False, None, False),
-                        ('split', 2, False, (None, None), True, (2, 0), False, None, False),
-                        ('split', 2, False, (None, None), True, (4, 0), False, None, False),
+                        ('split', 2, False, (None, None), True, 1, False, None, False),
+                        ('split', 2, False, (None, None), True, 2, False, None, False),
+                        ('split', 2, False, (None, None), True, 4, False, None, False),
                         ('vect', 2, False, (V_OP_UAJ, 1), True, None, False, None, False),
                         ('vect', 2, False, (V_OP_UAJ, 2), True, None, False, None, False),
                         ('vect', 2, False, (V_OP_UAJ, 3), True, None, False, None, False)]
@@ -190,6 +200,8 @@ class ASTKernel(object):
                 raise RuntimeError("COFFEE Error: cannot permute and then convert to BLAS")
             if permute and licm != 4:
                 raise RuntimeError("COFFEE Error: cannot permute without full expression rewriter")
+            if licm == 3 and split:
+                raise RuntimeError("COFFEE Error: split is forbidden when avoiding zero-columns")
             if licm == 3 and v_type and v_type != AUTOVECT:
                 raise RuntimeError("COFFEE Error: zeros removal only supports auto-vectorization")
             if unroll and v_type and v_type != AUTOVECT:
@@ -198,22 +210,20 @@ class ASTKernel(object):
                 raise RuntimeError("COFFEE Error: outer-product vectorization needs no permute")
 
             decls, fors = self._visit_ast(self.ast, fors=[], decls={})
-            asm = [AssemblyOptimizer(l, pre_l, decls) for l, pre_l in fors]
+            asm = [AssemblyOptimizer(l, pre_l, decls, self._is_sparse) for l, pre_l in fors]
             for ao in asm:
                 # 1) Expression Re-writer
                 if licm:
-                    ao.rewrite_expression(licm)
+                    ao.rewrite(licm)
                     decls.update(ao.decls)
 
                 # 2) Splitting
-                if ao._has_zeros:
-                    ao.split()
-                elif split:
-                    ao.split(split[0], split[1])
+                if split:
+                    ao.split(split)
 
                 # 3) Permute integration loop
                 if permute:
-                    ao.permute_int_loop()
+                    ao.permute()
 
                 # 3) Unroll/Unroll-and-jam
                 if unroll:
@@ -221,7 +231,7 @@ class ASTKernel(object):
 
                 # 4) Register tiling
                 if slice_factor and v_type == AUTOVECT:
-                    ao.slice_loop(slice_factor)
+                    ao.slice(slice_factor)
 
                 # 5) Vectorization
                 if initialized:
@@ -231,7 +241,7 @@ class ASTKernel(object):
                         vect.alignment(decls)
                         # Padding
                         if not blas:
-                            vect.padding(decls)
+                            vect.padding(decls, ao.nz_in_fors)
                             self.ap = True
                     if v_type and v_type != AUTOVECT:
                         if intrinsics['inst_set'] == 'SSE':
@@ -266,7 +276,7 @@ class ASTKernel(object):
                 autotune_configs = autotune_minimal
                 unroll_ths = 4
             elif blas_interface:
-                autotune_configs.append(('blas', 4, 0, (None, None), True, (1, 0),
+                autotune_configs.append(('blas', 4, 0, (None, None), True, 1,
                                          blas_interface['name'], None, False))
             variants = []
             autotune_configs_unroll = []
@@ -319,7 +329,7 @@ class ASTKernel(object):
             # in order to identify and extract matrix multiplies.
             if not blas_interface:
                 raise RuntimeError("COFFEE Error: must set PYOP2_BLAS to convert into BLAS calls")
-            params = (4, 0, (None, None), True, (1, 0), opts['blas'], None, False)
+            params = (4, 0, (None, None), True, 1, opts['blas'], None, False)
         else:
             # Fetch user-provided options/hints on how to transform the kernel
             params = (opts.get('licm'), opts.get('slice'), opts.get('vect') or (None, None),
@@ -406,6 +416,7 @@ def _init_compiler(compiler):
             'AVX': '-xAVX',
             'SSE': '-xSSE',
             'ipo': '-ip',
+            'native_opt': '-xHost',
             'vect_header': '#include <immintrin.h>'
         }
 
@@ -418,6 +429,7 @@ def _init_compiler(compiler):
             'AVX': '-mavx',
             'SSE': '-msse',
             'ipo': '',
+            'native_opt': '-mtune=native',
             'vect_header': '#include <immintrin.h>'
         }
 
