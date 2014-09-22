@@ -179,25 +179,27 @@ class AssemblyOptimizer(object):
     def rewrite(self, level):
         """Rewrite an assembly expression to minimize floating point operations
         and relieve register pressure. This involves several possible transformations:
-        - Generalized loop-invariant code motion
-        - Factorization of common loop-dependent terms
-        - Expansion of constants over loop-dependent terms
-        - Zero-valued columns avoidance
-        - Precomputation of integration-dependent terms
+
+        1. Generalized loop-invariant code motion
+        2. Factorization of common loop-dependent terms
+        3. Expansion of constants over loop-dependent terms
+        4. Zero-valued columns avoidance
+        5. Precomputation of integration-dependent terms
 
         :arg level: The optimization level (0, 1, 2, 3, 4). The higher, the more
                     invasive is the re-writing of the assembly expressions,
                     trying to eliminate unnecessary floating point operations.
-                    level == 1: performs "basic" generalized loop-invariant
-                                code motion
-                    level == 2: level 1 + expansion of terms, factorization of
-                                basis functions appearing multiple times in the
-                                same expression, and finally another run of
-                                loop-invariant code motion to move invariant
-                                sub-expressions exposed by factorization
-                    level == 3: level 2 + avoid computing zero-columns
-                    level == 4: level 3 + precomputation of read-only expressions
-                                out of the assembly loop nest
+
+                    * level == 1: performs "basic" generalized loop-invariant \
+                                  code motion
+                    * level == 2: level 1 + expansion of terms, factorization of \
+                                  basis functions appearing multiple times in the \
+                                  same expression, and finally another run of \
+                                  loop-invariant code motion to move invariant \
+                                  sub-expressions exposed by factorization
+                    * level == 3: level 2 + avoid computing zero-columns
+                    * level == 4: level 3 + precomputation of read-only expressions \
+                                  out of the assembly loop nest
         """
 
         if not self.asm_expr:
@@ -438,34 +440,34 @@ class AssemblyOptimizer(object):
         """Split assembly expressions into multiple chunks exploiting sum's
         associativity. Each chunk will have ``cut`` summands.
 
-        For example, consider the following piece of code:
-
-        .. code-block:: none
+        For example, consider the following piece of code: ::
 
             for i
               for j
                 A[i][j] += X[i]*Y[j] + Z[i]*K[j] + B[i]*X[j]
 
-        If ``cut=1`` the expression is cut into chunks of length 1:
-        for i
-          for j
-            A[i][j] += X[i]*Y[j]
-        for i
-          for j
-            A[i][j] += Z[i]*K[j]
-        for i
-          for j
-            A[i][j] += B[i]*X[j]
+        If ``cut=1`` the expression is cut into chunks of length 1: ::
+
+            for i
+              for j
+                A[i][j] += X[i]*Y[j]
+            for i
+              for j
+                A[i][j] += Z[i]*K[j]
+            for i
+              for j
+                A[i][j] += B[i]*X[j]
 
         If ``cut=2`` the expression is cut into chunks of length 2, plus a
-        remainder chunk of size 1:
-        for i
-          for j
-            A[i][j] += X[i]*Y[j] + Z[i]*K[j]
-        // Remainder:
-        for i
-          for j
-            A[i][j] += B[i]*X[j]
+        remainder chunk of size 1: ::
+
+            for i
+              for j
+                A[i][j] += X[i]*Y[j] + Z[i]*K[j]
+            # Remainder:
+            for i
+              for j
+                A[i][j] += B[i]*X[j]
         """
 
         if not self.asm_expr:
@@ -1283,7 +1285,9 @@ class ExprLoopFissioner(LoopScheduler):
         self.cut = cut
 
     def _split_sum(self, node, parent, is_left, found, sum_count):
-        """Exploit sum's associativity to cut node when a sum is found."""
+        """Exploit sum's associativity to cut node when a sum is found.
+        Return ``True`` if a potentially splittable node is found, ``False``
+        otherwise."""
         if isinstance(node, Symbol):
             return False
         elif isinstance(node, Par):
@@ -1345,7 +1349,7 @@ class ExprLoopFissioner(LoopScheduler):
             index = parent.children.index(expr_root)
             # Append the left-split expression. Re-use a loop nest
             parent.children[index] = expr_root_left
-            # Append the right-split (reminder) expression.
+            # Append the right-split (remainder) expression.
             if copy_loops:
                 # Create a new loop nest
                 new_loop = dcopy(loops[0])
@@ -1394,17 +1398,20 @@ class ZeroLoopScheduler(LoopScheduler):
     information to perform symbolic execution of the assembly code so as to
     determine how to restructure the loop nests to skip iteration over
     zero-valued columns.
-    This implies that loops can be fissioned or merged. For example:
-    for i = 0, N
-      A[i] = C[i]*D[i]
-      B[i] = E[i]*F[i]
+    This implies that loops can be fissioned or merged. For example: ::
+
+        for i = 0, N
+          A[i] = C[i]*D[i]
+          B[i] = E[i]*F[i]
+
     If the evaluation of A requires iterating over a region of contiguous
     zero-valued columns in C and D, then A is computed in a separate (smaller)
-    loop nest:
-    for i = 0 < (N-k)
-      A[i+k] = C[i+k][i+k]
-    for i = 0, N
-      B[i] = E[i]*F[i]
+    loop nest: ::
+
+        for i = 0 < (N-k)
+          A[i+k] = C[i+k][i+k]
+        for i = 0, N
+          B[i] = E[i]*F[i]
     """
 
     def __init__(self, expr_graph, root, decls):
@@ -1435,10 +1442,12 @@ class ZeroLoopScheduler(LoopScheduler):
         """Given two dictionaries associating iteration variables to ranges
         of non-zero columns, merge the two dictionaries by combining ranges
         along the same iteration variables and return the merged dictionary.
-        For example:
-        dict1 = {'j': [(1,3), (5,6)], 'k': [(5,7)]}
-        dict2 = {'j': [(3,4)], 'k': [(1,4)]}
-        dict1 + dict2 -> {'j': [(1,6)], 'k': [(1,7)]}"""
+        For example: ::
+
+            dict1 = {'j': [(1,3), (5,6)], 'k': [(5,7)]}
+            dict2 = {'j': [(3,4)], 'k': [(1,4)]}
+            dict1 + dict2 -> {'j': [(1,6)], 'k': [(1,7)]}
+        """
         new_itvar_nz_bounds = {}
         for itvar, nz_bounds in itvar_nz_bounds_l.items():
             if itvar.isdigit():
@@ -1492,18 +1501,22 @@ class ZeroLoopScheduler(LoopScheduler):
                         iteration_ok = True
                         break
                 if not iteration_ok:
-                    # Iterating over a non-initialized region, need to zeroed it
+                    # Iterating over a non-initialized region, need to zero it
                     sym_decl = sym_decl[0]
                     sym_decl.init = FlatBlock("{0.0}")
 
     def _track_expr_nz_columns(self, node):
         """Return the first and last indices assumed by the iteration variables
         appearing in ``node`` over regions of non-zero columns. For example,
-        consider the following node, particularly its right-hand side:
+        consider the following node, particularly its right-hand side: ::
+
         A[i][j] = B[i]*C[j]
+
         If B over i is non-zero in the ranges [0, k1] and [k2, k3], while C over
-        j is non-zero in the range [N-k4, N], then return a dictionary:
+        j is non-zero in the range [N-k4, N], then return a dictionary: ::
+
         {i: ((0, k1), (k2, k3)), j: ((N-k4, N),)}
+
         If there are no zero-columns, return {}."""
         if isinstance(node, Symbol):
             if node.offset:
@@ -1544,7 +1557,8 @@ class ZeroLoopScheduler(LoopScheduler):
 
         This method also updates ``self.nz_in_fors``, which maps loop nests to
         the enclosed symbols' non-zero blocks. For example, given the following
-        code:
+        code: ::
+
         { // root
           ...
           for i
@@ -1552,6 +1566,7 @@ class ZeroLoopScheduler(LoopScheduler):
               A = ...
               B = ...
         }
+
         Once traversed the AST, ``self.nz_in_fors`` will contain a (key, value)
         such that:
         ((<for i>, <for j>), root) -> {A: (i, (nz_along_i)), (j, (nz_along_j))}

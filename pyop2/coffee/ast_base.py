@@ -479,9 +479,9 @@ class Decl(Statement, Perfect):
 
     def get_nonzero_columns(self):
         """If the declared array:
-            - is a bi-dimensional array,
-            - is initialized to some values,
-            - the initialized values are of type ColSparseArrayInit
+        - is a bi-dimensional array,
+        - is initialized to some values,
+        - the initialized values are of type ColSparseArrayInit
         Then return a tuple of the first and last non-zero columns in the array.
         Else, return an empty tuple."""
         if len(self.sym.rank) == 2 and isinstance(self.init, ColSparseArrayInit):
