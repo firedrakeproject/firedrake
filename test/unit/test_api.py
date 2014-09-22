@@ -1183,7 +1183,7 @@ class TestSparsityAPI:
 
     @pytest.fixture
     def md(cls, iterset, dataset2):
-        return op2.Map(iterset, dataset2, 1, [1] * iterset.size, 'md')
+        return op2.Map(iterset, dataset2, 1, [0] * iterset.size, 'md')
 
     @pytest.fixture
     def di(cls, toset):
