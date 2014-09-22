@@ -73,10 +73,10 @@ def unroll_factors(sizes, ths):
     The return value is a list of tuples, where each element in a tuple
     represents the unroll factor for the corresponding loop in the nest.
 
-    For example, if there are three loops i, j, and k, a tuple (2, 1, 1) in
-    the returned list indicates that the outermost loop i should be unrolled
-    by a factor two (i.e. two iterations), while loops j and k should not be
-    unrolled.
+    For example, if there are three loops ``i``, ``j``, and ``k``, a tuple
+    ``(2, 1, 1)`` in the returned list indicates that the outermost loop ``i``
+    should be unrolled by a factor two (i.e. two iterations), while loops
+    ``j`` and ``k`` should not be unrolled.
 
     :arg ths: unrolling threshold that cannot be exceed by the overall unroll
               factor
@@ -97,7 +97,7 @@ def unroll_factors(sizes, ths):
 
 
 def ast_update_ofs(node, ofs):
-    """Given a dictionary ``ofs`` s.t. {'itvar': ofs}, update the various
+    """Given a dictionary ``ofs`` s.t. ``{'itvar': ofs}``, update the various
     iteration variables in the symbols rooted in ``node``."""
     if isinstance(node, Symbol):
         new_ofs = []
@@ -116,8 +116,13 @@ def ast_update_ofs(node, ofs):
 
 
 def itspace_size_ofs(itspace):
-    """Given an ``itspace`` in the form (('itvar', (bound_a, bound_b), ...)),
-    return ((('it_var', bound_b - bound_a), ...), (('it_var', bound_a), ...))"""
+    """Given an ``itspace`` in the form ::
+
+        (('itvar', (bound_a, bound_b), ...)),
+
+    return ::
+
+        ((('it_var', bound_b - bound_a), ...), (('it_var', bound_a), ...))"""
     itspace_info = []
     for var, bounds in itspace:
         itspace_info.append(((var, bounds[1] - bounds[0] + 1), (var, bounds[0])))
@@ -128,8 +133,11 @@ def itspace_merge(itspaces):
     """Given an iterator of iteration spaces, each iteration space represented
     as a 2-tuple containing the start and end point, return a tuple of iteration
     spaces in which contiguous iteration spaces have been merged. For example:
-    [(1,3), (4,6)] -> ((1,6),)
-    [(1,3), (5,6)] -> ((1,3), (5,6))"""
+    ::
+
+        [(1,3), (4,6)] -> ((1,6),)
+        [(1,3), (5,6)] -> ((1,3), (5,6))
+    """
     itspaces = sorted(tuple(set(itspaces)))
     merged_itspaces = []
     current_start, current_stop = itspaces[0]

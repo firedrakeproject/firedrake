@@ -306,11 +306,14 @@ class AssemblyOptimizer(object):
     def unroll(self, loops_factor):
         """Unroll loops in the assembly nest.
 
-        :arg loops_factor:   dictionary from loops to unroll (factor, increment).
-                             Loops are specified as integers: 0 = integration loop,
-                             1 = test functions loop, 2 = trial functions loop.
-                             A factor of 0 denotes that the corresponding loop
-                             is not present.
+        :arg loops_factor: dictionary from loops to unroll (factor, increment).
+            Loops are specified as integers:
+
+            * 0 = integration loop,
+            * 1 = test functions loop,
+            * 2 = trial functions loop.
+
+            A factor of 0 denotes that the corresponding loop is not present.
         """
 
         def update_stmt(node, var, factor):
