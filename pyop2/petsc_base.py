@@ -50,6 +50,8 @@ from versioning import CopyOnWrite, modifies, zeroes
 from profiling import timed_region
 import mpi
 from mpi import collective
+import sparsity
+
 
 if petsc4py_version < '3.4':
     raise RuntimeError("Incompatible petsc4py version %s. At least version 3.4 is required."
@@ -240,9 +242,11 @@ class Mat(base.Mat, CopyOnWrite):
         if MPI.comm.size == 1:
             # The PETSc local to global mapping is the identity in the sequential case
             row_lg.create(
-                indices=np.arange(self.sparsity.nrows * rdim, dtype=PETSc.IntType))
+                indices=np.arange(self.sparsity.nrows, dtype=PETSc.IntType),
+                bsize=rdim)
             col_lg.create(
-                indices=np.arange(self.sparsity.ncols * cdim, dtype=PETSc.IntType))
+                indices=np.arange(self.sparsity.ncols, dtype=PETSc.IntType),
+                bsize=cdim)
             self._array = np.zeros(self.sparsity.nz, dtype=PETSc.RealType)
             # We're not currently building a blocked matrix, so need to scale the
             # number of rows and columns by the sparsity dimensions
@@ -257,15 +261,15 @@ class Mat(base.Mat, CopyOnWrite):
             # out to dof indices for vector fields since we don't
             # currently assemble into block matrices.
             rindices = self.sparsity.rmaps[0].toset.halo.global_to_petsc_numbering
-            rindices = np.dstack([rindices*rdim + i for i in range(rdim)]).flatten()
             cindices = self.sparsity.cmaps[0].toset.halo.global_to_petsc_numbering
-            cindices = np.dstack([cindices*cdim + i for i in range(cdim)]).flatten()
-            row_lg.create(indices=rindices)
-            col_lg.create(indices=cindices)
+            row_lg.create(indices=rindices, bsize=rdim)
+            col_lg.create(indices=cindices, bsize=cdim)
 
             mat.createAIJ(size=((self.sparsity.nrows * rdim, None),
                                 (self.sparsity.ncols * cdim, None)),
-                          nnz=(self.sparsity.nnz, self.sparsity.onnz))
+                          nnz=(self.sparsity.nnz, self.sparsity.onnz),
+                          bsize=(rdim, cdim))
+        mat.setBlockSizes(rdim, cdim)
         mat.setLGMap(rmap=row_lg, cmap=col_lg)
         # Do not stash entries destined for other processors, just drop them
         # (we take care of those in the halo)
@@ -273,13 +277,23 @@ class Mat(base.Mat, CopyOnWrite):
         # Any add or insertion that would generate a new entry that has not
         # been preallocated will raise an error
         mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+        # Do not ignore zeros while we fill the initial matrix so that
+        # petsc doesn't compress things out.
+        mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, False)
         # When zeroing rows (e.g. for enforcing Dirichlet bcs), keep those in
         # the nonzero structure of the matrix. Otherwise PETSc would compact
         # the sparsity and render our sparsity caching useless.
         mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
-        # Do not raise an error when non-zero entries in a pre-allocated
-        # sparsity remains unused (e.g. due to applying boundary conditions)
-        mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, False)
+        # We completely fill the allocated matrix when zeroing the
+        # entries, so raise an error if we "missed" one.
+        mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
+
+        # Put zeros in all the places we might eventually put a value.
+        sparsity.fill_with_zeros(mat, self.sparsity.dims, self.sparsity.maps)
+
+        # Now we've filled up our matrix, so the sparsity is
+        # "complete", we can ignore subsequent zero entries.
+        mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
         self._handle = mat
         # Matrices start zeroed.
         self._version_set_zero()

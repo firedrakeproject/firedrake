@@ -39,9 +39,29 @@ except ImportError:
     from distutils.core import setup
     from distutils.extension import Extension
 from glob import glob
+from os import environ as env
 import sys
-
+import numpy as np
+import petsc4py
 import versioneer
+
+
+def get_petsc_dir():
+    try:
+        arch = '/' + env.get('PETSC_ARCH', '')
+        dir = env['PETSC_DIR']
+        return (dir, dir + arch)
+    except KeyError:
+        try:
+            import petsc
+            return (petsc.get_petsc_dir(), )
+        except ImportError:
+            sys.exit("""Error: Could not find PETSc library.
+
+Set the environment variable PETSC_DIR to your local PETSc base
+directory or install PETSc from PyPI: pip install petsc""")
+
+
 versioneer.versionfile_source = 'pyop2/_version.py'
 versioneer.versionfile_build = 'pyop2/_version.py'
 versioneer.tag_prefix = 'v'
@@ -71,26 +91,6 @@ except ImportError:
         raise ImportError("Installing from source requires Cython")
 
 
-# https://mail.python.org/pipermail/distutils-sig/2007-September/008253.html
-class NumpyExtension(Extension, object):
-    """Extension type that adds the NumPy include directory to include_dirs."""
-
-    def __init__(self, *args, **kwargs):
-        super(NumpyExtension, self).__init__(*args, **kwargs)
-
-    @property
-    def include_dirs(self):
-        from numpy import get_include
-        return self._include_dirs + [get_include()]
-
-    @include_dirs.setter
-    def include_dirs(self, include_dirs):
-        self._include_dirs = include_dirs
-
-setup_requires = [
-    'numpy>=1.6',
-]
-
 install_requires = [
     'decorator',
     'mpi4py',
@@ -106,13 +106,21 @@ test_requires = [
     'pytest>=2.3',
 ]
 
+petsc_dirs = get_petsc_dir()
+numpy_includes = [np.get_include()]
+includes = numpy_includes + [petsc4py.get_include()]
+includes += ["%s/include" % d for d in petsc_dirs]
+
+if 'CC' not in env:
+    env['CC'] = "mpicc"
+
 
 class sdist(_sdist):
     def run(self):
         # Make sure the compiled Cython files in the distribution are up-to-date
         from Cython.Build import cythonize
         cythonize(plan_sources)
-        cythonize(sparsity_sources, language="c++")
+        cythonize(sparsity_sources, language="c++", include_path=includes)
         cythonize(computeind_sources)
         _sdist.run(self)
 cmdclass['sdist'] = sdist
@@ -135,7 +143,6 @@ setup(name='PyOP2',
           'Programming Language :: Python :: 2.6',
           'Programming Language :: Python :: 2.7',
       ],
-      setup_requires=setup_requires,
       install_requires=install_requires,
       test_requires=test_requires,
       packages=['pyop2', 'pyop2.coffee', 'pyop2_utils'],
@@ -143,7 +150,12 @@ setup(name='PyOP2',
           'pyop2': ['assets/*', 'mat_utils.*', '*.h', '*.pxd', '*.pyx']},
       scripts=glob('scripts/*'),
       cmdclass=cmdclass,
-      ext_modules=[NumpyExtension('pyop2.plan', plan_sources),
-                   NumpyExtension('pyop2.sparsity', sparsity_sources,
-                                  include_dirs=['pyop2'], language="c++"),
-                   NumpyExtension('pyop2.computeind', computeind_sources)])
+      ext_modules=[Extension('pyop2.plan', plan_sources,
+                             include_dirs=numpy_includes),
+                   Extension('pyop2.sparsity', sparsity_sources,
+                             include_dirs=['pyop2'] + includes, language="c++",
+                             libraries=["petsc"],
+                             extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
+                             ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs]),
+                   Extension('pyop2.computeind', computeind_sources,
+                             include_dirs=numpy_includes)])
