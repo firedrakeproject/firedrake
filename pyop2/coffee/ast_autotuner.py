@@ -259,7 +259,7 @@ int main()
         self.blas = blas
 
         # Set the directory in which COFFEE will dump any relevant information
-        coffee_dir = os.path.join(gettempdir(), "coffee-dump-uid%s" % os.getuid())
+        coffee_dir = os.path.join(tempfile.gettempdir(), "coffee-dump-uid%s" % os.getuid())
         # Wrap in try/except to protect against race conditions in parallel
         try:
             if not os.path.exists(coffee_dir):
