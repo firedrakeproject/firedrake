@@ -106,18 +106,6 @@ test_requires = [
     'pytest>=2.3',
 ]
 
-
-class sdist(_sdist):
-    def run(self):
-        # Make sure the compiled Cython files in the distribution are up-to-date
-        from Cython.Build import cythonize
-        cythonize(plan_sources)
-        cythonize(sparsity_sources, language="c++")
-        cythonize(computeind_sources)
-        _sdist.run(self)
-cmdclass['sdist'] = sdist
-
-
 petsc_dirs = get_petsc_dir()
 numpy_includes = [np.get_include()]
 includes = numpy_includes + [petsc4py.get_include()]
@@ -125,6 +113,17 @@ includes += ["%s/include" % d for d in petsc_dirs]
 
 if 'CC' not in env:
     env['CC'] = "mpicc"
+
+
+class sdist(_sdist):
+    def run(self):
+        # Make sure the compiled Cython files in the distribution are up-to-date
+        from Cython.Build import cythonize
+        cythonize(plan_sources)
+        cythonize(sparsity_sources, language="c++", include_path=includes)
+        cythonize(computeind_sources)
+        _sdist.run(self)
+cmdclass['sdist'] = sdist
 
 setup(name='PyOP2',
       version=versioneer.get_version(),
