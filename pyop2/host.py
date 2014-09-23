@@ -854,8 +854,13 @@ class JITModule(base.JITModule):
                 # Readjust size to take into account the size of a vector space
                 dim = arg.data.dim
                 _dat_size = [s[0] for s in dim] if len(arg.data.dim) > 1 else dim
-                _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
-                _loop_size = [_buf_size[i]/_dat_size[i] for i in range(len(_buf_size))]
+                # Only adjust size if not flattening (in which case the buffer is extents*dat.dim)
+                if not arg._flatten:
+                    _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
+                    _loop_size = [_buf_size[i]/_dat_size[i] for i in range(len(_buf_size))]
+                else:
+                    _buf_size = [sum(_buf_size)]
+                    _loop_size = _buf_size
             else:
                 if self._kernel._applied_blas:
                     _buf_size = [reduce(lambda x, y: x*y, _buf_size)]
