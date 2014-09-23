@@ -27,7 +27,7 @@ def test_eviction(cg1):
         # cache, and inserting a 4th will cause two to be evicted.
         for i in range(1, 5):
             # Scaling the mass matrix by i causes cache misses.
-            assemble(i*u*v*dx).M.array[0]
+            assemble(i*u*v*dx).M
 
     finally:
         parameters["assembly_cache"]["max_bytes"] = old_limit
@@ -55,7 +55,7 @@ def test_eviction_parallel():
         # can prove that we must have triggered eviction.
         for i in range(1, 15):
             # Scaling the mass matrix by i causes cache misses.
-            assemble(i*u*v*dx).M.handle
+            assemble(i*u*v*dx).M
 
     finally:
         parameters["assembly_cache"]["max_bytes"] = old_limit
@@ -70,8 +70,8 @@ def test_hit(cg1):
     u = TrialFunction(cg1)
     v = TestFunction(cg1)
 
-    assemble(u*v*dx).M.array[0]
-    assemble(u*v*dx).M.array[0]
+    assemble(u*v*dx).M
+    assemble(u*v*dx).M
 
     assert cache.num_objects == 1
     assert cache._hits == 1

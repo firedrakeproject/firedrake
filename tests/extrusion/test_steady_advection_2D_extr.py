@@ -38,7 +38,7 @@ def W(mesh):
     return FunctionSpace(mesh, W0+W1)
 
 
-def test_left_to_right(mesh, DG0, W):
+def run_left_to_right(mesh, DG0, W):
     velocity = Expression(("1.0", "0.0"))
     u0 = project(velocity, W)
 
@@ -68,7 +68,19 @@ def test_left_to_right(mesh, DG0, W):
     assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
 
 
-def test_right_to_left(mesh, DG1, W):
+def test_left_to_right(mesh, DG0, W):
+    run_left_to_right(mesh, DG0, W)
+
+
+@pytest.mark.parallel
+def test_left_to_right_parallel():
+    m = mesh()
+    dg0 = DG0(m)
+    w = W(m)
+    run_left_to_right(m, dg0, w)
+
+
+def run_right_to_left(mesh, DG1, W):
     velocity = Expression(("-1.0", "0.0"))
     u0 = project(velocity, W)
 
@@ -95,7 +107,19 @@ def test_right_to_left(mesh, DG1, W):
     assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
 
 
-def test_bottom_to_top(mesh, DG0, W):
+def test_right_to_left(mesh, DG1, W):
+    run_right_to_left(mesh, DG1, W)
+
+
+@pytest.mark.parallel
+def test_right_to_left_parallel():
+    m = mesh()
+    dg1 = DG1(m)
+    w = W(m)
+    run_right_to_left(m, dg1, w)
+
+
+def run_bottom_to_top(mesh, DG0, W):
     velocity = Expression(("0.0", "1.0"))
     u0 = project(velocity, W)
 
@@ -122,7 +146,19 @@ def test_bottom_to_top(mesh, DG0, W):
     assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
 
 
-def test_top_to_bottom(mesh, DG1, W):
+def test_bottom_to_top(mesh, DG0, W):
+    run_bottom_to_top(mesh, DG0, W)
+
+
+@pytest.mark.parallel
+def test_bottom_to_top_parallel():
+    m = mesh()
+    dg0 = DG0(m)
+    w = W(m)
+    run_bottom_to_top(m, dg0, w)
+
+
+def run_top_to_bottom(mesh, DG1, W):
     velocity = Expression(("0.0", "-1.0"))
     u0 = project(velocity, W)
 
@@ -147,6 +183,19 @@ def test_top_to_bottom(mesh, DG1, W):
     solve(a == L, out)
 
     assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
+
+
+def test_top_to_bottom(mesh, DG1, W):
+    run_top_to_bottom(mesh, DG1, W)
+
+
+@pytest.mark.parallel
+def test_top_to_bottom_parallel():
+    m = mesh()
+    dg1 = DG1(m)
+    w = W(m)
+    run_top_to_bottom(m, dg1, w)
+
 
 if __name__ == '__main__':
     import os
