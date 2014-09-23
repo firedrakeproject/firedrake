@@ -336,7 +336,6 @@ def test_bcs_rhs_assemble(a, V):
     assert np.allclose(b1.dat.data, b2.dat.data)
 
 
-@pytest.mark.xfail
 @pytest.mark.parallel(nprocs=3)
 def test_empty_exterior_facet_node_list():
     mesh = UnitIntervalMesh(6)

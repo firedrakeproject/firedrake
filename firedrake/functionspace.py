@@ -173,7 +173,7 @@ class FunctionSpaceBase(ObjectCached):
                 dmplex.get_facet_nodes(interior_facet_cells,
                                        self.cell_node_list)
         else:
-            self.interior_facet_node_list = None
+            self.interior_facet_node_list = np.array([], dtype=np.int32)
             if mesh.interior_facets is None:
                 mesh.interior_facets = mesh_t._Facets(self, 0, "exterior", None, None)
 
@@ -214,7 +214,7 @@ class FunctionSpaceBase(ObjectCached):
                 dmplex.get_facet_nodes(exterior_facet_cells,
                                        self.cell_node_list)
         else:
-            self.exterior_facet_node_list = None
+            self.exterior_facet_node_list = np.array([], dtype=np.int32)
             if mesh.exterior_facets is None:
                 if mesh._plex.hasLabel("boundary_ids"):
                     unique_ids = np.sort(mesh._plex.getLabelIdIS("boundary_ids").indices)
