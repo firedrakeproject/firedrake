@@ -241,12 +241,12 @@ class NonlinearVariationalSolver(object):
         assemble(self._problem.J_ufl,
                  tensor=self._jac_tensor,
                  bcs=self._problem.bcs)
-        self._jac_tensor.M._force_evaluation()
+        self._jac_tensor.M
         if self._problem.Jp is not None:
             assemble(self._problem.Jp,
                      tensor=self._jac_ptensor,
                      bcs=self._problem.bcs)
-            self._jac_ptensor.M._force_evaluation()
+            self._jac_ptensor.M
             return PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 

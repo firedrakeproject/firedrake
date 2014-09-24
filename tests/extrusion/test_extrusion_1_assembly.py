@@ -19,8 +19,8 @@ def test_scalar_assembly(hfamily, hdegree, vfamily, vdegree):
     u = TrialFunction(fspace)
     v = TestFunction(fspace)
 
-    assemble(u*v*dx).M._force_evaluation()
-    assemble(dot(grad(u), grad(v))*dx).M._force_evaluation()
+    assemble(u*v*dx).M
+    assemble(dot(grad(u), grad(v))*dx).M
 
 
 # three valid combinations for hdiv: 1) hdiv x DG, 2) hcurl x DG, 3) DG x CG
@@ -39,8 +39,8 @@ def test_hdiv_assembly(hfamily, hdegree, vfamily, vdegree):
     u = TrialFunction(fspace)
     v = TestFunction(fspace)
 
-    assemble(dot(u, v)*dx).M._force_evaluation()
-    assemble(inner(grad(u), grad(v))*dx).M._force_evaluation()
+    assemble(dot(u, v)*dx).M
+    assemble(inner(grad(u), grad(v))*dx).M
 
 
 # three valid combinations for hcurl: 1) hcurl x CG, 1) hdiv x CG, 3) CG x DG
@@ -59,8 +59,8 @@ def test_hcurl_assembly(hfamily, hdegree, vfamily, vdegree):
     u = TrialFunction(fspace)
     v = TestFunction(fspace)
 
-    assemble(dot(u, v)*dx).M._force_evaluation()
-    assemble(inner(grad(u), grad(v))*dx).M._force_evaluation()
+    assemble(dot(u, v)*dx).M
+    assemble(inner(grad(u), grad(v))*dx).M
 
 if __name__ == '__main__':
     import os
