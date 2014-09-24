@@ -240,15 +240,12 @@ should be left unset when building petsc4py_.
 
 Install petsc4py_ via ``pip``::
 
-  sudo pip install -e git+https://bitbucket.org/petsc/petsc4py.git#egg=petsc4py
+  sudo pip install git+https://bitbucket.org/petsc/petsc4py.git#egg=petsc4py
 
 If you have previously installed and older version of PETSc_ or petsc4py_,
 ``pip`` might tell you that the requirements are already satisfied when running
 above commands. In that case, use ``pip install -U --no-deps`` to upgrade
 (``--no-deps`` prevents also recursively upgrading any dependencies).
-
-The ``-e`` flag instructs ``pip`` to not delete the Git clone after the
-installation and saves you having to clone fresh for each upgrade.
 
 If you only intend to run PyOP2 on CPUs (not GPUs) you can now skip
 straight to building PyOP2, otherwise read on for additional
