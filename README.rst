@@ -223,7 +223,7 @@ compiler) are installed. On a Debian based system, run::
 Then install PETSc_ via ``pip`` ::
 
   sudo PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco" \
-    pip install -e git+https://bitbucket.org/petsc/petsc.git#egg=petsc
+    pip install https://bitbucket.org/petsc/petsc/get/master.tar.bz2
   unset PETSC_DIR
   unset PETSC_ARCH
 
