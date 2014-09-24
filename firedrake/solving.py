@@ -567,6 +567,17 @@ def _assemble(f, tensor=None, bcs=None):
                 trbc = [bc for bc in bcs if bc.function_space().index == j]
             elif is_mat:
                 tsbc, trbc = bcs, bcs
+            if pl:
+                loop, loop_bcs = pl[0]
+                if bcs == loop_bcs:
+                    if is_mat:
+                        loop.replace_arg_data(tensor[i, j], 0)
+                    elif is_vec:
+                        loop.replace_arg_data(tensor[i], 0)
+                    else:
+                        loop.replace_arg_data(tensor, 0)
+                    loop._run()
+                    continue
             if integral_type == 'cell':
                 with timed_region("Assemble cells"):
                     if is_mat:
@@ -592,7 +603,12 @@ def _assemble(f, tensor=None, bcs=None):
                                           flatten=True))
 
                     try:
-                        op2.par_loop(*args)
+                        loop = op2.ParLoop(*args)
+                        if pl:
+                            pl[0] = (loop, bcs)
+                        else:
+                            pl.append((loop, bcs))
+                        loop._run()
                     except MapValueError:
                         raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
@@ -620,7 +636,12 @@ def _assemble(f, tensor=None, bcs=None):
                                           flatten=True))
                     args.append(m.exterior_facets.local_facet_dat(op2.READ))
                     try:
-                        op2.par_loop(*args)
+                        loop = op2.ParLoop(*args)
+                        if pl:
+                            pl[0] = (loop, bcs)
+                        else:
+                            pl.append((loop, bcs))
+                        loop._run()
                     except MapValueError:
                         raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
@@ -656,7 +677,12 @@ def _assemble(f, tensor=None, bcs=None):
                             args.append(c.dat(op2.READ, c.cell_node_map(),
                                               flatten=True))
                         try:
-                            op2.par_loop(*args, iterate=index)
+                            loop = op2.ParLoop(*args, iterate=index)
+                            if pl:
+                                pl[0] = (loop, bcs)
+                            else:
+                                pl.append((loop, bcs))
+                            loop._run()
                         except MapValueError:
                             raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
@@ -682,7 +708,12 @@ def _assemble(f, tensor=None, bcs=None):
                                           flatten=True))
                     args.append(m.interior_facets.local_facet_dat(op2.READ))
                     try:
-                        op2.par_loop(*args)
+                        loop = op2.ParLoop(*args)
+                        if pl:
+                            pl[0] = (loop, bcs)
+                        else:
+                            pl.append((loop, bcs))
+                        loop._run()
                     except MapValueError:
                         raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
@@ -711,7 +742,12 @@ def _assemble(f, tensor=None, bcs=None):
                         args.append(c.dat(op2.READ, c.cell_node_map(),
                                           flatten=True))
                     try:
-                        op2.par_loop(*args, iterate=op2.ON_INTERIOR_FACETS)
+                        loop = op2.ParLoop(*args, iterate=op2.ON_INTERIOR_FACETS)
+                        if pl:
+                            pl[0] = (loop, bcs)
+                        else:
+                            pl.append((loop, bcs))
+                        loop._run()
                     except MapValueError:
                         raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
