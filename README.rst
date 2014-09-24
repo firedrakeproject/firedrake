@@ -240,7 +240,7 @@ should be left unset when building petsc4py_.
 
 Install petsc4py_ via ``pip``::
 
-  sudo pip install -e git+https://bitbucket.org/petsc/petsc4py.git
+  sudo pip install -e git+https://bitbucket.org/petsc/petsc4py.git#egg=petsc4py
 
 If you have previously installed and older version of PETSc_ or petsc4py_,
 ``pip`` might tell you that the requirements are already satisfied when running
