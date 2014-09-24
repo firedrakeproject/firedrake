@@ -1635,9 +1635,8 @@ class ZeroLoopScheduler(LoopScheduler):
                 # second dimension represents the columns
                 self.nz_in_syms[i] = (((0, j[0].sym.rank[0] - 1),),
                                       (nz_col_bounds,))
-                if nz_col_bounds == (-1, -1):
-                    # A fully zero-valued two dimensional array
-                    self.nz_in_syms[i] = j[0].sym.rank
+            else:
+                self.nz_in_syms[i] = tuple(((0, r-1),) for r in j[0].size())
 
         # If zeros were not found, then just give up
         if not self.nz_in_syms:
