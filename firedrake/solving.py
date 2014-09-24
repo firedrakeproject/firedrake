@@ -555,7 +555,7 @@ def _assemble(f, tensor=None, bcs=None):
             tensor.zero()
         except AttributeError:
             pass
-        for (i, j), integral_type, subdomain_id, coords, coefficients, needs_orientations, kernel in kernels:
+        for (i, j), integral_type, subdomain_id, coords, coefficients, needs_orientations, kernel, pl in kernels:
             m = coords.function_space().mesh()
             if needs_orientations:
                 cell_orientations = m.cell_orientations()
