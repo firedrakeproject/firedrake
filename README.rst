@@ -12,8 +12,11 @@ The main testing platform for PyOP2 is Ubuntu 12.04 64-bit with Python
 10.9 are also known to work. Microsoft Windows may work, but is not a
 supported platform.
 
-Quick start
------------
+Quick start installations
+-------------------------
+
+Installation script for Ubuntu
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For the impatient there is a script for the unattended installation of
 PyOP2 and its dependencies on a Ubuntu 12.04 or compatible platform.
@@ -59,7 +62,7 @@ This completes the quick start installation. More complete
 instructions follow for virtual machine and native installations.
 
 Provisioning a virtual machine
-------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 A ``Vagrantfile`` is provided for automatic provisioning of a Ubuntu
 12.04 64bit virtual machine with PyOP2 preinstalled. It requires
@@ -72,24 +75,111 @@ Creating and launching a virtual machine is a single command: run
 for use with VirtualBox, boot the VM and install PyOP2 and all
 dependencies using the above install script.
 
-Preparing the system
---------------------
+
+Manual Installation
+-------------------
+
+Dependencies
+~~~~~~~~~~~~
+
+.. hint::
+
+   You can skip over the dependencies list for now, since the
+   instructions below tell you how to install each of these packages.
 
 PyOP2 requires a number of tools and libraries to be available:
 
 * A C compiler (for example gcc or clang), make
+* A Fortran compiler (for PETSc)
+* MPI
+* Blas and Lapack
 * Git, Mercurial
 * pip and the Python headers 
 
-On a Debian-based system (Ubuntu, Mint, etc.) install them by running::
+The following dependencies are part of the Python
+subsystem:
 
-  sudo apt-get install -y build-essential python-dev git-core mercurial \
-    python-pip
+* Cython >= 0.17 
+* decorator 
+* numpy >= 1.6 
+* networkx
+
+PETSc. We require current master versions of PETSc so you will need to follow the specific instructions given below to install the right version.
+
+* PETSc_ current git master
+* PETSc4py_ current git master
+
+Testing dependencies (optional, required to run the tests):
+
+* pytest >= 2.3
+* flake8 >= 2.1.0
+* gmsh
+* triangle
+
+With the exception of the PETSc_ dependencies, these can be installed
+using the package management system of your OS, or via ``pip``.
+
+Installing packages with pip
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+To install dependencies system-wide use ``sudo pip install ...``, to
+install to a user site use ``pip install --user ...``. If you don't want
+PyOP2 or its dependencies interfering with your existing Python environment,
+consider creating a `virtualenv <http://virtualenv.org/>`__.
+
+.. note::
+
+   In the following we will use ``sudo pip install ...``. If
+   you want either of the other options you should change the command
+   appropriately.
+
+.. note::
+
+   Installing to the user site does not always give packages
+   priority over system installed packages on your ``sys.path``.
+
+
+Obtaining a build environment on Ubuntu and similar systems
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+On a Debian-based system (Ubuntu, Mint, etc.) install core packages::
+
+  sudo apt-get install -y build-essential python-dev git-core \
+    mercurial python-pip libopenmpi-dev openmpi-bin libblas-dev \
+    liblapack-dev gfortran
+
+.. note::
+
+   This may not give you recent enough versions of those packages
+   (in particular the Cython version shipped with 12.04 is too old). You
+   can selectively upgrade packages via ``pip``, see below.
+
+Install dependencies via ``pip``::
+
+  sudo pip install "Cython>=0.17" decorator "numpy>=1.6" networkx
+
+.. note::
+
+   If your OS release is very old and you are therefore using
+   Python 2.6 instead of 2.7, you need two additional dependencies.
+
+Additional Python 2.6 dependencies: 
+
+* argparse 
+* ordereddict
+
+Install these via ``pip``::
+
+  sudo pip install argparse ordereddict
+
+.. hint::
+   
+   You can now skip down to installing :ref:`petsc-install`.
 
 .. _mac-install:
 
 Obtaining a build environment on Mac OS
----------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 We recommend using `Homebrew <http://brew.sh>`__ as a package manager
 for the required packages on Mac OS systems.  Obtaining a build
@@ -114,9 +204,11 @@ environment for PyOP2 consists of the following:
 
      brew install python
 
-   **Note:** Do not follow the instructions to update pip, since they
-   currently result in a broken pip installation (see
-   https://github.com/Homebrew/homebrew/issues/26900)
+   .. note::
+
+      Do not follow the instructions to update pip, since they
+      currently result in a broken pip installation (see
+      https://github.com/Homebrew/homebrew/issues/26900)
 
 6. Install numpy via homebrew::
 
@@ -131,68 +223,16 @@ environment for PyOP2 consists of the following:
      pip install pytest
      pip install flake8
 
-Your system is now ready to move on to installation of PETSc_ and
-petsc4py_ described below.  Note that on Mac OS we do not recommend
-using sudo when installing, as such when following instructions below
-to install with pip just remove the ``sudo`` portion of the command.
+.. hint::
 
-Dependencies
-------------
+   Your system is now ready to move on to installation of PETSc_ and
+   petsc4py_ described below.  
 
-To install dependencies system-wide use ``sudo pip install ...``, to
-install to a user site use ``pip install --user ...``. If you don't want
-PyOP2 or its dependencies interfering with your existing Python environment,
-consider creating a `virtualenv <http://virtualenv.org/>`__.
+.. note::
 
-**Note:** In the following we will use ``sudo pip install ...``. If
- you want either of the other options you should change the command
- appropriately.
-
-**Note:** Installing to the user site does not always give packages
-priority over system installed packages on your ``sys.path``.
-
-Common
-~~~~~~
-
-Common dependencies: 
-
-* Cython >= 0.17 
-* decorator 
-* numpy >= 1.6 
-* networkx
-* PETSc_ current git master (see below)
-* PETSc4py_ current git master (see below)
-
-Testing dependencies (optional, required to run the tests):
-
-* pytest >= 2.3
-* flake8 >= 2.1.0
-* gmsh
-* triangle
-
-With the exception of the PETSc_ dependencies, these can be installed
-using the package management system of your OS, or via ``pip``.
-
-Install the dependencies via the package manager (Debian based systems)::
-
-  sudo apt-get install cython python-decorator python-numpy python-networkx
-
-**Note:** This may not give you recent enough versions of those packages
-(in particular the Cython version shipped with 12.04 is too old). You
-can selectively upgrade packages via ``pip``, see below.
-
-Install dependencies via ``pip``::
-
-  sudo pip install "Cython>=0.17" decorator "numpy>=1.6" networkx
-
-Additional Python 2.6 dependencies: 
-
-* argparse 
-* ordereddict
-
-Install these via ``pip``::
-
-  sudo pip install argparse ordereddict
+   On Mac OS we do not recommend using sudo when installing, as such
+   when following instructions below to install with pip just remove
+   the ``sudo`` portion of the command.
 
 .. _petsc-install:
 
@@ -207,18 +247,13 @@ library and requires:
 
 If you have a suitable PETSc_ installed on your system, ``PETSC_DIR``
 and ``PETSC_ARCH`` need to be set for the petsc4py_ installer to find
-it. Note that no current packaged version for any OS will suffice.
-
-If not, make sure all PETSc_ dependencies (BLAS/LAPACK, MPI and a Fortran
-compiler) are installed. On a Debian based system, run::
-
-  sudo apt-get install -y libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran
+it. 
 
 .. note::
 
-   If you followed the instructions above for installation of
-   dependencies on Mac OS X, you should be ready to build PETSc_
-   without installing any additional packages at this point.
+   There are no current OS PETSc packages which are new
+   enough. Therefore, unless you really know you should be doing
+   otherwise, always install PETSc_ using pip.
 
 Then install PETSc_ via ``pip`` ::
 
@@ -247,9 +282,11 @@ If you have previously installed and older version of PETSc_ or petsc4py_,
 above commands. In that case, use ``pip install -U --no-deps`` to upgrade
 (``--no-deps`` prevents also recursively upgrading any dependencies).
 
-If you only intend to run PyOP2 on CPUs (not GPUs) you can now skip
-straight to building PyOP2, otherwise read on for additional
-dependencies.
+.. hint::
+
+   If you only intend to run PyOP2 on CPUs (not GPUs) you can now skip
+   straight to :ref:`pyop2-install`, otherwise read on for additional
+   dependencies.
 
 .. _cuda-installation:
 
