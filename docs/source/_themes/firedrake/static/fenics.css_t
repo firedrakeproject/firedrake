@@ -282,6 +282,15 @@ div.topic {
 	border-left-style: none;
 }
 
+div.hint {
+    background: #eeeeee url(dialog-topic.png) no-repeat 10px 8px;
+    border: 2px solid #C6C9CB;
+    padding: 10px 20px 10px 60px;
+	border-right-style: none;
+	border-left-style: none;
+}
+
+
 div.warning {
     background: #fbe3e4 url(dialog-warning.png) no-repeat 10px 8px;
     border: 2px solid #fbc2c4;
