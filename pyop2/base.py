@@ -54,8 +54,8 @@ from profiling import profile, timed_region, timed_function
 from sparsity import build_sparsity
 from version import __version__ as version
 
-from coffee.ast_base import Node
-from coffee import ast_base as ast
+from coffee.base import Node
+from coffee import base as ast
 
 
 class LazyComputation(object):

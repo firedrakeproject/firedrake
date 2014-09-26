@@ -44,7 +44,7 @@ from logger import debug, info, warning, error, critical, set_log_level
 from mpi import MPI, collective
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
-from coffee.ast_plan import init_coffee
+from coffee.plan import init_coffee
 from versioning import modifies_arguments
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
