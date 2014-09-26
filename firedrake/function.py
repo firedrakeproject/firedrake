@@ -2,7 +2,8 @@ import numpy as np
 import FIAT
 import ufl
 
-import pyop2.coffee.ast_base as ast
+import coffee.base as ast
+
 from pyop2 import op2
 
 import assemble_expressions

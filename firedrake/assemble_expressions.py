@@ -7,7 +7,7 @@ from ufl.mathfunctions import MathFunction
 from ufl.core.ufl_type import ufl_type as orig_ufl_type
 from ufl import classes
 
-import pyop2.coffee.ast_base as ast
+import coffee.base as ast
 from pyop2 import op2
 
 import constant

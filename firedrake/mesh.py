@@ -4,9 +4,10 @@ import FIAT
 import ufl
 
 from pyop2 import op2
-from pyop2.coffee import ast_base as ast
 from pyop2.profiling import timed_function, timed_region, profile
 from pyop2.utils import as_tuple
+
+import coffee.base as ast
 
 import dmplex
 import extrusion_utils as eutils
