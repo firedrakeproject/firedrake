@@ -148,10 +148,13 @@ class AssemblyLinearAlgebra(object):
             if lhs[0] == rhs_l[0] and lhs[1] == rhs_r[1] and rhs_l[1] == rhs_r[0] or \
                     lhs[0] == rhs_r[1] and lhs[1] == rhs_r[0] and rhs_l[1] == rhs_r[0]:
                 found = True
-            elif lhs[0] == rhs_l[1] and lhs[1] == rhs_r[1] and rhs_l[0] == rhs_r[0] or \
-                    lhs[0] == rhs_r[1] and lhs[1] == rhs_l[1] and rhs_l[0] == rhs_r[0]:
+            elif lhs[0] == rhs_l[1] and lhs[1] == rhs_r[1] and rhs_l[0] == rhs_r[0]:
                 found = True
                 to_transpose.append(rhs[0].symbol)
+            elif lhs[0] == rhs_r[1] and lhs[1] == rhs_l[1] and rhs_l[0] == rhs_r[0]:
+                found = True
+                to_transpose.append(rhs[1].symbol)
+                rhs = (rhs[1], rhs[0])
             if found:
                 new_outer = dcopy(outer_loop)
                 new_outer.children[0].children = [middle_loop]

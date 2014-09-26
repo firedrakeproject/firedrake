@@ -899,7 +899,7 @@ class JITModule(base.JITModule):
                     _buf_scatter = ""
             _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
             _addto_buf_name = _buf_scatter_name or _buf_name
-            _buffer_indices = "[i_0*%d + i_1]" % shape[0] if self._kernel._applied_blas else "[i_0][i_1]"
+            _buffer_indices = "[i_0*%d + i_1]" % shape[1] if self._kernel._applied_blas else "[i_0][i_1]"
             if self._itspace._extruded:
                 _addtos_scalar_field_extruded = ';\n'.join([arg.c_addto_scalar_field(i, j, _addto_buf_name, "xtr_", is_facet=is_facet) for arg in self._args
                                                             if arg._is_mat and arg.data[i, j]._is_scalar_field])
