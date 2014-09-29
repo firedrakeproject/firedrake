@@ -150,10 +150,9 @@ for f_ in f:
     u = TrialFunction(V)
     dx = V.mesh()._dx
     a.append((dot(grad(u), grad(v)))*dx)
-    f_.assign(0)
+    f_.interpolate(Expression("32*pi*pi*sin(4*pi*x[0])*sin(4*pi*x[1])"))
     L.append(f_*v*dx)
-    bcs.append([DirichletBC(V, 1.0, 3),
-                DirichletBC(V, 42.0, 4)])
+    bcs.append([DirichletBC(V, 0.0, (1,2,3,4))])
 
 u = FunctionHierarchy(fh)
 problem = LinearVariationalProblemHierarchy(a, L, u, bcs=bcs)
@@ -163,6 +162,8 @@ solver = LinearVariationalSolverHierarchy(problem)
 solver.solve()
 
 exact = Function(fh[-1])
-exact.interpolate(Expression("1.0 + 41.0*x[1]"))
+exact.interpolate(Expression("sin(4*pi*x[0])*sin(4*pi*x[1])"))
 
-print errornorm(exact, u[-1], degree_rise=0)
+print norm(assemble(exact - u[-1]))
+File('exact.pvd') << exact
+File('u.pvd') << u[-1]
