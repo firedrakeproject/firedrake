@@ -110,6 +110,8 @@ PETSc. We require very recent versions of PETSc so you will need to follow the s
 * PETSc_
 * PETSc4py_
 
+COFFEE. We require the current master version of COFFEE for which you will need to follow the instructions given below.
+
 Testing dependencies (optional, required to run the tests):
 
 * pytest >= 2.3
@@ -157,7 +159,7 @@ On a Debian-based system (Ubuntu, Mint, etc.) install core packages::
 
 Install dependencies via ``pip``::
 
-  sudo pip install "Cython>=0.17" decorator "numpy>=1.6" networkx "mpi4py>=1.3.1"
+  sudo pip install "Cython>=0.17" decorator "numpy>=1.6" "mpi4py>=1.3.1"
 
 .. note::
 
@@ -414,6 +416,23 @@ On a Debian-based system, run::
   sudo apt-get install libhdf5-mpi-dev python-h5py
 
 Alternatively, if the HDF5 library is available, ``sudo pip install h5py``.
+
+.. _coffee-install:
+
+COFFEE
+~~~~~~
+
+Clone the COFFEE repository::
+
+  git clone git@github.com:FabioLuporini/COFFEE.git
+
+COFFEE uses `networkx <https://networkx.github.io/>`__, which can be installed via::
+
+  sudo pip install networkx
+
+COFFEE can be installed via::
+
+  sudo python setup.py install
 
 .. _pyop2-install:
 
