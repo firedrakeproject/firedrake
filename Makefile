@@ -47,10 +47,10 @@ lint:
 unit: $(foreach backend,$(BACKENDS), unit_$(backend))
 
 unit_%:
-	cd $(UNIT_TEST_DIR); $(PYTEST) --backend=$*
+	cd $(TEST_BASE_DIR); $(PYTEST) unit --backend=$*
 
 unit_opencl:
-	cd $(UNIT_TEST_DIR); for c in $(OPENCL_CTXS); do PYOPENCL_CTX=$$c $(PYTEST) --backend=opencl; done
+	cd $(TEST_BASE_DIR); for c in $(OPENCL_CTXS); do PYOPENCL_CTX=$$c $(PYTEST) unit --backend=opencl; done
 
 doc:
 	make -C $(SPHINX_DIR) $(SPHINX_TARGET) SPHINXOPTS=$(SPHINXOPTS)
