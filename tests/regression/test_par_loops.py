@@ -50,6 +50,13 @@ def test_direct_par_loop(f):
     assert all(c.dat.data == 1)
 
 
+@pytest.mark.xfail
+def test_mixed_direct_par_loop(f_mixed):
+    par_loop("""*c = 1;""", direct, {'c': (f_mixed, WRITE)})
+
+    assert all(f_mixed.dat.data == 1)
+
+
 @pytest.mark.parametrize('idx', [0, 1])
 def test_mixed_direct_par_loop_components(f_mixed, idx):
     par_loop("""*c = 1;""", direct, {'c': (f_mixed[idx], WRITE)})
@@ -74,6 +81,16 @@ def test_indirect_par_loop_read_const(f, const):
              dx, {'d': (d, WRITE), 'constant': (const, READ)})
 
     assert np.allclose(d.dat.data, const.dat.data)
+
+
+@pytest.mark.xfail
+def test_indirect_par_loop_read_const_mixed(f_mixed, const):
+    const.assign(10.0)
+
+    par_loop("""for (int i = 0; i < d.dofs; i++) d[0][0] = *constant;""",
+             dx, {'d': (f_mixed, WRITE), 'constant': (const, READ)})
+
+    assert np.allclose(f_mixed.dat.data, const.dat.data)
 
 
 # FIXME: this is supposed to work, but for unknown reasons fails with
