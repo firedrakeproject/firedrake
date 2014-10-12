@@ -16,6 +16,15 @@ def f():
 
 
 @pytest.fixture
+def f_mixed():
+    m = UnitIntervalMesh(2)
+    cg = FunctionSpace(m, "CG", 1)
+    dg = FunctionSpace(m, "DG", 0)
+
+    return Function(cg*dg)
+
+
+@pytest.fixture
 def const(f):
     return Constant(1.0, domain=f[0].function_space().mesh().ufl_domain())
 
@@ -34,15 +43,22 @@ def f_extruded():
 
 
 def test_direct_par_loop(f):
-    c, d = f
+    c, _ = f
 
     par_loop("""*c = 1;""", direct, {'c': (c, WRITE)})
 
     assert all(c.dat.data == 1)
 
 
+@pytest.mark.parametrize('idx', [0, 1])
+def test_mixed_direct_par_loop_components(f_mixed, idx):
+    par_loop("""*c = 1;""", direct, {'c': (f_mixed[idx], WRITE)})
+
+    assert all(f_mixed.dat[idx].data == 1)
+
+
 def test_direct_par_loop_read_const(f, const):
-    c, d = f
+    c, _ = f
     const.assign(10.0)
 
     par_loop("""*c = *constant;""", direct, {'c': (c, WRITE), 'constant': (const, READ)})
@@ -51,13 +67,26 @@ def test_direct_par_loop_read_const(f, const):
 
 
 def test_indirect_par_loop_read_const(f, const):
-    c, d = f
+    _, d = f
     const.assign(10.0)
 
     par_loop("""for (int i = 0; i < d.dofs; i++) d[0][0] = *constant;""",
              dx, {'d': (d, WRITE), 'constant': (const, READ)})
 
     assert np.allclose(d.dat.data, const.dat.data)
+
+
+# FIXME: this is supposed to work, but for unknown reasons fails with
+# MapValueError: Iterset of arg 1 map 0 doesn't match ParLoop iterset.
+@pytest.mark.xfail
+@pytest.mark.parametrize('idx', [0, 1])
+def test_indirect_par_loop_read_const_mixed_component(f_mixed, const, idx):
+    const.assign(10.0)
+
+    par_loop("""for (int i = 0; i < d.dofs; i++) d[0][0] = *constant;""",
+             dx, {'d': (f_mixed[idx], WRITE), 'constant': (const, READ)})
+
+    assert np.allclose(f_mixed.dat[idx].data, const.dat.data)
 
 
 def test_par_loop_const_write_error(f, const):
