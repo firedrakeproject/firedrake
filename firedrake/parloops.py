@@ -49,7 +49,7 @@ _maps = {
 }
 
 
-def _form_kernel(kernel, measure, args):
+def _form_kernel(kernel, measure, args, **kwargs):
 
     kargs = []
     lkernel = kernel
@@ -76,17 +76,23 @@ def _form_kernel(kernel, measure, args):
     body = ast.FlatBlock(lkernel)
 
     return pyop2.Kernel(ast.FunDecl("void", "par_loop_kernel", kargs, body),
-                        "par_loop_kernel")
+                        "par_loop_kernel", **kwargs)
 
 
-def par_loop(kernel, measure, args):
+def par_loop(kernel, measure, args, **kwargs):
     """A :func:`par_loop` is a user-defined operation which reads and
     writes :class:`.Function`\s by looping over the mesh cells or facets
     and accessing the degrees of freedom on adjacent entities.
 
     :arg kernel: is a string containing the C code to be executed.
-    :arg measure: is a :class:`ufl.Measure` which determines the manner in which the iteration over the mesh is to occur. Alternatively, you can pass :data:`direct` to designate a direct loop.
-    :arg args: is a dictionary mapping variable names in the kernel to :class:`.Functions` and indicates how these :class:`.Functions` are to be accessed.
+    :arg measure: is a :class:`ufl.Measure` which determines the manner in
+        which the iteration over the mesh is to occur. Alternatively, you can
+        pass :data:`direct` to designate a direct loop.
+    :arg args: is a dictionary mapping variable names in the kernel to
+        :class:`.Functions` and indicates how these :class:`.Functions` are to
+        be accessed.
+    :arg kwargs: additional keyword arguments are passed to the
+        :class:`op2.Kernel` constructor
 
     **Example**
 
@@ -202,7 +208,7 @@ def par_loop(kernel, measure, args):
     else:
         mesh = measure.subdomain_data().function_space().mesh()
 
-    op2args = [_form_kernel(kernel, measure, args)]
+    op2args = [_form_kernel(kernel, measure, args, **kwargs)]
 
     op2args.append(_map['itspace'](mesh, measure))
 
