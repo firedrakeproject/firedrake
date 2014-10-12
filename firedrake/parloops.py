@@ -1,6 +1,9 @@
 """This module implements parallel loops reading and writing
 :class:`.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
+
+from ufl.indexed import Indexed
+
 from pyop2 import READ, WRITE, RW, INC  # NOQA get flake8 to ignore unused import.
 import pyop2
 import pyop2.coffee.ast_base as ast
@@ -64,7 +67,13 @@ def _form_kernel(kernel, measure, args, **kwargs):
             kargs.append(ast.Decl("double", ast.Symbol(var, (ndof, )),
                                   qualifiers=["const"]))
         else:
-            ndof = func.function_space().fiat_element.space_dimension()
+            # Do we have a component of a mixed function?
+            if isinstance(func, Indexed):
+                c, i = func.operands()
+                idx = i._indices[0]._value
+                ndof = c.function_space()[idx].fiat_element.space_dimension()
+            else:
+                ndof = func.function_space().fiat_element.space_dimension()
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
             if measure is direct:
@@ -89,8 +98,8 @@ def par_loop(kernel, measure, args, **kwargs):
         which the iteration over the mesh is to occur. Alternatively, you can
         pass :data:`direct` to designate a direct loop.
     :arg args: is a dictionary mapping variable names in the kernel to
-        :class:`.Functions` and indicates how these :class:`.Functions` are to
-        be accessed.
+        :class:`.Function`\s or components of mixed :class:`.Function`\s and
+        indicates how these :class:`.Function`\s are to be accessed.
     :arg kwargs: additional keyword arguments are passed to the
         :class:`op2.Kernel` constructor
 
@@ -196,13 +205,20 @@ def par_loop(kernel, measure, args, **kwargs):
     if measure is direct:
         mesh = None
         for (func, intent) in args.itervalues():
-            try:
-                if mesh and func.node_set is not mesh:
+            if isinstance(func, Indexed):
+                c, i = func.operands()
+                idx = i._indices[0]._value
+                if mesh and c.node_set[idx] is not mesh:
                     raise ValueError("Cannot mix sets in direct loop.")
-                mesh = func.node_set
-            except AttributeError:
-                # Argument was a Global.
-                pass
+                mesh = c.node_set[idx]
+            else:
+                try:
+                    if mesh and func.node_set is not mesh:
+                        raise ValueError("Cannot mix sets in direct loop.")
+                    mesh = func.node_set
+                except AttributeError:
+                    # Argument was a Global.
+                    pass
         if not mesh:
             raise TypeError("No Functions passed to direct par_loop")
     else:
@@ -212,7 +228,13 @@ def par_loop(kernel, measure, args, **kwargs):
 
     op2args.append(_map['itspace'](mesh, measure))
 
-    op2args += [func.dat(intent, _map['nodes'](func))
-                for (func, intent) in args.itervalues()]
+    def mkarg(f, intent):
+        if isinstance(func, Indexed):
+            c, i = func.operands()
+            idx = i._indices[0]._value
+            m = _map['nodes'](c)
+            return c.dat[idx](intent, m.split[idx] if m else None)
+        return f.dat(intent, _map['nodes'](f))
+    op2args += [mkarg(func, intent) for (func, intent) in args.itervalues()]
 
     return pyop2.par_loop(*op2args)
