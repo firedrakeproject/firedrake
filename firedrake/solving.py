@@ -391,7 +391,7 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
 def assemble(f, tensor=None, bcs=None):
     """Evaluate f.
 
-    :arg f: a :class:`ufl.Form` or :class:`ufl.expr.Expr`.
+    :arg f: a :class:`ufl.Form` or :class:`ufl.core.expr.Expr`.
     :arg tensor: an existing tensor object to place the result in
          (optional).
     :arg bcs: a list of boundary conditions to apply (optional).
@@ -418,7 +418,7 @@ def assemble(f, tensor=None, bcs=None):
 
     if isinstance(f, ufl.form.Form):
         return _assemble(f, tensor=tensor, bcs=_extract_bcs(bcs))
-    elif isinstance(f, ufl.expr.Expr):
+    elif isinstance(f, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(f)
     else:
         raise TypeError("Unable to assemble: %r" % f)
