@@ -2,6 +2,22 @@
 import petsc
 del petsc
 
+# UFL Exprs come with a custom __del__ method, but we hold references
+# to them /everywhere/, some of which are circular (the Mesh object
+# holds a ufl.Domain that references the Mesh).  The Python2 GC
+# explicitly DOES NOT collect such reference cycles (even though it
+# can deal with normal cycles).  Quoth the documentation:
+#
+#     Objects that have __del__() methods and are part of a reference
+#     cycle cause the entire reference cycle to be uncollectable,
+#     including objects not necessarily in the cycle but reachable
+#     only from it.
+#
+# To get around this, since the default __del__ on Expr is just
+# "pass", we just remove the method from the definition of Expr.
+import ufl
+del ufl.core.expr.Expr.__del__
+del ufl
 from ufl import *
 from pyop2.logger import set_log_level, info_red, info_green, info_blue, log  # noqa
 from pyop2.logger import debug, info, warning, error, critical  # noqa
