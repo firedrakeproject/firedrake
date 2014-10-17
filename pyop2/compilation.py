@@ -115,11 +115,12 @@ class Compiler(object):
                                 log.write("\n\n")
                                 try:
                                     subprocess.check_call(cc, stderr=err, stdout=log)
-                                except:
+                                except Exception as e:
                                     raise CompilationError(
-                                        """Unable to compile code
+                                        """Caught exception "%s".
+Unable to compile code
 Compile log in %s
-Compile errors in %s""" % (logfile, errfile))
+Compile errors in %s""" % (e.message, logfile, errfile))
                     else:
                         cc = [self._cc] + self._cppargs + \
                              ['-c', oname, cname]
@@ -135,11 +136,12 @@ Compile errors in %s""" % (logfile, errfile))
                                 try:
                                     subprocess.check_call(cc, stderr=err, stdout=log)
                                     subprocess.check_call(ld, stderr=err, stdout=log)
-                                except:
+                                except Exception as e:
                                     raise CompilationError(
-                                        """Unable to compile code
-                                        Compile log in %s
-                                        Compile errors in %s""" % (logfile, errfile))
+                                        """Caught exception "%s".
+Unable to compile code
+Compile log in %s
+Compile errors in %s""" % (e.message, logfile, errfile))
                     # Atomically ensure soname exists
                     os.rename(tmpname, soname)
             # Wait for compilation to complete
