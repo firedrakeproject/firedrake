@@ -104,10 +104,10 @@ subsystem:
 * numpy >= 1.6 
 * networkx
 
-PETSc. We require current master versions of PETSc so you will need to follow the specific instructions given below to install the right version.
+PETSc. We require very recent versions of PETSc so you will need to follow the specific instructions given below to install the right version.
 
-* PETSc_ current git master
-* PETSc4py_ current git master
+* PETSc_
+* PETSc4py_
 
 Testing dependencies (optional, required to run the tests):
 
@@ -243,7 +243,7 @@ PyOP2 uses petsc4py_, the Python bindings for the PETSc_ linear algebra
 library and requires:
 
 * an MPI implementation built with *shared libraries* 
-* The current PETSc_ master branch built with *shared libraries*
+* A suitable very recent PETSc_ master branch built with *shared libraries*
 
 If you have a suitable PETSc_ installed on your system, ``PETSC_DIR``
 and ``PETSC_ARCH`` need to be set for the petsc4py_ installer to find
@@ -253,12 +253,17 @@ it.
 
    There are no current OS PETSc packages which are new
    enough. Therefore, unless you really know you should be doing
-   otherwise, always install PETSc_ using pip.
+   otherwise, always install PETSc_ using pip. The following
+   instructions will install the firedrake branch of PETSc_ and
+   petsc4py_. This is a recent version of the upstream master branch
+   which has been verified to at least build correctly. You may also
+   use the upstream next or master branch, but be aware that these are
+   rapidly developing and tend to break regularly.
 
 Then install PETSc_ via ``pip`` ::
 
   sudo PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco" \
-    pip install https://bitbucket.org/petsc/petsc/get/master.tar.bz2
+    pip install https://bitbucket.org/mapdes/petsc/get/firedrake.tar.bz2
   unset PETSC_DIR
   unset PETSC_ARCH
 
@@ -275,7 +280,7 @@ should be left unset when building petsc4py_.
 
 Install petsc4py_ via ``pip``::
 
-  sudo pip install git+https://bitbucket.org/petsc/petsc4py.git#egg=petsc4py
+  sudo pip install git+https://bitbucket.org/petsc/petsc4py.git@firedrake#egg=petsc4py
 
 If you have previously installed and older version of PETSc_ or petsc4py_,
 ``pip`` might tell you that the requirements are already satisfied when running
