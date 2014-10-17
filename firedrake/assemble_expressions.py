@@ -2,8 +2,10 @@ import ufl
 from ufl.algorithms import ReuseTransformer
 from ufl.constantvalue import ConstantValue, Zero, IntValue
 from ufl.indexing import MultiIndex
-from ufl.operatorbase import Operator
+from ufl.core.operator import Operator
 from ufl.mathfunctions import MathFunction
+from ufl.core.ufl_type import ufl_type as orig_ufl_type
+from ufl import classes
 
 import pyop2.coffee.ast_base as ast
 from pyop2 import op2
@@ -17,13 +19,32 @@ _to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _as
 
 _ast_map = {
     MathFunction: (lambda e: ast.FunCall(e._name, _ast(e._argument)), None),
-    ufl.algebra.Sum: (lambda e: _to_sum(e._operands)),
-    ufl.algebra.Product: (lambda e: _to_prod(e._operands)),
+    ufl.algebra.Sum: (lambda e: _to_sum(e.ufl_operands)),
+    ufl.algebra.Product: (lambda e: _to_prod(e.ufl_operands)),
     ufl.algebra.Division: (lambda e: ast.Div(_ast(e._a), _ast(e._b))),
     ufl.algebra.Abs: (lambda e: ast.FunCall("abs", _ast(e._a))),
     ufl.constantvalue.ScalarValue: (lambda e: ast.Symbol(e._value)),
     ufl.constantvalue.Zero: (lambda e: ast.Symbol(0))
 }
+
+
+def ufl_type(*args, **kwargs):
+    """Decorator mimicing :func:`ufl.core.ufl_type.ufl_type`.
+
+    Additionally adds the class decorated to the appropriate set of ufl classes."""
+    def decorator(cls):
+        orig_ufl_type(*args, **kwargs)(cls)
+        classes.all_ufl_classes.add(cls)
+        if cls._ufl_is_abstract_:
+            classes.abstract_classes.add(cls)
+        else:
+            classes.ufl_classes.add(cls)
+        if cls._ufl_is_terminal_:
+            classes.terminal_classes.add(cls)
+        else:
+            classes.nonterminal_classes.add(cls)
+        return cls
+    return decorator
 
 
 def _ast(expr):
@@ -88,13 +109,14 @@ class DummyFunction(ufl.Coefficient):
 class AssignmentBase(Operator):
 
     """Base class for UFL augmented assignments."""
-    __slots__ = ("_operands", "_symbol", "_ast", "_visit")
 
+    __slots__ = ("ufl_shape", "_symbol", "_ast", "_visit")
     _identity = Zero()
 
     def __init__(self, lhs, rhs):
-        self._operands = map(ufl.as_ufl, (lhs, rhs))
-
+        operands = map(ufl.as_ufl, (lhs, rhs))
+        super(AssignmentBase, self).__init__(operands)
+        self.ufl_shape = lhs.ufl_shape
         # Sub function assignment, we've put a Zero in the lhs
         # indicating we should do nothing.
         if type(lhs) is Zero:
@@ -103,31 +125,29 @@ class AssignmentBase(Operator):
                 or isinstance(lhs, DummyFunction)):
             raise TypeError("Can only assign to a Function")
 
-    def operands(self):
-        """Return the list of operands."""
-        return self._operands
-
     def __str__(self):
-        return (" %s " % self._symbol).join(map(str, self._operands))
+        return (" %s " % self._symbol).join(map(str, self.ufl_operands))
 
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__,
-                           ", ".join(repr(o) for o in self._operands))
+                           ", ".join(repr(o) for o in self.ufl_operands))
 
     @property
     def ast(self):
 
-        return self._ast(_ast(self._operands[0]), _ast(self._operands[1]))
+        return self._ast(_ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
 
 
+@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class Assign(AssignmentBase):
 
     """A UFL assignment operator."""
     _symbol = "="
     _ast = ast.Assign
+    __slots__ = ("ufl_shape", "_symbol", "_ast", "_visit")
 
     def _visit(self, transformer):
-        lhs = self._operands[0]
+        lhs = self.ufl_operands[0]
 
         transformer._result = lhs
 
@@ -146,18 +166,16 @@ class Assign(AssignmentBase):
                                                    intent=op2.WRITE)
             new_lhs = transformer._args[lhs]
 
-        return [new_lhs, self._operands[1]]
-
-# UFL class mangling hack
-Assign._uflclass = Assign
+        return [new_lhs, self.ufl_operands[1]]
 
 
 class AugmentedAssignment(AssignmentBase):
 
     """Base for the augmented assignment operators `+=`, `-=,` `*=`, `/=`"""
+    __slots__ = ()
 
     def _visit(self, transformer):
-        lhs = self._operands[0]
+        lhs = self.ufl_operands[0]
 
         transformer._result = lhs
 
@@ -173,49 +191,45 @@ class AugmentedAssignment(AssignmentBase):
 
         new_lhs.intent = op2.RW
 
-        return [new_lhs, self._operands[1]]
+        return [new_lhs, self.ufl_operands[1]]
 
 
+@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class IAdd(AugmentedAssignment):
 
     """A UFL `+=` operator."""
     _symbol = "+="
     _ast = ast.Incr
-
-# UFL class mangling hack
-IAdd._uflclass = IAdd
+    __slots__ = ()
 
 
+@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class ISub(AugmentedAssignment):
 
     """A UFL `-=` operator."""
     _symbol = "-="
     _ast = ast.Decr
-
-# UFL class mangling hack
-ISub._uflclass = ISub
+    __slots__ = ()
 
 
+@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class IMul(AugmentedAssignment):
 
     """A UFL `*=` operator."""
     _symbol = "*="
     _ast = ast.IMul
     _identity = IntValue(1)
-
-# UFL class mangling hack
-IMul._uflclass = IMul
+    __slots__ = ()
 
 
+@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class IDiv(AugmentedAssignment):
 
     """A UFL `/=` operator."""
     _symbol = "/="
     _ast = ast.IDiv
     _identity = IntValue(1)
-
-# UFL class mangling hack
-IDiv._uflclass = IDiv
+    __slots__ = ()
 
 
 class Power(ufl.algebra.Power):
@@ -224,11 +238,11 @@ class Power(ufl.algebra.Power):
     instead of x**y."""
 
     def __str__(self):
-        return "pow(%s, %s)" % (str(self._a), str(self._b))
+        return "pow(%s, %s)" % self.ufl_operands
 
     @property
     def ast(self):
-        return ast.FunCall("pow", _ast(self._a), _ast(self._b))
+        return ast.FunCall("pow", _ast(self.ufl_operands[0], _ast(self.ufl_operands[1])))
 
 
 class Ln(ufl.mathfunctions.Ln):
@@ -237,11 +251,11 @@ class Ln(ufl.mathfunctions.Ln):
     instead of ln(x)."""
 
     def __str__(self):
-        return "log(%s)" % str(self._argument)
+        return "log(%s)" % str(self.ufl_operands[0])
 
     @property
     def ast(self):
-        return ast.FunCall("log", _ast(self._argument))
+        return ast.FunCall("log", _ast(self.ufl_operands[0]))
 
 
 class ComponentTensor(ufl.tensors.ComponentTensor):
@@ -249,11 +263,11 @@ class ComponentTensor(ufl.tensors.ComponentTensor):
     first operand."""
 
     def __str__(self):
-        return str(self.operands()[0])
+        return str(self.ufl_operands[0])
 
     @property
     def ast(self):
-        return _ast(self.operands()[0])
+        return _ast(self.ufl_operands[0])
 
 
 class Indexed(ufl.indexed.Indexed):
@@ -261,11 +275,11 @@ class Indexed(ufl.indexed.Indexed):
     operand."""
 
     def __str__(self):
-        return str(self.operands()[0])
+        return str(self.ufl_operands[0])
 
     @property
     def ast(self):
-        return _ast(self.operands()[0])
+        return _ast(self.ufl_operands[0])
 
 
 class ExpressionSplitter(ReuseTransformer):
@@ -276,7 +290,7 @@ class ExpressionSplitter(ReuseTransformer):
         """Split the given expression."""
         self._identity = expr._identity
         self._trees = None
-        lhs, rhs = expr.operands()
+        lhs, rhs = expr.ufl_operands
         # If the expression is not an assignment, the function spaces for both
         # operands have to match
         if not isinstance(expr, AssignmentBase) and \
@@ -467,7 +481,7 @@ class ExpressionWalker(ReuseTransformer):
 
         else:
             # For all other operators, just visit the children.
-            operands = map(self.visit, o.operands())
+            operands = map(self.visit, o.ufl_operands)
 
         return o.reconstruct(*operands)
 

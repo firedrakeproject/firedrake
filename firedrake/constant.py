@@ -10,7 +10,7 @@ import utils
 __all__ = ['Constant']
 
 
-class Constant(object):
+class Constant(ufl.Coefficient):
 
     """A "constant" coefficient
 
@@ -29,24 +29,6 @@ class Constant(object):
     :arg domain: an optional :class:`ufl.Domain` the constant is defined on.
     """
 
-    # We want to have a single "Constant" at the firedrake level, but
-    # depending on shape of the value we pass in, it must either be an
-    # instance of a ufl Constant, VectorConstant or TensorConstant.
-    # We can't just inherit from all three, because then everything is
-    # an instance of a Constant.  Instead, we intercept __new__ and
-    # create and return an intermediate class that inherits
-    # appropriately (such that isinstance checks do the right thing).
-    # These classes /also/ inherit from Constant itself, such that
-    # Constant's __init__ method is called after the instance is created.
-    def __new__(cls, value, domain=None):
-        # Figure out which type of constant we're building
-        rank = len(np.array(value).shape)
-        try:
-            klass = [_Constant, _VectorConstant, _TensorConstant][rank]
-        except IndexError:
-            raise RuntimeError("Don't know how to make Constant from data with rank %d" % rank)
-        return super(Constant, cls).__new__(klass)
-
     def __init__(self, value, domain=None):
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
@@ -54,9 +36,17 @@ class Constant(object):
         shape = data.shape
         rank = len(shape)
         if rank == 0:
+            e = ufl.FiniteElement("Real", domain, 0)
             self.dat = op2.Global(1, data)
-        else:
+        elif rank == 1:
+            e = ufl.VectorElement("Real", domain, 0, shape[0])
             self.dat = op2.Global(shape, data)
+        elif rank == 2:
+            e = ufl.TensorElement("Real", domain, 0, shape=shape)
+            self.dat = op2.Global(shape, data)
+        else:
+            raise RuntimeError("Don't know how to make Constant from data with rank %d" % rank)
+        super(Constant, self).__init__(e)
         self._ufl_element = self.element()
         self._repr = 'Constant(%r)' % self._ufl_element
 
@@ -107,24 +97,3 @@ class Constant(object):
 
     def __idiv__(self, o):
         raise NotImplementedError("Augmented assignment to Constant not implemented")
-
-
-# These are the voodoo intermediate classes that allow inheritance to
-# work correctly for Constant
-class _Constant(ufl.Constant, Constant):
-    def __init__(self, value, domain=None):
-        ufl.Constant.__init__(self, domain=domain)
-        Constant.__init__(self, value, domain)
-
-
-class _VectorConstant(ufl.VectorConstant, Constant):
-    def __init__(self, value, domain=None):
-        ufl.VectorConstant.__init__(self, domain=domain, dim=len(value))
-        Constant.__init__(self, value, domain)
-
-
-class _TensorConstant(ufl.TensorConstant, Constant):
-    def __init__(self, value, domain=None):
-        shape = np.array(value).shape
-        ufl.TensorConstant.__init__(self, domain=domain, shape=shape)
-        Constant.__init__(self, value, domain)
