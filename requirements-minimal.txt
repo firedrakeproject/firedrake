@@ -13,5 +13,5 @@ pycparser>=2.10
 networkx
 mpi4py>=1.3.1
 h5py>=2.0.0
-git+https://bitbucket.org/mapdes/petsc.git#egg=petsc
+git+https://bitbucket.org/mapdes/petsc.git@firedrake#egg=petsc
 git+https://bitbucket.org/mapdes/petsc4py.git@firedrake#egg=petsc4py
