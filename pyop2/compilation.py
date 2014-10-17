@@ -114,13 +114,21 @@ class Compiler(object):
                                 log.write(" ".join(cc))
                                 log.write("\n\n")
                                 try:
-                                    subprocess.check_call(cc, stderr=err, stdout=log)
-                                except Exception as e:
+                                    if configuration['no_fork_available']:
+                                        cc += ["2>", errfile, ">", logfile]
+                                        cmd = " ".join(cc)
+                                        status = os.system(cmd)
+                                        if status != 0:
+                                            raise subprocess.CalledProcessError(status, cmd)
+                                    else:
+                                        subprocess.check_call(cc, stderr=err,
+                                                              stdout=log)
+                                except subprocess.CalledProcessError as e:
                                     raise CompilationError(
-                                        """Caught exception "%s".
+                                        """Command "%s" return error status %d.
 Unable to compile code
 Compile log in %s
-Compile errors in %s""" % (e.message, logfile, errfile))
+Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
                     else:
                         cc = [self._cc] + self._cppargs + \
                              ['-c', oname, cname]
@@ -134,14 +142,28 @@ Compile errors in %s""" % (e.message, logfile, errfile))
                                 log.write(" ".join(ld))
                                 log.write("\n\n")
                                 try:
-                                    subprocess.check_call(cc, stderr=err, stdout=log)
-                                    subprocess.check_call(ld, stderr=err, stdout=log)
-                                except Exception as e:
+                                    if configuration['no_fork_available']:
+                                        cc += ["2>", errfile, ">", logfile]
+                                        ld += ["2>", errfile, ">", logfile]
+                                        cccmd = " ".join(cc)
+                                        ldcmd = " ".join(ld)
+                                        status = os.system(cccmd)
+                                        if status != 0:
+                                            raise subprocess.CalledProcessError(status, cccmd)
+                                        status = os.system(ldcmd)
+                                        if status != 0:
+                                            raise subprocess.CalledProcessError(status, ldcmd)
+                                    else:
+                                        subprocess.check_call(cc, stderr=err,
+                                                              stdout=log)
+                                        subprocess.check_call(ld, stderr=err,
+                                                              stdout=log)
+                                except subprocess.CalledProcessError as e:
                                     raise CompilationError(
-                                        """Caught exception "%s".
+                                        """Command "%s" return error status %d.
 Unable to compile code
 Compile log in %s
-Compile errors in %s""" % (e.message, logfile, errfile))
+Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
                     # Atomically ensure soname exists
                     os.rename(tmpname, soname)
             # Wait for compilation to complete
