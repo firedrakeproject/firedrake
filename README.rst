@@ -280,7 +280,7 @@ should be left unset when building petsc4py_.
 
 Install petsc4py_ via ``pip``::
 
-  sudo pip install git+https://bitbucket.org/petsc/petsc4py.git@firedrake#egg=petsc4py
+  sudo pip install git+https://bitbucket.org/mapdes/petsc4py.git@firedrake#egg=petsc4py
 
 If you have previously installed and older version of PETSc_ or petsc4py_,
 ``pip`` might tell you that the requirements are already satisfied when running
