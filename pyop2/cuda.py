@@ -201,6 +201,10 @@ class Dat(DeviceDataMixin, op2.Dat):
 
 class Sparsity(op2.Sparsity):
 
+    def __init__(self, *args, **kwargs):
+        self._block_sparse = False
+        super(Sparsity, self).__init__(*args, **kwargs)
+
     @property
     def rowptr(self):
         if not hasattr(self, '__rowptr'):

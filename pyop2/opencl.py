@@ -232,6 +232,10 @@ class Dat(device.Dat, petsc_base.Dat, DeviceDataMixin):
 
 class Sparsity(device.Sparsity):
 
+    def __init__(self, *args, **kwargs):
+        self._block_sparse = False
+        super(Sparsity, self).__init__(*args, **kwargs)
+
     @property
     def colidx(self):
         if not hasattr(self, '__dev_colidx'):

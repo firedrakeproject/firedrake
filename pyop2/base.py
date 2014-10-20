@@ -3187,6 +3187,8 @@ class Sparsity(ObjectCached):
         if self._initialized:
             return
 
+        if not hasattr(self, '_block_sparse'):
+            self._block_sparse = True
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
         self._dsets = dsets
@@ -3216,7 +3218,7 @@ class Sparsity(ObjectCached):
             self._o_nz = sum(s._o_nz for s in self)
         else:
             with timed_region("Build sparsity"):
-                build_sparsity(self, parallel=MPI.parallel)
+                build_sparsity(self, parallel=MPI.parallel, block=self._block_sparse)
             self._blocks = [[self]]
         self._initialized = True
 
