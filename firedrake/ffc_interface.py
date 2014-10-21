@@ -26,7 +26,7 @@ from pyop2.coffee.ast_base import PreprocessNode, Root
 
 import fiat_utils
 import functionspace
-from parameters import parameters
+from parameters import parameters as default_parameters
 
 _form_cache = {}
 
@@ -141,13 +141,14 @@ class FFCKernel(DiskCached):
         _firedrake_geometry_md5 = MPI.comm.bcast(None, root=0)
 
     @classmethod
-    def _cache_key(cls, form, name):
+    def _cache_key(cls, form, name, parameters):
         # FIXME Making the COFFEE parameters part of the cache key causes
         # unnecessary repeated calls to FFC when actually only the kernel code
         # needs to be regenerated
         return md5(form.signature() + name + Kernel._backend.__name__ +
                    cls._firedrake_geometry_md5 + constants.FFC_VERSION +
-                   constants.PYOP2_VERSION + str(parameters["coffee"])).hexdigest()
+                   constants.PYOP2_VERSION + str(default_parameters["coffee"])
+                   + str(parameters)).hexdigest()
 
     def _needs_orientations(self, elements):
         if len(elements) == 0:
@@ -166,11 +167,12 @@ class FFCKernel(DiskCached):
                     return True
         return False
 
-    def __init__(self, form, name):
+    def __init__(self, form, name, parameters):
         """A wrapper object for one or more FFC kernels compiled from a given :class:`~Form`.
 
         :arg form: the :class:`~Form` from which to compile the kernels.
         :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
+        :arg parameters: a dict of parameters to pass to the form compiler.
         """
         if self._initialized:
             return
@@ -178,7 +180,7 @@ class FFCKernel(DiskCached):
         incl = PreprocessNode('#include "firedrake_geometry.h"\n')
         inc = [path.dirname(__file__)]
         try:
-            ffc_tree = ffc_compile_form(form, prefix=name, parameters=parameters["form_compiler"])
+            ffc_tree = ffc_compile_form(form, prefix=name, parameters=parameters)
             kernels = []
             # need compute_form_data here to get preproc form integrals
             fd = compute_form_data(form)
@@ -186,7 +188,7 @@ class FFCKernel(DiskCached):
             needs_orientations = self._needs_orientations(elements)
             for it, kernel in zip(fd.preprocessed_form.integrals(), ffc_tree):
                 # Set optimization options
-                opts = {} if it.integral_type() not in ['cell'] else parameters["coffee"]
+                opts = {} if it.integral_type() not in ['cell'] else default_parameters["coffee"]
                 kernels.append((Kernel(Root([incl, kernel]), '%s_%s_integral_0_%s' %
                                        (name, it.integral_type(), it.subdomain_id()), opts, inc),
                                 needs_orientations))
@@ -200,15 +202,24 @@ class FFCKernel(DiskCached):
         self._initialized = True
 
 
-def compile_form(form, name):
-    """Compile a form using FFC and return a tuple of tuples of
+def compile_form(form, name, parameters=None):
+    """Compile a form using FFC.
+
+    :arg form: the :class:`ufl.Form` to compile.
+    :arg name: a prefix for the generated kernel functions.
+    :arg parameters: optional dict of parameters to pass to the form
+         compiler. If not provided, parameters are read from the
+         :data:`form_compiler` slot of the Firedrake
+         :data:`~.parameters` dictionary (which see).
+
+    Returns a tuple of tuples of
     (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, :class:`Kernels <pyop2.op2.Kernel>`).
 
-    needs_orientations indicates whether the form requires cell
+    ``needs_orientations`` indicates whether the form requires cell
     orientation information (for correctly pulling back to reference
     elements on embedded manifolds).
 
-    Where the coordinates are extracted from the UFL
+    The coordinates are extracted from the UFL
     :class:`~ufl.domain.Domain` of the integral.
 
     """
@@ -217,12 +228,23 @@ def compile_form(form, name):
     if not isinstance(form, Form):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
 
+    if parameters is None:
+        parameters = default_parameters["form_compiler"]
+    else:
+        # Override defaults with user-specified values
+        _ = parameters
+        parameters = default_parameters["form_compiler"].copy()
+        parameters.update(_)
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations
-    if hasattr(form, "_kernels") and \
-            form._kernels[0][-1]._opts == parameters["coffee"] and \
-            form._kernels[0][-1].name.startswith(name):
-        return form._kernels
+    if hasattr(form, "_kernels"):
+        # Save both kernels and FFC params so we can tell if this
+        # cached version is valid (the FFC parameters might have changed)
+        kernels, params = form._kernels
+        if kernels[0][-1]._opts == default_parameters["coffee"] and \
+           kernels[0][-1].name.startswith(name) and \
+           params == parameters:
+            return kernels
 
     # need compute_form_data since we use preproc. form integrals later
     fd = compute_form_data(form)
@@ -234,14 +256,15 @@ def compile_form(form, name):
                     it.domain().data().coordinates,
                     fd.preprocessed_form.coefficients(), needs_orientations, kernel)
                    for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
-                                                               FFCKernel(form, name).kernels)]
-        form._kernels = kernels
+                                                               FFCKernel(form, name,
+                                                                         parameters).kernels)]
+        form._kernels = (kernels, parameters)
         return kernels
     # Otherwise pre-split the form into mixed blocks before calling FFC
     kernels = []
     for forms in FormSplitter().split(form):
         for (i, j), f in forms:
-            ffc_kernel = FFCKernel(f, name + str(i) + str(j))
+            ffc_kernel = FFCKernel(f, name + str(i) + str(j), parameters)
             # FFC noticed the integrand was zero, so don't bother
             # using this kernel (it's invalid anyway)
             if ffc_kernel._empty:
@@ -256,7 +279,7 @@ def compile_form(form, name):
                             it.domain().data().coordinates,
                             fd.preprocessed_form.coefficients(),
                             needs_orientations, kernel))
-    form._kernels = kernels
+    form._kernels = (kernels, parameters)
     return kernels
 
 
