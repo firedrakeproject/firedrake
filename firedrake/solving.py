@@ -387,13 +387,20 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
 
 
 @profile
-def assemble(f, tensor=None, bcs=None):
+def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None):
     """Evaluate f.
 
     :arg f: a :class:`ufl.Form` or :class:`ufl.core.expr.Expr`.
     :arg tensor: an existing tensor object to place the result in
          (optional).
     :arg bcs: a list of boundary conditions to apply (optional).
+    :arg form_compiler_parameters: (optional) dict of parameters to pass to
+         the form compiler.  Ignored if not assembling a
+         :class:`ufl.Form`.  Any parameters provided here will be
+         overridden by parameters set on the :class;`ufl.Measure` in the
+         form.  For example, if a :data:`quadrature_degree` of 4 is
+         specified in this argument, but a degree of 3 is requested in
+         the measure, the latter will be used.
 
     If f is a :class:`ufl.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
@@ -416,14 +423,15 @@ def assemble(f, tensor=None, bcs=None):
     """
 
     if isinstance(f, ufl.form.Form):
-        return _assemble(f, tensor=tensor, bcs=_extract_bcs(bcs))
+        return _assemble(f, tensor=tensor, bcs=_extract_bcs(bcs),
+                         form_compiler_parameters=form_compiler_parameters)
     elif isinstance(f, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(f)
     else:
         raise TypeError("Unable to assemble: %r" % f)
 
 
-def _assemble(f, tensor=None, bcs=None):
+def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None):
     """Assemble the form f and return a Firedrake object representing the
     result. This will be a :class:`float` for 0-forms, a
     :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
@@ -432,10 +440,12 @@ def _assemble(f, tensor=None, bcs=None):
     :arg tensor: An existing tensor object into which the form should be
         assembled. If this is not supplied, a new tensor will be created for
         the purpose.
+    :arg form_compiler_parameters: (optional) dict of parameters to pass to
+        the form compiler.
 
     """
 
-    kernels = ffc_interface.compile_form(f, "form")
+    kernels = ffc_interface.compile_form(f, "form", parameters=form_compiler_parameters)
     rank = len(f.arguments())
 
     is_mat = rank == 2
