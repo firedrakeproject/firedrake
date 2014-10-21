@@ -119,9 +119,11 @@ class NonlinearVariationalSolver(object):
         # force an additional assembly of the matrix since in
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
-        self._jac_tensor = assemble(self._problem.J_ufl, bcs=self._problem.bcs)
+        self._jac_tensor = assemble(self._problem.J_ufl, bcs=self._problem.bcs,
+                                    form_compiler_parameters=self._problem.form_compiler_parameters)
         if self._problem.Jp is not None:
-            self._jac_ptensor = assemble(self._problem.Jp, bcs=self._problem.bcs)
+            self._jac_ptensor = assemble(self._problem.Jp, bcs=self._problem.bcs,
+                                         form_compiler_parameters=self._problem.form_compiler_parameters)
         else:
             self._jac_ptensor = self._jac_tensor
         test = self._problem.F_ufl.arguments()[0]
@@ -217,7 +219,8 @@ class NonlinearVariationalSolver(object):
         # Note that this happens even when the u_ufl vec is aliased to
         # X_, hence this not being inside the if above.
         self._x.dat.needs_halo_update = True
-        assemble(self._problem.F_ufl, tensor=self._F_tensor)
+        assemble(self._problem.F_ufl, tensor=self._F_tensor,
+                 form_compiler_parameters=self._problem.form_compiler_parameters)
         for bc in self._problem.bcs:
             bc.zero(self._F_tensor)
 
@@ -239,12 +242,14 @@ class NonlinearVariationalSolver(object):
         self._x.dat.needs_halo_update = True
         assemble(self._problem.J_ufl,
                  tensor=self._jac_tensor,
-                 bcs=self._problem.bcs)
+                 bcs=self._problem.bcs,
+                 form_compiler_parameters=self._problem.form_compiler_parameters)
         self._jac_tensor.M._force_evaluation()
         if self._problem.Jp is not None:
             assemble(self._problem.Jp,
                      tensor=self._jac_ptensor,
-                     bcs=self._problem.bcs)
+                     bcs=self._problem.bcs,
+                     form_compiler_parameters=self._problem.form_compiler_parameters)
             self._jac_ptensor.M._force_evaluation()
             return PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
