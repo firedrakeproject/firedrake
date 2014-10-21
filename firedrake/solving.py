@@ -757,7 +757,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None):
             tensor.assemble()
         return result()
 
-    thunk = assembly_cache._cache_thunk(thunk, f, result())
+    thunk = assembly_cache._cache_thunk(thunk, f, result(), form_compiler_parameters)
 
     if is_mat:
         result_matrix._assembly_callback = thunk
