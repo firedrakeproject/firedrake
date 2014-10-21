@@ -56,6 +56,17 @@ def test_vector_constant_2d():
     assert abs(assemble(dot(c('-'), n('-'))*dS) + 2) < 1e-10
 
 
+def test_tensor_constant():
+    mesh = UnitSquareMesh(4, 4)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    v = Function(V)
+    v.assign(1.0)
+    sigma = Constant(((1., 0.), (0., 2.)))
+    val = assemble(inner(v, dot(sigma, v))*dx)
+
+    assert abs(val-3.0) < 1.0e-10
+
+
 def test_constant_scalar_assign_distributes():
     m = UnitSquareMesh(1, 1)
     V = VectorFunctionSpace(m, 'CG', 1)
