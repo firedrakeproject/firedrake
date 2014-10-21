@@ -75,7 +75,6 @@ class NonlinearVariationalProblem(object):
         self.bcs = bcs
 
         # Store form compiler parameters
-        form_compiler_parameters = form_compiler_parameters or {}
         self.form_compiler_parameters = form_compiler_parameters
 
 
