@@ -231,7 +231,6 @@ class Mesh(object):
         # A cache of function spaces that have been built on this mesh
         self._cache = {}
         self.parent = None
-        self._setup_callback = None
         if dim is None:
             # Mesh reading in Fluidity level considers 0 to be None.
             dim = 0
@@ -240,10 +239,10 @@ class Mesh(object):
             reorder = parameters["reorder_meshes"]
         if plex is not None:
             self.name = name
-            self._setup_callback = self._from_dmplex(plex, geometric_dim=dim,
-                                                     periodic_coords=periodic_coords,
-                                                     reorder=reorder,
-                                                     distribute=distribute)
+            self._from_dmplex(plex, geometric_dim=dim,
+                              periodic_coords=periodic_coords,
+                              reorder=reorder,
+                              distribute=distribute)
             self.name = filename
         else:
             basename, ext = os.path.splitext(filename)
@@ -269,9 +268,8 @@ class Mesh(object):
         self._coordinate_function = value
 
     def _init(self):
-        if self._setup_callback is not None:
+        if hasattr(self, '_setup_callback'):
             self._setup_callback(self)
-            self._setup_callback = None
 
     def _from_dmplex(self, plex, geometric_dim=0,
                      periodic_coords=None, reorder=None, distribute=True):
@@ -304,7 +302,7 @@ class Mesh(object):
         self._plex = plex
 
         def callback(self):
-            self._setup_callback = None
+            del self._setup_callback
             if op2.MPI.comm.size > 1:
                 # Grow the halo.  To do this we need a map from local
                 # to global numbers, this can be obtained by building
@@ -410,7 +408,7 @@ class Mesh(object):
                 measure._subdomain_data = self.coordinates
                 measure._domain = self.ufl_domain()
 
-        return callback
+        self._setup_callback = callback
 
     def _from_gmsh(self, filename, dim=0, periodic_coords=None, reorder=None):
         """Read a Gmsh .msh file from `filename`"""
