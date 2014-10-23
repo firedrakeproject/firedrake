@@ -140,7 +140,8 @@ class Dat(base.Dat):
         self._force_evaluation()
         if not hasattr(self, '_vec'):
             size = (self.dataset.size * self.cdim, None)
-            self._vec = PETSc.Vec().createWithArray(acc(self), size=size)
+            self._vec = PETSc.Vec().createWithArray(acc(self), size=size,
+                                                    bsize=self.cdim)
         # PETSc Vecs have a state counter and cache norm computations
         # to return immediately if the state counter is unchanged.
         # Since we've updated the data behind their back, we need to
