@@ -523,9 +523,7 @@ class FunctionSpaceBase(ObjectCached):
                      local_facet_dat(op2.READ))
 
         if isinstance(self._mesh, mesh_t.ExtrudedMesh):
-            offset = eutils.extract_offset(self.offset,
-                                           facet_dat.data_ro_with_halos[0],
-                                           self.cell_node_map().values[0])
+            offset = self.offset[boundary_dofs[0]]
         else:
             offset = None
         return op2.Map(facet_set, self.node_set,

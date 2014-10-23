@@ -106,7 +106,6 @@ def test_extrusion_side_strong_bcs_2D_large():
     assert (run_test_2D(4, test_mode=True) < 1.e-12)
 
 
-@pytest.mark.xfail
 def test_get_all_bc_nodes():
     m = UnitSquareMesh(1, 1)
     m = ExtrudedMesh(m, layers=2)

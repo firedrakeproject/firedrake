@@ -6,22 +6,6 @@ import fiat_utils
 import functionspace as fs
 
 
-def extract_offset(offset, facet_map, base_map):
-    """Starting from existing mappings for base and facets extract
-    the sub-offset corresponding to the facet map."""
-    try:
-        res = np.zeros(len(facet_map), np.int32)
-    except TypeError:
-        res = np.zeros(1, np.int32)
-        facet_map = [facet_map]
-    for i, facet_dof in enumerate(facet_map):
-        for j, base_dof in enumerate(base_map):
-            if base_dof == facet_dof:
-                res[i] = offset[j]
-                break
-    return res
-
-
 def compute_extruded_dofs(fiat_element, flat_dofs, layers):
     """Compute the number of dofs in a column."""
     size = len(flat_dofs)
