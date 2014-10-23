@@ -98,7 +98,7 @@ install_requires = [
     'COFFEE',
 ]
 
-dep_links = ['git+https://github.com/FabioLuporini/COFFEE#egg=COFFEE-dev']
+dep_links = ['git+https://github.com/coneoproject/COFFEE#egg=COFFEE-dev']
 
 version = sys.version_info[:2]
 if version < (2, 7) or (3, 0) <= version <= (3, 1):

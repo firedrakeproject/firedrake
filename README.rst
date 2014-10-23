@@ -424,7 +424,7 @@ COFFEE
 
 Clone the COFFEE repository::
 
-  git clone git@github.com:FabioLuporini/COFFEE.git
+  git clone git@github.com:coneoproject/COFFEE.git
 
 COFFEE uses `networkx <https://networkx.github.io/>`__, which can be installed via::
 
