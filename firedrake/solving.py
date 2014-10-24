@@ -121,6 +121,7 @@ class NonlinearVariationalSolver(object):
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
         self._jac_tensor = assemble(self._problem.J_ufl, bcs=self._problem.bcs)
+        self._jac_assembled = False
         if self._problem.Jp is not None:
             self._jac_ptensor = assemble(self._problem.Jp, bcs=self._problem.bcs)
         else:
@@ -230,6 +231,10 @@ class NonlinearVariationalSolver(object):
                     _f[:] = _v[:]
 
     def form_jacobian(self, snes, X_, J_, P_):
+        if isinstance(self, LinearVariationalSolver) and self._jac_assembled:
+            # No need to reassemble
+            return
+        self._jac_assembled = True
         # X_ may not be the same vector as the vec behind self._x, so
         # copy guess in from X_.
         with self._x.dat.vec as v:
