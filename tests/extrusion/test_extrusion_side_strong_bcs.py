@@ -105,6 +105,31 @@ def test_extrusion_side_strong_bcs_2D():
 def test_extrusion_side_strong_bcs_2D_large():
     assert (run_test_2D(4, test_mode=True) < 1.e-12)
 
+
+def test_get_all_bc_nodes():
+    m = UnitSquareMesh(1, 1)
+    m = ExtrudedMesh(m, layers=2)
+
+    V = FunctionSpace(m, 'CG', 2)
+
+    bc = DirichletBC(V, 0, 1)
+
+    # Exterior facet nodes on a single column are:
+    #  o--o--o
+    #  |     |
+    #  o  o  o
+    #  |     |
+    #  o--o--o
+    #  |     |
+    #  o  o  o
+    #  |     |
+    #  o--o--o
+    #
+    # And there is 1 base facet with the "1" marker.  So we expect to
+    # see 15 dofs in the bc object.
+    assert len(bc.nodes) == 15
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
