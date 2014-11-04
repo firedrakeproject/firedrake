@@ -159,7 +159,7 @@ def closure_ordering(PETSc.DM plex,
 
     CHKERR(PetscMalloc1(v_per_cell, &vertices))
     CHKERR(PetscMalloc1(v_per_cell, &v_global))
-    CHKERR(PetscMalloc1(v_per_cell-1, &facets))
+    CHKERR(PetscMalloc1(v_per_cell, &facets))
     CHKERR(PetscMalloc1(v_per_cell-1, &facet_vertices))
     CHKERR(PetscMalloc1(entity_per_cell[1], &faces))
     CHKERR(PetscMalloc1(entity_per_cell[1], &face_indices))
@@ -573,6 +573,7 @@ def mark_entity_classes(PETSc.DM plex):
                                        p, &depth))
             CHKERR(DMPlexSetLabelValue(plex.dm, lbl_core,
                                        p, depth))
+        CHKERR(PetscFree(vertices))
         return
 
     # Mark all cells adjacent to halo cells as non_core,
@@ -687,7 +688,7 @@ def mark_entity_classes(PETSc.DM plex):
     if closure != NULL:
         CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
                                               NULL, &closure))
-    PetscFree(vertices)
+    CHKERR(PetscFree(vertices))
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
