@@ -103,6 +103,7 @@ subsystem:
 * decorator 
 * numpy >= 1.6 
 * networkx
+* mpi4py >= 1.3.1
 
 PETSc. We require very recent versions of PETSc so you will need to follow the specific instructions given below to install the right version.
 
@@ -156,7 +157,7 @@ On a Debian-based system (Ubuntu, Mint, etc.) install core packages::
 
 Install dependencies via ``pip``::
 
-  sudo pip install "Cython>=0.17" decorator "numpy>=1.6" networkx
+  sudo pip install "Cython>=0.17" decorator "numpy>=1.6" networkx "mpi4py>=1.3.1"
 
 .. note::
 
