@@ -31,6 +31,7 @@ def run_hdiv_l2(refinement, hdiv_space, degree):
                                                              'pc_fieldsplit_type': 'schur',
                                                              'fieldsplit_0_pc_type': 'lu',
                                                              'pc_fieldsplit_schur_fact_type': 'FULL',
+                                                             'fieldsplit_1_pc_factor_shift_type': 'INBLOCKS',
                                                              'fieldsplit_0_ksp_max_it': 100})
 
     sigma, u = w.split()

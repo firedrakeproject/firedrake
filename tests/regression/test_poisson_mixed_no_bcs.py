@@ -63,6 +63,8 @@ def poisson_mixed(size, parameters={}):
                                'ksp_type': 'gmres',
                                'pc_fieldsplit_schur_fact_type': 'FULL',
                                'fieldsplit_0_ksp_type': 'cg',
+                               'fieldsplit_0_pc_factor_shift_type': 'INBLOCKS',
+                               'fieldsplit_1_pc_factor_shift_type': 'INBLOCKS',
                                'fieldsplit_1_ksp_type': 'cg'}])
 def test_poisson_mixed(parameters):
     """Test second-order convergence of the mixed poisson formulation."""
