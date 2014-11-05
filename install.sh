@@ -62,15 +62,21 @@ fi
 echo "*** Installing dependencies ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
 
+(
+cd /tmp
 # Install Cython so we can build PyOP2 from source
 ${PIP} Cython decorator numpy networkx >> $LOGFILE 2>&1
+)
 
 echo "*** Installing PETSc ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
 
+(
+cd /tmp
 PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco"
 ${PIP} git+https://bitbucket.org/mapdes/petsc.git@firedrake#egg=petsc >> $LOGFILE 2>&1
 ${PIP} git+https://bitbucket.org/mapdes/petsc4py.git@firedrake#egg=petsc4py >> $LOGFILE 2>&1
+)
 
 echo "*** Installing PyOP2 ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
@@ -95,6 +101,8 @@ Congratulations! PyOP2 installed successfully!
 echo "*** Installing PyOP2 testing dependencies ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
 
+(
+cd /tmp
 ${PIP} pytest flake8 >> $LOGFILE 2>&1
 if (( EUID != 0 )); then
   echo "PyOP2 tests require the following packages to be installed:"
@@ -102,6 +110,7 @@ if (( EUID != 0 )); then
 else
   apt-get install -y gmsh triangle-bin unzip >> $LOGFILE 2>&1
 fi
+)
 
 echo "*** Testing PyOP2 ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE
