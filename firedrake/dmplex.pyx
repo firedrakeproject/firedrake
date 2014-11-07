@@ -44,9 +44,9 @@ def _from_cell_list(dim, cells, coords, comm=None):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def facet_numbering(PETSc.DM plex, kind,
-                    np.ndarray[np.int32_t] facets,
+                    np.ndarray[np.int32_t, ndim=1, mode="c"] facets,
                     PETSc.Section cell_numbering,
-                    np.ndarray[np.int32_t, ndim=2] cell_closures):
+                    np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures):
     """Compute the parent cell(s) and the local facet number within
     each parent cell for each given facet.
 
@@ -60,8 +60,8 @@ def facet_numbering(PETSc.DM plex, kind,
         PetscInt f, fStart, fEnd, fi, cell
         PetscInt nfacets, nclosure, ncells, cells_per_facet
         PetscInt *cells = NULL
-        np.ndarray[np.int32_t, ndim=2] facet_cells
-        np.ndarray[np.int32_t, ndim=2] facet_local_num
+        np.ndarray[np.int32_t, ndim=2, mode="c"] facet_cells
+        np.ndarray[np.int32_t, ndim=2, mode="c"] facet_local_num
 
     fStart, fEnd = plex.getHeightStratum(1)
     nfacets = facets.shape[0]
@@ -120,7 +120,7 @@ def facet_numbering(PETSc.DM plex, kind,
 def closure_ordering(PETSc.DM plex,
                      PETSc.Section vertex_numbering,
                      PETSc.Section cell_numbering,
-                     np.ndarray[np.int32_t] entity_per_cell):
+                     np.ndarray[np.int32_t, ndim=1, mode="c"] entity_per_cell):
     """Apply Fenics local numbering to a cell closure.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
@@ -147,7 +147,7 @@ def closure_ordering(PETSc.DM plex,
         PetscInt *face_indices = NULL
         PetscInt *face_vertices = NULL
         PetscInt *facet_vertices = NULL
-        np.ndarray[np.int32_t, ndim=2] cell_closure
+        np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closure
 
     dim = plex.getDimension()
     cStart, cEnd = plex.getHeightStratum(0)
@@ -289,7 +289,7 @@ def closure_ordering(PETSc.DM plex,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_cell_nodes(PETSc.Section global_numbering,
-                   np.ndarray[np.int32_t, ndim=2] cell_closures,
+                   np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures,
                    dofs_per_cell):
     """
     Builds the DoF mapping for non-extruded meshes.
@@ -300,7 +300,7 @@ def get_cell_nodes(PETSc.Section global_numbering,
     """
     cdef:
         PetscInt c, ncells, ci, nclosure, offset, p, pi, dof, off, i
-        np.ndarray[np.int32_t, ndim=2] cell_nodes
+        np.ndarray[np.int32_t, ndim=2, mode="c"] cell_nodes
 
     ncells = cell_closures.shape[0]
     nclosure = cell_closures.shape[1]
@@ -323,7 +323,7 @@ def get_cell_nodes(PETSc.Section global_numbering,
 @cython.wraparound(False)
 def get_extruded_cell_nodes(PETSc.DM plex,
                             PETSc.Section global_numbering,
-                            np.ndarray[np.int32_t, ndim=2] cell_closures,
+                            np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures,
                             fiat_element, dofs_per_cell):
     """
     Builds the DoF mapping for extruded meshes.
@@ -341,7 +341,7 @@ def get_extruded_cell_nodes(PETSc.DM plex,
         PetscInt *pEnds = NULL
         PetscInt *hdofs = NULL
         PetscInt *vdofs = NULL
-        np.ndarray[np.int32_t, ndim=2] cell_nodes
+        np.ndarray[np.int32_t, ndim=2, mode="c"] cell_nodes
 
     ncells = cell_closures.shape[0]
     nclosure = cell_closures.shape[1]
@@ -427,8 +427,8 @@ def get_extruded_cell_nodes(PETSc.DM plex,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_facet_nodes(np.ndarray[np.int32_t, ndim=2] facet_cells,
-                    np.ndarray[np.int32_t, ndim=2] cell_nodes):
+def get_facet_nodes(np.ndarray[np.int32_t, ndim=2, mode="c"] facet_cells,
+                    np.ndarray[np.int32_t, ndim=2, mode="c"] cell_nodes):
     """
     Derives the DoF mapping for a given facet list.
 
@@ -437,7 +437,7 @@ def get_facet_nodes(np.ndarray[np.int32_t, ndim=2] facet_cells,
     """
     cdef:
         int f, i, cell, nfacets, ncells, ndofs
-        np.ndarray[np.int32_t, ndim=2] facet_nodes
+        np.ndarray[np.int32_t, ndim=2, mode="c"] facet_nodes
 
     nfacets = facet_cells.shape[0]
     ncells = facet_cells.shape[1]
@@ -464,18 +464,22 @@ def get_facet_nodes(np.ndarray[np.int32_t, ndim=2] facet_cells,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def label_facets(PETSc.DM plex):
+def label_facets(PETSc.DM plex, label_boundary=True):
     """Add labels to facets in the the plex
 
     Facets on the boundary are marked with "exterior_facets" while all
-    others are marked with "interior_facets"."""
+    others are marked with "interior_facets".
+
+    :arg label_boundary: if False, don't label the boundary faces
+         (they must have already been labelled)."""
     cdef:
         PetscInt fStart, fEnd, facet, val
         char *ext_label = <char *>"exterior_facets"
         char *int_label = <char *>"interior_facets"
 
     # Mark boundaries as exterior_facets
-    plex.markBoundaryFaces(ext_label)
+    if label_boundary:
+        plex.markBoundaryFaces(ext_label)
     plex.createLabel(int_label)
 
     fStart, fEnd = plex.getHeightStratum(1)
@@ -488,6 +492,80 @@ def label_facets(PETSc.DM plex):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def filter_exterior_facet_labels(PETSc.DM plex):
+    """Remove exterior facet labels from things that aren't facets.
+
+    When refining, every point "underneath" the refined entity
+    receives its label.  But we want the facet label to really only
+    apply to facets, so clear the labels from everything else."""
+    cdef:
+        PetscInt pStart, pEnd, fStart, fEnd, p, ext_val
+        PetscBool has_bdy_ids, has_bdy_faces
+
+    pStart, pEnd = plex.getChart()
+    fStart, fEnd = plex.getHeightStratum(1)
+
+    # Plex will always have an exterior_facets label (maybe
+    # zero-sized), but may not always have boundary_ids or
+    # boundary_faces.
+    has_bdy_ids = plex.hasLabel("boundary_ids")
+    has_bdy_faces = plex.hasLabel("boundary_faces")
+
+    for p in range(pStart, pEnd):
+        if p < fStart or p >= fEnd:
+            CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"exterior_facets", p, &ext_val))
+            if ext_val >= 0:
+                CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"exterior_facets", p, ext_val))
+            if has_bdy_ids:
+                CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"boundary_ids", p, &ext_val))
+                if ext_val >= 0:
+                    CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"boundary_ids", p, ext_val))
+            if has_bdy_faces:
+                CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"boundary_faces", p, &ext_val))
+                if ext_val >= 0:
+                    CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"boundary_faces", p, ext_val))
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def facet_numbering_section(mesh, typ):
+    """Return a section providing a numbering for facets of specified type.
+
+    :arg mesh: the mesh containing the facets.
+    :arg typ: the type of facet (``interior`` or ``exterior``).
+
+    The returned section can be used to build a halo object for the
+    specified set of facets."""
+    cdef:
+        PETSc.DM plex = mesh._plex
+        PETSc.Section section = PETSc.Section()
+        PETSc.IS perm = mesh._plex_renumbering
+        PetscInt f, fStart, fEnd, val, pStart, pEnd
+        char *facet_label
+
+    if typ == "interior":
+        facet_label = "interior_facets"
+    elif typ == "exterior":
+        facet_label = "exterior_facets"
+    else:
+        raise RuntimeError("Unknown facet type '%s'" % typ)
+
+    pStart, pEnd = plex.getChart()
+    section.create()
+    section.setChart(pStart, pEnd)
+    CHKERR(PetscSectionSetPermutation(section.sec, perm.iset))
+    fStart, fEnd = plex.getHeightStratum(1)
+    for f in range(fStart, fEnd):
+        CHKERR(DMPlexGetLabelValue(plex.dm, facet_label, f, &val))
+        # We've got a facet of the correct type, set the number of dofs to 1
+        if val >= 0:
+            CHKERR(PetscSectionSetDof(section.sec, f, 1))
+
+    section.setUp()
+    return section
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
     """Return coordinates for the plex, reordered according to the
     global numbering permutation for the coordinate function space.
@@ -496,7 +574,7 @@ def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
     cdef:
         PetscInt v, vStart, vEnd, offset
         PetscInt i, dim = shape[1]
-        np.ndarray[np.float64_t, ndim=2] plex_coords, coords
+        np.ndarray[np.float64_t, ndim=2, mode="c"] plex_coords, coords
 
     plex_coords = plex.getCoordinatesLocal().array.reshape(shape)
     coords = np.empty_like(plex_coords)
@@ -692,38 +770,26 @@ def mark_entity_classes(PETSc.DM plex):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_cells_by_class(PETSc.DM plex):
-    """Builds a list of all cells ordered according to OP2 entity
-    classes and computes the respective class offsets.
+def get_cell_classes(PETSc.DM plex):
+    """Builds a PyOP2 entity class offsets for cells.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
     """
     cdef:
         PetscInt dim, c, ci, nclass
-        PetscInt *indices = NULL
-        PETSc.IS class_is = None
-        np.ndarray[np.int32_t] cells
 
     dim = plex.getDimension()
     cStart, cEnd = plex.getHeightStratum(0)
-    cells = np.empty(cEnd - cStart, dtype=np.int32)
     cell_classes = [0, 0, 0, 0]
     c = 0
 
     for i, op2class in enumerate(["op2_core",
                                   "op2_non_core",
                                   "op2_exec_halo"]):
-        nclass = plex.getStratumSize(op2class, dim)
-        if nclass > 0:
-            class_is = plex.getStratumIS(op2class, dim)
-            CHKERR(ISGetIndices(class_is.iset, &indices))
-            for ci in range(nclass):
-                cells[c] = indices[ci]
-                c += 1
+        c += plex.getStratumSize(op2class, dim)
         cell_classes[i] = c
-
     cell_classes[3] = cell_classes[2]
-    return cells, cell_classes
+    return cell_classes
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -739,7 +805,7 @@ def get_facets_by_class(PETSc.DM plex, label):
         PetscInt *indices = NULL
         PETSc.IS class_is = None
         char *class_chr = NULL
-        np.ndarray[np.int32_t] facets
+        np.ndarray[np.int32_t, ndim=1, mode="c"] facets
 
     label_chr = <char*>label
     dim = plex.getDimension()
@@ -768,7 +834,8 @@ def get_facets_by_class(PETSc.DM plex, label):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1] reordering=None):
+def plex_renumbering(PETSc.DM plex,
+                     np.ndarray[PetscInt, ndim=1, mode="c"] reordering=None):
     """
     Build a global node renumbering as a permutation of Plex points.
 
@@ -922,3 +989,261 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1] reordering=None
     CHKERR(ISGeneralSetIndices(perm_is.iset, pEnd - pStart,
                                perm, PETSC_OWN_POINTER))
     return perm_is
+
+@cython.cdivision(True)
+def compute_parent_cells(PETSc.DM plex):
+    """Return a Section mapping cells in a plex to their "parents"
+
+    :arg plex: the refined plex
+
+    The determination of a parent cell in a regularly refined plex is
+    simply by taking the cell number and dividing by the number of
+    refined cells per coarse cell.  However, we will subsequently go
+    on to resize the refined mesh, breaking this map.  Instead, we
+    create a Section that, on each fine cell point, contains the
+    offset into the original numbering of coarse cells.  This wil
+    persist through resizing and will still be correct."""
+    cdef:
+        PetscInt cStart, cEnd, c, dim, val, nref
+        PETSc.Section parents
+
+    dim = plex.getDimension()
+    # Space for one "dof" on each cell
+    ents = np.zeros(dim+1, dtype=PETSc.IntType)
+    ents[dim] = 1
+    parents = plex.createSection([1], ents)
+    # Number of refined cells per coarse cell (simplex only)
+    nref = 2 ** dim
+
+    cStart, cEnd = plex.getHeightStratum(0)
+    for c in range(cStart, cEnd):
+        val = c / nref
+        CHKERR(PetscSectionSetDof(parents.sec, c, 1))
+        CHKERR(PetscSectionSetOffset(parents.sec, c, val))
+
+    return parents
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def coarse_to_fine_cells(mc, mf, PETSc.Section parents):
+    """Return a map from (renumbered) cells in a coarse mesh to those
+    in a refined fine mesh.
+
+    :arg mc: the coarse mesh to create the map from.
+    :arg mf: the fine mesh to map to.
+    :arg parents: a Section mapping original fine cell numbers to
+         their corresponding coarse parent cells"""
+    cdef:
+        PETSc.DM cdm, fdm
+        PETSc.Section co2n, fo2n
+        PetscInt fStart, fEnd, c, val, dim, nref, ncoarse
+        PetscInt i, ccell, fcell, nfine
+        np.ndarray[PetscInt, ndim=2, mode="c"] coarse_to_fine
+
+    cdm = mc._plex
+    co2n = mc._cell_numbering
+    fdm = mf._plex
+    fo2n = mf._cell_numbering
+    dim = cdm.getDimension()
+    nref = 2 ** dim
+    ncoarse = mc.cell_set.size
+    nfine = mf.cell_set.size
+    fStart, fEnd = fdm.getHeightStratum(0)
+
+    coarse_to_fine = np.empty((ncoarse, nref), dtype=PETSc.IntType)
+    coarse_to_fine[:] = -1
+
+    # Walk fine cells, pull the parent cell from the label.  Then,
+    # since these are the original (not renumbered) cells, map them to
+    # our view of the world and push the values in the map
+    for c in range(fStart, fEnd):
+        # Find the (originally numbered) parent of the current cell
+        CHKERR(PetscSectionGetDof(parents.sec, c, &ccell))
+        if ccell != 1:
+            raise RuntimeError("Didn't find map from fine to coarse cell")
+        CHKERR(PetscSectionGetOffset(parents.sec, c, &val))
+        CHKERR(PetscSectionGetDof(co2n.sec, val, &ccell))
+        CHKERR(PetscSectionGetDof(fo2n.sec, c, &fcell))
+        if fcell <= 0:
+            raise RuntimeError("Didn't find renumbered fine cell, should never happen")
+        if ccell <= 0:
+            raise RuntimeError("Didn't find renumbered coarse cell, should never happen")
+        # Find the new numbering of the parent
+        CHKERR(PetscSectionGetOffset(co2n.sec, val, &ccell))
+        # Find the new numbering of the cell
+        CHKERR(PetscSectionGetOffset(fo2n.sec, c, &fcell))
+        # Only care about owned coarse cells
+        if ccell >= ncoarse:
+            # But halo coarse cells should not contain owned fine cells
+            if fcell < nfine:
+                raise RuntimeError("Found halo coarse cell containing owned fine cell, should never happen")
+            continue
+        # Find an empty slot
+        for i in range(nref):
+            if coarse_to_fine[ccell, i] == -1:
+                coarse_to_fine[ccell, i] = fcell
+                break
+    return coarse_to_fine
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
+    cdef:
+        PetscInt start, end, p, ndof, entity
+        np.ndarray[PetscInt, ndim=1, mode="c"] old_to_new
+        np.ndarray[PetscInt, ndim=1, mode="c"] new_to_old
+
+    if entity_type == "cell":
+        start, end = plex.getHeightStratum(0)
+    elif entity_type == "vertex":
+        start, end = plex.getDepthStratum(0)
+    else:
+        raise RuntimeError("Entity renumbering for entities of type %s not implemented" % entity_type)
+
+    old_to_new = np.empty(end - start, dtype=PETSc.IntType)
+    new_to_old = np.empty(end - start, dtype=PETSc.IntType)
+
+    for p in range(start, end):
+        CHKERR(PetscSectionGetDof(section.sec, p, &ndof))
+        if ndof > 0:
+            CHKERR(PetscSectionGetOffset(section.sec, p, &entity))
+            new_to_old[entity] = p - start
+            old_to_new[p - start] = entity
+
+    return old_to_new, new_to_old
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def p1_coarse_fine_map(Vc, Vf, np.ndarray[PetscInt, ndim=2, mode="c"] c2f_cells):
+    """Build a map from a coarse P1 function space Vc to the finer space Vf.
+    The resulting map is isomorphic in numbering to a P2 map in the coarse space.
+
+    :arg Vc: The coarse space
+    :arg Vf: The fine space
+    :arg c2f_cells: The map from coarse cells to fine cells
+    """
+    cdef:
+        PetscInt c, vStart, vEnd, i, ncoarse_cell, ndof, coarse_arity
+        PetscInt l, j, k, tmp, other_cell, vfStart
+        PetscInt coarse_vertex, fine_vertex, orig_coarse_vertex, ncell
+        PetscInt *orig_c2f
+        PETSc.DM dm
+        PETSc.PetscIS fpointIS
+        bint done
+        np.ndarray[np.int32_t, ndim=2, mode="c"] coarse_map, map_vals, fine_map
+        np.ndarray[PetscInt, ndim=1, mode="c"] coarse_inv, fine_forward
+
+    coarse_mesh = Vc.mesh()
+    fine_mesh = Vf.mesh()
+
+    try:
+        ndof, ncell = {'interval': (3, 2),
+                       'triangle': (6, 4),
+                       'tetrahedron': (10, 8)}[coarse_mesh.ufl_cell().cellname()]
+    except KeyError:
+        raise RuntimeError("Don't know how to make map")
+
+    ncoarse_cell = Vc.mesh().cell_set.size
+    map_vals = np.empty((ncoarse_cell, ndof), dtype=np.int32)
+    map_vals[:, :] = -1
+    coarse_map = Vc.cell_node_map().values
+    fine_map = Vf.cell_node_map().values
+
+    if not hasattr(coarse_mesh, '_vertex_new_to_old'):
+        o, n = get_entity_renumbering(coarse_mesh._plex, coarse_mesh._vertex_numbering, "vertex")
+        coarse_mesh._vertex_old_to_new = o
+        coarse_mesh._vertex_new_to_old = n
+
+    coarse_inv = coarse_mesh._vertex_new_to_old
+
+    if not hasattr(fine_mesh, '_vertex_new_to_old'):
+        o, n = get_entity_renumbering(fine_mesh._plex, fine_mesh._vertex_numbering, "vertex")
+        fine_mesh._vertex_old_to_new = o
+        fine_mesh._vertex_new_to_old = n
+
+    fine_forward = fine_mesh._vertex_old_to_new
+
+    vStart, vEnd = coarse_mesh._plex.getDepthStratum(0)
+    vfStart, _ = fine_mesh._plex.getDepthStratum(0)
+    # vertex numbers in the fine plex of coarse vertices
+    dm = coarse_mesh._plex
+    CHKERR( DMPlexCreateCoarsePointIS(dm.dm, &fpointIS) )
+    CHKERR( ISGetIndices(fpointIS, &orig_c2f) )
+
+    coarse_arity = coarse_map.shape[1]
+    for c in range(ncoarse_cell):
+        # Find the fine vertices that correspond to coarse vertices
+        # and put them sequentially in the first ndof map entries
+        for i in range(coarse_arity):
+            coarse_vertex = coarse_map[c, i]
+            orig_coarse_vertex = coarse_inv[coarse_vertex]
+            fine_vertex = fine_forward[orig_c2f[orig_coarse_vertex + vStart] - vfStart]
+            map_vals[c, i] = fine_vertex
+
+        if coarse_arity == 2:
+            # intervals, only one missing fine vertex dof
+            # x----o----x
+            done = False
+            for j in range(ncell):
+                for k in range(coarse_arity):
+                    fine_vertex = fine_map[c2f_cells[c, j], k]
+                    if fine_vertex != map_vals[c, 0] and fine_vertex != map_vals[c, 1]:
+                        map_vals[c, 2] = fine_vertex
+                        done = True
+                        break
+                if done:
+                    break
+        elif coarse_arity == 3:
+            # triangles, 3 missing fine vertex dofs
+            #
+            #          x
+            #         / \
+            #        /   \
+            #       o-----o
+            #      / \   / \
+            #     /   \ /   \
+            #    x-----o-----x
+            #
+            for j in range(ncell):
+                for k in range(coarse_arity):
+                    fine_vertex = fine_map[c2f_cells[c, j], k]
+                    done = False
+                    # Original vertex or already found?
+                    for i in range(coarse_arity):
+                        if fine_vertex == map_vals[c, i] or \
+                           fine_vertex == map_vals[c, i + 3]:
+                            done = True
+                            break
+                    if done:
+                        continue
+
+                    other_cell = -1
+                    # Find the cell this fine vertex is /not/ part of
+                    for i in range(ncell):
+                        done = False
+                        for l in range(coarse_arity):
+                            tmp = fine_map[c2f_cells[c, i], l]
+                            if tmp == fine_vertex:
+                                done = True
+                        # Done is true if the fine_vertex was in the cell
+                        if not done:
+                            other_cell = i
+                            break
+
+                    # Now find the coarse vertex of of the cell we
+                    # weren't in and put this fine vertex in the
+                    # "opposite" position in the map
+                    done = False
+                    for l in range(coarse_arity):
+                        tmp = fine_map[c2f_cells[c, other_cell], l]
+                        for i in range(coarse_arity):
+                            if tmp == map_vals[c, i]:
+                                done = True
+                                map_vals[c, i + 3] = fine_vertex
+                                break
+                        if done:
+                            break
+
+    CHKERR( ISRestoreIndices(fpointIS, &orig_c2f) )
+    CHKERR( ISDestroy(&fpointIS) )
+    return map_vals

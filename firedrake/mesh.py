@@ -203,7 +203,8 @@ class Mesh(object):
 
     @timed_function("Build mesh")
     @profile
-    def __init__(self, filename, dim=None, periodic_coords=None, plex=None, reorder=None):
+    def __init__(self, filename, dim=None, periodic_coords=None, plex=None,
+                 reorder=None, name=None, distribute=True):
         """
         :param filename: the mesh file to read.  Supported mesh formats
                are Gmsh (extension ``msh``) and triangle (extension
@@ -238,9 +239,11 @@ class Mesh(object):
         if reorder is None:
             reorder = parameters["reorder_meshes"]
         if plex is not None:
+            self.name = name
             self._from_dmplex(plex, geometric_dim=dim,
                               periodic_coords=periodic_coords,
-                              reorder=reorder)
+                              reorder=reorder,
+                              distribute=distribute)
             self.name = filename
         else:
             basename, ext = os.path.splitext(filename)
@@ -266,24 +269,28 @@ class Mesh(object):
         self._coordinate_function = value
 
     def _from_dmplex(self, plex, geometric_dim=0,
-                     periodic_coords=None, reorder=None):
+                     periodic_coords=None, reorder=None, distribute=True):
         """ Create mesh from DMPlex object """
 
         self._plex = plex
         self.uid = utils._new_uid()
+
+        if geometric_dim == 0:
+            geometric_dim = plex.getDimension()
 
         # Mark exterior and interior facets
         # Note.  This must come before distribution, because otherwise
         # DMPlex will consider facets on the domain boundary to be
         # exterior, which is wrong.
         with timed_region("Mesh: label facets"):
+            # If we're not distributing (already in parallel), don't
+            # relabel the boundary, just label the interior facets.
+            label_boundary = op2.MPI.comm.size == 1 or distribute
+            dmplex.label_facets(self._plex, label_boundary=label_boundary)
             dmplex.label_facets(self._plex)
 
-        if geometric_dim == 0:
-            geometric_dim = plex.getDimension()
-
         # Distribute the dm to all ranks
-        if op2.MPI.comm.size > 1:
+        if op2.MPI.comm.size > 1 and distribute:
             self.parallel_sf = plex.distribute(overlap=1)
 
         self._plex = plex
@@ -309,7 +316,7 @@ class Mesh(object):
 
             self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
             dim = self._plex.getDimension()
-            self._cells, self.cell_classes = dmplex.get_cells_by_class(self._plex)
+            self.cell_classes = dmplex.get_cell_classes(self._plex)
 
         with timed_region("Mesh: cell numbering"):
             # Derive a cell numbering from the Plex renumbering
@@ -324,6 +331,17 @@ class Mesh(object):
                 # New style
                 self._cell_numbering = self._plex.createSection([1], cell_entity_dofs,
                                                                 perm=self._plex_renumbering)
+
+        cell_entity_dofs[:] = 0
+        cell_entity_dofs[0] = 1
+        try:
+            # Old style createSection
+            self._vertex_numbering = self._plex.createSection(1, [1], cell_entity_dofs,
+                                                              perm=self._plex_renumbering)
+        except:
+            # New style
+            self._vertex_numbering = self._plex.createSection([1], cell_entity_dofs,
+                                                              perm=self._plex_renumbering)
 
         self._cell_closure = None
         self.interior_facets = None
@@ -542,9 +560,6 @@ class Mesh(object):
                      self.coordinates.dat(op2.READ, self.coordinates.cell_node_map()))
         self._cell_orientations = cell_orientations
 
-    def cells(self):
-        return self._cells
-
     def ufl_id(self):
         return id(self)
 
@@ -638,7 +653,6 @@ class ExtrudedMesh(Mesh):
             raise RuntimeError("Must have at least one layer of extruded cells (not %d)" % layers)
         # All internal logic works with layers of base mesh (not layers of cells)
         self._layers = layers + 1
-        self._cells = mesh._cells
         self.parent = mesh.parent
         self.uid = mesh.uid
         self.name = mesh.name
@@ -1147,86 +1161,18 @@ class IcosahedralSphereMesh(Mesh):
         self._R = radius
         self._refinement = refinement_level
 
-        self._vertices = np.empty_like(IcosahedralSphereMesh._base_vertices)
-        self._faces = np.copy(IcosahedralSphereMesh._base_faces)
-        # Rescale so that vertices live on sphere of specified radius
-        for i, vtx in enumerate(IcosahedralSphereMesh._base_vertices):
-            self._vertices[i] = self._force_to_sphere(vtx)
-
+        plex = dmplex._from_cell_list(2, IcosahedralSphereMesh._base_faces,
+                                      IcosahedralSphereMesh._base_vertices)
+        plex.setRefinementUniform(True)
         for i in range(refinement_level):
-            self._refine()
+            plex = plex.refine()
 
-        plex = dmplex._from_cell_list(2, self._faces, self._vertices)
+        vStart, vEnd = plex.getDepthStratum(0)
+        nvertices = vEnd - vStart
+        coords = plex.getCoordinatesLocal().array.reshape(nvertices, 3)
+        scale = (self._R / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
+        coords *= scale
         super(IcosahedralSphereMesh, self).__init__(self.name, plex=plex, dim=3, reorder=reorder)
-
-    def _force_to_sphere(self, vtx):
-        """
-        Scale `vtx` such that it sits on surface of the sphere this mesh
-        represents.
-
-        """
-        scale = self._R / np.linalg.norm(vtx)
-        return vtx * scale
-
-    def _refine(self):
-        """Refine mesh by one level.
-
-        This increases the number of faces in the mesh by a factor of four."""
-        cache = {}
-        new_faces = np.empty((4 * len(self._faces), 3), dtype=np.int32)
-        # Dividing each face adds 1.5 extra vertices (each vertex on
-        # the midpoint is shared two ways).
-        new_vertices = np.empty((len(self._vertices) + 3 * len(self._faces) / 2, 3))
-        f_idx = 0
-        v_idx = len(self._vertices)
-        new_vertices[:v_idx] = self._vertices
-
-        def midpoint(v1, v2):
-            return self._force_to_sphere((self._vertices[v1] + self._vertices[v2])/2)
-
-        # Walk old faces, splitting into 4
-        for (v1, v2, v3) in self._faces:
-            a = midpoint(v1, v2)
-            b = midpoint(v2, v3)
-            c = midpoint(v3, v1)
-            ka = tuple(sorted((v1, v2)))
-            kb = tuple(sorted((v2, v3)))
-            kc = tuple(sorted((v3, v1)))
-            if ka not in cache:
-                cache[ka] = v_idx
-                new_vertices[v_idx] = a
-                v_idx += 1
-            va = cache[ka]
-            if kb not in cache:
-                cache[kb] = v_idx
-                new_vertices[v_idx] = b
-                v_idx += 1
-            vb = cache[kb]
-            if kc not in cache:
-                cache[kc] = v_idx
-                new_vertices[v_idx] = c
-                v_idx += 1
-            vc = cache[kc]
-            #
-            #         v1
-            #        /  \
-            #       /    \
-            #      v2----v3
-            #
-            #         v1
-            #        /  \
-            #       a--- c
-            #      / \  / \
-            #     /   \/   \
-            #   v2----b----v3
-            #
-            new_faces[f_idx][:] = (v1, va, vc)
-            new_faces[f_idx+1][:] = (v2, vb, va)
-            new_faces[f_idx+2][:] = (v3, vc, vb)
-            new_faces[f_idx+3][:] = (va, vb, vc)
-            f_idx += 4
-        self._vertices = new_vertices
-        self._faces = new_faces
 
 
 class UnitIcosahedralSphereMesh(IcosahedralSphereMesh):
