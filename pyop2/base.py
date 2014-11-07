@@ -729,6 +729,8 @@ class ExtrudedSet(Set):
         return getattr(self._parent, name)
 
     def __contains__(self, set):
+        if isinstance(set, LocalSet):
+            return set.superset is self or set.superset in self
         return set is self.parent
 
     def __str__(self):
@@ -748,9 +750,9 @@ class ExtrudedSet(Set):
         return self._layers
 
 
-class LocalSet(Set):
+class LocalSet(ExtrudedSet):
 
-    """A wrapper around a :class:`Set`.
+    """A wrapper around a :class:`Set` or :class:`ExtrudedSet`.
 
     A :class:`LocalSet` behaves exactly like the :class:`Set` it was
     built on except during parallel loop iterations. Iteration over a
