@@ -153,10 +153,28 @@ class FunctionSpaceHierarchy(object):
         Vc = self._hierarchy[level]
         Vf = self._hierarchy[level + 1]
 
-        family = self.ufl_element().family()
-        degree = self.ufl_element().degree()
+        element = self.ufl_element()
+        family = element.family()
+        degree = element.degree()
 
         c2f = self._mesh_hierarchy._c2f_cells[level]
+
+        if isinstance(self._mesh_hierarchy, ExtrudedMeshHierarchy):
+            if not (element._A.family() == "Discontinuous Lagrange" and
+                    element._B.family() == "Discontinuous Lagrange" and
+                    degree == (0, 0)):
+                raise NotImplementedError
+            arity = Vf.cell_node_map().arity * c2f.shape[1]
+            map_vals = Vf.cell_node_map().values[c2f].flatten()
+            offset = np.repeat(Vf.cell_node_map().offset, c2f.shape[1])
+            map = op2.Map(self._cell_sets[level],
+                          Vf.node_set,
+                          arity,
+                          map_vals,
+                          offset=offset)
+            self._map_cache[level] = map
+            return map
+
         if family == "Discontinuous Lagrange":
             if degree != 0:
                 raise RuntimeError
@@ -225,10 +243,17 @@ class FunctionHierarchy(object):
             raise RuntimeError("Requested coarse level %d outside permissible range [0, %d)" %
                                (level, len(self) - 1))
         fs = self[level].function_space()
-        family = fs.ufl_element().family()
-        degree = fs.ufl_element().degree()
+        element = fs.ufl_element()
+        family = element.family()
+        degree = element.degree()
 
-        if family == "Discontinuous Lagrange":
+        if family == "OuterProductElement":
+            if not (element._A.family() == "Discontinuous Lagrange" and
+                    element._B.family() == "Discontinuous Lagrange" and
+                    degree == (0, 0)):
+                raise NotImplementedError
+            self._prolong_dg0(level)
+        elif family == "Discontinuous Lagrange":
             if degree != 0:
                 raise RuntimeError("Can only prolong P0 fields, not P%dDG" % degree)
             self._prolong_dg0(level)
@@ -256,9 +281,17 @@ class FunctionHierarchy(object):
                                (level, len(self)))
 
         fs = self[level].function_space()
-        family = fs.ufl_element().family()
-        degree = fs.ufl_element().degree()
-        if family == "Discontinuous Lagrange":
+        element = fs.ufl_element()
+        family = element.family()
+        degree = element.degree()
+
+        if family == "OuterProductElement":
+            if not (element._A.family() == "Discontinuous Lagrange" and
+                    element._B.family() == "Discontinuous Lagrange" and
+                    degree == (0, 0)):
+                raise NotImplementedError
+            self._restrict_dg0(level, is_solution=is_solution)
+        elif family == "Discontinuous Lagrange":
             if degree == 0:
                 self._restrict_dg0(level, is_solution=is_solution)
             else:
@@ -303,12 +336,9 @@ class FunctionHierarchy(object):
         fine = self[level]
         if not hasattr(self, '_restrict_kernel'):
             if is_solution:
-                detJ = 1.0
+                detJ = 1.0/c2f_map.arity
             else:
-                # we need to weight the restricted residual by detJ of the
-                # big cell relative to the small cells.  Since we have
-                # regular refinement, this is just 2^tdim
-                detJ = 2.0 ** self.function_space().ufl_element().cell().topological_dimension()
+                detJ = 1.0
             k = ast.FunDecl("void", "restrict_dg0",
                             [ast.Decl(coarse.dat.ctype, "**coarse"),
                              ast.Decl(fine.dat.ctype, "**fine")],
@@ -317,9 +347,8 @@ class FunctionHierarchy(object):
                                                       ast.Incr(ast.Symbol("tmp"),
                                                                ast.Symbol("fine", ("fdof", 0))),
                                                       pragma=None),
-                                            # Need to multiply restricted function by a factor 4
                                             ast.Assign(ast.Symbol("coarse", (0, 0)),
-                                                       ast.Prod(detJ/c2f_map.arity, ast.Symbol("tmp")))]),
+                                                       ast.Prod(detJ, ast.Symbol("tmp")))]),
                             pred=["static", "inline"])
             self._restrict_kernel = op2.Kernel(k, "restrict_dg0")
 
