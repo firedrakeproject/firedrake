@@ -103,7 +103,8 @@ class FunctionSpaceHierarchy(object):
     function spaces, with the property that every coarse space is a
     subspace of the fine spaces that are a refinement of it.
     """
-    def __init__(self, mesh_hierarchy, family, degree):
+    def __init__(self, mesh_hierarchy, family, degree=None,
+                 name=None, vfamily=None, vdegree=None):
         """
         :arg mesh_hierarchy: a :class:`.MeshHierarchy` to build the
              function spaces on.
@@ -111,7 +112,9 @@ class FunctionSpaceHierarchy(object):
         :arg degree: the degree of the function space
         """
         self._mesh_hierarchy = mesh_hierarchy
-        self._hierarchy = [functionspace.FunctionSpace(m, family, degree)
+        self._hierarchy = [functionspace.FunctionSpace(m, family, degree=degree,
+                                                       name=name, vfamily=vfamily,
+                                                       vdegree=vdegree)
                            for m in self._mesh_hierarchy]
 
         self._map_cache = {}
