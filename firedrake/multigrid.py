@@ -10,7 +10,8 @@ import functionspace
 import mesh
 
 
-__all__ = ['MeshHierarchy', 'FunctionSpaceHierarchy', 'FunctionHierarchy']
+__all__ = ['MeshHierarchy', 'FunctionSpaceHierarchy', 'FunctionHierarchy',
+           'ExtrudedMeshHierarchy']
 
 
 class MeshHierarchy(mesh.Mesh):
@@ -80,6 +81,19 @@ class MeshHierarchy(mesh.Mesh):
 
     def __getitem__(self, idx):
         return self._hierarchy[idx]
+
+
+class ExtrudedMeshHierarchy(MeshHierarchy):
+    def __init__(self, mesh_hierarchy, layers, kernel=None, layer_height=None,
+                 extrusion_type='uniform', gdim=None):
+        self._base_hierarchy = mesh_hierarchy
+        self._hierarchy = [mesh.ExtrudedMesh(m, layers, kernel=kernel,
+                                             layer_height=layer_height,
+                                             extrusion_type=extrusion_type,
+                                             gdim=gdim)
+                           for m in mesh_hierarchy]
+        self._ufl_cell = self[0].ufl_cell()
+        self._c2f_cells = mesh_hierarchy._c2f_cells
 
 
 class FunctionSpaceHierarchy(object):
