@@ -101,16 +101,16 @@ class TestFFCCache:
 
     def test_ffc_cell_kernel(self, mass):
         k = ffc_interface.compile_form(mass, 'mass')
-        assert 'cell_integral' in k[0][-1].code and len(k) == 1
+        assert 'cell_integral' in k[0][-2].code and len(k) == 1
 
     def test_ffc_exterior_facet_kernel(self, rhs):
         k = ffc_interface.compile_form(rhs, 'rhs')
-        assert 'exterior_facet_integral' in k[0][-1].code and len(k) == 1
+        assert 'exterior_facet_integral' in k[0][-2].code and len(k) == 1
 
     def test_ffc_cell_exterior_facet_kernel(self, rhs2):
         k = ffc_interface.compile_form(rhs2, 'rhs2')
-        assert 'cell_integral' in k[0][-1].code and \
-            'exterior_facet_integral' in k[1][-1].code and len(k) == 2
+        assert 'cell_integral' in k[0][-2].code and \
+            'exterior_facet_integral' in k[1][-2].code and len(k) == 2
 
 if __name__ == '__main__':
     pytest.main(os.path.abspath(__file__))

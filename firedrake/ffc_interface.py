@@ -202,11 +202,12 @@ class FFCKernel(DiskCached):
 
 def compile_form(form, name):
     """Compile a form using FFC and return a tuple of tuples of
-    (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, :class:`Kernels <pyop2.op2.Kernel>`).
+    (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, :class:`Kernels <pyop2.op2.Kernel>`, []).
 
     needs_orientations indicates whether the form requires cell
     orientation information (for correctly pulling back to reference
-    elements on embedded manifolds).
+    elements on embedded manifolds).  The final empty list is used for
+    storing a ParLoop object for repeated execution.
 
     Where the coordinates are extracted from the :class:`ufl.Domain` of the integral.
     """
@@ -218,8 +219,8 @@ def compile_form(form, name):
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations
     if hasattr(form, "_kernels") and \
-            form._kernels[0][-1]._opts == parameters["coffee"] and \
-            form._kernels[0][-1].name.startswith(name):
+            form._kernels[0][-2]._opts == parameters["coffee"] and \
+            form._kernels[0][-2].name.startswith(name):
         return form._kernels
 
     # need compute_form_data since we use preproc. form integrals later
@@ -230,7 +231,7 @@ def compile_form(form, name):
         kernels = [((0, 0),
                     it.integral_type(), it.subdomain_id(),
                     it.domain().data().coordinates,
-                    fd.preprocessed_form.coefficients(), needs_orientations, kernel)
+                    fd.preprocessed_form.coefficients(), needs_orientations, kernel, [])
                    for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
                                                                FFCKernel(form, name).kernels)]
         form._kernels = kernels
@@ -253,7 +254,7 @@ def compile_form(form, name):
                             it.subdomain_id(),
                             it.domain().data().coordinates,
                             fd.preprocessed_form.coefficients(),
-                            needs_orientations, kernel))
+                            needs_orientations, kernel, []))
     form._kernels = kernels
     return kernels
 

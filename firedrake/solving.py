@@ -241,12 +241,12 @@ class NonlinearVariationalSolver(object):
         assemble(self._problem.J_ufl,
                  tensor=self._jac_tensor,
                  bcs=self._problem.bcs)
-        self._jac_tensor.M._force_evaluation()
+        self._jac_tensor.M
         if self._problem.Jp is not None:
             assemble(self._problem.Jp,
                      tensor=self._jac_ptensor,
                      bcs=self._problem.bcs)
-            self._jac_ptensor.M._force_evaluation()
+            self._jac_ptensor.M
             return PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 
@@ -454,49 +454,49 @@ def _assemble(f, tensor=None, bcs=None):
         cell_domains = []
         exterior_facet_domains = []
         interior_facet_domains = []
-        # For horizontal facets of extrded meshes, the corresponding domain
-        # in the base mesh is the cell domain. Hence all the maps used for top
-        # bottom and interior horizontal facets will use the cell to dofs map
-        # coming from the base mesh as a starting point for the actual dynamic map
-        # computation.
-        for integral in integrals:
-            integral_type = integral.integral_type()
-            if integral_type == "cell":
-                cell_domains.append(op2.ALL)
-            elif integral_type == "exterior_facet":
-                exterior_facet_domains.append(op2.ALL)
-            elif integral_type == "interior_facet":
-                interior_facet_domains.append(op2.ALL)
-            elif integral_type == "exterior_facet_bottom":
-                cell_domains.append(op2.ON_BOTTOM)
-            elif integral_type == "exterior_facet_top":
-                cell_domains.append(op2.ON_TOP)
-            elif integral_type == "exterior_facet_vert":
-                exterior_facet_domains.append(op2.ALL)
-            elif integral_type == "interior_facet_horiz":
-                cell_domains.append(op2.ON_INTERIOR_FACETS)
-            elif integral_type == "interior_facet_vert":
-                interior_facet_domains.append(op2.ALL)
-            else:
-                raise RuntimeError('Unknown integral type "%s"' % integral_type)
-
-        # To avoid an extra check for extruded domains, the maps that are being passed in
-        # are DecoratedMaps. For the non-extruded case the DecoratedMaps don't restrict the
-        # space over which we iterate as the domains are dropped at Sparsity construction
-        # time. In the extruded case the cell domains are used to identify the regions of the
-        # mesh which require allocation in the sparsity.
-        if cell_domains:
-            map_pairs.append((op2.DecoratedMap(test.cell_node_map(), cell_domains),
-                              op2.DecoratedMap(trial.cell_node_map(), cell_domains)))
-        if exterior_facet_domains:
-            map_pairs.append((op2.DecoratedMap(test.exterior_facet_node_map(), exterior_facet_domains),
-                              op2.DecoratedMap(trial.exterior_facet_node_map(), exterior_facet_domains)))
-        if interior_facet_domains:
-            map_pairs.append((op2.DecoratedMap(test.interior_facet_node_map(), interior_facet_domains),
-                              op2.DecoratedMap(trial.interior_facet_node_map(), interior_facet_domains)))
-
-        map_pairs = tuple(map_pairs)
         if tensor is None:
+            # For horizontal facets of extruded meshes, the corresponding domain
+            # in the base mesh is the cell domain. Hence all the maps used for top
+            # bottom and interior horizontal facets will use the cell to dofs map
+            # coming from the base mesh as a starting point for the actual dynamic map
+            # computation.
+            for integral in integrals:
+                integral_type = integral.integral_type()
+                if integral_type == "cell":
+                    cell_domains.append(op2.ALL)
+                elif integral_type == "exterior_facet":
+                    exterior_facet_domains.append(op2.ALL)
+                elif integral_type == "interior_facet":
+                    interior_facet_domains.append(op2.ALL)
+                elif integral_type == "exterior_facet_bottom":
+                    cell_domains.append(op2.ON_BOTTOM)
+                elif integral_type == "exterior_facet_top":
+                    cell_domains.append(op2.ON_TOP)
+                elif integral_type == "exterior_facet_vert":
+                    exterior_facet_domains.append(op2.ALL)
+                elif integral_type == "interior_facet_horiz":
+                    cell_domains.append(op2.ON_INTERIOR_FACETS)
+                elif integral_type == "interior_facet_vert":
+                    interior_facet_domains.append(op2.ALL)
+                else:
+                    raise RuntimeError('Unknown integral type "%s"' % integral_type)
+
+            # To avoid an extra check for extruded domains, the maps that are being passed in
+            # are DecoratedMaps. For the non-extruded case the DecoratedMaps don't restrict the
+            # space over which we iterate as the domains are dropped at Sparsity construction
+            # time. In the extruded case the cell domains are used to identify the regions of the
+            # mesh which require allocation in the sparsity.
+            if cell_domains:
+                map_pairs.append((op2.DecoratedMap(test.cell_node_map(), cell_domains),
+                                  op2.DecoratedMap(trial.cell_node_map(), cell_domains)))
+            if exterior_facet_domains:
+                map_pairs.append((op2.DecoratedMap(test.exterior_facet_node_map(), exterior_facet_domains),
+                                  op2.DecoratedMap(trial.exterior_facet_node_map(), exterior_facet_domains)))
+            if interior_facet_domains:
+                map_pairs.append((op2.DecoratedMap(test.interior_facet_node_map(), interior_facet_domains),
+                                  op2.DecoratedMap(trial.interior_facet_node_map(), interior_facet_domains)))
+
+            map_pairs = tuple(map_pairs)
             # Construct OP2 Mat to assemble into
             fs_names = (
                 test.function_space().name, trial.function_space().name)
@@ -555,7 +555,7 @@ def _assemble(f, tensor=None, bcs=None):
             tensor.zero()
         except AttributeError:
             pass
-        for (i, j), integral_type, subdomain_id, coords, coefficients, needs_orientations, kernel in kernels:
+        for (i, j), integral_type, subdomain_id, coords, coefficients, needs_orientations, kernel, pl in kernels:
             m = coords.function_space().mesh()
             if needs_orientations:
                 cell_orientations = m.cell_orientations()
@@ -567,6 +567,17 @@ def _assemble(f, tensor=None, bcs=None):
                 trbc = [bc for bc in bcs if bc.function_space().index == j]
             elif is_mat:
                 tsbc, trbc = bcs, bcs
+            if pl:
+                loop, loop_bcs = pl[0]
+                if bcs == loop_bcs:
+                    if is_mat:
+                        loop.replace_arg_data(tensor[i, j], 0)
+                    elif is_vec:
+                        loop.replace_arg_data(tensor[i], 0)
+                    else:
+                        loop.replace_arg_data(tensor, 0)
+                    loop._run()
+                    continue
             if integral_type == 'cell':
                 with timed_region("Assemble cells"):
                     if is_mat:
@@ -592,7 +603,12 @@ def _assemble(f, tensor=None, bcs=None):
                                           flatten=True))
 
                     try:
-                        op2.par_loop(*args)
+                        loop = op2.ParLoop(*args)
+                        if pl:
+                            pl[0] = (loop, bcs)
+                        else:
+                            pl.append((loop, bcs))
+                        loop._run()
                     except MapValueError:
                         raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
@@ -620,7 +636,12 @@ def _assemble(f, tensor=None, bcs=None):
                                           flatten=True))
                     args.append(m.exterior_facets.local_facet_dat(op2.READ))
                     try:
-                        op2.par_loop(*args)
+                        loop = op2.ParLoop(*args)
+                        if pl:
+                            pl[0] = (loop, bcs)
+                        else:
+                            pl.append((loop, bcs))
+                        loop._run()
                     except MapValueError:
                         raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
@@ -656,7 +677,12 @@ def _assemble(f, tensor=None, bcs=None):
                             args.append(c.dat(op2.READ, c.cell_node_map(),
                                               flatten=True))
                         try:
-                            op2.par_loop(*args, iterate=index)
+                            loop = op2.ParLoop(*args, iterate=index)
+                            if pl:
+                                pl[0] = (loop, bcs)
+                            else:
+                                pl.append((loop, bcs))
+                            loop._run()
                         except MapValueError:
                             raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
@@ -682,7 +708,12 @@ def _assemble(f, tensor=None, bcs=None):
                                           flatten=True))
                     args.append(m.interior_facets.local_facet_dat(op2.READ))
                     try:
-                        op2.par_loop(*args)
+                        loop = op2.ParLoop(*args)
+                        if pl:
+                            pl[0] = (loop, bcs)
+                        else:
+                            pl.append((loop, bcs))
+                        loop._run()
                     except MapValueError:
                         raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
@@ -711,7 +742,12 @@ def _assemble(f, tensor=None, bcs=None):
                         args.append(c.dat(op2.READ, c.cell_node_map(),
                                           flatten=True))
                     try:
-                        op2.par_loop(*args, iterate=op2.ON_INTERIOR_FACETS)
+                        loop = op2.ParLoop(*args, iterate=op2.ON_INTERIOR_FACETS)
+                        if pl:
+                            pl[0] = (loop, bcs)
+                        else:
+                            pl.append((loop, bcs))
+                        loop._run()
                     except MapValueError:
                         raise RuntimeError("Integral measure does not match measure of all coefficients/arguments")
 
