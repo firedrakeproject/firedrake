@@ -93,7 +93,14 @@ class Dat(base.Dat):
         if not hasattr(self, '_vec'):
             size = (self.dataset.size * self.cdim, None)
             self._vec = PETSc.Vec().createWithArray(acc(self), size=size)
+        # PETSc Vecs have a state counter and cache norm computations
+        # to return immediately if the state counter is unchanged.
+        # Since we've updated the data behind their back, we need to
+        # change that state counter.  The easiest is to do some
+        # pointer shuffling here.
+        self._vec.placeArray(acc(self))
         yield self._vec
+        self._vec.resetArray()
         if not readonly:
             self.needs_halo_update = True
 
