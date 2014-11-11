@@ -36,6 +36,7 @@ PETSc specific unit tests
 """
 
 import pytest
+import numpy as np
 
 from pyop2 import op2
 
@@ -50,3 +51,18 @@ class TestPETSc:
         "PETSc MPI communicator should be converted to mpi4py communicator."
         op2.MPI.comm = petsc4py.PETSc.Sys.getDefaultComm()
         assert isinstance(op2.MPI.comm, mpi4py.MPI.Comm)
+
+    @pytest.mark.xfail
+    def test_vec_norm_changes(self, backend, skip_cuda, skip_opencl):
+        s = op2.Set(1)
+        d = op2.Dat(s)
+
+        d.data[:] = 1
+
+        with d.vec_ro as v:
+            assert np.allclose(v.norm(), 1.0)
+
+        d.data[:] = 2
+
+        with d.vec_ro as v:
+            assert np.allclose(v.norm(), 2.0)
