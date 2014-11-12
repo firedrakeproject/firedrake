@@ -552,12 +552,14 @@ class Mesh(object):
         return self._ufl_domain
 
     def ufl_cell(self):
-        """The UFL cell associated with the mesh. If the mesh has associated
-        coordinates then this will be the UFL cell of the coordinate
-        function space, otherwise it will be the cell created when the
-        mesh was created. This ensures that replacing the coordinate
-        field with one of a different geometric dimension does the
-        Right Thing.
+        """The UFL :class:`~ufl.cell.Cell` associated with the mesh.
+
+        If the mesh has associated coordinates then this will be the
+        cell of the coordinate function space, otherwise it will be
+        the cell created when the :class:`Mesh` was created. This
+        ensures that replacing the coordinate field with one of a
+        different geometric dimension does the Right Thing.
+
         """
         try:
             return self.coordinates.cell()
