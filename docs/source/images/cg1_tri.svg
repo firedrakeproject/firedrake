@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="134.687pt" height="134.687pt" viewBox="0 0 134.687 134.687" version="1.1">
+<g id="surface1">
+<path style="fill:none;stroke-width:0.79701;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(0%,0%,0%);stroke-opacity:1;stroke-miterlimit:10;" d="M 0.00134375 0.00084375 L 0.00134375 113.387563 " transform="matrix(1,0,0,-1,10.651,124.036)"/>
+<path style="fill:none;stroke-width:0.79701;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(0%,0%,0%);stroke-opacity:1;stroke-miterlimit:10;" d="M 113.388063 0.00084375 L 0.00134375 113.387563 " transform="matrix(1,0,0,-1,10.651,124.036)"/>
+<path style="fill:none;stroke-width:0.79701;stroke-linecap:butt;stroke-linejoin:miter;stroke:rgb(0%,0%,0%);stroke-opacity:1;stroke-miterlimit:10;" d="M 0.00134375 0.00084375 L 113.388063 0.00084375 " transform="matrix(1,0,0,-1,10.651,124.036)"/>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(0%,0%,0%);fill-opacity:1;" d="M 16.320312 124.035156 C 16.320312 120.90625 13.78125 118.367188 10.652344 118.367188 C 7.519531 118.367188 4.980469 120.90625 4.980469 124.035156 C 4.980469 127.167969 7.519531 129.707031 10.652344 129.707031 C 13.78125 129.707031 16.320312 127.167969 16.320312 124.035156 Z M 16.320312 124.035156 "/>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(0%,0%,0%);fill-opacity:1;" d="M 129.707031 124.035156 C 129.707031 120.90625 127.167969 118.367188 124.039062 118.367188 C 120.90625 118.367188 118.367188 120.90625 118.367188 124.035156 C 118.367188 127.167969 120.90625 129.707031 124.039062 129.707031 C 127.167969 129.707031 129.707031 127.167969 129.707031 124.035156 Z M 129.707031 124.035156 "/>
+<path style=" stroke:none;fill-rule:nonzero;fill:rgb(0%,0%,0%);fill-opacity:1;" d="M 16.320312 10.648438 C 16.320312 7.519531 13.78125 4.980469 10.652344 4.980469 C 7.519531 4.980469 4.980469 7.519531 4.980469 10.648438 C 4.980469 13.78125 7.519531 16.316406 10.652344 16.316406 C 13.78125 16.316406 16.320312 13.78125 16.320312 10.648438 Z M 16.320312 10.648438 "/>
+</g>
+</svg>

@@ -100,6 +100,16 @@ same effect:
 	m = UnitSquareMesh(4, 4)
 	mesh = ExtrudedMesh(m, 5)
 
+.. figure:: images/UnitSquare44.png
+  :scale: 50 %
+  :align: center
+
+.. figure:: images/UnifExt.png
+  :scale: 50 %
+  :align: center
+
+  A uniformly extruded UnitSquareMesh
+
 Radial Extrusion
 ~~~~~~~~~~~~~~~~
 
@@ -109,8 +119,18 @@ which a circle is extruded into an annulus, is:
 
 .. code-block:: python
 
-    m = CircleManifoldMesh(10, radius=2)
+    m = CircleManifoldMesh(20, radius=2)
     mesh = ExtrudedMesh(m, 5, extrusion_type='radial')
+
+.. figure:: images/CircleMM20.png
+  :scale: 50 %
+  :align: center
+
+.. figure:: images/RadExt2D.png
+  :scale: 50 %
+  :align: center
+
+  A radially extruded CircleManifoldMesh
 
 An example in 3 dimensions, in which a sphere is extruded into a spherical
 annulus, is:
@@ -119,6 +139,16 @@ annulus, is:
 
     m = IcosahedralSphereMesh(radius=3, refinement_level=3)
     mesh = ExtrudedMesh(m, 5, layer_height=0.1, extrusion_type='radial')
+
+.. figure:: images/Icos3.png
+  :scale: 50 %
+  :align: center
+
+.. figure:: images/RadExt3D.png
+  :scale: 50 %
+  :align: center
+
+  A radially extruded IcosahedralSphereMesh
 
 Hedgehog Extrusion
 ~~~~~~~~~~~~~~~~~~
@@ -129,8 +159,14 @@ coordinate field.
 
 .. code-block:: python
 
-    m = CircleManifoldMesh(10, radius=2)
+    m = CircleManifoldMesh(20, radius=2)
     mesh = ExtrudedMesh(m, 5, extrusion_type='radial_hedgehog')
+
+.. figure:: images/HedgeExt2D.png
+  :scale: 50 %
+  :align: center
+
+  A hedgehog-extruded CircleManifoldMesh
 
 An example in 3 dimensions, in which a sphere is extruded into a spherical
 annulus, is:
@@ -138,7 +174,13 @@ annulus, is:
 .. code-block:: python
 
     m = UnitIcosahedralSphereMesh(refinement_level=2)
-    mesh = ExtrudedMesh(m, 5, extrusion_type='radial_hedgehog')
+    mesh = ExtrudedMesh(m, 5, layer_height=0.1, extrusion_type='radial_hedgehog')
+
+.. figure:: images/HedgeExt3D.png
+  :scale: 50 %
+  :align: center
+
+  A hedgehog-extruded IcosahedralSphereMesh
 
 Custom Extrusion
 ~~~~~~~~~~~~~~~~
@@ -206,6 +248,19 @@ will give a continuous, scalar-valued function space. The resulting space
 contains functions which vary linearly in the horizontal direction and
 linearly in the vertical direction.
 
+.. figure:: images/cg1_tri.svg
+  :scale: 50 %
+  :align: center
+
+.. figure:: images/cg1_int.svg
+  :scale: 50 %
+  :align: center
+
+.. figure:: images/cg1cg1_prism.svg
+  :align: center
+
+  The product of a CG1 triangle element with a CG1 interval element
+
 The degree and continuity may differ; for example
 
 .. code-block:: python
@@ -220,6 +275,19 @@ but discontinuous between horizontally-neighbouring cells. In addition,
 the function may vary piecewise-quadratically in the vertical direction,
 but is piecewise constant horizontally.
 
+.. figure:: images/dg0_tri.svg
+  :scale: 50 %
+  :align: center
+
+.. figure:: images/cg2_int.svg
+  :scale: 50 %
+  :align: center
+
+.. figure:: images/dg0cg2_prism.svg
+  :align: center
+
+  The product of a DG0 triangle element with a CG2 interval element
+
 A more complicated element, like a Mini horizontal element with linear
 variation in the vertical direction, may be built using the
 ``EnrichedElement`` functionality in either of the following ways:
@@ -227,7 +295,7 @@ variation in the vertical direction, may be built using the
 .. code-block:: python
 
     mini_horiz_1 = FiniteElement("CG", triangle, 1)
-    mini_horiz_2 = FiniteElement("B", triangle, 1)
+    mini_horiz_2 = FiniteElement("B", triangle, 3)
     mini_horiz = mini_horiz_1 + mini_horiz_2  # Enriched element
     mini_vert = FiniteElement("CG", interval, 1)
     mini_elt = OuterProductElement(mini_horiz, mini_vert)
@@ -238,12 +306,17 @@ or
 .. code-block:: python
 
     mini_horiz_1 = FiniteElement("CG", triangle, 1)
-    mini_horiz_2 = FiniteElement("B", triangle, 1)
+    mini_horiz_2 = FiniteElement("B", triangle, 3)
     mini_vert = FiniteElement("CG", interval, 1)
     mini_elt_1 = OuterProductElement(mini_horiz_1, mini_vert)
     mini_elt_2 = OuterProductElement(mini_horiz_2, mini_vert)
     mini_elt = mini_elt_1 + mini_elt_2  # Enriched element
     V = FunctionSpace(mesh, mini_elt)
+
+.. figure:: images/mini_prism.svg
+  :align: center
+
+  The product of a Mini triangle element with a CG1 interval element
 
 The HDiv and HCurl operators
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -279,6 +352,12 @@ between elements. To obtain the Raviart-Thomas element, we must use the
     P0P1 = OuterProductElement(DG_0, CG_1)
     RT_vert = HDiv(P0P1)
     elt = RT_horiz + RT_vert
+
+.. figure:: images/rt_quad_pre.svg
+  :align: center
+
+.. figure:: images/rt_quad_post.svg
+  :align: center
 
 Another reason to use the operator is when expanding a vector into a higher
 dimensional space. Consider the lowest-order Nedelec element of the 2nd kind
@@ -318,6 +397,17 @@ prism. The full element can be built as follows:
     Ned_vert = HCurl(P2P1)
     Ned_wedge = Ned_horiz + Ned_vert
     V = FunctionSpace(mesh, Ned_wedge)
+
+.. figure:: images/ned_tri.svg
+  :scale: 50 %
+  :align: center
+
+.. figure:: images/cg2_int.svg
+  :scale: 50 %
+  :align: center
+
+.. figure:: images/ned_prism.svg
+  :align: center
 
 Shortcuts for simple spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
