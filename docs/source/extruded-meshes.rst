@@ -40,11 +40,11 @@ indices of the cell's vertices can only be found by looking up the information
 in a separate array. It follows that data must be indirectly addressed, using
 expressions of the form A[B[i]].
 
-Memory latency makes indirect addressing more expensive than direct
+Memory access latency makes indirect addressing more expensive than direct
 addressing: it is usually more efficient to compute the array index directly
 than to look it up from memory.
 
-The characteristics of an *semi-structured* or *extruded* mesh lie somewhere
+The characteristics of a *semi-structured* or *extruded* mesh lie somewhere
 between the two extremes above. An extruded mesh has an unstructured *base*
 mesh. Each cell of the base mesh corresponds to a *column* of cells in the
 extruded mesh. Visiting the first cell in each column requires indirect
@@ -55,7 +55,7 @@ the performance should approach that of a fully structured mesh.
 Generating Extruded Meshes in Firedrake
 ---------------------------------------
 
-Extruded meshes are built using the :py:class:`~.ExtrudedMesh` object. There
+Extruded meshes are built using the :py:class:`~.ExtrudedMesh` class. There
 are several built-in extrusion types that generate commonly-used extruded
 meshes. To create a more complicated extruded mesh, one can either pass a
 hand-written kernel into the :py:class:`~.ExtrudedMesh` constructor, or one
@@ -81,9 +81,9 @@ Uniform extrusion adds another spatial dimension to the mesh. For example, a
 are computed on the assumption that the layers are evenly spaced (hence the
 word 'uniform').
 
-Let ``m`` be a standard UnitSquareMesh. The following code produces the
-extruded mesh, whose base mesh is ``m``, with 5 mesh layers and a layer
-thickness of 0.2:
+Let ``m`` be a standard :py:class:`~.UnitSquareMesh`. The following code
+produces the extruded mesh, whose base mesh is ``m``, with 5 mesh layers and
+a layer thickness of 0.2:
 
 .. code-block:: python
 
@@ -100,15 +100,15 @@ same effect:
 	m = UnitSquareMesh(4, 4)
 	mesh = ExtrudedMesh(m, 5)
 
+The base mesh and extruded mesh are shown below.
+
 .. figure:: images/UnitSquare44.png
-  :scale: 50 %
-  :align: center
+  :scale: 63 %
+  :align: left
 
 .. figure:: images/UnifExt.png
-  :scale: 50 %
-  :align: center
-
-  A uniformly extruded UnitSquareMesh
+  :scale: 57 %
+  :align: right
 
 Radial Extrusion
 ~~~~~~~~~~~~~~~~
@@ -122,15 +122,15 @@ which a circle is extruded into an annulus, is:
     m = CircleManifoldMesh(20, radius=2)
     mesh = ExtrudedMesh(m, 5, extrusion_type='radial')
 
+The base mesh and extruded mesh are shown below.
+
 .. figure:: images/CircleMM20.png
-  :scale: 50 %
-  :align: center
+  :scale: 67 %
+  :align: left
 
 .. figure:: images/RadExt2D.png
-  :scale: 50 %
-  :align: center
-
-  A radially extruded CircleManifoldMesh
+  :scale: 68 %
+  :align: right
 
 An example in 3 dimensions, in which a sphere is extruded into a spherical
 annulus, is:
@@ -140,15 +140,15 @@ annulus, is:
     m = IcosahedralSphereMesh(radius=3, refinement_level=3)
     mesh = ExtrudedMesh(m, 5, layer_height=0.1, extrusion_type='radial')
 
+The base mesh and part of the extruded mesh are shown below.
+
 .. figure:: images/Icos3.png
-  :scale: 50 %
-  :align: center
+  :scale: 68 %
+  :align: left
 
 .. figure:: images/RadExt3D.png
-  :scale: 50 %
-  :align: center
-
-  A radially extruded IcosahedralSphereMesh
+  :scale: 72 %
+  :align: right
 
 Hedgehog Extrusion
 ~~~~~~~~~~~~~~~~~~
@@ -162,12 +162,6 @@ coordinate field.
     m = CircleManifoldMesh(20, radius=2)
     mesh = ExtrudedMesh(m, 5, extrusion_type='radial_hedgehog')
 
-.. figure:: images/HedgeExt2D.png
-  :scale: 50 %
-  :align: center
-
-  A hedgehog-extruded CircleManifoldMesh
-
 An example in 3 dimensions, in which a sphere is extruded into a spherical
 annulus, is:
 
@@ -176,11 +170,15 @@ annulus, is:
     m = UnitIcosahedralSphereMesh(refinement_level=2)
     mesh = ExtrudedMesh(m, 5, layer_height=0.1, extrusion_type='radial_hedgehog')
 
-.. figure:: images/HedgeExt3D.png
-  :scale: 50 %
-  :align: center
+The 2D and 3D hedgehog-extruded meshes are shown below.
 
-  A hedgehog-extruded IcosahedralSphereMesh
+.. figure:: images/HedgeExt2D.png
+  :scale: 65 %
+  :align: left
+
+.. figure:: images/HedgeExt3D.png
+  :scale: 70 %
+  :align: right
 
 Custom Extrusion
 ~~~~~~~~~~~~~~~~
@@ -248,14 +246,6 @@ will give a continuous, scalar-valued function space. The resulting space
 contains functions which vary linearly in the horizontal direction and
 linearly in the vertical direction.
 
-.. figure:: images/cg1_tri.svg
-  :scale: 50 %
-  :align: center
-
-.. figure:: images/cg1_int.svg
-  :scale: 50 %
-  :align: center
-
 .. figure:: images/cg1cg1_prism.svg
   :align: center
 
@@ -274,14 +264,6 @@ will give a function space which is continuous between cells in a column,
 but discontinuous between horizontally-neighbouring cells. In addition,
 the function may vary piecewise-quadratically in the vertical direction,
 but is piecewise constant horizontally.
-
-.. figure:: images/dg0_tri.svg
-  :scale: 50 %
-  :align: center
-
-.. figure:: images/cg2_int.svg
-  :scale: 50 %
-  :align: center
 
 .. figure:: images/dg0cg2_prism.svg
   :align: center
@@ -337,6 +319,11 @@ The following element is closely related to the desired Raviart-Thomas element:
     P0P1 = OuterProductElement(DG_0, CG_1)
     elt = P1P0 + P0P1
 
+.. figure:: images/rt_quad_pre.svg
+  :align: center
+
+  The element created above
+
 However, this is only scalar-valued. There are two natural vector-valued
 elements that can be generated from this: one of them preserves tangential
 continuity between elements, and the other preserves normal continuity
@@ -353,11 +340,10 @@ between elements. To obtain the Raviart-Thomas element, we must use the
     RT_vert = HDiv(P0P1)
     elt = RT_horiz + RT_vert
 
-.. figure:: images/rt_quad_pre.svg
-  :align: center
-
 .. figure:: images/rt_quad_post.svg
   :align: center
+
+  The RT quadrilateral element, requiring the use of HDiv
 
 Another reason to use the operator is when expanding a vector into a higher
 dimensional space. Consider the lowest-order Nedelec element of the 2nd kind
@@ -382,6 +368,9 @@ three-dimensional curl-conforming element, the syntax is:
 
     Ned_horiz = HCurl(N2CG)
 
+.. figure:: images/ned_prism.svg
+  :align: center
+
 This gives the horizontal part of a Nedelec edge element on a triangular
 prism. The full element can be built as follows:
 
@@ -397,17 +386,6 @@ prism. The full element can be built as follows:
     Ned_vert = HCurl(P2P1)
     Ned_wedge = Ned_horiz + Ned_vert
     V = FunctionSpace(mesh, Ned_wedge)
-
-.. figure:: images/ned_tri.svg
-  :scale: 50 %
-  :align: center
-
-.. figure:: images/cg2_int.svg
-  :scale: 50 %
-  :align: center
-
-.. figure:: images/ned_prism.svg
-  :align: center
 
 Shortcuts for simple spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
