@@ -10,37 +10,6 @@ np.import_array()
 
 include "dmplex.pxi"
 
-def _from_cell_list(dim, cells, coords, comm=None):
-    """
-    Create a DMPlex from a list of cells and coords.
-
-    :arg dim: The topological dimension of the mesh
-    :arg cells: The vertices of each cell
-    :arg coords: The coordinates of each vertex
-    :arg comm: An optional communicator to build the plex on (defaults to COMM_WORLD)
-    """
-
-    if comm is None:
-        comm = MPI.comm
-    if comm.rank == 0:
-        cells = np.asarray(cells, dtype=PETSc.IntType)
-        coords = np.asarray(coords, dtype=float)
-        comm.bcast(cells.shape, root=0)
-        comm.bcast(coords.shape, root=0)
-        # Provide the actual data on rank 0.
-        return PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
-
-    cell_shape = list(comm.bcast(None, root=0))
-    coord_shape = list(comm.bcast(None, root=0))
-    cell_shape[0] = 0
-    coord_shape[0] = 0
-    # Provide empty plex on other ranks
-    # A subsequent call to plex.distribute() takes care of parallel partitioning
-    return PETSc.DMPlex().createFromCellList(dim,
-                                             np.zeros(cell_shape, dtype=PETSc.IntType),
-                                             np.zeros(coord_shape, dtype=float),
-                                             comm=comm)
-
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def facet_numbering(PETSc.DM plex, kind,

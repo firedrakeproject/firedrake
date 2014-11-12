@@ -38,6 +38,7 @@ from parloops import *
 from projection import *
 from solving import *
 from ufl_expr import *
+from utility_meshes import *
 from vector import *
 from version import __version__ as ver, __version_info__, check  # noqa
 
