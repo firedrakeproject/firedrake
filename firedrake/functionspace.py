@@ -85,7 +85,11 @@ class FunctionSpaceBase(ObjectCached):
             self.extruded = False
 
             entity_dofs = self.fiat_element.entity_dofs()
-            self._dofs_per_entity = [len(entity[0]) for d, entity in entity_dofs.iteritems()]
+            flatten_dim = lambda x: sum(x) if isinstance(x, tuple) else x
+            max_dim = max(map(flatten_dim, entity_dofs.keys()))
+            self._dofs_per_entity = [0] * (max_dim + 1)
+            for d, entity in entity_dofs.iteritems():
+                self._dofs_per_entity[flatten_dim(d)] = len(entity[0])
             self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
 
         self.name = name
