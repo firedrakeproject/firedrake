@@ -332,7 +332,7 @@ or
     mini_elt = mini_elt_1 + mini_elt_2  # Enriched element
     V = FunctionSpace(mesh, mini_elt)
 
-The DivConforming and CurlConforming operators
+The HDiv and HCurl operators
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For moderately complicated vector-valued elements, ``OuterProductElement``
@@ -355,16 +355,16 @@ However, this is only scalar-valued. There are two natural vector-valued
 elements that can be generated from this: one of them preserves tangential
 continuity between elements, and the other preserves normal continuity
 between elements. To obtain the Raviart-Thomas element, we must use the
-``DivConforming`` operator:
+``HDiv`` operator:
 
 .. code-block:: python
 
     CG_1 = FiniteElement("CG", interval, 1)
     DG_0 = FiniteElement("DG", interval, 0)
     P1P0 = OuterProductElement(CG_1, DG_0)
-    RT_horiz = DivConforming(P1P0)
+    RT_horiz = HDiv(P1P0)
     P0P1 = OuterProductElement(DG_0, CG_1)
-    RT_vert = DivConforming(P0P1)
+    RT_vert = HDiv(P0P1)
     elt = RT_horiz + RT_vert
 
 Another reason to use the operator is when expanding a vector into a higher
@@ -388,7 +388,7 @@ three-dimensional curl-conforming element, the syntax is:
 
 .. code-block:: python
 
-    Ned_horiz = CurlConforming(N2CG)
+    Ned_horiz = HCurl(N2CG)
 
 This gives the horizontal part of a Nedelec edge element on a triangular
 prism. The full element can be built as follows:
@@ -398,11 +398,11 @@ prism. The full element can be built as follows:
     N2_1 = FiniteElement("N2curl", triangle, 1)
     CG_2 = FiniteElement("CG", interval, 2)
     N2CG = OuterProductElement(N2_1, CG_2)
-    Ned_horiz = CurlConforming(N2CG)
+    Ned_horiz = HCurl(N2CG)
     P2tr = FiniteElement("CG", triangle, 2)
     P1dg = FiniteElement("DG", interval, 1)
     P2P1 = OuterProductElement(P2tr, P1dg)
-    Ned_vert = CurlConforming(P2P1)
+    Ned_vert = HCurl(P2P1)
     Ned_wedge = Ned_horiz + Ned_vert
     V = FunctionSpace(mesh, Ned_wedge)
 
@@ -410,7 +410,7 @@ Shortcuts for simple spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Simple scalar-valued spaces can be created using a variation on the existing
-syntax, if the ``DivConforming``, ``CurlConforming`` and enrichment operations
+syntax, if the ``HDiv``, ``HCurl`` and enrichment operations
 are not required. To create a function space of degree 2 in the horizontal
 direction, degree 1 in the vertical direction and possibly discontinuous
 between layers, the short syntax is
