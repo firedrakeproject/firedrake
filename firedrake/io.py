@@ -247,7 +247,7 @@ class _VTUFile(object):
         else:
             # Connectivity of bottom cell in extruded mesh
             base = Vc.cell_node_map().values_with_halo
-            if _cells[mesh._ufl_cell] == hl.VtkQuad:
+            if _cells[mesh.ufl_cell()] == hl.VtkQuad:
                 # Quad is
                 #
                 # 1--3
@@ -261,7 +261,7 @@ class _VTUFile(object):
                 # 0--1
                 base = base[:, [0, 2, 3, 1]]
                 points_per_cell = 4
-            elif _cells[mesh._ufl_cell] == hl.VtkWedge:
+            elif _cells[mesh.ufl_cell()] == hl.VtkWedge:
                 # Wedge is
                 #
                 #    5
@@ -322,8 +322,8 @@ class _VTUFile(object):
         cell_types = np.empty(num_cells, dtype="uint8")
 
         # Assume that all cells are of same shape.
-        cell_types[:] = _cells[mesh._ufl_cell].tid
-        p_c = _points_per_cell[mesh._ufl_cell]
+        cell_types[:] = _cells[mesh.ufl_cell()].tid
+        p_c = _points_per_cell[mesh.ufl_cell()]
 
         # This tells which are the last nodes of each cell.
         offsets = np.arange(start=p_c, stop=p_c * (num_cells + 1), step=p_c,
