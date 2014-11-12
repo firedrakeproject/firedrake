@@ -617,7 +617,7 @@ class FunctionSpace(FunctionSpaceBase):
             if isinstance(mesh, mesh_t.ExtrudedMesh):
                 # if extruded mesh, make the OPE
                 la = ufl.FiniteElement(family,
-                                       domain=mesh._old_mesh._ufl_cell,
+                                       domain=mesh._old_mesh.ufl_cell(),
                                        degree=degree)
                 if vfamily is None or vdegree is None:
                     # if second element was not passed in, assume same as first
@@ -668,7 +668,7 @@ class VectorFunctionSpace(FunctionSpaceBase):
             if isinstance(family, ufl.OuterProductElement):
                 raise NotImplementedError("Not yet implemented")
             la = ufl.FiniteElement(family,
-                                   domain=mesh._old_mesh._ufl_cell,
+                                   domain=mesh._old_mesh.ufl_cell(),
                                    degree=degree)
             if vfamily is None or vdegree is None:
                 lb = ufl.FiniteElement(family, domain=ufl.Cell("interval", 1),

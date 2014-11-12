@@ -552,7 +552,19 @@ class Mesh(object):
         return self._ufl_domain
 
     def ufl_cell(self):
-        return self._ufl_cell
+        """The UFL :class:`~ufl.cell.Cell` associated with the mesh.
+
+        If the mesh has associated coordinates then this will be the
+        cell of the coordinate function space, otherwise it will be
+        the cell created when the :class:`Mesh` was created. This
+        ensures that replacing the coordinate field with one of a
+        different geometric dimension does the Right Thing.
+
+        """
+        try:
+            return self.coordinates.cell()
+        except:
+            return self._ufl_cell
 
     def num_cells(self):
         cStart, cEnd = self._plex.getHeightStratum(0)
@@ -660,7 +672,7 @@ class ExtrudedMesh(Mesh):
                                         exterior_f.markers)
 
         self.ufl_cell_element = ufl.FiniteElement("Lagrange",
-                                                  domain=mesh._ufl_cell,
+                                                  domain=mesh.ufl_cell(),
                                                   degree=1)
         self.ufl_interval_element = ufl.FiniteElement("Lagrange",
                                                       domain=ufl.Cell("interval", 1),
@@ -673,19 +685,19 @@ class ExtrudedMesh(Mesh):
 
         if extrusion_type == "uniform":
             # *must* add a new dimension
-            self._ufl_cell = ufl.OuterProductCell(mesh._ufl_cell, ufl.Cell("interval", 1), gdim=mesh._ufl_cell.geometric_dimension() + 1)
+            self._ufl_cell = ufl.OuterProductCell(mesh.ufl_cell(), ufl.Cell("interval", 1), gdim=mesh.ufl_cell().geometric_dimension() + 1)
 
         elif extrusion_type in ["radial", "radial_hedgehog"]:
             # do not allow radial extrusion if tdim = gdim
-            if mesh._ufl_cell.geometric_dimension() == mesh._ufl_cell.topological_dimension():
+            if mesh.ufl_cell().geometric_dimension() == mesh.ufl_cell().topological_dimension():
                 raise RuntimeError("Cannot radially-extrude a mesh with equal geometric and topological dimension")
-            self._ufl_cell = ufl.OuterProductCell(mesh._ufl_cell, ufl.Cell("interval", 1))
+            self._ufl_cell = ufl.OuterProductCell(mesh.ufl_cell(), ufl.Cell("interval", 1))
 
         else:
             # otherwise, use the gdim that was passed in
             if gdim is None:
                 raise RuntimeError("Must specify geometric dimension of mesh if custom kernel is used")
-            self._ufl_cell = ufl.OuterProductCell(mesh._ufl_cell, ufl.Cell("interval", 1), gdim=gdim)
+            self._ufl_cell = ufl.OuterProductCell(mesh.ufl_cell(), ufl.Cell("interval", 1), gdim=gdim)
 
         self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
         flat_temp = fiat_element.flattened_element()
@@ -764,7 +776,7 @@ class ExtrudedMesh(Mesh):
 
     @property
     def geometric_dimension(self):
-        return self._ufl_cell.geometric_dimension()
+        return self.ufl_cell().geometric_dimension()
 
 
 class UnitSquareMesh(Mesh):
