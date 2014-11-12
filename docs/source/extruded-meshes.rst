@@ -8,279 +8,192 @@ Extruded Meshes in Firedrake
 Introduction
 ------------
 
-Solving Partial Differential Equations (PDEs) on high aspect ratio domains
-often leads to treating the short (or *vertical*) direction differently from a
-numerical point of view. This implies that certain properties of the domain
-can be easily exploited in the presence of a structured vertical direction.
-This allows for the numerical algorithms behind domain-wide mathematical
-operations (such as integration) to achieve good performance.
+Firedrake provides several utility functions for the creation of
+semi-structured meshes from an unstructured base mesh. Firedrake also
+provides a wide range of finite element spaces, both simple and sophisticated,
+for use with such meshes.
 
-Firedrake supports extruded meshes and aims to deliver an automatic way of
-exploiting the benefits exposed by these domain types.
+These meshes may be particularly appropriate when carrying out simulations
+on high aspect ratio domains. More mundanely, they allow a two-dimensional
+mesh to be built from square or rectangular cells.
 
+The partial structure can be exploited to give performance advantages when
+iterating over the mesh, relative to a fully unstructured traversal of the
+same mesh. Firedrake exploits these benefits when extruded meshes are used.
 
-Types of Meshes
----------------
+Structured, Unstructured and Semi-Structured Meshes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The two main categories of meshes are structured and unstructured meshes.
+Structured and unstructured meshes differ in the way the topology of the mesh
+is specified.
 
-The characteristic of the two types of meshes which has the biggest impact on
-performance is the way the topology is specified.
+In a *fully structured* mesh, the array indices of mesh entities can be
+computed directly. For example, given the index of the current cell, the
+indices of the cell's vertices can be computed using a simple mathematical
+expression. This means that data can be directly addressed, using expressions
+of the form A[i].
 
-In the *structured* case, the identifiers of mesh components can be inferred
-(computed) based on the current location in the mesh. Given the identifier of
-the current component (cell), the identifiers of some neighbouring components
-(vertices) can be computed using a closed form mathematical formula. This is
-known as direct addressing (A[i]).
+In a *fully unstructured* mesh, there is no simple relation between the
+indices of different mesh entities. Instead, the relationships have to be
+explicitly stored. For example, given the index of the current cell, the
+indices of the cell's vertices can only be found by looking up the information
+in a separate array. It follows that data must be indirectly addressed, using
+expressions of the form A[B[i]].
 
-In the *unstructured* case, the mesh components have to be explicitly
-enumerated in the form of maps from one mesh component type to another (from
-cells to vertices for example). For each cell the map will contain a list of
-vertices. This is known as indirect addressing (A[B[i]]).
+Memory latency makes indirect addressing more expensive than direct
+addressing: it is usually more efficient to compute the array index directly
+than to look it up from memory.
 
-Memory latency makes indirect addressing more expensive than direct addressing
-as it is often more effecient to compute than to perform a fetch from memory.
+The characteristics of an *semi-structured* or *extruded* mesh lie somewhere
+between the two extremes above. An extruded mesh has an unstructured *base*
+mesh. Each cell of the base mesh corresponds to a *column* of cells in the
+extruded mesh. Visiting the first cell in each column requires indirect
+addressing. However, visiting subsequent cells in the column can be done
+using direct addressing. As the number of cells in the column increases,
+the performance should approach that of a fully structured mesh.
 
-An *extruded mesh* in the current Firedrake implementation combines the two
-types of meshes: an unstructured mesh is used to specify the topology of the
-widest part of the domain while the short (*vertical*) is structured.
+Generating Extruded Meshes in Firedrake
+---------------------------------------
 
-More details on the meshes supported by Firedrake can be found in the
-:doc:`Variational Problems<variational-problems>` section.
+Extruded meshes are built using the :py:class:`~.ExtrudedMesh` object. There
+are several built-in extrusion types that generate commonly-used extruded
+meshes. To create a more complicated extruded mesh, one can either pass a
+hand-written kernel into the :py:class:`~.ExtrudedMesh` constructor, or one
+can use a built-in extrusion type and modify the coordinate field afterwards.
 
-Implementation of the Extrusion Process in Firedrake
-----------------------------------------------------
+The following information may be passed in to the constructor:
 
-Non-extruded meshes
-~~~~~~~~~~~~~~~~~~~
-
-A Firedrake :py:class:`~firedrake.core_types.Mesh` object contains the topolgy
-and geometric data required to define a mesh. In Firedrake this means:
-
-- the mesh knows about the shape of the cells (interval, triangle, etc).
-- the vertices of the mesh have a coordinate field associated to them (2D or
-  3D coordinates).
-- each mesh component (cell, vertex) is assigned a unique identifier (global
-  numbering).
-- a map is needed to define the connectivity of the mesh (cell to vertices).
-
-<INSERT PICTURE HERE OF 2D MESH>
-
-Extruded Meshes
-~~~~~~~~~~~~~~~
-
-Conceptually, an extruded mesh requires a generic base mesh and a number of
-layers. The number of layers specifies the multiplicity of the base mesh in
-the extruded mesh.
-
-<INSERT PICTURE OF EXTRUDED MESH HERE>
-
-As we can see here, the base mesh remains unstructured but each vertical
-column of 3D elements is structured.
-
-Extrusion also changes the type of the cell. For example, a triangle cell
-becomes a wedge-shaped cell.
-
-<INSERT PICTURE OF TRIANGLE TO WEDGE TRANSFORMATION>
-
-The extrusion process can add another dimension to the mesh. A planar 2D mesh
-becomes a 3D mesh through extrusion. This is not necessarily true for
-manifolds, their dimension may remain the same even after extrusion. The
-radially-extruded version of a 3D spherical surface remains in 3D space.
-
-Extruded Meshes
-~~~~~~~~~~~~~~~
-
-In Firedrake, a :py:class:`~firedrake.core_types.ExtrudedMesh` object is a
-subclass of :py:class:`~firedrake.core_types.Mesh`. It mimics the
-:py:class:`~firedrake.core_types.Mesh` object behaviour in the presence of an
-extra inferred dimension (we call this the *vertical*). If direct addressing
-techniques are to be used in the *vertical* then the mesh topology need not be
-explicit for all the elements of the *vertical* direction.
-
-In Firedrake, an :py:class:`~firedrake.core_types.ExtrudedMesh` object is a
-subclass of :py:class:`~firedrake.core_types.Mesh`. It mimics the
-:py:class:`~firedrake.core_types.Mesh` object behaviour in the presence of an
-extra inferred dimension (we call this the *vertical*). If direct addressing
-techniques are to be used in the *vertical* then the mesh topology need not be
-explicit for all the elements of the *vertical* direction.
-
-Let the *base layer* be the bottom-most layer of extruded cells.
-
-Only the *base layer* elements require explicit maps. The remainder of the
-topology information can be computed by the addition of an *offset* to the
-*base layer* information. We can name the the *inferred* part of the mesh.
-
-The extruded mesh is therefore not fully constructed, it is simply an enhanced
-version of the unstructured base mesh with the following modifications:
-
-- the mesh contains the number of layers (this was not present in the
-  :py:class:`~firedrake.core_types.Mesh` object).
-- the shape of the cells changes (triangles become wedges).
-- the vertex coordinates are (re)computed for each vertex (including the
-  inferred vertices) of the mesh based on the type of the extrusion (uniform,
-  radial).
-- each mesh component, inferred or not, is assigned a unique identifier
-  (global numbering).
-- the map contains explicit indirections of the *base layer* only.
-
-Using Extruded Meshes in Firedrake
---------------------------------------
-
-The current Firedrake implementation only supports evenly-spaced extruded meshes.
-
-As mentioned in the implementation section above, the extrusion process needs
-to start from a *base mesh*. Any mesh can be used as a base mesh, the more
-common case being meshes with 2D coordinate systems.
-
-The following code creates a unit square mesh with triangular cells.
-
-.. code-block:: python
-
-	mesh = UnitSquareMesh(2, 2)
-
-The size of the mesh is given by the number of cells on the sides of the
-square, in this case two cells on each side.
-
-This is one of the built-in functions which can be used to create Firedrake
-pre-defined meshes of different sizes. A more detailed descritpion of other
-meshes available in Firedrake can be found in the :doc: Variational
-Problems<variational-problems> section on mesh construction.
-
-Based on the assumptions in the section above, the construction of an
-:py:class:`~firedrake.core_types.ExtrudedMesh` object:
-
-- must include a :py:class:`~firedrake.core_types.Mesh` object to be used as
-  a base for the extrusion.
-- must include a number of layers (the base mesh multiplicity factor).
-- may include the ``layer_height`` (the current implementation assumes even
-  spacing between layers).
-- may include the ``extrusion_type`` uniform (default) or radial.
-
-The default ``layer_height`` is obtained by dividing the unit length equally
-between all layers (the sum of all the distances between subsequent layers
-equals 1).
+- a :py:class:`~.Mesh` object, which will be used as the base mesh.
+- the desired number of cell layers in the extruded mesh.
+- the ``extrusion_type``, which can be one of the built-in "uniform",
+  "radial" or "radial_hedgehog" -- these are described below -- or "custom".
+  If this argument is omitted, the "uniform" extrusion type will be used.
+- the ``layer_height``, which is needed for the built-in extrusion types.
+- a ``kernel``, only if the custom extrusion type is used
+- the appropriate ``gdim``, describing the geometric dimension of the mesh,
+  only if the custom extrusion type is used.
 
 Uniform Extrusion
 ~~~~~~~~~~~~~~~~~
 
-Uniform extrusion is a form of extrusion which adds another dimension to the
-coordinate field (2D coordinates become 3D for example). The computation of
-the coordinates in the new direction is based on the assumption that the
-layers are evenly spaced (hence the word uniform).
+Uniform extrusion adds another spatial dimension to the mesh. For example, a
+2D base mesh becomes a 3D extruded mesh. The coordinates of the extruded mesh
+are computed on the assumption that the layers are evenly spaced (hence the
+word 'uniform').
 
-Let ``mesh`` be the previously constructed unit square mesh defined above.
-Uniformly extruding ``mesh`` with 10 mesh layers and a distance of
-:math:`0.1` between them can be done in the following way:
-
-.. code-block:: python
-
-	extruded_mesh = ExtrudedMesh(mesh, 10, layer_height=0.1, extrusion_type='uniform')
-
-As uniform extrusion is the default type of of extrusion, the call can be
-simplified to:
+Let ``m`` be a standard UnitSquareMesh. The following code produces the
+extruded mesh, whose base mesh is ``m``, with 5 mesh layers and a layer
+thickness of 0.2:
 
 .. code-block:: python
 
-	extruded_mesh = ExtrudedMesh(mesh, 10, layer_height=0.1)
+	m = UnitSquareMesh(4, 4)
+	mesh = ExtrudedMesh(m, 5, layer_height=0.2, extrusion_type='uniform')
 
-A further simplification can be made as the provided layer height in this case
-is equal to the default value :math:`1/10 = 0.1`:
+This can be simplified slightly. The extrusion_type defaults to 'uniform', so
+this can be omitted. Furthermore, the layer_height, if omitted, defaults to
+the reciprocal of the number of layers. The following code therefore has the
+same effect:
 
 .. code-block:: python
 
-	extruded_mesh = ExtrudedMesh(mesh, 11)
+	m = UnitSquareMesh(4, 4)
+	mesh = ExtrudedMesh(m, 5)
 
 Radial Extrusion
 ~~~~~~~~~~~~~~~~
 
-Given a mesh, every point is extruded in the outwards direction from the
-origin.
+Radial extrusion extrudes cells radially outwards from the origin, without
+increasing the number of spatial dimensions. An example in 2 dimensions, in
+which a circle is extruded into an annulus, is:
 
 .. code-block:: python
 
-	extruded_mesh = ExtrudedMesh(mesh, 10, layer_height=0.1, extrusion_type='radial')
+    m = CircleManifoldMesh(10, radius=2)
+    mesh = ExtrudedMesh(m, 5, extrusion_type='radial')
 
-Radial extrusion has been developed as a way of extruding spherical surfaces.
-The following code radially extrudes a spherical mesh:
+An example in 3 dimensions, in which a sphere is extruded into a spherical
+annulus, is:
 
 .. code-block:: python
 
-	mesh = IcosahedralSphereMesh(radius=1000, refinement_level=2)
-	extruded_mesh = ExtrudedMesh(mesh, 10, layer_height=0.1, extrusion_type='radial')
+    m = IcosahedralSphereMesh(radius=3, refinement_level=3)
+    mesh = ExtrudedMesh(m, 5, layer_height=0.1, extrusion_type='radial')
 
-In the above example the layer height can be omitted as it is the same as the
-default value.
+Hedgehog Extrusion
+~~~~~~~~~~~~~~~~~~
+
+Hedgehog extrusion is similar to radial extrusion, but the cells are extruded
+outwards in a direction normal to the base cell. This produces a discontinuous
+coordinate field.
+
+.. code-block:: python
+
+    m = CircleManifoldMesh(10, radius=2)
+    mesh = ExtrudedMesh(m, 5, extrusion_type='radial_hedgehog')
+
+An example in 3 dimensions, in which a sphere is extruded into a spherical
+annulus, is:
+
+.. code-block:: python
+
+    m = UnitIcosahedralSphereMesh(refinement_level=2)
+    mesh = ExtrudedMesh(m, 5, extrusion_type='radial_hedgehog')
 
 Custom Extrusion
 ~~~~~~~~~~~~~~~~
 
-In order to perform the computation of the coordinates effeciently (because
-this is a mesh-wide operation), a PyOP2-style parallel loop is constructed
-by the Firedrake backend.
-
-The kernels to be used for the coordinate field computation of the extruded
-mesh are either automatically generated (uniform or radial extrusion) or can
-be provided by the user as constant strings.
+For a more complicated extruded mesh, a custom *kernel* can be given by the
+user. Since this is a mesh-wide operation, a PyOP2 parallel loop is
+constructed by Firedrake.
 
 .. code-block:: python
 
-	kernel = """
-	   void extrusion_kernel(double *extruded_coords[],
-                             double *two_d_coords[],
-                             int *layer_number[]) {
-           extruded_coords[0][0] = two_d_coords[0][0]; // X
-           extruded_coords[0][1] = two_d_coords[0][1]; // Y
-           extruded_coords[0][2] = 0.1 * layer_number[0][0]; // Z
-       }
-	"""
-	extruded_mesh = ExtrudedMesh(mesh, layers, kernel=kernel)
-
+    m = UnitSquareMesh(5, 5)
+    kernel = op2.Kernel("""
+        void extrusion_kernel(double **base_coords, double **ext_coords,
+                              int **layer, double *layer_height) {
+            ext_coords[0][0] = base_coords[0][0]; // X
+            ext_coords[0][1] = base_coords[0][1]; // Y
+            ext_coords[0][2] = 0.1 * layer[0][0] + base_coords[0][1]; // Z
+        }
+    """, "extrusion_kernel")
+    mesh = ExtrudedMesh(m, 5, extrusion_type='custom', kernel=kernel, gdim=3)
 
 Function Spaces on Extruded Meshes
 ----------------------------------
 
 The syntax for building a :py:class:`~.FunctionSpace` on an extruded mesh is
-an extension of the existing syntax for non-extruded meshes.
+an extension of the existing syntax used with normal meshes. On a
+non-extruded mesh, the following syntax is used:
 
-Geometrically, a cell from an extruded mesh can be thought of as the *product*
-of a base, "horizontal", cell with a "vertical" interval. The construction of
-function spaces on extruded meshes makes use of this fact.
+.. code-block:: python
 
-Firedrake supports all function spaces whose local element can be expressed
-as the product of an element defined on the base cell with an element defined
-on an interval.
+    mesh = UnitSquareMesh(4, 4)
+    V = FunctionSpace(mesh, "RT", 1)
 
-To allow maximal flexibility in constructing function spaces on extruded
-meshes, Firedrake supports a more general syntax:
+To allow maximal flexibility in constructing function spaces, Firedrake
+supports a more general syntax:
 
 .. code-block:: python
 
     V = FunctionSpace(mesh, element)
 
-where ``element`` is a UFL FiniteElement object. This requires manipulation
-of FiniteElement objects, which is not presently performed by the user in
-other applications.
+where ``element`` is a UFL FiniteElement object. This requires generation
+and manipulation of FiniteElement objects.
 
-For example, in a non-extruded context, the following are equivalent:
-
-.. code-block:: python
-
-    Mesh = UnitSquareMesh(4, 4)
-    V = FunctionSpace(mesh, "RT", 1)
-
-.. code-block:: python
-
-    Mesh = UnitSquareMesh(4, 4)
-    V_elt = FiniteElement("RT", triangle, 1)
-    V = FunctionSpace(mesh, V_elt)
+Geometrically, an extruded mesh cell is the *product* of a base, "horizontal",
+cell with a "vertical" interval. The construction of function spaces on
+extruded meshes makes use of this. Firedrake supports all function spaces
+whose local element can be expressed as the product of an element defined on
+the base cell with an element defined on an interval.
 
 We will now introduce the new operators which act on FiniteElement objects.
 
 The OuterProductElement operator
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-To create any Element compatible with an extruded mesh, you must use the ``OuterProductElement`` operator. For example,
+To create an Element compatible with an extruded mesh, one should use the ``OuterProductElement`` operator. For example,
 
 .. code-block:: python
 
@@ -290,8 +203,8 @@ To create any Element compatible with an extruded mesh, you must use the ``Outer
     V = FunctionSpace(mesh, elt)
 
 will give a continuous, scalar-valued function space. The resulting space
-is technically piecewise-quadratic, but it only contains functions which
-vary linearly in the horizontal and linearly in the vertical direction.
+is contains functions which vary linearly in the horizontal direction and
+linearly in the vertical direction.
 
 The degree and continuity may differ; for example
 
@@ -427,10 +340,8 @@ the ``vfamily`` and ``vdegree`` arguments may be omitted. If ``mesh`` is an
 
 	fspace = FunctionSpace(mesh, "Lagrange", 1)
 
+and
+
 .. code-block:: python
 
 	fspace = FunctionSpace(mesh, "Lagrange", 1, vfamily="Lagrange", vdegree=1)
-
-Note that replacing :py:class:`~.FunctionSpace` by
-:py:class:`~.VectorFunctionSpace`, when using the short syntax, will do the
-expected thing.

@@ -631,7 +631,7 @@ class ExtrudedMesh(Mesh):
                          `custom`: use a custom kernel to generate the
                          extruded coordinates
     :arg kernel:         a :class:`pyop2.Kernel` to produce coordinates for
-                         the extruded mesh. See :func:`make_extruded_coords`
+                         the extruded mesh. See :func:`~.make_extruded_coords`
                          for more details.
     :arg gdim:           number of spatial dimensions of the
                          resulting mesh (this is only used if a
