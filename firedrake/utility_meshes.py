@@ -248,7 +248,7 @@ class UnitTriangleMesh(mesh.Mesh):
     def __init__(self):
         self.name = "unittri"
         coords = [[0., 0.], [1., 0.], [0., 1.]]
-        cells = [[1, 2, 0]]
+        cells = [[0, 1, 2]]
         plex = _from_cell_list(2, cells, coords)
         super(UnitTriangleMesh, self).__init__(self.name, plex=plex)
 
@@ -373,7 +373,7 @@ class UnitTetrahedronMesh(mesh.Mesh):
     def __init__(self):
         self.name = "unittetra"
         coords = [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
-        cells = [[1, 0, 3, 2]]
+        cells = [[0, 1, 2, 3]]
         plex = _from_cell_list(3, cells, coords)
         super(UnitTetrahedronMesh, self).__init__(self.name, plex=plex)
 
