@@ -620,9 +620,9 @@ class FunctionSpace(FunctionSpaceBase):
             # First case...
             if isinstance(mesh, mesh_t.ExtrudedMesh):
                 # if extruded mesh, make the OPE
-                la = ufl.FiniteElement(family,
-                                       domain=mesh._old_mesh.ufl_cell(),
-                                       degree=degree)
+                la = _ufl_finite_element(family,
+                                         domain=mesh._old_mesh.ufl_cell(),
+                                         degree=degree)
                 if vfamily is None or vdegree is None:
                     # if second element was not passed in, assume same as first
                     # (only makes sense for CG or DG)
@@ -638,9 +638,7 @@ class FunctionSpace(FunctionSpaceBase):
                 element = ufl.OuterProductElement(la, lb, domain=mesh.ufl_domain())
             else:
                 # if not an extruded mesh, just make the element
-                element = ufl.FiniteElement(family,
-                                            domain=mesh.ufl_domain(),
-                                            degree=degree)
+                element = _ufl_finite_element(family, domain=mesh.ufl_domain(), degree=degree)
 
         super(FunctionSpace, self).__init__(mesh, element, name, dim=1)
         self._initialized = True
@@ -671,9 +669,9 @@ class VectorFunctionSpace(FunctionSpaceBase):
         if isinstance(mesh, mesh_t.ExtrudedMesh):
             if isinstance(family, ufl.OuterProductElement):
                 raise NotImplementedError("Not yet implemented")
-            la = ufl.FiniteElement(family,
-                                   domain=mesh._old_mesh.ufl_cell(),
-                                   degree=degree)
+            la = _ufl_finite_element(family,
+                                     domain=mesh._old_mesh.ufl_cell(),
+                                     degree=degree)
             if vfamily is None or vdegree is None:
                 lb = ufl.FiniteElement(family, domain=ufl.Cell("interval", 1),
                                        degree=degree)
@@ -682,8 +680,7 @@ class VectorFunctionSpace(FunctionSpaceBase):
                                        degree=vdegree)
             element = ufl.OuterProductVectorElement(la, lb, dim=dim, domain=mesh.ufl_domain())
         else:
-            element = ufl.VectorElement(family, domain=mesh.ufl_domain(),
-                                        degree=degree, dim=dim)
+            element = _ufl_vector_element(family, domain=mesh.ufl_domain(), degree=degree, dim=dim)
         super(VectorFunctionSpace, self).__init__(mesh, element, name, dim=dim, rank=1)
         self._initialized = True
 
@@ -941,3 +938,37 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         :meth:`exterior_facet_node_map` in that only surface nodes
         are referenced, not all nodes in cells touching the surface.'''
         return self._fs.exterior_facet_boundary_node_map
+
+
+def _ufl_finite_element(family, domain, degree):
+    if isinstance(domain, ufl.Domain):
+        cell = domain.cell()
+    elif isinstance(domain, ufl.Cell):
+        cell = domain
+    else:
+        raise ValueError("Illegal domain or cell type")
+
+    if cell == ufl.Cell("quadrilateral"):
+        return ufl.OuterProductElement(
+            ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
+            ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
+            domain=domain)
+    else:
+        return ufl.FiniteElement(family, domain=domain, degree=degree)
+
+
+def _ufl_vector_element(family, domain, degree, dim):
+    if isinstance(domain, ufl.Domain):
+        cell = domain.cell()
+    elif isinstance(domain, ufl.Cell):
+        cell = domain
+    else:
+        raise ValueError("Illegal domain or cell type")
+
+    if cell == ufl.Cell("quadrilateral"):
+        return ufl.OuterProductVectorElement(
+            ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
+            ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
+            dim=dim, domain=domain)
+    else:
+        return ufl.VectorElement(family, domain=domain, degree=degree, dim=dim)
