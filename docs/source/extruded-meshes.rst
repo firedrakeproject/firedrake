@@ -203,7 +203,7 @@ To create an Element compatible with an extruded mesh, one should use the ``Oute
     V = FunctionSpace(mesh, elt)
 
 will give a continuous, scalar-valued function space. The resulting space
-is contains functions which vary linearly in the horizontal direction and
+contains functions which vary linearly in the horizontal direction and
 linearly in the vertical direction.
 
 The degree and continuity may differ; for example
