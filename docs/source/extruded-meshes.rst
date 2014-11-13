@@ -219,8 +219,8 @@ supports a more general syntax:
 
     V = FunctionSpace(mesh, element)
 
-where ``element`` is a UFL FiniteElement object. This requires generation
-and manipulation of FiniteElement objects.
+where ``element`` is a UFL :py:class:`~ufl.finiteelement.finiteelement.FiniteElement` object. This
+requires generation and manipulation of FiniteElement objects.
 
 Geometrically, an extruded mesh cell is the *product* of a base, "horizontal",
 cell with a "vertical" interval. The construction of function spaces on
