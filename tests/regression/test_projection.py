@@ -76,7 +76,7 @@ def test_vector_convergence(degree, family, expected_convergence):
 
 
 @pytest.mark.parametrize(('degree', 'family', 'expected_convergence'), [
-    (1, 'RT', 0.76),
+    (1, 'RT', 0.75),
     (2, 'RT', 1.8),
     (3, 'RT', 2.8),
     (1, 'BDM', 1.8),

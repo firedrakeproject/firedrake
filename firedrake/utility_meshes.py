@@ -254,6 +254,7 @@ def RectangleMesh(nx, ny, Lx, Ly, reorder=None):
     boundary = PETSc.DMPlex().create(MPI.comm)
     boundary.setDimension(1)
     boundary.createSquareBoundary([0., 0.], [float(Lx), float(Ly)], [nx, ny])
+    boundary.setTriangleOptions("pqezQYSl")
     plex = PETSc.DMPlex().generate(boundary)
     plex.createLabel("boundary_ids")
     plex.markBoundaryFaces("boundary_faces")
