@@ -75,7 +75,6 @@ class NonlinearVariationalProblem(object):
         self.bcs = bcs
 
         # Store form compiler parameters
-        form_compiler_parameters = form_compiler_parameters or {}
         self.form_compiler_parameters = form_compiler_parameters
 
 
@@ -120,9 +119,11 @@ class NonlinearVariationalSolver(object):
         # force an additional assembly of the matrix since in
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
-        self._jac_tensor = assemble(self._problem.J_ufl, bcs=self._problem.bcs)
+        self._jac_tensor = assemble(self._problem.J_ufl, bcs=self._problem.bcs,
+                                    form_compiler_parameters=self._problem.form_compiler_parameters)
         if self._problem.Jp is not None:
-            self._jac_ptensor = assemble(self._problem.Jp, bcs=self._problem.bcs)
+            self._jac_ptensor = assemble(self._problem.Jp, bcs=self._problem.bcs,
+                                         form_compiler_parameters=self._problem.form_compiler_parameters)
         else:
             self._jac_ptensor = self._jac_tensor
         test = self._problem.F_ufl.arguments()[0]
@@ -218,7 +219,8 @@ class NonlinearVariationalSolver(object):
         # Note that this happens even when the u_ufl vec is aliased to
         # X_, hence this not being inside the if above.
         self._x.dat.needs_halo_update = True
-        assemble(self._problem.F_ufl, tensor=self._F_tensor)
+        assemble(self._problem.F_ufl, tensor=self._F_tensor,
+                 form_compiler_parameters=self._problem.form_compiler_parameters)
         for bc in self._problem.bcs:
             bc.zero(self._F_tensor)
 
@@ -240,12 +242,14 @@ class NonlinearVariationalSolver(object):
         self._x.dat.needs_halo_update = True
         assemble(self._problem.J_ufl,
                  tensor=self._jac_tensor,
-                 bcs=self._problem.bcs)
+                 bcs=self._problem.bcs,
+                 form_compiler_parameters=self._problem.form_compiler_parameters)
         self._jac_tensor.M._force_evaluation()
         if self._problem.Jp is not None:
             assemble(self._problem.Jp,
                      tensor=self._jac_ptensor,
-                     bcs=self._problem.bcs)
+                     bcs=self._problem.bcs,
+                     form_compiler_parameters=self._problem.form_compiler_parameters)
             self._jac_ptensor.M._force_evaluation()
             return PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
@@ -388,13 +392,20 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
 
 
 @profile
-def assemble(f, tensor=None, bcs=None):
+def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None):
     """Evaluate f.
 
     :arg f: a :class:`ufl.Form` or :class:`ufl.core.expr.Expr`.
     :arg tensor: an existing tensor object to place the result in
          (optional).
     :arg bcs: a list of boundary conditions to apply (optional).
+    :arg form_compiler_parameters: (optional) dict of parameters to pass to
+         the form compiler.  Ignored if not assembling a
+         :class:`ufl.Form`.  Any parameters provided here will be
+         overridden by parameters set on the :class;`ufl.Measure` in the
+         form.  For example, if a :data:`quadrature_degree` of 4 is
+         specified in this argument, but a degree of 3 is requested in
+         the measure, the latter will be used.
 
     If f is a :class:`ufl.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
@@ -417,14 +428,15 @@ def assemble(f, tensor=None, bcs=None):
     """
 
     if isinstance(f, ufl.form.Form):
-        return _assemble(f, tensor=tensor, bcs=_extract_bcs(bcs))
+        return _assemble(f, tensor=tensor, bcs=_extract_bcs(bcs),
+                         form_compiler_parameters=form_compiler_parameters)
     elif isinstance(f, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(f)
     else:
         raise TypeError("Unable to assemble: %r" % f)
 
 
-def _assemble(f, tensor=None, bcs=None):
+def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None):
     """Assemble the form f and return a Firedrake object representing the
     result. This will be a :class:`float` for 0-forms, a
     :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
@@ -433,10 +445,12 @@ def _assemble(f, tensor=None, bcs=None):
     :arg tensor: An existing tensor object into which the form should be
         assembled. If this is not supplied, a new tensor will be created for
         the purpose.
+    :arg form_compiler_parameters: (optional) dict of parameters to pass to
+        the form compiler.
 
     """
 
-    kernels = ffc_interface.compile_form(f, "form")
+    kernels = ffc_interface.compile_form(f, "form", parameters=form_compiler_parameters)
     rank = len(f.arguments())
 
     is_mat = rank == 2
@@ -743,7 +757,7 @@ def _assemble(f, tensor=None, bcs=None):
             tensor.assemble()
         return result()
 
-    thunk = assembly_cache._cache_thunk(thunk, f, result())
+    thunk = assembly_cache._cache_thunk(thunk, f, result(), form_compiler_parameters)
 
     if is_mat:
         result_matrix._assembly_callback = thunk
