@@ -479,6 +479,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, reorder=None):
     :arg radius: The radius of the sphere to approximate.
          For a radius R the edge length of the underlying
          icosahedron will be.
+
          .. math::
 
              a = \\frac{R}{\\sin(2 \\pi / 5)}
