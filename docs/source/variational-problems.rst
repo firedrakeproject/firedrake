@@ -18,14 +18,13 @@ function spaces to actually hold the solutions.
 Constructing meshes
 -------------------
 
-Firedrake can read meshes in `Gmsh`_ and `triangle`_ format.  To build
-a mesh one uses the :py:class:`~.Mesh`
-constructor, passing the name of the file as an argument.  If your
-mesh is in triangle format, you should pass the name of ``node`` file,
-if it is in Gmsh format, use the name of the ``msh`` file.  For
-example, if your mesh comes from a Gmsh ``geo`` file called
-``coastline.geo``, you can generate a ``Mesh`` object in Firedrake
-with:
+Firedrake can read meshes in `Gmsh`_, `triangle`_, `CGNS`_, and
+`Exodus`_ formats.  To build a mesh one uses the :py:class:`~.Mesh`
+constructor, passing the name of the file as an argument, which see
+for more details.  The mesh type is determined by the file extension,
+for example if the provided filename is ``coastline.msh`` the mesh is
+assumed to be in Gmsh format, in which case you can construct a mesh
+object like so:
 
 .. code-block:: python
 
@@ -71,13 +70,13 @@ Utility mesh functions
 
 As well as offering the ability to read mesh information from a file,
 Firedrake also provides a number of built in mesh types for a number
-of standard shapes.  The simplest is a
-:py:class:`~.IntervalMesh` which is a regularly
-subdivided unit line of specified length.  We may also build square
-meshes with the :py:class:`~.UnitSquareMesh`
-constructor, and cube meshes with
-:py:class:`~.UnitCubeMesh`.  The API documentation for
-the :py:mod:`~firedrake.mesh` module has full usage descriptions.
+of standard shapes.  1-dimensional intervals may be constructed with
+:func:`~.IntervalMesh`; 2-dimensional rectangles with
+:func:`~.RectangleMesh`; and 3-dimensional boxes with
+:func:`~.BoxMesh`.  There are also more specific constructors (for
+example to build unit square meshes).  See
+:mod:`~firedrake.utility_meshes` for full details.
+
 
 Immersed manifolds
 ~~~~~~~~~~~~~~~~~~
@@ -103,9 +102,9 @@ use:
 Firedrake provides utility meshes for the surfaces of spheres immersed
 in 3D that are approximated using an `icosahedral mesh`_.  You can
 either build a mesh of the unit sphere with
-:py:class:`~.UnitIcosahedralSphereMesh`, or a mesh of a
+:py:func:`~.UnitIcosahedralSphereMesh`, or a mesh of a
 sphere with specified radius using
-:py:class:`~.IcosahedralSphereMesh`.  The meshes are
+:py:func:`~.IcosahedralSphereMesh`.  The meshes are
 constructed by recursively refining a `regular icosahedron
 <icosahedron_>`_, you can specify the refinement level by passing a
 non-zero ``refinement_level`` to the constructor.  For example, to
@@ -557,6 +556,8 @@ problems.
 .. _icosahedron: http://en.wikipedia.org/wiki/Icosahedron
 .. _triangle: http://www.cs.cmu.edu/~quake/triangle.html
 .. _Gmsh: http://geuz.org/gmsh/
+.. _CGNS: http://www.cgns.org/
+.. _Exodus: http://sourceforge.net/projects/exodusii/
 .. _UFL: http://arxiv.org/abs/1211.4047
 .. _UFL_package: http://fenicsproject.org/documentation/ufl/1.2.0/ufl.html
 .. _FIAT: https://bitbucket.org/mapdes/fiat
