@@ -233,7 +233,9 @@ We will now introduce the new operators which act on FiniteElement objects.
 The OuterProductElement operator
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-To create an Element compatible with an extruded mesh, one should use the ``OuterProductElement`` operator. For example,
+To create an Element compatible with an extruded mesh, one should use
+the :py:class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
+operator. For example,
 
 .. code-block:: python
 
@@ -272,7 +274,8 @@ but is piecewise constant horizontally.
 
 A more complicated element, like a Mini horizontal element with linear
 variation in the vertical direction, may be built using the
-``EnrichedElement`` functionality in either of the following ways:
+:py:class:`~ufl.finiteelement.enrichedelement.EnrichedElement` functionality
+in either of the following ways:
 
 .. code-block:: python
 
@@ -303,7 +306,8 @@ or
 The HDiv and HCurl operators
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For moderately complicated vector-valued elements, ``OuterProductElement``
+For moderately complicated vector-valued elements,
+:py:class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
 does not give enough information to unambiguously produce the desired
 space. As an example, consider the lowest-order *Raviart-Thomas* element on a
 quadrilateral. The degrees of freedom live on the facets, and consist of
@@ -328,7 +332,7 @@ However, this is only scalar-valued. There are two natural vector-valued
 elements that can be generated from this: one of them preserves tangential
 continuity between elements, and the other preserves normal continuity
 between elements. To obtain the Raviart-Thomas element, we must use the
-``HDiv`` operator:
+:py:class:`~ufl.finiteelement.hdivcurl.HDiv` operator:
 
 .. code-block:: python
 
@@ -343,11 +347,12 @@ between elements. To obtain the Raviart-Thomas element, we must use the
 .. figure:: images/rt_quad_post.svg
   :align: center
 
-  The RT quadrilateral element, requiring the use of HDiv
+  The RT quadrilateral element, requiring the use
+  of :py:class:`~ufl.finiteelement.hdivcurl.HDiv`
 
-Another reason to use the operator is when expanding a vector into a higher
-dimensional space. Consider the lowest-order Nedelec element of the 2nd kind
-on a triangle:
+Another reason to use these operators is when expanding a vector into a
+higher dimensional space. Consider the lowest-order Nedelec element of the
+2nd kind on a triangle:
 
 .. code-block:: python
 
@@ -362,7 +367,8 @@ the product of this with a continuous element on an interval:
     N2CG = OuterProductElement(N2_1, CG_2)
 
 This element still only has two components. To expand this into a
-three-dimensional curl-conforming element, the syntax is:
+three-dimensional curl-conforming element, we must use the
+:py:class:`~ufl.finiteelement.hdivcurl.HCurl` operator; the syntax is:
 
 .. code-block:: python
 
