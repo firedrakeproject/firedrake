@@ -413,3 +413,36 @@ and
 .. code-block:: python
 
 	fspace = FunctionSpace(mesh, "Lagrange", 1, vfamily="Lagrange", vdegree=1)
+
+Solving Equations on Extruded Meshes
+------------------------------------
+
+Once the mesh and function spaces have been declared, extruded meshes behave
+almost identically to normal meshes. However, there are some small differences,
+which are listed below.
+
+1. Surface integrals are no longer denoted by ``ds``. Since extruded meshes have
+   multiple types of surfaces, the following notation is used:
+
+   * ``ds_v`` is used to denote an integral over *side* facets of the mesh.
+     This can be combined with boundary markers from the base mesh, such as
+     ``ds_v(1)``.
+   * ``ds_t`` is used to denote an integral over the *top* surface of the mesh.
+   * ``ds_b`` is used to denote an integral over the *bottom* surface of the mesh.
+   * ``ds_tb`` is used to denote an integral over both the *top* and *bottom*
+     surfaces of the mesh.
+
+2. Interior facet integrals are no longer denoted by ``dS``. The *horizontal*
+   and *vertical* interior facets may require different numerical treatment.
+   To facilitate this, the following notation is used:
+
+   * ``dS_v`` is used to denote an integral over *horizontal* interior facets.
+   * ``dS_h`` is used to denote an integral over *vertical* interior facets.
+
+3. When setting strong boundary conditions, the boundary markers from the base
+   mesh can be used to set boundary conditions on the relevant side of the
+   extruded mesh. To set boundary conditions on the top or bottom, the label
+   is replaced by:
+
+   * ``top``, to set a boundary condition on the top surface.
+   * ``bottom``, to set a boundary condition on the bottom surface.
