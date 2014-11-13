@@ -123,58 +123,77 @@ class Mesh(object):
 
     @timed_function("Build mesh")
     @profile
-    def __init__(self, filename, dim=None, periodic_coords=None, plex=None, reorder=None):
-        """
-        :param filename: the mesh file to read.  Supported mesh formats
-               are Gmsh (extension ``msh``) and triangle (extension
-               ``node``).
-        :param dim: optional dimension of the coordinates in the
-               supplied mesh.  If not supplied, the coordinate
-               dimension is determined from the type of topological
-               entities in the mesh file.  In particular, you will
-               need to supply a value for ``dim`` if the mesh is an
-               immersed manifold (where the geometric and topological
-               dimensions of entities are not the same).
-        :param periodic_coords: optional numpy array of coordinates
-               used to replace those read from the mesh file.  These
-               are only supported in 1D and must have enough entries
-               to be used as a DG1 field on the mesh.
+    def __init__(self, meshfile, **kwargs):
+        """Construct a mesh object.
+
+        Meshes may either be created by reading from a mesh file, or by
+        providing a PETSc DMPlex object defining the mesh topology.
+
+        :param meshfile: Mesh file name (or DMPlex object) defining
+               mesh topology.  See below for details on supported mesh
+               formats.
+        :param dim: optional specification of the geometric dimension
+               of the mesh (ignored if not reading from mesh file).
+               If not supplied the geometric dimension is deduced from
+               the topological dimension of entities in the mesh.
         :param reorder: optional flag indicating whether to reorder
                meshes for better cache locality.  If not supplied the
-               default value in :py:data:`parameters["reorder_meshes"]`
+               default value in :data:`parameters["reorder_meshes"]`
                is used.
+        :param periodic_coords: optional numpy array of coordinates
+               used to replace those in the mesh object.  These are
+               only supported in 1D and must have enough entries to be
+               used as a DG1 field on the mesh.  Not supported when
+               reading from file.
+
+        When the mesh is read from a file the following mesh formats
+        are supported (determined, case insensitively, from the
+        filename extension):
+
+        * GMSH: with extension `.msh`
+        * Exodus: with extension `.e`, `.exo`
+        * CGNS: with extension `.cgns`
+        * Triangle: with extension `.node`
+
+        .. note::
+
+            When the mesh is created directly from a DMPlex object,
+            the :data:`dim` parameter is ignored (the DMPlex already
+            knows its geometric and topological dimensions).
+
         """
 
         utils._init()
+
+        dim = kwargs.get("dim", None)
+        reorder = kwargs.get("reorder", parameters["reorder_meshes"])
+        periodic_coords = kwargs.get("periodic_coords", None)
 
         # A cache of function spaces that have been built on this mesh
         self._cache = {}
         self.parent = None
 
-        if dim is None:
-            # Mesh reading in Fluidity level considers 0 to be None.
-            dim = 0
+        if isinstance(meshfile, PETSc.DMPlex):
+            self.name = "plexmesh"
+            self._from_dmplex(meshfile, dim, reorder,
+                              periodic_coords=periodic_coords)
+            return
 
-        if reorder is None:
-            reorder = parameters["reorder_meshes"]
-        if plex is not None:
-            self._from_dmplex(plex, geometric_dim=dim,
-                              periodic_coords=periodic_coords,
-                              reorder=reorder)
-            self.name = filename
+        basename, ext = os.path.splitext(meshfile)
+
+        if periodic_coords is not None:
+            raise RuntimeError("Periodic coordinates are unsupported when reading from file")
+        if ext.lower() in ['.e', '.exo']:
+            self._from_exodus(meshfile, dim, reorder)
+        elif ext.lower() == '.cgns':
+            self._from_cgns(meshfile, dim)
+        elif ext.lower() == '.msh':
+            self._from_gmsh(meshfile, dim, reorder)
+        elif ext.lower() == '.node':
+            self._from_triangle(meshfile, dim, reorder)
         else:
-            basename, ext = os.path.splitext(filename)
-
-            if ext in ['.e', '.exo', '.E', '.EXO']:
-                self._from_exodus(filename, dim, reorder=reorder)
-            elif ext in ['.cgns', '.CGNS']:
-                self._from_cgns(filename, dim)
-            elif ext in ['.msh']:
-                self._from_gmsh(filename, dim, periodic_coords, reorder=reorder)
-            elif ext in ['.node']:
-                self._from_triangle(filename, dim, periodic_coords, reorder=reorder)
-            else:
-                raise RuntimeError("Unknown mesh file format.")
+            raise RuntimeError("Mesh file %s has unknown format '%s'."
+                               % (meshfile, ext[1:]))
 
     @property
     def coordinates(self):
@@ -185,8 +204,8 @@ class Mesh(object):
     def coordinates(self, value):
         self._coordinate_function = value
 
-    def _from_dmplex(self, plex, geometric_dim=0,
-                     periodic_coords=None, reorder=None):
+    def _from_dmplex(self, plex, geometric_dim,
+                     reorder, periodic_coords=None):
         """ Create mesh from DMPlex object """
 
         self._plex = plex
@@ -199,7 +218,7 @@ class Mesh(object):
         with timed_region("Mesh: label facets"):
             dmplex.label_facets(self._plex)
 
-        if geometric_dim == 0:
+        if geometric_dim is None:
             geometric_dim = plex.getDimension()
 
         # Distribute the dm to all ranks
@@ -286,9 +305,8 @@ class Mesh(object):
             measure._subdomain_data = self.coordinates
             measure._domain = self.ufl_domain()
 
-    def _from_gmsh(self, filename, dim=0, periodic_coords=None, reorder=None):
+    def _from_gmsh(self, filename, dim, reorder):
         """Read a Gmsh .msh file from `filename`"""
-        basename, ext = os.path.splitext(filename)
         self.name = filename
 
         # Create a read-only PETSc.Viewer
@@ -306,9 +324,9 @@ class Mesh(object):
                 for f in faces:
                     gmsh_plex.setLabelValue("boundary_ids", f, bid)
 
-        self._from_dmplex(gmsh_plex, dim, periodic_coords, reorder=reorder)
+        self._from_dmplex(gmsh_plex, dim, reorder)
 
-    def _from_exodus(self, filename, dim=0, reorder=None):
+    def _from_exodus(self, filename, dim, reorder):
         self.name = filename
         plex = PETSc.DMPlex().createExodusFromFile(filename)
 
@@ -319,16 +337,16 @@ class Mesh(object):
             for f in faces:
                 plex.setLabelValue("boundary_ids", f, bid)
 
-        self._from_dmplex(plex, reorder=reorder)
+        self._from_dmplex(plex, dim, reorder)
 
-    def _from_cgns(self, filename, dim=0, reorder=None):
+    def _from_cgns(self, filename, dim, reorder):
         self.name = filename
         plex = PETSc.DMPlex().createCGNSFromFile(filename)
 
         #TODO: Add boundary IDs
-        self._from_dmplex(plex, reorder=reorder)
+        self._from_dmplex(plex, dim, reorder)
 
-    def _from_triangle(self, filename, dim=0, periodic_coords=None, reorder=None):
+    def _from_triangle(self, filename, dim, reorder):
         """Read a set of triangle mesh files from `filename`"""
         self.name = filename
         basename, ext = os.path.splitext(filename)
@@ -344,7 +362,7 @@ class Mesh(object):
                 except:
                     facetfile = None
                     tdim = 1
-            if dim == 0:
+            if dim is None:
                 dim = tdim
             op2.MPI.comm.bcast(tdim, root=0)
 
@@ -389,7 +407,7 @@ class Mesh(object):
                     join = plex.getJoin(vertices)
                     plex.setLabelValue("boundary_ids", join[0], bid)
 
-        self._from_dmplex(plex, dim, periodic_coords, reorder=None)
+        self._from_dmplex(plex, dim, reorder)
 
     @property
     def layers(self):

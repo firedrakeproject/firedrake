@@ -135,7 +135,6 @@ class IntervalMesh(mesh.Mesh):
 
     @profile
     def __init__(self, ncells, length):
-        self.name = "interval"
         dx = float(length) / ncells
         # This ensures the rightmost point is actually present.
         coords = np.arange(0, length + 0.01 * dx, dx).reshape(-1, 1)
@@ -154,7 +153,7 @@ class IntervalMesh(mesh.Mesh):
             if vcoord[0] == coords[-1]:
                 plex.setLabelValue("boundary_ids", v, 2)
 
-        super(IntervalMesh, self).__init__(self.name, plex=plex, reorder=False)
+        super(IntervalMesh, self).__init__(plex, reorder=False)
 
 
 class UnitIntervalMesh(IntervalMesh):
@@ -168,7 +167,6 @@ class UnitIntervalMesh(IntervalMesh):
 
     @profile
     def __init__(self, ncells):
-        self.name = "unitinterval"
         super(UnitIntervalMesh, self).__init__(ncells, length=1.0)
 
 
@@ -181,8 +179,6 @@ class PeriodicIntervalMesh(mesh.Mesh):
 
     @profile
     def __init__(self, ncells, length):
-        self.name = "periodicinterval"
-
         """Build the periodic Plex by hand"""
 
         if MPI.comm.size > 1:
@@ -226,7 +222,7 @@ class PeriodicIntervalMesh(mesh.Mesh):
                             np.arange(0, length - dx*0.01, dx))).flatten()
         # Last cell is back to front.
         coords[-2:] = coords[-2:][::-1]
-        super(PeriodicIntervalMesh, self).__init__(self.name, plex=plex,
+        super(PeriodicIntervalMesh, self).__init__(plex,
                                                    periodic_coords=coords,
                                                    reorder=False)
 
@@ -237,7 +233,6 @@ class PeriodicUnitIntervalMesh(PeriodicIntervalMesh):
 
     @profile
     def __init__(self, ncells):
-        self.name = "periodicunitinterval"
         super(PeriodicUnitIntervalMesh, self).__init__(ncells, length=1.0)
 
 
@@ -246,11 +241,10 @@ class UnitTriangleMesh(mesh.Mesh):
     """Class that represents a triangle mesh composed of one element."""
 
     def __init__(self):
-        self.name = "unittri"
         coords = [[0., 0.], [1., 0.], [0., 1.]]
         cells = [[0, 1, 2]]
         plex = _from_cell_list(2, cells, coords)
-        super(UnitTriangleMesh, self).__init__(self.name, plex=plex)
+        super(UnitTriangleMesh, self).__init__(plex, reorder=False)
 
 
 class UnitSquareMesh(mesh.Mesh):
@@ -275,8 +269,6 @@ class UnitSquareMesh(mesh.Mesh):
 
     @profile
     def __init__(self, nx, ny, reorder=None):
-        self.name = "unitsquare_%d_%d" % (nx, ny)
-
         # Create mesh from DMPlex
         boundary = PETSc.DMPlex().create(MPI.comm)
         boundary.setDimension(1)
@@ -303,7 +295,7 @@ class UnitSquareMesh(mesh.Mesh):
                 if abs(face_coords[1] - 1.) < ytol and abs(face_coords[3] - 1.) < ytol:
                     plex.setLabelValue("boundary_ids", face, 4)
 
-        super(UnitSquareMesh, self).__init__(self.name, plex=plex, reorder=reorder)
+        super(UnitSquareMesh, self).__init__(plex, reorder=reorder)
 
 
 class UnitCircleMesh(mesh.Mesh):
@@ -328,9 +320,8 @@ class UnitCircleMesh(mesh.Mesh):
             };
             Physical Surface(2) = { surface[1] };
             """ % (0.5 / resolution, resolution * 4)
-        self.name = "unitcircle_%d" % resolution
 
-        output = _get_msh_file(source, self.name, 2)
+        output = _get_msh_file(source, "unitcircle_%d" % resolution, 2)
         super(UnitCircleMesh, self).__init__(output, reorder=reorder)
 
 
@@ -349,7 +340,6 @@ class CircleManifoldMesh(mesh.Mesh):
 
         if ncells < 3:
             raise ValueError("CircleManifoldMesh must have at least three cells")
-        self.name = "circlemanifoldmesh_%d_%g" % (ncells, radius)
 
         self._R = radius
         self._ncells = ncells
@@ -361,7 +351,7 @@ class CircleManifoldMesh(mesh.Mesh):
                                        np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
 
         plex = _from_cell_list(1, self._cells, self._vertices)
-        super(CircleManifoldMesh, self).__init__(self.name, plex=plex, dim=2, reorder=False)
+        super(CircleManifoldMesh, self).__init__(plex, dim=2, reorder=False)
 
 
 class UnitTetrahedronMesh(mesh.Mesh):
@@ -371,11 +361,10 @@ class UnitTetrahedronMesh(mesh.Mesh):
     """
 
     def __init__(self):
-        self.name = "unittetra"
         coords = [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
         cells = [[0, 1, 2, 3]]
         plex = _from_cell_list(3, cells, coords)
-        super(UnitTetrahedronMesh, self).__init__(self.name, plex=plex)
+        super(UnitTetrahedronMesh, self).__init__(plex, reorder=False)
 
 
 class UnitCubeMesh(mesh.Mesh):
@@ -403,7 +392,6 @@ class UnitCubeMesh(mesh.Mesh):
 
     @profile
     def __init__(self, nx, ny, nz, reorder=None):
-        self.name = "unitcube_%d_%d_%d" % (nx, ny, nz)
 
         # Create mesh from DMPlex
         boundary = PETSc.DMPlex().create(MPI.comm)
@@ -436,7 +424,7 @@ class UnitCubeMesh(mesh.Mesh):
                 if abs(face_coords[2] - 1.) < ztol and abs(face_coords[5] - 1.) < ztol and abs(face_coords[8] - 1.) < ztol:
                     plex.setLabelValue("boundary_ids", face, 6)
 
-        super(UnitCubeMesh, self).__init__(self.name, plex=plex, reorder=reorder)
+        super(UnitCubeMesh, self).__init__(plex, reorder=reorder)
 
 
 class IcosahedralSphereMesh(mesh.Mesh):
@@ -498,8 +486,6 @@ class IcosahedralSphereMesh(mesh.Mesh):
         :arg reorder: Should the mesh be reordered?
         """
 
-        self.name = "icosahedralspheremesh_%d_%g" % (refinement_level, radius)
-
         self._R = radius
         self._refinement = refinement_level
 
@@ -513,7 +499,7 @@ class IcosahedralSphereMesh(mesh.Mesh):
             self._refine()
 
         plex = _from_cell_list(2, self._faces, self._vertices)
-        super(IcosahedralSphereMesh, self).__init__(self.name, plex=plex, dim=3, reorder=reorder)
+        super(IcosahedralSphereMesh, self).__init__(plex, dim=3, reorder=reorder)
 
     def _force_to_sphere(self, vtx):
         """
