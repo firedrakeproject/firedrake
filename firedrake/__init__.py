@@ -16,7 +16,10 @@ del petsc
 # To get around this, since the default __del__ on Expr is just
 # "pass", we just remove the method from the definition of Expr.
 import ufl
-del ufl.core.expr.Expr.__del__
+try:
+    del ufl.core.expr.Expr.__del__
+except AttributeError:
+    pass
 del ufl
 from ufl import *
 from pyop2.logger import set_log_level, info_red, info_green, info_blue, log  # noqa
