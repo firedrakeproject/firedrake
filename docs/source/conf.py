@@ -250,5 +250,5 @@ texinfo_documents = [
 
 intersphinx_mapping = {
     'pyop2': ('http://op2.github.io/PyOP2', None),
-    'ufl': ('http://fenicsproject.org/documentation/ufl/1.4.0/', None)
+    'ufl': ('http://fenicsproject.org/documentation/ufl/dev/', None)
 }
