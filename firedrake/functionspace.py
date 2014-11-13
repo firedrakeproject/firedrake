@@ -579,8 +579,8 @@ class FunctionSpace(FunctionSpaceBase):
     """Create a function space
 
     :arg mesh: :class:`.Mesh` to build the function space on
-    :arg family: string describing function space family, or a
-        :class:`ufl.OuterProductElement`
+    :arg family: string describing function space family, or an
+        :class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
     :arg degree: degree of the function space
     :arg name: (optional) name of the function space
     :arg vfamily: family of function space in vertical dimension
@@ -588,18 +588,22 @@ class FunctionSpace(FunctionSpaceBase):
     :arg vdegree: degree of function space in vertical dimension
         (:class:`.ExtrudedMesh`\es only)
 
-    If the mesh is an :class:`.ExtrudedMesh`, and the ``family`` argument
-    is a :class:`ufl.OuterProductElement`, ``degree``, ``vfamily`` and
-    ``vdegree`` are ignored, since the ``family`` provides all necessary
-    information, otherwise a :class:`ufl.OuterProductElement` is built
-    from the (``family``, ``degree``) and (``vfamily``, ``vdegree``) pair.  If
-    the ``vfamily`` and ``vdegree`` are not provided, the vertical element
-    defaults to the same as the (``family``, ``degree``) pair.
+    If the mesh is an :class:`.ExtrudedMesh`, and the ``family``
+    argument is a
+    :class:`~ufl.finiteelement.outerproductelement.OuterProductElement`,
+    ``degree``, ``vfamily`` and ``vdegree`` are ignored, since the
+    ``family`` provides all necessary information, otherwise a
+    :class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
+    is built from the (``family``, ``degree``) and (``vfamily``,
+    ``vdegree``) pair.  If the ``vfamily`` and ``vdegree`` are not
+    provided, the vertical element defaults to the same as the
+    (``family``, ``degree``) pair.
 
     If the mesh is not an :class:`.ExtrudedMesh`, the ``family`` must be
     a string describing the finite element family to use, and the
     ``degree`` must be provided, ``vfamily`` and ``vdegree`` are ignored in
     this case.
+
     """
 
     def __init__(self, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):

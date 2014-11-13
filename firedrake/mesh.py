@@ -486,7 +486,7 @@ class Mesh(object):
         return self._cell_orientations
 
     def init_cell_orientations(self, expr):
-        """Compute and initialise `cell_orientations` relative to a specified orientation.
+        """Compute and initialise :attr:`cell_orientations` relative to a specified orientation.
 
         :arg expr: an :class:`.Expression` evaluated to produce a
              reference normal direction.
@@ -610,32 +610,41 @@ class ExtrudedMesh(Mesh):
                          spaced. If this is omitted, the value defaults to
                          1/layers (i.e. the extruded mesh has total height 1.0)
                          unless a custom kernel is used.
-    :arg extrusion_type: refers to how the coordinates are computed for the
-                         evenly spaced layers:
-                         `uniform`: the extruded mesh has an extra spatial
-                         dimension compared to the base mesh. The layers exist
-                         in this dimension only.
-                         `radial`: the extruded mesh has the same number of
-                         spatial dimensions as the base mesh; the cells are
-                         radially extruded outwards from the origin. This
-                         requires the base mesh to have topological dimension
-                         strictly smaller than geometric dimension.
-                         `radial_hedgehog`: similar to `radial`, but the cells
-                         are extruded in the direction of the outward-pointing
-                         cell normal (note this produces a P1dgxP1 coordinate
-                         field). In the case of `radial_hedgehog` extrusion,
-                         a radially extruded coordinate field
-                         (generated with extrusion_type="radial") is
-                         available in the :attr:`radial_coordinates`
-                         attribute.
-                         `custom`: use a custom kernel to generate the
-                         extruded coordinates
+    :arg extrusion_type: the algorithm to employ to calculate the extruded
+                         coordinates. One of "uniform", "radial",
+                         "radial_hedgehog" or "custom". See below.
     :arg kernel:         a :class:`pyop2.Kernel` to produce coordinates for
                          the extruded mesh. See :func:`~.make_extruded_coords`
                          for more details.
     :arg gdim:           number of spatial dimensions of the
                          resulting mesh (this is only used if a
-                         custom kernel is provided)"""
+                         custom kernel is provided)
+
+    The various values of ``extrusion_type`` have the following meanings:
+
+    ``"uniform"``
+        the extruded mesh has an extra spatial
+        dimension compared to the base mesh. The layers exist
+        in this dimension only.
+
+    ``"radial"``
+        the extruded mesh has the same number of
+        spatial dimensions as the base mesh; the cells are
+        radially extruded outwards from the origin. This
+        requires the base mesh to have topological dimension
+        strictly smaller than geometric dimension.
+    ``"radial_hedgehog"``
+        similar to `radial`, but the cells
+        are extruded in the direction of the outward-pointing
+        cell normal (this produces a P1dgxP1 coordinate field).
+        In this case, a radially extruded coordinate field
+        (generated with ``extrusion_type="radial"``) is
+        available in the :attr:`radial_coordinates` attribute.
+    ``"custom"``
+        use a custom kernel to generate the extruded coordinates
+
+    For more details see the :doc:`manual section on extruded meshes <extruded-meshes>`.
+    """
 
     @timed_function("Build extruded mesh")
     @profile
@@ -1032,6 +1041,7 @@ class PeriodicIntervalMesh(Mesh):
 
 class PeriodicUnitIntervalMesh(PeriodicIntervalMesh):
     """Generate a periodic uniform mesh of the interval [0, 1].
+
     :arg ncells: The number of cells over the interval."""
 
     @profile

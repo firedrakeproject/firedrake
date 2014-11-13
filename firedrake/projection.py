@@ -35,7 +35,8 @@ def project(v, V, bcs=None, mesh=None,
     then ``v`` is projected into a new :class:`.Function` and that
     :class:`.Function` is returned.
 
-    Currently, `bcs`, `mesh` and `form_compiler_parameters` are ignored."""
+    The ``bcs``, ``mesh`` and ``form_compiler_parameters`` are
+    currently ignored."""
     if isinstance(V, functionspace.FunctionSpaceBase):
         ret = function.Function(V, name=name)
     elif isinstance(V, function.Function):
