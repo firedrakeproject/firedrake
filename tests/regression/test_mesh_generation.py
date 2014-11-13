@@ -36,8 +36,16 @@ def test_unit_square():
     assert abs(integrate_one(UnitSquareMesh(3, 3)) - 1) < 1e-3
 
 
+def test_rectangle():
+    assert abs(integrate_one(RectangleMesh(3, 3, 10, 2)) - 20) < 1e-3
+
+
 def test_unit_cube():
     assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
+
+
+def test_box():
+    assert abs(integrate_one(BoxMesh(3, 3, 3, 1, 2, 3)) - 6) < 1e-3
 
 
 def test_unit_circle():
