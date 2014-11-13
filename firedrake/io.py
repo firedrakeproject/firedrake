@@ -48,7 +48,7 @@ _points_per_cell[OuterProductCell(Cell("interval", 3), Cell("interval"))] = 4
 
 class File(object):
 
-    """A pvd file object to which :class:`Function`\s can be output.
+    """A pvd file object to which :class:`~.Function`\s can be output.
     Parallel output is handled automatically.
 
     File output is achieved using the left shift operator:
