@@ -588,17 +588,17 @@ class FunctionSpace(FunctionSpaceBase):
     :arg vdegree: degree of function space in vertical dimension
         (:class:`.ExtrudedMesh`\es only)
 
-    If the mesh is an :class:`.ExtrudedMesh`, and the `family` argument
-    is a :class:`ufl.OuterProductElement`, `degree`, `vfamily` and
-    `vdegree` are ignored, since the `family` provides all necessary
+    If the mesh is an :class:`.ExtrudedMesh`, and the ``family`` argument
+    is a :class:`ufl.OuterProductElement`, ``degree``, ``vfamily`` and
+    ``vdegree`` are ignored, since the ``family`` provides all necessary
     information, otherwise a :class:`ufl.OuterProductElement` is built
-    from the (`family`, `degree`) and (`vfamily`, `vdegree`) pair.  If
-    the `vfamily` and `vdegree` are not provided, the vertical element
-    will be the same as the provided (`family`, `degree`) pair.
+    from the (``family``, ``degree``) and (``vfamily``, ``vdegree``) pair.  If
+    the ``vfamily`` and ``vdegree`` are not provided, the vertical element
+    defaults to the same as the (``family``, ``degree``) pair.
 
-    If the mesh is not an :class:`.ExtrudedMesh`, the `family` must be
+    If the mesh is not an :class:`.ExtrudedMesh`, the ``family`` must be
     a string describing the finite element family to use, and the
-    `degree` must be provided, `vfamily` and `vdegree` are ignored in
+    ``degree`` must be provided, ``vfamily`` and ``vdegree`` are ignored in
     this case.
     """
 
