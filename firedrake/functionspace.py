@@ -136,8 +136,11 @@ class FunctionSpaceBase(ObjectCached):
         # Re-order cell closures from the Plex
         if mesh._cell_closure is None:
             entity_dofs = self.fiat_element.entity_dofs()
-            entity_per_cell = [len(entity) for d, entity in entity_dofs.iteritems()]
-            entity_per_cell = np.array(entity_per_cell, dtype=np.int32)
+            flatten_dim = lambda x: sum(x) if isinstance(x, tuple) else x
+            max_dim = max(map(flatten_dim, entity_dofs.keys()))
+            entity_per_cell = np.zeros(max_dim + 1, dtype=np.int32)
+            for d, entity in entity_dofs.iteritems():
+                entity_per_cell[flatten_dim(d)] += len(entity)
             mesh._cell_closure = dmplex.closure_ordering(mesh._plex,
                                                          self._universal_numbering,
                                                          mesh._cell_numbering,
@@ -149,6 +152,11 @@ class FunctionSpaceBase(ObjectCached):
                                                                  mesh._cell_closure,
                                                                  self.fiat_element,
                                                                  sum(self._dofs_per_cell))
+        elif mesh.ufl_cell() == ufl.Cell("quadrilateral"):
+            self.cell_node_list = dmplex.get_quadrilateral_cell_nodes(self._global_numbering,
+                                                                      mesh._cell_closure,
+                                                                      self.fiat_element,
+                                                                      sum(self._dofs_per_cell))
         else:
             self.cell_node_list = dmplex.get_cell_nodes(self._global_numbering,
                                                         mesh._cell_closure,

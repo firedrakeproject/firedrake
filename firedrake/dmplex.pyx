@@ -290,6 +290,56 @@ def get_cell_nodes(PETSc.Section global_numbering,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def get_quadrilateral_cell_nodes(PETSc.Section global_numbering,
+                                 np.ndarray[np.int32_t, ndim=2] cell_closures,
+                                 fiat_element,
+                                 np.int32_t dofs_per_cell):
+    """
+    Builds the DoF mapping for quadrilateral meshes.
+
+    :arg global_numbering: Section describing the global DoF numbering
+    :arg cell_closures: 2D array of ordered cell closures
+    :arg edge_directions: 2D array of edge directions for each cell
+    :arg fiat_element: The FIAT element for the quadrilateral cell
+    :arg dofs_per_cell: Number of DoFs associated with each mesh cell
+    """
+    cdef:
+        PetscInt ncells, nclosure
+        PetscInt c, i, j, k
+        PetscInt entity, ndofs, off
+        np.ndarray[np.int32_t, ndim=1] flat_local_index
+        np.ndarray[np.int32_t, ndim=2] cell_nodes
+
+    entity_dofs = fiat_element.entity_dofs()
+    entity_dofs_list = [entity_dofs[dim].values() for dim in sorted(entity_dofs.keys())]
+    flat_local_index = np.empty(dofs_per_cell, dtype=np.int32)
+
+    k = 0
+    for dim_list in entity_dofs_list:
+        for entity_list in dim_list:
+            for idx in entity_list:
+                flat_local_index[k] = idx
+                k += 1
+
+    ncells = cell_closures.shape[0]
+    nclosure = cell_closures.shape[1]
+
+    cell_nodes = np.empty((ncells, dofs_per_cell), dtype=np.int32)
+    for c in range(ncells):
+        k = 0
+        for i in range(nclosure):
+            entity = cell_closures[c][i]
+            CHKERR(PetscSectionGetDof(global_numbering.sec, entity, &ndofs))
+            if ndofs > 0:
+                CHKERR(PetscSectionGetOffset(global_numbering.sec, entity, &off))
+                for j in range(ndofs):
+                    cell_nodes[c][flat_local_index[k]] = off + j
+                    k += 1
+
+    return cell_nodes
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def get_extruded_cell_nodes(PETSc.DM plex,
                             PETSc.Section global_numbering,
                             np.ndarray[np.int32_t, ndim=2] cell_closures,
