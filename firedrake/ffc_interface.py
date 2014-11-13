@@ -208,7 +208,9 @@ def compile_form(form, name):
     orientation information (for correctly pulling back to reference
     elements on embedded manifolds).
 
-    Where the coordinates are extracted from the :class:`ufl.Domain` of the integral.
+    Where the coordinates are extracted from the UFL
+    :class:`~ufl.domain.Domain` of the integral.
+
     """
 
     # Check that we get a Form

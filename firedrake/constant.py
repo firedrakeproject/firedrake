@@ -26,7 +26,7 @@ class Constant(ufl.Coefficient):
          of iterables (or numpy array with 2-dimensional shape) for a
          tensor-valued constant.
 
-    :arg domain: an optional :class:`ufl.Domain` the constant is defined on.
+    :arg domain: an optional UFL :class:`~ufl.domain.Domain` on which the constant is defined.
     """
 
     def __init__(self, value, domain=None):

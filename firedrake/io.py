@@ -48,19 +48,16 @@ _points_per_cell[OuterProductCell(Cell("interval", 3), Cell("interval"))] = 4
 
 class File(object):
 
-    """Any file can be declared with ``f = File("filename")``,
-    then it will be directed to the correct class according to
-    its extensions and also to the parallelism.
+    """A pvd file object to which :class:`Function`\s can be output.
+    Parallel output is handled automatically.
 
-    If there is a parallel, and the rank of its process is 0,
-    then :class:`_PVDFile` is created, and this takes care of writing
-    :class:`_PVTUFile` , and :class:`_VTUFile` that the process is
-    meant to write. If rank is not 0, then :class:`_VTUFile` must be
-    created. The expected argument for this class is string file name
-    of a pvd file in the case of parallel writing.
+    File output is achieved using the left shift operator:
 
-    When there is no parallelism, the class will be created solely
-    according to the extension of the filename passed as an argument.
+    .. code-block:: python
+
+      a = Function(...)
+      f = File("foo.pvd")
+      f << a
 
     .. note::
 

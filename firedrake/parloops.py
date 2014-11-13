@@ -94,14 +94,14 @@ def par_loop(kernel, measure, args, **kwargs):
     and accessing the degrees of freedom on adjacent entities.
 
     :arg kernel: is a string containing the C code to be executed.
-    :arg measure: is a :class:`ufl.Measure` which determines the manner in
-        which the iteration over the mesh is to occur. Alternatively, you can
-        pass :data:`direct` to designate a direct loop.
+    :arg measure: is a UFL :class:`~ufl.measure.Measure` which determines the
+        manner in which the iteration over the mesh is to occur.
+        Alternatively, you can pass :data:`direct` to designate a direct loop.
     :arg args: is a dictionary mapping variable names in the kernel to
         :class:`.Function`\s or components of mixed :class:`.Function`\s and
         indicates how these :class:`.Function`\s are to be accessed.
     :arg kwargs: additional keyword arguments are passed to the
-        :class:`op2.Kernel` constructor
+        :class:`~pyop2.op2.Kernel` constructor
 
     **Example**
 
