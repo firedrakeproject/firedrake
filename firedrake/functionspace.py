@@ -84,12 +84,8 @@ class FunctionSpaceBase(ObjectCached):
             self.dofs_per_column = np.zeros(1, np.int32)
             self.extruded = False
 
-            entity_dofs = self.fiat_element.entity_dofs()
-            flatten_dim = lambda x: sum(x) if isinstance(x, tuple) else x
-            max_dim = max(map(flatten_dim, entity_dofs.keys()))
-            self._dofs_per_entity = [0] * (max_dim + 1)
-            for d, entity in entity_dofs.iteritems():
-                self._dofs_per_entity[flatten_dim(d)] = len(entity[0])
+            entity_dofs = fiat_utils.flat_entity_dofs(self.fiat_element)
+            self._dofs_per_entity = [len(entity[0]) for d, entity in entity_dofs.iteritems()]
             self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
 
         self.name = name
@@ -135,12 +131,9 @@ class FunctionSpaceBase(ObjectCached):
 
         # Re-order cell closures from the Plex
         if mesh._cell_closure is None:
-            entity_dofs = self.fiat_element.entity_dofs()
-            flatten_dim = lambda x: sum(x) if isinstance(x, tuple) else x
-            max_dim = max(map(flatten_dim, entity_dofs.keys()))
-            entity_per_cell = np.zeros(max_dim + 1, dtype=np.int32)
-            for d, entity in entity_dofs.iteritems():
-                entity_per_cell[flatten_dim(d)] += len(entity)
+            entity_dofs = fiat_utils.flat_entity_dofs(self.fiat_element)
+            entity_per_cell = [len(entity) for d, entity in entity_dofs.iteritems()]
+            entity_per_cell = np.array(entity_per_cell, dtype=np.int32)
             mesh._cell_closure = dmplex.closure_ordering(mesh._plex,
                                                          self._universal_numbering,
                                                          mesh._cell_numbering,
