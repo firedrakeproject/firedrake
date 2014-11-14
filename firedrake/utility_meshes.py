@@ -235,13 +235,14 @@ def UnitTriangleMesh():
 
 
 @profile
-def RectangleMesh(nx, ny, Lx, Ly, reorder=None):
+def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
     """Generate a rectangular mesh
 
     :arg nx: The number of cells in the x direction
     :arg ny: The number of cells in the y direction
     :arg Lx: The extent in the x direction
     :arg Ly: The extent in the y direction
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
 
     The boundary edges in this mesh are numbered as follows:
@@ -251,11 +252,30 @@ def RectangleMesh(nx, ny, Lx, Ly, reorder=None):
     * 3: plane y == 0
     * 4: plane y == Ly
     """
-    boundary = PETSc.DMPlex().create(MPI.comm)
-    boundary.setDimension(1)
-    boundary.createSquareBoundary([0., 0.], [float(Lx), float(Ly)], [nx, ny])
-    boundary.setTriangleOptions("pqezQYSl")
-    plex = PETSc.DMPlex().generate(boundary)
+    if quadrilateral:
+        dx = float(Lx) / nx
+        dy = float(Ly) / ny
+        xcoords = np.arange(0.0, Lx + 0.01 * dx, dx)
+        ycoords = np.arange(0.0, Ly + 0.01 * dy, dy)
+        coords = np.asarray(np.meshgrid(xcoords, ycoords)).swapaxes(0, 2).reshape(-1, 2)
+
+        # cell vertices
+        i, j = np.meshgrid(np.arange(nx), np.arange(ny))
+        cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
+        cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
+
+        cellname = "quadrilateral"
+        plex = _from_cell_list(2, cells, coords)
+    else:
+        boundary = PETSc.DMPlex().create(MPI.comm)
+        boundary.setDimension(1)
+        boundary.createSquareBoundary([0., 0.], [float(Lx), float(Ly)], [nx, ny])
+        boundary.setTriangleOptions("pqezQYSl")
+
+        cellname = "triangle"
+        plex = PETSc.DMPlex().generate(boundary)
+
+    # mark boundary facets
     plex.createLabel("boundary_ids")
     plex.markBoundaryFaces("boundary_faces")
     coords = plex.getCoordinates()
@@ -274,15 +294,17 @@ def RectangleMesh(nx, ny, Lx, Ly, reorder=None):
                 plex.setLabelValue("boundary_ids", face, 3)
             if abs(face_coords[1] - Ly) < ytol and abs(face_coords[3] - Ly) < ytol:
                 plex.setLabelValue("boundary_ids", face, 4)
-    return mesh.Mesh(plex, reorder=reorder)
+
+    return mesh.Mesh(plex, cellname=cellname, reorder=reorder)
 
 
-def SquareMesh(nx, ny, L, reorder=None):
+def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False):
     """Generate a square mesh
 
     :arg nx: The number of cells in the x direction
     :arg ny: The number of cells in the y direction
     :arg L: The extent in the x and y directions
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
 
     The boundary edges in this mesh are numbered as follows:
@@ -292,14 +314,15 @@ def SquareMesh(nx, ny, L, reorder=None):
     * 3: plane y == 0
     * 4: plane y == L
     """
-    return RectangleMesh(nx, ny, L, L, reorder=reorder)
+    return RectangleMesh(nx, ny, L, L, reorder=reorder, quadrilateral=quadrilateral)
 
 
-def UnitSquareMesh(nx, ny, reorder=None):
+def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False):
     """Generate a unit square mesh
 
     :arg nx: The number of cells in the x direction
     :arg ny: The number of cells in the y direction
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
 
     The boundary edges in this mesh are numbered as follows:
@@ -309,7 +332,7 @@ def UnitSquareMesh(nx, ny, reorder=None):
     * 3: plane y == 0
     * 4: plane y == 1
     """
-    return SquareMesh(nx, ny, 1, reorder=reorder)
+    return SquareMesh(nx, ny, 1, reorder=reorder, quadrilateral=quadrilateral)
 
 
 @profile

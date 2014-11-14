@@ -168,6 +168,7 @@ class Mesh(object):
         dim = kwargs.get("dim", None)
         reorder = kwargs.get("reorder", parameters["reorder_meshes"])
         periodic_coords = kwargs.get("periodic_coords", None)
+        cellname = kwargs.get("cellname", None)
 
         # A cache of function spaces that have been built on this mesh
         self._cache = {}
@@ -175,7 +176,7 @@ class Mesh(object):
 
         if isinstance(meshfile, PETSc.DMPlex):
             self.name = "plexmesh"
-            self._from_dmplex(meshfile, dim, reorder,
+            self._from_dmplex(meshfile, dim, reorder, cellname=cellname,
                               periodic_coords=periodic_coords)
             return
 
@@ -205,7 +206,7 @@ class Mesh(object):
         self._coordinate_function = value
 
     def _from_dmplex(self, plex, geometric_dim,
-                     reorder, periodic_coords=None):
+                     reorder, cellname=None, periodic_coords=None):
         """ Create mesh from DMPlex object """
 
         self._plex = plex
@@ -243,8 +244,9 @@ class Mesh(object):
 
             cStart, cEnd = self._plex.getHeightStratum(0)  # cells
             cell_vertices = self._plex.getConeSize(cStart)
-            self._ufl_cell = ufl.Cell(fiat_utils._cells[geometric_dim][cell_vertices],
-                                      geometric_dimension=geometric_dim)
+            if cellname is None:
+                cellname = fiat_utils._cells[geometric_dim][cell_vertices]
+            self._ufl_cell = ufl.Cell(cellname, geometric_dimension=geometric_dim)
 
             self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
             dim = self._plex.getDimension()
