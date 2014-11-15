@@ -65,7 +65,7 @@ echo | tee -a $LOGFILE
 (
 cd /tmp
 # Install Cython so we can build PyOP2 from source
-${PIP} Cython decorator numpy networkx >> $LOGFILE 2>&1
+${PIP} Cython decorator numpy networkx mpi4py >> $LOGFILE 2>&1
 )
 
 echo "*** Installing PETSc ***" | tee -a $LOGFILE
