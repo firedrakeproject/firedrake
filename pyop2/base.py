@@ -2262,7 +2262,7 @@ class MixedDat(Dat):
 
         other = shallow_copy(self)
 
-        other._dats = [d._cow_shallow_copy for d in self._dats]
+        other._dats = [d._cow_shallow_copy() for d in self._dats]
 
         return other
 
