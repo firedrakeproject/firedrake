@@ -34,6 +34,7 @@ from expression import *
 from function import *
 from functionspace import *
 from io import *
+from linear_solver import *
 from mesh import *
 from norms import *
 from nullspace import *

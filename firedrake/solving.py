@@ -20,81 +20,12 @@
 __all__ = ["solve"]
 
 import ufl
-from copy import copy
 
-from pyop2 import op2
 from pyop2.logger import progress, INFO
 from pyop2.profiling import profile
 
-import function
+import linear_solver as ls
 import variational_solver as vs
-
-
-def _la_solve(A, x, b, bcs=None, parameters=None,
-              nullspace=None):
-    """Solves a linear algebra problem.
-
-    :arg A: the assembled bilinear form, a :class:`.Matrix`.
-    :arg x: the :class:`.Function` to write the solution into.
-    :arg b: the :class:`.Function` defining the right hand side values.
-    :arg bcs: an optional list of :class:`.DirichletBC`\s to apply.
-    :arg parameters: optional solver parameters.
-    :arg nullspace: an optional :class:`.VectorSpaceBasis` (or
-         :class:`.MixedVectorSpaceBasis`) spanning the null space of
-         the operator.
-    .. note::
-        Any boundary conditions passed in as an argument here override the
-        boundary conditions set when the bilinear form was assembled.
-        That is, in the following example:
-        .. code-block:: python
-
-           A = assemble(a, bcs=[bc1])
-           solve(A, x, b, bcs=[bc2])
-
-        the boundary conditions in `bc2` will be applied to the problem
-        while `bc1` will be ignored.
-
-    Example usage:
-
-    .. code-block:: python
-
-        _la_solve(A, x, b, parameters=parameters_dict)
-
-    The linear solver and preconditioner are selected by looking at
-    the parameters dict, if it is empty, the defaults are taken from
-    PyOP2 (see :var:`pyop2.DEFAULT_SOLVER_PARAMETERS`)."""
-
-    # Make sure we don't stomp on a dict the user has passed in.
-    parameters = copy(parameters) if parameters is not None else {}
-    parameters.setdefault('ksp_type', 'gmres')
-    parameters.setdefault('pc_type', 'ilu')
-    if A._M.sparsity.shape != (1, 1):
-        parameters.setdefault('pc_type', 'jacobi')
-    solver = op2.Solver(parameters=parameters)
-    if A.has_bcs and bcs is None:
-        # Pick up any BCs on the linear operator
-        bcs = A.bcs
-    elif bcs is not None:
-        # Override using bcs from solve call
-        A.bcs = _extract_bcs(bcs)
-    if bcs is not None:
-        # Solving A x = b - action(a, u_bc)
-        u_bc = function.Function(b.function_space())
-        for bc in bcs:
-            bc.apply(u_bc)
-        # rhs = b - action(A, u_bc)
-        u_bc.assign(b - A._form_action(u_bc))
-        # Now we need to apply the boundary conditions to the "RHS"
-        for bc in bcs:
-            bc.apply(u_bc)
-        # don't want to write into b itself, because that would confuse user
-        b = u_bc
-    if nullspace is not None:
-        nullspace._apply(A._M)
-    with progress(INFO, 'Solving linear system'):
-        solver.solve(A.M, x.dat, b.dat)
-    x.dat.halo_exchange_begin()
-    x.dat.halo_exchange_end()
 
 
 @profile
@@ -186,15 +117,9 @@ def solve(*args, **kwargs):
     # Call variational problem solver if we get an equation
     if isinstance(args[0], ufl.classes.Equation):
         _solve_varproblem(*args, **kwargs)
-
-    # Default case, call PyOP2 linear solver
     else:
-        parms = kwargs.pop('solver_parameters', None)
-        bcs = kwargs.pop('bcs', None)
-        nullspace = kwargs.pop('nullspace', None)
-        _kwargs = {'bcs': bcs, 'nullspace': nullspace}
-        _kwargs['parameters'] = parms
-        return _la_solve(*args, **_kwargs)
+        # Solve pre-assembled system
+        return _la_solve(*args, **kwargs)
 
 
 def _solve_varproblem(*args, **kwargs):
@@ -232,6 +157,65 @@ def _solve_varproblem(*args, **kwargs):
 
     # destroy snes part of solver so everything can be gc'd
     solver.destroy()
+
+
+def _la_solve(A, x, b, **kwargs):
+    """Solve a linear algebra problem.
+
+    :arg A: the assembled bilinear form, a :class:`.Matrix`.
+    :arg x: the :class:`.Function` to write the solution into.
+    :arg b: the :class:`.Function` defining the right hand side values.
+    :kwarg bcs: an optional list of :class:`.DirichletBC`\s to apply.
+    :kwarg solver_parameters: optional solver parameters.
+    :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
+         :class:`.MixedVectorSpaceBasis`) spanning the null space of
+         the operator.
+
+    .. note::
+
+        Any boundary conditions passed in as an argument here override the
+        boundary conditions set when the bilinear form was assembled.
+        That is, in the following example:
+
+        .. code-block:: python
+
+           A = assemble(a, bcs=[bc1])
+           solve(A, x, b, bcs=[bc2])
+
+        the boundary conditions in `bc2` will be applied to the problem
+        while `bc1` will be ignored.
+
+    Example usage:
+
+    .. code-block:: python
+
+        _la_solve(A, x, b, solver_parameters=parameters_dict)."""
+
+    bcs, solver_parameters, nullspace = _extract_linear_solver_args(A, x, b, **kwargs)
+    if bcs is not None:
+        A.bcs = bcs
+
+    solver = ls.LinearSolver(A, solver_parameters=solver_parameters,
+                             nullspace=nullspace)
+
+    solver.solve(x, b)
+
+
+def _extract_linear_solver_args(*args, **kwargs):
+    valid_kwargs = ["bcs", "solver_parameters", "nullspace"]
+    if len(args) != 3:
+        raise RuntimeError("Missing required arguments, expecting solve(A, x, b, **kwargs)")
+
+    for kwarg in kwargs.iterkeys():
+        if kwarg not in valid_kwargs:
+            raise RuntimeError("Illegal keyword argument '%s'; valid keywords are %s" %
+                               (kwarg, ", ".join("'%s'" % kw for kw in valid_kwargs)))
+
+    bcs = kwargs.get("bcs", None)
+    solver_parameters = kwargs.get("solver_parameters", None)
+    nullspace = kwargs.get("nullspace", None)
+
+    return bcs, solver_parameters, nullspace
 
 
 def _extract_args(*args, **kwargs):
