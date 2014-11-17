@@ -134,10 +134,13 @@ class FunctionSpaceBase(ObjectCached):
             entity_dofs = fiat_utils.flat_entity_dofs(self.fiat_element)
             entity_per_cell = [len(entity) for d, entity in entity_dofs.iteritems()]
             entity_per_cell = np.array(entity_per_cell, dtype=np.int32)
-            mesh._cell_closure = dmplex.closure_ordering(mesh._plex,
-                                                         self._universal_numbering,
-                                                         mesh._cell_numbering,
-                                                         entity_per_cell)
+            if mesh.ufl_cell() == ufl.Cell("quadrilateral"):
+                mesh._cell_closure, mesh._edge_directions = dmplex.quadrilateral_closure_ordering(mesh._plex, mesh._cell_numbering)
+            else:
+                mesh._cell_closure = dmplex.closure_ordering(mesh._plex,
+                                                             self._universal_numbering,
+                                                             mesh._cell_numbering,
+                                                             entity_per_cell)
 
         if isinstance(self._mesh, mesh_t.ExtrudedMesh):
             self.cell_node_list = dmplex.get_extruded_cell_nodes(mesh._plex,
@@ -148,6 +151,7 @@ class FunctionSpaceBase(ObjectCached):
         elif mesh.ufl_cell() == ufl.Cell("quadrilateral"):
             self.cell_node_list = dmplex.get_quadrilateral_cell_nodes(self._global_numbering,
                                                                       mesh._cell_closure,
+                                                                      mesh._edge_directions,
                                                                       self.fiat_element,
                                                                       sum(self._dofs_per_cell))
         else:
