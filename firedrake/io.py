@@ -26,6 +26,7 @@ _cells[Cell("triangle", 3)] = hl.VtkTriangle
 _cells[Cell("tetrahedron")] = hl.VtkTetra
 _cells[OuterProductCell(Cell("triangle"), Cell("interval"))] = hl.VtkWedge
 _cells[OuterProductCell(Cell("triangle", 3), Cell("interval"))] = hl.VtkWedge
+_cells[Cell("quadrilateral")] = hl.VtkQuad
 _cells[OuterProductCell(Cell("interval"), Cell("interval"))] = hl.VtkQuad
 _cells[OuterProductCell(Cell("interval", 2), Cell("interval"))] = hl.VtkQuad
 _cells[OuterProductCell(Cell("interval", 2), Cell("interval"), gdim=3)] = hl.VtkQuad
@@ -37,6 +38,7 @@ _points_per_cell[Cell("interval", 2)] = 2
 _points_per_cell[Cell("interval", 3)] = 2
 _points_per_cell[Cell("triangle")] = 3
 _points_per_cell[Cell("triangle", 3)] = 3
+_points_per_cell[Cell("quadrilateral")] = 4
 _points_per_cell[Cell("tetrahedron")] = 4
 _points_per_cell[OuterProductCell(Cell("triangle"), Cell("interval"))] = 6
 _points_per_cell[OuterProductCell(Cell("triangle", 3), Cell("interval"))] = 6
@@ -234,12 +236,10 @@ class _VTUFile(object):
 
         num_points = Vo.node_count
 
-        if not isinstance(e.cell(), OuterProductCell):
-            num_cells = mesh.num_cells()
-        else:
-            num_cells = mesh.num_cells() * (mesh.layers - 1)
+        layers = mesh.layers - 1 if isinstance(e.cell(), OuterProductCell) else 1
+        num_cells = mesh.num_cells() * layers
 
-        if not isinstance(e.cell(), OuterProductCell):
+        if not isinstance(e.cell(), OuterProductCell) and e.cell() != Cell("quadrilateral"):
             connectivity = Vc.cell_node_map().values_with_halo.flatten()
         else:
             # Connectivity of bottom cell in extruded mesh
@@ -284,13 +284,13 @@ class _VTUFile(object):
                 base = base[:, [0, 2, 4, 1, 3, 5]]
                 points_per_cell = 6
             # Repeat up the column
-            connectivity_temp = np.repeat(base, mesh.layers - 1, axis=0)
+            connectivity_temp = np.repeat(base, layers, axis=0)
 
             if discontinuous:
                 scale = points_per_cell
             else:
                 scale = 1
-            offsets = np.arange(mesh.layers - 1) * scale
+            offsets = np.arange(layers) * scale
 
             # Add offsets going up the column
             connectivity_temp += np.tile(offsets.reshape(-1, 1), (mesh.num_cells(), 1))
