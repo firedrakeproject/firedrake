@@ -49,6 +49,7 @@ class NonlinearVariationalProblem(object):
 
         # Store form compiler parameters
         self.form_compiler_parameters = form_compiler_parameters
+        self._constant_jacobian = False
 
 
 class NonlinearVariationalSolver(object):
@@ -110,6 +111,7 @@ class NonlinearVariationalSolver(object):
         if self._problem.Jp is not None:
             self._problem.Jp = ufl.replace(self._problem.Jp, {self._problem.u_ufl:
                                                               self._x})
+        self._jacobian_assembled = False
         self.snes = PETSc.SNES().create()
         self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
         NonlinearVariationalSolver._id += 1
@@ -181,6 +183,11 @@ class NonlinearVariationalSolver(object):
                     _f[:] = _v[:]
 
     def form_jacobian(self, snes, X_, J_, P_):
+        if self._problem._constant_jacobian and self._jacobian_assembled:
+            # Don't need to do any work with a constant jacobian
+            # that's already assembled
+            return
+        self._jacobian_assembled = True
         # X_ may not be the same vector as the vec behind self._x, so
         # copy guess in from X_.
         with self._x.dat.vec as v:
@@ -276,7 +283,8 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
     """Linear variational problem a(u, v) = L(v)."""
 
     def __init__(self, a, L, u, bcs=None, aP=None,
-                 form_compiler_parameters=None):
+                 form_compiler_parameters=None,
+                 constant_jacobian=True):
         """
         :param a: the bilinear form
         :param L: the linear form
@@ -287,6 +295,10 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                  computed from ``a``)
         :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
+        :param constant_jacobian: (optional) flag indicating that the
+                 Jacobian is constant (i.e. does not depend on
+                 varying fields).  If your Jacobian can change, set
+                 this flag to :data:`False`.
         """
 
         # In the linear case, the Jacobian is the equation LHS.
@@ -295,6 +307,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters)
+        self._constant_jacobian = constant_jacobian
 
 
 class LinearVariationalSolver(NonlinearVariationalSolver):
