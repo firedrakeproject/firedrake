@@ -27,6 +27,7 @@ from pyop2.logger import debug, info, warning, error, critical  # noqa
 from pyop2.logger import DEBUG, INFO, WARNING, ERROR, CRITICAL  # noqa
 from pyop2 import op2                                           # noqa
 
+from assemble import *
 from bcs import *
 from constant import *
 from expression import *
