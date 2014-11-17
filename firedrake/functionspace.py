@@ -462,18 +462,26 @@ class FunctionSpaceBase(ObjectCached):
             # triangle x interval interval x interval it's (1, 1) and
             # (0, 1) respectively.
             if self._mesh.geometric_dimension == 3:
-                dim = (1, 1)
+                dims = [(1, 1)]
             elif self._mesh.geometric_dimension == 2:
-                dim = (0, 1)
+                dims = [(0, 1)]
             else:
                 raise RuntimeError("Dimension computation for other than 2D or 3D extruded meshes not supported.")
         else:
             # Facets have co-dimension 1
-            dim = len(el.get_reference_element().topology)-1
-            dim = dim - 1
+            # This becomes a bit more complicated for quadrilaterals,
+            # as their dimension is (1, 1), so facets have dimensions
+            # (0, 1) AND (1, 0), which forces us to deal with multiple
+            # dimension values.
+            flat_dim = lambda d: sum(d) if isinstance(d, tuple) else d
+            dim = max(map(flat_dim, el.get_reference_element().topology))
+            dims = filter(lambda d: flat_dim(d) == dim - 1,
+                          el.get_reference_element().topology)
 
         if method == "topological":
-            boundary_dofs = el.entity_closure_dofs()[dim]
+            boundary_dofs = dict(enumerate(value
+                                           for dim in dims
+                                           for value in el.entity_closure_dofs()[dim].values()))
         elif method == "geometric":
             boundary_dofs = el.facet_support_dofs()
 
@@ -501,8 +509,10 @@ class FunctionSpaceBase(ObjectCached):
         # array literals.
         c_array = lambda xs: "{"+", ".join(map(str, xs))+"}"
 
-        body = ast.Block([ast.Decl("int", ast.Symbol("l_nodes", (len(el.get_reference_element().topology[dim]),
-                                                                 nodes_per_facet)),
+        body = ast.Block([ast.Decl("int",
+                                   ast.Symbol("l_nodes",
+                                              (sum(len(el.get_reference_element().topology[dim]) for dim in dims),
+                                               nodes_per_facet)),
                                    init=ast.ArrayInit(c_array(map(c_array, local_facet_nodes))),
                                    qualifiers=["const"]),
                           ast.For(ast.Decl("int", "n", 0),
