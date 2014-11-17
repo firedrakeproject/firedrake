@@ -168,12 +168,6 @@ class NonlinearVariationalSolver(object):
             if v != X_:
                 with v as _v, X_ as _x:
                     _v[:] = _x[:]
-        # PETSc doesn't know about the halo regions in our dats, so
-        # when it updates the guess it only does so on the local
-        # portion. So ensure we do a halo update before assembling.
-        # Note that this happens even when the u_ufl vec is aliased to
-        # X_, hence this not being inside the if above.
-        self._x.dat.needs_halo_update = True
         assemble.assemble(self._problem.F_ufl, tensor=self._F_tensor,
                           form_compiler_parameters=self._problem.form_compiler_parameters)
         for bc in self._problem.bcs:
@@ -193,8 +187,6 @@ class NonlinearVariationalSolver(object):
             if v != X_:
                 with v as _v, X_ as _x:
                     _v[:] = _x[:]
-        # Ensure guess has correct halo data.
-        self._x.dat.needs_halo_update = True
         assemble.assemble(self._problem.J_ufl,
                           tensor=self._jac_tensor,
                           bcs=self._problem.bcs,
@@ -252,9 +244,6 @@ class NonlinearVariationalSolver(object):
         with self._problem.u_ufl.dat.vec as v:
             self.snes.solve(None, v)
 
-        # Only the local part of u gets updated by the petsc solve, so
-        # we need to mark things as needing a halo update.
-        self._problem.u_ufl.dat.needs_halo_update = True
         reasons = self.snes.ConvergedReason()
         reasons = dict([(getattr(reasons, r), r)
                         for r in dir(reasons) if not r.startswith('_')])
