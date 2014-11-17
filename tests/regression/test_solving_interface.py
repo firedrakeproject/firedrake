@@ -1,6 +1,6 @@
 import pytest
 from firedrake import *
-from numpy.linalg import norm
+from numpy.linalg import norm as np_norm
 import gc
 
 
@@ -146,12 +146,60 @@ def test_linear_solves_equivalent():
     # And again
     sol2 = Function(V)
     solve(a == L, sol2)
-    assert norm(sol.vector()[:] - sol2.vector()[:]) == 0
+    assert np_norm(sol.vector()[:] - sol2.vector()[:]) == 0
 
     # Solve the system using preassembled objects
     sol3 = Function(V)
     solve(assemble(a), sol3, assemble(L))
-    assert norm(sol.vector()[:] - sol3.vector()[:]) < 5e-14
+    assert np_norm(sol.vector()[:] - sol3.vector()[:]) < 5e-14
+
+
+def test_constant_jacobian_lvs():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    q = Function(V)
+    q.assign(1)
+    a = q*u*v*dx
+
+    f = Function(V)
+    f.assign(1)
+    L = f*v*dx
+
+    out = Function(V)
+
+    # Non-constant jacobian set
+    lvp = LinearVariationalProblem(a, L, out, constant_jacobian=False)
+    lvs = LinearVariationalSolver(lvp)
+
+    lvs.solve()
+
+    assert norm(assemble(out - f)) < 1e-7
+
+    q.assign(5)
+
+    lvs.solve()
+
+    assert norm(assemble(out*5 - f)) < 2e-7
+
+    q.assign(1)
+
+    # This one should fail (because Jac is wrong)
+    lvp = LinearVariationalProblem(a, L, out, constant_jacobian=True)
+    lvs = LinearVariationalSolver(lvp)
+
+    lvs.solve()
+
+    assert norm(assemble(out - f)) < 1e-7
+
+    q.assign(5)
+
+    lvs.solve()
+
+    assert not (norm(assemble(out*5 - f)) < 2e-7)
 
 
 if __name__ == '__main__':
