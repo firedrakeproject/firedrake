@@ -1,6 +1,5 @@
-from pyop2 import op2
-
 import function
+import solving_utils
 from petsc import PETSc
 
 
@@ -49,31 +48,12 @@ class LinearSolver(object):
         pc = self.ksp.getPC()
 
         pmat = self.P._M
-        if pmat.sparsity.shape != (1, 1):
-            rows, cols = pmat.sparsity.shape
-            ises = []
-            nlocal_rows = 0
-            for i in range(rows):
-                if i < cols:
-                    nlocal_rows += pmat[i, i].sparsity.nrows * pmat[i, i].dims[0]
-            offset = 0
-            if op2.MPI.comm.rank == 0:
-                op2.MPI.comm.exscan(nlocal_rows)
-            else:
-                offset = op2.MPI.comm.exscan(nlocal_rows)
-            for i in range(rows):
-                if i < cols:
-                    nrows = pmat[i, i].sparsity.nrows * pmat[i, i].dims[0]
-                    name = "%d" % i
-                    ises.append((name, PETSc.IS().createStride(nrows, first=offset, step=1)))
-                    offset += nrows
-            pc.setFieldSplitIS(*ises)
-        else:
-            ises = None
+        ises = solving_utils.set_fieldsplits(pmat, pc)
 
         if nullspace is not None:
-            nullspace._apply(self.P._M, ises=ises)
-            nullspace._apply(self.A._M, ises=ises)
+            nullspace._apply(self.A.M, ises=ises)
+            if P is not None:
+                nullspace._apply(self.P.M, ises=ises)
         # Operator setting must come after null space has been
         # applied
         # Force evaluation here
@@ -87,19 +67,7 @@ class LinearSolver(object):
     def parameters(self, val):
         assert isinstance(val, dict), "Must pass a dict to set parameters"
         self._parameters = val
-        self._update_parameters()
-
-    def _update_parameters(self):
-        opts = PETSc.Options(self._opt_prefix)
-        for k, v in self.parameters.iteritems():
-            if type(v) is bool:
-                if v:
-                    opts[k] = None
-                else:
-                    continue
-            else:
-                opts[k] = v
-        self.ksp.setFromOptions()
+        solving_utils.update_parameters(self, self.ksp)
 
     def __del__(self):
         if hasattr(self, '_opt_prefix'):
@@ -109,6 +77,8 @@ class LinearSolver(object):
             delattr(self, '_opt_prefix')
 
     def solve(self, x, b):
+        # User may have updated parameters
+        solving_utils.update_parameters(self, self.ksp)
         if self.A.has_bcs:
             b_bc = function.Function(b.function_space())
             for bc in self.A.bcs:
@@ -123,3 +93,10 @@ class LinearSolver(object):
         with b.dat.vec_ro as rhs:
             with x.dat.vec as solution:
                 self.ksp.solve(rhs, solution)
+
+        r = self.ksp.getConvergedReason()
+        if r < 0:
+            reasons = self.ksp.ConvergedReason()
+            reasons = dict([(getattr(reasons, reason), reason)
+                            for reason in dir(reasons) if not reason.startswith('_')])
+            raise RuntimeError("LinearSolver failed to converge after %d iterations with reason: %s", self.ksp.getIterationNumber(), reasons[r])

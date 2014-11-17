@@ -1,13 +1,12 @@
 import ufl
-from copy import copy
 
-from pyop2 import op2
 from pyop2.logger import warning, RED
 from pyop2.profiling import timed_function, profile
 
 import assemble
 import function
 import solving
+import solving_utils
 import ufl_expr
 from petsc import PETSc
 
@@ -127,7 +126,7 @@ class NonlinearVariationalSolver(object):
                 parameters = kwargs['solver_parameters']
 
         # Make sure we don't stomp on a dict the user has passed in.
-        parameters = copy(parameters) if parameters is not None else {}
+        parameters = parameters.copy() if parameters is not None else {}
         # Mixed problem, use jacobi pc if user has not supplied one.
         if self._jac_tensor._M.sparsity.shape != (1, 1):
             parameters.setdefault('pc_type', 'jacobi')
@@ -137,28 +136,10 @@ class NonlinearVariationalSolver(object):
         ksp = self.snes.getKSP()
         pc = ksp.getPC()
         pmat = self._jac_ptensor._M
-        if pmat.sparsity.shape != (1, 1):
-            rows, cols = pmat.sparsity.shape
-            ises = []
-            nlocal_rows = 0
-            for i in range(rows):
-                if i < cols:
-                    nlocal_rows += pmat[i, i].sparsity.nrows * pmat[i, i].dims[0]
-            offset = 0
-            if op2.MPI.comm.rank == 0:
-                op2.MPI.comm.exscan(nlocal_rows)
-            else:
-                offset = op2.MPI.comm.exscan(nlocal_rows)
-            for i in range(rows):
-                if i < cols:
-                    nrows = pmat[i, i].sparsity.nrows * pmat[i, i].dims[0]
-                    name = test.function_space()[i].name
-                    name = name if name else '%d' % i
-                    ises.append((name, PETSc.IS().createStride(nrows, first=offset, step=1)))
-                    offset += nrows
-            pc.setFieldSplitIS(*ises)
-        else:
-            ises = None
+        names = [fs.name if fs.name else str(i)
+                 for i, fs in enumerate(test.function_space())]
+
+        ises = solving_utils.set_fieldsplits(pmat, pc, names=names)
 
         with self._F_tensor.dat.vec as v:
             self.snes.setFunction(self.form_function, v)
@@ -228,18 +209,6 @@ class NonlinearVariationalSolver(object):
             return PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 
-    def _update_parameters(self):
-        opts = PETSc.Options(self._opt_prefix)
-        for k, v in self.parameters.iteritems():
-            if type(v) is bool:
-                if v:
-                    opts[k] = None
-                else:
-                    continue
-            else:
-                opts[k] = v
-        self.snes.setFromOptions()
-
     def __del__(self):
         # Remove stuff from the options database
         # It's fixed size, so if we don't it gets too big.
@@ -267,7 +236,7 @@ class NonlinearVariationalSolver(object):
     def parameters(self, val):
         assert isinstance(val, dict), 'Must pass a dict to set parameters'
         self._parameters = val
-        self._update_parameters()
+        solving_utils.update_parameters(self, self.snes)
 
     @timed_function("SNES solver execution")
     @profile
@@ -278,7 +247,7 @@ class NonlinearVariationalSolver(object):
 
         # User might have updated parameters dict before calling
         # solve, ensure these are passed through to the snes.
-        self._update_parameters()
+        solving_utils.update_parameters(self, self.snes)
 
         with self._problem.u_ufl.dat.vec as v:
             self.snes.solve(None, v)
@@ -362,4 +331,4 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
 
         self.parameters.setdefault('snes_type', 'ksponly')
         self.parameters.setdefault('ksp_rtol', 1.0e-7)
-        self._update_parameters()
+        solving_utils.update_parameters(self, self.snes)
