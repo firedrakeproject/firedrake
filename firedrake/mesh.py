@@ -562,6 +562,16 @@ class Mesh(object):
             op2.Set(size, "%s_cells" % self.name)
 
 
+class QuadrilateralMesh(Mesh):
+    """A mesh class providing functionality specific to quadrilateral meshes.
+
+    Not part of the public API.
+    """
+
+    def __init__(self, meshfile, **kwargs):
+        super(QuadrilateralMesh, self).__init__(meshfile, cellname="quadrilateral", **kwargs)
+
+
 class ExtrudedMesh(Mesh):
     """Build an extruded mesh from an input mesh
 
