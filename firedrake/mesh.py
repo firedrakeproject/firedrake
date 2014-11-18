@@ -433,6 +433,11 @@ class Mesh(object):
                                                          entity_per_cell)
         return self._cell_closure
 
+    def create_cell_node_list(self, global_numbering, fiat_element, dofs_per_cell):
+        return dmplex.get_cell_nodes(global_numbering,
+                                     self.cell_closure,
+                                     dofs_per_cell)
+
     @property
     def layers(self):
         """Return the number of layers of the extruded mesh
@@ -570,6 +575,13 @@ class QuadrilateralMesh(Mesh):
 
     def __init__(self, meshfile, **kwargs):
         super(QuadrilateralMesh, self).__init__(meshfile, cellname="quadrilateral", **kwargs)
+
+    def create_cell_node_list(self, global_numbering, fiat_element, dofs_per_cell):
+        return dmplex.get_quadrilateral_cell_nodes(global_numbering,
+                                                   self.cell_closure,
+                                                   self._edge_directions,
+                                                   fiat_element,
+                                                   dofs_per_cell)
 
 
 class ExtrudedMesh(Mesh):
@@ -736,6 +748,13 @@ class ExtrudedMesh(Mesh):
         for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_t, ufl.ds_b, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
             measure._subdomain_data = self.coordinates
             measure._domain = self.ufl_domain()
+
+    def create_cell_node_list(self, global_numbering, fiat_element, dofs_per_cell):
+        return dmplex.get_extruded_cell_nodes(self._plex,
+                                              global_numbering,
+                                              self.cell_closure,
+                                              fiat_element,
+                                              dofs_per_cell)
 
     @property
     def layers(self):

@@ -129,22 +129,9 @@ class FunctionSpaceBase(ObjectCached):
 
         self._node_count = self._global_numbering.getStorageSize()
 
-        if isinstance(self._mesh, mesh_t.ExtrudedMesh):
-            self.cell_node_list = dmplex.get_extruded_cell_nodes(mesh._plex,
-                                                                 self._global_numbering,
-                                                                 mesh.cell_closure,
-                                                                 self.fiat_element,
-                                                                 sum(self._dofs_per_cell))
-        elif mesh.ufl_cell() == ufl.Cell("quadrilateral"):
-            self.cell_node_list = dmplex.get_quadrilateral_cell_nodes(self._global_numbering,
-                                                                      mesh.cell_closure,
-                                                                      mesh._edge_directions,
-                                                                      self.fiat_element,
-                                                                      sum(self._dofs_per_cell))
-        else:
-            self.cell_node_list = dmplex.get_cell_nodes(self._global_numbering,
-                                                        mesh.cell_closure,
-                                                        sum(self._dofs_per_cell))
+        self.cell_node_list = mesh.create_cell_node_list(self._global_numbering,
+                                                         self.fiat_element,
+                                                         sum(self._dofs_per_cell))
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
             # Compute the facet_numbering and store with the parent mesh
