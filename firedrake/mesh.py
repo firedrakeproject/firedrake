@@ -266,7 +266,6 @@ class Mesh(object):
                 self._cell_numbering = self._plex.createSection([1], cell_entity_dofs,
                                                                 perm=self._plex_renumbering)
 
-        self._cell_closure = None
         self.interior_facets = None
         self.exterior_facets = None
 
@@ -424,14 +423,8 @@ class Mesh(object):
             start, end = dm.getDepthStratum(dim)
             entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end, a_closure))
 
-        if self.ufl_cell() == ufl.Cell("quadrilateral"):
-            self._cell_closure, self._edge_directions = dmplex.quadrilateral_closure_ordering(self._plex, self._cell_numbering)
-        else:
-            self._cell_closure = dmplex.closure_ordering(dm,
-                                                         dm.getDefaultGlobalSection(),
-                                                         self._cell_numbering,
-                                                         entity_per_cell)
-        return self._cell_closure
+        return dmplex.closure_ordering(dm, dm.getDefaultGlobalSection(),
+                                       self._cell_numbering, entity_per_cell)
 
     def create_cell_node_list(self, global_numbering, fiat_element, dofs_per_cell):
         return dmplex.get_cell_nodes(global_numbering,
@@ -576,10 +569,19 @@ class QuadrilateralMesh(Mesh):
     def __init__(self, meshfile, **kwargs):
         super(QuadrilateralMesh, self).__init__(meshfile, cellname="quadrilateral", **kwargs)
 
+    @utils.cached_property
+    def _closure_ordering(self):
+        return dmplex.quadrilateral_closure_ordering(self._plex, self._cell_numbering)
+
+    @property
+    def cell_closure(self):
+        return self._closure_ordering[0]
+
     def create_cell_node_list(self, global_numbering, fiat_element, dofs_per_cell):
+        edge_directions = self._closure_ordering[1]
         return dmplex.get_quadrilateral_cell_nodes(global_numbering,
                                                    self.cell_closure,
-                                                   self._edge_directions,
+                                                   edge_directions,
                                                    fiat_element,
                                                    dofs_per_cell)
 
@@ -647,7 +649,6 @@ class ExtrudedMesh(Mesh):
         self._plex = mesh._plex
         self._plex_renumbering = mesh._plex_renumbering
         self._cell_numbering = mesh._cell_numbering
-        self._cell_closure = mesh._cell_closure
 
         interior_f = self._old_mesh.interior_facets
         self._interior_facets = _Facets(self, interior_f.classes,
@@ -748,6 +749,10 @@ class ExtrudedMesh(Mesh):
         for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_t, ufl.ds_b, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
             measure._subdomain_data = self.coordinates
             measure._domain = self.ufl_domain()
+
+    @property
+    def cell_closure(self):
+        return self._old_mesh.cell_closure
 
     def create_cell_node_list(self, global_numbering, fiat_element, dofs_per_cell):
         return dmplex.get_extruded_cell_nodes(self._plex,
