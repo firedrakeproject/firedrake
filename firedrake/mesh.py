@@ -411,6 +411,28 @@ class Mesh(object):
 
         self._from_dmplex(plex, dim, reorder)
 
+    @utils.cached_property
+    def cell_closure(self):
+        dm = self._plex
+
+        a_cell = dm.getHeightStratum(0)[0]
+        a_closure = dm.getTransitiveClosure(a_cell)[0]
+        topological_dimension = dm.getDimension()
+
+        entity_per_cell = np.zeros(topological_dimension + 1, dtype=np.int32)
+        for dim in xrange(topological_dimension + 1):
+            start, end = dm.getDepthStratum(dim)
+            entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end, a_closure))
+
+        if self.ufl_cell() == ufl.Cell("quadrilateral"):
+            self._cell_closure, self._edge_directions = dmplex.quadrilateral_closure_ordering(self._plex, self._cell_numbering)
+        else:
+            self._cell_closure = dmplex.closure_ordering(dm,
+                                                         dm.getDefaultGlobalSection(),
+                                                         self._cell_numbering,
+                                                         entity_per_cell)
+        return self._cell_closure
+
     @property
     def layers(self):
         """Return the number of layers of the extruded mesh
