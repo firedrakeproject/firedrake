@@ -553,6 +553,10 @@ class Mesh(object):
     def size(self, d):
         return self.num_entities(d)
 
+    def facet_dimensions(self):
+        # Facets have co-dimension 1
+        return [self.ufl_cell().topological_dimension() - 1]
+
     @utils.cached_property
     def cell_set(self):
         size = self.cell_classes
@@ -584,6 +588,9 @@ class QuadrilateralMesh(Mesh):
                                                    edge_directions,
                                                    fiat_element,
                                                    dofs_per_cell)
+
+    def facet_dimensions(self):
+        return [(0, 1), (1, 0)]
 
 
 class ExtrudedMesh(Mesh):
@@ -783,3 +790,16 @@ class ExtrudedMesh(Mesh):
     @property
     def geometric_dimension(self):
         return self.ufl_cell().geometric_dimension()
+
+    def facet_dimensions(self):
+        # The facet is indexed by (base-ele-codim 1, 1) for
+        # extruded meshes.
+        # e.g. for the two supported options of
+        # triangle x interval interval x interval it's (1, 1) and
+        # (0, 1) respectively.
+        if self.geometric_dimension == 3:
+            return [(1, 1)]
+        elif self.geometric_dimension == 2:
+            return [(0, 1)]
+        else:
+            raise RuntimeError("Dimension computation for other than 2D or 3D extruded meshes not supported.")
