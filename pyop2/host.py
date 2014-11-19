@@ -728,6 +728,9 @@ class JITModule(base.JITModule):
             if blas['name'] == 'eigen':
                 externc_open = 'extern "C" {'
                 externc_close = '}'
+        if self._kernel._cpp:
+            externc_open = 'extern "C" {'
+            externc_close = '}'
         headers = "\n".join([compiler.get('vect_header', ""), blas_header])
         if any(arg._is_soa for arg in self._args):
             kernel_code = """
@@ -794,6 +797,8 @@ class JITModule(base.JITModule):
             ldargs += blas['link']
             if blas['name'] == 'eigen':
                 extension = "cpp"
+        if self._kernel._cpp:
+            extension = "cpp"
         self._fun = compilation.load(code_to_compile,
                                      extension,
                                      self._wrapper_name,
