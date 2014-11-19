@@ -11,19 +11,19 @@
 
 /* Compute Jacobian J for quad embedded in R^2 */
 #define compute_jacobian_quad_2d(J, vertex_coordinates) \
-  J[0] = vertex_coordinates[2][0] - vertex_coordinates[0][0]; \
-  J[1] = vertex_coordinates[1][0] - vertex_coordinates[0][0]; \
-  J[2] = vertex_coordinates[6][0] - vertex_coordinates[4][0]; \
-  J[3] = vertex_coordinates[5][0] - vertex_coordinates[4][0];
+  J[0] = 0.5*(vertex_coordinates[2][0] + vertex_coordinates[3][0] - vertex_coordinates[0][0] - vertex_coordinates[1][0]); \
+  J[1] = 0.5*(vertex_coordinates[1][0] + vertex_coordinates[3][0] - vertex_coordinates[0][0] - vertex_coordinates[2][0]); \
+  J[2] = 0.5*(vertex_coordinates[6][0] + vertex_coordinates[7][0] - vertex_coordinates[4][0] - vertex_coordinates[5][0]); \
+  J[3] = 0.5*(vertex_coordinates[5][0] + vertex_coordinates[7][0] - vertex_coordinates[4][0] - vertex_coordinates[6][0]);
 
 /* Compute Jacobian J for quad embedded in R^3 */
 #define compute_jacobian_quad_3d(J, vertex_coordinates) \
-  J[0] = vertex_coordinates[2] [0] - vertex_coordinates[0][0]; \
-  J[1] = vertex_coordinates[1] [0] - vertex_coordinates[0][0]; \
-  J[2] = vertex_coordinates[6] [0] - vertex_coordinates[4][0]; \
-  J[3] = vertex_coordinates[5] [0] - vertex_coordinates[4][0]; \
-  J[4] = vertex_coordinates[10][0] - vertex_coordinates[8][0]; \
-  J[5] = vertex_coordinates[9] [0] - vertex_coordinates[8][0];
+  J[0] = 0.5*(vertex_coordinates[2][0] + vertex_coordinates[3][0] - vertex_coordinates[0][0] - vertex_coordinates[1][0]); \
+  J[1] = 0.5*(vertex_coordinates[1][0] + vertex_coordinates[3][0] - vertex_coordinates[0][0] - vertex_coordinates[2][0]); \
+  J[2] = 0.5*(vertex_coordinates[6][0] + vertex_coordinates[7][0] - vertex_coordinates[4][0] - vertex_coordinates[5][0]); \
+  J[3] = 0.5*(vertex_coordinates[5][0] + vertex_coordinates[7][0] - vertex_coordinates[4][0] - vertex_coordinates[6][0]); \
+  J[4] = 0.5*(vertex_coordinates[10][0] + vertex_coordinates[11][0] - vertex_coordinates[8][0] - vertex_coordinates[9][0]); \
+  J[5] = 0.5*(vertex_coordinates[9][0] + vertex_coordinates[11][0] - vertex_coordinates[8][0] - vertex_coordinates[10][0]);
 
 /* Compute Jacobian J for interval embedded in R^3 */
 #define compute_jacobian_interval_3d(J, vertex_coordinates) \
@@ -61,15 +61,15 @@
 
 /* Compute Jacobian J for tensor product prism embedded in R^3 */
 #define compute_jacobian_prism_3d(J, vertex_coordinates) \
-  J[0] = vertex_coordinates[2] [0] - vertex_coordinates[0] [0]; \
-  J[1] = vertex_coordinates[4] [0] - vertex_coordinates[0] [0]; \
-  J[2] = vertex_coordinates[1] [0] - vertex_coordinates[0] [0]; \
-  J[3] = vertex_coordinates[8] [0] - vertex_coordinates[6] [0]; \
-  J[4] = vertex_coordinates[10][0] - vertex_coordinates[6] [0]; \
-  J[5] = vertex_coordinates[7] [0] - vertex_coordinates[6] [0]; \
-  J[6] = vertex_coordinates[14][0] - vertex_coordinates[12][0]; \
-  J[7] = vertex_coordinates[16][0] - vertex_coordinates[12][0]; \
-  J[8] = vertex_coordinates[13][0] - vertex_coordinates[12][0];
+  J[0] = 0.5*(vertex_coordinates[2][0] + vertex_coordinates[3][0] - vertex_coordinates[0][0] - vertex_coordinates[1][0]); \
+  J[1] = 0.5*(vertex_coordinates[4][0] + vertex_coordinates[5][0] - vertex_coordinates[0][0] - vertex_coordinates[1][0]); \
+  J[2] = (vertex_coordinates[1][0] + vertex_coordinates[3][0] + vertex_coordinates[5][0] - vertex_coordinates[0][0] - vertex_coordinates[2][0] - vertex_coordinates[4][0])/3.0; \
+  J[3] = 0.5*(vertex_coordinates[8][0] + vertex_coordinates[9][0] - vertex_coordinates[6][0] - vertex_coordinates[7][0]); \
+  J[4] = 0.5*(vertex_coordinates[10][0] + vertex_coordinates[11][0] - vertex_coordinates[6][0] - vertex_coordinates[7][0]); \
+  J[5] = (vertex_coordinates[7][0] + vertex_coordinates[9][0] + vertex_coordinates[11][0] - vertex_coordinates[6][0] - vertex_coordinates[8][0] - vertex_coordinates[10][0])/3.0; \
+  J[6] = 0.5*(vertex_coordinates[14][0] + vertex_coordinates[15][0] - vertex_coordinates[12][0] - vertex_coordinates[13][0]); \
+  J[7] = 0.5*(vertex_coordinates[16][0] + vertex_coordinates[17][0] - vertex_coordinates[12][0] - vertex_coordinates[13][0]); \
+  J[8] = (vertex_coordinates[13][0] + vertex_coordinates[15][0] + vertex_coordinates[17][0] - vertex_coordinates[12][0] - vertex_coordinates[14][0] - vertex_coordinates[16][0])/3.0;
 
 /* Jacobians for interior facets of different sorts */
 
