@@ -1,6 +1,6 @@
 /* --- Computation of Jacobian matrices --- */
 
-/* compute Jacobian J for interval embedded in R^1 */
+/* Compute Jacobian J for interval embedded in R^1 */
 #define compute_jacobian_interval_1d(J, vertex_coordinates) \
   J[0] = vertex_coordinates[1][0] - vertex_coordinates[0][0];
 
@@ -60,6 +60,11 @@
   J[8] = vertex_coordinates[11][0] - vertex_coordinates[8][0];
 
 /* Compute Jacobian J for tensor product prism embedded in R^3 */
+/* Explanation: the CG1 x CG1 basis functions are, in order,
+(1-X-Y)(1-Z), (1-X-Y)Z, X(1-Z), XZ, Y(1-Z), YZ.  Each row of the
+Jacobian is the derivatives of these w.r.t. X, Y and Z in turn,
+evaluated at the midpoint (1/3, 1/3, 1/2).  This gives the
+coefficients below.*/
 #define compute_jacobian_prism_3d(J, vertex_coordinates) \
   J[0] = 0.5*(vertex_coordinates[2][0] + vertex_coordinates[3][0] - vertex_coordinates[0][0] - vertex_coordinates[1][0]); \
   J[1] = 0.5*(vertex_coordinates[4][0] + vertex_coordinates[5][0] - vertex_coordinates[0][0] - vertex_coordinates[1][0]); \
