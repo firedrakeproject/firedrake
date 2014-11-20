@@ -243,8 +243,8 @@ class Mesh(object):
             self._plex_renumbering = dmplex.plex_renumbering(self._plex, reordering)
 
             cStart, cEnd = self._plex.getHeightStratum(0)  # cells
-            cell_vertices = self._plex.getConeSize(cStart)
-            self._ufl_cell = ufl.Cell(fiat_utils._cells[topological_dim][cell_vertices],
+            cell_facets = self._plex.getConeSize(cStart)
+            self._ufl_cell = ufl.Cell(fiat_utils._cells[topological_dim][cell_facets],
                                       geometric_dimension=geometric_dim)
 
             self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
