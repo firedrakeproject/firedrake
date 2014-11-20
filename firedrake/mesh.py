@@ -168,7 +168,6 @@ class Mesh(object):
         dim = kwargs.get("dim", None)
         reorder = kwargs.get("reorder", parameters["reorder_meshes"])
         periodic_coords = kwargs.get("periodic_coords", None)
-        cellname = kwargs.get("cellname", None)
 
         # A cache of function spaces that have been built on this mesh
         self._cache = {}
@@ -176,7 +175,7 @@ class Mesh(object):
 
         if isinstance(meshfile, PETSc.DMPlex):
             self.name = "plexmesh"
-            self._from_dmplex(meshfile, dim, reorder, cellname=cellname,
+            self._from_dmplex(meshfile, dim, reorder,
                               periodic_coords=periodic_coords)
             return
 
@@ -206,7 +205,7 @@ class Mesh(object):
         self._coordinate_function = value
 
     def _from_dmplex(self, plex, geometric_dim,
-                     reorder, cellname=None, periodic_coords=None):
+                     reorder, periodic_coords=None):
         """ Create mesh from DMPlex object """
 
         self._plex = plex
@@ -219,8 +218,9 @@ class Mesh(object):
         with timed_region("Mesh: label facets"):
             dmplex.label_facets(self._plex)
 
+        topological_dim = plex.getDimension()
         if geometric_dim is None:
-            geometric_dim = plex.getDimension()
+            geometric_dim = topological_dim
 
         # Distribute the dm to all ranks
         if op2.MPI.comm.size > 1:
@@ -244,9 +244,8 @@ class Mesh(object):
 
             cStart, cEnd = self._plex.getHeightStratum(0)  # cells
             cell_vertices = self._plex.getConeSize(cStart)
-            if cellname is None:
-                cellname = fiat_utils._cells[geometric_dim][cell_vertices]
-            self._ufl_cell = ufl.Cell(cellname, geometric_dimension=geometric_dim)
+            self._ufl_cell = ufl.Cell(fiat_utils._cells[topological_dim][cell_vertices],
+                                      geometric_dimension=geometric_dim)
 
             self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
             dim = self._plex.getDimension()
@@ -580,9 +579,6 @@ class QuadrilateralMesh(Mesh):
 
     Not part of the public API.
     """
-
-    def __init__(self, meshfile, **kwargs):
-        super(QuadrilateralMesh, self).__init__(meshfile, cellname="quadrilateral", **kwargs)
 
     @utils.cached_property
     def _closure_ordering(self):

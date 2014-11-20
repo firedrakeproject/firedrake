@@ -7,8 +7,8 @@ _fiat_element_cache = WeakKeyDictionary()
 
 _cells = {
     1: {2: "interval"},
-    2: {2: "interval", 3: "triangle"},
-    3: {2: "interval", 3: "triangle", 4: "tetrahedron"}
+    2: {3: "triangle", 4: "quadrilateral"},
+    3: {4: "tetrahedron"}
 }
 
 
