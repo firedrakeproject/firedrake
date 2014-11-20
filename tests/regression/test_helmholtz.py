@@ -11,15 +11,19 @@ and the analytical solution
   u(x, y) = cos(x[0]*2*pi)*cos(x[1]*2*pi)
 """
 
+from os.path import abspath, dirname, join
 import numpy as np
 import pytest
 
 from firedrake import *
 
+cwd = abspath(dirname(__file__))
 
-def helmholtz(x, quadrilateral=False, degree=2):
+
+def helmholtz(x, quadrilateral=False, degree=2, mesh=None):
     # Create mesh and define function space
-    mesh = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=quadrilateral)
+    if mesh is None:
+        mesh = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=quadrilateral)
     V = FunctionSpace(mesh, "CG", degree)
 
     # Define variational problem
@@ -70,6 +74,20 @@ def test_firedrake_helmholtz_scalar_convergence_on_quadrilaterals(testcase, conv
     for ii in [i + start for i in range(len(l2err))]:
         l2err[ii - start] = helmholtz(ii, quadrilateral=True, degree=degree)[0]
     assert (np.array([np.log2(l2err[i]/l2err[i+1]) for i in range(len(l2err)-1)]) > convrate).all()
+
+
+def run_firedrake_helmholtz_on_quadrilateral_mesh_from_file():
+    meshfile = join(cwd, "unitsquare_unstructured_quadrilaterals.msh")
+    assert helmholtz(None, mesh=Mesh(meshfile))[0] <= 0.01
+
+
+def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_serial():
+    run_firedrake_helmholtz_on_quadrilateral_mesh_from_file()
+
+
+@pytest.mark.parallel
+def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_parallel():
+    run_firedrake_helmholtz_on_quadrilateral_mesh_from_file()
 
 if __name__ == '__main__':
     import os
