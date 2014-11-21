@@ -2,6 +2,4 @@
 import petsc4py
 import sys
 petsc4py.init(sys.argv)
-from petsc4py import PETSc
-# Always abort on petsc errors
-PETSc.Sys.pushErrorHandler("mpiabort")
+from petsc4py import PETSc  # NOQA get flake8 to ignore unused import.
