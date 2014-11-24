@@ -830,7 +830,14 @@ class ExtrudedMesh(Mesh):
         return self.ufl_cell().geometric_dimension()
 
     def facet_dimensions(self):
-        """Returns a singleton list containing the facet dimension."""
+        """Returns a singleton list containing the facet dimension.
+
+        .. note::
+
+            This only returns the dimension of the "side" (vertical) facets,
+            not the "top" or "bottom" (horizontal) facets.
+
+        """
         # The facet is indexed by (base-ele-codim 1, 1) for
         # extruded meshes.
         # e.g. for the two supported options of
