@@ -27,12 +27,14 @@ from pyop2.logger import debug, info, warning, error, critical  # noqa
 from pyop2.logger import DEBUG, INFO, WARNING, ERROR, CRITICAL  # noqa
 from pyop2 import op2                                           # noqa
 
+from assemble import *
 from bcs import *
 from constant import *
 from expression import *
 from function import *
 from functionspace import *
 from io import *
+from linear_solver import *
 from mesh import *
 from norms import *
 from nullspace import *
@@ -42,6 +44,7 @@ from projection import *
 from solving import *
 from ufl_expr import *
 from utility_meshes import *
+from variational_solver import *
 from vector import *
 from version import __version__ as ver, __version_info__, check  # noqa
 
