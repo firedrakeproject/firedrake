@@ -23,17 +23,34 @@ which reproduces the known analytical solution
     x[0]*(1-x[0])*x[1]*(1-x[1])
 """
 import pytest
+import numpy as np
 
 from firedrake import *
 
 
-def poisson_mixed(size, parameters={}):
+def poisson_mixed(size, parameters={}, quadrilateral=False):
     # Create mesh
-    mesh = UnitSquareMesh(2 ** size, 2 ** size)
+    mesh = UnitSquareMesh(2 ** size, 2 ** size, quadrilateral=quadrilateral)
 
     # Define function spaces and mixed (product) space
-    BDM = FunctionSpace(mesh, "BDM", 1)
-    DG = FunctionSpace(mesh, "DG", 0)
+    if quadrilateral:
+        S0 = FiniteElement("CG", "interval", 1)
+        S1 = FiniteElement("DG", "interval", 0)
+
+        T0 = FiniteElement("CG", "interval", 1)
+        T1 = FiniteElement("DG", "interval", 0)
+
+        DG_elt = OuterProductElement(S1, T1)
+        BDM_elt_h = HDiv(OuterProductElement(S1, T0))
+        BDM_elt_v = HDiv(OuterProductElement(S0, T1))
+        BDM_elt = BDM_elt_h + BDM_elt_v
+
+        # spaces for calculation
+        DG = FunctionSpace(mesh, DG_elt)
+        BDM = FunctionSpace(mesh, BDM_elt)
+    else:
+        BDM = FunctionSpace(mesh, "BDM", 1)
+        DG = FunctionSpace(mesh, "DG", 0)
     W = BDM * DG
 
     # Define trial and test functions
@@ -68,12 +85,23 @@ def poisson_mixed(size, parameters={}):
                                'fieldsplit_1_ksp_type': 'cg'}])
 def test_poisson_mixed(parameters):
     """Test second-order convergence of the mixed poisson formulation."""
-    import numpy as np
     diff = np.array([poisson_mixed(i, parameters)[0] for i in range(3, 6)])
     print "l2 error norms:", diff
     conv = np.log2(diff[:-1] / diff[1:])
     print "convergence order:", conv
     assert (np.array(conv) > 1.9).all()
+
+
+@pytest.mark.parametrize(('testcase', 'convrate'),
+                         [((3, 6), 1.9)])
+def test_hdiv_convergence(testcase, convrate):
+    """Test second-order convergence of the mixed poisson formulation
+    on quadrilaterals with HDiv elements."""
+    start, end = testcase
+    l2err = np.zeros(end - start)
+    for ii in [i + start for i in range(len(l2err))]:
+        l2err[ii - start] = poisson_mixed(ii, quadrilateral=True)[0]
+    assert (np.log2(l2err[:-1] / l2err[1:]) > convrate).all()
 
 if __name__ == '__main__':
     import os

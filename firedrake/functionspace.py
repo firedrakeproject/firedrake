@@ -84,7 +84,7 @@ class FunctionSpaceBase(ObjectCached):
             self.dofs_per_column = np.zeros(1, np.int32)
             self.extruded = False
 
-            entity_dofs = self.fiat_element.entity_dofs()
+            entity_dofs = fiat_utils.flat_entity_dofs(self.fiat_element)
             self._dofs_per_entity = [len(entity[0]) for d, entity in entity_dofs.iteritems()]
             self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
 
@@ -129,26 +129,9 @@ class FunctionSpaceBase(ObjectCached):
 
         self._node_count = self._global_numbering.getStorageSize()
 
-        # Re-order cell closures from the Plex
-        if mesh._cell_closure is None:
-            entity_dofs = self.fiat_element.entity_dofs()
-            entity_per_cell = [len(entity) for d, entity in entity_dofs.iteritems()]
-            entity_per_cell = np.array(entity_per_cell, dtype=np.int32)
-            mesh._cell_closure = dmplex.closure_ordering(mesh._plex,
-                                                         self._universal_numbering,
-                                                         mesh._cell_numbering,
-                                                         entity_per_cell)
-
-        if isinstance(self._mesh, mesh_t.ExtrudedMesh):
-            self.cell_node_list = dmplex.get_extruded_cell_nodes(mesh._plex,
-                                                                 self._global_numbering,
-                                                                 mesh._cell_closure,
-                                                                 self.fiat_element,
-                                                                 sum(self._dofs_per_cell))
-        else:
-            self.cell_node_list = dmplex.get_cell_nodes(self._global_numbering,
-                                                        mesh._cell_closure,
-                                                        sum(self._dofs_per_cell))
+        self.cell_node_list = mesh.create_cell_node_list(self._global_numbering,
+                                                         self.fiat_element,
+                                                         sum(self._dofs_per_cell))
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
             # Compute the facet_numbering and store with the parent mesh
@@ -161,7 +144,7 @@ class FunctionSpaceBase(ObjectCached):
                     dmplex.facet_numbering(mesh._plex, "interior",
                                            interior_facets,
                                            mesh._cell_numbering,
-                                           mesh._cell_closure)
+                                           mesh.cell_closure)
 
                 mesh.interior_facets = mesh_t._Facets(mesh, interior_facet_classes,
                                                       "interior",
@@ -200,7 +183,7 @@ class FunctionSpaceBase(ObjectCached):
                     dmplex.facet_numbering(mesh._plex, "exterior",
                                            exterior_facets,
                                            mesh._cell_numbering,
-                                           mesh._cell_closure)
+                                           mesh.cell_closure)
 
                 mesh.exterior_facets = mesh_t._Facets(mesh, exterior_facet_classes,
                                                       "exterior",
@@ -450,25 +433,16 @@ class FunctionSpaceBase(ObjectCached):
 
         el = self.fiat_element
 
-        if isinstance(self._mesh, mesh_t.ExtrudedMesh):
-            # The facet is indexed by (base-ele-codim 1, 1) for
-            # extruded meshes.
-            # e.g. for the two supported options of
-            # triangle x interval interval x interval it's (1, 1) and
-            # (0, 1) respectively.
-            if self._mesh.geometric_dimension == 3:
-                dim = (1, 1)
-            elif self._mesh.geometric_dimension == 2:
-                dim = (0, 1)
-            else:
-                raise RuntimeError("Dimension computation for other than 2D or 3D extruded meshes not supported.")
-        else:
-            # Facets have co-dimension 1
-            dim = len(el.get_reference_element().topology)-1
-            dim = dim - 1
+        # Facet dimension becomes a bit more complicated
+        # for quadrilaterals, as their dimension is (1, 1),
+        # so facets have dimensions (0, 1) AND (1, 0),
+        # which forces us to deal with multiple dimension values.
+        dims = self._mesh.facet_dimensions()
 
         if method == "topological":
-            boundary_dofs = el.entity_closure_dofs()[dim]
+            boundary_dofs = dict(enumerate(value
+                                           for dim in dims
+                                           for value in el.entity_closure_dofs()[dim].values()))
         elif method == "geometric":
             boundary_dofs = el.facet_support_dofs()
 
@@ -496,8 +470,10 @@ class FunctionSpaceBase(ObjectCached):
         # array literals.
         c_array = lambda xs: "{"+", ".join(map(str, xs))+"}"
 
-        body = ast.Block([ast.Decl("int", ast.Symbol("l_nodes", (len(el.get_reference_element().topology[dim]),
-                                                                 nodes_per_facet)),
+        body = ast.Block([ast.Decl("int",
+                                   ast.Symbol("l_nodes",
+                                              (sum(len(el.get_reference_element().topology[dim]) for dim in dims),
+                                               nodes_per_facet)),
                                    init=ast.ArrayInit(c_array(map(c_array, local_facet_nodes))),
                                    qualifiers=["const"]),
                           ast.For(ast.Decl("int", "n", 0),
@@ -620,9 +596,9 @@ class FunctionSpace(FunctionSpaceBase):
             # First case...
             if isinstance(mesh, mesh_t.ExtrudedMesh):
                 # if extruded mesh, make the OPE
-                la = ufl.FiniteElement(family,
-                                       domain=mesh._old_mesh.ufl_cell(),
-                                       degree=degree)
+                la = _ufl_finite_element(family,
+                                         domain=mesh._old_mesh.ufl_cell(),
+                                         degree=degree)
                 if vfamily is None or vdegree is None:
                     # if second element was not passed in, assume same as first
                     # (only makes sense for CG or DG)
@@ -638,9 +614,7 @@ class FunctionSpace(FunctionSpaceBase):
                 element = ufl.OuterProductElement(la, lb, domain=mesh.ufl_domain())
             else:
                 # if not an extruded mesh, just make the element
-                element = ufl.FiniteElement(family,
-                                            domain=mesh.ufl_domain(),
-                                            degree=degree)
+                element = _ufl_finite_element(family, domain=mesh.ufl_domain(), degree=degree)
 
         super(FunctionSpace, self).__init__(mesh, element, name, dim=1)
         self._initialized = True
@@ -671,9 +645,9 @@ class VectorFunctionSpace(FunctionSpaceBase):
         if isinstance(mesh, mesh_t.ExtrudedMesh):
             if isinstance(family, ufl.OuterProductElement):
                 raise NotImplementedError("Not yet implemented")
-            la = ufl.FiniteElement(family,
-                                   domain=mesh._old_mesh.ufl_cell(),
-                                   degree=degree)
+            la = _ufl_finite_element(family,
+                                     domain=mesh._old_mesh.ufl_cell(),
+                                     degree=degree)
             if vfamily is None or vdegree is None:
                 lb = ufl.FiniteElement(family, domain=ufl.Cell("interval", 1),
                                        degree=degree)
@@ -682,8 +656,7 @@ class VectorFunctionSpace(FunctionSpaceBase):
                                        degree=vdegree)
             element = ufl.OuterProductVectorElement(la, lb, dim=dim, domain=mesh.ufl_domain())
         else:
-            element = ufl.VectorElement(family, domain=mesh.ufl_domain(),
-                                        degree=degree, dim=dim)
+            element = _ufl_vector_element(family, domain=mesh.ufl_domain(), degree=degree, dim=dim)
         super(VectorFunctionSpace, self).__init__(mesh, element, name, dim=dim, rank=1)
         self._initialized = True
 
@@ -941,3 +914,37 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         :meth:`exterior_facet_node_map` in that only surface nodes
         are referenced, not all nodes in cells touching the surface.'''
         return self._fs.exterior_facet_boundary_node_map
+
+
+def _ufl_finite_element(family, domain, degree):
+    if isinstance(domain, ufl.Domain):
+        cell = domain.cell()
+    elif isinstance(domain, ufl.Cell):
+        cell = domain
+    else:
+        raise ValueError("Illegal domain or cell type")
+
+    if cell == ufl.Cell("quadrilateral"):
+        return ufl.OuterProductElement(
+            ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
+            ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
+            domain=domain)
+    else:
+        return ufl.FiniteElement(family, domain=domain, degree=degree)
+
+
+def _ufl_vector_element(family, domain, degree, dim):
+    if isinstance(domain, ufl.Domain):
+        cell = domain.cell()
+    elif isinstance(domain, ufl.Cell):
+        cell = domain
+    else:
+        raise ValueError("Illegal domain or cell type")
+
+    if cell == ufl.Cell("quadrilateral"):
+        return ufl.OuterProductVectorElement(
+            ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
+            ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
+            dim=dim, domain=domain)
+    else:
+        return ufl.VectorElement(family, domain=domain, degree=degree, dim=dim)

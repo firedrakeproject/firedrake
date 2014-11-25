@@ -257,6 +257,121 @@ def closure_ordering(PETSc.DM plex,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def quadrilateral_closure_ordering(PETSc.DM plex,
+                                   PETSc.Section cell_numbering):
+    cdef:
+        PetscInt c, cStart, cEnd, cell
+        PetscInt v_per_cell = 4
+        PetscInt e_per_cell = 4
+        PetscInt nclosure = v_per_cell + e_per_cell + 1
+        PetscInt *cone = NULL
+        PetscInt *cone_orient = NULL
+        PetscInt edge_direction[4]
+        PetscInt bottom, top, bottom_dir, top_dir
+        PetscInt *bottom_vertices = NULL
+        PetscInt *top_vertices = NULL
+        np.ndarray[np.int32_t, ndim=2] cell_closure
+        np.ndarray[np.int32_t, ndim=2] edge_directions
+
+    cStart, cEnd = plex.getHeightStratum(0)
+    ncells = cEnd - cStart
+
+    cell_closure = np.empty((ncells, nclosure), dtype=np.int32)
+    edge_directions = np.empty((ncells, e_per_cell), dtype=np.int32)
+
+    for c in range(cStart, cEnd):
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+        cell_closure[cell, v_per_cell + e_per_cell] = c
+
+        CHKERR(DMPlexGetCone(plex.dm, c, &cone))
+        CHKERR(DMPlexGetConeOrientation(plex.dm, c, &cone_orient))
+
+        # We use two values only for edge orientation:
+        #  0: nodes are located on the edge in straight order
+        #  1: nodes are located on the edge in reverse order
+        for i in range(0, 4):
+            o = cone_orient[i]
+            edge_direction[i] = -(o+1) if o < 0 else o
+
+        # DMPlex returns the edges in an order like this:
+        #
+        #   *--2--*
+        #   |     |
+        #   3     1
+        #   |     |
+        #   *--0--*
+        #
+        # (Any edge can be the first edge, and the second edge
+        # can be any of its neighbours.)
+        #
+        # The edges are directed like this:
+        #
+        #   *--<--*
+        #   |     |
+        #   v     ^
+        #   |     |
+        #   *-->--*
+        #
+        # For outer product elements, we need directions like this:
+        #
+        #   *-->--*
+        #   |     |
+        #   ^     ^
+        #   |     |
+        #   *-->--*
+        #
+        edge_direction[2] = 1 - edge_direction[2]
+        edge_direction[3] = 1 - edge_direction[3]
+
+        # And edges should be ordered like this:
+        #
+        #   *--1--*
+        #   |     |
+        #   2     3
+        #   |     |
+        #   *--0--*
+        #
+        cell_closure[cell, v_per_cell + 0] = cone[0]
+        cell_closure[cell, v_per_cell + 1] = cone[2]
+        cell_closure[cell, v_per_cell + 2] = cone[3]
+        cell_closure[cell, v_per_cell + 3] = cone[1]
+
+        edge_directions[cell, 0] = edge_direction[0]
+        edge_directions[cell, 1] = edge_direction[2]
+        edge_directions[cell, 2] = edge_direction[3]
+        edge_directions[cell, 3] = edge_direction[1]
+
+        # Vertices should be ordered like this:
+        #
+        #   2-----3
+        #   |     |
+        #   |     |
+        #   |     |
+        #   0-----1
+        #
+        bottom, top = cone[0], cone[2]
+        bottom_dir, top_dir = edge_direction[0], edge_direction[2]
+        CHKERR(DMPlexGetCone(plex.dm, bottom, &bottom_vertices))
+        CHKERR(DMPlexGetCone(plex.dm, top, &top_vertices))
+
+        if not bottom_dir:
+            cell_closure[cell, 0] = bottom_vertices[0]
+            cell_closure[cell, 1] = bottom_vertices[1]
+        else:
+            cell_closure[cell, 0] = bottom_vertices[1]
+            cell_closure[cell, 1] = bottom_vertices[0]
+
+        if not top_dir:
+            cell_closure[cell, 2] = top_vertices[0]
+            cell_closure[cell, 3] = top_vertices[1]
+        else:
+            cell_closure[cell, 2] = top_vertices[1]
+            cell_closure[cell, 3] = top_vertices[0]
+
+    return cell_closure, edge_directions
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def get_cell_nodes(PETSc.Section global_numbering,
                    np.ndarray[np.int32_t, ndim=2] cell_closures,
                    dofs_per_cell):
@@ -286,6 +401,90 @@ def get_cell_nodes(PETSc.Section global_numbering,
             for i in range(dof):
                 cell_nodes[c, offset+i] = off+i
             offset += dof
+    return cell_nodes
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.profile(False)
+cdef inline void add_dofs(PETSc.Section global_numbering,
+                          np.int32_t entity,
+                          PetscInt *cell_nodes,
+                          PetscInt *flat_local_index,
+                          PetscInt *k,
+                          np.int32_t reverse):
+    cdef PetscInt j, ndofs, off
+    CHKERR(PetscSectionGetDof(global_numbering.sec, entity, &ndofs))
+    if ndofs > 0:
+        CHKERR(PetscSectionGetOffset(global_numbering.sec, entity, &off))
+        if not reverse:
+            for j in range(ndofs):
+                cell_nodes[flat_local_index[k[0]]] = off + j
+                k[0] += 1
+        else:
+            for j in range(ndofs-1, -1, -1):
+                cell_nodes[flat_local_index[k[0]]] = off + j
+                k[0] += 1
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_quadrilateral_cell_nodes(PETSc.Section global_numbering,
+                                 np.ndarray[np.int32_t, ndim=2] cell_closures,
+                                 np.ndarray[np.int32_t, ndim=2] edge_directions,
+                                 fiat_element,
+                                 np.int32_t dofs_per_cell):
+    """
+    Builds the DoF mapping for quadrilateral meshes.
+
+    :arg global_numbering: Section describing the global DoF numbering
+    :arg cell_closures: 2D array of ordered cell closures
+    :arg edge_directions: 2D array of edge directions for each cell
+    :arg fiat_element: The FIAT element for the quadrilateral cell
+    :arg dofs_per_cell: Number of DoFs associated with each mesh cell
+    """
+    cdef:
+        PetscInt ncells, nclosure
+        PetscInt c, i, k
+        PetscInt *flat_local_index = NULL
+        PetscInt *cell_nodes_row = NULL
+        np.ndarray[np.int32_t, ndim=2] cell_nodes
+
+    entity_dofs = fiat_element.entity_dofs()
+    entity_dofs_list = [entity_dofs[dim].values() for dim in sorted(entity_dofs.keys())]
+    CHKERR(PetscMalloc1(dofs_per_cell, &flat_local_index))
+    CHKERR(PetscMalloc1(dofs_per_cell, &cell_nodes_row))
+
+    k = 0
+    for dim_list in entity_dofs_list:
+        for entity_list in dim_list:
+            for idx in entity_list:
+                flat_local_index[k] = idx
+                k += 1
+
+    ncells = cell_closures.shape[0]
+    nclosure = cell_closures.shape[1]
+    assert nclosure == 4 + 4 + 1
+
+    cell_nodes = np.empty((ncells, dofs_per_cell), dtype=np.int32)
+    for c in range(ncells):
+        k = 0
+        # vertices
+        for i in range(0, 4):
+            add_dofs(global_numbering, cell_closures[c][i], cell_nodes_row,
+                     flat_local_index, &k, 0)
+        # edges
+        for i in range(4, 8):
+            add_dofs(global_numbering, cell_closures[c][i], cell_nodes_row,
+                     flat_local_index, &k, edge_directions[c][i - 4])
+        # face / cell
+        add_dofs(global_numbering, cell_closures[c][8], cell_nodes_row,
+                 flat_local_index, &k, 0)
+
+        for i in range(dofs_per_cell):
+            cell_nodes[c, i] = cell_nodes_row[i]
+
+    CHKERR(PetscFree(flat_local_index))
+    CHKERR(PetscFree(cell_nodes_row))
     return cell_nodes
 
 @cython.boundscheck(False)

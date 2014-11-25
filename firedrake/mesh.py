@@ -218,8 +218,9 @@ class Mesh(object):
         with timed_region("Mesh: label facets"):
             dmplex.label_facets(self._plex)
 
+        topological_dim = plex.getDimension()
         if geometric_dim is None:
-            geometric_dim = plex.getDimension()
+            geometric_dim = topological_dim
 
         # Distribute the dm to all ranks
         if op2.MPI.comm.size > 1:
@@ -242,10 +243,19 @@ class Mesh(object):
             self._plex_renumbering = dmplex.plex_renumbering(self._plex, reordering)
 
             cStart, cEnd = self._plex.getHeightStratum(0)  # cells
-            cell_vertices = self._plex.getConeSize(cStart)
-            self._ufl_cell = ufl.Cell(fiat_utils._cells[geometric_dim][cell_vertices],
-                                      geometric_dimension=geometric_dim)
+            cell_facets = self._plex.getConeSize(cStart)
 
+            cellname = fiat_utils._cells[topological_dim][cell_facets]
+            if cellname == "quadrilateral":
+                # HACK ALERT!
+                # One should normally decide the type of an object before its creation,
+                # however, there is too much setup before we realise that we need a
+                # QuadrilateralMesh, so we just change the type here.
+                # A proper solution would require an extensive refactoring
+                # of mesh creation.
+                self.__class__ = QuadrilateralMesh
+
+            self._ufl_cell = ufl.Cell(cellname, geometric_dimension=geometric_dim)
             self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
             dim = self._plex.getDimension()
             self._cells, self.cell_classes = dmplex.get_cells_by_class(self._plex)
@@ -264,7 +274,6 @@ class Mesh(object):
                 self._cell_numbering = self._plex.createSection([1], cell_entity_dofs,
                                                                 perm=self._plex_renumbering)
 
-        self._cell_closure = None
         self.interior_facets = None
         self.exterior_facets = None
 
@@ -409,6 +418,37 @@ class Mesh(object):
 
         self._from_dmplex(plex, dim, reorder)
 
+    @utils.cached_property
+    def cell_closure(self):
+        """2D array of ordered cell closures
+
+        Each row contains ordered cell entities for a cell, one row per cell.
+        """
+        dm = self._plex
+
+        a_cell = dm.getHeightStratum(0)[0]
+        a_closure = dm.getTransitiveClosure(a_cell)[0]
+        topological_dimension = dm.getDimension()
+
+        entity_per_cell = np.zeros(topological_dimension + 1, dtype=np.int32)
+        for dim in xrange(topological_dimension + 1):
+            start, end = dm.getDepthStratum(dim)
+            entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end, a_closure))
+
+        return dmplex.closure_ordering(dm, dm.getDefaultGlobalSection(),
+                                       self._cell_numbering, entity_per_cell)
+
+    def create_cell_node_list(self, global_numbering, fiat_element, dofs_per_cell):
+        """Builds the DoF mapping.
+
+        :arg global_numbering: Section describing the global DoF numbering
+        :arg fiat_element: The FIAT element for the cell
+        :arg dofs_per_cell: Number of DoFs associated with each mesh cell
+        """
+        return dmplex.get_cell_nodes(global_numbering,
+                                     self.cell_closure,
+                                     dofs_per_cell)
+
     @property
     def layers(self):
         """Return the number of layers of the extruded mesh
@@ -531,11 +571,54 @@ class Mesh(object):
     def size(self, d):
         return self.num_entities(d)
 
+    def facet_dimensions(self):
+        """Returns a singleton list containing the facet dimension."""
+        # Facets have co-dimension 1
+        return [self.ufl_cell().topological_dimension() - 1]
+
     @utils.cached_property
     def cell_set(self):
         size = self.cell_classes
         return self.parent.cell_set if self.parent else \
             op2.Set(size, "%s_cells" % self.name)
+
+
+class QuadrilateralMesh(Mesh):
+    """A mesh class providing functionality specific to quadrilateral meshes.
+
+    Not part of the public API.
+    """
+
+    @utils.cached_property
+    def _closure_ordering(self):
+        """Pair of the cell closure and edge directions."""
+        return dmplex.quadrilateral_closure_ordering(self._plex, self._cell_numbering)
+
+    @property
+    def cell_closure(self):
+        """2D array of ordered cell closures
+
+        Each row contains ordered cell entities for a cell, one row per cell.
+        """
+        return self._closure_ordering[0]
+
+    def create_cell_node_list(self, global_numbering, fiat_element, dofs_per_cell):
+        """Builds the DoF mapping.
+
+        :arg global_numbering: Section describing the global DoF numbering
+        :arg fiat_element: The FIAT element for the cell
+        :arg dofs_per_cell: Number of DoFs associated with each mesh cell
+        """
+        edge_directions = self._closure_ordering[1]
+        return dmplex.get_quadrilateral_cell_nodes(global_numbering,
+                                                   self.cell_closure,
+                                                   edge_directions,
+                                                   fiat_element,
+                                                   dofs_per_cell)
+
+    def facet_dimensions(self):
+        """Returns a list containing the facet dimensions."""
+        return [(0, 1), (1, 0)]
 
 
 class ExtrudedMesh(Mesh):
@@ -601,7 +684,6 @@ class ExtrudedMesh(Mesh):
         self._plex = mesh._plex
         self._plex_renumbering = mesh._plex_renumbering
         self._cell_numbering = mesh._cell_numbering
-        self._cell_closure = mesh._cell_closure
 
         interior_f = self._old_mesh.interior_facets
         self._interior_facets = _Facets(self, interior_f.classes,
@@ -704,6 +786,27 @@ class ExtrudedMesh(Mesh):
             measure._domain = self.ufl_domain()
 
     @property
+    def cell_closure(self):
+        """2D array of ordered cell closures
+
+        Each row contains ordered cell entities for a cell, one row per cell.
+        """
+        return self._old_mesh.cell_closure
+
+    def create_cell_node_list(self, global_numbering, fiat_element, dofs_per_cell):
+        """Builds the DoF mapping.
+
+        :arg global_numbering: Section describing the global DoF numbering
+        :arg fiat_element: The FIAT element for the cell
+        :arg dofs_per_cell: Number of DoFs associated with each mesh cell
+        """
+        return dmplex.get_extruded_cell_nodes(self._plex,
+                                              global_numbering,
+                                              self.cell_closure,
+                                              fiat_element,
+                                              dofs_per_cell)
+
+    @property
     def layers(self):
         """Return the number of layers of the extruded mesh
         represented by the number of occurences of the base mesh."""
@@ -725,3 +828,24 @@ class ExtrudedMesh(Mesh):
     @property
     def geometric_dimension(self):
         return self.ufl_cell().geometric_dimension()
+
+    def facet_dimensions(self):
+        """Returns a singleton list containing the facet dimension.
+
+        .. note::
+
+            This only returns the dimension of the "side" (vertical) facets,
+            not the "top" or "bottom" (horizontal) facets.
+
+        """
+        # The facet is indexed by (base-ele-codim 1, 1) for
+        # extruded meshes.
+        # e.g. for the two supported options of
+        # triangle x interval interval x interval it's (1, 1) and
+        # (0, 1) respectively.
+        if self.geometric_dimension == 3:
+            return [(1, 1)]
+        elif self.geometric_dimension == 2:
+            return [(0, 1)]
+        else:
+            raise RuntimeError("Dimension computation for other than 2D or 3D extruded meshes not supported.")

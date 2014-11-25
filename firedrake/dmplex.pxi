@@ -17,6 +17,7 @@ cdef extern from "petscsys.h":
 cdef extern from "petscdmplex.h":
     int DMPlexGetConeSize(PETSc.PetscDM,PetscInt,PetscInt*)
     int DMPlexGetCone(PETSc.PetscDM,PetscInt,PetscInt*[])
+    int DMPlexGetConeOrientation(PETSc.PetscDM,PetscInt,PetscInt*[])
     int DMPlexGetSupportSize(PETSc.PetscDM,PetscInt,PetscInt*)
     int DMPlexGetSupport(PETSc.PetscDM,PetscInt,PetscInt*[])
 

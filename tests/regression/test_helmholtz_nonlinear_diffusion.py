@@ -27,9 +27,9 @@ import pytest
 from firedrake import *
 
 
-def helmholtz(x, parameters={}):
+def helmholtz(x, quadrilateral=False, parameters={}):
     # Create mesh and define function space
-    mesh = UnitSquareMesh(2 ** x, 2 ** x)
+    mesh = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=quadrilateral)
     V = FunctionSpace(mesh, "CG", 1)
 
     # Define variational problem
@@ -58,15 +58,36 @@ def helmholtz(x, parameters={}):
     return sqrt(assemble(dot(u - f, u - f) * dx))
 
 
-def run_convergence_test(parameters={}):
+def run_convergence_test(quadrilateral=False, parameters={}):
     import numpy as np
-    l2_diff = np.array([helmholtz(i, parameters) for i in range(3, 6)])
+    l2_diff = np.array([helmholtz(i, quadrilateral, parameters) for i in range(3, 6)])
     return np.log2(l2_diff[:-1] / l2_diff[1:])
 
 
-def test_l2_conv():
+def run_l2_conv():
     assert (run_convergence_test() > 1.8).all()
 
+
+def test_l2_conv_serial():
+    run_l2_conv()
+
+
+@pytest.mark.parallel
+def test_l2_conv_parallel():
+    run_l2_conv()
+
+
+def run_l2_conv_on_quadrilaterals():
+    assert (run_convergence_test(quadrilateral=True) > 1.8).all()
+
+
+def test_l2_conv_on_quadrilaterals_serial():
+    run_l2_conv_on_quadrilaterals()
+
+
+@pytest.mark.parallel
+def test_l2_conv_on_quadrilaterals_parallel():
+    run_l2_conv_on_quadrilaterals()
 
 if __name__ == '__main__':
     import os
