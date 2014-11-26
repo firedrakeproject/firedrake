@@ -326,6 +326,17 @@ class ExpressionSplitter(ReuseTransformer):
             # we're assigning to, in which case we split it into components
             if o.function_space() == self._fs:
                 return o.split()
+            # If the function space we're assigning into is /not/
+            # Mixed, o must be indexed and the functionspace component
+            # much match us.
+            if not isinstance(self._fs, functionspace.MixedFunctionSpace) \
+               and self._fs.index is None:
+                idx = o.function_space().index
+                if idx is None:
+                    raise ValueError("Coefficient %r is not indexed" % o)
+                if o.function_space()._fs != self._fs:
+                    raise ValueError("Mismatching function spaces")
+                return (o,)
             # Otherwise the function space must be indexed and we
             # return the Function for the indexed component and the
             # identity for this assignment for every other
@@ -399,18 +410,18 @@ class ExpressionWalker(ReuseTransformer):
         if isinstance(o, function.Function):
             if self._function_space is None:
                 self._function_space = o._function_space
-            elif self._function_space.index is not None:
-                # If the LHS is indexed, check compatibility with the
-                # underlying fs
-                sfs = self._function_space._fs
+            else:
+                # Peel out (potentially indexed) function space of LHS
+                # and RHS to check for compatibility.
+                sfs = self._function_space
                 ofs = o._function_space
-                if o._function_space.index is not None:
-                    ofs = self._function_space._fs
+                if sfs.index is not None:
+                    sfs = sfs._fs
+                if ofs.index is not None:
+                    ofs = ofs._fs
                 if sfs != ofs:
-                    raise ValueError("Expression has incompatible function spaces")
-            elif self._function_space != o._function_space:
-                raise ValueError("Expression has incompatible function spaces")
-
+                    raise ValueError("Expression has incompatible function spaces %s and %s" %
+                                     (sfs, ofs))
             try:
                 arg = self._args[o]
                 if arg.intent == op2.WRITE:
