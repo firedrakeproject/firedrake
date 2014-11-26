@@ -276,6 +276,52 @@ def test_assign_to_mfs_sub(cg1, vcg1):
         w.assign(q.sub(1))
 
 
+def test_assign_from_mfs_sub(cg1, vcg1):
+    W = cg1*vcg1
+
+    w = Function(W)
+    u = Function(cg1)
+    v = Function(vcg1)
+
+    w1, w2 = w.split()
+
+    w1.assign(4)
+    w2.assign(10)
+
+    u.assign(w1)
+
+    assert np.allclose(u.dat.data_ro, w1.dat.data_ro)
+
+    v.assign(w2)
+    assert np.allclose(v.dat.data_ro, w2.dat.data_ro)
+
+    Q = vcg1*cg1
+    q = Function(Q)
+
+    q1, q2 = q.split()
+
+    q1.assign(11)
+    q2.assign(12)
+
+    v.assign(q1)
+    assert np.allclose(v.dat.data_ro, q1.dat.data_ro)
+    
+    u.assign(q2)
+    assert np.allclose(u.dat.data_ro, q2.dat.data_ro)
+    
+    with pytest.raises(ValueError):
+        u.assign(q1)
+
+    with pytest.raises(ValueError):
+        v.assign(q2)
+
+    with pytest.raises(ValueError):
+        u.assign(w2)
+
+    with pytest.raises(ValueError):
+        v.assign(w1)
+
+    
 @pytest.mark.parametrize("uservar", ["A", "X", "x_", "k", "d", "i"])
 def test_scalar_user_defined_values(uservar):
     m = UnitSquareMesh(2, 2)
