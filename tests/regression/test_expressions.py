@@ -305,10 +305,10 @@ def test_assign_from_mfs_sub(cg1, vcg1):
 
     v.assign(q1)
     assert np.allclose(v.dat.data_ro, q1.dat.data_ro)
-    
+
     u.assign(q2)
     assert np.allclose(u.dat.data_ro, q2.dat.data_ro)
-    
+
     with pytest.raises(ValueError):
         u.assign(q1)
 
@@ -321,7 +321,7 @@ def test_assign_from_mfs_sub(cg1, vcg1):
     with pytest.raises(ValueError):
         v.assign(w1)
 
-    
+
 @pytest.mark.parametrize("uservar", ["A", "X", "x_", "k", "d", "i"])
 def test_scalar_user_defined_values(uservar):
     m = UnitSquareMesh(2, 2)
