@@ -208,7 +208,7 @@ class Mesh(object):
         # the geometric dimension of the existing cell, replace the
         # cell with one with the correct dimension.
         ufl_cell = self.ufl_cell()
-        if value.element().value_shape() != ufl_cell.geometric_dimension():
+        if value.element().value_shape()[0] != ufl_cell.geometric_dimension():
             self._ufl_cell = ufl.Cell(ufl_cell.cellname(),
                                       geometric_dimension=value.element().value_shape()[0])
             self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
