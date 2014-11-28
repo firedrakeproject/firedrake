@@ -210,7 +210,7 @@ class Mesh(object):
         ufl_cell = self.ufl_cell()
         if value.element().value_shape() != ufl_cell.geometric_dimension():
             self._ufl_cell = ufl.Cell(ufl_cell.cellname(),
-                                      geometric_dimension=value.element().value_shape())
+                                      geometric_dimension=value.element().value_shape()[0])
             self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
 
     def _from_dmplex(self, plex, geometric_dim,
