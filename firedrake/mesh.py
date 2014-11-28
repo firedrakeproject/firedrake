@@ -204,6 +204,15 @@ class Mesh(object):
     def coordinates(self, value):
         self._coordinate_function = value
 
+        # If the new coordinate field has a different dimension from
+        # the geometric dimension of the existing cell, replace the
+        # cell with one with the correct dimension.
+        ufl_cell = self.ufl_cell()
+        if value.element().value_shape() != ufl_cell.geometric_dimension():
+            self._ufl_cell = ufl.Cell(ufl_cell.cellname(),
+                                      geometric_dimension=value.element().value_shape())
+            self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
+
     def _from_dmplex(self, plex, geometric_dim,
                      reorder, periodic_coords=None):
         """ Create mesh from DMPlex object """
@@ -530,19 +539,8 @@ class Mesh(object):
         return self._ufl_domain
 
     def ufl_cell(self):
-        """The UFL :class:`~ufl.cell.Cell` associated with the mesh.
-
-        If the mesh has associated coordinates then this will be the
-        cell of the coordinate function space, otherwise it will be
-        the cell created when the :class:`Mesh` was created. This
-        ensures that replacing the coordinate field with one of a
-        different geometric dimension does the Right Thing.
-
-        """
-        try:
-            return self.coordinates.cell()
-        except:
-            return self._ufl_cell
+        """The UFL :class:`~ufl.cell.Cell` associated with the mesh."""
+        return self._ufl_cell
 
     def num_cells(self):
         cStart, cEnd = self._plex.getHeightStratum(0)
