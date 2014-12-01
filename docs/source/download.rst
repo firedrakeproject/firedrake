@@ -20,6 +20,15 @@ FFC, FIAT and UFL
 Firedrake currently requires a fork of FFC_, UFL_ and FIAT_.  Note that FFC_
 requires a version of Instant_.
 
+FFC_ currently depends on Swig_, which you can install from
+package. On Ubuntu and relatives type::
+
+  sudo apt-get install swig
+
+while on Mac OS it's::
+
+  brew install swig
+
 Install FFC_ and all dependencies via pip::
 
   sudo pip install \
@@ -63,7 +72,7 @@ Visualisation software
 ----------------------
 
 Firedrake can output data in VTK format, suitable for viewing in
-Paraview_.  On Debian-like systems, you can obtain Paraview by
+Paraview_.  On Ubuntu and similar systems, you can obtain Paraview by
 installing the ``paraview`` package.  On Mac OS, the easiest approach
 is to download a binary from the `paraview website <Paraview_>`_.
 
@@ -84,7 +93,7 @@ or (to install for your user only)::
   pip install --user psutil
 
 Pip instructions for users
-..........................
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If you only wish to use Firedrake, and will not be contributing to
 development at all, you can install Firedrake using pip::
@@ -99,7 +108,7 @@ You're now ready to go. You might like to start with the tutorial
 examples on the :doc:`documentation page <documentation>`.
 
 Git instructions for developers
-...............................
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Next, obtain the Firedrake source from GitHub_ ::
 
@@ -117,7 +126,7 @@ From the Firedrake directory build the relevant modules::
  make
 
 Cleaning disk caches after upgrade
-..................................
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 After upgrading, you may need to clear any disk caches that Firedrake
 maintains to ensure that your problem does not pick up any out of date
@@ -133,6 +142,24 @@ your ``PATH`` ::
 If you are using a checkout of Firedrake, ``firedrake-clean`` lives in
 the ``scripts`` subdirectory.
 
+Additional dependencies for developers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you plan to develop Firedrake then you will require a few more
+packages. Building the documention requires Sphinx_
+(including the youtube plugin) and wget_. For example on Ubuntu-like
+Linux systems::
+
+  sudo apt-get install python-sphinx wget
+  sudo pip install sphinxcontrib.youtube
+
+and on Mac OS::
+
+  brew install wget
+  sudo pip install sphinx sphinxcontrib.youtube
+
+note that the Sphinx in Homebrew is not the python documentation tool!
+
 
 .. _PyOP2: http://op2.github.io/PyOP2
 .. _FFC: https://bitbucket.org/mapdes/ffc
@@ -141,3 +168,6 @@ the ``scripts`` subdirectory.
 .. _Instant: https://bitbucket.org/fenics-project/instant
 .. _GitHub: https://github.com/firedrakeproject/firedrake
 .. _Paraview: http://www.paraview.org
+.. _Sphinx: http://www.sphinx-doc.org
+.. _wget: http://www.gnu.org/software/wget/
+.. _Swig: http://www.swig.org/
