@@ -209,8 +209,11 @@ class Mesh(object):
         # cell with one with the correct dimension.
         ufl_cell = self.ufl_cell()
         if value.element().value_shape()[0] != ufl_cell.geometric_dimension():
-            self._ufl_cell = ufl.Cell(ufl_cell.cellname(),
-                                      geometric_dimension=value.element().value_shape()[0])
+            if isinstance(ufl_cell, ufl.OuterProductCell):
+                self._ufl_cell = ufl.OuterProductCell(ufl_cell._A, ufl_cell._B, value.element().value_shape()[0])
+            else:
+                self._ufl_cell = ufl.Cell(ufl_cell.cellname(),
+                                          geometric_dimension=value.element().value_shape()[0])
             self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
 
     def _from_dmplex(self, plex, geometric_dim,
