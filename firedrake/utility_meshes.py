@@ -264,7 +264,6 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
         cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
         cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
 
-        MeshClass = mesh.QuadrilateralMesh
         plex = _from_cell_list(2, cells, coords)
     else:
         boundary = PETSc.DMPlex().create(MPI.comm)
@@ -272,7 +271,6 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
         boundary.createSquareBoundary([0., 0.], [float(Lx), float(Ly)], [nx, ny])
         boundary.setTriangleOptions("pqezQYSl")
 
-        MeshClass = mesh.Mesh
         plex = PETSc.DMPlex().generate(boundary)
 
     # mark boundary facets
@@ -295,7 +293,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
             if abs(face_coords[1] - Ly) < ytol and abs(face_coords[3] - Ly) < ytol:
                 plex.setLabelValue("boundary_ids", face, 4)
 
-    return MeshClass(plex, reorder=reorder)
+    return mesh.Mesh(plex, reorder=reorder)
 
 
 def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False):
