@@ -1,8 +1,11 @@
+import numpy as np
+
 from pyop2 import op2
 from pyop2.utils import flatten
 
 from firedrake import functionspace
 from firedrake.mg import impl
+from firedrake.mg import mesh
 
 
 __all__ = ["FunctionSpaceHierarchy", "VectorFunctionSpaceHierarchy",
@@ -17,6 +20,14 @@ class BaseHierarchy(object):
         self._map_cache = {}
         self._cell_sets = tuple(op2.LocalSet(m.cell_set) for m in self._mesh_hierarchy)
         self._ufl_element = self[0].ufl_element()
+        element = self.ufl_element()
+        family = element.family()
+        degree = element.degree()
+        self._P0 = ((family == "OuterProductElement" and
+                     (element._A.family() == "Discontinuous Lagrange" and
+                      element._B.family() == "Discontinuous Lagrange" and
+                      degree == (0, 0))) or
+                    (family == "Discontinuous Lagrange" and degree == 0))
 
     def __len__(self):
         return len(self._hierarchy)
@@ -48,6 +59,20 @@ class BaseHierarchy(object):
         Vf = self._hierarchy[level + 1]
 
         c2f, vperm = self._mesh_hierarchy._cells_vperm[level]
+
+        if isinstance(self._mesh_hierarchy, mesh.ExtrudedMeshHierarchy):
+            if not self._P0:
+                raise NotImplementedError
+            arity = Vf.cell_node_map().arity * c2f.shape[1]
+            map_vals = Vf.cell_node_map().values[c2f].flatten()
+            offset = np.repeat(Vf.cell_node_map().offset, c2f.shape[1])
+            map = op2.Map(self._cell_sets[level],
+                          Vf.node_set,
+                          arity,
+                          map_vals,
+                          offset=offset)
+            self._map_cache[level] = map
+            return map
 
         map_vals = impl.create_cell_node_map(Vc, Vf, c2f, vperm)
         map = op2.Map(self._cell_sets[level],
