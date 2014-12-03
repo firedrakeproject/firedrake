@@ -118,6 +118,79 @@ class _Facets(object):
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
 
 
+@timed_function("Build mesh")
+@profile
+def Mesh(meshfile, **kwargs):
+    """Construct a mesh object.
+
+    Meshes may either be created by reading from a mesh file, or by
+    providing a PETSc DMPlex object defining the mesh topology.
+
+    :param meshfile: Mesh file name (or DMPlex object) defining
+           mesh topology.  See below for details on supported mesh
+           formats.
+    :param dim: optional specification of the geometric dimension
+           of the mesh (ignored if not reading from mesh file).
+           If not supplied the geometric dimension is deduced from
+           the topological dimension of entities in the mesh.
+    :param reorder: optional flag indicating whether to reorder
+           meshes for better cache locality.  If not supplied the
+           default value in :data:`parameters["reorder_meshes"]`
+           is used.
+    :param periodic_coords: optional numpy array of coordinates
+           used to replace those in the mesh object.  These are
+           only supported in 1D and must have enough entries to be
+           used as a DG1 field on the mesh.  Not supported when
+           reading from file.
+
+    When the mesh is read from a file the following mesh formats
+    are supported (determined, case insensitively, from the
+    filename extension):
+
+    * GMSH: with extension `.msh`
+    * Exodus: with extension `.e`, `.exo`
+    * CGNS: with extension `.cgns`
+    * Triangle: with extension `.node`
+
+    .. note::
+
+        When the mesh is created directly from a DMPlex object,
+        the :data:`dim` parameter is ignored (the DMPlex already
+        knows its geometric and topological dimensions).
+
+    """
+
+    utils._init()
+
+    dim = kwargs.get("dim", None)
+    reorder = kwargs.get("reorder", parameters["reorder_meshes"])
+    periodic_coords = kwargs.get("periodic_coords", None)
+
+    if isinstance(meshfile, PETSc.DMPlex):
+        name = "plexmesh"
+        plex = meshfile
+    else:
+        name = meshfile
+        basename, ext = os.path.splitext(meshfile)
+
+        if periodic_coords is not None:
+            raise RuntimeError("Periodic coordinates are unsupported when reading from file")
+        if ext.lower() in ['.e', '.exo']:
+            plex = _from_exodus(meshfile)
+        elif ext.lower() == '.cgns':
+            plex = _from_cgns(meshfile)
+        elif ext.lower() == '.msh':
+            plex = _from_gmsh(meshfile)
+        elif ext.lower() == '.node':
+            plex = _from_triangle(meshfile, dim)
+        else:
+            raise RuntimeError("Mesh file %s has unknown format '%s'."
+                               % (meshfile, ext[1:]))
+
+    return SimplexMesh(name, plex, dim, reorder,
+                       periodic_coords=periodic_coords)
+
+
 def _from_gmsh(filename):
     """Read a Gmsh .msh file from `filename`"""
 
@@ -227,82 +300,6 @@ def _from_triangle(filename, dim):
 class MeshBase(object):
     """A representation of mesh topology and geometry."""
 
-    @timed_function("Build mesh")
-    @profile
-    def __init__(self, meshfile, **kwargs):
-        """Construct a mesh object.
-
-        Meshes may either be created by reading from a mesh file, or by
-        providing a PETSc DMPlex object defining the mesh topology.
-
-        :param meshfile: Mesh file name (or DMPlex object) defining
-               mesh topology.  See below for details on supported mesh
-               formats.
-        :param dim: optional specification of the geometric dimension
-               of the mesh (ignored if not reading from mesh file).
-               If not supplied the geometric dimension is deduced from
-               the topological dimension of entities in the mesh.
-        :param reorder: optional flag indicating whether to reorder
-               meshes for better cache locality.  If not supplied the
-               default value in :data:`parameters["reorder_meshes"]`
-               is used.
-        :param periodic_coords: optional numpy array of coordinates
-               used to replace those in the mesh object.  These are
-               only supported in 1D and must have enough entries to be
-               used as a DG1 field on the mesh.  Not supported when
-               reading from file.
-
-        When the mesh is read from a file the following mesh formats
-        are supported (determined, case insensitively, from the
-        filename extension):
-
-        * GMSH: with extension `.msh`
-        * Exodus: with extension `.e`, `.exo`
-        * CGNS: with extension `.cgns`
-        * Triangle: with extension `.node`
-
-        .. note::
-
-            When the mesh is created directly from a DMPlex object,
-            the :data:`dim` parameter is ignored (the DMPlex already
-            knows its geometric and topological dimensions).
-
-        """
-
-        utils._init()
-
-        dim = kwargs.get("dim", None)
-        reorder = kwargs.get("reorder", parameters["reorder_meshes"])
-        periodic_coords = kwargs.get("periodic_coords", None)
-
-        # A cache of function spaces that have been built on this mesh
-        self._cache = {}
-        self.parent = None
-
-        if isinstance(meshfile, PETSc.DMPlex):
-            self.name = "plexmesh"
-            self._from_dmplex(meshfile, dim, reorder,
-                              periodic_coords=periodic_coords)
-            return
-
-        basename, ext = os.path.splitext(meshfile)
-
-        if periodic_coords is not None:
-            raise RuntimeError("Periodic coordinates are unsupported when reading from file")
-        self.name = meshfile
-        if ext.lower() in ['.e', '.exo']:
-            plex = _from_exodus(meshfile)
-        elif ext.lower() == '.cgns':
-            plex = _from_cgns(meshfile)
-        elif ext.lower() == '.msh':
-            plex = _from_gmsh(meshfile)
-        elif ext.lower() == '.node':
-            plex = _from_triangle(meshfile, dim)
-        else:
-            raise RuntimeError("Mesh file %s has unknown format '%s'."
-                               % (meshfile, ext[1:]))
-        self._from_dmplex(plex, dim, reorder)
-
     @property
     def coordinates(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
@@ -324,10 +321,15 @@ class MeshBase(object):
                                           geometric_dimension=value.element().value_shape()[0])
             self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
 
-    def _from_dmplex(self, plex, geometric_dim,
-                     reorder, periodic_coords=None):
+    def __init__(self, name, plex, geometric_dim,
+                 reorder, periodic_coords=None):
         """ Create mesh from DMPlex object """
 
+        # A cache of function spaces that have been built on this mesh
+        self._cache = {}
+        self.parent = None
+
+        self.name = name
         self._plex = plex
         self.uid = utils._new_uid()
 
@@ -345,8 +347,6 @@ class MeshBase(object):
         # Distribute the dm to all ranks
         if op2.MPI.comm.size > 1:
             self.parallel_sf = plex.distribute(overlap=1)
-
-        self._plex = plex
 
         if reorder:
             with timed_region("Mesh: reorder"):
@@ -552,8 +552,11 @@ class MeshBase(object):
             op2.Set(size, "%s_cells" % self.name)
 
 
-class Mesh(MeshBase):
-    """A mesh class providing functionality specific to simplex meshes."""
+class SimplexMesh(MeshBase):
+    """A mesh class providing functionality specific to simplex meshes.
+
+    Not part of the public API.
+    """
 
     @utils.cached_property
     def cell_closure(self):
