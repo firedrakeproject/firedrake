@@ -102,3 +102,73 @@ def get_unique_indices(fiat_element, nonunique_map, vperm):
             i += 1
             seen.add(n)
     return indices
+
+
+def get_restriction_weights(fiat_element):
+    """Get the restriction weights for an element
+
+    Returns a 2D array of weights where weights[i, j] is the weighting
+    of the ith fine cell basis function to the jth coarse cell basis function"""
+    # Node points on coarse cell
+    points = np.asarray([node.get_point_dict().keys()[0] for node in fiat_element.dual_basis()])
+
+    # Create node points on fine cells
+
+    transforms = [([[0.5, 0.0],
+                    [0.0, 0.5]], [0.0, 0.0]),
+                  ([[-0.5, -0.5],
+                    [0.5, 0.0]], [1.0, 0.0]),
+                  ([[0.0, 0.5],
+                    [-0.5, -0.5]], [0.0, 1.0]),
+                  ([[-0.5, 0],
+                    [0, -0.5]], [0.5, 0.5])]
+
+    values = []
+    for T in transforms:
+        pts = np.concatenate([np.dot(T[0], pt) + np.asarray(T[1]) for pt in points]).reshape(-1, points.shape[1])
+        values.append(np.round(fiat_element.tabulate(0, pts)[(0, 0)].T, decimals=14))
+
+    return np.concatenate(values)
+
+
+def get_injection_weights(fiat_element):
+    """Get the injection weights for an element
+
+    Returns a 2D array of weights where weights[i, j] is the weighting
+    of the ith fine cell basis function to the jth coarse cell basis
+    function.
+
+    Fine cell dofs that live on coarse cell nodes are weighted with 1,
+    all others are weighted with 0.  Effectively, this aliases high
+    frequency components and exactly represents low frequency
+    components on the coarse grid.
+
+    unique_indices is an array of the unique values in the concatenated array"""
+    points = np.asarray([node.get_point_dict().keys()[0] for node in fiat_element.dual_basis()])
+
+    # Create node points on fine cells
+
+    transforms = [([[0.5, 0.0],
+                    [0.0, 0.5]], [0.0, 0.0]),
+                  ([[-0.5, -0.5],
+                    [0.5, 0.0]], [1.0, 0.0]),
+                  ([[0.0, 0.5],
+                    [-0.5, -0.5]], [0.0, 1.0]),
+                  ([[-0.5, 0],
+                    [0, -0.5]], [0.5, 0.5])]
+
+    values = []
+    for T in transforms:
+        pts = np.concatenate([np.dot(T[0], pt) + np.asarray(T[1]) for pt in points]).reshape(-1, points.shape[1])
+        vals = fiat_element.tabulate(0, pts)[(0, 0)]
+        for i, pt in enumerate(pts):
+            found = False
+            for opt in points:
+                if np.allclose(opt, pt):
+                    found = True
+                    break
+            if not found:
+                vals[:, i] = 0.0
+        values.append(np.round(vals.T, decimals=14))
+
+    return np.concatenate(values)
