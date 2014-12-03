@@ -194,7 +194,8 @@ def Mesh(meshfile, **kwargs):
     # DMPlex will consider facets on the domain boundary to be
     # exterior, which is wrong.
     with timed_region("Mesh: label facets"):
-        dmplex.label_facets(plex)
+        label_boundary = op2.MPI.comm.size == 1 or distribute
+        dmplex.label_facets(plex, label_boundary=label_boundary)
 
     # Distribute the dm to all ranks
     if op2.MPI.comm.size > 1 and distribute:

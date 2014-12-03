@@ -632,18 +632,22 @@ def get_facet_nodes(np.ndarray[np.int32_t, ndim=2, mode="c"] facet_cells,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def label_facets(PETSc.DM plex):
+def label_facets(PETSc.DM plex, label_boundary=True):
     """Add labels to facets in the the plex
 
     Facets on the boundary are marked with "exterior_facets" while all
-    others are marked with "interior_facets"."""
+    others are marked with "interior_facets".
+
+    :arg label_boundary: if False, don't label the boundary faces
+         (they must have already been labelled)."""
     cdef:
         PetscInt fStart, fEnd, facet, val
         char *ext_label = <char *>"exterior_facets"
         char *int_label = <char *>"interior_facets"
 
     # Mark boundaries as exterior_facets
-    plex.markBoundaryFaces(ext_label)
+    if label_boundary:
+        plex.markBoundaryFaces(ext_label)
     plex.createLabel(int_label)
 
     fStart, fEnd = plex.getHeightStratum(1)
