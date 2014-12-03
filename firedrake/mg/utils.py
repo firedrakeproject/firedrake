@@ -1,6 +1,8 @@
 from itertools import permutations
 import numpy as np
 
+from pyop2 import op2
+
 from firedrake.petsc import PETSc
 
 
@@ -172,3 +174,71 @@ def get_injection_weights(fiat_element):
         values.append(np.round(vals.T, decimals=14))
 
     return np.concatenate(values)
+
+
+def format_array_literal(name, arr):
+    vals = "{{"+"},\n{".join([",".join(map(lambda x: "%g" % x, x)) for x in arr])+"}}"
+    return """double %(name)s[%(rows)d][%(cols)d] = %(vals)s""" % {'name': name,
+                                                                   'rows': arr.shape[0],
+                                                                   'cols': arr.shape[1],
+                                                                   'vals': vals}
+
+
+def get_injection_kernel(fiat_element, unique_indices, dim=1):
+    weights = get_injection_weights(fiat_element)[unique_indices].T
+    # What if we have multiple nodes in same location (DG)?  Divide by
+    # rowsum.
+    weights = weights / np.sum(weights, axis=1).reshape(-1, 1)
+    k = """
+    void injection(double **coarse, double **fine)
+    {
+         static const %s;
+
+         for ( int k = 0; k < %d; k++ ) {
+             for ( int i = 0; i < %d; i++ ) {
+                 coarse[i][k] = 0;
+                 for (int j = 0; j < %d; j++ ) {
+                     coarse[i][k] += fine[j][k] * weights[i][j];
+                 }
+             }
+         }
+    }""" % (format_array_literal("weights", weights), dim,
+            weights.shape[0], weights.shape[1])
+    return op2.Kernel(k, "injection")
+
+
+def get_prolongation_kernel(fiat_element, unique_indices, dim=1):
+    weights = get_restriction_weights(fiat_element)[unique_indices]
+    k = """
+    void prolongation(double **fine, double **coarse)
+    {
+        static const %s;
+        for ( int k = 0; k < %d; k++ ) {
+            for ( int i = 0; i < %d; i++ ) {
+                fine[i][k] = 0;
+                for ( int j = 0; j < %d; j++ ) {
+                    fine[i][k] += coarse[j][k] * weights[i][j];
+                }
+            }
+        }
+    }""" % (format_array_literal("weights", weights), dim,
+            weights.shape[0], weights.shape[1])
+    return op2.Kernel(k, "prolongation")
+
+
+def get_restriction_kernel(fiat_element, unique_indices, dim=1):
+    weights = get_restriction_weights(fiat_element)[unique_indices].T
+    k = """
+    void restriction(double coarse[%d], double **fine, double **count_weights)
+    {
+        static const %s;
+        for ( int k = 0; k < %d; k++ ) {
+            for ( int i = 0; i < %d; i++ ) {
+                for ( int j = 0; j < %d; j++ ) {
+                    coarse[i*%d + k] += fine[j][k] * weights[i][j] * count_weights[j][0];
+                }
+            }
+        }
+    }""" % (weights.shape[0]*dim, format_array_literal("weights", weights), dim,
+            weights.shape[0], weights.shape[1], dim)
+    return op2.Kernel(k, "restriction")
