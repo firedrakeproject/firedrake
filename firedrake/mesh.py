@@ -118,6 +118,110 @@ class _Facets(object):
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
 
 
+def _from_gmsh(filename):
+    """Read a Gmsh .msh file from `filename`"""
+
+    # Create a read-only PETSc.Viewer
+    gmsh_viewer = PETSc.Viewer().create()
+    gmsh_viewer.setType("ascii")
+    gmsh_viewer.setFileMode("r")
+    gmsh_viewer.setFileName(filename)
+    gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer)
+
+    if gmsh_plex.hasLabel("Face Sets"):
+        boundary_ids = gmsh_plex.getLabelIdIS("Face Sets").getIndices()
+        gmsh_plex.createLabel("boundary_ids")
+        for bid in boundary_ids:
+            faces = gmsh_plex.getStratumIS("Face Sets", bid).getIndices()
+            for f in faces:
+                gmsh_plex.setLabelValue("boundary_ids", f, bid)
+
+    return gmsh_plex
+
+
+def _from_exodus(filename):
+    plex = PETSc.DMPlex().createExodusFromFile(filename)
+
+    boundary_ids = dmplex.getLabelIdIS("Face Sets").getIndices()
+    plex.createLabel("boundary_ids")
+    for bid in boundary_ids:
+        faces = plex.getStratumIS("Face Sets", bid).getIndices()
+        for f in faces:
+            plex.setLabelValue("boundary_ids", f, bid)
+
+    return plex
+
+
+def _from_cgns(filename):
+    plex = PETSc.DMPlex().createCGNSFromFile(filename)
+
+    #TODO: Add boundary IDs
+    return plex
+
+
+def _from_triangle(filename, dim):
+    """Read a set of triangle mesh files from `filename`"""
+    basename, ext = os.path.splitext(filename)
+
+    if op2.MPI.comm.rank == 0:
+        try:
+            facetfile = open(basename+".face")
+            tdim = 3
+        except:
+            try:
+                facetfile = open(basename+".edge")
+                tdim = 2
+            except:
+                facetfile = None
+                tdim = 1
+        if dim is None:
+            dim = tdim
+        op2.MPI.comm.bcast(tdim, root=0)
+
+        with open(basename+".node") as nodefile:
+            header = np.fromfile(nodefile, dtype=np.int32, count=2, sep=' ')
+            nodecount = header[0]
+            nodedim = header[1]
+            assert nodedim == dim
+            coordinates = np.loadtxt(nodefile, usecols=range(1, dim+1), skiprows=1, delimiter=' ')
+            assert nodecount == coordinates.shape[0]
+
+        with open(basename+".ele") as elefile:
+            header = np.fromfile(elefile, dtype=np.int32, count=2, sep=' ')
+            elecount = header[0]
+            eledim = header[1]
+            eles = np.loadtxt(elefile, usecols=range(1, eledim+1), dtype=np.int32, skiprows=1, delimiter=' ')
+            assert elecount == eles.shape[0]
+
+        cells = map(lambda c: c-1, eles)
+    else:
+        tdim = op2.MPI.comm.bcast(None, root=0)
+        cells = None
+        coordinates = None
+    plex = utility_meshes._from_cell_list(tdim, cells, coordinates, comm=op2.MPI.comm)
+
+    # Apply boundary IDs
+    if op2.MPI.comm.rank == 0:
+        facets = None
+        try:
+            header = np.fromfile(facetfile, dtype=np.int32, count=2, sep=' ')
+            edgecount = header[0]
+            facets = np.loadtxt(facetfile, usecols=range(1, tdim+2), dtype=np.int32, skiprows=0, delimiter=' ')
+            assert edgecount == facets.shape[0]
+        finally:
+            facetfile.close()
+
+        if facets is not None:
+            vStart, vEnd = plex.getDepthStratum(0)   # vertices
+            for facet in facets:
+                bid = facet[-1]
+                vertices = map(lambda v: v + vStart - 1, facet[:-1])
+                join = plex.getJoin(vertices)
+                plex.setLabelValue("boundary_ids", join[0], bid)
+
+    return plex
+
+
 class Mesh(object):
     """A representation of mesh topology and geometry."""
 
@@ -183,17 +287,19 @@ class Mesh(object):
 
         if periodic_coords is not None:
             raise RuntimeError("Periodic coordinates are unsupported when reading from file")
+        self.name = meshfile
         if ext.lower() in ['.e', '.exo']:
-            self._from_exodus(meshfile, dim, reorder)
+            plex = _from_exodus(meshfile)
         elif ext.lower() == '.cgns':
-            self._from_cgns(meshfile, dim)
+            plex = _from_cgns(meshfile)
         elif ext.lower() == '.msh':
-            self._from_gmsh(meshfile, dim, reorder)
+            plex = _from_gmsh(meshfile)
         elif ext.lower() == '.node':
-            self._from_triangle(meshfile, dim, reorder)
+            plex = _from_triangle(meshfile, dim)
         else:
             raise RuntimeError("Mesh file %s has unknown format '%s'."
                                % (meshfile, ext[1:]))
+        self._from_dmplex(plex, dim, reorder)
 
     @property
     def coordinates(self):
@@ -325,110 +431,6 @@ class Mesh(object):
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._subdomain_data = self.coordinates
             measure._domain = self.ufl_domain()
-
-    def _from_gmsh(self, filename, dim, reorder):
-        """Read a Gmsh .msh file from `filename`"""
-        self.name = filename
-
-        # Create a read-only PETSc.Viewer
-        gmsh_viewer = PETSc.Viewer().create()
-        gmsh_viewer.setType("ascii")
-        gmsh_viewer.setFileMode("r")
-        gmsh_viewer.setFileName(filename)
-        gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer)
-
-        if gmsh_plex.hasLabel("Face Sets"):
-            boundary_ids = gmsh_plex.getLabelIdIS("Face Sets").getIndices()
-            gmsh_plex.createLabel("boundary_ids")
-            for bid in boundary_ids:
-                faces = gmsh_plex.getStratumIS("Face Sets", bid).getIndices()
-                for f in faces:
-                    gmsh_plex.setLabelValue("boundary_ids", f, bid)
-
-        self._from_dmplex(gmsh_plex, dim, reorder)
-
-    def _from_exodus(self, filename, dim, reorder):
-        self.name = filename
-        plex = PETSc.DMPlex().createExodusFromFile(filename)
-
-        boundary_ids = dmplex.getLabelIdIS("Face Sets").getIndices()
-        plex.createLabel("boundary_ids")
-        for bid in boundary_ids:
-            faces = plex.getStratumIS("Face Sets", bid).getIndices()
-            for f in faces:
-                plex.setLabelValue("boundary_ids", f, bid)
-
-        self._from_dmplex(plex, dim, reorder)
-
-    def _from_cgns(self, filename, dim, reorder):
-        self.name = filename
-        plex = PETSc.DMPlex().createCGNSFromFile(filename)
-
-        #TODO: Add boundary IDs
-        self._from_dmplex(plex, dim, reorder)
-
-    def _from_triangle(self, filename, dim, reorder):
-        """Read a set of triangle mesh files from `filename`"""
-        self.name = filename
-        basename, ext = os.path.splitext(filename)
-
-        if op2.MPI.comm.rank == 0:
-            try:
-                facetfile = open(basename+".face")
-                tdim = 3
-            except:
-                try:
-                    facetfile = open(basename+".edge")
-                    tdim = 2
-                except:
-                    facetfile = None
-                    tdim = 1
-            if dim is None:
-                dim = tdim
-            op2.MPI.comm.bcast(tdim, root=0)
-
-            with open(basename+".node") as nodefile:
-                header = np.fromfile(nodefile, dtype=np.int32, count=2, sep=' ')
-                nodecount = header[0]
-                nodedim = header[1]
-                assert nodedim == dim
-                coordinates = np.loadtxt(nodefile, usecols=range(1, dim+1), skiprows=1, delimiter=' ')
-                assert nodecount == coordinates.shape[0]
-
-            with open(basename+".ele") as elefile:
-                header = np.fromfile(elefile, dtype=np.int32, count=2, sep=' ')
-                elecount = header[0]
-                eledim = header[1]
-                eles = np.loadtxt(elefile, usecols=range(1, eledim+1), dtype=np.int32, skiprows=1, delimiter=' ')
-                assert elecount == eles.shape[0]
-
-            cells = map(lambda c: c-1, eles)
-        else:
-            tdim = op2.MPI.comm.bcast(None, root=0)
-            cells = None
-            coordinates = None
-        plex = utility_meshes._from_cell_list(tdim, cells, coordinates, comm=op2.MPI.comm)
-
-        # Apply boundary IDs
-        if op2.MPI.comm.rank == 0:
-            facets = None
-            try:
-                header = np.fromfile(facetfile, dtype=np.int32, count=2, sep=' ')
-                edgecount = header[0]
-                facets = np.loadtxt(facetfile, usecols=range(1, tdim+2), dtype=np.int32, skiprows=0, delimiter=' ')
-                assert edgecount == facets.shape[0]
-            finally:
-                facetfile.close()
-
-            if facets is not None:
-                vStart, vEnd = plex.getDepthStratum(0)   # vertices
-                for facet in facets:
-                    bid = facet[-1]
-                    vertices = map(lambda v: v + vStart - 1, facet[:-1])
-                    join = plex.getJoin(vertices)
-                    plex.setLabelValue("boundary_ids", join[0], bid)
-
-        self._from_dmplex(plex, dim, reorder)
 
     @utils.cached_property
     def cell_closure(self):
