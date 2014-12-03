@@ -750,7 +750,7 @@ class ExtrudedSet(Set):
         return self._layers
 
 
-class LocalSet(ExtrudedSet):
+class LocalSet(ExtrudedSet, ObjectCached):
 
     """A wrapper around a :class:`Set` or :class:`ExtrudedSet`.
 
@@ -775,8 +775,18 @@ class LocalSet(ExtrudedSet):
 
     """
     def __init__(self, set):
+        if self._initialized:
+            return
         self._superset = set
         self._sizes = (set.core_size, set.size, set.size, set.size)
+
+    @classmethod
+    def _process_args(cls, set, **kwargs):
+        return (set, ) + (set, ), kwargs
+
+    @classmethod
+    def _cache_key(cls, set, **kwargs):
+        return (set, )
 
     def __getattr__(self, name):
         """Look up attributes on the contained :class:`Set`."""
