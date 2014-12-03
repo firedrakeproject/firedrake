@@ -316,3 +316,39 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
         for j in range(nfdof):
             new_cell_map[ccell, j] = cell_map[indices[j]]
     return new_cell_map
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def filter_exterior_facet_labels(PETSc.DM plex):
+    """Remove exterior facet labels from things that aren't facets.
+
+    When refining, every point "underneath" the refined entity
+    receives its label.  But we want the facet label to really only
+    apply to facets, so clear the labels from everything else."""
+    cdef:
+        PetscInt pStart, pEnd, fStart, fEnd, p, ext_val
+        PetscBool has_bdy_ids, has_bdy_faces
+
+    pStart, pEnd = plex.getChart()
+    fStart, fEnd = plex.getHeightStratum(1)
+
+    # Plex will always have an exterior_facets label (maybe
+    # zero-sized), but may not always have boundary_ids or
+    # boundary_faces.
+    has_bdy_ids = plex.hasLabel("boundary_ids")
+    has_bdy_faces = plex.hasLabel("boundary_faces")
+
+    for p in range(pStart, pEnd):
+        if p < fStart or p >= fEnd:
+            CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"exterior_facets", p, &ext_val))
+            if ext_val >= 0:
+                CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"exterior_facets", p, ext_val))
+            if has_bdy_ids:
+                CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"boundary_ids", p, &ext_val))
+                if ext_val >= 0:
+                    CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"boundary_ids", p, ext_val))
+            if has_bdy_faces:
+                CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"boundary_faces", p, &ext_val))
+                if ext_val >= 0:
+                    CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"boundary_faces", p, ext_val))
