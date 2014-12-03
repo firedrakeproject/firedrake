@@ -1,4 +1,5 @@
 import numpy as np
+import ufl
 
 from pyop2 import op2
 from pyop2.utils import flatten
@@ -6,6 +7,8 @@ from pyop2.utils import flatten
 from firedrake import functionspace
 from firedrake.mg import impl
 from firedrake.mg import mesh
+from firedrake.mg import utils
+import firedrake.mg.function
 
 
 __all__ = ["FunctionSpaceHierarchy", "VectorFunctionSpaceHierarchy",
@@ -20,6 +23,7 @@ class BaseHierarchy(object):
         self._map_cache = {}
         self._cell_sets = tuple(op2.LocalSet(m.cell_set) for m in self._mesh_hierarchy)
         self._ufl_element = self[0].ufl_element()
+        self._restriction_weights = None
         element = self.ufl_element()
         family = element.family()
         degree = element.degree()
@@ -28,6 +32,50 @@ class BaseHierarchy(object):
                       element._B.family() == "Discontinuous Lagrange" and
                       degree == (0, 0))) or
                     (family == "Discontinuous Lagrange" and degree == 0))
+        if self._P0:
+            self._prolong_kernel = op2.Kernel("""
+                void prolongation(double **fine, double **coarse)
+                {
+                    for ( int k = 0; k < %d; k++ ) {
+                        for ( int i = 0; i < %d; i++ ) {
+                            fine[i][k] = coarse[0][k];
+                        }
+                    }
+                }""" % (self.dim, self.cell_node_map(0).arity), "prolongation")
+            self._restrict_kernel = op2.Kernel("""
+                void restriction(double coarse[%d], double **fine)
+                {
+                    for ( int k = 0; k < %d; k++ ) {
+                        for ( int i = 0; i < %d; i++ ) {
+                            coarse[k] += fine[i][k];
+                        }
+                    }
+                }""" % (self.dim, self.dim, self.cell_node_map(0).arity), "restriction")
+            self._inject_kernel = op2.Kernel("""
+                void injection(double **coarse, double **fine)
+                {
+                    for ( int k = 0; k < %d; k++ ) {
+                        coarse[0][k] = 0;
+                        for ( int i = 0; i < %d; i++ ) {
+                            coarse[0][k] += fine[i][k];
+                        }
+                        coarse[0][k] *= %g;
+                    }
+                }""" % (self.dim, self.cell_node_map(0).arity,
+                        1.0/self.cell_node_map(0).arity), "injection")
+        else:
+            try:
+                element = self[0].fiat_element
+                omap = self[1].cell_node_map().values
+                c2f, vperm = self._mesh_hierarchy._cells_vperm[0]
+                indices = utils.get_unique_indices(element,
+                                                   omap[c2f[0, :], ...].reshape(-1),
+                                                   vperm[0, :])
+                self._prolong_kernel = utils.get_prolongation_kernel(element, indices, self.dim)
+                self._restrict_kernel = utils.get_restriction_kernel(element, indices, self.dim)
+                self._inject_kernel = utils.get_injection_kernel(element, indices, self.dim)
+            except:
+                pass
 
     def __len__(self):
         return len(self._hierarchy)
@@ -87,6 +135,91 @@ class BaseHierarchy(object):
 
     def __mul__(self, other):
         return MixedFunctionSpaceHierarchy([self, other])
+
+    def restrict(self, residual, level):
+        """
+        Restrict a residual from level to level-1
+
+        :arg residual: the residual to restrict
+        :arg level: the fine level to restrict from
+        """
+        if not 0 < level < len(self):
+            raise RuntimeError("Requested fine level %d outside permissible range [1, %d)" %
+                               (level, len(self)))
+
+        # We hit each fine dof more than once since we loop
+        # elementwise over the coarse cells.  So we need a count of
+        # how many times we did this to weight the final contribution
+        # appropriately.
+        if not self._P0 and self._restriction_weights is None:
+            if isinstance(self.ufl_element(), ufl.VectorElement):
+                element = self.ufl_element().sub_elements()[0]
+                restriction_fs = FunctionSpaceHierarchy(self._mesh_hierarchy, element)
+            else:
+                restriction_fs = self
+            self._restriction_weights = firedrake.mg.function.FunctionHierarchy(restriction_fs)
+
+            k = """
+            static inline void weights(double weight[%(d)d])
+            {
+                for ( int i = 0; i < %(d)d; i++ ) {
+                    weight[i] += 1.0;
+                }
+            }""" % {'d': self.cell_node_map(0).arity}
+            k = op2.Kernel(k, "weights")
+            weights = self._restriction_weights
+            # Count number of times each fine dof is hit
+            for lvl in range(1, len(weights)):
+                op2.par_loop(k, self._cell_sets[lvl-1],
+                             weights[lvl].dat(op2.INC, weights.cell_node_map(lvl-1)[op2.i[0]]))
+                # Inverse, since we're using as weights not counts
+                weights[lvl].assign(1.0/weights[lvl])
+
+        coarse = residual[level-1]
+        fine = residual[level]
+
+        args = [coarse.dat(op2.INC, coarse.cell_node_map()[op2.i[0]]),
+                fine.dat(op2.READ, self.cell_node_map(level-1))]
+
+        if not self._P0:
+            weights = self._restriction_weights[level]
+            args.append(weights.dat(op2.READ, self._restriction_weights.cell_node_map(level-1)))
+        coarse.dat.zero()
+        op2.par_loop(self._restrict_kernel, self._cell_sets[level-1],
+                     *args)
+
+    def inject(self, state, level):
+        """
+        Inject state (a primal quantity) from level to level - 1
+
+        :arg state: the state to inject
+        :arg level: the fine level to inject from
+        """
+        if not 0 < level < len(self):
+            raise RuntimeError("Requested fine level %d outside permissible range [1, %d)" %
+                               (level, len(self)))
+
+        coarse = state[level-1]
+        fine = state[level]
+        op2.par_loop(self._inject_kernel, self._cell_sets[level-1],
+                     coarse.dat(op2.WRITE, coarse.cell_node_map()),
+                     fine.dat(op2.READ, self.cell_node_map(level-1)))
+
+    def prolong(self, solution, level):
+        """
+        Prolong a solution from level - 1 to level
+
+        :arg solution: the solution to prolong
+        :arg level: the coarse level to prolong from
+        """
+        if not 0 <= level < len(self) - 1:
+            raise RuntimeError("Requested coarse level %d outside permissible range [0, %d)" %
+                               (level, len(self) - 1))
+        coarse = solution[level]
+        fine = solution[level+1]
+        op2.par_loop(self._prolong_kernel, self._cell_sets[level],
+                     fine.dat(op2.WRITE, self.cell_node_map(level)),
+                     coarse.dat(op2.READ, coarse.cell_node_map()))
 
 
 class FunctionSpaceHierarchy(BaseHierarchy):
@@ -167,3 +300,15 @@ class MixedFunctionSpaceHierarchy(object):
         :arg level: the coarse level the map should be from.
         """
         return op2.MixedMap(s.cell_node_map(level) for s in self.split())
+
+    def restrict(self, residual, level):
+        for res, fs in zip(residual.split(), self.split()):
+            fs.restrict(res, level)
+
+    def prolong(self, solution, level):
+        for sol, fs in zip(solution.split(), self.split()):
+            fs.prolong(sol, level)
+
+    def inject(self, state, level):
+        for st, fs in zip(state.split(), self.split()):
+            fs.inject(st, level)
