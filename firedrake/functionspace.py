@@ -586,6 +586,7 @@ class FunctionSpace(FunctionSpaceBase):
     def __init__(self, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
         if self._initialized:
             return
+        mesh.init()
         # Two choices:
         # 1) pass in mesh, family, degree to generate a simple function space
         # 2) set up the function space using FiniteElement, EnrichedElement,
@@ -640,6 +641,7 @@ class VectorFunctionSpace(FunctionSpaceBase):
     def __init__(self, mesh, family, degree, dim=None, name=None, vfamily=None, vdegree=None):
         if self._initialized:
             return
+        mesh.init()
         # VectorFunctionSpace dimension defaults to the geometric dimension of the mesh.
         dim = dim or mesh.ufl_cell().geometric_dimension()
 

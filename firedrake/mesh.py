@@ -199,7 +199,10 @@ def Mesh(meshfile, **kwargs):
 
     # Distribute the dm to all ranks
     if op2.MPI.comm.size > 1 and distribute:
-        plex.distribute(overlap=1)
+        # We distribute with overlap zero, in case we're going to
+        # refine this mesh in parallel.  Later, when we actually use
+        # it, we grow the halo.
+        plex.distribute(overlap=0)
 
     topological_dim = plex.getDimension()
 
@@ -338,88 +341,115 @@ class MeshBase(object):
         self._plex = plex
         self.uid = utils._new_uid()
 
-        topological_dim = plex.getDimension()
+        topological_dim = self._plex.getDimension()
         if geometric_dim is None:
             geometric_dim = topological_dim
 
-        if reorder:
-            with timed_region("Mesh: reorder"):
-                old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
-                reordering = np.empty_like(old_to_new)
-                reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
-        else:
-            # No reordering
-            reordering = None
+        cStart, cEnd = self._plex.getHeightStratum(0)  # cells
+        cell_facets = self._plex.getConeSize(cStart)
 
-        # Mark OP2 entities and derive the resulting Plex renumbering
-        with timed_region("Mesh: renumbering"):
-            dmplex.mark_entity_classes(self._plex)
-            self._plex_renumbering = dmplex.plex_renumbering(self._plex, reordering)
+        self._ufl_cell = ufl.Cell(fiat_utils._cells[topological_dim][cell_facets],
+                                  geometric_dimension=geometric_dim)
+        self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
 
-            cStart, cEnd = self._plex.getHeightStratum(0)  # cells
-            cell_facets = self._plex.getConeSize(cStart)
+        def callback(self):
+            del self._callback
+            if op2.MPI.comm.size > 1:
+                # Grow the halo.  To do this we need a map from local
+                # to global numbers, which can be obtained by building
+                # a section with one dof per topological entity,
+                # setting it as the default section, getting the
+                # default global section (to find the offset on this
+                # process) and the default SF which we then use to
+                # create the local to global map (phew!).
+                dofs = np.ones(topological_dim+1, dtype=np.int32)
+                sec = self._plex.createSection([1], dofs)
+                self._plex.setDefaultSection(sec)
+                gsec = self._plex.getDefaultGlobalSection()
+                sf = self._plex.getDefaultSF()
+                lgmap = PETSc.LGMap().createSF(sf, gsec.getOffsetRange()[0])
+                self._plex.distributeOverlap(lgmap, 1)
 
-            self._ufl_cell = ufl.Cell(fiat_utils._cells[topological_dim][cell_facets],
-                                      geometric_dimension=geometric_dim)
-            self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
-            dim = self._plex.getDimension()
-            self.cell_classes = dmplex.get_cell_classes(self._plex)
-
-        with timed_region("Mesh: cell numbering"):
-            # Derive a cell numbering from the Plex renumbering
-            entity_dofs = np.zeros(dim+1, dtype=np.int32)
-            entity_dofs[-1] = 1
-
-            self._cell_numbering = self._plex.createSection([1], entity_dofs,
-                                                            perm=self._plex_renumbering)
-            entity_dofs[:] = 0
-            entity_dofs[0] = 1
-            self._vertex_numbering = self._plex.createSection([1], entity_dofs,
-                                                              perm=self._plex_renumbering)
-
-        self.interior_facets = None
-        self.exterior_facets = None
-
-        # Note that for bendy elements, this needs to change.
-        with timed_region("Mesh: coordinate field"):
-            if periodic_coords is not None:
-                if self.ufl_cell().geometric_dimension() != 1:
-                    raise NotImplementedError("Periodic coordinates in more than 1D are unsupported")
-                # We've been passed a periodic coordinate field, so use that.
-                self._coordinate_fs = functionspace.VectorFunctionSpace(self, "DG", 1)
-                self.coordinates = function.Function(self._coordinate_fs,
-                                                     val=periodic_coords,
-                                                     name="Coordinates")
+            if reorder:
+                with timed_region("Mesh: reorder"):
+                    old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
+                    reordering = np.empty_like(old_to_new)
+                    reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
             else:
-                self._coordinate_fs = functionspace.VectorFunctionSpace(self, "Lagrange", 1)
+                # No reordering
+                reordering = None
 
-                coordinates = dmplex.reordered_coords(self._plex, self._coordinate_fs._global_numbering,
-                                                      (self.num_vertices(), geometric_dim))
-                self.coordinates = function.Function(self._coordinate_fs,
-                                                     val=coordinates,
-                                                     name="Coordinates")
-        self._ufl_domain = ufl.Domain(self.coordinates)
-        # Build a new ufl element for this function space with the
-        # correct domain.  This is necessary since this function space
-        # is in the cache and will be picked up by later
-        # VectorFunctionSpace construction.
-        self._coordinate_fs._ufl_element = self._coordinate_fs.ufl_element().reconstruct(domain=self.ufl_domain())
-        # HACK alert!
-        # Replace coordinate Function by one that has a real domain on it (but don't copy values)
-        self.coordinates = function.Function(self._coordinate_fs, val=self.coordinates.dat)
-        # Add domain and subdomain_data to the measure objects we store with the mesh.
-        self._dx = ufl.Measure('cell', domain=self, subdomain_data=self.coordinates)
-        self._ds = ufl.Measure('exterior_facet', domain=self, subdomain_data=self.coordinates)
-        self._dS = ufl.Measure('interior_facet', domain=self, subdomain_data=self.coordinates)
-        # Set the subdomain_data on all the default measures to this
-        # coordinate field.  Also set the domain on the measure.
-        for measure in [ufl.dx, ufl.ds, ufl.dS]:
-            measure._subdomain_data = self.coordinates
-            measure._domain = self.ufl_domain()
+            # Mark OP2 entities and derive the resulting Plex renumbering
+            with timed_region("Mesh: renumbering"):
+                dmplex.mark_entity_classes(self._plex)
+                self._plex_renumbering = dmplex.plex_renumbering(self._plex, reordering)
+                self.cell_classes = dmplex.get_cell_classes(self._plex)
+
+            with timed_region("Mesh: cell numbering"):
+                # Derive a cell numbering from the Plex renumbering
+                entity_dofs = np.zeros(topological_dim+1, dtype=np.int32)
+                entity_dofs[-1] = 1
+
+                self._cell_numbering = self._plex.createSection([1], entity_dofs,
+                                                                perm=self._plex_renumbering)
+                entity_dofs[:] = 0
+                entity_dofs[0] = 1
+                self._vertex_numbering = self._plex.createSection([1], entity_dofs,
+                                                                  perm=self._plex_renumbering)
+
+            self.interior_facets = None
+            self.exterior_facets = None
+
+            # Note that for bendy elements, this needs to change.
+            with timed_region("Mesh: coordinate field"):
+                if periodic_coords is not None:
+                    if self.ufl_cell().geometric_dimension() != 1:
+                        raise NotImplementedError("Periodic coordinates in more than 1D are unsupported")
+                    # We've been passed a periodic coordinate field, so use that.
+                    self._coordinate_fs = functionspace.VectorFunctionSpace(self, "DG", 1)
+                    self.coordinates = function.Function(self._coordinate_fs,
+                                                         val=periodic_coords,
+                                                         name="Coordinates")
+                else:
+                    self._coordinate_fs = functionspace.VectorFunctionSpace(self, "Lagrange", 1)
+
+                    coordinates = dmplex.reordered_coords(self._plex, self._coordinate_fs._global_numbering,
+                                                          (self.num_vertices(), geometric_dim))
+                    self.coordinates = function.Function(self._coordinate_fs,
+                                                         val=coordinates,
+                                                         name="Coordinates")
+            self._ufl_domain = ufl.Domain(self.coordinates)
+            # Build a new ufl element for this function space with the
+            # correct domain.  This is necessary since this function space
+            # is in the cache and will be picked up by later
+            # VectorFunctionSpace construction.
+            self._coordinate_fs._ufl_element = self._coordinate_fs.ufl_element().reconstruct(domain=self.ufl_domain())
+            # HACK alert!
+            # Replace coordinate Function by one that has a real domain on it (but don't copy values)
+            self.coordinates = function.Function(self._coordinate_fs, val=self.coordinates.dat)
+            # Add domain and subdomain_data to the measure objects we store with the mesh.
+            self._dx = ufl.Measure('cell', domain=self, subdomain_data=self.coordinates)
+            self._ds = ufl.Measure('exterior_facet', domain=self, subdomain_data=self.coordinates)
+            self._dS = ufl.Measure('interior_facet', domain=self, subdomain_data=self.coordinates)
+            # Set the subdomain_data on all the default measures to this
+            # coordinate field.  Also set the domain on the measure.
+            for measure in [ufl.dx, ufl.ds, ufl.dS]:
+                measure._subdomain_data = self.coordinates
+                measure._domain = self.ufl_domain()
+        self._callback = callback
+
+    def init(self):
+        """Finish the initialisation of the mesh.  Most of the time
+        this is carried out automatically, however, in some cases (for
+        example accessing a property of the mesh directly after
+        constructing it) you need to call this manually."""
+        if hasattr(self, '_callback'):
+            self._callback(self)
 
     @property
     def coordinates(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
+        self.init()
         return self._coordinate_function
 
     @coordinates.setter
@@ -685,6 +715,7 @@ class ExtrudedMesh(MeshBase):
     def __init__(self, mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None):
         # A cache of function spaces that have been built on this mesh
         self._cache = {}
+        mesh.init()
         self._old_mesh = mesh
         if layers < 1:
             raise RuntimeError("Must have at least one layer of extruded cells (not %d)" % layers)

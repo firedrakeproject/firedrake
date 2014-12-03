@@ -57,6 +57,9 @@ class MeshHierarchy(object):
                            for i, dm in enumerate(dm_hierarchy)]
         self._hierarchy = tuple(hierarchy)
 
+        for m in self:
+            m.init()
+
         self._cells_vperm = []
 
         for mc, mf, fpointis in zip(self._hierarchy[:-1],
