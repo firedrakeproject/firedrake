@@ -15,3 +15,4 @@
 /docs/source/obtaining_pyop2.rst
 /docs/source/demos
 /demos/**/*.py
+/firedrake/mg/impl.c
