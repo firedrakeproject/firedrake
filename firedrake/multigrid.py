@@ -231,6 +231,15 @@ class FunctionHierarchy(object):
     def function_space(self):
         return self._function_space
 
+    def assign(self, other):
+        try:
+            for (self_, other_) in zip(self, other):
+                self_.assign(other_)
+
+        except (TypeError, NotImplementedError):
+            for self_ in self:
+                self_.assign(other)
+
     def cell_node_map(self, i):
         return self._function_space.cell_node_map(i)
 
