@@ -1,5 +1,6 @@
 # Low-level numbering for multigrid support
 from firedrake.petsc import PETSc
+import firedrake.mg.utils as utils
 from pyop2 import MPI
 import numpy as np
 cimport numpy as np
@@ -245,3 +246,73 @@ def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
                             vertex_perm[ccell, 3*nvertex + j] = ofcell
                             break
     return new_c2f, vertex_perm
+
+
+@cython.wraparound(False)
+@cython.boundscheck(False)
+cdef inline PetscInt hash_perm(PetscInt p0, PetscInt p1):
+    if p0 == 0:
+        if p1 == 1:
+            return 0
+        return 1
+    if p0 == 1:
+        if p1 == 0:
+            return 2
+        return 3
+    if p0 == 2:
+        if p1 == 0:
+            return 4
+        return 5
+
+
+@cython.wraparound(False)
+@cython.boundscheck(False)
+def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2f,
+                         np.ndarray[PetscInt, ndim=2, mode="c"] vertex_perm):
+    """Compute a map from coarse cells to fine nodes (dofs) in a consistent order
+
+    :arg coarse: The coarse function space
+    :arg fine: The fine function space
+    :arg c2f: A map from coarse to fine cells
+    :arg vertex_perm: A permutation of each of the fine cell vertices
+        into a consistent order.
+    """
+    cdef:
+        np.ndarray[PetscInt, ndim=1, mode="c"] indices, cell_map
+        np.ndarray[PetscInt, ndim=2, mode="c"] permutations
+        np.ndarray[PetscInt, ndim=2, mode="c"] new_cell_map, old_cell_map
+        PetscInt ccell, fcell, ncoarse, ndof, i, j, perm, nfdof
+
+    ncoarse = coarse.mesh().cell_set.size
+    ndof = coarse.cell_node_map().arity
+
+    perms = utils.get_node_permutations(coarse.fiat_element)
+    permutations = np.empty((len(perms), len(perms.values()[0])), dtype=np.int32)
+    for k, v in perms.iteritems():
+        p0, p1 = np.asarray(k, dtype=PETSc.IntType)[0:2]
+        permutations[hash_perm(p0, p1), :] = v[:]
+
+    old_cell_map = fine.cell_node_map().values[c2f, ...].reshape(ncoarse, -1)
+
+    # We're going to uniquify the maps we get out, so the first step
+    # is to apply the permutation to one entry to find out which
+    # indices we need to keep.
+    indices = utils.get_unique_indices(coarse.fiat_element,
+                                       old_cell_map[0, :],
+                                       vertex_perm[0, :])
+
+    nfdof = indices.shape[0]
+    new_cell_map = -np.ones((ncoarse, nfdof), dtype=PETSc.IntType)
+
+    cell_map = np.empty(4*ndof, dtype=PETSc.IntType)
+    for ccell in range(ncoarse):
+        # 4 fine cells per coarse
+        for fcell in range(4):
+            perm = hash_perm(vertex_perm[ccell, fcell*3],
+                             vertex_perm[ccell, fcell*3 + 1])
+            for j in range(ndof):
+                cell_map[fcell*ndof + j] = old_cell_map[ccell, fcell*ndof +
+                                                        permutations[perm, j]]
+        for j in range(nfdof):
+            new_cell_map[ccell, j] = cell_map[indices[j]]
+    return new_cell_map
