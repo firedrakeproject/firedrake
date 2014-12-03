@@ -187,8 +187,24 @@ def Mesh(meshfile, **kwargs):
             raise RuntimeError("Mesh file %s has unknown format '%s'."
                                % (meshfile, ext[1:]))
 
-    return SimplexMesh(name, plex, dim, reorder,
-                       periodic_coords=periodic_coords)
+    # Distribute the dm to all ranks
+    if op2.MPI.comm.size > 1:
+        plex.distribute(overlap=1)
+
+    topological_dim = plex.getDimension()
+
+    cStart, cEnd = plex.getHeightStratum(0)  # cells
+    cell_facets = plex.getConeSize(cStart)
+
+    if topological_dim + 1 == cell_facets:
+        MeshClass = SimplexMesh
+    elif topological_dim == 2 and cell_facets == 4:
+        MeshClass = QuadrilateralMesh
+    else:
+        raise RuntimeError("Unsupported mesh type.")
+
+    return MeshClass(name, plex, dim, reorder,
+                     periodic_coords=periodic_coords)
 
 
 def _from_gmsh(filename):
@@ -323,10 +339,6 @@ class MeshBase(object):
         if geometric_dim is None:
             geometric_dim = topological_dim
 
-        # Distribute the dm to all ranks
-        if op2.MPI.comm.size > 1:
-            self.parallel_sf = plex.distribute(overlap=1)
-
         if reorder:
             with timed_region("Mesh: reorder"):
                 old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
@@ -344,17 +356,8 @@ class MeshBase(object):
             cStart, cEnd = self._plex.getHeightStratum(0)  # cells
             cell_facets = self._plex.getConeSize(cStart)
 
-            cellname = fiat_utils._cells[topological_dim][cell_facets]
-            if cellname == "quadrilateral":
-                # HACK ALERT!
-                # One should normally decide the type of an object before its creation,
-                # however, there is too much setup before we realise that we need a
-                # QuadrilateralMesh, so we just change the type here.
-                # A proper solution would require an extensive refactoring
-                # of mesh creation.
-                self.__class__ = QuadrilateralMesh
-
-            self._ufl_cell = ufl.Cell(cellname, geometric_dimension=geometric_dim)
+            self._ufl_cell = ufl.Cell(fiat_utils._cells[topological_dim][cell_facets],
+                                      geometric_dimension=geometric_dim)
             self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
             dim = self._plex.getDimension()
             self._cells, self.cell_classes = dmplex.get_cells_by_class(self._plex)
