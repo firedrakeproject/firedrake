@@ -140,6 +140,7 @@ def _from_gmsh(filename):
 
 
 def _from_exodus(filename):
+    """Read an Exodus .e or .exo file from `filename`"""
     plex = PETSc.DMPlex().createExodusFromFile(filename)
 
     boundary_ids = dmplex.getLabelIdIS("Face Sets").getIndices()
@@ -153,6 +154,7 @@ def _from_exodus(filename):
 
 
 def _from_cgns(filename):
+    """Read a CGNS .cgns file from `filename`"""
     plex = PETSc.DMPlex().createCGNSFromFile(filename)
 
     #TODO: Add boundary IDs
