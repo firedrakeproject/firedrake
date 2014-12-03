@@ -224,7 +224,7 @@ def _from_triangle(filename, dim):
     return plex
 
 
-class Mesh(object):
+class MeshBase(object):
     """A representation of mesh topology and geometry."""
 
     @timed_function("Build mesh")
@@ -434,37 +434,6 @@ class Mesh(object):
             measure._subdomain_data = self.coordinates
             measure._domain = self.ufl_domain()
 
-    @utils.cached_property
-    def cell_closure(self):
-        """2D array of ordered cell closures
-
-        Each row contains ordered cell entities for a cell, one row per cell.
-        """
-        dm = self._plex
-
-        a_cell = dm.getHeightStratum(0)[0]
-        a_closure = dm.getTransitiveClosure(a_cell)[0]
-        topological_dimension = dm.getDimension()
-
-        entity_per_cell = np.zeros(topological_dimension + 1, dtype=np.int32)
-        for dim in xrange(topological_dimension + 1):
-            start, end = dm.getDepthStratum(dim)
-            entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end, a_closure))
-
-        return dmplex.closure_ordering(dm, dm.getDefaultGlobalSection(),
-                                       self._cell_numbering, entity_per_cell)
-
-    def create_cell_node_list(self, global_numbering, fiat_element, dofs_per_cell):
-        """Builds the DoF mapping.
-
-        :arg global_numbering: Section describing the global DoF numbering
-        :arg fiat_element: The FIAT element for the cell
-        :arg dofs_per_cell: Number of DoFs associated with each mesh cell
-        """
-        return dmplex.get_cell_nodes(global_numbering,
-                                     self.cell_closure,
-                                     dofs_per_cell)
-
     @property
     def layers(self):
         """Return the number of layers of the extruded mesh
@@ -576,11 +545,6 @@ class Mesh(object):
     def size(self, d):
         return self.num_entities(d)
 
-    def facet_dimensions(self):
-        """Returns a singleton list containing the facet dimension."""
-        # Facets have co-dimension 1
-        return [self.ufl_cell().topological_dimension() - 1]
-
     @utils.cached_property
     def cell_set(self):
         size = self.cell_classes
@@ -588,7 +552,47 @@ class Mesh(object):
             op2.Set(size, "%s_cells" % self.name)
 
 
-class QuadrilateralMesh(Mesh):
+class Mesh(MeshBase):
+    """A mesh class providing functionality specific to simplex meshes."""
+
+    @utils.cached_property
+    def cell_closure(self):
+        """2D array of ordered cell closures
+
+        Each row contains ordered cell entities for a cell, one row per cell.
+        """
+        dm = self._plex
+
+        a_cell = dm.getHeightStratum(0)[0]
+        a_closure = dm.getTransitiveClosure(a_cell)[0]
+        topological_dimension = dm.getDimension()
+
+        entity_per_cell = np.zeros(topological_dimension + 1, dtype=np.int32)
+        for dim in xrange(topological_dimension + 1):
+            start, end = dm.getDepthStratum(dim)
+            entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end, a_closure))
+
+        return dmplex.closure_ordering(dm, dm.getDefaultGlobalSection(),
+                                       self._cell_numbering, entity_per_cell)
+
+    def create_cell_node_list(self, global_numbering, fiat_element, dofs_per_cell):
+        """Builds the DoF mapping.
+
+        :arg global_numbering: Section describing the global DoF numbering
+        :arg fiat_element: The FIAT element for the cell
+        :arg dofs_per_cell: Number of DoFs associated with each mesh cell
+        """
+        return dmplex.get_cell_nodes(global_numbering,
+                                     self.cell_closure,
+                                     dofs_per_cell)
+
+    def facet_dimensions(self):
+        """Returns a singleton list containing the facet dimension."""
+        # Facets have co-dimension 1
+        return [self.ufl_cell().topological_dimension() - 1]
+
+
+class QuadrilateralMesh(MeshBase):
     """A mesh class providing functionality specific to quadrilateral meshes.
 
     Not part of the public API.
@@ -626,7 +630,7 @@ class QuadrilateralMesh(Mesh):
         return [(0, 1), (1, 0)]
 
 
-class ExtrudedMesh(Mesh):
+class ExtrudedMesh(MeshBase):
     """Build an extruded mesh from an input mesh
 
     :arg mesh:           the unstructured base mesh
