@@ -48,3 +48,22 @@ class FunctionHierarchy(object):
 
     def cell_node_map(self, level):
         return self._function_space.cell_node_map(level)
+
+    def prolong(self, level):
+        """Prolong from a coarse to the next finest hierarchy level.
+
+        :arg level: The coarse level to prolong from"""
+        self.function_space().prolong(self, level)
+
+    def restrict(self, level):
+        """Restrict from a fine to the next coarsest hierarchy level.
+
+        :arg level: The fine level to restrict from
+        """
+        self.function_space().restrict(self, level)
+
+    def inject(self, level):
+        """Inject from a fine to the next coarsest hierarchy level.
+
+        :arg level: the fine level to inject from"""
+        self.function_space().inject(self, level)
