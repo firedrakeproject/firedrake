@@ -366,17 +366,15 @@ class MeshBase(object):
 
         with timed_region("Mesh: cell numbering"):
             # Derive a cell numbering from the Plex renumbering
-            cell_entity_dofs = np.zeros(dim+1, dtype=np.int32)
-            cell_entity_dofs[-1] = 1
+            entity_dofs = np.zeros(dim+1, dtype=np.int32)
+            entity_dofs[-1] = 1
 
-            try:
-                # Old style createSection
-                self._cell_numbering = self._plex.createSection(1, [1], cell_entity_dofs,
-                                                                perm=self._plex_renumbering)
-            except:
-                # New style
-                self._cell_numbering = self._plex.createSection([1], cell_entity_dofs,
-                                                                perm=self._plex_renumbering)
+            self._cell_numbering = self._plex.createSection([1], entity_dofs,
+                                                            perm=self._plex_renumbering)
+            entity_dofs[:] = 0
+            entity_dofs[0] = 1
+            self._vertex_numbering = self._plex.createSection([1], entity_dofs,
+                                                              perm=self._plex_renumbering)
 
         self.interior_facets = None
         self.exterior_facets = None
