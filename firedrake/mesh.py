@@ -300,27 +300,6 @@ def _from_triangle(filename, dim):
 class MeshBase(object):
     """A representation of mesh topology and geometry."""
 
-    @property
-    def coordinates(self):
-        """The :class:`.Function` containing the coordinates of this mesh."""
-        return self._coordinate_function
-
-    @coordinates.setter
-    def coordinates(self, value):
-        self._coordinate_function = value
-
-        # If the new coordinate field has a different dimension from
-        # the geometric dimension of the existing cell, replace the
-        # cell with one with the correct dimension.
-        ufl_cell = self.ufl_cell()
-        if value.element().value_shape()[0] != ufl_cell.geometric_dimension():
-            if isinstance(ufl_cell, ufl.OuterProductCell):
-                self._ufl_cell = ufl.OuterProductCell(ufl_cell._A, ufl_cell._B, value.element().value_shape()[0])
-            else:
-                self._ufl_cell = ufl.Cell(ufl_cell.cellname(),
-                                          geometric_dimension=value.element().value_shape()[0])
-            self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
-
     def __init__(self, name, plex, geometric_dim,
                  reorder, periodic_coords=None):
         """ Create mesh from DMPlex object """
@@ -433,6 +412,27 @@ class MeshBase(object):
         for measure in [ufl.dx, ufl.ds, ufl.dS]:
             measure._subdomain_data = self.coordinates
             measure._domain = self.ufl_domain()
+
+    @property
+    def coordinates(self):
+        """The :class:`.Function` containing the coordinates of this mesh."""
+        return self._coordinate_function
+
+    @coordinates.setter
+    def coordinates(self, value):
+        self._coordinate_function = value
+
+        # If the new coordinate field has a different dimension from
+        # the geometric dimension of the existing cell, replace the
+        # cell with one with the correct dimension.
+        ufl_cell = self.ufl_cell()
+        if value.element().value_shape()[0] != ufl_cell.geometric_dimension():
+            if isinstance(ufl_cell, ufl.OuterProductCell):
+                self._ufl_cell = ufl.OuterProductCell(ufl_cell._A, ufl_cell._B, value.element().value_shape()[0])
+            else:
+                self._ufl_cell = ufl.Cell(ufl_cell.cellname(),
+                                          geometric_dimension=value.element().value_shape()[0])
+            self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
 
     @property
     def layers(self):
