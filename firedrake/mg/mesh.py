@@ -1,5 +1,6 @@
 import numpy as np
 
+import firedrake.functionspace as functionspace
 import firedrake.mesh as mesh
 from firedrake.mg import impl
 
@@ -56,6 +57,17 @@ class MeshHierarchy(object):
                            for i, dm in enumerate(dm_hierarchy)]
         self._hierarchy = tuple(hierarchy)
 
+        self._cells_vperm = []
+
+        for mc, mf, fpointis in zip(self._hierarchy[:-1],
+                                    self._hierarchy[1:],
+                                    fpoint_ises):
+            mc._fpointIS = fpointis
+            c2f = impl.coarse_to_fine_cells(mc, mf)
+            P1c = functionspace.FunctionSpace(mc, 'CG', 1)
+            P1f = functionspace.FunctionSpace(mf, 'CG', 1)
+            self._cells_vperm.append(impl.compute_orientations(P1c, P1f, c2f))
+
     def __iter__(self):
         for m in self._hierarchy:
             yield m
@@ -77,3 +89,4 @@ class ExtrudedMeshHierarchy(MeshHierarchy):
                                        gdim=gdim)
                      for m in mesh_hierarchy]
         self._hierarchy = tuple(hierarchy)
+        self._cells_vperm = self._base_hierarchy._cells_vperm
