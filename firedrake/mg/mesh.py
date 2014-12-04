@@ -17,6 +17,8 @@ class MeshHierarchy(object):
         :arg reorder: optional flag indicating whether to reorder the
              refined meshes.
         """
+        if m.ufl_cell().cellname() != "triangle":
+            raise NotImplementedError("Only supported on triangles")
         m._plex.setRefinementUniform(True)
         dm_hierarchy = []
 
