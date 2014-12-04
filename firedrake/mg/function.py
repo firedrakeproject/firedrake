@@ -72,6 +72,11 @@ class FunctionHierarchy(object):
         """Assign into this :class:`FunctionHierarchy`.
 
         :arg other: another :class:`FunctionHierarchy` built on the
-            same :class:`~.FunctionSpaceHierarchy`."""
-        for (self_, other_) in zip(self, other):
-            self_.assign(other_)
+            same :class:`~.FunctionSpaceHierarchy` or a scalar value
+            (e.g. a :class:`~.Constant` or a literal float)."""
+        try:
+            for (self_, other_) in zip(self, other):
+                self_.assign(other_)
+        except (TypeError, NotImplementedError):
+            for self_ in self:
+                self_.assign(other)
