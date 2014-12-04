@@ -444,23 +444,33 @@ class Arg(object):
         return self._is_mat or isinstance(self.idx, IterationIndex)
 
     @collective
-    def halo_exchange_begin(self):
+    def halo_exchange_begin(self, update_inc=False):
         """Begin halo exchange for the argument if a halo update is required.
-        Doing halo exchanges only makes sense for :class:`Dat` objects."""
+        Doing halo exchanges only makes sense for :class:`Dat` objects.
+
+        :kwarg update_inc: if True also force halo exchange for :class:`Dat`\s accessed via INC."""
         assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
         assert not self._in_flight, \
             "Halo exchange already in flight for Arg %s" % self
-        if self.access in [READ, RW] and self.data.needs_halo_update:
+        access = [READ, RW]
+        if update_inc:
+            access.append(INC)
+        if self.access in access and self.data.needs_halo_update:
             self.data.needs_halo_update = False
             self._in_flight = True
             self.data.halo_exchange_begin()
 
     @collective
-    def halo_exchange_end(self):
+    def halo_exchange_end(self, update_inc=False):
         """End halo exchange if it is in flight.
-        Doing halo exchanges only makes sense for :class:`Dat` objects."""
+        Doing halo exchanges only makes sense for :class:`Dat` objects.
+
+        :kwarg update_inc: if True also force halo exchange for :class:`Dat`\s accessed via INC."""
         assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
-        if self.access in [READ, RW] and self._in_flight:
+        access = [READ, RW]
+        if update_inc:
+            access.append(INC)
+        if self.access in access and self._in_flight:
             self._in_flight = False
             self.data.halo_exchange_end()
 
@@ -561,10 +571,7 @@ class Set(object):
         assert size[Set._CORE_SIZE] <= size[Set._OWNED_SIZE] <= \
             size[Set._IMPORT_EXEC_SIZE] <= size[Set._IMPORT_NON_EXEC_SIZE], \
             "Set received invalid sizes: %s" % size
-        self._core_size = size[Set._CORE_SIZE]
-        self._size = size[Set._OWNED_SIZE]
-        self._ieh_size = size[Set._IMPORT_EXEC_SIZE]
-        self._inh_size = size[Set._IMPORT_NON_EXEC_SIZE]
+        self._sizes = size
         self._name = name or "set_%d" % Set._globalcount
         self._halo = halo
         self._partition_size = 1024
@@ -578,12 +585,12 @@ class Set(object):
     @property
     def core_size(self):
         """Core set size.  Owned elements not touching halo elements."""
-        return self._core_size
+        return self._sizes[Set._CORE_SIZE]
 
     @property
     def size(self):
         """Set size, owned elements."""
-        return self._size
+        return self._sizes[Set._OWNED_SIZE]
 
     @property
     def exec_size(self):
@@ -592,17 +599,17 @@ class Set(object):
         If a :class:`ParLoop` is indirect, we do redundant computation
         by executing over these set elements as well as owned ones.
         """
-        return self._ieh_size
+        return self._sizes[Set._IMPORT_EXEC_SIZE]
 
     @property
     def total_size(self):
         """Total set size, including halo elements."""
-        return self._inh_size
+        return self._sizes[Set._IMPORT_NON_EXEC_SIZE]
 
     @property
     def sizes(self):
         """Set sizes: core, owned, execute halo, total."""
-        return self._core_size, self._size, self._ieh_size, self._inh_size
+        return self._sizes
 
     @property
     def name(self):
@@ -633,10 +640,10 @@ class Set(object):
         return 1
 
     def __str__(self):
-        return "OP2 Set: %s with size %s" % (self._name, self._size)
+        return "OP2 Set: %s with size %s" % (self._name, self.size)
 
     def __repr__(self):
-        return "Set(%r, %r)" % (self._size, self._name)
+        return "Set(%r, %r)" % (self._sizes, self._name)
 
     def __call__(self, *indices):
         """Build a :class:`Subset` from this :class:`Set`
@@ -653,7 +660,12 @@ class Set(object):
 
     def __contains__(self, dset):
         """Indicate whether a given DataSet is compatible with this Set."""
-        return dset.set is self
+        if isinstance(dset, DataSet):
+            return dset.set is self
+        elif isinstance(dset, LocalSet):
+            return dset.superset is self
+        else:
+            return False
 
     def __pow__(self, e):
         """Derive a :class:`DataSet` with dimension ``e``"""
@@ -717,11 +729,13 @@ class ExtrudedSet(Set):
         return getattr(self._parent, name)
 
     def __contains__(self, set):
+        if isinstance(set, LocalSet):
+            return set.superset is self or set.superset in self
         return set is self.parent
 
     def __str__(self):
         return "OP2 ExtrudedSet: %s with size %s (%s layers)" % \
-            (self._name, self._size, self._layers)
+            (self._name, self.size, self._layers)
 
     def __repr__(self):
         return "ExtrudedSet(%r, %r)" % (self._parent, self._layers)
@@ -734,6 +748,63 @@ class ExtrudedSet(Set):
     def layers(self):
         """The number of layers in this extruded set."""
         return self._layers
+
+
+class LocalSet(ExtrudedSet, ObjectCached):
+
+    """A wrapper around a :class:`Set` or :class:`ExtrudedSet`.
+
+    A :class:`LocalSet` behaves exactly like the :class:`Set` it was
+    built on except during parallel loop iterations. Iteration over a
+    :class:`LocalSet` indicates that the :func:`par_loop` should not
+    compute redundantly over halo entities.  It may be used in
+    conjunction with a :func:`par_loop` that ``INC``s into a
+    :class:`Dat`.  In this case, after the local computation has
+    finished, remote contributions to local data with be gathered,
+    such that local data is correct on all processes.  Iteration over
+    a :class:`LocalSet` makes no sense for :func:`par_loop`\s
+    accessing a :class:`Mat` or those accessing a :class:`Dat` with
+    ``WRITE`` or ``RW`` access descriptors, in which case an error is
+    raised.
+
+
+    .. note::
+
+       Building :class:`DataSet`\s and hence :class:`Dat`\s on a
+       :class:`LocalSet` is unsupported.
+
+    """
+    def __init__(self, set):
+        if self._initialized:
+            return
+        self._superset = set
+        self._sizes = (set.core_size, set.size, set.size, set.size)
+
+    @classmethod
+    def _process_args(cls, set, **kwargs):
+        return (set, ) + (set, ), kwargs
+
+    @classmethod
+    def _cache_key(cls, set, **kwargs):
+        return (set, )
+
+    def __getattr__(self, name):
+        """Look up attributes on the contained :class:`Set`."""
+        return getattr(self._superset, name)
+
+    @property
+    def superset(self):
+        return self._superset
+
+    def __repr__(self):
+        return "LocalSet(%r)" % self.superset
+
+    def __str__(self):
+        return "OP2 LocalSet on %s" % self.superset
+
+    def __pow__(self, e):
+        """Derive a :class:`DataSet` with dimension ``e``"""
+        raise NotImplementedError("Deriving a DataSet from a Localset is unsupported")
 
 
 class Subset(ExtrudedSet):
@@ -767,10 +838,10 @@ class Subset(ExtrudedSet):
                 'Out of bounds indices in Subset construction: [%d, %d) not [0, %d)' %
                 (self._indices[0], self._indices[-1], self._superset.total_size))
 
-        self._core_size = (self._indices < superset._core_size).sum()
-        self._size = (self._indices < superset._size).sum()
-        self._ieh_size = (self._indices < superset._ieh_size).sum()
-        self._inh_size = len(self._indices)
+        self._sizes = ((self._indices < superset.core_size).sum(),
+                       (self._indices < superset.size).sum(),
+                       (self._indices < superset.exec_size).sum(),
+                       len(self._indices))
 
     # Look up any unspecified attributes on the _set.
     def __getattr__(self, name):
@@ -2076,23 +2147,38 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         return self._iop(other, operator.idiv)
 
     @collective
-    def halo_exchange_begin(self):
-        """Begin halo exchange."""
+    def halo_exchange_begin(self, reverse=False):
+        """Begin halo exchange.
+
+        :kwarg reverse: if True, switch round the meaning of sends and receives.
+               This can be used when computing non-redundantly and
+               INCing into a :class:`Dat` to obtain correct local
+               values."""
         halo = self.dataset.halo
         if halo is None:
             return
-        for dest, ele in halo.sends.iteritems():
+        sends = halo.sends
+        receives = halo.receives
+        if reverse:
+            sends = halo.receives
+            receives = halo.sends
+        for dest, ele in sends.iteritems():
             self._send_buf[dest] = self._data[ele]
             self._send_reqs[dest] = halo.comm.Isend(self._send_buf[dest],
                                                     dest=dest, tag=self._id)
-        for source, ele in halo.receives.iteritems():
+        for source, ele in receives.iteritems():
             self._recv_buf[source] = self._data[ele]
             self._recv_reqs[source] = halo.comm.Irecv(self._recv_buf[source],
                                                       source=source, tag=self._id)
 
     @collective
-    def halo_exchange_end(self):
-        """End halo exchange. Waits on MPI recv."""
+    def halo_exchange_end(self, reverse=False):
+        """End halo exchange. Waits on MPI recv.
+
+        :kwarg reverse: if True, switch round the meaning of sends and receives.
+               This can be used when computing non-redundantly and
+               INCing into a :class:`Dat` to obtain correct local
+               values."""
         halo = self.dataset.halo
         if halo is None:
             return
@@ -2103,10 +2189,18 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         self._recv_reqs.clear()
         self._send_reqs.clear()
         self._send_buf.clear()
+        receives = halo.receives
+        if reverse:
+            receives = halo.sends
         # data is read-only in a ParLoop, make it temporarily writable
         maybe_setflags(self._data, write=True)
         for source, buf in self._recv_buf.iteritems():
-            self._data[halo.receives[source]] = buf
+            if reverse:
+                # Reverse halo exchange into INC Dat increments local
+                # values, rather than writing.
+                self._data[receives[source]] += buf
+            else:
+                self._data[receives[source]] = buf
         maybe_setflags(self._data, write=False)
         self._recv_buf.clear()
 
@@ -3703,6 +3797,8 @@ class ParLoop(LazyComputation):
         self._kernel = kernel
         self._is_layered = iterset._extruded
         self._iteration_region = kwargs.get("iterate", None)
+        # Are we only computing over owned set entities?
+        self._only_local = isinstance(iterset, LocalSet)
 
         for i, arg in enumerate(self._actual_args):
             arg.position = i
@@ -3715,6 +3811,15 @@ class ParLoop(LazyComputation):
                     # the same)
                     if arg2.data is arg1.data and arg2.map is arg1.map:
                         arg2.indirect_position = arg1.indirect_position
+
+        if self.is_direct and self._only_local:
+            raise RuntimeError("Iteration over a LocalSet makes no sense for direct loops")
+        if self._only_local:
+            for arg in self.args:
+                if arg._is_mat:
+                    raise RuntimeError("Iteration over a LocalSet does not make sense for par_loops with Mat args")
+                if arg._is_dat and arg.access not in [INC, READ, WRITE]:
+                    raise RuntimeError("Iteration over a LocalSet does not make sense for RW args")
 
         self._it_space = self.build_itspace(iterset)
 
@@ -3732,9 +3837,13 @@ class ParLoop(LazyComputation):
         self.halo_exchange_end()
         self._compute(self.it_space.iterset.owned_part)
         self.reduction_begin()
-        if self.needs_exec_halo:
+        if self._only_local:
+            self.reverse_halo_exchange_begin()
+        if not self._only_local and self.needs_exec_halo:
             self._compute(self.it_space.iterset.exec_part)
         self.reduction_end()
+        if self._only_local:
+            self.reverse_halo_exchange_end()
         self.maybe_set_halo_update_needed()
 
     @collective
@@ -3757,7 +3866,7 @@ class ParLoop(LazyComputation):
             return
         for arg in self.args:
             if arg._is_dat:
-                arg.halo_exchange_begin()
+                arg.halo_exchange_begin(update_inc=self._only_local)
 
     @collective
     @timed_function('ParLoop halo exchange end')
@@ -3767,7 +3876,27 @@ class ParLoop(LazyComputation):
             return
         for arg in self.args:
             if arg._is_dat:
-                arg.halo_exchange_end()
+                arg.halo_exchange_end(update_inc=self._only_local)
+
+    @collective
+    @timed_function('ParLoop reverse halo exchange begin')
+    def reverse_halo_exchange_begin(self):
+        """Start reverse halo exchanges (to gather remote data)"""
+        if self.is_direct:
+            raise RuntimeError("Should never happen")
+        for arg in self.args:
+            if arg._is_dat and arg.access is INC:
+                arg.data.halo_exchange_begin(reverse=True)
+
+    @collective
+    @timed_function('ParLoop reverse halo exchange end')
+    def reverse_halo_exchange_end(self):
+        """Finish reverse halo exchanges (to gather remote data)"""
+        if self.is_direct:
+            raise RuntimeError("Should never happen")
+        for arg in self.args:
+            if arg._is_dat and arg.access is INC:
+                arg.data.halo_exchange_end(reverse=True)
 
     @collective
     @timed_function('ParLoop reduction begin')
@@ -3813,7 +3942,10 @@ class ParLoop(LazyComputation):
 
         :return: class:`IterationSpace` for this :class:`ParLoop`"""
 
-        _iterset = iterset.superset if isinstance(iterset, Subset) else iterset
+        if isinstance(iterset, (LocalSet, Subset)):
+            _iterset = iterset.superset
+        else:
+            _iterset = iterset
         if isinstance(_iterset, MixedSet):
             raise SetTypeError("Cannot iterate over MixedSets")
         block_shape = None
@@ -3830,7 +3962,7 @@ class ParLoop(LazyComputation):
                     if m.iterset != _iterset and m.iterset not in _iterset:
                         raise MapValueError(
                             "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
-                elif m.iterset != _iterset:
+                elif m.iterset != _iterset and m.iterset not in _iterset:
                     raise MapValueError(
                         "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
             if arg._uses_itspace:

@@ -51,9 +51,9 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'ON_BOTTOM', 'ON_TOP', 'ON_INTERIOR_FACETS', 'ALL',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'ExtrudedSet',
-           'MixedSet', 'Subset', 'DataSet', 'MixedDataSet', 'Halo', 'Dat',
-           'MixedDat', 'Mat', 'Const', 'Global', 'Map', 'MixedMap', 'Sparsity',
-           'Solver', 'par_loop', 'solve']
+           'LocalSet', 'MixedSet', 'Subset', 'DataSet', 'MixedDataSet', 'Halo',
+           'Dat', 'MixedDat', 'Mat', 'Const', 'Global', 'Map', 'MixedMap',
+           'Sparsity', 'Solver', 'par_loop', 'solve']
 
 
 def initialised():
@@ -146,6 +146,10 @@ class ExtrudedSet(base.Set):
 
 
 class MixedSet(base.MixedSet):
+    __metaclass__ = backends._BackendSelector
+
+
+class LocalSet(base.LocalSet):
     __metaclass__ = backends._BackendSelector
 
 
