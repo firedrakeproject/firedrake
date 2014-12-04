@@ -104,7 +104,6 @@ def test_num_exterior_facets():
     assert m.exterior_facets.set.total_size == 0
 
 
-@pytest.mark.xfail
 @pytest.mark.parallel(nprocs=2)
 def test_num_exterior_facets_parallel():
     m = UnitIcosahedralSphereMesh(0)

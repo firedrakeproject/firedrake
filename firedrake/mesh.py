@@ -187,6 +187,13 @@ def Mesh(meshfile, **kwargs):
             raise RuntimeError("Mesh file %s has unknown format '%s'."
                                % (meshfile, ext[1:]))
 
+    # Mark exterior and interior facets
+    # Note.  This must come before distribution, because otherwise
+    # DMPlex will consider facets on the domain boundary to be
+    # exterior, which is wrong.
+    with timed_region("Mesh: label facets"):
+        dmplex.label_facets(plex)
+
     # Distribute the dm to all ranks
     if op2.MPI.comm.size > 1:
         plex.distribute(overlap=1)
@@ -327,13 +334,6 @@ class MeshBase(object):
         self.name = name
         self._plex = plex
         self.uid = utils._new_uid()
-
-        # Mark exterior and interior facets
-        # Note.  This must come before distribution, because otherwise
-        # DMPlex will consider facets on the domain boundary to be
-        # exterior, which is wrong.
-        with timed_region("Mesh: label facets"):
-            dmplex.label_facets(self._plex)
 
         topological_dim = plex.getDimension()
         if geometric_dim is None:
