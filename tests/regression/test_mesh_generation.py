@@ -99,6 +99,18 @@ def test_unit_circle_parallel():
     assert abs(integrate_one(UnitCircleMesh(4)) - pi * 0.5 ** 2) < 0.02
 
 
+def test_num_exterior_facets():
+    m = UnitIcosahedralSphereMesh(0)
+    assert m.exterior_facets.set.total_size == 0
+
+
+@pytest.mark.xfail
+@pytest.mark.parallel(nprocs=2)
+def test_num_exterior_facets_parallel():
+    m = UnitIcosahedralSphereMesh(0)
+    assert m.exterior_facets.set.total_size == 0
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
