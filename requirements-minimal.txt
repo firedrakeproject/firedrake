@@ -5,7 +5,7 @@
 --allow-external petsc4py
 --allow-unverified petsc4py
 
-numpy>=1.6.1
+numpy>=1.9.1
 Cython>=0.17
 pytest>=2.3
 flake8>=2.1.0

@@ -101,7 +101,7 @@ subsystem:
 
 * Cython >= 0.17 
 * decorator 
-* numpy >= 1.6 
+* numpy >= 1.9.1 
 * networkx
 * mpi4py >= 1.3.1
 
