@@ -67,3 +67,11 @@ class FunctionHierarchy(object):
 
         :arg level: the fine level to inject from"""
         self.function_space().inject(self, level)
+
+    def assign(self, other):
+        """Assign into this :class:`FunctionHierarchy`.
+
+        :arg other: another :class:`FunctionHierarchy` built on the
+            same :class:`~.FunctionSpaceHierarchy`."""
+        for (self_, other_) in zip(self, other):
+            self_.assign(other_)
