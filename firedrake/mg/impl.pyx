@@ -15,6 +15,16 @@ include "../dmplex.pxi"
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
+    """
+    Given a section numbering a type of topological entity, return the
+    renumberings from original plex numbers to new firedrake numbers
+    (and vice versa)
+
+    :arg plex: The DMPlex object
+    :arg section: The Section defining the renumbering
+    :arg entity_type: The type of entity (either :data:`"cell"` or
+        :data`"vertex"`)
+    """
     cdef:
         PetscInt start, end, p, ndof, entity
         np.ndarray[PetscInt, ndim=1] old_to_new

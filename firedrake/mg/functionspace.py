@@ -18,6 +18,13 @@ __all__ = ["FunctionSpaceHierarchy", "VectorFunctionSpaceHierarchy",
 class BaseHierarchy(object):
 
     def __init__(self, mesh_hierarchy, fses):
+        """
+        Build a hierarchy of function spaces
+
+        :arg mesh_hierarchy: a :class:`~.MeshHierarchy` on which to
+             build the function spaces.
+        :arg fses: an iterable of :class:`~.FunctionSpace`\s.
+        """
         self._mesh_hierarchy = mesh_hierarchy
         self._hierarchy = tuple(fses)
         self._map_cache = {}
@@ -78,13 +85,19 @@ class BaseHierarchy(object):
                 pass
 
     def __len__(self):
+        """Return the size of this function space hierarchy"""
         return len(self._hierarchy)
 
     def __iter__(self):
+        """Iterate over the function spaces in this hierarchy (from
+        coarse to fine)."""
         for fs in self._hierarchy:
             yield fs
 
     def __getitem__(self, idx):
+        """Return a function space in the hierarchy
+
+        :arg idx: The :class:`~.FunctionSpace` to return"""
         return self._hierarchy[idx]
 
     def ufl_element(self):
@@ -131,14 +144,19 @@ class BaseHierarchy(object):
         return map
 
     def split(self):
+        """Return a tuple of this :class:`FunctionSpaceHierarchy`."""
         return (self, )
 
     def __mul__(self, other):
+        """Create a :class:`MixedFunctionSpaceHierarchy`.
+
+        :arg other: The other :class:`FunctionSpaceHierarchy` in the
+             mixed space."""
         return MixedFunctionSpaceHierarchy([self, other])
 
     def restrict(self, residual, level):
         """
-        Restrict a residual from level to level-1
+        Restrict a residual (a dual quantity) from level to level-1
 
         :arg residual: the residual to restrict
         :arg level: the fine level to restrict from
@@ -207,7 +225,7 @@ class BaseHierarchy(object):
 
     def prolong(self, solution, level):
         """
-        Prolong a solution from level - 1 to level
+        Prolong a solution (a primal quantity) from level - 1 to level
 
         :arg solution: the solution to prolong
         :arg level: the coarse level to prolong from
@@ -232,10 +250,13 @@ class FunctionSpaceHierarchy(BaseHierarchy):
     def __init__(self, mesh_hierarchy, family, degree=None,
                  name=None, vfamily=None, vdegree=None):
         """
-        :arg mesh_hierarchy: a :class:`.MeshHierarchy` to build the
+        :arg mesh_hierarchy: a :class:`~.MeshHierarchy` to build the
              function spaces on.
         :arg family: the function space family
         :arg degree: the degree of the function space
+
+        See :class:`~.FunctionSpace` for more details on the form of
+        the remaining parameters.
         """
         fses = [functionspace.FunctionSpace(m, family, degree=degree,
                                             name=name, vfamily=vfamily,
@@ -247,7 +268,23 @@ class FunctionSpaceHierarchy(BaseHierarchy):
 
 class VectorFunctionSpaceHierarchy(BaseHierarchy):
 
+    """Build a hierarchy of vector function spaces.
+
+    Given a hierarchy of meshes, this constructs a hierarchy of vector
+    function spaces, with the property that every coarse space is a
+    subspace of the fine spaces that are a refinement of it.
+
+    """
     def __init__(self, mesh_hierarchy, family, degree, dim=None, name=None, vfamily=None, vdegree=None):
+        """
+        :arg mesh_hierarchy: a :class:`~.MeshHierarchy` to build the
+             function spaces on.
+        :arg family: the function space family
+        :arg degree: the degree of the function space
+
+        See :class:`~.VectorFunctionSpace` for more details on the form of
+        the remaining parameters.
+        """
         fses = [functionspace.VectorFunctionSpace(m, family, degree,
                                                   dim=dim, name=name, vfamily=vfamily,
                                                   vdegree=vdegree)
@@ -258,7 +295,16 @@ class VectorFunctionSpaceHierarchy(BaseHierarchy):
 
 class MixedFunctionSpaceHierarchy(object):
 
+    """Build a hierarchy of mixed function spaces.
+
+    This is effectively a bag for a number of
+    :class:`FunctionSpaceHierarchy`\s.  At each level in the hierarchy
+    is a :class:`~.MixedFunctionSpace`.
+    """
     def __init__(self, spaces, name=None):
+        """
+        :arg spaces: A list of :class:`FunctionSpaceHierarchy`\s
+        """
         spaces = [x for x in flatten([s.split() for s in spaces])]
         assert all(isinstance(s, BaseHierarchy) for s in spaces)
         self._hierarchy = tuple(functionspace.MixedFunctionSpace(s) for s in zip(*spaces))
@@ -302,13 +348,31 @@ class MixedFunctionSpaceHierarchy(object):
         return op2.MixedMap(s.cell_node_map(level) for s in self.split())
 
     def restrict(self, residual, level):
+        """
+        Restrict a residual (a dual quantity) from level to level-1
+
+        :arg residual: the residual to restrict
+        :arg level: the fine level to restrict from
+        """
         for res, fs in zip(residual.split(), self.split()):
             fs.restrict(res, level)
 
     def prolong(self, solution, level):
+        """
+        Prolong a solution (a primal quantity) from level - 1 to level
+
+        :arg solution: the solution to prolong
+        :arg level: the coarse level to prolong from
+        """
         for sol, fs in zip(solution.split(), self.split()):
             fs.prolong(sol, level)
 
     def inject(self, state, level):
+        """
+        Inject state (a primal quantity) from level to level - 1
+
+        :arg state: the state to inject
+        :arg level: the fine level to inject from
+        """
         for st, fs in zip(state.split(), self.split()):
             fs.inject(st, level)

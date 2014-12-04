@@ -62,6 +62,8 @@ class MeshHierarchy(object):
         for m in self:
             m.init()
 
+        # On coarse mesh n, a map of consistent cell orientations and
+        # vertex permutations for the fine cells on each coarse cell.
         self._cells_vperm = []
 
         for mc, mf, fpointis in zip(self._hierarchy[:-1],
@@ -74,19 +76,30 @@ class MeshHierarchy(object):
             self._cells_vperm.append(impl.compute_orientations(P1c, P1f, c2f))
 
     def __iter__(self):
+        """Iterate over the hierarchy of meshes from coarsest to finest"""
         for m in self._hierarchy:
             yield m
 
     def __len__(self):
+        """Return the size of hierarchy"""
         return len(self._hierarchy)
 
     def __getitem__(self, idx):
+        """Return a mesh in the hierarchy
+
+        :arg idx: The :class:`~.Mesh` to return"""
         return self._hierarchy[idx]
 
 
 class ExtrudedMeshHierarchy(MeshHierarchy):
     def __init__(self, mesh_hierarchy, layers, kernel=None, layer_height=None,
                  extrusion_type='uniform', gdim=None):
+        """Build a hierarchy of extruded meshes by extruded a hierarchy of meshes.
+
+        :arg mesh_hierarchy: the :class:`MeshHierarchy` to extruded
+
+        See :class:`~.ExtrudedMesh` for the meaning of the remaining parameters.
+        """
         self._base_hierarchy = mesh_hierarchy
         hierarchy = [mesh.ExtrudedMesh(m, layers, kernel=kernel,
                                        layer_height=layer_height,

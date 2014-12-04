@@ -31,22 +31,41 @@ class FunctionHierarchy(object):
             self._split = (self, )
 
     def __iter__(self):
+        """Iterate over the :class:`Function`\s in this hierarchy (from
+        coarse to fine)."""
         for f in self._hierarchy:
             yield f
 
     def __len__(self):
+        """Return the size of this function hierarchy"""
         return len(self._hierarchy)
 
     def __getitem__(self, idx):
+        """Return a function in the hierarchy
+
+        :arg idx: the :class:`~.Function` to return"""
         return self._hierarchy[idx]
 
     def split(self):
+        """Return a tuple of the constituent
+        :class:`FunctionHierarchy`\s in this
+        :class:`FunctionHierarchy`.  This is just a single tuple
+        unless the space was a
+        :class:`~.MixedFunctionSpaceHierarchy`.
+        """
         return self._split
 
     def function_space(self):
+        """Return the :class:`~.FunctionSpaceHierarchy` this
+        :class:`FunctionHierarchy` is built on."""
         return self._function_space
 
     def cell_node_map(self, level):
+        """A :class:`pyop2.Map` from cells on a coarse mesh to the
+        corresponding degrees of freedom on a the fine mesh below it.
+
+        :arg level: the coarse level the map should be from.
+        """
         return self._function_space.cell_node_map(level)
 
     def prolong(self, level):
