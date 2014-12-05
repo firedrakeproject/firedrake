@@ -2,9 +2,10 @@ from firedrake import *
 import pytest
 
 
-@pytest.fixture(scope='module')
-def V():
-    m = UnitSquareMesh(25, 25)
+@pytest.fixture(scope='module', params=[False, True])
+def V(request):
+    quadrilateral = request.param
+    m = UnitSquareMesh(25, 25, quadrilateral=quadrilateral)
     return FunctionSpace(m, 'CG', 1)
 
 

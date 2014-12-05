@@ -35,8 +35,8 @@ import pytest
 from firedrake import *
 
 
-def run_test(x, degree):
-    mesh = UnitSquareMesh(2 ** x, 2 ** x)
+def run_test(x, degree, quadrilateral=False):
+    mesh = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=quadrilateral)
     V = FunctionSpace(mesh, "CG", degree)
 
     u = TrialFunction(V)
@@ -79,9 +79,10 @@ def run_test(x, degree):
     return sqrt(assemble(dot(u - f, u - f)*dx))
 
 
+@pytest.mark.parametrize('quadrilateral', [False, True])
 @pytest.mark.parametrize('degree', (1, 2))
-def test_poisson_nitsche(degree):
-    assert run_test(2, degree) < 1e-3
+def test_poisson_nitsche(degree, quadrilateral):
+    assert run_test(2, degree, quadrilateral=quadrilateral) < 1e-3
 
 
 if __name__ == '__main__':
