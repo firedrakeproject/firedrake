@@ -43,14 +43,16 @@ class BaseHierarchy(object):
                     (family == "Discontinuous Lagrange" and degree == 0))
         if self._P0:
             self._prolong_kernel = op2.Kernel("""
-                void prolongation(double **fine, double **coarse)
+                void prolongation(double fine[%d], double **coarse)
                 {
                     for ( int k = 0; k < %d; k++ ) {
                         for ( int i = 0; i < %d; i++ ) {
-                            fine[i][k] = coarse[0][k];
+                            fine[i*%d + k] = coarse[0][k];
                         }
                     }
-                }""" % (self.dim, self.cell_node_map(0).arity), "prolongation")
+                }""" % (self.cell_node_map(0).arity*self.dim,
+                        self.dim, self.cell_node_map(0).arity,
+                        self.dim), "prolongation")
             self._restrict_kernel = op2.Kernel("""
                 void restriction(double coarse[%d], double **fine)
                 {
@@ -61,16 +63,15 @@ class BaseHierarchy(object):
                     }
                 }""" % (self.dim, self.dim, self.cell_node_map(0).arity), "restriction")
             self._inject_kernel = op2.Kernel("""
-                void injection(double **coarse, double **fine)
+                void injection(double coarse[%d], double **fine)
                 {
                     for ( int k = 0; k < %d; k++ ) {
-                        coarse[0][k] = 0;
                         for ( int i = 0; i < %d; i++ ) {
-                            coarse[0][k] += fine[i][k];
+                            coarse[k] += fine[i][k];
                         }
-                        coarse[0][k] *= %g;
+                        coarse[k] *= %g;
                     }
-                }""" % (self.dim, self.cell_node_map(0).arity,
+                }""" % (self.dim, self.dim, self.cell_node_map(0).arity,
                         1.0/self.cell_node_map(0).arity), "injection")
         else:
             try:
@@ -222,7 +223,7 @@ class BaseHierarchy(object):
         coarse = state[level-1]
         fine = state[level]
         op2.par_loop(self._inject_kernel, self._cell_sets[level-1],
-                     coarse.dat(op2.WRITE, coarse.cell_node_map()),
+                     coarse.dat(op2.WRITE, coarse.cell_node_map()[op2.i[0]]),
                      fine.dat(op2.READ, self.cell_node_map(level-1)))
 
     def prolong(self, solution, level):
@@ -238,7 +239,7 @@ class BaseHierarchy(object):
         coarse = solution[level]
         fine = solution[level+1]
         op2.par_loop(self._prolong_kernel, self._cell_sets[level],
-                     fine.dat(op2.WRITE, self.cell_node_map(level)),
+                     fine.dat(op2.WRITE, self.cell_node_map(level)[op2.i[0]]),
                      coarse.dat(op2.READ, coarse.cell_node_map()))
 
 

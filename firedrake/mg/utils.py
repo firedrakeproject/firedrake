@@ -3,6 +3,8 @@ from __future__ import absolute_import
 from itertools import permutations
 import numpy as np
 
+import coffee.base as ast
+
 from pyop2 import op2
 
 from firedrake.petsc import PETSc
@@ -178,69 +180,112 @@ def get_injection_weights(fiat_element):
     return np.concatenate(values)
 
 
-def format_array_literal(name, arr):
-    vals = "{{"+"},\n{".join([",".join(map(lambda x: "%g" % x, x)) for x in arr])+"}}"
-    return """double %(name)s[%(rows)d][%(cols)d] = %(vals)s""" % {'name': name,
-                                                                   'rows': arr.shape[0],
-                                                                   'cols': arr.shape[1],
-                                                                   'vals': vals}
+def format_array_literal(arr):
+    return "{{"+"},\n{".join([",".join(map(lambda x: "%g" % x, x)) for x in arr])+"}}"
 
 
 def get_injection_kernel(fiat_element, unique_indices, dim=1):
     weights = get_injection_weights(fiat_element)[unique_indices].T
+    ncdof = weights.shape[0]
+    nfdof = weights.shape[1]
     # What if we have multiple nodes in same location (DG)?  Divide by
     # rowsum.
     weights = weights / np.sum(weights, axis=1).reshape(-1, 1)
-    k = """
-    void injection(double **coarse, double **fine)
-    {
-         static const %s;
 
-         for ( int k = 0; k < %d; k++ ) {
-             for ( int i = 0; i < %d; i++ ) {
-                 coarse[i][k] = 0;
-                 for (int j = 0; j < %d; j++ ) {
-                     coarse[i][k] += fine[j][k] * weights[i][j];
-                 }
-             }
-         }
-    }""" % (format_array_literal("weights", weights), dim,
-            weights.shape[0], weights.shape[1])
+    arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, ))),
+               ast.Decl("double", ast.Symbol("**fine", ()))]
+    w_sym = ast.Symbol("weights", (ncdof, nfdof))
+    w = ast.Decl("double", w_sym, ast.ArrayInit(format_array_literal(weights)),
+                 qualifiers=["static", "const"])
+
+    i = ast.Symbol("i", ())
+    j = ast.Symbol("j", ())
+    k = ast.Symbol("k", ())
+    assignment = ast.Incr(ast.Symbol("coarse", (ast.Sum(k, ast.Prod(i, ast.c_sym(dim))),)),
+                          ast.Prod(ast.Symbol("fine", (j, k)),
+                                   ast.Symbol("weights", (i, j))))
+    k_loop = ast.For(ast.Decl("int", k, ast.c_sym(0)),
+                     ast.Less(k, ast.c_sym(dim)),
+                     ast.Incr(k, ast.c_sym(1)),
+                     ast.Block([assignment], open_scope=True))
+    j_loop = ast.For(ast.Decl("int", j, ast.c_sym(0)),
+                     ast.Less(j, ast.c_sym(nfdof)),
+                     ast.Incr(j, ast.c_sym(1)),
+                     ast.Block([k_loop], open_scope=True))
+    i_loop = ast.For(ast.Decl("int", i, ast.c_sym(0)),
+                     ast.Less(i, ast.c_sym(ncdof)),
+                     ast.Incr(i, ast.c_sym(1)),
+                     ast.Block([j_loop], open_scope=True))
+    k = ast.FunDecl("void", "injection", arglist, ast.Block([w, i_loop]),
+                    pred=["static", "inline"])
+
     return op2.Kernel(k, "injection")
 
 
 def get_prolongation_kernel(fiat_element, unique_indices, dim=1):
     weights = get_restriction_weights(fiat_element)[unique_indices]
-    k = """
-    void prolongation(double **fine, double **coarse)
-    {
-        static const %s;
-        for ( int k = 0; k < %d; k++ ) {
-            for ( int i = 0; i < %d; i++ ) {
-                fine[i][k] = 0;
-                for ( int j = 0; j < %d; j++ ) {
-                    fine[i][k] += coarse[j][k] * weights[i][j];
-                }
-            }
-        }
-    }""" % (format_array_literal("weights", weights), dim,
-            weights.shape[0], weights.shape[1])
+    nfdof = weights.shape[0]
+    ncdof = weights.shape[1]
+    arglist = [ast.Decl("double", ast.Symbol("fine", (nfdof*dim, ))),
+               ast.Decl("double", ast.Symbol("**coarse", ()))]
+    w_sym = ast.Symbol("weights", (nfdof, ncdof))
+    w = ast.Decl("double", w_sym, ast.ArrayInit(format_array_literal(weights)),
+                 qualifiers=["static", "const"])
+    i = ast.Symbol("i", ())
+    j = ast.Symbol("j", ())
+    k = ast.Symbol("k", ())
+    assignment = ast.Incr(ast.Symbol("fine", (ast.Sum(k, ast.Prod(i, ast.c_sym(dim))),)),
+                          ast.Prod(ast.Symbol("coarse", (j, k)),
+                                   ast.Symbol("weights", (i, j))))
+    k_loop = ast.For(ast.Decl("int", k, ast.c_sym(0)),
+                     ast.Less(k, ast.c_sym(dim)),
+                     ast.Incr(k, ast.c_sym(1)),
+                     ast.Block([assignment], open_scope=True))
+    j_loop = ast.For(ast.Decl("int", j, ast.c_sym(0)),
+                     ast.Less(j, ast.c_sym(ncdof)),
+                     ast.Incr(j, ast.c_sym(1)),
+                     ast.Block([k_loop], open_scope=True))
+    i_loop = ast.For(ast.Decl("int", i, ast.c_sym(0)),
+                     ast.Less(i, ast.c_sym(nfdof)),
+                     ast.Incr(i, ast.c_sym(1)),
+                     ast.Block([j_loop], open_scope=True))
+    k = ast.FunDecl("void", "prolongation", arglist, ast.Block([w, i_loop]),
+                    pred=["static", "inline"])
+
     return op2.Kernel(k, "prolongation")
 
 
 def get_restriction_kernel(fiat_element, unique_indices, dim=1):
     weights = get_restriction_weights(fiat_element)[unique_indices].T
-    k = """
-    void restriction(double coarse[%d], double **fine, double **count_weights)
-    {
-        static const %s;
-        for ( int k = 0; k < %d; k++ ) {
-            for ( int i = 0; i < %d; i++ ) {
-                for ( int j = 0; j < %d; j++ ) {
-                    coarse[i*%d + k] += fine[j][k] * weights[i][j] * count_weights[j][0];
-                }
-            }
-        }
-    }""" % (weights.shape[0]*dim, format_array_literal("weights", weights), dim,
-            weights.shape[0], weights.shape[1], dim)
+    ncdof = weights.shape[0]
+    nfdof = weights.shape[1]
+    arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, ))),
+               ast.Decl("double", ast.Symbol("**fine", ())),
+               ast.Decl("double", ast.Symbol("**count_weights", ()))]
+    w_sym = ast.Symbol("weights", (ncdof, nfdof))
+    w = ast.Decl("double", w_sym, ast.ArrayInit(format_array_literal(weights)),
+                 qualifiers=["static", "const"])
+
+    i = ast.Symbol("i", ())
+    j = ast.Symbol("j", ())
+    k = ast.Symbol("k", ())
+    assignment = ast.Incr(ast.Symbol("coarse", (ast.Sum(k, ast.Prod(i, ast.c_sym(dim))),)),
+                          ast.Prod(ast.Symbol("fine", (j, k)),
+                                   ast.Prod(ast.Symbol("weights", (i, j)),
+                                            ast.Symbol("count_weights", (j, 0)))))
+    k_loop = ast.For(ast.Decl("int", k, ast.c_sym(0)),
+                     ast.Less(k, ast.c_sym(dim)),
+                     ast.Incr(k, ast.c_sym(1)),
+                     ast.Block([assignment], open_scope=True))
+    j_loop = ast.For(ast.Decl("int", j, ast.c_sym(0)),
+                     ast.Less(j, ast.c_sym(nfdof)),
+                     ast.Incr(j, ast.c_sym(1)),
+                     ast.Block([k_loop], open_scope=True))
+    i_loop = ast.For(ast.Decl("int", i, ast.c_sym(0)),
+                     ast.Less(i, ast.c_sym(ncdof)),
+                     ast.Incr(i, ast.c_sym(1)),
+                     ast.Block([j_loop], open_scope=True))
+    k = ast.FunDecl("void", "restriction", arglist, ast.Block([w, i_loop]),
+                    pred=["static", "inline"])
+
     return op2.Kernel(k, "restriction")
