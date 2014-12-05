@@ -22,7 +22,8 @@ from ffc.quadrature.quadraturetransformerbase import EmptyIntegrandError
 from pyop2.caching import DiskCached
 from pyop2.op2 import Kernel
 from pyop2.mpi import MPI
-from pyop2.coffee.ast_base import PreprocessNode, Root
+
+from coffee.base import PreprocessNode, Root
 
 import fiat_utils
 import functionspace

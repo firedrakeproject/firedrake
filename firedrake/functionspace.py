@@ -1,7 +1,8 @@
 import numpy as np
 import ufl
 
-import pyop2.coffee.ast_base as ast
+import coffee.base as ast
+
 from pyop2 import op2
 from pyop2.caching import ObjectCached
 from pyop2.utils import flatten, as_tuple

@@ -6,7 +6,8 @@ from ufl.indexed import Indexed
 
 from pyop2 import READ, WRITE, RW, INC  # NOQA get flake8 to ignore unused import.
 import pyop2
-import pyop2.coffee.ast_base as ast
+
+import coffee.base as ast
 
 import constant
 
