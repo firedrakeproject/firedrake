@@ -182,7 +182,12 @@ class Function(ufl.Coefficient):
             raise RuntimeError('Expression of length %d required, got length %d'
                                % (sum(dims), np.prod(expression.value_shape(), dtype=int)))
 
-        if expression.code:
+        if hasattr(expression, 'eval'):
+            if isinstance(fs, functionspace.MixedFunctionSpace):
+                raise NotImplementedError(
+                    "Python expressions for mixed functions are not yet supported.")
+            self._interpolate(fs, self.dat, expression, subset)
+        else:
             # Slice the expression and pass in the right number of values for
             # each component function space of this function
             d = 0
@@ -193,11 +198,6 @@ class Function(ufl.Coefficient):
                                                           **expression._kwargs),
                                   subset)
                 d += dim
-        else:
-            if isinstance(fs, functionspace.MixedFunctionSpace):
-                raise NotImplementedError(
-                    "Python expressions for mixed functions are not yet supported.")
-            self._interpolate(fs, self.dat, expression, subset)
         return self
 
     def _interpolate(self, fs, dat, expression, subset):
@@ -232,17 +232,17 @@ class Function(ufl.Coefficient):
 
         coords = fs.mesh().coordinates
 
-        if expression.code:
-            kernel = self._interpolate_c_kernel(expression,
-                                                to_pts, to_element, fs, coords)
-            args = [kernel, subset or self.cell_set,
-                    dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
-                    coords.dat(op2.READ, coords.cell_node_map())]
-        elif hasattr(expression, "eval"):
+        if hasattr(expression, "eval"):
             kernel = self._interpolate_python_kernel(expression,
                                                      to_pts, to_element, fs, coords)
             args = [kernel, subset or self.cell_set,
                     dat(op2.WRITE, fs.cell_node_map()),
+                    coords.dat(op2.READ, coords.cell_node_map())]
+        elif expression.code:
+            kernel = self._interpolate_c_kernel(expression,
+                                                to_pts, to_element, fs, coords)
+            args = [kernel, subset or self.cell_set,
+                    dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
                     coords.dat(op2.READ, coords.cell_node_map())]
         else:
             raise RuntimeError(
