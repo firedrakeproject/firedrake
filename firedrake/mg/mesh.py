@@ -1,8 +1,10 @@
+from __future__ import absolute_import
+
 import numpy as np
 
-import firedrake.functionspace as functionspace
-import firedrake.mesh as mesh
-from firedrake.mg import impl
+from firedrake import functionspace
+from firedrake import mesh
+from . import impl
 
 
 __all__ = ["MeshHierarchy", "ExtrudedMeshHierarchy"]

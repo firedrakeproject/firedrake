@@ -1,3 +1,5 @@
+from __future__ import absolute_import
+
 import numpy as np
 import ufl
 
@@ -5,9 +7,9 @@ from pyop2 import op2
 from pyop2.utils import flatten
 
 from firedrake import functionspace
-from firedrake.mg import impl
-from firedrake.mg import mesh
-from firedrake.mg import utils
+from . import impl
+from . import mesh
+from . import utils
 import firedrake.mg.function
 
 

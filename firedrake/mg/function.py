@@ -1,5 +1,7 @@
+from __future__ import absolute_import
+
 from firedrake import function
-from firedrake.mg import functionspace
+from . import functionspace
 
 
 __all__ = ["FunctionHierarchy"]

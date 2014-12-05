@@ -1,4 +1,6 @@
 # Low-level numbering for multigrid support
+from __future__ import absolute_import
+
 from firedrake.petsc import PETSc
 import firedrake.mg.utils as utils
 from pyop2 import MPI
