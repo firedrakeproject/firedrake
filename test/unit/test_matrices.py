@@ -38,7 +38,7 @@ from numpy.testing import assert_allclose
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, ModeValueError
 
-from pyop2.coffee.ast_base import *
+from coffee.base import *
 
 # Data type
 valuetype = np.float64

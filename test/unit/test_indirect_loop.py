@@ -37,7 +37,8 @@ import random
 
 from pyop2 import op2
 from pyop2.exceptions import MapValueError, IndexValueError
-from pyop2.coffee.ast_base import *
+
+from coffee.base import *
 
 
 # Large enough that there is more than one block and more than one

@@ -36,7 +36,7 @@ import numpy as np
 
 from pyop2 import op2
 
-from pyop2.coffee.ast_base import *
+from coffee.base import *
 
 backends = ['sequential', 'openmp', 'opencl', 'cuda']
 
