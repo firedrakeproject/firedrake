@@ -95,7 +95,10 @@ install_requires = [
     'decorator',
     'mpi4py',
     'numpy>=1.6',
+    'COFFEE',
 ]
+
+dep_links = ['git+https://github.com/coneoproject/COFFEE#egg=COFFEE-dev']
 
 version = sys.version_info[:2]
 if version < (2, 7) or (3, 0) <= version <= (3, 1):
@@ -144,8 +147,9 @@ setup(name='PyOP2',
           'Programming Language :: Python :: 2.7',
       ],
       install_requires=install_requires,
+      dependency_links=dep_links,
       test_requires=test_requires,
-      packages=['pyop2', 'pyop2.coffee', 'pyop2_utils'],
+      packages=['pyop2', 'pyop2_utils'],
       package_data={
           'pyop2': ['assets/*', 'mat_utils.*', '*.h', '*.pxd', '*.pyx']},
       scripts=glob('scripts/*'),

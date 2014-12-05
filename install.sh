@@ -10,6 +10,7 @@
 
 BASE_DIR=`pwd`
 PYOP2_DIR=$BASE_DIR/PyOP2
+COFFEE_DIR=$BASE_DIR/COFFEE
 TEMP_DIR=/tmp
 if [ -d $PYOP2_DIR ]; then
   LOGFILE=$PYOP2_DIR/pyop2_install.log
@@ -77,6 +78,22 @@ PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco
 ${PIP} git+https://bitbucket.org/mapdes/petsc.git@firedrake#egg=petsc >> $LOGFILE 2>&1
 ${PIP} git+https://bitbucket.org/mapdes/petsc4py.git@firedrake#egg=petsc4py >> $LOGFILE 2>&1
 )
+
+echo "*** Installing COFFEE ***" | tee -a $LOGFILE
+echo | tee -a $LOGFILE
+
+if [ ! -d COFFEE/.git ]; then
+  ${ASUSER}git clone git://github.com/coneoproject/COFFEE >> $LOGFILE 2>&1
+fi
+cd $COFFEE_DIR
+${ASUSER}python setup.py develop --user >> $LOGFILE 2>&1
+
+python -c 'from coffee import plan'
+if [ $? != 0 ]; then
+  echo "COFFEE installation failed" 1>&2
+  echo "  See ${LOGFILE} for details" 1>&2
+  exit 1
+fi
 
 echo "*** Installing PyOP2 ***" | tee -a $LOGFILE
 echo | tee -a $LOGFILE

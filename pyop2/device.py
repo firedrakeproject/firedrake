@@ -33,8 +33,10 @@
 
 import base
 from base import *
-from pyop2.coffee.ast_base import Node
-from pyop2.coffee.ast_plan import ASTKernel
+
+from coffee.base import Node
+from coffee.plan import ASTKernel
+
 from mpi import collective
 
 
