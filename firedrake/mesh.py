@@ -493,8 +493,8 @@ class MeshBase(object):
         """
         if expr.value_shape()[0] != 3:
             raise NotImplementedError('Only implemented for 3-vectors')
-        if self.ufl_cell() not in (ufl.Cell('triangle', 3), ufl.OuterProductCell(ufl.Cell('interval', 3), ufl.Cell('interval')), ufl.OuterProductCell(ufl.Cell('interval', 2), ufl.Cell('interval'), gdim=3)):
-            raise NotImplementedError('Only implemented for triangles embedded in 3d')
+        if self.ufl_cell() not in (ufl.Cell('triangle', 3), ufl.Cell("quadrilateral", 3), ufl.OuterProductCell(ufl.Cell('interval', 3), ufl.Cell('interval')), ufl.OuterProductCell(ufl.Cell('interval', 2), ufl.Cell('interval'), gdim=3)):
+            raise NotImplementedError('Only implemented for triangles and quadrilaterals embedded in 3d')
 
         if hasattr(self, '_cell_orientations'):
             raise RuntimeError("init_cell_orientations already called, did you mean to do so again?")
