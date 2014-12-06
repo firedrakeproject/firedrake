@@ -18,7 +18,8 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'CircleManifoldMesh',
            'UnitTetrahedronMesh',
            'BoxMesh', 'CubeMesh', 'UnitCubeMesh',
-           'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh']
+           'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
+           'CubedSphereMesh', 'UnitCubedSphereMesh']
 
 
 _cachedir = os.path.join(tempfile.gettempdir(),
@@ -570,3 +571,192 @@ def UnitIcosahedralSphereMesh(refinement_level=0, reorder=None):
     """
     return IcosahedralSphereMesh(1.0, refinement_level=refinement_level,
                                  reorder=reorder)
+
+
+def _cubedsphere_cells_and_coords(radius, refinement_level):
+    """Generate vertex and face lists for cubed sphere """
+    # We build the mesh out of 6 panels of the cube
+    # this allows to build the gnonomic cube transformation
+    # which is defined separately for each panel
+
+    # Start by making a grid of local coordinates which we use
+    # to map to each panel of the cubed sphere under the gnonomic
+    # transformation
+    dtheta = 2**(-refinement_level+1)*np.arctan(1.0)
+    a = 3.0**(-0.5)*radius
+    theta = np.arange(np.arctan(-1.0), np.arctan(1.0)+dtheta, dtheta)
+    x = a*np.tan(theta)
+    Nx = x.size
+
+    # Compute panel numberings for each panel
+    # We use the following "flatpack" arrangement of panels
+    #   3
+    #  102
+    #   4
+    #   5
+
+    # 0 is the bottom of the cube, 5 is the top.
+    # All panels are numbered from left to right, top to bottom
+    # according to this diagram.
+
+    panel_numbering = np.zeros((6, Nx, Nx), dtype=np.int32)
+
+    # Numbering for panel 0
+    panel_numbering[0, :, :] = np.arange(Nx**2, dtype=np.int32).reshape(Nx, Nx)
+    count = panel_numbering.max()+1
+
+    # Numbering for panel 5
+    panel_numbering[5, :, :] = count + np.arange(Nx**2, dtype=np.int32).reshape(Nx, Nx)
+    count = panel_numbering.max()+1
+
+    # Numbering for panel 4 - shares top edge with 0 and bottom edge
+    #                         with 5
+    # interior numbering
+    panel_numbering[4, 1:-1, :] = count + np.arange(Nx*(Nx-2),
+                                                    dtype=np.int32).reshape(Nx-2, Nx)
+
+    # bottom edge
+    panel_numbering[4, 0, :] = panel_numbering[5, -1, :]
+    # top edge
+    panel_numbering[4, -1, :] = panel_numbering[0, 0, :]
+    count = panel_numbering.max()+1
+
+    # Numbering for panel 3 - shares top edge with 5 and bottom edge
+    #                         with 0
+    # interior numbering
+    panel_numbering[3, 1:-1, :] = count + np.arange(Nx*(Nx-2),
+                                                    dtype=np.int32).reshape(Nx-2, Nx)
+    # bottom edge
+    panel_numbering[3, 0, :] = panel_numbering[0, -1, :]
+    # top edge
+    panel_numbering[3, -1, :] = panel_numbering[5, 0, :]
+    count = panel_numbering.max()+1
+
+    # Numbering for panel 1
+    # interior numbering
+    panel_numbering[1, 1:-1, 1:-1] = count + np.arange((Nx-2)**2,
+                                                       dtype=np.int32).reshape(Nx-2, Nx-2)
+    # left edge of 1 is left edge of 5 (inverted)
+    panel_numbering[1, :, 0] = panel_numbering[5, ::-1, 0]
+    # right edge of 1 is left edge of 0
+    panel_numbering[1, :, -1] = panel_numbering[0, :, 0]
+    # top edge (excluding vertices) of 1 is left edge of 3 (downwards)
+    panel_numbering[1, -1, 1:-1] = panel_numbering[3, -2:0:-1, 0]
+    # bottom edge (excluding vertices) of 1 is left edge of 4
+    panel_numbering[1, 0, 1:-1] = panel_numbering[4, 1:-1, 0]
+    count = panel_numbering.max()+1
+
+    # Numbering for panel 2
+    # interior numbering
+    panel_numbering[2, 1:-1, 1:-1] = count + np.arange((Nx-2)**2,
+                                                       dtype=np.int32).reshape(Nx-2, Nx-2)
+    # left edge of 2 is right edge of 0
+    panel_numbering[2, :, 0] = panel_numbering[0, :, -1]
+    # right edge of 2 is right edge of 5 (inverted)
+    panel_numbering[2, :, -1] = panel_numbering[5, ::-1, -1]
+    # bottom edge (excluding vertices) of 2 is right edge of 4 (downwards)
+    panel_numbering[2, 0, 1:-1] = panel_numbering[4, -2:0:-1, -1]
+    # top edge (excluding vertices) of 2 is right edge of 3
+    panel_numbering[2, -1, 1:-1] = panel_numbering[3, 1:-1, -1]
+    count = panel_numbering.max()+1
+
+    # That's the numbering done.
+
+    # Set up an array for all of the mesh coordinates
+    Npoints = panel_numbering.max()+1
+    coords = np.zeros((Npoints, 3), dtype=float)
+    lX, lY = np.meshgrid(x, x)
+    lX.shape = (Nx**2,)
+    lY.shape = (Nx**2,)
+    r = (a**2 + lX**2 + lY**2)**0.5
+
+    # Now we need to compute the gnonomic transformation
+    # for each of the panels
+    panel_numbering.shape = (6, Nx**2)
+
+    def coordinates_on_panel(panel_num, X, Y, Z):
+        I = panel_numbering[panel_num, :]
+        coords[I, 0] = radius / r * X
+        coords[I, 1] = radius / r * Y
+        coords[I, 2] = radius / r * Z
+
+    coordinates_on_panel(0, lX, lY, -a)
+    coordinates_on_panel(1, -a, lY, -lX)
+    coordinates_on_panel(2, a, lY, lX)
+    coordinates_on_panel(3, lX, a, lY)
+    coordinates_on_panel(4, lX, -a, -lY)
+    coordinates_on_panel(5, lX, -lY, a)
+
+    # Now we need to build the face numbering
+    # in local coordinates
+    vertex_numbers = np.arange(Nx**2).reshape(Nx, Nx)
+    local_faces = np.zeros(((Nx-1)**2, 4), dtype=np.int32)
+    local_faces[:, 0] = vertex_numbers[:-1, :-1].reshape(-1)
+    local_faces[:, 1] = vertex_numbers[1:, :-1].reshape(-1)
+    local_faces[:, 2] = vertex_numbers[1:, 1:].reshape(-1)
+    local_faces[:, 3] = vertex_numbers[:-1, 1:].reshape(-1)
+
+    cells = panel_numbering[:, local_faces].reshape(-1, 4)
+    return cells, coords
+
+
+def CubedSphereMesh(radius, refinement_level=0, reorder=None,
+                    use_dmplex_refinement=False):
+    """Generate an cubed approximation to the surface of the
+    sphere.
+
+    :arg radius: The radius of the sphere to approximate.
+    :kwarg refinement_level: optional number of refinements (0 is a cube).
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg use_dmplex_refinement: (optional), use dmplex to apply
+    the refinement.
+    """
+    if use_dmplex_refinement:
+        # vertices of a cube with an edge length of 2
+        vertices = np.array([[-1., -1., -1.],
+                             [1., -1., -1.],
+                             [-1., 1., -1.],
+                             [1., 1., -1.],
+                             [-1., -1., 1.],
+                             [1., -1., 1.],
+                             [-1., 1., 1.],
+                             [1., 1., 1.]])
+        # faces of the base cube
+        # bottom face viewed from above
+        # 2 3
+        # 0 1
+        # top face viewed from above
+        # 6 7
+        # 4 5
+        faces = np.array([[0, 1, 3, 2],  # bottom
+                          [4, 5, 7, 6],  # top
+                          [0, 1, 5, 4],
+                          [2, 3, 7, 6],
+                          [0, 2, 6, 4],
+                          [1, 3, 7, 5]], dtype=np.int32)
+
+        plex = _from_cell_list(2, faces, vertices)
+        plex.setRefinementUniform(True)
+        for i in range(refinement_level):
+            plex = plex.refine()
+
+        # rescale points to the sphere
+        # this is not the same as the gnonomic transformation
+        coords = plex.getCoordinatesLocal().array.reshape(-1, 3)
+        scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
+        coords *= scale
+    else:
+        cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
+        plex = _from_cell_list(2, cells, coords)
+
+    return mesh.Mesh(plex, dim=3, reorder=reorder)
+
+
+def UnitCubedSphereMesh(refinement_level=0, reorder=None):
+    """Generate a cubed approximation to the unit sphere.
+
+    :kwarg refinement_level: optional number of refinements (0 is a cube).
+    :kwarg reorder: (optional), should the mesh be reordered?
+    """
+    return CubedSphereMesh(1.0, refinement_level=refinement_level,
+                           reorder=reorder)
