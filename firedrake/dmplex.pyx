@@ -470,14 +470,14 @@ def get_quadrilateral_cell_nodes(PETSc.Section global_numbering,
         k = 0
         # vertices
         for i in range(0, 4):
-            add_dofs(global_numbering, cell_closures[c][i], cell_nodes_row,
+            add_dofs(global_numbering, cell_closures[c, i], cell_nodes_row,
                      flat_local_index, &k, 0)
         # edges
         for i in range(4, 8):
-            add_dofs(global_numbering, cell_closures[c][i], cell_nodes_row,
+            add_dofs(global_numbering, cell_closures[c, i], cell_nodes_row,
                      flat_local_index, &k, edge_directions[c][i - 4])
         # face / cell
-        add_dofs(global_numbering, cell_closures[c][8], cell_nodes_row,
+        add_dofs(global_numbering, cell_closures[c, 8], cell_nodes_row,
                  flat_local_index, &k, 0)
 
         for i in range(dofs_per_cell):
