@@ -260,7 +260,7 @@ def closure_ordering(PETSc.DM plex,
 def quadrilateral_closure_ordering(PETSc.DM plex,
                                    PETSc.Section cell_numbering):
     cdef:
-        PetscInt c, cStart, cEnd, cell
+        PetscInt c, cStart, cEnd, cell, o
         PetscInt v_per_cell = 4
         PetscInt e_per_cell = 4
         PetscInt nclosure = v_per_cell + e_per_cell + 1
