@@ -2,11 +2,21 @@ from firedrake import *
 import pytest
 
 
-@pytest.mark.xfail(reason="Not yet implemented")
 def test_refine_interval():
-    m = UnitIntervalMesh(1)
+    m = UnitIntervalMesh(10)
 
-    mh = MeshHierarchy(m, 1)    # noqa
+    mh = MeshHierarchy(m, 1)
+
+    assert mh[1].num_cells() == 2 * mh[0].num_cells()
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_refine_interval_parallel():
+    m = UnitIntervalMesh(10)
+
+    mh = MeshHierarchy(m, 1)
+
+    assert mh[1].num_cells() < 2 * mh[0].num_cells()
 
 
 @pytest.mark.xfail(reason="Not yet implemented")
