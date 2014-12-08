@@ -35,27 +35,26 @@ def get_transformations(fiat_cell):
     """
     tdim = fiat_cell.get_spatial_dimension()
     nvtx = len(fiat_cell.get_vertices())
-    if not (tdim == 2 and nvtx == 3):
-        raise RuntimeError("Only implemented on triangles")
+    if not ((tdim == 2 and nvtx == 3) or (tdim == 1 and nvtx == 2)):
+        raise RuntimeError("Only implemented on intervals and triangles")
     perms = permutations(range(nvtx))
-    vertices = np.asarray(fiat_cell.get_vertices()).reshape(-1, 2)
+    vertices = np.asarray(fiat_cell.get_vertices()).reshape(-1, tdim)
     result = {}
     ndof = len(vertices.reshape(-1))
     # Transformation is
-    # (a b)(x) + (e) = (x1)
-    # (c d)(y)   (f) = (y1)
-    # [x, y] is original coords, [x1, y1] the permuted coords.  So
-    # solve for a, b, c, d, e and f.
+    # A x + b = x1
+    # x is original coords, x1 the permuted coords.  So solve for
+    # values in A (a matrix) and b (a vector).
     A = np.zeros((ndof, ndof))
     for i, vtx in enumerate(vertices):
         for j in range(len(vtx)):
             A[i*len(vtx) + j, len(vtx)*j:len(vtx)*(j+1)] = vtx
-            A[i*len(vtx) + j, len(vtx)*2 + j] = 1
+            A[i*len(vtx) + j, len(vtx)*tdim + j] = 1
     for perm in perms:
         new_coords = vertices[np.asarray(perm)]
         transform = np.linalg.solve(A, new_coords.reshape(-1))
 
-        result[perm] = (transform[:4].reshape(-1, 2), transform[4:])
+        result[perm] = (transform[:tdim*tdim].reshape(-1, tdim), transform[tdim*tdim:])
 
     return result
 
@@ -94,9 +93,12 @@ def get_unique_indices(fiat_element, nonunique_map, vperm):
     an array of unique indices"""
     perms = get_node_permutations(fiat_element)
     order = -np.ones_like(nonunique_map)
-    ndof = len(order)/4
-    for i in range(4):
-        p = perms[tuple(vperm[i*3:(i+1)*3])]
+    tdim = fiat_element.get_reference_element().get_spatial_dimension()
+    nvtx = len(fiat_element.get_reference_element().get_vertices())
+    ncell = 2**tdim
+    ndof = len(order)/ncell
+    for i in range(ncell):
+        p = perms[tuple(vperm[i*nvtx:(i+1)*nvtx])]
         order[i*ndof:(i+1)*ndof] = nonunique_map[i*ndof:(i+1)*ndof][p]
 
     indices = np.empty(len(np.unique(order)), dtype=PETSc.IntType)
@@ -110,6 +112,22 @@ def get_unique_indices(fiat_element, nonunique_map, vperm):
     return indices
 
 
+def get_transforms_to_fine(tdim):
+    if tdim == 1:
+        return [([[0.5]], [0.0]),
+                ([[-0.5]], [1.0])]
+    elif tdim == 2:
+        return [([[0.5, 0.0],
+                  [0.0, 0.5]], [0.0, 0.0]),
+                ([[-0.5, -0.5],
+                  [0.5, 0.0]], [1.0, 0.0]),
+                ([[0.0, 0.5],
+                  [-0.5, -0.5]], [0.0, 1.0]),
+                ([[-0.5, 0],
+                  [0, -0.5]], [0.5, 0.5])]
+    raise NotImplementedError("Not implemented for tdim %d", tdim)
+
+
 def get_restriction_weights(fiat_element):
     """Get the restriction weights for an element
 
@@ -120,19 +138,19 @@ def get_restriction_weights(fiat_element):
 
     # Create node points on fine cells
 
-    transforms = [([[0.5, 0.0],
-                    [0.0, 0.5]], [0.0, 0.0]),
-                  ([[-0.5, -0.5],
-                    [0.5, 0.0]], [1.0, 0.0]),
-                  ([[0.0, 0.5],
-                    [-0.5, -0.5]], [0.0, 1.0]),
-                  ([[-0.5, 0],
-                    [0, -0.5]], [0.5, 0.5])]
+    tdim = fiat_element.get_reference_element().get_spatial_dimension()
+
+    transforms = get_transforms_to_fine(tdim)
 
     values = []
     for T in transforms:
         pts = np.concatenate([np.dot(T[0], pt) + np.asarray(T[1]) for pt in points]).reshape(-1, points.shape[1])
-        values.append(np.round(fiat_element.tabulate(0, pts)[(0, 0)].T, decimals=14))
+        tabulation = fiat_element.tabulate(0, pts)
+        keys = tabulation.keys()
+        if len(keys) != 1:
+            raise RuntimeError("Expected 1 key, found %d", len(keys))
+        vals = tabulation[keys[0]]
+        values.append(np.round(vals.T, decimals=14))
 
     return np.concatenate(values)
 
@@ -154,19 +172,18 @@ def get_injection_weights(fiat_element):
 
     # Create node points on fine cells
 
-    transforms = [([[0.5, 0.0],
-                    [0.0, 0.5]], [0.0, 0.0]),
-                  ([[-0.5, -0.5],
-                    [0.5, 0.0]], [1.0, 0.0]),
-                  ([[0.0, 0.5],
-                    [-0.5, -0.5]], [0.0, 1.0]),
-                  ([[-0.5, 0],
-                    [0, -0.5]], [0.5, 0.5])]
+    tdim = fiat_element.get_reference_element().get_spatial_dimension()
+
+    transforms = get_transforms_to_fine(tdim)
 
     values = []
     for T in transforms:
         pts = np.concatenate([np.dot(T[0], pt) + np.asarray(T[1]) for pt in points]).reshape(-1, points.shape[1])
-        vals = fiat_element.tabulate(0, pts)[(0, 0)]
+        tabulation = fiat_element.tabulate(0, pts)
+        keys = tabulation.keys()
+        if len(keys) != 1:
+            raise RuntimeError("Expected 1 key, found %d", len(keys))
+        vals = tabulation[keys[0]]
         for i, pt in enumerate(pts):
             found = False
             for opt in points:
