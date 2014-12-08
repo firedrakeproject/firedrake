@@ -1,21 +1,31 @@
 from firedrake import *
 import pytest
 import numpy as np
+import itertools
 
 
-def run_prolongation(vector, space, degree):
-    m = UnitSquareMesh(4, 4)
+def run_prolongation(mtype, vector, space, degree):
+    if mtype == "interval":
+        m = UnitIntervalMesh(10)
+    elif mtype == "square":
+        m = UnitSquareMesh(4, 4)
     mh = MeshHierarchy(m, 2)
 
     if vector:
         V = VectorFunctionSpaceHierarchy(mh, space, degree)
         # Exactly represented on coarsest grid
-        expr = Expression(("pow(x[0], d) - pow(x[1], d)",
-                           "pow(x[0], d) + pow(x[1], d)"), d=degree)
+        if mtype == "interval":
+            expr = Expression(("pow(x[0], d)", ), d=degree)
+        elif mtype == "square":
+            expr = Expression(("pow(x[0], d) - pow(x[1], d)",
+                               "pow(x[0], d) + pow(x[1], d)"), d=degree)
     else:
         V = FunctionSpaceHierarchy(mh, space, degree)
         # Exactly represented on coarsest grid
-        expr = Expression("pow(x[0], d) - pow(x[1], d)", d=degree)
+        if mtype == "interval":
+            expr = Expression("pow(x[0], d)", d=degree)
+        elif mtype == "square":
+            expr = Expression("pow(x[0], d) - pow(x[1], d)", d=degree)
 
     expected = FunctionHierarchy(V)
 
@@ -33,52 +43,70 @@ def run_prolongation(vector, space, degree):
         assert np.allclose(e.dat.data, a.dat.data)
 
 
-@pytest.mark.parametrize("degree", range(1, 4))
-def test_cg_prolongation(degree):
-    run_prolongation(False, "CG", degree)
+@pytest.mark.parametrize(["mtype", "degree", "vector", "fs"],
+                         itertools.product(("interval", "square"),
+                                           range(0, 4),
+                                           [False, True],
+                                           ["CG", "DG"]))
+def test_prolongation(mtype, degree, vector, fs):
+    if fs == "CG" and degree == 0:
+        pytest.skip("CG 0 makes no sense")
+    run_prolongation(mtype, vector, fs, degree)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_cg_prolongation_parallel():
+def test_cg_prolongation_square_parallel():
     for degree in range(1, 4):
-        run_prolongation(False, "CG", degree)
-
-
-@pytest.mark.parametrize("degree", range(0, 4))
-def test_dg_prolongation(degree):
-    run_prolongation(False, "DG", degree)
+        run_prolongation("square", False, "CG", degree)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_dg_prolongation_parallel():
+def test_dg_prolongation_square_parallel():
     for degree in range(0, 4):
-        run_prolongation(False, "DG", degree)
-
-
-@pytest.mark.parametrize("degree", range(1, 4))
-def test_vector_cg_prolongation(degree):
-    run_prolongation(True, "CG", degree)
+        run_prolongation("square", False, "DG", degree)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_vector_cg_prolongation_parallel():
+def test_vector_cg_prolongation_square_parallel():
     for degree in range(1, 4):
-        run_prolongation(True, "CG", degree)
-
-
-@pytest.mark.parametrize("degree", range(0, 4))
-def test_vector_dg_prolongation(degree):
-    run_prolongation(True, "DG", degree)
+        run_prolongation("square", True, "CG", degree)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_vector_dg_prolongation_parallel():
+def test_vector_dg_prolongation_square_parallel():
     for degree in range(0, 4):
-        run_prolongation(True, "DG", degree)
+        run_prolongation("square", True, "DG", degree)
 
 
-def run_extruded_dg0_prolongation():
-    m = UnitSquareMesh(4, 4)
+@pytest.mark.parallel(nprocs=2)
+def test_cg_prolongation_interval_parallel():
+    for degree in range(1, 4):
+        run_prolongation("interval", False, "CG", degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_dg_prolongation_interval_parallel():
+    for degree in range(0, 4):
+        run_prolongation("interval", False, "DG", degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_vector_cg_prolongation_interval_parallel():
+    for degree in range(1, 4):
+        run_prolongation("interval", True, "CG", degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_vector_dg_prolongation_interval_parallel():
+    for degree in range(0, 4):
+        run_prolongation("interval", True, "DG", degree)
+
+
+def run_extruded_dg0_prolongation(mtype):
+    if mtype == "interval":
+        m = UnitIntervalMesh(10)
+    elif mtype == "square":
+        m = UnitSquareMesh(4, 4)
     mh = MeshHierarchy(m, 2)
 
     emh = ExtrudedMeshHierarchy(mh, layers=3)
@@ -102,13 +130,19 @@ def run_extruded_dg0_prolongation():
         assert np.allclose(e.dat.data, a.dat.data)
 
 
-def test_extruded_dg0_prolongation():
-    run_extruded_dg0_prolongation()
+@pytest.mark.parametrize("mtype", ["interval", "square"])
+def test_extruded_dg0_prolongation(mtype):
+    run_extruded_dg0_prolongation(mtype)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_extruded_dg0_prolongation_parallel():
-    run_extruded_dg0_prolongation()
+def test_extruded_dg0_prolongation_square_parallel():
+    run_extruded_dg0_prolongation("square")
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_dg0_prolongation_interval_parallel():
+    run_extruded_dg0_prolongation("interval")
 
 
 def run_mixed_prolongation():

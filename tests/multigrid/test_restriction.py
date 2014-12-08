@@ -1,15 +1,22 @@
 from firedrake import *
 import pytest
 import numpy as np
+import itertools
 
 
-def run_restriction(vector, space, degree):
-    m = UnitSquareMesh(4, 4)
+def run_restriction(mtype, vector, space, degree):
+    if mtype == "interval":
+        m = UnitIntervalMesh(10)
+    elif mtype == "square":
+        m = UnitSquareMesh(4, 4)
     mh = MeshHierarchy(m, 2)
 
     if vector:
         V = VectorFunctionSpaceHierarchy(mh, space, degree)
-        c = Constant((1, 1))
+        if mtype == "interval":
+            c = Constant((1, ))
+        elif mtype == "square":
+            c = Constant((1, 1))
     else:
         V = FunctionSpaceHierarchy(mh, space, degree)
         c = Constant(1)
@@ -31,52 +38,70 @@ def run_restriction(vector, space, degree):
         assert np.allclose(e.dat.data, a.dat.data)
 
 
-@pytest.mark.parametrize("degree", range(1, 4))
-def test_cg_restriction(degree):
-    run_restriction(False, "CG", degree)
+@pytest.mark.parametrize(["mtype", "degree", "vector", "fs"],
+                         itertools.product(("interval", "square"),
+                                           range(0, 4),
+                                           [False, True],
+                                           ["CG", "DG"]))
+def test_restriction(mtype, degree, vector, fs):
+    if fs == "CG" and degree == 0:
+        pytest.skip("CG 0 makes no sense")
+    run_restriction(mtype, vector, fs, degree)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_cg_restriction_parallel():
+def test_cg_restriction_square_parallel():
     for degree in range(1, 4):
-        run_restriction(False, "CG", degree)
-
-
-@pytest.mark.parametrize("degree", range(0, 4))
-def test_dg_restriction(degree):
-    run_restriction(False, "DG", degree)
+        run_restriction("square", False, "CG", degree)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_dg_restriction_parallel():
+def test_dg_restriction_square_parallel():
     for degree in range(0, 4):
-        run_restriction(False, "DG", degree)
-
-
-@pytest.mark.parametrize("degree", range(1, 4))
-def test_vector_cg_restriction(degree):
-    run_restriction(True, "CG", degree)
+        run_restriction("square", False, "DG", degree)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_vector_cg_restriction_parallel():
+def test_vector_cg_restriction_square_parallel():
     for degree in range(1, 4):
-        run_restriction(True, "CG", degree)
-
-
-@pytest.mark.parametrize("degree", range(0, 4))
-def test_vector_dg_restriction(degree):
-    run_restriction(True, "DG", degree)
+        run_restriction("square", True, "CG", degree)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_vector_dg_restriction_parallel():
+def test_vector_dg_restriction_square_parallel():
     for degree in range(0, 4):
-        run_restriction(True, "DG", degree)
+        run_restriction("square", True, "DG", degree)
 
 
-def run_extruded_dg0_restriction():
-    m = UnitSquareMesh(4, 4)
+@pytest.mark.parallel(nprocs=2)
+def test_cg_restriction_interval_parallel():
+    for degree in range(1, 4):
+        run_restriction("interval", False, "CG", degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_dg_restriction_interval_parallel():
+    for degree in range(0, 4):
+        run_restriction("interval", False, "DG", degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_vector_cg_restriction_interval_parallel():
+    for degree in range(1, 4):
+        run_restriction("interval", True, "CG", degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_vector_dg_restriction_interval_parallel():
+    for degree in range(0, 4):
+        run_restriction("interval", True, "DG", degree)
+
+
+def run_extruded_dg0_restriction(mtype):
+    if mtype == "interval":
+        m = UnitIntervalMesh(10)
+    elif mtype == "square":
+        m = UnitSquareMesh(4, 4)
     mh = MeshHierarchy(m, 2)
 
     emh = ExtrudedMeshHierarchy(mh, layers=3)
@@ -100,13 +125,19 @@ def run_extruded_dg0_restriction():
         assert np.allclose(e.dat.data, a.dat.data)
 
 
-def test_extruded_dg0_restriction():
-    run_extruded_dg0_restriction()
+@pytest.mark.parametrize("mtype", ["interval", "square"])
+def test_extruded_dg0_restriction(mtype):
+    run_extruded_dg0_restriction(mtype)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_extruded_dg0_restriction_parallel():
-    run_extruded_dg0_restriction()
+def test_extruded_dg0_restriction_square_parallel():
+    run_extruded_dg0_restriction("square")
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_dg0_restriction_interval_parallel():
+    run_extruded_dg0_restriction("interval")
 
 
 def run_mixed_restriction():

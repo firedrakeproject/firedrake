@@ -1,21 +1,28 @@
 from firedrake import *
 import pytest
 import numpy as np
+import itertools
 
 
-def run_injection(vector, space, degree):
-    m = UnitSquareMesh(4, 4)
+def run_injection(mtype, vector, space, degree):
+    if mtype == "interval":
+        m = UnitIntervalMesh(10)
+    elif mtype == "square":
+        m = UnitSquareMesh(4, 4)
     mh = MeshHierarchy(m, 2)
 
     if vector:
         V = VectorFunctionSpaceHierarchy(mh, space, degree)
         # Exactly represented on coarsest grid
-        expr = Expression(("pow(x[0], d) - pow(x[1], d)",
-                           "pow(x[0], d) + pow(x[1], d)"), d=degree)
+        if mtype == "interval":
+            expr = Expression(("pow(x[0], d)", ), d=degree)
+        elif mtype == "square":
+            expr = Expression(("pow(x[0], d) - pow(x[1], d)",
+                               "pow(x[0], d) + pow(x[1], d)"), d=degree)
     else:
         V = FunctionSpaceHierarchy(mh, space, degree)
         # Exactly represented on coarsest grid
-        expr = Expression("x[0]", d=degree)
+        expr = Expression("pow(x[0], d)", d=degree)
 
     expected = FunctionHierarchy(V)
 
@@ -33,52 +40,70 @@ def run_injection(vector, space, degree):
         assert np.allclose(e.dat.data, a.dat.data)
 
 
-@pytest.mark.parametrize("degree", range(1, 4))
-def test_cg_injection(degree):
-    run_injection(False, "CG", degree)
+@pytest.mark.parametrize(["mtype", "degree", "vector", "fs"],
+                         itertools.product(("interval", "square"),
+                                           range(0, 4),
+                                           [False, True],
+                                           ["CG", "DG"]))
+def test_injection(mtype, degree, vector, fs):
+    if fs == "CG" and degree == 0:
+        pytest.skip("CG 0 makes no sense")
+    run_injection(mtype, vector, fs, degree)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_cg_injection_parallel():
+def test_cg_injection_square_parallel():
     for degree in range(1, 4):
-        run_injection(False, "CG", degree)
-
-
-@pytest.mark.parametrize("degree", range(0, 4))
-def test_dg_injection(degree):
-    run_injection(False, "DG", degree)
+        run_injection("square", False, "CG", degree)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_dg_injection_parallel():
+def test_dg_injection_square_parallel():
     for degree in range(0, 4):
-        run_injection(False, "DG", degree)
-
-
-@pytest.mark.parametrize("degree", range(1, 4))
-def test_vector_cg_injection(degree):
-    run_injection(True, "CG", degree)
+        run_injection("square", False, "DG", degree)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_vector_cg_injection_parallel():
+def test_vector_cg_injection_parallel_square():
     for degree in range(1, 4):
-        run_injection(True, "CG", degree)
-
-
-@pytest.mark.parametrize("degree", range(0, 4))
-def test_vector_dg_injection(degree):
-    run_injection(True, "DG", degree)
+        run_injection("square", True, "CG", degree)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_vector_dg_injection_parallel():
+def test_vector_dg_injection_square_parallel():
     for degree in range(0, 4):
-        run_injection(True, "DG", degree)
+        run_injection("square", True, "DG", degree)
 
 
-def run_extruded_dg0_injection():
-    m = UnitSquareMesh(4, 4)
+@pytest.mark.parallel(nprocs=2)
+def test_cg_injection_interval_parallel():
+    for degree in range(1, 4):
+        run_injection("interval", False, "CG", degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_dg_injection_interval_parallel():
+    for degree in range(0, 4):
+        run_injection("interval", False, "DG", degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_vector_cg_injection_interval_square():
+    for degree in range(1, 4):
+        run_injection("interval", True, "CG", degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_vector_dg_injection_interval_parallel():
+    for degree in range(0, 4):
+        run_injection("interval", True, "DG", degree)
+
+
+def run_extruded_dg0_injection(mtype):
+    if mtype == "interval":
+        m = UnitIntervalMesh(10)
+    elif mtype == "square":
+        m = UnitSquareMesh(4, 4)
     mh = MeshHierarchy(m, 2)
 
     emh = ExtrudedMeshHierarchy(mh, layers=3)
@@ -102,13 +127,19 @@ def run_extruded_dg0_injection():
         assert np.allclose(e.dat.data, a.dat.data)
 
 
-def test_extruded_dg0_injection():
-    run_extruded_dg0_injection()
+@pytest.mark.parametrize("mtype", ["interval", "square"])
+def test_extruded_dg0_injection(mtype):
+    run_extruded_dg0_injection(mtype)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_extruded_dg0_injection_parallel():
-    run_extruded_dg0_injection()
+def test_extruded_dg0_injection_square_parallel():
+    run_extruded_dg0_injection("square")
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_dg0_injection_interval_parallel():
+    run_extruded_dg0_injection("interval")
 
 
 def run_mixed_injection():
