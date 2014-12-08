@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 
 import numpy as np
+from pyop2.mpi import MPI
 
 from firedrake import functionspace
 from firedrake import mesh
@@ -26,6 +27,8 @@ class MeshHierarchy(object):
 
         cdm = m._plex
         fpoint_ises = []
+        if MPI.comm.size > 1 and m._grown_halos:
+            raise RuntimeError("Cannot refine parallel overlapped meshes (make sure the MeshHierarchy is built immediately after the Mesh)")
         for i in range(refinement_levels):
             rdm = cdm.refine()
             fpoint_ises.append(cdm.createCoarsePointIS())

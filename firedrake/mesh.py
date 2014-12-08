@@ -351,6 +351,7 @@ class MeshBase(object):
         self._ufl_cell = ufl.Cell(fiat_utils._cells[topological_dim][cell_facets],
                                   geometric_dimension=geometric_dim)
         self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
+        self._grown_halos = False
 
         def callback(self):
             del self._callback
@@ -369,6 +370,7 @@ class MeshBase(object):
                 sf = self._plex.getDefaultSF()
                 lgmap = PETSc.LGMap().createSF(sf, gsec.getOffsetRange()[0])
                 self._plex.distributeOverlap(lgmap, 1)
+            self._grown_halos = True
 
             if reorder:
                 with timed_region("Mesh: reorder"):

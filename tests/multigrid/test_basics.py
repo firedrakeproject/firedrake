@@ -42,6 +42,16 @@ def test_refine_square_ncell_parallel():
     assert mh[1].num_cells() < 4 * mh[0].num_cells()
 
 
+@pytest.mark.parallel(nprocs=2)
+def test_refining_overlapped_mesh_fails_parallel():
+    m = UnitSquareMesh(4, 4)
+
+    m.init()
+
+    with pytest.raises(RuntimeError):
+        MeshHierarchy(m, 1)
+
+
 if __name__ == "__main__":
     import os
     pytest.main(os.path.abspath(__file__))
