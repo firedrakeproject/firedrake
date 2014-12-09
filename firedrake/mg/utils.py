@@ -223,15 +223,7 @@ def get_injection_weights(fiat_element):
         keys = tabulation.keys()
         if len(keys) != 1:
             raise RuntimeError("Expected 1 key, found %d", len(keys))
-        vals = tabulation[keys[0]]
-        for i, pt in enumerate(pts):
-            found = False
-            for opt in points:
-                if np.allclose(opt, pt):
-                    found = True
-                    break
-            if not found:
-                vals[:, i] = 0.0
+        vals = np.where(np.isclose(tabulation[keys[0]], 1.0), 1.0, 0.0)
         values.append(np.round(vals.T, decimals=14))
 
     return np.concatenate(values)
