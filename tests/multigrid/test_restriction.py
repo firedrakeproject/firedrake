@@ -45,7 +45,9 @@ def run_restriction(mtype, vector, space, degree):
                                            ["CG", "DG"]))
 def test_restriction(mtype, degree, vector, fs):
     if fs == "CG" and degree == 0:
-        pytest.skip("CG 0 makes no sense")
+        pytest.skip("CG0 makes no sense")
+    if fs == "DG" and degree == 3:
+        pytest.skip("DG3 too expensive")
     run_restriction(mtype, vector, fs, degree)
 
 
@@ -57,7 +59,7 @@ def test_cg_restriction_square_parallel():
 
 @pytest.mark.parallel(nprocs=2)
 def test_dg_restriction_square_parallel():
-    for degree in range(0, 4):
+    for degree in range(0, 3):
         run_restriction("square", False, "DG", degree)
 
 
@@ -69,7 +71,7 @@ def test_vector_cg_restriction_square_parallel():
 
 @pytest.mark.parallel(nprocs=2)
 def test_vector_dg_restriction_square_parallel():
-    for degree in range(0, 4):
+    for degree in range(0, 3):
         run_restriction("square", True, "DG", degree)
 
 
@@ -81,7 +83,7 @@ def test_cg_restriction_interval_parallel():
 
 @pytest.mark.parallel(nprocs=2)
 def test_dg_restriction_interval_parallel():
-    for degree in range(0, 4):
+    for degree in range(0, 3):
         run_restriction("interval", False, "DG", degree)
 
 
@@ -93,11 +95,11 @@ def test_vector_cg_restriction_interval_parallel():
 
 @pytest.mark.parallel(nprocs=2)
 def test_vector_dg_restriction_interval_parallel():
-    for degree in range(0, 4):
+    for degree in range(0, 3):
         run_restriction("interval", True, "DG", degree)
 
 
-def run_extruded_dg0_restriction(mtype):
+def run_extruded_restriction(mtype, vector, space, degree):
     if mtype == "interval":
         m = UnitIntervalMesh(10)
     elif mtype == "square":
@@ -106,13 +108,21 @@ def run_extruded_dg0_restriction(mtype):
 
     emh = ExtrudedMeshHierarchy(mh, layers=3)
 
-    V = FunctionSpaceHierarchy(emh, 'DG', 0)
+    if vector:
+        V = VectorFunctionSpaceHierarchy(emh, space, degree)
+        if mtype == "interval":
+            c = Constant((1, 1))
+        elif mtype == "square":
+            c = Constant((1, 1, 1))
+    else:
+        V = FunctionSpaceHierarchy(emh, space, degree)
+        c = Constant(1)
 
     expected = FunctionHierarchy(V)
 
     for e in expected:
         v = TestFunction(e.function_space())
-        e.assign(assemble(v*e.function_space().mesh()._dx))
+        e.assign(assemble(dot(c, v)*e.function_space().mesh()._dx))
 
     actual = FunctionHierarchy(V)
 
@@ -125,19 +135,65 @@ def run_extruded_dg0_restriction(mtype):
         assert np.allclose(e.dat.data, a.dat.data)
 
 
-@pytest.mark.parametrize("mtype", ["interval", "square"])
-def test_extruded_dg0_restriction(mtype):
-    run_extruded_dg0_restriction(mtype)
+@pytest.mark.parametrize(["mtype", "vector", "space", "degree"],
+                         itertools.product(("interval", "square"),
+                                           [False, True],
+                                           ["CG", "DG"],
+                                           range(0, 4)))
+def test_extruded_restriction(mtype, vector, space, degree):
+    if space == "CG" and degree == 0:
+        pytest.skip("CG0 makes no sense")
+    if space == "DG" and degree == 3:
+        pytest.skip("DG3 too expensive")
+    run_extruded_restriction(mtype, vector, space, degree)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_extruded_dg0_restriction_square_parallel():
-    run_extruded_dg0_restriction("square")
+def test_extruded_dg_restriction_square_parallel():
+    for d in range(0, 3):
+        run_extruded_restriction("square", False, "DG", d)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_extruded_dg0_restriction_interval_parallel():
-    run_extruded_dg0_restriction("interval")
+def test_extruded_vector_dg_restriction_square_parallel():
+    for d in range(0, 3):
+        run_extruded_restriction("square", True, "DG", d)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_cg_restriction_square_parallel():
+    for d in range(1, 4):
+        run_extruded_restriction("square", False, "CG", d)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_vector_cg_restriction_square_parallel():
+    for d in range(1, 4):
+        run_extruded_restriction("square", True, "CG", d)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_dg_restriction_interval_parallel():
+    for d in range(0, 3):
+        run_extruded_restriction("interval", False, "DG", d)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_vector_dg_restriction_interval_parallel():
+    for d in range(0, 3):
+        run_extruded_restriction("interval", True, "DG", d)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_cg_restriction_interval_parallel():
+    for d in range(1, 4):
+        run_extruded_restriction("interval", False, "CG", d)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_vector_cg_restriction_interval_parallel():
+    for d in range(1, 4):
+        run_extruded_restriction("interval", True, "CG", d)
 
 
 def run_mixed_restriction():

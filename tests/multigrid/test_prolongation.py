@@ -50,7 +50,9 @@ def run_prolongation(mtype, vector, space, degree):
                                            ["CG", "DG"]))
 def test_prolongation(mtype, degree, vector, fs):
     if fs == "CG" and degree == 0:
-        pytest.skip("CG 0 makes no sense")
+        pytest.skip("CG0 makes no sense")
+    if fs == "DG" and degree == 3:
+        pytest.skip("DG3 too expensive")
     run_prolongation(mtype, vector, fs, degree)
 
 
@@ -62,7 +64,7 @@ def test_cg_prolongation_square_parallel():
 
 @pytest.mark.parallel(nprocs=2)
 def test_dg_prolongation_square_parallel():
-    for degree in range(0, 4):
+    for degree in range(0, 3):
         run_prolongation("square", False, "DG", degree)
 
 
@@ -74,7 +76,7 @@ def test_vector_cg_prolongation_square_parallel():
 
 @pytest.mark.parallel(nprocs=2)
 def test_vector_dg_prolongation_square_parallel():
-    for degree in range(0, 4):
+    for degree in range(0, 3):
         run_prolongation("square", True, "DG", degree)
 
 
@@ -86,7 +88,7 @@ def test_cg_prolongation_interval_parallel():
 
 @pytest.mark.parallel(nprocs=2)
 def test_dg_prolongation_interval_parallel():
-    for degree in range(0, 4):
+    for degree in range(0, 3):
         run_prolongation("interval", False, "DG", degree)
 
 
@@ -98,11 +100,11 @@ def test_vector_cg_prolongation_interval_parallel():
 
 @pytest.mark.parallel(nprocs=2)
 def test_vector_dg_prolongation_interval_parallel():
-    for degree in range(0, 4):
+    for degree in range(0, 3):
         run_prolongation("interval", True, "DG", degree)
 
 
-def run_extruded_dg0_prolongation(mtype):
+def run_extruded_prolongation(mtype, vector, space, degree):
     if mtype == "interval":
         m = UnitIntervalMesh(10)
     elif mtype == "square":
@@ -110,14 +112,25 @@ def run_extruded_dg0_prolongation(mtype):
     mh = MeshHierarchy(m, 2)
 
     emh = ExtrudedMeshHierarchy(mh, layers=3)
-
-    V = FunctionSpaceHierarchy(emh, 'DG', 0)
+    if vector:
+        V = VectorFunctionSpaceHierarchy(emh, space, degree)
+        # Exactly represented on coarsest grid
+        if mtype == "interval":
+            expr = Expression(("pow(x[0], d)", "pow(x[1], d)"), d=degree)
+        elif mtype == "square":
+            expr = Expression(("pow(x[0], d) - pow(x[1], d)",
+                               "pow(x[0], d) + pow(x[1], d)",
+                               "pow(x[2], d)"), d=degree)
+    else:
+        V = FunctionSpaceHierarchy(emh, space, degree)
+        # Exactly represented on coarsest grid
+        expr = Expression("pow(x[0], d)", d=degree)
 
     expected = FunctionHierarchy(V)
 
     for e in expected:
         # Exactly represented on coarsest grid
-        e.interpolate(Expression("3"))
+        e.interpolate(expr)
 
     actual = FunctionHierarchy(V)
 
@@ -130,19 +143,65 @@ def run_extruded_dg0_prolongation(mtype):
         assert np.allclose(e.dat.data, a.dat.data)
 
 
-@pytest.mark.parametrize("mtype", ["interval", "square"])
-def test_extruded_dg0_prolongation(mtype):
-    run_extruded_dg0_prolongation(mtype)
+@pytest.mark.parametrize(["mtype", "vector", "space", "degree"],
+                         itertools.product(("interval", "square"),
+                                           [False, True],
+                                           ["CG", "DG"],
+                                           range(0, 4)))
+def test_extruded_prolongation(mtype, vector, space, degree):
+    if space == "CG" and degree == 0:
+        pytest.skip("CG0 makes no sense")
+    if space == "DG" and degree == 3:
+        pytest.skip("DG3 too expensive")
+    run_extruded_prolongation(mtype, vector, space, degree)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_extruded_dg0_prolongation_square_parallel():
-    run_extruded_dg0_prolongation("square")
+def test_extruded_dg_prolongation_square_parallel():
+    for d in range(0, 3):
+        run_extruded_prolongation("square", False, "DG", d)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_extruded_dg0_prolongation_interval_parallel():
-    run_extruded_dg0_prolongation("interval")
+def test_extruded_vector_dg_prolongation_square_parallel():
+    for d in range(0, 3):
+        run_extruded_prolongation("square", True, "DG", d)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_cg_prolongation_square_parallel():
+    for d in range(1, 4):
+        run_extruded_prolongation("square", False, "CG", d)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_vector_cg_prolongation_square_parallel():
+    for d in range(1, 4):
+        run_extruded_prolongation("square", True, "CG", d)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_dg_prolongation_interval_parallel():
+    for d in range(0, 3):
+        run_extruded_prolongation("interval", False, "DG", d)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_vector_dg_prolongation_interval_parallel():
+    for d in range(0, 3):
+        run_extruded_prolongation("interval", True, "DG", d)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_cg_prolongation_interval_parallel():
+    for d in range(1, 4):
+        run_extruded_prolongation("interval", False, "CG", d)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_extruded_vector_cg_prolongation_interval_parallel():
+    for d in range(1, 4):
+        run_extruded_prolongation("interval", True, "CG", d)
 
 
 def run_mixed_prolongation():
