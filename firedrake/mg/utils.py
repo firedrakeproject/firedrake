@@ -128,19 +128,37 @@ def get_unique_indices(fiat_element, nonunique_map, vperm):
     return indices
 
 
-def get_transforms_to_fine(tdim):
+def get_transforms_to_fine(cell):
+    if isinstance(cell, FIAT.reference_element.two_product_cell):
+        extruded = True
+        cell = cell.A
+    else:
+        extruded = False
+
+    tdim = cell.get_spatial_dimension()
+
+    def extend(A, b):
+        # Vertical coordinate is unaffected by transforms.
+        A = np.asarray(A, dtype=float)
+        b = np.asarray(b, dtype=float)
+        if not extruded:
+            return A, b
+        tmp = np.eye(tdim+1, dtype=float)
+        tmp[:tdim, :tdim] = A
+        b = np.hstack((b, np.asarray([0], dtype=float)))
+        return tmp, b
     if tdim == 1:
-        return [([[0.5]], [0.0]),
-                ([[-0.5]], [1.0])]
+        return [extend([[0.5]], [0.0]),
+                extend([[-0.5]], [1.0])]
     elif tdim == 2:
-        return [([[0.5, 0.0],
-                  [0.0, 0.5]], [0.0, 0.0]),
-                ([[-0.5, -0.5],
-                  [0.5, 0.0]], [1.0, 0.0]),
-                ([[0.0, 0.5],
-                  [-0.5, -0.5]], [0.0, 1.0]),
-                ([[-0.5, 0],
-                  [0, -0.5]], [0.5, 0.5])]
+        return [extend([[0.5, 0.0],
+                        [0.0, 0.5]], [0.0, 0.0]),
+                extend([[-0.5, -0.5],
+                        [0.5, 0.0]], [1.0, 0.0]),
+                extend([[0.0, 0.5],
+                        [-0.5, -0.5]], [0.0, 1.0]),
+                extend([[-0.5, 0],
+                        [0, -0.5]], [0.5, 0.5])]
     raise NotImplementedError("Not implemented for tdim %d", tdim)
 
 
@@ -154,9 +172,7 @@ def get_restriction_weights(fiat_element):
 
     # Create node points on fine cells
 
-    tdim = fiat_element.get_reference_element().get_spatial_dimension()
-
-    transforms = get_transforms_to_fine(tdim)
+    transforms = get_transforms_to_fine(fiat_element.get_reference_element())
 
     values = []
     for T in transforms:
@@ -188,9 +204,7 @@ def get_injection_weights(fiat_element):
 
     # Create node points on fine cells
 
-    tdim = fiat_element.get_reference_element().get_spatial_dimension()
-
-    transforms = get_transforms_to_fine(tdim)
+    transforms = get_transforms_to_fine(fiat_element.get_reference_element())
 
     values = []
     for T in transforms:
