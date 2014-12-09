@@ -3,6 +3,7 @@ from __future__ import absolute_import
 from itertools import permutations
 import numpy as np
 
+import FIAT
 import coffee.base as ast
 
 from pyop2 import op2
@@ -33,12 +34,19 @@ def get_transformations(fiat_cell):
     1-0
 
     """
-    tdim = fiat_cell.get_spatial_dimension()
-    nvtx = len(fiat_cell.get_vertices())
+    if isinstance(fiat_cell, FIAT.reference_element.two_product_cell):
+        extruded = True
+        cell = fiat_cell.A
+    else:
+        extruded = False
+        cell = fiat_cell
+
+    tdim = cell.get_spatial_dimension()
+    nvtx = len(cell.get_vertices())
     if not ((tdim == 2 and nvtx == 3) or (tdim == 1 and nvtx == 2)):
-        raise RuntimeError("Only implemented on intervals and triangles")
+        raise RuntimeError("Only implemented on (possibly extruded) intervals and triangles")
     perms = permutations(range(nvtx))
-    vertices = np.asarray(fiat_cell.get_vertices()).reshape(-1, tdim)
+    vertices = np.asarray(cell.get_vertices()).reshape(-1, tdim)
     result = {}
     ndof = len(vertices.reshape(-1))
     # Transformation is
@@ -51,11 +59,19 @@ def get_transformations(fiat_cell):
             A[i*len(vtx) + j, len(vtx)*j:len(vtx)*(j+1)] = vtx
             A[i*len(vtx) + j, len(vtx)*tdim + j] = 1
     for perm in perms:
-        new_coords = vertices[np.asarray(perm)]
+        p = np.asarray(perm)
+        new_coords = vertices[p]
         transform = np.linalg.solve(A, new_coords.reshape(-1))
-
-        result[perm] = (transform[:tdim*tdim].reshape(-1, tdim), transform[tdim*tdim:])
-
+        Ap = transform[:tdim*tdim].reshape(-1, tdim)
+        b = transform[tdim*tdim:]
+        if extruded:
+            # Extruded cell only permutes in "horizontal" plane, so
+            # extra coordinate is mapped by the identity.
+            tmp = np.eye(tdim+1, dtype=float)
+            tmp[:tdim, :tdim] = Ap
+            Ap = tmp
+            b = np.hstack((b, np.asarray([0], dtype=float)))
+        result[perm] = (Ap, b)
     return result
 
 
