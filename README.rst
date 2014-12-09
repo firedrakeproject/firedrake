@@ -159,7 +159,8 @@ On a Debian-based system (Ubuntu, Mint, etc.) install core packages::
 
 Install dependencies via ``pip``::
 
-  sudo pip install "Cython>=0.17" decorator "numpy>=1.6" "mpi4py>=1.3.1"
+  sudo pip install "Cython>=0.17" decorator "numpy>=1.6" "mpi4py>=1.3.1" \
+    networkx
 
 .. note::
 
@@ -225,6 +226,7 @@ environment for PyOP2 consists of the following:
      pip install mpi4py
      pip install pytest
      pip install flake8
+     pip install networkx
 
 .. hint::
 
@@ -289,6 +291,23 @@ If you have previously installed and older version of PETSc_ or petsc4py_,
 ``pip`` might tell you that the requirements are already satisfied when running
 above commands. In that case, use ``pip install -U --no-deps`` to upgrade
 (``--no-deps`` prevents also recursively upgrading any dependencies).
+
+.. _coffee-install:
+
+COFFEE
+~~~~~~
+
+If you do not intend to develop COFFEE, you can simply install it using ``pip``:
+
+  sudo pip install git+https://github.com/coneoproject/COFFEE.git
+
+If you *do* intend to contribute to COFFEE, then clone the repository::
+
+  git clone git@github.com:coneoproject/COFFEE.git
+
+COFFEE can be installed from the repository via::
+
+  sudo python setup.py install
 
 .. hint::
 
@@ -416,23 +435,6 @@ On a Debian-based system, run::
   sudo apt-get install libhdf5-mpi-dev python-h5py
 
 Alternatively, if the HDF5 library is available, ``sudo pip install h5py``.
-
-.. _coffee-install:
-
-COFFEE
-~~~~~~
-
-Clone the COFFEE repository::
-
-  git clone git@github.com:coneoproject/COFFEE.git
-
-COFFEE uses `networkx <https://networkx.github.io/>`__, which can be installed via::
-
-  sudo pip install networkx
-
-COFFEE can be installed via::
-
-  sudo python setup.py install
 
 .. _pyop2-install:
 
