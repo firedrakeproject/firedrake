@@ -104,18 +104,26 @@ def get_node_permutations(fiat_element):
     return result
 
 
-def get_unique_indices(fiat_element, nonunique_map, vperm):
+def get_unique_indices(fiat_element, nonunique_map, vperm, offset=None):
     """Given a non-unique map permute to a consistent order and return
-    an array of unique indices"""
+    an array of unique indices, if offset is supplied and not None,
+    also return the extruded "offset" array for the new map."""
     perms = get_node_permutations(fiat_element)
     order = -np.ones_like(nonunique_map)
-    tdim = fiat_element.get_reference_element().get_spatial_dimension()
-    nvtx = len(fiat_element.get_reference_element().get_vertices())
+    cell = fiat_element.get_reference_element()
+    if isinstance(cell, FIAT.reference_element.two_product_cell):
+        cell = cell.A
+    tdim = cell.get_spatial_dimension()
+    nvtx = len(cell.get_vertices())
     ncell = 2**tdim
     ndof = len(order)/ncell
+    if offset is not None:
+        new_offset = -np.ones(ncell * offset.shape[0], dtype=offset.dtype)
     for i in range(ncell):
         p = perms[tuple(vperm[i*nvtx:(i+1)*nvtx])]
         order[i*ndof:(i+1)*ndof] = nonunique_map[i*ndof:(i+1)*ndof][p]
+        if offset is not None:
+            new_offset[i*ndof:(i+1)*ndof] = offset[p]
 
     indices = np.empty(len(np.unique(order)), dtype=PETSc.IntType)
     seen = set()
@@ -125,7 +133,9 @@ def get_unique_indices(fiat_element, nonunique_map, vperm):
             indices[i] = j
             i += 1
             seen.add(n)
-    return indices
+    if offset is not None:
+        return indices, new_offset[indices]
+    return indices, None
 
 
 def get_transforms_to_fine(cell):

@@ -1,6 +1,8 @@
 # Low-level numbering for multigrid support
 from __future__ import absolute_import
 
+import FIAT
+
 from firedrake.petsc import PETSc
 import firedrake.mg.utils as utils
 from pyop2 import MPI
@@ -453,7 +455,12 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
         np.ndarray[PetscInt, ndim=2, mode="c"] new_cell_map, old_cell_map
         PetscInt ccell, fcell, ncoarse, ndof, i, j, perm, nfdof, nfcell, tdim
 
-    tdim = coarse.fiat_element.get_reference_element().get_spatial_dimension()
+    cell = coarse.fiat_element.get_reference_element()
+    if isinstance(cell, FIAT.reference_element.two_product_cell):
+        tdim = cell.A.get_spatial_dimension()
+    else:
+        tdim = cell.get_spatial_dimension()
+
     ncoarse = coarse.mesh().cell_set.size
     ndof = coarse.cell_node_map().arity
 
@@ -471,9 +478,10 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
     # We're going to uniquify the maps we get out, so the first step
     # is to apply the permutation to one entry to find out which
     # indices we need to keep.
-    indices = utils.get_unique_indices(coarse.fiat_element,
-                                       old_cell_map[0, :],
-                                       vertex_perm[0, :])
+    indices, offset = utils.get_unique_indices(coarse.fiat_element,
+                                               old_cell_map[0, :],
+                                               vertex_perm[0, :],
+                                               offset=fine.cell_node_map().offset)
 
     nfdof = indices.shape[0]
     nfcell = 2**tdim
@@ -493,7 +501,7 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
                                                         permutations[perm, j]]
         for j in range(nfdof):
             new_cell_map[ccell, j] = cell_map[indices[j]]
-    return new_cell_map
+    return new_cell_map, offset
 
 
 @cython.boundscheck(False)

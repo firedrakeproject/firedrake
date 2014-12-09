@@ -78,9 +78,10 @@ class BaseHierarchy(object):
                 element = self[0].fiat_element
                 omap = self[1].cell_node_map().values
                 c2f, vperm = self._mesh_hierarchy._cells_vperm[0]
-                indices = utils.get_unique_indices(element,
-                                                   omap[c2f[0, :], ...].reshape(-1),
-                                                   vperm[0, :])
+                indices, _ = utils.get_unique_indices(element,
+                                                      omap[c2f[0, :], ...].reshape(-1),
+                                                      vperm[0, :],
+                                                      offset=None)
                 self._prolong_kernel = utils.get_prolongation_kernel(element, indices, self.dim)
                 self._restrict_kernel = utils.get_restriction_kernel(element, indices, self.dim)
                 self._inject_kernel = utils.get_injection_kernel(element, indices, self.dim)
@@ -124,25 +125,11 @@ class BaseHierarchy(object):
 
         c2f, vperm = self._mesh_hierarchy._cells_vperm[level]
 
-        if isinstance(self._mesh_hierarchy, mesh.ExtrudedMeshHierarchy):
-            if not self._P0:
-                raise NotImplementedError
-            arity = Vf.cell_node_map().arity * c2f.shape[1]
-            map_vals = Vf.cell_node_map().values[c2f].flatten()
-            offset = np.repeat(Vf.cell_node_map().offset, c2f.shape[1])
-            map = op2.Map(self._cell_sets[level],
-                          Vf.node_set,
-                          arity,
-                          map_vals,
-                          offset=offset)
-            self._map_cache[level] = map
-            return map
-
-        map_vals = impl.create_cell_node_map(Vc, Vf, c2f, vperm)
+        map_vals, offset = impl.create_cell_node_map(Vc, Vf, c2f, vperm)
         map = op2.Map(self._cell_sets[level],
                       Vf.node_set,
                       map_vals.shape[1],
-                      map_vals)
+                      map_vals, offset=offset)
         self._map_cache[level] = map
         return map
 
@@ -173,7 +160,8 @@ class BaseHierarchy(object):
         # how many times we did this to weight the final contribution
         # appropriately.
         if not self._P0 and self._restriction_weights is None:
-            if isinstance(self.ufl_element(), ufl.VectorElement):
+            if isinstance(self.ufl_element(), (ufl.VectorElement,
+                                               ufl.OuterProductVectorElement)):
                 element = self.ufl_element().sub_elements()[0]
                 restriction_fs = FunctionSpaceHierarchy(self._mesh_hierarchy, element)
             else:
