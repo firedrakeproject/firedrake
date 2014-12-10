@@ -810,6 +810,7 @@ class TestMixedMatrices:
                      mdat(op2.READ, mmap))
         return dat
 
+    @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")
     def test_assemble_mixed_mat(self, backend, mat):
         """Assemble into a matrix declared on a mixed sparsity."""
         eps = 1.e-12
@@ -843,6 +844,7 @@ class TestMixedMatrices:
         assert_allclose(dat[0].data_ro, np.kron(zip(rdata(3)), np.ones(2)), eps)
         assert_allclose(dat[1].data_ro, exp, eps)
 
+    @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")
     def test_solve_mixed(self, backend, mat, dat):
         x = op2.MixedDat(dat.dataset)
         op2.solve(mat, x, dat)
@@ -851,6 +853,7 @@ class TestMixedMatrices:
         assert_allclose(dat[0].data_ro, b[0].data_ro, eps)
         assert_allclose(dat[1].data_ro, b[1].data_ro, eps)
 
+    @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")
     def test_set_diagonal(self, backend, mat, dat):
         mat.zero()
         mat.set_diagonal(dat)
@@ -860,6 +863,7 @@ class TestMixedMatrices:
                 for j, v in enumerate(dat[i].data_ro):
                     assert mat[i, i].handle[j, j] == v
 
+    @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")
     def test_set_diagonal_invalid_dat(self, backend, mat, mset):
         dat = op2.MixedDat(mset ** 4)
         with pytest.raises(TypeError):
