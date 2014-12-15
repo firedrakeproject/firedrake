@@ -448,6 +448,16 @@ class MeshBase(object):
         if hasattr(self, '_callback'):
             self._callback(self)
 
+    def create_cell_node_list(self, global_numbering, fiat_element):
+        """Builds the DoF mapping.
+
+        :arg global_numbering: Section describing the global DoF numbering
+        :arg fiat_element: The FIAT element for the cell
+        """
+        return dmplex.get_cell_nodes(global_numbering,
+                                     self.cell_closure,
+                                     fiat_element)
+
     @property
     def coordinates(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
@@ -611,16 +621,6 @@ class SimplexMesh(MeshBase):
         return dmplex.closure_ordering(dm, dm.getDefaultGlobalSection(),
                                        self._cell_numbering, entity_per_cell)
 
-    def create_cell_node_list(self, global_numbering, fiat_element):
-        """Builds the DoF mapping.
-
-        :arg global_numbering: Section describing the global DoF numbering
-        :arg fiat_element: The FIAT element for the cell
-        """
-        return dmplex.get_cell_nodes(global_numbering,
-                                     self.cell_closure,
-                                     fiat_element)
-
     def facet_dimensions(self):
         """Returns a singleton list containing the facet dimension."""
         # Facets have co-dimension 1
@@ -661,23 +661,6 @@ class QuadrilateralMesh(MeshBase):
 
         return dmplex.quadrilateral_closure_ordering(
             plex, vertex_numbering, cell_numbering, cell_orientations)
-
-    def create_cell_node_list(self, global_numbering, fiat_element):
-        """Builds the DoF mapping.
-
-        :arg global_numbering: Section describing the global DoF numbering
-        :arg fiat_element: The FIAT element for the cell
-        """
-        edge_directions = np.zeros((len(self.cell_closure), 4), dtype=np.int32)
-
-        entity_dofs = fiat_element.entity_dofs()
-        dofs_per_cell = sum([len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()])
-
-        return dmplex.get_quadrilateral_cell_nodes(global_numbering,
-                                                   self.cell_closure,
-                                                   edge_directions,
-                                                   fiat_element,
-                                                   dofs_per_cell)
 
     def facet_dimensions(self):
         """Returns a list containing the facet dimensions."""
