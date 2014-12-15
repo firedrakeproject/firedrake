@@ -62,6 +62,7 @@ class Configuration(object):
     :param print_summary: Should PyOP2 print a summary of timings at
         program exit?
     :param profiling: Profiling mode (CUDA kernels are launched synchronously)
+    :param matnest: Should matrices on mixed maps be built as nests? (Default yes)
     """
     # name, env variable, type, default, write once
     DEFAULTS = {
@@ -83,6 +84,7 @@ class Configuration(object):
         "profiling": ("PYOP2_PROFILING", bool, False),
         "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str,
                               os.path.join(gettempdir(), "pyop2-gencode")),
+        "matnest": ("PYOP2_MATNEST", bool, True),
     }
     """Default values for PyOP2 configuration parameters"""
     READONLY = ['backend']

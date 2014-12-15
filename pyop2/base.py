@@ -3173,7 +3173,7 @@ class Sparsity(ObjectCached):
     .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
     """
 
-    def __init__(self, dsets, maps, name=None):
+    def __init__(self, dsets, maps, name=None, nest=None):
         """
         :param dsets: :class:`DataSet`\s for the left and right function
             spaces this :class:`Sparsity` maps between
@@ -3213,7 +3213,9 @@ class Sparsity(ObjectCached):
 
         # If the Sparsity is defined on MixedDataSets, we need to build each
         # block separately
-        if isinstance(dsets[0], MixedDataSet) or isinstance(dsets[1], MixedDataSet):
+        if (isinstance(dsets[0], MixedDataSet) or isinstance(dsets[1], MixedDataSet)) \
+           and nest:
+            self._nested = True
             self._blocks = []
             for i, rds in enumerate(dsets[0]):
                 row = []
@@ -3230,6 +3232,7 @@ class Sparsity(ObjectCached):
             with timed_region("Build sparsity"):
                 build_sparsity(self, parallel=MPI.parallel, block=self._block_sparse)
             self._blocks = [[self]]
+            self._nested = False
         self._initialized = True
 
     _cache = {}
@@ -3239,7 +3242,7 @@ class Sparsity(ObjectCached):
     @validate_type(('dsets', (Set, DataSet, tuple, list), DataSetTypeError),
                    ('maps', (Map, tuple, list), MapTypeError),
                    ('name', str, NameTypeError))
-    def _process_args(cls, dsets, maps, name=None, *args, **kwargs):
+    def _process_args(cls, dsets, maps, name=None, nest=None, *args, **kwargs):
         "Turn maps argument into a canonical tuple of pairs."
 
         # A single data set becomes a pair of identical data sets
@@ -3295,11 +3298,13 @@ class Sparsity(ObjectCached):
             cache = dsets[0].set[0]
         else:
             cache = dsets[0].set
-        return (cache, ) + (tuple(dsets), tuple(sorted(uniquify(maps))), name), {}
+        if nest is None:
+            nest = configuration["matnest"]
+        return (cache, ) + (tuple(dsets), tuple(sorted(uniquify(maps))), name, nest), {}
 
     @classmethod
-    def _cache_key(cls, dsets, maps, *args, **kwargs):
-        return (dsets, maps)
+    def _cache_key(cls, dsets, maps, name, nest, *args, **kwargs):
+        return (dsets, maps, nest)
 
     def __getitem__(self, idx):
         """Return :class:`Sparsity` block with row and column given by ``idx``
@@ -3362,6 +3367,12 @@ class Sparsity(ObjectCached):
     def ncols(self):
         """The number of columns in the ``Sparsity``."""
         return self._ncols
+
+    @property
+    def nested(self):
+        """Whether a sparsity is monolithic (even if it has a block structure).
+        """
+        return self._nested
 
     @property
     def name(self):
