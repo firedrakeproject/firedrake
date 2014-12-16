@@ -143,23 +143,39 @@ If you are using a checkout of Firedrake, ``firedrake-clean`` lives in
 the ``scripts`` subdirectory.
 
 Additional dependencies for developers
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+--------------------------------------
 
 If you plan to develop Firedrake then you will require a few more
-packages. Building the documention requires Sphinx_
-(including the youtube plugin) and wget_. For example on Ubuntu-like
+packages. 
+
+Documentation dependencies
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Building the documention requires Sphinx_
+(including the Youtube plugin) and wget_. For example on Ubuntu-like
 Linux systems::
 
   sudo apt-get install python-sphinx wget
-  sudo pip install sphinxcontrib.youtube
 
 and on Mac OS::
 
   brew install wget
-  sudo pip install sphinx sphinxcontrib.youtube
+  sudo pip install sphinx 
 
 note that the Sphinx in Homebrew is not the python documentation tool!
 
+The Sphinx Youtube plugin is obtained by cloning the sphinx-contrib
+repository::
+
+  hg clone https://bitbucket.org/birkenfeld/sphinx-contrib
+
+Then install the Youtube plugin::
+
+  cd sphinx-contrib/youtube
+  sudo python setup.py install
+
+Note that the ``sphinxcontrib.youtube`` Ubuntu package does not work
+for our purposes.
 
 .. _PyOP2: http://op2.github.io/PyOP2
 .. _FFC: https://bitbucket.org/mapdes/ffc
