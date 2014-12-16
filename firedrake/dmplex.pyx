@@ -632,18 +632,22 @@ def get_facet_nodes(np.ndarray[np.int32_t, ndim=2, mode="c"] facet_cells,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def label_facets(PETSc.DM plex):
+def label_facets(PETSc.DM plex, label_boundary=True):
     """Add labels to facets in the the plex
 
     Facets on the boundary are marked with "exterior_facets" while all
-    others are marked with "interior_facets"."""
+    others are marked with "interior_facets".
+
+    :arg label_boundary: if False, don't label the boundary faces
+         (they must have already been labelled)."""
     cdef:
         PetscInt fStart, fEnd, facet, val
         char *ext_label = <char *>"exterior_facets"
         char *int_label = <char *>"interior_facets"
 
     # Mark boundaries as exterior_facets
-    plex.markBoundaryFaces(ext_label)
+    if label_boundary:
+        plex.markBoundaryFaces(ext_label)
     plex.createLabel(int_label)
 
     fStart, fEnd = plex.getHeightStratum(1)
@@ -860,38 +864,27 @@ def mark_entity_classes(PETSc.DM plex):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_cells_by_class(PETSc.DM plex):
-    """Builds a list of all cells ordered according to OP2 entity
-    classes and computes the respective class offsets.
+def get_cell_classes(PETSc.DM plex):
+    """Builds PyOP2 entity class offsets of cells.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
     """
     cdef:
         PetscInt dim, c, ci, nclass
-        PetscInt *indices = NULL
-        PETSc.IS class_is = None
-        np.ndarray[np.int32_t, ndim=1, mode="c"] cells
 
     dim = plex.getDimension()
     cStart, cEnd = plex.getHeightStratum(0)
-    cells = np.empty(cEnd - cStart, dtype=np.int32)
     cell_classes = [0, 0, 0, 0]
     c = 0
 
     for i, op2class in enumerate(["op2_core",
                                   "op2_non_core",
                                   "op2_exec_halo"]):
-        nclass = plex.getStratumSize(op2class, dim)
-        if nclass > 0:
-            class_is = plex.getStratumIS(op2class, dim)
-            CHKERR(ISGetIndices(class_is.iset, &indices))
-            for ci in range(nclass):
-                cells[c] = indices[ci]
-                c += 1
+        c += plex.getStratumSize(op2class, dim)
         cell_classes[i] = c
 
     cell_classes[3] = cell_classes[2]
-    return cells, cell_classes
+    return cell_classes
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

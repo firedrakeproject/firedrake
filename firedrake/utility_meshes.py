@@ -385,7 +385,9 @@ def CircleManifoldMesh(ncells, radius=1):
                              np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
 
     plex = _from_cell_list(1, cells, vertices)
-    return mesh.Mesh(plex, dim=2, reorder=False)
+    m = mesh.Mesh(plex, dim=2, reorder=False)
+    m._circle_manifold = radius
+    return m
 
 
 def UnitTetrahedronMesh():
@@ -556,7 +558,9 @@ def IcosahedralSphereMesh(radius, refinement_level=0, reorder=None):
     coords = plex.getCoordinatesLocal().array.reshape(nvertices, 3)
     scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
     coords *= scale
-    return mesh.Mesh(plex, dim=3, reorder=reorder)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder)
+    m._icosahedral_sphere = radius
+    return m
 
 
 def UnitIcosahedralSphereMesh(refinement_level=0, reorder=None):

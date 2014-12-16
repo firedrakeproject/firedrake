@@ -159,7 +159,7 @@ class FunctionSpaceBase(ObjectCached):
         else:
             self.interior_facet_node_list = np.array([], dtype=np.int32)
             if mesh.interior_facets is None:
-                mesh.interior_facets = mesh_t._Facets(self, 0, "exterior", None, None)
+                mesh.interior_facets = mesh_t._Facets(self, 0, "interior", None, None)
 
         if mesh._plex.getStratumSize("exterior_facets", 1) > 0:
             # Compute the facet_numbering and store with the parent mesh
@@ -586,6 +586,7 @@ class FunctionSpace(FunctionSpaceBase):
     def __init__(self, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
         if self._initialized:
             return
+        mesh.init()
         # Two choices:
         # 1) pass in mesh, family, degree to generate a simple function space
         # 2) set up the function space using FiniteElement, EnrichedElement,
@@ -640,6 +641,7 @@ class VectorFunctionSpace(FunctionSpaceBase):
     def __init__(self, mesh, family, degree, dim=None, name=None, vfamily=None, vdegree=None):
         if self._initialized:
             return
+        mesh.init()
         # VectorFunctionSpace dimension defaults to the geometric dimension of the mesh.
         dim = dim or mesh.ufl_cell().geometric_dimension()
 

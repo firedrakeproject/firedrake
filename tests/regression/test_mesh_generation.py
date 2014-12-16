@@ -101,12 +101,18 @@ def test_unit_circle_parallel():
 
 def test_num_exterior_facets():
     m = UnitIcosahedralSphereMesh(0)
+    # Need to initialise the mesh so that exterior facets have been
+    # built.
+    m.init()
     assert m.exterior_facets.set.total_size == 0
 
 
 @pytest.mark.parallel(nprocs=2)
 def test_num_exterior_facets_parallel():
     m = UnitIcosahedralSphereMesh(0)
+    # Need to initialise the mesh so that exterior facets have been
+    # built.
+    m.init()
     assert m.exterior_facets.set.total_size == 0
 
 
