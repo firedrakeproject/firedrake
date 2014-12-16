@@ -294,7 +294,7 @@ above commands. In that case, use ``pip install -U --no-deps`` to upgrade
 COFFEE
 ~~~~~~
 
-If you do not intend to develop COFFEE, you can simply install it using ``pip``:
+If you do not intend to develop COFFEE, you can simply install it using ``pip``::
 
   sudo pip install git+https://github.com/coneoproject/COFFEE.git
 
