@@ -3509,6 +3509,26 @@ class Mat(SetAssociated):
         return self._sparsity._dims
 
     @property
+    def nrows(self):
+        "The number of rows in the matrix (local to this process)"
+        return sum(d.size * d.cdim for d in self.sparsity.dsets[0])
+
+    @property
+    def nblock_rows(self):
+        assert len(self.sparsity.dsets[0]) == 1, "Block rows don't make sense for mixed Mats"
+        return self.sparsity.dsets[0].size
+
+    @property
+    def nblock_cols(self):
+        assert len(self.sparsity.dsets[1]) == 1, "Block cols don't make sense for mixed Mats"
+        return self.sparsity.dsets[1].size
+
+    @property
+    def ncols(self):
+        "The number of columns in the matrix (local to this process)"
+        return sum(d.size * d.cdim for d in self.sparsity.dsets[1])
+
+    @property
     def sparsity(self):
         """:class:`Sparsity` on which the ``Mat`` is defined."""
         return self._sparsity
