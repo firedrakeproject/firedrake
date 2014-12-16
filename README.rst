@@ -102,7 +102,6 @@ subsystem:
 * Cython >= 0.17 
 * decorator 
 * numpy >= 1.9.1 
-* networkx
 * mpi4py >= 1.3.1
 
 PETSc. We require very recent versions of PETSc so you will need to follow the specific instructions given below to install the right version.
@@ -159,8 +158,7 @@ On a Debian-based system (Ubuntu, Mint, etc.) install core packages::
 
 Install dependencies via ``pip``::
 
-  sudo pip install "Cython>=0.17" decorator "numpy>=1.6" "mpi4py>=1.3.1" \
-    networkx
+  sudo pip install "Cython>=0.17" decorator "numpy>=1.6" "mpi4py>=1.3.1"
 
 .. note::
 
@@ -226,7 +224,6 @@ environment for PyOP2 consists of the following:
      pip install mpi4py
      pip install pytest
      pip install flake8
-     pip install networkx
 
 .. hint::
 
