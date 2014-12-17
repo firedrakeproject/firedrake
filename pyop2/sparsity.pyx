@@ -39,6 +39,7 @@ import numpy as np
 cimport numpy as np
 import cython
 cimport petsc4py.PETSc as PETSc
+from petsc4py import PETSc
 
 np.import_array()
 
@@ -52,6 +53,8 @@ cdef extern from "petsc.h":
     int PetscFree(void*)
     int MatSetValuesBlockedLocal(PETSc.PetscMat, PetscInt, PetscInt*, PetscInt, PetscInt*,
                                  PetscScalar*, PetscInsertMode)
+    int MatSetValuesLocal(PETSc.PetscMat, PetscInt, PetscInt*, PetscInt, PetscInt*,
+                          PetscScalar*, PetscInsertMode)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -108,6 +111,9 @@ cdef build_sparsity_pattern(int rmult, int cmult, list maps, bool have_odiag):
             # Preallocate set entries heuristically based on arity
             for i in range(local_nrows):
                 s_diag[i].reserve(6*rarity)
+                # Always reserve space for diagonal entry
+                if i < local_ncols:
+                    s_diag[i].insert(i)
             if have_odiag:
                 for i in range(local_nrows):
                     s_odiag[i].reserve(6*rarity)
@@ -234,7 +240,9 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps):
         int set_size
         int layer_start, layer_end
         int layer
-        int i
+        PetscInt i
+        PetscScalar zero = 0.0
+        PetscInt nrow, ncol
         PetscInt rarity, carity, tmp_rarity, tmp_carity
         PetscInt[:, ::1] rmap, cmap
         PetscInt *rvals
@@ -243,7 +251,11 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps):
         PetscInt *coffset
 
     rdim, cdim = dims
-
+    # Always allocate space for diagonal
+    nrow, ncol = mat.getLocalSize()
+    for i in range(nrow):
+        if i < ncol:
+            MatSetValuesLocal(mat.mat, 1, &i, 1, &i, &zero, PETSC_INSERT_VALUES)
     extruded = maps[0][0].iterset._extruded
     for pair in maps:
         # Iterate over row map values including value entries
