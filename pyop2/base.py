@@ -635,6 +635,11 @@ class Set(object):
         """Yield self when iterated over."""
         yield self
 
+    def __getitem__(self, idx):
+        """Allow indexing to return self"""
+        assert idx == 0
+        return self
+
     def __len__(self):
         """This is not a mixed type and therefore of length 1."""
         return 1
@@ -1037,6 +1042,11 @@ class DataSet(ObjectCached):
     def __getattr__(self, name):
         """Returns a Set specific attribute."""
         return getattr(self.set, name)
+
+    def __getitem__(self, idx):
+        """Allow index to return self"""
+        assert idx == 0
+        return self
 
     @property
     def dim(self):
