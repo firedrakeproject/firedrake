@@ -1,7 +1,22 @@
 Benney-Luke equations: a reduced water wave model
 =================================================
 
-The Benney-Luke-type equations consist a reduced potential flow water wave model based on the assumption of small amplitude parameter :math:`\epsilon` and small dispersion parameter :math:`\mu` (defined by the square of the ratio of the typical depth over a horizontal length scale). They describe the deviation from the still water surface :math:`\eta(x,y,t)` and the free surface potential :math:`\phi(x,y,t)` and are given by:
+The Benney-Luke-type equations consist of a reduced potential flow water wave model based on the assumption of small amplitude parameter :math:`\epsilon` and small dispersion parameter :math:`\mu` (defined by the square of the ratio of the typical depth over a horizontal length scale). They describe the deviation from the still water surface :math:`\eta(x,y,t)` and the free surface potential :math:`\phi(x,y,t)`. A modified version of the Benney-Luke equations can be obtained by a variational principle, given by (Bokhove & Kalogirou, 2015):
+
+.. math::
+
+  0 = \delta\int_0^T \iint_{\Omega} \eta\phi_t - \frac{\mu}{2}\eta\Delta\phi_t + \frac{1}{2}(1+\epsilon\eta)\left|\nabla\phi\right|^2 + \frac{1}{2}\eta^2 + \frac{\mu}{3}(\Delta\phi)^2 \,dx\,dy\,dt
+    = \delta\int_0^T \iint_{\Omega} \eta\phi_t + \frac{\mu}{2}\nabla\cdot\eta\nabla\phi_t + \frac{1}{2}(1+\epsilon\eta)\left|\nabla\phi\right|^2 + \frac{1}{2}\eta^2 + \mu\left( \nabla q\cdot\nabla\phi - \frac{3}{4}q^2 \right) \,dx\,dy\,dt
+
+where the spatial domain is assumed to be :math:`\Omega` with natural boundary conditions, namely Neumann conditions on all the boundaries. In addition, suitable end-point conditions at :math:`t=0` and :math:`t=T` are used. Note that the introduction of the auxiliary function :math:`q` was performed in order to lower the highest derivatives. It is advantageous in a :math:`C^0` finite element formulation and motivated the modification of the "standard" Benney-Luke equations. Taking the variations of the above results in
+
+.. math::
+
+  0 = \int_0^T \iint_{\Omega} \left( \phi_t - \frac{\mu}{2}\Delta\phi_t + \eta + \frac{1}{2}\epsilon\left|\nabla\phi\right|^2 \right)\delta\eta
+                              - \left( \eta_t - \frac{\mu}{2}\Delta\eta_t + \nabla\cdot\bigl((1+\epsilon\eta)\nabla\phi\bigr)+\mu\Delta q \right)\delta\phi
+                              - \mu\left( \frac{3}{2}q + \Delta\phi \right)\delta q \,dx\,dy\,dt
+
+Since the variations with respect to :math:`\delta\eta,\,\delta\phi,\,\delta q` are arbitrary, the Benney-Luke equations then arise for functions :math:`\eta,\phi,q\in V` from a suitable function space :math:`V` and are given by:
 
 .. math::
 
@@ -9,9 +24,9 @@ The Benney-Luke-type equations consist a reduced potential flow water wave model
 
   \eta_t - \frac{\mu}{2}\Delta\eta_t + \nabla\cdot\bigl((1+\epsilon\eta)\nabla\phi\bigr)+\mu\Delta q = 0
 
-  q = - \frac{2}{3}\Delta\phi
+  q = - \frac{2}{3}\Delta\phi.
 
-where the spatial domain is assumed to be :math:`\Omega` with natural boundary conditions, namely Neumann conditions on all the boundaries. The solutions to these equations are the three functions :math:`\eta,\phi,q\in V` for a suitable function space :math:`V`. Note that the introduction of the auxiliary function :math:`q` is advantageous in a :math:`C^0` finite element formulation. The equations are then multiplied by a test function :math:`v\in V` and integrated over the domain in order to obtain a weak formulation, given by
+The equations are then multiplied by a test function :math:`v\in V` and integrated over the domain in order to obtain a weak formulation
 
 .. math::
 
@@ -19,9 +34,9 @@ where the spatial domain is assumed to be :math:`\Omega` with natural boundary c
 
   \int_{\Omega} \eta_t\,v + \frac{\mu}{2}\nabla\eta_t\cdot\nabla v - \left(1+\epsilon\eta\right)\nabla\phi\cdot\nabla v - \mu\nabla q\cdot\nabla v \,dx = 0
 
-  \int_{\Omega} q\,v - \frac{2}{3}\nabla\phi\cdot\nabla v \,dx = 0
+  \int_{\Omega} q\,v - \frac{2}{3}\nabla\phi\cdot\nabla v \,dx = 0.
 
-Note that the Neumann boundary conditions have been used to remove every surface term that resulted from the integration by parts. Moreover, for the time-discretisation a combination of the forward/backward Euler method is used, yielding:
+Note that the Neumann boundary conditions have been used to remove every surface term that resulted from the integration by parts. Moreover, the variational form of the system suggests the use of a symplectic integrator for the time-discretisation. Here we choose the 2nd-order Stormer-Verlet scheme, which requires two half-steps to update :\math:`\phi` in time and one full-step for :math:`\eta`, and reads:
 
 .. math::
 
@@ -29,7 +44,7 @@ Note that the Neumann boundary conditions have been used to remove every surface
 
   \int_{\Omega} q^{n+1}\,v - \frac{2}{3}\nabla\phi^{n+1}\cdot\nabla v \,dx = 0
 
-  \int_{\Omega} \frac{\eta^{n+1}-\eta^n}{dt}\cdot v + \frac{\mu}{2}\nabla\left(\frac{\eta^{n+1}-\eta^n}{dt}\right)\cdot\nabla v - \left(1+\epsilon\eta^n\right)\nabla\phi^{n+1}\cdot\nabla v - \mu\nabla q^{n+1}\cdot\nabla v \,dx = 0
+  \int_{\Omega} \frac{\eta^{n+1}-\eta^n}{dt}\cdot v + \frac{\mu}{2}\nabla\left(\frac{\eta^{n+1}-\eta^n}{dt}\right)\cdot\nabla v - \left(1+\epsilon\eta^n\right)\nabla\phi^{n+1}\cdot\nabla v - \mu\nabla q^{n+1}\cdot\nabla v \,dx = 0.
 
 Furthermore, we note that the Benney-Luke equations admit asymptotic solutions (correct up to order :math:`\epsilon`). The "exact" solutions can be found by assumming one-dimensional travelling waves of the type
 
@@ -43,11 +58,11 @@ The Benney-Luke equations then become equivalent to a KdV equation for :math:`\e
 
   \eta(x,y,t) = \frac{1}{2}c\,{\rm sech}^2 \left( \frac{1}{2}\sqrt{\frac{3c\epsilon}{2\mu}} \left(x-x_0-t-\frac{1}{4}\epsilon ct\right) \right), \quad \phi(x,y,t) = \sqrt{\frac{2c\mu}{3\epsilon}}\,\left( {\rm tanh}\left(\frac{1}{2}\sqrt{\frac{3c\epsilon}{2\mu}} \left(x-x_0-t-\frac{1}{4}\epsilon ct\right) \right)+1 \right)
 
-Finally, before implementing the problem in Firedrake, we calculate the total energy of the system and make sure that it shows no drift. The expression for total energy is given by:
+Finally, before implementing the problem in Firedrake, we calculate the total energy defined by the Hamiltonian as the sum of kinetic and potential energy. The system is then stable if the energy is bounded and shows no drift. The expression for total energy is given by:
 
 .. math::
 
-  E(t) = \int_{\Omega} \frac{1}{2}\left(1+\epsilon\eta\right)\left|\nabla\phi\right|^2 + \frac{1}{2}\eta^2 + \mu\left( \nabla q\cdot \nabla\phi - \frac{3}{4}q^2 \right) \,dx
+  E(t) = \int_{\Omega} \frac{1}{2}\left(1+\epsilon\eta\right)\left|\nabla\phi\right|^2 + \frac{1}{2}\eta^2 + \mu\left( \nabla q\cdot \nabla\phi - \frac{3}{4}q^2 \right) \,dx.
 
 The implementation of this problem in Firedrake requires solving two nonlinear variational problems and one linear problem, i.e. a Laplace equation for :math:`q`. The Benney-Luke equations are solved in a rectangular domain :math:`\Omega=[0,10]\times[0,1]`, with :math:`\mu=\epsilon=0.01`, time step :math:`dt=0.005` and up to the final time :math:`T=2.0`. Additionally, the domain is split into 50 cells in the x-direction using a quadrilateral mesh. In the y-direction only 1 cell is enough since there are no variations in y::
 
@@ -64,7 +79,7 @@ The implementation of this problem in Firedrake requires solving two nonlinear v
   coords = mesh.coordinates
   coords.dat.data[:,0] = Lx*coords.dat.data[:,0]
 
-The function space consists of degree 2 continuous Lagrange polynomials, and the functions :math:`\eta,\,\phi` are initialised to take the exact soliton solutions for :math:`t=0`, centered around the middle of the domain, i.e. with :math:`x_0=\frac{1}{2}L_x`::
+The function space chosen consists of degree 2 continuous Lagrange polynomials, and the functions :math:`\eta,\,\phi` are initialised to take the exact soliton solutions for :math:`t=0`, centered around the middle of the domain, i.e. with :math:`x_0=\frac{1}{2}L_x`::
 
   V = FunctionSpace(mesh,"CG",2)
 
@@ -84,29 +99,56 @@ The function space consists of degree 2 continuous Lagrange polynomials, and the
   phi0.interpolate(Expression("2/3.0*sqrt(c*mu/epsilon)*(tanh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0))+1)",
                               c=1.5, epsilon=epsilon, mu=mu, x0=0.5*Lx))
 
-The equation for :math:`\phi` is first solved using a nonlinear variational solver::
+Firstly, :math:`\phi` is updated to a half-step value using a nonlinear variational solver::
 
-  Fphi = ( v*(phi1-phi0)/dt + 0.5*mu*inner(grad(v),grad((phi1-phi0)/dt)) + v*eta0
-           + 0.5*epsilon*inner(grad(phi1),grad(phi1))*v )*dx
+  Fphi_h = ( v*(phi_h-phi0)/(0.5*dt) + 0.5*mu*inner(grad(v),grad((phi_h-phi0)/(0.5*dt))) + v*eta0 + 0.5*epsilon*inner(grad(phi_h),grad(phi_h))*v )*dx
+
+  phi_problem_h = NonlinearVariationalProblem(Fphi_h,phi_h)
+  phi_solver_h = NonlinearVariationalSolver(phi_problem_h)
+
+followed by a calculation of :math:`q`, performed using a linear solver to solve the Laplace equation for this half-step solution::
+
+  aq = v*q*dx
+  Lq_h = 2.0/3.0*inner(grad(v),grad(phi_h))*dx
+
+  q_problem_h = LinearVariationalProblem(aq,Lq_h,q_h)
+  q_solver_h = LinearVariationalSolver(q_problem_h)
+
+Then the nonlinear equation for :math:`\eta` is solved::
+
+  Feta = ( v*(eta1-eta0)/dt + 0.5*mu*inner(grad(v),grad((eta1-eta0)/dt))
+           - 0.5*((1+epsilon*eta0)+(1+epsilon*eta1))*inner(grad(v),grad(phi_h)) - mu*inner(grad(v),grad(q_h)) )*dx
+
+  eta_problem = NonlinearVariationalProblem(Feta,eta1)
+  eta_solver = NonlinearVariationalSolver(eta_problem)
+
+and finally the second half-step for the equation of :math:`\phi` is performed and :math:`q` is computed for the updated solution::
+
+  Fphi = ( v*(phi1-phi_h)/(0.5*dt) + 0.5*mu*inner(grad(v),grad((phi1-phi_h)/(0.5*dt)))
+           + v*eta1 + 0.5*epsilon*inner(grad(phi_h),grad(phi_h))*v )*dx
 
   phi_problem = NonlinearVariationalProblem(Fphi,phi1)
   phi_solver = NonlinearVariationalSolver(phi_problem)
 
-followed by the Laplace equation, which is solved using a linear solver::
-
-  aq = v*q*dx
-  Lq = 2/3.0*inner(grad(v),grad(phi1))*dx
-
+  Lq_h = 2.0/3.0*inner(grad(v),grad(phi1))*dx
   q_problem = LinearVariationalProblem(aq,Lq,q1)
   q_solver = LinearVariationalSolver(q_problem)
 
-and finally the nonlinear equation for :math:`\eta`::
+# Instead, we could use the 1st-order Symplectic Euler scheme, for which case the corresponding steps would be:
+#  Fphi = ( v*(phi1-phi0)/dt + 0.5*mu*inner(grad(v),grad((phi1-phi0)/dt)) + v*eta0
+#           + 0.5*epsilon*inner(grad(phi1),grad(phi1))*v )*dx
+#  phi_problem = NonlinearVariationalProblem(Fphi,phi1)
+#  phi_solver = NonlinearVariationalSolver(phi_problem)
 
-  Feta = ( v*(eta1-eta0)/dt + 0.5*mu*inner(grad(v),grad((eta1-eta0)/dt))
-           - (1+epsilon*eta0)*inner(grad(v),grad(phi1)) - mu*inner(grad(v),grad(q1)) )*dx
+#  aq = v*q*dx
+#  Lq = 2/3.0*inner(grad(v),grad(phi1))*dx
+#  q_problem = LinearVariationalProblem(aq,Lq,q1)
+#  q_solver = LinearVariationalSolver(q_problem)
 
-  eta_problem = NonlinearVariationalProblem(Feta,eta1)
-  eta_solver = NonlinearVariationalSolver(eta_problem)
+#  Feta = ( v*(eta1-eta0)/dt + 0.5*mu*inner(grad(v),grad((eta1-eta0)/dt))
+#           - (1+epsilon*eta0)*inner(grad(v),grad(phi1)) - mu*inner(grad(v),grad(q1)) )*dx
+#  eta_problem = NonlinearVariationalProblem(Feta,eta1)
+#  eta_solver = NonlinearVariationalSolver(eta_problem)
 
 For visualisation reasons, we print the results in files::
 
@@ -120,14 +162,14 @@ For visualisation reasons, we print the results in files::
   phi_exact << phi0
   eta_exact << eta0
 
-What is left before iterating over all time steps, is to find the initial energy :math:`E_0` use it to later evaluate the energy difference :math:`\left|E-E_0\right|/E_0`::
+What is left before iterating over all time steps, is to find the initial energy :math:`E_0`, used later to evaluate the energy difference :math:`\left|E-E_0\right|/E_0`::
 
   t = 0
   E0 = assemble( (0.5*(1+epsilon*eta0)*abs(grad(phi0))**2 + 0.5*eta0**2
-                  + mu*(inner(grad(q0),grad(phi0)) - 0.75*q1**2))*dx )
+                  + mu*(inner(grad(q1),grad(phi0)) - 0.75*q1**2))*dx )
   E = E0
 
-and define the exact solutions::
+and define the exact solutions, which need to be updated at every time-step::
 
   expr_eta = Expression("1/3.0*c*pow(cosh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0-t-epsilon*c*t/6.0)),-2)",
                         t=t, c=1.5, epsilon=epsilon, mu=mu, x0=0.5*Lx)
@@ -146,9 +188,16 @@ We are now ready to enter the main time iteration loop::
         ex_phi.interpolate(expr_phi)
         ex_eta.interpolate(expr_eta)
 
+        phi_solver_h.solve()
+        q_solver_h.solve()
+        eta_solver.solve()
         phi_solver.solve()
         q_solver.solve()
-        eta_solver.solve()
+
+        # For the Symplectic Euler case, we would have:
+        # phi_solver.solve()
+        # q_solver.solve()
+        # eta_solver.solve()
 
         eta0.assign(eta1)
         phi0.assign(phi1)
