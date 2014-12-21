@@ -26,7 +26,7 @@ def f_mixed():
 
 @pytest.fixture
 def const(f):
-    return Constant(1.0, domain=f[0].function_space().mesh().ufl_domain())
+    return Constant(1.0, domain=f[0].function_space().mesh())
 
 
 @pytest.fixture

@@ -264,7 +264,6 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
         cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
         cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
 
-        MeshClass = mesh.QuadrilateralMesh
         plex = _from_cell_list(2, cells, coords)
     else:
         boundary = PETSc.DMPlex().create(MPI.comm)
@@ -272,7 +271,6 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
         boundary.createSquareBoundary([0., 0.], [float(Lx), float(Ly)], [nx, ny])
         boundary.setTriangleOptions("pqezQYSl")
 
-        MeshClass = mesh.Mesh
         plex = PETSc.DMPlex().generate(boundary)
 
     # mark boundary facets
@@ -295,7 +293,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
             if abs(face_coords[1] - Ly) < ytol and abs(face_coords[3] - Ly) < ytol:
                 plex.setLabelValue("boundary_ids", face, 4)
 
-    return MeshClass(plex, reorder=reorder)
+    return mesh.Mesh(plex, reorder=reorder)
 
 
 def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False):
@@ -387,7 +385,9 @@ def CircleManifoldMesh(ncells, radius=1):
                              np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
 
     plex = _from_cell_list(1, cells, vertices)
-    return mesh.Mesh(plex, dim=2, reorder=False)
+    m = mesh.Mesh(plex, dim=2, reorder=False)
+    m._circle_manifold = radius
+    return m
 
 
 def UnitTetrahedronMesh():
@@ -558,7 +558,9 @@ def IcosahedralSphereMesh(radius, refinement_level=0, reorder=None):
     coords = plex.getCoordinatesLocal().array.reshape(nvertices, 3)
     scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
     coords *= scale
-    return mesh.Mesh(plex, dim=3, reorder=reorder)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder)
+    m._icosahedral_sphere = radius
+    return m
 
 
 def UnitIcosahedralSphereMesh(refinement_level=0, reorder=None):

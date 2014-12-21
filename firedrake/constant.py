@@ -27,11 +27,21 @@ class Constant(ufl.Coefficient):
          tensor-valued constant.
 
     :arg domain: an optional UFL :class:`~ufl.domain.Domain` on which the constant is defined.
+
+    .. note::
+
+       If you intend to use this :class:`Constant` in a
+       :class:`~ufl.form.Form` on its own you need to pass a
+       :class:`~.Mesh` as the domain argument.
     """
 
     def __init__(self, value, domain=None):
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
+        try:
+            domain.init()
+        except AttributeError:
+            pass
         data = np.array(value, dtype=np.float64)
         shape = data.shape
         rank = len(shape)

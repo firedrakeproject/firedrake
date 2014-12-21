@@ -22,7 +22,8 @@ from ffc.quadrature.quadraturetransformerbase import EmptyIntegrandError
 from pyop2.caching import DiskCached
 from pyop2.op2 import Kernel
 from pyop2.mpi import MPI
-from pyop2.coffee.ast_base import PreprocessNode, Root
+
+from coffee.base import PreprocessNode, Root
 
 import fiat_utils
 import functionspace
@@ -40,12 +41,12 @@ def _check_version():
     from version import __compatible_ffc_version_info__ as compatible_version, \
         __compatible_ffc_version__ as version
     try:
-        if constants.PYOP2_VERSION_INFO[:2] == compatible_version[:2]:
+        if constants.FIREDRAKE_VERSION_INFO[:2] == compatible_version[:2]:
             return
     except AttributeError:
         pass
-    raise RuntimeError("Incompatible PyOP2 version %s and FFC PyOP2 version %s."
-                       % (version, getattr(constants, 'PYOP2_VERSION', 'unknown')))
+    raise RuntimeError("Incompatible Firedrake version %s and FFC version %s."
+                       % (version, getattr(constants, 'FIREDRAKE_VERSION', 'unknown')))
 
 
 def sum_integrands(form):
@@ -147,7 +148,7 @@ class FFCKernel(DiskCached):
         # needs to be regenerated
         return md5(form.signature() + name + Kernel._backend.__name__ +
                    cls._firedrake_geometry_md5 + constants.FFC_VERSION +
-                   constants.PYOP2_VERSION + str(default_parameters["coffee"])
+                   constants.FIREDRAKE_VERSION + str(default_parameters["coffee"])
                    + str(parameters)).hexdigest()
 
     def _needs_orientations(self, elements):

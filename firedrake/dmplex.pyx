@@ -13,9 +13,9 @@ include "dmplex.pxi"
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def facet_numbering(PETSc.DM plex, kind,
-                    np.ndarray[np.int32_t] facets,
+                    np.ndarray[np.int32_t, ndim=1, mode="c"] facets,
                     PETSc.Section cell_numbering,
-                    np.ndarray[np.int32_t, ndim=2] cell_closures):
+                    np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures):
     """Compute the parent cell(s) and the local facet number within
     each parent cell for each given facet.
 
@@ -29,8 +29,8 @@ def facet_numbering(PETSc.DM plex, kind,
         PetscInt f, fStart, fEnd, fi, cell
         PetscInt nfacets, nclosure, ncells, cells_per_facet
         PetscInt *cells = NULL
-        np.ndarray[np.int32_t, ndim=2] facet_cells
-        np.ndarray[np.int32_t, ndim=2] facet_local_num
+        np.ndarray[np.int32_t, ndim=2, mode="c"] facet_cells
+        np.ndarray[np.int32_t, ndim=2, mode="c"] facet_local_num
 
     fStart, fEnd = plex.getHeightStratum(1)
     nfacets = facets.shape[0]
@@ -89,7 +89,7 @@ def facet_numbering(PETSc.DM plex, kind,
 def closure_ordering(PETSc.DM plex,
                      PETSc.Section vertex_numbering,
                      PETSc.Section cell_numbering,
-                     np.ndarray[np.int32_t] entity_per_cell):
+                     np.ndarray[np.int32_t, ndim=1, mode="c"] entity_per_cell):
     """Apply Fenics local numbering to a cell closure.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
@@ -116,7 +116,7 @@ def closure_ordering(PETSc.DM plex,
         PetscInt *face_indices = NULL
         PetscInt *face_vertices = NULL
         PetscInt *facet_vertices = NULL
-        np.ndarray[np.int32_t, ndim=2] cell_closure
+        np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closure
 
     dim = plex.getDimension()
     cStart, cEnd = plex.getHeightStratum(0)
@@ -260,7 +260,7 @@ def closure_ordering(PETSc.DM plex,
 def quadrilateral_closure_ordering(PETSc.DM plex,
                                    PETSc.Section cell_numbering):
     cdef:
-        PetscInt c, cStart, cEnd, cell
+        PetscInt c, cStart, cEnd, cell, o
         PetscInt v_per_cell = 4
         PetscInt e_per_cell = 4
         PetscInt nclosure = v_per_cell + e_per_cell + 1
@@ -270,8 +270,8 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
         PetscInt bottom, top, bottom_dir, top_dir
         PetscInt *bottom_vertices = NULL
         PetscInt *top_vertices = NULL
-        np.ndarray[np.int32_t, ndim=2] cell_closure
-        np.ndarray[np.int32_t, ndim=2] edge_directions
+        np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closure
+        np.ndarray[np.int32_t, ndim=2, mode="c"] edge_directions
 
     cStart, cEnd = plex.getHeightStratum(0)
     ncells = cEnd - cStart
@@ -373,7 +373,7 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_cell_nodes(PETSc.Section global_numbering,
-                   np.ndarray[np.int32_t, ndim=2] cell_closures,
+                   np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures,
                    dofs_per_cell):
     """
     Builds the DoF mapping for non-extruded meshes.
@@ -384,7 +384,7 @@ def get_cell_nodes(PETSc.Section global_numbering,
     """
     cdef:
         PetscInt c, ncells, ci, nclosure, offset, p, pi, dof, off, i
-        np.ndarray[np.int32_t, ndim=2] cell_nodes
+        np.ndarray[np.int32_t, ndim=2, mode="c"] cell_nodes
 
     ncells = cell_closures.shape[0]
     nclosure = cell_closures.shape[1]
@@ -429,8 +429,8 @@ cdef inline void add_dofs(PETSc.Section global_numbering,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_quadrilateral_cell_nodes(PETSc.Section global_numbering,
-                                 np.ndarray[np.int32_t, ndim=2] cell_closures,
-                                 np.ndarray[np.int32_t, ndim=2] edge_directions,
+                                 np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures,
+                                 np.ndarray[np.int32_t, ndim=2, mode="c"] edge_directions,
                                  fiat_element,
                                  np.int32_t dofs_per_cell):
     """
@@ -447,7 +447,7 @@ def get_quadrilateral_cell_nodes(PETSc.Section global_numbering,
         PetscInt c, i, k
         PetscInt *flat_local_index = NULL
         PetscInt *cell_nodes_row = NULL
-        np.ndarray[np.int32_t, ndim=2] cell_nodes
+        np.ndarray[np.int32_t, ndim=2, mode="c"] cell_nodes
 
     entity_dofs = fiat_element.entity_dofs()
     entity_dofs_list = [entity_dofs[dim].values() for dim in sorted(entity_dofs.keys())]
@@ -470,14 +470,14 @@ def get_quadrilateral_cell_nodes(PETSc.Section global_numbering,
         k = 0
         # vertices
         for i in range(0, 4):
-            add_dofs(global_numbering, cell_closures[c][i], cell_nodes_row,
+            add_dofs(global_numbering, cell_closures[c, i], cell_nodes_row,
                      flat_local_index, &k, 0)
         # edges
         for i in range(4, 8):
-            add_dofs(global_numbering, cell_closures[c][i], cell_nodes_row,
+            add_dofs(global_numbering, cell_closures[c, i], cell_nodes_row,
                      flat_local_index, &k, edge_directions[c][i - 4])
         # face / cell
-        add_dofs(global_numbering, cell_closures[c][8], cell_nodes_row,
+        add_dofs(global_numbering, cell_closures[c, 8], cell_nodes_row,
                  flat_local_index, &k, 0)
 
         for i in range(dofs_per_cell):
@@ -491,7 +491,7 @@ def get_quadrilateral_cell_nodes(PETSc.Section global_numbering,
 @cython.wraparound(False)
 def get_extruded_cell_nodes(PETSc.DM plex,
                             PETSc.Section global_numbering,
-                            np.ndarray[np.int32_t, ndim=2] cell_closures,
+                            np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures,
                             fiat_element, dofs_per_cell):
     """
     Builds the DoF mapping for extruded meshes.
@@ -509,7 +509,7 @@ def get_extruded_cell_nodes(PETSc.DM plex,
         PetscInt *pEnds = NULL
         PetscInt *hdofs = NULL
         PetscInt *vdofs = NULL
-        np.ndarray[np.int32_t, ndim=2] cell_nodes
+        np.ndarray[np.int32_t, ndim=2, mode="c"] cell_nodes
 
     ncells = cell_closures.shape[0]
     nclosure = cell_closures.shape[1]
@@ -595,8 +595,8 @@ def get_extruded_cell_nodes(PETSc.DM plex,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_facet_nodes(np.ndarray[np.int32_t, ndim=2] facet_cells,
-                    np.ndarray[np.int32_t, ndim=2] cell_nodes):
+def get_facet_nodes(np.ndarray[np.int32_t, ndim=2, mode="c"] facet_cells,
+                    np.ndarray[np.int32_t, ndim=2, mode="c"] cell_nodes):
     """
     Derives the DoF mapping for a given facet list.
 
@@ -605,7 +605,7 @@ def get_facet_nodes(np.ndarray[np.int32_t, ndim=2] facet_cells,
     """
     cdef:
         int f, i, cell, nfacets, ncells, ndofs
-        np.ndarray[np.int32_t, ndim=2] facet_nodes
+        np.ndarray[np.int32_t, ndim=2, mode="c"] facet_nodes
 
     nfacets = facet_cells.shape[0]
     ncells = facet_cells.shape[1]
@@ -632,18 +632,22 @@ def get_facet_nodes(np.ndarray[np.int32_t, ndim=2] facet_cells,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def label_facets(PETSc.DM plex):
+def label_facets(PETSc.DM plex, label_boundary=True):
     """Add labels to facets in the the plex
 
     Facets on the boundary are marked with "exterior_facets" while all
-    others are marked with "interior_facets"."""
+    others are marked with "interior_facets".
+
+    :arg label_boundary: if False, don't label the boundary faces
+         (they must have already been labelled)."""
     cdef:
         PetscInt fStart, fEnd, facet, val
         char *ext_label = <char *>"exterior_facets"
         char *int_label = <char *>"interior_facets"
 
     # Mark boundaries as exterior_facets
-    plex.markBoundaryFaces(ext_label)
+    if label_boundary:
+        plex.markBoundaryFaces(ext_label)
     plex.createLabel(int_label)
 
     fStart, fEnd = plex.getHeightStratum(1)
@@ -664,7 +668,7 @@ def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
     cdef:
         PetscInt v, vStart, vEnd, offset
         PetscInt i, dim = shape[1]
-        np.ndarray[np.float64_t, ndim=2] plex_coords, coords
+        np.ndarray[np.float64_t, ndim=2, mode="c"] plex_coords, coords
 
     plex_coords = plex.getCoordinatesLocal().array.reshape(shape)
     coords = np.empty_like(plex_coords)
@@ -860,38 +864,27 @@ def mark_entity_classes(PETSc.DM plex):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_cells_by_class(PETSc.DM plex):
-    """Builds a list of all cells ordered according to OP2 entity
-    classes and computes the respective class offsets.
+def get_cell_classes(PETSc.DM plex):
+    """Builds PyOP2 entity class offsets of cells.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
     """
     cdef:
         PetscInt dim, c, ci, nclass
-        PetscInt *indices = NULL
-        PETSc.IS class_is = None
-        np.ndarray[np.int32_t] cells
 
     dim = plex.getDimension()
     cStart, cEnd = plex.getHeightStratum(0)
-    cells = np.empty(cEnd - cStart, dtype=np.int32)
     cell_classes = [0, 0, 0, 0]
     c = 0
 
     for i, op2class in enumerate(["op2_core",
                                   "op2_non_core",
                                   "op2_exec_halo"]):
-        nclass = plex.getStratumSize(op2class, dim)
-        if nclass > 0:
-            class_is = plex.getStratumIS(op2class, dim)
-            CHKERR(ISGetIndices(class_is.iset, &indices))
-            for ci in range(nclass):
-                cells[c] = indices[ci]
-                c += 1
+        c += plex.getStratumSize(op2class, dim)
         cell_classes[i] = c
 
     cell_classes[3] = cell_classes[2]
-    return cells, cell_classes
+    return cell_classes
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -907,7 +900,7 @@ def get_facets_by_class(PETSc.DM plex, label):
         PetscInt *indices = NULL
         PETSc.IS class_is = None
         char *class_chr = NULL
-        np.ndarray[np.int32_t] facets
+        np.ndarray[np.int32_t, ndim=1, mode="c"] facets
 
     label_chr = <char*>label
     dim = plex.getDimension()
@@ -936,7 +929,7 @@ def get_facets_by_class(PETSc.DM plex, label):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1] reordering=None):
+def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1, mode="c"] reordering=None):
     """
     Build a global node renumbering as a permutation of Plex points.
 

@@ -11,7 +11,7 @@ def mesh():
 
 @pytest.fixture(scope='module')
 def one(mesh):
-    return Constant(1, domain=mesh.ufl_domain())
+    return Constant(1, domain=mesh)
 
 
 domains = [(1, 2),

@@ -255,7 +255,7 @@ do this, we set the ``pc_type`` to ``'lu'`` and tell PETSc to use a
 
    solve(a == L, 
          solver_parameters={'ksp_type': 'preonly',
-                            'pc_type': 'lu})
+                            'pc_type': 'lu'})
 
 In a similar manner, we can use Jacobi preconditioned Richardson
 iterations with:
