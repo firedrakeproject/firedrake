@@ -762,7 +762,7 @@ class TestMatrices:
         """Check that the matrix uses the amount of memory we expect."""
         assert mat.nbytes == 14 * 8
 
-    @pytest.mark.xfail('config.getvalue("backend")[0] == "cuda"')
+    @pytest.mark.xfail('config.getvalue("backend") and config.getvalue("backend")[0] == "cuda"')
     def test_set_diagonal(self, backend, x, mat):
         mat.zero()
         mat.set_diagonal(x)
