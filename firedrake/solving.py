@@ -226,7 +226,7 @@ def _extract_args(*args, **kwargs):
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace"]
     for kwarg in kwargs.iterkeys():
-        if not kwarg in valid_kwargs:
+        if kwarg not in valid_kwargs:
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords \
                                are %s" % (kwarg, ", ".join("'%s'" % kwarg
                                           for kwarg in valid_kwargs)))

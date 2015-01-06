@@ -118,7 +118,7 @@ class _VTUFile(object):
     """Class that represents a VTU file."""
 
     def __init__(self, filename, warnings=None):
-        #_filename : full path to the file without extension.
+        # _filename : full path to the file without extension.
         self._filename = filename
         if warnings:
             self._warnings = warnings
@@ -434,7 +434,7 @@ class PVTUWriter(object):
 
         # I think I can improve this part by creating PVTU file
         # from VTU file, passing the dictionary of
-        #{attribute_name : (data type, number of components)}
+        # {attribute_name : (data type, number of components)}
         # but for now it is quite pointless since writing vtu
         # is not dynamic either.
 
@@ -482,10 +482,10 @@ class _PVDFile(object):
         self._writer = hl.VtkGroup(self._filename)
         self._warnings = [False, False]
         # Keep the index of child file
-        #(parallel -> pvtu, else vtu)
+        # (parallel -> pvtu, else vtu)
         self._child_index = 0
         self._time_step = -1
-        #_generate_time -> This file does not accept (function, time) tuple
+        # _generate_time -> This file does not accept (function, time) tuple
         #                   for __lshift__, and it generates the integer
         #                   time step by itself instead.
         self._generate_time = False

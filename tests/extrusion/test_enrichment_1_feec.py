@@ -56,7 +56,7 @@ def test_feec(horiz_complex, vert_complex):
 
     parms = {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}
 
-    ### TEST CURL(GRAD(u)) = 0, for u in W0 ###
+    # TEST CURL(GRAD(u)) = 0, for u in W0
 
     u = Function(W0)
     u.interpolate(Expression("x[0]*x[1] - x[1]*x[2]"))
@@ -77,7 +77,7 @@ def test_feec(horiz_complex, vert_complex):
     maxcoeff = max(abs(w.dat.data))
     assert maxcoeff < 1e-11
 
-    ### TEST DIV(CURL(v)) = 0, for v in W1 ###
+    # TEST DIV(CURL(v)) = 0, for v in W1
 
     v = project(Expression(("x[0]*x[1]", "-x[1]*x[2]", "x[0]*x[2]")), W1)
 
@@ -97,7 +97,7 @@ def test_feec(horiz_complex, vert_complex):
     maxcoeff = max(abs(y.dat.data))
     assert maxcoeff < 1e-11
 
-    ### TEST WEAKCURL(WEAKGRAD(y)) = 0, for y in W3 ###
+    # TEST WEAKCURL(WEAKGRAD(y)) = 0, for y in W3
 
     y = Function(W3)
     y.interpolate(Expression("x[0]*x[1] - x[1]*x[2]"))
@@ -118,7 +118,7 @@ def test_feec(horiz_complex, vert_complex):
     maxcoeff = max(abs(v.dat.data))
     assert maxcoeff < 1e-11
 
-    ### TEST WEAKDIV(WEAKCURL(w)) = 0, for w in W2 ###
+    # TEST WEAKDIV(WEAKCURL(w)) = 0, for w in W2
 
     w = project(Expression(("x[0]*x[1]", "-x[1]*x[2]", "x[0]*x[2]")), W2)
 

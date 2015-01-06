@@ -259,7 +259,7 @@ def _from_cgns(filename):
     """Read a CGNS .cgns file from `filename`"""
     plex = PETSc.DMPlex().createCGNSFromFile(filename)
 
-    #TODO: Add boundary IDs
+    # TODO: Add boundary IDs
     return plex
 
 
@@ -783,7 +783,7 @@ class ExtrudedMesh(MeshBase):
         self.dofs_per_column = eutils.compute_extruded_dofs(fiat_element, flat_temp.entity_dofs(),
                                                             layers)
 
-        #Compute Coordinates of the extruded mesh
+        # Compute Coordinates of the extruded mesh
         if layer_height is None:
             # Default to unit
             layer_height = 1.0 / layers
