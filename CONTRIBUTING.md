@@ -42,7 +42,6 @@ errors before committing and also calls `flake8` on your changed files. In the
 ```
 git config --local core.whitespace "space-before-tab, tab-in-indent, trailing-space, tabwidth=4"
 wget https://gist.github.com/kynan/d233073b66e860c41484/raw/pre-commit
-mv .git/hooks/pre-commit.sample .git/hooks/pre-commit
 chmod +x pre-commit
 ```
 
