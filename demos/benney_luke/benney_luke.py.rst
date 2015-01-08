@@ -44,13 +44,13 @@ Note that the Neumann boundary conditions have been used to remove every surface
   \int_{\Omega} \frac{\phi^{n+1}-\phi^{n+1/2}}{\frac{1}{2}\!dt}\,v + \frac{\mu}{2}\nabla\left(\frac{\phi^{n+1}-\phi^{n+1/2}}{\frac{1}{2}\!dt}\right)\cdot\nabla v + \eta^{n+1}\,v + \frac{\epsilon}{2}\nabla\phi^{n+1/2}\cdot\nabla\phi^{n+1/2}\,v \,dx\,dy &= 0 \\
   \int_{\Omega} q^{n+1}\,v - \frac{2}{3}\nabla\phi^{n+1}\cdot\nabla v \,dx\,dy &= 0.
 
-Furthermore, we note that the Benney-Luke equations admit asymptotic solutions (correct up to order :math:`\epsilon`). The "exact" solutions can be found by assumming one-dimensional travelling waves of the type
+Furthermore, we note that the Benney-Luke equations admit asymptotic solutions (correct up to order :math:`\epsilon`). The "exact" solutions can be found by assuming one-dimensional travelling waves of the type
 
 .. math::
 
   \eta(x,y,t) = \eta(\xi,\tau),\quad \phi(x,y,t) = \Phi(\xi,\tau), \qquad \text{with} \qquad \xi = \sqrt{\frac{\epsilon}{\mu}}(x-t), \quad \tau = \epsilon\sqrt{\frac{\epsilon}{\mu}}t, \quad \Phi = \sqrt{\frac{\epsilon}{\mu}}\phi.
 
-The Benney-Luke equations then become equivalent to a KdV equation for :math:`\eta` at leading order in :math:`\epsilon`. The soliton solution of the KdV travels with speed :math:`c` and gets reflected when reaching  the solid wall. The initial propagation before reflection matches the asymptotic solution for the surface elevation :math:`\eta` well. The asymptotic solution for the surface potential :math:`\phi` can be found by using :math:`\eta=\phi_{\xi}` (correct at leading order), giving
+The Benney-Luke equations then become equivalent to a Korteweg–de Vries (KdV) equation for :math:`\eta` at leading order in :math:`\epsilon`. The soliton solution of the KdV travels with speed :math:`c` and is reflected when reaching the solid wall. The initial propagation before reflection matches the asymptotic solution for the surface elevation :math:`\eta` well. The asymptotic solution for the surface potential :math:`\phi` can be found by using :math:`\eta=\phi_{\xi}` (correct at leading order), giving
 
 .. math::
 
