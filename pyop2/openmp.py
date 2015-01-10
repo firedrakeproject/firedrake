@@ -271,7 +271,7 @@ class ParLoop(device.ParLoop, host.ParLoop):
                 self._jit_args.append(self._it_space.layers - 1)
 
         if part.size > 0:
-            #TODO: compute partition size
+            # TODO: compute partition size
             plan = self._get_plan(part, 1024)
             self._argtypes[2] = ndpointer(plan.blkmap.dtype, shape=plan.blkmap.shape)
             self._jit_args[2] = plan.blkmap
