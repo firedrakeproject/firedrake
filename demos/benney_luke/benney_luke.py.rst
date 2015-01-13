@@ -203,4 +203,4 @@ A python script version of this demo can be found `here <benney_luke.py>`__.
 
 .. rubric:: References
 
-.. bibliography:: benney_luke_refs.bib
+.. bibliography:: ../../../demos/Benney_luke/benney_luke_refs.bib
