@@ -25,7 +25,10 @@
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = ['sphinx.ext.autodoc',
               'sphinx.ext.mathjax', 'sphinx.ext.intersphinx',
-              'sphinxcontrib.youtube']
+              'sphinxcontrib.youtube',
+              'sphinxcontrib.bibtex']
+########################### bibtex extension added by A. Kalogirou on 13/01/2015.
+
 # Both the class’ and the __init__ method’s docstring are concatenated and
 # inserted into the class definition
 autoclass_content = 'both'
