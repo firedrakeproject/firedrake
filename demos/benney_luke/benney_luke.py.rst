@@ -1,7 +1,11 @@
 Benney-Luke equations: a reduced water wave model
 =================================================
 
-The Benney-Luke-type equations consist of a reduced potential flow water wave model based on the assumptions of small amplitude parameter :math:`\epsilon` and small dispersion parameter :math:`\mu` (defined by the square of the ratio of the typical depth over a horizontal length scale). They describe the deviation from the still water surface, :math:`\eta(x,y,t)`, and the free surface potential, :math:`\phi(x,y,t)`. A modified version of the Benney-Luke equations can be obtained by the variational principle (Bokhove & Kalogirou, 2015):
+*This tutorial was contributed by Anna Kalogirou and Onno Bokhove.*
+
+*The work is based on the article "Variational water wave modelling: from continuum to experiment" by Onno Bokhove and Anna Kalogirou, submitted* :cite:`2015:lmscup`.
+
+The Benney-Luke-type equations consist of a reduced potential flow water wave model based on the assumptions of small amplitude parameter :math:`\epsilon` and small dispersion parameter :math:`\mu` (defined by the square of the ratio of the typical depth over a horizontal length scale). They describe the deviation from the still water surface, :math:`\eta(x,y,t)`, and the free surface potential, :math:`\phi(x,y,t)`. A modified version of the Benney-Luke equations can be obtained by the variational principle:
 
 .. math::
 
@@ -34,7 +38,7 @@ We can either directly use the partial variations in the variational principle a
   \int_{\Omega} \eta_t\,v + \frac{\mu}{2}\nabla\eta_t\cdot\nabla v - \left(1+\epsilon\eta\right)\nabla\phi\cdot\nabla v - \mu\nabla q\cdot\nabla v \,dx\,dy &= 0 \\
   \int_{\Omega} q\,v - \frac{2}{3}\nabla\phi\cdot\nabla v \,dx\,dy &= 0.
 
-Note that the Neumann boundary conditions have been used to remove every surface term that resulted from the integration by parts. Moreover, the variational form of the system requires the use of a symplectic integrator for the time-discretisation. Here we choose the 2nd-order Stormer-Verlet scheme, which requires two half-steps to update :math:`\phi` in time (one implicit and one explicit in general) and one (implicit) step for :math:`\eta`:
+Note that the Neumann boundary conditions have been used to remove every surface term that resulted from the integration by parts. Moreover, the variational form of the system requires the use of a symplectic integrator for the time-discretisation. Here we choose the 2nd-order Stormer-Verlet scheme :cite:`2006:SV`, which requires two half-steps to update :math:`\phi` in time (one implicit and one explicit in general) and one (implicit) step for :math:`\eta`:
 
 .. math::
 
@@ -50,7 +54,7 @@ Furthermore, we note that the Benney-Luke equations admit asymptotic solutions (
 
   \eta(x,y,t) = \eta(\xi,\tau),\quad \phi(x,y,t) = \Phi(\xi,\tau), \qquad \text{with} \qquad \xi = \sqrt{\frac{\epsilon}{\mu}}(x-t), \quad \tau = \epsilon\sqrt{\frac{\epsilon}{\mu}}t, \quad \Phi = \sqrt{\frac{\epsilon}{\mu}}\phi.
 
-The Benney-Luke equations then become equivalent to a Korteweg–de Vries (KdV) equation for :math:`\eta` at leading order in :math:`\epsilon`. The soliton solution of the KdV travels with speed :math:`c` and is reflected when reaching the solid wall. The initial propagation before reflection matches the asymptotic solution for the surface elevation :math:`\eta` well. The asymptotic solution for the surface potential :math:`\phi` can be found by using :math:`\eta=\phi_{\xi}` (correct at leading order), giving
+The Benney-Luke equations then become equivalent to a Korteweg-de Vries (KdV) equation for :math:`\eta` at leading order in :math:`\epsilon`. The soliton solution of the KdV :cite:`1989:KdV` travels with speed :math:`c` and is reflected when reaching the solid wall. The initial propagation before reflection matches the asymptotic solution for the surface elevation :math:`\eta` well. The asymptotic solution for the surface potential :math:`\phi` can be found by using :math:`\eta=\phi_{\xi}` (correct at leading order), giving
 
 .. math::
 
@@ -196,3 +200,7 @@ We are now ready to enter the main time iteration loop::
 The output files can be visualised using `paraview <http://www.paraview.org/>`__.
 
 A python script version of this demo can be found `here <benney_luke.py>`__.
+
+.. rubric:: References
+
+.. bibliography:: benney_luke_refs.bib
