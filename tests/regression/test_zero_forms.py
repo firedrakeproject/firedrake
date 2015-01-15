@@ -51,7 +51,7 @@ def test_dsn_parallel():
         assert np.allclose(assemble(form), len(domain))
 
 
-@pytest.mark.parametrize(['expr', 'value'],
+@pytest.mark.parametrize(['expr', 'value', 'typ', 'vector'],
                          itertools.product(['f',
                                             '2*f',
                                             'tanh(f)',
@@ -59,18 +59,37 @@ def test_dsn_parallel():
                                             'f + tanh(f)',
                                             'cos(f) + sin(f)',
                                             'cos(f)*cos(f) + sin(f)*sin(f)',
-                                            'tanh(f) + cos(f) + sin(f)'],
-                                           [1, 10, 20, -1, -10, -20]))
-def test_math_functions(mesh, expr, value):
-    V = FunctionSpace(mesh, 'CG', 1)
-
-    f = Function(V)
-    f.assign(value)
+                                            'tanh(f) + cos(f) + sin(f)',
+                                            '1.0/tanh(f) + 1.0/f',
+                                            'sqrt(f*f)',
+                                            '1.0/tanh(sqrt(f*f)) + 1.0/f + sqrt(f*f)'],
+                                           [1, 10, 20, -1, -10, -20],
+                                           ['function', 'constant'],
+                                           [False, True]))
+def test_math_functions(mesh, expr, value, typ, vector):
+    if typ == 'function':
+        if vector:
+            V = VectorFunctionSpace(mesh, 'CG', 1)
+        else:
+            V = FunctionSpace(mesh, 'CG', 1)
+        f = Function(V)
+        f.assign(value)
+        if vector:
+            f = dot(f, f)
+    elif typ == 'constant':
+        if vector:
+            f = Constant([value, value], domain=mesh)
+            f = dot(f, f)
+        else:
+            f = Constant(value, domain=mesh)
 
     actual = assemble(eval(expr)*dx)
 
     from math import *
-    f = value
+    if vector:
+        f = 2*value**2
+    else:
+        f = value
     expect = eval(expr)
     assert np.allclose(actual, expect)
 
