@@ -12,6 +12,7 @@ cimport petsc4py.PETSc as PETSc
 np.import_array()
 
 include "../dmplex.pxi"
+include "firedrakeimpl.pxi"
 
 
 @cython.boundscheck(False)
@@ -53,6 +54,35 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
     return old_to_new, new_to_old
 
 
+def create_lgmap(PETSc.DM dm):
+    """Create a local to global map for all points in the given DM.
+
+    :arg dm: The DM to create the map for.
+
+    Returns a petsc4py LGMap."""
+    cdef:
+        PETSc.IS iset = PETSc.IS()
+        PETSc.LGMap lgmap = PETSc.LGMap()
+        PetscInt *indices
+        PetscInt i, size
+        PetscInt start, end
+
+    # Not necessary on one process
+    if MPI.comm.size == 1:
+        return None
+    CHKERR(DMPlexCreatePointNumbering(dm.dm, &iset.iset))
+    CHKERR(ISLocalToGlobalMappingCreateIS(iset.iset, &lgmap.lgm))
+    CHKERR(ISLocalToGlobalMappingGetSize(lgmap.lgm, &size))
+    CHKERR(ISLocalToGlobalMappingGetBlockIndices(lgmap.lgm, <const PetscInt**>&indices))
+    for i in range(size):
+        if indices[i] < 0:
+            indices[i] = -(indices[i]+1)
+
+    CHKERR(ISLocalToGlobalMappingRestoreBlockIndices(lgmap.lgm, <const PetscInt**>&indices))
+
+    return lgmap
+
+
 @cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -69,7 +99,7 @@ def coarse_to_fine_cells(mc, mf):
         PetscInt fStart, fEnd, c, val, dim, nref, ncoarse
         PetscInt i, ccell, fcell, nfine
         np.ndarray[PetscInt, ndim=2, mode="c"] coarse_to_fine
-        np.ndarray[PetscInt, ndim=1, mode="c"] co2n, cn2o, fo2n, fn2o
+        np.ndarray[PetscInt, ndim=1, mode="c"] co2n, fn2o, idx
 
     cdm = mc._plex
     fdm = mf._plex
@@ -77,25 +107,42 @@ def coarse_to_fine_cells(mc, mf):
     nref = 2 ** dim
     ncoarse = mc.cell_set.size
     nfine = mf.cell_set.size
-    co2n, cn2o  = get_entity_renumbering(cdm, mc._cell_numbering, "cell")
-    fo2n, fn2o  = get_entity_renumbering(fdm, mf._cell_numbering, "cell")
+    co2n, _ = get_entity_renumbering(cdm, mc._cell_numbering, "cell")
+    _, fn2o = get_entity_renumbering(fdm, mf._cell_numbering, "cell")
     coarse_to_fine = np.empty((ncoarse, nref), dtype=PETSc.IntType)
     coarse_to_fine[:] = -1
 
     # Walk owned fine cells:
     fStart, fEnd = 0, nfine
+
+    if MPI.comm.size > 1:
+        # Compute global numbers of original cell numbers
+        mf._overlapped_lgmap.apply(fn2o, result=fn2o)
+        # Compute local numbers of original cells on non-overlapped mesh
+        fn2o = mf._non_overlapped_lgmap.applyInverse(fn2o, PETSc.LGMap.MapType.MASK)
+        # Need to permute order of co2n so it maps from non-overlapped
+        # cells to new cells (these may have changed order).  Need to
+        # map all known cells through.
+        idx = np.arange(mc.cell_set.total_size, dtype=PETSc.IntType)
+        # LocalToGlobal
+        mc._overlapped_lgmap.apply(idx, result=idx)
+        # GlobalToLocal
+        # Drop values that did not exist on non-overlapped mesh
+        idx = mc._non_overlapped_lgmap.applyInverse(idx, PETSc.LGMap.MapType.DROP)
+        co2n = co2n[idx]
+
     for c in range(fStart, fEnd):
         # get original (overlapped) cell number
         fcell = fn2o[c]
         # The owned cells should map into non-overlapped cell numbers
         # (due to parallel growth strategy)
-        assert fcell < fEnd
+        assert 0 <= fcell < fEnd
 
         # Find original coarse cell (fcell / nref) and then map
         # forward to renumbered coarse cell (again non-overlapped
         # cells should map into owned coarse cells)
         ccell = co2n[fcell / nref]
-        assert ccell < ncoarse
+        assert 0 <= ccell < ncoarse
         for i in range(nref):
             if coarse_to_fine[ccell, i] == -1:
                 coarse_to_fine[ccell, i] = c
@@ -118,12 +165,13 @@ def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
     cell such that the dofs on the each fine cell can also be
     traversed in a consistent order."""
     cdef:
-        PetscInt vcStart, vcEnd, vfStart, vfEnd, cshift, fshift,
+        PetscInt vcStart_orig, vcEnd_orig, vfStart_orig, vfEnd_orig
+        PetscInt vcStart_new, vcEnd_new, vfStart_new, vfEnd_new
         PetscInt ncoarse, nfine, ccell, fcell, i, j, k, vtx, ovtx, fcvtx, cvtx
         PetscInt nvertex, ofcell
         bint found
         np.ndarray[PetscInt, ndim=2, mode="c"] new_c2f = -np.ones_like(c2f)
-        np.ndarray[PetscInt, ndim=1, mode="c"] inv_cvertex, fvertex, indices
+        np.ndarray[PetscInt, ndim=1, mode="c"] cn2o, fo2n, indices
         np.ndarray[PetscInt, ndim=2, mode="c"] cvertices, fvertices
         np.ndarray[PetscInt, ndim=2, mode="c"] vertex_perm
     coarse = P1c.mesh()
@@ -133,28 +181,54 @@ def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
         raise NotImplementedError("Only implemented for triangles, sorry")
     ncoarse = coarse.cell_set.size
     nfine = fine.cell_set.size
-    cshift = coarse.cell_set.total_size - ncoarse
-    fshift = fine.cell_set.total_size - nfine
 
-    vcStart, vcEnd = coarse._plex.getDepthStratum(0)
-    vfStart, vfEnd = fine._plex.getDepthStratum(0)
+    vcStart_new, vcEnd_new = coarse._plex.getDepthStratum(0)
+    vfStart_new, vfEnd_new = fine._plex.getDepthStratum(0)
+    vcStart_orig, vcEnd_orig = coarse._non_overlapped_nent[0]
+    vfStart_orig, vfEnd_orig = fine._non_overlapped_nent[0]
 
     # Get renumbering to original (plex) vertex numbers
-    _, inv_cvertex = get_entity_renumbering(coarse._plex,
-                                            coarse._vertex_numbering, "vertex")
-    fvertex, _ = get_entity_renumbering(fine._plex,
-                                        fine._vertex_numbering, "vertex")
+    _, cn2o = get_entity_renumbering(coarse._plex,
+                                     coarse._vertex_numbering, "vertex")
+    fo2n, _ = get_entity_renumbering(fine._plex,
+                                     fine._vertex_numbering, "vertex")
 
     # Get map from coarse points into corresponding fine mesh points.
     # Note this is only valid for "owned" entities (non-overlapped)
-    indices = coarse._fpointIS.indices
+    indices = coarse._fpointIS.indices[vcStart_orig:vcEnd_orig]
 
     cvertices = P1c.cell_node_map().values
-
-    fmap = P1f.cell_node_map().values
     fvertices = P1f.cell_node_map().values
+    if MPI.comm.size > 1:
+        # Convert values in indices to points in the overlapped
+        # (rather than non-overlapped) mesh.
+        # Convert to global numbers
+        fine._non_overlapped_lgmap.apply(indices, result=indices)
+        # Send back to local numbers on the overlapped mesh
+        indices = fine._overlapped_lgmap.applyInverse(indices,
+                                                      PETSc.LGMap.MapType.MASK)
+        indices -= vfStart_new
+
+        # Need to map the new-to-old map back onto the original
+        # (non-overlapped) plex points
+        # Convert from vertex numbers to plex point numbers
+        cn2o += vcStart_new
+        # Go to global numbers
+        coarse._overlapped_lgmap.apply(cn2o, result=cn2o)
+        # Back to local numbers on the original (non-overlapped) mesh
+        cn2o = coarse._non_overlapped_lgmap.applyInverse(cn2o,
+                                                         PETSc.LGMap.MapType.MASK)
+        # Go from point numbers back to vertex numbers
+        cn2o -= vcStart_orig
+        # Note that unlike in coarse_to_fine_cells, we don't need to
+        # permute fo2n because we always access it using overlapped
+        # plex point indices, rather than non-overlapped indices.
+    else:
+        indices = indices - vfStart_new
+
     nvertex = P1c.cell_node_map().arity
     vertex_perm = -np.ones((ncoarse, nvertex*4), dtype=PETSc.IntType)
+
     for ccell in range(ncoarse):
         for fcell in range(4):
             # Cell order (given coarse reference cell numbering) is as below:
@@ -179,8 +253,7 @@ def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
                 vtx = fvertices[c2f[ccell, fcell], j]
                 for i in range(nvertex):
                     cvtx = cvertices[ccell, i]
-                    fcvtx = fvertex[indices[inv_cvertex[cvtx] + vcStart - cshift]
-                                    - vfStart + fshift]
+                    fcvtx = fo2n[indices[cn2o[cvtx]]]
                     if vtx == fcvtx:
                         new_c2f[ccell, i] = c2f[ccell, fcell]
                         found = True
@@ -219,8 +292,7 @@ def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
                 found = False
                 for j in range(nvertex):
                     cvtx = cvertices[ccell, j]
-                    fcvtx = fvertex[indices[inv_cvertex[cvtx] + vcStart - cshift]
-                                    - vfStart + fshift]
+                    fcvtx = fo2n[indices[cn2o[cvtx]]]
                     if vtx == fcvtx:
                         found = True
                         break
@@ -260,8 +332,6 @@ def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
     return new_c2f, vertex_perm
 
 
-@cython.wraparound(False)
-@cython.boundscheck(False)
 cdef inline PetscInt hash_perm(PetscInt p0, PetscInt p1):
     if p0 == 0:
         if p1 == 1:
