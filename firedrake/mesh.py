@@ -634,17 +634,33 @@ class QuadrilateralMesh(MeshBase):
     """
 
     @utils.cached_property
-    def _closure_ordering(self):
-        """Pair of the cell closure and edge directions."""
-        return dmplex.quadrilateral_closure_ordering(self._plex, self._cell_numbering)
-
-    @property
     def cell_closure(self):
         """2D array of ordered cell closures
 
         Each row contains ordered cell entities for a cell, one row per cell.
         """
-        return self._closure_ordering[0]
+
+        plex = self._plex
+        cell_numbering = self._cell_numbering
+
+        # Global vertex numbering
+        vertex_numbering = plex.getDefaultGlobalSection()
+
+        cell_ranks = dmplex.get_cell_remote_ranks(plex)
+
+        facet_orientations = dmplex.quadrilateral_facet_orientations(
+            plex, vertex_numbering, cell_ranks)
+
+        cell_orientations = dmplex.orientations_facet2cell(
+            plex, vertex_numbering, cell_ranks,
+            facet_orientations, cell_numbering)
+
+        dmplex.exchange_cell_orientations(plex,
+                                          cell_numbering,
+                                          cell_orientations)
+
+        return dmplex.quadrilateral_closure_ordering(
+            plex, vertex_numbering, cell_numbering, cell_orientations)
 
     def create_cell_node_list(self, global_numbering, fiat_element):
         """Builds the DoF mapping.
@@ -652,7 +668,7 @@ class QuadrilateralMesh(MeshBase):
         :arg global_numbering: Section describing the global DoF numbering
         :arg fiat_element: The FIAT element for the cell
         """
-        edge_directions = self._closure_ordering[1]
+        edge_directions = np.zeros((len(self.cell_closure), 4), dtype=np.int32)
 
         entity_dofs = fiat_element.entity_dofs()
         dofs_per_cell = sum([len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()])
