@@ -61,7 +61,7 @@ parameters.add(Parameters("assembly_cache",
                           max_misses=3))
 
 parameters.add(Parameters("coffee",
-                          O2=True))
+                          O2=False))
 
 # Spew citation for coffee paper if user modifies coffee options.
 parameters["coffee"].set_update_function(lambda k, v: Citations().register("Luporini2015"))
