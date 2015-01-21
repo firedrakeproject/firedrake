@@ -553,9 +553,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, reorder=None):
     for i in range(refinement_level):
         plex = plex.refine()
 
-    vStart, vEnd = plex.getDepthStratum(0)
-    nvertices = vEnd - vStart
-    coords = plex.getCoordinatesLocal().array.reshape(nvertices, 3)
+    coords = plex.getCoordinatesLocal().array.reshape(-1, 3)
     scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
     coords *= scale
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
