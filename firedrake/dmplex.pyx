@@ -374,33 +374,70 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
 @cython.wraparound(False)
 def get_cell_nodes(PETSc.Section global_numbering,
                    np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures,
-                   dofs_per_cell):
+                   fiat_element):
     """
-    Builds the DoF mapping for non-extruded meshes.
+    Builds the DoF mapping.
 
     :arg global_numbering: Section describing the global DoF numbering
     :arg cell_closures: 2D array of ordered cell closures
-    :arg dofs_per_cell: Number of DoFs associated with each mesh cell
+    :arg fiat_element: The FIAT element for the cell
+
+    Preconditions: This function assumes that cell_closures contains mesh
+    entities ordered by dimension, i.e. vertices first, then edges, faces, and
+    finally the cell. For quadrilateral meshes, edges corresponding to
+    dimension (0, 1) in the FIAT element must precede edges corresponding to
+    dimension (1, 0) in the FIAT element.
     """
     cdef:
-        PetscInt c, ncells, ci, nclosure, offset, p, pi, dof, off, i
+        int *ceil_ndofs = NULL
+        int *flat_index = NULL
+        PetscInt ncells, nclosure, dofs_per_cell
+        PetscInt c, i, j, k
+        PetscInt entity, ndofs, off
         np.ndarray[np.int32_t, ndim=2, mode="c"] cell_nodes
 
     ncells = cell_closures.shape[0]
     nclosure = cell_closures.shape[1]
-    cell_nodes = np.empty((ncells, dofs_per_cell), dtype=np.int32)
 
+    # Extract ordering from FIAT element entity DoFs
+    ndofs_list = []
+    flat_index_list = []
+
+    entity_dofs = fiat_element.entity_dofs()
+    for dim in sorted(entity_dofs.keys()):
+        for entity_num in xrange(len(entity_dofs[dim])):
+            dofs = entity_dofs[dim][entity_num]
+
+            ndofs_list.append(len(dofs))
+            flat_index_list.extend(dofs)
+
+    # Coerce lists into C arrays
+    assert nclosure == len(ndofs_list)
+    dofs_per_cell = len(flat_index_list)
+
+    CHKERR(PetscMalloc1(nclosure, &ceil_ndofs))
+    CHKERR(PetscMalloc1(dofs_per_cell, &flat_index))
+
+    for i in range(nclosure):
+        ceil_ndofs[i] = ndofs_list[i]
+    for i in range(dofs_per_cell):
+        flat_index[i] = flat_index_list[i]
+
+    # Fill cell nodes
+    cell_nodes = np.empty((ncells, dofs_per_cell), dtype=np.int32)
     for c in range(ncells):
-        offset = 0
-        for ci in range(nclosure):
-            p = cell_closures[c, ci]
-            CHKERR(PetscSectionGetDof(global_numbering.sec,
-                                      p, &dof))
-            CHKERR(PetscSectionGetOffset(global_numbering.sec,
-                                         p, &off))
-            for i in range(dof):
-                cell_nodes[c, offset+i] = off+i
-            offset += dof
+        k = 0
+        for i in range(nclosure):
+            entity = cell_closures[c, i]
+            CHKERR(PetscSectionGetDof(global_numbering.sec, entity, &ndofs))
+            if ndofs > 0:
+                CHKERR(PetscSectionGetOffset(global_numbering.sec, entity, &off))
+                for j in range(ceil_ndofs[i]):
+                    cell_nodes[c, flat_index[k]] = off + j
+                    k += 1
+
+    CHKERR(PetscFree(ceil_ndofs))
+    CHKERR(PetscFree(flat_index))
     return cell_nodes
 
 @cython.boundscheck(False)
@@ -485,112 +522,6 @@ def get_quadrilateral_cell_nodes(PETSc.Section global_numbering,
 
     CHKERR(PetscFree(flat_local_index))
     CHKERR(PetscFree(cell_nodes_row))
-    return cell_nodes
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def get_extruded_cell_nodes(PETSc.DM plex,
-                            PETSc.Section global_numbering,
-                            np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures,
-                            fiat_element, dofs_per_cell):
-    """
-    Builds the DoF mapping for extruded meshes.
-
-    :arg plex: The DMPlex object encapsulating the mesh topology
-    :arg global_numbering: Section describing the global DoF numbering
-    :arg cell_closures: 2D array of ordered cell closures
-    :arg fiat_element: The FIAT element for the extruded cell
-    :arg dofs_per_cell: Number of DoFs associated with each mesh cell
-    """
-    cdef:
-        PetscInt c, ncells, ci, nclosure, d, dim
-        PetscInt offset, p, pdof, off, glbl, lcl, i, pi
-        PetscInt *pStarts = NULL
-        PetscInt *pEnds = NULL
-        PetscInt *hdofs = NULL
-        PetscInt *vdofs = NULL
-        np.ndarray[np.int32_t, ndim=2, mode="c"] cell_nodes
-
-    ncells = cell_closures.shape[0]
-    nclosure = cell_closures.shape[1]
-    cell_nodes = np.empty((ncells, dofs_per_cell), dtype=np.int32)
-
-    dim = plex.getDimension()
-    CHKERR(PetscMalloc1(dim+1, &pStarts))
-    CHKERR(PetscMalloc1(dim+1, &pEnds))
-    for d in range(dim+1):
-        pStarts[d], pEnds[d] = plex.getDepthStratum(d)
-
-    entity_dofs = fiat_element.entity_dofs()
-    CHKERR(PetscMalloc1(dim+1, &hdofs))
-    CHKERR(PetscMalloc1(dim+1, &vdofs))
-    for d in range(dim+1):
-        hdofs[d] = len(entity_dofs[(d,0)][0])
-        vdofs[d] = len(entity_dofs[(d,1)][0])
-
-    flattened_element = fiat_element.flattened_element()
-    flat_entity_dofs = flattened_element.entity_dofs()
-
-    cdef PetscInt ***fled_ptr = NULL
-    cdef PetscInt *lcl_dofs = NULL
-    CHKERR(PetscMalloc1(len(flat_entity_dofs), &fled_ptr))
-    for i in range(len(flat_entity_dofs)):
-        CHKERR(PetscMalloc1(len(flat_entity_dofs[i]), &(fled_ptr[i])))
-        for j in range(len(flat_entity_dofs[i])):
-            CHKERR(PetscMalloc1(len(flat_entity_dofs[i][j]), &(fled_ptr[i][j])))
-            for k in range(len(flat_entity_dofs[i][j])):
-                fled_ptr[i][j][k] = flat_entity_dofs[i][j][k]
-
-    for c in range(ncells):
-        offset = 0
-        for d in range(dim+1):
-            pi = 0
-            for ci in range(nclosure):
-                if pStarts[d] <= cell_closures[c, ci] < pEnds[d]:
-                    p = cell_closures[c, ci]
-                    CHKERR(PetscSectionGetDof(global_numbering.sec,
-                                              p, &pdof))
-                    if pdof > 0:
-                        CHKERR(PetscSectionGetOffset(global_numbering.sec,
-                                                     p, &glbl))
-
-                        # For extruded entities the numberings are:
-                        # Global: [bottom[:], top[:], side[:]]
-                        # Local:  [bottom[i], top[i], side[i] for i in bottom[:]]
-                        #
-                        # eg. extruded P3 facet:
-                        #       Local            Global
-                        #  --1---6---11--   --12---13---14--
-                        #  | 4   9   14 |   |  5    8   11 |
-                        #  | 3   8   13 |   |  4    7   10 |
-                        #  | 2   7   12 |   |  3    6    9 |
-                        #  --0---5---10--   ---0----1----2--
-                        #
-                        # cell_nodes = [0,12,3,4,5,1,13,6,7,8,2,14,9,10,11]
-
-                        lcl_dofs = fled_ptr[d][pi]
-                        for i in range(hdofs[d]):
-                            lcl = lcl_dofs[i]
-                            cell_nodes[c, lcl] = glbl + i
-                        for i in range(vdofs[d]):
-                            lcl = lcl_dofs[hdofs[d] + i]
-                            cell_nodes[c, lcl] = glbl + hdofs[d] + i
-                        for i in range(hdofs[d]):
-                            lcl = lcl_dofs[hdofs[d] + vdofs[d] + i]
-                            cell_nodes[c, lcl] = glbl + hdofs[d] + vdofs[d] + i
-
-                        offset += 2*hdofs[d] + vdofs[d]
-                        pi += 1
-
-    for i in range(len(flat_entity_dofs)):
-        for j in range(len(flat_entity_dofs[i])):
-            CHKERR(PetscFree(fled_ptr[i][j]))
-        CHKERR(PetscFree(fled_ptr[i]))
-    CHKERR(PetscFree(fled_ptr))
-    CHKERR(PetscFree(pStarts))
-    CHKERR(PetscFree(pEnds))
-    CHKERR(PetscFree(hdofs))
-    CHKERR(PetscFree(vdofs))
     return cell_nodes
 
 @cython.boundscheck(False)

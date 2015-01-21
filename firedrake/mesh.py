@@ -611,16 +611,15 @@ class SimplexMesh(MeshBase):
         return dmplex.closure_ordering(dm, dm.getDefaultGlobalSection(),
                                        self._cell_numbering, entity_per_cell)
 
-    def create_cell_node_list(self, global_numbering, fiat_element, dofs_per_cell):
+    def create_cell_node_list(self, global_numbering, fiat_element):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
         :arg fiat_element: The FIAT element for the cell
-        :arg dofs_per_cell: Number of DoFs associated with each mesh cell
         """
         return dmplex.get_cell_nodes(global_numbering,
                                      self.cell_closure,
-                                     dofs_per_cell)
+                                     fiat_element)
 
     def facet_dimensions(self):
         """Returns a singleton list containing the facet dimension."""
@@ -647,14 +646,17 @@ class QuadrilateralMesh(MeshBase):
         """
         return self._closure_ordering[0]
 
-    def create_cell_node_list(self, global_numbering, fiat_element, dofs_per_cell):
+    def create_cell_node_list(self, global_numbering, fiat_element):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
         :arg fiat_element: The FIAT element for the cell
-        :arg dofs_per_cell: Number of DoFs associated with each mesh cell
         """
         edge_directions = self._closure_ordering[1]
+
+        entity_dofs = fiat_element.entity_dofs()
+        dofs_per_cell = sum([len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()])
+
         return dmplex.get_quadrilateral_cell_nodes(global_numbering,
                                                    self.cell_closure,
                                                    edge_directions,
@@ -838,18 +840,15 @@ class ExtrudedMesh(MeshBase):
         """
         return self._old_mesh.cell_closure
 
-    def create_cell_node_list(self, global_numbering, fiat_element, dofs_per_cell):
+    def create_cell_node_list(self, global_numbering, fiat_element):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
         :arg fiat_element: The FIAT element for the cell
-        :arg dofs_per_cell: Number of DoFs associated with each mesh cell
         """
-        return dmplex.get_extruded_cell_nodes(self._plex,
-                                              global_numbering,
-                                              self.cell_closure,
-                                              fiat_element,
-                                              dofs_per_cell)
+        return dmplex.get_cell_nodes(global_numbering,
+                                     self.cell_closure,
+                                     fiat_element.flattened_element())
 
     @property
     def layers(self):
