@@ -83,6 +83,53 @@ def create_lgmap(PETSc.DM dm):
     return lgmap
 
 
+# Exposition:
+#
+# These next functions compute maps from coarse mesh cells to fine
+# mesh cells and provide a consistent vertex reordering of each fine
+# cell inside each coarse cell.  In parallel, this is somewhat
+# complicated because the DMs only provide information about
+# relationships between non-overlapped meshes, and we only have
+# overlapped meshes.  We there need to translate non-overlapped DM
+# numbering into overlapped-DM numbering and vice versa, as well as
+# translating between firedrake numbering and DM numbering.
+#
+# A picture is useful here to make things clearer.
+#
+# To translate between overlapped and non-overlapped DM points, we
+# need to go via global numbers (which don't change)
+#
+#      DM_orig<--.    ,-<--DM_new
+#         |      |    |      |
+#     L2G v  G2L ^    v L2G  ^ G2L
+#         |      |    |      |
+#         '-->-->Global-->---'
+#
+# Mapping between Firedrake numbering and DM numbering is carried out
+# by computing the section permutation `get_entity_renumbering` above.
+#
+#            .->-o2n->-.
+#      DM_new          Firedrake
+#            `-<-n2o-<-'
+#
+# Finally, coarse to fine maps are produced on the non-overlapped DM
+# and subsequently composed with the appropriate sequence of maps to
+# get to Firedrake numbering (and vice versa).
+#
+#     DM_orig_coarse
+#           |
+#           v coarse_to_fine_cells [coarse_cell = floor(fine_cell / 2**tdim)]
+#           |
+#      DM_orig_fine
+#
+#
+#     DM_orig_coarse
+#           |
+#           v coarse_to_fine_vertices (via DMPlexCreateCoarsePointIS)
+#           |
+#      DM_orig_fine
+#
+# Phew.
 @cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)
