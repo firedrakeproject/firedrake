@@ -50,8 +50,6 @@ class FunctionSpaceBase(ObjectCached):
 
             # Get the flattened version of the FIAT element
             self.flattened_element = self.fiat_element.flattened_element()
-            entity_dofs = self.flattened_element.entity_dofs()
-            self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
 
             # Compute the number of DoFs per dimension on top/bottom and sides
             entity_dofs = self.fiat_element.entity_dofs()
@@ -87,7 +85,6 @@ class FunctionSpaceBase(ObjectCached):
 
             entity_dofs = fiat_utils.flat_entity_dofs(self.fiat_element)
             self._dofs_per_entity = [len(entity[0]) for d, entity in entity_dofs.iteritems()]
-            self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
 
         self.name = name
         self._dim = dim
@@ -131,8 +128,7 @@ class FunctionSpaceBase(ObjectCached):
         self._node_count = self._global_numbering.getStorageSize()
 
         self.cell_node_list = mesh.create_cell_node_list(self._global_numbering,
-                                                         self.fiat_element,
-                                                         sum(self._dofs_per_cell))
+                                                         self.fiat_element)
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
             # Compute the facet_numbering and store with the parent mesh
