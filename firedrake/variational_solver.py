@@ -39,12 +39,12 @@ class NonlinearVariationalProblem(object):
         bcs = solving._extract_bcs(bcs)
 
         # Store input UFL forms and solution Function
-        self.F_ufl = F
+        self.F = F
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
-        self.J_ufl = J or ufl_expr.derivative(F, u)
+        self.J = J or ufl_expr.derivative(F, u)
         self.Jp = Jp
-        self.u_ufl = u
+        self.u = u
         self.bcs = bcs
 
         # Store form compiler parameters
@@ -93,24 +93,21 @@ class NonlinearVariationalSolver(object):
         # force an additional assembly of the matrix since in
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
-        self._jac_tensor = assemble.assemble(self._problem.J_ufl, bcs=self._problem.bcs,
-                                             form_compiler_parameters=self._problem.form_compiler_parameters)
+        self._jac = assemble.assemble(self._problem.J, bcs=self._problem.bcs,
+                                      form_compiler_parameters=self._problem.form_compiler_parameters)
         if self._problem.Jp is not None:
-            self._jac_ptensor = assemble.assemble(self._problem.Jp, bcs=self._problem.bcs,
-                                                  form_compiler_parameters=self._problem.form_compiler_parameters)
+            self._pjac = assemble.assemble(self._problem.Jp, bcs=self._problem.bcs,
+                                           form_compiler_parameters=self._problem.form_compiler_parameters)
         else:
-            self._jac_ptensor = self._jac_tensor
-        test = self._problem.F_ufl.arguments()[0]
-        self._F_tensor = function.Function(test.function_space())
+            self._pjac = self._jac
+        test = self._problem.F.arguments()[0]
+        self._F = function.Function(test.function_space())
         # Function to hold current guess
-        self._x = function.Function(self._problem.u_ufl)
-        self._problem.F_ufl = ufl.replace(self._problem.F_ufl, {self._problem.u_ufl:
-                                                                self._x})
-        self._problem.J_ufl = ufl.replace(self._problem.J_ufl, {self._problem.u_ufl:
-                                                                self._x})
+        self._x = function.Function(self._problem.u)
+        self._problem.F = ufl.replace(self._problem.F, {self._problem.u: self._x})
+        self._problem.J = ufl.replace(self._problem.J, {self._problem.u: self._x})
         if self._problem.Jp is not None:
-            self._problem.Jp = ufl.replace(self._problem.Jp, {self._problem.u_ufl:
-                                                              self._x})
+            self._problem.Jp = ufl.replace(self._problem.Jp, {self._problem.u: self._x})
         self._jacobian_assembled = False
         self.snes = PETSc.SNES().create()
         self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
@@ -130,23 +127,23 @@ class NonlinearVariationalSolver(object):
         # Make sure we don't stomp on a dict the user has passed in.
         parameters = parameters.copy() if parameters is not None else {}
         # Mixed problem, use jacobi pc if user has not supplied one.
-        if self._jac_tensor._M.sparsity.shape != (1, 1):
+        if self._jac._M.sparsity.shape != (1, 1):
             parameters.setdefault('pc_type', 'jacobi')
 
         self.parameters = parameters
 
         ksp = self.snes.getKSP()
         pc = ksp.getPC()
-        pmat = self._jac_ptensor._M
+        pmat = self._pjac._M
         names = [fs.name if fs.name else str(i)
                  for i, fs in enumerate(test.function_space())]
 
         ises = solving_utils.set_fieldsplits(pmat, pc, names=names)
 
-        with self._F_tensor.dat.vec as v:
+        with self._F.dat.vec as v:
             self.snes.setFunction(self.form_function, v)
-        self.snes.setJacobian(self.form_jacobian, J=self._jac_tensor._M.handle,
-                              P=self._jac_ptensor._M.handle)
+        self.snes.setJacobian(self.form_jacobian, J=self._jac._M.handle,
+                              P=self._pjac._M.handle)
 
         nullspace = kwargs.get('nullspace', None)
         if nullspace is not None:
@@ -159,9 +156,9 @@ class NonlinearVariationalSolver(object):
              space of the operator.
 
         This overwrites any existing null space."""
-        nullspace._apply(self._jac_tensor._M, ises=ises)
+        nullspace._apply(self._jac._M, ises=ises)
         if self._problem.Jp is not None:
-            nullspace._apply(self._jac_ptensor._M, ises=ises)
+            nullspace._apply(self._pjac._M, ises=ises)
 
     def form_function(self, snes, X_, F_):
         # X_ may not be the same vector as the vec behind self._x, so
@@ -170,14 +167,14 @@ class NonlinearVariationalSolver(object):
             if v != X_:
                 with v as _v, X_ as _x:
                     _v[:] = _x[:]
-        assemble.assemble(self._problem.F_ufl, tensor=self._F_tensor,
+        assemble.assemble(self._problem.F, tensor=self._F,
                           form_compiler_parameters=self._problem.form_compiler_parameters)
         for bc in self._problem.bcs:
-            bc.zero(self._F_tensor)
+            bc.zero(self._F)
 
         # F_ may not be the same vector as self._F_tensor, so copy
         # residual out to F_.
-        with self._F_tensor.dat.vec_ro as v:
+        with self._F.dat.vec_ro as v:
             if F_ != v:
                 with v as _v, F_ as _f:
                     _f[:] = _v[:]
@@ -194,17 +191,17 @@ class NonlinearVariationalSolver(object):
             if v != X_:
                 with v as _v, X_ as _x:
                     _v[:] = _x[:]
-        assemble.assemble(self._problem.J_ufl,
-                          tensor=self._jac_tensor,
+        assemble.assemble(self._problem.J,
+                          tensor=self._jac,
                           bcs=self._problem.bcs,
                           form_compiler_parameters=self._problem.form_compiler_parameters)
-        self._jac_tensor.M._force_evaluation()
+        self._jac.M._force_evaluation()
         if self._problem.Jp is not None:
             assemble.assemble(self._problem.Jp,
-                              tensor=self._jac_ptensor,
+                              tensor=self._pjac,
                               bcs=self._problem.bcs,
                               form_compiler_parameters=self._problem.form_compiler_parameters)
-            self._jac_ptensor.M._force_evaluation()
+            self._pjac.M._force_evaluation()
             return PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN
         return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
 
@@ -242,13 +239,13 @@ class NonlinearVariationalSolver(object):
     def solve(self):
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:
-            bc.apply(self._problem.u_ufl)
+            bc.apply(self._problem.u)
 
         # User might have updated parameters dict before calling
         # solve, ensure these are passed through to the snes.
         solving_utils.update_parameters(self, self.snes)
 
-        with self._problem.u_ufl.dat.vec as v:
+        with self._problem.u.dat.vec as v:
             self.snes.solve(None, v)
 
         reasons = self.snes.ConvergedReason()
