@@ -99,21 +99,39 @@ def test_unit_circle_parallel():
     assert abs(integrate_one(UnitCircleMesh(4)) - pi * 0.5 ** 2) < 0.02
 
 
-def test_num_exterior_facets():
-    m = UnitIcosahedralSphereMesh(0)
+def assert_num_exterior_facets_equals_zero(m):
     # Need to initialise the mesh so that exterior facets have been
     # built.
     m.init()
     assert m.exterior_facets.set.total_size == 0
+
+
+def run_icosahedral_sphere_mesh_num_exterior_facets():
+    m = UnitIcosahedralSphereMesh(0)
+    assert_num_exterior_facets_equals_zero(m)
+
+
+def test_icosahedral_sphere_mesh_num_exterior_facets():
+    run_icosahedral_sphere_mesh_num_exterior_facets()
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_num_exterior_facets_parallel():
-    m = UnitIcosahedralSphereMesh(0)
-    # Need to initialise the mesh so that exterior facets have been
-    # built.
-    m.init()
-    assert m.exterior_facets.set.total_size == 0
+def test_icosahedral_sphere_mesh_num_exterior_facets_parallel():
+    run_icosahedral_sphere_mesh_num_exterior_facets()
+
+
+def run_cubed_sphere_mesh_num_exterior_facets():
+    m = UnitCubedSphereMesh(0)
+    assert_num_exterior_facets_equals_zero(m)
+
+
+def test_cubed_sphere_mesh_num_exterior_facets():
+    run_cubed_sphere_mesh_num_exterior_facets()
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_cubed_sphere_mesh_num_exterior_facets_parallel():
+    run_cubed_sphere_mesh_num_exterior_facets()
 
 
 if __name__ == '__main__':

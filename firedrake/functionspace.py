@@ -923,7 +923,7 @@ def _ufl_finite_element(family, domain, degree):
     else:
         raise ValueError("Illegal domain or cell type")
 
-    if cell == ufl.Cell("quadrilateral"):
+    if cell.cellname() == "quadrilateral":
         return ufl.OuterProductElement(
             ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
             ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
@@ -940,7 +940,7 @@ def _ufl_vector_element(family, domain, degree, dim):
     else:
         raise ValueError("Illegal domain or cell type")
 
-    if cell == ufl.Cell("quadrilateral"):
+    if cell.cellname() == "quadrilateral":
         return ufl.OuterProductVectorElement(
             ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
             ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
