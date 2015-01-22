@@ -3,6 +3,7 @@
 import pytest
 import numpy as np
 from firedrake import *
+from firedrake.mesh import SimplexMesh, QuadrilateralMesh
 
 
 def run_helmholtz_sphere(MeshClass, r):
@@ -25,10 +26,16 @@ def run_helmholtz_sphere(MeshClass, r):
     return errornorm(f, u, degree_rise=0)
 
 
-def run_helmholtz_mixed_sphere(r):
-    m = UnitIcosahedralSphereMesh(refinement_level=r)
+def run_helmholtz_mixed_sphere(MeshClass, r):
+    m = MeshClass(refinement_level=r)
     m.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
-    V = FunctionSpace(m, 'RT', 1)
+    if isinstance(m, SimplexMesh):
+        V = FunctionSpace(m, 'RT', 1)
+    elif isinstance(m, QuadrilateralMesh):
+        C_elt = FiniteElement("CG", 'interval', 1)
+        D_elt = FiniteElement("DG", 'interval', 0)
+        V_elt = HDiv(OuterProductElement(C_elt, D_elt)) + HDiv(OuterProductElement(D_elt, C_elt))
+        V = FunctionSpace(m, V_elt)
     Q = FunctionSpace(m, 'DG', 0)
     W = V*Q
 
@@ -58,8 +65,9 @@ def test_helmholtz_sphere(MeshClass):
     assert (l2conv > 1.7).all()
 
 
-def test_helmholtz_mixed_sphere():
-    errors = [run_helmholtz_mixed_sphere(r) for r in range(1, 5)]
+@pytest.mark.parametrize('MeshClass', [UnitIcosahedralSphereMesh, UnitCubedSphereMesh])
+def test_helmholtz_mixed_sphere(MeshClass):
+    errors = [run_helmholtz_mixed_sphere(MeshClass, r) for r in range(2, 5)]
     errors = np.asarray(errors)
     l2conv = np.log2(errors[:-1] / errors[1:])
 
