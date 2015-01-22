@@ -77,6 +77,18 @@ def test_helmholtz_mixed_sphere(MeshClass):
     assert (l2conv > 1.6).all()
 
 
+@pytest.mark.parallel
+def test_helmholtz_mixed_cubedsphere_parallel():
+    errors = [run_helmholtz_mixed_sphere(UnitCubedSphereMesh, r) for r in range(2, 5)]
+    errors = np.asarray(errors)
+    l2conv = np.log2(errors[:-1] / errors[1:])
+
+    # Note, due to "magic hybridisation stuff" we expect the numerical
+    # solution to converge to the projection of the exact solution to
+    # DG0 at second order (ccotter, pers comm).
+    assert (l2conv > 1.6).all()
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

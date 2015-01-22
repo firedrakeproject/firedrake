@@ -35,9 +35,10 @@ def run_hdiv_l2(MeshClass, refinement, hdiv_space, degree):
     nullspace = MixedVectorSpaceBasis(W, [W[0], VectorSpaceBasis(constant=True)])
     solve(a == L, w, nullspace=nullspace, solver_parameters={'pc_type': 'fieldsplit',
                                                              'pc_fieldsplit_type': 'schur',
-                                                             'fieldsplit_0_pc_type': 'lu',
+                                                             'fieldsplit_0_pc_type': 'bjacobi',
+                                                             'fieldsplit_0_sub_pc_type': 'ilu',
+                                                             'fieldsplit_1_pc_type': 'none',
                                                              'pc_fieldsplit_schur_fact_type': 'FULL',
-                                                             'fieldsplit_1_pc_factor_shift_type': 'INBLOCKS',
                                                              'fieldsplit_0_ksp_max_it': 100})
 
     sigma, u = w.split()
@@ -61,6 +62,15 @@ def test_hdiv_l2(MeshClass, hdiv_space, degree, refinement, conv_order):
     l2err = errors[:, 0]
     l2conv = np.log2(l2err[:-1] / l2err[1:])
     assert (l2conv > conv_order).all()
+
+
+@pytest.mark.parallel
+def test_hdiv_l2_cubedsphere_parallel():
+    errors = [run_hdiv_l2(UnitCubedSphereMesh, r, 'RTCF', 2) for r in range(2, 5)]
+    errors = np.asarray(errors)
+    l2err = errors[:, 0]
+    l2conv = np.log2(l2err[:-1] / l2err[1:])
+    assert (l2conv > 1.7).all()
 
 
 if __name__ == '__main__':
