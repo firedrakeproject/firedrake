@@ -4,13 +4,19 @@ from firedrake import *
 import numpy as np
 
 
-def run_hdiv_l2(refinement, hdiv_space, degree):
-    mesh = UnitIcosahedralSphereMesh(refinement_level=refinement)
+def run_hdiv_l2(MeshClass, refinement, hdiv_space, degree):
+    mesh = MeshClass(refinement_level=refinement)
 
     mesh.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
     Ve = FunctionSpace(mesh, "DG", max(3, degree + 1))
 
-    V = FunctionSpace(mesh, hdiv_space, degree)
+    if hdiv_space == "RTCF":
+        C_elt = FiniteElement("CG", 'interval', degree)
+        D_elt = FiniteElement("DG", 'interval', degree - 1)
+        V_elt = HDiv(OuterProductElement(C_elt, D_elt)) + HDiv(OuterProductElement(D_elt, C_elt))
+        V = FunctionSpace(mesh, V_elt)
+    else:
+        V = FunctionSpace(mesh, hdiv_space, degree)
     Q = FunctionSpace(mesh, "DG", degree - 1)
 
     W = V*Q
@@ -43,11 +49,14 @@ def run_hdiv_l2(refinement, hdiv_space, degree):
 
 
 @longtest
-@pytest.mark.parametrize(('hdiv_space', 'degree', 'conv_order'),
-                         [('RT', 1, 0.75),
-                          ('BDM', 1, 0.8)])
-def test_hdiv_l2(hdiv_space, degree, conv_order):
-    errors = [run_hdiv_l2(r, hdiv_space, degree) for r in range(1, 4)]
+@pytest.mark.parametrize(('MeshClass', 'hdiv_space', 'degree', 'refinement', 'conv_order'),
+                         [(UnitIcosahedralSphereMesh, 'RT', 1, (1, 4), 0.75),
+                          (UnitIcosahedralSphereMesh, 'BDM', 1, (1, 4), 0.8),
+                          (UnitCubedSphereMesh, 'RTCF', 1, (2, 5), 0.8),
+                          (UnitCubedSphereMesh, 'RTCF', 2, (2, 5), 1.7),
+                          (UnitCubedSphereMesh, 'RTCF', 3, (2, 5), 1.8)])
+def test_hdiv_l2(MeshClass, hdiv_space, degree, refinement, conv_order):
+    errors = [run_hdiv_l2(MeshClass, r, hdiv_space, degree) for r in range(*refinement)]
     errors = np.asarray(errors)
     l2err = errors[:, 0]
     l2conv = np.log2(l2err[:-1] / l2err[1:])
