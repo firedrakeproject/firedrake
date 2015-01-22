@@ -100,15 +100,18 @@ class NonlinearVariationalSolver(object):
                                            form_compiler_parameters=self._problem.form_compiler_parameters)
         else:
             self._pjac = self._jac
-        test = self._problem.F.arguments()[0]
-        self._F = function.Function(test.function_space())
         # Function to hold current guess
         self._x = function.Function(self._problem.u)
-        self._problem.F = ufl.replace(self._problem.F, {self._problem.u: self._x})
-        self._problem.J = ufl.replace(self._problem.J, {self._problem.u: self._x})
+        self.F = ufl.replace(self._problem.F, {self._problem.u: self._x})
+        self.J = ufl.replace(self._problem.J, {self._problem.u: self._x})
         if self._problem.Jp is not None:
-            self._problem.Jp = ufl.replace(self._problem.Jp, {self._problem.u: self._x})
+            self.Jp = ufl.replace(self._problem.Jp, {self._problem.u: self._x})
+        else:
+            self.Jp = None
+        test = self.F.arguments()[0]
+        self._F = function.Function(test.function_space())
         self._jacobian_assembled = False
+
         self.snes = PETSc.SNES().create()
         self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
         NonlinearVariationalSolver._id += 1
@@ -167,7 +170,7 @@ class NonlinearVariationalSolver(object):
             if v != X_:
                 with v as _v, X_ as _x:
                     _v[:] = _x[:]
-        assemble.assemble(self._problem.F, tensor=self._F,
+        assemble.assemble(self.F, tensor=self._F,
                           form_compiler_parameters=self._problem.form_compiler_parameters)
         for bc in self._problem.bcs:
             bc.zero(self._F)
@@ -191,13 +194,13 @@ class NonlinearVariationalSolver(object):
             if v != X_:
                 with v as _v, X_ as _x:
                     _v[:] = _x[:]
-        assemble.assemble(self._problem.J,
+        assemble.assemble(self.J,
                           tensor=self._jac,
                           bcs=self._problem.bcs,
                           form_compiler_parameters=self._problem.form_compiler_parameters)
         self._jac.M._force_evaluation()
-        if self._problem.Jp is not None:
-            assemble.assemble(self._problem.Jp,
+        if self.Jp is not None:
+            assemble.assemble(self.Jp,
                               tensor=self._pjac,
                               bcs=self._problem.bcs,
                               form_compiler_parameters=self._problem.form_compiler_parameters)
