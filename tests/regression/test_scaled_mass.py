@@ -1,5 +1,4 @@
 import pytest
-import numpy as np
 import itertools
 from firedrake import *
 
@@ -7,48 +6,6 @@ from firedrake import *
 @pytest.fixture(scope='module')
 def mesh():
     return UnitSquareMesh(10, 10)
-
-
-@pytest.fixture(scope='module')
-def one(mesh):
-    return Constant(1, domain=mesh)
-
-
-domains = [(1, 2),
-           (2, 3),
-           (3, 4),
-           (4, 1),
-           (1, 2, 3, 4)]
-
-
-def test_ds_dx(one):
-    assert np.allclose(assemble(one*dx + one*ds), 5.0)
-
-
-@pytest.mark.parametrize('domains', domains)
-def test_dsn(one, domains):
-
-    assert np.allclose(assemble(one*ds(domains)), len(domains))
-
-    form = one*ds(domains[0])
-
-    for d in domains[1:]:
-        form += one*ds(d)
-    assert np.allclose(assemble(form), len(domains))
-
-
-@pytest.mark.parallel
-def test_dsn_parallel():
-    c = one(mesh())
-
-    for d in domains:
-        assert np.allclose(assemble(c*ds(d)), len(d))
-
-    for domain in domains:
-        form = c*ds(domain[0])
-        for d in domain[1:]:
-            form += c*ds(d)
-        assert np.allclose(assemble(form), len(domain))
 
 
 @pytest.mark.parametrize(['expr', 'value', 'typ', 'vector'],
@@ -83,15 +40,18 @@ def test_math_functions(mesh, expr, value, typ, vector):
         else:
             f = Constant(value, domain=mesh)
 
-    actual = assemble(eval(expr)*dx)
+    H = FunctionSpace(mesh, 'CG', 1)
+    u = TrialFunction(H)
+    v = TestFunction(H)
 
-    from math import *
-    if vector:
-        f = 2*value**2
-    else:
-        f = value
-    expect = eval(expr)
-    assert np.allclose(actual, expect)
+    C = eval(expr)
+
+    a = (C)*u*v*dx
+    L = (C)*v*dx
+    actual = Function(H)
+    solve(a == L, actual)
+
+    assert norm(assemble(actual - 1)) < 1e-6
 
 
 if __name__ == '__main__':
