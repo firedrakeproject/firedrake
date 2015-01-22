@@ -52,6 +52,138 @@ class NonlinearVariationalProblem(object):
         self._constant_jacobian = False
 
 
+class _SNESContext(object):
+    """
+    Context holding information for SNES callbacks.
+
+    :arg problem: a :class:`NonlinearVariationalProblem`.
+
+    The idea here is that the SNES holds a shell DM which contains
+    this object as "user context".  When the SNES calls back to the
+    user form_function code, we pull the DM out of the SNES and then
+    get the context (which is one of these objects) to find the
+    Firedrake level information.
+    """
+    def __init__(self, problem):
+        self._problem = problem
+        # Build the jacobian with the correct sparsity pattern.  Note
+        # that since matrix assembly is lazy this doesn't actually
+        # force an additional assembly of the matrix since in
+        # form_jacobian we call assemble again which drops this
+        # computation on the floor.
+        self._jac = assemble.assemble(problem.J, bcs=problem.bcs,
+                                      form_compiler_parameters=problem.form_compiler_parameters)
+        if problem.Jp is not None:
+            self._pjac = assemble.assemble(problem.Jp, bcs=problem.bcs,
+                                           form_compiler_parameters=problem.form_compiler_parameters)
+        else:
+            self._pjac = self._jac
+        # Function to hold current guess
+        self._x = function.Function(problem.u)
+        self.F = ufl.replace(problem.F, {problem.u: self._x})
+        self.J = ufl.replace(problem.J, {problem.u: self._x})
+        if problem.Jp is not None:
+            self.Jp = ufl.replace(problem.Jp, {problem.u: self._x})
+        else:
+            self.Jp = None
+        test = self.F.arguments()[0]
+        self._F = function.Function(test.function_space())
+        self._jacobian_assembled = False
+
+    def set_globalvector(self, dm):
+        """Tell the DM about the layout of the global vector."""
+        with self._x.dat.vec_ro as v:
+            dm.setShellGlobalVector(v.duplicate())
+
+    def set_function(self, snes):
+        """Set the residual evaluation function"""
+        with self._F.dat.vec as v:
+            snes.setFunction(self.form_function, v)
+
+    def set_jacobian(self, snes):
+        snes.setJacobian(self.form_jacobian, J=self._jac._M.handle,
+                         P=self._pjac._M.handle)
+
+    def set_fieldsplits(self, pc):
+        test = self.F.arguments()[0]
+        pmat = self._pjac._M
+        names = [fs.name if fs.name else str(i)
+                 for i, fs in enumerate(test.function_space())]
+        return solving_utils.set_fieldsplits(pmat, pc, names=names)
+
+    def set_nullspace(self, nullspace, ises=None):
+        nullspace._apply(self._jac._M, ises=ises)
+        if self.Jp is not None:
+            nullspace._apply(self._pjac._M, ises=ises)
+
+    @property
+    def is_mixed(self):
+        return self._jac._M.sparsity.shape != (1, 1)
+
+    @classmethod
+    def form_function(cls, snes, X_, F_):
+        """Form the residual for this problem
+
+        :arg snes: a PETSc SNES object
+        :arg X_: the current guess (a Vec)
+        :arg F_: the residual at X_ (a Vec)
+        """
+        dm = snes.getDM()
+        ctx = dm.getAppCtx()
+
+        # X_ may not be the same vector as the vec behind self._x, so
+        # copy guess in from X_.
+        with ctx._x.dat.vec as v:
+            if v != X_:
+                v.array[:] = X_.array[:]
+
+        assemble.assemble(ctx.F, tensor=ctx._F,
+                          form_compiler_parameters=ctx._problem.form_compiler_parameters)
+        for bc in ctx._problem.bcs:
+            bc.zero(ctx._F)
+
+        # F_ may not be the same vector as self._F, so copy
+        # residual out to F_.
+        with ctx._F.dat.vec_ro as v:
+            if F_ != v:
+                F_.array[:] = v.array[:]
+
+    @classmethod
+    def form_jacobian(cls, snes, X_, J_, P_):
+        """Form the Jacobian for this problem
+
+        :arg snes: a PETSc SNES object
+        :arg X_: the current guess (a Vec)
+        :arg J_: the Jacobian (a Mat)
+        :arg P_: the preconditioner matrix (a Mat)
+        """
+        dm = snes.getDM()
+        ctx = dm.getAppCtx()
+
+        if ctx._problem._constant_jacobian and ctx._jacobian_assembled:
+            # Don't need to do any work with a constant jacobian
+            # that's already assembled
+            return
+        ctx._jacobian_assembled = True
+
+        # X_ may not be the same vector as the vec behind self._x, so
+        # copy guess in from X_.
+        with ctx._x.dat.vec as v:
+            if v != X_:
+                v.array[:] = X_.array[:]
+        assemble.assemble(ctx.J,
+                          tensor=ctx._jac,
+                          bcs=ctx._problem.bcs,
+                          form_compiler_parameters=ctx._problem.form_compiler_parameters)
+        ctx._jac.M._force_evaluation()
+        if ctx.Jp is not None:
+            assemble.assemble(ctx.Jp,
+                              tensor=ctx._pjac,
+                              bcs=ctx._problem.bcs,
+                              form_compiler_parameters=ctx._problem.form_compiler_parameters)
+            ctx._pjac.M._force_evaluation()
+
+
 class NonlinearVariationalSolver(object):
     """Solves a :class:`NonlinearVariationalProblem`."""
 
@@ -77,45 +209,12 @@ class NonlinearVariationalSolver(object):
         .. code-block:: python
 
             {'snes_monitor': True}
-
-        .. warning ::
-
-            Since this object contains a circular reference and a
-            custom ``__del__`` attribute, you *must* call :meth:`.destroy`
-            on it when you are done, otherwise it will never be
-            garbage collected.
-
         """
         assert isinstance(args[0], NonlinearVariationalProblem)
-        self._problem = args[0]
-        # Build the jacobian with the correct sparsity pattern.  Note
-        # that since matrix assembly is lazy this doesn't actually
-        # force an additional assembly of the matrix since in
-        # form_jacobian we call assemble again which drops this
-        # computation on the floor.
-        self._jac = assemble.assemble(self._problem.J, bcs=self._problem.bcs,
-                                      form_compiler_parameters=self._problem.form_compiler_parameters)
-        if self._problem.Jp is not None:
-            self._pjac = assemble.assemble(self._problem.Jp, bcs=self._problem.bcs,
-                                           form_compiler_parameters=self._problem.form_compiler_parameters)
-        else:
-            self._pjac = self._jac
-        # Function to hold current guess
-        self._x = function.Function(self._problem.u)
-        self.F = ufl.replace(self._problem.F, {self._problem.u: self._x})
-        self.J = ufl.replace(self._problem.J, {self._problem.u: self._x})
-        if self._problem.Jp is not None:
-            self.Jp = ufl.replace(self._problem.Jp, {self._problem.u: self._x})
-        else:
-            self.Jp = None
-        test = self.F.arguments()[0]
-        self._F = function.Function(test.function_space())
-        self._jacobian_assembled = False
 
-        self.snes = PETSc.SNES().create()
-        self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
-        NonlinearVariationalSolver._id += 1
-        self.snes.setOptionsPrefix(self._opt_prefix)
+        problem = args[0]
+
+        ctx = _SNESContext(problem)
 
         parameters = kwargs.get('solver_parameters', None)
         if 'parameters' in kwargs:
@@ -129,84 +228,35 @@ class NonlinearVariationalSolver(object):
 
         # Make sure we don't stomp on a dict the user has passed in.
         parameters = parameters.copy() if parameters is not None else {}
+        # Don't ask the DM to provide fieldsplit splits
+        parameters.setdefault('pc_fieldsplit_dm_splits', False)
         # Mixed problem, use jacobi pc if user has not supplied one.
-        if self._jac._M.sparsity.shape != (1, 1):
+        if ctx.is_mixed:
             parameters.setdefault('pc_type', 'jacobi')
+
+        self.snes = PETSc.SNES().create()
+        self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
+        NonlinearVariationalSolver._id += 1
+        self.snes.setOptionsPrefix(self._opt_prefix)
 
         self.parameters = parameters
 
-        ksp = self.snes.getKSP()
-        pc = ksp.getPC()
-        pmat = self._pjac._M
-        names = [fs.name if fs.name else str(i)
-                 for i, fs in enumerate(test.function_space())]
+        self._problem = problem
 
-        ises = solving_utils.set_fieldsplits(pmat, pc, names=names)
+        dm = PETSc.DM().create()
+        dm.setType(dm.Type.SHELL)
+        dm.setUp()
+        dm.setAppCtx(ctx)
 
-        with self._F.dat.vec as v:
-            self.snes.setFunction(self.form_function, v)
-        self.snes.setJacobian(self.form_jacobian, J=self._jac._M.handle,
-                              P=self._pjac._M.handle)
+        self.snes.setDM(dm)
 
+        ctx.set_function(self.snes)
+        ctx.set_jacobian(self.snes)
+        ctx.set_globalvector(dm)
+        ises = ctx.set_fieldsplits(self.snes.ksp.pc)
         nullspace = kwargs.get('nullspace', None)
         if nullspace is not None:
-            self.set_nullspace(nullspace, ises=ises)
-
-    def set_nullspace(self, nullspace, ises=None):
-        """Set the null space for this solver.
-
-        :arg nullspace: a :class:`.VectorSpaceBasis` spanning the null
-             space of the operator.
-
-        This overwrites any existing null space."""
-        nullspace._apply(self._jac._M, ises=ises)
-        if self._problem.Jp is not None:
-            nullspace._apply(self._pjac._M, ises=ises)
-
-    def form_function(self, snes, X_, F_):
-        # X_ may not be the same vector as the vec behind self._x, so
-        # copy guess in from X_.
-        with self._x.dat.vec as v:
-            if v != X_:
-                with v as _v, X_ as _x:
-                    _v[:] = _x[:]
-        assemble.assemble(self.F, tensor=self._F,
-                          form_compiler_parameters=self._problem.form_compiler_parameters)
-        for bc in self._problem.bcs:
-            bc.zero(self._F)
-
-        # F_ may not be the same vector as self._F_tensor, so copy
-        # residual out to F_.
-        with self._F.dat.vec_ro as v:
-            if F_ != v:
-                with v as _v, F_ as _f:
-                    _f[:] = _v[:]
-
-    def form_jacobian(self, snes, X_, J_, P_):
-        if self._problem._constant_jacobian and self._jacobian_assembled:
-            # Don't need to do any work with a constant jacobian
-            # that's already assembled
-            return
-        self._jacobian_assembled = True
-        # X_ may not be the same vector as the vec behind self._x, so
-        # copy guess in from X_.
-        with self._x.dat.vec as v:
-            if v != X_:
-                with v as _v, X_ as _x:
-                    _v[:] = _x[:]
-        assemble.assemble(self.J,
-                          tensor=self._jac,
-                          bcs=self._problem.bcs,
-                          form_compiler_parameters=self._problem.form_compiler_parameters)
-        self._jac.M._force_evaluation()
-        if self.Jp is not None:
-            assemble.assemble(self.Jp,
-                              tensor=self._pjac,
-                              bcs=self._problem.bcs,
-                              form_compiler_parameters=self._problem.form_compiler_parameters)
-            self._pjac.M._force_evaluation()
-            return PETSc.Mat.Structure.DIFFERENT_NONZERO_PATTERN
-        return PETSc.Mat.Structure.SAME_NONZERO_PATTERN
+            ctx.set_nullspace(nullspace, ises=ises)
 
     def __del__(self):
         # Remove stuff from the options database
@@ -216,16 +266,6 @@ class NonlinearVariationalSolver(object):
             for k in self.parameters.iterkeys():
                 del opts[self._opt_prefix + k]
             delattr(self, '_opt_prefix')
-
-    def destroy(self):
-        """Destroy the SNES object inside the solver.
-
-        You must call this explicitly, because the SNES holds a
-        reference to the solver it lives inside, defeating the garbage
-        collector."""
-        if self.snes is not None:
-            self.snes.destroy()
-            self.snes = None
 
     @property
     def parameters(self):
@@ -321,13 +361,6 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
                :class:`.MixedVectorSpaceBasis`) spanning the null
                space of the operator.
-
-        .. warning ::
-
-            Since this object contains a circular reference and a
-            custom ``__del__`` attribute, you *must* call :meth:`.destroy`
-            on it when you are done, otherwise it will never be
-            garbage collected.
         """
         super(LinearVariationalSolver, self).__init__(*args, **kwargs)
 
