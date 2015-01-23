@@ -356,20 +356,7 @@ class MeshBase(object):
         def callback(self):
             del self._callback
             if op2.MPI.comm.size > 1:
-                # Grow the halo.  To do this we need a map from local
-                # to global numbers, which can be obtained by building
-                # a section with one dof per topological entity,
-                # setting it as the default section, getting the
-                # default global section (to find the offset on this
-                # process) and the default SF which we then use to
-                # create the local to global map (phew!).
-                dofs = np.ones(topological_dim+1, dtype=np.int32)
-                sec = self._plex.createSection([1], dofs)
-                self._plex.setDefaultSection(sec)
-                gsec = self._plex.getDefaultGlobalSection()
-                sf = self._plex.getDefaultSF()
-                lgmap = PETSc.LGMap().createSF(sf, gsec.getOffsetRange()[0])
-                self._plex.distributeOverlap(lgmap, 1)
+                self._plex.distributeOverlap(1)
             self._grown_halos = True
 
             if reorder:

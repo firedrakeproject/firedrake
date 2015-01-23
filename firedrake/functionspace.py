@@ -92,14 +92,8 @@ class FunctionSpaceBase(ObjectCached):
         self._index = None
 
         # Create the PetscSection mapping topological entities to DoFs
-        try:
-            # Old style createSection
-            self._global_numbering = mesh._plex.createSection(1, [1], self._dofs_per_entity,
-                                                              perm=mesh._plex_renumbering)
-        except:
-            # New style
-            self._global_numbering = mesh._plex.createSection([1], self._dofs_per_entity,
-                                                              perm=mesh._plex_renumbering)
+        self._global_numbering = mesh._plex.createSection([1], self._dofs_per_entity,
+                                                          perm=mesh._plex_renumbering)
         mesh._plex.setDefaultSection(self._global_numbering)
         self._universal_numbering = mesh._plex.getDefaultGlobalSection()
 
