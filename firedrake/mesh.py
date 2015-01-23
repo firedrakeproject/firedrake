@@ -448,6 +448,16 @@ class MeshBase(object):
         if hasattr(self, '_callback'):
             self._callback(self)
 
+    def create_cell_node_list(self, global_numbering, fiat_element):
+        """Builds the DoF mapping.
+
+        :arg global_numbering: Section describing the global DoF numbering
+        :arg fiat_element: The FIAT element for the cell
+        """
+        return dmplex.get_cell_nodes(global_numbering,
+                                     self.cell_closure,
+                                     fiat_element)
+
     @property
     def coordinates(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
@@ -611,16 +621,6 @@ class SimplexMesh(MeshBase):
         return dmplex.closure_ordering(dm, dm.getDefaultGlobalSection(),
                                        self._cell_numbering, entity_per_cell)
 
-    def create_cell_node_list(self, global_numbering, fiat_element):
-        """Builds the DoF mapping.
-
-        :arg global_numbering: Section describing the global DoF numbering
-        :arg fiat_element: The FIAT element for the cell
-        """
-        return dmplex.get_cell_nodes(global_numbering,
-                                     self.cell_closure,
-                                     fiat_element)
-
     def facet_dimensions(self):
         """Returns a singleton list containing the facet dimension."""
         # Facets have co-dimension 1
@@ -634,34 +634,33 @@ class QuadrilateralMesh(MeshBase):
     """
 
     @utils.cached_property
-    def _closure_ordering(self):
-        """Pair of the cell closure and edge directions."""
-        return dmplex.quadrilateral_closure_ordering(self._plex, self._cell_numbering)
-
-    @property
     def cell_closure(self):
         """2D array of ordered cell closures
 
         Each row contains ordered cell entities for a cell, one row per cell.
         """
-        return self._closure_ordering[0]
 
-    def create_cell_node_list(self, global_numbering, fiat_element):
-        """Builds the DoF mapping.
+        plex = self._plex
+        cell_numbering = self._cell_numbering
 
-        :arg global_numbering: Section describing the global DoF numbering
-        :arg fiat_element: The FIAT element for the cell
-        """
-        edge_directions = self._closure_ordering[1]
+        # Global vertex numbering
+        vertex_numbering = plex.getDefaultGlobalSection()
 
-        entity_dofs = fiat_element.entity_dofs()
-        dofs_per_cell = sum([len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()])
+        cell_ranks = dmplex.get_cell_remote_ranks(plex)
 
-        return dmplex.get_quadrilateral_cell_nodes(global_numbering,
-                                                   self.cell_closure,
-                                                   edge_directions,
-                                                   fiat_element,
-                                                   dofs_per_cell)
+        facet_orientations = dmplex.quadrilateral_facet_orientations(
+            plex, vertex_numbering, cell_ranks)
+
+        cell_orientations = dmplex.orientations_facet2cell(
+            plex, vertex_numbering, cell_ranks,
+            facet_orientations, cell_numbering)
+
+        dmplex.exchange_cell_orientations(plex,
+                                          cell_numbering,
+                                          cell_orientations)
+
+        return dmplex.quadrilateral_closure_ordering(
+            plex, vertex_numbering, cell_numbering, cell_orientations)
 
     def facet_dimensions(self):
         """Returns a list containing the facet dimensions."""

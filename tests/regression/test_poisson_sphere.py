@@ -4,13 +4,19 @@ from firedrake import *
 import numpy as np
 
 
-def run_hdiv_l2(refinement, hdiv_space, degree):
-    mesh = UnitIcosahedralSphereMesh(refinement_level=refinement)
+def run_hdiv_l2(MeshClass, refinement, hdiv_space, degree):
+    mesh = MeshClass(refinement_level=refinement)
 
     mesh.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
     Ve = FunctionSpace(mesh, "DG", max(3, degree + 1))
 
-    V = FunctionSpace(mesh, hdiv_space, degree)
+    if hdiv_space == "RTCF":
+        C_elt = FiniteElement("CG", 'interval', degree)
+        D_elt = FiniteElement("DG", 'interval', degree - 1)
+        V_elt = HDiv(OuterProductElement(C_elt, D_elt)) + HDiv(OuterProductElement(D_elt, C_elt))
+        V = FunctionSpace(mesh, V_elt)
+    else:
+        V = FunctionSpace(mesh, hdiv_space, degree)
     Q = FunctionSpace(mesh, "DG", degree - 1)
 
     W = V*Q
@@ -29,9 +35,10 @@ def run_hdiv_l2(refinement, hdiv_space, degree):
     nullspace = MixedVectorSpaceBasis(W, [W[0], VectorSpaceBasis(constant=True)])
     solve(a == L, w, nullspace=nullspace, solver_parameters={'pc_type': 'fieldsplit',
                                                              'pc_fieldsplit_type': 'schur',
-                                                             'fieldsplit_0_pc_type': 'lu',
+                                                             'fieldsplit_0_pc_type': 'bjacobi',
+                                                             'fieldsplit_0_sub_pc_type': 'ilu',
+                                                             'fieldsplit_1_pc_type': 'none',
                                                              'pc_fieldsplit_schur_fact_type': 'FULL',
-                                                             'fieldsplit_1_pc_factor_shift_type': 'INBLOCKS',
                                                              'fieldsplit_0_ksp_max_it': 100})
 
     sigma, u = w.split()
@@ -43,15 +50,27 @@ def run_hdiv_l2(refinement, hdiv_space, degree):
 
 
 @longtest
-@pytest.mark.parametrize(('hdiv_space', 'degree', 'conv_order'),
-                         [('RT', 1, 0.75),
-                          ('BDM', 1, 0.8)])
-def test_hdiv_l2(hdiv_space, degree, conv_order):
-    errors = [run_hdiv_l2(r, hdiv_space, degree) for r in range(1, 4)]
+@pytest.mark.parametrize(('MeshClass', 'hdiv_space', 'degree', 'refinement', 'conv_order'),
+                         [(UnitIcosahedralSphereMesh, 'RT', 1, (1, 4), 0.75),
+                          (UnitIcosahedralSphereMesh, 'BDM', 1, (1, 4), 0.8),
+                          (UnitCubedSphereMesh, 'RTCF', 1, (2, 5), 0.8),
+                          (UnitCubedSphereMesh, 'RTCF', 2, (2, 5), 1.7),
+                          (UnitCubedSphereMesh, 'RTCF', 3, (2, 5), 1.8)])
+def test_hdiv_l2(MeshClass, hdiv_space, degree, refinement, conv_order):
+    errors = [run_hdiv_l2(MeshClass, r, hdiv_space, degree) for r in range(*refinement)]
     errors = np.asarray(errors)
     l2err = errors[:, 0]
     l2conv = np.log2(l2err[:-1] / l2err[1:])
     assert (l2conv > conv_order).all()
+
+
+@pytest.mark.parallel
+def test_hdiv_l2_cubedsphere_parallel():
+    errors = [run_hdiv_l2(UnitCubedSphereMesh, r, 'RTCF', 2) for r in range(2, 5)]
+    errors = np.asarray(errors)
+    l2err = errors[:, 0]
+    l2conv = np.log2(l2err[:-1] / l2err[1:])
+    assert (l2conv > 1.7).all()
 
 
 if __name__ == '__main__':
