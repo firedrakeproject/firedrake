@@ -595,6 +595,7 @@ class SimplexMesh(MeshBase):
         Each row contains ordered cell entities for a cell, one row per cell.
         """
         dm = self._plex
+        vertex_numbering = self._vertex_numbering.createGlobalSection(dm.getPointSF())
 
         a_cell = dm.getHeightStratum(0)[0]
         a_closure = dm.getTransitiveClosure(a_cell)[0]
@@ -605,7 +606,7 @@ class SimplexMesh(MeshBase):
             start, end = dm.getDepthStratum(dim)
             entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end, a_closure))
 
-        return dmplex.closure_ordering(dm, dm.getDefaultGlobalSection(),
+        return dmplex.closure_ordering(dm, vertex_numbering,
                                        self._cell_numbering, entity_per_cell)
 
     def facet_dimensions(self):
@@ -631,7 +632,7 @@ class QuadrilateralMesh(MeshBase):
         cell_numbering = self._cell_numbering
 
         # Global vertex numbering
-        vertex_numbering = plex.getDefaultGlobalSection()
+        vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
 
         cell_ranks = dmplex.get_cell_remote_ranks(plex)
 
