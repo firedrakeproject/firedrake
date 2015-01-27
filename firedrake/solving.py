@@ -155,9 +155,6 @@ def _solve_varproblem(*args, **kwargs):
         with progress(INFO, 'Solving nonlinear variational problem'):
             solver.solve()
 
-    # destroy snes part of solver so everything can be gc'd
-    solver.destroy()
-
 
 def _la_solve(A, x, b, **kwargs):
     """Solve a linear algebra problem.
