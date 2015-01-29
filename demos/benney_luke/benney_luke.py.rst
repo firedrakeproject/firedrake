@@ -18,9 +18,9 @@ where the spatial domain is assumed to be :math:`\Omega` with natural boundary c
 
 .. math::
 
-  0 = \int_0^T \int_{\Omega} \left( \phi_t - \frac{\mu}{2}\Delta\phi_t + \eta + \frac{\epsilon}{2}\left|\nabla\phi\right|^2 \right)\delta\eta
-                              - \left( \eta_t - \frac{\mu}{2}\Delta\eta_t + \nabla\cdot\bigl(\left(1+\epsilon\eta\right)\!\nabla\phi\bigr)+\mu\Delta q \right)\delta\phi
-                              - \mu\left( \Delta\phi + \frac{3}{2}q \right)\delta q \,dx\,dy\,dt.
+  0 = \int_0^T \int_{\Omega} &\left( \phi_t - \frac{\mu}{2}\Delta\phi_t + \eta + \frac{\epsilon}{2}\left|\nabla\phi\right|^2 \right)\delta\eta \\
+                              - &\left( \eta_t - \frac{\mu}{2}\Delta\eta_t + \nabla\cdot\bigl(\left(1+\epsilon\eta\right)\!\nabla\phi\bigr)+\mu\Delta q \right)\delta\phi \\
+                              - &\mu\left( \Delta\phi + \frac{3}{2}q \right)\delta q \,dx\,dy\,dt.
 
 Since the variations :math:`\delta\eta,\,\delta\phi,\,\delta q` are arbitrary, the modified Benney-Luke equations then arise for functions :math:`\eta,\phi,q\in V` from a suitable function space :math:`V` and are given by:
 
@@ -58,7 +58,8 @@ The Benney-Luke equations then become equivalent to a Korteweg-de Vries (KdV) eq
 
 .. math::
 
-  \eta(x,y,t) = \frac{c}{3}{\rm sech}^2 \left( \frac{1}{2}\sqrt{\frac{c\epsilon}{\mu}} \left(x-x_0-t-\frac{\epsilon}{6}ct\right) \right), \quad \phi(x,y,t) = \frac{2}{3}\sqrt{\frac{c\mu}{\epsilon}}\,\left( {\rm tanh}\left(\frac{1}{2}\sqrt{\frac{c\epsilon}{\mu}} \left(x-x_0-t-\frac{\epsilon}{6}ct\right) \right)+1 \right).
+  \eta(x,y,t) &= \frac{c}{3}{\rm sech}^2 \left( \frac{1}{2}\sqrt{\frac{c\epsilon}{\mu}} \left(x-x_0-t-\frac{\epsilon}{6}ct\right) \right), \\
+  \phi(x,y,t) &= \frac{2}{3}\sqrt{\frac{c\mu}{\epsilon}}\,\left( {\rm tanh}\left(\frac{1}{2}\sqrt{\frac{c\epsilon}{\mu}} \left(x-x_0-t-\frac{\epsilon}{6}ct\right) \right)+1 \right).
 
 Finally, before implementing the problem in Firedrake, we calculate the total energy defined by the sum of potential and kinetic energy. The system is then stable if the energy is bounded and shows no drift. The expression for total energy is given by:
 
