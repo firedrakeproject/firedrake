@@ -2,13 +2,13 @@
 
   .. sidebar:: Current development information.
   
-     Firedrake and PyOP2 are continually tested using a `local buildbot
-     <http://buildbot-ocean.ese.ic.ac.uk:8080/builders/firedrake-trunk>`__
-     and the `Travis continuous integration system
-     <https://travis-ci.org>`__ respectively.
+     Firedrake and PyOP2 are continually tested using the `Travis
+     continuous integration system <https://travis-ci.org>`__.
 
-     Latest Firedrake status can be found `here
-     <http://buildbot-ocean.ese.ic.ac.uk:8080/builders/firedrake-trunk>`__.
+     Latest Firedrake status: |firedrakebuild|
+
+     .. |firedrakebuild| image:: https://travis-ci.org/firedrakeproject/firedrake.png?branch=master
+                                 :target: https://travis-ci.org/firedrakeproject/firedrake
 
      Latest PyOP2 status: |pyop2build|
 
