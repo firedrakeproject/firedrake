@@ -1480,6 +1480,9 @@ class IterationSpace(object):
         same :class:`Set` and have the same ``extent``."""
         return not self == other
 
+    def __hash__(self):
+        return hash((self._iterset, self._extents))
+
     def __str__(self):
         return "OP2 Iteration Space: %s with extents %s" % (self._iterset, self._extents)
 
