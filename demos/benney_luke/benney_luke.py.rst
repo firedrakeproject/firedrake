@@ -70,6 +70,16 @@ The implementation of this problem in Firedrake requires solving two nonlinear v
 
   from firedrake import *
 
+.. note::
+
+   A bug (https://github.com/coneoproject/COFFEE/issues/26) in
+   Firedrake's kernel optimiser currently means that this demo fails
+   with optimisations enabled, so for current purposes we turn it off.
+
+::
+
+  parameters["coffee"]["O2"] = False
+
   T = 2.0
   dt = 0.005
   Lx = 10
