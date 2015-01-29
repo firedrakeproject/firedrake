@@ -152,7 +152,7 @@ Documentation dependencies
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Building the documention requires Sphinx_
-(including the Youtube plugin) and wget_. For example on Ubuntu-like
+(including the Youtube and Bibtex plugins) and wget_. For example on Ubuntu-like
 Linux systems::
 
   sudo apt-get install python-sphinx wget
@@ -176,6 +176,10 @@ Then install the Youtube plugin::
 
 Note that the ``sphinxcontrib.youtube`` Ubuntu package does not work
 for our purposes.
+
+Finally install the Bibtex plugin::
+
+  sudo pip install sphinxcontrib-bibtex
 
 .. _PyOP2: http://op2.github.io/PyOP2
 .. _FFC: https://bitbucket.org/mapdes/ffc
