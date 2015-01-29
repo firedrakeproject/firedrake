@@ -22,7 +22,7 @@ def identity(family, degree):
 
     solve(a == L, out)
 
-    return np.max(np.abs(out.dat.data - f.dat.data))
+    return norm(assemble(f - out))
 
 
 def vector_identity(family, degree):
@@ -36,7 +36,7 @@ def vector_identity(family, degree):
     f.interpolate(Expression(("x[0]", "x[1]")))
     solve(inner(u, v)*dx == inner(f, v)*dx, out)
 
-    return np.max(np.abs(out.dat.data - f.dat.data))
+    return norm(assemble(f - out))
 
 
 def run_test():
@@ -61,20 +61,12 @@ def test_vector_identity():
 
 @pytest.mark.parallel
 def test_identity_parallel():
-    from mpi4py import MPI
-    error = run_test()
-    MPI.COMM_WORLD.allreduce(MPI.IN_PLACE, error, MPI.MAX)
-    print '[%d]' % MPI.COMM_WORLD.rank, 'error:', error
-    assert (error < np.array([1.0e-11, 1.0e-6, 1.0e-6, 1.0e-5])).all()
+    assert (run_test() < 1e-6).all()
 
 
 @pytest.mark.parallel(nprocs=2)
 def test_vector_identity_parallel():
-    from mpi4py import MPI
-    error = run_vector_test()
-    MPI.COMM_WORLD.allreduce(MPI.IN_PLACE, error, MPI.MAX)
-    print '[%d]' % MPI.COMM_WORLD.rank, 'error:', error
-    assert (error < 1e-6).all()
+    assert (run_vector_test() < 1e-6).all()
 
 
 if __name__ == '__main__':
