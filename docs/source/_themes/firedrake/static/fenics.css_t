@@ -311,22 +311,20 @@ p.admonition-title:after {
     content: ":";
 }
 
-pre, code {
-    font-family: Consolas, "andale mono", "lucida console", monospace;
+pre, tt, code  {
+    color: #222;
+    background-color: transparent;
     font-size: 14px;
+    font-family: Consolas, "andale mono", "lucida console", monospace;
+}
+
+div.highlight>pre, div.highlight>code {
     line-height: 17px;
     background-color: #fafafa;
     padding: 10px;
     margin: 0;
     border-top: 2px solid #c6c9cb;
     border-bottom: 2px solid #c6c9cb;
-}
-
-tt {
-    background-color: transparent;
-    color: #222;
-    font-size: 14px;
-    font-family: Consolas, "andale mono", "lucida console", monospace;
 }
 
 h2 tt.py-mod {
