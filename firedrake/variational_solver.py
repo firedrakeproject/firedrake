@@ -52,6 +52,10 @@ class NonlinearVariationalProblem(object):
         self._constant_jacobian = False
 
 
+def get_dm(problem):
+    return problem.u.function_space().mesh().shell_dm
+
+
 class _SNESContext(object):
     """
     Context holding information for SNES callbacks.
@@ -240,14 +244,12 @@ class NonlinearVariationalSolver(object):
 
         self._problem = problem
 
-        dm = PETSc.DMShell().create()
-        dm.setAppCtx(ctx)
-
+        self._ctx = ctx
+        dm = get_dm(problem)
         self.snes.setDM(dm)
 
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
-        ctx.set_globalvector(dm)
         ises = ctx.set_fieldsplits(self.snes.ksp.pc)
         nullspace = kwargs.get('nullspace', None)
         if nullspace is not None:
@@ -275,6 +277,10 @@ class NonlinearVariationalSolver(object):
     @timed_function("SNES solver execution")
     @profile
     def solve(self):
+        dm = self.snes.getDM()
+        dm.setAppCtx(self._ctx)
+        self._ctx.set_globalvector(dm)
+
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:
             bc.apply(self._problem.u)
