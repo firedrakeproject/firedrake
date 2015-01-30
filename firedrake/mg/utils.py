@@ -403,3 +403,23 @@ def get_count_kernel(arity):
                     ast.Block([loop]),
                     pred=["static", "inline"])
     return op2.Kernel(k, "count_weights", opts=parameters["coffee"])
+
+
+def set_level(obj, hierarchy, level):
+    """Attach hierarchy and level info to an object."""
+    setattr(obj, "__level_info__", (hierarchy, level))
+    return obj
+
+
+def get_level(obj):
+    """Try and obtain hierarchy and level info from an object."""
+    try:
+        return getattr(obj, "__level_info__")
+    except AttributeError:
+        raise RuntimeError("Provided object %s does not come from a hierarchy",
+                           obj)
+
+
+def has_level(obj):
+    """Does the provided object have level info?"""
+    return hasattr(obj, "__level_info__")

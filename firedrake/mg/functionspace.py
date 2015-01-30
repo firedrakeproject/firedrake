@@ -8,6 +8,7 @@ from pyop2.utils import flatten
 from firedrake import functionspace
 from . import impl
 from . import utils
+from .utils import set_level
 import firedrake.mg.function
 
 
@@ -26,7 +27,8 @@ class BaseHierarchy(object):
         :arg fses: an iterable of :class:`~.FunctionSpace`\s.
         """
         self._mesh_hierarchy = mesh_hierarchy
-        self._hierarchy = tuple(fses)
+        self._hierarchy = tuple([set_level(fs, self, lvl)
+                                 for lvl, fs in enumerate(fses)])
         self._map_cache = {}
         self._cell_sets = tuple(op2.LocalSet(m.cell_set) for m in self._mesh_hierarchy)
         self._ufl_element = self[0].ufl_element()
@@ -250,7 +252,8 @@ class MixedFunctionSpaceHierarchy(object):
         """
         spaces = [x for x in flatten([s.split() for s in spaces])]
         assert all(isinstance(s, BaseHierarchy) for s in spaces)
-        self._hierarchy = tuple(functionspace.MixedFunctionSpace(s) for s in zip(*spaces))
+        self._hierarchy = tuple([set_level(functionspace.MixedFunctionSpace(s), self, lvl)
+                                for lvl, s in enumerate(zip(*spaces))])
         self._spaces = tuple(spaces)
         self._ufl_element = self._hierarchy[0].ufl_element()
 

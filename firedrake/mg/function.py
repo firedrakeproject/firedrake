@@ -2,7 +2,7 @@ from __future__ import absolute_import
 
 from firedrake import function
 from . import functionspace
-
+from .utils import set_level
 
 __all__ = ["FunctionHierarchy"]
 
@@ -20,9 +20,12 @@ class FunctionHierarchy(object):
         if functions is not None:
             assert all(isinstance(f, function.Function) for f in functions)
             assert len(functions) == len(self._function_space)
-            self._hierarchy = tuple(functions)
+            self._hierarchy = tuple([set_level(f, self, lvl)
+                                     for lvl, f in enumerate(functions)])
         else:
-            self._hierarchy = tuple(function.Function(f) for f in fs_hierarchy)
+            self._hierarchy = tuple([set_level(function.Function(f),
+                                               self, lvl)
+                                     for lvl, f in enumerate(fs_hierarchy)])
 
         if isinstance(self._function_space, functionspace.MixedFunctionSpaceHierarchy):
             split = []
