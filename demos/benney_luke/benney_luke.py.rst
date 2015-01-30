@@ -1,9 +1,19 @@
 Benney-Luke equations: a reduced water wave model
 =================================================
 
-*This tutorial was contributed by Anna Kalogirou and Onno Bokhove.*
 
-*The work is based on the article "Variational water wave modelling: from continuum to experiment" by Onno Bokhove and Anna Kalogirou, submitted* :cite:`2015:lmscup`.
+.. rst-class:: emphasis
+
+    This tutorial was contributed by `Anna Kalogirou <mailto:A.Kalogirou@leeds.ac.uk>`__
+    and `Onno Bokhove <mailto:O.Bokhove@leeds.ac.uk>`__.
+
+    The work is based on the article "Variational water wave
+    modelling: from continuum to experiment" by Onno Bokhove and Anna
+    Kalogirou, submitted :cite:`2015:lmscup`. The authors gratefully
+    acknowledge funding from EPSRC grant no. `EP/L025388/1
+    <http://gow.epsrc.ac.uk/NGBOViewGrant.aspx?GrantRef=EP/L025388/1>`__
+    with a link to the Dutch Technology Foundation STW for the project
+    "FastFEM: behavior of fast ships in waves".
 
 The Benney-Luke-type equations consist of a reduced potential flow water wave model based on the assumptions of small amplitude parameter :math:`\epsilon` and small dispersion parameter :math:`\mu` (defined by the square of the ratio of the typical depth over a horizontal length scale). They describe the deviation from the still water surface, :math:`\eta(x,y,t)`, and the free surface potential, :math:`\phi(x,y,t)`. A modified version of the Benney-Luke equations can be obtained by the variational principle:
 
@@ -11,16 +21,17 @@ The Benney-Luke-type equations consist of a reduced potential flow water wave mo
 
   0 &= \delta\int_0^T \int_{\Omega} \eta\phi_t - \frac{\mu}{2}\!\eta\Delta\phi_t + \frac{1}{2}\!\eta^2 + \frac{1}{2}\!\left(1+\epsilon\eta\right)\!\left|\nabla\phi\right|^2 + \frac{\mu}{3}\!\left( \Delta\phi \right)^2 \,dx\,dy\,dt \\
     &= \delta\int_0^T \int_{\Omega} \eta\phi_t + \frac{\mu}{2}\nabla\eta\cdot\nabla\phi_t + \frac{1}{2}\!\eta^2 + \frac{1}{2}\!\left(1+\epsilon\eta\right)\!\left|\nabla\phi\right|^2 + \mu\left( \nabla q\cdot\nabla\phi - \frac{3}{4}q^2 \right) \,dx\,dy\,dt \\
-    &= \int_0^T \int_{\Omega} \left( \delta\eta\,\phi_t + \frac{\mu}{2}\nabla\delta\eta\cdot\nabla\phi_t + \eta\,\delta\eta + \frac{\epsilon}{2}\delta\eta\left|\nabla\phi\right|^2 \right) - \left( \delta\phi\,\eta_t + \frac{\mu}{2}\nabla\eta_t\cdot\nabla\delta\phi - \left(1+\epsilon\eta\right)\!\nabla\phi\cdot\nabla\delta\phi - \mu\nabla q\cdot\nabla\delta\phi \right) \\
+    &= \int_0^T \int_{\Omega} \left( \delta\eta\,\phi_t + \frac{\mu}{2}\nabla\delta\eta\cdot\nabla\phi_t + \eta\,\delta\eta + \frac{\epsilon}{2}\delta\eta\left|\nabla\phi\right|^2 \right) \\
+    & \qquad \qquad - \left( \delta\phi\,\eta_t + \frac{\mu}{2}\nabla\eta_t\cdot\nabla\delta\phi - \left(1+\epsilon\eta\right)\!\nabla\phi\cdot\nabla\delta\phi - \mu\nabla q\cdot\nabla\delta\phi \right) \\
     & \qquad \qquad + \mu\left( \nabla\delta q \cdot\nabla\phi - \frac{3}{2}q\,\delta q  \right) \,dx\,dy\,dt,
 
 where the spatial domain is assumed to be :math:`\Omega` with natural boundary conditions, namely Neumann conditions on all the boundaries. In addition, suitable end-point conditions at :math:`t=0` and :math:`t=T` are used. Note that the introduction of the auxiliary function :math:`q` is performed in order to lower the highest derivatives. This is advantageous in a :math:`C^0` finite element formulation and motivated the modification of the "standard" Benney-Luke equations. The partial variations in the last line of the variational principle can be integrated by parts in order to get expressions that only depend on :math:`\delta\eta,\,\delta\phi,\,\delta q` and not their derivatives:
 
 .. math::
 
-  0 = \int_0^T \int_{\Omega} \left( \phi_t - \frac{\mu}{2}\Delta\phi_t + \eta + \frac{\epsilon}{2}\left|\nabla\phi\right|^2 \right)\delta\eta
-                              - \left( \eta_t - \frac{\mu}{2}\Delta\eta_t + \nabla\cdot\bigl(\left(1+\epsilon\eta\right)\!\nabla\phi\bigr)+\mu\Delta q \right)\delta\phi
-                              - \mu\left( \Delta\phi + \frac{3}{2}q \right)\delta q \,dx\,dy\,dt.
+  0 = \int_0^T \int_{\Omega} &\left( \phi_t - \frac{\mu}{2}\Delta\phi_t + \eta + \frac{\epsilon}{2}\left|\nabla\phi\right|^2 \right)\delta\eta \\
+                              - &\left( \eta_t - \frac{\mu}{2}\Delta\eta_t + \nabla\cdot\bigl(\left(1+\epsilon\eta\right)\!\nabla\phi\bigr)+\mu\Delta q \right)\delta\phi \\
+                              - &\mu\left( \Delta\phi + \frac{3}{2}q \right)\delta q \,dx\,dy\,dt.
 
 Since the variations :math:`\delta\eta,\,\delta\phi,\,\delta q` are arbitrary, the modified Benney-Luke equations then arise for functions :math:`\eta,\phi,q\in V` from a suitable function space :math:`V` and are given by:
 
@@ -58,7 +69,8 @@ The Benney-Luke equations then become equivalent to a Korteweg-de Vries (KdV) eq
 
 .. math::
 
-  \eta(x,y,t) = \frac{c}{3}{\rm sech}^2 \left( \frac{1}{2}\sqrt{\frac{c\epsilon}{\mu}} \left(x-x_0-t-\frac{\epsilon}{6}ct\right) \right), \quad \phi(x,y,t) = \frac{2}{3}\sqrt{\frac{c\mu}{\epsilon}}\,\left( {\rm tanh}\left(\frac{1}{2}\sqrt{\frac{c\epsilon}{\mu}} \left(x-x_0-t-\frac{\epsilon}{6}ct\right) \right)+1 \right).
+  \eta(x,y,t) &= \frac{c}{3}{\rm sech}^2 \left( \frac{1}{2}\sqrt{\frac{c\epsilon}{\mu}} \left(x-x_0-t-\frac{\epsilon}{6}ct\right) \right), \\
+  \phi(x,y,t) &= \frac{2}{3}\sqrt{\frac{c\mu}{\epsilon}}\,\left( {\rm tanh}\left(\frac{1}{2}\sqrt{\frac{c\epsilon}{\mu}} \left(x-x_0-t-\frac{\epsilon}{6}ct\right) \right)+1 \right).
 
 Finally, before implementing the problem in Firedrake, we calculate the total energy defined by the sum of potential and kinetic energy. The system is then stable if the energy is bounded and shows no drift. The expression for total energy is given by:
 
@@ -134,7 +146,8 @@ followed by a calculation of a half-step solution :math:`q`, performed using a l
 Then the nonlinear implicit equation for :math:`\eta` is solved::
 
   Feta = ( v*(eta1-eta0)/dt + 0.5*mu*inner(grad(v),grad((eta1-eta0)/dt))
-           - 0.5*((1+epsilon*eta0)+(1+epsilon*eta1))*inner(grad(v),grad(phi_h)) - mu*inner(grad(v),grad(q_h)) )*dx
+           - 0.5*((1+epsilon*eta0)+(1+epsilon*eta1))*inner(grad(v),grad(phi_h))
+           - mu*inner(grad(v),grad(q_h)) )*dx
 
   eta_problem = NonlinearVariationalProblem(Feta,eta1)
   eta_solver = NonlinearVariationalSolver(eta_problem)

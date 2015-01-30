@@ -248,6 +248,10 @@ div.note {
 	background: #e1ecfe url(dialog-note.png) no-repeat 10px 8px;
 }
 
+.emphasis {
+   font-style: italic
+}
+
 #firedrake-package #id1 {
     display: none;
 }
