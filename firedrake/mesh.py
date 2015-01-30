@@ -2,6 +2,7 @@ import numpy as np
 import os
 import FIAT
 import ufl
+import weakref
 
 from pyop2 import op2
 from pyop2.profiling import timed_function, timed_region, profile
@@ -332,6 +333,10 @@ class Mesh(object):
                                   geometric_dimension=geometric_dim)
         self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
         self._grown_halos = False
+
+        dm = PETSc.DMShell().create()
+        dm.setAttr('__mesh__', weakref.ref(self))
+        self.shell_dm = dm
 
         def callback(self):
             del self._callback
@@ -818,6 +823,9 @@ class ExtrudedMesh(Mesh):
             eutils.make_extruded_coords(self, layer_height, extrusion_type="radial",
                                         output_coords=self.radial_coordinates)
 
+        dm = PETSc.DMShell().create()
+        dm.setAttr('__mesh__', weakref.ref(self))
+        self.shell_dm = dm
         # Build a new ufl element for this function space with the
         # correct domain.  This is necessary since this function space
         # is in the cache and will be picked up by later
