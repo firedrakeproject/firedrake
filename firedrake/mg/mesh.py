@@ -6,10 +6,30 @@ from pyop2.mpi import MPI
 from firedrake import functionspace
 from firedrake import mesh
 from . import impl
-from .utils import set_level
+from .utils import set_level, get_level
 
 
 __all__ = ["MeshHierarchy", "ExtrudedMeshHierarchy"]
+
+
+def coarsen(dm, comm):
+    m = dm.getAttr("__mesh__")()
+    if m is None:
+        raise RuntimeError("No mesh found on DM")
+    hierarchy, level = get_level(m)
+    if level < 1:
+        raise RuntimeError("Cannot coarsen coarsest DM")
+    return hierarchy[level-1].shell_dm
+
+
+def refine(dm, comm):
+    m = dm.getAttr("__mesh__")()
+    if m is None:
+        raise RuntimeError("No mesh found on DM")
+    hierarchy, level = get_level(m)
+    if level >= len(hierarchy) - 1:
+        raise RuntimeError("Cannot refine finest DM")
+    return hierarchy[level+1].shell_dm
 
 
 class MeshHierarchy(object):
@@ -73,6 +93,8 @@ class MeshHierarchy(object):
                 m._non_overlapped_nent.append(m._plex.getDepthStratum(d))
             m.init()
             m._overlapped_lgmap = impl.create_lgmap(m._plex)
+            m.shell_dm.setCoarsen(coarsen)
+            m.shell_dm.setRefine(refine)
 
         # On coarse mesh n, a map of consistent cell orientations and
         # vertex permutations for the fine cells on each coarse cell.
