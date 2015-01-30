@@ -46,6 +46,7 @@ from openmp import _detect_openmp_flags
 from profiling import lineprof, timed_region, profile
 from logger import warning
 from mpi import collective
+from utils import flatten
 
 import slope_python as slope
 
@@ -94,9 +95,12 @@ class Inspector(object):
     visible by setting the environment variable ``SLOPE_DIR`` to the value of
     the root SLOPE directory."""
 
-    def __init__(self, it_spaces, args):
+    def __init__(self, it_spaces, args_per_loop):
         self._it_spaces = it_spaces
-        self._args = args
+        self._args_per_loop = args_per_loop
+        # Filter unique dats and maps for later retrieval
+        self._dats = dict([(a.data.name, a.data) for a in flatten(args_per_loop)])
+        self._maps = dict([(a.map.name, a.map) for a in flatten(args_per_loop) if a.map])
 
     def compile(self):
         slope_dir = os.environ['SLOPE_DIR']
@@ -106,14 +110,11 @@ class Inspector(object):
 
         inspector = slope.Inspector()
 
-        # Build arguments values
-        argvalues = []
-        # - Sets
-        argvalues += [inspector.add_sets([(s.name, s.core_size) for s
-                                          in set(self._it_spaces)])]
-
-        # Build arguments types
-        argtypes = inspector.get_arg_types()
+        # Build arguments types and values
+        inspector.add_sets([(s.name, s.core_size) for s in set(self._it_spaces)])
+        arguments = [inspector.add_maps([(m.name, m.iterset.name, m.toset.name,
+                                          m.values) for m in self._maps.values()])]
+        argtypes, argvalues = zip(*arguments)
 
         # Generate inspector C code
         src = inspector.generate_code()
@@ -184,7 +185,7 @@ class ParLoop(host.ParLoop):
         if _inspectors.get(self._name):
             return _inspectors[self._name]
 
-        inspector = Inspector(self.it_space, self.args)
+        inspector = Inspector(self.it_space, [l.args for l in self._loop_chain])
         with timed_region("ParLoopChain `%s`: inspector" % self.name):
             inspector.compile()
         # Cache the inspection output
