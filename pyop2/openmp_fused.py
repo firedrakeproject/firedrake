@@ -95,13 +95,13 @@ class Inspector(object):
     visible by setting the environment variable ``SLOPE_DIR`` to the value of
     the root SLOPE directory."""
 
-    def __init__(self, name, it_spaces, args_per_loop, tile_size):
+    def __init__(self, name, loop_chain, tile_size):
         self._name = name
         self._tile_size = tile_size
-        self._it_spaces = it_spaces
-        self._args_per_loop = args_per_loop
+        self._loop_chain = loop_chain
 
-        # Filter unique dats and maps for later retrieval
+        # Filter args, dats and maps for later retrieval
+        args_per_loop = [l.args for l in loop_chain]
         self._dats = dict([(a.data.name, a.data) for a in flatten(args_per_loop)])
         self._maps = dict([(a.map.name, a.map) for a in flatten(args_per_loop) if a.map])
 
@@ -124,9 +124,29 @@ class Inspector(object):
         inspector = slope.Inspector('OMP', self._tile_size)
 
         # Build arguments types and values
-        inspector.add_sets([(s.name, s.core_size) for s in set(self._it_spaces)])
-        arguments = [inspector.add_maps([(m.name, m.iterset.name, m.toset.name,
-                                          m.values) for m in self._maps.values()])]
+        arguments = []
+        sets, maps, loops = set(), {}, []
+        for loop in self._loop_chain:
+            slope_desc = []
+            # Add sets
+            sets.add((loop.it_space.name, loop.it_space.core_size))
+            for a in loop.args:
+                map = a.map
+                # Add map
+                if map:
+                    maps[map.name] = (map.name, map.iterset.name,
+                                      map.toset.name, map.values)
+                # Track descriptors
+                desc_name = "DIRECT" if not a.map else a.map.name
+                desc_access = a.access._mode  # Note: same syntax as SLOPE
+                slope_desc.append((desc_name, desc_access))
+            # Add loop
+            loops.append((loop.kernel.name, loop.it_space.name, slope_desc))
+        # Provide structure of loop chain to SLOPE's inspector
+        inspector.add_sets(sets)
+        arguments.extend([inspector.add_maps(maps.values())])
+        inspector.add_loops(loops)
+
         argtypes, argvalues = zip(*arguments)
 
         # Generate inspector C code
@@ -162,23 +182,51 @@ class JITModule(host.JITModule):
 
 class ParLoop(host.ParLoop):
 
-    def __init__(self, name, loop_chain, it_spaces, args, tile_size):
-        LazyComputation.__init__(self,
-                                 set([a.data for a in args
-                                      if a.access in [READ, RW]]) | Const._defs,
-                                 set([a.data for a in args
-                                      if a.access in [RW, WRITE, MIN, MAX, INC]]))
+    def __init__(self, name, loop_chain, tile_size):
         self._name = name
         self._loop_chain = loop_chain
-        self._actual_args = args
+
+        # Extrapolate arguments and iteration spaces
+        args, it_spaces = OrderedDict(), []
+        for loop in loop_chain:
+            # 1) Analyze the Args in each loop composing the chain and produce a
+            # new sequence of Args for the fused ParLoop. For example, consider the
+            # Arg X and X.DAT be written to in ParLoop_0 (access mode WRITE) and
+            # read from in ParLoop_1 (access mode READ); this means that in the
+            # fused ParLoop, X will have access mode RW
+            for a in loop.args:
+                args[a.data] = args.get(a.data, a)
+                if a.access != args[a.data].access:
+                    if READ in [a.access, args[a.data].access]:
+                        # If a READ and some sort of write (MIN, MAX, RW, WRITE, INC),
+                        # then the access mode becomes RW
+                        args[a.data] = a.data(RW, a.map, a._flatten)
+                    elif WRITE in [a.access, args[a.data].access]:
+                        # Can't be a READ, so just stick to WRITE regardless of what
+                        # the other access mode is
+                        args[a.data] = a.data(WRITE, a.map, a._flatten)
+                    else:
+                        # Neither READ nor WRITE, so access modes are some combinations
+                        # of RW, INC, MIN, MAX. For simplicity, just make it RW
+                        args[a.data] = a.data(RW, a.map, a._flatten)
+
+            # 2) The iteration space of the fused loop is the union of the iteration
+            # spaces of the individual loops composing the chain
+            it_spaces.append(loop.it_space)
+        self._actual_args = args.values()
         self._it_spaces = it_spaces
 
         # Set an inspector for this fused parloop
         global _inspectors
-        _inspectors[name] = _inspectors.get(name, Inspector(name, it_spaces,
-                                                            [l.args for l in loop_chain],
-                                                            tile_size))
+        _inspectors[name] = _inspectors.get(name, Inspector(name, loop_chain, tile_size))
         self._inspector = _inspectors[name]
+
+        # The fused parloop can still be lazily evaluated
+        LazyComputation.__init__(self,
+                                 set([a.data for a in self._actual_args
+                                      if a.access in [READ, RW]]) | Const._defs,
+                                 set([a.data for a in self._actual_args
+                                      if a.access in [RW, WRITE, MIN, MAX, INC]]))
 
     @collective
     @profile
@@ -239,38 +287,12 @@ def fuse_loops(name, loop_chain, tile_size):
         warning("Loops won't be fused, and plain pyop2.ParLoops will be executed")
         return loop_chain
 
-    # If there are global reduction, return
+    # If there are global reduction or extruded sets are present, return
     if any([l._reduced_globals for l in loop_chain]) or \
             any([l.is_layered for l in loop_chain]):
         return loop_chain
 
-    # Analyze the Args in each loop composing the chain and produce a new sequence
-    # of Args for the fused ParLoop. For example, consider the Arg X and X.DAT be
-    # written to in ParLoop_0 (access mode WRITE) and read from in ParLoop_1 (access
-    # mode READ); this means that in the fused ParLoop, X will have access mode RW
-    args = OrderedDict()
-    for l in loop_chain:
-        for a in l.args:
-            args[a.data] = args.get(a.data, a)
-            if a.access != args[a.data].access:
-                if READ in [a.access, args[a.data].access]:
-                    # If a READ and some sort of write (MIN, MAX, RW, WRITE, INC),
-                    # then the access mode becomes RW
-                    args[a.data] = a.data(RW, a.map, a._flatten)
-                elif WRITE in [a.access, args[a.data].access]:
-                    # Can't be a READ, so just stick to WRITE regardless of what
-                    # the other access mode is
-                    args[a.data] = a.data(WRITE, a.map, a._flatten)
-                else:
-                    # Neither READ nor WRITE, so access modes are some combinations
-                    # of RW, INC, MIN, MAX. For simplicity, just make it RW
-                    args[a.data] = a.data(RW, a.map, a._flatten)
-
-    # The iteration space of the fused loop is the union of the iteration spaces
-    # of the individual loops composing the chain
-    it_spaces = [l.it_space for l in loop_chain]
-
-    return ParLoop(name, loop_chain, it_spaces, args.values(), tile_size)
+    return ParLoop(name, loop_chain, tile_size)
 
 
 @contextmanager
