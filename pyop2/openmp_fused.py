@@ -95,20 +95,33 @@ class Inspector(object):
     visible by setting the environment variable ``SLOPE_DIR`` to the value of
     the root SLOPE directory."""
 
-    def __init__(self, it_spaces, args_per_loop):
+    def __init__(self, name, it_spaces, args_per_loop, tile_size):
+        self._name = name
+        self._tile_size = tile_size
         self._it_spaces = it_spaces
         self._args_per_loop = args_per_loop
+
         # Filter unique dats and maps for later retrieval
         self._dats = dict([(a.data.name, a.data) for a in flatten(args_per_loop)])
         self._maps = dict([(a.map.name, a.map) for a in flatten(args_per_loop) if a.map])
 
-    def compile(self):
+        # The following flag is set to true once the inspector gets executed
+        self._initialized = False
+
+    def inspect(self):
+        if self._initialized:
+            return
+
+        with timed_region("ParLoopChain `%s`: inspector" % self._name):
+            self._compile()
+
+    def _compile(self):
         slope_dir = os.environ['SLOPE_DIR']
         cppargs = slope.get_compile_opts()
-        cppargs += ["-I%s/sparsetiling/include" % slope_dir]
-        ldargs = ["-L%s/lib" % slope_dir, "-l%s" % slope.get_lib_name()]
+        cppargs += ['-I%s/sparsetiling/include' % slope_dir]
+        ldargs = ['-L%s/lib' % slope_dir, '-l%s' % slope.get_lib_name()]
 
-        inspector = slope.Inspector()
+        inspector = slope.Inspector('OMP', self._tile_size)
 
         # Build arguments types and values
         inspector.add_sets([(s.name, s.core_size) for s in set(self._it_spaces)])
@@ -122,6 +135,7 @@ class Inspector(object):
         fun = compilation.load(src, "cpp", "inspector", cppargs, ldargs,
                                argtypes, None, "intel")
         fun(*argvalues, argtypes=argtypes, restype=None)
+        self._initialized = True
 
 
 # Parallel loop API
@@ -148,15 +162,23 @@ class JITModule(host.JITModule):
 
 class ParLoop(host.ParLoop):
 
-    def __init__(self, name, loop_chain, it_spaces, args):
+    def __init__(self, name, loop_chain, it_spaces, args, tile_size):
         LazyComputation.__init__(self,
-                                 set([a.data for a in args if a.access in [READ, RW]]) | Const._defs,
-                                 set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]))
+                                 set([a.data for a in args
+                                      if a.access in [READ, RW]]) | Const._defs,
+                                 set([a.data for a in args
+                                      if a.access in [RW, WRITE, MIN, MAX, INC]]))
         self._name = name
         self._loop_chain = loop_chain
         self._actual_args = args
         self._it_spaces = it_spaces
-        self._inspector = None
+
+        # Set an inspector for this fused parloop
+        global _inspectors
+        _inspectors[name] = _inspectors.get(name, Inspector(name, it_spaces,
+                                                            [l.args for l in loop_chain],
+                                                            tile_size))
+        self._inspector = _inspectors[name]
 
     @collective
     @profile
@@ -177,19 +199,9 @@ class ParLoop(host.ParLoop):
         """Retrieve an execution plan by generating, jit-compiling and running
         an inspection scheme implemented through calls to the SLOPE library.
 
-        The result is saved in the global variable ``_inspectors``, so inspection
-        needs be executed at most once."""
-
-        global _inspectors
-
-        if _inspectors.get(self._name):
-            return _inspectors[self._name]
-
-        inspector = Inspector(self.it_space, [l.args for l in self._loop_chain])
-        with timed_region("ParLoopChain `%s`: inspector" % self.name):
-            inspector.compile()
-        # Cache the inspection output
-        _inspectors[self._name] = inspector
+        Note that inspection will be executed only once for identical loop chains.
+        """
+        self._inspector.inspect()
 
     @property
     def it_space(self):
@@ -208,7 +220,7 @@ class ParLoop(host.ParLoop):
         return self._name
 
 
-def fuse_loops(name, loop_chain):
+def fuse_loops(name, loop_chain, tile_size):
     """Given a list of :class:`openmp.ParLoop`, return a :class:`fused_openmp.ParLoop`
     object representing the fusion of the loop chain. The original list is instead
     returned if ``loop_chain`` presents one of the following non currently supported
@@ -258,7 +270,7 @@ def fuse_loops(name, loop_chain):
     # of the individual loops composing the chain
     it_spaces = [l.it_space for l in loop_chain]
 
-    return ParLoop(name, loop_chain, it_spaces, args.values())
+    return ParLoop(name, loop_chain, it_spaces, args.values(), tile_size)
 
 
 @contextmanager
@@ -306,7 +318,7 @@ def loop_chain(name, time_unroll=0, tile_size=0):
     if time_unroll == 0:
         # If *not* in a time stepping loop, just replace the loops in the trace
         # with a fused version
-        trace[start_point:] = [fuse_loops(name, loop_chain)]
+        trace[start_point:] = [fuse_loops(name, loop_chain, tile_size)]
         _active_loop_chain = ()
         return
     if not _active_loop_chain or _active_loop_chain[0] != name:
@@ -322,6 +334,6 @@ def loop_chain(name, time_unroll=0, tile_size=0):
         unrolled_loop_chain = _active_loop_chain[1]
         current_loop_chain = unrolled_loop_chain + loop_chain
         if len(current_loop_chain) / len(loop_chain) == time_unroll:
-            trace[start_point:] = [fuse_loops(name, current_loop_chain)]
+            trace[start_point:] = [fuse_loops(name, current_loop_chain, tile_size)]
         else:
             unrolled_loop_chain.extend(loop_chain)
