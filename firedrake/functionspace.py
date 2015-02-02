@@ -125,77 +125,18 @@ class FunctionSpaceBase(ObjectCached):
                                                          self.fiat_element)
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
-            # Compute the facet_numbering and store with the parent mesh
-            if mesh.interior_facets is None:
-                # Order interior facets by OP2 entity class
-                interior_facets, interior_facet_classes = \
-                    dmplex.get_facets_by_class(mesh._plex, "interior_facets")
-
-                interior_local_facet_number, interior_facet_cell = \
-                    dmplex.facet_numbering(mesh._plex, "interior",
-                                           interior_facets,
-                                           mesh._cell_numbering,
-                                           mesh.cell_closure)
-
-                mesh.interior_facets = mesh_t._Facets(mesh, interior_facet_classes,
-                                                      "interior",
-                                                      interior_facet_cell,
-                                                      interior_local_facet_number)
-
-            interior_facet_cells = mesh.interior_facets.facet_cell
             self.interior_facet_node_list = \
-                dmplex.get_facet_nodes(interior_facet_cells,
+                dmplex.get_facet_nodes(mesh.interior_facets.facet_cell,
                                        self.cell_node_list)
         else:
             self.interior_facet_node_list = np.array([], dtype=np.int32)
-            if mesh.interior_facets is None:
-                mesh.interior_facets = mesh_t._Facets(self, 0, "interior", None, None)
 
         if mesh._plex.getStratumSize("exterior_facets", 1) > 0:
-            # Compute the facet_numbering and store with the parent mesh
-            if mesh.exterior_facets is None:
-
-                # Order exterior facets by OP2 entity class
-                exterior_facets, exterior_facet_classes = \
-                    dmplex.get_facets_by_class(mesh._plex, "exterior_facets")
-
-                # Derive attached boundary IDs
-                if mesh._plex.hasLabel("boundary_ids"):
-                    boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
-                    for i, facet in enumerate(exterior_facets):
-                        boundary_ids[i] = mesh._plex.getLabelValue("boundary_ids", facet)
-
-                    unique_ids = np.sort(mesh._plex.getLabelIdIS("boundary_ids").indices)
-                else:
-                    boundary_ids = None
-                    unique_ids = None
-
-                exterior_local_facet_number, exterior_facet_cell = \
-                    dmplex.facet_numbering(mesh._plex, "exterior",
-                                           exterior_facets,
-                                           mesh._cell_numbering,
-                                           mesh.cell_closure)
-
-                mesh.exterior_facets = mesh_t._Facets(mesh, exterior_facet_classes,
-                                                      "exterior",
-                                                      exterior_facet_cell,
-                                                      exterior_local_facet_number,
-                                                      boundary_ids,
-                                                      unique_markers=unique_ids)
-
-            exterior_facet_cells = mesh.exterior_facets.facet_cell
             self.exterior_facet_node_list = \
-                dmplex.get_facet_nodes(exterior_facet_cells,
+                dmplex.get_facet_nodes(mesh.exterior_facets.facet_cell,
                                        self.cell_node_list)
         else:
             self.exterior_facet_node_list = np.array([], dtype=np.int32)
-            if mesh.exterior_facets is None:
-                if mesh._plex.hasLabel("boundary_ids"):
-                    unique_ids = np.sort(mesh._plex.getLabelIdIS("boundary_ids").indices)
-                else:
-                    unique_ids = None
-                mesh.exterior_facets = mesh_t._Facets(self, 0, "exterior", None, None,
-                                                      unique_markers=unique_ids)
 
         # Note: this is the function space rank. The value rank may be different.
         self.rank = rank
