@@ -24,6 +24,15 @@ def test_interval():
     assert abs(integrate_one(IntervalMesh(3, 5.0)) - 5.0) < 1e-3
 
 
+def test_interval_three_arg():
+    assert abs(integrate_one(IntervalMesh(10, -1, 1)) - 2.0) < 1e-3
+
+
+def test_interval_negative_length():
+    with pytest.raises(RuntimeError):
+        IntervalMesh(10, 2, 1)
+
+
 def test_periodic_unit_interval():
     assert abs(integrate_one(PeriodicUnitIntervalMesh(3)) - 1) < 1e-3
 
