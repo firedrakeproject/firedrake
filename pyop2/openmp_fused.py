@@ -95,6 +95,8 @@ class Inspector(object):
     visible by setting the environment variable ``SLOPE_DIR`` to the value of
     the root SLOPE directory."""
 
+    _globaldata = {'coords': None}
+
     def __init__(self, name, loop_chain, tile_size):
         self._name = name
         self._tile_size = tile_size
@@ -146,6 +148,12 @@ class Inspector(object):
         inspector.add_sets(sets)
         arguments.extend([inspector.add_maps(maps.values())])
         inspector.add_loops(loops)
+        # Tell SLOPE to generate inspection output as a sequence of VTK files
+        # This is supposed to be done only in debugging mode
+        coords = Inspector._globaldata['coords']
+        if coords:
+            arguments.extend([inspector.add_coords((coords.dataset.set.name,
+                                                    coords._data, coords.shape[1]))])
 
         argtypes, argvalues = zip(*arguments)
 
@@ -296,7 +304,7 @@ def fuse_loops(name, loop_chain, tile_size):
 
 
 @contextmanager
-def loop_chain(name, time_unroll=0, tile_size=0):
+def loop_chain(name, time_unroll=0, tile_size=0, coords=None):
     """Analyze the trace of lazily evaluated loops ::
 
         [loop_0, loop_1, ..., loop_n-1]
@@ -326,9 +334,15 @@ def loop_chain(name, time_unroll=0, tile_size=0):
                         the behaviour is undefined.
     :param tile_size: suggest a tile size in case loop fusion can only be achieved
                       trough tiling within a time stepping loop.
+    :param coords: :class:`pyop2.Dat` representing coordinates. This should be
+                   passed only if in debugging mode, because it affects the runtime
+                   of the computation by generating VTK files illustrating the
+                   result of mesh coloring resulting from fusing loops through
+                   tiling. If SLOPE is not available, then this parameter has no
+                   effect and is simply ignored.
     """
 
-    global _active_loop_chain
+    global _active_loop_chain, _inspectors_metadata
     trace, new_trace = _trace._trace, []
 
     # Mark the last loop out of the loop chain
@@ -336,6 +350,9 @@ def loop_chain(name, time_unroll=0, tile_size=0):
     yield
     start_point = trace.index(pre_loop_chain[0])+1 if pre_loop_chain else 0
     loop_chain = trace[start_point:]
+
+    # Add any additional information that could be useful for inspection
+    Inspector._globaldata['coords'] = coords
 
     if time_unroll == 0:
         # If *not* in a time stepping loop, just replace the loops in the trace
