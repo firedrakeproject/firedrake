@@ -35,6 +35,7 @@
 
 from contextlib import contextmanager
 from collections import OrderedDict
+from copy import deepcopy as dcopy
 import os
 
 from base import LazyComputation, Const, _trace, \
@@ -47,6 +48,11 @@ from profiling import lineprof, timed_region, profile
 from logger import warning
 from mpi import collective
 from utils import flatten
+from op2 import par_loop, Kernel
+
+from coffee import base as coffee_ast
+from coffee.utils import visit as coffee_ast_visit, \
+    ast_replace as coffee_ast_replace
 
 import slope_python as slope
 
@@ -115,9 +121,85 @@ class Inspector(object):
             return
 
         with timed_region("ParLoopChain `%s`: inspector" % self._name):
-            self._compile()
+            self._fuse()
+            self._tile()
 
-    def _compile(self):
+    def _fuse(self):
+        """Fuse consecutive loops over the same iteration set by concatenating
+        kernel bodies and creating new :class:`ParLoop` objects representing
+        the fused sequence.
+
+        The conditions under which two loops over the same iteration set are
+        hardly fused are:
+
+            * They are both direct, OR
+            * One is direct and the other indirect
+
+        This is detailed in the paper::
+
+            "Mesh Independent Loop Fusion for Unstructured Mesh Applications"
+
+        from C. Bertolli et al.
+        """
+
+        def do_fuse(loop_a, loop_b):
+            """Fuse ``loop_b`` into ``loop_a``."""
+            # Create new "fused" Kernel object
+            kernel_a, kernel_b = loop_a.kernel, loop_b.kernel
+
+            # 1) name and additional parameters
+            name = 'fused_%s_%s' % (kernel_a._name, kernel_b._name)
+            opts = dict(kernel_a._opts.items() + kernel_b._opts.items())
+            include_dirs = kernel_a._include_dirs + kernel_b._include_dirs
+            headers = kernel_a._headers + kernel_b._headers
+            user_code = "\n".join([kernel_a._user_code, kernel_b._user_code])
+
+            # 2) fuse the ASTs
+            fused_ast, ast_b = dcopy(kernel_a._ast), dcopy(kernel_b._ast)
+            fused_ast.name = name
+            # 2-A) Concatenate the arguments in the signature (avoiding repetitions)
+            args = list(loop_a.args)
+            for arg, arg_ast_node in zip(loop_b.args, ast_b.args):
+                if arg not in args:
+                    args.append(arg)
+                    fused_ast.args.append(arg_ast_node)
+            # 2-B) Uniquify symbols identifiers
+            ast_b_info = coffee_ast_visit(ast_b, None)
+            ast_b_decls = ast_b_info['decls']
+            ast_b_symbols = ast_b_info['symbols']
+            for str_sym, decl in ast_b_decls.items():
+                new_symbol_id = "%s_1" % str_sym
+                decl.sym.symbol = new_symbol_id
+                for symbol in ast_b_symbols.keys():
+                    if symbol.symbol == str_sym:
+                        symbol.symbol = new_symbol_id
+            # 2-C) Concatenate kernels' bodies
+            marker_ast_node = coffee_ast.FlatBlock("\n\n// Begin of fused kernel\n\n")
+            fused_ast.children[0].children.extend([marker_ast_node] + ast_b.children)
+
+            kernel = Kernel(fused_ast, name, opts, include_dirs, headers, user_code)
+            return par_loop(kernel, loop_a.it_space.iterset, *args)
+
+        loop_chain = []
+        base_loop = self._loop_chain[0]
+        for loop in self._loop_chain[1:]:
+            if base_loop.it_space != loop.it_space or \
+                    (base_loop.is_indirect and loop.is_indirect):
+                # No fusion legal
+                base_loop = loop
+            elif base_loop.is_direct and loop.is_direct:
+                base_loop = do_fuse(base_loop, loop)
+            elif base_loop.is_direct and loop.is_indirect:
+                base_loop = do_fuse(loop, base_loop)
+            elif base_loop.is_indirect and loop.is_direct:
+                base_loop = do_fuse(base_loop, loop)
+            loop_chain.append(base_loop)
+
+    def _tile(self):
+        """Tile consecutive loops over different iteration sets characterized
+        by RAW and WAR dependencies. This requires interfacing with the SLOPE
+        library."""
+
         slope_dir = os.environ['SLOPE_DIR']
         cppargs = slope.get_compile_opts()
         cppargs += ['-I%s/sparsetiling/include' % slope_dir]
@@ -217,10 +299,10 @@ class ParLoop(host.ParLoop):
                         # Neither READ nor WRITE, so access modes are some combinations
                         # of RW, INC, MIN, MAX. For simplicity, just make it RW
                         args[a.data] = a.data(RW, a.map, a._flatten)
-
             # 2) The iteration space of the fused loop is the union of the iteration
             # spaces of the individual loops composing the chain
             it_spaces.append(loop.it_space)
+
         self._actual_args = args.values()
         self._it_spaces = it_spaces
 
