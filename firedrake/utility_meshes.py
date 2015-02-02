@@ -124,19 +124,32 @@ def _from_cell_list(dim, cells, coords, comm=None):
 
 
 @profile
-def IntervalMesh(ncells, length):
+def IntervalMesh(ncells, length_or_left, right=None):
     """
-    Generate a uniform mesh of the interval [0,L].
+    Generate a uniform mesh of an interval.
 
     :arg ncells: The number of the cells over the interval.
-    :arg length: The length of the interval.
+    :arg length_or_left: The length of the interval (if :data:`right`
+         is not provided) or else the left hand boundary point.
+    :arg right: (optional) position of the right
+         boundary point (in which case :data:`length_or_left` should
+         be the left boundary point).
 
-    The left hand (:math:`x=0`) boundary point has boundary marker 1,
-    while the right hand (:math:`x=L`) point has marker 2.
+    The left hand boundary point has boundary marker 1,
+    while the right hand point has marker 2.
     """
+    if right is None:
+        left = 0
+        right = length_or_left
+    else:
+        left = length_or_left
+
+    length = right - left
+    if length < 0:
+        raise RuntimeError("Requested mesh has negative length")
     dx = float(length) / ncells
     # This ensures the rightmost point is actually present.
-    coords = np.arange(0, length + 0.01 * dx, dx).reshape(-1, 1)
+    coords = np.arange(left, right + 0.01 * dx, dx).reshape(-1, 1)
     cells = np.dstack((np.arange(0, len(coords) - 1, dtype=np.int32),
                        np.arange(1, len(coords), dtype=np.int32))).reshape(-1, 2)
     plex = _from_cell_list(1, cells, coords)
@@ -165,7 +178,7 @@ def UnitIntervalMesh(ncells):
     while the right hand (:math:`x=1`) point has marker 2.
     """
 
-    return IntervalMesh(ncells, length=1.0)
+    return IntervalMesh(ncells, length_or_left=1.0)
 
 
 @profile
