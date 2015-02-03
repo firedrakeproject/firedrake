@@ -1892,10 +1892,10 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         """Zero the data associated with this :class:`Dat`"""
         if not hasattr(self, '_zero_kernel'):
             k = ast.FunDecl("void", "zero",
-                            [ast.Decl(self.ctype, ast.Symbol("*self"))],
+                            [ast.Decl("%s*" % self.ctype, ast.Symbol("self"))],
                             body=ast.c_for("n", self.cdim,
                                            ast.Assign(ast.Symbol("self", ("n", )),
-                                                      ast.FlatBlock("(%s)0" % self.ctype)),
+                                                      ast.Symbol("(%s)0" % self.ctype)),
                                            pragma=None))
             self._zero_kernel = _make_object('Kernel', k, 'zero')
         par_loop(self._zero_kernel, self.dataset.set, self(WRITE))
