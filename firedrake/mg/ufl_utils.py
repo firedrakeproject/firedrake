@@ -7,22 +7,18 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.multifunction import MultiFunction
 
 from firedrake.ffc_interface import sum_integrands
-from firedrake import constant
-from firedrake import function
-from firedrake import ufl_expr
+import firedrake
 
 from . import utils
 
 
-__all__ = ["coarsen_form"]
+__all__ = ["coarsen_form", "coarsen_thing"]
 
 
 class CoarsenIntegrand(MultiFunction):
 
     """'Coarsen' a :class:`ufl.Expr` by replacing coefficients,
     arguments and domain data with coarse mesh equivalents."""
-    def terminal(self, o):
-        raise RuntimeError("Don't know how to handle %r", type(o))
 
     expr = MultiFunction.reuse_if_untouched
 
@@ -33,20 +29,23 @@ class CoarsenIntegrand(MultiFunction):
             new_fs = hierarchy[level-1]
         except:
             raise RuntimeError("Don't know how to handle %r", o)
-
         return o.reconstruct(new_fs)
 
     def coefficient(self, o):
-        if isinstance(o, constant.Constant):
+        if isinstance(o, firedrake.Constant):
             try:
                 mesh = o.domain().data()
                 hierarchy, level = utils.get_level(mesh)
                 new_mesh = hierarchy[level-1]
             except:
                 new_mesh = None
-            return constant.Constant(value=o.dat.data,
-                                     domain=new_mesh)
-        elif isinstance(o, function.Function):
+            if o.rank() == 0:
+                val = o.dat.data_ro[0]
+            else:
+                val = o.dat.data_ro.copy()
+            return firedrake.Constant(value=val,
+                                      domain=new_mesh)
+        elif isinstance(o, firedrake.Function):
             hierarchy, level = utils.get_level(o)
             new_fn = hierarchy[level-1]
             return new_fn
@@ -57,13 +56,13 @@ class CoarsenIntegrand(MultiFunction):
         mesh = o.domain().data()
         hierarchy, level = utils.get_level(mesh)
         new_mesh = hierarchy[level-1]
-        return ufl_expr.Circumradius(new_mesh.ufl_domain())
+        return firedrake.Circumradius(new_mesh.ufl_domain())
 
     def facet_normal(self, o):
         mesh = o.domain().data()
         hierarchy, level = utils.get_level(mesh)
         new_mesh = hierarchy[level-1]
-        return ufl_expr.FacetNormal(new_mesh.ufl_domain())
+        return firedrake.FacetNormal(new_mesh.ufl_domain())
 
 
 def coarsen_form(form):
@@ -73,6 +72,8 @@ def coarsen_form(form):
 
     This maps over the form and replaces coefficients and arguments
     with their coarse mesh equivalents."""
+    if form is None:
+        return None
     assert isinstance(form, ufl.Form), \
         "Don't know how to coarsen %r" % type(form)
 
@@ -96,3 +97,37 @@ def coarsen_form(form):
 
         forms.append(integrand * measure)
     return reduce(add, forms)
+
+
+def coarsen_thing(thing):
+    if thing is None:
+        return None
+    if isinstance(thing, firedrake.DirichletBC):
+        return coarsen_bc(thing)
+    hierarchy, level = utils.get_level(thing)
+    return hierarchy[level-1]
+
+
+def coarsen_bc(bc):
+    new_V = coarsen_thing(bc.function_space())
+    val = bc._original_val
+    zeroed = bc._currently_zeroed
+    subdomain = bc.sub_domain
+    method = bc.method
+
+    new_val = val
+
+    if isinstance(val, firedrake.Expression):
+        new_val = val
+
+    if isinstance(val, (firedrake.Constant, firedrake.Function)):
+        mapper = CoarsenIntegrand()
+        new_val = map_integrand_dags(mapper, val)
+
+    new_bc = firedrake.DirichletBC(new_V, new_val, subdomain,
+                                   method=method)
+
+    if zeroed:
+        new_bc.homogenize()
+
+    return new_bc

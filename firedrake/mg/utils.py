@@ -412,12 +412,13 @@ def set_level(obj, hierarchy, level):
 
 
 def get_level(obj):
-    """Try and obtain hierarchy and level info from an object."""
+    """Try and obtain hierarchy and level info from an object.
+
+    If no level info is available, return :data:`None, -1`."""
     try:
         return getattr(obj, "__level_info__")
     except AttributeError:
-        raise RuntimeError("Provided object %s does not come from a hierarchy",
-                           obj)
+        return None, -1
 
 
 def has_level(obj):

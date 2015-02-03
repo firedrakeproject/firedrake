@@ -5,3 +5,4 @@ from .function import *
 from .functionspace import *
 from .ufl_utils import *
 from .interface import *
+from .solver_hierarchy import *

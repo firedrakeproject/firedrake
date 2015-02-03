@@ -1,6 +1,7 @@
 import ufl
 
 from pyop2.logger import warning, RED
+from pyop2.utils import as_tuple
 from pyop2.profiling import timed_function, profile
 
 import assemble
@@ -9,6 +10,9 @@ import solving
 import solving_utils
 import ufl_expr
 from petsc import PETSc
+import firedrake.mg.utils
+import firedrake.mg.ufl_utils
+
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -68,61 +72,74 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    def __init__(self, problem):
-        self._problem = problem
+    def __init__(self, problems):
+        problems = as_tuple(problems)
+        self._problems = problems
         # Build the jacobian with the correct sparsity pattern.  Note
         # that since matrix assembly is lazy this doesn't actually
         # force an additional assembly of the matrix since in
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
-        self._jac = assemble.assemble(problem.J, bcs=problem.bcs,
-                                      form_compiler_parameters=problem.form_compiler_parameters)
-        if problem.Jp is not None:
-            self._pjac = assemble.assemble(problem.Jp, bcs=problem.bcs,
-                                           form_compiler_parameters=problem.form_compiler_parameters)
+        self._jacs = tuple(assemble.assemble(problem.J, bcs=problem.bcs,
+                                             form_compiler_parameters=problem.form_compiler_parameters)
+                           for problem in problems)
+        if problems[-1].Jp is not None:
+            self._pjacs = tuple(assemble.assemble(problem.Jp, bcs=problem.bcs,
+                                                  form_compiler_parameters=problem.form_compiler_parameters)
+                                for problem in problems)
         else:
-            self._pjac = self._jac
+            self._pjacs = self._jacs
         # Function to hold current guess
-        self._x = function.Function(problem.u)
-        self.F = ufl.replace(problem.F, {problem.u: self._x})
-        self.J = ufl.replace(problem.J, {problem.u: self._x})
-        if problem.Jp is not None:
-            self.Jp = ufl.replace(problem.Jp, {problem.u: self._x})
+        self._xs = tuple(function.Function(problem.u) for problem in problems)
+        self.Fs = tuple(ufl.replace(problem.F, {problem.u: x}) for problem, x in zip(problems,
+                                                                                     self._xs))
+        self.Js = tuple(ufl.replace(problem.J, {problem.u: x}) for problem, x in zip(problems,
+                                                                                     self._xs))
+        if problems[-1].Jp is not None:
+            self.Jps = tuple(ufl.replace(problem.Jp, {problem.u: x}) for problem, x in zip(problems,
+                                                                                           self._xs))
         else:
-            self.Jp = None
-        test = self.F.arguments()[0]
-        self._F = function.Function(test.function_space())
-        self._jacobian_assembled = False
+            self.Jps = tuple(None for _ in problems)
+        self._Fs = tuple(function.Function(F.arguments()[0].function_space())
+                         for F in self.Fs)
+        self._jacobians_assembled = [False for _ in problems]
 
     def set_globalvector(self, dm):
         """Tell the DM about the layout of the global vector."""
-        with self._x.dat.vec_ro as v:
+        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__mesh__")())
+        with self._xs[lvl].dat.vec_ro as v:
             dm.setGlobalVector(v.duplicate())
 
     def set_function(self, snes):
         """Set the residual evaluation function"""
-        with self._F.dat.vec as v:
+        with self._Fs[-1].dat.vec as v:
             snes.setFunction(self.form_function, v)
 
     def set_jacobian(self, snes):
-        snes.setJacobian(self.form_jacobian, J=self._jac._M.handle,
-                         P=self._pjac._M.handle)
+        snes.setJacobian(self.form_jacobian, J=self._jacs[-1]._M.handle,
+                         P=self._pjacs[-1]._M.handle)
 
     def set_fieldsplits(self, pc):
-        test = self.F.arguments()[0]
-        pmat = self._pjac._M
+        test = self.Fs[-1].arguments()[0]
+        pmat = self._pjacs[-1]._M
         names = [fs.name if fs.name else str(i)
                  for i, fs in enumerate(test.function_space())]
         return solving_utils.set_fieldsplits(pmat, pc, names=names)
 
     def set_nullspace(self, nullspace, ises=None):
-        nullspace._apply(self._jac._M, ises=ises)
-        if self.Jp is not None:
-            nullspace._apply(self._pjac._M, ises=ises)
+        nullspace._apply(self._jacs[-1]._M, ises=ises)
+        if self.Jps[-1] is not None:
+            nullspace._apply(self._pjacs[-1]._M, ises=ises)
 
     @property
     def is_mixed(self):
-        return self._jac._M.sparsity.shape != (1, 1)
+        return self._jacs[-1]._M.sparsity.shape != (1, 1)
+
+    @classmethod
+    def create_matrix(cls, dm):
+        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__mesh__")())
+        ctx = dm.getAppCtx()
+        return ctx._jacs[lvl]._M.handle
 
     @classmethod
     def form_function(cls, snes, X, F):
@@ -134,20 +151,21 @@ class _SNESContext(object):
         """
         dm = snes.getDM()
         ctx = dm.getAppCtx()
-
+        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__mesh__")())
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
-        with ctx._x.dat.vec as v:
-            X.copy(v)
+        with ctx._xs[lvl].dat.vec as v:
+            if v != X:
+                X.copy(v)
 
-        assemble.assemble(ctx.F, tensor=ctx._F,
-                          form_compiler_parameters=ctx._problem.form_compiler_parameters)
-        for bc in ctx._problem.bcs:
-            bc.zero(ctx._F)
+        assemble.assemble(ctx.Fs[lvl], tensor=ctx._Fs[lvl],
+                          form_compiler_parameters=ctx._problems[lvl].form_compiler_parameters)
+        for bc in ctx._problems[lvl].bcs:
+            bc.zero(ctx._Fs[lvl])
 
         # F may not be the same vector as self._F, so copy
         # residual out to F.
-        with ctx._F.dat.vec_ro as v:
+        with ctx._Fs[lvl].dat.vec_ro as v:
             v.copy(F)
 
     @classmethod
@@ -161,28 +179,45 @@ class _SNESContext(object):
         """
         dm = snes.getDM()
         ctx = dm.getAppCtx()
+        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__mesh__")())
 
-        if ctx._problem._constant_jacobian and ctx._jacobian_assembled:
+        if ctx._problems[lvl]._constant_jacobian and ctx._jacobians_assembled[lvl]:
             # Don't need to do any work with a constant jacobian
             # that's already assembled
             return
-        ctx._jacobian_assembled = True
+        ctx._jacobians_assembled[lvl] = True
 
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
-        with ctx._x.dat.vec as v:
+        with ctx._xs[lvl].dat.vec as v:
             X.copy(v)
-        assemble.assemble(ctx.J,
-                          tensor=ctx._jac,
-                          bcs=ctx._problem.bcs,
-                          form_compiler_parameters=ctx._problem.form_compiler_parameters)
-        ctx._jac.M._force_evaluation()
-        if ctx.Jp is not None:
-            assemble.assemble(ctx.Jp,
-                              tensor=ctx._pjac,
-                              bcs=ctx._problem.bcs,
-                              form_compiler_parameters=ctx._problem.form_compiler_parameters)
-            ctx._pjac.M._force_evaluation()
+        assemble.assemble(ctx.Js[lvl],
+                          tensor=ctx._jacs[lvl],
+                          bcs=ctx._problems[lvl].bcs,
+                          form_compiler_parameters=ctx._problems[lvl].form_compiler_parameters)
+        ctx._jacs[lvl].M._force_evaluation()
+        if ctx.Jps[lvl] is not None:
+            assemble.assemble(ctx.Jps[lvl],
+                              tensor=ctx._pjacs[lvl],
+                              bcs=ctx._problems[lvl].bcs,
+                              form_compiler_parameters=ctx._problems[lvl].form_compiler_parameters)
+            ctx._pjacs[lvl].M._force_evaluation()
+
+
+def _extract_kwargs(**kwargs):
+    parameters = kwargs.get('solver_parameters', None)
+    if 'parameters' in kwargs:
+        warning(RED % "The 'parameters' keyword is deprecated, use 'solver_parameters' instead.")
+        parameters = kwargs['parameters']
+        if 'solver_parameters' in kwargs:
+            warning(RED % "'parameters' and 'solver_parameters' passed, using the latter")
+            parameters = kwargs['solver_parameters']
+
+    # Make sure we don't stomp on a dict the user has passed in.
+    parameters = parameters.copy() if parameters is not None else {}
+    nullspace = kwargs.get('nullspace', None)
+
+    return parameters, nullspace
 
 
 class NonlinearVariationalSolver(object):
@@ -190,7 +225,7 @@ class NonlinearVariationalSolver(object):
 
     _id = 0
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, problem, **kwargs):
         """
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
@@ -211,24 +246,12 @@ class NonlinearVariationalSolver(object):
 
             {'snes_monitor': True}
         """
-        assert isinstance(args[0], NonlinearVariationalProblem)
+        assert isinstance(problem, NonlinearVariationalProblem)
 
-        problem = args[0]
+        parameters, nullspace = _extract_kwargs(**kwargs)
 
         ctx = _SNESContext(problem)
 
-        parameters = kwargs.get('solver_parameters', None)
-        if 'parameters' in kwargs:
-            warning(RED % "The 'parameters' keyword to %s is deprecated, use 'solver_parameters' instead.",
-                    self.__class__.__name__)
-            parameters = kwargs['parameters']
-            if 'solver_parameters' in kwargs:
-                warning(RED % "'parameters' and 'solver_parameters' passed to %s, using the latter",
-                        self.__class__.__name__)
-                parameters = kwargs['solver_parameters']
-
-        # Make sure we don't stomp on a dict the user has passed in.
-        parameters = parameters.copy() if parameters is not None else {}
         # Don't ask the DM to provide fieldsplit splits
         parameters.setdefault('pc_fieldsplit_dm_splits', False)
         # Mixed problem, use jacobi pc if user has not supplied one.
@@ -250,8 +273,8 @@ class NonlinearVariationalSolver(object):
 
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
+        dm.setCreateMatrix(ctx.create_matrix)
         ises = ctx.set_fieldsplits(self.snes.ksp.pc)
-        nullspace = kwargs.get('nullspace', None)
         if nullspace is not None:
             ctx.set_nullspace(nullspace, ises=ises)
 
