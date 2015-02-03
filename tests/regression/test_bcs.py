@@ -114,6 +114,17 @@ def test_homogenize_doesnt_overwrite_function(a, u, V, f):
     assert abs(u.vector().array()).max() == 0.0
 
 
+def test_homogenize(V):
+    bc = [DirichletBC(V, 10, 1), DirichletBC(V, 20, 2)]
+
+    homogeneous_bc = homogenize(bc)
+    assert len(homogeneous_bc) == 2
+    assert homogeneous_bc[0].function_arg == 0
+    assert homogeneous_bc[1].function_arg == 0
+    assert bc[0].sub_domain == homogeneous_bc[0].sub_domain
+    assert bc[1].sub_domain == homogeneous_bc[1].sub_domain
+
+
 def test_restore_bc_value(a, u, V, f):
     bc = DirichletBC(V, f, 1)
     bc.homogenize()
