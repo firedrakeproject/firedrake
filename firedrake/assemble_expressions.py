@@ -14,19 +14,6 @@ import constant
 import function
 import functionspace
 
-_to_sum = lambda o: ast.Sum(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
-_to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
-
-_ast_map = {
-    MathFunction: (lambda e: ast.FunCall(e._name, _ast(e._argument)), None),
-    ufl.algebra.Sum: (lambda e: _to_sum(e.ufl_operands)),
-    ufl.algebra.Product: (lambda e: _to_prod(e.ufl_operands)),
-    ufl.algebra.Division: (lambda e: ast.Div(_ast(e._a), _ast(e._b))),
-    ufl.algebra.Abs: (lambda e: ast.FunCall("abs", _ast(e._a))),
-    ufl.constantvalue.ScalarValue: (lambda e: ast.Symbol(e._value)),
-    ufl.constantvalue.Zero: (lambda e: ast.Symbol(0))
-}
-
 
 def ufl_type(*args, **kwargs):
     """Decorator mimicing :func:`ufl.core.ufl_type.ufl_type`.
@@ -242,7 +229,7 @@ class Power(ufl.algebra.Power):
 
     @property
     def ast(self):
-        return ast.FunCall("pow", _ast(self.ufl_operands[0], _ast(self.ufl_operands[1])))
+        return ast.FunCall("pow", _ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
 
 
 class Ln(ufl.mathfunctions.Ln):
@@ -574,3 +561,26 @@ def assemble_expression(expr, subset=None):
     result = function.Function(ExpressionWalker().walk(expr)[2])
     evaluate_expression(Assign(result, expr), subset)
     return result
+
+
+_to_sum = lambda o: ast.Sum(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
+_to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
+_to_aug_assign = lambda op, o: op(_ast(o[0]), _ast(o[1]))
+
+_ast_map = {
+    MathFunction: (lambda e: ast.FunCall(e._name, _ast(e._argument)), None),
+    ufl.algebra.Sum: (lambda e: _to_sum(e.ufl_operands)),
+    ufl.algebra.Product: (lambda e: _to_prod(e.ufl_operands)),
+    ufl.algebra.Division: (lambda e: ast.Div(*[_ast(o) for o in e.ufl_operands])),
+    ufl.algebra.Abs: (lambda e: ast.FunCall("abs", _ast(e.ufl_operands[0]))),
+    AugmentedAssignment: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
+    ufl.constantvalue.ScalarValue: (lambda e: ast.Symbol(e._value)),
+    ufl.constantvalue.Zero: (lambda e: ast.Symbol(0)),
+    ufl.classes.Conditional: (lambda e: ast.Ternary(*[_ast(o) for o in e.ufl_operands])),
+    ufl.classes.EQ: (lambda e: ast.Eq(*[_ast(o) for o in e.ufl_operands])),
+    ufl.classes.NE: (lambda e: ast.NEq(*[_ast(o) for o in e.ufl_operands])),
+    ufl.classes.LT: (lambda e: ast.Less(*[_ast(o) for o in e.ufl_operands])),
+    ufl.classes.LE: (lambda e: ast.LessEq(*[_ast(o) for o in e.ufl_operands])),
+    ufl.classes.GT: (lambda e: ast.Greater(*[_ast(o) for o in e.ufl_operands])),
+    ufl.classes.GE: (lambda e: ast.GreaterEq(*[_ast(o) for o in e.ufl_operands]))
+}
