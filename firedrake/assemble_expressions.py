@@ -48,7 +48,7 @@ def ufl_type(*args, **kwargs):
 
 
 def _ast(expr):
-    """Convert expr to a PyOP2 ast."""
+    """Convert expr to a COFFEE AST."""
 
     try:
         return expr.ast
@@ -527,10 +527,7 @@ def expression_kernel(expr, args):
     fs = args[0].function.function_space()
 
     d = ast.Symbol("dim")
-    if isinstance(fs, functionspace.VectorFunctionSpace):
-        ast_expr = _ast(expr)
-    else:
-        ast_expr = ast.FlatBlock(str(expr) + ";")
+    ast_expr = _ast(expr)
     body = ast.Block(
         (
             ast.Decl("int", d),
