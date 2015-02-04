@@ -29,13 +29,9 @@ import pytest
 def run_test(quadrilateral):
     if quadrilateral:
         mesh = UnitCubedSphereMesh(refinement_level=2)
-
-        C_elt = FiniteElement("CG", "interval", 1)
-        D_elt = FiniteElement("DG", "interval", 0)
-        RT_elt = HDiv(OuterProductElement(C_elt, D_elt)) + HDiv(OuterProductElement(D_elt, C_elt))
+        RT_elt = FiniteElement("RTCF", "quadrilateral", 1)
     else:
         mesh = UnitIcosahedralSphereMesh(refinement_level=2)
-
         RT_elt = FiniteElement("RT", "triangle", 1)
 
     global_normal = Expression(("x[0]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])",

@@ -10,13 +10,7 @@ def run_hdiv_l2(MeshClass, refinement, hdiv_space, degree):
     mesh.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
     Ve = FunctionSpace(mesh, "DG", max(3, degree + 1))
 
-    if hdiv_space == "RTCF":
-        C_elt = FiniteElement("CG", 'interval', degree)
-        D_elt = FiniteElement("DG", 'interval', degree - 1)
-        V_elt = HDiv(OuterProductElement(C_elt, D_elt)) + HDiv(OuterProductElement(D_elt, C_elt))
-        V = FunctionSpace(mesh, V_elt)
-    else:
-        V = FunctionSpace(mesh, hdiv_space, degree)
+    V = FunctionSpace(mesh, hdiv_space, degree)
     Q = FunctionSpace(mesh, "DG", degree - 1)
 
     W = V*Q

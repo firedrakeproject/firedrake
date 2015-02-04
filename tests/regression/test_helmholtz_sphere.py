@@ -32,10 +32,7 @@ def run_helmholtz_mixed_sphere(MeshClass, r):
     if isinstance(m, SimplexMesh):
         V = FunctionSpace(m, 'RT', 1)
     elif isinstance(m, QuadrilateralMesh):
-        C_elt = FiniteElement("CG", 'interval', 1)
-        D_elt = FiniteElement("DG", 'interval', 0)
-        V_elt = HDiv(OuterProductElement(C_elt, D_elt)) + HDiv(OuterProductElement(D_elt, C_elt))
-        V = FunctionSpace(m, V_elt)
+        V = FunctionSpace(m, 'RTCF', 1)
     Q = FunctionSpace(m, 'DG', 0)
     W = V*Q
 
