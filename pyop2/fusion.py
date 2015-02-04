@@ -121,10 +121,12 @@ class Inspector(object):
             return
 
         with timed_region("ParLoopChain `%s`: inspector" % self._name):
-            self._fuse()
+            self._hard_fuse()
             self._tile()
 
-    def _fuse(self):
+        self._initialized = True
+
+    def _hard_fuse(self):
         """Fuse consecutive loops over the same iteration set by concatenating
         kernel bodies and creating new :class:`ParLoop` objects representing
         the fused sequence.
@@ -142,34 +144,29 @@ class Inspector(object):
         from C. Bertolli et al.
         """
 
-        def do_fuse(loop_a, loop_b):
-            """Fuse ``loop_b`` into ``loop_a``."""
-            # Create new "fused" Kernel object
+        def do_fuse(loop_a, loop_b, unique_id):
+            """Fuse ``loop_b`` into ``loop_a``. All symbols identifiers in
+            ``loop_b`` are modified appending the suffix ``unique_id``."""
             kernel_a, kernel_b = loop_a.kernel, loop_b.kernel
 
-            # 1) name and additional parameters
+            # 1) Name and additional parameters of the fused kernel
             name = 'fused_%s_%s' % (kernel_a._name, kernel_b._name)
             opts = dict(kernel_a._opts.items() + kernel_b._opts.items())
             include_dirs = kernel_a._include_dirs + kernel_b._include_dirs
             headers = kernel_a._headers + kernel_b._headers
             user_code = "\n".join([kernel_a._user_code, kernel_b._user_code])
 
-            # 2) fuse the ASTs
+            # 2) Fuse the ASTs
             fused_ast, ast_b = dcopy(kernel_a._ast), dcopy(kernel_b._ast)
             fused_ast.name = name
-            # 2-A) Concatenate the arguments in the signature (avoiding repetitions)
-            args = list(loop_a.args)
-            for arg, arg_ast_node in zip(loop_b.args, ast_b.args):
-                if arg not in args:
-                    args.append(arg)
-                    fused_ast.args.append(arg_ast_node)
+            # 2-A) Concatenate the arguments in the signature
+            fused_ast.args.extend(ast_b.args)
             # 2-B) Uniquify symbols identifiers
             ast_b_info = coffee_ast_visit(ast_b, None)
             ast_b_decls = ast_b_info['decls']
             ast_b_symbols = ast_b_info['symbols']
             for str_sym, decl in ast_b_decls.items():
-                new_symbol_id = "%s_1" % str_sym
-                decl.sym.symbol = new_symbol_id
+                new_symbol_id = "%s_%s" % (str_sym, str(unique_id))
                 for symbol in ast_b_symbols.keys():
                     if symbol.symbol == str_sym:
                         symbol.symbol = new_symbol_id
@@ -177,23 +174,29 @@ class Inspector(object):
             marker_ast_node = coffee_ast.FlatBlock("\n\n// Begin of fused kernel\n\n")
             fused_ast.children[0].children.extend([marker_ast_node] + ast_b.children)
 
+            args = loop_a.args + loop_b.args
             kernel = Kernel(fused_ast, name, opts, include_dirs, headers, user_code)
             return par_loop(kernel, loop_a.it_space.iterset, *args)
 
-        loop_chain = []
+        loop_chain, fusing_loop  = [], []
         base_loop = self._loop_chain[0]
-        for loop in self._loop_chain[1:]:
+        for i, loop in enumerate(self._loop_chain[1:]):
             if base_loop.it_space != loop.it_space or \
                     (base_loop.is_indirect and loop.is_indirect):
-                # No fusion legal
+                # Fusion not legal
+                loop_chain.append(base_loop)
                 base_loop = loop
+                fusing_loop = []
+                continue
             elif base_loop.is_direct and loop.is_direct:
-                base_loop = do_fuse(base_loop, loop)
+                base_loop = do_fuse(base_loop, loop, i)
             elif base_loop.is_direct and loop.is_indirect:
-                base_loop = do_fuse(loop, base_loop)
+                base_loop = do_fuse(loop, base_loop, i)
             elif base_loop.is_indirect and loop.is_direct:
-                base_loop = do_fuse(base_loop, loop)
-            loop_chain.append(base_loop)
+                base_loop = do_fuse(base_loop, loop, i)
+            fusing_loop = [base_loop]
+        loop_chain.extend(fusing_loop)
+        self._loop_chain = loop_chain
 
     def _tile(self):
         """Tile consecutive loops over different iteration sets characterized
@@ -211,7 +214,7 @@ class Inspector(object):
         arguments = []
         sets, maps, loops = set(), {}, []
         for loop in self._loop_chain:
-            slope_desc = []
+            slope_desc = set()
             # Add sets
             sets.add((loop.it_space.name, loop.it_space.core_size))
             for a in loop.args:
@@ -223,9 +226,9 @@ class Inspector(object):
                 # Track descriptors
                 desc_name = "DIRECT" if not a.map else a.map.name
                 desc_access = a.access._mode  # Note: same syntax as SLOPE
-                slope_desc.append((desc_name, desc_access))
+                slope_desc.add((desc_name, desc_access))
             # Add loop
-            loops.append((loop.kernel.name, loop.it_space.name, slope_desc))
+            loops.append((loop.kernel.name, loop.it_space.name, list(slope_desc)))
         # Provide structure of loop chain to SLOPE's inspector
         inspector.add_sets(sets)
         arguments.extend([inspector.add_maps(maps.values())])
@@ -245,7 +248,6 @@ class Inspector(object):
         fun = compilation.load(src, "cpp", "inspector", cppargs, ldargs,
                                argtypes, None, "intel")
         fun(*argvalues, argtypes=argtypes, restype=None)
-        self._initialized = True
 
 
 # Parallel loop API
