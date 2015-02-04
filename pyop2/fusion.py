@@ -50,6 +50,7 @@ from mpi import collective
 from utils import flatten
 from op2 import par_loop, Kernel
 
+import coffee
 from coffee import base as coffee_ast
 from coffee.utils import visit as coffee_ast_visit, \
     ast_replace as coffee_ast_replace
@@ -203,11 +204,6 @@ class Inspector(object):
         by RAW and WAR dependencies. This requires interfacing with the SLOPE
         library."""
 
-        slope_dir = os.environ['SLOPE_DIR']
-        cppargs = slope.get_compile_opts()
-        cppargs += ['-I%s/sparsetiling/include' % slope_dir]
-        ldargs = ['-L%s/lib' % slope_dir, '-l%s' % slope.get_lib_name()]
-
         inspector = slope.Inspector('OMP', self._tile_size)
 
         # Build arguments types and values
@@ -244,6 +240,11 @@ class Inspector(object):
 
         # Generate inspector C code
         src = inspector.generate_code()
+
+        slope_dir = os.environ['SLOPE_DIR']
+        cppargs = slope.get_compile_opts(coffee.plan.compiler.get('name'), coords)
+        cppargs += ['-I%s/sparsetiling/include' % slope_dir]
+        ldargs = ['-L%s/lib' % slope_dir, '-l%s' % slope.get_lib_name()]
 
         fun = compilation.load(src, "cpp", "inspector", cppargs, ldargs,
                                argtypes, None, "intel")
