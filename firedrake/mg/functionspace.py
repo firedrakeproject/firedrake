@@ -125,14 +125,7 @@ class BaseHierarchy(object):
                 restriction_fs = self
             self._restriction_weights = firedrake.mg.function.FunctionHierarchy(restriction_fs)
 
-            k = """
-            static inline void weights(double weight[%(d)d])
-            {
-                for ( int i = 0; i < %(d)d; i++ ) {
-                    weight[i] += 1.0;
-                }
-            }""" % {'d': self.cell_node_map(0).arity}
-            k = op2.Kernel(k, "weights")
+            k = utils.get_count_kernel(self.cell_node_map(0).arity)
             weights = self._restriction_weights
             # Count number of times each fine dof is hit
             for lvl in range(1, len(weights)):

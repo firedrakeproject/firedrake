@@ -338,3 +338,17 @@ def get_restriction_kernel(fiat_element, unique_indices, dim=1):
                     pred=["static", "inline"])
 
     return op2.Kernel(k, "restriction")
+
+
+def get_count_kernel(arity):
+    arglist = [ast.Decl("double", ast.Symbol("weight", (arity, )))]
+    i = ast.Symbol("i", ())
+    assignment = ast.Incr(ast.Symbol("weight", (i, )), ast.c_sym(1.0))
+    loop = ast.For(ast.Decl("int", i, ast.c_sym(0)),
+                   ast.Less(i, ast.c_sym(arity)),
+                   ast.Incr(i, ast.c_sym(1)),
+                   ast.Block([assignment], open_scope=True))
+    k = ast.FunDecl("void", "count_weights", arglist,
+                    ast.Block([loop]),
+                    pred=["static", "inline"])
+    return op2.Kernel(k, "count_weights")
