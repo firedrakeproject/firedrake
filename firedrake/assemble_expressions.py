@@ -80,7 +80,7 @@ class DummyFunction(ufl.Coefficient):
     @property
     def arg(self):
         argtype = self.function.dat.ctype + "*"
-        name = " fn_%r" % self.argnum
+        name = "fn_%r" % self.argnum
 
         return ast.Decl(argtype, ast.Symbol(name))
 
