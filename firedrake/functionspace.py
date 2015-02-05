@@ -365,16 +365,10 @@ class FunctionSpaceBase(ObjectCached):
 
         el = self.fiat_element
 
-        # Facet dimension becomes a bit more complicated
-        # for quadrilaterals, as their dimension is (1, 1),
-        # so facets have dimensions (0, 1) AND (1, 0),
-        # which forces us to deal with multiple dimension values.
-        dims = self._mesh.facet_dimensions()
+        dim = self._mesh.facet_dimension()
 
         if method == "topological":
-            boundary_dofs = dict(enumerate(value
-                                           for dim in dims
-                                           for value in el.entity_closure_dofs()[dim].values()))
+            boundary_dofs = el.entity_closure_dofs()[dim]
         elif method == "geometric":
             boundary_dofs = el.facet_support_dofs()
 
@@ -403,9 +397,8 @@ class FunctionSpaceBase(ObjectCached):
         c_array = lambda xs: "{"+", ".join(map(str, xs))+"}"
 
         body = ast.Block([ast.Decl("int",
-                                   ast.Symbol("l_nodes",
-                                              (sum(len(el.get_reference_element().topology[dim]) for dim in dims),
-                                               nodes_per_facet)),
+                                   ast.Symbol("l_nodes", (len(el.get_reference_element().topology[dim]),
+                                                          nodes_per_facet)),
                                    init=ast.ArrayInit(c_array(map(c_array, local_facet_nodes))),
                                    qualifiers=["const"]),
                           ast.For(ast.Decl("int", "n", 0),

@@ -635,6 +635,15 @@ class MeshBase(object):
         return self.parent.cell_set if self.parent else \
             op2.Set(size, "%s_cells" % self.name)
 
+    def facet_dimension(self):
+        """Returns the facet dimension."""
+        # Facets have co-dimension 1
+        return self.ufl_cell().topological_dimension() - 1
+
+    def cell_dimension(self):
+        """Return the cell dimension"""
+        return self.ufl_cell().topological_dimension()
+
 
 class SimplexMesh(MeshBase):
     """A mesh class providing functionality specific to simplex meshes.
@@ -662,15 +671,6 @@ class SimplexMesh(MeshBase):
 
         return dmplex.closure_ordering(dm, vertex_numbering,
                                        self._cell_numbering, entity_per_cell)
-
-    def facet_dimensions(self):
-        """Returns a singleton list containing the facet dimension."""
-        # Facets have co-dimension 1
-        return [self.ufl_cell().topological_dimension() - 1]
-
-    def cell_dimension(self):
-        """Return the cell dimension"""
-        return self.ufl_cell().topological_dimension()
 
 
 class QuadrilateralMesh(MeshBase):
@@ -707,14 +707,6 @@ class QuadrilateralMesh(MeshBase):
 
         return dmplex.quadrilateral_closure_ordering(
             plex, vertex_numbering, cell_numbering, cell_orientations)
-
-    def facet_dimensions(self):
-        """Returns a list containing the facet dimensions."""
-        return [1]
-
-    def cell_dimension(self):
-        """Return the cell dimension"""
-        return (1, 1)
 
 
 class ExtrudedMesh(MeshBase):
@@ -932,8 +924,8 @@ class ExtrudedMesh(MeshBase):
             raise RuntimeError("Dimension computation not supported for gdim %d",
                                self.geometric_dimension)
 
-    def facet_dimensions(self):
-        """Returns a singleton list containing the facet dimension.
+    def facet_dimension(self):
+        """Returns the facet dimension.
 
         .. note::
 
@@ -947,8 +939,8 @@ class ExtrudedMesh(MeshBase):
         # triangle x interval interval x interval it's (1, 1) and
         # (0, 1) respectively.
         if self.geometric_dimension == 3:
-            return [(1, 1)]
+            return (1, 1)
         elif self.geometric_dimension == 2:
-            return [(0, 1)]
+            return (0, 1)
         else:
             raise RuntimeError("Dimension computation for other than 2D or 3D extruded meshes not supported.")
