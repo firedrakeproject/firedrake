@@ -386,9 +386,6 @@ class MeshBase(object):
                 self._vertex_numbering = self._plex.createSection([1], entity_dofs,
                                                                   perm=self._plex_renumbering)
 
-            self.interior_facets = None
-            self.exterior_facets = None
-
             # Note that for bendy elements, this needs to change.
             with timed_region("Mesh: coordinate field"):
                 if periodic_coords is not None:
@@ -434,6 +431,63 @@ class MeshBase(object):
         constructing it) you need to call this manually."""
         if hasattr(self, '_callback'):
             self._callback(self)
+
+    @utils.cached_property
+    def exterior_facets(self):
+        if self._plex.getStratumSize("exterior_facets", 1) > 0:
+            # Compute the facet_numbering
+
+            # Order exterior facets by OP2 entity class
+            exterior_facets, exterior_facet_classes = \
+                dmplex.get_facets_by_class(self._plex, "exterior_facets")
+
+            # Derive attached boundary IDs
+            if self._plex.hasLabel("boundary_ids"):
+                boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
+                for i, facet in enumerate(exterior_facets):
+                    boundary_ids[i] = self._plex.getLabelValue("boundary_ids", facet)
+
+                unique_ids = np.sort(self._plex.getLabelIdIS("boundary_ids").indices)
+            else:
+                boundary_ids = None
+                unique_ids = None
+
+            exterior_local_facet_number, exterior_facet_cell = \
+                dmplex.facet_numbering(self._plex, "exterior",
+                                       exterior_facets,
+                                       self._cell_numbering,
+                                       self.cell_closure)
+
+            return _Facets(self, exterior_facet_classes, "exterior",
+                           exterior_facet_cell, exterior_local_facet_number,
+                           boundary_ids, unique_markers=unique_ids)
+        else:
+            if self._plex.hasLabel("boundary_ids"):
+                unique_ids = np.sort(self._plex.getLabelIdIS("boundary_ids").indices)
+            else:
+                unique_ids = None
+            return _Facets(self, 0, "exterior", None, None,
+                           unique_markers=unique_ids)
+
+    @utils.cached_property
+    def interior_facets(self):
+        if self._plex.getStratumSize("interior_facets", 1) > 0:
+            # Compute the facet_numbering
+
+            # Order interior facets by OP2 entity class
+            interior_facets, interior_facet_classes = \
+                dmplex.get_facets_by_class(self._plex, "interior_facets")
+
+            interior_local_facet_number, interior_facet_cell = \
+                dmplex.facet_numbering(self._plex, "interior",
+                                       interior_facets,
+                                       self._cell_numbering,
+                                       self.cell_closure)
+
+            return _Facets(self, interior_facet_classes, "interior",
+                           interior_facet_cell, interior_local_facet_number)
+        else:
+            return _Facets(self, 0, "interior", None, None)
 
     def create_cell_node_list(self, global_numbering, fiat_element):
         """Builds the DoF mapping.
