@@ -83,7 +83,7 @@ class FunctionSpaceBase(ObjectCached):
             self.dofs_per_column = np.zeros(1, np.int32)
             self.extruded = False
 
-            entity_dofs = fiat_utils.flat_entity_dofs(self.fiat_element)
+            entity_dofs = self.fiat_element.entity_dofs()
             self._dofs_per_entity = [len(entity[0]) for d, entity in entity_dofs.iteritems()]
 
         self.name = name
