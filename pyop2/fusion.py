@@ -235,20 +235,24 @@ class Inspector(object):
         if coords:
             arguments.extend([inspector.add_coords((coords.dataset.set.name,
                                                     coords._data, coords.shape[1]))])
-
         argtypes, argvalues = zip(*arguments)
 
         # Generate inspector C code
         src = inspector.generate_code()
 
+        # Return type of the inspector
+        rettype = slope.Executor._ctype
+
+        # Compile and line options
         slope_dir = os.environ['SLOPE_DIR']
-        cppargs = slope.get_compile_opts(coffee.plan.compiler.get('name'), coords)
+        compiler = coffee.plan.compiler.get('name')
+        cppargs = slope.get_compile_opts(compiler, coords)
         cppargs += ['-I%s/sparsetiling/include' % slope_dir]
         ldargs = ['-L%s/lib' % slope_dir, '-l%s' % slope.get_lib_name()]
 
         fun = compilation.load(src, "cpp", "inspector", cppargs, ldargs,
-                               argtypes, None, "intel")
-        fun(*argvalues, argtypes=argtypes, restype=None)
+                               argtypes, rettype, compiler)
+        c_executor = fun(*argvalues, argtypes=argtypes, restype=None)
 
 
 # Parallel loop API
