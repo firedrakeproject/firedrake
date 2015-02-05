@@ -320,10 +320,13 @@ def get_restriction_kernel(fiat_element, unique_indices, dim=1, no_weights=False
     i = ast.Symbol("i", ())
     j = ast.Symbol("j", ())
     k = ast.Symbol("k", ())
+    if no_weights:
+        prod = ast.Symbol("weights", (i, j))
+    else:
+        prod = ast.Prod(ast.Symbol("weights", (i, j)),
+                        ast.Symbol("count_weights", (j, 0)))
     assignment = ast.Incr(ast.Symbol("coarse", (ast.Sum(k, ast.Prod(i, ast.c_sym(dim))),)),
-                          ast.Prod(ast.Symbol("fine", (j, k)),
-                                   ast.Prod(ast.Symbol("weights", (i, j)),
-                                            ast.Symbol("count_weights", (j, 0)))))
+                          ast.Prod(ast.Symbol("fine", (j, k)), prod))
     k_loop = ast.For(ast.Decl("int", k, ast.c_sym(0)),
                      ast.Less(k, ast.c_sym(dim)),
                      ast.Incr(k, ast.c_sym(1)),

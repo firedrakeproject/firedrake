@@ -31,6 +31,19 @@ class BaseHierarchy(object):
         self._cell_sets = tuple(op2.LocalSet(m.cell_set) for m in self._mesh_hierarchy)
         self._ufl_element = self[0].ufl_element()
         self._restriction_weights = None
+        ele = self.ufl_element()
+        try:
+            A, B = ele._A, ele._B
+        except AttributeError:
+            A, B = ele, ele
+        if isinstance(A, ufl.VectorElement):
+            A = A.sub_elements()[0]
+        if isinstance(B, ufl.VectorElement):
+            B = B.sub_elements()[0]
+        try:
+            self._L2 = A.sobolev_space() is ufl.L2 and B.sobolev_space() is ufl.L2
+        except AttributeError:
+            self._L2 = False
         try:
             element = self[0].fiat_element
             omap = self[1].cell_node_map().values
@@ -40,7 +53,8 @@ class BaseHierarchy(object):
                                                   vperm[0, :],
                                                   offset=None)
             self._prolong_kernel = utils.get_prolongation_kernel(element, indices, self.dim)
-            self._restrict_kernel = utils.get_restriction_kernel(element, indices, self.dim)
+            self._restrict_kernel = utils.get_restriction_kernel(element, indices, self.dim,
+                                                                 no_weights=self._L2)
             self._inject_kernel = utils.get_injection_kernel(element, indices, self.dim)
         except:
             pass
@@ -116,7 +130,7 @@ class BaseHierarchy(object):
         # elementwise over the coarse cells.  So we need a count of
         # how many times we did this to weight the final contribution
         # appropriately.
-        if self._restriction_weights is None:
+        if not self._L2 and self._restriction_weights is None:
             if isinstance(self.ufl_element(), (ufl.VectorElement,
                                                ufl.OuterProductVectorElement)):
                 element = self.ufl_element().sub_elements()[0]
@@ -136,13 +150,14 @@ class BaseHierarchy(object):
 
         coarse = residual[level-1]
         fine = residual[level]
-        weights = self._restriction_weights[level]
-
+        args = [self._restrict_kernel, self._cell_sets[level-1],
+                coarse.dat(op2.INC, coarse.cell_node_map()[op2.i[0]]),
+                fine.dat(op2.READ, self.cell_node_map(level-1))]
+        if not self._L2:
+            weights = self._restriction_weights[level]
+            args.append(weights.dat(op2.READ, self._restriction_weights.cell_node_map(level-1)))
         coarse.dat.zero()
-        op2.par_loop(self._restrict_kernel, self._cell_sets[level-1],
-                     coarse.dat(op2.INC, coarse.cell_node_map()[op2.i[0]]),
-                     fine.dat(op2.READ, self.cell_node_map(level-1)),
-                     weights.dat(op2.READ, self._restriction_weights.cell_node_map(level-1)))
+        op2.par_loop(*args)
 
     def inject(self, state, level):
         """
