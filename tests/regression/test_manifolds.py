@@ -92,12 +92,21 @@ def test_manifold_parallel():
     run_manifold()
 
 
-@pytest.mark.parametrize('space', ["RT", "BDM"])
+@pytest.mark.parametrize('space', ["RT", "BDM", "RTCF"])
 def test_contravariant_piola_facet_integral(space):
-    mesh = UnitIcosahedralSphereMesh(refinement_level=2)
+    if space == "RTCF":
+        mesh = UnitCubedSphereMesh(refinement_level=2)
+    else:
+        mesh = UnitIcosahedralSphereMesh(refinement_level=2)
     global_normal = Expression(("x[0]", "x[1]", "x[2]"))
     mesh.init_cell_orientations(global_normal)
-    V = FunctionSpace(mesh, space, 1)
+    if space == "RTCF":
+        C_elt = FiniteElement("CG", "interval", 1)
+        D_elt = FiniteElement("DG", "interval", 0)
+        V_elt = HDiv(OuterProductElement(C_elt, D_elt)) + HDiv(OuterProductElement(D_elt, C_elt))
+        V = FunctionSpace(mesh, V_elt)
+    else:
+        V = FunctionSpace(mesh, space, 1)
     # Some non-zero function
     u = project(Expression(('x[0]', '-x[1]', '0')), V)
     n = FacetNormal(mesh)
@@ -109,12 +118,21 @@ def test_contravariant_piola_facet_integral(space):
     assert np.allclose(assemble(pos + neg), 0)
 
 
-@pytest.mark.parametrize('space', ["N1curl", "N2curl"])
+@pytest.mark.parametrize('space', ["N1curl", "N2curl", "RTCE"])
 def test_covariant_piola_facet_integral(space):
-    mesh = UnitIcosahedralSphereMesh(refinement_level=2)
+    if space == "RTCE":
+        mesh = UnitCubedSphereMesh(refinement_level=2)
+    else:
+        mesh = UnitIcosahedralSphereMesh(refinement_level=2)
     global_normal = Expression(("x[0]", "x[1]", "x[2]"))
     mesh.init_cell_orientations(global_normal)
-    V = FunctionSpace(mesh, space, 1)
+    if space == "RTCE":
+        C_elt = FiniteElement("CG", "interval", 1)
+        D_elt = FiniteElement("DG", "interval", 0)
+        V_elt = HCurl(OuterProductElement(C_elt, D_elt)) + HCurl(OuterProductElement(D_elt, C_elt))
+        V = FunctionSpace(mesh, V_elt)
+    else:
+        V = FunctionSpace(mesh, space, 1)
     # Some non-zero function
     u = project(Expression(('x[0]', '-x[1]', '0')), V)
     n = FacetNormal(mesh)

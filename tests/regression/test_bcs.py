@@ -3,9 +3,10 @@ import numpy as np
 from firedrake import *
 
 
-@pytest.fixture(scope='module')
-def mesh():
-    return UnitSquareMesh(2, 2)
+@pytest.fixture(scope='module', params=[False, True])
+def mesh(request):
+    quadrilateral = request.param
+    return UnitSquareMesh(2, 2, quadrilateral=quadrilateral)
 
 
 @pytest.fixture(scope='module', params=[FunctionSpace, VectorFunctionSpace])

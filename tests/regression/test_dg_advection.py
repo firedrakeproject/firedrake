@@ -3,8 +3,7 @@ import numpy as np
 import pytest
 
 
-def run_test():
-    mesh = UnitIcosahedralSphereMesh(refinement_level=3)
+def run_test(mesh):
     mesh.init_cell_orientations(Expression(("x[0]", "x[1]", "x[2]")))
 
     V = FunctionSpace(mesh, "DG", 0)
@@ -64,13 +63,22 @@ def run_test():
     assert np.allclose(Dbar_T, Dbar_0)
 
 
-def test_dg_advection():
-    run_test()
+def test_dg_advection_icosahedral_sphere():
+    run_test(UnitIcosahedralSphereMesh(refinement_level=3))
 
 
 @pytest.mark.parallel(nprocs=3)
-def test_dg_advection_parallel():
-    run_test()
+def test_dg_advection_icosahedral_sphere_parallel():
+    run_test(UnitIcosahedralSphereMesh(refinement_level=3))
+
+
+def test_dg_advection_cubed_sphere():
+    run_test(UnitCubedSphereMesh(refinement_level=4))
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_dg_advection_cubed_sphere_parallel():
+    run_test(UnitCubedSphereMesh(refinement_level=4))
 
 
 if __name__ == '__main__':

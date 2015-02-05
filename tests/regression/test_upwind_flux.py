@@ -26,8 +26,18 @@ from firedrake import *
 import pytest
 
 
-def run_test():
-    mesh = UnitIcosahedralSphereMesh(refinement_level=2)
+def run_test(quadrilateral):
+    if quadrilateral:
+        mesh = UnitCubedSphereMesh(refinement_level=2)
+
+        C_elt = FiniteElement("CG", "interval", 1)
+        D_elt = FiniteElement("DG", "interval", 0)
+        RT_elt = HDiv(OuterProductElement(C_elt, D_elt)) + HDiv(OuterProductElement(D_elt, C_elt))
+    else:
+        mesh = UnitIcosahedralSphereMesh(refinement_level=2)
+
+        RT_elt = FiniteElement("RT", "triangle", 1)
+
     global_normal = Expression(("x[0]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])",
                                 "x[1]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])",
                                 "x[2]/sqrt(x[0]*x[0]+x[1]*x[1]+x[2]*x[2])"))
@@ -35,7 +45,7 @@ def run_test():
 
     # Define function spaces and basis functions
     V_dg = FunctionSpace(mesh, "DG", 0)
-    M = FunctionSpace(mesh, "RT", 1)
+    M = FunctionSpace(mesh, RT_elt)
 
     # advecting velocity
     u0 = Expression(('-x[1]', 'x[0]', '0'))
@@ -66,7 +76,7 @@ def run_test():
     D1solver.solve()
 
     # Surface Flux equation
-    V1 = FunctionSpace(mesh, "RT", 1)
+    V1 = FunctionSpace(mesh, RT_elt)
     w = TestFunction(V1)
     Ft = TrialFunction(V1)
     Fs = Function(V1)
@@ -88,13 +98,24 @@ def run_test():
     assert errornorm(divFs, D1, degree_rise=0) < 1e-12
 
 
-def test_upwind_flux():
-    run_test()
+def test_upwind_flux_icosahedral_sphere():
+    run_test(quadrilateral=False)
 
 
 @pytest.mark.parallel
-def test_upwind_flux_parallel():
-    run_test()
+def test_upwind_flux_icosahedral_sphere_parallel():
+    run_test(quadrilateral=False)
+
+
+@pytest.mark.xfail
+def test_upwind_flux_cubed_sphere():
+    run_test(quadrilateral=True)
+
+
+@pytest.mark.xfail
+@pytest.mark.parallel
+def test_upwind_flux_cubed_sphere_parallel():
+    run_test(quadrilateral=True)
 
 
 if __name__ == '__main__':
