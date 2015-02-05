@@ -710,7 +710,7 @@ class QuadrilateralMesh(MeshBase):
 
     def facet_dimensions(self):
         """Returns a list containing the facet dimensions."""
-        return [(0, 1), (1, 0)]
+        return [1]
 
     def cell_dimension(self):
         """Return the cell dimension"""
