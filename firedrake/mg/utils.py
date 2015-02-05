@@ -9,6 +9,7 @@ import coffee.base as ast
 from pyop2 import op2
 
 from firedrake.petsc import PETSc
+from firedrake.parameters import parameters
 
 
 def get_transformations(fiat_cell):
@@ -268,7 +269,7 @@ def get_injection_kernel(fiat_element, unique_indices, dim=1):
     k = ast.FunDecl("void", "injection", arglist, ast.Block([w, i_loop]),
                     pred=["static", "inline"])
 
-    return op2.Kernel(k, "injection")
+    return op2.Kernel(k, "injection", opts=parameters["coffee"])
 
 
 def get_prolongation_kernel(fiat_element, unique_indices, dim=1):
@@ -301,16 +302,17 @@ def get_prolongation_kernel(fiat_element, unique_indices, dim=1):
     k = ast.FunDecl("void", "prolongation", arglist, ast.Block([w, i_loop]),
                     pred=["static", "inline"])
 
-    return op2.Kernel(k, "prolongation")
+    return op2.Kernel(k, "prolongation", opts=parameters["coffee"])
 
 
-def get_restriction_kernel(fiat_element, unique_indices, dim=1):
+def get_restriction_kernel(fiat_element, unique_indices, dim=1, no_weights=False):
     weights = get_restriction_weights(fiat_element)[unique_indices].T
     ncdof = weights.shape[0]
     nfdof = weights.shape[1]
     arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, ))),
-               ast.Decl("double", ast.Symbol("**fine", ())),
-               ast.Decl("double", ast.Symbol("**count_weights", ()))]
+               ast.Decl("double", ast.Symbol("**fine", ()))]
+    if not no_weights:
+        arglist.append(ast.Decl("double", ast.Symbol("**count_weights", ())))
     w_sym = ast.Symbol("weights", (ncdof, nfdof))
     w = ast.Decl("double", w_sym, ast.ArrayInit(format_array_literal(weights)),
                  qualifiers=["static", "const"])
@@ -337,7 +339,7 @@ def get_restriction_kernel(fiat_element, unique_indices, dim=1):
     k = ast.FunDecl("void", "restriction", arglist, ast.Block([w, i_loop]),
                     pred=["static", "inline"])
 
-    return op2.Kernel(k, "restriction")
+    return op2.Kernel(k, "restriction", opts=parameters["coffee"])
 
 
 def get_count_kernel(arity):
@@ -351,4 +353,4 @@ def get_count_kernel(arity):
     k = ast.FunDecl("void", "count_weights", arglist,
                     ast.Block([loop]),
                     pred=["static", "inline"])
-    return op2.Kernel(k, "count_weights")
+    return op2.Kernel(k, "count_weights", opts=parameters["coffee"])
