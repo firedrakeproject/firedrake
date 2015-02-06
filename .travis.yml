@@ -21,11 +21,15 @@ before_install:
     cmake cmake-curses-gui libmed1 gmsh python-pip libhdf5-openmpi-dev \
     libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran \
     triangle-bin cython"
-  - pip install -r requirements-minimal.txt
+# Force installation of requirements IN THE ORDER WE SPECIFIED!  AAAARGH.
+  - "xargs -l1 pip install --allow-external mpi4py --allow-unverified mpi4py \
+       --allow-external petsc --allow-unverified petsc \
+       --allow-external petsc4py  --allow-unverified petsc4py \
+       < requirements-minimal.txt"
   - if [[ $TRAVIS_PYTHON_VERSION == "2.6" ]]; then pip install argparse ordereddict; fi
 install: "python setup.py develop"
 # command to run tests
 script:
-  - "flake8"
+  - "make lint"
   - "py.test test --backend=sequential -v --tb=native"
   - "py.test test --backend=openmp -v --tb=native"
