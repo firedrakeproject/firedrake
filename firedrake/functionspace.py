@@ -520,22 +520,15 @@ class FunctionSpace(FunctionSpaceBase):
             element = family.reconstruct(domain=mesh.ufl_domain())
         else:
             # First case...
-            if isinstance(mesh, mesh_t.ExtrudedMesh):
+            if isinstance(mesh, mesh_t.ExtrudedMesh) and vfamily is not None and vdegree is not None:
                 # if extruded mesh, make the OPE
                 la = ufl.FiniteElement(family,
                                        domain=mesh._old_mesh.ufl_cell(),
                                        degree=degree)
-                if vfamily is None or vdegree is None:
-                    # if second element was not passed in, assume same as first
-                    # (only makes sense for CG or DG)
-                    lb = ufl.FiniteElement(family,
-                                           domain=ufl.Cell("interval", 1),
-                                           degree=degree)
-                else:
-                    # if second element was passed in, use in
-                    lb = ufl.FiniteElement(vfamily,
-                                           domain=ufl.Cell("interval", 1),
-                                           degree=vdegree)
+                # if second element was passed in, use in
+                lb = ufl.FiniteElement(vfamily,
+                                       domain=ufl.Cell("interval", 1),
+                                       degree=vdegree)
                 # now make the OPE
                 element = ufl.OuterProductElement(la, lb, domain=mesh.ufl_domain())
             else:
@@ -571,18 +564,15 @@ class VectorFunctionSpace(FunctionSpaceBase):
         # VectorFunctionSpace dimension defaults to the geometric dimension of the mesh.
         dim = dim or mesh.ufl_cell().geometric_dimension()
 
-        if isinstance(mesh, mesh_t.ExtrudedMesh):
-            if isinstance(family, ufl.OuterProductElement):
-                raise NotImplementedError("Not yet implemented")
+        if isinstance(mesh, mesh_t.ExtrudedMesh) and isinstance(family, ufl.OuterProductElement):
+            raise NotImplementedError("Not yet implemented")
+
+        if isinstance(mesh, mesh_t.ExtrudedMesh) and vfamily is not None and vdegree is not None:
             la = ufl.FiniteElement(family,
                                    domain=mesh._old_mesh.ufl_cell(),
                                    degree=degree)
-            if vfamily is None or vdegree is None:
-                lb = ufl.FiniteElement(family, domain=ufl.Cell("interval", 1),
-                                       degree=degree)
-            else:
-                lb = ufl.FiniteElement(vfamily, domain=ufl.Cell("interval", 1),
-                                       degree=vdegree)
+            lb = ufl.FiniteElement(vfamily, domain=ufl.Cell("interval", 1),
+                                   degree=vdegree)
             element = ufl.OuterProductVectorElement(la, lb, dim=dim, domain=mesh.ufl_domain())
         else:
             element = ufl.VectorElement(family, domain=mesh.ufl_domain(),
