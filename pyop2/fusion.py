@@ -58,9 +58,6 @@ import slope_python as slope
 
 # hard coded value to max openmp threads
 _max_threads = 32
-# track the loop chain in a time stepping loop which is being unrolled
-# this is a 2-tuple: (loop_chain_name, loops)
-_active_loop_chain = ()
 
 
 class Arg(host.Arg):
@@ -205,8 +202,6 @@ class Inspector(Cached):
     the root SLOPE directory."""
 
     _cache = {}
-
-    _globaldata = {'coords': None}
     _modes = ['soft', 'hard', 'tile']
 
     @classmethod
@@ -394,7 +389,6 @@ class Inspector(Cached):
         """Tile consecutive loops over different iteration sets characterized
         by RAW and WAR dependencies. This requires interfacing with the SLOPE
         library."""
-
         inspector = slope.Inspector('OMP', self._tile_size)
 
         # Build arguments types and values
@@ -416,16 +410,15 @@ class Inspector(Cached):
                 slope_desc.add((desc_name, desc_access))
             # Add loop
             loops.append((loop.kernel.name, loop.it_space.name, list(slope_desc)))
-        # Provide structure of loop chain to SLOPE's inspector
+        # Provide structure of loop chain to the SLOPE's inspector
         inspector.add_sets(sets)
         arguments.extend([inspector.add_maps(maps.values())])
         inspector.add_loops(loops)
-        # Tell SLOPE to generate inspection output as a sequence of VTK files
-        # This is supposed to be done only in debugging mode
-        coords = Inspector._globaldata['coords']
-        if coords:
-            arguments.extend([inspector.add_coords((coords.dataset.set.name,
-                                                    coords._data, coords.shape[1]))])
+        # Get type and value of any additional arguments that the SLOPE's inspector
+        # expects
+        arguments.extend(inspector.set_external_dats())
+
+        # Arguments types and values
         argtypes, argvalues = zip(*arguments)
 
         # Generate inspector C code
@@ -437,7 +430,7 @@ class Inspector(Cached):
         # Compiler and linker options
         slope_dir = os.environ['SLOPE_DIR']
         compiler = coffee.plan.compiler.get('name')
-        cppargs = slope.get_compile_opts(compiler, coords)
+        cppargs = slope.get_compile_opts(compiler)
         cppargs += ['-I%s/sparsetiling/include' % slope_dir]
         ldargs = ['-L%s/lib' % slope_dir, '-l%s' % slope.get_lib_name()]
 
@@ -470,7 +463,6 @@ def reschedule_loops(name, loop_chain, tile_size, mode='tile'):
         * a global reduction is present;
         * at least one loop iterates over an extruded set
     """
-
     # Loop fusion is performed through the SLOPE library, which must be accessible
     # by reading the environment variable SLOPE_DIR
     try:
@@ -493,7 +485,7 @@ def reschedule_loops(name, loop_chain, tile_size, mode='tile'):
 
 
 @contextmanager
-def loop_chain(name, time_unroll=1, tile_size=0, coords=None):
+def loop_chain(name, time_unroll=1, tile_size=0):
     """Analyze the sub-trace of loops lazily evaluated in this contextmanager ::
 
         [loop_0, loop_1, ..., loop_n-1]
@@ -515,12 +507,7 @@ def loop_chain(name, time_unroll=1, tile_size=0, coords=None):
                         setting this value to a number greater than 1 enables
                         fusing/tiling longer loop chains (optional, defaults to 1).
     :param tile_size: suggest a tile size in case loop tiling is used (optional).
-    :param coords: :class:`pyop2.Dat` representing coordinates. This should be
-                   passed only if in debugging mode, because it affects the runtime
-                   of the computation by generating VTK files illustrating the
-                   result of mesh coloring resulting from tiling.
     """
-
     trace = _trace._trace
     stamp = trace[-1:]
 
@@ -531,9 +518,6 @@ def loop_chain(name, time_unroll=1, tile_size=0, coords=None):
 
     start_point = trace.index(stamp[0])+1 if stamp else 0
     extracted_loop_chain = trace[start_point:]
-
-    # Add any additional information that could be useful for inspection
-    Inspector._globaldata['coords'] = coords
 
     # Unroll the loop chain ``time_unroll`` times before fusion/tiling
     total_loop_chain = loop_chain.unrolled_loop_chain + extracted_loop_chain
