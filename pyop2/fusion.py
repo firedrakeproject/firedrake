@@ -38,7 +38,8 @@ from collections import OrderedDict
 from copy import deepcopy as dcopy
 import os
 
-from base import _trace, READ, WRITE, RW, IterationIndex
+from base import _trace, IterationIndex, LazyComputation, Const, IterationSpace, \
+    READ, WRITE, RW, MIN, MAX, INC
 import host
 import compilation
 from caching import Cached
@@ -75,31 +76,41 @@ class Arg(host.Arg):
              'vec_name': self.c_vec_name(),
              'arity': self.map.arity * cdim * (2 if is_facet else 1)}
 
-# Parallel loop API
 
+# Parallel loop API
 
 class ParLoop(host.ParLoop):
 
     def __init__(self, kernel, iterset, inspection, *args, **kwargs):
-        super(ParLoop, self).__init__(kernel, iterset[0], *args, **kwargs)
+        read_args = [a.data for a in args if a.access in [READ, RW]]
+        written_args = [a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]
+        LazyComputation.__init__(self, set(read_args) | Const._defs, set(written_args))
+
+        self._kernel = kernel
+        self._actual_args = args
         self._inspection = inspection
+        self._it_space = self.build_itspace(iterset)
 
     @collective
     @profile
     def compute(self):
         """Execute the kernel over all members of the iteration space."""
-        with timed_region("ParLoopChain `%s`: compute" % self.name):
+        with timed_region("ParLoopChain: compute"):
             self._compute()
 
     @collective
     @lineprof
     def _compute(self):
-        with timed_region("ParLoopChain `%s`: executor" % self.name):
+        with timed_region("ParLoopChain: executor"):
             pass
 
     def build_itspace(self, iterset):
-        return [super(ParLoop, self).build_itspace(iterset)]
+        # Note that the presence of any local iteration space is ignored
+        block_shape = None
+        return [IterationSpace(i, block_shape) for i in iterset]
 
+
+# Possible Schedules as produced by an Inspector
 
 class Schedule(object):
     """Represent an execution scheme for a sequence of :class:`ParLoop` objects."""
@@ -193,6 +204,8 @@ class TilingSchedule(Schedule):
         iterset = self._filter_itersets(loop_chain)
         return [ParLoop(self._kernels, iterset, self._inspection, *args)]
 
+
+# Loop chain inspection
 
 class Inspector(Cached):
     """An inspector is used to fuse or tile a sequence of :class:`ParLoop` objects.
@@ -452,6 +465,8 @@ class Inspector(Cached):
     def mode(self):
         return self._mode
 
+
+# Interface for triggering loop fusion
 
 def reschedule_loops(name, loop_chain, tile_size, mode='tile'):
     """Given a list of :class:`ParLoop` in ``loop_chain``, return a list of new
