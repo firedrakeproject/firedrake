@@ -1225,19 +1225,6 @@ class Halo(object):
     """
 
     def __init__(self, sends, receives, comm=None, gnn2unn=None):
-        # Fix up old style list of sends/receives into dict of sends/receives
-        if not isinstance(sends, dict):
-            tmp = {}
-            for i, s in enumerate(sends):
-                if len(s) > 0:
-                    tmp[i] = s
-            sends = tmp
-        if not isinstance(receives, dict):
-            tmp = {}
-            for i, s in enumerate(receives):
-                if len(s) > 0:
-                    tmp[i] = s
-            receives = tmp
         self._sends = sends
         self._receives = receives
         # The user might have passed lists, not numpy arrays, so fix that here.
@@ -1306,33 +1293,6 @@ class Halo(object):
                 (receives < s.total_size).all(), \
                 "Halo receive from %d is invalid (not in halo elements)" % \
                 source
-
-    def __getstate__(self):
-        odict = self.__dict__.copy()
-        del odict['_comm']
-        return odict
-
-    def __setstate__(self, d):
-        self.__dict__.update(d)
-        # Update old pickle dumps to new Halo format
-        sends = self.__dict__['_sends']
-        receives = self.__dict__['_receives']
-        if not isinstance(sends, dict):
-            tmp = {}
-            for i, s in enumerate(sends):
-                if len(s) > 0:
-                    tmp[i] = s
-            sends = tmp
-        if not isinstance(receives, dict):
-            tmp = {}
-            for i, s in enumerate(receives):
-                if len(s) > 0:
-                    tmp[i] = s
-            receives = tmp
-        self._sends = sends
-        self._receives = receives
-        # FIXME: This will break for custom halo communicators
-        self._comm = MPI.comm
 
 
 class IterationSpace(object):
