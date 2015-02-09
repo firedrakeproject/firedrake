@@ -31,7 +31,7 @@
      inkscape:cx="589.64647"
      inkscape:cy="64.970378"
      inkscape:document-units="px"
-     inkscape:current-layer="layer4"
+     inkscape:current-layer="layer1"
      showgrid="false"
      inkscape:window-width="1652"
      inkscape:window-height="967"
@@ -3581,20 +3581,5 @@
        style="overflow:visible"
        id="g2668"
        transform="matrix(1.1610053,0,0,1.2620847,336.35759,739.21703)" />
-    <text
-       transform="scale(1.0687028,0.93571384)"
-       sodipodi:linespacing="125%"
-       id="text3725"
-       y="1360.1205"
-       x="94.410553"
-       style="font-size:209.62025452px;font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;text-align:start;line-height:125%;letter-spacing:0px;word-spacing:0px;writing-mode:lr-tb;text-anchor:start;fill:#8c1b1e;fill-opacity:1;stroke:none;font-family:URW Chancery L;-inkscape-font-specification:URW Chancery L"
-       xml:space="preserve"><tspan
-         style="font-size:209.62025452px;font-style:italic;font-variant:normal;font-weight:normal;font-stretch:normal;fill:#8c1b1e;fill-opacity:1;font-family:URW Chancery L;-inkscape-font-specification:URW Chancery L"
-         y="1360.1205"
-         x="94.410553"
-         id="tspan3727"
-         sodipodi:role="line">F<tspan
-   id="tspan3203"
-   style="fill:#000000">iredrake</tspan></tspan></text>
   </g>
 </svg>
