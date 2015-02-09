@@ -20,13 +20,26 @@
 {% endif %}
 {% endblock %}
 
+{%- block document %}
+    <div class="{{pagename}}">
+      {{ super() }}
+    </div>
+{%- endblock %}
+
 {# override upper relbar to show our navigation menu #}
 {% block relbar1 %}
 <div class="wrapper">
-  <a href="{{ pathto('index.html', 1) }}"><img src="{{ pathto('_static/%s.%s' % ('banner', 'png'), 1) }}" width="900px" alt="firedrake Project Banner" /></a>
+  {% if pagename == "fenics_15" %}
+  <a href="{{ pathto('fenics_15.html', 1) }}"><img src="{{ pathto('_static/%s.%s' % ('banner_fenics_15', 'svg'), 1) }}" width="900px" alt="firedrake Project Banner" /></a>
+  {% else %}
+  <a href="{{ pathto('index.html', 1) }}"><img src="{{ pathto('_static/%s.%s' % ('banner', 'svg'), 1) }}" width="900px" alt="firedrake Project Banner" /></a>
+  {% endif %}
   <div id="access">
     <div class="menu">
       <ul>
+        {% if pagename == "fenics_15" %}
+          <li class="page_item"><a href="{{ pathto('index.html', 1) }}" title="Documentation for Firedrake">Firedrake Homepage</a></li>
+        {% else %}
           <li class="page_item"><a href="{{ pathto('documentation.html', 1) }}" title="Documentation for Firedrake">Documentation</a></li>
           <li class="page_item"><a href="{{ pathto('download.html', 1) }}" title="Obtain the firedrake code">Download</a></li>
           <li class="page_item"><a href="{{ pathto('%s.%s' % ('team', 'html'), 1) }}" title="The guilty parties">Team</a></li>
@@ -35,6 +48,7 @@
           <li class="page_item"><a href="{{ pathto('contact.html', 1) }}" title="Getting in touch">Contact</a></li>
           <li class="page_item"><a href="https://github.com/firedrakeproject/firedrake" title="GitHub">GitHub</a></li>
           <li class="page_item"><a href="http://buildbot-ocean.ese.ic.ac.uk:8080/builders/firedrake-trunk" title="Buildbot">Buildbot</a></li>
+          {% endif %}
       </ul>
     </div><!-- .menu -->
   </div><!-- #access -->
