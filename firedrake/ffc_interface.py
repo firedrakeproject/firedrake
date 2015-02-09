@@ -23,7 +23,7 @@ from pyop2.caching import DiskCached
 from pyop2.op2 import Kernel
 from pyop2.mpi import MPI
 
-from coffee.base import PreprocessNode, Root
+from coffee.base import PreprocessNode, Root, Invert
 
 import fiat_utils
 import functionspace
@@ -184,7 +184,8 @@ class FFCKernel(DiskCached):
         if self._initialized:
             return
 
-        incl = PreprocessNode('#include "firedrake_geometry.h"\n')
+        incl = [PreprocessNode('#include "firedrake_geometry.h"\n'),
+                PreprocessNode('#include "firedrake_inverse.h"\n')]
         inc = [path.dirname(__file__)]
         try:
             ffc_tree = ffc_compile_form(form, prefix=name, parameters=parameters)
@@ -196,7 +197,8 @@ class FFCKernel(DiskCached):
             for it, kernel in zip(fd.preprocessed_form.integrals(), ffc_tree):
                 # Set optimization options
                 opts = {} if it.integral_type() not in ['cell'] else default_parameters["coffee"]
-                kernels.append((Kernel(Root([incl, kernel]), '%s_%s_integral_0_%s' %
+                _kernel = kernel if not parameters["assemble_inverse"] else _inverse(kernel)
+                kernels.append((Kernel(Root(incl + [_kernel]), '%s_%s_integral_0_%s' %
                                        (name, it.integral_type(), it.subdomain_id()), opts, inc),
                                 needs_orientations))
             # Sometimes FFC returns an empty list without raising
@@ -214,7 +216,7 @@ class FFCKernel(DiskCached):
         self._initialized = True
 
 
-def compile_form(form, name, parameters=None):
+def compile_form(form, name, parameters=None, inverse=False):
     """Compile a form using FFC.
 
     :arg form: the :class:`ufl.Form` to compile.
@@ -223,6 +225,7 @@ def compile_form(form, name, parameters=None):
          compiler. If not provided, parameters are read from the
          :data:`form_compiler` slot of the Firedrake
          :data:`~.parameters` dictionary (which see).
+    :arg inverse: If True then assemble the inverse of the local tensor.
 
     Returns a tuple of tuples of
     (index, integral type, subdomain id, coordinates, coefficients, needs_orientations, :class:`Kernels <pyop2.op2.Kernel>`).
@@ -241,12 +244,14 @@ def compile_form(form, name, parameters=None):
         raise RuntimeError("Unable to convert object to a UFL form: %s" % repr(form))
 
     if parameters is None:
-        parameters = default_parameters["form_compiler"]
+        parameters = default_parameters["form_compiler"].copy()
     else:
         # Override defaults with user-specified values
         _ = parameters
         parameters = default_parameters["form_compiler"].copy()
         parameters.update(_)
+
+    parameters["assemble_inverse"] = inverse
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations
     if hasattr(form, "_kernels"):
@@ -311,6 +316,23 @@ def _ensure_cachedir():
         return
     if not path.exists(FFCKernel._cachedir):
         makedirs(FFCKernel._cachedir)
+
+
+def _inverse(kernel):
+    """Modify ``kernel`` so to assemble the inverse of the local tensor."""
+
+    local_tensor = kernel.args[0]
+
+    if len(local_tensor.size) != 2 or local_tensor.size[0] != local_tensor.size[1]:
+        raise ValueError("Can only assemble the inverse of a square 2-form")
+
+    name = local_tensor.sym.symbol
+    size = local_tensor.size[0]
+
+    kernel.children[0].children.append(Invert(name, size))
+
+    return kernel
+
 
 _check_version()
 _ensure_cachedir()

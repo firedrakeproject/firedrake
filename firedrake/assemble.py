@@ -18,7 +18,7 @@ __all__ = ["assemble"]
 
 
 @profile
-def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None):
+def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None, inverse=False):
     """Evaluate f.
 
     :arg f: a :class:`ufl.Form` or :class:`ufl.core.expr.Expr`.
@@ -32,6 +32,8 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None):
          form.  For example, if a :data:`quadrature_degree` of 4 is
          specified in this argument, but a degree of 3 is requested in
          the measure, the latter will be used.
+    :arg inverse: (optional) if f is a 2-form, then assemble the inverse
+         of the local matrices.
 
     If f is a :class:`ufl.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
@@ -55,14 +57,15 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None):
 
     if isinstance(f, ufl.form.Form):
         return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
-                         form_compiler_parameters=form_compiler_parameters)
+                         form_compiler_parameters=form_compiler_parameters,
+                         inverse=inverse)
     elif isinstance(f, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(f)
     else:
         raise TypeError("Unable to assemble: %r" % f)
 
 
-def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None):
+def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None, inverse=False):
     """Assemble the form f and return a Firedrake object representing the
     result. This will be a :class:`float` for 0-forms, a
     :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
@@ -73,14 +76,20 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None):
         the purpose.
     :arg form_compiler_parameters: (optional) dict of parameters to pass to
         the form compiler.
+    :arg inverse: (optional) if f is a 2-form, then assemble the inverse
+         of the local matrices.
 
     """
 
-    kernels = ffc_interface.compile_form(f, "form", parameters=form_compiler_parameters)
+    kernels = ffc_interface.compile_form(f, "form", parameters=form_compiler_parameters,
+                                         inverse=inverse)
     rank = len(f.arguments())
 
     is_mat = rank == 2
     is_vec = rank == 1
+
+    if inverse and rank != 2:
+        raise ValueError("Can only assemble the inverse of a 2-form")
 
     integrals = f.integrals()
 
