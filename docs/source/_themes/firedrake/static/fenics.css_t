@@ -13,6 +13,7 @@
 @import url("basic.css");
 @import url("nobile-fontfacekit/stylesheet.css");
 @import url("neuton-fontfacekit/stylesheet.css");
+@import url(http://fonts.googleapis.com/css?family=Comfortaa);
 
 /* -- page layout ----------------------------------------------------------- */
 
@@ -685,3 +686,6 @@ img[alt="build status"] {
     width: 25%;
     text-align: center;
 }
+
+/* Modifications for the FEniCS '15 website */
+
