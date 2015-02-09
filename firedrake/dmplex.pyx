@@ -1,10 +1,12 @@
 # Utility functions to derive global and local numbering from DMPlex
 from petsc import PETSc
-from pyop2 import MPI
+from pyop2 import MPI as _MPI
 import numpy as np
 cimport numpy as np
 import cython
 cimport petsc4py.PETSc as PETSc
+cimport mpi4py.MPI as MPI
+from mpi4py import MPI
 
 from libc.string cimport memset
 from libc.stdlib cimport qsort
@@ -608,7 +610,7 @@ def mark_entity_classes(PETSc.DM plex):
     lbl_halo = <char*>"op2_exec_halo"
     lbl_non_exec_halo = <char*>"op2_non_exec_halo"
 
-    if MPI.comm.size > 1:
+    if _MPI.comm.size > 1:
         # Mark exec_halo from point overlap SF
         point_sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(point_sf.sf, &nroots, &nleaves,
@@ -985,7 +987,7 @@ def get_cell_remote_ranks(PETSc.DM plex):
     ncells = cEnd - cStart
 
     result = np.full(ncells, -1, dtype=np.int32)
-    if MPI.comm.size > 1:
+    if _MPI.comm.size > 1:
         sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
 
@@ -1104,7 +1106,7 @@ cdef inline void get_communication_lists(
                       buffer, inverse of 'facets' (return value)
     """
     cdef:
-        int comm_size = MPI.comm.size
+        int comm_size = _MPI.comm.size
         PetscInt cStart, cEnd
         PetscInt nfacets, fStart, fEnd, f
         PetscInt i, k, support_size
@@ -1197,8 +1199,8 @@ cdef inline void get_communication_lists(
     # For debugging purposes:
     #
     # for i in range(offsets[0][nranks[0]]):
-    #     print "(%d/%d): %d = (%d, %d) -> %d" % (MPI.comm.rank,
-    #                                             MPI.comm.size,
+    #     print "(%d/%d): %d = (%d, %d) -> %d" % (_MPI.comm.rank,
+    #                                             _MPI.comm.size,
     #                                             cfacets[i].local_facet,
     #                                             cfacets[i].global_u,
     #                                             cfacets[i].global_v,
@@ -1217,8 +1219,8 @@ cdef inline void get_communication_lists(
     #
     # for i in range(nfacets):
     #     if facet2index[0][i] != -1:
-    #         print "(%d/%d): [%d] = %d" % (MPI.comm.rank,
-    #                                       MPI.comm.size,
+    #         print "(%d/%d): [%d] = %d" % (_MPI.comm.rank,
+    #                                       _MPI.comm.size,
     #                                       facet2index[0][i],
     #                                       fStart + i)
 
@@ -1491,12 +1493,12 @@ cdef inline void exchange_edge_orientation_data(
     # Initiate receiving
     recv_reqs = []
     for ri in range(nranks):
-        recv_reqs.append(MPI.comm.Irecv(theirs[offsets[ri] : offsets[ri+1]], ranks[ri]))
+        recv_reqs.append(_MPI.comm.Irecv(theirs[offsets[ri] : offsets[ri+1]], ranks[ri]))
 
     # Initiate sending
     send_reqs = []
     for ri in range(nranks):
-        send_reqs.append(MPI.comm.Isend(ours[offsets[ri] : offsets[ri+1]], ranks[ri]))
+        send_reqs.append(_MPI.comm.Isend(ours[offsets[ri] : offsets[ri+1]], ranks[ri]))
 
     # Wait for completion
     for req in recv_reqs:
@@ -1560,7 +1562,7 @@ def quadrilateral_facet_orientations(
     # the sign tells the edge direction. Positive sign implies that the edge
     # points from the vertex with the smaller global number to the vertex with
     # the greater global number, negative implies otherwise.
-    ours = MPI.comm.size * np.arange(nfacets_shared, dtype=np.int32) + MPI.comm.rank
+    ours = _MPI.comm.size * np.arange(nfacets_shared, dtype=np.int32) + _MPI.comm.rank
 
     # We update these values based on the local connections
     # before we do any communication.
@@ -1578,7 +1580,7 @@ def quadrilateral_facet_orientations(
     theirs = np.empty_like(ours)
 
     # Synchronise shared edge directions in parallel
-    conflict = int(MPI.comm.size > 1)
+    conflict = int(_MPI.comm.size > 1)
     while conflict != 0:
         # Populate 'theirs' by communication from the 'ours' of others.
         exchange_edge_orientation_data(nranks, ranks, offsets, ours, theirs)
@@ -1618,7 +1620,7 @@ def quadrilateral_facet_orientations(
 
         # If there was a conflict anywhere, do another round
         # of communication everywhere.
-        conflict = MPI.comm.allreduce(conflict)
+        conflict = _MPI.comm.allreduce(conflict)
 
     CHKERR(PetscFree(ranks))
     CHKERR(PetscFree(offsets))
@@ -1771,20 +1773,20 @@ def exchange_cell_orientations(
         PetscInt nroots, nleaves
         PetscInt *ilocal
         PetscSFNode *iremote
-
+        MPI.Datatype dtype = MPI.INT
         PETSc.Section new_section
         np.int32_t *new_values = NULL
         PetscInt i, c, cStart, cEnd, l, r
 
     # Halo exchange of cell orientations, i.e. receive orientations
     # from the owners in the halo region.
-    if MPI.comm.size > 1:
+    if _MPI.comm.size > 1:
         sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
 
         new_section = PETSc.Section().create()
         CHKERR(DMPlexDistributeData(plex.dm, sf.sf, section.sec,
-                                    MPI_INT, <void *>orientations.data,
+                                    dtype.ob_mpi, <void *>orientations.data,
                                     new_section.sec, <void **>&new_values))
 
         # Overwrite values in the halo region with remote values
@@ -1799,3 +1801,126 @@ def exchange_cell_orientations(
 
     if new_values != NULL:
         CHKERR(PetscFree(new_values))
+
+
+def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
+    """Build an array of global numbers for local dofs
+
+    :arg lsec: Section describing local dof layout and numbers.
+    :arg gsec: Section describing global dof layout and numbers."""
+    cdef:
+        PetscInt p, pStart, pEnd, dof, loff, goff
+        np.ndarray[PetscInt, ndim=1, mode="c"] val
+
+    val = np.empty(lsec.getStorageSize(), dtype=PETSc.IntType)
+    pStart, pEnd = lsec.getChart()
+
+    for p in range(pStart, pEnd):
+        CHKERR(PetscSectionGetDof(lsec.sec, p, &dof))
+        if dof > 0:
+            CHKERR(PetscSectionGetOffset(lsec.sec, p, &loff))
+            CHKERR(PetscSectionGetOffset(gsec.sec, p, &goff))
+            goff = cabs(goff)
+            for c in range(dof):
+                val[loff + c] = goff + c
+    return val
+
+
+def make_sf(dm, PETSc.Section lsec, PETSc.Section gsec):
+    """Make a PETSc SF for the provided local and global sections.
+
+    :arg dm: The DM to use to create the SF.
+    :arg lsec: Section describing the local data layout.
+    :arg gsec: Section describing the global data layout."""
+    cdef:
+        PETSc.SF sf1, sf2
+    dm.createDefaultSF(lsec, gsec)
+    sf1 = dm.getDefaultSF()
+    sf1.setUp()
+    sf2 = PETSc.SF()
+    # We need one of these per function space, and need to copy
+    # because we might change the default SF in the DM behind this
+    # object's back.
+    CHKERR(PetscSFDuplicate(sf1.sf, PETSCSF_DUPLICATE_GRAPH, &sf2.sf))
+    sf2.setFromOptions()
+    return sf2
+
+def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
+    """Begin a halo exchange.
+
+    :arg sf: the PETSc SF to use for exchanges
+    :arg dat: the :class:`pyop2.Dat` to perform the exchange on
+    :arg dtype: an MPI datatype describing the unit of data
+    :arg reverse: should a reverse (local-to-global) exchange be
+        performed.
+
+    Forward exchanges are implemented using :data:`PetscSFBcastBegin`,
+    reverse exchanges with :data:`PetscSFReduceBegin`.  Note that in
+    the latter case, the matching :func:`halo_end` call *must* be made
+    before the input data is modified.
+    """
+    cdef:
+        MPI.Op op = MPI.SUM
+        np.ndarray input, output
+
+    # Not allowed to touch input buffer (or observe output buffer)
+    # before the matching XXXEnd call is made.  To allow for
+    # overlapped computation (writing into local part) and
+    # communication (getting halo data) we therefore need a temporary
+    # buffer.
+    if not hasattr(dat, '_exchange_buf'):
+        dat._exchange_buf = np.empty_like(dat._data)
+    if reverse:
+        # Output goes to zeroed buffer, input buffer cannot be
+        # modified before matching halo_end call.
+        input = dat._data
+        output = dat._exchange_buf
+        output.fill(0)
+        CHKERR(PetscSFReduceBegin(sf.sf, dtype.ob_mpi,
+                                  <const void*>input.data,
+                                  <void *>output.data,
+                                  op.ob_mpi))
+    else:
+        # data copied to input buffer, output goes to input buffer,
+        # writes can occur to data in local region before matching
+        # halo_end.
+        input = dat._exchange_buf
+        np.copyto(input, dat._data, casting='no')
+        output = input
+        CHKERR(PetscSFBcastBegin(sf.sf, dtype.ob_mpi,
+                                 <const void *>input.data,
+                                 <void *>output.data))
+
+def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
+    """End a halo exchange.
+
+    :arg sf: the PETSc SF to use for exchanges
+    :arg dat: the :class:`pyop2.Dat` to perform the exchange on
+    :arg dtype: an MPI datatype describing the unit of data
+    :arg reverse: should a reverse (local-to-global) exchange be
+        performed.
+
+    Forward exchanges are implemented using :data:`PetscSFBcastEnd`,
+    reverse exchanges with :data:`PetscSFReduceEnd`.
+    """
+    cdef:
+        MPI.Op op = MPI.SUM
+        np.ndarray input, output
+    if reverse:
+        # Output was a zeroed buffer, now contains correct data.
+        input = dat._data
+        output = dat._exchange_buf
+        CHKERR(PetscSFReduceEnd(sf.sf, dtype.ob_mpi,
+                                <const void *>input.data,
+                                <void*>output.data,
+                                op.ob_mpi))
+        # Copy out to Dat
+        np.copyto(dat._data, output)
+    else:
+        input = dat._exchange_buf
+        output = input
+        CHKERR(PetscSFBcastEnd(sf.sf, dtype.ob_mpi,
+                               <const void *>input.data,
+                               <void *>output.data))
+        # Overwrite halo values in Dat with new correct vals.
+        dat._data[dat.dataset.size:] = output[dat.dataset.size:]

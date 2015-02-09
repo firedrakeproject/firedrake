@@ -97,14 +97,7 @@ class FunctionSpaceBase(ObjectCached):
         mesh._plex.setDefaultSection(self._global_numbering)
         self._universal_numbering = mesh._plex.getDefaultGlobalSection()
 
-        # Re-initialise the DefaultSF with the numbering for this FS
-        mesh._plex.createDefaultSF(self._global_numbering,
-                                   self._universal_numbering)
-
-        # Derive the Halo from the DefaultSF
-        self._halo = halo.Halo(mesh._plex.getDefaultSF(),
-                               self._global_numbering,
-                               self._universal_numbering)
+        self._halo = halo.Halo(self)
 
         # Compute entity class offsets
         self.dof_classes = [0, 0, 0, 0]
@@ -182,7 +175,7 @@ class FunctionSpaceBase(ObjectCached):
         name = "%s_nodes" % self.name
         if self._halo:
             s = op2.Set(self.dof_classes, name,
-                        halo=self._halo.op2_halo)
+                        halo=self._halo)
             if self.extruded:
                 return op2.ExtrudedSet(s, layers=self._mesh.layers)
             return s
