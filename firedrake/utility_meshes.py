@@ -722,7 +722,7 @@ def CubedSphereMesh(radius, refinement_level=0, reorder=None,
     :kwarg refinement_level: optional number of refinements (0 is a cube).
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg use_dmplex_refinement: (optional), use dmplex to apply
-    the refinement.
+        the refinement.
     """
     if use_dmplex_refinement:
         # vertices of a cube with an edge length of 2

@@ -227,9 +227,9 @@ class DirichletBC(object):
 def homogenize(bc):
     """Create a homogeneous version of a :class:`.DirichletBC` object and return it. If
     ``bc`` is an iterable containing one or more :class:`.DirichletBC` objects,
-    then return a list of the homogeneous versions of those :class:`.DirichletBC`s.
+    then return a list of the homogeneous versions of those :class:`.DirichletBC`\s.
 
-    :arg bc: a :class:`.DirichletBC`, or iterable object comprising :class:`.DirichletBC`(s).
+    :arg bc: a :class:`.DirichletBC`, or iterable object comprising :class:`.DirichletBC`\(s).
     """
     try:
         return [homogenize(i) for i in bc]
