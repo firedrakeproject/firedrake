@@ -1,10 +1,5 @@
 cimport petsc4py.PETSc as PETSc
-
-cdef extern from "mpi.h" nogil:
-    ctypedef struct _mpi_datatype_t
-    ctypedef _mpi_datatype_t* MPI_Datatype
-
-    MPI_Datatype MPI_INT
+cimport mpi4py.MPI as MPI
 
 cdef extern from "petsc.h":
    ctypedef long PetscInt
@@ -44,7 +39,7 @@ cdef extern from "petscdmplex.h":
     int DMLabelSetValue(DMLabel, PetscInt, PetscInt)
     int DMLabelClearValue(DMLabel, PetscInt, PetscInt)
 
-    int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI_Datatype,void*,PETSc.PetscSection,void**)
+    int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
 
 cdef extern from "petscis.h":
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
@@ -60,6 +55,10 @@ cdef extern from "petscsf.h":
     ctypedef PetscSFNode PetscSFNode "PetscSFNode"
 
     int PetscSFGetGraph(PETSc.PetscSF,PetscInt*,PetscInt*,PetscInt**,PetscSFNode**)
+    int PetscSFBcastBegin(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,)
+    int PetscSFBcastEnd(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*)
+    int PetscSFReduceBegin(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
+    int PetscSFReduceEnd(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
 
 cdef extern from "petscbt.h":
     ctypedef char * PetscBT
