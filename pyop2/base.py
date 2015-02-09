@@ -3831,11 +3831,10 @@ class ParLoop(LazyComputation):
         self.reduction_begin()
         if self._only_local:
             self.reverse_halo_exchange_begin()
+            self.reverse_halo_exchange_end()
         if not self._only_local and self.needs_exec_halo:
             self._compute(self.it_space.iterset.exec_part)
         self.reduction_end()
-        if self._only_local:
-            self.reverse_halo_exchange_end()
         self.maybe_set_halo_update_needed()
 
     @collective
