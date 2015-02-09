@@ -13,6 +13,7 @@
 @import url("basic.css");
 @import url("nobile-fontfacekit/stylesheet.css");
 @import url("neuton-fontfacekit/stylesheet.css");
+@import url(http://fonts.googleapis.com/css?family=Comfortaa);
 
 /* -- page layout ----------------------------------------------------------- */
 
@@ -685,3 +686,18 @@ img[alt="build status"] {
     width: 25%;
     text-align: center;
 }
+
+/* Modifications for the FEniCS '15 website */
+
+div.fenics_15 h1,
+div.fenics_15 h2,
+div.fenics_15 h3,
+div.fenics_15 h4 {
+    font-family: 'Comfortaa', cursive;
+}
+
+div.fenics_15 #sponsors img {
+    padding-left: 20px;
+    padding-right: 20px
+}
+
