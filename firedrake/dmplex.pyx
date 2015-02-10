@@ -1862,6 +1862,7 @@ def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
     cdef:
         MPI.Op op = MPI.SUM
         np.ndarray input, output
+        int size = dat.dataset.size
 
     # Not allowed to touch input buffer (or observe output buffer)
     # before the matching XXXEnd call is made.  To allow for
@@ -1885,7 +1886,7 @@ def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
         # writes can occur to data in local region before matching
         # halo_end.
         input = dat._exchange_buf
-        np.copyto(input, dat._data, casting='no')
+        input[:size] = dat._data[:size]
         output = input
         CHKERR(PetscSFBcastBegin(sf.sf, dtype.ob_mpi,
                                  <const void *>input.data,
@@ -1906,6 +1907,8 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
     cdef:
         MPI.Op op = MPI.SUM
         np.ndarray input, output
+        int size = dat.dataset.size
+
     if reverse:
         # Output was a zeroed buffer, now contains correct data.
         input = dat._data
@@ -1915,7 +1918,7 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
                                 <void*>output.data,
                                 op.ob_mpi))
         # Copy out to Dat
-        np.copyto(dat._data, output)
+        dat._data[:size] = output[:size]
     else:
         input = dat._exchange_buf
         output = input
@@ -1923,4 +1926,4 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
                                <const void *>input.data,
                                <void *>output.data))
         # Overwrite halo values in Dat with new correct vals.
-        dat._data[dat.dataset.size:] = output[dat.dataset.size:]
+        dat._data[size:] = output[size:]
