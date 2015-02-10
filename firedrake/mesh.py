@@ -204,20 +204,8 @@ def Mesh(meshfile, **kwargs):
         # it, we grow the halo.
         plex.distribute(overlap=0)
 
-    topological_dim = plex.getDimension()
-
-    cStart, cEnd = plex.getHeightStratum(0)  # cells
-    cell_facets = plex.getConeSize(cStart)
-
-    if topological_dim + 1 == cell_facets:
-        MeshClass = SimplexMesh
-    elif topological_dim == 2 and cell_facets == 4:
-        MeshClass = QuadrilateralMesh
-    else:
-        raise RuntimeError("Unsupported mesh type.")
-
-    return MeshClass(name, plex, dim, reorder,
-                     periodic_coords=periodic_coords)
+    return MeshBase(name, plex, dim, reorder,
+                    periodic_coords=periodic_coords)
 
 
 def _from_gmsh(filename):
@@ -693,22 +681,6 @@ class MeshBase(object):
     def cell_dimension(self):
         """Return the cell dimension"""
         return self.ufl_cell().topological_dimension()
-
-
-class SimplexMesh(MeshBase):
-    """A mesh class providing functionality specific to simplex meshes.
-
-    Not part of the public API.
-    """
-    pass
-
-
-class QuadrilateralMesh(MeshBase):
-    """A mesh class providing functionality specific to quadrilateral meshes.
-
-    Not part of the public API.
-    """
-    pass
 
 
 class ExtrudedMesh(MeshBase):
