@@ -76,6 +76,22 @@ coefficients below.*/
   J[7] = 0.5*(vertex_coordinates[16][0] + vertex_coordinates[17][0] - vertex_coordinates[12][0] - vertex_coordinates[13][0]); \
   J[8] = (vertex_coordinates[13][0] + vertex_coordinates[15][0] + vertex_coordinates[17][0] - vertex_coordinates[12][0] - vertex_coordinates[14][0] - vertex_coordinates[16][0])/3.0;
 
+/* Compute Jacobian J for tensor product hexahedron embedded in R^3 */
+/* Explanation: the CG1 x CG1 basis functions are, in order, (1-X)(1-Y)(1-Z),
+(1-X)(1-Y)Z, (1-X)Y(1-Z), (1-X)YZ, X(1-Y)(1-Z), X(1-Y)Z, XY(1-Z), XYZ.
+Each row of the Jacobian is the derivatives of these w.r.t. X, Y and Z in turn,
+evaluated at the midpoint (1/2, 1/2, 1/2). This gives the coefficients below. */
+#define compute_jacobian_hex_3d(J, vertex_coordinates) \
+  J[0] = 0.25*(vertex_coordinates[4][0] + vertex_coordinates[5][0] + vertex_coordinates[6][0] + vertex_coordinates[7][0] - vertex_coordinates[0][0] - vertex_coordinates[1][0] - vertex_coordinates[2][0] - vertex_coordinates[3][0]); \
+  J[1] = 0.25*(vertex_coordinates[2][0] + vertex_coordinates[3][0] + vertex_coordinates[6][0] + vertex_coordinates[7][0] - vertex_coordinates[0][0] - vertex_coordinates[1][0] - vertex_coordinates[4][0] - vertex_coordinates[5][0]); \
+  J[2] = 0.25*(vertex_coordinates[1][0] + vertex_coordinates[3][0] + vertex_coordinates[5][0] + vertex_coordinates[7][0] - vertex_coordinates[0][0] - vertex_coordinates[2][0] - vertex_coordinates[4][0] - vertex_coordinates[6][0]); \
+  J[3] = 0.25*(vertex_coordinates[12][0] + vertex_coordinates[13][0] + vertex_coordinates[14][0] + vertex_coordinates[15][0] - vertex_coordinates[8][0] - vertex_coordinates [9][0] - vertex_coordinates[10][0] - vertex_coordinates[11][0]); \
+  J[4] = 0.25*(vertex_coordinates[10][0] + vertex_coordinates[11][0] + vertex_coordinates[14][0] + vertex_coordinates[15][0] - vertex_coordinates[8][0] - vertex_coordinates [9][0] - vertex_coordinates[12][0] - vertex_coordinates[13][0]); \
+  J[5] = 0.25*(vertex_coordinates [9][0] + vertex_coordinates[11][0] + vertex_coordinates[13][0] + vertex_coordinates[15][0] - vertex_coordinates[8][0] - vertex_coordinates[10][0] - vertex_coordinates[12][0] - vertex_coordinates[14][0]); \
+  J[6] = 0.25*(vertex_coordinates[20][0] + vertex_coordinates[21][0] + vertex_coordinates[22][0] + vertex_coordinates[23][0] - vertex_coordinates[16][0] - vertex_coordinates[17][0] - vertex_coordinates[18][0] - vertex_coordinates[19][0]); \
+  J[7] = 0.25*(vertex_coordinates[18][0] + vertex_coordinates[19][0] + vertex_coordinates[22][0] + vertex_coordinates[23][0] - vertex_coordinates[16][0] - vertex_coordinates[17][0] - vertex_coordinates[20][0] - vertex_coordinates[21][0]); \
+  J[8] = 0.25*(vertex_coordinates[17][0] + vertex_coordinates[19][0] + vertex_coordinates[21][0] + vertex_coordinates[23][0] - vertex_coordinates[16][0] - vertex_coordinates[18][0] - vertex_coordinates[20][0] - vertex_coordinates[22][0]);
+
 /* Jacobians for interior facets of different sorts */
 
 /* Compute Jacobian J for interval embedded in R^1 */
@@ -147,6 +163,18 @@ coefficients below.*/
   J[6] = 0.5*(vertex_coordinates[26][0] + vertex_coordinates[27][0] - vertex_coordinates[24][0] - vertex_coordinates[25][0]); \
   J[7] = 0.5*(vertex_coordinates[28][0] + vertex_coordinates[29][0] - vertex_coordinates[24][0] - vertex_coordinates[25][0]); \
   J[8] = (vertex_coordinates[25][0] + vertex_coordinates[27][0] + vertex_coordinates[29][0] - vertex_coordinates[24][0] - vertex_coordinates[26][0] - vertex_coordinates[28][0])/3.0;
+
+/* Compute Jacobian J for tensor product hexahedron embedded in R^3 */
+#define compute_jacobian_hex_int_3d(J, vertex_coordinates) \
+  J[0] = 0.25*(vertex_coordinates[4][0] + vertex_coordinates[5][0] + vertex_coordinates[6][0] + vertex_coordinates[7][0] - vertex_coordinates[0][0] - vertex_coordinates[1][0] - vertex_coordinates[2][0] - vertex_coordinates[3][0]); \
+  J[1] = 0.25*(vertex_coordinates[2][0] + vertex_coordinates[3][0] + vertex_coordinates[6][0] + vertex_coordinates[7][0] - vertex_coordinates[0][0] - vertex_coordinates[1][0] - vertex_coordinates[4][0] - vertex_coordinates[5][0]); \
+  J[2] = 0.25*(vertex_coordinates[1][0] + vertex_coordinates[3][0] + vertex_coordinates[5][0] + vertex_coordinates[7][0] - vertex_coordinates[0][0] - vertex_coordinates[2][0] - vertex_coordinates[4][0] - vertex_coordinates[6][0]); \
+  J[3] = 0.25*(vertex_coordinates[20][0] + vertex_coordinates[21][0] + vertex_coordinates[22][0] + vertex_coordinates[23][0] - vertex_coordinates[16][0] - vertex_coordinates[17][0] - vertex_coordinates[18][0] - vertex_coordinates[19][0]); \
+  J[4] = 0.25*(vertex_coordinates[18][0] + vertex_coordinates[19][0] + vertex_coordinates[22][0] + vertex_coordinates[23][0] - vertex_coordinates[16][0] - vertex_coordinates[17][0] - vertex_coordinates[20][0] - vertex_coordinates[21][0]); \
+  J[5] = 0.25*(vertex_coordinates[17][0] + vertex_coordinates[19][0] + vertex_coordinates[21][0] + vertex_coordinates[23][0] - vertex_coordinates[16][0] - vertex_coordinates[18][0] - vertex_coordinates[20][0] - vertex_coordinates[22][0]); \
+  J[6] = 0.25*(vertex_coordinates[36][0] + vertex_coordinates[37][0] + vertex_coordinates[38][0] + vertex_coordinates[39][0] - vertex_coordinates[32][0] - vertex_coordinates[33][0] - vertex_coordinates[34][0] - vertex_coordinates[35][0]); \
+  J[7] = 0.25*(vertex_coordinates[34][0] + vertex_coordinates[35][0] + vertex_coordinates[38][0] + vertex_coordinates[39][0] - vertex_coordinates[32][0] - vertex_coordinates[33][0] - vertex_coordinates[36][0] - vertex_coordinates[37][0]); \
+  J[8] = 0.25*(vertex_coordinates[33][0] + vertex_coordinates[35][0] + vertex_coordinates[37][0] + vertex_coordinates[39][0] - vertex_coordinates[32][0] - vertex_coordinates[34][0] - vertex_coordinates[36][0] - vertex_coordinates[38][0]);
 
 /* --- Computation of Jacobian inverses --- */
 
@@ -224,27 +252,11 @@ coefficients below.*/
   K[7] = d_12 / det; \
   K[8] = d_22 / det; } while(0)
 
-/* Compute Jacobian inverse K for tensor product prism embedded in R^3 - identical to t et */
-#define compute_jacobian_inverse_prism_3d(K, det, J) \
-  do { const double d_00 = J[4]*J[8] - J[5]*J[7]; \
-  const double d_01 = J[5]*J[6] - J[3]*J[8]; \
-  const double d_02 = J[3]*J[7] - J[4]*J[6]; \
-  const double d_10 = J[2]*J[7] - J[1]*J[8]; \
-  const double d_11 = J[0]*J[8] - J[2]*J[6]; \
-  const double d_12 = J[1]*J[6] - J[0]*J[7]; \
-  const double d_20 = J[1]*J[5] - J[2]*J[4]; \
-  const double d_21 = J[2]*J[3] - J[0]*J[5]; \
-  const double d_22 = J[0]*J[4] - J[1]*J[3]; \
-  det = J[0]*d_00 + J[3]*d_10 + J[6]*d_20; \
-  K[0] = d_00 / det; \
-  K[1] = d_10 / det; \
-  K[2] = d_20 / det; \
-  K[3] = d_01 / det; \
-  K[4] = d_11 / det; \
-  K[5] = d_21 / det; \
-  K[6] = d_02 / det; \
-  K[7] = d_12 / det; \
-  K[8] = d_22 / det; } while (0)
+/* Compute Jacobian inverse K for tensor product prism embedded in R^3 - identical to tetrahedron */
+#define compute_jacobian_inverse_prism_3d compute_jacobian_inverse_tetrahedron_3d
+
+/* Compute Jacobian inverse K for tensor product hexahedron embedded in R^3 - identical to tetrahedron */
+#define compute_jacobian_inverse_hex_3d compute_jacobian_inverse_tetrahedron_3d
 
 /* --- Compute facet edge lengths --- */
 
