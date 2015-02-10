@@ -758,7 +758,7 @@ class LocalSet(ExtrudedSet, ObjectCached):
     built on except during parallel loop iterations. Iteration over a
     :class:`LocalSet` indicates that the :func:`par_loop` should not
     compute redundantly over halo entities.  It may be used in
-    conjunction with a :func:`par_loop` that ``INC``s into a
+    conjunction with a :func:`par_loop` that ``INC``\s into a
     :class:`Dat`.  In this case, after the local computation has
     finished, remote contributions to local data with be gathered,
     such that local data is correct on all processes.  Iteration over
