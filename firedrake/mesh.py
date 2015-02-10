@@ -489,6 +489,56 @@ class MeshBase(object):
         else:
             return _Facets(self, 0, "interior", None, None)
 
+    @utils.cached_property
+    def cell_closure(self):
+        """2D array of ordered cell closures
+
+        Each row contains ordered cell entities for a cell, one row per cell.
+        """
+        plex = self._plex
+        topological_dim = plex.getDimension()
+
+        # Cell numbering and global vertex numbering
+        cell_numbering = self._cell_numbering
+        vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
+
+        cStart, cEnd = plex.getHeightStratum(0)  # cells
+        cell_facets = plex.getConeSize(cStart)
+
+        if topological_dim + 1 == cell_facets:
+            # Simplex mesh
+            a_closure = plex.getTransitiveClosure(cStart)[0]
+
+            entity_per_cell = np.zeros(topological_dim + 1, dtype=np.int32)
+            for dim in xrange(topological_dim + 1):
+                start, end = plex.getDepthStratum(dim)
+                entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end,
+                                               a_closure))
+
+            return dmplex.closure_ordering(plex, vertex_numbering,
+                                           cell_numbering, entity_per_cell)
+
+        elif topological_dim == 2 and cell_facets == 4:
+            # Quadrilateral mesh
+            cell_ranks = dmplex.get_cell_remote_ranks(plex)
+
+            facet_orientations = dmplex.quadrilateral_facet_orientations(
+                plex, vertex_numbering, cell_ranks)
+
+            cell_orientations = dmplex.orientations_facet2cell(
+                plex, vertex_numbering, cell_ranks,
+                facet_orientations, cell_numbering)
+
+            dmplex.exchange_cell_orientations(plex,
+                                              cell_numbering,
+                                              cell_orientations)
+
+            return dmplex.quadrilateral_closure_ordering(
+                plex, vertex_numbering, cell_numbering, cell_orientations)
+
+        else:
+            raise RuntimeError("Unsupported mesh: neither simplex, nor quadrilateral.")
+
     def create_cell_node_list(self, global_numbering, fiat_element):
         """Builds the DoF mapping.
 
@@ -650,27 +700,7 @@ class SimplexMesh(MeshBase):
 
     Not part of the public API.
     """
-
-    @utils.cached_property
-    def cell_closure(self):
-        """2D array of ordered cell closures
-
-        Each row contains ordered cell entities for a cell, one row per cell.
-        """
-        dm = self._plex
-        vertex_numbering = self._vertex_numbering.createGlobalSection(dm.getPointSF())
-
-        a_cell = dm.getHeightStratum(0)[0]
-        a_closure = dm.getTransitiveClosure(a_cell)[0]
-        topological_dimension = dm.getDimension()
-
-        entity_per_cell = np.zeros(topological_dimension + 1, dtype=np.int32)
-        for dim in xrange(topological_dimension + 1):
-            start, end = dm.getDepthStratum(dim)
-            entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end, a_closure))
-
-        return dmplex.closure_ordering(dm, vertex_numbering,
-                                       self._cell_numbering, entity_per_cell)
+    pass
 
 
 class QuadrilateralMesh(MeshBase):
@@ -678,35 +708,7 @@ class QuadrilateralMesh(MeshBase):
 
     Not part of the public API.
     """
-
-    @utils.cached_property
-    def cell_closure(self):
-        """2D array of ordered cell closures
-
-        Each row contains ordered cell entities for a cell, one row per cell.
-        """
-
-        plex = self._plex
-        cell_numbering = self._cell_numbering
-
-        # Global vertex numbering
-        vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
-
-        cell_ranks = dmplex.get_cell_remote_ranks(plex)
-
-        facet_orientations = dmplex.quadrilateral_facet_orientations(
-            plex, vertex_numbering, cell_ranks)
-
-        cell_orientations = dmplex.orientations_facet2cell(
-            plex, vertex_numbering, cell_ranks,
-            facet_orientations, cell_numbering)
-
-        dmplex.exchange_cell_orientations(plex,
-                                          cell_numbering,
-                                          cell_orientations)
-
-        return dmplex.quadrilateral_closure_ordering(
-            plex, vertex_numbering, cell_numbering, cell_orientations)
+    pass
 
 
 class ExtrudedMesh(MeshBase):
