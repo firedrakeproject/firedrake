@@ -41,7 +41,7 @@ import compilation
 from base import *
 from mpi import collective
 from configuration import configuration
-from utils import as_tuple
+from utils import as_tuple, strip
 
 import coffee.plan
 from coffee import base as ast
@@ -645,8 +645,6 @@ class JITModule(base.JITModule):
         # If we weren't in the cache we /must/ have arguments
         if not hasattr(self, '_args'):
             raise RuntimeError("JITModule has no args associated with it, should never happen")
-        strip = lambda code: '\n'.join([l for l in code.splitlines()
-                                        if l.strip() and l.strip() != ';'])
 
         # Attach semantical information to the kernel's AST
         if self._kernel._ast:

@@ -308,6 +308,10 @@ def trim(docstring):
     return '\n'.join(trimmed)
 
 
+def strip(code):
+    return '\n'.join([l for l in code.splitlines() if l.strip() and l.strip() != ';'])
+
+
 def get_petsc_dir():
     try:
         arch = '/' + os.environ.get('PETSC_ARCH', '')
