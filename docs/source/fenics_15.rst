@@ -10,7 +10,7 @@
 The :doc:`Firedrake project <index>` is proud to host the 2015 FEniCS
 Workshop. The workshop is an opportunity for all those interested the
 `FEniCS Project <http://fenicsproject.org>`_, and related projects such
-as `dolfin-adjoint <http://dolfin-adjoint>`_ and :doc:`Firedrake
+as `dolfin-adjoint <http://dolfin-adjoint.org>`_ and :doc:`Firedrake
 <index>` to exchange ideas, communicate their results and network with
 the automated finite element community.
 
