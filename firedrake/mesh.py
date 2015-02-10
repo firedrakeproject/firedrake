@@ -668,6 +668,10 @@ class SimplexMesh(MeshBase):
         # Facets have co-dimension 1
         return [self.ufl_cell().topological_dimension() - 1]
 
+    def cell_dimension(self):
+        """Return the cell dimension"""
+        return self.ufl_cell().topological_dimension()
+
 
 class QuadrilateralMesh(MeshBase):
     """A mesh class providing functionality specific to quadrilateral meshes.
@@ -707,6 +711,10 @@ class QuadrilateralMesh(MeshBase):
     def facet_dimensions(self):
         """Returns a list containing the facet dimensions."""
         return [(0, 1), (1, 0)]
+
+    def cell_dimension(self):
+        """Return the cell dimension"""
+        return (1, 1)
 
 
 class ExtrudedMesh(MeshBase):
@@ -913,6 +921,16 @@ class ExtrudedMesh(MeshBase):
     @property
     def geometric_dimension(self):
         return self.ufl_cell().geometric_dimension()
+
+    def cell_dimension(self):
+        """Return the cell dimension"""
+        if self.geometric_dimension == 3:
+            return (2, 1)
+        elif self.geometric_dimension == 2:
+            return (1, 1)
+        else:
+            raise RuntimeError("Dimension computation not supported for gdim %d",
+                               self.geometric_dimension)
 
     def facet_dimensions(self):
         """Returns a singleton list containing the facet dimension.
