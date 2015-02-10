@@ -272,7 +272,7 @@ class Mesh(object):
 
         utils._init()
 
-        dim = kwargs.get("dim", None)
+        geometric_dim = kwargs.get("dim", None)
         reorder = kwargs.get("reorder", parameters["reorder_meshes"])
         periodic_coords = kwargs.get("periodic_coords", None)
         distribute = kwargs.get("distribute", True)
@@ -293,7 +293,7 @@ class Mesh(object):
             elif ext.lower() == '.msh':
                 plex = _from_gmsh(meshfile)
             elif ext.lower() == '.node':
-                plex = _from_triangle(meshfile, dim)
+                plex = _from_triangle(meshfile, geometric_dim)
             else:
                 raise RuntimeError("Mesh file %s has unknown format '%s'."
                                    % (meshfile, ext[1:]))
@@ -312,13 +312,6 @@ class Mesh(object):
             # refine this mesh in parallel.  Later, when we actually use
             # it, we grow the halo.
             plex.distribute(overlap=0)
-
-        self._from_plex(name, plex, dim, reorder,
-                        periodic_coords=periodic_coords)
-
-    def _from_plex(self, name, plex, geometric_dim,
-                   reorder, periodic_coords=None):
-        """Initialize mesh from DMPlex object """
 
         # A cache of function spaces that have been built on this mesh
         self._cache = {}
