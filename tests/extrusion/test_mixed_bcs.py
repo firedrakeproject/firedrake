@@ -2,9 +2,10 @@ from firedrake import *
 import pytest
 
 
+@pytest.mark.parametrize('quadrilateral', [False, True])
 @pytest.mark.parametrize('degree', [1, 2, 3])
-def test_multiple_poisson_Pn(degree):
-    m = UnitSquareMesh(4, 4)
+def test_multiple_poisson_Pn(quadrilateral, degree):
+    m = UnitSquareMesh(4, 4, quadrilateral=quadrilateral)
     mesh = ExtrudedMesh(m, 4)
 
     V = FunctionSpace(mesh, 'CG', degree)
@@ -48,9 +49,10 @@ def test_multiple_poisson_Pn(degree):
     assert assemble(inner(w - wexact, w - wexact)*dx) < 1e-8
 
 
+@pytest.mark.parametrize('quadrilateral', [False, True])
 @pytest.mark.parametrize('degree', [1, 2, 3])
-def test_multiple_poisson_strong_weak_Pn(degree):
-    m = UnitSquareMesh(4, 4)
+def test_multiple_poisson_strong_weak_Pn(quadrilateral, degree):
+    m = UnitSquareMesh(4, 4, quadrilateral=quadrilateral)
     mesh = ExtrudedMesh(m, 4)
 
     V = FunctionSpace(mesh, 'CG', degree)

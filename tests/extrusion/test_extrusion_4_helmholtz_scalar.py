@@ -6,15 +6,16 @@ from firedrake import *
 from tests.common import *
 
 
+@pytest.mark.parametrize('quadrilateral', [False, True])
 @pytest.mark.parametrize(('testcase', 'convrate'),
                          [(("CG", 1, (4, 6)), 1.9),
                           (("CG", 2, (3, 5)), 2.9),
-                          (("CG", 3, (1, 3)), 3.9)])
-def test_scalar_convergence(testcase, convrate):
+                          (("CG", 3, (2, 4)), 3.9)])
+def test_scalar_convergence(quadrilateral, testcase, convrate):
     family, degree, (start, end) = testcase
     l2err = np.zeros(end - start)
     for ii in [i + start for i in range(len(l2err))]:
-        mesh = extmesh(2**ii, 2**ii, 2**ii)
+        mesh = extmesh(2**ii, 2**ii, 2**ii, quadrilateral=quadrilateral)
 
         fspace = FunctionSpace(mesh, family, degree, vfamily=family, vdegree=degree)
 

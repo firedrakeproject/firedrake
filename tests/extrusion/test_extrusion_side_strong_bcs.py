@@ -6,9 +6,9 @@ import pytest
 from firedrake import *
 
 
-def run_test_3D(size, parameters={}, test_mode=False):
+def run_test_3D(size, quadrilateral, parameters={}, test_mode=False):
     # Create mesh and define function space
-    m = UnitSquareMesh(size, size)
+    m = UnitSquareMesh(size, size, quadrilateral=quadrilateral)
     layers = size
     mesh = ExtrudedMesh(m, layers, layer_height=1.0 / layers)
 
@@ -91,11 +91,19 @@ def run_test_2D(intervals, parameters={}, test_mode=False):
 
 
 def test_extrusion_side_strong_bcs():
-    assert (run_test_3D(3, test_mode=True) < 1.e-13)
+    assert (run_test_3D(3, quadrilateral=False, test_mode=True) < 1.e-13)
 
 
 def test_extrusion_side_strong_bcs_large():
-    assert (run_test_3D(6, test_mode=True) < 1.3e-08)
+    assert (run_test_3D(6, quadrilateral=False, test_mode=True) < 1.3e-08)
+
+
+def test_extrusion_side_strong_bcs_quadrilateral():
+    assert (run_test_3D(3, quadrilateral=True, test_mode=True) < 1.e-13)
+
+
+def test_extrusion_side_strong_bcs_quadrilateral_large():
+    assert (run_test_3D(6, quadrilateral=True, test_mode=True) < 1.3e-08)
 
 
 def test_extrusion_side_strong_bcs_2D():

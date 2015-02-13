@@ -19,9 +19,9 @@ import pytest
 from firedrake import *
 
 
-def run_test(layers):
+def run_test(layers, quadrilateral):
     # Create mesh and define function space
-    m = UnitSquareMesh(1, 1)
+    m = UnitSquareMesh(1, 1, quadrilateral=quadrilateral)
     mesh = ExtrudedMesh(m, layers, layer_height=1.0 / layers)
 
     V = FunctionSpace(mesh, "CG", 1)
@@ -44,7 +44,12 @@ def run_test(layers):
 
 def test_extrusion_poisson_strong_bcs():
     for layers in [1, 2, 10]:
-        assert (run_test(layers) < 1.e-6)
+        assert (run_test(layers, quadrilateral=False) < 1.e-6)
+
+
+def test_extrusion_poisson_strong_bcs_quadrilateral():
+    for layers in [1, 2, 10]:
+        assert (run_test(layers, quadrilateral=True) < 1.e-6)
 
 
 if __name__ == '__main__':
