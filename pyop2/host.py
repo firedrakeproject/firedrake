@@ -595,6 +595,7 @@ class JITModule(base.JITModule):
 
     _cppargs = []
     _libraries = []
+    _extension = 'c'
 
     def __init__(self, kernel, itspace, *args, **kwargs):
         """
@@ -711,10 +712,11 @@ class JITModule(base.JITModule):
         if configuration["debug"]:
             self._wrapper_code = code_to_compile
 
-        extension = "c"
-        cppargs = ["-I%s/include" % d for d in get_petsc_dir()] + \
-                  ["-I%s" % d for d in self._kernel._include_dirs] + \
-                  ["-I%s" % os.path.abspath(os.path.dirname(__file__))]
+        extension = self._extension
+        cppargs = self._cppargs
+        cppargs += ["-I%s/include" % d for d in get_petsc_dir()] + \
+                   ["-I%s" % d for d in self._kernel._include_dirs] + \
+                   ["-I%s" % os.path.abspath(os.path.dirname(__file__))]
         if compiler:
             cppargs += [compiler[coffee.plan.intrinsics['inst_set']]]
         ldargs = ["-L%s/lib" % d for d in get_petsc_dir()] + \

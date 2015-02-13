@@ -187,6 +187,7 @@ class JITModule(openmp.JITModule):
 
     _cppargs = []
     _libraries = []
+    _extension = 'cpp'
 
     _wrapper = """
 extern "C" void %(wrapper_name)s(%(executor_arg)s,
