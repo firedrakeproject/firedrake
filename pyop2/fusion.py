@@ -681,7 +681,7 @@ class Inspector(Cached):
         """Tile consecutive loops over different iteration sets characterized
         by RAW and WAR dependencies. This requires interfacing with the SLOPE
         library."""
-        inspector = slope.Inspector('OMP', self._tile_size)
+        inspector = slope.Inspector('OMP')
 
         # Build arguments types and values
         arguments = []
@@ -707,12 +707,15 @@ class Inspector(Cached):
             # Add loop
             insp_loops.append((loop.kernel.name, loop.it_space.name, list(slope_desc)))
         # Provide structure of loop chain to the SLOPE's inspector
-        inspector.add_sets(insp_sets)
+        arguments.extend([inspector.add_sets(insp_sets)])
         arguments.extend([inspector.add_maps(insp_maps.values())])
         inspector.add_loops(insp_loops)
         # Get type and value of any additional arguments that the SLOPE's inspector
         # expects
-        arguments.extend(inspector.set_external_dats())
+        arguments.extend([inspector.set_external_dats()])
+
+        # Set a specific tile size
+        arguments.extend([inspector.set_tile_size(self._tile_size)])
 
         # Arguments types and values
         argtypes, argvalues = zip(*arguments)
