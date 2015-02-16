@@ -112,18 +112,24 @@ class Arg(openmp.Arg):
 
 class Kernel(openmp.Kernel, tuple):
 
+    """A :class:`fusion.Kernel` object represents an ordered sequence of kernels.
+    The sequence can either be the result of the concatenation of the kernels
+    bodies, or a list of separate kernels (i.e., different C functions).
+    """
+
     @classmethod
-    def _cache_key(cls, kernels, fuse=True):
-        return "".join([super(Kernel, cls)._cache_key(k.code, k.name, k._opts,
+    def _cache_key(cls, kernels, fuse_id=None):
+        keys = "".join([super(Kernel, cls)._cache_key(k.code, k.name, k._opts,
                                                       k._include_dirs, k._headers,
                                                       k._user_code) for k in kernels])
+        return str(fuse_id) + keys
 
     def _ast_to_c(self, asts, opts):
         """Fuse Abstract Syntax Trees of a collection of kernels and transform
         them into a string of C code."""
         asts = as_tuple(asts, (coffee_ast.FunDecl, coffee_ast.Root))
 
-        if len(asts) == 1 or not opts['fuse']:
+        if len(asts) == 1 or opts['fuse'] is None:
             self._ast = coffee_ast.Root(asts)
             return self._ast.gencode()
 
@@ -153,29 +159,57 @@ class Kernel(openmp.Kernel, tuple):
         self._ast = fused_ast
         return self._ast.gencode()
 
-    def __init__(self, kernels, fuse=True):
+    def __init__(self, kernels, fuse_id=None):
+        """Initialize a :class:`fusion.Kernel` object.
+
+        :param kernels: an iterator of some :class:`Kernel` objects. The objects
+                        can be of class `fusion.Kernel` or even of any superclass.
+        :param fuse_id: this parameter indicates whether kernels' bodies should
+                        be fused (i.e., concatenated) or not. If ``None``, then
+                        the kernels are not fused; that is, they are just glued
+                        together as a sequence of different function calls. If
+                        a number ``X`` greater than 0, then the kernels' bodies
+                        are fused. ``X`` greater than 0 has sense if in a loop
+                        chain context; that is, if the kernels are going to be
+                        tiled over. In this case, ``X`` is used to characterize
+                        the kernels' cache key: since the same kernel, in a loop
+                        chain, can appear more than once (for example, interleaved
+                        by other kernels), the code generation step must produce
+                        unique variable names for different kernel invocations.
+                        Despite scoping would have addressed the issue, using
+                        unique identifiers make the code much more readable and
+                        analyzable for debugging.
+        """
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
         kernels = as_tuple(kernels, (Kernel, host.Kernel))
-        self._kernels = kernels
 
         Kernel._globalcount += 1
-        self._name = "_".join([kernel.name for kernel in kernels])
-        self._opts = dict(flatten([kernel._opts.items() for kernel in kernels]))
-        self._opts['fuse'] = fuse
-        self._applied_blas = any(kernel._applied_blas for kernel in kernels)
-        self._applied_ap = any(kernel._applied_ap for kernel in kernels)
-        self._include_dirs = list(set(flatten([kernel._include_dirs for kernel
-                                               in kernels])))
-        self._headers = list(set(flatten([kernel._headers for kernel in kernels])))
-        self._user_code = "\n".join([kernel._user_code for kernel in kernels])
-        self._code = self._ast_to_c([kernel._ast for kernel in kernels], self._opts)
+        self._kernels = kernels
+        self._name = "_".join([k.name for k in kernels])
+        self._opts = dict(flatten([k._opts.items() for k in kernels]))
+        self._opts['fuse'] = fuse_id
+        self._applied_blas = any(k._applied_blas for k in kernels)
+        self._applied_ap = any(k._applied_ap for k in kernels)
+        self._include_dirs = list(set(flatten([k._include_dirs for k in kernels])))
+        self._headers = list(set(flatten([k._headers for k in kernels])))
+        self._user_code = "\n".join(list(set([k._user_code for k in kernels])))
+
+        # If kernels' bodies are not concatenated, then discard duplicates
+        if fuse_id is None:
+            # Note: the simplest way of discarding identical kernels is to check
+            # for the cache key avoiding the first char, which only represents
+            # the position of the kernel in the loop chain
+            kernels = OrderedDict(zip([k.cache_key[1:] for k in kernels],
+                                      kernels)).values()
+        self._code = self._ast_to_c([k._ast for k in kernels], self._opts)
+
         self._initialized = True
 
     def __iter__(self):
-        for kernel in self._kernels:
-            yield kernel
+        for k in self._kernels:
+            yield k
 
     def __str__(self):
         return "OP2 FusionKernel: %s" % self._name
@@ -212,8 +246,9 @@ void %(wrapper_name)s(%(executor_arg)s,
 %(args_binding)s;
 %(tile_init)s;
 for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
-  int i = %(tile_iter)s[%(index_expr)s];
+  int i = %(index_expr)s;
   %(vec_inits)s;
+  i = %(tile_iter)s[%(index_expr)s];
   %(buffer_decl)s;
   %(buffer_gather)s
   %(kernel_name)s(%(kernel_args)s);
@@ -221,6 +256,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
   %(layout_loop)s
       %(layout_assign)s;
   %(layout_loop_close)s
+  i = %(index_expr)s;
   %(itset_loop_body)s;
 }
 %(interm_globals_writeback)s;
@@ -257,7 +293,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         # Prior to the instantiation and compilation of the JITModule, a fusion
         # kernel object needs be created. This is because the superclass' method
         # expects a single kernel, not a list as we have at this point.
-        self._kernel = Kernel(self._kernel, fuse=False)
+        self._kernel = Kernel(self._kernel, fuse_id=None)
         # Set compiler and linker options
         slope_dir = os.environ['SLOPE_DIR']
         self._kernel._name = 'executor'
@@ -416,6 +452,7 @@ class ParLoop(openmp.ParLoop):
 
             # Compile and run the JITModule
             fun = fun.compile(argtypes=self._argtypes, restype=self._restype)
+            fun(*self._jit_args)
 
 
 # Possible Schedules as produced by an Inspector
@@ -650,9 +687,9 @@ class Inspector(Cached):
 
         from C. Bertolli et al.
         """
-        fuse = lambda fusing: par_loop(Kernel([l.kernel for l in fusing]),
-                                       fusing[0].it_space.iterset,
-                                       *flatten([l.args for l in fusing]))
+        fuse = lambda fusing, id: par_loop(Kernel([l.kernel for l in fusing], id),
+                                           fusing[0].it_space.iterset,
+                                           *flatten([l.args for l in fusing]))
 
         fused, fusing = [], [self._loop_chain[0]]
         for i, loop in enumerate(self._loop_chain[1:]):
@@ -660,7 +697,7 @@ class Inspector(Cached):
             if base_loop.it_space != loop.it_space or \
                     (base_loop.is_indirect and loop.is_indirect):
                 # Fusion not legal
-                fused.append((fuse(fusing), i+1))
+                fused.append((fuse(fusing, len(fused)), i+1))
                 fusing = [loop]
             elif (base_loop.is_direct and loop.is_direct) or \
                     (base_loop.is_direct and loop.is_indirect) or \
@@ -671,7 +708,7 @@ class Inspector(Cached):
             else:
                 raise RuntimeError("Unexpected loop chain structure while fusing")
         if fusing:
-            fused.append((fuse(fusing), len(self._loop_chain)))
+            fused.append((fuse(fusing, len(fused)), len(self._loop_chain)))
 
         fused_loops, offsets = zip(*fused)
         self._loop_chain = fused_loops
