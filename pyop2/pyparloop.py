@@ -86,9 +86,13 @@ class Kernel(base.Kernel):
 
     def __init__(self, code, name=None, **kwargs):
         self._func = code
+        self._name = name
 
     def __call__(self, *args):
         return self._func(*args)
+
+    def __repr__(self):
+        return 'Kernel("""%s""", %r)' % (self._func, self._name)
 
 
 # Inherit from parloop for type checking and init
