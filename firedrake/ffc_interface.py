@@ -25,6 +25,7 @@ from pyop2.mpi import MPI
 
 from coffee.base import PreprocessNode, Root, Invert
 
+from scipy.lib import lapack
 import fiat_utils
 import functionspace
 from parameters import parameters as default_parameters
@@ -197,9 +198,10 @@ class FFCKernel(DiskCached):
             for it, kernel in zip(fd.preprocessed_form.integrals(), ffc_tree):
                 # Set optimization options
                 opts = {} if it.integral_type() not in ['cell'] else default_parameters["coffee"]
-                _kernel = kernel if not parameters["assemble_inverse"] else _inverse(kernel)
+                _kernel, libs, lib_dirs = (kernel, [], []) if not parameters["assemble_inverse"] else _inverse(kernel)
                 kernels.append((Kernel(Root(incl + [_kernel]), '%s_%s_integral_0_%s' %
-                                       (name, it.integral_type(), it.subdomain_id()), opts, inc),
+                                       (name, it.integral_type(), it.subdomain_id()), opts, inc,
+                                       libs=libs, lib_dirs=lib_dirs),
                                 needs_orientations))
             # Sometimes FFC returns an empty list without raising
             # EmptyIntegrandError, catch that here.
@@ -331,7 +333,10 @@ def _inverse(kernel):
 
     kernel.children[0].children.append(Invert(name, size))
 
-    return kernel
+    libs = ["clapack"]
+    lib_dirs = [path.dirname(lapack.__file__)]
+
+    return kernel, libs, lib_dirs
 
 
 _check_version()
