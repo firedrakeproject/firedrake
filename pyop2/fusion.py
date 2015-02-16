@@ -858,8 +858,9 @@ def loop_chain(name, time_unroll=1, tile_size=0):
     # Unroll the loop chain ``time_unroll`` times before fusion/tiling
     total_loop_chain = loop_chain.unrolled_loop_chain + extracted_loop_chain
     if len(total_loop_chain) / len(extracted_loop_chain) == time_unroll:
+        start_point = trace.index(total_loop_chain[0])
         trace[start_point:] = reschedule_loops(name, total_loop_chain, tile_size)
         loop_chain.unrolled_loop_chain = []
     else:
-        loop_chain.unrolled_loop_chain.extend(total_loop_chain)
+        loop_chain.unrolled_loop_chain.extend(extracted_loop_chain)
 loop_chain.unrolled_loop_chain = []
