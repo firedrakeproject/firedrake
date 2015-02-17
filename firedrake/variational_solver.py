@@ -121,41 +121,39 @@ class _SNESContext(object):
         return self._jac._M.sparsity.shape != (1, 1)
 
     @classmethod
-    def form_function(cls, snes, X_, F_):
+    def form_function(cls, snes, X, F):
         """Form the residual for this problem
 
         :arg snes: a PETSc SNES object
-        :arg X_: the current guess (a Vec)
-        :arg F_: the residual at X_ (a Vec)
+        :arg X: the current guess (a Vec)
+        :arg F: the residual at X (a Vec)
         """
         dm = snes.getDM()
         ctx = dm.getAppCtx()
 
-        # X_ may not be the same vector as the vec behind self._x, so
-        # copy guess in from X_.
+        # X may not be the same vector as the vec behind self._x, so
+        # copy guess in from X.
         with ctx._x.dat.vec as v:
-            if v != X_:
-                v.array[:] = X_.array[:]
+            X.copy(v)
 
         assemble.assemble(ctx.F, tensor=ctx._F,
                           form_compiler_parameters=ctx._problem.form_compiler_parameters)
         for bc in ctx._problem.bcs:
             bc.zero(ctx._F)
 
-        # F_ may not be the same vector as self._F, so copy
-        # residual out to F_.
+        # F may not be the same vector as self._F, so copy
+        # residual out to F.
         with ctx._F.dat.vec_ro as v:
-            if F_ != v:
-                F_.array[:] = v.array[:]
+            v.copy(F)
 
     @classmethod
-    def form_jacobian(cls, snes, X_, J_, P_):
+    def form_jacobian(cls, snes, X, J, P):
         """Form the Jacobian for this problem
 
         :arg snes: a PETSc SNES object
-        :arg X_: the current guess (a Vec)
-        :arg J_: the Jacobian (a Mat)
-        :arg P_: the preconditioner matrix (a Mat)
+        :arg X: the current guess (a Vec)
+        :arg J: the Jacobian (a Mat)
+        :arg P: the preconditioner matrix (a Mat)
         """
         dm = snes.getDM()
         ctx = dm.getAppCtx()
@@ -166,11 +164,10 @@ class _SNESContext(object):
             return
         ctx._jacobian_assembled = True
 
-        # X_ may not be the same vector as the vec behind self._x, so
-        # copy guess in from X_.
+        # X may not be the same vector as the vec behind self._x, so
+        # copy guess in from X.
         with ctx._x.dat.vec as v:
-            if v != X_:
-                v.array[:] = X_.array[:]
+            X.copy(v)
         assemble.assemble(ctx.J,
                           tensor=ctx._jac,
                           bcs=ctx._problem.bcs,
