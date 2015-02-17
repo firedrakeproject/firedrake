@@ -250,12 +250,12 @@ def get_injection_kernel(fiat_element, unique_indices, dim=1):
     if all_same:
         w_sym = ast.Symbol("weights", ())
         w = [ast.Decl("double", w_sym, weights[0, 0],
-                      qualifiers=["static", "const"])]
+                      qualifiers=["const"])]
     else:
         init = ast.ArrayInit(format_array_literal(weights))
         w_sym = ast.Symbol("weights", (ncdof, nfdof))
         w = [ast.Decl("double", w_sym, init,
-                      qualifiers=["static", "const"])]
+                      qualifiers=["const"])]
 
     i = ast.Symbol("i", ())
     j = ast.Symbol("j", ())
@@ -303,7 +303,7 @@ def get_prolongation_kernel(fiat_element, unique_indices, dim=1):
         w_sym = ast.Symbol("weights", (nfdof, ncdof))
         init = ast.ArrayInit(format_array_literal(weights))
         w = [ast.Decl("double", w_sym, init,
-                      qualifiers=["static", "const"])]
+                      qualifiers=["const"])]
     i = ast.Symbol("i", ())
     j = ast.Symbol("j", ())
     k = ast.Symbol("k", ())
@@ -353,7 +353,7 @@ def get_restriction_kernel(fiat_element, unique_indices, dim=1, no_weights=False
         w_sym = ast.Symbol("weights", (ncdof, nfdof))
         init = ast.ArrayInit(format_array_literal(weights))
         w = [ast.Decl("double", w_sym, init,
-                      qualifiers=["static", "const"])]
+                      qualifiers=["const"])]
 
     i = ast.Symbol("i", ())
     j = ast.Symbol("j", ())
