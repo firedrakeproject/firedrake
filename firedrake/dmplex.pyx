@@ -5,6 +5,7 @@ import numpy as np
 cimport numpy as np
 import cython
 cimport petsc4py.PETSc as PETSc
+
 cimport mpi4py.MPI as MPI
 from mpi4py import MPI
 
@@ -12,6 +13,9 @@ from libc.string cimport memset
 from libc.stdlib cimport qsort
 
 np.import_array()
+
+cdef extern from "mpi-compat.h":
+    pass
 
 include "dmplex.pxi"
 
