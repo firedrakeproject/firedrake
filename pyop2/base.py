@@ -758,7 +758,7 @@ class LocalSet(ExtrudedSet, ObjectCached):
     built on except during parallel loop iterations. Iteration over a
     :class:`LocalSet` indicates that the :func:`par_loop` should not
     compute redundantly over halo entities.  It may be used in
-    conjunction with a :func:`par_loop` that ``INC``s into a
+    conjunction with a :func:`par_loop` that ``INC``\s into a
     :class:`Dat`.  In this case, after the local computation has
     finished, remote contributions to local data with be gathered,
     such that local data is correct on all processes.  Iteration over
@@ -1222,22 +1222,23 @@ class Halo(object):
     lives on.  Insertion into :class:`Dat`\s always uses process-local
     numbering, however insertion into :class:`Mat`\s uses cross-process
     numbering under the hood.
+
+    You can provide your own Halo class, and use that instead when
+    initialising :class:`Set`\s.  It must provide the following
+    methods::
+
+       - :meth:`Halo.begin`
+       - :meth:`Halo.end`
+       - :meth:`Halo.verify`
+
+    and the following properties::
+
+       - :attr:`Halo.global_to_petsc_numbering`
+       - :attr:`Halo.comm`
+
     """
 
     def __init__(self, sends, receives, comm=None, gnn2unn=None):
-        # Fix up old style list of sends/receives into dict of sends/receives
-        if not isinstance(sends, dict):
-            tmp = {}
-            for i, s in enumerate(sends):
-                if len(s) > 0:
-                    tmp[i] = s
-            sends = tmp
-        if not isinstance(receives, dict):
-            tmp = {}
-            for i, s in enumerate(receives):
-                if len(s) > 0:
-                    tmp[i] = s
-            receives = tmp
         self._sends = sends
         self._receives = receives
         # The user might have passed lists, not numpy arrays, so fix that here.
@@ -1255,6 +1256,56 @@ class Halo(object):
             "Halo was specified with self-sends on rank %d" % rank
         assert rank not in self._receives, \
             "Halo was specified with self-receives on rank %d" % rank
+
+    @collective
+    def begin(self, dat, reverse=False):
+        """Begin halo exchange.
+
+        :arg dat: The :class:`Dat` to perform the exchange on.
+        :kwarg reverse: if True, switch round the meaning of sends and receives.
+               This can be used when computing non-redundantly and
+               INCing into a :class:`Dat` to obtain correct local
+               values."""
+        sends = self.sends
+        receives = self.receives
+        if reverse:
+            sends, receives = receives, sends
+        for dest, ele in sends.iteritems():
+            dat._send_buf[dest] = dat._data[ele]
+            dat._send_reqs[dest] = self.comm.Isend(dat._send_buf[dest],
+                                                   dest=dest, tag=dat._id)
+        for source, ele in receives.iteritems():
+            dat._recv_buf[source] = dat._data[ele]
+            dat._recv_reqs[source] = self.comm.Irecv(dat._recv_buf[source],
+                                                     source=source, tag=dat._id)
+
+    @collective
+    def end(self, dat, reverse=False):
+        """End halo exchange.
+
+        :arg dat: The :class:`Dat` to perform the exchange on.
+        :kwarg reverse: if True, switch round the meaning of sends and receives.
+               This can be used when computing non-redundantly and
+               INCing into a :class:`Dat` to obtain correct local
+               values."""
+        with timed_region("Halo exchange receives wait"):
+            _MPI.Request.Waitall(dat._recv_reqs.values())
+        with timed_region("Halo exchange sends wait"):
+            _MPI.Request.Waitall(dat._send_reqs.values())
+        dat._recv_reqs.clear()
+        dat._send_reqs.clear()
+        dat._send_buf.clear()
+        receives = self.receives
+        if reverse:
+            receives = self.sends
+        maybe_setflags(dat._data, write=True)
+        for source, buf in dat._recv_buf.iteritems():
+            if reverse:
+                dat._data[receives[source]] += buf
+            else:
+                dat._data[receives[source]] = buf
+        maybe_setflags(dat._data, write=False)
+        dat._recv_buf.clear()
 
     @property
     def sends(self):
@@ -1306,33 +1357,6 @@ class Halo(object):
                 (receives < s.total_size).all(), \
                 "Halo receive from %d is invalid (not in halo elements)" % \
                 source
-
-    def __getstate__(self):
-        odict = self.__dict__.copy()
-        del odict['_comm']
-        return odict
-
-    def __setstate__(self, d):
-        self.__dict__.update(d)
-        # Update old pickle dumps to new Halo format
-        sends = self.__dict__['_sends']
-        receives = self.__dict__['_receives']
-        if not isinstance(sends, dict):
-            tmp = {}
-            for i, s in enumerate(sends):
-                if len(s) > 0:
-                    tmp[i] = s
-            sends = tmp
-        if not isinstance(receives, dict):
-            tmp = {}
-            for i, s in enumerate(receives):
-                if len(s) > 0:
-                    tmp[i] = s
-            receives = tmp
-        self._sends = sends
-        self._receives = receives
-        # FIXME: This will break for custom halo communicators
-        self._comm = MPI.comm
 
 
 class IterationSpace(object):
@@ -2157,19 +2181,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         halo = self.dataset.halo
         if halo is None:
             return
-        sends = halo.sends
-        receives = halo.receives
-        if reverse:
-            sends = halo.receives
-            receives = halo.sends
-        for dest, ele in sends.iteritems():
-            self._send_buf[dest] = self._data[ele]
-            self._send_reqs[dest] = halo.comm.Isend(self._send_buf[dest],
-                                                    dest=dest, tag=self._id)
-        for source, ele in receives.iteritems():
-            self._recv_buf[source] = self._data[ele]
-            self._recv_reqs[source] = halo.comm.Irecv(self._recv_buf[source],
-                                                      source=source, tag=self._id)
+        halo.begin(self, reverse=reverse)
 
     @collective
     def halo_exchange_end(self, reverse=False):
@@ -2182,27 +2194,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         halo = self.dataset.halo
         if halo is None:
             return
-        with timed_region("Halo exchange receives wait"):
-            _MPI.Request.Waitall(self._recv_reqs.values())
-        with timed_region("Halo exchange sends wait"):
-            _MPI.Request.Waitall(self._send_reqs.values())
-        self._recv_reqs.clear()
-        self._send_reqs.clear()
-        self._send_buf.clear()
-        receives = halo.receives
-        if reverse:
-            receives = halo.sends
-        # data is read-only in a ParLoop, make it temporarily writable
-        maybe_setflags(self._data, write=True)
-        for source, buf in self._recv_buf.iteritems():
-            if reverse:
-                # Reverse halo exchange into INC Dat increments local
-                # values, rather than writing.
-                self._data[receives[source]] += buf
-            else:
-                self._data[receives[source]] = buf
-        maybe_setflags(self._data, write=False)
-        self._recv_buf.clear()
+        halo.end(self, reverse=reverse)
 
     @classmethod
     def fromhdf5(cls, dataset, f, name):
@@ -3839,11 +3831,10 @@ class ParLoop(LazyComputation):
         self.reduction_begin()
         if self._only_local:
             self.reverse_halo_exchange_begin()
+            self.reverse_halo_exchange_end()
         if not self._only_local and self.needs_exec_halo:
             self._compute(self.it_space.iterset.exec_part)
         self.reduction_end()
-        if self._only_local:
-            self.reverse_halo_exchange_end()
         self.maybe_set_halo_update_needed()
 
     @collective

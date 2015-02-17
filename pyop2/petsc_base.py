@@ -96,11 +96,9 @@ class Dat(base.Dat):
         # PETSc Vecs have a state counter and cache norm computations
         # to return immediately if the state counter is unchanged.
         # Since we've updated the data behind their back, we need to
-        # change that state counter.  The easiest is to do some
-        # pointer shuffling here.
-        self._vec.placeArray(acc(self))
+        # change that state counter.
+        self._vec.stateIncrease()
         yield self._vec
-        self._vec.resetArray()
         if not readonly:
             self.needs_halo_update = True
 
