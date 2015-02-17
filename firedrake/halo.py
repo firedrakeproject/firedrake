@@ -18,7 +18,11 @@ def _get_mtype(dat):
         return _MPI_types[key]
     except KeyError:
         try:
-            btype = MPI.__TypeDict__[dat.dtype.char]
+            tdict = MPI.__TypeDict__
+        except AttributeError:
+            tdict = MPI._typedict
+        try:
+            btype = tdict[dat.dtype.char]
         except KeyError:
             raise RuntimeError("Unknown base type %r", dat.dtype)
         if dat.cdim == 1:
