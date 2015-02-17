@@ -1,6 +1,8 @@
 # Low-level numbering for multigrid support
 from __future__ import absolute_import
 
+import FIAT
+
 from firedrake.petsc import PETSc
 import firedrake.mg.utils as utils
 from pyop2 import MPI
@@ -224,8 +226,8 @@ def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
     coarse = P1c.mesh()
     fine = P1f.mesh()
 
-    if coarse.ufl_cell().cellname() != "triangle":
-        raise NotImplementedError("Only implemented for triangles, sorry")
+    if coarse.ufl_cell().cellname() not in ["interval", "triangle"]:
+        raise NotImplementedError("Only implemented for intervals and triangles, sorry")
     ncoarse = coarse.cell_set.size
     nfine = fine.cell_set.size
 
@@ -274,8 +276,49 @@ def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
         indices = indices - vfStart_new
 
     nvertex = P1c.cell_node_map().arity
-    vertex_perm = -np.ones((ncoarse, nvertex*4), dtype=PETSc.IntType)
+    dim = coarse._plex.getDimension()
+    vertex_perm = -np.ones((ncoarse, nvertex*(2 ** dim)), dtype=PETSc.IntType)
 
+    # Intervals
+    if dim == 1:
+        # Cell order (given coarse reference cell numbering) is:
+        # 0---0---*---1---1
+        for ccell in range(ncoarse):
+            for fcell in range(2):
+                found = False
+                for j in range(nvertex):
+                    if found:
+                        break
+                    vtx = fvertices[c2f[ccell, fcell], j]
+                    for i in range(nvertex):
+                        cvtx = cvertices[ccell, i]
+                        fcvtx = fo2n[indices[cn2o[cvtx]]]
+                        if vtx == fcvtx:
+                            new_c2f[ccell, i] = c2f[ccell, fcell]
+                            found = True
+                            break
+            # Having computed the fine cell ordering on this coarse cell,
+            # we derive the permutation of each fine cell vertex.
+            # Vertex order on each fine cell is given by:
+            #
+            # 0---0---a---1---1
+            # 0_f => [0, a]
+            # 1_f => [1, a]
+            #
+            for fcell in range(2):
+                for i in range(nvertex):
+                    vtx = fvertices[new_c2f[ccell, fcell], i]
+                    found = False
+                    for j in range(nvertex):
+                        cvtx = cvertices[ccell, j]
+                        fcvtx = fo2n[indices[cn2o[cvtx]]]
+                        if vtx == fcvtx:
+                            found = True
+                            break
+                    vertex_perm[ccell, fcell*nvertex + i] = 0 if found else 1
+        return new_c2f, vertex_perm
+
+    # Now triangles
     for ccell in range(ncoarse):
         for fcell in range(4):
             # Cell order (given coarse reference cell numbering) is as below:
@@ -410,7 +453,13 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
         np.ndarray[PetscInt, ndim=1, mode="c"] indices, cell_map
         np.ndarray[PetscInt, ndim=2, mode="c"] permutations
         np.ndarray[PetscInt, ndim=2, mode="c"] new_cell_map, old_cell_map
-        PetscInt ccell, fcell, ncoarse, ndof, i, j, perm, nfdof
+        PetscInt ccell, fcell, ncoarse, ndof, i, j, perm, nfdof, nfcell, tdim
+
+    cell = coarse.fiat_element.get_reference_element()
+    if isinstance(cell, FIAT.reference_element.two_product_cell):
+        tdim = cell.A.get_spatial_dimension()
+    else:
+        tdim = cell.get_spatial_dimension()
 
     ncoarse = coarse.mesh().cell_set.size
     ndof = coarse.cell_node_map().arity
@@ -418,33 +467,41 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
     perms = utils.get_node_permutations(coarse.fiat_element)
     permutations = np.empty((len(perms), len(perms.values()[0])), dtype=np.int32)
     for k, v in perms.iteritems():
-        p0, p1 = np.asarray(k, dtype=PETSc.IntType)[0:2]
-        permutations[hash_perm(p0, p1), :] = v[:]
+        if tdim == 1:
+            permutations[k[0], :] = v[:]
+        else:
+            p0, p1 = np.asarray(k, dtype=PETSc.IntType)[0:2]
+            permutations[hash_perm(p0, p1), :] = v[:]
 
     old_cell_map = fine.cell_node_map().values[c2f, ...].reshape(ncoarse, -1)
 
     # We're going to uniquify the maps we get out, so the first step
     # is to apply the permutation to one entry to find out which
     # indices we need to keep.
-    indices = utils.get_unique_indices(coarse.fiat_element,
-                                       old_cell_map[0, :],
-                                       vertex_perm[0, :])
+    indices, offset = utils.get_unique_indices(coarse.fiat_element,
+                                               old_cell_map[0, :],
+                                               vertex_perm[0, :],
+                                               offset=fine.cell_node_map().offset)
 
     nfdof = indices.shape[0]
+    nfcell = 2**tdim
     new_cell_map = -np.ones((ncoarse, nfdof), dtype=PETSc.IntType)
 
-    cell_map = np.empty(4*ndof, dtype=PETSc.IntType)
+    cell_map = np.empty(nfcell*ndof, dtype=PETSc.IntType)
     for ccell in range(ncoarse):
-        # 4 fine cells per coarse
-        for fcell in range(4):
-            perm = hash_perm(vertex_perm[ccell, fcell*3],
-                             vertex_perm[ccell, fcell*3 + 1])
+        # 2**tdim fine cells per coarse
+        for fcell in range(nfcell):
+            if tdim == 1:
+                perm = vertex_perm[ccell, fcell*2]
+            else:
+                perm = hash_perm(vertex_perm[ccell, fcell*3],
+                                 vertex_perm[ccell, fcell*3 + 1])
             for j in range(ndof):
                 cell_map[fcell*ndof + j] = old_cell_map[ccell, fcell*ndof +
                                                         permutations[perm, j]]
         for j in range(nfdof):
             new_cell_map[ccell, j] = cell_map[indices[j]]
-    return new_cell_map
+    return new_cell_map, offset
 
 
 @cython.boundscheck(False)

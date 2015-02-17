@@ -3,11 +3,13 @@ from __future__ import absolute_import
 from itertools import permutations
 import numpy as np
 
+import FIAT
 import coffee.base as ast
 
 from pyop2 import op2
 
 from firedrake.petsc import PETSc
+from firedrake.parameters import parameters
 
 
 def get_transformations(fiat_cell):
@@ -33,30 +35,44 @@ def get_transformations(fiat_cell):
     1-0
 
     """
-    tdim = fiat_cell.get_spatial_dimension()
-    nvtx = len(fiat_cell.get_vertices())
-    if not (tdim == 2 and nvtx == 3):
-        raise RuntimeError("Only implemented on triangles")
+    if isinstance(fiat_cell, FIAT.reference_element.two_product_cell):
+        extruded = True
+        cell = fiat_cell.A
+    else:
+        extruded = False
+        cell = fiat_cell
+
+    tdim = cell.get_spatial_dimension()
+    nvtx = len(cell.get_vertices())
+    if not ((tdim == 2 and nvtx == 3) or (tdim == 1 and nvtx == 2)):
+        raise RuntimeError("Only implemented on (possibly extruded) intervals and triangles")
     perms = permutations(range(nvtx))
-    vertices = np.asarray(fiat_cell.get_vertices()).reshape(-1, 2)
+    vertices = np.asarray(cell.get_vertices()).reshape(-1, tdim)
     result = {}
     ndof = len(vertices.reshape(-1))
     # Transformation is
-    # (a b)(x) + (e) = (x1)
-    # (c d)(y)   (f) = (y1)
-    # [x, y] is original coords, [x1, y1] the permuted coords.  So
-    # solve for a, b, c, d, e and f.
+    # A x + b = x1
+    # x is original coords, x1 the permuted coords.  So solve for
+    # values in A (a matrix) and b (a vector).
     A = np.zeros((ndof, ndof))
     for i, vtx in enumerate(vertices):
         for j in range(len(vtx)):
             A[i*len(vtx) + j, len(vtx)*j:len(vtx)*(j+1)] = vtx
-            A[i*len(vtx) + j, len(vtx)*2 + j] = 1
+            A[i*len(vtx) + j, len(vtx)*tdim + j] = 1
     for perm in perms:
-        new_coords = vertices[np.asarray(perm)]
+        p = np.asarray(perm)
+        new_coords = vertices[p]
         transform = np.linalg.solve(A, new_coords.reshape(-1))
-
-        result[perm] = (transform[:4].reshape(-1, 2), transform[4:])
-
+        Ap = transform[:tdim*tdim].reshape(-1, tdim)
+        b = transform[tdim*tdim:]
+        if extruded:
+            # Extruded cell only permutes in "horizontal" plane, so
+            # extra coordinate is mapped by the identity.
+            tmp = np.eye(tdim+1, dtype=float)
+            tmp[:tdim, :tdim] = Ap
+            Ap = tmp
+            b = np.hstack((b, np.asarray([0], dtype=float)))
+        result[perm] = (Ap, b)
     return result
 
 
@@ -89,15 +105,26 @@ def get_node_permutations(fiat_element):
     return result
 
 
-def get_unique_indices(fiat_element, nonunique_map, vperm):
+def get_unique_indices(fiat_element, nonunique_map, vperm, offset=None):
     """Given a non-unique map permute to a consistent order and return
-    an array of unique indices"""
+    an array of unique indices, if offset is supplied and not None,
+    also return the extruded "offset" array for the new map."""
     perms = get_node_permutations(fiat_element)
     order = -np.ones_like(nonunique_map)
-    ndof = len(order)/4
-    for i in range(4):
-        p = perms[tuple(vperm[i*3:(i+1)*3])]
+    cell = fiat_element.get_reference_element()
+    if isinstance(cell, FIAT.reference_element.two_product_cell):
+        cell = cell.A
+    tdim = cell.get_spatial_dimension()
+    nvtx = len(cell.get_vertices())
+    ncell = 2**tdim
+    ndof = len(order)/ncell
+    if offset is not None:
+        new_offset = -np.ones(ncell * offset.shape[0], dtype=offset.dtype)
+    for i in range(ncell):
+        p = perms[tuple(vperm[i*nvtx:(i+1)*nvtx])]
         order[i*ndof:(i+1)*ndof] = nonunique_map[i*ndof:(i+1)*ndof][p]
+        if offset is not None:
+            new_offset[i*ndof:(i+1)*ndof] = offset[p]
 
     indices = np.empty(len(np.unique(order)), dtype=PETSc.IntType)
     seen = set()
@@ -107,7 +134,43 @@ def get_unique_indices(fiat_element, nonunique_map, vperm):
             indices[i] = j
             i += 1
             seen.add(n)
-    return indices
+    if offset is not None:
+        return indices, new_offset[indices]
+    return indices, None
+
+
+def get_transforms_to_fine(cell):
+    if isinstance(cell, FIAT.reference_element.two_product_cell):
+        extruded = True
+        cell = cell.A
+    else:
+        extruded = False
+
+    tdim = cell.get_spatial_dimension()
+
+    def extend(A, b):
+        # Vertical coordinate is unaffected by transforms.
+        A = np.asarray(A, dtype=float)
+        b = np.asarray(b, dtype=float)
+        if not extruded:
+            return A, b
+        tmp = np.eye(tdim+1, dtype=float)
+        tmp[:tdim, :tdim] = A
+        b = np.hstack((b, np.asarray([0], dtype=float)))
+        return tmp, b
+    if tdim == 1:
+        return [extend([[0.5]], [0.0]),
+                extend([[-0.5]], [1.0])]
+    elif tdim == 2:
+        return [extend([[0.5, 0.0],
+                        [0.0, 0.5]], [0.0, 0.0]),
+                extend([[-0.5, -0.5],
+                        [0.5, 0.0]], [1.0, 0.0]),
+                extend([[0.0, 0.5],
+                        [-0.5, -0.5]], [0.0, 1.0]),
+                extend([[-0.5, 0],
+                        [0, -0.5]], [0.5, 0.5])]
+    raise NotImplementedError("Not implemented for tdim %d", tdim)
 
 
 def get_restriction_weights(fiat_element):
@@ -120,19 +183,17 @@ def get_restriction_weights(fiat_element):
 
     # Create node points on fine cells
 
-    transforms = [([[0.5, 0.0],
-                    [0.0, 0.5]], [0.0, 0.0]),
-                  ([[-0.5, -0.5],
-                    [0.5, 0.0]], [1.0, 0.0]),
-                  ([[0.0, 0.5],
-                    [-0.5, -0.5]], [0.0, 1.0]),
-                  ([[-0.5, 0],
-                    [0, -0.5]], [0.5, 0.5])]
+    transforms = get_transforms_to_fine(fiat_element.get_reference_element())
 
     values = []
     for T in transforms:
         pts = np.concatenate([np.dot(T[0], pt) + np.asarray(T[1]) for pt in points]).reshape(-1, points.shape[1])
-        values.append(np.round(fiat_element.tabulate(0, pts)[(0, 0)].T, decimals=14))
+        tabulation = fiat_element.tabulate(0, pts)
+        keys = tabulation.keys()
+        if len(keys) != 1:
+            raise RuntimeError("Expected 1 key, found %d", len(keys))
+        vals = tabulation[keys[0]]
+        values.append(np.round(vals.T, decimals=14))
 
     return np.concatenate(values)
 
@@ -154,27 +215,16 @@ def get_injection_weights(fiat_element):
 
     # Create node points on fine cells
 
-    transforms = [([[0.5, 0.0],
-                    [0.0, 0.5]], [0.0, 0.0]),
-                  ([[-0.5, -0.5],
-                    [0.5, 0.0]], [1.0, 0.0]),
-                  ([[0.0, 0.5],
-                    [-0.5, -0.5]], [0.0, 1.0]),
-                  ([[-0.5, 0],
-                    [0, -0.5]], [0.5, 0.5])]
+    transforms = get_transforms_to_fine(fiat_element.get_reference_element())
 
     values = []
     for T in transforms:
         pts = np.concatenate([np.dot(T[0], pt) + np.asarray(T[1]) for pt in points]).reshape(-1, points.shape[1])
-        vals = fiat_element.tabulate(0, pts)[(0, 0)]
-        for i, pt in enumerate(pts):
-            found = False
-            for opt in points:
-                if np.allclose(opt, pt):
-                    found = True
-                    break
-            if not found:
-                vals[:, i] = 0.0
+        tabulation = fiat_element.tabulate(0, pts)
+        keys = tabulation.keys()
+        if len(keys) != 1:
+            raise RuntimeError("Expected 1 key, found %d", len(keys))
+        vals = np.where(np.isclose(tabulation[keys[0]], 1.0), 1.0, 0.0)
         values.append(np.round(vals.T, decimals=14))
 
     return np.concatenate(values)
@@ -192,18 +242,32 @@ def get_injection_kernel(fiat_element, unique_indices, dim=1):
     # rowsum.
     weights = weights / np.sum(weights, axis=1).reshape(-1, 1)
 
+    all_same = np.allclose(weights, weights[0, 0])
+
     arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, ))),
-               ast.Decl("double", ast.Symbol("**fine", ()))]
-    w_sym = ast.Symbol("weights", (ncdof, nfdof))
-    w = ast.Decl("double", w_sym, ast.ArrayInit(format_array_literal(weights)),
-                 qualifiers=["static", "const"])
+               ast.Decl("double", ast.Symbol("*restrict *restrict fine", ()),
+                        qualifiers=["const"])]
+    if all_same:
+        w_sym = ast.Symbol("weights", ())
+        w = [ast.Decl("double", w_sym, weights[0, 0],
+                      qualifiers=["const"])]
+    else:
+        init = ast.ArrayInit(format_array_literal(weights))
+        w_sym = ast.Symbol("weights", (ncdof, nfdof))
+        w = [ast.Decl("double", w_sym, init,
+                      qualifiers=["const"])]
 
     i = ast.Symbol("i", ())
     j = ast.Symbol("j", ())
     k = ast.Symbol("k", ())
+    if all_same:
+        assign = ast.Prod(ast.Symbol("fine", (j, k)),
+                          w_sym)
+    else:
+        assign = ast.Prod(ast.Symbol("fine", (j, k)),
+                          ast.Symbol("weights", (i, j)))
     assignment = ast.Incr(ast.Symbol("coarse", (ast.Sum(k, ast.Prod(i, ast.c_sym(dim))),)),
-                          ast.Prod(ast.Symbol("fine", (j, k)),
-                                   ast.Symbol("weights", (i, j))))
+                          assign)
     k_loop = ast.For(ast.Decl("int", k, ast.c_sym(0)),
                      ast.Less(k, ast.c_sym(dim)),
                      ast.Incr(k, ast.c_sym(1)),
@@ -216,10 +280,10 @@ def get_injection_kernel(fiat_element, unique_indices, dim=1):
                      ast.Less(i, ast.c_sym(ncdof)),
                      ast.Incr(i, ast.c_sym(1)),
                      ast.Block([j_loop], open_scope=True))
-    k = ast.FunDecl("void", "injection", arglist, ast.Block([w, i_loop]),
+    k = ast.FunDecl("void", "injection", arglist, ast.Block(w + [i_loop]),
                     pred=["static", "inline"])
 
-    return op2.Kernel(k, "injection")
+    return op2.Kernel(k, "injection", opts=parameters["coffee"])
 
 
 def get_prolongation_kernel(fiat_element, unique_indices, dim=1):
@@ -227,16 +291,31 @@ def get_prolongation_kernel(fiat_element, unique_indices, dim=1):
     nfdof = weights.shape[0]
     ncdof = weights.shape[1]
     arglist = [ast.Decl("double", ast.Symbol("fine", (nfdof*dim, ))),
-               ast.Decl("double", ast.Symbol("**coarse", ()))]
-    w_sym = ast.Symbol("weights", (nfdof, ncdof))
-    w = ast.Decl("double", w_sym, ast.ArrayInit(format_array_literal(weights)),
-                 qualifiers=["static", "const"])
+               ast.Decl("double", ast.Symbol("*restrict *restrict coarse", ()),
+                        qualifiers=["const"])]
+    all_same = np.allclose(weights, weights[0, 0])
+
+    if all_same:
+        w_sym = ast.Symbol("weights", ())
+        w = [ast.Decl("double", w_sym, weights[0, 0],
+                      qualifiers=["const"])]
+    else:
+        w_sym = ast.Symbol("weights", (nfdof, ncdof))
+        init = ast.ArrayInit(format_array_literal(weights))
+        w = [ast.Decl("double", w_sym, init,
+                      qualifiers=["const"])]
     i = ast.Symbol("i", ())
     j = ast.Symbol("j", ())
     k = ast.Symbol("k", ())
+    if all_same:
+        assign = ast.Prod(ast.Symbol("coarse", (j, k)),
+                          w_sym)
+    else:
+        assign = ast.Prod(ast.Symbol("coarse", (j, k)),
+                          ast.Symbol("weights", (i, j)))
+
     assignment = ast.Incr(ast.Symbol("fine", (ast.Sum(k, ast.Prod(i, ast.c_sym(dim))),)),
-                          ast.Prod(ast.Symbol("coarse", (j, k)),
-                                   ast.Symbol("weights", (i, j))))
+                          assign)
     k_loop = ast.For(ast.Decl("int", k, ast.c_sym(0)),
                      ast.Less(k, ast.c_sym(dim)),
                      ast.Incr(k, ast.c_sym(1)),
@@ -249,30 +328,51 @@ def get_prolongation_kernel(fiat_element, unique_indices, dim=1):
                      ast.Less(i, ast.c_sym(nfdof)),
                      ast.Incr(i, ast.c_sym(1)),
                      ast.Block([j_loop], open_scope=True))
-    k = ast.FunDecl("void", "prolongation", arglist, ast.Block([w, i_loop]),
+    k = ast.FunDecl("void", "prolongation", arglist, ast.Block(w + [i_loop]),
                     pred=["static", "inline"])
 
-    return op2.Kernel(k, "prolongation")
+    return op2.Kernel(k, "prolongation", opts=parameters["coffee"])
 
 
-def get_restriction_kernel(fiat_element, unique_indices, dim=1):
+def get_restriction_kernel(fiat_element, unique_indices, dim=1, no_weights=False):
     weights = get_restriction_weights(fiat_element)[unique_indices].T
     ncdof = weights.shape[0]
     nfdof = weights.shape[1]
     arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, ))),
-               ast.Decl("double", ast.Symbol("**fine", ())),
-               ast.Decl("double", ast.Symbol("**count_weights", ()))]
-    w_sym = ast.Symbol("weights", (ncdof, nfdof))
-    w = ast.Decl("double", w_sym, ast.ArrayInit(format_array_literal(weights)),
-                 qualifiers=["static", "const"])
+               ast.Decl("double", ast.Symbol("*restrict *restrict fine", ()),
+                        qualifiers=["const"])]
+    if not no_weights:
+        arglist.append(ast.Decl("double", ast.Symbol("*restrict *restrict count_weights", ()),
+                                qualifiers=["const"]))
+
+    all_ones = np.allclose(weights, 1.0)
+
+    if all_ones:
+        w = []
+    else:
+        w_sym = ast.Symbol("weights", (ncdof, nfdof))
+        init = ast.ArrayInit(format_array_literal(weights))
+        w = [ast.Decl("double", w_sym, init,
+                      qualifiers=["const"])]
 
     i = ast.Symbol("i", ())
     j = ast.Symbol("j", ())
     k = ast.Symbol("k", ())
+    fine = ast.Symbol("fine", (j, k))
+    if no_weights:
+        if all_ones:
+            assign = fine
+        else:
+            assign = ast.Prod(fine, ast.Symbol("weights", (i, j)))
+    else:
+        if all_ones:
+            assign = ast.Prod(fine, ast.Symbol("count_weights", (j, 0)))
+        else:
+            assign = ast.Prod(fine,
+                              ast.Prod(ast.Symbol("weights", (i, j)),
+                                       ast.Symbol("count_weights", (j, 0))))
     assignment = ast.Incr(ast.Symbol("coarse", (ast.Sum(k, ast.Prod(i, ast.c_sym(dim))),)),
-                          ast.Prod(ast.Symbol("fine", (j, k)),
-                                   ast.Prod(ast.Symbol("weights", (i, j)),
-                                            ast.Symbol("count_weights", (j, 0)))))
+                          assign)
     k_loop = ast.For(ast.Decl("int", k, ast.c_sym(0)),
                      ast.Less(k, ast.c_sym(dim)),
                      ast.Incr(k, ast.c_sym(1)),
@@ -285,7 +385,21 @@ def get_restriction_kernel(fiat_element, unique_indices, dim=1):
                      ast.Less(i, ast.c_sym(ncdof)),
                      ast.Incr(i, ast.c_sym(1)),
                      ast.Block([j_loop], open_scope=True))
-    k = ast.FunDecl("void", "restriction", arglist, ast.Block([w, i_loop]),
+    k = ast.FunDecl("void", "restriction", arglist, ast.Block(w + [i_loop]),
                     pred=["static", "inline"])
 
-    return op2.Kernel(k, "restriction")
+    return op2.Kernel(k, "restriction", opts=parameters["coffee"])
+
+
+def get_count_kernel(arity):
+    arglist = [ast.Decl("double", ast.Symbol("weight", (arity, )))]
+    i = ast.Symbol("i", ())
+    assignment = ast.Incr(ast.Symbol("weight", (i, )), ast.c_sym(1.0))
+    loop = ast.For(ast.Decl("int", i, ast.c_sym(0)),
+                   ast.Less(i, ast.c_sym(arity)),
+                   ast.Incr(i, ast.c_sym(1)),
+                   ast.Block([assignment], open_scope=True))
+    k = ast.FunDecl("void", "count_weights", arglist,
+                    ast.Block([loop]),
+                    pred=["static", "inline"])
+    return op2.Kernel(k, "count_weights", opts=parameters["coffee"])
