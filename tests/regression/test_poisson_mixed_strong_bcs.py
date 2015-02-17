@@ -32,18 +32,7 @@ def poisson_mixed(size, parameters={}, quadrilateral=False):
     mesh = UnitSquareMesh(2 ** size, 2 ** size, quadrilateral=quadrilateral)
 
     # Define function spaces and mixed (product) space
-    if quadrilateral:
-        C_elt = FiniteElement("CG", "interval", 1)
-        D_elt = FiniteElement("DG", "interval", 1)
-
-        BDM_elt_h = HDiv(OuterProductElement(D_elt, C_elt))
-        BDM_elt_v = HDiv(OuterProductElement(C_elt, D_elt))
-        BDM_elt = BDM_elt_h + BDM_elt_v
-
-        # spaces for calculation
-        BDM = FunctionSpace(mesh, BDM_elt)
-    else:
-        BDM = FunctionSpace(mesh, "BDM", 1)
+    BDM = FunctionSpace(mesh, "BDM" if not quadrilateral else "RTCF", 1)
     DG = FunctionSpace(mesh, "DG", 0)
     W = BDM * DG
 

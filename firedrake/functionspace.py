@@ -83,7 +83,7 @@ class FunctionSpaceBase(ObjectCached):
             self.dofs_per_column = np.zeros(1, np.int32)
             self.extruded = False
 
-            entity_dofs = fiat_utils.flat_entity_dofs(self.fiat_element)
+            entity_dofs = self.fiat_element.entity_dofs()
             self._dofs_per_entity = [len(entity[0]) for d, entity in entity_dofs.iteritems()]
 
         self.name = name
@@ -365,16 +365,10 @@ class FunctionSpaceBase(ObjectCached):
 
         el = self.fiat_element
 
-        # Facet dimension becomes a bit more complicated
-        # for quadrilaterals, as their dimension is (1, 1),
-        # so facets have dimensions (0, 1) AND (1, 0),
-        # which forces us to deal with multiple dimension values.
-        dims = self._mesh.facet_dimensions()
+        dim = self._mesh.facet_dimension()
 
         if method == "topological":
-            boundary_dofs = dict(enumerate(value
-                                           for dim in dims
-                                           for value in el.entity_closure_dofs()[dim].values()))
+            boundary_dofs = el.entity_closure_dofs()[dim]
         elif method == "geometric":
             boundary_dofs = el.facet_support_dofs()
 
@@ -403,9 +397,8 @@ class FunctionSpaceBase(ObjectCached):
         c_array = lambda xs: "{"+", ".join(map(str, xs))+"}"
 
         body = ast.Block([ast.Decl("int",
-                                   ast.Symbol("l_nodes",
-                                              (sum(len(el.get_reference_element().topology[dim]) for dim in dims),
-                                               nodes_per_facet)),
+                                   ast.Symbol("l_nodes", (len(el.get_reference_element().topology[dim]),
+                                                          nodes_per_facet)),
                                    init=ast.ArrayInit(c_array(map(c_array, local_facet_nodes))),
                                    qualifiers=["const"]),
                           ast.For(ast.Decl("int", "n", 0),
@@ -527,27 +520,22 @@ class FunctionSpace(FunctionSpaceBase):
             element = family.reconstruct(domain=mesh.ufl_domain())
         else:
             # First case...
-            if isinstance(mesh, mesh_t.ExtrudedMesh):
+            if isinstance(mesh, mesh_t.ExtrudedMesh) and vfamily is not None and vdegree is not None:
                 # if extruded mesh, make the OPE
-                la = _ufl_finite_element(family,
-                                         domain=mesh._old_mesh.ufl_cell(),
-                                         degree=degree)
-                if vfamily is None or vdegree is None:
-                    # if second element was not passed in, assume same as first
-                    # (only makes sense for CG or DG)
-                    lb = ufl.FiniteElement(family,
-                                           domain=ufl.Cell("interval", 1),
-                                           degree=degree)
-                else:
-                    # if second element was passed in, use in
-                    lb = ufl.FiniteElement(vfamily,
-                                           domain=ufl.Cell("interval", 1),
-                                           degree=vdegree)
+                la = ufl.FiniteElement(family,
+                                       domain=mesh._old_mesh.ufl_cell(),
+                                       degree=degree)
+                # if second element was passed in, use in
+                lb = ufl.FiniteElement(vfamily,
+                                       domain=ufl.Cell("interval", 1),
+                                       degree=vdegree)
                 # now make the OPE
                 element = ufl.OuterProductElement(la, lb, domain=mesh.ufl_domain())
             else:
                 # if not an extruded mesh, just make the element
-                element = _ufl_finite_element(family, domain=mesh.ufl_domain(), degree=degree)
+                element = ufl.FiniteElement(family,
+                                            domain=mesh.ufl_domain(),
+                                            degree=degree)
 
         super(FunctionSpace, self).__init__(mesh, element, name, dim=1)
         self._initialized = True
@@ -576,21 +564,19 @@ class VectorFunctionSpace(FunctionSpaceBase):
         # VectorFunctionSpace dimension defaults to the geometric dimension of the mesh.
         dim = dim or mesh.ufl_cell().geometric_dimension()
 
-        if isinstance(mesh, mesh_t.ExtrudedMesh):
-            if isinstance(family, ufl.OuterProductElement):
-                raise NotImplementedError("Not yet implemented")
-            la = _ufl_finite_element(family,
-                                     domain=mesh._old_mesh.ufl_cell(),
-                                     degree=degree)
-            if vfamily is None or vdegree is None:
-                lb = ufl.FiniteElement(family, domain=ufl.Cell("interval", 1),
-                                       degree=degree)
-            else:
-                lb = ufl.FiniteElement(vfamily, domain=ufl.Cell("interval", 1),
-                                       degree=vdegree)
+        if isinstance(mesh, mesh_t.ExtrudedMesh) and isinstance(family, ufl.OuterProductElement):
+            raise NotImplementedError("Not yet implemented")
+
+        if isinstance(mesh, mesh_t.ExtrudedMesh) and vfamily is not None and vdegree is not None:
+            la = ufl.FiniteElement(family,
+                                   domain=mesh._old_mesh.ufl_cell(),
+                                   degree=degree)
+            lb = ufl.FiniteElement(vfamily, domain=ufl.Cell("interval", 1),
+                                   degree=vdegree)
             element = ufl.OuterProductVectorElement(la, lb, dim=dim, domain=mesh.ufl_domain())
         else:
-            element = _ufl_vector_element(family, domain=mesh.ufl_domain(), degree=degree, dim=dim)
+            element = ufl.VectorElement(family, domain=mesh.ufl_domain(),
+                                        degree=degree, dim=dim)
         super(VectorFunctionSpace, self).__init__(mesh, element, name, dim=dim, rank=1)
         self._initialized = True
 
@@ -848,37 +834,3 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         :meth:`exterior_facet_node_map` in that only surface nodes
         are referenced, not all nodes in cells touching the surface.'''
         return self._fs.exterior_facet_boundary_node_map
-
-
-def _ufl_finite_element(family, domain, degree):
-    if isinstance(domain, ufl.Domain):
-        cell = domain.cell()
-    elif isinstance(domain, ufl.Cell):
-        cell = domain
-    else:
-        raise ValueError("Illegal domain or cell type")
-
-    if cell.cellname() == "quadrilateral":
-        return ufl.OuterProductElement(
-            ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
-            ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
-            domain=domain)
-    else:
-        return ufl.FiniteElement(family, domain=domain, degree=degree)
-
-
-def _ufl_vector_element(family, domain, degree, dim):
-    if isinstance(domain, ufl.Domain):
-        cell = domain.cell()
-    elif isinstance(domain, ufl.Cell):
-        cell = domain
-    else:
-        raise ValueError("Illegal domain or cell type")
-
-    if cell.cellname() == "quadrilateral":
-        return ufl.OuterProductVectorElement(
-            ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
-            ufl.FiniteElement(family, domain=ufl.Cell("interval", 1), degree=degree),
-            dim=dim, domain=domain)
-    else:
-        return ufl.VectorElement(family, domain=domain, degree=degree, dim=dim)

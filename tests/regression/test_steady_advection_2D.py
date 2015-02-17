@@ -64,19 +64,13 @@ def test_left_to_right_parallel():
 
 def test_left_to_right_on_quadrilaterals():
     m = UnitSquareMesh(5, 5, quadrilateral=True)
-    C_elt = FiniteElement("CG", "interval", 1)
-    D_elt = FiniteElement("DG", "interval", 0)
-    W_elt = HDiv(OuterProductElement(C_elt, D_elt)) + HDiv(OuterProductElement(D_elt, C_elt))
-    run_left_to_right(m, DG0(m), FunctionSpace(m, W_elt))
+    run_left_to_right(m, DG0(m), FunctionSpace(m, "RTCF", 1))
 
 
 @pytest.mark.parallel
 def test_left_to_right_on_quadrilaterals_parallel():
     m = UnitSquareMesh(5, 5, quadrilateral=True)
-    C_elt = FiniteElement("CG", "interval", 1)
-    D_elt = FiniteElement("DG", "interval", 0)
-    W_elt = HDiv(OuterProductElement(C_elt, D_elt)) + HDiv(OuterProductElement(D_elt, C_elt))
-    run_left_to_right(m, DG0(m), FunctionSpace(m, W_elt))
+    run_left_to_right(m, DG0(m), FunctionSpace(m, "RTCF", 1))
 
 
 def run_up_to_down(mesh, DG1, W):
@@ -119,19 +113,13 @@ def test_up_to_down_parallel():
 
 def test_up_to_down_on_quadrilaterals():
     m = UnitSquareMesh(5, 5, quadrilateral=True)
-    C_elt = FiniteElement("CG", "interval", 1)
-    D_elt = FiniteElement("DG", "interval", 0)
-    W_elt = HDiv(OuterProductElement(C_elt, D_elt)) + HDiv(OuterProductElement(D_elt, C_elt))
-    run_up_to_down(m, DG0(m), FunctionSpace(m, W_elt))
+    run_up_to_down(m, DG0(m), FunctionSpace(m, "RTCF", 1))
 
 
 @pytest.mark.parallel
 def test_up_to_down_on_quadrilaterals_parallel():
     m = UnitSquareMesh(5, 5, quadrilateral=True)
-    C_elt = FiniteElement("CG", "interval", 1)
-    D_elt = FiniteElement("DG", "interval", 0)
-    W_elt = HDiv(OuterProductElement(C_elt, D_elt)) + HDiv(OuterProductElement(D_elt, C_elt))
-    run_up_to_down(m, DG0(m), FunctionSpace(m, W_elt))
+    run_up_to_down(m, DG0(m), FunctionSpace(m, "RTCF", 1))
 
 
 if __name__ == '__main__':

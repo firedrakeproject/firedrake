@@ -34,23 +34,10 @@ def poisson_mixed(size, parameters={}, quadrilateral=False):
 
     # Define function spaces and mixed (product) space
     if quadrilateral:
-        S0 = FiniteElement("CG", "interval", 1)
-        S1 = FiniteElement("DG", "interval", 0)
-
-        T0 = FiniteElement("CG", "interval", 1)
-        T1 = FiniteElement("DG", "interval", 0)
-
-        DG_elt = OuterProductElement(S1, T1)
-        BDM_elt_h = HDiv(OuterProductElement(S1, T0))
-        BDM_elt_v = HDiv(OuterProductElement(S0, T1))
-        BDM_elt = BDM_elt_h + BDM_elt_v
-
-        # spaces for calculation
-        DG = FunctionSpace(mesh, DG_elt)
-        BDM = FunctionSpace(mesh, BDM_elt)
+        BDM = FunctionSpace(mesh, "RTCF", 1)
     else:
         BDM = FunctionSpace(mesh, "BDM", 1)
-        DG = FunctionSpace(mesh, "DG", 0)
+    DG = FunctionSpace(mesh, "DG", 0)
     W = BDM * DG
 
     # Define trial and test functions
@@ -96,7 +83,7 @@ def test_poisson_mixed(parameters):
                          [((3, 6), 1.9)])
 def test_hdiv_convergence(testcase, convrate):
     """Test second-order convergence of the mixed poisson formulation
-    on quadrilaterals with HDiv elements."""
+    on quadrilaterals with H(div) elements."""
     start, end = testcase
     l2err = np.zeros(end - start)
     for ii in [i + start for i in range(len(l2err))]:

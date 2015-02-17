@@ -7,20 +7,9 @@ from firedrake import *
 def vector_laplace(n, degree):
     mesh = UnitSquareMesh(n, n, quadrilateral=True)
 
-    S0 = FiniteElement("CG", interval, degree)
-    S1 = FiniteElement("DG", interval, degree - 1)
-
-    T0 = FiniteElement("CG", interval, degree)
-    T1 = FiniteElement("DG", interval, degree - 1)
-
-    V0_elt = OuterProductElement(S0, T0)
-    V1_elt_h = HCurl(OuterProductElement(S1, T0))
-    V1_elt_v = HCurl(OuterProductElement(S0, T1))
-    V1_elt = V1_elt_h + V1_elt_v
-
     # spaces for calculation
-    V0 = FunctionSpace(mesh, V0_elt)
-    V1 = FunctionSpace(mesh, V1_elt)
+    V0 = FunctionSpace(mesh, "CG", degree)
+    V1 = FunctionSpace(mesh, "RTCE", degree)
     V = V0*V1
 
     # spaces to store 'analytic' functions
