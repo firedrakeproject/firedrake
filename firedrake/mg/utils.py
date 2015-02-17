@@ -245,7 +245,8 @@ def get_injection_kernel(fiat_element, unique_indices, dim=1):
     all_same = np.allclose(weights, weights[0, 0])
 
     arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, ))),
-               ast.Decl("double", ast.Symbol("**fine", ()))]
+               ast.Decl("double", ast.Symbol("*restrict *restrict fine", ()),
+                        qualifiers=["const"])]
     if all_same:
         w_sym = ast.Symbol("weights", ())
         w = [ast.Decl("double", w_sym, weights[0, 0],
@@ -338,9 +339,11 @@ def get_restriction_kernel(fiat_element, unique_indices, dim=1, no_weights=False
     ncdof = weights.shape[0]
     nfdof = weights.shape[1]
     arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, ))),
-               ast.Decl("double", ast.Symbol("**fine", ()))]
+               ast.Decl("double", ast.Symbol("*restrict *restrict fine", ()),
+                        qualifiers=["const"])]
     if not no_weights:
-        arglist.append(ast.Decl("double", ast.Symbol("**count_weights", ())))
+        arglist.append(ast.Decl("double", ast.Symbol("*restrict *restrict count_weights", ()),
+                                qualifiers=["const"]))
 
     all_ones = np.allclose(weights, 1.0)
 
