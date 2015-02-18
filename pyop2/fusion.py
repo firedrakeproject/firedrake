@@ -789,7 +789,7 @@ class Inspector(Cached):
 
 # Interface for triggering loop fusion
 
-def reschedule_loops(name, loop_chain, tile_size, mode='tile'):
+def reschedule_loops(name, loop_chain, tile_size):
     """Given a list of :class:`ParLoop` in ``loop_chain``, return a list of new
     :class:`ParLoop` objects implementing an optimized scheduling of the loop chain.
 
@@ -812,6 +812,9 @@ def reschedule_loops(name, loop_chain, tile_size, mode='tile'):
     if any([l._reduced_globals for l in loop_chain]) or \
             any([l.is_layered for l in loop_chain]):
         return loop_chain
+
+    # Set the fusion mode based on user-provided parameters
+    mode = 'soft' if tile_size == 0 else 'tile'
 
     # Get an inspector for fusing this loop_chain, possibly retrieving it from
     # the cache, and obtain the fused ParLoops through the schedule it produces
@@ -843,6 +846,7 @@ def loop_chain(name, time_unroll=1, tile_size=0):
                         setting this value to a number greater than 1 enables
                         fusing/tiling longer loop chains (optional, defaults to 1).
     :param tile_size: suggest a tile size in case loop tiling is used (optional).
+                      If ``0`` is passed in, only soft fusion is performed.
     """
     trace = _trace._trace
     stamp = trace[-1:]
