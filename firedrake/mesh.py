@@ -287,14 +287,14 @@ def _from_triangle(filename, dim):
             nodecount = header[0]
             nodedim = header[1]
             assert nodedim == dim
-            coordinates = np.loadtxt(nodefile, usecols=range(1, dim+1), skiprows=1, delimiter=' ')
+            coordinates = np.loadtxt(nodefile, usecols=range(1, dim+1), skiprows=1)
             assert nodecount == coordinates.shape[0]
 
         with open(basename+".ele") as elefile:
             header = np.fromfile(elefile, dtype=np.int32, count=2, sep=' ')
             elecount = header[0]
             eledim = header[1]
-            eles = np.loadtxt(elefile, usecols=range(1, eledim+1), dtype=np.int32, skiprows=1, delimiter=' ')
+            eles = np.loadtxt(elefile, usecols=range(1, eledim+1), dtype=np.int32, skiprows=1)
             assert elecount == eles.shape[0]
 
         cells = map(lambda c: c-1, eles)
@@ -310,7 +310,7 @@ def _from_triangle(filename, dim):
         try:
             header = np.fromfile(facetfile, dtype=np.int32, count=2, sep=' ')
             edgecount = header[0]
-            facets = np.loadtxt(facetfile, usecols=range(1, tdim+2), dtype=np.int32, skiprows=0, delimiter=' ')
+            facets = np.loadtxt(facetfile, usecols=range(1, tdim+2), dtype=np.int32, skiprows=0)
             assert edgecount == facets.shape[0]
         finally:
             facetfile.close()
