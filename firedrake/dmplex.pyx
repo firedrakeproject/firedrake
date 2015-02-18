@@ -576,7 +576,7 @@ def mark_entity_classes(PETSc.DM plex):
     :arg plex: The DMPlex object encapsulating the mesh topology
     """
     cdef:
-        PetscInt p, pStart, pEnd, cStart, cEnd, vStart, vEnd
+        PetscInt p, pStart, pEnd, cStart, cEnd, vStart, vEnd, fStart, fEnd
         PetscInt c, ncells, f, nfacets, ci, nclosure, vi, dim
         PetscInt depth, non_core, exec_halo, nroots, nleaves
         PetscInt v_per_cell
@@ -593,6 +593,7 @@ def mark_entity_classes(PETSc.DM plex):
 
     dim = plex.getDimension()
     cStart, cEnd = plex.getHeightStratum(0)
+    fStart, fEnd = plex.getHeightStratum(1)
     vStart, vEnd = plex.getDepthStratum(0)
     v_per_cell = plex.getConeSize(cStart)
     CHKERR(PetscMalloc1(v_per_cell, &vertices))
@@ -614,27 +615,26 @@ def mark_entity_classes(PETSc.DM plex):
         CHKERR(PetscSFGetGraph(point_sf.sf, &nroots, &nleaves,
                                &ilocal, &iremote))
         for p in range(nleaves):
-            CHKERR(DMPlexGetLabelValue(plex.dm, lbl_depth,
-                                       ilocal[p], &depth))
             CHKERR(DMPlexSetLabelValue(plex.dm, lbl_halo,
-                                       ilocal[p], depth))
+                                       ilocal[p], 1))
     else:
         # If sequential mark all points as core
         pStart, pEnd = plex.getChart()
         for p in range(pStart, pEnd):
-            CHKERR(DMPlexGetLabelValue(plex.dm, lbl_depth,
-                                       p, &depth))
             CHKERR(DMPlexSetLabelValue(plex.dm, lbl_core,
-                                       p, depth))
+                                       p, 1))
         CHKERR(PetscFree(vertices))
         return
 
     # Mark all cells adjacent to halo cells as non_core,
     # where adjacent(c) := star(closure(c))
-    ncells = plex.getStratumSize("op2_exec_halo", dim)
-    cell_is = plex.getStratumIS("op2_exec_halo", dim)
+    ncells = plex.getStratumSize("op2_exec_halo", 1)
+    cell_is = plex.getStratumIS("op2_exec_halo", 1)
     CHKERR(ISGetIndices(cell_is.iset, &cells))
     for c in range(ncells):
+        if not (cStart <= cells[c] < cEnd):
+            continue
+
         CHKERR(DMPlexGetTransitiveClosure(plex.dm, cells[c],
                                           PETSC_TRUE,
                                           &nclosure,
@@ -661,13 +661,16 @@ def mark_entity_classes(PETSc.DM plex):
                     if exec_halo < 0:
                         CHKERR(DMPlexSetLabelValue(plex.dm,
                                                    lbl_non_core,
-                                                   p, dim))
+                                                   p, 1))
 
     # Mark the closures of non_core cells as non_core
-    ncells = plex.getStratumSize("op2_non_core", dim)
-    cell_is = plex.getStratumIS("op2_non_core", dim)
+    ncells = plex.getStratumSize("op2_non_core", 1)
+    cell_is = plex.getStratumIS("op2_non_core", 1)
     CHKERR(ISGetIndices(cell_is.iset, &cells))
     for c in range(ncells):
+        if not (cStart <= cells[c] < cEnd):
+            continue
+
         CHKERR(DMPlexGetTransitiveClosure(plex.dm, cells[c],
                                           PETSC_TRUE,
                                           &nclosure,
@@ -677,10 +680,8 @@ def mark_entity_classes(PETSc.DM plex):
             CHKERR(DMPlexGetLabelValue(plex.dm, lbl_halo,
                                        p, &exec_halo))
             if exec_halo < 0:
-                CHKERR(DMPlexGetLabelValue(plex.dm, lbl_depth,
-                                           p, &depth))
                 CHKERR(DMPlexSetLabelValue(plex.dm, lbl_non_core,
-                                           p, depth))
+                                           p, 1))
 
     # Mark all remaining points as core
     pStart, pEnd = plex.getChart()
@@ -690,17 +691,18 @@ def mark_entity_classes(PETSc.DM plex):
         CHKERR(DMPlexGetLabelValue(plex.dm, lbl_non_core,
                                    p, &non_core))
         if exec_halo < 0 and non_core < 0:
-            CHKERR(DMPlexGetLabelValue(plex.dm, lbl_depth,
-                                       p, &depth))
             CHKERR(DMPlexSetLabelValue(plex.dm, lbl_core,
-                                       p, depth))
+                                       p, 1))
 
     # Halo facets that only touch halo vertices and halo cells need to
     # be marked as non-exec.
-    nfacets = plex.getStratumSize("op2_exec_halo", dim-1)
-    facet_is = plex.getStratumIS("op2_exec_halo", dim-1)
+    nfacets = plex.getStratumSize("op2_exec_halo", 1)
+    facet_is = plex.getStratumIS("op2_exec_halo", 1)
     CHKERR(ISGetIndices(facet_is.iset, &facets))
     for f in range(nfacets):
+        if not (fStart <= facets[f] < fEnd):
+            continue
+
         non_exec = PETSC_TRUE
         # Check for halo vertices
         CHKERR(DMPlexGetTransitiveClosure(plex.dm, facets[f],
@@ -730,13 +732,11 @@ def mark_entity_classes(PETSc.DM plex):
                         # executed over.
                         non_exec = PETSC_FALSE
         if non_exec:
-            CHKERR(DMPlexGetLabelValue(plex.dm, lbl_depth,
-                                       facets[f], &depth))
             CHKERR(DMPlexSetLabelValue(plex.dm, lbl_non_exec_halo,
-                                       facets[f], depth))
+                                       facets[f], 1))
             # Remove facet from exec-halo label
             CHKERR(DMPlexClearLabelValue(plex.dm, lbl_halo,
-                                         facets[f], depth))
+                                         facets[f], 1))
 
     if closure != NULL:
         CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
@@ -751,7 +751,9 @@ def get_cell_classes(PETSc.DM plex):
     :arg plex: The DMPlex object encapsulating the mesh topology
     """
     cdef:
-        PetscInt dim, c, ci, nclass
+        PetscInt dim, c, ci, nclass, class_size
+        PetscInt *indices = NULL
+        PETSc.IS class_is
 
     dim = plex.getDimension()
     cStart, cEnd = plex.getHeightStratum(0)
@@ -761,7 +763,14 @@ def get_cell_classes(PETSc.DM plex):
     for i, op2class in enumerate(["op2_core",
                                   "op2_non_core",
                                   "op2_exec_halo"]):
-        c += plex.getStratumSize(op2class, dim)
+        class_is = plex.getStratumIS(op2class, 1)
+        class_size = plex.getStratumSize(op2class, 1)
+        if class_size > 0:
+            CHKERR(ISGetIndices(class_is.iset, &indices))
+            for ci in range(class_size):
+                if cStart <= indices[ci] < cEnd:
+                    c += 1
+            CHKERR(ISRestoreIndices(class_is.iset, &indices))
         cell_classes[i] = c
 
     cell_classes[3] = cell_classes[2]
@@ -777,7 +786,7 @@ def get_facets_by_class(PETSc.DM plex, label):
     :arg label: Label string that marks the facets to order
     """
     cdef:
-        PetscInt dim, fi, ci, nfacets, nclass, lbl_val
+        PetscInt dim, fi, ci, nfacets, nclass, lbl_val, fStart, fEnd
         PetscInt *indices = NULL
         PETSc.IS class_is = None
         char *class_chr = NULL
@@ -785,6 +794,7 @@ def get_facets_by_class(PETSc.DM plex, label):
 
     label_chr = <char*>label
     dim = plex.getDimension()
+    fStart, fEnd = plex.getHeightStratum(1)
     nfacets = plex.getStratumSize(label, 1)
     facets = np.empty(nfacets, dtype=np.int32)
     facet_classes = [0, 0, 0, 0]
@@ -794,16 +804,18 @@ def get_facets_by_class(PETSc.DM plex, label):
                                   "op2_non_core",
                                   "op2_exec_halo",
                                   "op2_non_exec_halo"]):
-        nclass = plex.getStratumSize(op2class, dim-1)
+        nclass = plex.getStratumSize(op2class, 1)
         if nclass > 0:
-            class_is = plex.getStratumIS(op2class, dim-1)
+            class_is = plex.getStratumIS(op2class, 1)
             CHKERR(ISGetIndices(class_is.iset, &indices))
             for ci in range(nclass):
-                CHKERR(DMPlexGetLabelValue(plex.dm, label_chr,
-                                           indices[ci], &lbl_val))
-                if lbl_val == 1:
-                    facets[fi] = indices[ci]
-                    fi += 1
+                if fStart <= indices[ci] < fEnd:
+                    CHKERR(DMPlexGetLabelValue(plex.dm, label_chr,
+                                               indices[ci], &lbl_val))
+                    if lbl_val == 1:
+                        facets[fi] = indices[ci]
+                        fi += 1
+            CHKERR(ISRestoreIndices(class_is.iset, &indices))
         facet_classes[i] = fi
 
     return facets, facet_classes
@@ -829,6 +841,7 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1, mode="c"] reord
     cdef:
         PetscInt dim, ncells, nfacets, nclosure, c, ci, p, p_glbl, lbl_val
         PetscInt cStart, cEnd, core_idx, non_core_idx, exec_halo_idx
+        PetscInt core_size, non_core_size, exec_halo_size
         PetscInt *core_cells = NULL
         PetscInt *non_core_cells = NULL
         PetscInt *exec_halo_cells = NULL
@@ -853,9 +866,32 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1, mode="c"] reord
     if not reorder:
         reordering = np.arange(pStart, pEnd, dtype=np.int32)
 
-    core_idx = plex.getStratumSize("op2_core", dim)
-    non_core_idx = plex.getStratumSize("op2_non_core", dim)
-    exec_halo_idx = plex.getStratumSize("op2_exec_halo", dim)
+    core_idx = 0
+    cell_is = plex.getStratumIS("op2_core", 1)
+    core_size = plex.getStratumSize("op2_core", 1)
+    if core_size:
+        CHKERR(ISGetIndices(cell_is.iset, &cells))
+        for ci in range(core_size):
+            if cStart <= cells[ci] < cEnd:
+                core_idx += 1
+
+    non_core_idx = 0
+    cell_is = plex.getStratumIS("op2_non_core", 1)
+    non_core_size = plex.getStratumSize("op2_non_core", 1)
+    if non_core_size > 0:
+        CHKERR(ISGetIndices(cell_is.iset, &cells))
+        for ci in range(non_core_size):
+            if cStart <= cells[ci] < cEnd:
+                non_core_idx += 1
+
+    exec_halo_idx = 0
+    cell_is = plex.getStratumIS("op2_exec_halo", 1)
+    exec_halo_size = plex.getStratumSize("op2_exec_halo", 1)
+    if exec_halo_size > 0:
+        CHKERR(ISGetIndices(cell_is.iset, &cells))
+        for ci in range(exec_halo_size):
+            if cStart <= cells[ci] < cEnd:
+                exec_halo_idx += 1
 
     CHKERR(PetscMalloc1(core_idx, &core_cells))
     CHKERR(PetscMalloc1(non_core_idx, &non_core_cells))
@@ -879,14 +915,14 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1, mode="c"] reord
             # Which entity class is this point in?
             CHKERR(DMPlexGetLabelValue(plex.dm, "op2_core",
                                        p, &lbl_val))
-            if lbl_val == dim:
+            if lbl_val == 1:
                 core_cells[core_idx] = p
                 core_idx += 1
                 continue
 
             CHKERR(DMPlexGetLabelValue(plex.dm, "op2_non_core",
                                        p, &lbl_val))
-            if lbl_val == dim:
+            if lbl_val == 1:
                 non_core_cells[non_core_idx] = p
                 non_core_idx += 1
                 continue
@@ -894,7 +930,7 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1, mode="c"] reord
             CHKERR(DMPlexGetLabelValue(plex.dm, "op2_exec_halo",
                                        p, &lbl_val))
 
-            if lbl_val == dim:
+            if lbl_val == 1:
                 exec_halo_cells[exec_halo_idx] = p
                 exec_halo_idx += 1
                 continue
@@ -937,9 +973,9 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1, mode="c"] reord
     # cells, so they will not get picked up by the cell closure loops
     # and we need to add them explicitly.
     op2class = "op2_non_exec_halo"
-    nfacets = plex.getStratumSize(op2class, dim-1)
+    nfacets = plex.getStratumSize(op2class, 1)
     if nfacets > 0:
-        facet_is = plex.getStratumIS(op2class, dim-1)
+        facet_is = plex.getStratumIS(op2class, 1)
         CHKERR(ISGetIndices(facet_is.iset, &facets))
         for f in range(nfacets):
             p = facets[f]
