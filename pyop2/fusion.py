@@ -40,6 +40,7 @@ import os
 
 from base import _trace
 from base import *
+import base
 import openmp
 import compilation
 import host
@@ -183,7 +184,7 @@ class Kernel(openmp.Kernel, tuple):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
-        kernels = as_tuple(kernels, (Kernel, host.Kernel))
+        kernels = as_tuple(kernels, (Kernel, host.Kernel, base.Kernel))
 
         Kernel._globalcount += 1
         self._kernels = kernels
