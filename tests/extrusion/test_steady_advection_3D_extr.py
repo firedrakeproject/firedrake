@@ -8,9 +8,10 @@ import pytest
 from firedrake import *
 
 
-@pytest.fixture(scope='module')
-def mesh():
-    m = UnitSquareMesh(4, 4)
+@pytest.fixture(scope='module', params=[False, True])
+def mesh(request):
+    quadrilateral = request.param
+    m = UnitSquareMesh(4, 4, quadrilateral=quadrilateral)
     return ExtrudedMesh(m, layers=4, layer_height=0.25)
 
 
@@ -26,12 +27,18 @@ def DG1(mesh):
 
 @pytest.fixture
 def W(mesh):
-    # BDM1 element on a prism
-    W0_h = FiniteElement("BDM", "triangle", 1)
+    if mesh.ufl_cell()._A.cellname() == "quadrilateral":
+        # RTCF1 element on a hexahedron
+        W0_h = FiniteElement("RTCF", "quadrilateral", 1)
+        W1_h = FiniteElement("DQ", "quadrilateral", 0)
+    else:
+        # BDM1 element on a prism
+        W0_h = FiniteElement("BDM", "triangle", 1)
+        W1_h = FiniteElement("DG", "triangle", 0)
+
     W0_v = FiniteElement("DG", "interval", 0)
     W0 = HDiv(OuterProductElement(W0_h, W0_v))
 
-    W1_h = FiniteElement("DG", "triangle", 0)
     W1_v = FiniteElement("CG", "interval", 1)
     W1 = HDiv(OuterProductElement(W1_h, W1_v))
 

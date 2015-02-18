@@ -8,6 +8,11 @@ def opc_quad():
     return OuterProductCell(interval, interval)
 
 
+@pytest.fixture
+def opc_hex():
+    return OuterProductCell(quadrilateral, interval)
+
+
 @pytest.mark.parametrize('degree', [1, 2])
 def test_rtce_expansion(opc_quad, degree):
     actual = FiniteElement("RTCE", opc_quad, degree)
@@ -25,6 +30,34 @@ def test_rtcf_expansion(opc_quad, degree):
     C_elt = FiniteElement("CG", interval, degree)
     D_elt = FiniteElement("DG", interval, degree - 1)
     expected = HDiv(OuterProductElement(C_elt, D_elt)) + HDiv(OuterProductElement(D_elt, C_elt))
+    assert expected == actual
+
+
+@pytest.mark.parametrize('degree', [1, 2])
+def test_nce_expansion(opc_hex, degree):
+    actual = FiniteElement("NCE", opc_hex, degree)
+
+    W0_h = FiniteElement("Q", quadrilateral, degree)
+    W1_h = FiniteElement("RTCE", quadrilateral, degree)
+
+    W0_v = FiniteElement("DG", interval, degree - 1)
+    W1_v = FiniteElement("CG", interval, degree)
+
+    expected = HCurl(OuterProductElement(W0_h, W0_v)) + HCurl(OuterProductElement(W1_h, W1_v))
+    assert expected == actual
+
+
+@pytest.mark.parametrize('degree', [1, 2])
+def test_ncf_expansion(opc_hex, degree):
+    actual = FiniteElement("NCF", opc_hex, degree)
+
+    W0_h = FiniteElement("RTCF", quadrilateral, degree)
+    W1_h = FiniteElement("DQ", quadrilateral, degree - 1)
+
+    W0_v = FiniteElement("DG", interval, degree - 1)
+    W1_v = FiniteElement("CG", interval, degree)
+
+    expected = HDiv(OuterProductElement(W0_h, W0_v)) + HDiv(OuterProductElement(W1_h, W1_v))
     assert expected == actual
 
 

@@ -5,10 +5,10 @@ import numpy as np
 from firedrake import *
 
 
-def two_step():
+def two_step(quadrilateral):
     power = 4
     # Create mesh and define function space
-    m = UnitSquareMesh(2 ** power, 2 ** power)
+    m = UnitSquareMesh(2 ** power, 2 ** power, quadrilateral=quadrilateral)
     layers = 10
 
     # Populate the coordinates of the extruded mesh by providing the
@@ -18,7 +18,10 @@ def two_step():
 
     V = FunctionSpace(mesh, "Lagrange", 2, vfamily="DG", vdegree=0)
 
-    horiz = FiniteElement("BDM", "triangle", 1)
+    if quadrilateral:
+        horiz = FiniteElement("RTCF", "quadrilateral", 1)
+    else:
+        horiz = FiniteElement("BDM", "triangle", 1)
     vert = FiniteElement("DG", "interval", 0)
     prod = HDiv(OuterProductElement(horiz, vert))
     W = FunctionSpace(mesh, prod)
@@ -67,7 +70,11 @@ def two_step():
 
 
 def test_firedrake_extrusion_two_step():
-    assert two_step() < 1.0e-4
+    assert two_step(quadrilateral=False) < 1.0e-4
+
+
+def test_firedrake_extrusion_two_step_quadrilateral():
+    assert two_step(quadrilateral=True) < 1.0e-4
 
 if __name__ == '__main__':
     import os

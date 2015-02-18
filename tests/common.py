@@ -11,8 +11,8 @@ def mesh():
     return UnitSquareMesh(5, 5)
 
 
-def extmesh(nx, ny, nz):
-    return ExtrudedMesh(UnitSquareMesh(nx, ny), nz, layer_height=1.0/nz)
+def extmesh(nx, ny, nz, quadrilateral=False):
+    return ExtrudedMesh(UnitSquareMesh(nx, ny, quadrilateral=quadrilateral), nz, layer_height=1.0/nz)
 
 
 def extmesh_2D(nx, ny):

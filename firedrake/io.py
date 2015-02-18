@@ -32,6 +32,8 @@ _cells[OuterProductCell(Cell("interval"), Cell("interval"))] = hl.VtkQuad
 _cells[OuterProductCell(Cell("interval", 2), Cell("interval"))] = hl.VtkQuad
 _cells[OuterProductCell(Cell("interval", 2), Cell("interval"), gdim=3)] = hl.VtkQuad
 _cells[OuterProductCell(Cell("interval", 3), Cell("interval"))] = hl.VtkQuad
+_cells[OuterProductCell(Cell("quadrilateral"), Cell("interval"))] = hl.VtkHexahedron
+_cells[OuterProductCell(Cell("quadrilateral", 3), Cell("interval"))] = hl.VtkHexahedron
 
 _points_per_cell = {}
 _points_per_cell[Cell("interval")] = 2
@@ -48,6 +50,8 @@ _points_per_cell[OuterProductCell(Cell("interval"), Cell("interval"))] = 4
 _points_per_cell[OuterProductCell(Cell("interval", 2), Cell("interval"))] = 4
 _points_per_cell[OuterProductCell(Cell("interval", 2), Cell("interval"), gdim=3)] = 4
 _points_per_cell[OuterProductCell(Cell("interval", 3), Cell("interval"))] = 4
+_points_per_cell[OuterProductCell(Cell("quadrilateral"), Cell("interval"))] = 8
+_points_per_cell[OuterProductCell(Cell("quadrilateral", 3), Cell("interval"))] = 8
 
 
 class File(object):
@@ -285,6 +289,27 @@ class _VTUFile(object):
                 #
                 base = base[:, [0, 2, 4, 1, 3, 5]]
                 points_per_cell = 6
+            elif _cells[mesh.ufl_cell()] == hl.VtkHexahedron:
+                # Hexahedron is
+                #
+                #   5----7
+                #  /|   /|
+                # 4----6 |
+                # | 1--|-3
+                # |/   |/
+                # 0----2
+                #
+                # needs to be
+                #
+                #   7----6
+                #  /|   /|
+                # 4----5 |
+                # | 3--|-2
+                # |/   |/
+                # 0----1
+                #
+                base = base[:, [0, 2, 3, 1, 4, 6, 7, 5]]
+                points_per_cell = 8
             # Repeat up the column
             connectivity_temp = np.repeat(base, layers, axis=0)
 

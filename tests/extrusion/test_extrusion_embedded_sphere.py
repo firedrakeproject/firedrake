@@ -1,11 +1,10 @@
 import pytest
 import numpy as np
-from tests.common import longtest
 from firedrake import *
 
 
-def integrate_spherical_annulus_volume(radius=1000, refinement=2):
-    m = IcosahedralSphereMesh(radius=radius, refinement_level=refinement)
+def integrate_spherical_annulus_volume(MeshClass, radius=1000, refinement=2):
+    m = MeshClass(radius=radius, refinement_level=refinement)
     layers = 10
     layer_height = 1.0 / (radius * layers)
 
@@ -21,14 +20,22 @@ def integrate_spherical_annulus_volume(radius=1000, refinement=2):
     return np.abs(assemble(f * dx) - exact) / exact
 
 
-@longtest
 @pytest.mark.parametrize(('radius', 'refinement', 'error'),
                          [(1000, 2, 0.04),
                           (10000, 2, 0.04),
-                          (1000, 5, 0.0006),
-                          (10000, 5, 0.0006)])
-def test_volume_spherical_annulus(radius, refinement, error):
-    assert integrate_spherical_annulus_volume(radius=radius, refinement=refinement) < error
+                          (1000, 4, 0.0022),
+                          (10000, 4, 0.0022)])
+def test_volume_icosahedral_spherical_annulus(radius, refinement, error):
+    assert integrate_spherical_annulus_volume(IcosahedralSphereMesh, radius=radius, refinement=refinement) < error
+
+
+@pytest.mark.parametrize(('radius', 'refinement', 'error'),
+                         [(1000, 3, 0.04),
+                          (10000, 3, 0.04),
+                          (1000, 5, 0.0011),
+                          (10000, 5, 0.0011)])
+def test_volume_cubed_spherical_annulus(radius, refinement, error):
+    assert integrate_spherical_annulus_volume(CubedSphereMesh, radius=radius, refinement=refinement) < error
 
 
 if __name__ == '__main__':

@@ -5,9 +5,9 @@ import pytest
 from firedrake import *
 
 
-def run_test(x, degree, parameters={}, test_mode=False):
+def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
     # Create mesh and define function space
-    m = UnitSquareMesh(3, 3)
+    m = UnitSquareMesh(3, 3, quadrilateral=quadrilateral)
     layers = 10
     mesh = ExtrudedMesh(m, layers, layer_height=1.0 / layers)
 
@@ -44,7 +44,12 @@ def run_test(x, degree, parameters={}, test_mode=False):
 
 
 def test_extrusion_rhs_bcs():
-    res1, res2 = run_test(1, 1, test_mode=True)
+    res1, res2 = run_test(1, 1, quadrilateral=False, test_mode=True)
+    assert (res1 < 1.e-13 and res2 < 1.e-13)
+
+
+def test_extrusion_rhs_bcs_quadrilateral():
+    res1, res2 = run_test(1, 1, quadrilateral=True, test_mode=True)
     assert (res1 < 1.e-13 and res2 < 1.e-13)
 
 if __name__ == '__main__':
