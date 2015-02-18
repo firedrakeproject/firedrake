@@ -2,9 +2,10 @@ import pytest
 from firedrake import *
 
 
+@pytest.mark.parametrize(('quadrilateral'), [False, True])
 @pytest.mark.parametrize(('degree'), range(5))
-def test_dg_advection(degree):
-    m = UnitSquareMesh(10, 10)
+def test_dg_advection(degree, quadrilateral):
+    m = UnitSquareMesh(10, 10, quadrilateral=quadrilateral)
     V = FunctionSpace(m, "DG", degree)
     V_u = VectorFunctionSpace(m, "CG", 1)
     t = Function(V)
