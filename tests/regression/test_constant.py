@@ -28,6 +28,19 @@ def test_constant_assign_mismatch(init, new_vals):
             c.assign(v)
 
 
+def test_constant_cast_to_float():
+    val = 10.0
+    c = Constant(val)
+    assert float(c) == val
+
+
+def test_indexed_vector_constant_cast_to_float():
+    val = [10.0, 20.0]
+    c = Constant(val)
+    for i in range(2):
+        assert float(c[i]) == val[i]
+
+
 def test_vector_constant_2d():
     m = UnitSquareMesh(1, 1)
     n = FacetNormal(m)
