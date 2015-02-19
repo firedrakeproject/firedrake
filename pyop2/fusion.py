@@ -46,9 +46,10 @@ import compilation
 import host
 from caching import Cached
 from profiling import lineprof, timed_region, profile
-from logger import warning
+from logger import warning, info
 from mpi import collective
 from op2 import par_loop
+from configuration import configuration
 from utils import flatten, strip, as_tuple
 
 import coffee
@@ -719,7 +720,15 @@ class Inspector(Cached):
         """Tile consecutive loops over different iteration sets characterized
         by RAW and WAR dependencies. This requires interfacing with the SLOPE
         library."""
-        inspector = slope.Inspector('OMP')
+        try:
+            backend_map = {'sequential': 'SEQUENTIAL', 'openmp': 'OMP'}
+            slope_backend = backend_map[configuration['backend']]
+            slope.set_exec_mode(slope_backend)
+            info("SLOPE backend set to %s" % slope_backend)
+        except KeyError:
+            warning("Unable to set backend %s for SLOPE" % configuration['backend'])
+
+        inspector = slope.Inspector()
 
         # Build arguments types and values
         arguments = []
