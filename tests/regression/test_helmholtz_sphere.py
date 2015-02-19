@@ -3,7 +3,6 @@
 import pytest
 import numpy as np
 from firedrake import *
-from firedrake.mesh import SimplexMesh, QuadrilateralMesh
 
 
 def run_helmholtz_sphere(MeshClass, r):
@@ -29,9 +28,9 @@ def run_helmholtz_sphere(MeshClass, r):
 def run_helmholtz_mixed_sphere(MeshClass, r):
     m = MeshClass(refinement_level=r)
     m.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
-    if isinstance(m, SimplexMesh):
+    if m.ufl_cell().cellname() == "triangle":
         V = FunctionSpace(m, 'RT', 1)
-    elif isinstance(m, QuadrilateralMesh):
+    elif m.ufl_cell().cellname() == "quadrilateral":
         V = FunctionSpace(m, 'RTCF', 1)
     Q = FunctionSpace(m, 'DG', 0)
     W = V*Q

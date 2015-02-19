@@ -119,107 +119,6 @@ class _Facets(object):
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
 
 
-@timed_function("Build mesh")
-@profile
-def Mesh(meshfile, **kwargs):
-    """Construct a mesh object.
-
-    Meshes may either be created by reading from a mesh file, or by
-    providing a PETSc DMPlex object defining the mesh topology.
-
-    :param meshfile: Mesh file name (or DMPlex object) defining
-           mesh topology.  See below for details on supported mesh
-           formats.
-    :param dim: optional specification of the geometric dimension
-           of the mesh (ignored if not reading from mesh file).
-           If not supplied the geometric dimension is deduced from
-           the topological dimension of entities in the mesh.
-    :param reorder: optional flag indicating whether to reorder
-           meshes for better cache locality.  If not supplied the
-           default value in :data:`parameters["reorder_meshes"]`
-           is used.
-    :param periodic_coords: optional numpy array of coordinates
-           used to replace those in the mesh object.  These are
-           only supported in 1D and must have enough entries to be
-           used as a DG1 field on the mesh.  Not supported when
-           reading from file.
-
-    When the mesh is read from a file the following mesh formats
-    are supported (determined, case insensitively, from the
-    filename extension):
-
-    * GMSH: with extension `.msh`
-    * Exodus: with extension `.e`, `.exo`
-    * CGNS: with extension `.cgns`
-    * Triangle: with extension `.node`
-
-    .. note::
-
-        When the mesh is created directly from a DMPlex object,
-        the :data:`dim` parameter is ignored (the DMPlex already
-        knows its geometric and topological dimensions).
-
-    """
-
-    utils._init()
-
-    dim = kwargs.get("dim", None)
-    reorder = kwargs.get("reorder", parameters["reorder_meshes"])
-    periodic_coords = kwargs.get("periodic_coords", None)
-    distribute = kwargs.get("distribute", True)
-
-    if isinstance(meshfile, PETSc.DMPlex):
-        name = "plexmesh"
-        plex = meshfile
-    else:
-        name = meshfile
-        basename, ext = os.path.splitext(meshfile)
-
-        if periodic_coords is not None:
-            raise RuntimeError("Periodic coordinates are unsupported when reading from file")
-        if ext.lower() in ['.e', '.exo']:
-            plex = _from_exodus(meshfile)
-        elif ext.lower() == '.cgns':
-            plex = _from_cgns(meshfile)
-        elif ext.lower() == '.msh':
-            plex = _from_gmsh(meshfile)
-        elif ext.lower() == '.node':
-            plex = _from_triangle(meshfile, dim)
-        else:
-            raise RuntimeError("Mesh file %s has unknown format '%s'."
-                               % (meshfile, ext[1:]))
-
-    # Mark exterior and interior facets
-    # Note.  This must come before distribution, because otherwise
-    # DMPlex will consider facets on the domain boundary to be
-    # exterior, which is wrong.
-    with timed_region("Mesh: label facets"):
-        label_boundary = op2.MPI.comm.size == 1 or distribute
-        dmplex.label_facets(plex, label_boundary=label_boundary)
-
-    # Distribute the dm to all ranks
-    if op2.MPI.comm.size > 1 and distribute:
-        # We distribute with overlap zero, in case we're going to
-        # refine this mesh in parallel.  Later, when we actually use
-        # it, we grow the halo.
-        plex.distribute(overlap=0)
-
-    topological_dim = plex.getDimension()
-
-    cStart, cEnd = plex.getHeightStratum(0)  # cells
-    cell_facets = plex.getConeSize(cStart)
-
-    if topological_dim + 1 == cell_facets:
-        MeshClass = SimplexMesh
-    elif topological_dim == 2 and cell_facets == 4:
-        MeshClass = QuadrilateralMesh
-    else:
-        raise RuntimeError("Unsupported mesh type.")
-
-    return MeshClass(name, plex, dim, reorder,
-                     periodic_coords=periodic_coords)
-
-
 def _from_gmsh(filename):
     """Read a Gmsh .msh file from `filename`"""
 
@@ -326,12 +225,93 @@ def _from_triangle(filename, dim):
     return plex
 
 
-class MeshBase(object):
+class Mesh(object):
     """A representation of mesh topology and geometry."""
 
-    def __init__(self, name, plex, geometric_dim,
-                 reorder, periodic_coords=None):
-        """ Create mesh from DMPlex object """
+    @timed_function("Build mesh")
+    @profile
+    def __init__(self, meshfile, **kwargs):
+        """Construct a mesh object.
+
+        Meshes may either be created by reading from a mesh file, or by
+        providing a PETSc DMPlex object defining the mesh topology.
+
+        :param meshfile: Mesh file name (or DMPlex object) defining
+               mesh topology.  See below for details on supported mesh
+               formats.
+        :param dim: optional specification of the geometric dimension
+               of the mesh (ignored if not reading from mesh file).
+               If not supplied the geometric dimension is deduced from
+               the topological dimension of entities in the mesh.
+        :param reorder: optional flag indicating whether to reorder
+               meshes for better cache locality.  If not supplied the
+               default value in :data:`parameters["reorder_meshes"]`
+               is used.
+        :param periodic_coords: optional numpy array of coordinates
+               used to replace those in the mesh object.  These are
+               only supported in 1D and must have enough entries to be
+               used as a DG1 field on the mesh.  Not supported when
+               reading from file.
+
+        When the mesh is read from a file the following mesh formats
+        are supported (determined, case insensitively, from the
+        filename extension):
+
+        * GMSH: with extension `.msh`
+        * Exodus: with extension `.e`, `.exo`
+        * CGNS: with extension `.cgns`
+        * Triangle: with extension `.node`
+
+        .. note::
+
+            When the mesh is created directly from a DMPlex object,
+            the :data:`dim` parameter is ignored (the DMPlex already
+            knows its geometric and topological dimensions).
+
+        """
+
+        utils._init()
+
+        geometric_dim = kwargs.get("dim", None)
+        reorder = kwargs.get("reorder", parameters["reorder_meshes"])
+        periodic_coords = kwargs.get("periodic_coords", None)
+        distribute = kwargs.get("distribute", True)
+
+        if isinstance(meshfile, PETSc.DMPlex):
+            name = "plexmesh"
+            plex = meshfile
+        else:
+            name = meshfile
+            basename, ext = os.path.splitext(meshfile)
+
+            if periodic_coords is not None:
+                raise RuntimeError("Periodic coordinates are unsupported when reading from file")
+            if ext.lower() in ['.e', '.exo']:
+                plex = _from_exodus(meshfile)
+            elif ext.lower() == '.cgns':
+                plex = _from_cgns(meshfile)
+            elif ext.lower() == '.msh':
+                plex = _from_gmsh(meshfile)
+            elif ext.lower() == '.node':
+                plex = _from_triangle(meshfile, geometric_dim)
+            else:
+                raise RuntimeError("Mesh file %s has unknown format '%s'."
+                                   % (meshfile, ext[1:]))
+
+        # Mark exterior and interior facets
+        # Note.  This must come before distribution, because otherwise
+        # DMPlex will consider facets on the domain boundary to be
+        # exterior, which is wrong.
+        with timed_region("Mesh: label facets"):
+            label_boundary = op2.MPI.comm.size == 1 or distribute
+            dmplex.label_facets(plex, label_boundary=label_boundary)
+
+        # Distribute the dm to all ranks
+        if op2.MPI.comm.size > 1 and distribute:
+            # We distribute with overlap zero, in case we're going to
+            # refine this mesh in parallel.  Later, when we actually use
+            # it, we grow the halo.
+            plex.distribute(overlap=0)
 
         # A cache of function spaces that have been built on this mesh
         self._cache = {}
@@ -489,6 +469,56 @@ class MeshBase(object):
         else:
             return _Facets(self, 0, "interior", None, None)
 
+    @utils.cached_property
+    def cell_closure(self):
+        """2D array of ordered cell closures
+
+        Each row contains ordered cell entities for a cell, one row per cell.
+        """
+        plex = self._plex
+        topological_dim = plex.getDimension()
+
+        # Cell numbering and global vertex numbering
+        cell_numbering = self._cell_numbering
+        vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
+
+        cStart, cEnd = plex.getHeightStratum(0)  # cells
+        cell_facets = plex.getConeSize(cStart)
+
+        if topological_dim + 1 == cell_facets:
+            # Simplex mesh
+            a_closure = plex.getTransitiveClosure(cStart)[0]
+
+            entity_per_cell = np.zeros(topological_dim + 1, dtype=np.int32)
+            for dim in xrange(topological_dim + 1):
+                start, end = plex.getDepthStratum(dim)
+                entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end,
+                                               a_closure))
+
+            return dmplex.closure_ordering(plex, vertex_numbering,
+                                           cell_numbering, entity_per_cell)
+
+        elif topological_dim == 2 and cell_facets == 4:
+            # Quadrilateral mesh
+            cell_ranks = dmplex.get_cell_remote_ranks(plex)
+
+            facet_orientations = dmplex.quadrilateral_facet_orientations(
+                plex, vertex_numbering, cell_ranks)
+
+            cell_orientations = dmplex.orientations_facet2cell(
+                plex, vertex_numbering, cell_ranks,
+                facet_orientations, cell_numbering)
+
+            dmplex.exchange_cell_orientations(plex,
+                                              cell_numbering,
+                                              cell_orientations)
+
+            return dmplex.quadrilateral_closure_ordering(
+                plex, vertex_numbering, cell_numbering, cell_orientations)
+
+        else:
+            raise RuntimeError("Unsupported mesh: neither simplex, nor quadrilateral.")
+
     def create_cell_node_list(self, global_numbering, fiat_element):
         """Builds the DoF mapping.
 
@@ -645,71 +675,7 @@ class MeshBase(object):
         return self.ufl_cell().topological_dimension()
 
 
-class SimplexMesh(MeshBase):
-    """A mesh class providing functionality specific to simplex meshes.
-
-    Not part of the public API.
-    """
-
-    @utils.cached_property
-    def cell_closure(self):
-        """2D array of ordered cell closures
-
-        Each row contains ordered cell entities for a cell, one row per cell.
-        """
-        dm = self._plex
-        vertex_numbering = self._vertex_numbering.createGlobalSection(dm.getPointSF())
-
-        a_cell = dm.getHeightStratum(0)[0]
-        a_closure = dm.getTransitiveClosure(a_cell)[0]
-        topological_dimension = dm.getDimension()
-
-        entity_per_cell = np.zeros(topological_dimension + 1, dtype=np.int32)
-        for dim in xrange(topological_dimension + 1):
-            start, end = dm.getDepthStratum(dim)
-            entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end, a_closure))
-
-        return dmplex.closure_ordering(dm, vertex_numbering,
-                                       self._cell_numbering, entity_per_cell)
-
-
-class QuadrilateralMesh(MeshBase):
-    """A mesh class providing functionality specific to quadrilateral meshes.
-
-    Not part of the public API.
-    """
-
-    @utils.cached_property
-    def cell_closure(self):
-        """2D array of ordered cell closures
-
-        Each row contains ordered cell entities for a cell, one row per cell.
-        """
-
-        plex = self._plex
-        cell_numbering = self._cell_numbering
-
-        # Global vertex numbering
-        vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
-
-        cell_ranks = dmplex.get_cell_remote_ranks(plex)
-
-        facet_orientations = dmplex.quadrilateral_facet_orientations(
-            plex, vertex_numbering, cell_ranks)
-
-        cell_orientations = dmplex.orientations_facet2cell(
-            plex, vertex_numbering, cell_ranks,
-            facet_orientations, cell_numbering)
-
-        dmplex.exchange_cell_orientations(plex,
-                                          cell_numbering,
-                                          cell_orientations)
-
-        return dmplex.quadrilateral_closure_ordering(
-            plex, vertex_numbering, cell_numbering, cell_orientations)
-
-
-class ExtrudedMesh(MeshBase):
+class ExtrudedMesh(Mesh):
     """Build an extruded mesh from an input mesh
 
     :arg mesh:           the unstructured base mesh

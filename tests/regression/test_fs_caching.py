@@ -1,6 +1,5 @@
 import pytest
 from firedrake import *
-from firedrake.mesh import MeshBase
 import gc
 
 
@@ -196,7 +195,7 @@ def test_mesh_fs_gced():
     from firedrake.functionspace import FunctionSpaceBase
     gc.collect()
     gc.collect()
-    nmesh = howmany(MeshBase)
+    nmesh = howmany(Mesh)
     nfs = howmany(FunctionSpaceBase)
     for i in range(10):
         m = UnitIntervalMesh(5)
@@ -207,7 +206,7 @@ def test_mesh_fs_gced():
     gc.collect()
     gc.collect()
 
-    nmesh1 = howmany(MeshBase)
+    nmesh1 = howmany(Mesh)
     nfs1 = howmany(FunctionSpaceBase)
 
     assert nmesh1 - nmesh < 5
