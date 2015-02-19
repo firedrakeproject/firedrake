@@ -60,6 +60,21 @@ class Constant(ufl.Coefficient):
         self._ufl_element = self.element()
         self._repr = 'Constant(%r)' % self._ufl_element
 
+    def evaluate(self, x, mapping, component, index_values):
+        """Return the evaluation of this :class:`Constant`.
+
+        :arg x: The coordinate to evaluate at (ignored).
+        :arg mapping: A mapping (ignored).
+        :arg component: The requested component of the constant (may
+             be :data:`None` or :data:`()` to obtain all components).
+        :arg index_values: ignored.
+        """
+        if component in ((), None):
+            if self.shape() is ():
+                return self.dat.data_ro[0]
+            return self.dat.data_ro
+        return self.dat.data_ro[component]
+
     def ufl_element(self):
         """Return the UFL element on which this Constant is built."""
         return self._ufl_element
