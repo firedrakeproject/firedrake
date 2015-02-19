@@ -415,45 +415,45 @@ class ParLoop(openmp.ParLoop):
     @collective
     @lineprof
     def _compute(self):
+        kwargs = {
+            'all_args': self._all_args,
+            'executor': self._executor,
+        }
+        fun = JITModule(self.kernel, self.it_space, *self.args, **kwargs)
+
+        # Build restype, argtypes and argvalues
+        self._restype = None
+        self._argtypes = [slope.Executor.meta['py_ctype_exec']]
+        self._jit_args = [self._inspection]
+        for it_space in self.it_space:
+            if isinstance(it_space._iterset, Subset):
+                self._argtypes.append(it_space._iterset._argtype)
+                self._jit_args.append(it_space._iterset._indices)
+        for arg in self.args:
+            if arg._is_mat:
+                self._argtypes.append(arg.data._argtype)
+                self._jit_args.append(arg.data.handle.handle)
+            else:
+                for d in arg.data:
+                    # Cannot access a property of the Dat or we will force
+                    # evaluation of the trace
+                    self._argtypes.append(d._argtype)
+                    self._jit_args.append(d._data)
+
+            if arg._is_indirect or arg._is_mat:
+                maps = as_tuple(arg.map, Map)
+                for map in maps:
+                    for m in map:
+                        self._argtypes.append(m._argtype)
+                        self._jit_args.append(m.values_with_halo)
+
+        for c in Const._definitions():
+            self._argtypes.append(c._argtype)
+            self._jit_args.append(c.data)
+
+        # Compile and run the JITModule
+        fun = fun.compile(argtypes=self._argtypes, restype=self._restype)
         with timed_region("ParLoopChain: executor"):
-            kwargs = {
-                'all_args': self._all_args,
-                'executor': self._executor,
-            }
-            fun = JITModule(self.kernel, self.it_space, *self.args, **kwargs)
-
-            # Build restype, argtypes and argvalues
-            self._restype = None
-            self._argtypes = [slope.Executor.meta['py_ctype_exec']]
-            self._jit_args = [self._inspection]
-            for it_space in self.it_space:
-                if isinstance(it_space._iterset, Subset):
-                    self._argtypes.append(it_space._iterset._argtype)
-                    self._jit_args.append(it_space._iterset._indices)
-            for arg in self.args:
-                if arg._is_mat:
-                    self._argtypes.append(arg.data._argtype)
-                    self._jit_args.append(arg.data.handle.handle)
-                else:
-                    for d in arg.data:
-                        # Cannot access a property of the Dat or we will force
-                        # evaluation of the trace
-                        self._argtypes.append(d._argtype)
-                        self._jit_args.append(d._data)
-
-                if arg._is_indirect or arg._is_mat:
-                    maps = as_tuple(arg.map, Map)
-                    for map in maps:
-                        for m in map:
-                            self._argtypes.append(m._argtype)
-                            self._jit_args.append(m.values_with_halo)
-
-            for c in Const._definitions():
-                self._argtypes.append(c._argtype)
-                self._jit_args.append(c.data)
-
-            # Compile and run the JITModule
-            fun = fun.compile(argtypes=self._argtypes, restype=self._restype)
             fun(*self._jit_args)
 
 
