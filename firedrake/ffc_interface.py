@@ -113,7 +113,7 @@ class FormSplitter(ReuseTransformer):
             args = []
             for i, fs in enumerate(arg.function_space().split()):
                 # Look up the split argument in cache since we want it unique
-                a = Argument(fs.ufl_element(), fs, arg.number())
+                a = Argument(fs, arg.number(), part=arg.part())
                 if a.shape():
                     if self._idx[arg.number()] == i:
                         args += [a[j] for j in range(a.shape()[0])]

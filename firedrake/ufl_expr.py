@@ -1,7 +1,6 @@
 import ufl
 import ufl.argument
 from ufl.assertions import ufl_assert
-from ufl.finiteelement import FiniteElementBase
 from ufl.split_functions import split
 from ufl.algorithms.analysis import extract_arguments
 
@@ -16,13 +15,12 @@ __all__ = ['Argument', 'TestFunction', 'TrialFunction',
 
 class Argument(ufl.argument.Argument):
     """Representation of the argument to a form,"""
-    def __init__(self, element, function_space, count):
+    def __init__(self, function_space, number, part=None):
         """
-        :arg element: the :class:`ufl.element.FiniteElementBase` this
-             argument corresponds to.
         :arg function_space: the :class:`.FunctionSpace` the argument
              corresponds to.
-        :arg count: the number of the argument being constructed.
+        :arg number: the number of the argument being constructed.
+        :kwarg part: optional index (mostly ignored).
 
         .. note::
 
@@ -31,7 +29,8 @@ class Argument(ufl.argument.Argument):
            a :class:`TrialFunction`.
 
         """
-        super(Argument, self).__init__(element, count)
+        element = function_space.ufl_element()
+        super(Argument, self).__init__(element, number, part=part)
         self._function_space = function_space
 
     @property
@@ -52,38 +51,41 @@ class Argument(ufl.argument.Argument):
     def make_dat(self):
         return self._function_space.make_dat()
 
-    def reconstruct(self, element=None, function_space=None, count=None):
+    def reconstruct(self, function_space=None,
+                    number=None, part=None):
         if function_space is None or function_space == self._function_space:
             function_space = self._function_space
-        if element is None or element == self._element:
-            element = self._element
-        if count is None or count == self._count:
-            count = self._count
-        if count is self._count and element is self._element:
+        if number is None or number == self._number:
+            number = self._number
+        if part is None or part == self._part:
+            part = self._part
+        if number is self._number and part is self._part \
+           and function_space is self._function_space:
             return self
-        ufl_assert(isinstance(element, FiniteElementBase),
-                   "Expecting an element, not %s" % element)
-        ufl_assert(isinstance(count, int),
-                   "Expecting an int, not %s" % count)
-        ufl_assert(element.value_shape() == self._element.value_shape(),
+        ufl_assert(isinstance(number, int),
+                   "Expecting an int, not %s" % number)
+        ufl_assert(function_space.ufl_element().value_shape() ==
+                   self._element.value_shape(),
                    "Cannot reconstruct an Argument with a different value shape.")
-        return Argument(element, function_space, count)
+        return Argument(function_space, number, part=part)
 
 
-def TestFunction(function_space):
+def TestFunction(function_space, part=None):
     """Build a test function on the specified function space.
 
     :arg function_space: the :class:`.FunctionSpaceBase` to build the test
-         function on."""
-    return Argument(function_space.ufl_element(), function_space, 0)
+         function on.
+    :kwarg part: optional index (mostly ignored)."""
+    return Argument(function_space, 0, part=part)
 
 
-def TrialFunction(function_space):
+def TrialFunction(function_space, part=None):
     """Build a trial function on the specified function space.
 
     :arg function_space: the :class:`.FunctionSpaceBase` to build the trial
-         function on."""
-    return Argument(function_space.ufl_element(), function_space, 1)
+         function on.
+    :kwarg part: optional index (mostly ignored)."""
+    return Argument(function_space, 1, part=None)
 
 
 def TestFunctions(function_space):
@@ -133,7 +135,7 @@ def derivative(form, u, du=None):
             V = u.function_space()
             args = form.arguments()
             number = max(a.number() for a in args) if args else -1
-            du = Argument(V.ufl_element(), V, number + 1)
+            du = Argument(V, number + 1)
         else:
             raise RuntimeError("Can't compute derivative for form")
     return ufl.derivative(form, u, du)
@@ -142,7 +144,7 @@ def derivative(form, u, du=None):
 def adjoint(form, reordered_arguments=None):
     """UFL form operator:
     Given a combined bilinear form, compute the adjoint form by
-    changing the ordering (count) of the test and trial functions.
+    changing the ordering (number) of the test and trial functions.
 
     By default, new Argument objects will be created with
     opposite ordering. However, if the adjoint form is to
@@ -155,10 +157,12 @@ def adjoint(form, reordered_arguments=None):
     # firedrake.Argument objects.
     if reordered_arguments is None:
         v, u = extract_arguments(form)
-        reordered_arguments = (Argument(u.element(), u.function_space(),
-                                        count=v.count()),
-                               Argument(v.element(), v.function_space(),
-                                        count=u.count()))
+        reordered_arguments = (Argument(u.function_space(),
+                                        number=v.number(),
+                                        part=v.part()),
+                               Argument(v.function_space(),
+                                        number=u.count(),
+                                        part=u.part()))
     return ufl.adjoint(form, reordered_arguments)
 
 
