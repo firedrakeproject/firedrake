@@ -47,7 +47,15 @@ class CoarsenIntegrand(MultiFunction):
                                       domain=new_mesh)
         elif isinstance(o, firedrake.Function):
             hierarchy, level = utils.get_level(o)
-            new_fn = hierarchy[level-1]
+            if level == -1:
+                # Not found, disgusting hack, maybe it's the coords?
+                if o is o.function_space().mesh().coordinates:
+                    h, l = utils.get_level(o.function_space().mesh())
+                    new_fn = h[l-1].coordinates
+                else:
+                    raise RuntimeError("Didn't find a coarse version of %r", o)
+            else:
+                new_fn = hierarchy[level-1]
             return new_fn
         else:
             raise RuntimeError("Don't know how to handle %r", o)
