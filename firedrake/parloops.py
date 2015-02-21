@@ -112,7 +112,7 @@ def par_loop(kernel, measure, args, **kwargs):
     that DoF::
 
       A.assign(numpy.finfo(0.).min)
-      par_loop('for (int i=0; i<A.dofs; i++;) A[i][0] = fmax(A[i][0], B[0][0]);', dx,
+      par_loop('for (int i=0; i<A.dofs; i++) A[i][0] = fmax(A[i][0], B[0][0]);', dx,
           {'A' : (A, RW), 'B': (B, READ)})
 
 
