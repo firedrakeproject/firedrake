@@ -197,10 +197,10 @@ class DirichletBC(object):
         # If this BC is defined on a subspace of a mixed function space, make
         # sure we only apply to the appropriate subspace of the Function r
         if fs.index is not None:
-            r = function.Function(self._function_space, r.dat[fs.index])
+            r = r.sub(fs.index)
         if u:
             if fs.index is not None:
-                u = function.Function(fs, u.dat[fs.index])
+                u = u.sub(fs.index)
             r.assign(u - self.function_arg, subset=self.node_set)
         else:
             r.assign(self.function_arg, subset=self.node_set)
