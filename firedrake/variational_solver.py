@@ -64,7 +64,7 @@ class _SNESContext(object):
     """
     Context holding information for SNES callbacks.
 
-    :arg problem: a :class:`NonlinearVariationalProblem`.
+    :arg problems: a :class:`NonlinearVariationalProblem` or iterable thereof.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -122,14 +122,23 @@ class _SNESContext(object):
         if ises is not None:
             nullspace._apply(ises)
 
+    def __len__(self):
+        return len(self._problems)
+
+    def get_level(self, dm):
+        if len(self) == 1:
+            return -1
+        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__fs__")())
+        return lvl
+
     @property
     def is_mixed(self):
         return self._jacs[-1]._M.sparsity.shape != (1, 1)
 
     @classmethod
     def create_matrix(cls, dm):
-        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__fs__")())
         ctx = dm.getAppCtx()
+        lvl = ctx.get_level(dm)
         return ctx._jacs[lvl]._M.handle
 
     @classmethod
@@ -142,7 +151,7 @@ class _SNESContext(object):
         """
         dm = snes.getDM()
         ctx = dm.getAppCtx()
-        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__fs__")())
+        lvl = ctx.get_level(dm)
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
         with ctx._xs[lvl].dat.vec as v:
@@ -170,7 +179,7 @@ class _SNESContext(object):
         """
         dm = snes.getDM()
         ctx = dm.getAppCtx()
-        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__fs__")())
+        lvl = ctx.get_level(dm)
 
         if ctx._problems[lvl]._constant_jacobian and ctx._jacobians_assembled[lvl]:
             # Don't need to do any work with a constant jacobian
